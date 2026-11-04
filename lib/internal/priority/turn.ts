@@ -23,6 +23,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
 import { offeredShellEnvironment } from "../shell/environment.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { planFor, planLines } from "./plan.ts";
@@ -117,13 +118,16 @@ export function queueHeavyWork(queueing: Queueing): () => void {
 }
 
 /**
- * `command`, waiting first for its turn when it is heavy work and a
- * queue is kept here. As it was when it is not, or the queue can't take
- * the job.
+ * `command`, run in `cwd`, waiting first for its turn when it is heavy
+ * work and a queue is kept here. As it was when it is not, or the queue
+ * can't take the job. Without `cwd`, a walk of World's objects is read
+ * only from the folders the command names.
  */
-export function queuedCommand(command: string): string {
+export function queuedCommand(command: string, cwd?: string): string {
 	const queueing = (globalThis as Holder)[QUEUEING];
-	const read = queueing ? kindOf(command) : undefined;
+	const read = queueing
+		? kindOf(command, { ...(cwd ? { cwd } : {}), home: homedir() })
+		: undefined;
 	if (!queueing || !read) return command;
 	const wait = waitsForTurn(queueing.folder.dir);
 	if (!wait) return command;
@@ -131,9 +135,14 @@ export function queuedCommand(command: string): string {
 	const what = whatOf(command);
 	const kind = queueing.folder.kindFor(read, what);
 	// What it held the last time it ran, when it has run: a guess for its
-	// kind only for work never seen.
+	// kind only for work never seen. A walk of World's objects is held to
+	// its kind's at least: its scope is charged only the pack pages it
+	// read in first, and another walk's evicted pages are what it maps.
+	const seen = queueing.folder.peakFor(what);
 	const needsGib =
-		queueing.folder.peakFor(what) ?? needsGibOfCommand(kind, command);
+		kind === "world-walk"
+			? Math.max(NEEDS_GIB[kind], seen ?? 0)
+			: (seen ?? needsGibOfCommand(kind, command));
 	// A step past the one named that needs more, as changed-checks after a
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =

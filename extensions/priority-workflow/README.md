@@ -91,6 +91,22 @@ does, so the wait never uses it up (see
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
 | build | Nix builds and checks, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
+| world-walk | `git push`, `fetch`, `pull`, `clone`, `gc`, `repack` or `pack-objects` in or against a World checkout | bulk | 6 GiB |
+
+A world-walk is git walking World's objects: the folder it runs in,
+a `cd` before it, its `-C`, or a path it names is under `~/world`,
+where World's git and every World tree live. At most two run at once,
+however much memory reads free: on 4 November 3 to 5 ran at once from
+different sessions, each mapping 3 to 6 GB of packs and evicting the
+others', and the kernel killed six times in 18 minutes with 18.9 GB of
+page cache it couldn't reclaim, which the memory the queue reads counts
+as free. A third waits with `waitingOn: "walks"` and lets the work
+behind it past. Git in any other repository, and git's reads of
+history (`log`, `diff`, `rev-parse`, `rev-list`), take no turn. A
+walk is not a build: it never waits for a VM check or a builder being
+lent, and is never capped. Walks run by a script, or by the work
+tool's own push and fetch, which run git from pi rather than a bash
+call, take no turn.
 
 Watchers such as `cargo watch` and `bacon` are left out, since they
 would hold a turn for as long as they watch.

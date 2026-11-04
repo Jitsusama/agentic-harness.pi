@@ -20,7 +20,9 @@
  *   they share the CPU with too much else. The VMs running are counted
  *   on the machine as well as in the queue, since a command can pick
  *   its check from a variable the queue can't read, and a session on
- *   older code runs its VMs outside the queue.
+ *   older code runs its VMs outside the queue. And walks of World's git
+ *   objects, whose packs evict each other from the page cache that the
+ *   memory available counts as free (see {@link WALKS_AT_ONCE}).
  * - **Order**: timed work before bulk, quick work before the rest of
  *   bulk, then work another session waits on (see awaited.ts), then the
  *   oldest first. A job its limit holds back lets the next one past; a
@@ -41,12 +43,19 @@
  * running at all, while agents ran their tests one after another.
  */
 
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { noun } from "../../ui/count.ts";
 import { NOBODY } from "./awaited.ts";
 import type { Beside } from "./outcome.ts";
 
 /** What a command does, as the harness reads it. */
-export type Kind = "vm-test" | "vm-check" | "benchmark" | "build";
+export type Kind =
+	| "vm-test"
+	| "vm-check"
+	| "benchmark"
+	| "build"
+	| "world-walk";
 
 /**
  * How a kind is run: timed work's result depends on its timing, so it
@@ -63,19 +72,35 @@ export const CLASS_OF: Readonly<Record<Kind, Class>> = {
 	"vm-check": "bulk",
 	benchmark: "timed",
 	build: "bulk",
+	"world-walk": "bulk",
 };
 
 /**
  * The memory each kind is held to need, in GiB. 2HN63P's VM tests take
  * 2 to 6 GiB each, so a VM is given the top of that. A build's and a
- * benchmark's are starting values, not yet measured.
+ * benchmark's are starting values, not yet measured. A walk of World's
+ * objects maps its packs: the gits the kernel killed on 4 November held
+ * 4.7 to 5.6 GB each as file pages (5FWIUS).
  */
 export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
 	"vm-test": 6,
 	"vm-check": 6,
 	benchmark: 2,
 	build: 4,
+	"world-walk": 6,
 };
+
+/**
+ * How many walks of World's git objects run at once, whatever memory
+ * reads. From 08:04 to 08:22 on 4 November the kernel killed six times
+ * while 3 to 5 ran at once from different sessions' World trees, each
+ * mapping 3 to 6 GB of packs: each evicted the others', 60.9M file pages
+ * refaulted in 38 minutes, and at the 08:14:56 kill reclaim found
+ * nothing in 18.9 GB of inactive file pages (5FWIUS). The memory the
+ * queue reads counts that page cache as free, so only a count holds
+ * them.
+ */
+export const WALKS_AT_ONCE = 2;
 
 /**
  * What a whole flake's check holds, in GiB, whatever its kind: `nix flake
@@ -905,9 +930,10 @@ function memoryWaitedMs(job: Job, now: number): number {
  * pass one memory has held past {@link PASS_AFTER_MS} and the running
  * jobs can't free room for (see {@link lineKept}). 5: past
  * {@link KEEPS_LINE_FOR_MS}, a job memory holds back holds only the work
- * that would still run when its memory is due back.
+ * that would still run when its memory is due back. 6: walks of World's
+ * objects, a kind older code can't read, held to {@link WALKS_AT_ONCE}.
  */
-export const RULES_VERSION = 5;
+export const RULES_VERSION = 6;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -929,12 +955,8 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
-	const { growing, vmsHere, vmsElsewhere, settling, builds, quick } = standing(
-		jobs,
-		room,
-		now,
-		rules,
-	);
+	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
+		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
 	const waiting = waitingInOrder(jobs, awaited, first);
 	// Quick work passes older work, one job at a time: it ends in seconds,
@@ -958,6 +980,7 @@ export function nextTurn(
 		) {
 			continue;
 		}
+		if (walkWaits(job, walks)) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		const ruledOut =
 			job.kind === "build" &&
@@ -978,7 +1001,8 @@ export function nextTurn(
 
 /**
  * Why a job waits: `memory`, the memory it needs isn't free; `vms`, the
- * VMs allowed at once are running; `behind`, a VM check runs and builds
+ * VMs allowed at once are running; `walks`, the walks of World's objects
+ * allowed at once are running; `behind`, a VM check runs and builds
  * beside one are at their limit; `order`, jobs ahead of it come first;
  * `planning`, its shell is asking Nix what it will build; `lending`, a
  * builder elsewhere is being lent and will take it.
@@ -986,6 +1010,7 @@ export function nextTurn(
 export type WaitReason =
 	| "memory"
 	| "vms"
+	| "walks"
 	| "behind"
 	| "order"
 	| "planning"
@@ -1042,12 +1067,8 @@ export function waitReasons(
 		for (const job of waiting) reasons.set(job.id, "memory");
 		return reasons;
 	}
-	const { growing, vmsHere, vmsElsewhere, settling, builds, quick } = standing(
-		jobs,
-		room,
-		now,
-		rules,
-	);
+	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
+		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
 	const passes = (job: Job) =>
 		waiting.some(
@@ -1078,6 +1099,7 @@ export function waitReasons(
 			) {
 				return "vms";
 			}
+			if (walkWaits(job, walks)) return "walks";
 			const ruledOut =
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
@@ -1097,9 +1119,18 @@ export function waitReasons(
 }
 
 /**
+ * Whether a walk of World's objects must wait for another to end: the
+ * walks allowed at once are running. Like a VM held to its count, it
+ * lets the jobs behind it past.
+ */
+function walkWaits(job: Job, walks: number): boolean {
+	return job.kind === "world-walk" && walks >= WALKS_AT_ONCE;
+}
+
+/**
  * What running work holds: memory still growing, VMs, how many builds
- * may start beside a VM check (all of them, with none running), and how
- * many quick jobs run and may start.
+ * may start beside a VM check (all of them, with none running), how
+ * many quick jobs run and may start, and the walks of World's objects.
  */
 function standing(
 	jobs: readonly Job[],
@@ -1116,6 +1147,7 @@ function standing(
 	settling: boolean;
 	builds: number;
 	quick: { running: number; left: number };
+	walks: number;
 } {
 	const running = jobs.filter((job) => job.started !== undefined);
 	const growing = running
@@ -1164,6 +1196,7 @@ function standing(
 		settling: vmSettling(running, now),
 		builds,
 		quick,
+		walks: running.filter((job) => job.kind === "world-walk").length,
 	};
 }
 
@@ -1308,8 +1341,11 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
  * running it: read as a VM, it waited 30 seconds for a turn and timed
  * out. Nothing for a command that runs none.
  */
-export function kindOf(command: string): Kind | undefined {
-	const runs = command
+export function kindOf(
+	command: string,
+	where: Where = { home: homedir() },
+): Kind | undefined {
+	const steps = command
 		.replace(HEREDOC, "\n")
 		// A pipe or a semicolon inside the word is its own, as in
 		// `pgrep -af 'run-subtests|changed-checks'`, and splits no step.
@@ -1321,9 +1357,100 @@ export function kindOf(command: string): Kind | undefined {
 				: quoted.slice(1, -1).replace(/[|;&]/g, " "),
 		)
 		.split(SEGMENTS)
-		.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")))
-		.join("\n");
-	return KINDS.find(([pattern]) => pattern.test(runs))?.[1];
+		.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")));
+	const runs = steps.join("\n");
+	const kind = KINDS.find(([pattern]) => pattern.test(runs))?.[1];
+	if (kind !== undefined) return kind;
+	return walksWorld(steps, where) ? "world-walk" : undefined;
+}
+
+/**
+ * Where a command runs, to read the folders it names: its own folder,
+ * when known, and the home that `~` and `$HOME` name.
+ */
+export interface Where {
+	readonly cwd?: string;
+	readonly home: string;
+}
+
+/** World's checkouts, its git and its trees, as a folder of the home. */
+const WORLD_FOLDER = "world";
+
+/**
+ * A git command that walks a repository's objects, past options such as
+ * `-C <dir>` and `-c <key>=<value>`: a push (the LFS pre-push hook runs
+ * `git rev-list --objects` over what it sends), a fetch or pull, a
+ * clone, and the repacks. Options are kept, to read the folder `-C`
+ * names, and the rest, to read a path it fetches from or clones.
+ */
+const GIT_WALK =
+	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(?:push|fetch|pull|clone|gc|repack|pack-objects)(?![\w.=-])(.*)$/;
+
+/** A variable set as a step's first word, as `T=~/world/trees/a/src`. */
+const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;
+
+/** A variable, as `$T` or `${T}`. */
+const VARIABLE = /\$(?:\{(\w+)\}|(\w+))/g;
+
+/**
+ * Whether a command's steps walk World's git objects: a step running
+ * {@link GIT_WALK} in a World checkout, by the folder it runs in, a `cd`
+ * before it or its own `-C`, or naming a path in one, as a fetch from
+ * or a clone of `~/world/git` does. Each step's folder is followed from
+ * the command's own, through each `cd` and the variables set on the
+ * way; a folder named through any other variable is unknown, so it
+ * counts only for the paths the step names outright. Every other
+ * repository's git is left alone.
+ */
+function walksWorld(steps: readonly string[], where: Where): boolean {
+	const world = join(where.home, WORLD_FOLDER);
+	const inWorld = (path: string | undefined) =>
+		path !== undefined && (path === world || path.startsWith(`${world}/`));
+	const variables = new Map([["HOME", where.home]]);
+	const pathOf = (word: string, from: string | undefined) => {
+		let unknown = false;
+		const expanded = word
+			.replace(/^file:\/\//, "")
+			.replace(/^~(?=\/|$)/, where.home)
+			.replace(VARIABLE, (_, braced, bare) => {
+				const value = variables.get(braced ?? bare);
+				if (value === undefined) unknown = true;
+				return value ?? "";
+			});
+		if (unknown) return undefined;
+		if (isAbsolute(expanded)) return resolve(expanded);
+		return from === undefined ? undefined : resolve(from, expanded);
+	};
+	let folder = where.cwd;
+	for (const whole of steps) {
+		let step = whole.trim();
+		for (let set = SETS.exec(step); set !== null; set = SETS.exec(step)) {
+			const value = set[2].startsWith("$(") ? undefined : pathOf(set[2], "/");
+			if (value === undefined) variables.delete(set[1]);
+			else variables.set(set[1], value);
+			step = step.slice(set[0].length);
+		}
+		const words = step.split(/\s+/);
+		if (words[0] === "cd" || words[0] === "pushd") {
+			folder = words[1] ? pathOf(words[1], folder) : where.home;
+			continue;
+		}
+		const walk = GIT_WALK.exec(step);
+		if (walk === null) continue;
+		const options = walk[1].trim().split(/\s+/);
+		let at = folder;
+		const named: (string | undefined)[] = [];
+		options.forEach((option, index) => {
+			if (option === "-C") at = pathOf(options[index + 1] ?? "", at);
+			const dir = /^--(?:git-dir|work-tree)=(.+)$/.exec(option);
+			if (dir) named.push(pathOf(dir[1], at));
+		});
+		for (const word of walk[2].trim().split(/\s+/)) {
+			if (/^(?:[/~.$]|file:\/\/)/.test(word)) named.push(pathOf(word, at));
+		}
+		if (inWorld(at) || named.some(inWorld)) return true;
+	}
+	return false;
 }
 
 /** Each kind as a sentence names one, so every surface says it alike. */
@@ -1332,6 +1459,7 @@ export const KIND_SAID: Readonly<Record<Kind, string>> = {
 	"vm-check": "a VM check",
 	benchmark: "a benchmark",
 	build: "a build",
+	"world-walk": "a walk of World's git objects",
 };
 
 /** Where a command's steps and the parts of its pipes end. */
@@ -1368,7 +1496,13 @@ const ASSIGNMENTS =
  */
 export function stepOf(command: string): string {
 	const steps = stepsOf(command);
-	return steps.find((one) => kindOf(one) !== undefined) ?? steps[0] ?? "";
+	return (
+		steps.find((one) => kindOf(one) !== undefined) ??
+		// A walk alone says nothing of the folder a `cd` before it gave it.
+		steps.find((one) => GIT_WALK.test(one)) ??
+		steps[0] ??
+		""
+	);
 }
 
 /**

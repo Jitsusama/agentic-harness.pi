@@ -34,7 +34,7 @@ export function agentBash(
 			offCommandLine(
 				withoutInteraction({
 					...context,
-					command: placedCommand(context.command),
+					command: placedCommand(context.command, context.cwd),
 				}),
 			),
 		// A time limit on work the queue holds starts when its turn does.

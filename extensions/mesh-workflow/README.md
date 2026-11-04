@@ -465,7 +465,7 @@ doing only when it is the easy thing:
 - **heavy:** a `bash` call running heavy work, as the machine
   queue's own map reads it (`kindOf` in
   lib/internal/priority/queue.ts: a VM test, a VM check, a
-  benchmark or a build), claims that kind of work until the
+  benchmark, a build or a walk of World's git objects), claims that kind of work until the
   call answers. So a hold stops exactly what the queue would
   queue: a step that only looks for the work, as `pgrep
   qemu-system-x86` does, or work named in quotes or a heredoc,
