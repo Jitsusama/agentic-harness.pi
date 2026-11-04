@@ -144,9 +144,12 @@ shipped and tested.
   first prompt. Words wait 15 minutes at most. A session held on
   another machine can't reach them and starts without.
 - **Or its spawner hears**: a minute after a spawn that left
-  words, the spawning session looks once for the new session's
-  first turn: the record it left of taking its words, and a user
-  message in its log. When there is none it starts its own turn,
+  words, the spawning session looks for the new session's first
+  turn: the record it left of taking its words, and a user
+  message in its log. While the words still wait and a process
+  names the session, its pi is taken to be starting, and it looks
+  again each minute for up to 5 minutes. When there is none it
+  starts its own turn,
   naming the session, the quest and what the records show; when
   the session ran, it says nothing.
 - **Behind a lock**: a session handed to the launcher while the
