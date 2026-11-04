@@ -297,9 +297,11 @@ export async function boundFor(
 	}
 	// An attached change was already resolved once, so bind the
 	// reference we kept rather than parsing its label back into a
-	// provider guess. A label is for people to read.
+	// provider guess. A label is for people to read, and is also what
+	// they name back: two providers can both claim `owner/repo#number`,
+	// and parsing it afresh sent a remark on a Delta change to `gh`.
 	const held = attached.find((a) => a.change.label === chosen.label);
-	if (held && params.change === undefined) return engine.bound(held.change);
+	if (held) return engine.bound(held.change);
 	return engine.resolve(chosen.label, cwd);
 }
 
