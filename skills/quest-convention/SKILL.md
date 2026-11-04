@@ -373,10 +373,12 @@ A quest is only ever sealed by name: pass its `id`. With
 no id, `conclude` and `retire` act on the focused
 document, and with nothing focused they refuse and say
 which id to pass. Naming the loaded quest seals it in
-full, releasing its trees and clearing its scratch folder's
-tmp/; naming quests that are not loaded runs the
-reversible status sweep. Retiring a quest needs a
-`reason`.
+full, releasing its trees and removing its whole scratch
+folder; naming quests that are not loaded runs the status
+sweep, which removes each one's whole scratch folder too.
+`undo` brings back a sweep's status and priority, never a
+scratch folder, so a `dryRun` first names the folders it
+would remove. Retiring a quest needs a `reason`.
 
 ## Unload vs Conclude
 

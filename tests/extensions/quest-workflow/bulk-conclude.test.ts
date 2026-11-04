@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { QUEST_PARAMETERS } from "../../../extensions/quest-workflow/index";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
@@ -123,6 +124,59 @@ describe("sweeping quests by id", () => {
 			}
 		});
 	}
+
+	it("says in its answer that each scratch folder went and undo keeps only status and priority", async () => {
+		const { ids, sweep } = await twoQuests();
+		const result = await sweep("conclude");
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		for (const id of ids) {
+			expect(result.message).toContain(`${id}: Removed its scratch folder`);
+		}
+		expect(result.message).toContain("undo brings back only");
+		expect(result.message).toContain("status and priority");
+		expect(result.message).not.toContain("reversible");
+	});
+
+	it("names in a dry run each scratch folder it would remove, removing none", async () => {
+		const { ids, workspace, state } = await twoQuests();
+		const bare = await handle(state, fakePi(), fakeCtx(root), {
+			action: "create",
+			title: "Bare Sweep",
+		});
+		if (!bare.ok) throw new Error(bare.guidance);
+		const bareId = String(bare.details?.id);
+		rmSync(join(defaultWorkspaceRoot(), bareId), {
+			recursive: true,
+			force: true,
+		});
+		const result = await handle(state, fakePi(), fakeCtx(root), {
+			action: "conclude",
+			id: [...ids, bareId].join(","),
+			dryRun: true,
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		for (const id of ids) {
+			expect(result.message).toMatch(
+				new RegExp(`${id}: .*quest-workspace/${id}/`),
+			);
+			expect(existsSync(workspace(id, "lab/results.csv"))).toBe(true);
+		}
+		expect(result.message).not.toMatch(
+			new RegExp(`${bareId}: .*quest-workspace`),
+		);
+		expect(result.message).toContain("undo brings back only");
+		expect(result.message).toContain("attachments/");
+	});
+
+	it("tells the model in the tool's description that a sweep removes scratch", () => {
+		const id: object = QUEST_PARAMETERS.properties.id;
+		const said = "description" in id ? String(id.description) : "";
+		expect(said).not.toContain("reversible");
+		expect(said).toContain("scratch folder");
+		expect(said).toContain("status and priority");
+	});
 
 	it("concludes the whole records and skips the rest, saying what to fix", async () => {
 		const { status, put, sweep } = await batch(4);

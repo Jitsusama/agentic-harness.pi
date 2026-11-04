@@ -54,6 +54,40 @@ describe("handing sessions to the launcher", () => {
 		});
 	});
 
+	it("hands over two sessions asked for at once, each in its own call", async () => {
+		// Y2YBTS [51dbc285], 2026-11-04: two spawns 0.4 s apart both said
+		// they were handed over, and the shell logged both; only one opened.
+		// Neither call waits on the other or shares what it sends.
+		const sent: string[] = [];
+		let answerBoth: () => void = () => {};
+		const bothAsked = new Promise<void>((resolve) => {
+			answerBoth = resolve;
+		});
+		const launcher = async (argument: string) => {
+			sent.push(argument);
+			if (sent.length === 2) answerBoth();
+			await bothAsked;
+			return "taken\n";
+		};
+		const taken = await Promise.all([
+			handOver(
+				[{ id: "01a1-one", cwd: "/w", fresh: true, quest: "QEST-1" }],
+				launcher,
+			),
+			handOver(
+				[{ id: "01a1-two", cwd: "/w", fresh: true, quest: "QEST-2" }],
+				launcher,
+			),
+		]);
+		expect(taken).toEqual([1, 1]);
+		const ids = sent.map((one) =>
+			(JSON.parse(one) as { sessions: { id: string }[] }).sessions.map(
+				(s) => s.id,
+			),
+		);
+		expect(ids).toEqual([["01a1-one"], ["01a1-two"]]);
+	});
+
 	it("takes none when the launcher refuses or isn't running", async () => {
 		const session = [{ id: "s", cwd: "/w" }];
 		expect(

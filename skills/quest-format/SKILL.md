@@ -98,11 +98,12 @@ Everything else belongs in the quest's scratch folder, at
 `$XDG_CACHE_HOME/pi/agentic-harness.pi/quest-workspace/<ID>/`
 (`~/.cache/…` by default): clones, raw data, labs, runs,
 builds and downloads. Its `tmp/` folder is the agent's
-`TMPDIR` while the quest is loaded, and is cleared when
-the quest concludes or retires. The rest of the scratch
-folder outlives the conclusion for a while, then the disk
-guard reclaims it. The scratch folder is never backed up,
-so nothing a later reader needs may live only there.
+`TMPDIR` while the quest is loaded. The whole scratch
+folder is removed when the quest concludes or retires,
+loaded or swept by id, and `undo` never brings it back;
+one a process still works in is left for the disk guard.
+The scratch folder is never backed up, so nothing a later
+reader needs may live only there.
 
 Cite what the record stands on. An attachment counts as
 cited when a document or the README mentions its path

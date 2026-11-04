@@ -5,7 +5,7 @@
  * stageTransition for document-scoped calls).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
@@ -118,10 +118,15 @@ function describeHeld(held: HeldQuest[]): string {
 }
 
 /**
- * Conclude or retire a list of quests, then clear what each one's
- * conclude would have: the workspace's tmp/ and any scratch recorded
- * before workspaces. Core seals the records; the workspace root is
- * this package's to know.
+ * Conclude or retire a list of quests, then remove what each one's
+ * conclude would have: its whole scratch folder and any scratch
+ * recorded before workspaces. Core seals the records; the workspace
+ * root is this package's to know.
+ *
+ * Both the answer and a dry run's say which scratch folders go, since
+ * `undo` brings back only status and priority: on 2026-11-04 a sweep
+ * of 11 quests said it was reversible and took 1,010 files an archive
+ * of them was to keep (N10TYF [1ed1ae94]).
  *
  * A conclude holds each record to the audit a single conclude does,
  * concluding the whole ones and naming the rest with what to put right,
@@ -159,22 +164,67 @@ async function sweepQuests(
 					message: `${swept.message} ${swept.details?.dryRun ? "Would skip" : "Skipped"} ${count(held.length, "quest")} whose record is not whole yet; put these right, then conclude ${held.length === 1 ? "it" : "them"}:\n${describeHeld(held)}`,
 					details: { ...swept.details, skipped: [...heldIds] },
 				};
-	if (result.details?.dryRun) return result;
 	const changes = (result.details?.changes ?? []) as { id: string }[];
 	const { index } = discoverQuests(state.questsRoot);
+	if (result.details?.dryRun) {
+		return {
+			...result,
+			message: `${result.message}\n${scratchToGo(changes, index)}`,
+		};
+	}
+	const removed: string[] = [];
 	for (const { id } of changes) {
 		const entry = index.quests.get(id);
 		if (!entry) continue;
-		if (
-			reapQuestScratchDir(entry.dir, entry.doc.frontMatter.scratchDir ?? null)
-		) {
+		const older = entry.doc.frontMatter.scratchDir ?? null;
+		if (reapQuestScratchDir(entry.dir, older)) {
 			appendHarnessLog(entry.dir, "Reaped the managed scratch directory.");
+			removed.push(
+				`${id}: Removed its older scratch directory, ${displayPath(older ?? "")}.`,
+			);
 		}
 		if (id === state.questId) state.scratchDir = null;
 		const said = await scratchRemoved(id);
-		if (said) appendHarnessLog(entry.dir, said);
+		if (said) {
+			appendHarnessLog(entry.dir, said);
+			removed.push(`${id}: ${said}`);
+		}
 	}
-	return result;
+	return {
+		...result,
+		message:
+			removed.length === 0
+				? `${result.message} None had a scratch folder to remove; ${UNDO_KEEPS}.`
+				: `${result.message}\nWhat went with them, for good, since ${UNDO_KEEPS}:\n${removed.map((l) => `- ${l}`).join("\n")}`,
+	};
+}
+
+/** What `undo` gives back of a sweep, said wherever a sweep answers. */
+const UNDO_KEEPS =
+	"undo brings back only their status and priority, never a scratch folder";
+
+/**
+ * What a dry run of a sweep would remove: each quest's scratch folder
+ * that exists, and any scratch recorded before workspaces.
+ */
+function scratchToGo(
+	changes: readonly { id: string }[],
+	index: ReturnType<typeof discoverQuests>["index"],
+): string {
+	const going: string[] = [];
+	for (const { id } of changes) {
+		const dir = workspaceDirOf(defaultWorkspaceRoot(), id);
+		const older = index.quests.get(id)?.doc.frontMatter.scratchDir;
+		const paths = [
+			...(dir && existsSync(dir) ? [`${displayPath(dir)}/`] : []),
+			...(older && existsSync(older) ? [displayPath(older)] : []),
+		];
+		if (paths.length > 0) going.push(`  ${id}: ${paths.join(", ")}`);
+	}
+	if (going.length === 0) {
+		return `None has a scratch folder to remove; ${UNDO_KEEPS}.`;
+	}
+	return `Run for real, it also removes ${going.length === 1 ? "this scratch folder" : `these ${going.length} scratch folders`}, whole, and ${UNDO_KEEPS}; move what is worth keeping into each quest's attachments/ first:\n${going.join("\n")}`;
 }
 
 /**
@@ -741,7 +791,8 @@ export async function concludeOrRetire(
 	// naming an id never silently falls through to the loaded quest.
 	// A single document-kind id concludes that document (not
 	// undoable, see concludeDocumentById); a quest id or any comma
-	// list runs the reversible status sweep.
+	// list runs the sweep, which removes each quest's scratch folder and
+	// whose undo restores only status and priority.
 	const targetId = (params.id ?? "").trim();
 	const declaredScope =
 		params.scope === "quest" || params.scope === "document"
@@ -763,7 +814,7 @@ export async function concludeOrRetire(
 		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
 		// retires that document under the loaded quest, with the same
 		// (non-undoable) semantics as concluding a focused document.
-		// Quest ids, and any comma list, run the reversible quest sweep.
+		// Quest ids, and any comma list, run the quest sweep.
 		const subdir = targetId.includes(",")
 			? undefined
 			: subdirForDocumentId(targetId);

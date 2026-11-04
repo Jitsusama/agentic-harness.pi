@@ -129,7 +129,7 @@ interface BeforeSettleResult {
 }
 
 /** The quest tool's arguments, which pi checks each call against. */
-const QUEST_PARAMETERS = Type.Object({
+export const QUEST_PARAMETERS = Type.Object({
 	action: StringEnum([...QUEST_ACTIONS], {
 		description:
 			"The action to perform. `status` is an alias for `show`, which given a document's id answers its outline: sections and their sizes, open items, the next.",
@@ -137,7 +137,7 @@ const QUEST_PARAMETERS = Type.Object({
 	id: Type.Optional(
 		Type.String({
 			description:
-				"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a reversible status sweep; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
+				"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a status sweep that also removes each one's whole scratch folder, of which undo restores only status and priority; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
 		}),
 	),
 	url: Type.Optional(
