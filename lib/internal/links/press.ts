@@ -22,6 +22,13 @@
  * drawn differently, so what a selection copies and what the model
  * sees are untouched, and the cost is one read of the screen a click.
  *
+ * Given an opener, the wrap also opens every link a click lands on
+ * through it, pi's OSC 8 links included: while pi handles the mouse
+ * event, the TUI's `openUrl` is the opener, with pi's own as its
+ * fallback, and pi's is put back after. That is how a link reaches the
+ * terminal, which can bring the app it opens forward
+ * (`through-terminal.ts`).
+ *
  * It fails safe to pi's own behaviour: no method of that name, and it
  * installs nothing; a TUI without the fields it reads, and it does
  * nothing; a resolver that throws, and pi's result stands. A mark on
@@ -29,6 +36,8 @@
  * module finds it, keeps the method wrapped once however often this
  * runs.
  */
+
+import type { LinkOpener } from "./through-terminal.ts";
 
 /** Reads a link from pi's last screen at a 0-based cell, or nothing. */
 export type PressResolver = (
@@ -52,6 +61,8 @@ interface Wrap {
 	original: unknown;
 	wrapper: (...args: unknown[]) => unknown;
 	resolve: PressResolver;
+	/** What opens a clicked link, when not pi's own opener alone. */
+	open: LinkOpener | undefined;
 }
 
 /**
@@ -64,10 +75,12 @@ interface Wrap {
 export function answerPlainPresses(
 	prototype: object,
 	resolve: PressResolver,
+	open?: LinkOpener,
 ): () => void {
 	const existing: unknown = Reflect.get(prototype, MARK);
 	if (isWrap(existing)) {
 		existing.resolve = resolve;
+		existing.open = open;
 		return () => unwrap(prototype, existing, resolve);
 	}
 	const original: unknown = Reflect.get(prototype, METHOD);
@@ -75,7 +88,13 @@ export function answerPlainPresses(
 	const wrap: Wrap = {
 		original,
 		wrapper(this: unknown, ...args: unknown[]): unknown {
-			const result = Reflect.apply(original, this, args);
+			const restore = opensThrough(this, wrap.open);
+			let result: unknown;
+			try {
+				result = Reflect.apply(original, this, args);
+			} finally {
+				restore();
+			}
 			try {
 				answer(this, args[0], wrap.resolve);
 			} catch {
@@ -84,6 +103,7 @@ export function answerPlainPresses(
 			return result;
 		},
 		resolve,
+		open,
 	};
 	Object.defineProperty(prototype, MARK, { value: wrap, configurable: true });
 	Reflect.set(prototype, METHOD, wrap.wrapper);
@@ -96,6 +116,28 @@ function unwrap(prototype: object, wrap: Wrap, resolve: PressResolver): void {
 		Reflect.set(prototype, METHOD, wrap.original);
 	}
 	Reflect.deleteProperty(prototype, MARK);
+}
+
+/**
+ * Make the TUI's `openUrl` go through `open` for one mouse event, pi's
+ * own as the fallback, returning what puts pi's back. A TUI with no
+ * opener of its own keeps none, so pi opens nothing it wouldn't.
+ */
+function opensThrough(tui: unknown, open: LinkOpener | undefined): () => void {
+	if (!open || typeof tui !== "object" || tui === null) return () => {};
+	const own: unknown = Reflect.get(tui, "openUrl");
+	if (typeof own !== "function") return () => {};
+	const piOpens = (url: string): void => {
+		try {
+			Reflect.apply(own, tui, [url]);
+		} catch {
+			// pi treats opening a link as best effort, and so does this.
+		}
+	};
+	Reflect.set(tui, "openUrl", (url: string) => {
+		open(url, piOpens).catch(() => piOpens(url));
+	});
+	return () => Reflect.set(tui, "openUrl", own);
 }
 
 function answer(tui: unknown, event: unknown, resolve: PressResolver): void {
