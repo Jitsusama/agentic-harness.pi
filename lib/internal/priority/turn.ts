@@ -138,6 +138,7 @@ export function queuedCommand(command: string): string {
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =
 		needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what);
+	const lastRanS = queueing.folder.ranFor(what);
 	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
 	// A build of checks is asked what it will build before its turn, since
 	// its text can't say whether a VM runs (plan.ts); quick work is cached.
@@ -150,6 +151,7 @@ export function queuedCommand(command: string): string {
 		kind,
 		what,
 		needsGib,
+		...(lastRanS !== undefined ? { lastRanS } : {}),
 		...(quick ? { quick: true as const } : {}),
 		...(quest ? { quest } : {}),
 		...(plan ? { planning: true as const } : {}),

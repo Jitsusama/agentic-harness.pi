@@ -189,6 +189,50 @@ describe("heavy work waiting for its turn", () => {
 		expect(job.needsGib).toBe(Math.ceil(10.9 * HEADROOM));
 	});
 
+	it("says how long its work took when it last ran, and nothing for new work", () => {
+		// The queue reads when a long run's memory is due back from this.
+		const outcomes = join(root, "outcomes.jsonl");
+		const ran = new Date().toISOString();
+		keepOutcome(outcomes, {
+			...outcomeOf(
+				{
+					id: "before",
+					kind: "vm-check",
+					what: "timeout 9000 direnv exec . changed-checks --build > $T/one.log",
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+				},
+				Date.parse(ran) + 6_402_000,
+				0,
+			),
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				outcomes,
+			),
+			session: "session-a",
+			pid: process.pid,
+			room: () => ({ ...ROOMY, availableGib: 0 }),
+			cgroupFor: () => undefined,
+		});
+		queuedCommand(
+			"timeout 9000 direnv exec . changed-checks --build > $T/two.log",
+		);
+		queuedCommand("cargo test --offline");
+		const asked = jobIds()
+			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+			.map((job) => [job.what, job.lastRanS])
+			.sort();
+		expect(asked).toEqual([
+			["cargo test --offline", undefined],
+			["timeout 9000 direnv exec . changed-checks --build > $T/two.log", 6_402],
+		]);
+	});
+
 	it("asks for the memory of its heaviest step, not its first", () => {
 		// Y9XISP's on 24 October: the tool's build came first, so the job
 		// was held to a build's 4 GiB while the tool it built used 11.8.

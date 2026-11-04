@@ -264,6 +264,11 @@ export interface QueueFolder {
 	 * work not yet seen (outcome.ts's `peakGibAfter`).
 	 */
 	peakFor(what: string): number | undefined;
+	/**
+	 * How long work took the last time it ran, in seconds, or nothing for
+	 * work not yet seen (outcome.ts's `ranSAfter`).
+	 */
+	ranFor(what: string): number | undefined;
 	/** Whether queue.json is older than its heartbeat allows. */
 	isDue(now: number): boolean;
 	/**
@@ -565,6 +570,10 @@ export function queueFolder(
 
 		peakFor(what) {
 			return peakGibAfter(what, recorded());
+		},
+
+		ranFor(what) {
+			return ranSAfter(what, recorded());
 		},
 
 		isDue(now) {
