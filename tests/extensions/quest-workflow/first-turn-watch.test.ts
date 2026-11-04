@@ -35,7 +35,7 @@ const spawned = { key: "token-1", questId: "QEST-1" };
 describe("a spawner watching for its session's first turn", () => {
 	it("looks once, a minute after the spawn, and says nothing when it ran", () => {
 		const asked: string[] = [];
-		watchFirstTurn(pi, ctx, spawned, (key) => {
+		watchFirstTurn(pi, ctx, spawned, ({ key }) => {
 			asked.push(key);
 			return { started: true, sessionId: "019a-new" };
 		});
@@ -45,6 +45,17 @@ describe("a spawner watching for its session's first turn", () => {
 		vi.advanceTimersByTime(10 * FIRST_TURN_WATCH_MS);
 		expect(asked).toEqual(["token-1"]);
 		expect(said).toEqual([]);
+	});
+
+	it("counts only a turn taken since the spawn, so a resumed log's old turns don't", () => {
+		const spawnedAt = Date.now();
+		const since: number[] = [];
+		watchFirstTurn(pi, ctx, spawned, (_spawned, after) => {
+			since.push(after);
+			return { started: true, sessionId: "019a-new" };
+		});
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(since).toEqual([spawnedAt]);
 	});
 
 	it("starts its own turn naming the session, the quest and what it found", () => {
@@ -79,7 +90,7 @@ describe("a spawner watching for its session's first turn", () => {
 
 	it("looks no more once the session doing the watching ends", () => {
 		const asked: string[] = [];
-		watchFirstTurn(pi, ctx, spawned, (key) => {
+		watchFirstTurn(pi, ctx, spawned, ({ key }) => {
 			asked.push(key);
 			return { started: false, found: "nothing" };
 		});

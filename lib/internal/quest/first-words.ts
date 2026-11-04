@@ -23,9 +23,11 @@
 import {
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -82,6 +84,23 @@ export function leaveFirstWords(
 		JSON.stringify({ v: 1, words, at: new Date(now).toISOString() }),
 	);
 	renameSync(writing, path);
+	dropUnlookedTakings(dir, now);
+}
+
+/**
+ * Remove records of takings no spawn looked for in time, as when the
+ * spawner ended within the minute, so they never pile up.
+ */
+function dropUnlookedTakings(dir: string, now: number): void {
+	for (const name of readdirSync(dir)) {
+		if (!name.endsWith(".taken")) continue;
+		const path = join(dir, name);
+		try {
+			if (now - statSync(path).mtimeMs > FIRST_WORDS_FOR_MS) rmSync(path);
+		} catch {
+			// Its spawn looked and took it meanwhile.
+		}
+	}
 }
 
 /** Who took a spawn's words, and whether it said them as its first turn. */
@@ -156,6 +175,12 @@ export interface FirstTurnPlaces {
 	readonly sessions?: string;
 	/** The session's id when the spawn knows it, as the launcher's are. */
 	readonly sessionId?: string;
+	/**
+	 * When the spawn was, in epoch ms: only a turn since counts, so a
+	 * resumed session's old turns never pass for its first. Without it,
+	 * the taking's own time bounds the look.
+	 */
+	readonly since?: number;
 }
 
 /**
@@ -195,7 +220,8 @@ export function firstTurnOf(
 	const log = indexSessionFiles(places.sessions ?? sessionsDir()).get(
 		sessionId,
 	);
-	if (log && holdsTurn(log)) return { started: true, sessionId };
+	const since = places.since ?? (taken ? Date.parse(taken.at) : undefined);
+	if (log && holdsTurn(log, since)) return { started: true, sessionId };
 	const where = log ? "its log holds no turn" : "there is no session log";
 	if (!taken) {
 		return notStarted(
@@ -234,8 +260,11 @@ function takenIn(path: string): (Taken & { at: string }) | undefined {
 	};
 }
 
-/** Whether a session log holds a user message, the start of a turn. */
-function holdsTurn(log: string): boolean {
+/**
+ * Whether a session log holds a user message, the start of a turn,
+ * dated `since` or later when that is given.
+ */
+function holdsTurn(log: string, since?: number): boolean {
 	let text: string;
 	try {
 		text = readFileSync(log, "utf8");
@@ -248,9 +277,16 @@ function holdsTurn(log: string): boolean {
 		try {
 			const entry = JSON.parse(line) as {
 				type?: unknown;
+				timestamp?: unknown;
 				message?: { role?: unknown };
 			};
-			return entry.type === "message" && entry.message?.role === "user";
+			if (entry.type !== "message" || entry.message?.role !== "user") {
+				return false;
+			}
+			if (since === undefined || !Number.isFinite(since)) return true;
+			const at =
+				typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+			return at >= since;
 		} catch {
 			// A torn last line, still being written: not a turn yet.
 			return false;

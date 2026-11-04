@@ -3,6 +3,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,6 +47,20 @@ describe("a spawned session's first words", () => {
 		expect(readdirSync(dir)).toEqual([]);
 	});
 
+	it("clear away records of takings nobody looked for in time", () => {
+		const stale = join(dir, "token-old.taken");
+		const fresh = join(dir, "token-new.taken");
+		writeFileSync(stale, "{}");
+		writeFileSync(fresh, "{}");
+		const then = (Date.now() - FIRST_WORDS_FOR_MS - 1000) / 1000;
+		utimesSync(stale, then, then);
+		leaveFirstWords("token-2", "carry on", dir);
+		expect(readdirSync(dir).sort()).toEqual([
+			"token-2.json",
+			"token-new.taken",
+		]);
+	});
+
 	it("tell nothing when the file isn't words a spawn left", () => {
 		writeFileSync(join(dir, "019a-bad.json"), "{not json");
 		expect(takeFirstWords(["019a-bad"], dir)).toBeUndefined();
@@ -87,6 +102,8 @@ describe("whether a spawned session took its first turn", () => {
 	}
 	const userSaid = {
 		type: "message",
+		// Said after any spawn or taking these tests make.
+		timestamp: new Date(Date.now() + 3_600_000).toISOString(),
 		message: { role: "user", content: [{ type: "text", text: "carry on" }] },
 	};
 
@@ -139,6 +156,28 @@ describe("whether a spawned session took its first turn", () => {
 			sessionId: "019a-waits",
 			found: expect.stringMatching(/put them off .* holds no turn/),
 		});
+	});
+
+	it("counts no turn a resumed session took before its spawn", () => {
+		const spawnedAt = Date.now();
+		leaveFirstWords("token-1", "carry on", dir, spawnedAt);
+		takeFirstWords(["token-1"], dir, spawnedAt, {
+			sessionId: "019a-resumed",
+			said: true,
+		});
+		logOf("019a-resumed", [
+			{
+				...userSaid,
+				timestamp: new Date(spawnedAt - 3_600_000).toISOString(),
+			},
+		]);
+		expect(firstTurnOf("token-1", { dir, sessions, since: spawnedAt })).toEqual(
+			{
+				started: false,
+				sessionId: "019a-resumed",
+				found: expect.stringMatching(/said them, but its log holds no turn/),
+			},
+		);
 	});
 
 	it("is asked once: the record of a taking goes with the answer", () => {

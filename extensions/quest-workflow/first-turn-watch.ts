@@ -29,11 +29,14 @@ export interface Spawned {
 	readonly sessionId?: string;
 }
 
-/** Looks at the records for the session started under a key. */
-export type LookForFirstTurn = (key: string, sessionId?: string) => FirstTurn;
+/**
+ * Looks at the records for the session a spawn started, counting only
+ * a turn taken `since` the spawn (epoch ms).
+ */
+export type LookForFirstTurn = (spawned: Spawned, since: number) => FirstTurn;
 
-const lookInRecords: LookForFirstTurn = (key, sessionId) =>
-	firstTurnOf(key, sessionId ? { sessionId } : {});
+const lookInRecords: LookForFirstTurn = ({ key, sessionId }, since) =>
+	firstTurnOf(key, { since, ...(sessionId ? { sessionId } : {}) });
 
 /** Looks still to come, so a session that ends takes none with it. */
 const watches = new Set<ReturnType<typeof setTimeout>>();
@@ -70,9 +73,10 @@ export function watchFirstTurn(
 	look: LookForFirstTurn = lookInRecords,
 	afterMs: number = FIRST_TURN_WATCH_MS,
 ): void {
+	const spawnedAt = Date.now();
 	const watch = setTimeout(() => {
 		watches.delete(watch);
-		const turn = look(spawned.key, spawned.sessionId);
+		const turn = look(spawned, spawnedAt);
 		if (turn.started) return;
 		const idle = ctx.isIdle?.() ?? true;
 		pi.sendUserMessage(
