@@ -120,13 +120,14 @@ describe("whether a spawned session took its first turn", () => {
 		});
 	});
 
-	it("says no session took the words a spawn left waiting", () => {
+	it("says no session took the words a spawn left, which still wait", () => {
 		leaveFirstWords("token-1", "carry on", dir);
 		expect(
 			firstTurnOf("token-1", { dir, sessions, sessionId: "019a-handed" }),
 		).toEqual({
 			started: false,
 			sessionId: "019a-handed",
+			waiting: true,
 			found: expect.stringMatching(/no session has taken the first words/),
 		});
 	});

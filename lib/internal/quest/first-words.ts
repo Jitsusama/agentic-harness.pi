@@ -165,6 +165,8 @@ export type FirstTurn =
 	| {
 			readonly started: false;
 			readonly sessionId?: string;
+			/** Its words still wait, as they do while its pi is starting. */
+			readonly waiting?: true;
 			readonly found: string;
 	  };
 
@@ -200,10 +202,13 @@ export function firstTurnOf(
 		};
 	}
 	if (existsSync(join(dir, `${key}.json`))) {
-		return notStarted(
-			places.sessionId,
-			"no session has taken the first words the spawn left it, so none started on them",
-		);
+		return {
+			started: false,
+			...(places.sessionId ? { sessionId: places.sessionId } : {}),
+			waiting: true,
+			found:
+				"no session has taken the first words the spawn left it, so none started on them",
+		};
 	}
 	const receipt = join(dir, `${key}.taken`);
 	const taken = takenIn(receipt);

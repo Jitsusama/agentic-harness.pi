@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -5,6 +6,8 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	FIRST_TURN_WATCH_MS,
+	MOST_START_MS,
+	piRunsFor,
 	stopFirstTurnWatches,
 	watchFirstTurn,
 } from "../../../extensions/quest-workflow/first-turn-watch";
@@ -31,6 +34,14 @@ afterEach(() => {
 });
 
 const spawned = { key: "token-1", questId: "QEST-1" };
+const waiting: FirstTurn = {
+	started: false,
+	waiting: true,
+	sessionId: "019a-slow",
+	found: "no session has taken the first words the spawn left it",
+};
+const running = () => true;
+const gone = () => false;
 
 describe("a spawner watching for its session's first turn", () => {
 	it("looks once, a minute after the spawn, and says nothing when it ran", () => {
@@ -87,6 +98,63 @@ describe("a spawner watching for its session's first turn", () => {
 		expect(said[0]?.options).toEqual({ deliverAs: "followUp" });
 		expect(said[0]?.text).toContain("an id not yet known");
 	});
+
+	it("looks again while its words wait and its pi runs, saying nothing once it starts", () => {
+		// 2026-11-04 17:05: a spawn's pi took 77 s to start at CPU pressure
+		// 80%, and a look at 60 s told its spawner it never had.
+		let looks = 0;
+		watchFirstTurn(
+			pi,
+			ctx,
+			spawned,
+			() => {
+				looks += 1;
+				return looks < 2 ? waiting : { started: true, sessionId: "019a-slow" };
+			},
+			FIRST_TURN_WATCH_MS,
+			running,
+		);
+		vi.advanceTimersByTime(MOST_START_MS * 2);
+		expect(looks).toBe(2);
+		expect(said).toEqual([]);
+	});
+
+	it("tells once its words have waited the longest a start may take, though its pi runs", () => {
+		watchFirstTurn(
+			pi,
+			ctx,
+			spawned,
+			() => waiting,
+			FIRST_TURN_WATCH_MS,
+			running,
+		);
+		vi.advanceTimersByTime(MOST_START_MS - 1);
+		expect(said).toEqual([]);
+		vi.advanceTimersByTime(MOST_START_MS);
+		expect(said).toHaveLength(1);
+		expect(said[0]?.text).toContain(
+			`${MOST_START_MS / 1000} s after the spawn`,
+		);
+	});
+
+	it("tells at the first look when its words wait and no pi of it runs", () => {
+		watchFirstTurn(pi, ctx, spawned, () => waiting, FIRST_TURN_WATCH_MS, gone);
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said).toHaveLength(1);
+		expect(said[0]?.text).toContain("60 s after the spawn");
+	});
+
+	it.runIf(existsSync("/proc/self/cmdline"))(
+		"finds a running process by a word of its command line, and none by a word no process has",
+		() => {
+			const ownWord = process.argv[1] ?? "";
+			expect(piRunsFor({ ...spawned, sessionId: ownWord })).toBe(true);
+			expect(
+				piRunsFor({ ...spawned, sessionId: "01a1ffff-no-such-session" }),
+			).toBe(false);
+			expect(piRunsFor(spawned)).toBe(false);
+		},
+	);
 
 	it("looks no more once the session doing the watching ends", () => {
 		const asked: string[] = [];
