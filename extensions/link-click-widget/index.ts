@@ -13,6 +13,13 @@
  * pi found no link, the plain text under the click is read and the
  * place it names becomes the link pi's own release opens. Nothing is
  * drawn differently.
+ *
+ * Every link a click opens, pi's own included, goes through the kitty
+ * pi is shown in (lib/internal/links/through-terminal.ts), whose
+ * `open_url` hands the opener an activation token, so Chrome or the
+ * reader comes forward rather than opening behind pi. Joel, 4
+ * November: "it doesn't switch me to the app they link to". With no
+ * kitty to reach, pi's own opener opens it as before.
  */
 
 import { homedir } from "node:os";
@@ -26,7 +33,12 @@ import {
 	originRepoOf,
 	type PlaceWorld,
 } from "../../lib/internal/links/targets.ts";
+import {
+	kittySocket,
+	openThroughKitty,
+} from "../../lib/internal/links/through-terminal.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
+import { heldWindowAt, nodeSocket } from "../../lib/mesh/node.ts";
 
 export default function linkClickWidget(pi: ExtensionAPI) {
 	let release: (() => void) | undefined;
@@ -38,6 +50,7 @@ export default function linkClickWidget(pi: ExtensionAPI) {
 		release = answerPlainPresses(
 			TuiAltScreen.prototype,
 			(screen, x, y, columns) => linkAtClick(screen, x, y, columns, world),
+			openThroughKitty(() => kittySocket(process.env, shownIn)),
 		);
 	});
 
@@ -45,6 +58,13 @@ export default function linkClickWidget(pi: ExtensionAPI) {
 		release?.();
 		release = undefined;
 	});
+}
+
+/** The window this session is shown in, when the machine's node holds it. */
+async function shownIn() {
+	const held = process.env.MYCELIUM_HELD;
+	if (!held) return undefined;
+	return heldWindowAt(nodeSocket({ ...process.env }), held);
 }
 
 /** The session's places: its home, the quests and its repo, asked of git once. */

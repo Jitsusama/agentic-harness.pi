@@ -208,6 +208,49 @@ describe("a plain click on pi's fullscreen", () => {
 	});
 });
 
+describe("a click with an opener", () => {
+	let through: string[];
+
+	function opening(fallsBack: boolean) {
+		release();
+		through = [];
+		release = answerPlainPresses(
+			TuiAltScreen.prototype,
+			(screen, x, y, columns) => linkAtClick(screen, x, y, columns, world),
+			async (url, fallback) => {
+				through.push(url);
+				if (fallsBack) fallback(url);
+			},
+		);
+	}
+
+	it("opens a plain-text link and pi's own OSC 8 link through it", async () => {
+		opening(false);
+		show(
+			`see https://example.com/a or ${hyperlink("docs", "https://example.com/d")}`,
+		);
+		const plain = await terminal.cellOf("example");
+		terminal.click(plain.x, plain.y);
+		const link = await terminal.cellOf("docs");
+		terminal.click(link.x, link.y);
+		await until("both went through", () => through.length === 2);
+		expect(through).toEqual(["https://example.com/a", "https://example.com/d"]);
+		expect(opened).toEqual([]);
+	});
+
+	it("hands pi's opener what it can't open, and leaves pi's opener in place", async () => {
+		const own = Reflect.get(tui, "openUrl");
+		opening(true);
+		show("see https://example.com/a");
+		const url = await terminal.cellOf("example");
+		terminal.click(url.x, url.y);
+		await until("pi's opener took it", () => opened.length === 1);
+		expect(through).toEqual(["https://example.com/a"]);
+		expect(opened).toEqual(["https://example.com/a"]);
+		expect(Reflect.get(tui, "openUrl")).toBe(own);
+	});
+});
+
 describe("the wrap of pi's press", () => {
 	it("wraps once however often it is installed, and comes off", () => {
 		const method = Reflect.get(
