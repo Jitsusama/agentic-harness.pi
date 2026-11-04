@@ -316,6 +316,14 @@ reclaims abandoned staging files on the same pass, and
 only ones an hour old, since the gap between a write and
 its rename is microseconds and a fresh one is somebody's.
 
+The sweep is the first session start's on the machine in
+each five minutes, like the orphan look below: it read
+every ledger record and every run's streams, 2,048 and
+405 of them on 4 November, to find what the start before
+it had just found. A start in a restored conversation
+still reads the ledger, to cut off and be told of its
+own fleets, since nobody else can tell it.
+
 A ledger file that will not read stops the sweep, on this
 machine, until somebody deals with it. An empty protect
 set is not the cautious reading of a torn ledger: it is

@@ -11,14 +11,11 @@
  *
  * The three that change the page answer with a fresh page view,
  * so the caller sees the result of what it just did. wait and
- * eval answer with what they were asked for.
+ * eval answer with what they were asked for. Registered from
+ * do-tool.ts, which loads this on the tool's first call.
  */
 
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { renderEvaluation } from "../../lib/core/web/evaluate/index.ts";
 import {
 	composeClick,
@@ -49,10 +46,9 @@ import {
 	renderWait,
 	type WaitCondition,
 } from "../../lib/core/web/wait/index.ts";
-import { BROWSER_EXPOSURE } from "./exposure.ts";
+import type { DoParams } from "./do-tool.ts";
 import { beyondBound, MAX_WAIT_MS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
-import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import type { BrowserDetails } from "./result.ts";
 import {
 	answer,
@@ -63,498 +59,199 @@ import {
 } from "./result.ts";
 import { settledPageView } from "./see.ts";
 
-const parameters = Type.Object({
-	kind: Type.Optional(
-		Type.Union(
-			[
-				Type.Literal("act"),
-				Type.Literal("press"),
-				Type.Literal("input"),
-				Type.Literal("wait"),
-				Type.Literal("eval"),
-			],
-			{
-				description:
-					"act: operate an element named by role and accessible " +
-					"name, the default. press: send a chord or a sequence of " +
-					"them, like 'Ctrl+Shift+K' or 'Tab Tab Enter', wherever " +
-					"focus is. input: raw pointer and touch gestures at " +
-					"coordinates, for what semantics cannot reach. wait: hold " +
-					"until the page reaches a state, saying what it saw if it " +
-					"never does. eval: run an expression in the page and " +
-					"describe what came back, exceptions included.",
-			},
-		),
-	),
-	session: Type.Optional(
-		Type.String({
-			description: "Which browser, by name. Defaults to 'default'.",
-		}),
-	),
-	expression: Type.Optional(
-		Type.String({
-			description:
-				"For eval: the JavaScript to run, as an expression rather " +
-				"than statements. A promise is awaited. DOM nodes, " +
-				"functions and circular structures are described rather " +
-				"than serialized.",
-		}),
-	),
-	for: Type.Optional(
-		Type.Union(
-			[
-				Type.Literal("selector"),
-				Type.Literal("gone"),
-				Type.Literal("text"),
-				Type.Literal("attribute"),
-				Type.Literal("count"),
-				Type.Literal("idle"),
-				Type.Literal("request"),
-				Type.Literal("animations"),
-				Type.Literal("duration"),
-			],
-			{
-				description:
-					"For wait: selector or gone for an element appearing or " +
-					"leaving, text for words on the page, idle for the " +
-					"network going quiet, request for one matching a pattern " +
-					"finishing, attribute for an element's attribute reaching " +
-					"a value (aria-busy going false, aria-expanded going " +
-					"true), count for a number of matching elements being " +
-					"there, animations for motion settling, duration to " +
-					"simply pass time.",
-			},
-		),
-	),
-	selector: Type.Optional(
-		Type.String({
-			description:
-				"For wait selector, gone, attribute and count: the CSS " + "selector.",
-		}),
-	),
-	attribute: Type.Optional(
-		Type.String({
-			description:
-				"For wait attribute: which attribute to watch, e.g. " +
-				"'aria-busy'. Pair with 'value' for the value to wait for, " +
-				"or omit it to wait for the attribute to be removed.",
-		}),
-	),
-	value: Type.Optional(
-		Type.String({
-			description:
-				"For wait attribute: the value that ends the wait. Omit to " +
-				"wait for the attribute to go away entirely.",
-		}),
-	),
-	count: Type.Optional(
-		Type.Number({
-			description:
-				"For wait count: how many elements must match the " +
-				"selector. Exact, not a minimum, so a list that overshoots " +
-				"is a finding rather than a pass. For input click: 2 " +
-				"double-clicks.",
-		}),
-	),
-	pattern: Type.Optional(
-		Type.String({
-			description:
-				"For wait request: a url pattern, e.g. '*/api/save'. The " +
-				"answer reports the status it got.",
-		}),
-	),
-	status: Type.Optional(
-		Type.Number({
-			description:
-				"For wait request: the status that counts as arrival. " +
-				"Without it a request answering 500 ends the wait as " +
-				"happily as one answering 200, so a check that the save " +
-				"worked passes on a save that failed.",
-		}),
-	),
-	quietMs: Type.Optional(
-		Type.Number({
-			description: "For wait idle: how long counts as quiet.",
-		}),
-	),
-	ms: Type.Optional(
-		Type.Number({
-			description: "For wait duration: how long to wait, at most 120000.",
-		}),
-	),
-	timeoutMs: Type.Optional(
-		Type.Number({
-			description:
-				"For wait: how long before giving up. Defaults to 10s, at most 120000.",
-		}),
-	),
-	keys: Type.Optional(
-		Type.String({
-			description:
-				"For press: the chord or sequence, e.g. 'Ctrl+Shift+K', " +
-				"'Tab Tab Enter', 'Shift+ArrowDown'. Space is written as " +
-				"the word Space.",
-		}),
-	),
-	gesture: Type.Optional(
-		Type.Union(
-			[
-				Type.Literal("click"),
-				Type.Literal("drag"),
-				Type.Literal("move"),
-				Type.Literal("wheel"),
-				Type.Literal("tap"),
-				Type.Literal("longPress"),
-				Type.Literal("swipe"),
-				Type.Literal("pinch"),
-			],
-			{
-				description:
-					"For input: which gesture. click, drag, move and wheel " +
-					"use the mouse; tap, longPress, swipe and pinch use " +
-					"touch. All take coordinates in x/y, and the travelling " +
-					"ones take toX/toY.",
-			},
-		),
-	),
-	x: Type.Optional(Type.Number({ description: "For input: where it starts." })),
-	y: Type.Optional(Type.Number({ description: "For input: where it starts." })),
-	toX: Type.Optional(
-		Type.Number({ description: "For drag, swipe and wheel: where it ends." }),
-	),
-	toY: Type.Optional(
-		Type.Number({ description: "For drag, swipe and wheel: where it ends." }),
-	),
-	spread: Type.Optional(
-		Type.Number({
-			description: "For pinch: how far apart the fingers start, in pixels.",
-		}),
-	),
-	toSpread: Type.Optional(
-		Type.Number({
-			description: "For pinch: how far apart they end. Larger zooms in.",
-		}),
-	),
+/** What browser_do does with one call. */
+export async function runDo(
+	registry: SessionRegistry,
+	params: DoParams,
+	signal: AbortSignal | undefined,
+) {
+	const kind = params.kind ?? "act";
+	const profiles = wantedProfiles(params.trace);
+	if ("error" in profiles) {
+		return refusal(DEFAULT_SESSION, kind, profiles.error);
+	}
+	const chosen = sessionInPlay(
+		params.session,
+		DEFAULT_SESSION,
+		registry.open(),
+	);
+	if ("candidates" in chosen) {
+		return refusal(DEFAULT_SESSION, kind, chooseSession(chosen.candidates));
+	}
+	const name = chosen.name;
+	if (!registry.has(name)) {
+		return refusal(
+			name,
+			kind,
+			missingSession(
+				name,
+				registry.departureOf(name),
+				"Navigate somewhere with browser_go first.",
+			),
+		);
+	}
 
-	button: Type.Optional(
-		Type.String({
-			description: "For input click and drag: left, middle or right.",
-		}),
-	),
-	steps: Type.Optional(
-		Type.Number({
-			description:
-				"For travelling gestures: how many intermediate moves. More " +
-				"steps give a handler more to react to.",
-		}),
-	),
-	holdMs: Type.Optional(
-		Type.Number({
-			description: "For longPress: how long to hold, at most 120000.",
-		}),
-	),
-	action: Type.Optional(
-		Type.Union(
-			[
-				Type.Literal("click"),
-				Type.Literal("type"),
-				Type.Literal("hover"),
-				Type.Literal("focus"),
-				Type.Literal("clear"),
-				Type.Literal("select"),
-				Type.Literal("upload"),
-				Type.Literal("scrollTo"),
-			],
-			{
-				description:
-					"For act: click or type into the element; hover or focus " +
-					"it to reveal state-dependent behaviour; clear empties a " +
-					"field; select chooses an option by its text; upload puts " +
-					"files on a file input, named in 'files'; scrollTo brings " +
-					"it into view.",
-			},
-		),
-	),
-	role: Type.Optional(
-		Type.String({ description: "For act: the target element's role." }),
-	),
-	name: Type.Optional(
-		Type.String({ description: "For act: the target's accessible name." }),
-	),
-	text: Type.Optional(
-		Type.String({
-			description:
-				"For action 'type': the text to enter. For 'select': the " +
-				"option to choose.",
-		}),
-	),
-	files: Type.Optional(
-		Type.Array(Type.String(), {
-			description:
-				"For action 'upload': absolute paths to put on the file " +
-				"input. Target the input itself, which is usually hidden " +
-				"behind a styled label and reads as a button in the " +
-				"outline; it does not have to be visible.",
-		}),
-	),
-	container: Type.Optional(
-		Type.String({
-			description:
-				"For act: restrict the search to a container with this " +
-				"name, which is how you tell two identically named " +
-				"controls apart by where they live.",
-		}),
-	),
-	ordinal: Type.Optional(
-		Type.Number({
-			description:
-				"For act: 1-based position among same-named matches, for " +
-				"when no container distinguishes them either.",
-		}),
-	),
-	trace: Type.Optional(
-		Type.Union(
-			[
-				Type.Literal("async"),
-				Type.Literal("frames"),
-				Type.Array(Type.Union([Type.Literal("async"), Type.Literal("frames")])),
-			],
-			{
-				description:
-					"For every kind: record a trace of the browser's own work " +
-					"while this runs, and report what caused what. 'async' " +
-					"pairs each timer with the fire it caused and each request " +
-					"with the response that settled it, so you can see what " +
-					"was in flight at once and what answered out of order. " +
-					"'frames' reports what the compositor did, for a page that " +
-					"scrolls or animates badly. Pass both for both. Tracing " +
-					"is browser-wide and only one can run at a time, so a " +
-					"second browser asking is refused, and every page pays " +
-					"while it runs.",
-			},
-		),
-	),
-});
+	const unbounded =
+		beyondBound(
+			"timeoutMs",
+			params.timeoutMs,
+			MAX_WAIT_MS,
+			"Wait in steps, looking at the page between them.",
+		) ??
+		beyondBound(
+			"ms",
+			params.ms,
+			MAX_WAIT_MS,
+			"Wait in steps, or for the condition that ends the wait.",
+		) ??
+		beyondBound(
+			"holdMs",
+			params.holdMs,
+			MAX_WAIT_MS,
+			"No page needs a longer press.",
+		);
+	if (unbounded) return refusal(name, kind, unbounded);
 
-/** Register the acting half of the browser family. */
-export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
-	pi.registerTool({
-		name: "browser_do",
-		...BROWSER_EXPOSURE,
-		label: "Browser Do",
-		description:
-			"Act on a browser page. kind 'act' clicks an element or types into " +
-			"it, targeting the element the way it reads in the outline: by role " +
-			"and accessible name, narrowed by container or by the 1-based " +
-			"ordinal among same-named matches. kind 'press' sends a chord " +
-			"wherever focus is. kind 'input' sends raw pointer and touch " +
-			"gestures at coordinates, for drags, wheels and swipes that no " +
-			"semantic action expresses. The page view that follows shows what " +
-			"the action did.",
-		promptSnippet:
-			"browser_do changes a page: act on an element named by role " +
-			"and accessible name (waiting for it to be actionable), " +
-			"press key chords, send raw pointer and touch gestures, " +
-			"wait for a condition, or evaluate an expression. Read the " +
-			"browser-guide skill.",
-		parameters,
-		renderCall: (args, theme, context) =>
-			renderBrowserCall("do", args, theme, context?.lastComponent),
-		renderResult: (result, options, theme, context) =>
-			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params, signal) {
-			const kind = params.kind ?? "act";
-			const profiles = wantedProfiles(params.trace);
-			if ("error" in profiles) {
-				return refusal(DEFAULT_SESSION, kind, profiles.error);
-			}
-			const chosen = sessionInPlay(
-				params.session,
-				DEFAULT_SESSION,
-				registry.open(),
+	// Every kind is traceable, because every kind is a way of
+	// making the page do something. Bracketing here rather than
+	// in each branch keeps one recording per call and means the
+	// permit cannot be left behind on a path that returns early.
+	return registry.use(name, signal, async () => {
+		if (profiles.profiles.length > 0) {
+			const session = await registry.acquire(name);
+			const recorded = await session.recordWhile(profiles.profiles, () =>
+				act(),
 			);
-			if ("candidates" in chosen) {
-				return refusal(DEFAULT_SESSION, kind, chooseSession(chosen.candidates));
-			}
-			const name = chosen.name;
-			if (!registry.has(name)) {
+			return withTrace(recorded.result, recorded.trace, recorded.refusal);
+		}
+		return act();
+	});
+
+	async function act(): Promise<AgentToolResult<BrowserDetails>> {
+		if (kind === "eval") {
+			if (!params.expression) {
 				return refusal(
 					name,
 					kind,
-					missingSession(
-						name,
-						registry.departureOf(name),
-						"Navigate somewhere with browser_go first.",
-					),
+					"eval needs an expression, e.g. 'document.title'.",
 				);
 			}
+			const session = await registry.acquire(name);
+			const outcome = await session.evaluate(params.expression);
+			return answer(name, kind, renderEvaluation(outcome));
+		}
 
-			const unbounded =
-				beyondBound(
-					"timeoutMs",
-					params.timeoutMs,
-					MAX_WAIT_MS,
-					"Wait in steps, looking at the page between them.",
-				) ??
-				beyondBound(
-					"ms",
-					params.ms,
-					MAX_WAIT_MS,
-					"Wait in steps, or for the condition that ends the wait.",
-				) ??
-				beyondBound(
-					"holdMs",
-					params.holdMs,
-					MAX_WAIT_MS,
-					"No page needs a longer press.",
-				);
-			if (unbounded) return refusal(name, kind, unbounded);
+		if (kind === "wait") {
+			const built = buildCondition(params);
+			if ("error" in built) return refusal(name, kind, built.error);
+			const session = await registry.acquire(name);
+			const outcome = await session.waitFor(built.condition, params.timeoutMs);
+			return answer(
+				name,
+				kind,
+				`${renderWait(outcome)}\n\n${await settledPageView(session)}`,
+			);
+		}
 
-			// Every kind is traceable, because every kind is a way of
-			// making the page do something. Bracketing here rather than
-			// in each branch keeps one recording per call and means the
-			// permit cannot be left behind on a path that returns early.
-			return registry.use(name, signal, async () => {
-				if (profiles.profiles.length > 0) {
-					const session = await registry.acquire(name);
-					const recorded = await session.recordWhile(profiles.profiles, () =>
-						act(),
-					);
-					return withTrace(recorded.result, recorded.trace, recorded.refusal);
-				}
-				return act();
-			});
-
-			async function act(): Promise<AgentToolResult<BrowserDetails>> {
-				if (kind === "eval") {
-					if (!params.expression) {
-						return refusal(
-							name,
-							kind,
-							"eval needs an expression, e.g. 'document.title'.",
-						);
-					}
-					const session = await registry.acquire(name);
-					const outcome = await session.evaluate(params.expression);
-					return answer(name, kind, renderEvaluation(outcome));
-				}
-
-				if (kind === "wait") {
-					const built = buildCondition(params);
-					if ("error" in built) return refusal(name, kind, built.error);
-					const session = await registry.acquire(name);
-					const outcome = await session.waitFor(
-						built.condition,
-						params.timeoutMs,
-					);
-					return answer(
-						name,
-						kind,
-						`${renderWait(outcome)}\n\n${await settledPageView(session)}`,
-					);
-				}
-
-				if (kind === "press") {
-					if (!params.keys) {
-						return refusal(name, kind, "press needs keys, e.g. 'Ctrl+Enter'.");
-					}
-					const session = await registry.acquire(name);
-					const result = await session.press(params.keys);
-					if ("refusal" in result) {
-						const { message, candidates } = result.refusal;
-						return refusal(
-							name,
-							kind,
-							candidates.length > 0
-								? `${message} Did you mean ${candidates.join(", ")}?`
-								: message,
-						);
-					}
-					return answer(
-						name,
-						kind,
-						`Pressed ${result.pressed.join(", then ")}.\n\n` +
-							`${await settledPageView(session)}`,
-					);
-				}
-
-				if (kind === "input") {
-					const session = await registry.acquire(name);
-					const done = await runGesture(session, params);
-					if ("error" in done) return refusal(name, kind, done.error);
-					return answer(
-						name,
-						kind,
-						`${done.did}\n\n${await settledPageView(session)}`,
-					);
-				}
-
-				// A name is not required. The outline writes a control that
-				// has no accessible name as its role alone, and demanding a
-				// name here made every one of them unreachable except by
-				// coordinates, which is the escape hatch and not the way in.
-				if (!params.action || !params.role) {
-					return refusal(
-						name,
-						kind,
-						"act needs an action and a role, plus the accessible " +
-							"name when the element has one. To send keys without " +
-							"naming an element, use kind 'press'.",
-					);
-				}
-
-				const action = buildAction({
-					...params,
-					action: params.action,
-					role: params.role,
-					name: params.name,
-				});
-				if (!action) {
-					const needs =
-						params.action === "select"
-							? "the option to choose in"
-							: params.action === "upload"
-								? "the paths to put on"
-								: "the text to enter into";
-					return refusal(
-						name,
-						kind,
-						`action '${params.action}' needs ${needs} ` +
-							`${describeTarget({ role: params.role, name: params.name })}.`,
-					);
-				}
-
-				const session = await registry.acquire(name);
-				const result = await session.act(action);
-				if (!result.ok) {
-					if ("blocked" in result) {
-						return refusal(
-							name,
-							kind,
-							`Waited ${result.blocked.waitedMs}ms but ` +
-								`${describeTarget({ role: params.role, name: params.name })} ` +
-								`never became ready: ${result.blocked.blocker}.`,
-						);
-					}
-					return refusal(
-						name,
-						kind,
-						describeRefusal(action.target, result.refusal),
-					);
-				}
-				const view = await settledPageView(session);
-				// Say when the page kept the caller waiting, so a slow
-				// interaction is visible rather than merely felt.
-				return answer(
+		if (kind === "press") {
+			if (!params.keys) {
+				return refusal(name, kind, "press needs keys, e.g. 'Ctrl+Enter'.");
+			}
+			const session = await registry.acquire(name);
+			const result = await session.press(params.keys);
+			if ("refusal" in result) {
+				const { message, candidates } = result.refusal;
+				return refusal(
 					name,
 					kind,
-					result.waitedMs
-						? `Waited ${result.waitedMs}ms for it to be ready.\n\n${view}`
-						: view,
+					candidates.length > 0
+						? `${message} Did you mean ${candidates.join(", ")}?`
+						: message,
 				);
 			}
-		},
-	});
+			return answer(
+				name,
+				kind,
+				`Pressed ${result.pressed.join(", then ")}.\n\n` +
+					`${await settledPageView(session)}`,
+			);
+		}
+
+		if (kind === "input") {
+			const session = await registry.acquire(name);
+			const done = await runGesture(session, params);
+			if ("error" in done) return refusal(name, kind, done.error);
+			return answer(
+				name,
+				kind,
+				`${done.did}\n\n${await settledPageView(session)}`,
+			);
+		}
+
+		// A name is not required. The outline writes a control that
+		// has no accessible name as its role alone, and demanding a
+		// name here made every one of them unreachable except by
+		// coordinates, which is the escape hatch and not the way in.
+		if (!params.action || !params.role) {
+			return refusal(
+				name,
+				kind,
+				"act needs an action and a role, plus the accessible " +
+					"name when the element has one. To send keys without " +
+					"naming an element, use kind 'press'.",
+			);
+		}
+
+		const action = buildAction({
+			...params,
+			action: params.action,
+			role: params.role,
+			name: params.name,
+		});
+		if (!action) {
+			const needs =
+				params.action === "select"
+					? "the option to choose in"
+					: params.action === "upload"
+						? "the paths to put on"
+						: "the text to enter into";
+			return refusal(
+				name,
+				kind,
+				`action '${params.action}' needs ${needs} ` +
+					`${describeTarget({ role: params.role, name: params.name })}.`,
+			);
+		}
+
+		const session = await registry.acquire(name);
+		const result = await session.act(action);
+		if (!result.ok) {
+			if ("blocked" in result) {
+				return refusal(
+					name,
+					kind,
+					`Waited ${result.blocked.waitedMs}ms but ` +
+						`${describeTarget({ role: params.role, name: params.name })} ` +
+						`never became ready: ${result.blocked.blocker}.`,
+				);
+			}
+			return refusal(
+				name,
+				kind,
+				describeRefusal(action.target, result.refusal),
+			);
+		}
+		const view = await settledPageView(session);
+		// Say when the page kept the caller waiting, so a slow
+		// interaction is visible rather than merely felt.
+		return answer(
+			name,
+			kind,
+			result.waitedMs
+				? `Waited ${result.waitedMs}ms for it to be ready.\n\n${view}`
+				: view,
+		);
+	}
 }
 
 /**

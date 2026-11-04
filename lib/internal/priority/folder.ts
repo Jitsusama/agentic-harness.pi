@@ -274,10 +274,12 @@ export interface QueueFolder {
 	/**
 	 * Gives up what has ended, starts the next job that fits, and writes
 	 * queue.json when it changed or its heartbeat is due. Nothing when
-	 * another session is keeping it at this moment.
+	 * another session is keeping it at this moment. Given as a function,
+	 * the machine is read only once this session keeps it: a reading
+	 * walks every process, and every session keeps every two seconds.
 	 */
 	keep(
-		reading: Reading,
+		reading: Reading | (() => Reading),
 		now: number,
 		cgroupFor: (job: Job) => string | undefined,
 	): void;
@@ -584,11 +586,12 @@ export function queueFolder(
 			}
 		},
 
-		keep(reading, now, cgroupFor) {
+		keep(read, now, cgroupFor) {
 			ensure();
 			locked(now, () => {
 				// A session on older rules leaves turns to a newer one.
 				if (!mayKeep(dir, version, now)) return;
+				const reading = typeof read === "function" ? read() : read;
 				const standing = noteBeside(
 					jobs()
 						.filter((job) => {

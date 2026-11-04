@@ -254,7 +254,7 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 			const now = Date.now();
 			try {
 				if (folder.hasJobs() || folder.isDue(now)) {
-					folder.keep(room(), now, cgroupFor);
+					folder.keep(room, now, cgroupFor);
 				}
 			} catch {
 				// A folder that can't be kept this time is kept on the next.

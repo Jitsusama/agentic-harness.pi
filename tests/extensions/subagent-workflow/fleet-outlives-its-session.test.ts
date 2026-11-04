@@ -149,23 +149,33 @@ function aboutFleets(line: string): boolean {
 	return /fleet-\d/.test(line) || line.includes("from sessions that ended");
 }
 
+/** What a conversation holds before this start: nothing yet, or what it said. */
+const NEW: readonly { type: string }[] = [];
+const CAME_BACK: readonly { type: string }[] = [{ type: "message" }];
+
 /**
  * Start the session the way pi starts one, as this conversation, and
- * hand back what it told the model.
+ * hand back what it told the model. Given its entries, the session
+ * says what it holds already, as pi's does.
  */
 async function startSession(
 	session?: string,
+	entries?: readonly { type: string }[],
 ): Promise<{ customType: string; content: unknown }[]> {
 	const stub = activateWith(subagentWorkflow);
 	const started = stub.lifecycle.get("session_start");
 	if (started === undefined) {
 		throw new Error("the extension registered no session_start on pi.on");
 	}
+	const manager = {
+		...(session !== undefined ? { getSessionId: () => session } : {}),
+		...(entries !== undefined ? { getEntries: () => [...entries] } : {}),
+	};
 	await started(
 		{ reason: "startup" },
-		session === undefined
+		Object.keys(manager).length === 0
 			? screen
-			: { ...screen, sessionManager: { getSessionId: () => session } },
+			: { ...screen, sessionManager: manager },
 	);
 	return stub.sent;
 }
@@ -397,13 +407,11 @@ describe("the fleet retention sweep", () => {
 		});
 		const transcripts = staleFleet("fleet-orphan");
 		await age(transcripts);
-
-		await startSession();
-
 		// Waited on the other one going, so this is not merely a sweep
 		// that had not started yet.
 		const other = staleFleet("fleet-nobody-recorded");
 		await age(other);
+
 		await startSession();
 		await vi.waitFor(() => expect(existsSync(other)).toBe(false));
 		expect(existsSync(transcripts)).toBe(true);
@@ -594,6 +602,54 @@ describe("the fleet retention sweep", () => {
 		expect(said.filter(aboutFleets)).toEqual([]);
 	});
 
+	it("is swept by the first start in a window, though a conversation come back is told", async () => {
+		// Every start swept the whole machine's fleets, reading each
+		// record and every run's streams to find what the start before
+		// had just found: 2,048 records and 405 runs on 4 November, about
+		// half a second of CPU at every start. The first start in a window
+		// sweeps for the machine; a conversation that came back still
+		// hears of its own cut-off fleets, since only it can be told.
+		const opens = holdTheClock();
+		const ledger = createFleetLedger(stateDir("fleets"));
+		await ledger.open({
+			id: "fleet-done",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+		});
+		await ledger.settle("fleet-done");
+		const first = staleFleet("fleet-done");
+		await age(first);
+		await startSession("conversation-new", NEW);
+		await vi.waitFor(() => expect(existsSync(first)).toBe(false));
+
+		await ledger.open({
+			id: "fleet-later",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+		});
+		await ledger.settle("fleet-later");
+		const later = staleFleet("fleet-later");
+		await age(later);
+		await ledger.open({
+			id: "fleet-0",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+			session: "conversation-a",
+			owner: { pid: noSuchProcess(), startedAt: 1_000 },
+		});
+		vi.setSystemTime(opens + 60_000);
+		const told = await startSession("conversation-a", CAME_BACK);
+		await vi.waitFor(() => expect(told).toHaveLength(1));
+		await vi.waitFor(async () =>
+			expect((await recordOf("fleet-0"))?.cutOff?.told).toBe(true),
+		);
+		expect(existsSync(later)).toBe(true);
+
+		vi.setSystemTime(opens + DAY_MS);
+		await startSession("conversation-next", NEW);
+		await vi.waitFor(() => expect(existsSync(later)).toBe(false));
+	});
+
 	it("agrees with itself when sessions start together", async () => {
 		// Several sessions at once after a reboot is the ordinary case.
 		// Each cuts off what it proves gone, and none can undo another:
@@ -668,7 +724,8 @@ describe("the fleet retention sweep", () => {
 		// The other half of counting what was held. Five open records
 		// with no transcripts behind them is five fleets whose
 		// dispatches never got as far as writing anything, and there is
-		// nothing there to go and look at.
+		// nothing there to go and look at. The sweep taking another
+		// fleet is what says it has decided.
 		const ledger = createFleetLedger(stateDir("fleets"));
 		for (let n = 0; n < 5; n++) {
 			await ledger.open({
@@ -677,11 +734,9 @@ describe("the fleet retention sweep", () => {
 				jobs: ["one"],
 			});
 		}
-
-		await startSession();
-
 		const transcripts = staleFleet("fleet-swept");
 		await age(transcripts);
+
 		await startSession();
 		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
 		expect(said).toEqual([]);

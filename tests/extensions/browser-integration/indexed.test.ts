@@ -65,7 +65,7 @@ describe("every kind is written down somewhere", () => {
 
 	for (const tool of TOOLS) {
 		it(`documents every kind browser_${tool} offers`, () => {
-			const source = read(`extensions/browser-integration/${tool}.ts`);
+			const source = read(`extensions/browser-integration/${tool}-tool.ts`);
 			const kinds = kindsOf(source);
 			// A tool with no kinds would make this vacuous, and one of
 			// these growing a union is exactly when the gate matters.

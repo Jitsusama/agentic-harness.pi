@@ -111,12 +111,20 @@ function readsPerParam(
 describe("browser tool parameter descriptions", () => {
 	for (const tool of TOOLS) {
 		it(`names every kind that reads a parameter in browser_${tool}`, () => {
+			// The words are where the tool registers, the reads where it runs.
+			const words = readFileSync(
+				join("extensions", "browser-integration", `${tool}-tool.ts`),
+				"utf-8",
+			);
 			const source = readFileSync(
 				join("extensions", "browser-integration", `${tool}.ts`),
 				"utf-8",
 			);
-			const described = describedParams(source);
+			const described = describedParams(words);
 			const reads = readsPerParam(source, branches(source));
+			// Neither half may be empty, or the check passes on nothing.
+			expect(described.size).toBeGreaterThan(0);
+			expect(reads.size).toBeGreaterThan(0);
 
 			const silent: string[] = [];
 			for (const [param, kinds] of reads) {
@@ -151,9 +159,10 @@ describe("browser tool parameter descriptions", () => {
 			// that way, among them 'depth' and 'only', which do nothing
 			// on most of the kinds that accept them.
 			const source = readFileSync(
-				join("extensions", "browser-integration", `${tool}.ts`),
+				join("extensions", "browser-integration", `${tool}-tool.ts`),
 				"utf8",
 			);
+			expect(describedParams(source).size).toBeGreaterThan(0);
 
 			const vague: string[] = [];
 			for (const [param, description] of describedParams(source)) {

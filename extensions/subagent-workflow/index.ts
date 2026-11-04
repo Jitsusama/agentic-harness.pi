@@ -154,6 +154,15 @@ const FLEET_RUNS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // and read them, and then it goes the way of any finished fleet.
 const FLEET_RUNS_ABANDONED_AFTER_MS = 4 * FLEET_RUNS_MAX_AGE_MS;
 /**
+ * How often the machine's fleets are swept, by the first session start
+ * in each window. Every start swept them all, reading every ledger
+ * record and every run's streams to find what the start before it had
+ * just found: 2,048 records and 405 runs on 4 November, about half a
+ * second of CPU at each start. What the sweep keeps is counted in days,
+ * so a window of minutes changes nothing it decides.
+ */
+const FLEET_SWEEP_WINDOW_MS = 5 * 60 * 1000;
+/**
  * A note earlier versions kept of the abandoned fleets they had
  * named, removed wherever it is found.
  *
@@ -226,6 +235,27 @@ async function ourOwner(): Promise<FleetRun["owner"]> {
 
 /** What {@link ourOwner} has settled on, once it has. */
 let waiting: FleetRun["owner"] | undefined;
+
+/**
+ * Whether this context's conversation said anything before this start,
+ * as a restored one did. Only such a conversation can have dispatched a
+ * fleet that was cut off. A context that can't say counts as one, so it
+ * is told what it may be owed.
+ */
+function cameBack(ctx: { sessionManager?: unknown }): boolean {
+	try {
+		const manager = ctx.sessionManager as
+			| { getEntries?: () => readonly { type: string }[] }
+			| undefined;
+		const entries = manager?.getEntries?.();
+		return entries === undefined
+			? true
+			: entries.some((entry) => entry.type === "message");
+	} catch {
+		// A manager that throws can't say, which counts as having come back.
+		return true;
+	}
+}
 
 /**
  * The pi session this context belongs to, when it says.
@@ -369,6 +399,8 @@ async function stopOrphanedSubagents(runs: string, say: Aside): Promise<void> {
 interface Conversation {
 	/** Its pi session id, when pi says. */
 	readonly session: string | undefined;
+	/** Whether it said anything before this start (see {@link cameBack}). */
+	readonly cameBack: boolean;
 	/** Tell the model in it something, out of the person's way. */
 	readonly tell: (content: string) => void;
 }
@@ -389,6 +421,11 @@ async function sweepFleetRuns(
 	const transcripts = join(runs, "runs");
 	const ledger = createFleetLedger(fleets);
 	try {
+		// The machine's sweep is the first start's in its window. A
+		// conversation that came back still reads the ledger, to cut off
+		// and hear of its own fleets, which nobody else can tell it of.
+		const sweeps = await firstInWindow(runs, "sweep", FLEET_SWEEP_WINDOW_MS);
+		if (!sweeps && !conversation.cameBack) return;
 		const before = await ledger.everyFleet();
 		const { unreadable } = before;
 		if (unreadable.length > 0) {
@@ -421,6 +458,10 @@ async function sweepFleetRuns(
 		// writes, and the first walk already is that one.
 		const held =
 			abandoned.length === 0 ? before.runs : (await ledger.everyFleet()).runs;
+		if (!sweeps) {
+			await tellOwnCutOffs(held, runs, ledger, conversation, say);
+			return;
+		}
 		const kept = stillHeld(
 			held,
 			new Date(Date.now() - FLEET_RUNS_ABANDONED_AFTER_MS),
@@ -525,9 +566,11 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		// Read before anything is awaited, like the paths: it is this
 		// conversation's, and its own cut-off fleets are told to it.
 		const session = sessionOf(ctx);
+		const returned = cameBack(ctx);
 		void (async () => {
 			await sweepFleetRuns(runs, fleets, say, {
 				session,
+				cameBack: returned,
 				// With the next turn, whether or not one is running when the
 				// sweep gets here: it is context for the model, not a prompt.
 				tell: (content) =>

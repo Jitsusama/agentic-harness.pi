@@ -11,27 +11,29 @@
  *
  * Sessions dispose after a stretch with no activity and again
  * at shutdown, on the hardened shared browser lifecycle, so
- * nothing leaks and nothing is closed mid-call.
+ * nothing leaks and nothing is closed mid-call. The tools load
+ * the browser engine on their first call (sessions.ts), so a
+ * start that never opens a browser does not pay for it.
  *
  * No slash command: the agent (or a subagent) drives the tools.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerCheck } from "./check.ts";
-import { registerDo } from "./do.ts";
-import { registerGo } from "./go.ts";
-import { createSessionRegistry } from "./registry.ts";
-import { registerSee } from "./see.ts";
+import { registerCheck } from "./check-tool.ts";
+import { registerDo } from "./do-tool.ts";
+import { registerGo } from "./go-tool.ts";
+import { registerSee } from "./see-tool.ts";
+import { lazySessions } from "./sessions.ts";
 
 export default function browserIntegration(pi: ExtensionAPI) {
-	const registry = createSessionRegistry();
+	const { sessions, disposeAll } = lazySessions();
 
 	pi.on("session_shutdown", async () => {
-		await registry.disposeAll();
+		await disposeAll();
 	});
 
-	registerGo(pi, registry);
-	registerSee(pi, registry);
-	registerDo(pi, registry);
-	registerCheck(pi, registry);
+	registerGo(pi, sessions);
+	registerSee(pi, sessions);
+	registerDo(pi, sessions);
+	registerCheck(pi, sessions);
 }

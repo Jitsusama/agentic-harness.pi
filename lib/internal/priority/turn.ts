@@ -170,7 +170,7 @@ export function queuedCommand(command: string, cwd?: string): string {
 	};
 	try {
 		queueing.folder.ask(job);
-		queueing.folder.keep(queueing.room(), now, queueing.cgroupFor);
+		queueing.folder.keep(queueing.room, now, queueing.cgroupFor);
 	} catch {
 		// A queue that can't be written to holds nobody's work back.
 		return command;

@@ -394,6 +394,27 @@ describe("the machine's queue folder", () => {
 		expect(existsSync(lock)).toBe(false);
 	});
 
+	it("reads the machine only when it keeps the queue", () => {
+		// Every session keeps the queue every two seconds, and a reading
+		// walks every process on the machine: 1,821 of them under 88 pi
+		// sessions on 4 November. Only the one holding the lock uses it.
+		const queue = folder();
+		queue.ask(job("first", { since: new Date().toISOString() }));
+		const lock = join(dir, "locks", "queue");
+		mkdirSync(lock, { recursive: true });
+		let readings = 0;
+		const room = () => {
+			readings += 1;
+			return ROOMY;
+		};
+		queue.keep(room, Date.now(), () => undefined);
+		expect(readings).toBe(0);
+		rmSync(lock, { recursive: true });
+		queue.keep(room, Date.now(), () => undefined);
+		expect(readings).toBe(1);
+		expect(queue.hasTurn("first")).toBe(true);
+	});
+
 	it("counts each minute a job waited with its memory free, once", () => {
 		const queue = folder();
 		// The most VMs run, so one more waits on the limit with its memory free.
