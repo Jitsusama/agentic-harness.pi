@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	hyperlink,
+	ScrollView,
 	type Terminal,
 	Text,
 	TuiAltScreen,
+	VStack,
 } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -139,6 +141,55 @@ describe("a plain click on pi's fullscreen", () => {
 		terminal.click(link.x, link.y);
 		await until("the link opened", () => opened.length === 1);
 		expect(opened).toEqual(["https://example.com/docs"]);
+	});
+
+	it("leaves a click on the prompt being typed to the prompt", async () => {
+		// pi's fullscreen: the transcript scrolls, the dock under it does not.
+		const transcript = new ScrollView(
+			new Text("said https://example.com/said", 1, 0),
+			{ primary: true },
+		);
+		const prompt = new Text("typing https://example.com/typed", 1, 0);
+		tui.setLayoutRoot(
+			new VStack([
+				{ component: transcript, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+				{ component: prompt, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
+			]),
+		);
+		tui.start();
+		const typed = await terminal.cellOf("example.com/typed");
+		terminal.click(typed.x, typed.y);
+		const said = await terminal.cellOf("example.com/said");
+		terminal.click(said.x, said.y);
+		await until("the last click opened", () => opened.length > 0);
+		expect(opened).toEqual(["https://example.com/said"]);
+	});
+
+	it("leaves a click to an open overlay", async () => {
+		show("see https://example.com/under");
+		const picker = tui.showOverlay(new Text("a picker", 1, 0), {
+			anchor: "bottom-center",
+			width: 20,
+		});
+		await terminal.cellOf("a picker");
+		const under = await terminal.cellOf("example.com/under");
+		terminal.click(under.x, under.y);
+		picker.hide();
+		await until("the picker gone", async () => {
+			await new Promise<void>((resolve) =>
+				terminal.emulator.write("", resolve),
+			);
+			const buffer = terminal.emulator.buffer.active;
+			for (let y = 0; y < ROWS; y++) {
+				const row = buffer.getLine(buffer.viewportY + y)?.translateToString();
+				if (row?.includes("a picker")) return false;
+			}
+			return true;
+		});
+		expect(opened).toEqual([]);
+		terminal.click(under.x, under.y);
+		await until("the click opened", () => opened.length > 0);
+		expect(opened).toEqual(["https://example.com/under"]);
 	});
 
 	it("opens nothing for a drag, a right click or a plain word", async () => {

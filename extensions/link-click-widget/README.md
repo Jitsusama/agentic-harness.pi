@@ -27,12 +27,19 @@ pi's own opener (`xdg-open`, `open` on macOS) takes it from there, so
 a markdown file opens in its reader and anything else in its default
 program. A link pi drew itself is pi's to open, as before.
 
+It answers clicks in the transcript alone. pi opens a click's link
+before the component under it hears the click, so a link read in the
+prompt being typed would open where the click should place the
+cursor, and one read under a picker would open where the click should
+choose. A click there, or anywhere while an overlay is open, stays
+pi's.
+
 ## How It Works
 
 pi-tui offers no way to add to what a click opens, so its press is
 wrapped once, on the prototype, in `lib/internal/links/press.ts`.
-After pi's own press, when pi found no link under a plain left click,
-the plain text of the screen pi last drew is read around the cell:
+After pi's own press, when pi found no link under a plain left click
+and anchored it in its transcript's scroll view, the plain text of the screen pi last drew is read around the cell:
 the clicked row, and the rows a word too long for its row was broken
 across. The widest place the clicked character falls in that names
 somewhere real becomes the link, and pi's own release opens it.

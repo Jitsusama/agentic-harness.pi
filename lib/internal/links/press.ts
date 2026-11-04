@@ -8,9 +8,17 @@
  * lands on the same cell it opens that through `openUrl` instead of
  * starting a selection. pi-tui exports no way to add to that, so this
  * wraps the method on the prototype. After pi's own press, and only
- * when pi found no link, the press was a plain left one and pi is
- * selecting by character, the resolver reads the screen and its answer
- * becomes `pressedUrl`; pi's own release then opens it. Nothing is
+ * when pi found no link, the press was a plain left one, pi is
+ * selecting by character and pi anchored the press in a scroll view,
+ * the resolver reads the screen and its answer becomes `pressedUrl`;
+ * pi's own release then opens it.
+ *
+ * The scroll view is what keeps it to the transcript. pi's release
+ * opens `pressedUrl` before it hands the click to an overlay or a
+ * component, so a link set under the prompt being typed, or under a
+ * picker, would open where the click should place the cursor or choose
+ * the item. pi anchors a press in a scroll view only when no overlay is
+ * open, and pi's fullscreen makes only its transcript one. Nothing is
  * drawn differently, so what a selection copies and what the model
  * sees are untouched, and the cost is one read of the screen a click.
  *
@@ -102,6 +110,7 @@ function answer(tui: unknown, event: unknown, resolve: PressResolver): void {
 	if (Reflect.get(tui, "selectionGranularity") !== "character") return;
 	if (!("pressedUrl" in tui) || Reflect.get(tui, "pressedUrl") !== undefined)
 		return;
+	if (!anchorsInScrollView(Reflect.get(tui, "selectionAnchor"))) return;
 	const x = clamp(event.x, terminal.columns);
 	const y = clamp(event.y, terminal.rows);
 	const url = resolve(screen, x, y, terminal.columns);
@@ -125,6 +134,16 @@ function isPlainLeftPress(event: unknown): event is MouseReport {
 		Reflect.get(event, "release") === false &&
 		typeof Reflect.get(event, "x") === "number" &&
 		typeof Reflect.get(event, "y") === "number"
+	);
+}
+
+/** Whether pi anchored the press inside a scroll view: its transcript, with no overlay open. */
+function anchorsInScrollView(anchor: unknown): boolean {
+	return (
+		typeof anchor === "object" &&
+		anchor !== null &&
+		typeof Reflect.get(anchor, "scrollView") === "object" &&
+		Reflect.get(anchor, "scrollView") !== null
 	);
 }
 
