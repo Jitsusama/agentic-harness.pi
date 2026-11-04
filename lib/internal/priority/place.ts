@@ -124,13 +124,14 @@ export function shellMovesItself(path: string): string | undefined {
 }
 
 /**
- * `command`, moving its shell into jobs first while children go there,
- * and waiting for its turn in the machine's queue when it is heavy work.
+ * `command`, run in `cwd`, moving its shell into jobs first while
+ * children go there, and waiting for its turn in the machine's queue
+ * when it is heavy work.
  */
-export function placedCommand(command: string): string {
+export function placedCommand(command: string, cwd?: string): string {
 	const target = placementTarget();
 	const move = target ? shellMovesItself(target) : undefined;
-	const queued = queuedCommand(command);
+	const queued = queuedCommand(command, cwd);
 	return move ? `${move}\n${queued}` : queued;
 }
 

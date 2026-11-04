@@ -8,7 +8,7 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { queueFolder } from "../../../../lib/internal/priority/folder.ts";
@@ -135,6 +135,55 @@ describe("heavy work waiting for its turn", () => {
 			["nix build .#tool", "build"],
 			["nix flake check --keep-going", "vm-check"],
 		]);
+	});
+
+	it("asks a walk of World's objects from the folder it runs in, held to 6 GiB", () => {
+		// A walk's own scope is charged only the pages it read in first, so
+		// what it was seen to hold says little of the packs it maps.
+		const outcomes = join(root, "outcomes.jsonl");
+		const ran = new Date().toISOString();
+		keepOutcome(outcomes, {
+			...outcomeOf(
+				{
+					id: "before",
+					kind: "world-walk",
+					what: "git push origin x",
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+					ownPeakBytes: 0.5 * 1024 ** 3,
+				},
+				Date.now() + 300_000,
+				0,
+			),
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				outcomes,
+			),
+			session: "session-a",
+			pid: process.pid,
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+		});
+		const world = join(homedir(), "world", "trees", "w-main", "src");
+		expect(queuedCommand("git push origin x", join(homedir(), "src"))).toBe(
+			"git push origin x",
+		);
+		expect(jobIds()).toEqual([]);
+		queuedCommand("git push origin x", world);
+		const [id] = jobIds();
+		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		expect(job).toMatchObject({
+			kind: "world-walk",
+			what: "git push origin x",
+			needsGib: 6,
+		});
+		expect(job.planning).toBeUndefined();
+		expect(job.quick).toBeUndefined();
 	});
 
 	it("asks for the memory its whole step needs, past where its name is cut", () => {

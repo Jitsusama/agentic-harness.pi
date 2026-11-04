@@ -24,6 +24,7 @@ import {
 	VM_SETTLE_MS,
 	VM_SPREAD_MS,
 	VM_STEADY_MS,
+	WALKS_AT_ONCE,
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
@@ -1013,5 +1014,136 @@ describe("the room left", () => {
 		);
 		expect(roomSaid({ vms: 1, builds: 0 })).toBe("1 more VM test");
 		expect(roomSaid({ vms: 0, builds: 0 })).toBe("");
+	});
+});
+
+describe("a walk of World's objects", () => {
+	const home = "/home/j";
+	const tree = `${home}/world/trees/w-main/src`;
+	const inWorld = { cwd: tree, home };
+	const elsewhere = { cwd: `${home}/src/core.nix`, home };
+
+	it("reads git's object walks run in a World checkout as a walk", () => {
+		// 11-04, 08:04 to 08:22: six OOM kills while 3 to 5 of these ran at
+		// once from different sessions' World trees, each mapping 3 to 6 GB
+		// of packs, with no turn.
+		for (const walking of [
+			"git push delta HEAD:refs/heads/x",
+			"timeout 3600 git push --force-with-lease origin x > $L 2>&1",
+			"git fetch origin main",
+			"git pull --rebase",
+			"git gc --auto",
+			"git repack -ad",
+			"git rev-list --objects --all | git pack-objects --stdout > p.pack",
+			"git -c core.askPass=true fetch delta",
+		]) {
+			expect(kindOf(walking, inWorld), walking).toBe("world-walk");
+		}
+		expect(kindOf("git push", { cwd: `${home}/world`, home })).toBe(
+			"world-walk",
+		);
+	});
+
+	it("reads a walk against World from wherever the command names it", () => {
+		for (const walking of [
+			"git -C ~/world/trees/w-main/src push origin x",
+			`git -C ${tree} fetch`,
+			"git -C $HOME/world/trees/a/src -C ../../b/src push",
+			"cd ~/world/trees/w-main/src && git push",
+			"T=$HOME/world/trees/a/src; cd $T && git fetch origin",
+			"git clone ~/world/git /tmp/copy",
+			"git fetch file:///home/j/world/git main",
+			"git --git-dir=/home/j/world/git fetch origin",
+		]) {
+			expect(kindOf(walking, elsewhere), walking).toBe("world-walk");
+		}
+		// Named outright, it needs no folder to be read from.
+		expect(kindOf("cd ~/world/trees/a/src && git push", { home })).toBe(
+			"world-walk",
+		);
+		// The step said is the walk, not the `cd` before it.
+		expect(
+			whatOf("cd ~/world/trees/a/src && timeout 3600 git push origin x"),
+		).toBe("timeout 3600 git push origin x");
+		// A build in the same call takes the turn as a build.
+		expect(kindOf("git push && nix build .#tool", inWorld)).toBe("build");
+		expect(whatOf("git push && nix build .#tool")).toBe("nix build .#tool");
+	});
+
+	it("leaves every other repo's git, and git's reads of history, alone", () => {
+		for (const other of [
+			"git push",
+			"git fetch origin main",
+			"cd ~/src/dotfiles && git pull",
+		]) {
+			expect(kindOf(other, elsewhere), other).toBeUndefined();
+		}
+		expect(kindOf("cd ~/src/core.nix && git push", inWorld)).toBeUndefined();
+		for (const reading of [
+			"git log --oneline -20",
+			"git diff origin/main",
+			"git rev-parse HEAD",
+			"git rev-list --objects HEAD | wc -l",
+			"git status",
+			"git -c push.default=current status",
+			"git log --grep push",
+			"echo git push",
+			"gh pr create --title 'git push it'",
+			"rg 'git fetch' scripts",
+		]) {
+			expect(kindOf(reading, inWorld), reading).toBeUndefined();
+		}
+	});
+
+	it("holds a walk to 6 GiB", () => {
+		expect(
+			needsGibOf(job("walk", { kind: "world-walk", what: "git push" })),
+		).toBe(6);
+		expect(needsGibOfCommand("world-walk", "cd x && git push")).toBe(6);
+	});
+
+	it("runs at most two at once, whatever memory reads, and lets others past", () => {
+		const long = startedAgo(RAMP_MS + 60_000);
+		const walk = (id: string, over: Partial<Job> = {}) =>
+			job(id, { kind: "world-walk", what: "git push", ...over });
+		const running = [
+			walk("one", { started: long }),
+			walk("two", { started: long }),
+		];
+		const jobs = [
+			...running,
+			walk("third", { since: startedAgo(9_000) }),
+			job("build", { since: startedAgo(8_000) }),
+		];
+		const plenty = { ...ROOMY, availableGib: 100 };
+
+		expect(WALKS_AT_ONCE).toBe(2);
+		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("build");
+		expect(Object.fromEntries(waitReasons(jobs, plenty, NOW))).toEqual({
+			third: "walks",
+			build: "order",
+		});
+		// With one of them done, the next starts.
+		const after = jobs.filter((one) => one.id !== "two");
+		expect(nextTurn(after, plenty, NOW)?.id).toBe("third");
+		expect(waitReasons(after, plenty, NOW).get("third")).toBe("order");
+	});
+
+	it("waits on memory like any job when its 6 GiB isn't free", () => {
+		const jobs = [job("walk", { kind: "world-walk", what: "git fetch" })];
+		const tight = { ...ROOMY, availableGib: 5 };
+		expect(nextTurn(jobs, tight, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, tight, NOW).get("walk")).toBe("memory");
+	});
+
+	it("isn't a build, so it never waits for a VM check or a builder being lent", () => {
+		const jobs = [
+			job("check", { kind: "vm-check", started: startedAgo(RAMP_MS + 60_000) }),
+			job("beside", { started: startedAgo(RAMP_MS + 60_000) }),
+			job("walk", { kind: "world-walk", what: "git push" }),
+		];
+		const lending = { ...ROOMY, lendingSince: NOW - 10_000 };
+		expect(nextTurn(jobs, lending, NOW)?.id).toBe("walk");
+		expect(nextTurn(jobs, lending, NOW)?.capped).toBeUndefined();
 	});
 });
