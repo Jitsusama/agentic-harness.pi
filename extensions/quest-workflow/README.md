@@ -27,10 +27,13 @@ shipped and tested.
   Priority could not say this: 14 quests sat at driving on 25
   October when one lab's builds were to go ahead.
 - **Structural edits**: `reparent` (single or comma-
-  separated batch), bulk `conclude` / `retire` (triggered
-  by a comma-separated `id` set), and `undo`. All
+  separated batch), the `conclude` / `retire` sweep (an
+  `id` naming quests not loaded here), and `undo`. All
   structural edits are atomic and journalled so `undo` can
-  reverse them. `reparent` and the sweep take a `dryRun`
+  reverse them, but for the sweep's removal of each quest's
+  scratch folder: its `undo` restores status and priority
+  only, and both its answer and its dry run name each
+  folder that goes. `reparent` and the sweep take a `dryRun`
   preview; `undo` has none, and given one it refuses and
   says what it would reverse. Every session shares the one
   journal, and each entry says whose it is, so `undo`

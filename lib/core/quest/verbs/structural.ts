@@ -167,8 +167,10 @@ export function reparent(
 /**
  * Bulk conclude or retire an explicit comma-separated id set.
  * Atomic on any missing target, dry-run previewable, journalled
- * for undo. Unlike the single-quest conclude, this does not
- * prune trees: it is a lightweight, reversible status sweep.
+ * for undo, which restores status and priority. Unlike the
+ * single-quest conclude, this does not prune trees. The harness
+ * removes each quest's scratch folder after it, which undo never
+ * brings back.
  */
 export function bulkConcludeOrRetire(
 	state: QuestState,

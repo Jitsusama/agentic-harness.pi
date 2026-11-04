@@ -12,6 +12,13 @@
  * session pi hasn't saved yet, a new one `quest spawn` starts, can go
  * too (core.nix #1544).
  *
+ * "taken" says the shell has the session queued, not that it opened:
+ * on 2026-11-04 the shell logged both of two spawns 0.4 s apart and
+ * dropped the second from its queue (CFGMMW's finding to Y2YBTS
+ * [8a90c5ca]). Each hand-over is its own call with its own argument, so
+ * two at once never share one; a spawn whose session never takes its
+ * first words is caught by quest-workflow's first-turn-watch.ts.
+ *
  * Every one goes with `focus: false`, its quest and the session that
  * asked (`from`), so the launcher opens it without taking focus or
  * switching workspace, where its quest's sessions are, else beside the
