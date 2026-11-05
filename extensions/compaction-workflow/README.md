@@ -97,6 +97,61 @@ first calls it off.
 Under one-hour retention only: at five minutes this would compact every
 pause for coffee.
 
+Warming, below, comes first. While it runs, idle compaction waits; once
+it ends with the session still idle, idle compaction falls due five
+minutes before the last warm's refresh expires.
+
+## Warming While Idle
+
+Sessions run with `PI_CACHE_RETENTION=long`, so the cache entry a turn
+writes lives an hour from its last use. A session left longer than
+that writes its whole prompt again on the next turn, at twice the input
+price. From the spend ledger, 2026-10-29 to 11-05, those misses on
+sessions that came back within five hours cost about $632 more than
+reading the same prompts would have.
+
+So once a run settles, `warm.ts` sends the session's last request again
+with `max_tokens: 1`, 54 minutes after it went out (nine tenths of the
+hour) and every 54 minutes after a warm, at most four times. A warm
+reads the prompt from cache, which refreshes the entry for another hour
+at the read price, a twentieth of a write: about $0.04 for 188k tokens
+of Opus 5.5.
+
+- **What is sent:** the request as `before_provider_request` saw it for
+  the session's own last turn (pi's `context` event marks those), and
+  the headers `before_provider_headers` assembled for it, through
+  `ctx.modelRegistry.streamSimple`. That is pi's own model runtime, so
+  the base URL, credentials and provider routing are resolved as they
+  were for the turn, and credentials never pass through the workflow.
+  The headers stay in memory. The reply joins nothing.
+- **What stops it:** anything real. A typed prompt, a run starting, a
+  compaction (under way when a warm falls due, or landed), a model or
+  thinking change, moving in the session tree, a reload, a shutdown,
+  or another session starting. A timer that runs so late that the
+  entry has probably expired (three minutes past due, as after the
+  laptop slept) gives up rather than pay for a full write.
+- **The safety stop:** a warm that writes more than 2,000 tokens to the
+  cache did not find its prefix there. Warming that session stops and
+  a `compaction-cache-warm-stopped` entry says why, as it does for a
+  warm that fails twice or a timer that ran too late.
+- **What it costs, in the ledger:** each warm is a
+  `compaction-cache-warm` custom entry carrying its model, usage and
+  cost, the shape the spend ledger reads as a side call, so `spend`
+  counts it.
+- **What it warms:** only a request on the Anthropic messages API that
+  asked for an hour's cache, with adaptive thinking or none.
+  Budget-based thinking keys the cache on a budget that follows the
+  output cap, so a one-token replay would miss it. Five-minute entries
+  are pi's own warmer's: it weighs each warm, and stops thirty minutes
+  after the last request, which for an hour's entry is before its first
+  warm would fall due, so it never warms these.
+- **What it tells the summariser:** a warm moves the conversation
+  provider's idea of when its cache was last used, so a compaction
+  after hours of warming still summarises from the cache.
+
+Interactive and RPC sessions only, since a subagent ends with its run.
+`/compaction-status` says what warming is doing.
+
 ## Interrupt, Trigger, Resume
 
 pi's `compact()` aborts the run in progress and does not continue it.
@@ -427,12 +482,21 @@ and keeps sessions its own way:
 - `PI_CACHE_RETENTION=long` is what compacting while idle runs under.
 - `PI_COMPACTION_KEEP_REQUEST=off` keeps no request on disk across a
   restart.
+- `compaction.warmWhileIdle`, in the package config at
+  `~/.config/pi/agentic-harness.pi/config.json`, switches warming while
+  idle off when `false`; it is on by default, and read before every
+  warm, so switching it off stops a warming already under way:
+
+  ```json
+  { "sections": { "compaction": { "warmWhileIdle": false } } }
+  ```
 
 ## Files
 
 - `index.ts`: registration, the `turn_end` decision and the idle
   compaction.
 - `idle.ts`: the timer that waits out an idle session.
+- `warm.ts`: warming an idle session's cache, and what stops it.
 - `notice.ts`: what the user is told when a compaction fires or fails.
 - `status.ts`: the workflow's status section and `/compaction-status`.
 - `host.ts`: the provider chain, writing ahead, and the one answer to
@@ -450,4 +514,6 @@ provider contract in `lib/compaction/provider.ts` and the chain's order
 in `lib/compaction/chain.ts`, the
 back-off in `lib/compaction/failure.ts`, and the summary's instruction,
 splice and reading in `lib/compaction/summary.ts`; cache prices under
-the retention in force come from `lib/internal/cache-prices.ts`.
+the retention in force come from `lib/internal/cache-prices.ts`, and
+warming's rules (when, what may be replayed, the safety stop) from
+`lib/internal/cache-warming.ts`.

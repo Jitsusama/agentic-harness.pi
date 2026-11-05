@@ -11,8 +11,11 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export interface IdleTimer {
-	/** Wait out the idle period for this session, replacing any wait under way. */
-	start(ctx: ExtensionContext): void;
+	/**
+	 * Wait out the idle period for this session, or `delayMs` when given,
+	 * replacing any wait under way.
+	 */
+	start(ctx: ExtensionContext, delayMs?: number): void;
 	/** Stop waiting. */
 	cancel(): void;
 }
@@ -29,7 +32,7 @@ export function idleTimer(
 	};
 	return {
 		cancel,
-		start(ctx) {
+		start(ctx, wait = delayMs) {
 			cancel();
 			pending = setTimeout(() => {
 				pending = undefined;
@@ -40,7 +43,7 @@ export function idleTimer(
 				} catch {
 					// Its successor starts a wait of its own.
 				}
-			}, delayMs);
+			}, wait);
 			pending.unref?.();
 		},
 	};

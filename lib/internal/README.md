@@ -66,6 +66,9 @@ may import from here, and any of it may change without notice.
   pi's prompt path.
 - **`cache-prices.ts`**: the cache prices a compaction is weighed
   at, from the active model's own rates.
+- **`cache-warming.ts`**: the rules for keeping an idle session's
+  hour-long cache entry warm: when a warm falls due, which requests
+  may be replayed, and when a warm missed its prefix.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   windows stand, read from what the Claude Code provider says after
   each turn, and the footer's words for them.

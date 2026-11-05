@@ -116,6 +116,16 @@ const reloadHandoff = processGlobal<{
 	held?: { readonly sessionId: string; readonly sent: SentRequest };
 }>("agentic-harness.pi:compaction-summary-handoff", () => ({}));
 
+/** The provider, and how idle warming tells it the cache is still warm. */
+export interface ConversationProvider extends CompactionProvider {
+	/**
+	 * The cache entry `payload` wrote was read again at `at`, by a warm,
+	 * so it lives an hour from then. Ignored for any request but the one
+	 * held.
+	 */
+	refreshed(payload: unknown, at: number): void;
+}
+
 /**
  * Remember the last request the session sent, and write summaries of
  * that same conversation when the host asks.
@@ -123,7 +133,7 @@ const reloadHandoff = processGlobal<{
 export function conversationProvider(
 	pi: ExtensionAPI,
 	options: ConversationOptions = {},
-): CompactionProvider {
+): ConversationProvider {
 	let sent: SentRequest | null = null;
 	const keptDir = options.keptDir ?? keptRequestDir();
 	const keep = options.keep ?? keepingRequests();
@@ -168,6 +178,11 @@ export function conversationProvider(
 		id: CONVERSATION_PROVIDER_ID,
 		precedence: CONVERSATION_PRECEDENCE,
 		followsFocus: true,
+		refreshed(payload, at) {
+			if (sent && sent.payload === payload && at > sent.at) {
+				sent = { ...sent, at };
+			}
+		},
 		assess(request) {
 			const planned = plan(request, sent);
 			if (!planned.ok) return planned;
