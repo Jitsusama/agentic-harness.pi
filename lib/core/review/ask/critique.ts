@@ -13,7 +13,7 @@
  * here: it makes a weakly supported finding look corroborated.
  */
 
-import { type Ask, askRoster } from "./council.ts";
+import { type Ask, askRoster, type Warmed } from "./council.ts";
 import { participantIdentity } from "./identity.ts";
 import type { AskProgress } from "./progress.ts";
 import type { Roster } from "./roster.ts";
@@ -50,6 +50,8 @@ export interface CritiqueDeps {
 	now(): Date;
 	/** Told what is happening while it happens. Optional. */
 	progress?: AskProgress;
+	/** When the first critic's first response has begun. See `CouncilDeps`. */
+	warmed?: Warmed;
 }
 
 /** What to put to whom. */

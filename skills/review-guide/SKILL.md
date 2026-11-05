@@ -458,8 +458,11 @@ a total failure gets posted twice.
 ## Personas Are What Make Six Reviewers Worth Asking
 
 A roster entry may name a `persona`, and the charter behind it becomes
-that reviewer's system prompt. Without one, six reviewers are one
-reviewer asked six times.
+that reviewer's standing instruction: the last part of its first
+message, after the brief every reviewer is sent alike, under a system
+prompt that names it as instruction. Placed there, the rest of the
+round reads the brief from the cache the first reviewer wrote. Without
+one, six reviewers are one reviewer asked six times.
 
 Charters are markdown files in `~/.config/pi/personas` (or
 `$XDG_CONFIG_HOME/pi/personas`, or wherever `REVIEW_PERSONAS_DIR`
@@ -645,8 +648,8 @@ it has. The listing says which fields it left behind.
 And a lens the change under review edits is refused. A charter becomes
 the reviewer's standing instruction, on a child that holds bash and
 write, reading a tree pinned to the commit under review. Without that
-rule the author of a change writes the system prompt of the agent
-reviewing it. What is left is the repo's committed state, which is the
+rule the author of a change writes the standing instruction of the
+agent reviewing it. What is left is the repo's committed state, which is the
 same trust already extended to every other line in it.
 
 A malformed agent file is skipped and named rather than refusing the

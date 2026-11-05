@@ -77,6 +77,13 @@ export interface ReviewerRunRootPaths {
 	readonly runPath: string;
 	readonly cancelPath: string;
 	readonly reviewersDir: string;
+	/**
+	 * Where the briefs a run's reviewers share are kept, each named by
+	 * its content. One place for the run rather than one per reviewer,
+	 * because pi puts the file's path at the head of the message and a
+	 * path that differs per reviewer is a prefix nobody else can read.
+	 */
+	readonly briefsDir: string;
 }
 
 /** Result of appending to a capped artifact. */
@@ -182,6 +189,7 @@ export class ReviewerArtifactsStore {
 			runPath: join(runDir, "run.json"),
 			cancelPath: join(runDir, "cancel.json"),
 			reviewersDir: join(runDir, "reviewers"),
+			briefsDir: join(runDir, "briefs"),
 		};
 	}
 

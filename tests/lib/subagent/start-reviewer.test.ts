@@ -87,11 +87,13 @@ describe("starting one reviewer nobody will wait for", () => {
 			startPi: noted.startPi,
 		});
 
-		const { promptPath } = new ReviewerArtifactsStore(stateDir).paths(
-			"run",
-			"hawk",
-		);
-		expect(noted.calls[0]?.args).toContain(`@${promptPath}`);
+		// The run's one copy of the brief, which every reviewer of the
+		// round is pointed at, so their requests open with the same bytes.
+		const { briefsDir } = new ReviewerArtifactsStore(stateDir).rootPaths("run");
+		const brief = noted.calls[0]?.args.find((arg) => arg.startsWith("@"));
+		expect(brief?.startsWith(`@${briefsDir}/`)).toBe(true);
+		expect(noted.calls[0]?.args).not.toContain("x".repeat(4096));
+		expect(await readFile(brief?.slice(1) ?? "", "utf8")).toBe("x".repeat(4096));
 	});
 
 	it("carries the reviewer's model and persona through", async () => {

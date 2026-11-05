@@ -165,6 +165,11 @@ it does:
   finding for an answer an interruption then takes. It is
   offered only for the finding-shaped rounds.
 
+  `packs/shared-brief` registers no tool. It marks where the
+  brief a round's reviewers share ends, so the first
+  reviewer's cache write is one the rest can read; it is
+  loaded for any reviewer given a lens of its own.
+
   A verifier is the other kind, a tool a subagent calls to
   validate its structured output against a schema before
   finishing. None ship; the `subagent` tool's `verify` option

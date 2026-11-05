@@ -110,6 +110,15 @@ companion skill.
   "nothing to keep", and two spellings of an id mean the
   ledger and the transcripts can disagree about which run
   a record is for.
+- `brief-breakpoint.ts`: where a round's reviewers stop
+  sharing a request. Marks the end of the brief pi read
+  from `@file` for caching, so the first reviewer's write
+  is one the rest can read. Loaded into each reviewer by
+  `packs/shared-brief`, so it imports nothing.
+- `first-response.ts`: when a supervised run's first
+  response has begun, read from its event log. A round
+  starts its first reviewer alone and the rest once this
+  says so, since a cache entry is readable only from then.
 - `first-in-window.ts`: whether this session is the first
   on the machine to take a walk in the current window. A
   restart or an install starts every session at once, and

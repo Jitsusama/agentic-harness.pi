@@ -25,7 +25,10 @@ import {
 	type CouncilRequest,
 	type CouncilResult,
 	openingRun,
+	sharesRequest,
 	thrownAt,
+	type Warmed,
+	waitForWarmth,
 } from "./council.ts";
 import type { Participant } from "./identity.ts";
 import type { AskRun, ParticipantOutcome } from "./run.ts";
@@ -37,6 +40,11 @@ export interface StartDeps {
 	now(): Date;
 	/** The round exists and nobody has answered. See `CouncilDeps`. */
 	opened?(run: AskRun): Promise<void>;
+	/**
+	 * When a started participant's first response has begun. See
+	 * `CouncilDeps`; here the first participant to start goes alone.
+	 */
+	warmed?: Warmed;
 }
 
 /** What starting a round came to. */
@@ -90,13 +98,30 @@ export async function startCouncil(
 	// starting one only waits for a process to exist, and doing it in
 	// order means a spawn storm of seven models hits the machine as a
 	// queue rather than all at once.
+	//
+	// The first to start goes alone when the round can tell when its
+	// first response has begun, and those that would send the same
+	// request wait for that before they start, so they read the brief it
+	// wrote. Those that would not, start in their turn.
 	const warnings: string[] = [];
 	const missed: ParticipantOutcome[] = [];
 	let running = 0;
+	let lead: Participant | undefined;
+	let waited = false;
 	for (const participant of request.roster.reviewers) {
+		if (
+			!waited &&
+			lead !== undefined &&
+			deps.warmed !== undefined &&
+			sharesRequest(participant, lead)
+		) {
+			waited = true;
+			await waitForWarmth(deps.warmed, lead, id);
+		}
 		try {
 			await deps.start(participant, request.prompt, id);
 			running += 1;
+			lead ??= participant;
 		} catch (error) {
 			// One model that will not start must not cost the others
 			// their round. Recorded as an outcome as well as a warning:

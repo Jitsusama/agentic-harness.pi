@@ -8,6 +8,13 @@
  * number that depends on which model happened to be quickest would
  * make the same run describe itself differently every time.
  *
+ * Concurrently, with one exception the cache makes. Participants are
+ * sent one brief, and none can read it from the cache until another's
+ * response has begun, so when a round can tell when that is the first
+ * participant goes alone and the rest that send the same request
+ * follow it. The wait is the first one's time to first token; what it
+ * buys is the brief written once rather than once per participant.
+ *
  * Nothing one participant does can take the round down. A failure
  * reported by the runner and an exception thrown by it are the same
  * event seen from two sides, and both are recorded against that
@@ -200,6 +207,38 @@ export interface CouncilDeps {
 	opened?(run: AskRun): Promise<void>;
 	/** Told what is happening while it happens. Optional. */
 	progress?: AskProgress;
+	warmed?: Warmed;
+}
+
+/**
+ * Settles once a participant's first response has begun, which is when
+ * what its request wrote to the cache becomes readable by another.
+ *
+ * Given one, a round asks its first participant alone and the rest that
+ * would send the same request once this settles, so they read the
+ * brief the first one wrote rather than each writing it again. It
+ * should settle by itself in good time whatever happens, since every
+ * participant but the first waits on it; a round also stops waiting
+ * when the first participant's ask has ended.
+ */
+export type Warmed = (
+	participant: Participant,
+	runId: string,
+) => Promise<unknown>;
+
+/**
+ * Whether two participants send requests the cache can share.
+ *
+ * The same model, thinking level and tools, which are what a request
+ * holds ahead of the brief besides the prompt the round shares. One
+ * that differs is started at once, since waiting would buy it nothing.
+ */
+export function sharesRequest(a: Participant, b: Participant): boolean {
+	return (
+		a.model === b.model &&
+		a.thinkingLevel === b.thinkingLevel &&
+		JSON.stringify(a.tools) === JSON.stringify(b.tools)
+	);
 }
 
 /** What to ask, of whom. */
@@ -245,24 +284,62 @@ export async function askRoster(
 	roster: Roster,
 	prompt: string,
 	runId: string,
-	deps: Pick<CouncilDeps, "ask" | "progress">,
+	deps: Pick<CouncilDeps, "ask" | "progress" | "warmed">,
 ): Promise<Reply[]> {
 	const progress = deps.progress ?? noAskProgress;
 	progress.start(roster.reviewers);
-	return await Promise.all(
-		roster.reviewers.map(async (participant): Promise<Reply> => {
-			progress.started(participant.id);
-			const answer = await asked(participant, prompt, deps, {
-				runId,
-				report: (activity) => progress.activity(participant.id, activity),
-			});
-			// A failure the runner hands back and one it throws are the
-			// same event to somebody watching a board.
-			if ("failure" in answer) progress.failed(participant.id, answer.failure);
-			else progress.answered(participant.id);
-			return { participant, answer };
-		}),
+	const ask = async (participant: Participant): Promise<Reply> => {
+		progress.started(participant.id);
+		const answer = await asked(participant, prompt, deps, {
+			runId,
+			report: (activity) => progress.activity(participant.id, activity),
+		});
+		// A failure the runner hands back and one it throws are the
+		// same event to somebody watching a board.
+		if ("failure" in answer) progress.failed(participant.id, answer.failure);
+		else progress.answered(participant.id);
+		return { participant, answer };
+	};
+
+	const lead = roster.reviewers[0];
+	if (lead === undefined || deps.warmed === undefined) {
+		return await Promise.all(roster.reviewers.map(ask));
+	}
+	// The first alone, then the rest once it has written the brief. Those
+	// that could not read it anyway go at once. Held by position, so the
+	// answers come back in roster order whoever was asked first.
+	const waits = roster.reviewers.map(
+		(participant, at) => at > 0 && sharesRequest(participant, lead),
 	);
+	const replies: Promise<Reply>[] = [];
+	roster.reviewers.forEach((participant, at) => {
+		if (!waits[at]) replies[at] = ask(participant);
+	});
+	if (waits.includes(true)) {
+		await Promise.race([waitForWarmth(deps.warmed, lead, runId), replies[0]]);
+	}
+	roster.reviewers.forEach((participant, at) => {
+		if (waits[at]) replies[at] = ask(participant);
+	});
+	return await Promise.all(replies);
+}
+
+/**
+ * Wait for a participant's first response, however the wait ends.
+ *
+ * Waiting is for the cache's sake and nothing else, so a wait that
+ * fails must not stop the round: the rest are asked regardless.
+ */
+export async function waitForWarmth(
+	warmed: Warmed,
+	participant: Participant,
+	runId: string,
+): Promise<void> {
+	try {
+		await warmed(participant, runId);
+	} catch {
+		// Only the cache is lost: the rest are asked without it.
+	}
 }
 
 /**
