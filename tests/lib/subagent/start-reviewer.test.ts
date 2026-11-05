@@ -93,7 +93,9 @@ describe("starting one reviewer nobody will wait for", () => {
 		const brief = noted.calls[0]?.args.find((arg) => arg.startsWith("@"));
 		expect(brief?.startsWith(`@${briefsDir}/`)).toBe(true);
 		expect(noted.calls[0]?.args).not.toContain("x".repeat(4096));
-		expect(await readFile(brief?.slice(1) ?? "", "utf8")).toBe("x".repeat(4096));
+		expect(await readFile(brief?.slice(1) ?? "", "utf8")).toBe(
+			"x".repeat(4096),
+		);
 	});
 
 	it("carries the reviewer's model and persona through", async () => {
