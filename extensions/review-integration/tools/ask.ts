@@ -808,7 +808,7 @@ async function askCouncil(
 		{
 			roster,
 			prompt,
-			seq: 1,
+			seq: nextSeq(),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
@@ -880,7 +880,7 @@ async function startRound(
 		{
 			roster,
 			prompt,
-			seq: 1,
+			seq: nextSeq(),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
@@ -1040,7 +1040,7 @@ async function askJudge(
 		{
 			judge: roster.judge,
 			prompt,
-			seq: 1,
+			seq: nextSeq(),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
@@ -1241,7 +1241,7 @@ async function askCritique(
 				...(params.intent === undefined ? {} : { intent: params.intent }),
 				...conventions,
 			}),
-			seq: 1,
+			seq: nextSeq(),
 			findingIds: raised.map((finding) => finding.id),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
@@ -1378,7 +1378,7 @@ async function askStack(
 				...(params.intent === undefined ? {} : { intent: params.intent }),
 				...conventions,
 			}),
-			seq: 1,
+			seq: nextSeq(),
 			stackRefs,
 			witnessFor: (ref) => witnesses.get(ref),
 			// Per-change witnesses, but one tree, so the caveat is about
@@ -1486,7 +1486,7 @@ async function askAudit(
 				...(params.intent === undefined ? {} : { intent: params.intent }),
 				...conventions,
 			}),
-			seq: 1,
+			seq: nextSeq(),
 			threadIndices,
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
@@ -2251,6 +2251,24 @@ async function firstResponseOf(
 		withinMs: FIRST_RESPONSE_WAIT_MS,
 		...(signal === undefined ? {} : { signal }),
 	});
+}
+
+/**
+ * The next round's place among those this session has started.
+ *
+ * A run's id is its kind, the millisecond it started and this, and
+ * each round here used to pass 1. Two rounds started in the same
+ * millisecond, which a script starting several at once does, then had
+ * one id: their reviewers shared one artifact directory and one lease
+ * apiece, so some would not start and the rest wrote over each other.
+ * Counted for the session, so a round's sequence is also how many this
+ * session has started; two sessions in one millisecond stay possible
+ * and are far rarer.
+ */
+let roundsStarted = 0;
+export function nextSeq(): number {
+	roundsStarted += 1;
+	return roundsStarted;
 }
 
 /**
