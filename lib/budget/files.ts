@@ -20,7 +20,11 @@ import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { BudgetAnswer, BudgetProvider } from "./provider.ts";
+import {
+	type BudgetAnswer,
+	type BudgetProvider,
+	isBudgetName,
+} from "./provider.ts";
 
 const run = promisify(execFile);
 
@@ -84,6 +88,9 @@ export function budgetFileProvider(
 }
 
 async function resolveIn(folder: string, name: string): Promise<BudgetAnswer> {
+	// Any host on the bus may ask, and the name becomes a path this may
+	// run, so one that could leave the folder is nobody's here.
+	if (!isBudgetName(name)) return { kind: "unknown" };
 	const file = join(folder, `${name}.env`);
 	const program = join(folder, name);
 	let text: string;

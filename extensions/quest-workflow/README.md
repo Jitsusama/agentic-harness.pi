@@ -221,6 +221,10 @@ shipped and tested.
   own quest's. The status line says the budget drawn on; a name
   no provider knows, or one it can't draw on yet, leaves the
   default and says why once. Nothing of it reaches the prompt.
+  A provider has 5 s to answer before it counts as unavailable,
+  and the session waits on it only before a model call, never at
+  start. Switching budgets mid-session costs one full cache
+  write on the next turn, since the new key's cache is cold.
 - **The realm's own agent**: a spawn that runs pi, fresh or
   resuming, runs instead the command the chosen machine's node
   declares for the session's realm (`declared.agents`), here or

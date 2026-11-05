@@ -25,6 +25,23 @@
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 
+/**
+ * What a budget's name may be: a letter or digit, then letters,
+ * digits, dots, dashes and underscores, at most 64 of them. A provider
+ * may use it as a file's name, so it never holds a slash or starts
+ * with a dot; any host on the bus may hand one over, so a provider
+ * that makes a path of it checks it first.
+ */
+const BUDGET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The most characters a budget's name may run to. */
+const LONGEST_NAME = 64;
+
+/** Whether a word can be a budget's name. */
+export function isBudgetName(word: string): boolean {
+	return word.length <= LONGEST_NAME && BUDGET_NAME.test(word);
+}
+
 /** Emitted by the host once it accepts providers. */
 export const BUDGET_READY = "budget:ready:v1";
 

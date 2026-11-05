@@ -11,6 +11,7 @@ import {
 	BUDGET_READY,
 	BUDGET_REGISTER_PROVIDER,
 	BUDGET_REQUEST,
+	type BudgetAnswer,
 	type BudgetHostApi,
 	type BudgetProvider,
 	isBudgetProvider,
@@ -47,7 +48,10 @@ export interface BudgetHost extends BudgetHostApi {
  * Host budget providers on `bus`: take their registrations, answer a
  * request for the host, and announce it once now.
  */
-export function hostBudgets(bus: Pick<EventBus, "emit" | "on">): BudgetHost {
+export function hostBudgets(
+	bus: Pick<EventBus, "emit" | "on">,
+	deadlineMs: number = BUDGET_ANSWER_DEADLINE_MS,
+): BudgetHost {
 	const providers = new Map<string, BudgetProvider>();
 	const listeners: (() => void)[] = [];
 	const ordered = () =>
@@ -65,7 +69,7 @@ export function hostBudgets(bus: Pick<EventBus, "emit" | "on">): BudgetHost {
 			const asked: string[] = [];
 			for (const provider of ordered()) {
 				asked.push(provider.id);
-				const answer = await askOne(provider, name);
+				const answer = await askOne(provider, name, deadlineMs);
 				if (answer.kind === "unknown") continue;
 				return { ...answer, provider: provider.id };
 			}
@@ -84,14 +88,41 @@ export function hostBudgets(bus: Pick<EventBus, "emit" | "on">): BudgetHost {
 	return host;
 }
 
-/** One provider's answer, with a rejection read as unavailable. */
-async function askOne(provider: BudgetProvider, name: string) {
+/**
+ * How long a provider may take to answer. Session start and quest
+ * actions wait on the answer, so one stuck on a password manager's
+ * prompt must not hold them.
+ */
+export const BUDGET_ANSWER_DEADLINE_MS = 5_000;
+
+/**
+ * One provider's answer, with a rejection, or no answer within the
+ * deadline, read as unavailable.
+ */
+async function askOne(
+	provider: BudgetProvider,
+	name: string,
+	deadlineMs: number,
+): Promise<BudgetAnswer> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<BudgetAnswer>((resolve) => {
+		timer = setTimeout(
+			() =>
+				resolve({
+					kind: "unavailable",
+					reason: `${provider.id} didn't answer within ${deadlineMs / 1000} s.`,
+				}),
+			deadlineMs,
+		);
+	});
 	try {
-		return await provider.resolve(name);
+		return await Promise.race([provider.resolve(name), late]);
 	} catch (error) {
 		return {
 			kind: "unavailable" as const,
 			reason: error instanceof Error ? error.message : String(error),
 		};
+	} finally {
+		clearTimeout(timer);
 	}
 }

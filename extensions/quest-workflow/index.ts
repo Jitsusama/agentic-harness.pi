@@ -708,6 +708,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		updateScoreboard(state, ctx);
 	});
 
+	// The budget is asked for at start without waiting, so a slow
+	// provider never holds the screen, and waited on here, so the first
+	// model call draws on it. Once drawn, this returns at once.
+	pi.on("before_agent_start", async (_event, ctx) => {
+		await budgets.keep(ctx);
+	});
+
 	/** What a spawn left this session to say, sent once start is done. */
 	let firstWords: (() => void) | undefined;
 
@@ -747,8 +754,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// loaded quest and focused document), then the cwd for a
 		// fresh session launched inside a quest or its tree.
 		resolveStartup(state, pi, ctx);
-		// Before the first model call, so it draws on the quest's budget.
-		await budgets.keep(ctx);
+		// Asked now, waited on before the first model call (above).
+		void budgets.keep(ctx);
 		// A session a spawn started sets to work on its quest by itself,
 		// once start is done (resources_discover, below).
 		firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));

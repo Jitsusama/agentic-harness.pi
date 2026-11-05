@@ -53,15 +53,26 @@ export function keepQuestBudget(
 	/** Names already said to be undrawable, so each is said once. */
 	const told = new Set<string>();
 	let last: ExtensionContext | undefined;
+	/** The ask still on its way, so a second keep can wait on it. */
+	let pending: Promise<void> = Promise.resolve();
 
 	const keep = async (ctx: ExtensionContext, again = false) => {
 		last = ctx;
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: null;
-		if (name === wanted && !again) return;
+		if (name === wanted && !again) return pending;
 		wanted = name;
 		const ask = ++asking;
+		pending = settle(ctx, name, ask);
+		return pending;
+	};
+
+	const settle = async (
+		ctx: ExtensionContext,
+		name: string | null,
+		ask: number,
+	) => {
 		if (name === null) {
 			liftBudget(process.env);
 			ctx.ui.setStatus(STATUS_KEY, undefined);

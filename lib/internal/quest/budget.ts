@@ -20,29 +20,17 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isBudgetName } from "../../budget/provider.ts";
 import type { QuestFrontMatter } from "../../quest/types.ts";
 import { parseQuestFrontMatter } from "./frontmatter.ts";
 
 /** The word that says a quest draws on no budget, past its parents. */
 export const NO_BUDGET = "none";
 
-/**
- * What a budget's name may be: a letter or digit, then letters,
- * digits, dots, dashes and underscores. A provider may use it as a
- * file's name, so it never holds a slash or starts with a dot.
- */
-const BUDGET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/** The most characters a budget's name may run to. */
-const LONGEST_NAME = 64;
-
 /** How far up a quest's parents are followed, against a loop. */
 const MOST_PARENTS = 8;
 
-/** Whether a word can be a budget's name. */
-export function isBudgetName(word: string): boolean {
-	return word.length <= LONGEST_NAME && BUDGET_NAME.test(word);
-}
+export { isBudgetName };
 
 /**
  * What a quest's own front matter says of its budget: a name, `none`,

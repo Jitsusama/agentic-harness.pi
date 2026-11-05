@@ -12,6 +12,7 @@ export {
 	type BudgetAnswer,
 	type BudgetHostApi,
 	type BudgetProvider,
+	isBudgetName,
 	isBudgetProvider,
 	registerBudgetProvider,
 } from "./provider.ts";

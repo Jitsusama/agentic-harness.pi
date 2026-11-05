@@ -80,6 +80,20 @@ describe("the file provider", () => {
 		expect(answer.kind === "unavailable" && answer.reason).toContain(program);
 	});
 
+	it("never makes a path of a name that could leave its folder", async () => {
+		const outside = join(folder, "..", `${folder.split("/").pop()}-escape`);
+		writeFileSync(`${outside}.env`, "KEY=stolen\n");
+		try {
+			expect(
+				await budgetFileProvider(folder).resolve(
+					`../${outside.split("/").pop()}`,
+				),
+			).toEqual({ kind: "unknown" });
+		} finally {
+			rmSync(`${outside}.env`, { force: true });
+		}
+	});
+
 	it("leaves a name with no file to the next provider", async () => {
 		expect(await budgetFileProvider(folder).resolve("delta")).toEqual({
 			kind: "unknown",

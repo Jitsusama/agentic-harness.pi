@@ -198,6 +198,29 @@ describe("the session's budget", () => {
 		]);
 	});
 
+	it("makes a second keep wait on the draw already on its way", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi(events), state);
+		let answer: (value: BudgetAnswer) => void = () => {};
+		registerBudgetProvider(events, {
+			id: "slow",
+			precedence: 0,
+			resolve: () => new Promise((resolve) => (answer = resolve)),
+		});
+		await run({ action: "load", id: top });
+
+		void keeper.keep(ui().ctx);
+		const second = keeper.keep(ui().ctx);
+		answer({ kind: "drawn", env: { [KEY]: "slow" }, label: "x" });
+		await second;
+
+		expect(process.env[KEY], "drawn by the time the second returns").toBe(
+			"slow",
+		);
+	});
+
 	it("takes the budget up once a provider registers late", async () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });

@@ -114,6 +114,22 @@ describe("the budget host", () => {
 		});
 	});
 
+	it("reads a provider that doesn't answer in time as unavailable", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		host.registerProvider({
+			id: "stuck",
+			precedence: 0,
+			resolve: () => new Promise(() => {}),
+		});
+
+		expect(await host.draw("delta")).toEqual({
+			kind: "unavailable",
+			provider: "stuck",
+			reason: "stuck didn't answer within 0.02 s.",
+		});
+	});
+
 	it("says which it asked when none knows the name", async () => {
 		const events = bus();
 		const host = hostBudgets(events);
