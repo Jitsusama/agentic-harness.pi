@@ -21,7 +21,7 @@ import { execFile } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
-import { count } from "../../ui/index.ts";
+import { count } from "../../ui/count.ts";
 import { isRecord } from "../record.ts";
 import { expandWith, type Step, wordsOf } from "../shell/steps.ts";
 import { kindOf, LENDING_WAIT_MS } from "./queue.ts";

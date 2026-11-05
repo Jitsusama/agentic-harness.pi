@@ -32,7 +32,7 @@ import type {
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
 import { findJobHost } from "../../lib/jobs/index.ts";
-import { firstText } from "../../lib/ui/index.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
 
 /** How long a command may hold the call before it is handed off. */
 export const HAND_OFF_MS = 60 * 1000;

@@ -8,7 +8,7 @@
  * check that turns an unparseable guardable command into a reissue.
  */
 
-import { tokenize } from "../command/index.ts";
+import { tokenize } from "../command/tokenize.ts";
 import type { GuardianBlock } from "./types.ts";
 
 /**

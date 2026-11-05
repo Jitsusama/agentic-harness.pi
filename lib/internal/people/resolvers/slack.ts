@@ -18,12 +18,9 @@
  */
 
 import type { Identity, PersonResolver } from "../../../people/types.ts";
-import {
-	getToken,
-	hasToken,
-	resolveUser,
-	SlackClient,
-} from "../../../slack/index.ts";
+import { SlackClient } from "../../../slack/api/client.ts";
+import { getToken, hasToken } from "../../../slack/auth/credentials.ts";
+import { resolveUser } from "../../../slack/resolvers/user.ts";
 
 let cachedClient: SlackClient | undefined;
 

@@ -10,7 +10,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { resolveRepo } from "../core/review/index.ts";
+import { resolveRepo } from "../core/review/bind.ts";
 
 const run = promisify(execFile);
 

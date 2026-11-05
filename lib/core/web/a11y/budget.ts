@@ -20,7 +20,7 @@
  * whole thing and discarding it.
  */
 
-import { type BudgetedView, withinLineBudget } from "../../result/index.ts";
+import { type BudgetedView, withinLineBudget } from "../../result/view.ts";
 
 /**
  * What an explicit read of a page spends on the outline.

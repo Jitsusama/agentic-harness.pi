@@ -23,11 +23,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import {
-	boundedByDetails,
-	openSessionStore,
-} from "../../lib/core/result/index.ts";
-import { registerBuiltinTreeProviders } from "../../lib/core/tree/index.ts";
+import { boundedByDetails } from "../../lib/core/result/details.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
+import { registerBuiltinTreeProviders } from "../../lib/core/tree/register.ts";
 import { setProgressSource } from "../../lib/internal/away/state.ts";
 import {
 	getSection,
@@ -41,23 +39,17 @@ import {
 } from "../../lib/internal/quest/discovery.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
+import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
-import {
-	registerBuiltinHandleTypes,
-	registerBuiltinPersonResolvers,
-} from "../../lib/people/index.ts";
-import { registerStandingContext } from "../../lib/prompt/index.ts";
-import { registerBuiltinUrlFetchers } from "../../lib/quest/index.ts";
-import { registerBuiltinRefTypes } from "../../lib/refs/index.ts";
-import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.ts";
+import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
+import { registerBuiltinPersonResolvers } from "../../lib/people/resolve.ts";
+import { registerStandingContext } from "../../lib/prompt/standing.ts";
+import { registerBuiltinRefTypes } from "../../lib/refs/register.ts";
+import { registerBuiltinTerminalDrivers } from "../../lib/terminal/register.ts";
 import { asideFor } from "../../lib/ui/aside.ts";
-import {
-	asText,
-	count,
-	drawInto,
-	firstText,
-	renderToolCall,
-} from "../../lib/ui/index.ts";
+import { count } from "../../lib/ui/count.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
 import { answerTreeClaims } from "./claims.ts";
 import {

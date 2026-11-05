@@ -77,7 +77,7 @@ import {
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
 import { onWants } from "../../lib/internal/session/wants.ts";
-import { onJobFinished } from "../../lib/jobs/index.ts";
+import { onJobFinished } from "../../lib/jobs/host.ts";
 import { loadedQuest, type QuestRecords } from "../../lib/mesh/address.ts";
 import {
 	attend,
@@ -151,10 +151,8 @@ import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 } from "../../lib/subagent/events.ts";
-import {
-	identifyCurrentTerminal,
-	type TerminalSessionHandle,
-} from "../../lib/terminal/index.ts";
+import { identifyCurrentTerminal } from "../../lib/terminal/resolve.ts";
+import type { TerminalSessionHandle } from "../../lib/terminal/types.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import {

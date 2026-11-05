@@ -11,7 +11,7 @@
 
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { drawInto } from "../../lib/ui/index.ts";
+import { drawInto } from "../../lib/ui/tool-call.ts";
 import type { QueryDetails } from "./index.ts";
 
 /** How much of an expression is shown before it is clipped. */

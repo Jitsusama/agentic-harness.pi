@@ -19,7 +19,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
-} from "../../lib/core/work/index.ts";
+} from "../../lib/core/work/events.ts";
 import { everyRealmsDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
