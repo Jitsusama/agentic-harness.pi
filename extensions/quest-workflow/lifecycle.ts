@@ -460,13 +460,23 @@ export function resolveStartup(
 }
 
 /**
- * Tell a session a spawn started what the spawn left it to say first
- * (lib/internal/quest/first-words.ts), as a turn of its own once start
- * is done, so it sets to work without being poked. Words left for it
- * are taken either way, so none wait for a later start; a session
- * whose own command line gave pi a first prompt is told nothing more,
- * since that prompt is its first turn. Either way it leaves word that
- * it took them, for the spawn that looks for its first turn.
+ * Take what a spawn left a session it started to say first
+ * (lib/internal/quest/first-words.ts), and answer the send that makes
+ * it a turn of its own, so it sets to work without being poked. Words
+ * left for it are taken either way, so none wait for a later start; a
+ * session whose own command line gave pi a first prompt is told
+ * nothing more, since that prompt is its first turn, and gets no send.
+ * Either way it leaves word that it took them, for the spawn that
+ * looks for its first turn.
+ *
+ * The caller sends once every extension's session_start has finished,
+ * not merely the next turn of the event loop. pi awaits each handler
+ * in turn, so a prompt sent on the next turn went out while later ones
+ * still awaited: before codemode, the gateway's helpers and neovim's
+ * surface were settled. The tool set then changed after the first
+ * turn, and the whole of it was declared again into a prefix that kept
+ * the first copy too, about 21,700 tokens on every turn until the first
+ * compaction, in 76 of 87 fresh sessions from 3 to 4 November.
  */
 export function sayFirstWords(
 	pi: ExtensionAPI,
@@ -474,7 +484,7 @@ export function sayFirstWords(
 	sessionId: string | undefined,
 	pending: () => boolean = firstPromptPending,
 	dir?: string,
-): void {
+): (() => void) | undefined {
 	const token = process.env[FIRST_WORDS_VARIABLE];
 	delete process.env[FIRST_WORDS_VARIABLE];
 	const putOff = pending();
@@ -482,13 +492,11 @@ export function sayFirstWords(
 		...(sessionId ? { sessionId } : {}),
 		said: !putOff,
 	});
-	if (!words || putOff) return;
-	// After every extension has had its session_start, as pi submits a
-	// first prompt of its own then.
-	setImmediate(() => {
+	if (!words || putOff) return undefined;
+	return () => {
 		const idle = ctx.isIdle?.() ?? true;
 		pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
-	});
+	};
 }
 
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */

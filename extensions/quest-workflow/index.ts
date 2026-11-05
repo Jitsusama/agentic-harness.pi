@@ -708,6 +708,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		updateScoreboard(state, ctx);
 	});
 
+	/** What a spawn left this session to say, sent once start is done. */
+	let firstWords: (() => void) | undefined;
+
 	pi.on("session_start", async (_event, ctx) => {
 		// What this session journals is its own, for its own undo.
 		setJournalSession(currentSessionId(ctx, undefined));
@@ -744,8 +747,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// loaded quest and focused document), then the cwd for a
 		// fresh session launched inside a quest or its tree.
 		resolveStartup(state, pi, ctx);
-		// A session a spawn started sets to work on its quest by itself.
-		sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
+		// A session a spawn started sets to work on its quest by itself,
+		// once start is done (resources_discover, below).
+		firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
 		// Once a quest is loaded (restored, autoloaded or
 		// resolved from the cwd), record this session on it so
 		// the sessions frontmatter reflects where work happens.
@@ -810,6 +814,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// Pass our own bridge so an out-of-order shutdown
 	// can only clear its own registration, never a
 	// fresher instance's.
+	// pi asks for resources once every extension's session_start has
+	// finished, so the first request carries the tool set they settled.
+	pi.on("resources_discover", () => {
+		const say = firstWords;
+		firstWords = undefined;
+		if (say) setImmediate(say);
+	});
+
 	pi.on("session_shutdown", async (event, ctx) => {
 		const sid = currentSessionId(ctx, undefined);
 		// Stop beating before stamping: a tick that landed afterwards

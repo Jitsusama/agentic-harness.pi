@@ -18,6 +18,15 @@ let pi: ExtensionAPI;
 let idle: boolean;
 const ctx = { isIdle: () => idle } as unknown as ExtensionContext;
 const settled = () => new Promise((done) => setImmediate(done));
+/** Take the words as session_start does, and send them as start's end does. */
+const sayAtStartsEnd = (
+	sessionId: string,
+	pending = () => false,
+): (() => void) | undefined => {
+	const send = sayFirstWords(pi, ctx, sessionId, pending, dir);
+	send?.();
+	return send;
+};
 /** The record a session leaves of taking the words under `key`. */
 const takenRecord = (key: string): unknown =>
 	JSON.parse(readFileSync(join(dir, `${key}.taken`), "utf8"));
@@ -41,8 +50,7 @@ afterEach(() => {
 describe("a session a spawn started", () => {
 	it("sets to work by itself, with the words the spawn left for it", async () => {
 		leaveFirstWords("019a-spawned", "carry on with QEST-1", dir);
-		sayFirstWords(pi, ctx, "019a-spawned", () => false, dir);
-		await settled();
+		sayAtStartsEnd("019a-spawned");
 		expect(said).toEqual([
 			{ text: "carry on with QEST-1", options: undefined },
 		]);
@@ -57,17 +65,15 @@ describe("a session a spawn started", () => {
 	it("takes the words its environment names, once", async () => {
 		leaveFirstWords("token-1", "carry on", dir);
 		process.env[FIRST_WORDS_VARIABLE] = "token-1";
-		sayFirstWords(pi, ctx, "019a-other", () => false, dir);
-		sayFirstWords(pi, ctx, "019a-other", () => false, dir);
-		await settled();
+		sayAtStartsEnd("019a-other");
+		expect(sayAtStartsEnd("019a-other")).toBeUndefined();
 		expect(said.map((one) => one.text)).toEqual(["carry on"]);
 		expect(process.env[FIRST_WORDS_VARIABLE]).toBeUndefined();
 	});
 
 	it("says nothing more when its command line gave pi a first prompt", async () => {
 		leaveFirstWords("019a-told", "carry on", dir);
-		sayFirstWords(pi, ctx, "019a-told", () => true, dir);
-		await settled();
+		expect(sayAtStartsEnd("019a-told", () => true)).toBeUndefined();
 		expect(said).toEqual([]);
 		expect(readdirSync(dir)).toEqual(["019a-told.taken"]);
 		expect(takenRecord("019a-told")).toMatchObject({ said: false });
@@ -76,16 +82,27 @@ describe("a session a spawn started", () => {
 	it("follows a run already under way rather than cutting into it", async () => {
 		idle = false;
 		leaveFirstWords("019a-busy", "carry on", dir);
-		sayFirstWords(pi, ctx, "019a-busy", () => false, dir);
-		await settled();
+		sayAtStartsEnd("019a-busy");
 		expect(said).toEqual([
 			{ text: "carry on", options: { deliverAs: "followUp" } },
 		]);
 	});
 
 	it("says nothing when no spawn left it words", async () => {
-		sayFirstWords(pi, ctx, "019a-plain", () => false, dir);
-		await settled();
+		expect(sayAtStartsEnd("019a-plain")).toBeUndefined();
 		expect(said).toEqual([]);
+	});
+
+	// pi awaits each extension's session_start in turn; words sent on the
+	// loop's next turn went out while later handlers still settled the
+	// tool set, which was then declared a second time after turn one.
+	it("says nothing by itself while start is still under way", async () => {
+		leaveFirstWords("019a-early", "carry on", dir);
+		const send = sayFirstWords(pi, ctx, "019a-early", () => false, dir);
+		await settled();
+		await new Promise((done) => setTimeout(done, 5));
+		expect(said).toEqual([]);
+		send?.();
+		expect(said.map((one) => one.text)).toEqual(["carry on"]);
 	});
 });
