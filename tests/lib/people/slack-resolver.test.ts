@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/slack/index.ts", async (importOriginal) => ({
+vi.mock("../../../lib/slack/auth/credentials.ts", async (importOriginal) => ({
 	...(await importOriginal()),
 	getToken: vi.fn(() => null),
 	hasToken: vi.fn(() => false),
+}));
+
+vi.mock("../../../lib/slack/resolvers/user.ts", async (importOriginal) => ({
+	...(await importOriginal()),
 	resolveUser: vi.fn(async () => "U-MOCK"),
+}));
+
+vi.mock("../../../lib/slack/api/client.ts", async (importOriginal) => ({
+	...(await importOriginal()),
 	// Bare vi.fn() is constructable and returns a truthy mock instance,
 	// which is all the resolver checks before handing the client to the
 	// separately-mocked resolveUser. An arrow implementation would fail
@@ -17,8 +25,9 @@ import {
 	clearSlackClientCache,
 	slackResolver,
 } from "../../../lib/internal/people/resolvers/slack";
+import { getToken, hasToken } from "../../../lib/slack/auth/credentials.ts";
 import type { StoredToken } from "../../../lib/slack/index.ts";
-import { getToken, hasToken, resolveUser } from "../../../lib/slack/index.ts";
+import { resolveUser } from "../../../lib/slack/resolvers/user.ts";
 
 /**
  * A stored credential, complete.
