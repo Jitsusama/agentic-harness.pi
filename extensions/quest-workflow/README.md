@@ -318,6 +318,16 @@ while it waits its turn leaves without running.
   and the id always stay.
 - Auto-load on session start when the cwd is inside a
   quest's directory tree.
+- A session on screen ends itself once its quest has ended
+  (`ends-with-quest.ts`), as Joel asked on 4 November: "make
+  sure we are closing any pi processes and/or kitty windows
+  that are no longer needed". Once a minute it reads its loaded
+  quest's status afresh, since another session may have
+  concluded it; when the quest is concluded or retired and, at
+  two looks in a row, no turn runs, no message waits and nothing
+  is typed in the prompt, it shuts pi down and its window closes
+  with it. A session with no quest loaded, or one that loaded
+  another, is left running.
 - Telling the model which quest and document it is on. The
   line is frozen into the system prompt the first time a
   session renders it, and a later load, focus or stage change

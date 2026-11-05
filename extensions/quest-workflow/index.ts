@@ -66,6 +66,10 @@ import {
 	resolveQuestsRoot,
 } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
+import {
+	stopWatchingForQuestEnd,
+	watchForQuestEnd,
+} from "./ends-with-quest.ts";
 import { isFocusedDocWrite, questVerdicts } from "./enforce.ts";
 import {
 	spawnedBy,
@@ -790,6 +794,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();
 		}
 		updateScoreboard(state, ctx);
+		// A session on screen ends itself once its quest has ended and
+		// nothing is left in it, so its window closes with it.
+		if (ctx.hasUI) watchForQuestEnd(state, ctx);
 		// A passive pointer, nothing more: list the few most recently
 		// active sessions so a fresh shell can see where work was without
 		// probing history or loading anything. The authoritative, probed
@@ -810,6 +817,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// already ended.
 		stopHeartbeat();
 		stopFirstTurnWatches();
+		stopWatchingForQuestEnd();
 		// End the session's registry record, but only for the reasons
 		// that actually end something. A reload keeps the same session
 		// running in the same process, so stamping it would date a tab

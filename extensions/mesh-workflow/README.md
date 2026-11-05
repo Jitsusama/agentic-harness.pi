@@ -176,6 +176,14 @@ and can answer a question or a gate left open on screen.
   the group, joins on receipt, and may leave.
 - `mesh_stop`: stop a peer reaching this one, or with `lift`,
   lift that stop. The stopped peer is told, with why.
+- `mesh_end`: for an orchestrator, end a session of its
+  orchestration on this machine by address (`lib/mesh/end.ts`), as
+  Joel asked on 4 November: "make sure we are closing any pi
+  processes and/or kitty windows that are no longer needed". Its pi
+  gets SIGTERM, which pi takes as a closed window, and the window
+  closes with it; the pid is signalled only while its start still
+  matches the presence's. Anyone else is refused, as is a session
+  on another machine. Loaded on demand.
 - `mesh_wait`: say that this session's quest has something
   waiting on the person that only they can do, or with `done`
   that it no longer waits. It is kept in

@@ -1,13 +1,18 @@
 /**
- * The mesh's tools: send, read back, join, leave or list groups, and
- * stop a peer reaching this one.
+ * The mesh's tools: send, read back, join, leave or list groups, stop
+ * a peer reaching this one, and end a session of this orchestration.
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { QueueRecord } from "../../lib/internal/priority/folder.ts";
+import {
+	type TickedOwner,
+	tickedStanding,
+} from "../../lib/internal/process-ticks.ts";
 import { answeringTo, namedAtStart } from "../../lib/mesh/address.ts";
+import { endTarget } from "../../lib/mesh/end.ts";
 import type { CrossAnswer, Crossed, Crossing } from "../../lib/mesh/flow.ts";
 import {
 	ALL,
@@ -82,7 +87,14 @@ export interface Local {
 	confirmEnd?(hold: Message, text: string): Promise<string | undefined>;
 	/** Where what waits on the person is kept (see wait.ts). */
 	readonly waiting?: Waiting;
+	/** Ask a session's process to end; pi's own SIGTERM by default. */
+	readonly endProcess?: EndProcess;
 }
+
+/** Asks the process a presence names to end, once it is sure it is that one. */
+export type EndProcess = (
+	owner: TickedOwner,
+) => Promise<"ended" | "gone" | "unsure">;
 
 /** What mesh_send hands back beside its words. */
 export interface SendDetails {
@@ -124,9 +136,9 @@ export function registerTools(
 		label: "Mesh",
 		// The always-visible tool list names only tools with a snippet. Without
 		// one a session reading it after a reload concluded it had no mesh
-		// tools and went through codemode; one line names the six.
+		// tools and went through codemode; one line names the seven.
 		promptSnippet:
-			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, and mesh_wait says what waits on the person.",
+			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, and mesh_end lets an orchestrator end a session of its own.",
 		description:
 			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Only a question or a hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or a finding wakes nobody and is read with whatever turn comes next. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. Realms are kept apart: an address no session in this realm goes by is left out, and a send left with nowhere to go is refused. Pass realm only to reach peers by address in another realm this one's node has a flow to; a refusal names those realms. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
@@ -259,6 +271,21 @@ export function registerTools(
 			),
 		}),
 		execute: using(stop),
+	});
+
+	pi.registerTool({
+		name: "mesh_end",
+		// For an orchestrator alone: loaded on demand.
+		exposure: "deferred",
+		label: "Mesh",
+		description:
+			"End a session of this orchestration, by its address, once it is no longer needed: its pi is asked to quit, as a closed window would, and the window it is shown in closes with it. Only the session playing an orchestrator's role may, only for sessions whose quests it orchestrates on this machine, and a turn running there ends with it. A session whose quest is concluded or retired ends itself, so this is for the rest.",
+		parameters: Type.Object({
+			peer: Type.String({
+				description: "The address of the session to end, such as 5GV2AH",
+			}),
+		}),
+		execute: using(end),
 	});
 
 	pi.registerTool({
@@ -1539,6 +1566,47 @@ async function stop(
 		`Stopped ${address}: what it sends reaches this peer as one line only, its answers to this peer's questions included, until mesh_stop with lift. It is told${why ? ", with why" : ""}.`,
 	);
 }
+
+async function end(at: Local, params: { peer: string }): Promise<Answer> {
+	const home = groupNamed(params.peer);
+	const address = home?.startsWith("@") ? home.slice(1) : params.peer.trim();
+	const target = endTarget(
+		at.peer.orchestrates,
+		at.peer.session,
+		address,
+		at.presences.all(),
+	);
+	if ("refused" in target) return answer(`Nothing ended: ${target.refused}.`);
+	const ended = await (at.endProcess ?? endBySignal)(target.owner);
+	if (ended === "gone") {
+		return answer(`${address} had already ended; nothing was signalled.`);
+	}
+	if (ended === "unsure") {
+		return answer(
+			`Nothing ended: this machine can't tell whether pid ${target.owner.pid} is still ${address}'s pi, so it was left alone.`,
+		);
+	}
+	return answer(
+		`Asked ${address}'s pi (pid ${target.owner.pid}) to quit; its window closes with it.`,
+	);
+}
+
+/**
+ * End the process with pi's own SIGTERM, which runs every extension's
+ * shutdown, but only while it is still the process the presence named.
+ */
+const endBySignal: EndProcess = async (owner) => {
+	const standing = await tickedStanding(owner);
+	if (standing === "gone") return "gone";
+	if (standing === "unknown") return "unsure";
+	try {
+		process.kill(owner.pid, "SIGTERM");
+		return "ended";
+	} catch {
+		// It went between the look and the signal.
+		return "gone";
+	}
+};
 
 /** Say something to one peer's home group, as the mesh itself would. */
 function tell(at: Local, address: string, text: string): void {
