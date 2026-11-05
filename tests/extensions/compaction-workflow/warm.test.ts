@@ -84,15 +84,17 @@ function warmReply(cacheWrite = 0) {
 	};
 }
 
-function activate() {
+function activate(appendFails = false) {
 	const handlers = new Map<string, Handler[]>();
 	const entries: Array<{ type: string; data: Record<string, unknown> }> = [];
 	const pi = {
 		events: { on: () => {}, emit: () => {} },
 		on: (name: string, handler: Handler) =>
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-		appendEntry: (type: string, data: Record<string, unknown>) =>
-			entries.push({ type, data }),
+		appendEntry: (type: string, data: Record<string, unknown>) => {
+			if (appendFails) throw new Error("disk full");
+			entries.push({ type, data });
+		},
 		registerCommand: () => {},
 		sendMessage: () => {},
 		sendUserMessage: () => {},
@@ -434,6 +436,16 @@ describe("what stops warming", () => {
 			await wait(4 * WARM_EVERY);
 			expect(sent).toHaveLength(0);
 		}
+	});
+
+	it("stops, rather than taking pi down, when a warm breaks", async () => {
+		const { fire } = activate(true);
+		const { sent, ctx } = session();
+		await fire("session_start", { reason: "startup" }, ctx);
+		await turn(fire, ctx);
+		await wait(4 * WARM_EVERY);
+		// An unhandled rejection would fail this test.
+		expect(sent).toHaveLength(1);
 	});
 
 	it("warms nothing in a subagent, which ends with its run", async () => {

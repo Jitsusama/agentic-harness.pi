@@ -172,8 +172,13 @@ export function registerIdleWarming(
 		}
 		current.dueAt = dueAt;
 		last = `next warm at ${new Date(dueAt).toISOString()} (${current.warms} of ${MAX_IDLE_WARMS} done)`;
+		// A rejection from a timer has nobody above it, and an unhandled one
+		// takes pi down; warming is never worth that.
 		current.timer = setTimeout(
-			() => void warm(current, deadline),
+			() =>
+				void warm(current, deadline).catch((error: unknown) => {
+					if (run === current) stop(`it broke: ${describe(error)}`);
+				}),
 			Math.max(0, dueAt - Date.now()),
 		);
 		current.timer.unref?.();
@@ -377,11 +382,12 @@ async function send(current: Run): Promise<Sent> {
 		}
 		return { ok: true, message };
 	} catch (error) {
-		return {
-			ok: false,
-			reason: error instanceof Error ? error.message : String(error),
-		};
+		return { ok: false, reason: describe(error) };
 	}
+}
+
+function describe(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /** What a warm's entry carries: the side-call shape the spend ledger reads. */
