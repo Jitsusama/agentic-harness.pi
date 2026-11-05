@@ -41,6 +41,8 @@ export interface WorkflowFacts {
 		readonly unknown: readonly string[];
 	};
 	readonly ahead: AheadState;
+	/** What idle warming is doing, in a phrase. */
+	readonly warming?: string;
 	readonly lastOutcome?: {
 		readonly outcome: CompactionOutcome;
 		readonly at: Date;
@@ -124,6 +126,7 @@ export function workflowSection(
 			facts.retention === "long" ? "" : " (idle compaction needs long)"
 		}`,
 		`summary written ahead: ${facts.ahead}`,
+		...(facts.warming !== undefined ? [`idle warming: ${facts.warming}`] : []),
 		`last outcome in this process: ${
 			facts.lastOutcome
 				? `${describeOutcome(facts.lastOutcome.outcome)} (${facts.lastOutcome.at.toISOString()})`

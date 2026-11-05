@@ -43,6 +43,13 @@
  * One-hour retention only: at five minutes that would compact every
  * pause for coffee.
  *
+ * Warming comes first (`warm.ts`): an idle session's last request is
+ * sent again with a one-token cap every 54 minutes, up to four times,
+ * which keeps its cache entry for nearly five hours at a twentieth of
+ * the price of writing it. While warming runs, idle compaction waits;
+ * once it ends with the session still idle, idle compaction falls due
+ * five minutes before the entry's last refresh expires.
+ *
  * Interrupt, trigger, resume: pi's `compact()` aborts the run in
  * progress and does not continue it, so when the turn that tripped the
  * policy made tool calls (the run was going to carry on), a message
@@ -108,6 +115,7 @@ import {
 } from "./notice.ts";
 import { piSummaryProvider } from "./pi-summary.ts";
 import { registerCompactionStatus } from "./status.ts";
+import { registerIdleWarming } from "./warm.ts";
 
 /** Modes whose runs continue after a compaction and can be resumed. */
 const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);
@@ -237,9 +245,27 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let failures = 0;
 	let holdTurns = 0;
 
+	const conversation = conversationProvider(pi);
 	const host = registerCompactionHost(pi, {
-		providers: [conversationProvider(pi), piSummaryProvider(pi)],
+		providers: [conversation, piSummaryProvider(pi)],
 		expectedOutputTokens: () => summaryOutput ?? DEFAULT_SUMMARY_OUTPUT_TOKENS,
+	});
+
+	// Declared before warming, whose end hands the idle session to it.
+	const idle = idleTimer(
+		(ctx) => compactIdle(ctx),
+		LONG_CACHE_LIFETIME_MS - IDLE_LEAD_MS,
+	);
+
+	const warming = registerIdleWarming(pi, {
+		onStart: () => idle.cancel(),
+		onWarmed: (payload, at) => conversation.refreshed(payload, at),
+		onEnd: (ctx, refreshedAt) => {
+			if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
+			const wait =
+				refreshedAt + LONG_CACHE_LIFETIME_MS - IDLE_LEAD_MS - Date.now();
+			if (wait > 0) idle.start(ctx, wait);
+		},
 	});
 
 	registerCompactionStatus(pi, () => ({
@@ -248,6 +274,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		retention: process.env.PI_CACHE_RETENTION,
 		chain: host.chain(),
 		ahead: host.state(),
+		warming: warming.describe(),
 	}));
 
 	const retained = () =>
@@ -335,7 +362,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compactNow(ctx, ctx.getContextUsage()?.tokens ?? 0, false);
 	});
 
-	const idle = idleTimer((ctx) => {
+	function compactIdle(ctx: ExtensionContext) {
 		if (!enabled() || compacting || !ctx.isIdle() || ctx.hasPendingMessages())
 			return;
 		if (process.env.PI_CACHE_RETENTION !== "long") return;
@@ -355,7 +382,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			ctx.ui.notify(idleCompactionNotice(tokens, avoided, cost), "info");
 		}
 		compactNow(ctx, tokens, false);
-	}, LONG_CACHE_LIFETIME_MS - IDLE_LEAD_MS);
+	}
 
 	// Seeded from the session's own log, not from this process: a resumed
 	// session's first turn here is its whole resumed context, which read
