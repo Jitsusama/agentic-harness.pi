@@ -226,6 +226,9 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
  * prose on disk.
  * A body read later can be newer than the front matter beside it,
  * which the next walk's signature catches.
+ *
+ * Callers name D: TypeScript 5, which consumers still check this
+ * with, can't infer it through Pick and widens it to the union.
  */
 function kept<D extends QuestDoc | QuestDocumentDoc>(
 	doc: Pick<D, "frontMatter" | "title">,
@@ -789,7 +792,7 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 				if (!isId(base) || prefixOf(base) === "QEST") continue;
 				const reading = parsedOnce(childPath, pass, documentRecords, (t) => {
 					const docDoc = parseDocumentFile(t);
-					return docDoc ? kept(docDoc, childPath) : undefined;
+					return docDoc ? kept<QuestDocumentDoc>(docDoc, childPath) : undefined;
 				});
 				if (!reading) continue;
 				if ("doc" in reading) {
@@ -837,7 +840,7 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 		const readmePath = join(full, "README.md");
 		const reading = parsedOnce(readmePath, pass, readmes, (t) => {
 			const parsed = parseQuestDoc(t);
-			return parsed ? kept(parsed, readmePath) : undefined;
+			return parsed ? kept<QuestDoc>(parsed, readmePath) : undefined;
 		});
 		if (!reading) {
 			errors.push({ path: readmePath, message: "README.md missing" });
