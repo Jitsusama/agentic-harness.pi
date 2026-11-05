@@ -40,7 +40,11 @@ fixing" in one call, held against the week before:
   were. A repository's weekly cost is its median session's size at
   about 2.8 characters a token, times its turns, at its own read
   price. A checkout whose path names no repository is listed by its
-  directory.
+  directory. It also says how many sessions declared tools or
+  sections again before their third answer, and the median size of
+  what they declared, since the prefix keeps both copies until a
+  compaction. From 3 to 4 November 2026 every session a quest spawn
+  started did, about 21,700 tokens a turn.
 - **Quest files read:** how much of each kind of quest file
   (documents, READMEs, Journeys, the rest) sessions read with `read`,
   a share of every session active that week against the week before's,

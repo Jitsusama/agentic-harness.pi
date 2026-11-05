@@ -245,8 +245,12 @@ export function formatAudit(input: AuditInput, limit: number): string {
 			spanReads > 0
 				? `, about ${dollars(spanReads)} a ${input.span} in reads`
 				: "";
+		const again =
+			repo.redeclaring > 0
+				? ` ${repo.redeclaring} of ${repo.sessions} declared ${thousands(repo.redeclared)} again as they started, read on every turn until a compaction.`
+				: "";
 		lines.push(
-			`- ${shown(repo.repo)}: ${thousands(repo.total)} characters over ${count(repo.sessions, "session")}${cost}. Largest: ${biggest}.`,
+			`- ${shown(repo.repo)}: ${thousands(repo.total)} characters over ${count(repo.sessions, "session")}${cost}. Largest: ${biggest}.${again}`,
 		);
 	}
 	if (input.unread > 0) {
