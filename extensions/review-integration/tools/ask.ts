@@ -30,6 +30,7 @@ import type {
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { withFileLock } from "../../../lib/core/internal/file-lock.ts";
+import { lensFor } from "../../../lib/core/review/ask/prompt.ts";
 import {
 	type AnswerContext,
 	type AnswerLine,
@@ -93,6 +94,7 @@ import {
 	personsWords,
 	refusedModel,
 } from "../../../lib/internal/session/asked-models.ts";
+import { firstResponseBegun } from "../../../lib/subagent/first-response.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
@@ -806,7 +808,7 @@ async function askCouncil(
 		{
 			roster,
 			prompt,
-			seq: 1,
+			seq: nextSeq(),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
@@ -878,7 +880,7 @@ async function startRound(
 		{
 			roster,
 			prompt,
-			seq: 1,
+			seq: nextSeq(),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
@@ -891,6 +893,7 @@ async function startRound(
 			// rather than cost it later.
 			opened: (opening) =>
 				store.keep(change, { ...opening, startedBy: sessionKey() }),
+			warmed: (participant, runId) => firstResponseOf(runId, participant.id),
 			async start(participant, asked, runId) {
 				await startReviewer({
 					reviewer: {
@@ -917,9 +920,7 @@ async function startRound(
 					// disk, so a finding it did not write down before it
 					// died is a finding nothing can recover.
 					extraExtensions: [journalPack()],
-					...(charters.get(participant.id) === undefined
-						? {}
-						: { systemPrompt: charters.get(participant.id) }),
+					...lensFor(charters.get(participant.id)),
 					runId,
 					stateDir: runArtifactDir(),
 					startPi: starter,
@@ -1039,7 +1040,7 @@ async function askJudge(
 		{
 			judge: roster.judge,
 			prompt,
-			seq: 1,
+			seq: nextSeq(),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
@@ -1229,6 +1230,7 @@ async function askCritique(
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
 	const conventions = await guidanceFor(tree, diff);
 
+	const asking = deps(change, tree.path, watch, charters);
 	const { run, critiques, warnings } = await runCritique(
 		{
 			roster,
@@ -1239,13 +1241,14 @@ async function askCritique(
 				...(params.intent === undefined ? {} : { intent: params.intent }),
 				...conventions,
 			}),
-			seq: 1,
+			seq: nextSeq(),
 			findingIds: raised.map((finding) => finding.id),
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
 		},
 		{
-			ask: deps(change, tree.path, watch, charters).ask,
+			ask: asking.ask,
+			warmed: asking.warmed,
 			now: () => new Date(),
 			progress: watch.progress,
 		},
@@ -1362,6 +1365,7 @@ async function askStack(
 			? { files: changes.flatMap((one) => one.diff.files) }
 			: { unknown: "not every branch in this stack is proposed" },
 	);
+	const asking = deps(tip.change, tree.path, watch, charters);
 	const { run, warnings } = await runStackCouncil(
 		{
 			roster,
@@ -1374,7 +1378,7 @@ async function askStack(
 				...(params.intent === undefined ? {} : { intent: params.intent }),
 				...conventions,
 			}),
-			seq: 1,
+			seq: nextSeq(),
 			stackRefs,
 			witnessFor: (ref) => witnesses.get(ref),
 			// Per-change witnesses, but one tree, so the caveat is about
@@ -1383,7 +1387,8 @@ async function askStack(
 			...givenBy(ISOLATED, conventions),
 		},
 		{
-			ask: deps(tip.change, tree.path, watch, charters).ask,
+			ask: asking.ask,
+			warmed: asking.warmed,
 			async record(ref, raised) {
 				const change = changeFor.get(ref);
 				if (change === undefined) return [];
@@ -1481,7 +1486,7 @@ async function askAudit(
 				...(params.intent === undefined ? {} : { intent: params.intent }),
 				...conventions,
 			}),
-			seq: 1,
+			seq: nextSeq(),
 			threadIndices,
 			...readFrom(tree, proposal.headCommit),
 			...givenBy(ISOLATED, conventions),
@@ -2227,6 +2232,57 @@ function journalPack(): string {
 }
 
 /**
+ * Settles once a reviewer's first response has begun, read from the
+ * log its supervisor keeps, or once waiting stops being worth it.
+ *
+ * Both runners write that log in the same place, so the waiting round
+ * and the detached one wait the same way.
+ */
+async function firstResponseOf(
+	runId: string,
+	participantId: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	const { eventsPath } = new ReviewerArtifactsStore(runArtifactDir()).paths(
+		runId,
+		participantId,
+	);
+	return await firstResponseBegun(eventsPath, {
+		withinMs: FIRST_RESPONSE_WAIT_MS,
+		...(signal === undefined ? {} : { signal }),
+	});
+}
+
+/**
+ * The next round's place among those this session has started.
+ *
+ * A run's id is its kind, the millisecond it started and this, and
+ * each round here used to pass 1. Two rounds started in the same
+ * millisecond, which a script starting several at once does, then had
+ * one id: their reviewers shared one artifact directory and one lease
+ * apiece, so some would not start and the rest wrote over each other.
+ * Counted for the session, so a round's sequence is also how many this
+ * session has started; two sessions in one millisecond stay possible
+ * and are far rarer.
+ */
+let roundsStarted = 0;
+export function nextSeq(): number {
+	roundsStarted += 1;
+	return roundsStarted;
+}
+
+/**
+ * The longest the rest of a round waits on its first reviewer.
+ *
+ * Its first response normally begins within half a minute: a few
+ * seconds for pi to start and the rest for the model to read the
+ * brief. Past this the first reviewer is stuck or the brief is
+ * enormous, and the rest go ahead and pay for the brief themselves, as
+ * every reviewer did before rounds waited at all.
+ */
+const FIRST_RESPONSE_WAIT_MS = 120_000;
+
+/**
  * Each participant's charter, from the operator's personas and the
  * repo's own agents together.
  *
@@ -2336,6 +2392,8 @@ function deps(
 	// config read without any of them waiting on it to be asked.
 	const bounds = boundsForRound();
 	return {
+		warmed: (participant: Participant, runId: string) =>
+			firstResponseOf(runId, participant.id, watch.signalFor(participant.id)),
 		async ask(
 			participant: Participant,
 			prompt: string,
@@ -2381,13 +2439,11 @@ function deps(
 				...(RECORDS_FINDINGS.has(watch.round)
 					? { extraExtensions: [journalPack()] }
 					: {}),
-				// The charter is a standing instruction, so it goes as the
-				// system prompt rather than being glued onto the front of the
-				// round's prompt: a lens is what the reviewer is, not part of
-				// what it was asked this time.
-				...(charters.get(participant.id) === undefined
-					? {}
-					: { systemPrompt: charters.get(participant.id) }),
+				// The charter is a standing instruction, and the system prompt
+				// says so, but it rides after the round's brief: every
+				// participant's request is then the same up to the end of the
+				// brief, which the first writes to the cache and the rest read.
+				...lensFor(charters.get(participant.id)),
 				// Supervised rather than fire-and-forget, so the reviewer
 				// leaves a transcript, a stderr log and a resumable session
 				// under the round's own directory. The spawn runner kept all

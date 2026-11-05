@@ -23,6 +23,7 @@ import {
 	type CouncilResult,
 	type Reply,
 	stopWarning,
+	type Warmed,
 } from "./council.ts";
 import { type ParticipantIdentity, participantIdentity } from "./identity.ts";
 import { type AskProgress, settleReplies } from "./progress.ts";
@@ -50,6 +51,8 @@ export interface StackCouncilDeps {
 	now(): Date;
 	/** Told what is happening while it happens. Optional. */
 	progress?: AskProgress;
+	/** When the first reviewer's response has begun. See `CouncilDeps`. */
+	warmed?: Warmed;
 }
 
 /** What to ask, of whom, about which changes. */

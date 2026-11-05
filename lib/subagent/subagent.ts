@@ -22,10 +22,11 @@
  * for durable runs).
  */
 
-import { randomUUID } from "node:crypto";
-import { rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { whyUnusableClock, whyUnusableClocks } from "../clock/index.ts";
 import type { ThinkingLevel } from "../thinking/index.ts";
 // Type-only, and erased, so the pairing with artifacts.ts importing
@@ -388,8 +389,23 @@ export type SubagentRuntimeCheck = () => {
 
 export interface RunReviewerOptions {
 	readonly reviewer: CouncilReviewer;
-	/** Prompt text passed as the final positional arg. */
+	/**
+	 * The brief: what every reviewer of a round is sent alike.
+	 *
+	 * Handed to pi as a file named by its content, so reviewers sent the
+	 * same brief open their requests with the same bytes, path and all.
+	 */
 	readonly prompt: string;
+	/**
+	 * What this reviewer alone is told, after the brief.
+	 *
+	 * Apart from the brief because the two are cached apart. A round's
+	 * reviewers share everything up to the end of the brief, and a
+	 * reviewer given an ask also loads the pack that marks that end for
+	 * caching, so the first reviewer's write is one the rest can read.
+	 * Passed on argv rather than in a file, so it stays small.
+	 */
+	readonly ask?: string;
 	/** Working directory for the subprocess (worktree path). */
 	readonly cwd: string;
 	/**
@@ -633,31 +649,30 @@ export async function startReviewer(
 		});
 	}
 
-	const defaults = getSubagentDefaults();
-	const extraExtensions = dedupePaths([
-		...defaults.extensions,
-		...(options.extraExtensions ?? []),
-	]);
-	const extraSkills = dedupePaths([
-		...defaults.skills,
-		...(options.extraSkills ?? []),
-	]);
+	const { extraExtensions, extraSkills } = reviewerLoadout(options);
 
-	// Written into the reviewer's own directory, not a temp file. The
-	// waiting path removes its prompt in a finally, which is right
-	// there and fatal here: the parent returns before the child has
-	// read it. It also makes the question part of the durable record,
-	// which for a round that outlives its session is the only place
-	// the question survives at all.
+	// Kept in the run's own directory, not a temp file. The waiting path
+	// removes its brief once nobody needs it, which it can tell and this
+	// path cannot: the parent returns before the child has read it. It
+	// also makes the question part of the durable record, which for a
+	// round that outlives its session is the only place the question
+	// survives at all. The brief is the run's, so every reviewer reads
+	// it at one path; the reviewer's own copy says what it was asked.
 	const store = new ReviewerArtifactsStore(options.stateDir);
 	const runId = options.runId ?? `reviewer-${Date.now()}`;
 	const paths = await store.ensureReviewerDir(runId, options.reviewer.id);
-	await writeFile(paths.promptPath, options.prompt, "utf8");
+	const brief = join(
+		store.rootPaths(runId).briefsDir,
+		`${briefName(options.prompt)}.md`,
+	);
+	await writeWhole(brief, options.prompt);
+	await writeFile(paths.promptPath, wholeQuestion(options), "utf8");
 
 	return options.startPi({
 		args: composeArgs({
 			spec: options.reviewer,
-			prompt: `@${paths.promptPath}`,
+			prompt: `@${brief}`,
+			...(options.ask === undefined ? {} : { ask: options.ask }),
 			systemPrompt: options.systemPrompt,
 			isolated: options.isolated,
 			...(extraExtensions.length > 0 ? { extraExtensions } : {}),
@@ -737,31 +752,23 @@ export async function runReviewer(
 	// to remember to thread them through. Per-call inputs
 	// keep their own entries when the same path was also
 	// registered as a default.
-	const defaults = getSubagentDefaults();
-	const extraExtensions = dedupePaths([
-		...defaults.extensions,
-		...(options.extraExtensions ?? []),
-	]);
-	const extraSkills = dedupePaths([
-		...defaults.skills,
-		...(options.extraSkills ?? []),
-	]);
-	// The prompt carries the whole review payload: the
-	// persona standard plus every inlined PR diff. On a
-	// stack review that runs past macOS ARG_MAX
-	// (1,048,576 bytes), and a prompt passed on argv crashes
-	// the pi child at spawn. Write it to a temp file and
-	// hand pi an `@<path>` reference instead, which pi merges
-	// into the prompt, so argv stays tiny whatever the diff
-	// size. The file is removed once the run resolves, which is safe
-	// only because this path waits for it: `startReviewer` writes into
-	// the reviewer's own directory and removes nothing, since its
-	// child may not have read the prompt by the time it returns.
+	const { extraExtensions, extraSkills } = reviewerLoadout(options);
+	// The prompt carries the whole review payload: every inlined PR
+	// diff. On a stack review that runs past macOS ARG_MAX (1,048,576
+	// bytes), and a prompt passed on argv crashes the pi child at spawn.
+	// Write it to a temp file and hand pi an `@<path>` reference
+	// instead, which pi merges into the prompt, so argv stays tiny
+	// whatever the diff size. The file is removed once the last run
+	// holding it resolves, which is safe only because this path waits
+	// for it: `startReviewer` writes into the run's own directory and
+	// removes nothing, since its child may not have read the prompt by
+	// the time it returns.
 	const reserve = wrapUpReserve(options);
-	const promptFile = await writeReviewerPrompt(options.prompt);
+	const held = await holdBrief(options.prompt);
 	const args = composeArgs({
 		spec: options.reviewer,
-		prompt: `@${promptFile}`,
+		prompt: `@${held.path}`,
+		...(options.ask === undefined ? {} : { ask: options.ask }),
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
@@ -789,9 +796,7 @@ export async function runReviewer(
 			...(reserve === undefined ? {} : { wrapUpReserveMs: reserve }),
 		});
 	} finally {
-		// Best-effort: the OS temp dir is reaped anyway, and a
-		// failed unlink must not mask the run's own outcome.
-		await rm(promptFile, { force: true }).catch(() => {});
+		await held.release();
 	}
 
 	let outcome = assembleReviewerResult(options, result);
@@ -1485,6 +1490,8 @@ export {
 interface ComposeArgsInput {
 	readonly spec: SubagentSpec;
 	readonly prompt: string;
+	/** A second positional after the prompt, which pi appends to it. */
+	readonly ask?: string;
 	readonly systemPrompt?: string;
 	readonly isolated?: boolean;
 	readonly extraExtensions?: readonly string[];
@@ -1498,17 +1505,133 @@ interface ComposeArgsInput {
 }
 
 /**
- * Write a reviewer prompt to a unique temp file and return
- * its path. Callers pass `@<path>` to pi so the prompt
- * rides a file rather than argv, keeping the spawn under
- * macOS ARG_MAX no matter how large the inlined diffs are.
- * The `.md` extension makes pi read the file as prompt
- * text.
+ * The pack that marks where a shared brief ends, so a round's
+ * reviewers can read the brief from the cache the first one wrote.
  */
-async function writeReviewerPrompt(prompt: string): Promise<string> {
-	const path = join(tmpdir(), `pi-reviewer-prompt-${randomUUID()}.md`);
-	await writeFile(path, prompt, "utf-8");
-	return path;
+const SHARED_BRIEF_PACK = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+	"packs",
+	"shared-brief",
+	"index.ts",
+);
+
+/**
+ * The extensions and skills a reviewer loads: the engine-wide
+ * defaults, the caller's own, and, for a reviewer with an ask of its
+ * own, the pack that lets it share the brief before it.
+ *
+ * Defaults first and deduplicated, so a path registered as a default
+ * and passed again by a caller loads once.
+ */
+function reviewerLoadout(options: RunReviewerOptions | StartReviewerOptions): {
+	extraExtensions: string[];
+	extraSkills: string[];
+} {
+	const defaults = getSubagentDefaults();
+	return {
+		extraExtensions: dedupePaths([
+			...defaults.extensions,
+			...(options.extraExtensions ?? []),
+			...(options.ask === undefined ? [] : [SHARED_BRIEF_PACK]),
+		]),
+		extraSkills: dedupePaths([
+			...defaults.skills,
+			...(options.extraSkills ?? []),
+		]),
+	};
+}
+
+/**
+ * A brief's file name, from its content.
+ *
+ * Pi puts the path at the very head of the message, so a name drawn
+ * at random gave every reviewer of a round a different first line and
+ * nothing after it could be shared. Named by content, reviewers sent
+ * the same brief open with the same bytes.
+ */
+export function briefName(prompt: string): string {
+	return createHash("sha256").update(prompt).digest("hex").slice(0, 32);
+}
+
+/**
+ * Write a file so no reader ever sees part of it.
+ *
+ * Reviewers share one brief, and the second may write it while the
+ * first one's child is reading it. Written beside and renamed into
+ * place, a reader has the old whole file or the new one, which are the
+ * same text.
+ */
+async function writeWhole(path: string, text: string): Promise<void> {
+	await mkdir(dirname(path), { recursive: true });
+	const beside = `${path}.${randomUUID()}.part`;
+	await writeFile(beside, text, "utf-8");
+	await rename(beside, path);
+}
+
+/** Everything a reviewer was asked, as the record of its question. */
+function wholeQuestion(options: RunReviewerOptions | StartReviewerOptions) {
+	return options.ask === undefined
+		? options.prompt
+		: `${options.prompt}\n\n${options.ask}`;
+}
+
+/**
+ * How many waiting runs hold each brief file this process wrote.
+ *
+ * Several reviewers read one brief, and the first to finish must not
+ * take it from one that has not started: a round starts its first
+ * reviewer and the rest a little later, and the first can fail fast.
+ */
+const briefHolders = new Map<
+	string,
+	{ holders: number; written: Promise<void> }
+>();
+
+/**
+ * Write a brief to a temp file named by its content, and hold it until
+ * released; the last release removes it.
+ *
+ * Named for this process as well as the content, so another session
+ * sending the same brief at the same moment can never remove the file
+ * from under this one. The `.md` extension makes pi read the file as
+ * prompt text.
+ */
+async function holdBrief(
+	prompt: string,
+): Promise<{ path: string; release: () => Promise<void> }> {
+	const path = join(
+		tmpdir(),
+		`pi-reviewer-prompt-${process.pid}-${briefName(prompt)}.md`,
+	);
+	// The write is shared as well as the file: a second holder arriving
+	// while the first is still writing waits for that write rather than
+	// handing its child a path with nothing at it yet.
+	const held = briefHolders.get(path) ?? {
+		holders: 0,
+		written: writeWhole(path, prompt),
+	};
+	held.holders += 1;
+	briefHolders.set(path, held);
+	try {
+		await held.written;
+	} catch (error) {
+		await releaseBrief(path);
+		throw error;
+	}
+	return { path, release: () => releaseBrief(path) };
+}
+
+async function releaseBrief(path: string): Promise<void> {
+	const held = briefHolders.get(path);
+	if (held === undefined) return;
+	held.holders -= 1;
+	if (held.holders > 0) return;
+	briefHolders.delete(path);
+	// Best-effort: the OS temp dir is reaped anyway, and a failed
+	// unlink must not mask the run's own outcome.
+	await rm(path, { force: true }).catch(() => {});
 }
 
 function composeArgs(input: ComposeArgsInput): string[] {
@@ -1576,6 +1699,7 @@ function composeArgs(input: ComposeArgsInput): string[] {
 		}
 	}
 	args.push(input.prompt);
+	if (input.ask !== undefined) args.push(input.ask);
 	return args;
 }
 
