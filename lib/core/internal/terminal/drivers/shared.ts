@@ -13,6 +13,8 @@
  * env passthrough and skip the wrap.
  */
 
+import { withoutBudget } from "../../../../budget/environment.ts";
+
 /**
  * POSIX-shell-quote a single string. Wraps in single
  * quotes and escapes any embedded single quotes.
@@ -147,12 +149,17 @@ export const SESSION_ONLY_VARIABLES: readonly string[] = [
 	"ZELLIJ_SESSION_NAME",
 ];
 
-/** The environment a newly launched terminal starts with. */
+/**
+ * The environment a newly launched terminal starts with: the session's
+ * own less what only it should have, and with no budget on it, since
+ * a session the terminal starts draws on its own quest's budget
+ * (lib/budget/environment.ts) rather than this one's.
+ */
 export function launchEnvironment(
 	env: Readonly<Record<string, string | undefined>>,
 ): Record<string, string> {
 	const out: Record<string, string> = {};
-	for (const [key, value] of Object.entries(env)) {
+	for (const [key, value] of Object.entries(withoutBudget(env))) {
 		if (value === undefined) continue;
 		if (SESSION_ONLY_VARIABLES.includes(key)) continue;
 		out[key] = value;

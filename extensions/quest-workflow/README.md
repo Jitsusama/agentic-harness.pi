@@ -203,6 +203,24 @@ shipped and tested.
   own needs; either one named replaces them. A quest with none
   starts here, as before, and a subquest takes none from its
   parent.
+- **What a quest's model calls draw on**: `budget` with `ref`
+  names a quest's budget (`none` for the session's default,
+  `inherit` to take its own away), and without `ref` says what
+  it draws on and which quest named it. A subquest draws on its
+  nearest ancestor's. The workflow hosts the budget providers
+  (`lib/budget/`): when the session starts, after each quest
+  action and at each turn's end, it asks them what the loaded
+  quest's budget means and lays the variables they answer over
+  the session's own environment, keeping what they replaced and
+  putting it back when the quest draws on none or is put down.
+  Model providers read their keys as each request is made, so
+  the next one draws on it, and the commands and subagents the
+  session starts afterwards inherit it. A session spawned for
+  another quest does not: its terminal starts with the
+  environment as it was before any budget, and it draws on its
+  own quest's. The status line says the budget drawn on; a name
+  no provider knows, or one it can't draw on yet, leaves the
+  default and says why once. Nothing of it reaches the prompt.
 - **The realm's own agent**: a spawn that runs pi, fresh or
   resuming, runs instead the command the chosen machine's node
   declares for the session's realm (`declared.agents`), here or

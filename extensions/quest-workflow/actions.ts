@@ -18,7 +18,8 @@ import {
  * `unorchestrate` mark a quest whose session orchestrates the quests
  * below it, while core is not published. `need-add` and `need-remove`
  * say what a quest needs of a machine, in mycelium's words, which core
- * knows nothing of.
+ * knows nothing of. `budget` names what a quest's model calls draw on,
+ * which core knows nothing of either.
  */
 const LOCAL_ACTIONS = [
 	"retitle",
@@ -28,6 +29,7 @@ const LOCAL_ACTIONS = [
 	"unorchestrate",
 	"need-add",
 	"need-remove",
+	"budget",
 ] as const;
 
 /** Every action the quest tool takes. */

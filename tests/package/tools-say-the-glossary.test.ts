@@ -30,6 +30,8 @@ const PINNED = "cd6aa51fa428cd8fe308314c7aba626437d8132b";
 const OTHER_SENSE: Record<string, string> = {
 	"browser_go storage": "a page's storage, not a disk",
 	"quest drive": "driving is a quest's priority, not a disk",
+	"quest budget":
+		"the named account a quest's model calls bill to, such as a project's team token, not what agents have cost",
 };
 
 /** Names waiting on a rename by the harness's owner, each with the rename. */

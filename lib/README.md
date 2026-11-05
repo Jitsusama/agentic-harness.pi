@@ -13,6 +13,9 @@ under `exports` in [`package.json`](../package.json), and its
 `index.ts` barrel is the whole of its surface. Import from the
 barrel, never from a file behind it.
 
+- **[`budget/`](budget/)**: the contract a budget provider
+  registers over the bus to say what a quest's budget means: the
+  variables a session drawing on it runs with, and a label.
 - **[`clock/`](clock/)**: what a duration bounding a child process
   may be. The rules belong to the runner, but a roster read from a
   config file needs them first, so one definition serves both.
