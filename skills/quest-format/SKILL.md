@@ -251,6 +251,15 @@ Field semantics:
   needs places the session where the node puts work with
   these. A subquest says its own: it takes none from its
   parent.
+- `budget`: optional name of the budget the quest's model
+  calls draw on, such as a project's team token. A subquest
+  without one draws on its nearest ancestor's, so naming the
+  top of a tree covers it; `none` draws on the session's
+  default whatever the quests above say. Set with the quest
+  tool's `budget` (`ref` the name, `none`, or `inherit` to
+  take it away), never by hand. What a name means is a budget
+  provider's to say; a name none knows leaves the session on
+  its default.
 
 Documents under a quest carry their own smaller
 frontmatter:

@@ -51,6 +51,7 @@ import { count } from "../../lib/ui/count.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
+import { keepQuestBudget } from "./budget.ts";
 import { answerTreeClaims } from "./claims.ts";
 import {
 	parseQuestWorkflowConfig,
@@ -197,7 +198,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	ref: Type.Optional(
 		Type.String({
 			description:
-				"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. need-add/need-remove: what the quest's sessions need of a machine, as kind=value (machine, system, arch, reach, accelerator), such as reach=home; comma-separated for several, on the quest `id` names or the loaded one. tree-expand: the zone to add (e.g. system/gitstream).",
+				"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. need-add/need-remove: what the quest's sessions need of a machine, as kind=value (machine, system, arch, reach, accelerator), such as reach=home; comma-separated for several, on the quest `id` names or the loaded one. budget: the budget the quest's model calls draw on, which the quests under it inherit: a name a budget provider knows, `none` to draw on the session's default, or `inherit` to take the quest's own away; left out, it says what the quest draws on. tree-expand: the zone to add (e.g. system/gitstream).",
 		}),
 	),
 	query: Type.Optional(
@@ -367,6 +368,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	// So the working layer does not reclaim a tree a quest is holding.
 	answerTreeClaims(pi, questsRoot);
+
+	// The model calls draw on the budget the loaded quest names, and what
+	// a name means is asked of the budget providers registered here.
+	const budgets = keepQuestBudget(pi, state);
 
 	// The agent's commands name the loaded quest, so the machine can
 	// share itself by quest, and their temporary files go where that
@@ -667,6 +672,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// which quests orchestrate, and what the desktop lists.
 		if (event.toolName === "quest") {
 			keepQuestWeights(state.questsRoot);
+			await budgets.keep(ctx);
 			void keepDesktopListsCurrent(state.questsRoot);
 		}
 		const broke = watch.after(event.toolCallId);
@@ -696,8 +702,17 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// already updates state) is reflected in the status line
 		// without a manual reload.
 		refreshLoadedSlice(state);
+		// A budget named by hand in a README is taken up a turn later.
+		await budgets.keep(ctx);
 		refreshProgress(state);
 		updateScoreboard(state, ctx);
+	});
+
+	// The budget is asked for at start without waiting, so a slow
+	// provider never holds the screen, and waited on here, so the first
+	// model call draws on it. Once drawn, this returns at once.
+	pi.on("before_agent_start", async (_event, ctx) => {
+		await budgets.keep(ctx);
 	});
 
 	/** What a spawn left this session to say, sent once start is done. */
@@ -739,6 +754,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// loaded quest and focused document), then the cwd for a
 		// fresh session launched inside a quest or its tree.
 		resolveStartup(state, pi, ctx);
+		// Asked now, waited on before the first model call (above).
+		void budgets.keep(ctx);
 		// A session a spawn started sets to work on its quest by itself,
 		// once start is done (resources_discover, below).
 		firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));

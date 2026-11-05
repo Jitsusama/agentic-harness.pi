@@ -1,0 +1,245 @@
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keepQuestBudget } from "../../../extensions/quest-workflow/budget";
+import { createQuestState } from "../../../extensions/quest-workflow/state";
+import { handle } from "../../../extensions/quest-workflow/transitions";
+import { emptyOverlay, processOverlay } from "../../../lib/budget/environment";
+import {
+	type BudgetAnswer,
+	registerBudgetProvider,
+} from "../../../lib/budget/provider";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
+
+let tmpRoot: string;
+const kept: Record<string, string | undefined> = {};
+const KEY = "BUDGET_TEST_KEY";
+
+/** A bus as pi's: handlers by channel, called in order. */
+function bus() {
+	const handlers = new Map<string, ((data: unknown) => void)[]>();
+	return {
+		on(channel: string, handler: (data: unknown) => void) {
+			handlers.set(channel, [...(handlers.get(channel) ?? []), handler]);
+			return () => {};
+		},
+		emit(channel: string, data?: unknown) {
+			for (const handler of handlers.get(channel) ?? []) handler(data);
+		},
+	};
+}
+
+function fakePi(events = bus()) {
+	return { setSessionName: () => {}, events } as unknown as Parameters<
+		typeof handle
+	>[1];
+}
+function fakeCtx() {
+	return {
+		cwd: tmpRoot,
+		sessionManager: { getSessionId: () => "s", isPersisted: () => true },
+	} as unknown as Parameters<typeof handle>[2];
+}
+
+const envGuard = createEnvGuard();
+beforeEach(() => {
+	envGuard.enter();
+	tmpRoot = mkdtempSync(join(tmpdir(), "budget-"));
+	for (const key of ["HOME", "XDG_STATE_HOME", KEY])
+		kept[key] = process.env[key];
+	process.env.HOME = tmpRoot;
+	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
+	process.env[KEY] = "personal";
+	Object.assign(processOverlay(), emptyOverlay());
+	processOverlay().laid.clear();
+});
+afterEach(() => {
+	processOverlay().laid.clear();
+	for (const [key, value] of Object.entries(kept)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	rmSync(tmpRoot, { recursive: true, force: true });
+	envGuard.leave();
+});
+
+async function quests() {
+	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+	const run = (params: Parameters<typeof handle>[3]) =>
+		handle(state, fakePi(), fakeCtx(), params);
+	succeeded(await run({ action: "create", title: "Delta Work" }));
+	const top = state.questId as string;
+	succeeded(
+		await run({
+			action: "create",
+			title: "One Piece of It",
+			kind: "subquest",
+			parent: top,
+		}),
+	);
+	const child = readdirSync(join(tmpRoot, "quests")).find(
+		(id) => id !== top,
+	) as string;
+	return { state, run, top, child };
+}
+
+function budgetIn(questsRoot: string, id: string): unknown {
+	const readme = readFileSync(join(questsRoot, id, "README.md"), "utf8");
+	return parseQuestFrontMatter(readme)?.frontMatter._extra?.budget;
+}
+
+describe("the budget verb", () => {
+	it("names a quest's budget, journals it, and its subquests draw on it", async () => {
+		const { state, run, top, child } = await quests();
+
+		const named = succeeded(
+			await run({ action: "budget", id: top, ref: "delta" }),
+		);
+		const inherited = succeeded(await run({ action: "budget", id: child }));
+
+		expect(budgetIn(state.questsRoot, top)).toBe("delta");
+		expect(named.message).toContain(`${top} draws on budget delta`);
+		expect(inherited.message).toContain(
+			`${child} draws on budget delta, as ${top} names`,
+		);
+		expect(journeyOf(join(state.questsRoot, top))).toContain("Budget: delta");
+	});
+
+	it("says none past the parent, and inherit takes the quest's own away", async () => {
+		const { state, run, top, child } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+
+		const none = succeeded(
+			await run({ action: "budget", id: child, ref: "none" }),
+		);
+		expect(none.message).toContain("draws on no budget");
+
+		succeeded(await run({ action: "budget", id: child, ref: "inherit" }));
+		expect(budgetIn(state.questsRoot, child)).toBeUndefined();
+	});
+
+	it("refuses a name that could be a path, writing nothing", async () => {
+		const { state, run, top } = await quests();
+		const before = readFileSync(
+			join(state.questsRoot, top, "README.md"),
+			"utf8",
+		);
+
+		const result = refused(
+			await run({ action: "budget", id: top, ref: "../keys" }),
+		);
+
+		expect(result.guidance).toContain("can't be a budget's name");
+		expect(readFileSync(join(state.questsRoot, top, "README.md"), "utf8")).toBe(
+			before,
+		);
+	});
+});
+
+describe("the session's budget", () => {
+	function ui() {
+		const statuses: (string | undefined)[] = [];
+		const notices: string[] = [];
+		return {
+			statuses,
+			notices,
+			ctx: {
+				ui: {
+					setStatus: (_key: string, text: string | undefined) =>
+						statuses.push(text),
+					notify: (message: string) => notices.push(message),
+					theme: { fg: (_colour: string, text: string) => text },
+				},
+			} as unknown as Parameters<ReturnType<typeof keepQuestBudget>["keep"]>[0],
+		};
+	}
+
+	it("is the loaded quest's, laid over the environment and lifted on unload", async () => {
+		const { state, run, top, child } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi(events), state);
+		const answers: Record<string, BudgetAnswer> = {
+			delta: { kind: "drawn", env: { [KEY]: "team" }, label: "delta (dev)" },
+		};
+		registerBudgetProvider(events, {
+			id: "test",
+			precedence: 0,
+			resolve: async (name) => answers[name] ?? { kind: "unknown" },
+		});
+		const seen = ui();
+
+		await run({ action: "load", id: child });
+		await keeper.keep(seen.ctx);
+		expect(process.env[KEY], "the subquest draws on its parent's").toBe("team");
+		expect(seen.statuses.at(-1)).toBe("budget delta (delta (dev))");
+
+		await run({ action: "unload" });
+		await keeper.keep(seen.ctx);
+		expect(process.env[KEY], "the person's key is back").toBe("personal");
+		expect(seen.statuses.at(-1)).toBeUndefined();
+	});
+
+	it("stays on the default and says why once when no provider knows the name", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const keeper = keepQuestBudget(fakePi(), state);
+		const seen = ui();
+
+		await run({ action: "load", id: top });
+		await keeper.keep(seen.ctx);
+		await keeper.keep(seen.ctx);
+
+		expect(process.env[KEY]).toBe("personal");
+		expect(seen.notices).toEqual([
+			"No budget provider is installed, so budget delta means nothing yet; model calls use the session's default.",
+		]);
+	});
+
+	it("makes a second keep wait on the draw already on its way", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi(events), state);
+		let answer: (value: BudgetAnswer) => void = () => {};
+		registerBudgetProvider(events, {
+			id: "slow",
+			precedence: 0,
+			resolve: () => new Promise((resolve) => (answer = resolve)),
+		});
+		await run({ action: "load", id: top });
+
+		void keeper.keep(ui().ctx);
+		const second = keeper.keep(ui().ctx);
+		answer({ kind: "drawn", env: { [KEY]: "slow" }, label: "x" });
+		await second;
+
+		expect(process.env[KEY], "drawn by the time the second returns").toBe(
+			"slow",
+		);
+	});
+
+	it("takes the budget up once a provider registers late", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi(events), state);
+		await run({ action: "load", id: top });
+		await keeper.keep(ui().ctx);
+
+		registerBudgetProvider(events, {
+			id: "late",
+			precedence: 0,
+			resolve: async () => ({
+				kind: "drawn",
+				env: { [KEY]: "late" },
+				label: "x",
+			}),
+		});
+		await new Promise((resolve) => setImmediate(resolve));
+
+		expect(process.env[KEY]).toBe("late");
+	});
+});

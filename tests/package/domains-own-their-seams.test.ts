@@ -70,6 +70,9 @@ describe("bus names are declared by a library, not an extension", () => {
 		// The review and work names came back with core, folded into
 		// `lib/core`.
 		expect([...names].sort()).toEqual([
+			"budget:ready:v1",
+			"budget:register-provider:v1",
+			"budget:request:v1",
 			"compaction:outcome:v1",
 			"compaction:ready:v1",
 			"compaction:register-provider:v1",
@@ -97,6 +100,7 @@ describe("bus names are declared by a library, not an extension", () => {
 
 	it("names a domain, then a topic, then a version", () => {
 		const domains = new Set([
+			"budget",
 			"compaction",
 			"jobs",
 			"mesh",

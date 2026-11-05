@@ -148,7 +148,9 @@ it does:
   `compaction-workflow`, which walks its providers as a chain,
   or summary contributions appended to what they write, as
   `compaction-selection-provider` quotes the paragraphs a
-  compaction drops. Distinct from a `*-widget`, which adds standalone UI, and from
+  compaction drops, or a `BudgetProvider` saying what a quest's
+  budget means to the quest workflow, as `budget-file-provider`
+  reads it from a file of the person's own. Distinct from a `*-widget`, which adds standalone UI, and from
   an `*-integration`, which hosts a service. The seam is the
   bus, so a provider can live in a different package from its
   host.

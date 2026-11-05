@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+	layBudget,
+	liftBudget,
+	processOverlay,
+} from "../../../../lib/budget/environment.ts";
+import {
 	ancestryFromListing,
 	normaliseProgramName,
 } from "../../../../lib/core/internal/terminal/ancestry.ts";
@@ -89,6 +94,18 @@ describe("running a command under the person's shell", () => {
 				QUEST_WORKFLOW_AUTOLOAD_ID: "Q",
 			}),
 		).toEqual({ PATH: "/bin", PI_CACHE_RETENTION: "long" });
+	});
+
+	it("is as it was before this session's budget, so the new session draws on its own", () => {
+		const env: NodeJS.ProcessEnv = { PATH: "/bin", KEY: "personal" };
+		const overlay = processOverlay();
+		layBudget(env, { name: "d", label: "d", env: { KEY: "team", ADDED: "x" } });
+		try {
+			expect(launchEnvironment(env)).toEqual({ PATH: "/bin", KEY: "personal" });
+		} finally {
+			liftBudget(env);
+			overlay.laid.clear();
+		}
 	});
 });
 

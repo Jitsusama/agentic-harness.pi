@@ -28,6 +28,7 @@ import { suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
+import { budget } from "./verbs/budget.ts";
 import { configReport } from "./verbs/config.ts";
 import {
 	checkedItem,
@@ -233,6 +234,8 @@ async function dispatch(
 			return needAdd(state, params);
 		case "need-remove":
 			return needRemove(state, params);
+		case "budget":
+			return budget(state, params);
 		case "orchestrate":
 			return orchestrate(state, params, true);
 		case "unorchestrate":
