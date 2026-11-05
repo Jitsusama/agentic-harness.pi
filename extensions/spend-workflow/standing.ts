@@ -31,6 +31,14 @@ export interface StandingPrompt {
 	 * of tool names, not the declarations).
 	 */
 	readonly pieces: Readonly<Record<string, number>>;
+	/**
+	 * Characters later system messages declared again while the session
+	 * was still starting, before its third answer: tools and sections that
+	 * settled only after the first request went out. The prefix keeps
+	 * both copies, so each turn reads them again until a compaction, as
+	 * every session a quest spawn started did from 3 to 4 November 2026.
+	 */
+	readonly redeclared: number;
 }
 
 /** A session log's lines, as far as this module reads them. */
@@ -48,6 +56,27 @@ interface LogLine {
 /** The longest a log is read looking for its system message. */
 const MOST_LINES = 50;
 
+/** The longest a log is read past it for what start declared again. */
+const MOST_LINES_AFTER = 200;
+
+/** The answers by which a session counts as started. */
+const STARTED_AFTER_ANSWERS = 3;
+
+/** Characters a system message declares: its tools, then its sections. */
+function declared(message: NonNullable<LogLine["message"]>): {
+	readonly tools: unknown[];
+	readonly pieces: Record<string, number>;
+} {
+	const tools = message.toolsAdded ?? [];
+	const pieces: Record<string, number> = {
+		declarations: JSON.stringify(tools).length,
+	};
+	for (const [name, value] of Object.entries(message.sections ?? {})) {
+		if (typeof value === "string") pieces[name] = value.length;
+	}
+	return { tools, pieces };
+}
+
 /**
  * The always-on context a session started with, or nothing when its
  * log holds no system message in its first lines (an older pi, or a
@@ -60,9 +89,22 @@ export async function standingOf(
 	let session: string | undefined;
 	let cwd: string | null = null;
 	let read = 0;
+	let first: ReturnType<typeof declared> | undefined;
+	let readAfter = 0;
+	let answers = 0;
+	let redeclared = 0;
+	const standing = (): StandingPrompt | undefined =>
+		first && {
+			session: session ?? path,
+			repo: repoOf(cwd) ?? cwd,
+			tools: first.tools.length,
+			pieces: first.pieces,
+			redeclared,
+		};
 	try {
 		for await (const text of lines) {
-			if (++read > MOST_LINES) return undefined;
+			if (!first && ++read > MOST_LINES) return undefined;
+			if (first && ++readAfter > MOST_LINES_AFTER) break;
 			let line: LogLine;
 			try {
 				line = JSON.parse(text) as LogLine;
@@ -74,21 +116,22 @@ export async function standingOf(
 				cwd = line.cwd ?? null;
 				continue;
 			}
-			if (line.message?.role !== "system") continue;
-			const pieces: Record<string, number> = {};
-			const tools = line.message.toolsAdded ?? [];
-			pieces.declarations = JSON.stringify(tools).length;
-			for (const [name, value] of Object.entries(line.message.sections ?? {})) {
-				if (typeof value === "string") pieces[name] = value.length;
+			if (line.type === "compaction") break;
+			if (line.message?.role === "assistant") {
+				if (first && ++answers >= STARTED_AFTER_ANSWERS) break;
+				continue;
 			}
-			return {
-				session: session ?? path,
-				repo: repoOf(cwd) ?? cwd,
-				tools: tools.length,
-				pieces,
-			};
+			if (line.message?.role !== "system") continue;
+			const message = declared(line.message);
+			if (!first) {
+				first = message;
+				continue;
+			}
+			redeclared += Object.entries(message.pieces)
+				.filter(([name]) => name !== "declarations" || message.tools.length > 0)
+				.reduce((sum, [, size]) => sum + size, 0);
 		}
-		return undefined;
+		return standing();
 	} finally {
 		lines.close();
 	}
@@ -138,6 +181,10 @@ export interface StandingByRepo {
 	readonly total: number;
 	/** The median characters of each piece, largest first. */
 	readonly pieces: readonly (readonly [string, number])[];
+	/** How many of its sessions declared something again as they started. */
+	readonly redeclaring: number;
+	/** The median characters those sessions declared again. */
+	readonly redeclared: number;
 }
 
 /** Sessions grouped by repository, heaviest typical context first. */
@@ -157,9 +204,12 @@ export function byRepo(prompts: readonly StandingPrompt[]): StandingByRepo[] {
 			)
 			.filter(([, size]) => size > 0)
 			.sort((a, b) => b[1] - a[1]);
+		const again = members.map((m) => m.redeclared).filter((size) => size > 0);
 		out.push({
 			repo,
 			sessions: members.length,
+			redeclaring: again.length,
+			redeclared: median(again),
 			total: median(
 				members.map((m) => Object.values(m.pieces).reduce((a, b) => a + b, 0)),
 			),

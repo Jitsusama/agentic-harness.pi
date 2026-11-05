@@ -55,7 +55,52 @@ describe("the always-on context of a session", () => {
 				rules: 30,
 				project_context: 400,
 			},
+			redeclared: 0,
 		});
+	});
+
+	// From 3 to 4 November 2026 a spawned session's first request went out
+	// before start had settled its tools, and the next declared them all
+	// again, a copy every later turn read too.
+	it("counts what a later system message declares again while the session starts", async () => {
+		const again = {
+			type: "message",
+			message: {
+				role: "system",
+				sections: { rules: "r".repeat(50) },
+				toolsAdded: [{ name: "codemode" }],
+				toolsRemoved: [{ name: "read" }],
+			},
+		};
+		const answer = { type: "message", message: { role: "assistant" } };
+		const path = log([
+			{ type: "session", id: "S1", cwd: "/x" },
+			SYSTEM,
+			answer,
+			again,
+			answer,
+			answer,
+			// Past the third answer: a pairing or a loaded tool, not start.
+			again,
+		]);
+
+		const prompt = await standingOf(path);
+
+		expect(prompt?.redeclared).toBe(
+			50 + JSON.stringify(again.message.toolsAdded).length,
+		);
+		expect(prompt?.pieces.rules).toBe(30);
+	});
+
+	it("counts nothing declared again after a compaction", async () => {
+		const path = log([
+			{ type: "session", id: "S1", cwd: "/x" },
+			SYSTEM,
+			{ type: "compaction" },
+			SYSTEM,
+		]);
+
+		expect((await standingOf(path))?.redeclared).toBe(0);
 	});
 
 	it("names the repository where the path names one", async () => {
@@ -75,10 +120,34 @@ describe("the always-on context of a session", () => {
 
 	it("groups sessions by repository, heaviest first, by the median session", () => {
 		const grouped = byRepo([
-			{ session: "a", repo: "small", tools: 1, pieces: { tools: 10 } },
-			{ session: "b", repo: "big", tools: 1, pieces: { tools: 10, x: 900 } },
-			{ session: "c", repo: "big", tools: 1, pieces: { tools: 10, x: 100 } },
-			{ session: "d", repo: "big", tools: 1, pieces: { tools: 10, x: 500 } },
+			{
+				session: "a",
+				repo: "small",
+				tools: 1,
+				pieces: { tools: 10 },
+				redeclared: 0,
+			},
+			{
+				session: "b",
+				repo: "big",
+				tools: 1,
+				pieces: { tools: 10, x: 900 },
+				redeclared: 700,
+			},
+			{
+				session: "c",
+				repo: "big",
+				tools: 1,
+				pieces: { tools: 10, x: 100 },
+				redeclared: 0,
+			},
+			{
+				session: "d",
+				repo: "big",
+				tools: 1,
+				pieces: { tools: 10, x: 500 },
+				redeclared: 300,
+			},
 		]);
 
 		expect(grouped.map((g) => [g.repo, g.sessions, g.total])).toEqual([
@@ -86,6 +155,10 @@ describe("the always-on context of a session", () => {
 			["small", 1, 10],
 		]);
 		expect(grouped[0]?.pieces[0]).toEqual(["x", 500]);
+		// The median of the two that declared again, not of all three.
+		expect(grouped[0]?.redeclaring).toBe(2);
+		expect(grouped[0]?.redeclared).toBe(700);
+		expect(grouped[1]?.redeclaring).toBe(0);
 	});
 });
 
@@ -188,6 +261,8 @@ describe("the audit digest", () => {
 						sessions: 2,
 						total: 280_000,
 						pieces: [["project_context", 200_000]],
+						redeclaring: 1,
+						redeclared: 61_000,
 					},
 				],
 				unread: 1,
@@ -197,7 +272,7 @@ describe("the audit digest", () => {
 
 		// 280,000 characters at 2.8 a token is 100,000 tokens a turn.
 		expect(text).toContain(
-			"- big: 280k characters over 2 sessions, about $100 a week in reads. Largest: project_context 200k.",
+			"- big: 280k characters over 2 sessions, about $100 a week in reads. Largest: project_context 200k. 1 of 2 declared 61k again as they started, read on every turn until a compaction.",
 		);
 		expect(text).toContain("(1 log held no system message");
 	});
