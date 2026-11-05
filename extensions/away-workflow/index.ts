@@ -65,12 +65,8 @@ import { type Notice, notify } from "../../lib/internal/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import { ownWants, sessionWants } from "../../lib/internal/session/wants.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
-import {
-	asText,
-	drawInto,
-	firstText,
-	renderToolCall,
-} from "../../lib/ui/index.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
 import {
 	askedNotice,
 	carryOnText,

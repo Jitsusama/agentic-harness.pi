@@ -21,7 +21,7 @@
 
 import { decideGate, type GateDeps } from "../../../gate/index.ts";
 import type { GuardianResult } from "../../../guardian/types.ts";
-import { resolveRepo } from "../../review/index.ts";
+import { resolveRepo } from "../../review/bind.ts";
 
 export type { GateDeps };
 

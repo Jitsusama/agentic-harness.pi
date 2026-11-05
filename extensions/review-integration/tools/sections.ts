@@ -15,12 +15,14 @@ import { Type } from "@sinclair/typebox";
 import {
 	composePrBody,
 	PR_FIELDS,
-	PR_SECTIONS,
-	PR_SHAPE,
 	type PrFields,
 	readPrFields,
 	reviseFields,
-} from "../../../lib/core/sections/index.ts";
+} from "../../../lib/core/sections/compose.ts";
+import {
+	PR_SECTIONS,
+	PR_SHAPE,
+} from "../../../lib/core/sections/sanctioned.ts";
 import { count } from "../../../lib/ui/count.ts";
 
 /** The four section fields, as a call may carry any of them. */

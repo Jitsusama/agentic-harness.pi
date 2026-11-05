@@ -27,28 +27,32 @@ import { Type } from "@sinclair/typebox";
 import { runInvestigation } from "../../lib/completion/index.ts";
 import {
 	advisorCharter,
+	reviewPrompt,
+} from "../../lib/core/advisor/charter.ts";
+import {
 	channelFor,
 	type Finding,
-	investigationTools,
-	isSubstantiveTurn,
-	loadAdvisorEnabled,
 	nextImmuneTurns,
 	parseFindings,
-	reviewPrompt,
-	saveAdvisorEnabled,
-} from "../../lib/core/advisor/index.ts";
+} from "../../lib/core/advisor/findings.ts";
 import {
-	condenseTranscript,
+	loadAdvisorEnabled,
+	saveAdvisorEnabled,
+} from "../../lib/core/advisor/settings.ts";
+import { isSubstantiveTurn } from "../../lib/core/advisor/substantive.ts";
+import { investigationTools } from "../../lib/core/advisor/tools.ts";
+import { condenseTranscript } from "../../lib/core/governance/distill.ts";
+import {
 	openRuleStore,
 	type RuleStore,
-} from "../../lib/core/governance/index.ts";
+} from "../../lib/core/governance/store.ts";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "../../lib/core/observability/index.ts";
+} from "../../lib/core/observability/recorder.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { entriesToTurns } from "../../lib/internal/transcript.ts";
-import { asText, renderToolCall } from "../../lib/ui/index.ts";
+import { asText, renderToolCall } from "../../lib/ui/tool-call.ts";
 
 /**
  * The runtime context fields the advisor uses that the older

@@ -8,7 +8,8 @@
  */
 
 import { isAbsolute, join, resolve } from "node:path";
-import { type SimpleCommand, tokenize } from "../../../command/index.ts";
+import { tokenize } from "../../../command/tokenize.ts";
+import type { SimpleCommand } from "../../../command/types.ts";
 import { stripShellData, unquote } from "../../../shell/index.ts";
 import { matchHeredocs } from "../../../shell/parse.ts";
 import { createdBy, removedBy, unwrap } from "./bash-effects.ts";

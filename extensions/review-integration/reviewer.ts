@@ -19,15 +19,19 @@ import { join } from "node:path";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "../../lib/core/observability/index.ts";
+} from "../../lib/core/observability/recorder.ts";
+import { budgetForLimit } from "../../lib/core/review/budget.ts";
 import type {
 	AskAnswer,
 	AskLimit,
 	AskRun,
 	AskStop,
 } from "../../lib/core/review/index.ts";
-import { budgetForLimit } from "../../lib/core/review/index.ts";
 import { type TickFacts, tickFacts } from "../../lib/internal/process-ticks.ts";
+import {
+	detectStaleInstallInStderr,
+	STALE_RUNTIME_WARNING_PREFIX,
+} from "../../lib/subagent/health.ts";
 import type {
 	PiInstall,
 	ReviewerArtifactsStore,
@@ -35,15 +39,7 @@ import type {
 	RunPi,
 	RunReviewerResult,
 } from "../../lib/subagent/index.ts";
-import {
-	detectStaleInstallInStderr,
-	mergeResumeOutcome,
-	mergeWrapUpOutcome,
-	RESUME_SUFFIX,
-	STALE_RUNTIME_WARNING_PREFIX,
-	supervisorStanding,
-	WRAP_UP_SUFFIX,
-} from "../../lib/subagent/index.ts";
+import { supervisorStanding } from "../../lib/subagent/lease.ts";
 import {
 	JOURNAL_SAYS,
 	journalWarnings,
@@ -55,6 +51,12 @@ import {
 	type StartPi,
 	type SupervisorSpawnFn,
 } from "../../lib/subagent/runpi/supervisor.ts";
+import {
+	mergeResumeOutcome,
+	mergeWrapUpOutcome,
+	RESUME_SUFFIX,
+	WRAP_UP_SUFFIX,
+} from "../../lib/subagent/subagent.ts";
 
 /**
  * Which of our limits took the reviewer away.

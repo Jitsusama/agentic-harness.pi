@@ -22,7 +22,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { asText, renderToolCall } from "../../lib/ui/index.ts";
+import { asText, renderToolCall } from "../../lib/ui/tool-call.ts";
 import type { AgentStop, JobEntry, Jobs } from "./jobs.ts";
 
 /** A registry as any version built it: older ones lack `stopForAgent`. */

@@ -31,7 +31,7 @@ import {
 	isSummaryContributions,
 	recordContribution,
 	type SummaryContributions,
-} from "../../lib/compaction/index.ts";
+} from "../../lib/compaction/contributions.ts";
 import { candidatesBefore } from "../../lib/compaction/selection/candidates.ts";
 import { classify } from "../../lib/compaction/selection/classify.ts";
 import {

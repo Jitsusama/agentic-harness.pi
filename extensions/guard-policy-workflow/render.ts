@@ -7,10 +7,12 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { GuardReport, ResolvedGuard } from "../../lib/guardian/index.ts";
+import type { ResolvedGuard } from "../../lib/guardian/policy.ts";
+import type { GuardReport } from "../../lib/guardian/report.ts";
 import type { GuardianOutcome } from "../../lib/internal/guardian/registry.ts";
+import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
 import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
-import { renderMarkdown, renderNarrationLine } from "../../lib/ui/index.ts";
+import { renderNarrationLine } from "../../lib/ui/narration.ts";
 
 /** Body lines a collapsed report shows before it says how many are left. */
 export const COLLAPSED_BODY_LINES = 12;

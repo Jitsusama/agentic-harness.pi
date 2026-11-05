@@ -41,7 +41,8 @@ import {
 	createMutex,
 } from "../../../lib/internal/async-mutex.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
-import { count, displayPath } from "../../../lib/ui/index.ts";
+import { count } from "../../../lib/ui/count.ts";
+import { displayPath } from "../../../lib/ui/path.ts";
 import {
 	decisionDir,
 	draftDir,

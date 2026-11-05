@@ -35,8 +35,9 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { resolveLspBackend } from "../../lib/core/lsp/index.ts";
-import { findProject, runVerify } from "../../lib/core/verify/index.ts";
+import { resolveLspBackend } from "../../lib/core/lsp/registry.ts";
+import { findProject } from "../../lib/core/verify/project.ts";
+import { runVerify } from "../../lib/core/verify/run.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import {
@@ -45,10 +46,8 @@ import {
 } from "../../lib/internal/verification/signal.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
-import {
-	checkRunVerdict,
-	fastLayerVerdict,
-} from "../../lib/verification/index.ts";
+import { checkRunVerdict } from "../../lib/verification/check-run.ts";
+import { fastLayerVerdict } from "../../lib/verification/verdict.ts";
 import { currentFailure, settle } from "./current.ts";
 import { collectErrors, rememberChecked } from "./diagnostics.ts";
 import {

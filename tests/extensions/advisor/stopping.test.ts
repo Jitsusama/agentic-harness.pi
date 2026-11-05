@@ -40,13 +40,17 @@ vi.mock("../../../lib/completion/index.ts", () => ({
 	),
 }));
 
-vi.mock("../../../lib/core/advisor/index.ts", async (original) => ({
+vi.mock("../../../lib/core/advisor/settings.ts", async (original) => ({
 	...(await original<object>()),
 	loadAdvisorEnabled: () => true,
+}));
+
+vi.mock("../../../lib/core/advisor/substantive.ts", async (original) => ({
+	...(await original<object>()),
 	isSubstantiveTurn: () => true,
 }));
 
-vi.mock("../../../lib/core/observability/index.ts", async (original) => ({
+vi.mock("../../../lib/core/observability/recorder.ts", async (original) => ({
 	...(await original<object>()),
 	recordRunEverywhere: vi.fn(),
 }));

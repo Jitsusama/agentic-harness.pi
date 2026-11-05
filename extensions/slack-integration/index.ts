@@ -33,12 +33,8 @@ import {
 	type SlackUser,
 } from "../../lib/slack/index.ts";
 import { count } from "../../lib/ui/count.ts";
-import {
-	asText,
-	drawInto,
-	OUTCOME_GLYPH,
-	renderToolCall,
-} from "../../lib/ui/index.ts";
+import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { handleSlackAuthCommand } from "./auth-command.ts";
 import { IDENTITY_CONTEXT, identityText } from "./context.ts";
 import { routeAction } from "./router.ts";

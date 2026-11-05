@@ -26,13 +26,9 @@
  */
 
 import { detectProseViolations, formatProseBlock } from "../../prose/index.ts";
-import {
-	type ChangeSize,
-	detectBodyViolations,
-	formatBodyBlock,
-	PR_SECTIONS,
-	PR_SHAPE,
-} from "../sections/index.ts";
+import { detectBodyViolations, formatBodyBlock } from "../sections/gate.ts";
+import { PR_SECTIONS, PR_SHAPE } from "../sections/sanctioned.ts";
+import type { ChangeSize } from "../sections/shape.ts";
 import { detectTitleViolations, formatTitleBlock } from "../title/index.ts";
 
 /**

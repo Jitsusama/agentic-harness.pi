@@ -12,13 +12,10 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { frameTitle } from "../../ui/frame.ts";
 import { holdScreen } from "../../ui/gate-queue.ts";
-import {
-	frameTitle,
-	promptSingle,
-	type ViewConfig,
-	viewWhile,
-} from "../../ui/index.ts";
+import { promptSingle, viewWhile } from "../../ui/panel.ts";
+import type { ViewConfig } from "../../ui/types.ts";
 import { SlackClient } from "../api/client.ts";
 import type { OAuthApp } from "../types.ts";
 import { extractFromBrowser } from "./browser-extract.ts";

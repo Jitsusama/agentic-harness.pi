@@ -14,14 +14,11 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Exec } from "../../../lib/core/exec/index.ts";
-import {
-	carrySession,
-	carryTree,
-	type HeldTree,
-} from "../../../lib/core/work/index.ts";
+import type { HeldTree } from "../../../lib/core/work/broker.ts";
+import { carrySession, carryTree } from "../../../lib/core/work/carry.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
-import { count } from "../../../lib/ui/index.ts";
+import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 

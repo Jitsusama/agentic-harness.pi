@@ -18,7 +18,7 @@ import { PI_PROVIDER_ID } from "../../lib/compaction/chain.ts";
 import {
 	type CompactionProvider,
 	combinedFocus,
-} from "../../lib/compaction/index.ts";
+} from "../../lib/compaction/provider.ts";
 
 /** Asked after every other provider unless the chain says otherwise. */
 const PI_PRECEDENCE = 1000;

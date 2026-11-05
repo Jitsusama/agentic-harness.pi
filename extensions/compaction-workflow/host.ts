@@ -45,6 +45,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { resolveChain } from "../../lib/compaction/chain.ts";
 import {
+	newContributions,
+	SUMMARY_CONTRIBUTIONS,
+	type SummaryContributions,
+} from "../../lib/compaction/contributions.ts";
+import { emitOutcome } from "../../lib/compaction/outcome.ts";
+import {
+	keptBoundary,
+	pastCustomEntries,
+} from "../../lib/compaction/prepared.ts";
+import {
 	COMPACTION_READY,
 	COMPACTION_REGISTER_PROVIDER,
 	COMPACTION_REQUEST,
@@ -57,15 +67,9 @@ import {
 	type CompactionRequest,
 	type CompactionTiming,
 	type CompactionWritten,
-	emitOutcome,
 	isCompactionProvider,
-	keptBoundary,
-	newContributions,
-	pastCustomEntries,
-	SUMMARY_CONTRIBUTIONS,
-	type SummaryContributions,
-	withFileLists,
-} from "../../lib/compaction/index.ts";
+} from "../../lib/compaction/provider.ts";
+import { withFileLists } from "../../lib/compaction/summary.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 
 export type { CompactionAttempt } from "../../lib/compaction/index.ts";

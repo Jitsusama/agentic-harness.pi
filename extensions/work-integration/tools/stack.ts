@@ -11,10 +11,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	orderStack,
-	type ReplayResult,
 	type StackedBranch,
-	type WorkStacks,
-} from "../../../lib/core/work/index.ts";
+} from "../../../lib/core/work/stack.ts";
+import type {
+	ReplayResult,
+	WorkStacks,
+} from "../../../lib/core/work/stacks.ts";
 import { GLYPH } from "../render.ts";
 import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";

@@ -15,20 +15,19 @@ import {
 	validate,
 } from "../../lib/core/internal/guardian/commit-format.ts";
 import { runProseGate } from "../../lib/core/internal/guardian/prose-gate.ts";
+import { approvalUnder, refusalUnder } from "../../lib/guardian/apply.ts";
+import { guardMode } from "../../lib/guardian/policy.ts";
+import { formatRedirectBlock } from "../../lib/guardian/redirect.ts";
+import { reportGuard } from "../../lib/guardian/report.ts";
 import {
 	ALLOW,
-	approvalUnder,
 	type CommandGuardian,
-	formatRedirectBlock,
 	type GuardianResult,
-	refusalUnder,
-	reportGuard,
-} from "../../lib/guardian/index.ts";
-import { guardMode } from "../../lib/guardian/policy.ts";
+} from "../../lib/guardian/types.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { currentVerificationFailure } from "../../lib/internal/verification/signal.ts";
-import { promptSingle } from "../../lib/ui/index.ts";
+import { promptSingle } from "../../lib/ui/panel.ts";
 import { commitDirectory, extractMessage, isCommitCommand } from "./parse.ts";
 
 const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];

@@ -29,7 +29,7 @@ import {
 	detectUnquotedCommitHeredoc,
 } from "../../lib/core/git-cli/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
-import type { GuardianBlock } from "../../lib/guardian/index.ts";
+import type { GuardianBlock } from "../../lib/guardian/types.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/index.ts";
 

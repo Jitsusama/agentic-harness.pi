@@ -16,7 +16,8 @@ import {
 	setDefaultAccount,
 	storeCredentials,
 } from "../../lib/google/index.ts";
-import { frameTitle, view } from "../../lib/ui/index.ts";
+import { frameTitle } from "../../lib/ui/frame.ts";
+import { view } from "../../lib/ui/panel.ts";
 
 interface OAuthConfig {
 	clientId: string;

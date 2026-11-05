@@ -32,7 +32,8 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { effectiveCwd, tokenize } from "../../lib/command/index.ts";
+import { effectiveCwd } from "../../lib/command/cwd.ts";
+import { tokenize } from "../../lib/command/tokenize.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.ts";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.ts";

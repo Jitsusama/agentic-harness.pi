@@ -12,15 +12,17 @@
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import {
-	answerCompactionStatus,
-	askCompactionStatus,
 	COMPACTION_OUTCOME,
 	type CompactionOutcome,
-	compactionsOn,
 	isCompactionOutcome,
+} from "../../lib/compaction/outcome.ts";
+import {
+	answerCompactionStatus,
+	askCompactionStatus,
+	compactionsOn,
 	type StatusSection,
-} from "../../lib/compaction/index.ts";
-import { view } from "../../lib/ui/index.ts";
+} from "../../lib/compaction/status.ts";
+import { view } from "../../lib/ui/panel.ts";
 import type { AheadState } from "./host.ts";
 
 /** The workflow's section sits first. */

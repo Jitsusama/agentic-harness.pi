@@ -18,18 +18,18 @@ import {
 	type DestructiveMatch,
 	detectDestructiveCommand,
 } from "../../lib/core/internal/guardian/history-gate.ts";
+import { approvalUnder, refusalUnder } from "../../lib/guardian/apply.ts";
+import { formatRedirectBlock } from "../../lib/guardian/redirect.ts";
+import { reportGuard } from "../../lib/guardian/report.ts";
 import {
 	ALLOW,
-	approvalUnder,
 	type CommandGuardian,
-	formatRedirectBlock,
 	type GuardianResult,
-	refusalUnder,
-	reportGuard,
-} from "../../lib/guardian/index.ts";
+} from "../../lib/guardian/types.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/index.ts";
-import { promptSingle, renderMarkdown } from "../../lib/ui/index.ts";
+import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
+import { promptSingle } from "../../lib/ui/panel.ts";
 
 const DESTRUCTIVE_ACTIONS = [{ key: "r", label: "Reject" }];
 

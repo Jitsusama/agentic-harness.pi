@@ -19,19 +19,13 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { decide, isAway } from "../../lib/internal/away/state.ts";
+import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
 import { count } from "../../lib/ui/count.ts";
-import {
-	asText,
-	drawInto,
-	firstText,
-	type ListChoice,
-	OUTCOME_GLYPH,
-	type PromptItem,
-	promptSingle,
-	promptTabbed,
-	renderMarkdown,
-	renderToolCall,
-} from "../../lib/ui/index.ts";
+import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
+import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
+import type { ListChoice, PromptItem } from "../../lib/ui/types.ts";
 
 // Types
 interface QuestionOption {

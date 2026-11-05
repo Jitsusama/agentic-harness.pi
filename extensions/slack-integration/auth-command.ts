@@ -14,7 +14,7 @@ import {
 	type OAuthApp,
 	SlackClient,
 } from "../../lib/slack/index.ts";
-import { view } from "../../lib/ui/index.ts";
+import { view } from "../../lib/ui/panel.ts";
 
 /**
  * Handle /slack-auth command.

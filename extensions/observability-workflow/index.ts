@@ -33,17 +33,20 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { registerRunRecorder } from "../../lib/core/observability/recorder.ts";
 import {
 	openRunStore,
-	type RunRecord,
-	type RunRollup,
 	type RunStore,
-	type RunSummary,
-	registerRunRecorder,
-} from "../../lib/core/observability/index.ts";
-import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
+} from "../../lib/core/observability/store.ts";
+import type {
+	RunRecord,
+	RunRollup,
+	RunSummary,
+} from "../../lib/core/observability/types.ts";
+import { citeListing } from "../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
-import { repoOf } from "../../lib/ledger/index.ts";
+import { repoOf } from "../../lib/ledger/session.ts";
 
 /** Result payload the observe_runs tool returns. */
 interface ObserveDetails {

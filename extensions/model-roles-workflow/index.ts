@@ -19,7 +19,7 @@ import {
 	findArchaic,
 	type RoleModel,
 } from "../../lib/roles/index.ts";
-import { view } from "../../lib/ui/index.ts";
+import { view } from "../../lib/ui/panel.ts";
 import { renderRoles } from "./render.ts";
 
 export default function modelRolesWorkflow(pi: ExtensionAPI) {

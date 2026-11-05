@@ -14,11 +14,11 @@ import { appendFileSync, mkdirSync, readdirSync, readlinkSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	listTreeProviders,
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
-} from "../../lib/core/work/index.ts";
+} from "../../lib/core/work/events.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
+import { listTreeProviders } from "../../lib/core/work/register.ts";
 import {
 	type SweepOutcome,
 	sweepEndedTrees,

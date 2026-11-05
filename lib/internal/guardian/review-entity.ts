@@ -9,15 +9,14 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import {
-	ALLOW,
-	approvalUnder,
-	formatRedirectBlock,
-	type GuardianResult,
-	type GuardMode,
-	reportGuard,
-} from "../../guardian/index.ts";
-import { promptSingle, renderMarkdown, wordWrap } from "../../ui/index.ts";
+import { approvalUnder } from "../../guardian/apply.ts";
+import type { GuardMode } from "../../guardian/policy.ts";
+import { formatRedirectBlock } from "../../guardian/redirect.ts";
+import { reportGuard } from "../../guardian/report.ts";
+import { ALLOW, type GuardianResult } from "../../guardian/types.ts";
+import { renderMarkdown } from "../../ui/content-renderer.ts";
+import { promptSingle } from "../../ui/panel.ts";
+import { wordWrap } from "../../ui/text-layout.ts";
 
 /** Labels that distinguish one entity type from another. */
 export interface EntityReviewConfig {

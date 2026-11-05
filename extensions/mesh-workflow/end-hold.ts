@@ -13,15 +13,13 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
+import { approvalUnder, fenced } from "../../lib/guardian/apply.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { clock, type Message, shortId } from "../../lib/mesh/message.ts";
-import {
-	frameTitle,
-	type KeyAction,
-	promptSingle,
-	renderMarkdown,
-} from "../../lib/ui/index.ts";
+import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
+import { frameTitle } from "../../lib/ui/frame.ts";
+import { promptSingle } from "../../lib/ui/panel.ts";
+import type { KeyAction } from "../../lib/ui/types.ts";
 
 const REJECT: KeyAction[] = [{ key: "r", label: "Reject" }];
 

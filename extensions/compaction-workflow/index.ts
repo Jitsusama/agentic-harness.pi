@@ -78,20 +78,24 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	FAILURE_ENTRY,
+	failureRecord,
+	wasCancelled,
+} from "../../lib/compaction/failure.ts";
+import { compactionHistory } from "../../lib/compaction/history.ts";
+import { emitOutcome } from "../../lib/compaction/outcome.ts";
+import {
+	FAILED_RESUME_TEXT,
+	RESUME_TEXT,
+} from "../../lib/compaction/resume.ts";
+import {
 	type CompactionCost,
 	type CompactionPrices,
 	compactionCost,
-	compactionHistory,
 	compactionPays,
 	droppableRent,
-	emitOutcome,
-	FAILED_RESUME_TEXT,
-	FAILURE_ENTRY,
-	failureRecord,
 	idleCompactionPays,
-	RESUME_TEXT,
-	wasCancelled,
-} from "../../lib/compaction/index.ts";
+} from "../../lib/compaction/trigger.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { whileCurrent } from "../../lib/internal/stale.ts";
 import { conversationProvider } from "./conversation.ts";

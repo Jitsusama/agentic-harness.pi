@@ -12,12 +12,9 @@
  * so this module no longer reconstructs commands.
  */
 
-import {
-	type FlagSpec,
-	findFlag,
-	type SimpleCommand,
-	tokenize,
-} from "../../../command/index.ts";
+import { type FlagSpec, findFlag } from "../../../command/flags.ts";
+import { tokenize } from "../../../command/tokenize.ts";
+import type { SimpleCommand } from "../../../command/types.ts";
 import { unquote } from "../../../shell/index.ts";
 import { GH_BODY_SPEC, isGhCommand } from "../../github-cli/index.ts";
 

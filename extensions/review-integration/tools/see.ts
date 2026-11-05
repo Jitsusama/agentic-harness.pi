@@ -13,10 +13,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import {
-	citeListing,
-	openSessionStore,
-} from "../../../lib/core/result/index.ts";
+import { citeListing } from "../../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../../lib/core/result/location.ts";
 import {
 	byRoundNewestFirst,
 	type FindingRound,
@@ -40,7 +38,7 @@ import {
 	sinceLastVisit,
 	tallyReceptions,
 } from "../../../lib/core/review/index.ts";
-import { count } from "../../../lib/ui/index.ts";
+import { count } from "../../../lib/ui/count.ts";
 import { CHECKS_POLL_MS, unsettled, watchChecks } from "../checks-job.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.ts";

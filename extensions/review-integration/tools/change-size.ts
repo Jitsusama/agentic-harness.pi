@@ -12,7 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Change } from "../../../lib/core/review/index.ts";
-import type { ChangeSize } from "../../../lib/core/sections/index.ts";
+import type { ChangeSize } from "../../../lib/core/sections/shape.ts";
 
 const INSERTIONS = /(\d+) insertions?\(\+\)/;
 const DELETIONS = /(\d+) deletions?\(-\)/;

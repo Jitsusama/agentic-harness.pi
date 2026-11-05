@@ -17,8 +17,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { queueRefusal } from "../../lib/core/review/index.ts";
-import type { PublishReview } from "../../lib/core/work/index.ts";
-import { WORK_PUBLISH_CHECK } from "../../lib/core/work/index.ts";
+import type { PublishReview } from "../../lib/core/work/objection.ts";
+import { WORK_PUBLISH_CHECK } from "../../lib/core/work/objection.ts";
 import { reviewEngine } from "./engine.ts";
 
 /**

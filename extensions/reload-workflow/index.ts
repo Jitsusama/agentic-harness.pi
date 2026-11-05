@@ -32,12 +32,8 @@ import {
 import { piPackageSettings } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
-import {
-	asText,
-	drawInto,
-	firstText,
-	renderToolCall,
-} from "../../lib/ui/index.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
 import { type Follower, follow } from "./follow.ts";
 import {
 	PACKAGE_NAME,

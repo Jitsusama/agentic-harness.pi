@@ -29,7 +29,7 @@ import {
 } from "../../lib/core/web/reader.ts";
 import { webSearch as doSearch } from "../../lib/core/web/search.ts";
 import { count } from "../../lib/ui/count.ts";
-import { asText, drawInto, renderToolCall } from "../../lib/ui/index.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { formatManifest } from "./manifest.ts";
 
 /** Details returned by web_read on success. */

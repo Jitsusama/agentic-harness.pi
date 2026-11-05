@@ -19,8 +19,8 @@
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "../../lib/core/observability/index.ts";
-import { count as grouped } from "../../lib/core/result/index.ts";
+} from "../../lib/core/observability/recorder.ts";
+import { count as grouped } from "../../lib/core/result/counts.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import { UNFINISHED } from "../../lib/subagent/reviewer-error.ts";
 import type {

@@ -29,7 +29,8 @@ import {
 	MermaidRenderError,
 	renderMermaid,
 } from "../../lib/core/web/mermaid.ts";
-import { drawInto, firstText } from "../../lib/ui/index.ts";
+import { drawInto } from "../../lib/ui/tool-call.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
 import { mermaidContent } from "./content.ts";
 
 /** The platform command that opens a file in its default app. */

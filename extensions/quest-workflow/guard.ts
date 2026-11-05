@@ -14,11 +14,9 @@
  */
 
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import {
-	guardMode,
-	refusalUnder,
-	reportGuard,
-} from "../../lib/guardian/index.ts";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { guardMode } from "../../lib/guardian/policy.ts";
+import { reportGuard } from "../../lib/guardian/report.ts";
 import type { QuestVerdict } from "./enforce.ts";
 import { recordOutsideWrites } from "./outside-writes.ts";
 import type { QuestState } from "./state.ts";

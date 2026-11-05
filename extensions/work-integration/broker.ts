@@ -17,19 +17,23 @@
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	createGitTreeProvider,
 	createTreeBroker,
-	createTreeMemory,
-	listTreeProviders,
+	type TreeBroker,
+} from "../../lib/core/work/broker.ts";
+import { createTreeMemory } from "../../lib/core/work/memory.ts";
+import {
 	type Objection,
 	type PublishIntent,
-	registerTreeProvider,
-	type TreeBroker,
 	WORK_PUBLISH_CHECK,
-} from "../../lib/core/work/index.ts";
+} from "../../lib/core/work/objection.ts";
+import { createGitTreeProvider } from "../../lib/core/work/providers/git.ts";
+import {
+	listTreeProviders,
+	registerTreeProvider,
+} from "../../lib/core/work/register.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
-import { createFleetLedger } from "../../lib/subagent/index.ts";
+import { createFleetLedger } from "../../lib/subagent/fleet.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {

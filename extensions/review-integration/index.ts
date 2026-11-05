@@ -37,7 +37,7 @@ import {
 } from "../../lib/subagent/index.ts";
 import { ORPHAN_LOOK_WINDOW_MS } from "../../lib/subagent/recovery.ts";
 import { type Aside, asideFor } from "../../lib/ui/aside.ts";
-import { count } from "../../lib/ui/index.ts";
+import { count } from "../../lib/ui/count.ts";
 import { withToolCallSignals } from "./call-signal.ts";
 import {
 	attachmentDir,

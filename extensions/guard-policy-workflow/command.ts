@@ -6,7 +6,7 @@ import {
 	GUARD_MODES,
 	type GuardMode,
 	readGuardMode,
-} from "../../lib/guardian/index.ts";
+} from "../../lib/guardian/policy.ts";
 
 /** A parsed `/guards` invocation. */
 export type GuardsCommand =
