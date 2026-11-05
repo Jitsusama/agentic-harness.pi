@@ -37,10 +37,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-	answerCompactionStatus,
-	SUMMARY_CONTRIBUTIONS,
-} from "../../lib/compaction/index.ts";
+import { SUMMARY_CONTRIBUTIONS } from "../../lib/compaction/contributions.ts";
+import { answerCompactionStatus } from "../../lib/compaction/status.ts";
 import { classifierStatus } from "./classifier.ts";
 import { excerptTokens, selectionContributor } from "./contribution.ts";
 import { selectionSection } from "./status.ts";

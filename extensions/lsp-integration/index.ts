@@ -41,7 +41,8 @@ import {
 	toBackendEntry,
 	unregisterLspBackend,
 } from "../../lib/core/lsp/index.ts";
-import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
+import { citeListing } from "../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
 import { LSP_CALL_WALL_MS } from "./limits.ts";
 
 const STANDALONE = "standalone";

@@ -21,10 +21,9 @@
 import {
 	detectBodyViolations,
 	formatBodyBlock,
-	PR_SECTIONS,
-	PR_SHAPE,
-	violationSignature,
-} from "../../lib/core/sections/index.ts";
+} from "../../lib/core/sections/gate.ts";
+import { PR_SECTIONS, PR_SHAPE } from "../../lib/core/sections/sanctioned.ts";
+import { violationSignature } from "../../lib/gate/decision.ts";
 import { isPrCommand, parsePrCommand } from "./parse.ts";
 
 /** The custom message type the audit speaks with. */

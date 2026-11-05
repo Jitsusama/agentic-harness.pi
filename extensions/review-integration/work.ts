@@ -27,13 +27,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
+import { treeRequestFrom } from "../../lib/core/work/ask.ts";
 import {
-	satisfies,
-	treeRequestFrom,
 	WORK_READY,
 	WORK_REQUEST,
 	type WorkApi,
-} from "../../lib/core/work/index.ts";
+} from "../../lib/core/work/events.ts";
+import { satisfies } from "../../lib/core/work/tree.ts";
 import { REVIEW_COMMANDS } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
 

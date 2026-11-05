@@ -7,7 +7,9 @@
  * assignment in separate commands after creation.
  */
 
-import { findFlag, type SimpleCommand, tokenize } from "../../command/index.ts";
+import { findFlag } from "../../command/flags.ts";
+import { tokenize } from "../../command/tokenize.ts";
+import type { SimpleCommand } from "../../command/types.ts";
 import {
 	extractBodyFilePath,
 	hasUnquotedHeredoc,

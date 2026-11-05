@@ -12,7 +12,7 @@ import { runProseGate } from "../../lib/core/internal/guardian/prose-gate.ts";
 import { runRedirectGate } from "../../lib/core/internal/guardian/redirect-gate.ts";
 import { runSectionGate } from "../../lib/core/internal/guardian/section-gate.ts";
 import { runTitleGate } from "../../lib/core/internal/guardian/title-gate.ts";
-import { PR_SECTIONS, PR_SHAPE } from "../../lib/core/sections/index.ts";
+import { PR_SECTIONS, PR_SHAPE } from "../../lib/core/sections/sanctioned.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import type {
 	CommandGuardian,

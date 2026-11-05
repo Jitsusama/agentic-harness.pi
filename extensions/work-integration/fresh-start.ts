@@ -27,7 +27,7 @@ import {
 	EXIT_TIMED_OUT,
 	type Exec,
 } from "../../lib/core/exec/index.ts";
-import { safeBranchName } from "../../lib/core/work/index.ts";
+import { safeBranchName } from "../../lib/core/work/author.ts";
 
 /**
  * How long fetching one branch may take before the branch is made from

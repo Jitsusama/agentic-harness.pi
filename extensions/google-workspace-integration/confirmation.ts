@@ -9,15 +9,13 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
+import { approvalUnder, fenced } from "../../lib/guardian/apply.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
-import {
-	frameTitle,
-	type PromptResult,
-	promptSingle,
-	wordWrap,
-} from "../../lib/ui/index.ts";
+import { frameTitle } from "../../lib/ui/frame.ts";
+import { promptSingle } from "../../lib/ui/panel.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
+import { wordWrap } from "../../lib/ui/text-layout.ts";
+import type { PromptResult } from "../../lib/ui/types.ts";
 
 /**
  * The gate's answer when it needs no panel, or undefined when it should

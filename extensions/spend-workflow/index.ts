@@ -49,7 +49,8 @@ import {
 	registerRunRecorder,
 	type TurnStore,
 } from "../../lib/core/observability/index.ts";
-import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
+import { citeListing } from "../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
 import { medianOf } from "../../lib/internal/cost-meter/index.ts";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
 import { dataDir } from "../../lib/internal/paths.ts";

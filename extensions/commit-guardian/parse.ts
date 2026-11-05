@@ -5,7 +5,8 @@
  */
 
 import { resolve } from "node:path";
-import { effectiveCwd, tokenize } from "../../lib/command/index.ts";
+import { effectiveCwd } from "../../lib/command/cwd.ts";
+import { tokenize } from "../../lib/command/tokenize.ts";
 import {
 	findGitCommand,
 	isGitCommitCommand,

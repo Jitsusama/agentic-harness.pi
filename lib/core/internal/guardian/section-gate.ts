@@ -11,7 +11,7 @@ import type { GuardianResult } from "../../../guardian/types.ts";
 import {
 	type SectionGateConfig,
 	sectionGateDecision,
-} from "../../sections/index.ts";
+} from "../../sections/gate.ts";
 
 /** Run the section gate over a body. Returns a block or undefined. */
 export function runSectionGate(

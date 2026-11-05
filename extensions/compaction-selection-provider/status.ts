@@ -10,12 +10,12 @@
  */
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { EXCERPTS_HEADING } from "../../lib/compaction/selection/render.ts";
+import { untagged } from "../../lib/compaction/selection/tags.ts";
 import {
 	compactionsOn,
 	type StatusSection,
-} from "../../lib/compaction/index.ts";
-import { EXCERPTS_HEADING } from "../../lib/compaction/selection/render.ts";
-import { untagged } from "../../lib/compaction/selection/tags.ts";
+} from "../../lib/compaction/status.ts";
 import type { ClassifierState } from "./classifier.ts";
 import { SELECTION_RECORD_ID } from "./contribution.ts";
 import type { SelectionStore } from "./store.ts";

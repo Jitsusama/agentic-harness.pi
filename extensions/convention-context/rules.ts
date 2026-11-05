@@ -27,7 +27,7 @@ import {
 	ISSUE_SECTIONS,
 	PR_SECTIONS,
 	PR_SHAPE,
-} from "../../lib/core/sections/index.ts";
+} from "../../lib/core/sections/sanctioned.ts";
 
 /**
  * The PR shape in one line, from the same limits the gate holds a

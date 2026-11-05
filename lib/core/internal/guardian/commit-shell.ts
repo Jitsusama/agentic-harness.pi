@@ -7,16 +7,14 @@
  * parsing lives in lib/shell/.
  */
 
-import {
-	type CommandLine,
-	effectiveCwd,
-	type FlagSpec,
-	findFlag,
-	findFlags,
-	type SimpleCommand,
-	tokenize,
-	type Word,
-} from "../../../command/index.ts";
+import { effectiveCwd } from "../../../command/cwd.ts";
+import { type FlagSpec, findFlag, findFlags } from "../../../command/flags.ts";
+import { tokenize } from "../../../command/tokenize.ts";
+import type {
+	CommandLine,
+	SimpleCommand,
+	Word,
+} from "../../../command/types.ts";
 import { unquote } from "../../../shell/index.ts";
 
 /**

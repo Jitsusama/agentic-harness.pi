@@ -27,7 +27,7 @@ import {
 } from "../../lib/guardian/report.ts";
 import { list } from "../../lib/internal/guardian/registry.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
-import { view } from "../../lib/ui/index.ts";
+import { view } from "../../lib/ui/panel.ts";
 import { guardsCompletions, parseGuardsCommand } from "./command.ts";
 import { loadModes, saveModes } from "./lifecycle.ts";
 import { guardReportLines, guardTableLines } from "./render.ts";

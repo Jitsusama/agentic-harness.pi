@@ -20,36 +20,38 @@ import { Type } from "@sinclair/typebox";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-format.ts";
 import { runProseGate } from "../../../lib/core/internal/guardian/prose-gate.ts";
+import { citeListing } from "../../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../../lib/core/result/location.ts";
+import { treeRequestFrom } from "../../../lib/core/work/ask.ts";
 import {
-	citeListing,
-	openSessionStore,
-} from "../../../lib/core/result/index.ts";
+	createGitAuthor,
+	namingComplaints,
+} from "../../../lib/core/work/author.ts";
+import type { HeldTree, TreeBroker } from "../../../lib/core/work/broker.ts";
+import {
+	type TreeClaims,
+	WORK_TREE_CLAIMS,
+} from "../../../lib/core/work/events.ts";
 import {
 	blocksRepoint,
-	cautionsFrom,
-	chooseTree,
-	createGitAuthor,
 	createGitHistory,
-	createGitPublisher,
+	type WorkHistory,
+} from "../../../lib/core/work/history.ts";
+import { chooseTree, treeInPlay } from "../../../lib/core/work/inplay.ts";
+import { cautionsFrom, refusalFrom } from "../../../lib/core/work/objection.ts";
+import { createGitPublisher } from "../../../lib/core/work/publish.ts";
+import {
 	createGitRebaser,
-	createGitStacks,
-	type HeldTree,
-	heldNames,
-	namingComplaints,
+	type Settling,
+} from "../../../lib/core/work/rebase.ts";
+import { reclaimTrees } from "../../../lib/core/work/reclaim.ts";
+import { createGitStacks } from "../../../lib/core/work/stacks.ts";
+import { heldNames, surveyTarget } from "../../../lib/core/work/survey.ts";
+import {
 	type OrphanPlan,
 	orphanedTrees,
-	reclaimTrees,
-	refusalFrom,
-	type Settling,
-	surveyTarget,
-	type TreeBroker,
-	type TreeClaims,
 	tidyPlan,
-	treeInPlay,
-	treeRequestFrom,
-	WORK_TREE_CLAIMS,
-	type WorkHistory,
-} from "../../../lib/core/work/index.ts";
+} from "../../../lib/core/work/tidy.ts";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
 import {
 	duMeasure,
@@ -61,7 +63,8 @@ import {
 import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
 import { repoRulesNote } from "../../../lib/internal/session/repo-rules.ts";
 import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
-import { count, displayPath } from "../../../lib/ui/index.ts";
+import { count } from "../../../lib/ui/count.ts";
+import { displayPath } from "../../../lib/ui/path.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
 import { FETCH_MS, refreshStart } from "../fresh-start.ts";
 import { GLYPH, treeLine } from "../render.ts";

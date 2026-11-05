@@ -15,8 +15,8 @@
  * committed on purpose, since then nothing is being swept.
  */
 
-import type { ChangedPath } from "../../../lib/core/work/index.ts";
-import { count } from "../../../lib/ui/index.ts";
+import type { ChangedPath } from "../../../lib/core/work/history.ts";
+import { count } from "../../../lib/ui/count.ts";
 
 /**
  * Directory names that only ever hold what a build or a tool made.

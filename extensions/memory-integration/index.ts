@@ -21,7 +21,8 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
+import { citeListing } from "../../lib/core/result/listing.ts";
+import { openSessionStore } from "../../lib/core/result/location.ts";
 import {
 	type Fact,
 	type MemoryStore,

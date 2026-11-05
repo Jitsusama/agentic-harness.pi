@@ -11,7 +11,7 @@
 import type {
 	CompactionCost,
 	TriggerDecision,
-} from "../../lib/compaction/index.ts";
+} from "../../lib/compaction/trigger.ts";
 
 /** Show a context size in thousands of tokens. */
 const TOKENS_PER_K = 1_000;

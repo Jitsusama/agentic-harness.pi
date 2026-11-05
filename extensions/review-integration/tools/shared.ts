@@ -26,7 +26,8 @@ import {
 	repoElsewhere,
 	type Thread,
 } from "../../../lib/core/review/index.ts";
-import { firstText, renderToolCall } from "../../../lib/ui/index.ts";
+import { renderToolCall } from "../../../lib/ui/tool-call.ts";
+import { firstText } from "../../../lib/ui/tool-result.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import type { GateRefusal } from "../gate.ts";
 import { boardsOf, roundCardLines } from "../progress.ts";

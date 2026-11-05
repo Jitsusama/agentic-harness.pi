@@ -15,16 +15,13 @@ import type {
 	ExtensionContext,
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
+import { approvalUnder, fenced } from "../../lib/guardian/apply.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
-import {
-	frameTitle,
-	type KeyAction,
-	promptSingle,
-	promptTabbed,
-	renderMarkdown,
-} from "../../lib/ui/index.ts";
+import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
+import { frameTitle } from "../../lib/ui/frame.ts";
+import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
+import type { KeyAction } from "../../lib/ui/types.ts";
 
 /** File metadata for the upload confirmation gate. */
 export interface FileInfo {

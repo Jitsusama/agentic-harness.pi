@@ -30,7 +30,7 @@ import {
 	type Approval,
 	approvalUnder,
 	fenced,
-} from "../../lib/guardian/index.ts";
+} from "../../lib/guardian/apply.ts";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
 import { wordWrap } from "../../lib/ui/text-layout.ts";

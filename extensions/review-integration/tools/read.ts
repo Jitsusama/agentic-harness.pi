@@ -20,7 +20,7 @@ import {
 	stackStep,
 	unbackedDeclarations,
 } from "../../../lib/core/review/index.ts";
-import { displayPath } from "../../../lib/ui/index.ts";
+import { displayPath } from "../../../lib/ui/path.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import { GLYPH } from "../render.ts";
 import { treeStandingFor } from "../work.ts";

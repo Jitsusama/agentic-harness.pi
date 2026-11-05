@@ -34,23 +34,21 @@ import {
 	retargetPlan,
 	retargetRoute,
 } from "../../../lib/core/review/index.ts";
+import { composePrBody } from "../../../lib/core/sections/compose.ts";
+import { PR_SHAPE } from "../../../lib/core/sections/sanctioned.ts";
 import {
 	type ChangeSize,
-	composePrBody,
-	PR_SHAPE,
 	usesDepth,
-} from "../../../lib/core/sections/index.ts";
+} from "../../../lib/core/sections/shape.ts";
 import {
 	detectTitleViolations,
 	toTitleCase,
 } from "../../../lib/core/title/index.ts";
-import {
-	createGitRebaser,
-	createGitStacks,
-} from "../../../lib/core/work/index.ts";
+import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
+import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
-import { count } from "../../../lib/ui/index.ts";
+import { count } from "../../../lib/ui/count.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";

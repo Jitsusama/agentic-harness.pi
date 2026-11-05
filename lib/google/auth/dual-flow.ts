@@ -5,7 +5,8 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Credentials } from "google-auth-library";
-import { frameTitle, viewWhile } from "../../ui/index.ts";
+import { frameTitle } from "../../ui/frame.ts";
+import { viewWhile } from "../../ui/panel.ts";
 import { openInBrowser } from "./browser.ts";
 import { AUTH_MESSAGES } from "./errors.ts";
 import type { OAuth2Config } from "./oauth.ts";

@@ -8,7 +8,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { asText, renderToolCall } from "../../lib/ui/index.ts";
+import { asText, renderToolCall } from "../../lib/ui/tool-call.ts";
 
 interface CallArgs {
 	action?: string;

@@ -4,12 +4,10 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import {
-	count,
-	drawInto,
-	firstText,
-	OUTCOME_GLYPH,
-} from "../../lib/ui/index.ts";
+import { count } from "../../lib/ui/count.ts";
+import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
+import { drawInto } from "../../lib/ui/tool-call.ts";
+import { firstText } from "../../lib/ui/tool-result.ts";
 
 interface RenderOptions {
 	terminalWidth?: number;

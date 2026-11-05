@@ -16,16 +16,18 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { offerQueryTool } from "../../lib/core/result/follow.ts";
 import {
 	cleanupSessionResults,
-	DEFAULT_MAX_MATCHES,
 	isPidAlive,
-	offerQueryTool,
 	openSessionStore,
-	queryStored,
 	RESULT_ROOT,
 	reapAbandonedResults,
-} from "../../lib/core/result/index.ts";
+} from "../../lib/core/result/location.ts";
+import {
+	DEFAULT_MAX_MATCHES,
+	queryStored,
+} from "../../lib/core/result/query.ts";
 import { renderQueryCall, renderQueryResult } from "./render.ts";
 
 /** What the tool reports alongside its text, for the renderers. */
