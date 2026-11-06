@@ -77,6 +77,14 @@ import {
 	onNoModel,
 } from "../../lib/internal/session/no-model.ts";
 import {
+	askWake,
+	isParkAsk,
+	isParked,
+	isParking,
+	PARK_ASK,
+	PARKING,
+} from "../../lib/internal/session/park.ts";
+import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
@@ -132,6 +140,7 @@ import {
 	createAwaiting,
 	createOwing,
 } from "../../lib/mesh/owed.ts";
+import { wakeParked } from "../../lib/mesh/parked.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences, windowTitle } from "../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
@@ -1559,6 +1568,31 @@ export function meshWorkflow(
 			});
 		}
 
+		// A session parking says so in its presence, so senders keep what
+		// they send it and wake it; one that holds others off stays.
+		pi.events?.on(PARKING, (data: unknown) => {
+			if (!isParking(data) || !peer || data.session !== peer.session) return;
+			peer.park();
+			data.addresses = peer.addresses;
+			const quest = presences.of(peer.session)?.quest;
+			if (quest) data.quest = quest;
+		});
+		pi.events?.on(PARK_ASK, (data: unknown) => {
+			if (!isParkAsk(data) || !peer || data.session !== peer.session) return;
+			const self = { addresses: peer.addresses, pid: process.pid };
+			const held = board
+				.all()
+				.flatMap((holding) => holding.leases)
+				.some((lease) => {
+					if (lease.kind !== "wait" || !isCurrent(lease, Date.now())) {
+						return false;
+					}
+					const hold = transport.read(lease.subject);
+					return hold !== undefined && sentBy(hold, self);
+				});
+			if (held) data.refusals.push("peers wait on a hold it sent");
+		});
+
 		// Heavy work is claimed by whatever places it, over pi's bus.
 		pi.events?.on(LEASE_EVENT, (data: unknown) => {
 			const event = leaseEventFrom(data);
@@ -1601,6 +1635,16 @@ export function meshWorkflow(
 							awaiting.asked(message, peer?.addresses ?? []);
 							leasing.sent(message);
 							watchWaits();
+							// A parked peer it gives a turn is started again to take it.
+							wakeParked(
+								message,
+								presences.all(),
+								(id) => transport.read(id),
+								(session) => isParked(session),
+								(session, id) => {
+									askWake(session, id);
+								},
+							);
 							// A machine hold reaches the machine's other realms too.
 							try {
 								cross(message, crossings, (id) => transport.read(id));

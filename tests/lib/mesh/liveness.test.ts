@@ -55,6 +55,28 @@ describe("a peer's liveness", () => {
 		expect(await livenessOf(one, machine({}))).toBe("gone");
 	});
 
+	it("is present once parked, its process gone, while its marker stands", async () => {
+		const one = presence({
+			owner: { pid: 40, startedAt: 1000 },
+			state: "parked",
+		});
+		const marked = (session: string) => session === "s-1";
+
+		expect(await livenessOf(one, machine({}), undefined, marked)).toBe(
+			"present",
+		);
+		expect(await livenessOf(one, machine({}), undefined, () => false)).toBe(
+			"gone",
+		);
+		// A marker says nothing of a peer that never said it parked.
+		const ended = presence({ owner: { pid: 40, startedAt: 1000 } });
+		expect(await livenessOf(ended, machine({}), undefined, marked)).toBe(
+			"gone",
+		);
+		const { present } = await census([one], machine({}), undefined, marked);
+		expect(present.map((peer) => peer.session)).toEqual(["s-1"]);
+	});
+
 	it("is gone when a new process wears its pid", async () => {
 		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
 

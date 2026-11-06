@@ -109,6 +109,12 @@ export interface Peer {
 	/** Say whether its person paused it. */
 	setPaused(paused: boolean): void;
 	/**
+	 * Say it is parking: ending idle to hold no memory until it is woken
+	 * (parked.ts). It says so to the end, and its next start, a new peer,
+	 * does not carry it.
+	 */
+	park(): void;
+	/**
 	 * Say the step a run is on, such as the tool it is running. Said at
 	 * most once every STEP_MS, since the desktop watches presence and
 	 * a run starts a tool every few seconds; the newest step said inside
@@ -170,7 +176,9 @@ export function stateOf(
 	busy: boolean,
 	waiting: boolean,
 	paused = false,
+	parked = false,
 ): PeerState {
+	if (parked) return "parked";
 	if (paused) return "paused";
 	if (busy) return "busy";
 	return waiting ? "waiting" : "listening";
@@ -221,6 +229,7 @@ export function localPeer(at: Surroundings): Peer {
 	let landings: Landing[] = standing(before?.landings ?? [], now());
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
+	let parked = false;
 	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Found once a start: reading every README on each refresh would
@@ -267,7 +276,7 @@ export function localPeer(at: Surroundings): Peer {
 			owns: receiver.owns,
 			...(quest ? { quest } : {}),
 			busy,
-			state: stateOf(busy, wanting.size > 0, paused),
+			state: stateOf(busy, wanting.size > 0, paused, parked),
 			...(busy && since ? { since } : {}),
 			...(busy && step ? { step: step.text } : {}),
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
@@ -393,6 +402,10 @@ export function localPeer(at: Surroundings): Peer {
 		setPaused(now) {
 			if (paused === now) return;
 			paused = now;
+			publish();
+		},
+		park() {
+			parked = true;
 			publish();
 		},
 		setStep(text) {

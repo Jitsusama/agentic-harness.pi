@@ -31,7 +31,8 @@ it does:
   `spend-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
-  `reload-workflow`, `rollover-workflow`, `shell-workflow`,
+  `reload-workflow`, `rollover-workflow`, `park-workflow`,
+  `shell-workflow`,
   `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
   `model-retry-workflow`.
 
@@ -86,6 +87,13 @@ it does:
   the life of a session. `session_recall` reads the parents back
   from disk. Like reload, the switch is a command's alone, so it
   goes through `/rollover`.
+
+  `park-workflow` ends a session left idle past the time its
+  switch sets, with nothing of its own still out, so it holds no
+  memory while it waits: an idle pi held 469 MB whatever its log.
+  It exits with code 75 for its holder, which starts it again for
+  a message that gives it a turn or a key typed in its window.
+  Off until the switch turns it on, and only for held sessions.
 
   `job-workflow` hosts background work. A tool that returns
   before its work ends hands the work to it, and it says the
