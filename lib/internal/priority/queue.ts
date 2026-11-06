@@ -117,6 +117,22 @@ export const WALKS_AT_ONCE = 2;
 export const EVALUATION_GIB = 20;
 
 /**
+ * What a zone's evaluation tests hold at least, in GiB. On 6 November
+ * nix-unit, running aquifer converge's `evalTests` at the end of a chain
+ * the queue held to a cargo build's 4, held 8.5 GiB of anonymous memory
+ * when the kernel killed it with the machine out of room. It hadn't
+ * finished, so its peak lies past that.
+ */
+export const EVAL_TESTS_GIB = 12;
+
+/**
+ * A zone's evaluation tests: nix-unit, or `tec run` of an `evalTests`
+ * target, which runs it. As programs, not a path or a name holding the
+ * words.
+ */
+const EVAL_TESTS = /\bnix-unit(?![\w.*/-])|\btec\s+run\s+\S*:evalTests\b/;
+
+/**
  * core.nix's changed-checks, run as a command rather than named as a
  * file: it evaluates every check twice, at the base and in the tree,
  * then builds what moved, VM tests too unless told `--no-vm`. Run from
@@ -351,7 +367,20 @@ export function needsGibOf(
 	if (EVERY_CHECK.test(job.what)) {
 		return appliesNamesOnly(job.what) ? kind : Math.max(kind, EVERY_CHECK_GIB);
 	}
+	if (EVAL_TESTS.test(job.what)) return Math.max(kind, EVAL_TESTS_GIB);
 	return WHOLE_FLAKE.test(job.what) ? Math.max(kind, EVALUATION_GIB) : kind;
+}
+
+/**
+ * The least a command is held to whatever its earlier runs held: a zone's
+ * evaluation tests' {@link EVAL_TESTS_GIB} when a step of it runs them,
+ * else nothing. A chain that runs them last may have stopped before them
+ * every time it ran, so what it held then says nothing of them.
+ */
+export function leastGibOfCommand(command: string): number {
+	return runSteps(command).some((step) => EVAL_TESTS.test(step))
+		? EVAL_TESTS_GIB
+		: 0;
 }
 
 /**
@@ -1404,6 +1433,7 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 				/\b(?:podman|docker)\s+(?:buildx\s+|compose\s+)?build\b|\bbuildah\s+(?:build|bud)\b/,
 				/\b(?:darwin-rebuild\s+(?:switch|build|check|test)|home-manager\s+(?:switch|build))\b/,
 				NIX_FAST_BUILD,
+				EVAL_TESTS,
 				new RegExp(
 					`${CARGO}(?:build|b|check|c|clippy|test|t|nextest|run|r|install|doc|llvm-cov|miri|insta)\\b`,
 				),
@@ -1676,11 +1706,15 @@ const ASSIGNMENTS =
 /**
  * The step of a command that does its heavy work, whole, never a line of
  * a heredoc: a commit message naming changed-checks was once the step
- * named, and the build beside it was held to that tool's memory.
+ * named, and the build beside it was held to that tool's memory. A
+ * zone's evaluation tests name it wherever they come in a chain, since
+ * they hold the most: named by the cargo build before them, a chain's
+ * peak would be charged to every plain run of that build.
  */
 export function stepOf(command: string): string {
 	const steps = stepsOf(command);
 	return (
+		steps.find((one) => EVAL_TESTS.test(one) && kindOf(one) !== undefined) ??
 		steps.find((one) => kindOf(one) !== undefined) ??
 		// A walk alone says nothing of the folder a `cd` before it gave it.
 		steps.find((one) => GIT_WALK.test(one)) ??

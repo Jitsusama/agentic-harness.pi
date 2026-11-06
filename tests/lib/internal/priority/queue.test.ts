@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { NOBODY } from "../../../../lib/internal/priority/awaited.ts";
 import {
 	CHANGED_CHECKS_GIB,
+	EVAL_TESTS_GIB,
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
 	JOINS_FOR_MS,
@@ -9,6 +10,7 @@ import {
 	KEEPS_LINE_FOR_MS,
 	kindOf,
 	LENDING_WAIT_MS,
+	leastGibOfCommand,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_FLOORS_PRESSURE,
 	MOST_MEMORY_PRESSURE,
@@ -783,6 +785,23 @@ describe("whose turn it is", () => {
 		for (const command of forced) {
 			expect(needsGibOfCommand("build", command)).toBe(EVERY_CHECK_GIB);
 		}
+	});
+
+	it("holds a zone's evaluation tests to what nix-unit held when it was killed, at least", () => {
+		const tec =
+			"~/.local/state/tec/toolchain/base_profile/bin/tec run //system/aquifer/converge:evalTests";
+		expect(kindOf(tec)).toBe("build");
+		expect(kindOf("nix-unit --flake .#tests")).toBe("build");
+		expect(needsGibOfCommand("build", tec)).toBe(EVAL_TESTS_GIB);
+		// The chain T9C192 ran: its first step is a cargo build's.
+		const chain = `cd converge && { (set -e; cargo fmt --check; cargo clippy --all-targets -- -D warnings; cargo test; ${tec}); echo done; }`;
+		expect(needsGibOfCommand("build", chain)).toBe(EVAL_TESTS_GIB);
+		expect(leastGibOfCommand(chain)).toBe(EVAL_TESTS_GIB);
+		expect(whatOf(chain).startsWith(tec)).toBe(true);
+		// Named, not run, or another target: no floor.
+		expect(leastGibOfCommand(`echo "then ${tec}"`)).toBe(0);
+		expect(leastGibOfCommand("tec run //system/aquifer/converge:test")).toBe(0);
+		expect(leastGibOfCommand("ls /nix/store/x-nix-unit-2.0")).toBe(0);
 	});
 
 	it("holds a whole flake's check to what its evaluation keeps", () => {
