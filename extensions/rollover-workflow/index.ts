@@ -10,7 +10,9 @@
  * whatever the log's size. Background jobs run on through it: the job
  * host parks them for the fresh session, which carries the conversation
  * on (see extensions/job-workflow/lifecycle.ts). Only a session somebody sits at rolls over; a
- * subagent or a print run is short. `PI_ROLLOVER=off` turns it off.
+ * subagent or a print run is short. It rolls over by itself only with
+ * `PI_ROLLOVER=on`, while a rolled session can come up on no model
+ * (`rollsOver`).
  *
  * The switch goes through pi's own `switchSession`, so every extension
  * starts on the fresh log as it would on a resumed one, rebuilding its
@@ -92,12 +94,18 @@ function settledAborted(event: unknown): boolean {
 	);
 }
 
-/** Whether this session rolls over by itself. */
+/**
+ * Whether this session rolls over by itself: only when `PI_ROLLOVER=on`
+ * asks it to. On 5 and 6 November sessions rolled over onto a provider
+ * with no auth and sat on no model until restarted, 85PKB2 for 100
+ * minutes, so a rollover waits to be asked until a rolled session is
+ * known to keep its model.
+ */
 export function rollsOver(
 	ctx: Pick<ExtensionContext, "hasUI">,
 	env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-	return ctx.hasUI && !isSubagent(env) && env[ROLLOVER_ENV]?.trim() !== "off";
+	return ctx.hasUI && !isSubagent(env) && env[ROLLOVER_ENV]?.trim() === "on";
 }
 
 /**

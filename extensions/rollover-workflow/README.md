@@ -38,7 +38,10 @@ the provider's prompt cache carries on too.
   session has compacted at least once.
 
 Only a session somebody sits at rolls over by itself; a subagent or a
-print run is short. `PI_ROLLOVER=off` turns it off.
+print run is short. For now it rolls over by itself only with
+`PI_ROLLOVER=on`: on 5 and 6 November rolled sessions came up on a
+provider with no auth and sat on no model until restarted, so until
+a rolled session is known to keep its model only `/rollover` does it.
 
 You see one line saying the sizes before and after. The session goes
 on where it was.

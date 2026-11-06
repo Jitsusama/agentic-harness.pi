@@ -51,7 +51,7 @@ beforeEach(() => {
 	command = undefined;
 	sent = [];
 	spend = 0;
-	delete process.env[ROLLOVER_ENV];
+	process.env[ROLLOVER_ENV] = "on";
 	const pi = {
 		events,
 		on: (name: string, handler: Handler) => {
@@ -223,6 +223,16 @@ describe("rolling over by itself", () => {
 		await emit("session_compact", {}, { ...contextOf(manager), hasUI: false });
 		process.env[ROLLOVER_ENV] = "off";
 		await emit("session_compact", {}, contextOf(manager));
+
+		expect(sent).toEqual([]);
+	});
+
+	it("never happens by itself unless asked to, while a rolled session can lose its model", async () => {
+		const manager = compacted();
+		large(manager);
+		delete process.env[ROLLOVER_ENV];
+		await emit("session_compact", {}, contextOf(manager));
+		await emit("agent_settled", { aborted: false }, contextOf(manager));
 
 		expect(sent).toEqual([]);
 	});
