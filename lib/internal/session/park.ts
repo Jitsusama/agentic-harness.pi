@@ -64,24 +64,44 @@ export function restartCommand(sessionFile: string): string[] {
 	return ["pi", "--session", sessionFile];
 }
 
+/** The flags that name the session pi opens. */
+const SESSION_FLAGS = new Set(["--session", "--session-id"]);
+
 /**
  * Whether pi's arguments open this session, by its id or its log, as
- * `--session` or `--session-id`, before any `--`.
+ * `--session` or `--session-id`, and do nothing else: started again as
+ * it was, a pi given a prompt besides would send that prompt again.
  */
-export function namesSession(
+export function opensOnlyItself(
 	args: readonly string[],
 	session: string,
 	sessionFile: string,
 ): boolean {
-	const its = (value: string | undefined) =>
-		value !== undefined && (value === session || value === sessionFile);
-	for (const [i, arg] of args.entries()) {
-		if (arg === "--") return false;
-		const [flag, inline] = arg.split(/=(.*)/s, 2);
-		if (flag !== "--session" && flag !== "--session-id") continue;
-		if (its(inline ?? args[i + 1])) return true;
+	const [first = "", second, ...rest] = args;
+	const [flag = "", inline] = first.split(/=(.*)/s, 2);
+	if (!SESSION_FLAGS.has(flag)) return false;
+	const value = inline ?? second;
+	const extra = inline === undefined ? rest : args.slice(1);
+	return extra.length === 0 && (value === session || value === sessionFile);
+}
+
+/**
+ * The flags in pi's arguments that {@link restartCommand} would not
+ * give it again, such as an `-e` extension. A prompt is not among them,
+ * since the log holds it, nor is anything after `--`.
+ */
+export function flagsLost(args: readonly string[]): string[] {
+	const lost: string[] = [];
+	for (let i = 0; i < args.length; i += 1) {
+		const arg = args[i] ?? "";
+		if (arg === "--") break;
+		if (!arg.startsWith("-") || arg === "-") continue;
+		const [flag = "", inline] = arg.split(/=(.*)/s, 2);
+		if (!SESSION_FLAGS.has(flag)) lost.push(flag);
+		// A session flag's value is spent with it.
+		else if (inline === undefined) i += 1;
 	}
-	return false;
+	return lost;
 }
 
 /**
