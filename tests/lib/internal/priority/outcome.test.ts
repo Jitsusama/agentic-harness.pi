@@ -337,6 +337,31 @@ describe("how heavy work ended", () => {
 		expect(gaveUp).not.toHaveProperty("quick");
 	});
 
+	it("says what memory a job was booked, beside what it held", () => {
+		const started = new Date(NOW - 30_000).toISOString();
+		const booked = job({
+			kind: "build",
+			what: "changed-checks",
+			needsGib: 6,
+			ownPeakBytes: 17 * 2 ** 30,
+			started,
+		});
+
+		expect(outcomeOf(booked, NOW, 0)).toMatchObject({
+			bookedGib: 6,
+			ownPeakBytes: 17 * 2 ** 30,
+		});
+	});
+
+	it("books an older harness's job by what it does", () => {
+		const started = new Date(NOW - 30_000).toISOString();
+
+		expect(
+			outcomeOf(job({ kind: "build", what: "changed-checks", started }), NOW, 0)
+				.bookedGib,
+		).toBe(16);
+	});
+
 	it("says nothing of what a job waited on when no keeper noted it", () => {
 		const started = new Date(NOW - 30_000).toISOString();
 
