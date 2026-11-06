@@ -83,15 +83,27 @@ describe("a command run in the shared slice", () => {
 		]);
 	});
 
-	it("runs as it was where SHARED_SLICE is unset", () => {
-		const ran = run(inSharedSlice(COMMAND), {});
+	it("runs as it was where neither the session nor the system names a slice", () => {
+		const ran = run(inSharedSlice(COMMAND, join(root, "none")), {});
 		expect(ran.status).toBe(3);
 		expect(said("out")).toEqual(["it's kept"]);
 		expect(said("asked")).toEqual([]);
 	});
 
+	it("takes the slice from the system's environment when the session started before it", () => {
+		const system = join(root, "set-environment");
+		writeFileSync(
+			system,
+			'export SHARED_SLICE="shared.slice"\nexport HOME_TOO="overwritten"\n',
+		);
+		const ran = run(inSharedSlice(COMMAND, system), {});
+		expect(ran.status).toBe(3);
+		expect(said("out")).toEqual(["it's kept"]);
+		expect(said("asked")).toContain("--slice=shared.slice");
+	});
+
 	it("runs as it was where there is no systemd of the person's to ask", () => {
-		const ran = run(inSharedSlice(COMMAND), {
+		const ran = run(inSharedSlice(COMMAND, join(root, "none")), {
 			SHARED_SLICE: "shared.slice",
 			XDG_RUNTIME_DIR: "",
 		});
