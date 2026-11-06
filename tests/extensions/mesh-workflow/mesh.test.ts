@@ -703,13 +703,40 @@ describe("a turn", () => {
 		}
 	});
 
-	it("never starts a turn for what it catches up on at start", async () => {
-		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+	it("leaves what it catches up on at start to the first prompt it was started with", async () => {
+		const argv = process.argv;
+		process.argv = [argv[0] ?? "node", "pi", "--", "Carry on"];
+		const uptime = vi.spyOn(process, "uptime").mockReturnValue(5);
+		delete (globalThis as Record<symbol, unknown>)[
+			Symbol.for("agentic-harness.pi/first-prompt")
+		];
+		try {
+			fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
 
-		const { sent } = await startSession({}, { isIdle: () => true });
+			const { sent } = await startSession({}, { isIdle: () => true });
 
-		await vi.waitFor(() => expect(sent).toHaveLength(1));
-		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		} finally {
+			process.argv = argv;
+			uptime.mockRestore();
+		}
+	});
+
+	it("takes a turn for a question waiting as it starts with no first prompt, as a woken parked peer does", async () => {
+		const argv = process.argv;
+		process.argv = [argv[0] ?? "node", "pi", "--session", "/logs/s.jsonl"];
+		try {
+			fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+
+			const { sent } = await startSession({}, { isIdle: () => true });
+
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			expect(sent[0]?.options).toEqual({ triggerTurn: true });
+			expect(JSON.stringify(sent[0]?.message)).toContain("why?");
+		} finally {
+			process.argv = argv;
+		}
 	});
 });
 
