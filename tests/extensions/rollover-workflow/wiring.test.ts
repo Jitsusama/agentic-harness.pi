@@ -213,6 +213,42 @@ describe("rolling over by itself", () => {
 		expect(sent).toEqual([`/${COMMAND}`]);
 	});
 
+	it("happens after a reload that took the still moment it waited for", async () => {
+		// On 2026-11-06 a session compacted while an install's reload
+		// waited; the reload went first and started the extension afresh,
+		// so the roll was forgotten until the next compaction.
+		const manager = compacted();
+		large(manager);
+		const slot = reloadSlot();
+		slot.request = { reason: "the install moved", by: "self" };
+		try {
+			await emit("session_compact", {}, contextOf(manager, false));
+			await emit("agent_settled", { aborted: false }, contextOf(manager));
+			expect(sent).toEqual([]);
+		} finally {
+			slot.request = undefined;
+		}
+
+		await emit("session_start", { reason: "reload" }, contextOf(manager));
+		await emit("agent_settled", { aborted: false }, contextOf(manager));
+		expect(sent).toEqual([`/${COMMAND}`]);
+	});
+
+	it("waits after a reload for a log with no compaction, or one too small", async () => {
+		const uncompacted = SessionManager.create(dir, dir);
+		uncompacted.appendMessage(user("early"));
+		uncompacted.appendMessage(assistant(1));
+		large(uncompacted);
+		await emit("session_start", { reason: "reload" }, contextOf(uncompacted));
+		await emit("agent_settled", { aborted: false }, contextOf(uncompacted));
+
+		const small = compacted();
+		await emit("session_start", { reason: "reload" }, contextOf(small));
+		await emit("agent_settled", { aborted: false }, contextOf(small));
+
+		expect(sent).toEqual([]);
+	});
+
 	it("goes ahead while background jobs run, since they carry across", async () => {
 		// A session waiting on its checks in the background always had one
 		// running: on 2026-11-01 a 70 MB log went nine hours and three

@@ -6,7 +6,8 @@
  *
  * It happens at the first still moment after a compaction of a log of
  * `ROLLOVER_BYTES` or more: the run has settled, the person has not
- * stopped it and no reload is waiting. `/rollover` does it at once,
+ * stopped it and no reload is waiting; a roll a reload went ahead of
+ * waits for the first still moment after it. `/rollover` does it at once,
  * whatever the log's size. Background jobs run on through it: the job
  * host parks them for the fresh session, which carries the conversation
  * on (see extensions/job-workflow/lifecycle.ts). Only a session somebody sits at rolls over; a
@@ -74,6 +75,23 @@ export const COMMAND = "rollover";
 /** Whether this process is a subagent rather than a session. */
 function isSubagent(env: NodeJS.ProcessEnv): boolean {
 	return env.SUBAGENT_SUPERVISOR === "1" || Boolean(env.SUBAGENT_RUN_ID);
+}
+
+/** Whether the switch, or the log's size, asks a compacted session to roll. */
+function wantsRoll(ctx: ExtensionContext): boolean {
+	const asked = rollsOver(ctx);
+	if (asked === "off") return false;
+	return (
+		asked === "now" ||
+		sizeOf(ctx.sessionManager.getSessionFile()) >= ROLLOVER_BYTES
+	);
+}
+
+/** Whether the log holds a compaction, whose history a roll would drop. */
+function compacted(ctx: ExtensionContext): boolean {
+	return ctx.sessionManager
+		.getBranch()
+		.some((entry) => entry.type === "compaction");
 }
 
 /** The size of a log, or 0 when there is none to measure. */
@@ -409,7 +427,10 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 	const still = () => reloadSlot().request === undefined;
 
 	pi.on("session_start", async (event, ctx) => {
-		due = false;
+		// A reload waiting when a compaction made a roll due took the still
+		// moment the roll waited for, and restarted this extension; the log
+		// still says what was due.
+		due = event.reason === "reload" && compacted(ctx) && wantsRoll(ctx);
 		restoreLostBuiltIns(pi, ctx);
 		await restoreCarriedModel(pi, ctx, event.reason);
 	});
@@ -431,14 +452,7 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
-		const asked = rollsOver(ctx);
-		if (asked === "off") return;
-		if (
-			asked === "large" &&
-			sizeOf(ctx.sessionManager.getSessionFile()) < ROLLOVER_BYTES
-		) {
-			return;
-		}
+		if (!wantsRoll(ctx)) return;
 		due = true;
 		// A compaction asked for between runs has no settle to wait for.
 		let idle = false;
