@@ -4,6 +4,7 @@ import {
 	CHANGED_CHECKS_GIB,
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
+	JOINS_FOR_MS,
 	type Job,
 	KEEPS_LINE_FOR_MS,
 	kindOf,
@@ -28,6 +29,7 @@ import {
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
+	walkOf,
 	whatOf,
 } from "../../../../lib/internal/priority/queue.ts";
 
@@ -1145,5 +1147,132 @@ describe("a walk of World's objects", () => {
 		const lending = { ...ROOMY, lendingSince: NOW - 10_000 };
 		expect(nextTurn(jobs, lending, NOW)?.id).toBe("walk");
 		expect(nextTurn(jobs, lending, NOW)?.capped).toBeUndefined();
+	});
+});
+
+describe("walks of World's objects among themselves", () => {
+	const home = "/home/j";
+	const inWorld = { cwd: `${home}/world/trees/w-main/src`, home };
+	const long = startedAgo(RAMP_MS + 60_000);
+	const plenty = { ...ROOMY, availableGib: 100 };
+	const walk = (id: string, over: Partial<Job> = {}) =>
+		job(id, { kind: "world-walk", what: "git fetch", ...over });
+
+	it("reads a plain fetch of origin's main as one, however it is written", () => {
+		// Each as an agent ran it on 4 and 5 November.
+		for (const fetching of [
+			"git fetch -q origin main 2>&1 | tail -2",
+			"timeout 300 git fetch origin main 2>&1 | tail -1",
+			"git fetch -q --no-tags origin main",
+			"git fetch origin main 2>&1 | grep -v '^remote: *$'",
+			"timeout 250 git fetch --no-tags origin refs/heads/main 2>&1 | tail -3",
+			"git -c fetch.uriProtocols=https fetch --no-tags origin refs/heads/main",
+			"git fetch -q origin refs/heads/main:refs/remotes/origin/main",
+			"git fetch origin main > $L 2>&1",
+		]) {
+			expect(walkOf(fetching, inWorld), fetching).toBe("main-fetch");
+		}
+		expect(
+			walkOf("cd ~/world/trees/a/src && git fetch origin main", { home }),
+		).toBe("main-fetch");
+	});
+
+	it("reads a push, alone or after a fetch of main, as a push", () => {
+		expect(walkOf("git push origin x", inWorld)).toBe("push");
+		expect(
+			walkOf("git fetch origin main && git push origin HEAD:x", inWorld),
+		).toBe("push");
+	});
+
+	it("reads every other walk as other, and nothing outside World", () => {
+		for (const other of [
+			"timeout 300 git fetch origin river/deferred-metadata",
+			"git fetch origin main river/deferred-metadata",
+			// Every branch, not main alone.
+			"git fetch origin",
+			"git fetch --prune origin main",
+			"git fetch --depth 1 origin main",
+			"git fetch delta main",
+			// A git by its path never finds the queue's first on the PATH.
+			"/run/current-system/sw/bin/git fetch origin main",
+			"git --git-dir=/home/j/world/git fetch origin main",
+			"git pull origin main",
+			"git fetch origin main && git fetch origin x",
+			"git push origin x && git fetch origin x",
+			"git gc --auto",
+		]) {
+			expect(walkOf(other, inWorld), other).toBe("other");
+		}
+		expect(
+			walkOf("git fetch origin main", { cwd: `${home}/src/core.nix`, home }),
+		).toBeUndefined();
+		expect(walkOf("git log origin/main", inWorld)).toBeUndefined();
+	});
+
+	it("puts pushes and fetches of main ahead of other walks, leaving other work its place", () => {
+		// 5 November: a push waited 61 minutes behind review fetches.
+		const jobs = [
+			walk("review", { walk: "other", since: startedAgo(9_000) }),
+			job("build", { since: startedAgo(8_000) }),
+			walk("review2", { walk: "other", since: startedAgo(7_000) }),
+			walk("push", { walk: "push", since: startedAgo(6_000) }),
+			walk("main", { walk: "main-fetch", since: startedAgo(5_000) }),
+		];
+		expect(waitingInOrder(jobs).map((one) => one.id)).toEqual([
+			"push",
+			"build",
+			"main",
+			"review",
+			"review2",
+		]);
+		const busy = [
+			...jobs,
+			walk("one", { started: long }),
+			walk("two", { started: long }),
+		];
+		const after = busy.filter((one) => one.id !== "two" && one.id !== "build");
+		expect(nextTurn(after, plenty, NOW)?.id).toBe("push");
+	});
+
+	it("holds a fetch of main while one runs, letting other walks past", () => {
+		// 5 November, 21:03: four fetches of main waited behind one running.
+		const jobs = [
+			walk("fetching", { walk: "main-fetch", started: long }),
+			walk("main", { walk: "main-fetch", since: startedAgo(9_000) }),
+			walk("review", { walk: "other", since: startedAgo(8_000) }),
+		];
+		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("review");
+		expect(waitReasons(jobs, plenty, NOW).get("main")).toBe("walks");
+		// One running too long holds it no longer.
+		const hung = jobs.map((one) =>
+			one.id === "fetching"
+				? { ...one, started: startedAgo(JOINS_FOR_MS + 1_000) }
+				: one,
+		);
+		expect(nextTurn(hung, plenty, NOW)?.id).toBe("main");
+		// Nor does one that was itself answered, nor one of older rules.
+		for (const running of [
+			walk("fetching", { walk: "main-fetch", started: long, answered: true }),
+			walk("fetching", { started: long }),
+		]) {
+			const others = [running, ...jobs.slice(1)];
+			expect(nextTurn(others, plenty, NOW)?.id).toBe("main");
+		}
+	});
+
+	it("counts an answered fetch as no walk, no memory and no turn to space out", () => {
+		const answered = (id: string) =>
+			walk(id, {
+				walk: "main-fetch",
+				started: startedAgo(1_000),
+				answered: true,
+			});
+		const jobs = [
+			answered("a"),
+			answered("b"),
+			walk("review", { walk: "other", since: startedAgo(9_000) }),
+		];
+		const six = { ...ROOMY, availableGib: 6 };
+		expect(nextTurn(jobs, six, NOW)?.id).toBe("review");
 	});
 });

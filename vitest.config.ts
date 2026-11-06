@@ -58,6 +58,7 @@ const PROCESS_TESTS = [
 	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
+	"tests/lib/internal/priority/fetched-git.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its

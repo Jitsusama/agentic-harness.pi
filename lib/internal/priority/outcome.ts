@@ -91,6 +91,16 @@ export interface Outcome {
 	 * slot while it only built; nothing when none was seen.
 	 */
 	readonly vmAfterS?: number;
+	/** What a walk of World's objects did, as the queue read it. */
+	readonly walk?: Job["walk"];
+	/** Its fetch of World's main was answered by another (fetched.ts). */
+	readonly answered?: true;
+	/**
+	 * A fetch of World's main that moved `origin/main` as it ran, so the
+	 * commits it names are here and a fetch of main asked just after can
+	 * be answered from it (fetched.ts).
+	 */
+	readonly movedMain?: true;
 }
 
 /** How large the outcome file grows before it keeps its newer half. */
@@ -197,6 +207,7 @@ export function outcomeOf(
 	job: Job,
 	ended: number,
 	exit: number | undefined,
+	movedMain = false,
 ): Outcome {
 	const asked = Date.parse(job.since);
 	const started =
@@ -234,6 +245,9 @@ export function outcomeOf(
 		...(waitedOn !== undefined ? { waitedOn } : {}),
 		...(job.quick ? { quick: true as const } : {}),
 		...(vmAfterS !== undefined ? { vmAfterS } : {}),
+		...(job.walk !== undefined ? { walk: job.walk } : {}),
+		...(job.answered ? { answered: true as const } : {}),
+		...(movedMain ? { movedMain: true as const } : {}),
 	};
 }
 
@@ -361,7 +375,11 @@ export function peakGibAfter(
 	const peaks: number[] = [];
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
-		if (outcome.ownPeakBytes === undefined || outcome.ranS === undefined) {
+		if (
+			outcome.ownPeakBytes === undefined ||
+			outcome.ranS === undefined ||
+			outcome.answered
+		) {
 			continue;
 		}
 		if (failed(outcome.exit) && outcome.ranS < TELLING_S) continue;
@@ -450,7 +468,9 @@ export function ranSAfter(
 	const key = workKey(what);
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
-		if (outcome.ranS === undefined || workKey(outcome.what) !== key) continue;
+		// An answered fetch ran in seconds, which says nothing of a fetch.
+		if (outcome.ranS === undefined || outcome.answered) continue;
+		if (workKey(outcome.what) !== key) continue;
 		if (failed(outcome.exit) && outcome.ranS < TELLING_S) continue;
 		return outcome.ranS;
 	}

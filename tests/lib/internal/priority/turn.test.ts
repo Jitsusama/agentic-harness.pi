@@ -186,6 +186,57 @@ describe("heavy work waiting for its turn", () => {
 		expect(job.quick).toBeUndefined();
 	});
 
+	it("asks a fetch of main as one, reading origin/main as it runs, or answered", () => {
+		queueing(ROOMY);
+		const world = join(homedir(), "world", "trees", "w-main", "src");
+		const fetching = queuedCommand(
+			"git fetch -q origin main 2>&1 | tail -2",
+			world,
+		);
+		const pushing = queuedCommand("git push origin x", world);
+		const jobs = jobIds().map((id) =>
+			JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
+		);
+		const fetch = jobs.find((job) => job.what.startsWith("git fetch"));
+		const push = jobs.find((job) => job.what.startsWith("git push"));
+		expect(fetch).toMatchObject({ kind: "world-walk", walk: "main-fetch" });
+		expect(push).toMatchObject({ kind: "world-walk", walk: "push" });
+		const git = join(homedir(), "world", "git");
+		expect(fetching).toContain(
+			`.fetched" ]; then PATH="$__queue/fetched:$PATH"`,
+		);
+		expect(fetching).toContain(`--git-dir='${git}'`);
+		expect(fetching).toContain(`${fetch.id}.main-before`);
+		expect(fetching).toContain(`${fetch.id}.main-after`);
+		expect(pushing).not.toContain(".fetched");
+		expect(pushing).not.toContain("main-before");
+	});
+
+	it("runs an answered fetch's git from the queue's folder, and reads main around one that is not", () => {
+		const world = join(root, "world", "git");
+		const wait = waitsForTurn(dir);
+		for (const name of ["j5.job", "j5.turn"]) {
+			writeFileSync(join(dir, name), "");
+		}
+		mkdirSync(join(dir, "fetched"));
+		writeFileSync(join(dir, "fetched", "git"), "#!/bin/sh\necho answered\n", {
+			mode: 0o755,
+		});
+		const fresh = spawnSync("bash", ["-c", `${wait?.("j5", [], world)}\ngit`], {
+			timeout: 10_000,
+		});
+		expect(fresh.stdout.toString()).not.toContain("answered");
+		expect(readdirSync(dir)).toContain("j5.main-before");
+		expect(readdirSync(dir)).toContain("j5.main-after");
+		writeFileSync(join(dir, "j5.fetched"), "fetching\n");
+		const answered = spawnSync(
+			"bash",
+			["-c", `${wait?.("j5", [], world)}\ngit fetch origin main`],
+			{ timeout: 10_000 },
+		);
+		expect(answered.stdout.toString()).toBe("answered\n");
+	});
+
 	it("asks for the memory its whole step needs, past where its name is cut", () => {
 		// On 24 October an evaluation of every check on a commit's flake
 		// was held to a build's 4 GiB, its `#checks` past the cut.

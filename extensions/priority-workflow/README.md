@@ -108,6 +108,23 @@ lent, and is never capped. Walks run by a script, or by the work
 tool's own push and fetch, which run git from pi rather than a bash
 call, take no turn.
 
+Among themselves, pushes and fetches of origin's `main` take the next
+free walk ahead of other walks, which keep their order; work that is
+not a walk keeps its place. On 5 November walks waited a median 28
+minutes, and four fetches of main waited behind one already running. So
+a fetch of main waits while another runs (up to 20 minutes), and once
+one has moved `origin/main` every fetch of main waiting, and any asked
+in the minute after, gets its turn at once, past the two. Its shell
+finds `fetched-git.mjs` first on its PATH as `git`, which writes
+`FETCH_HEAD` from the shared ref in moments and runs the real git for
+anything else. Only a plain `git fetch origin main` (or
+`refs/heads/main`, quiet or verbose options, `--no-tags`, `-C`, `-c`)
+is read as one; `--prune`, `--depth`, a git by its path or
+`--git-dir` are other walks. Whether a fetch moved main is read from
+the ref in its own shell as it starts and ends, since a fetch piped
+into `grep` can exit 1 having fetched. Its outcome carries
+`walk`, `movedMain` and `answered`.
+
 Watchers such as `cargo watch` and `bacon` are left out, since they
 would hold a turn for as long as they watch.
 

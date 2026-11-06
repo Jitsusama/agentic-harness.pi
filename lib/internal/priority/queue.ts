@@ -47,6 +47,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { noun } from "../../ui/count.ts";
 import { NOBODY } from "./awaited.ts";
+import { mainFetchOf } from "./fetched-git.mjs";
 import type { Beside } from "./outcome.ts";
 
 /** What a command does, as the harness reads it. */
@@ -56,6 +57,9 @@ export type Kind =
 	| "benchmark"
 	| "build"
 	| "world-walk";
+
+/** What a walk of World's objects does, as {@link walkOf} reads it. */
+export type Walk = "push" | "main-fetch" | "other";
 
 /**
  * How a kind is run: timed work's result depends on its timing, so it
@@ -483,6 +487,13 @@ export interface Job {
 	readonly since: string;
 	/** When it was given its turn, once it has one. */
 	readonly started?: string;
+	/** What a walk of World's objects does, read from its whole command. */
+	readonly walk?: Walk;
+	/**
+	 * Its fetch of World's main was answered by one that had just made it
+	 * (fetched.ts): given its turn past the walks at once, it walks nothing.
+	 */
+	readonly answered?: true;
 	/** Given its turn beside a VM check, with its Nix builds capped. */
 	readonly capped?: boolean;
 	/**
@@ -661,16 +672,42 @@ export function waitingInOrder(
 	const waitedOn = (job: Job) => (awaited.has(job.owner.session) ? 0 : 1);
 	const putFirst = (job: Job) =>
 		job.quest !== undefined && first.has(job.quest) ? 0 : 1;
-	return jobs
-		.filter((job) => job.started === undefined && !job.planning)
-		.sort(
-			(one, other) =>
-				rank(one) - rank(other) ||
-				waitedOn(one) - waitedOn(other) ||
-				putFirst(one) - putFirst(other) ||
-				Date.parse(one.since) - Date.parse(other.since) ||
-				one.id.localeCompare(other.id),
-		);
+	return walksLeadingFirst(
+		jobs
+			.filter((job) => job.started === undefined && !job.planning)
+			.sort(
+				(one, other) =>
+					rank(one) - rank(other) ||
+					waitedOn(one) - waitedOn(other) ||
+					putFirst(one) - putFirst(other) ||
+					Date.parse(one.since) - Date.parse(other.since) ||
+					one.id.localeCompare(other.id),
+			),
+	);
+}
+
+/**
+ * The line, with its walks of World's objects reordered among the
+ * places walks hold: pushes and fetches of main first, then the rest, as
+ * fetches of other people's branches, each group in the order it had.
+ * Other work keeps its place. On 5 November a push of Joel's waited 61
+ * minutes behind review fetches of single branches (80ECO2).
+ */
+function walksLeadingFirst(line: Job[]): Job[] {
+	const places = line.flatMap((job, at) =>
+		job.kind === "world-walk" ? [at] : [],
+	);
+	const walks = places.map((at) => line[at]);
+	const leads = (job: Job) => job.walk === "push" || job.walk === "main-fetch";
+	const ordered = [
+		...walks.filter(leads),
+		...walks.filter((job) => !leads(job)),
+	];
+	const reordered = [...line];
+	places.forEach((at, index) => {
+		reordered[at] = ordered[index];
+	});
+	return reordered;
 }
 
 const rank = (job: Job) =>
@@ -932,8 +969,10 @@ function memoryWaitedMs(job: Job, now: number): number {
  * {@link KEEPS_LINE_FOR_MS}, a job memory holds back holds only the work
  * that would still run when its memory is due back. 6: walks of World's
  * objects, a kind older code can't read, held to {@link WALKS_AT_ONCE}.
+ * 7: pushes and fetches of main first among the walks, and a fetch of
+ * main waiting for one running, then answered by it (fetched.ts).
  */
-export const RULES_VERSION = 6;
+export const RULES_VERSION = 7;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -949,9 +988,12 @@ export function nextTurn(
 	first: ReadonlySet<string> = NOBODY,
 ): Job | undefined {
 	const running = jobs.filter((job) => job.started !== undefined);
+	// An answered fetch takes nothing, so it spaces out nobody's turn.
 	const last = Math.max(
 		-Infinity,
-		...running.map((job) => Date.parse(job.started as string)),
+		...running
+			.filter((job) => !job.answered)
+			.map((job) => Date.parse(job.started as string)),
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
@@ -959,6 +1001,7 @@ export function nextTurn(
 		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
 	const waiting = waitingInOrder(jobs, awaited, first);
+	const fetching = fetchingMain(jobs, now);
 	// Quick work passes older work, one job at a time: it ends in seconds,
 	// so what it passes waits seconds longer, never starved by a stream.
 	const passes = (job: Job) =>
@@ -980,7 +1023,7 @@ export function nextTurn(
 		) {
 			continue;
 		}
-		if (walkWaits(job, walks)) continue;
+		if (walkWaits(job, walks, fetching)) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		const ruledOut =
 			job.kind === "build" &&
@@ -1070,6 +1113,7 @@ export function waitReasons(
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
+	const fetching = fetchingMain(jobs, now);
 	const passes = (job: Job) =>
 		waiting.some(
 			(other) =>
@@ -1099,7 +1143,7 @@ export function waitReasons(
 			) {
 				return "vms";
 			}
-			if (walkWaits(job, walks)) return "walks";
+			if (walkWaits(job, walks, fetching)) return "walks";
 			const ruledOut =
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
@@ -1120,11 +1164,39 @@ export function waitReasons(
 
 /**
  * Whether a walk of World's objects must wait for another to end: the
- * walks allowed at once are running. Like a VM held to its count, it
- * lets the jobs behind it past.
+ * walks allowed at once are running, or it fetches main while a fetch
+ * of main runs, which will answer it as it ends (fetched.ts). On the
+ * evening of 5 November four fetches of main waited up to 75 minutes
+ * behind one already running, each to fetch the same commits again
+ * (80ECO2). Like a VM held to its count, it lets the jobs behind it past.
  */
-function walkWaits(job: Job, walks: number): boolean {
-	return job.kind === "world-walk" && walks >= WALKS_AT_ONCE;
+function walkWaits(job: Job, walks: number, fetching: boolean): boolean {
+	if (job.kind !== "world-walk") return false;
+	return walks >= WALKS_AT_ONCE || (job.walk === "main-fetch" && fetching);
+}
+
+/**
+ * How long a fetch of main runs before the fetches waiting on it stop
+ * waiting and take their own turns, so one that hangs holds them no
+ * longer than it would have as a walk ahead in line. Fetches of main
+ * from 4 to 5 November ran a median 108 s, and nine in ten under 11
+ * minutes.
+ */
+export const JOINS_FOR_MS = 20 * 60_000;
+
+/**
+ * Whether a fetch of World's main runs that the fetches of main waiting
+ * may join: started on these rules, not itself answered, and running
+ * under {@link JOINS_FOR_MS}.
+ */
+function fetchingMain(jobs: readonly Job[], now: number): boolean {
+	return jobs.some(
+		(job) =>
+			job.started !== undefined &&
+			job.walk === "main-fetch" &&
+			!job.answered &&
+			now - Date.parse(job.started) < JOINS_FOR_MS,
+	);
 }
 
 /**
@@ -1149,7 +1221,10 @@ function standing(
 	quick: { running: number; left: number };
 	walks: number;
 } {
-	const running = jobs.filter((job) => job.started !== undefined);
+	// An answered fetch walks nothing and holds no memory to speak of.
+	const running = jobs.filter(
+		(job) => job.started !== undefined && !job.answered,
+	);
 	const growing = running
 		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
 		.reduce((sum, job) => sum + needsGibOf(job), 0);
@@ -1345,23 +1420,88 @@ export function kindOf(
 	command: string,
 	where: Where = { home: homedir() },
 ): Kind | undefined {
-	const steps = command
-		.replace(HEREDOC, "\n")
-		// A pipe or a semicolon inside the word is its own, as in
-		// `pgrep -af 'run-subtests|changed-checks'`, and splits no step.
-		// Spaces only inside a `$(...)`, as in a flake pinned with
-		// `?rev=$(git rev-parse HEAD)`, still make one word.
-		.replace(QUOTED, (quoted) =>
-			/\s/.test(quoted.replace(/\$\([^()]*\)/g, ""))
-				? "''"
-				: quoted.slice(1, -1).replace(/[|;&]/g, " "),
-		)
-		.split(SEGMENTS)
-		.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")));
+	const steps = runSteps(command);
 	const runs = steps.join("\n");
 	const kind = KINDS.find(([pattern]) => pattern.test(runs))?.[1];
 	if (kind !== undefined) return kind;
-	return walksWorld(steps, where) ? "world-walk" : undefined;
+	return worldWalks(steps, where).length > 0 ? "world-walk" : undefined;
+}
+
+/**
+ * What a walk of World's objects does, for its place among the walks
+ * waiting: `push`, every walk it runs is a push or a fetch of origin's
+ * main, at least one a push; `main-fetch`, every one is a plain fetch
+ * of origin's main, which a fetch of main just made can answer (see
+ * fetched.ts); `other`, it walks for anything else, as a fetch of
+ * another person's branch does. Nothing for a command that walks none.
+ */
+export function walkOf(
+	command: string,
+	where: Where = { home: homedir() },
+): Walk | undefined {
+	const walks = worldWalks(runSteps(command), where).map(walkDoes);
+	if (walks.length === 0) return undefined;
+	if (walks.every((walk) => walk === "main-fetch")) return "main-fetch";
+	return walks.every((walk) => walk !== "other") ? "push" : "other";
+}
+
+/** What one walk does, from its git subcommand and what follows it. */
+function walkDoes(walk: RegExpExecArray): Walk {
+	if (walk[2] === "push") return "push";
+	return walk[2] === "fetch" && answersFetch(walk) ? "main-fetch" : "other";
+}
+
+/** A redirection, as `2>&1`, `>$L` or `2>` before its file. */
+const REDIRECT = /^(?:\d|&)?>>?/;
+
+/**
+ * Whether fetched-git.mjs would answer a walk, were a fetch of main just
+ * made: git run by name, found on the PATH rather than by a path, with
+ * the arguments the shell would give it read as a plain fetch of
+ * origin's main by fetched-git.mjs's own `mainFetchOf`. A fetch it
+ * can't answer runs the real git past the walks' count, so a fetch read
+ * as main's here must be one it answers.
+ */
+function answersFetch(walk: RegExpExecArray): boolean {
+	if (walk.input[walk.index - 1] === "/") return false;
+	const words = [walk[1], walk[2], walk[3]]
+		.join(" ")
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+	const args: string[] = [];
+	for (let at = 0; at < words.length; at += 1) {
+		const word = words[at];
+		if (REDIRECT.test(word)) {
+			// A bare operator's file is the next word.
+			if (/^(?:\d|&)?>>?$/.test(word)) at += 1;
+			continue;
+		}
+		args.push(word);
+	}
+	return mainFetchOf(args) !== undefined;
+}
+
+/**
+ * A command's steps as the shell runs them: quoted prose and heredocs
+ * blanked, and the steps that only look left out.
+ */
+function runSteps(command: string): string[] {
+	return (
+		command
+			.replace(HEREDOC, "\n")
+			// A pipe or a semicolon inside the word is its own, as in
+			// `pgrep -af 'run-subtests|changed-checks'`, and splits no step.
+			// Spaces only inside a `$(...)`, as in a flake pinned with
+			// `?rev=$(git rev-parse HEAD)`, still make one word.
+			.replace(QUOTED, (quoted) =>
+				/\s/.test(quoted.replace(/\$\([^()]*\)/g, ""))
+					? "''"
+					: quoted.slice(1, -1).replace(/[|;&]/g, " "),
+			)
+			.split(SEGMENTS)
+			.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")))
+	);
 }
 
 /**
@@ -1381,10 +1521,11 @@ const WORLD_FOLDER = "world";
  * `-C <dir>` and `-c <key>=<value>`: a push (the LFS pre-push hook runs
  * `git rev-list --objects` over what it sends), a fetch or pull, a
  * clone, and the repacks. Options are kept, to read the folder `-C`
- * names, and the rest, to read a path it fetches from or clones.
+ * names, then the subcommand, and the rest, to read a path it fetches
+ * from or clones and what it fetches.
  */
 const GIT_WALK =
-	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(?:push|fetch|pull|clone|gc|repack|pack-objects)(?![\w.=-])(.*)$/;
+	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects)(?![\w.=-])(.*)$/;
 
 /** A variable set as a step's first word, as `T=~/world/trees/a/src`. */
 const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;
@@ -1393,8 +1534,8 @@ const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;
 const VARIABLE = /\$(?:\{(\w+)\}|(\w+))/g;
 
 /**
- * Whether a command's steps walk World's git objects: a step running
- * {@link GIT_WALK} in a World checkout, by the folder it runs in, a `cd`
+ * The walks of World's git objects a command's steps run: each step
+ * running {@link GIT_WALK} in a World checkout, by the folder it runs in, a `cd`
  * before it or its own `-C`, or naming a path in one, as a fetch from
  * or a clone of `~/world/git` does. Each step's folder is followed from
  * the command's own, through each `cd` and the variables set on the
@@ -1402,7 +1543,8 @@ const VARIABLE = /\$(?:\{(\w+)\}|(\w+))/g;
  * counts only for the paths the step names outright. Every other
  * repository's git is left alone.
  */
-function walksWorld(steps: readonly string[], where: Where): boolean {
+function worldWalks(steps: readonly string[], where: Where): RegExpExecArray[] {
+	const walks: RegExpExecArray[] = [];
 	const world = join(where.home, WORLD_FOLDER);
 	const inWorld = (path: string | undefined) =>
 		path !== undefined && (path === world || path.startsWith(`${world}/`));
@@ -1445,12 +1587,12 @@ function walksWorld(steps: readonly string[], where: Where): boolean {
 			const dir = /^--(?:git-dir|work-tree)=(.+)$/.exec(option);
 			if (dir) named.push(pathOf(dir[1], at));
 		});
-		for (const word of walk[2].trim().split(/\s+/)) {
+		for (const word of walk[3].trim().split(/\s+/)) {
 			if (/^(?:[/~.$]|file:\/\/)/.test(word)) named.push(pathOf(word, at));
 		}
-		if (inWorld(at) || named.some(inWorld)) return true;
+		if (inWorld(at) || named.some(inWorld)) walks.push(walk);
 	}
-	return false;
+	return walks;
 }
 
 /** Each kind as a sentence names one, so every surface says it alike. */
