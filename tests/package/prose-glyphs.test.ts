@@ -120,7 +120,11 @@ describe("this package's own TypeScript", () => {
 		expect(files.length).toBeGreaterThan(200);
 	});
 
-	it("uses no emdash and no curly quote in its prose", () => {
+	// It reads every file the package holds, about 2,000, which took 10.8 s
+	// beside the rest of the suite on a loaded machine on 6 November.
+	it("uses no emdash and no curly quote in its prose", {
+		timeout: 60_000,
+	}, () => {
 		const offenders: string[] = [];
 		for (const file of files) {
 			const lines = readFileSync(file, "utf8").split("\n");
