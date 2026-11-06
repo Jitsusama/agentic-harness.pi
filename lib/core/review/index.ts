@@ -73,6 +73,10 @@ export type {
 	Position,
 } from "./ask/critique.ts";
 export { harvestCritiques, runCritique } from "./ask/critique.ts";
+export {
+	COUNCILS_BEFORE_ASKING_WHY,
+	councilNotEarned,
+} from "./ask/earned.ts";
 export type { Harvest } from "./ask/harvest.ts";
 export { alsoRecorded, harvestFindings } from "./ask/harvest.ts";
 // Asking other models about a change: who is asked, and keeping
