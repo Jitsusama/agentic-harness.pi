@@ -465,16 +465,30 @@ export function ranSAfter(
 	what: string,
 	outcomes: readonly Outcome[],
 ): number | undefined {
-	const key = workKey(what);
-	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
-		const outcome = outcomes[at];
+	return ranByWork(outcomes).get(workKey(what));
+}
+
+/**
+ * Each work's last telling run time, by {@link workKey}, read once for
+ * each list of outcomes: queue.json names every job's, and finding each
+ * by a walk of every outcome took 39% of a keep's time with 28 jobs and
+ * 3,781 outcomes on 5 November.
+ */
+const RAN_BY_WORK = new WeakMap<readonly Outcome[], Map<string, number>>();
+
+function ranByWork(outcomes: readonly Outcome[]): Map<string, number> {
+	const known = RAN_BY_WORK.get(outcomes);
+	if (known) return known;
+	const ran = new Map<string, number>();
+	for (const outcome of outcomes) {
 		// An answered fetch ran in seconds, which says nothing of a fetch.
 		if (outcome.ranS === undefined || outcome.answered) continue;
-		if (workKey(outcome.what) !== key) continue;
 		if (failed(outcome.exit) && outcome.ranS < TELLING_S) continue;
-		return outcome.ranS;
+		// A later run of the same work replaces an earlier one.
+		ran.set(workKey(outcome.what), outcome.ranS);
 	}
-	return undefined;
+	RAN_BY_WORK.set(outcomes, ran);
+	return ran;
 }
 
 /**

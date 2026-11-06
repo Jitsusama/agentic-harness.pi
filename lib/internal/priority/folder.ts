@@ -114,6 +114,43 @@ const LOCK_FOLDER = "locks";
 /** How often queue.json is written when nothing in it changes. */
 export const HEARTBEAT_MS = 30_000;
 
+/**
+ * How long a keep stands for a folder nothing has come into or gone
+ * from since. Every session asks every two seconds, and each took the
+ * lock in turn: on 5 November, with 100 sessions, the lock was held 96%
+ * of the time, by 2.4 keeps a second of a median 311 ms each, every one
+ * blocking some session's own thread. A dead owner or memory come free
+ * still shows within this long.
+ */
+export const KEPT_FOR_MS = 2_000;
+
+/**
+ * What the last keep saw and when, in the lock's folder, which the
+ * desktop's watch on the queue's folder doesn't hear.
+ */
+const KEPT_FILE = "kept.json";
+
+/** What the keeper writes in the queue's folder itself. */
+const KEEPERS_OWN: ReadonlySet<string> = new Set([
+	"queue.json",
+	"room",
+	"rules.json",
+	"capped.conf",
+	"fetched",
+	LOCK_FOLDER,
+]);
+
+/**
+ * The folder's files as a keep sees them: what jobs and their askers
+ * made, not what the keeper wrote or a write still being staged.
+ */
+function seenIn(dir: string): string {
+	return names(dir)
+		.filter((name) => !KEEPERS_OWN.has(name) && !name.startsWith("."))
+		.sort()
+		.join("\n");
+}
+
 /** How long queue.json goes unwritten before nobody keeps the queue. */
 export const UNKEPT_MS = 120_000;
 
@@ -278,6 +315,11 @@ export interface QueueFolder {
 	ranFor(what: string): number | undefined;
 	/** Whether queue.json is older than its heartbeat allows. */
 	isDue(now: number): boolean;
+	/**
+	 * Whether a keep within {@link KEPT_FOR_MS} saw the folder's files as
+	 * they are now, so keeping it again would give out nothing new.
+	 */
+	keptFresh(now: number): boolean;
 	/**
 	 * Gives up what has ended, starts the next job that fits, and writes
 	 * queue.json when it changed or its heartbeat is due. Nothing when
@@ -626,6 +668,17 @@ export function queueFolder(
 			}
 		},
 
+		keptFresh(now) {
+			const kept = parsed<{ at?: unknown; seen?: unknown }>(
+				join(dir, LOCK_FOLDER, KEPT_FILE),
+			);
+			return (
+				typeof kept?.at === "number" &&
+				now - kept.at < KEPT_FOR_MS &&
+				kept.seen === seenIn(dir)
+			);
+		},
+
 		keep(read, now, cgroupFor) {
 			ensure();
 			locked(now, () => {
@@ -709,6 +762,10 @@ export function queueFolder(
 					replace(join(dir, "room"), roomSaid(record.room));
 					replace(join(dir, "queue.json"), `${JSON.stringify(record)}\n`);
 				}
+				replace(
+					join(dir, LOCK_FOLDER, KEPT_FILE),
+					`${JSON.stringify({ at: now, seen: seenIn(dir) })}\n`,
+				);
 			});
 		},
 	};

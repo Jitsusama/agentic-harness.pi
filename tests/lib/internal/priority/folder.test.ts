@@ -15,6 +15,7 @@ import { tellAwaited } from "../../../../lib/internal/priority/awaited.ts";
 import {
 	HEARTBEAT_MS,
 	isKept,
+	KEPT_FOR_MS,
 	machineQueueDir,
 	PID_MS,
 	QUEUE_FIRST_FILE,
@@ -110,6 +111,61 @@ describe("the machine's queue folder", () => {
 		older.ask(job("next", { since: new Date(later - 1_000).toISOString() }));
 		older.keep(ROOMY, later, () => undefined);
 		expect(older.hasTurn("next")).toBe(true);
+	});
+
+	it("counts a folder kept a moment ago, with nothing come or gone, as kept", () => {
+		// 5 November: every session kept it in turn, and the lock was held
+		// 96% of the time.
+		const queue = folder();
+		queue.ask(job("build"));
+		shellSays("build", 300);
+		expect(queue.keptFresh(NOW)).toBe(false);
+
+		queue.keep(ROOMY, NOW, () => undefined);
+
+		expect(queue.keptFresh(NOW + KEPT_FOR_MS - 1)).toBe(true);
+		expect(queue.keptFresh(NOW + KEPT_FOR_MS)).toBe(false);
+	});
+
+	it("counts a folder a job came into since its keep as not kept", () => {
+		const queue = folder();
+		queue.ask(job("build"));
+		queue.keep(ROOMY, NOW, () => undefined);
+
+		queue.ask(job("next"));
+
+		expect(queue.keptFresh(NOW + 1)).toBe(false);
+	});
+
+	it("counts a folder a job's end came into since its keep as not kept", () => {
+		const queue = folder();
+		queue.ask(job("build"));
+		queue.keep(ROOMY, NOW, () => undefined);
+
+		writeFileSync(join(dir, "build.end"), "0\n");
+
+		expect(queue.keptFresh(NOW + 1)).toBe(false);
+	});
+
+	it("says it kept the folder only where the desktop's watch can't hear", () => {
+		const queue = folder();
+		queue.ask(job("build"));
+
+		queue.keep(ROOMY, NOW, () => undefined);
+
+		expect(existsSync(join(dir, "kept.json"))).toBe(false);
+		expect(existsSync(join(dir, "locks", "kept.json"))).toBe(true);
+	});
+
+	it("leaves a folder a newer keeper keeps unmarked by an older one", () => {
+		const newer = queueFolder(dir, processes, undefined, undefined, 2);
+		const older = queueFolder(dir, processes, undefined, undefined, 1);
+		newer.ask(job("build"));
+		newer.keep(ROOMY, NOW, () => undefined);
+
+		older.keep(ROOMY, NOW + KEPT_FOR_MS, () => undefined);
+
+		expect(older.keptFresh(NOW + KEPT_FOR_MS)).toBe(false);
 	});
 
 	it("holds a job while it plans, then queues it as what its plan found", () => {

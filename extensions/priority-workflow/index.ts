@@ -253,7 +253,8 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 		timer = setInterval(() => {
 			const now = Date.now();
 			try {
-				if (folder.hasJobs() || folder.isDue(now)) {
+				const wanted = folder.hasJobs() || folder.isDue(now);
+				if (wanted && !folder.keptFresh(now)) {
 					folder.keep(room, now, cgroupFor);
 				}
 			} catch {

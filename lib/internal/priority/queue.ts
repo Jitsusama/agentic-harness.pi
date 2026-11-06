@@ -970,9 +970,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * that would still run when its memory is due back. 6: walks of World's
  * objects, a kind older code can't read, held to {@link WALKS_AT_ONCE}.
  * 7: pushes and fetches of main first among the walks, and a fetch of
- * main waiting for one running, then answered by it (fetched.ts).
+ * main waiting for one running, then answered by it (fetched.ts). 8:
+ * a folder kept within folder.ts's `KEPT_FOR_MS`, with nothing come or
+ * gone since, left as it is, which older keepers would keep regardless.
  */
-export const RULES_VERSION = 7;
+export const RULES_VERSION = 8;
 
 /**
  * The job to start now, if any: the first waiting in order that its
