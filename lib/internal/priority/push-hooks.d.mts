@@ -16,6 +16,7 @@ export function withoutOurs(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function lfsScanSpared(
 	lines: string,
 	env: NodeJS.ProcessEnv,
+	remote?: string,
 ): string | undefined;
 
 /** Runs the hook named `name` as the repository would have. */
