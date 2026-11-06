@@ -14,6 +14,7 @@ import { withoutOurs } from "../../../../lib/internal/priority/push-hooks.mjs";
 import {
 	placePushHooks,
 	pushesLine,
+	pushHook,
 } from "../../../../lib/internal/priority/pushes.ts";
 
 // A git of its own: no person's config, so nothing signs or hooks.
@@ -184,6 +185,21 @@ describe("every other hook", () => {
 			"kept yes",
 			"other unset refs/heads/main",
 		]);
+	});
+
+	it("runs the repository's own as it is when the script is gone", () => {
+		const wrapper = pushHook(
+			"post-commit",
+			process.execPath,
+			join(root, "gone.mjs"),
+		);
+		if (wrapper === undefined) throw new Error("the paths can't be quoted");
+		writeFileSync(join(queue, "pushes", "post-commit"), wrapper);
+		const committing = pushing(
+			"echo x > a.txt && git add a.txt && git commit -q -m a",
+		);
+		expect(committing.status).toBe(0);
+		expect(ran()).toEqual(["post-commit"]);
 	});
 });
 

@@ -20,8 +20,13 @@ export const PUSHES_FOLDER = "pushes";
 
 /**
  * The hook a pushing shell's git runs as `name`: this node running
- * push-hooks.mjs, told the name. Nothing for a path that can't be
- * quoted plainly.
+ * push-hooks.mjs, told the name, when the repository has a hook of that
+ * name. It reads that in sh first, with our setting hidden, so an event
+ * the repository has no hook for, as a reference-transaction on every
+ * ref update is in World, starts no node. Should node or the script be
+ * gone, it runs the repository's own hook as it is. A hooks folder that
+ * can't be read refuses, rather than skipping the repository's hooks.
+ * Nothing for a path that can't be quoted plainly.
  */
 export function pushHook(
 	name: string,
@@ -29,7 +34,14 @@ export function pushHook(
 	script: string = fileURLToPath(new URL("./push-hooks.mjs", import.meta.url)),
 ): string | undefined {
 	if ([node, script].some((path) => path.includes("'"))) return undefined;
-	return `#!/bin/sh\nexec '${node}' '${script}' ${name} "$@"\n`;
+	return [
+		"#!/bin/sh",
+		`hooks=$(GIT_CONFIG_COUNT="\${${PRIOR_VARIABLE}:-0}" git rev-parse --path-format=absolute --git-path hooks) || exit 1`,
+		`[ -x "$hooks/${name}" ] || exit 0`,
+		`[ -x '${node}' ] && [ -f '${script}' ] && exec '${node}' '${script}' ${name} "$@"`,
+		`GIT_CONFIG_COUNT="\${${PRIOR_VARIABLE}:-0}" exec "$hooks/${name}" "$@"`,
+		"",
+	].join("\n");
 }
 
 /**
