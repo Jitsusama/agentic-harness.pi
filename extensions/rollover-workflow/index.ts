@@ -44,12 +44,14 @@ import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
 	authOf,
-	type CarriedModel,
+	type CarriedAuth,
 	type ChosenModel,
 	carryModel,
 	hasNoModel,
 	modelOfBranch,
 	NO_PROVIDER,
+	rememberAuth,
+	rememberedAuth,
 	takeCarriedModel,
 } from "../../lib/internal/session/carried-model.ts";
 import {
@@ -272,9 +274,9 @@ const NO_AUTH = "its provider has no auth configured";
 function putAuthBack(
 	pi: SetBackApi,
 	ctx: SetBackContext,
-	carried: CarriedModel,
+	provider: string,
+	auth: CarriedAuth | undefined,
 ): string[] {
-	const auth = carried.auth;
 	if (!auth) return [];
 	const put: string[] = [];
 	for (const [name, value] of Object.entries(auth.variables)) {
@@ -282,14 +284,80 @@ function putAuthBack(
 		process.env[name] = value;
 		put.push(name);
 	}
-	const now = ctx.modelRegistry.getRegisteredProviderConfig?.(carried.provider);
+	const now = ctx.modelRegistry.getRegisteredProviderConfig?.(provider);
 	if (auth.config?.apiKey === undefined) return put;
 	if (now?.apiKey === undefined) put.push(now ? "its key" : "its registration");
 	// With nothing missing, pi's record of which providers have auth is
 	// what went stale, and registering again marks it afresh.
 	else if (put.length === 0) put.push("registered again");
-	pi.registerProvider(carried.provider, auth.config);
+	pi.registerProvider(provider, auth.config);
 	return put;
+}
+
+/** Whether pi can find auth for a provider, as a request would look. */
+async function hasAuth(
+	ctx: SetBackContext,
+	provider: string,
+): Promise<boolean> {
+	// An older pi can't say, and is taken at its word.
+	if (!ctx.modelRegistry.getProviderAuth) return true;
+	try {
+		return (await ctx.modelRegistry.getProviderAuth(provider)) !== undefined;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Before a turn on a model that is set, put back its provider's auth
+ * when pi can no longer find it, and remember it while it works.
+ * Answers why the turn will still fail, once it has said so, or nothing.
+ */
+async function mendAuth(
+	pi: SetBackApi,
+	ctx: SetBackContext,
+): Promise<string | undefined> {
+	const model = ctx.model;
+	if (!model) return undefined;
+	if (await hasAuth(ctx, model.provider)) {
+		const auth = authOf(
+			ctx.modelRegistry.getRegisteredProviderConfig?.(model.provider),
+			process.env,
+		);
+		if (auth) rememberAuth(model.provider, auth);
+		return undefined;
+	}
+	const put = putAuthBack(
+		pi,
+		ctx,
+		model.provider,
+		rememberedAuth(model.provider),
+	);
+	const named = `${model.provider}/${model.id}`;
+	let why: string | undefined;
+	if (put.length === 0) why = `${NO_AUTH}, and none was known to put back`;
+	else if (!(await hasAuth(ctx, model.provider))) {
+		why = `${NO_AUTH}, even with ${put.join(", ")} put back`;
+	}
+	pi.appendEntry(AUTH_PUT_BACK, {
+		when: "before a turn",
+		model: named,
+		put,
+		after: why ?? "set back",
+	});
+	if (why) {
+		sayNoModel(
+			pi,
+			ctx,
+			"before a turn",
+			{
+				provider: model.provider,
+				modelId: model.id,
+			},
+			why,
+		);
+	}
+	return why;
 }
 
 /** What setting a model back needs of the session. */
@@ -374,9 +442,10 @@ export async function restoreCarriedModel(
 		(hasNoModel(ctx.model)
 			? modelOfBranch(ctx.sessionManager.getBranch())
 			: undefined);
+	if (carried?.auth) rememberAuth(carried.provider, carried.auth);
 	let why = wanted ? await setBack(pi, ctx, wanted) : undefined;
 	if (carried && wanted && why?.startsWith(NO_AUTH)) {
-		const put = putAuthBack(pi, ctx, carried);
+		const put = putAuthBack(pi, ctx, carried.provider, carried.auth);
 		if (put.length > 0) {
 			why = await setBack(pi, ctx, wanted);
 			pi.appendEntry(AUTH_PUT_BACK, {
@@ -398,14 +467,15 @@ export async function restoreCarriedModel(
  * last, so the turn runs on it rather than failing with "Unknown
  * provider: unknown". A session can come up on no model after its
  * start set it back, or with nothing set back at its start, and this is
- * the last moment it can be mended unseen. Returns why it could not,
- * once it has said so, or nothing.
+ * the last moment it can be mended unseen. On a model that is set, put
+ * back its provider's auth when pi can no longer find it. Returns why
+ * it could not, once it has said so, or nothing.
  */
 export async function restoreModelBeforeTurn(
 	pi: SetBackApi,
 	ctx: SetBackContext,
 ): Promise<string | undefined> {
-	if (!hasNoModel(ctx.model)) return undefined;
+	if (!hasNoModel(ctx.model)) return mendAuth(pi, ctx);
 	const wanted = modelOfBranch(ctx.sessionManager.getBranch());
 	if (!wanted) return undefined;
 	const why = await setBack(pi, ctx, wanted);

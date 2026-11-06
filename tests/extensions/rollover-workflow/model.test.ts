@@ -28,6 +28,7 @@ import rolloverWorkflow, {
 	COMMAND,
 	MODEL_NOT_SET_BACK,
 } from "../../../extensions/rollover-workflow/index.ts";
+import { forgetAuth } from "../../../lib/internal/session/carried-model.ts";
 import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 
 /** The provider and model the session runs on. */
@@ -67,6 +68,7 @@ beforeEach(() => {
 	keyed = false;
 	dropsKey = false;
 	delete process.env[KEY_VARIABLE];
+	forgetAuth();
 	notices = [];
 	heard = [];
 });
@@ -241,6 +243,40 @@ describe("a session that rolls over", () => {
 		expect(notSetBack(runtime)).toEqual([]);
 		await ask(runtime, "after");
 		expect(lastAnswer(runtime)).toBe("answer to after");
+	});
+
+	it("answers when its provider's key goes missing later, its model still set", async () => {
+		// On 6 November a rolled session kept its model, yet its first call,
+		// 93 minutes on, failed: "Provider is not configured: anthropic".
+		keyed = true;
+		process.env[KEY_VARIABLE] = "the-proxy-key";
+		runtime = await compacted();
+		await runtime.session.prompt(`/${COMMAND}`);
+		delete process.env[KEY_VARIABLE];
+
+		await ask(runtime, "after");
+
+		expect(lastAnswer(runtime)).toBe("answer to after");
+		expect(putBack(runtime)).toEqual([
+			{
+				when: "before a turn",
+				model: `${PROVIDER}/${MODEL}`,
+				put: [KEY_VARIABLE],
+				after: "set back",
+			},
+		]);
+	});
+
+	it("puts back auth a session that never rolled over had while it worked", async () => {
+		keyed = true;
+		process.env[KEY_VARIABLE] = "the-proxy-key";
+		runtime = await compacted();
+		delete process.env[KEY_VARIABLE];
+
+		await ask(runtime, "after");
+
+		expect(lastAnswer(runtime)).toBe("answer to after");
+		expect(process.env[KEY_VARIABLE]).toBe("the-proxy-key");
 	});
 
 	it("puts back nothing when its provider's key was there all along", async () => {
