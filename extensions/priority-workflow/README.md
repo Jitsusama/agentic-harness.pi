@@ -138,6 +138,14 @@ commits add no LFS pointer, touch no path LFS filters and change no
 lfs pre-push`, and says so on stderr. Any other push, and any doubt,
 runs the repository's own pre-push whole.
 
+Since that spares the scan by itself, a push of World with
+`--no-verify` is refused by the `world-push-hooks` guard, in block
+mode, on every platform: the flag skips
+every pre-push hook dev runs, its ancestry and stale-cutoff checks
+with the LFS scan, and the refusal says to run the same push without
+it. On 6 November 5 sessions had pushed World that way 20 times.
+`-n`, a dry run for a push, is left alone.
+
 Watchers such as `cargo watch` and `bacon` are left out, since they
 would hold a turn for as long as they watch.
 
