@@ -73,6 +73,12 @@ export interface SupervisorRunPiConfig {
 	readonly maxLineBytes?: number;
 	readonly maxAssistantTextBytes?: number;
 	readonly maxWarnings?: number;
+	/**
+	 * How long the provider keeps the child's prompt cached, as
+	 * `PI_CACHE_RETENTION` says it, in place of what the session runs
+	 * with. Left out, the child keeps the session's.
+	 */
+	readonly cacheRetention?: "short" | "long";
 }
 
 interface SupervisorResultFile {
@@ -199,7 +205,7 @@ export function createSupervisorStartPi(
 			[where.script, paths.requestPath],
 			{
 				cwd: options.cwd,
-				env: supervisorEnvironment(),
+				env: supervisorEnvironment(config),
 				// Its own process group. A child in the session's group
 				// takes the session's signals, so the interrupt that ends a
 				// pi session would end the round with it, which is the
@@ -245,10 +251,19 @@ export function createSupervisorStartPi(
  * What a supervisor and its reviewer run with: pi's own environment
  * and what the session offers its commands, such as the loaded quest.
  * A subagent does its session's work, so the machine counts it for the
- * same quest.
+ * same quest. A runner that names a cache retention gives it in place of
+ * the session's.
  */
-function supervisorEnvironment(): NodeJS.ProcessEnv {
-	return { ...process.env, ...offeredShellEnvironment() };
+function supervisorEnvironment(
+	config: SupervisorRunPiConfig,
+): NodeJS.ProcessEnv {
+	return {
+		...process.env,
+		...offeredShellEnvironment(),
+		...(config.cacheRetention === undefined
+			? {}
+			: { PI_CACHE_RETENTION: config.cacheRetention }),
+	};
 }
 
 /** Where the supervisor script is and what runs it. */
@@ -364,7 +379,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				[supervisorPath, paths.requestPath],
 				{
 					cwd,
-					env: supervisorEnvironment(),
+					env: supervisorEnvironment(config),
 					detached: false,
 					stdio: ["ignore", "pipe", "pipe"],
 				},

@@ -107,6 +107,12 @@ const SAYS: Record<AskLimit, RegExp> = {
  * the choice is something a test can hold. The wiring used to be
  * checked by grepping this file's source, which proves the words are
  * present and nothing about what runs.
+ *
+ * A reviewer caches its prompt for five minutes, not the hour a session
+ * may run with. It reads without pausing, so the hour bought nothing
+ * and cost the dearer write: over two days to 5 November, 361 reviewers
+ * wrote 13.6M tokens at the hour's price and only 7 of their turns came
+ * after a pause past five minutes, $49 at list for nothing.
  */
 export function reviewerRunner(
 	piInstall: PiInstall,
@@ -116,9 +122,13 @@ export function reviewerRunner(
 	return createSupervisorRunPi({
 		piInstall,
 		stateDir,
+		cacheRetention: REVIEWER_CACHE_RETENTION,
 		...(spawn === undefined ? {} : { spawn }),
 	});
 }
+
+/** How long a reviewer's prompt stays cached; see {@link reviewerRunner}. */
+export const REVIEWER_CACHE_RETENTION = "short";
 
 /** The same supervised runner, for a reviewer nobody will wait for. */
 export function reviewerStarter(
@@ -129,6 +139,7 @@ export function reviewerStarter(
 	return createSupervisorStartPi({
 		piInstall,
 		stateDir,
+		cacheRetention: REVIEWER_CACHE_RETENTION,
 		...(spawn === undefined ? {} : { spawn }),
 	});
 }
