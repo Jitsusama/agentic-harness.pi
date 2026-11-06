@@ -104,6 +104,20 @@ answers `work:request:v1` for anything that loaded later, because
 the bus does not replay and load order between extensions is
 nobody's choice.
 
+## Heavy Git Waits Its Turn
+
+The plain-git provider runs git itself rather than through the
+bash tool, so its pushes and fetches of World went past the
+machine's queue: no walk's slot, no shared slice, and the LFS scan
+the queue leaves out of a push that holds no LFS file. From 5
+November to the morning of the 6th, 9 of its 16 pushes of World
+were stopped by its ten-minute clock, while the queue's that
+morning took a median of 29 seconds. Each command it runs is now read as the bash
+tool's would be, and one the queue takes runs as the queue's shell,
+on a five-hour clock that counts the wait
+(`lib/internal/priority/queued-exec.ts`). Everything else runs as
+it did.
+
 ## Trees It Did Not Cut
 
 A quest cuts its own trees and records them in its own front
