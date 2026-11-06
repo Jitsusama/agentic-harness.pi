@@ -2,15 +2,19 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
+import { writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	AGAIN_ENV,
 	clearParked,
+	namesSession,
 	PARK_ASK,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
 	type Parking,
 	parkAfterMs,
+	restartCommand,
 	WAKE_ENV,
 	whyNotPark,
 	writeParked,
@@ -69,6 +73,8 @@ export interface WatchOptions {
 	readonly switchPath?: string;
 	readonly folder?: string;
 	readonly now?: () => number;
+	/** pi's own arguments, which a holder naming no restart runs again. */
+	readonly args?: readonly string[];
 	/** Set the code pi exits with, once it exits. */
 	readonly exitWith?: (code: number) => void;
 	/** Look on a clock; false for tests that look by hand. */
@@ -83,6 +89,31 @@ function exitWith(code: number): void {
 	});
 }
 
+/**
+ * Make sure its holder wakes this session into itself: by naming the
+ * command that opens its log, or, for a holder that takes none, by the
+ * command it runs already opening it. Answers why not otherwise.
+ */
+function restartNamed(
+	again: string,
+	args: readonly string[],
+	session: string,
+	sessionFile: string,
+): string | undefined {
+	if (sessionFile === "") return "it has no log to start again from";
+	if (again === "") {
+		return namesSession(args, session, sessionFile)
+			? undefined
+			: "its holder would start it as a new session";
+	}
+	try {
+		writeFileSync(again, JSON.stringify(restartCommand(sessionFile)));
+		return undefined;
+	} catch {
+		return "its holder couldn't be told how to start it again";
+	}
+}
+
 /** Watch this session, clearing any marker an earlier park left. */
 export function watch(
 	ctx: Parkable,
@@ -90,7 +121,10 @@ export function watch(
 	options: WatchOptions = {},
 ): Watch {
 	const now = options.now ?? Date.now;
-	const wake = (options.env ?? process.env)[WAKE_ENV] ?? "";
+	const env = options.env ?? process.env;
+	const wake = env[WAKE_ENV] ?? "";
+	const again = env[AGAIN_ENV] ?? "";
+	const args = options.args ?? process.argv.slice(2);
 	const session = ctx.sessionManager.getSessionId();
 	const folder = options.folder;
 	// Started again, it is parked no more; its holder clears the wake.
@@ -118,13 +152,16 @@ export function watch(
 		});
 		if (why !== undefined) return why;
 		if (wake === "") return "no holder would wake it";
+		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
+		const unnamed = restartNamed(again, args, session, sessionFile);
+		if (unnamed !== undefined) return unnamed;
 		parked = true;
 		const parking: Parking = { session, addresses: [] };
 		bus.emit(PARKING, parking);
 		writeParked(
 			{
 				session,
-				sessionFile: ctx.sessionManager.getSessionFile() ?? "",
+				sessionFile,
 				cwd: ctx.cwd,
 				addresses: parking.addresses,
 				...(parking.quest ? { quest: parking.quest } : {}),
