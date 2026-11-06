@@ -60,7 +60,10 @@ export const ROLLOVER_RECORD = "session-rollover";
  */
 export const ROLLOVER_BYTES = 32 * 1024 * 1024;
 
-/** Set to `off` to keep every session in its first log. */
+/**
+ * Set to `on` for a session to roll over by itself; otherwise only
+ * `/rollover` does it, while a rolled session can come up on no model.
+ */
 export const ROLLOVER_ENV = "PI_ROLLOVER";
 
 /**
