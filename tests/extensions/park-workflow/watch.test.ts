@@ -169,6 +169,51 @@ describe("parking a session", () => {
 		expect(shutdowns).toBe(0);
 	});
 
+	it("counts idle from its log's last message when it starts, as on a reload", () => {
+		clock = NAMED_PARK_AFTER_MS * 10;
+		const at = (ms: number) => new Date(ms).toISOString();
+		const logged = session({
+			sessionManager: {
+				getSessionId: () => SESSION,
+				getSessionFile: () => logOf(),
+				getBranch: () => [
+					{ type: "message", timestamp: at(clock - NAMED_PARK_AFTER_MS) },
+					// A mesh note since is no sign of life.
+					{ type: "custom_message", timestamp: at(clock - 1) },
+				],
+			} as unknown as Parkable["sessionManager"],
+		});
+		expect(watching(logged).look()).toBeUndefined();
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("counts idle from its start when a park just ended, so a key that woke it holds", () => {
+		clock = NAMED_PARK_AFTER_MS * 10;
+		writeParked(
+			{
+				session: SESSION,
+				sessionFile: logOf(),
+				cwd: "/src",
+				addresses: [],
+				parkedAt: new Date(0).toISOString(),
+				pid: 1,
+				wake: join(folder, "held.wake"),
+			},
+			folder,
+		);
+		const logged = session({
+			sessionManager: {
+				getSessionId: () => SESSION,
+				getSessionFile: () => logOf(),
+				getBranch: () => [
+					{ type: "message", timestamp: new Date(0).toISOString() },
+				],
+			} as unknown as Parkable["sessionManager"],
+		});
+		expect(watching(logged).look()).toBe("not idle long enough");
+		expect(shutdowns).toBe(0);
+	});
+
 	it("counts idle from the last thing that happened in it", () => {
 		const watched = watching();
 		clock = NAMED_PARK_AFTER_MS;

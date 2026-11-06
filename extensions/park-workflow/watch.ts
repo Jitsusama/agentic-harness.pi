@@ -15,6 +15,7 @@ import {
 	type ParkAsk,
 	type Parking,
 	parkAfterMs,
+	readParked,
 	restartCommand,
 	WAKE_ENV,
 	whyNotPark,
@@ -155,6 +156,22 @@ function restartNamed(
 	}
 }
 
+/**
+ * When the session last did anything, as its log says: the newest
+ * message on its branch. A mesh note is no message, as it stirs nothing
+ * once the session runs either.
+ */
+function lastMessageAt(ctx: Parkable): number | undefined {
+	const branch = ctx.sessionManager.getBranch?.() ?? [];
+	for (let at = branch.length - 1; at >= 0; at -= 1) {
+		const entry = branch[at];
+		if (entry?.type !== "message") continue;
+		const when = Date.parse(entry.timestamp);
+		return Number.isNaN(when) ? undefined : when;
+	}
+	return undefined;
+}
+
 /** Watch this session, clearing any marker an earlier park left. */
 export function watch(
 	ctx: Parkable,
@@ -169,8 +186,14 @@ export function watch(
 	const session = ctx.sessionManager.getSessionId();
 	const folder = options.folder;
 	// Started again, it is parked no more; its holder clears the wake.
+	const woke = readParked(session, folder) !== undefined;
 	clearParked(session, folder);
-	let last = now();
+	// Idle counts from its log, not from this start: every install that
+	// moves reloads every session, and on 6 November installs moved about
+	// every half hour, so a clock started here never reached its hour. A
+	// session just woken counts from now, or a key that woke it, with
+	// nothing sent yet, would see it park again within a minute.
+	let last = woke ? now() : Math.min(now(), lastMessageAt(ctx) ?? now());
 	let prompts = 0;
 	let parked = false;
 	const look = (): string | undefined => {
