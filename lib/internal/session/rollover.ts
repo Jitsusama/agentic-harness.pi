@@ -54,9 +54,11 @@ export const ROLLOVER_RECORD = "session-rollover";
 /**
  * A log this large or larger rolls over at its next compaction. Below
  * it, the history a session holds costs less than the moment it would
- * take to notice; the heap holds about 1.3 bytes per byte of log.
+ * take to notice. On 5 November a resumed 32.8 MB log gave back 124 MB
+ * of its 389 MB three minutes after rolling over, and a 20 MB one 32 MB
+ * of 275 MB, so smaller logs are left alone.
  */
-export const ROLLOVER_BYTES = 64 * 1024 * 1024;
+export const ROLLOVER_BYTES = 32 * 1024 * 1024;
 
 /** Set to `off` to keep every session in its first log. */
 export const ROLLOVER_ENV = "PI_ROLLOVER";

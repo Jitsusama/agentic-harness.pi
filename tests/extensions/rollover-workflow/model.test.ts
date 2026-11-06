@@ -27,6 +27,7 @@ import rolloverWorkflow, {
 	COMMAND,
 	MODEL_NOT_SET_BACK,
 } from "../../../extensions/rollover-workflow/index.ts";
+import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 
 /** The provider and model the session runs on. */
 const PROVIDER = "proxied";
@@ -38,6 +39,8 @@ let faux: ReturnType<typeof createFauxCore>;
 let registering: boolean;
 let runtime: AgentSessionRuntime | undefined;
 let notices: { text: string; kind?: string }[];
+/** What was said on pi's bus of a session on no model. */
+let heard: unknown[];
 const saved = {
 	agent: process.env.PI_CODING_AGENT_DIR,
 	offline: process.env.PI_OFFLINE,
@@ -54,6 +57,7 @@ beforeEach(() => {
 	});
 	registering = true;
 	notices = [];
+	heard = [];
 });
 
 afterEach(async () => {
@@ -92,6 +96,7 @@ const provider: InlineExtension = {
 	hidden: true,
 	factory: (pi) => {
 		pi.on("session_start", () => register(pi));
+		pi.events.on(SESSION_ON_NO_MODEL, (data) => heard.push(data));
 	},
 };
 
@@ -215,6 +220,13 @@ describe("a session that rolls over", () => {
 			`This session has no model, so it can't answer. It ran on ${PROVIDER}/${MODEL}, which can't be set back: pi has no such model. Choose one with /model.`,
 		]);
 		expect(notSetBack(runtime)).toEqual([
+			{
+				when: "start",
+				model: `${PROVIDER}/${MODEL}`,
+				why: "pi has no such model",
+			},
+		]);
+		expect(heard).toEqual([
 			{
 				when: "start",
 				model: `${PROVIDER}/${MODEL}`,

@@ -52,6 +52,7 @@ import {
 	sessionLeft,
 	stayInSession,
 } from "../../lib/internal/session/left.ts";
+import { sayOnNoModel } from "../../lib/internal/session/no-model.ts";
 import {
 	builtInsLostToRollover,
 	type Carry,
@@ -205,7 +206,11 @@ export const MODEL_NOT_SET_BACK = "model-not-set-back";
 /** What setting a model back needs of pi. */
 type SetBackApi = Pick<
 	ExtensionAPI,
-	"setModel" | "getThinkingLevel" | "setThinkingLevel" | "appendEntry"
+	| "setModel"
+	| "getThinkingLevel"
+	| "setThinkingLevel"
+	| "appendEntry"
+	| "events"
 >;
 
 /** What setting a model back needs of the session. */
@@ -241,9 +246,10 @@ async function setBack(
 }
 
 /**
- * Say in the session's log, and loudly in its window, that it is on no
- * model: which it ran on and why that could not be set back, so the
- * cause outlives the window.
+ * Say in the session's log, loudly in its window, and on pi's bus for
+ * the mesh to tell its orchestrator, that it is on no model: which it
+ * ran on and why that could not be set back, so the cause outlives the
+ * window and someone hears it with nobody at the window.
  */
 function sayNoModel(
 	pi: SetBackApi,
@@ -256,6 +262,11 @@ function sayNoModel(
 	if (named && why) {
 		pi.appendEntry(MODEL_NOT_SET_BACK, { when, model: named, why });
 	}
+	sayOnNoModel(pi.events, {
+		when,
+		...(named ? { model: named } : {}),
+		...(why ? { why } : {}),
+	});
 	if (!ctx.hasUI) return;
 	const had = named
 		? ` It ran on ${named}, which can't be set back: ${why ?? "unknown"}.`

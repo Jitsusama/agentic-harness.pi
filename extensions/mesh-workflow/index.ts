@@ -73,6 +73,10 @@ import {
 } from "../../lib/internal/session/landings.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
+	type NoModelEvent,
+	onNoModel,
+} from "../../lib/internal/session/no-model.ts";
+import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
@@ -186,7 +190,7 @@ import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
-import { tellOrchestrator } from "./tells.ts";
+import { tellOnNoModel, tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
 import { seedWaiting, settleFromVerdicts, type Waiting } from "./wait.ts";
 
@@ -492,6 +496,22 @@ export function meshWorkflow(
 			: undefined;
 		const wanting = new Map<WantKind, Want>();
 		const unlanded: Landing[] = [];
+		// A session on no model is said at its start, perhaps before this
+		// peer is made, and before every turn after: held until then, and
+		// told once.
+		let onNoModelUntold: NoModelEvent | undefined;
+		let toldOnNoModel = false;
+		const tellNoModel = (event: NoModelEvent) => {
+			if (toldOnNoModel) return;
+			if (!peer) {
+				onNoModelUntold = event;
+				return;
+			}
+			toldOnNoModel = true;
+			onNoModelUntold = undefined;
+			const message = tellOnNoModel(peer, transport, event, presences.all());
+			if (message) seen.add(message.id);
+		};
 		let classifier: Promise<FoundClassifier> | undefined;
 		let stopWatching: (() => void) | undefined;
 		// Every id already looked at, so a watcher that reports one twice,
@@ -1186,6 +1206,7 @@ export function meshWorkflow(
 			});
 			for (const want of wanting.values()) peer.want(want);
 			for (const landing of unlanded.splice(0)) peer.landed(landing);
+			if (onNoModelUntold) tellNoModel(onNoModelUntold);
 			if (waiting) seedWaiting(peer, waiting);
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
@@ -1517,6 +1538,10 @@ export function meshWorkflow(
 				peer?.want(want);
 			});
 		}
+
+		// A session on no model answers nothing it is sent, so its
+		// orchestrator hears it from the mesh rather than from its window.
+		if (pi.events) onNoModel(pi.events, tellNoModel);
 
 		// A quest or document ended: its orchestrator hears it from the mesh,
 		// not from whether the session remembers to say so.

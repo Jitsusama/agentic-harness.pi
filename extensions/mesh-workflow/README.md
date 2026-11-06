@@ -79,7 +79,10 @@ and can answer a question or a gate left open on screen.
   had. When a quest or document is concluded or retired, the
   mesh tells the session's orchestrator itself, one fyi line
   quoting what the quest tool answered, heard over pi's bus
-  (`lib/internal/quest/concluded.ts`).
+  (`lib/internal/quest/concluded.ts`). A session left on no
+  model, which answers nothing it is sent, has the mesh tell
+  its orchestrator once, as a finding naming the model and why
+  it can't be set back (`lib/internal/session/no-model.ts`).
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
