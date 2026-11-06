@@ -2,7 +2,7 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
@@ -16,6 +16,7 @@ import {
 	isParkAsk,
 	isParking,
 	NAMED_PARK_AFTER_MS,
+	namesSession,
 	PARK_ASK,
 	PARKED_EXIT,
 	PARKING,
@@ -64,9 +65,19 @@ const session = (over: Partial<Parkable> = {}): Parkable => ({
 	...over,
 });
 
-const watching = (ctx: Parkable = session()) =>
+const holder = () => ({
+	MYCELIUM_WAKE: join(folder, "held.wake"),
+	MYCELIUM_AGAIN: join(folder, "held.again"),
+});
+
+const watching = (
+	ctx: Parkable = session(),
+	env: NodeJS.ProcessEnv = holder(),
+	args: readonly string[] = [],
+) =>
 	watch(ctx, events, {
-		env: { MYCELIUM_WAKE: join(folder, "held.wake") },
+		env,
+		args,
 		switchPath: parkSwitch(folder),
 		folder,
 		now: () => clock,
@@ -99,6 +110,29 @@ describe("parking a session", () => {
 		// Asked again before pi has gone, it doesn't park twice.
 		expect(watched.look()).toBe("parking already");
 		expect(shutdowns).toBe(1);
+	});
+
+	it("names its holder the command that opens its log, to wake with", () => {
+		const watched = watching();
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+		).toEqual(["pi", "--session", "/logs/session.jsonl"]);
+	});
+
+	it("stays under a holder naming no restart unless pi was started on itself", () => {
+		const { MYCELIUM_WAKE } = holder();
+		const bare = watching(session(), { MYCELIUM_WAKE }, ["--", "hello"]);
+		const resumed = watching(session(), { MYCELIUM_WAKE }, [
+			"--session-id",
+			SESSION,
+		]);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(bare.look()).toBe("its holder would start it as a new session");
+		expect(shutdowns).toBe(0);
+		expect(resumed.look()).toBeUndefined();
+		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
 	it("counts idle from the last thing that happened in it", () => {
@@ -154,6 +188,18 @@ describe("parking a session", () => {
 		);
 		watching();
 		expect(readParked(SESSION, folder)).toBeUndefined();
+	});
+});
+
+describe("whether pi's arguments open a session", () => {
+	const log = "/logs/session.jsonl";
+	it("reads its id or its log, spaced or joined, before any --", () => {
+		expect(namesSession(["--session", log], SESSION, log)).toBe(true);
+		expect(namesSession([`--session=${log}`], SESSION, log)).toBe(true);
+		expect(namesSession(["--session-id", SESSION], SESSION, log)).toBe(true);
+		expect(namesSession([], SESSION, log)).toBe(false);
+		expect(namesSession(["--session", "other"], SESSION, log)).toBe(false);
+		expect(namesSession(["--", "--session", log], SESSION, log)).toBe(false);
 	});
 });
 

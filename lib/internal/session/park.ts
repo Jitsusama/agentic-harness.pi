@@ -19,7 +19,11 @@
  * its `pi --session` command, and tells the pi it holds where its wake
  * file is ({@link WAKE_ENV}). On that exit code it keeps the window and
  * starts the session again in it when anything is written to that file
- * or a key is typed in the window, and deletes the file itself. The
+ * or a key is typed in the window, and deletes the file itself. It
+ * starts it again with the command the pi named as it parked
+ * ({@link AGAIN_ENV}), since the launcher starts a session as a bare
+ * `pi`, or with a first prompt, which would otherwise wake as a new
+ * conversation or send that prompt again. The
  * marker names the file as `wake`, and a sender writes to it when its
  * message would give a parked peer a turn (see mesh/parked.ts); the
  * mesh keeps unread messages on disk until a peer's next start, so
@@ -46,6 +50,39 @@ export const PARK_ENV = "PI_PARK";
  * path its holder sets; unset, nothing would wake it, so it never parks.
  */
 export const WAKE_ENV = "MYCELIUM_WAKE";
+
+/**
+ * Where the holder takes the command it wakes this pi with, a JSON list
+ * of a program and its arguments written as it parks. A holder that
+ * sets none runs its command again, so a session parks under it only
+ * when that command already opens this session.
+ */
+export const AGAIN_ENV = "MYCELIUM_AGAIN";
+
+/** The command that starts a session again from its log. */
+export function restartCommand(sessionFile: string): string[] {
+	return ["pi", "--session", sessionFile];
+}
+
+/**
+ * Whether pi's arguments open this session, by its id or its log, as
+ * `--session` or `--session-id`, before any `--`.
+ */
+export function namesSession(
+	args: readonly string[],
+	session: string,
+	sessionFile: string,
+): boolean {
+	const its = (value: string | undefined) =>
+		value !== undefined && (value === session || value === sessionFile);
+	for (const [i, arg] of args.entries()) {
+		if (arg === "--") return false;
+		const [flag, inline] = arg.split(/=(.*)/s, 2);
+		if (flag !== "--session" && flag !== "--session-id") continue;
+		if (its(inline ?? args[i + 1])) return true;
+	}
+	return false;
+}
 
 /**
  * What a parking pi exits with, EX_TEMPFAIL, so its holder can tell a

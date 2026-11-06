@@ -38,7 +38,11 @@ It is off until one of these turns it on:
 `PI_PARK=off` keeps a session out, whatever the switch says. A
 session parks only when a holder keeps it and has said where it
 watches for the wake (`MYCELIUM_WAKE`), since a pi with nobody to
-start it again has simply ended.
+start it again has simply ended. It also has to wake into itself: a
+holder that takes a restart (`MYCELIUM_AGAIN`) is given
+`pi --session <its log>`, and under one that takes none it parks
+only when pi was started on this session, since the launcher starts
+sessions as a bare `pi` or with a first prompt.
 
 ## What Happens
 
@@ -55,6 +59,6 @@ start it again has simply ended.
 A message that would give the parked peer a turn (a question or hold
 sent to it, an answer to it, a pivot) makes its sender write the
 message's id to the marker's `wake` file. The holder looks once a
-second, deletes the file and starts the same `pi --session` command in
-the same window; a key typed in the window wakes it too. The session
+second, deletes the file and starts the `pi --session` command in the
+same window; a key typed in the window wakes it too. The session
 deletes its marker as it starts.
