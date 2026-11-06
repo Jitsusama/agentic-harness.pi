@@ -125,6 +125,19 @@ the ref in its own shell as it starts and ends, since a fetch piped
 into `grep` can exit 1 having fetched. Its outcome carries
 `walk`, `movedMain` and `answered`.
 
+A push of World runs with `core.hooksPath` set, through
+`GIT_CONFIG_COUNT` after any settings already there, to the queue's
+`pushes/` folder, where every hook name runs `push-hooks.mjs`. It runs
+the repository's own hooks as git would have found them, with the
+setting taken off. The one difference is in pre-push. World's LFS hook
+asks `git lfs ls-files OLD NEW`, which walks a whole World tree; on
+5 November that held a push of 4 commits touching 5 paths for over 90
+minutes. So a push that updates one existing branch, and whose new
+commits add no LFS pointer, touch no path LFS filters and change no
+`.gitattributes`, runs every `pre-push.d` hook but those that run `git
+lfs pre-push`, and says so on stderr. Any other push, and any doubt,
+runs the repository's own pre-push whole.
+
 Watchers such as `cargo watch` and `bacon` are left out, since they
 would hold a turn for as long as they watch.
 

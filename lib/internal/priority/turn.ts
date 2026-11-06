@@ -28,6 +28,7 @@ import { offeredShellEnvironment } from "../shell/environment.ts";
 import { FETCHED_FOLDER, readsMain, worldGit } from "./fetched.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { planFor, planLines } from "./plan.ts";
+import { placePushHooks, pushesLine } from "./pushes.ts";
 import {
 	type Job,
 	kindOf,
@@ -179,7 +180,14 @@ export function queuedCommand(command: string, cwd?: string): string {
 		return command;
 	}
 	const fetches = walk === "main-fetch" ? worldGit() : undefined;
-	return `${wait(job.id, plan ? planLines(plan) : [], fetches)}\n${command}`;
+	const waits = wait(job.id, plan ? planLines(plan) : [], fetches);
+	// A push of World leaves out its LFS scan when it holds no LFS file
+	// (pushes.ts); without the hooks placed it runs them as it would.
+	const hooks =
+		walk === "push" && placePushHooks(queueing.folder.dir)
+			? pushesLine(queueing.folder.dir)
+			: undefined;
+	return hooks ? `${waits}\n${hooks}\n${command}` : `${waits}\n${command}`;
 }
 
 /**
