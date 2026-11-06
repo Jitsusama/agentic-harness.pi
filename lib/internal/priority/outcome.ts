@@ -28,6 +28,7 @@ import {
 	type Job,
 	type Kind,
 	MOST_VMS,
+	needsGibOf,
 	type WaitedOn,
 	type WaitReason,
 } from "./queue.ts";
@@ -75,6 +76,12 @@ export interface Outcome {
 	readonly buildsPeakBytes?: number;
 	/** The most memory its own commands held, in bytes, from its scope. */
 	readonly ownPeakBytes?: number;
+	/**
+	 * The memory the queue held room for, in GiB, so a run that held more
+	 * than it was booked shows beside {@link ownPeakBytes}. Nothing in
+	 * outcomes an older harness wrote.
+	 */
+	readonly bookedGib?: number;
 	/** What its plan made it before its turn (plan.ts), when it had one. */
 	readonly planned?: "vm-check" | "build" | "failed";
 	/** Why its plan said nothing, when it didn't. */
@@ -240,6 +247,7 @@ export function outcomeOf(
 		...(job.ownPeakBytes !== undefined
 			? { ownPeakBytes: job.ownPeakBytes }
 			: {}),
+		bookedGib: needsGibOf(job),
 		...(job.planned !== undefined ? { planned: job.planned } : {}),
 		...(job.planFailed !== undefined ? { planFailed: job.planFailed } : {}),
 		...(waitedOn !== undefined ? { waitedOn } : {}),
