@@ -78,6 +78,16 @@ export const GUARDS = {
 		groups: ["git"],
 		follows: ["commit", "pr", "issue"],
 	}),
+	worldPushHooks: declare({
+		name: "world-push-hooks",
+		class: "form",
+		description:
+			"Refuses a push of World with --no-verify, which skips dev's pre-push checks",
+		// A push reaches everyone on World, and there is one right form:
+		// the same push without the flag.
+		defaultMode: "block",
+		groups: ["git"],
+	}),
 	stash: declare({
 		name: "stash",
 		class: "form",

@@ -22,6 +22,7 @@ import {
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
+	skipsWorldPushHooks,
 	VM_SETTLE_MS,
 	VM_SPREAD_MS,
 	VM_STEADY_MS,
@@ -1182,6 +1183,34 @@ describe("walks of World's objects among themselves", () => {
 		expect(
 			walkOf("git fetch origin main && git push origin HEAD:x", inWorld),
 		).toBe("push");
+	});
+
+	it("knows a push of World that skips its pre-push hooks", () => {
+		// Each as an agent ran it on 6 November.
+		for (const skipping of [
+			"git push --no-verify -u origin jitsusama/refscale-replay 2>&1",
+			"(git push --no-verify -u origin jitsusama/refscale-replay > $TMPDIR/push.log 2>&1)",
+			"timeout 3000 git -c protocol.version=2 -c push.negotiate=true push --no-verify origin HEAD:refs/heads/x",
+			"git fetch origin main && git push origin x --no-verify",
+		]) {
+			expect(skipsWorldPushHooks(skipping, inWorld), skipping).toBe(true);
+		}
+		for (const keeping of [
+			"git push origin x",
+			// A dry run, for a push.
+			"git push -n origin x",
+			"git push --no-verify --verify origin x",
+			"git commit --no-verify -m wip",
+			"echo 'git push --no-verify origin x'",
+		]) {
+			expect(skipsWorldPushHooks(keeping, inWorld), keeping).toBe(false);
+		}
+		expect(
+			skipsWorldPushHooks("git push --no-verify origin x", {
+				cwd: `${home}/src/core.nix`,
+				home,
+			}),
+		).toBe(false);
 	});
 
 	it("reads every other walk as other, and nothing outside World", () => {

@@ -12,6 +12,40 @@ export const HOOK_NAMES: readonly string[];
 /** The environment without the `core.hooksPath` setting pushes.ts added. */
 export function withoutOurs(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 
+/** The paths and blobs the commits `now` holds that none of `known` do change. */
+export function changedIn(
+	known: readonly string[],
+	now: string,
+	env: NodeJS.ProcessEnv,
+): { paths: string[]; blobs: string[] } | undefined;
+
+/** Whether any of `blobs` is an LFS pointer, or nothing when unreadable. */
+export function holdsPointer(
+	blobs: readonly string[],
+	env: NodeJS.ProcessEnv,
+): boolean | undefined;
+
+/** Whether LFS filters any of `paths` at `commit`, or nothing when unreadable. */
+export function filtersAny(
+	paths: readonly string[],
+	commit: string,
+	env: NodeJS.ProcessEnv,
+): boolean | undefined;
+
+/** The runnable hooks in a folder, sorted by name. */
+export function hooksIn(folder: string): string[];
+
+/** Whether a hook hands the push to git-lfs. */
+export function runsLfs(hook: string): boolean;
+
+/** The repository's own pre-push, sparing its LFS hooks where the push allows. */
+export function prePush(
+	hooks: string,
+	args: readonly string[],
+	env: NodeJS.ProcessEnv,
+	input: Buffer,
+): number;
+
 /** Why a push can leave out the LFS hook's scan, or nothing. */
 export function lfsScanSpared(
 	lines: string,

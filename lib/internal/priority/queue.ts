@@ -1458,6 +1458,35 @@ export function walkOf(
 	return walks.every((walk) => walk !== "other") ? "push" : "other";
 }
 
+/**
+ * Whether a command pushes to World past its pre-push hooks: a push of
+ * World whose last word on them is `--no-verify`. dev's hooks check a
+ * push's ancestry and its cutoff as well as scanning for LFS files, and
+ * a push holding no LFS file already leaves the scan out (pushes.ts),
+ * so the flag gives those checks up for nothing. On 6 November 5
+ * sessions had pushed 20 times with it. `-n` is a dry run for a push,
+ * not this.
+ */
+export function skipsWorldPushHooks(
+	command: string,
+	where: Where = { home: homedir() },
+): boolean {
+	return worldWalks(runSteps(command), where).some(
+		(walk) => walk[2] === "push" && lastSayOnHooks(walk[3]) === NO_VERIFY,
+	);
+}
+
+/** The flag that has a push skip its pre-push hook. */
+const NO_VERIFY = "--no-verify";
+
+/** The last of `--verify` and `--no-verify` in a push's words, as git takes it. */
+function lastSayOnHooks(rest: string): string | undefined {
+	return rest
+		.split(/\s+/)
+		.filter((word) => word === NO_VERIFY || word === "--verify")
+		.pop();
+}
+
 /** What one walk does, from its git subcommand and what follows it. */
 function walkDoes(walk: RegExpExecArray): Walk {
 	if (walk[2] === "push") return "push";

@@ -23,11 +23,14 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	type ExtensionAPI,
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	backgroundDir,
@@ -38,6 +41,7 @@ import {
 	queueFolder,
 } from "../../lib/internal/priority/folder.ts";
 import { jobsProcs, placeChildren } from "../../lib/internal/priority/place.ts";
+import { skippedHooksRefusal } from "../../lib/internal/priority/pushes.ts";
 import {
 	CLASS_OF,
 	type Job,
@@ -63,6 +67,27 @@ import {
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
 import { typedDir, typedTurns } from "../../lib/internal/priority/typed.ts";
 
+/**
+ * Refuse a push of World that skips dev's pre-push hooks, on any
+ * platform, since the queue's own push hooks already spare a push that
+ * holds no LFS file its scan.
+ */
+export function refuseSkippedPushHooks(pi: Pick<ExtensionAPI, "on">): void {
+	declareGuards(GUARDS.worldPushHooks);
+	pi.on("tool_call", async (event, ctx) => {
+		if (!isToolCallEventType("bash", event)) return;
+		const reason = skippedHooksRefusal(event.input.command, {
+			cwd: ctx.cwd,
+			home: homedir(),
+		});
+		return refusalUnder(
+			GUARDS.worldPushHooks.name,
+			reason ? { block: true, reason } : undefined,
+			"World push without its hooks",
+		);
+	});
+}
+
 /** How often a session keeps the queue. */
 const KEEP_MS = 2_000;
 
@@ -78,6 +103,7 @@ function ownCgroup(): string | undefined {
 }
 
 export default function priorityWorkflow(pi: ExtensionAPI) {
+	refuseSkippedPushHooks(pi);
 	if (process.platform === "darwin") {
 		// A Mac takes turns too, with its own room reading and no cgroups:
 		// a session there already runs at Utility QoS from its launchd job,

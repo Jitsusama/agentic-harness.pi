@@ -14,6 +14,19 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeWhole } from "../write-whole.ts";
 import { HOOK_NAMES, PRIOR_VARIABLE } from "./push-hooks.mjs";
+import { skipsWorldPushHooks, type Where } from "./queue.ts";
+
+/**
+ * Why a push of World with `--no-verify` is refused, saying the form to
+ * run instead, or nothing for any other command.
+ */
+export function skippedHooksRefusal(
+	command: string,
+	where: Where,
+): string | undefined {
+	if (!skipsWorldPushHooks(command, where)) return undefined;
+	return "This pushes to World with --no-verify, which skips every pre-push hook dev runs: its ancestry and stale-cutoff checks as well as the LFS scan. Run the same push without --no-verify. A push that holds no LFS file already leaves the LFS scan out, so it waits no longer for it.";
+}
 
 /** The folder in the queue's that a pushing shell takes its hooks from. */
 export const PUSHES_FOLDER = "pushes";
