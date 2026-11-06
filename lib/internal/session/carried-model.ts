@@ -195,6 +195,32 @@ export function modelOfBranch(
 	return thinkingLevel ? { ...chosen, thinkingLevel } : chosen;
 }
 
+const AUTH_KEY = Symbol.for("agentic-harness.rollover.known-auth");
+
+type AuthGlobal = { [AUTH_KEY]?: Map<string, CarriedAuth> };
+
+/**
+ * Keep how a provider authenticated while it works, for the process's
+ * life, so auth lost later can be put back. On 6 November a rolled
+ * session came up on its model, yet its first call, 93 minutes later,
+ * failed with "Provider is not configured".
+ */
+export function rememberAuth(provider: string, auth: CarriedAuth): void {
+	const global = globalThis as AuthGlobal;
+	global[AUTH_KEY] ??= new Map();
+	global[AUTH_KEY].set(provider, auth);
+}
+
+/** How a provider last authenticated while it worked, if it ever did. */
+export function rememberedAuth(provider: string): CarriedAuth | undefined {
+	return (globalThis as AuthGlobal)[AUTH_KEY]?.get(provider);
+}
+
+/** Forget every provider's auth, for tests. */
+export function forgetAuth(): void {
+	delete (globalThis as AuthGlobal)[AUTH_KEY];
+}
+
 /**
  * Take what was carried for the log at `path`, leaving nothing behind.
  * Answers nothing when nothing was carried, or it was for another log:
