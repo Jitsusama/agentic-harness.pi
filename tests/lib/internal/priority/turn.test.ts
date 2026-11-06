@@ -20,6 +20,7 @@ import {
 import {
 	CHANGED_CHECKS_GIB,
 	CHANGED_CHECKS_SENT_GIB,
+	EVAL_TESTS_GIB,
 	EVERY_CHECK_GIB,
 } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
@@ -185,6 +186,55 @@ describe("heavy work waiting for its turn", () => {
 		});
 		expect(job.planning).toBeUndefined();
 		expect(job.quick).toBeUndefined();
+	});
+
+	it("asks a chain ending in a zone's evaluation tests for theirs, whatever its earlier runs held", () => {
+		// Runs stopped by a failing cargo test never reached nix-unit, so
+		// they held a build's memory; on 6 November the one that did was
+		// killed at 8.5 GiB against the 4 it was held to.
+		const tests = "tec run //system/aquifer/converge:evalTests";
+		const chain = `cargo test && ${tests}`;
+		const outcomes = join(root, "outcomes.jsonl");
+		const ran = new Date().toISOString();
+		keepOutcome(outcomes, {
+			...outcomeOf(
+				{
+					id: "before",
+					kind: "build",
+					what: tests,
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+					ownPeakBytes: 1024 ** 3,
+				},
+				Date.now() + 300_000,
+				101,
+			),
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				outcomes,
+			),
+			session: "session-a",
+			pid: process.pid,
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+		});
+		queuedCommand(chain);
+		queuedCommand("cargo test");
+		const booked = jobIds()
+			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+			.map((job) => [job.what, job.needsGib])
+			.sort();
+		// Named by its evaluation tests, so its peak isn't charged to every
+		// plain `cargo test`.
+		expect(booked).toEqual([
+			["cargo test", 4],
+			[tests, EVAL_TESTS_GIB],
+		]);
 	});
 
 	it("asks a fetch of main as one, reading origin/main as it runs, or answered", () => {

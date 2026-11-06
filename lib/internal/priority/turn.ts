@@ -33,6 +33,7 @@ import {
 	CHANGED_CHECKS_SENT_GIB,
 	type Job,
 	kindOf,
+	leastGibOfCommand,
 	NEEDS_GIB,
 	needsGibOfCommand,
 	walkOf,
@@ -154,12 +155,16 @@ export function queuedCommand(command: string, cwd?: string): string {
 		kind !== "world-walk" &&
 		cwd !== undefined &&
 		(queueing.sendsWholeRun?.(command, cwd) ?? false);
-	const needsGib =
+	// A step that runs a zone's evaluation tests holds the command to
+	// theirs at least, since earlier runs may have stopped short of them.
+	const needsGib = Math.max(
+		leastGibOfCommand(command),
 		kind === "world-walk"
 			? Math.max(NEEDS_GIB[kind], seen ?? 0)
 			: sent
 				? Math.max(NEEDS_GIB[kind], CHANGED_CHECKS_SENT_GIB)
-				: (seen ?? needsGibOfCommand(kind, command));
+				: (seen ?? needsGibOfCommand(kind, command)),
+	);
 	// A step past the one named that needs more, as changed-checks after a
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =
