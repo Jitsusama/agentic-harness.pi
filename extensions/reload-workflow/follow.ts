@@ -21,6 +21,8 @@ import {
 	FOLLOW_ENV,
 	type Moved,
 	missedMove,
+	SPREAD_MS,
+	spreadOf,
 	type Unwatch,
 	watchHeads,
 	whenToReload,
@@ -123,7 +125,8 @@ export async function follow(
 	{
 		env = process.env,
 		quietMs,
-	}: { env?: NodeJS.ProcessEnv; quietMs?: number } = {},
+		spreadMs = SPREAD_MS,
+	}: { env?: NodeJS.ProcessEnv; quietMs?: number; spreadMs?: number } = {},
 ): Promise<Follower | undefined> {
 	const global = globalThis as FollowerGlobal;
 	global[FOLLOWER_KEY]?.();
@@ -138,6 +141,22 @@ export async function follow(
 	// and more can land meanwhile; the next runtime starts with none.
 	const moved = new Map<string, Moved>();
 	let recheck: NodeJS.Timeout | undefined;
+	// When this runtime first heard of a move it hasn't reloaded for, the
+	// start of an idle session's place in the spread.
+	let heardAt: number | undefined;
+	const hear = () => {
+		heardAt ??= Date.now();
+	};
+	/** This session's place in the spread, fixed by its id. */
+	const place = (() => {
+		let id: string = String(process.pid);
+		try {
+			id = ctx.sessionManager?.getSessionId?.() ?? id;
+		} catch {
+			// A context with no session yet is placed by its process.
+		}
+		return spreadOf(id, spreadMs);
+	})();
 
 	const reasonNow = async () => {
 		const named = (
@@ -163,20 +182,29 @@ export async function follow(
 	// down, as one from a reload's landing did on 22 October. So the send
 	// is guarded, and a request it could not send is taken back for the
 	// runtime that replaced this one to make.
+	// One at a time: considers that overlap while git is asked would each
+	// ask it again, and one landing late would make a request nobody sent.
+	let dispatching = false;
 	const dispatch = async () => {
-		const reason = await reasonNow().catch(() => "the install moved");
-		const slot = reloadSlot();
-		if (slot.request !== undefined) return;
-		slot.request = { reason, by: "self" };
-		slot.dispatched = true;
-		slot.dispatchedAt = Date.now();
+		if (dispatching) return;
+		dispatching = true;
 		try {
-			pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
-				expandPromptTemplates: true,
-			});
-		} catch {
-			slot.request = undefined;
-			slot.dispatched = false;
+			const reason = await reasonNow().catch(() => "the install moved");
+			const slot = reloadSlot();
+			if (slot.request !== undefined) return;
+			slot.request = { reason, by: "self" };
+			slot.dispatched = true;
+			slot.dispatchedAt = Date.now();
+			try {
+				pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
+					expandPromptTemplates: true,
+				});
+			} catch {
+				slot.request = undefined;
+				slot.dispatched = false;
+			}
+		} finally {
+			dispatching = false;
 		}
 	};
 
@@ -254,7 +282,10 @@ export async function follow(
 		for (const root of roots) {
 			if (moved.has(root)) continue;
 			const missed = missedMove(running().root, root);
-			if (missed) moved.set(root, missed);
+			if (missed) {
+				moved.set(root, missed);
+				hear();
+			}
 		}
 		if (moved.size === 0) return;
 		const slot = reloadSlot();
@@ -298,10 +329,19 @@ export async function follow(
 		});
 		if (moment === "never") {
 			moved.clear();
+			heardAt = undefined;
 			return;
 		}
 		if (moment === "wait") {
 			recheck = setTimeout(() => consider(), RECHECK_MS);
+			recheck.unref?.();
+			return;
+		}
+		// An idle session waits its place in the spread; one whose run has
+		// just ended goes now, since runs end at their own times.
+		const left = (heardAt ?? Date.now()) + place - Date.now();
+		if (moment === "now" && !settled && left > 0) {
+			recheck = setTimeout(() => consider(), left);
 			recheck.unref?.();
 			return;
 		}
@@ -314,6 +354,7 @@ export async function follow(
 		(one) => {
 			const earlier = moved.get(one.root);
 			moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
+			hear();
 			if (reloadSlot().request?.by === "self") void retell();
 			else consider();
 		},

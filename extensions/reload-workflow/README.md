@@ -33,13 +33,19 @@ loads the install and the install is `main`.
   package its settings name reloads itself when that install's HEAD
   moves, so nobody has to mail every session to reload.
   - It waits for a moment that loses nothing: an idle session at
-    once, a busy one when its run ends, and either only once
+    its place in a ten-minute spread, a busy one when its run ends,
+    and either only once
     `pnpm install` has followed a move that changed the lockfile.
     A pi-packages version is built whole in a folder of its own
     before its `current` link moves, so a root that is a link is
     ready as soon as its own install is newer than its lockfile; on
     29 October sessions had waited five minutes for an install
     that had already finished.
+    An idle session's place is a share of the spread its session id
+    fixes: on 6 November at 05:30 the 77 sessions that heard a move
+    reloaded within about 2 minutes, idle ones too, and load average
+    reached 127. A run ending reloads at once, since runs end at
+    their own times.
     Background work is no reason to wait: it keeps running
     through a reload, and their results arrive in the reloaded
     session (see [job-workflow](../job-workflow/#through-a-reload)).

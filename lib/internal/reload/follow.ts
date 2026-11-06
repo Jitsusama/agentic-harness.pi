@@ -30,6 +30,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	existsSync,
 	type FSWatcher,
@@ -68,6 +69,28 @@ export function whenToReload(at: Standing): Moment {
 	if (at.swapped) return "never";
 	if (!at.ready) return "wait";
 	return at.idle ? "now" : "after-run";
+}
+
+/**
+ * How long the reloads of idle sessions are spread over after their
+ * install moves. Every session hears a move within seconds, and on
+ * 6 November at 05:30 the 77 sessions that did reloaded within about
+ * 2 minutes, idle ones too: load average hit 127 and CPU pressure 43%
+ * over a minute, against 3% before. A session reloading after its run
+ * isn't held, since runs end at their own times.
+ */
+export const SPREAD_MS = 10 * 60_000;
+
+/**
+ * How long after hearing its install move an idle session waits before
+ * it reloads: a share of `spreadMs` fixed by its id, so a machine's
+ * sessions reload one after another across it rather than all at once,
+ * and one session keeps its place however often it is asked.
+ */
+export function spreadOf(sessionId: string, spreadMs = SPREAD_MS): number {
+	const share =
+		createHash("sha256").update(sessionId).digest().readUInt32BE(0) / 2 ** 32;
+	return Math.floor(share * spreadMs);
 }
 
 /**

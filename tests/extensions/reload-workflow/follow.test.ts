@@ -55,7 +55,11 @@ const dirs: string[] = [];
  * link has moved onto another: no git, so no watch hears anything, as
  * when a session's watch was lost.
  */
-async function behind({ swapped = false, installUnread = false } = {}) {
+async function behind({
+	swapped = false,
+	installUnread = false,
+	spreadMs = 0,
+} = {}) {
 	const install = mkdtempSync(join(tmpdir(), "install-"));
 	dirs.push(install);
 	const was = join(install, "versions", "aaaa");
@@ -85,7 +89,7 @@ async function behind({ swapped = false, installUnread = false } = {}) {
 					? undefined
 					: now,
 		}),
-		{ env: {}, quietMs: QUIET_MS },
+		{ env: {}, quietMs: QUIET_MS, spreadMs },
 	);
 	return { follower, prompted, entries };
 }
@@ -106,6 +110,8 @@ async function session({
 	pending = 0,
 	// The session was replaced: pi refuses this runtime's pi.
 	stale = false,
+	// How long idle reloads are spread over; none, unless a case is about it.
+	spreadMs = 0,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -131,7 +137,7 @@ async function session({
 		{ hasUI, isIdle: () => !busy } as never,
 		settingsFor(install),
 		() => ({ root: swapped ? "/a/tree" : install, install }),
-		{ env: {}, quietMs: QUIET_MS },
+		{ env: {}, quietMs: QUIET_MS, spreadMs },
 	);
 	return {
 		install,
@@ -201,6 +207,32 @@ describe("following the install", () => {
 
 		settle();
 		await until("the reload is asked for", () => prompted.length > 0);
+	});
+
+	it("holds an idle session's reload to its place in the spread", async () => {
+		const { install, prompted } = await session({ spreadMs: 60 * 60_000 });
+
+		await land(install, "feat: something to try");
+		await quietFor(QUIET_MS, 4);
+
+		expect(prompted).toEqual([]);
+	});
+
+	it("reloads a session whose run ends at once, whatever its place", async () => {
+		const { install, prompted, settle } = await session({
+			idle: false,
+			spreadMs: 60 * 60_000,
+		});
+
+		await land(install, "feat: something to try");
+
+		// A run ends each time it is looked at, so one ends after the move
+		// is heard however long the watch takes to hear it; heard while
+		// idle, it would wait its place.
+		await until("the reload is asked for", () => {
+			settle();
+			return prompted.length > 0;
+		});
 	});
 
 	it("does not wait for background jobs, which a reload carries over", async () => {
