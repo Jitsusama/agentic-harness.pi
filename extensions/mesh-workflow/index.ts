@@ -745,9 +745,13 @@ export function meshWorkflow(
 					...(orchestrator ? { orchestrator } : {}),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
-				// What a starting peer catches up on rides the first prompt.
+				// What a starting peer catches up on rides the first prompt. A
+				// peer started with none, as a parked one is woken by a message,
+				// has no turn coming but this one: on 6 November a question
+				// that woke one was only noted, owed nothing, and the peer
+				// parked again with it unanswered.
 				const worth: Heed =
-					starting && judged.attention === "turn"
+					starting && judged.attention === "turn" && firstPromptPending()
 						? { attention: "note", why: judged.why }
 						: judged;
 				const replaced = replacedBy(message);
