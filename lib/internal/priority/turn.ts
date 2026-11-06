@@ -38,6 +38,7 @@ import {
 	whatOf,
 } from "./queue.ts";
 import type { Reading } from "./room.ts";
+import { inSharedSlice } from "./shared-slice.ts";
 
 /** What a session's queue is kept with, set while the session runs. */
 export interface Queueing {
@@ -187,7 +188,10 @@ export function queuedCommand(command: string, cwd?: string): string {
 		walk === "push" && placePushHooks(queueing.folder.dir)
 			? pushesLine(queueing.folder.dir)
 			: undefined;
-	return hooks ? `${waits}\n${hooks}\n${command}` : `${waits}\n${command}`;
+	// What holds a walk's slot runs where the agents' disk target holds,
+	// since every other walk waits on it (shared-slice.ts).
+	const run = kind === "world-walk" ? inSharedSlice(command) : command;
+	return hooks ? `${waits}\n${hooks}\n${run}` : `${waits}\n${run}`;
 }
 
 /**
