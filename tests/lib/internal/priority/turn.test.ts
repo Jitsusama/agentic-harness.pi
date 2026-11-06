@@ -210,6 +210,10 @@ describe("heavy work waiting for its turn", () => {
 		expect(fetching).toContain(`${fetch.id}.main-after`);
 		expect(pushing).not.toContain(".fetched");
 		expect(pushing).not.toContain("main-before");
+		expect(pushing).toContain(
+			`"GIT_CONFIG_VALUE_$PI_PUSH_HOOKS_PRIOR=${join(dir, "pushes")}"`,
+		);
+		expect(fetching).not.toContain("core.hooksPath");
 	});
 
 	it("runs an answered fetch's git from the queue's folder, and reads main around one that is not", () => {
