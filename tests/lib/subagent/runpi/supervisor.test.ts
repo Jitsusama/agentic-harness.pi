@@ -476,6 +476,46 @@ describe("createSupervisorRunPi", () => {
 		expect(result.finalAssistantText).toBe("QEST-20261024-ABC123");
 	});
 
+	it("gives the child the cache retention its runner names, in place of the session's", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_CACHE_RETENTION)}]}})+"\\n");`,
+		);
+		const runner = (cacheRetention?: "short" | "long") =>
+			createSupervisorRunPi({
+				piInstall: { node: process.execPath, entry: childPath },
+				stateDir,
+				idleTimeoutMs: GENEROUS_MS,
+				timeoutMs: GENEROUS_MS,
+				...(cacheRetention === undefined ? {} : { cacheRetention }),
+			});
+		const previous = process.env.PI_CACHE_RETENTION;
+		process.env.PI_CACHE_RETENTION = "long";
+		try {
+			const named = await runner("short")({
+				args: [],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: "named",
+			});
+			const unnamed = await runner()({
+				args: [],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: "unnamed",
+			});
+			expectRan(named);
+			expect(named.finalAssistantText).toBe("short");
+			expectRan(unnamed);
+			expect(unnamed.finalAssistantText).toBe("long");
+		} finally {
+			if (previous === undefined) delete process.env.PI_CACHE_RETENTION;
+			else process.env.PI_CACHE_RETENTION = previous;
+		}
+	});
+
 	it("persists the reviewer session and reports the minted session path", async () => {
 		// The supervisor swaps --no-session for --session-dir
 		// pointing at a private per-reviewer directory, then
