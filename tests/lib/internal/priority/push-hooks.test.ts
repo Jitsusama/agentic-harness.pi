@@ -161,11 +161,44 @@ describe("a push of one existing branch", () => {
 	});
 });
 
-describe("any other push", () => {
-	it("runs the repository's own pre-push whole for a new branch", () => {
+describe("a push of a new branch", () => {
+	it("leaves out the LFS hook when what the remote lacks holds no LFS file", () => {
 		commit("notes.txt", "plain\n");
+		const push = pushing("git push -q origin main:topic");
+		expect(push.status).toBe(0);
+		expect(ran()).toEqual(["other unset refs/heads/main"]);
+		expect(push.stderr).toContain("since its 1 changed paths");
+	});
+
+	it("runs the LFS hook when what the remote lacks touches a path LFS filters", () => {
+		commit("weights.bin", "binary\n");
 		expect(pushing("git push -q origin main:topic").status).toBe(0);
 		expect(ran()).toEqual(["lfs", "other unset refs/heads/main"]);
+	});
+});
+
+describe("a push of a branch rebased onto a newer main", () => {
+	it("counts only its own commits, not main's it was rebased past", () => {
+		git("checkout", "-q", "-b", "topic");
+		commit("notes.txt", "plain\n");
+		git("push", "-q", "origin", "topic");
+		git("checkout", "-q", "main");
+		commit("weights.bin", "binary\n");
+		git("push", "-q", "origin", "main");
+		git("checkout", "-q", "topic");
+		git("rebase", "-q", "main");
+		const push = pushing("git push -q --force-with-lease origin topic");
+		expect(push.status).toBe(0);
+		expect(ran()).toEqual(["other unset refs/heads/topic"]);
+		expect(push.stderr).toContain("since its 1 changed paths");
+	});
+});
+
+describe("any other push", () => {
+	it("runs the repository's own pre-push whole for a deletion", () => {
+		git("push", "-q", "origin", "main:topic");
+		expect(pushing("git push -q origin :topic").status).toBe(0);
+		expect(ran()).toEqual(["lfs", "other unset (delete)"]);
 	});
 });
 
