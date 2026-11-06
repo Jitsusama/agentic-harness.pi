@@ -44,6 +44,7 @@ import {
 	getCurrentSystemMessage,
 	type SystemMessage,
 } from "@earendil-works/pi-ai";
+import { stateDir } from "../paths.ts";
 
 /** The bus event asking extensions what to carry over; see `Carry`. */
 export const ROLLOVER_CARRY = "session:rollover-carry:v1";
@@ -61,10 +62,49 @@ export const ROLLOVER_RECORD = "session-rollover";
 export const ROLLOVER_BYTES = 32 * 1024 * 1024;
 
 /**
- * Set to `on` for a session to roll over by itself; otherwise only
- * `/rollover` does it, while a rolled session can come up on no model.
+ * Set to `on` for a session to roll over by itself, or `off` to keep it
+ * from doing so whatever {@link rolloverSwitch} says.
  */
 export const ROLLOVER_ENV = "PI_ROLLOVER";
+
+/**
+ * The file that turns rollover on for sessions already running, read at
+ * each compaction: a line `on` turns it on for every session, and a line
+ * holding a session's id asks that session alone to roll over at its
+ * next compaction, whatever its log's size, as `/rollover` would. A
+ * session's environment reaches it only at its start, and on 6 November
+ * 76 sessions ran that could only have been turned on by restarting
+ * them, so one is proven and the rest follow without a restart.
+ */
+export function rolloverSwitch(): string {
+	return join(stateDir("rollover-workflow"), "switch");
+}
+
+/**
+ * Whether a compaction rolls session `id` over: `off`; `large`, when its
+ * log has reached {@link ROLLOVER_BYTES}; or `now`, whatever its size.
+ * {@link ROLLOVER_ENV} set to `off` keeps it off; otherwise a line
+ * naming it says `now`, and the variable set to `on` or a line `on` says
+ * `large`. No switch and no variable leave it off.
+ */
+export function rolloverAsked(
+	id: string,
+	env: NodeJS.ProcessEnv = process.env,
+	switchPath: string = rolloverSwitch(),
+): "off" | "large" | "now" {
+	const said = env[ROLLOVER_ENV]?.trim();
+	if (said === "off") return "off";
+	let lines: string[] = [];
+	try {
+		lines = readFileSync(switchPath, "utf8")
+			.split("\n")
+			.map((line) => line.trim());
+	} catch {
+		// No switch is the usual case: the variable alone decides.
+	}
+	if (id !== "" && lines.includes(id)) return "now";
+	return said === "on" || lines.includes("on") ? "large" : "off";
+}
 
 /**
  * What a rollover asks of extensions on the bus before it writes: each

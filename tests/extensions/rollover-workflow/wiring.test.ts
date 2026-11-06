@@ -7,9 +7,15 @@
  * what a switch does.
  */
 
-import { mkdtempSync, rmSync, truncateSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	truncateSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	createEventBus,
 	type EventBus,
@@ -27,6 +33,7 @@ import {
 	ROLLOVER_BYTES,
 	ROLLOVER_ENV,
 	rolledFrom,
+	rolloverSwitch,
 } from "../../../lib/internal/session/rollover.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 
@@ -79,8 +86,15 @@ afterEach(async () => {
 	await emit("session_shutdown", {}, {});
 	if (saved === undefined) delete process.env[ROLLOVER_ENV];
 	else process.env[ROLLOVER_ENV] = saved;
+	rmSync(rolloverSwitch(), { force: true });
 	rmSync(dir, { recursive: true, force: true });
 });
+
+/** Write the switch that sessions already running read at a compaction. */
+function switchSays(...lines: string[]): void {
+	mkdirSync(dirname(rolloverSwitch()), { recursive: true });
+	writeFileSync(rolloverSwitch(), `${lines.join("\n")}\n`);
+}
 
 async function emit(name: string, event: unknown, ctx: unknown) {
 	for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
@@ -222,6 +236,38 @@ describe("rolling over by itself", () => {
 		large(manager);
 		await emit("session_compact", {}, { ...contextOf(manager), hasUI: false });
 		process.env[ROLLOVER_ENV] = "off";
+		await emit("session_compact", {}, contextOf(manager));
+
+		expect(sent).toEqual([]);
+	});
+
+	it("happens for a large log when the switch turns it on, with nothing in the environment", async () => {
+		const manager = compacted();
+		large(manager);
+		delete process.env[ROLLOVER_ENV];
+		switchSays("on");
+		await emit("session_compact", {}, contextOf(manager));
+
+		expect(sent).toEqual([`/${COMMAND}`]);
+	});
+
+	it("happens for a small log the switch names, and for no other", async () => {
+		const named = compacted();
+		const other = compacted();
+		delete process.env[ROLLOVER_ENV];
+		switchSays(named.getSessionId());
+		await emit("session_compact", {}, contextOf(other));
+		expect(sent).toEqual([]);
+
+		await emit("session_compact", {}, contextOf(named));
+		expect(sent).toEqual([`/${COMMAND}`]);
+	});
+
+	it("never happens where the environment turns it off, whatever the switch says", async () => {
+		const manager = compacted();
+		large(manager);
+		process.env[ROLLOVER_ENV] = "off";
+		switchSays("on", manager.getSessionId());
 		await emit("session_compact", {}, contextOf(manager));
 
 		expect(sent).toEqual([]);

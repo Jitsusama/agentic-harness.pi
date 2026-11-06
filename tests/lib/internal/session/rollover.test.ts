@@ -10,6 +10,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,7 @@ import {
 	recordIndex,
 	rolledFrom,
 	rollOver,
+	rolloverAsked,
 	sessionFileName,
 	uuidv7,
 	writeRolled,
@@ -193,6 +195,36 @@ describe("a rolled-over log", () => {
 		expect(rolledFrom(second.getBranch())?.parentSession).toBe(
 			first.getSessionFile(),
 		);
+	});
+});
+
+describe("whether a session is asked to roll over", () => {
+	const ask = (lines: string | undefined, env: NodeJS.ProcessEnv = {}) => {
+		const path = join(dir, "switch");
+		if (lines !== undefined) writeFileSync(path, lines);
+		return (id: string) => rolloverAsked(id, env, path);
+	};
+
+	it("stays off with no switch and nothing in the environment", () => {
+		expect(ask(undefined)("s1")).toBe("off");
+		expect(ask("\n")("s1")).toBe("off");
+	});
+
+	it("waits for a large log when the environment or a line turns it on", () => {
+		expect(ask(undefined, { PI_ROLLOVER: "on" })("s1")).toBe("large");
+		expect(ask("on\n")("s1")).toBe("large");
+	});
+
+	it("rolls a named session over now, even where the environment turns it on", () => {
+		const asked = ask(" s1 \ns2\n", { PI_ROLLOVER: "on" });
+		expect(asked("s1")).toBe("now");
+		expect(asked("s2")).toBe("now");
+		expect(asked("s3")).toBe("large");
+		expect(asked("")).toBe("large");
+	});
+
+	it("stays off where the environment turns it off, whatever the switch says", () => {
+		expect(ask("on\ns1\n", { PI_ROLLOVER: "off" })("s1")).toBe("off");
 	});
 });
 
