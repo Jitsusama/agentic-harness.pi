@@ -321,6 +321,16 @@ const CHECK_NAMED = /#checks\.[\w-]+\.([\w-]+)/g;
 const REDIRECTION = /\s*(?:\d|&)?>>?\s*(?:&\d|\S+)/g;
 
 /**
+ * The filters a command's output is piped through at its end, as
+ * `| tail -2` and `| grep -v '^hint'`, which trim what is shown and
+ * hold nothing of the work. Kept in its key, one spelling of a fetch of
+ * World's main read peaks of 16 and 17 GB from two days before and
+ * waited 30 min on 6 November for 20 GiB, while the same fetch spelled
+ * without it had peaked at 9 GB at most in its last three runs.
+ */
+const OUTPUT_FILTERS = /(?:\s*\|\s*(?:tail|head|grep|cat)\b[^|]*)+$/;
+
+/**
  * What work is, so it is known again whatever flake reference, wrapper
  * or log it came with: the checks it names, or else its command past
  * `timeout` and `direnv exec`, without its redirections. The same checks
@@ -335,6 +345,7 @@ export function workKey(what: string): string {
 	return what
 		.replace(/^[\s(]*(?:timeout\s+\d+\s+)?(?:direnv\s+exec\s+\S+\s+)?/, "")
 		.replace(REDIRECTION, "")
+		.replace(OUTPUT_FILTERS, "")
 		.trim();
 }
 

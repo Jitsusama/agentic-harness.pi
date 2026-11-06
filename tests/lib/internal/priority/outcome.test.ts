@@ -69,6 +69,19 @@ describe("work that takes seconds", () => {
 		);
 	});
 
+	it("knows work again whatever its output is filtered through at its end", () => {
+		const fetch = workKey("git fetch origin main");
+		expect(workKey("timeout 900 git fetch origin main 2>&1 | tail -2")).toBe(
+			fetch,
+		);
+		expect(
+			workKey("git fetch origin main 2>&1 | grep -v '^hint' | head -5"),
+		).toBe(fetch);
+		expect(workKey("git log --format=%H | wc -l")).not.toBe(
+			workKey("git log --format=%H"),
+		);
+	});
+
 	it("is a build whose last run was quick, or that builds checks and no VM", () => {
 		const check = "nix build .#checks.x86_64-linux.formatting";
 		expect(quickAfter("build", check, [])).toBe(true);
