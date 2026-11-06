@@ -137,6 +137,13 @@ A change you already understand does not need a judge. The rounds earn
 their cost on changes that are large, unfamiliar, or in code where
 being wrong is expensive.
 
+A council at a commit a council already read, or a change's fourth, is
+refused unless `intent` says what it looks for that the others did not.
+Those rounds read mostly what earlier ones read: in the week to 5
+November, 44 came after a change's third and cost $506. Judge the latest
+council or retry one reviewer instead, and pass `intent` only for a
+real new question, such as the error paths a fix added.
+
 And nothing here replaces reading the code. A council that finds
 nothing is not a change with nothing wrong with it.
 

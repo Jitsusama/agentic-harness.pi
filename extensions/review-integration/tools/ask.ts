@@ -46,6 +46,7 @@ import {
 	type Critique,
 	chartersOnDisk,
 	collectRound,
+	councilNotEarned,
 	councilPrompt,
 	createFindingStore,
 	createIdentityLedger,
@@ -785,6 +786,8 @@ async function askCouncil(
 	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
+	const unearned = await councilRefused(change, proposal.headCommit, params);
+	if (unearned !== undefined) return refuse(unearned);
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
@@ -833,6 +836,20 @@ async function askCouncil(
 }
 
 /**
+ * Why a council on `change` at `head` is refused, from the rounds the
+ * change already holds, or nothing when it may go ahead. Asked before
+ * the tree is cut, since a refused round needs none.
+ */
+async function councilRefused(
+	change: ChangeRef,
+	head: string | undefined,
+	params: AskParams,
+): Promise<string | undefined> {
+	const earlier = await createRunStore(runDir()).list(change);
+	return councilNotEarned(earlier, head, params.intent);
+}
+
+/**
  * Start a council and hand the session straight back.
  *
  * The same roster, prompt, tree and ledger entry a council makes,
@@ -856,6 +873,8 @@ async function startRound(
 	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
+	const unearned = await councilRefused(change, proposal.headCommit, params);
+	if (unearned !== undefined) return refuse(unearned);
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
