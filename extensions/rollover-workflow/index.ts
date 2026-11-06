@@ -10,9 +10,9 @@
  * whatever the log's size. Background jobs run on through it: the job
  * host parks them for the fresh session, which carries the conversation
  * on (see extensions/job-workflow/lifecycle.ts). Only a session somebody sits at rolls over; a
- * subagent or a print run is short. It rolls over by itself only with
- * `PI_ROLLOVER=on`, while a rolled session can come up on no model
- * (`rollsOver`).
+ * subagent or a print run is short. It rolls over by itself only when
+ * `PI_ROLLOVER=on` or the switch file asks it to, while a rolled session
+ * can come up on no model (`rollsOver`).
  *
  * The switch goes through pi's own `switchSession`, so every extension
  * starts on the fresh log as it would on a resumed one, rebuilding its
@@ -63,8 +63,8 @@ import {
 	type Entry,
 	ROLLOVER_BYTES,
 	ROLLOVER_CARRY,
-	ROLLOVER_ENV,
 	rollOver,
+	rolloverAsked,
 	writeRolled,
 } from "../../lib/internal/session/rollover.ts";
 
@@ -97,17 +97,19 @@ function settledAborted(event: unknown): boolean {
 }
 
 /**
- * Whether this session rolls over by itself: only when `PI_ROLLOVER=on`
- * asks it to. On 5 and 6 November sessions rolled over onto a provider
- * with no auth and sat on no model until restarted, 85PKB2 for 100
- * minutes, so a rollover waits to be asked until a rolled session is
+ * Whether a compaction rolls this session over by itself, and at what
+ * size: only when `PI_ROLLOVER=on` or the switch asks it to
+ * (`rolloverAsked`). On 5 and 6 November sessions rolled over onto a
+ * provider with no auth and sat on no model until restarted, 85PKB2 for
+ * 100 minutes, so a rollover waits to be asked until a rolled session is
  * known to keep its model.
  */
 export function rollsOver(
-	ctx: Pick<ExtensionContext, "hasUI">,
+	ctx: Pick<ExtensionContext, "hasUI" | "sessionManager">,
 	env: NodeJS.ProcessEnv = process.env,
-): boolean {
-	return ctx.hasUI && !isSubagent(env) && env[ROLLOVER_ENV]?.trim() === "on";
+): "off" | "large" | "now" {
+	if (!ctx.hasUI || isSubagent(env)) return "off";
+	return rolloverAsked(ctx.sessionManager.getSessionId(), env);
 }
 
 /**
@@ -429,8 +431,14 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
-		if (!rollsOver(ctx)) return;
-		if (sizeOf(ctx.sessionManager.getSessionFile()) < ROLLOVER_BYTES) return;
+		const asked = rollsOver(ctx);
+		if (asked === "off") return;
+		if (
+			asked === "large" &&
+			sizeOf(ctx.sessionManager.getSessionFile()) < ROLLOVER_BYTES
+		) {
+			return;
+		}
 		due = true;
 		// A compaction asked for between runs has no settle to wait for.
 		let idle = false;

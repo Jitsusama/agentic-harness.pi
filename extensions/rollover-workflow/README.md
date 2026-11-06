@@ -38,10 +38,23 @@ the provider's prompt cache carries on too.
   session has compacted at least once.
 
 Only a session somebody sits at rolls over by itself; a subagent or a
-print run is short. For now it rolls over by itself only with
-`PI_ROLLOVER=on`: on 5 and 6 November rolled sessions came up on a
-provider with no auth and sat on no model until restarted, so until
-a rolled session is known to keep its model only `/rollover` does it.
+print run is short. For now it rolls over by itself only when asked:
+on 5 and 6 November rolled sessions came up on a provider with no
+auth and sat on no model until restarted, so until a rolled session
+is known to keep its model only `/rollover` does it otherwise.
+
+Two things ask, and `PI_ROLLOVER=off` overrides both:
+
+- **`PI_ROLLOVER=on`** in a session's environment, read when the
+  session starts.
+- **The switch,** `~/.local/state/pi/agentic-harness.pi/rollover-workflow/switch`
+  (under `XDG_STATE_HOME`), read at each compaction, so sessions
+  already running follow it without a restart:
+  - a line `on` turns it on for every session;
+  - a line holding a session's id asks that session alone to roll
+    over at its next compaction, whatever its log's size. That is how
+    one live session proves a rolled session keeps its model before
+    the rest are turned on.
 
 You see one line saying the sizes before and after. The session goes
 on where it was.
