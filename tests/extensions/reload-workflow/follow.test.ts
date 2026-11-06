@@ -225,10 +225,14 @@ describe("following the install", () => {
 		});
 
 		await land(install, "feat: something to try");
-		await quietFor(QUIET_MS, 4);
-		settle();
 
-		await until("the reload is asked for", () => prompted.length > 0);
+		// A run ends each time it is looked at, so one ends after the move
+		// is heard however long the watch takes to hear it; heard while
+		// idle, it would wait its place.
+		await until("the reload is asked for", () => {
+			settle();
+			return prompted.length > 0;
+		});
 	});
 
 	it("does not wait for background jobs, which a reload carries over", async () => {

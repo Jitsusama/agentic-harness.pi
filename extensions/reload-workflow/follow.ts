@@ -182,20 +182,29 @@ export async function follow(
 	// down, as one from a reload's landing did on 22 October. So the send
 	// is guarded, and a request it could not send is taken back for the
 	// runtime that replaced this one to make.
+	// One at a time: considers that overlap while git is asked would each
+	// ask it again, and one landing late would make a request nobody sent.
+	let dispatching = false;
 	const dispatch = async () => {
-		const reason = await reasonNow().catch(() => "the install moved");
-		const slot = reloadSlot();
-		if (slot.request !== undefined) return;
-		slot.request = { reason, by: "self" };
-		slot.dispatched = true;
-		slot.dispatchedAt = Date.now();
+		if (dispatching) return;
+		dispatching = true;
 		try {
-			pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
-				expandPromptTemplates: true,
-			});
-		} catch {
-			slot.request = undefined;
-			slot.dispatched = false;
+			const reason = await reasonNow().catch(() => "the install moved");
+			const slot = reloadSlot();
+			if (slot.request !== undefined) return;
+			slot.request = { reason, by: "self" };
+			slot.dispatched = true;
+			slot.dispatchedAt = Date.now();
+			try {
+				pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
+					expandPromptTemplates: true,
+				});
+			} catch {
+				slot.request = undefined;
+				slot.dispatched = false;
+			}
+		} finally {
+			dispatching = false;
 		}
 	};
 
