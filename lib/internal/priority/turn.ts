@@ -30,6 +30,7 @@ import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { planFor, planLines } from "./plan.ts";
 import { placePushHooks, pushesLine } from "./pushes.ts";
 import {
+	CHANGED_CHECKS_SENT_GIB,
 	type Job,
 	kindOf,
 	NEEDS_GIB,
@@ -48,6 +49,11 @@ export interface Queueing {
 	readonly room: () => Reading;
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly now?: () => number;
+	/**
+	 * Whether a command run from a folder is a changed-checks run that
+	 * sends itself to the builder (send.ts's `sendsWholeRun`).
+	 */
+	readonly sendsWholeRun?: (command: string, cwd: string) => boolean;
 }
 
 /**
@@ -141,11 +147,19 @@ export function queuedCommand(command: string, cwd?: string): string {
 	// kind only for work never seen. A walk of World's objects is held to
 	// its kind's at least: its scope is charged only the pack pages it
 	// read in first, and another walk's evicted pages are what it maps.
+	// A changed-checks run that sends itself to the builder holds what
+	// deciding to send it takes here, whatever its runs here held.
 	const seen = queueing.folder.peakFor(what);
+	const sent =
+		kind !== "world-walk" &&
+		cwd !== undefined &&
+		(queueing.sendsWholeRun?.(command, cwd) ?? false);
 	const needsGib =
 		kind === "world-walk"
 			? Math.max(NEEDS_GIB[kind], seen ?? 0)
-			: (seen ?? needsGibOfCommand(kind, command));
+			: sent
+				? Math.max(NEEDS_GIB[kind], CHANGED_CHECKS_SENT_GIB)
+				: (seen ?? needsGibOfCommand(kind, command));
 	// A step past the one named that needs more, as changed-checks after a
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =

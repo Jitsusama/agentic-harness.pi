@@ -24,7 +24,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	isToolCallEventType,
+} from "@earendil-works/pi-coding-agent";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	backgroundDir,
@@ -39,6 +42,7 @@ import {
 	CLASS_OF,
 	type Job,
 	type Rules,
+	runsChangedChecks,
 } from "../../lib/internal/priority/queue.ts";
 import {
 	cgroupOf,
@@ -51,6 +55,11 @@ import {
 	readRoom,
 } from "../../lib/internal/priority/room.ts";
 import { darwinRoom } from "../../lib/internal/priority/room-darwin.ts";
+import {
+	sendsWholeRun,
+	takesKnown,
+	takesNow,
+} from "../../lib/internal/priority/send.ts";
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
 import { typedDir, typedTurns } from "../../lib/internal/priority/typed.ts";
 
@@ -249,6 +258,8 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 			pid: process.pid,
 			room,
 			cgroupFor,
+			sendsWholeRun: (command, cwd) =>
+				sendsWholeRun(command, cwd, takesKnown()),
 		});
 		timer = setInterval(() => {
 			const now = Date.now();
@@ -265,4 +276,11 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	});
 
 	pi.on("session_shutdown", async () => stop());
+
+	// A changed-checks run asks what nix-offload takes before it spawns,
+	// so even a session's first is held to what a sent run needs.
+	pi.on("tool_call", async (event) => {
+		if (!isToolCallEventType("bash", event)) return;
+		if (runsChangedChecks(event.input.command)) await takesNow();
+	});
 }

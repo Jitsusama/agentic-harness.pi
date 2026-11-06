@@ -9,10 +9,11 @@
  * and its lease named a VM job here.
  */
 
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
-import { stepsOf } from "../shell/steps.ts";
+import { type Step, stepsOf } from "../shell/steps.ts";
 import { kindOf, runsChangedChecks } from "./queue.ts";
 import {
 	builderReady,
@@ -42,6 +43,8 @@ const DECIDED_MS = 10 * 60_000;
 
 interface Kept {
 	takes?: { readonly at: number; readonly takes: Promise<Takes> };
+	/** What the last answer said, for a caller that can't wait for one. */
+	known?: Takes;
 	readonly decided: Map<
 		string,
 		{ readonly at: number; readonly sent: Promise<string | undefined> }
@@ -151,12 +154,96 @@ const REFUSAL = [
 ].join(" ");
 
 /** What `nix-offload there` takes, asked at most once a minute. */
-function takesNow(now = Date.now()): Promise<Takes> {
+export function takesNow(now = Date.now()): Promise<Takes> {
 	const store = kept();
 	if (store.takes === undefined || now - store.takes.at >= TAKES_MS) {
-		store.takes = { at: now, takes: offloadTakes() };
+		const takes = offloadTakes();
+		store.takes = { at: now, takes };
+		void takes.then((answer) => {
+			store.known = answer;
+		});
 	}
 	return store.takes.takes;
+}
+
+/**
+ * What `nix-offload there` took when it last answered, asking again when
+ * that is stale, or nothing before its first answer: for a caller that
+ * can't wait, as a spawn can't.
+ */
+export function takesKnown(now = Date.now()): Takes | undefined {
+	void takesNow(now);
+	return kept().known;
+}
+
+/** How long `git status` may take to say whether a tree is committed. */
+const STATUS_MS = 2_000;
+
+/**
+ * Whether every heavy step of `command`, run from `cwd`, is a
+ * changed-checks run that sends its whole run to the builder, by the
+ * tests changed-checks makes itself (core.nix's tools/changed-checks,
+ * `elsewhere`). nix-offload takes `changed`; nothing asks for it here
+ * (`--here`, `CHANGED_CHECKS_HERE`); no `--base` names a commit origin's
+ * main may not hold; and its tree has no uncommitted change. Only the
+ * builder turning it away at that moment keeps one of these here, which
+ * nothing can tell beforehand.
+ */
+export function sendsWholeRun(
+	command: string,
+	cwd: string,
+	takes: Takes | undefined,
+	isCommitted: (folder: string) => boolean = committedAt,
+	home: string = homedir(),
+): boolean {
+	if (!takes?.changed || process.env[CHANGED_CHECKS_HERE] !== undefined) {
+		return false;
+	}
+	const heavy = (stepsOf(command, cwd, home) ?? []).filter(
+		(step) => kindOf(step.text) !== undefined,
+	);
+	return (
+		heavy.length > 0 &&
+		heavy.every(
+			(step) =>
+				runsChangedChecks(step.text) &&
+				!asksForHere(step) &&
+				step.cwd !== undefined &&
+				isCommitted(step.cwd),
+		)
+	);
+}
+
+/** What changed-checks reads to stay on this machine, as `--here` does. */
+const CHANGED_CHECKS_HERE = "CHANGED_CHECKS_HERE";
+
+/** Words of a changed-checks step that keep it here, or may. */
+const STAYS_HERE =
+	/(?:^|\s)(?:--here|--base)(?:[\s=]|$)|\bCHANGED_CHECKS_HERE=/;
+
+/** Whether a changed-checks step asks to run here, or may stay here. */
+function asksForHere(step: Step): boolean {
+	return step.vars.has(CHANGED_CHECKS_HERE) || STAYS_HERE.test(step.text);
+}
+
+/** Whether the tree at `folder` has no uncommitted change git tracks. */
+function committedAt(folder: string): boolean {
+	try {
+		return (
+			execFileSync(
+				"git",
+				["-C", folder, "status", "--porcelain", "--untracked-files=no"],
+				{
+					encoding: "utf8",
+					timeout: STATUS_MS,
+					stdio: ["ignore", "pipe", "ignore"],
+				},
+			) === ""
+		);
+	} catch {
+		// Not a tree, or too slow to say: read as one that runs here.
+		return false;
+	}
 }
 
 /**

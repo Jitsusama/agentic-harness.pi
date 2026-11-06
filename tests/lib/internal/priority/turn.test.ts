@@ -19,6 +19,7 @@ import {
 } from "../../../../lib/internal/priority/outcome.ts";
 import {
 	CHANGED_CHECKS_GIB,
+	CHANGED_CHECKS_SENT_GIB,
 	EVERY_CHECK_GIB,
 } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
@@ -350,6 +351,64 @@ describe("heavy work waiting for its turn", () => {
 		const [id] = jobIds();
 		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
 		expect(job.needsGib).toBe(CHANGED_CHECKS_GIB);
+	});
+
+	it("asks for what sending takes for a changed-checks run that sends itself, whatever runs here held", () => {
+		const cc = "direnv exec . changed-checks > $TMPDIR/cc.log 2>&1";
+		const ran = new Date().toISOString();
+		keepOutcome(join(root, "outcomes.jsonl"), {
+			...outcomeOf(
+				{
+					id: "here",
+					kind: "build",
+					what: cc,
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+				},
+				Date.now(),
+				0,
+			),
+			ownPeakBytes: 13 * 1024 ** 3,
+			ranS: 1_200,
+		});
+		const asked: [string, string][] = [];
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				join(root, "outcomes.jsonl"),
+			),
+			session: "session-a",
+			pid: process.pid,
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+			sendsWholeRun: (command, cwd) => {
+				asked.push([command, cwd]);
+				return command.includes("cc.log");
+			},
+		});
+		queuedCommand(cc, "/tree");
+		queuedCommand(
+			"direnv exec . changed-checks --here > $TMPDIR/here.log",
+			"/tree",
+		);
+		const held = new Map(
+			jobIds()
+				.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+				.map((job) => [job.what, job.needsGib]),
+		);
+		expect(held).toEqual(
+			new Map([
+				[cc, CHANGED_CHECKS_SENT_GIB],
+				[
+					"direnv exec . changed-checks --here > $TMPDIR/here.log",
+					CHANGED_CHECKS_GIB,
+				],
+			]),
+		);
+		expect(asked[0]).toEqual([cc, "/tree"]);
 	});
 
 	it("asks for a turn, and runs at once when the room is there", async () => {
