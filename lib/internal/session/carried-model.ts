@@ -22,6 +22,24 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 /** A thinking level as pi names it. */
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 
+/**
+ * How the model's provider authenticated in the session left: the auth
+ * part of its registration, and the variables that registration reads.
+ * Every rollover from 12:00 on 5 November to 6 November came up with
+ * that provider showing no auth, 11 of 11, though the same pi rolled
+ * over cleanly by hand; the fresh session puts back what it lacks.
+ */
+export interface CarriedAuth {
+	/** The registration's key, address and headers, as registered. */
+	readonly config?: {
+		readonly apiKey?: string;
+		readonly baseUrl?: string;
+		readonly headers?: Readonly<Record<string, string>>;
+	};
+	/** Each variable the key or a header names, with what it held. */
+	readonly variables: Readonly<Record<string, string>>;
+}
+
 /** What a session ran on, for the log it rolled over into. */
 export interface CarriedModel {
 	/** The fresh log the session switched to. */
@@ -32,6 +50,62 @@ export interface CarriedModel {
 	readonly modelId: string;
 	/** The thinking level the session ran at. */
 	readonly thinkingLevel: ThinkingLevel;
+	/** How its provider authenticated, when it was registered by config. */
+	readonly auth?: CarriedAuth;
+}
+
+/** A `$NAME` or `${NAME}` in a config value; `$$` is a literal dollar. */
+const REFERENCE =
+	/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
+
+/** The variables a config value names, leaving out a command's. */
+function referenced(value: string): string[] {
+	if (value.startsWith("!")) return [];
+	const names: string[] = [];
+	for (const match of value.replaceAll("$$", "").matchAll(REFERENCE)) {
+		const name = match[1] ?? match[2];
+		if (name) names.push(name);
+	}
+	return names;
+}
+
+/**
+ * How a provider registered as `registered` authenticates, with the
+ * values `env` holds for the variables it names. Nothing when it was
+ * not registered by config.
+ */
+export function authOf(
+	registered:
+		| { apiKey?: unknown; baseUrl?: unknown; headers?: unknown }
+		| undefined,
+	env: NodeJS.ProcessEnv,
+): CarriedAuth | undefined {
+	if (!registered) return undefined;
+	const apiKey =
+		typeof registered.apiKey === "string" ? registered.apiKey : undefined;
+	const baseUrl =
+		typeof registered.baseUrl === "string" ? registered.baseUrl : undefined;
+	const headers: Record<string, string> = {};
+	if (typeof registered.headers === "object" && registered.headers !== null) {
+		for (const [name, value] of Object.entries(registered.headers)) {
+			if (typeof value === "string") headers[name] = value;
+		}
+	}
+	const variables: Record<string, string> = {};
+	for (const value of [apiKey ?? "", ...Object.values(headers)]) {
+		for (const name of referenced(value)) {
+			const held = env[name];
+			if (held) variables[name] = held;
+		}
+	}
+	return {
+		config: {
+			...(apiKey !== undefined ? { apiKey } : {}),
+			...(baseUrl !== undefined ? { baseUrl } : {}),
+			...(Object.keys(headers).length > 0 ? { headers } : {}),
+		},
+		variables,
+	};
 }
 
 /** pi's name for the provider of the placeholder model, which has none. */

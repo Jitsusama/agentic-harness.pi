@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	authOf,
 	carryModel,
 	hasNoModel,
 	modelOfBranch,
@@ -37,6 +38,43 @@ describe("the model carried across a rollover", () => {
 		carryModel({ ...carried, provider: NO_PROVIDER });
 
 		expect(takeCarriedModel(carried.path)).toBeUndefined();
+	});
+});
+
+describe("how a provider authenticated", () => {
+	it("keeps its registration's key, address and headers, with the variables they name", () => {
+		const env = { SHOPIFY_PROXY_KEY: "k", TAG: "t", UNUSED: "u" };
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: pi's braced variable reference, read as written.
+		const tag = "${TAG}-$$5";
+		expect(
+			authOf(
+				{
+					apiKey: "$SHOPIFY_PROXY_KEY",
+					baseUrl: "https://proxy.invalid/apis/anthropic",
+					headers: { tag, count: 3 },
+				},
+				env,
+			),
+		).toEqual({
+			config: {
+				apiKey: "$SHOPIFY_PROXY_KEY",
+				baseUrl: "https://proxy.invalid/apis/anthropic",
+				headers: { tag },
+			},
+			variables: { SHOPIFY_PROXY_KEY: "k", TAG: "t" },
+		});
+	});
+
+	it("names no variable a command's key or an unset one would", () => {
+		expect(authOf({ apiKey: "!print-key $HOME" }, { HOME: "/h" })).toEqual({
+			config: { apiKey: "!print-key $HOME" },
+			variables: {},
+		});
+		expect(authOf({ apiKey: "$GONE" }, {})?.variables).toEqual({});
+	});
+
+	it("is nothing for a provider not registered by config", () => {
+		expect(authOf(undefined, {})).toBeUndefined();
 	});
 });
 

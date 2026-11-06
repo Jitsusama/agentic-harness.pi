@@ -42,6 +42,8 @@ import type {
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
+	authOf,
+	type CarriedModel,
 	type ChosenModel,
 	carryModel,
 	hasNoModel,
@@ -158,11 +160,18 @@ async function switchToRolled(
 	const after = sizeOf(path);
 	const size = (bytes: number) => formatSize({ bytes, complete: true });
 	const said = `Rolled this session over into a fresh log (${size(before)} to ${size(after)}); the earlier log is its parent, and session_recall still reads it.`;
+	const provider = ctx.model?.provider ?? NO_PROVIDER;
+	// An older pi has no registered config to read, and carries no auth.
+	const auth = authOf(
+		ctx.modelRegistry?.getRegisteredProviderConfig?.(provider),
+		process.env,
+	);
 	carryModel({
 		path,
-		provider: ctx.model?.provider ?? NO_PROVIDER,
+		provider,
 		modelId: ctx.model?.id ?? "",
 		thinkingLevel: pi.getThinkingLevel(),
+		...(auth ? { auth } : {}),
 	});
 	// Marked before the switch, since the session left can be started
 	// again before the switch returns (see lib/internal/session/left.ts).
@@ -211,6 +220,13 @@ export function restoreLostBuiltIns(
 /** The custom entry a session's log gets when its model can't be set back. */
 export const MODEL_NOT_SET_BACK = "model-not-set-back";
 
+/**
+ * The custom entry a rolled session's log gets when its provider's auth
+ * had to be put back: what it lacked, and whether the model then came
+ * back, so the cause is on record when it is found.
+ */
+export const AUTH_PUT_BACK = "rollover-auth-put-back";
+
 /** What setting a model back needs of pi. */
 type SetBackApi = Pick<
 	ExtensionAPI,
@@ -219,7 +235,42 @@ type SetBackApi = Pick<
 	| "setThinkingLevel"
 	| "appendEntry"
 	| "events"
+	| "registerProvider"
 >;
+
+/** Why `setBack` gives up on a provider with no auth, at its start. */
+const NO_AUTH = "its provider has no auth configured";
+
+/**
+ * Put back the auth the session left had for `carried`'s provider: each
+ * variable its registration names that is now unset, and the
+ * registration's key, address and headers when the provider is now
+ * registered without a key. Either is registered again, since pi marks
+ * a provider as having auth only when it is registered. Answers what it
+ * put back.
+ */
+function putAuthBack(
+	pi: SetBackApi,
+	ctx: SetBackContext,
+	carried: CarriedModel,
+): string[] {
+	const auth = carried.auth;
+	if (!auth) return [];
+	const put: string[] = [];
+	for (const [name, value] of Object.entries(auth.variables)) {
+		if (process.env[name]) continue;
+		process.env[name] = value;
+		put.push(name);
+	}
+	const now = ctx.modelRegistry.getRegisteredProviderConfig?.(carried.provider);
+	if (auth.config?.apiKey === undefined) return put;
+	if (now?.apiKey === undefined) put.push(now ? "its key" : "its registration");
+	// With nothing missing, pi's record of which providers have auth is
+	// what went stale, and registering again marks it afresh.
+	else if (put.length === 0) put.push("registered again");
+	pi.registerProvider(carried.provider, auth.config);
+	return put;
+}
 
 /** What setting a model back needs of the session. */
 type SetBackContext = Pick<
@@ -244,7 +295,7 @@ async function setBack(
 		if (!model) return "pi has no such model";
 		if (!(await pi.setModel(model))) {
 			const status = ctx.modelRegistry.getProviderAuthStatus(wanted.provider);
-			return `its provider has no auth configured (${JSON.stringify(status)})`;
+			return `${NO_AUTH} (${JSON.stringify(status)})`;
 		}
 	}
 	if (wanted.thinkingLevel && pi.getThinkingLevel() !== wanted.thinkingLevel) {
@@ -303,7 +354,18 @@ export async function restoreCarriedModel(
 		(hasNoModel(ctx.model)
 			? modelOfBranch(ctx.sessionManager.getBranch())
 			: undefined);
-	const why = wanted ? await setBack(pi, ctx, wanted) : undefined;
+	let why = wanted ? await setBack(pi, ctx, wanted) : undefined;
+	if (carried && wanted && why?.startsWith(NO_AUTH)) {
+		const put = putAuthBack(pi, ctx, carried);
+		if (put.length > 0) {
+			why = await setBack(pi, ctx, wanted);
+			pi.appendEntry(AUTH_PUT_BACK, {
+				model: `${wanted.provider}/${wanted.modelId}`,
+				put,
+				after: why ?? "set back",
+			});
+		}
+	}
 	if (hasNoModel(ctx.model)) {
 		if (reason !== "startup") sayNoModel(pi, ctx, "start", wanted, why);
 		return undefined;
