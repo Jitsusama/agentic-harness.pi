@@ -158,6 +158,17 @@ export const EVERY_CHECK_GIB = 24;
 export const CHANGED_CHECKS_GIB = 16;
 
 /**
+ * What a changed-checks run that sends itself to the builder holds here,
+ * in GiB. Of the 149 runs given no flags in the 29 hours to midnight on
+ * 5 November, 141 peaked at 5.8 GiB or under and 8 at 8.9 to 16.2, while
+ * each waited for 16 free: changed-checks runs waited 4.1 hours on
+ * memory in that time.
+ * One the builder turns away at that moment runs here, past this, and
+ * the room the queue reads shows it once it does.
+ */
+export const CHANGED_CHECKS_SENT_GIB = 6;
+
+/**
  * cargo up to its subcommand, past a `+toolchain` and flags such as
  * `--locked`: `cargo +nightly build` and `cargo --locked build` ran with
  * no turn, as did the short aliases, `cargo b`, `cargo t` and `cargo c`.

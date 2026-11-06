@@ -148,6 +148,13 @@ derivation at once, as `nix eval` of `#checks` does, reached 24 GB,
 so it is held to 24. `changed-checks` is held to 16: since core #465
 it evaluates 40 checks at a time, its runs peaked at 11.7 and 12.5 GiB,
 and a chunk of 40 VM tests, the heaviest it can meet, held 13.8.
+A run that will send itself to the builder is held to 6 instead, by
+the tests changed-checks makes itself: nix-offload takes `changed`,
+no `--here`, `CHANGED_CHECKS_HERE` or `--base` keeps it here, and its
+tree has no uncommitted change. Of 149 runs given no flags in the 29
+hours to midnight on 5 November, 141 peaked at 5.8 GiB or under, and
+changed-checks runs waited 4.1 hours on memory for 16 free. One the
+builder turns away runs here past 6, which the room shows once it does.
 `changed-checks --build` without `--no-vm` builds VM tests too, so it
 is a vm-check.
 

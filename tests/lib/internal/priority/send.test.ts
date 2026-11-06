@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	refusedHere,
+	sendsWholeRun,
 	whereItRuns,
 } from "../../../../lib/internal/priority/send.ts";
 
@@ -144,5 +145,93 @@ describe("where a copy of a tree's VM check runs", () => {
 		expect(await refusedHere("cc-loop", `${cc} && ${LOOP}`, repo)).toContain(
 			"nix-offload there",
 		);
+	});
+});
+
+describe("whether a changed-checks run sends itself to the builder", () => {
+	const TAKES = {
+		tree: true,
+		subtests: true,
+		wants: true,
+		folder: true,
+		changed: true,
+	};
+	const committed = () => true;
+
+	it("does when nix-offload takes it and nothing keeps it here", () => {
+		expect(
+			sendsWholeRun(
+				"timeout 3600 direnv exec . changed-checks > $TMPDIR/cc.log 2>&1",
+				"/tree",
+				TAKES,
+				committed,
+			),
+		).toBe(true);
+	});
+
+	it("doesn't before nix-offload says what it takes, or when it can't take it", () => {
+		const cc = "direnv exec . changed-checks";
+		expect(sendsWholeRun(cc, "/tree", undefined, committed)).toBe(false);
+		expect(
+			sendsWholeRun(cc, "/tree", { ...TAKES, changed: false }, committed),
+		).toBe(false);
+	});
+
+	it("doesn't when asked to run here, or given a base that may stay here", () => {
+		for (const cc of [
+			"direnv exec . changed-checks --build --here",
+			"CHANGED_CHECKS_HERE=1 changed-checks",
+			"direnv exec . changed-checks --base jitsusama/greeter",
+			"direnv exec . changed-checks --base=origin/main",
+		]) {
+			expect(sendsWholeRun(cc, "/tree", TAKES, committed)).toBe(false);
+		}
+	});
+
+	it("asks the folder each step runs in whether its tree is committed", () => {
+		const asked: string[] = [];
+		const sent = sendsWholeRun(
+			"cd /other && direnv exec . changed-checks 2>&1 | grep -v direnv",
+			"/tree",
+			TAKES,
+			(folder) => {
+				asked.push(folder);
+				return false;
+			},
+		);
+		expect(sent).toBe(false);
+		expect(asked).toEqual(["/other"]);
+	});
+
+	it("doesn't when the command does other heavy work beside it", () => {
+		expect(
+			sendsWholeRun(
+				"nix build .#checks.x86_64-linux.boot && changed-checks",
+				"/tree",
+				TAKES,
+				committed,
+			),
+		).toBe(false);
+		expect(sendsWholeRun("nix build .#x", "/tree", TAKES, committed)).toBe(
+			false,
+		);
+	});
+
+	it("reads a tree with a change git tracks as uncommitted, as changed-checks does", () => {
+		const tree = mkdtempSync(join(tmpdir(), "send-committed-"));
+		try {
+			execFileSync("git", ["-C", tree, "init", "-q"], { stdio: "ignore" });
+			writeFileSync(join(tree, "flake.nix"), "{}\n");
+			expect(sendsWholeRun("changed-checks", tree, TAKES)).toBe(true);
+			execFileSync("git", ["-C", tree, "add", "flake.nix"], {
+				stdio: "ignore",
+			});
+			expect(sendsWholeRun("changed-checks", tree, TAKES)).toBe(false);
+			expect(sendsWholeRun("changed-checks", join(tree, "gone"), TAKES)).toBe(
+				false,
+			);
+		} finally {
+			rmSync(tree, { recursive: true, force: true });
+		}
 	});
 });
