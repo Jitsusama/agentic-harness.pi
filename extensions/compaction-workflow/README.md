@@ -152,6 +152,27 @@ of Opus 5.5.
 Interactive and RPC sessions only, since a subagent ends with its run.
 `/compaction-status` says what warming is doing.
 
+## Keeping the First Head
+
+pi sends a session's prompt and tools in the system message that leads
+its first request, and each later change as a patch further on, so the
+prompt and tools the provider cached stay at the front. A compaction
+drops those patches and leads with the prompt and tools as they stand
+now, folded into one message. When anything changed since the session
+started, a section a reload reworded or a tool a search loaded, that
+head differs from the cached one, and the provider writes everything
+from the first difference on again: the system text when a section
+changed, the tools and all after them when a tool did. On 6 November,
+114 of 352 first turns after a compaction read nothing from cache.
+
+So before each request, a request whose head differs from the first
+one on the session's branch leads with that first head again, and one
+patch after it carries what changed: content added, sections set or
+removed, tools added or withdrawn. The model reads the same prompt and
+tools as under pi's head. Where the difference can't be said as a
+patch, content that doesn't continue the first head's, pi's head
+stands.
+
 ## Interrupt, Trigger, Resume
 
 pi's `compact()` aborts the run in progress and does not continue it.
@@ -482,6 +503,8 @@ and keeps sessions its own way:
 - `PI_CACHE_RETENTION=long` is what compacting while idle runs under.
 - `PI_COMPACTION_KEEP_REQUEST=off` keeps no request on disk across a
   restart.
+- `PI_COMPACTION_KEEP_HEAD=off` leaves pi's own head after a
+  compaction.
 - `compaction.warmWhileIdle`, in the package config at
   `~/.config/pi/agentic-harness.pi/config.json`, switches warming while
   idle off when `false`; it is on by default, and read before every
@@ -504,6 +527,8 @@ and keeps sessions its own way:
 - `conversation.ts`: the `conversation` provider, the summary written
   from the cached conversation.
 - `kept-request.ts`: the last request, kept on disk across a restart.
+- `head.ts`: the session's first head, put back ahead of each request,
+  with what changed in `lib/internal/session/first-head.ts`.
 - `pi-summary.ts`: the `pi` provider, pi's own summariser.
 
 The decision is pure and tested in `lib/compaction/trigger.ts`, the
