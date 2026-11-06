@@ -18,6 +18,8 @@ import {
 	headOf,
 	INSTALL_GRACE_MS,
 	type Moved,
+	SPREAD_MS,
+	spreadOf,
 	watchHeads,
 	whenToReload,
 } from "../../../../lib/internal/reload/follow.ts";
@@ -43,6 +45,30 @@ async function commit(dir: string, message: string): Promise<void> {
 	await git(dir, "add", "-A");
 	await git(dir, "commit", "-qm", message);
 }
+
+describe("an idle session's place in the spread of reloads", () => {
+	it("falls within the spread, and the same for the same session", () => {
+		const id = "01a1af3c-26bc-7b80-990f-37848859ff67";
+		expect(spreadOf(id)).toBe(spreadOf(id));
+		expect(spreadOf(id)).toBeGreaterThanOrEqual(0);
+		expect(spreadOf(id)).toBeLessThan(SPREAD_MS);
+		expect(spreadOf(id, 0)).toBe(0);
+	});
+
+	it("spreads sessions started together across the whole of it", () => {
+		// Ids minted in one second share their opening digits, as 77
+		// sessions' did on 6 November.
+		const tenths = new Array<number>(10).fill(0);
+		for (let n = 0; n < 1000; n += 1) {
+			const id = `01a1af3c-26bc-7b80-990f-${String(n).padStart(12, "0")}`;
+			tenths[Math.floor((spreadOf(id) / SPREAD_MS) * 10)] += 1;
+		}
+		for (const count of tenths) {
+			expect(count).toBeGreaterThan(60);
+			expect(count).toBeLessThan(140);
+		}
+	});
+});
 
 describe("whenToReload", () => {
 	const still = { swapped: false, idle: true, ready: true };
