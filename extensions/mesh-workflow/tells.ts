@@ -1,6 +1,7 @@
 /**
  * What the mesh tells a session's orchestrator by itself, with no model
- * involved: that a quest or document it runs was concluded or retired.
+ * involved: that a quest or document it runs was concluded or retired,
+ * or that the session is on no model and so can't answer.
  *
  * An orchestrator learned a plan was done only when the session that
  * did it remembered to say so, and the summaries it kept for Joel fell
@@ -10,6 +11,7 @@
  */
 
 import type { ConcludedEvent } from "../../lib/internal/quest/concluded.ts";
+import type { NoModelEvent } from "../../lib/internal/session/no-model.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import type { Message } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
@@ -31,6 +33,45 @@ export function tellOrchestrator(
 	event: ConcludedEvent,
 	everyone: readonly Presence[],
 ): Message | undefined {
+	return told(
+		peer,
+		transport,
+		everyone,
+		"fyi",
+		`${event.ids.join(", ") || "its quest"} ${event.how}. ${quoted(event.said)}`,
+	);
+}
+
+/**
+ * Tell this peer's orchestrator, as a finding, that its session is on
+ * no model and so answers nothing it is sent, until someone chooses one
+ * in its window or starts it again; nothing, as `tellOrchestrator`.
+ */
+export function tellOnNoModel(
+	peer: Peer | undefined,
+	transport: Transport,
+	event: NoModelEvent,
+	everyone: readonly Presence[],
+): Message | undefined {
+	const had = event.model
+		? ` It ran on ${event.model}, which can't be set back: ${quoted(event.why ?? "unknown")}.`
+		: "";
+	return told(
+		peer,
+		transport,
+		everyone,
+		"finding",
+		`this session is on no model, so it answers nothing.${had} It needs a model chosen with /model in its window, or a restart.`,
+	);
+}
+
+function told(
+	peer: Peer | undefined,
+	transport: Transport,
+	everyone: readonly Presence[],
+	intent: "fyi" | "finding",
+	said: string,
+): Message | undefined {
 	const orchestrator = peer?.orchestratedBy;
 	if (!peer || !orchestrator) return undefined;
 	const stopped = stoppedBy(peer, everyone).some(({ stopper }) =>
@@ -40,8 +81,8 @@ export function tellOrchestrator(
 	return transport.send({
 		from: peer.signature,
 		to: [homeOf(orchestrator)],
-		intent: "fyi",
-		text: `${peer.signature}, said by the mesh: ${event.ids.join(", ") || "its quest"} ${event.how}. ${quoted(event.said)}`,
+		intent,
+		text: `${peer.signature}, said by the mesh: ${said}`,
 		pid: process.pid,
 	});
 }

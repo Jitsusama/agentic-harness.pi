@@ -79,7 +79,7 @@ it does:
   at it only for the reload itself, since a tree beside the
   install would load twice.
 
-  `rollover-workflow` moves a session whose log has passed 64 MB
+  `rollover-workflow` moves a session whose log has passed 32 MB
   into a fresh log at the first still moment after a compaction,
   keeping what the model sees and every extension's state, with
   the old log as its parent: pi holds a whole log in memory for

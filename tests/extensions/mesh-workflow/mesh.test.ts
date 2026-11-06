@@ -46,6 +46,7 @@ import {
 	leaveSession,
 	stayInSession,
 } from "../../../lib/internal/session/left.ts";
+import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -2725,6 +2726,48 @@ describe("a message that names no group", () => {
 				why: "status its sender's presence already carries",
 			},
 		});
+	});
+
+	it("tells the orchestrator once, as a finding, when its session is on no model", async () => {
+		onQuest();
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		const lost = {
+			when: "start",
+			model: "proxied/faux-1",
+			why: "its provider has no auth configured",
+		};
+		const { emit } = await startSession(
+			{},
+			{},
+			[],
+			undefined,
+			undefined,
+			(early) => early(SESSION_ON_NO_MODEL, lost),
+		);
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		emit(SESSION_ON_NO_MODEL, { ...lost, when: "before a turn" });
+
+		expect(transport.ids()).toHaveLength(1);
+		const told = transport.read(transport.ids()[0] ?? "");
+		expect(told).toMatchObject({ to: ["@5GV2AH"], intent: "finding" });
+		expect(told?.text).toContain("on no model");
+		expect(told?.text).toContain(
+			"proxied/faux-1, which can't be set back: its provider has no auth configured.",
+		);
+	});
+
+	it("tells nobody a session is on no model when no orchestrator is above its quest", async () => {
+		onQuest();
+		const { emit } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		emit(SESSION_ON_NO_MODEL, { when: "before a turn" });
+
+		expect(transport.ids()).toEqual([]);
 	});
 
 	it("tells nobody of an ending when no orchestrator is above the quest", async () => {

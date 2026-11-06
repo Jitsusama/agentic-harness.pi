@@ -1,7 +1,7 @@
 # Rollover Workflow
 
 Keeps a long session light. After a compaction, a session whose log
-has grown past 64 MB carries on in a fresh log that holds only what
+has grown past 32 MB carries on in a fresh log that holds only what
 the model still sees, with the old log named as its parent.
 
 ## Why
@@ -13,6 +13,11 @@ model never sees. One long session's 319 MB log held 412 MB of heap;
 rolled over, its fresh log was 24 MB and held 37 MB, and it opened in
 84 ms instead of a second.
 
+The threshold was 64 MB until 5 November, when 90 sessions held
+46.5 GB and memory tracked log size. Resumed and rolled over, a
+32.8 MB log gave back 124 MB of its 389 MB and a 20 MB log 32 MB of
+275 MB, so 32 MB is where it starts to pay.
+
 Nothing the model reads changes: the fresh log builds the same context
 from the same compaction, with the same model and thinking level, so
 the provider's prompt cache carries on too.
@@ -20,7 +25,7 @@ the provider's prompt cache carries on too.
 ## When
 
 - **By itself,** at the first still moment after a compaction of a log
-  of 64 MB or more: the run has settled, you did not stop it and no
+  of 32 MB or more: the run has settled, you did not stop it and no
   reload is waiting. A compaction you ask for between runs rolls over
   at once.
 - **Background work runs on through it.** The job host parks it for
@@ -90,6 +95,13 @@ an error, naming the model it had, why (pi has no such model, or its
 provider has no auth configured) and `/model` to choose one, and
 writes the same in its log as a `model-not-set-back` entry, so the
 cause outlives the window. At startup pi says so itself.
+
+It also says so on pi's bus (`lib/internal/session/no-model.ts`), and
+the mesh tells the session's orchestrator once, as a finding: on
+2026-11-05 six sessions rolled over onto no model, every one finding
+its provider with no auth configured, and answered nothing for a
+while, one for 26 minutes. What took their auth is
+not known; reproduced on the same pi, a rollover kept it.
 
 ## Logs Rolled Over Before the Fold
 
