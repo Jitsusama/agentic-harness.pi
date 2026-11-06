@@ -16,6 +16,7 @@
 
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
 import {
 	createTreeBroker,
 	type TreeBroker,
@@ -32,6 +33,10 @@ import {
 	registerTreeProvider,
 } from "../../lib/core/work/register.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
+import {
+	QUEUED_LIMIT_MS,
+	queuedExec,
+} from "../../lib/internal/priority/queued-exec.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
 
@@ -59,14 +64,27 @@ export function treeRecordDir(): string {
  * shares pi's terminal: a passphrase or credential prompt there is drawn
  * over pi's interface and waits for keys that never reach it. A call
  * that can be stopped gets git carrying its signal, so Escape ends git
- * itself rather than only the promise waiting on it.
+ * itself rather than only the promise waiting on it. Heavy work, as a
+ * push or fetch of World, waits its turn in the machine's queue as the
+ * bash tool's does, on a clock that counts the wait.
  */
 export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 	registerTreeProvider(
 		createGitTreeProvider({
-			exec: unattendedExec(),
-			execFor: unattendedExec,
+			exec: treeExec(),
+			execFor: treeExec,
 			stateDir: treeDir(),
+		}),
+	);
+}
+
+/** The tree provider's git: unattended, and queued when it is heavy. */
+function treeExec(signal?: AbortSignal): Exec {
+	return queuedExec(
+		unattendedExec(signal),
+		spawnExec({
+			...(signal ? { signal } : {}),
+			timeoutMs: QUEUED_LIMIT_MS,
 		}),
 	);
 }
