@@ -2,12 +2,13 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	AGAIN_ENV,
 	clearParked,
-	namesSession,
+	flagsLost,
+	opensOnlyItself,
 	PARK_ASK,
 	PARKED_EXIT,
 	PARKING,
@@ -103,14 +104,25 @@ function exitWith(code: number): void {
  * its exit would reach the shell and leave a bare prompt, not a park.
  */
 function heldDirectly(wake: string, pid: number): boolean {
+	let record: unknown;
 	try {
-		const record = JSON.parse(
-			readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"),
-		) as { pid?: unknown };
-		return record.pid === pid;
+		record = JSON.parse(readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"));
 	} catch {
+		// A record missing or caught half written can't say this process is
+		// the one held, and staying up costs only memory.
 		return false;
 	}
+	return namesPid(record, pid);
+}
+
+/** Whether a holder's record says it runs `pid`. */
+function namesPid(record: unknown, pid: number): boolean {
+	return (
+		typeof record === "object" &&
+		record !== null &&
+		"pid" in record &&
+		record.pid === pid
+	);
 }
 
 /**
@@ -125,11 +137,16 @@ function restartNamed(
 	sessionFile: string,
 ): string | undefined {
 	if (sessionFile === "") return "it has no log to start again from";
+	// pi writes a log at its first answer, so one never asked anything
+	// would wake as a new session, under another address.
+	if (!existsSync(sessionFile)) return "its log isn't written yet";
 	if (again === "") {
-		return namesSession(args, session, sessionFile)
+		return opensOnlyItself(args, session, sessionFile)
 			? undefined
 			: "its holder would start it as a new session";
 	}
+	const lost = flagsLost(args);
+	if (lost.length > 0) return `starting again would drop ${lost.join(", ")}`;
 	try {
 		writeFileSync(again, JSON.stringify(restartCommand(sessionFile)));
 		return undefined;

@@ -13,10 +13,11 @@ import {
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
 import {
+	flagsLost,
 	isParkAsk,
 	isParking,
 	NAMED_PARK_AFTER_MS,
-	namesSession,
+	opensOnlyItself,
 	PARK_ASK,
 	PARKED_EXIT,
 	PARKING,
@@ -46,7 +47,11 @@ beforeEach(() => {
 	typed = "";
 	writeFileSync(parkSwitch(folder), `${SESSION}\n`);
 	writeFileSync(join(folder, "held.json"), JSON.stringify({ pid: HELD_PID }));
+	writeFileSync(logOf(), "");
 });
+
+/** The session's log, written as pi writes it at its first answer. */
+const logOf = () => join(folder, "session.jsonl");
 
 afterEach(() => {
 	rmSync(folder, { recursive: true, force: true });
@@ -63,7 +68,7 @@ const session = (over: Partial<Parkable> = {}): Parkable => ({
 	ui: { getEditorText: () => typed },
 	sessionManager: {
 		getSessionId: () => SESSION,
-		getSessionFile: () => "/logs/session.jsonl",
+		getSessionFile: () => logOf(),
 	} as unknown as Parkable["sessionManager"],
 	...over,
 });
@@ -103,7 +108,7 @@ describe("parking a session", () => {
 		expect(watched.look()).toBeUndefined();
 		expect(readParked(SESSION, folder)).toMatchObject({
 			session: SESSION,
-			sessionFile: "/logs/session.jsonl",
+			sessionFile: logOf(),
 			cwd: "/src/agentic-harness.pi",
 			addresses: ["85PKB2", "8859FF67"],
 			quest: "QEST-20261025-85PKB2",
@@ -122,7 +127,22 @@ describe("parking a session", () => {
 		expect(watched.look()).toBeUndefined();
 		expect(
 			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
-		).toEqual(["pi", "--session", "/logs/session.jsonl"]);
+		).toEqual(["pi", "--session", logOf()]);
+	});
+
+	it("stays while its log isn't written, which pi does at its first answer", () => {
+		rmSync(logOf());
+		const watched = watching();
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("its log isn't written yet");
+		expect(shutdowns).toBe(0);
+	});
+
+	it("stays when starting again would drop a flag it was started with", () => {
+		const watched = watching(session(), holder(), ["-e", "./x.ts", "--", "hi"]);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("starting again would drop -e");
+		expect(shutdowns).toBe(0);
 	});
 
 	it("stays under a holder naming no restart unless pi was started on itself", () => {
@@ -207,13 +227,26 @@ describe("parking a session", () => {
 
 describe("whether pi's arguments open a session", () => {
 	const log = "/logs/session.jsonl";
-	it("reads its id or its log, spaced or joined, before any --", () => {
-		expect(namesSession(["--session", log], SESSION, log)).toBe(true);
-		expect(namesSession([`--session=${log}`], SESSION, log)).toBe(true);
-		expect(namesSession(["--session-id", SESSION], SESSION, log)).toBe(true);
-		expect(namesSession([], SESSION, log)).toBe(false);
-		expect(namesSession(["--session", "other"], SESSION, log)).toBe(false);
-		expect(namesSession(["--", "--session", log], SESSION, log)).toBe(false);
+	it("opens only itself by its id or its log, spaced or joined", () => {
+		expect(opensOnlyItself(["--session", log], SESSION, log)).toBe(true);
+		expect(opensOnlyItself([`--session=${log}`], SESSION, log)).toBe(true);
+		expect(opensOnlyItself(["--session-id", SESSION], SESSION, log)).toBe(true);
+		expect(opensOnlyItself([], SESSION, log)).toBe(false);
+		expect(opensOnlyItself(["--session", "other"], SESSION, log)).toBe(false);
+		expect(opensOnlyItself(["--", "--session", log], SESSION, log)).toBe(false);
+	});
+
+	it("is not only itself with a prompt, which would be sent again", () => {
+		expect(opensOnlyItself(["--session", log, "hi"], SESSION, log)).toBe(false);
+		expect(opensOnlyItself([`--session=${log}`, "hi"], SESSION, log)).toBe(
+			false,
+		);
+	});
+
+	it("loses the flags a restart wouldn't give again, not a prompt or its session", () => {
+		expect(flagsLost(["--", "-e", "hi"])).toEqual([]);
+		expect(flagsLost(["--session", log, "hi"])).toEqual([]);
+		expect(flagsLost(["-e", "x.ts", "--model=m"])).toEqual(["-e", "--model"]);
 	});
 });
 
