@@ -24,6 +24,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import rolloverWorkflow, {
+	AUTH_PUT_BACK,
 	COMMAND,
 	MODEL_NOT_SET_BACK,
 } from "../../../extensions/rollover-workflow/index.ts";
@@ -32,6 +33,13 @@ import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 /** The provider and model the session runs on. */
 const PROVIDER = "proxied";
 const MODEL = "faux-1";
+
+/** The variable a keyed registration reads its key from, as the proxy's does. */
+const KEY_VARIABLE = "ROLLOVER_MODEL_TEST_KEY";
+/** Whether the provider reads its key from `KEY_VARIABLE`. */
+let keyed: boolean;
+/** Whether the session left takes `KEY_VARIABLE` with it as it shuts down. */
+let dropsKey: boolean;
 
 let dir: string;
 let agentDir: string;
@@ -56,6 +64,9 @@ beforeEach(() => {
 		models: [{ id: MODEL, reasoning: true }],
 	});
 	registering = true;
+	keyed = false;
+	dropsKey = false;
+	delete process.env[KEY_VARIABLE];
 	notices = [];
 	heard = [];
 });
@@ -65,6 +76,7 @@ afterEach(async () => {
 	runtime = undefined;
 	process.env.PI_CODING_AGENT_DIR = saved.agent;
 	process.env.PI_OFFLINE = saved.offline;
+	delete process.env[KEY_VARIABLE];
 	rmSync(dir, { recursive: true, force: true });
 	rmSync(agentDir, { recursive: true, force: true });
 });
@@ -76,7 +88,7 @@ function register(pi: ExtensionAPI): void {
 		api: faux.api,
 		streamSimple: faux.streamSimple,
 		baseUrl: "http://proxied.invalid",
-		apiKey: "proxied-key",
+		apiKey: keyed ? `$${KEY_VARIABLE}` : "proxied-key",
 		models: [
 			{
 				id: MODEL,
@@ -96,6 +108,9 @@ const provider: InlineExtension = {
 	hidden: true,
 	factory: (pi) => {
 		pi.on("session_start", () => register(pi));
+		pi.on("session_shutdown", () => {
+			if (dropsKey) delete process.env[KEY_VARIABLE];
+		});
 		pi.events.on(SESSION_ON_NO_MODEL, (data) => heard.push(data));
 	},
 };
@@ -209,6 +224,36 @@ describe("a session that rolls over", () => {
 		expect(notices.filter((notice) => notice.kind === "error")).toEqual([]);
 	});
 
+	it("keeps its model when the variable its provider's key is read from is gone after the switch", async () => {
+		keyed = true;
+		process.env[KEY_VARIABLE] = "the-proxy-key";
+		runtime = await compacted();
+		dropsKey = true;
+
+		await runtime.session.prompt(`/${COMMAND}`);
+
+		expect(runtime.session.model?.provider).toBe(PROVIDER);
+		expect(runtime.session.model?.id).toBe(MODEL);
+		expect(process.env[KEY_VARIABLE]).toBe("the-proxy-key");
+		expect(putBack(runtime)).toEqual([
+			{ model: `${PROVIDER}/${MODEL}`, put: [KEY_VARIABLE], after: "set back" },
+		]);
+		expect(notSetBack(runtime)).toEqual([]);
+		await ask(runtime, "after");
+		expect(lastAnswer(runtime)).toBe("answer to after");
+	});
+
+	it("puts back nothing when its provider's key was there all along", async () => {
+		keyed = true;
+		process.env[KEY_VARIABLE] = "the-proxy-key";
+		runtime = await compacted();
+
+		await runtime.session.prompt(`/${COMMAND}`);
+
+		expect(runtime.session.model?.id).toBe(MODEL);
+		expect(putBack(runtime)).toEqual([]);
+	});
+
 	it("says so in its window when the model it had can't be found", async () => {
 		runtime = await compacted();
 		registering = false;
@@ -294,6 +339,17 @@ function loseModel(host: AgentSessionRuntime): void {
 		provider: "unknown",
 		api: "unknown",
 	};
+}
+
+/** What the session's log says about auth it had to put back. */
+function putBack(host: AgentSessionRuntime): unknown[] {
+	return host.session.sessionManager
+		.getEntries()
+		.flatMap((entry) =>
+			entry.type === "custom" && entry.customType === AUTH_PUT_BACK
+				? [entry.data]
+				: [],
+		);
 }
 
 /** What the session's log says about models it could not set back. */
