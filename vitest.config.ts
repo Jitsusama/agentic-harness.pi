@@ -59,6 +59,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/reload/load-check.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
+	"tests/lib/internal/priority/push-hooks.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its
