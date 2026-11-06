@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Exec } from "../../../lib/core/exec/index.ts";
 import type { ChangeRef, RepoLocator } from "../../../lib/core/review/index.ts";
 import { githubAuthoring } from "../../../lib/core/review/index.ts";
 import { fakeExec } from "../../support/fake-exec.ts";
@@ -118,6 +119,62 @@ describe("proposing a change", () => {
 		expect(made.ref.id).toBe("7");
 		expect(made.title).toBe("Do the thing");
 		expect(made.head).toBe("topic");
+	});
+});
+
+/**
+ * An exec whose creates answer in turn from `creates`, and whose
+ * listing of open pull requests answers `open`, recording each call.
+ */
+function answering(creates: string[], open: string) {
+	const calls: string[][] = [];
+	const exec: Exec = async (_command, args) => {
+		calls.push(args);
+		const stdout = args.includes("POST") ? (creates.shift() ?? "") : open;
+		return { code: 0, stdout, stderr: "" };
+	};
+	const posts = () => calls.filter((args) => args.includes("POST")).length;
+	return { exec, calls, posts };
+}
+
+const topic = {
+	repo,
+	base: "main",
+	head: "topic",
+	title: "Do the thing",
+	body: "because",
+	draft: false,
+};
+
+describe("a create that answers with nothing", () => {
+	it("takes the open pull request from its head, creating nothing more", async () => {
+		const { exec, calls, posts } = answering([""], `[${pull}]`);
+
+		const made = await githubAuthoring(exec).propose(topic);
+
+		expect(made.ref.id).toBe("7");
+		expect(posts()).toBe(1);
+		expect(calls[1]?.join(" ")).toContain(
+			"repos/o/r/pulls?head=o%3Atopic&base=main&state=open",
+		);
+	});
+
+	it("creates once more when none is open, since nothing was made", async () => {
+		const { exec, posts } = answering(["", pull], "[]");
+
+		const made = await githubAuthoring(exec).propose(topic);
+
+		expect(made.ref.id).toBe("7");
+		expect(posts()).toBe(2);
+	});
+
+	it("says so when the second create answers with nothing too", async () => {
+		const { exec, posts } = answering(["", ""], "[]");
+
+		await expect(githubAuthoring(exec).propose(topic)).rejects.toThrow(
+			"GitHub answered proposing topic onto main with nothing, twice, and no pull request from topic is open.",
+		);
+		expect(posts()).toBe(2);
 	});
 });
 
