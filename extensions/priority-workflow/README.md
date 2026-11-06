@@ -300,7 +300,11 @@ is a build, never a VM check.
   for the minute after its turn.
 - **Every session keeps it** every 2 seconds while jobs stand, under a
   lock in `locks/`, a folder of its own inside the jobs' folder, so the
-  launcher's watch on that folder doesn't wake at each take. It rewrites `queue.json` whole on each change and at least
+  launcher's watch on that folder doesn't wake at each take. A session
+  leaves the queue as it is when a keep under 2 seconds ago, noted in
+  `locks/kept.json`, saw the same files in the folder: on 5 November
+  every session kept it in turn, and the lock was held 96% of the time.
+  It rewrites `queue.json` whole on each change and at least
   every 30 seconds, with a `heartbeat` in epoch seconds. The machine's
   pressure and free memory alone wait for the heartbeat, since they
   change in nearly every reading. The launcher
