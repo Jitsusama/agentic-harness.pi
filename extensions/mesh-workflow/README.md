@@ -93,7 +93,11 @@ and can answer a question or a gate left open on screen.
   runs, said at most every 30 seconds so the watched folder
   is not woken on every call), `waiting` when idle with a
   want standing, or `paused` when its person paused it, over
-  all the rest.
+  all the rest but `parked`: ended idle to hold no memory
+  (park-workflow). A parked peer is taken as there while its
+  marker stands, so what is sent to it waits on disk, and a
+  message that would give it a turn wakes it through its
+  holder.
 - **Want:** what a peer waits on its person for: a question
   it asked, an approval it is held at, an unattended run
   that ended blocked, or something only they can do, said

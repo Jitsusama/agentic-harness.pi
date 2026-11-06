@@ -29,6 +29,10 @@
  * taken as there: a link that drops says nothing of whether a session
  * runs, and judging it gone would let go of its leases and holds and tell
  * its senders it ended.
+ *
+ * A parked session (see parked.ts) is there too while its marker stands,
+ * its process gone: it ended only to hold no memory while it waits, and
+ * its holder starts it again for what is sent to it.
  */
 
 import { readFileSync } from "node:fs";
@@ -39,8 +43,12 @@ import {
 	tickedStanding,
 	tickFacts,
 } from "../internal/process-ticks.ts";
+import { isParked } from "../internal/session/park.ts";
 import { type AskNode, askNode } from "./node.ts";
 import type { Presence } from "./presence.ts";
+
+/** Whether a session's parked marker stands. */
+export type ParkedAsk = (session: string) => boolean;
 
 /**
  * When the machine booted, in milliseconds since the epoch, read from
@@ -74,6 +82,7 @@ export async function livenessOf(
 	presence: Presence,
 	facts: TickFacts = tickFacts,
 	node: AskNode = askNode,
+	parked: ParkedAsk = isParked,
 ): Promise<Liveness> {
 	if (presence.machine !== undefined) {
 		const held = await node();
@@ -88,11 +97,11 @@ export async function livenessOf(
 	const owner = presence.owner;
 	if (!owner) return "unknown";
 	const standing = await tickedStanding(owner, facts);
-	return standing === "running"
+	if (standing === "running") return "present";
+	if (standing !== "gone") return "unknown";
+	return presence.state === "parked" && parked(presence.session)
 		? "present"
-		: standing === "gone"
-			? "gone"
-			: "unknown";
+		: "gone";
 }
 
 /**
@@ -112,6 +121,7 @@ export async function census(
 	everyone: readonly Presence[],
 	facts: TickFacts = tickFacts,
 	node: AskNode = askNode,
+	parked: ParkedAsk = isParked,
 ): Promise<Census> {
 	const once = askedOnceWithTicks(facts);
 	let asked: ReturnType<AskNode> | undefined;
@@ -135,7 +145,7 @@ export async function census(
 			async (one) =>
 				[
 					one,
-					left(one) ? "gone" : await livenessOf(one, once, nodeOnce),
+					left(one) ? "gone" : await livenessOf(one, once, nodeOnce, parked),
 				] as const,
 		),
 	);
