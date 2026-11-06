@@ -2,7 +2,7 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	AGAIN_ENV,
@@ -79,14 +79,38 @@ export interface WatchOptions {
 	readonly exitWith?: (code: number) => void;
 	/** Look on a clock; false for tests that look by hand. */
 	readonly clock?: boolean;
+	/** This process, which its holder's record must name to park. */
+	readonly pid?: number;
 }
+
+/** What a window shows once its session has parked. */
+export const PARKED_LINE =
+	"Parked while idle, holding no memory. A key or a message wakes it.";
 
 /** Say to the process that, whatever pi exits with, it exits with this. */
 function exitWith(code: number): void {
 	// pi ends a quit with process.exit(0); an exit listener's code wins.
 	process.once("exit", () => {
 		process.exitCode = code;
+		// The window stays with its holder, so it says why it is quiet.
+		process.stdout.write(`\r\n${PARKED_LINE}\r\n`);
 	});
+}
+
+/**
+ * Whether the holder runs this very process, as its record beside the
+ * wake file says. A pi started through a shell is the shell's child, so
+ * its exit would reach the shell and leave a bare prompt, not a park.
+ */
+function heldDirectly(wake: string, pid: number): boolean {
+	try {
+		const record = JSON.parse(
+			readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"),
+		) as { pid?: unknown };
+		return record.pid === pid;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -152,6 +176,9 @@ export function watch(
 		});
 		if (why !== undefined) return why;
 		if (wake === "") return "no holder would wake it";
+		if (!heldDirectly(wake, options.pid ?? process.pid)) {
+			return "its holder runs it through another program";
+		}
 		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
 		const unnamed = restartNamed(again, args, session, sessionFile);
 		if (unnamed !== undefined) return unnamed;

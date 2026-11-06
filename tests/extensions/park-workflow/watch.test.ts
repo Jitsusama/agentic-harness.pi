@@ -27,6 +27,8 @@ import {
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 
 const SESSION = "01a1af3c-26bc-7b80-990f-37848859ff67";
+/** The process the holder's record says it runs. */
+const HELD_PID = 4242;
 
 let folder: string;
 let events: EventBus;
@@ -43,6 +45,7 @@ beforeEach(() => {
 	exits = [];
 	typed = "";
 	writeFileSync(parkSwitch(folder), `${SESSION}\n`);
+	writeFileSync(join(folder, "held.json"), JSON.stringify({ pid: HELD_PID }));
 });
 
 afterEach(() => {
@@ -78,6 +81,7 @@ const watching = (
 	watch(ctx, events, {
 		env,
 		args,
+		pid: HELD_PID,
 		switchPath: parkSwitch(folder),
 		folder,
 		now: () => clock,
@@ -133,6 +137,16 @@ describe("parking a session", () => {
 		expect(shutdowns).toBe(0);
 		expect(resumed.look()).toBeUndefined();
 		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("stays when its holder runs it through another program, such as a shell", () => {
+		writeFileSync(join(folder, "held.json"), JSON.stringify({ pid: 1 }));
+		const watched = watching();
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("its holder runs it through another program");
+		rmSync(join(folder, "held.json"));
+		expect(watched.look()).toBe("its holder runs it through another program");
+		expect(shutdowns).toBe(0);
 	});
 
 	it("counts idle from the last thing that happened in it", () => {

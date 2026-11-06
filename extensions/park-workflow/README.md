@@ -42,7 +42,9 @@ start it again has simply ended. It also has to wake into itself: a
 holder that takes a restart (`MYCELIUM_AGAIN`) is given
 `pi --session <its log>`, and under one that takes none it parks
 only when pi was started on this session, since the launcher starts
-sessions as a bare `pi` or with a first prompt.
+sessions as a bare `pi` or with a first prompt. And the holder's
+record has to name this very process, since a pi run through a shell
+would exit to the shell's prompt rather than to its holder.
 
 ## What Happens
 
@@ -53,8 +55,10 @@ sessions as a bare `pi` or with a first prompt.
    `park-workflow/parked/<session-id>.json`, naming its log, its
    folder, its addresses, its quest, when it parked and, as `wake`,
    the file its holder wakes it on.
-3. pi shuts down as `/quit` would, and exits with code 75
-   (EX_TEMPFAIL), which tells its holder this is a park, not an end.
+3. pi shuts down as `/quit` would, leaves a line in its window saying
+   it is parked and that a key or a message wakes it, and exits with
+   code 75 (EX_TEMPFAIL), which tells its holder this is a park, not
+   an end.
 
 A message that would give the parked peer a turn (a question or hold
 sent to it, an answer to it, a pivot) makes its sender write the
