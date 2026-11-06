@@ -25,6 +25,7 @@
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { offeredShellEnvironment } from "../shell/environment.ts";
+import { FETCHED_FOLDER, readsMain, worldGit } from "./fetched.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { planFor, planLines } from "./plan.ts";
 import {
@@ -32,6 +33,7 @@ import {
 	kindOf,
 	NEEDS_GIB,
 	needsGibOfCommand,
+	walkOf,
 	whatOf,
 } from "./queue.ts";
 import type { Reading } from "./room.ts";
@@ -125,9 +127,8 @@ export function queueHeavyWork(queueing: Queueing): () => void {
  */
 export function queuedCommand(command: string, cwd?: string): string {
 	const queueing = (globalThis as Holder)[QUEUEING];
-	const read = queueing
-		? kindOf(command, { ...(cwd ? { cwd } : {}), home: homedir() })
-		: undefined;
+	const where = { ...(cwd ? { cwd } : {}), home: homedir() };
+	const read = queueing ? kindOf(command, where) : undefined;
 	if (!queueing || !read) return command;
 	const wait = waitsForTurn(queueing.folder.dir);
 	if (!wait) return command;
@@ -148,6 +149,7 @@ export function queuedCommand(command: string, cwd?: string): string {
 	const quick =
 		needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what);
 	const lastRanS = queueing.folder.ranFor(what);
+	const walk = kind === "world-walk" ? walkOf(command, where) : undefined;
 	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
 	// A build of checks is asked what it will build before its turn, since
 	// its text can't say whether a VM runs (plan.ts); quick work is cached.
@@ -162,6 +164,7 @@ export function queuedCommand(command: string, cwd?: string): string {
 		needsGib,
 		...(lastRanS !== undefined ? { lastRanS } : {}),
 		...(quick ? { quick: true as const } : {}),
+		...(walk ? { walk } : {}),
 		...(quest ? { quest } : {}),
 		...(plan ? { planning: true as const } : {}),
 		owner: { session: queueing.session, pid: queueing.pid },
@@ -175,22 +178,37 @@ export function queuedCommand(command: string, cwd?: string): string {
 		// A queue that can't be written to holds nobody's work back.
 		return command;
 	}
-	return `${wait(job.id, plan ? planLines(plan) : [])}\n${command}`;
+	const fetches = walk === "main-fetch" ? worldGit() : undefined;
+	return `${wait(job.id, plan ? planLines(plan) : [], fetches)}\n${command}`;
 }
 
 /**
  * The lines a shell runs to wait for job `id`'s turn in the queue kept
  * at `dir`, or nothing for a folder that can't be quoted plainly. They
- * leave no variable behind and `$?` at 0.
+ * leave no variable behind and `$?` at 0. Given World's repository, the
+ * job fetches its main (fetched.ts): answered, the shell puts the
+ * queue's `git` first on its PATH; otherwise it reads `origin/main` as
+ * its run begins and as it ends, to say whether the fetch moved it.
  */
 export function waitsForTurn(
 	dir: string,
 	saidAfterS: number = SAID_AFTER_S,
 	roomSaidAfterS: number = ROOM_SAID_AFTER_S,
-): ((id: string, plan?: readonly string[]) => string) | undefined {
+):
+	| ((id: string, plan?: readonly string[], world?: string) => string)
+	| undefined {
 	if (dir.includes("'")) return undefined;
-	return (id, plan = []) =>
-		[
+	return (id, plan = [], given) => {
+		const world = given?.includes("'") ? undefined : given;
+		const fetching = world
+			? [
+					`if [ -e "$__queue/$__job.fetched" ]; then PATH="$__queue/${FETCHED_FOLDER}:$PATH"; else ${readsMain(world, `'${dir}/${id}.main-before'`)}; fi`,
+				]
+			: [];
+		const ended = world
+			? `${readsMain(world, `'${dir}/${id}.main-after'`)}; `
+			: "";
+		return [
 			`__queue='${dir}' __job='${id}' __since=$SECONDS`,
 			`printf '%s\\n' "$$" 2>/dev/null > "$__queue/$__job.pid"`,
 			// What it will build, asked before its place in line is given.
@@ -204,13 +222,15 @@ export function waitsForTurn(
 			// The mark its time limit starts from (clock.ts): the run begins
 			// here, whether its turn was given or the wait gave way.
 			`{ : > "$__queue/$__job.began"; } 2>/dev/null || :`,
+			...fetching,
 			`__into=$(cat "$__queue/$__job.turn" 2>/dev/null)`,
 			`[ -n "$__into" ] && { printf '%s\\n' "$$" 2>/dev/null > "$__into/cgroup.procs" || :; }`,
 			CAPPING,
 			`__since=$(( SECONDS - __since ))`,
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
 			"__ran=$SECONDS",
-			`trap "__end=\\$?; printf '%s\\\\n' \\"\\$__end\\" 2>/dev/null > '${dir}/${id}.end'; __room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
+			`trap "__end=\\$?; ${ended}printf '%s\\\\n' \\"\\$__end\\" 2>/dev/null > '${dir}/${id}.end'; __room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
 			"unset __queue __job __since __into __ran __then __now __grace; :",
 		].join("\n");
+	};
 }

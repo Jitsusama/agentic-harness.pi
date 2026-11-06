@@ -509,6 +509,101 @@ describe("the machine's queue folder", () => {
 		expect(record().machine.pressure.cpu).toBe(TIGHT.pressure.cpu + 3);
 	});
 
+	it("answers the fetches of main waiting on one that moved origin/main, for a minute after", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const world = join(dir, "..", "world", "git");
+		const queue = queueFolder(
+			dir,
+			processes,
+			undefined,
+			file,
+			undefined,
+			world,
+		);
+		const fetch = (id: string, over: Partial<Job> = {}) =>
+			job(id, {
+				kind: "world-walk",
+				what: "git fetch -q origin main",
+				walk: "main-fetch",
+				...over,
+			});
+		queue.ask(
+			fetch("fetching", { started: new Date(NOW - 120_000).toISOString() }),
+		);
+		queue.ask(fetch("main"));
+		shellSays("fetching", 601);
+		shellSays("main", 602);
+		queue.keep(ROOMY, NOW, () => undefined);
+		expect(queue.hasTurn("main")).toBe(false);
+
+		// Its shell read origin/main as it began and as it ended.
+		writeFileSync(join(dir, "fetching.main-before"), `${"a".repeat(40)}\n`);
+		writeFileSync(join(dir, "fetching.main-after"), `${"b".repeat(40)}\n`);
+		writeFileSync(join(dir, "fetching.end"), "1\n");
+		running.delete(601);
+		queue.keep(ROOMY, NOW + 5_000, () => undefined);
+		expect(queue.hasTurn("main")).toBe(true);
+		expect(readFileSync(join(dir, "main.fetched"), "utf8")).toBe("fetching\n");
+		const given = JSON.parse(readFileSync(join(dir, "main.job"), "utf8"));
+		expect(given).toMatchObject({ answered: true });
+		const wrapper = readFileSync(join(dir, "fetched", "git"), "utf8");
+		expect(wrapper).toContain(`'${world}'`);
+		expect(statSync(join(dir, "fetched", "git")).mode & 0o111).not.toBe(0);
+		// Piped into grep, its exit said 1: the ref it moved is what counts.
+		const [made] = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(made).toMatchObject({
+			id: "fetching",
+			walk: "main-fetch",
+			movedMain: true,
+		});
+
+		// One asked within the minute is answered too; one after takes its turn.
+		queue.ask(fetch("soon"));
+		shellSays("soon", 603);
+		queue.keep(ROOMY, NOW + 30_000, () => undefined);
+		expect(existsSync(join(dir, "soon.fetched"))).toBe(true);
+		queue.ask(fetch("late"));
+		shellSays("late", 604);
+		queue.keep(ROOMY, NOW + 70_000, () => undefined);
+		expect(queue.hasTurn("late")).toBe(true);
+		expect(existsSync(join(dir, "late.fetched"))).toBe(false);
+	});
+
+	it("leaves the fetches of main waiting to their own turns when the one running moved nothing", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const world = join(dir, "..", "world", "git");
+		const queue = queueFolder(
+			dir,
+			processes,
+			undefined,
+			file,
+			undefined,
+			world,
+		);
+		const fetch = (id: string, over: Partial<Job> = {}) =>
+			job(id, {
+				kind: "world-walk",
+				what: "git fetch origin main",
+				walk: "main-fetch",
+				...over,
+			});
+		queue.ask(
+			fetch("fetching", { started: new Date(NOW - 120_000).toISOString() }),
+		);
+		queue.ask(fetch("main"));
+		shellSays("fetching", 601);
+		shellSays("main", 602);
+		writeFileSync(join(dir, "fetching.main-before"), `${"a".repeat(40)}\n`);
+		writeFileSync(join(dir, "fetching.main-after"), `${"a".repeat(40)}\n`);
+		running.delete(601);
+		queue.keep(ROOMY, NOW, () => undefined);
+		expect(queue.hasTurn("main")).toBe(true);
+		expect(existsSync(join(dir, "main.fetched"))).toBe(false);
+	});
+
 	it("keeps how each job ended and what ran beside it", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		// The check passed before, with no capped build beside it.

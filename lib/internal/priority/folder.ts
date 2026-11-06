@@ -43,6 +43,13 @@ import { join } from "node:path";
 import { runtimeDir } from "../paths.ts";
 import { clearWriting, writeWhole } from "../write-whole.ts";
 import { awaitedNow, NOBODY } from "./awaited.ts";
+import {
+	answerable,
+	answeringFetch,
+	movedMain,
+	placeFetchedGit,
+	worldGit,
+} from "./fetched.ts";
 import { mayKeep } from "./keeper.ts";
 import { workNameIn } from "./name.ts";
 import {
@@ -295,6 +302,9 @@ const JOB_FILES: readonly string[] = [
 	"end",
 	"plan",
 	"plan.planning",
+	"fetched",
+	"main-before",
+	"main-after",
 ];
 
 /** How old a job's file without its .job must be to count as left over. */
@@ -306,6 +316,7 @@ export function queueFolder(
 	rules: () => Rules = () => RULES,
 	outcomes?: string,
 	version: number = RULES_VERSION,
+	world: string = worldGit(),
 ): QueueFolder {
 	const path = (id: string, ending: string) => join(dir, `${id}.${ending}`);
 	const ensure = () => mkdirSync(dir, { recursive: true });
@@ -388,8 +399,14 @@ export function queueFolder(
 		} catch {
 			// Unsaid: it ended when it was seen to.
 		}
+		const moved =
+			job.walk === "main-fetch" &&
+			movedMain(
+				text(path(job.id, "main-before")),
+				text(path(job.id, "main-after")),
+			);
 		try {
-			keepOutcome(outcomes, outcomeOf(job, at, exit));
+			keepOutcome(outcomes, outcomeOf(job, at, exit, moved));
 		} catch {
 			// An outcome that can't be kept never holds up the queue.
 		}
@@ -402,6 +419,29 @@ export function queueFolder(
 			now - Date.parse(job.since) > PID_MS ||
 			!processes.isRunning(job.owner.pid)
 		);
+	};
+
+	/**
+	 * Gives every fetch of World's main waiting its turn at once, past the
+	 * walks, when a fetch of main has just moved `origin/main`: its shell
+	 * then finds fetched-git.mjs first on its PATH (fetched.ts). The jobs,
+	 * with those turns given.
+	 */
+	const answer = (standing: Job[], now: number): Job[] => {
+		const waiting = answerable(standing);
+		if (waiting.length === 0) return standing;
+		const by = answeringFetch(recorded(), now);
+		if (!by || !placeFetchedGit(dir, world)) return standing;
+		const started = new Date(now).toISOString();
+		const given = new Set(waiting.map((job) => job.id));
+		return standing.map((job) => {
+			if (!given.has(job.id)) return job;
+			const turn: Job = { ...job, started, answered: true };
+			replace(path(job.id, "job"), `${JSON.stringify(turn)}\n`);
+			replace(path(job.id, "fetched"), `${by.id}\n`);
+			replace(path(job.id, "turn"), "");
+			return turn;
+		});
 	};
 
 	const locked = (now: number, work: () => void) => {
@@ -614,14 +654,15 @@ export function queueFolder(
 					mostVms: given.mostVms ?? vmsFor(recorded(), now),
 				};
 				const first = questsFirstIn(dir);
-				const next = nextTurn(standing, reading, now, ruled, awaited, first);
+				const answered = answer(standing, now);
+				const next = nextTurn(answered, reading, now, ruled, awaited, first);
 				const turned = next
-					? standing.map((job) =>
+					? answered.map((job) =>
 							job.id === next.id
 								? { ...next, started: new Date(now).toISOString() }
 								: job,
 						)
-					: standing;
+					: answered;
 				const queue = noteWaits(
 					turned,
 					waitReasons(turned, reading, now, ruled, awaited, first),
