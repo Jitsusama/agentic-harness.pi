@@ -14,7 +14,12 @@ process does.
 ## When
 
 A session parks once it has been idle past the time the switch sets,
-and only while nothing of its own is still out:
+and only while nothing of its own is still out. Idle counts from the
+last message in its log, so a reload doesn't start it again; a mesh
+note is no message. A session just woken from a park counts from its
+waking, so a key that woke it keeps it up.
+
+What must not be out:
 
 - no run, retry or queued continuation, and no messages waiting for it;
 - no background job running or waiting to say its result;
