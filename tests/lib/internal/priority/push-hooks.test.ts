@@ -177,6 +177,38 @@ describe("a push of a new branch", () => {
 	});
 });
 
+describe("a push from HEAD", () => {
+	it("leaves out the LFS hook when its commits hold no LFS file", () => {
+		commit("notes.txt", "plain\n");
+		const push = pushing("git push -q origin HEAD:refs/heads/topic");
+		expect(push.status).toBe(0);
+		expect(ran()).toEqual(["other unset HEAD"]);
+		expect(push.stderr).toContain("since its 1 changed paths");
+	});
+});
+
+describe("a push of several branches", () => {
+	it("leaves out the LFS hook when none of their commits holds an LFS file", () => {
+		git("checkout", "-q", "-b", "topic");
+		commit("notes.txt", "plain\n");
+		git("checkout", "-q", "main");
+		commit("more.txt", "plain too\n");
+		const push = pushing("git push -q origin main topic");
+		expect(push.status).toBe(0);
+		expect(ran()).toEqual(["other unset refs/heads/main"]);
+		expect(push.stderr).toContain("since its 2 changed paths");
+	});
+
+	it("runs the LFS hook when one branch's commits touch a path LFS filters", () => {
+		git("checkout", "-q", "-b", "topic");
+		commit("weights.bin", "binary\n");
+		git("checkout", "-q", "main");
+		commit("notes.txt", "plain\n");
+		expect(pushing("git push -q origin main topic").status).toBe(0);
+		expect(ran()).toEqual(["lfs", "other unset refs/heads/main"]);
+	});
+});
+
 describe("a push of a branch rebased onto a newer main", () => {
 	it("counts only its own commits, not main's it was rebased past", () => {
 		git("checkout", "-q", "-b", "topic");
