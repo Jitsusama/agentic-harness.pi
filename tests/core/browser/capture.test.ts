@@ -117,6 +117,29 @@ document.body.addEventListener("click", function (event) {
 </script>`,
 );
 
+/**
+ * Controls a keyboard reaches correctly without one Tab each: a
+ * disclosure, whose stop is its summary, and two radio groups, which
+ * take one stop and move by arrow keys. On 7 November the walk
+ * failed a page built only of these.
+ */
+const GROUPED = page(
+	"Grouped",
+	`<main><h1>Grouped</h1>
+<details><summary>More</summary><p>Hidden until opened.</p></details>
+<div role="radiogroup" aria-label="Theme">
+  <div role="radio" aria-checked="false" tabindex="-1">Light</div>
+  <div role="radio" aria-checked="true" tabindex="0">Auto</div>
+  <div role="radio" aria-checked="false" tabindex="-1">Dark</div>
+</div>
+<fieldset><legend>Size</legend>
+  <label><input type="radio" name="size" value="s">Small</label>
+  <label><input type="radio" name="size" value="m" checked>Medium</label>
+  <label><input type="radio" name="size" value="l">Large</label>
+</fieldset>
+<button type="button">Save</button></main>`,
+);
+
 let fixture: Fixture;
 let session: BrowserSession;
 
@@ -130,6 +153,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			{ path: "/delegated", body: DELEGATED },
 			{ path: "/faint", body: FAINT },
 			{ path: "/reversed", body: REVERSED },
+			{ path: "/grouped", body: GROUPED },
 		]);
 		session = await BrowserSession.open("capture-contract");
 		await session.navigate(fixture.url("/subject"));
@@ -296,6 +320,22 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			// landed on the body rather than on anything in the page.
 			expect(walk.candidates).toHaveLength(0);
 			expect(walk.stops.every((stop) => stop.index === -1)).toBe(true);
+		} finally {
+			await session.navigate(fixture.url("/subject"));
+		}
+	});
+
+	it("passes a disclosure and radio groups a keyboard reaches", async () => {
+		try {
+			await session.navigate(fixture.url("/grouped"));
+			const walk = await session.keyboardWalk();
+			const findings = analyseWalk(walk);
+
+			expect(
+				walk.stops.some((stop) => stop.index >= 0 && stop.tag === "SUMMARY"),
+			).toBe(true);
+			expect(findings.unreachable.map((one) => one.name)).toEqual([]);
+			expect(findings.missed.map((one) => one.name)).toEqual([]);
 		} finally {
 			await session.navigate(fixture.url("/subject"));
 		}

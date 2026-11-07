@@ -88,6 +88,25 @@ const INTERACTIVE_ROLES = new Set([
 	"textbox",
 ]);
 
+/**
+ * Roles that cannot hold another control: WAI-ARIA's roles whose
+ * children are presentational, and a link, which HTML forbids any
+ * interactive content inside. A select, a combobox or a menuitem owns
+ * the options and items inside it, so those are not nesting.
+ */
+const HOLDS_NO_CONTROL_ROLES = new Set([
+	"button",
+	"checkbox",
+	"link",
+	"menuitemcheckbox",
+	"menuitemradio",
+	"option",
+	"radio",
+	"slider",
+	"switch",
+	"tab",
+]);
+
 /** Roles that must hold a name from the author, not the content. */
 const NEEDS_LABEL_ROLES = new Set([
 	"checkbox",
@@ -287,7 +306,8 @@ export function nestedInteractives(
 		const inside = node.ancestors
 			.map((id) => byId.get(id))
 			.find(
-				(ancestor) => ancestor?.role && INTERACTIVE_ROLES.has(ancestor.role),
+				(ancestor) =>
+					ancestor?.role && HOLDS_NO_CONTROL_ROLES.has(ancestor.role),
 			);
 		if (!inside) continue;
 		found.push(

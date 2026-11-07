@@ -240,6 +240,30 @@ describe("nestedInteractives", () => {
 			]),
 		).toEqual([]);
 	});
+
+	it("leaves the items a control owns alone, as a select's options", () => {
+		expect(
+			nestedInteractives([
+				node({ id: "select", tag: "select", role: "combobox" }),
+				node({
+					id: "one",
+					tag: "option",
+					role: "option",
+					ancestors: ["select"],
+				}),
+				node({ id: "file", role: "menuitem" }),
+				node({ id: "open", role: "menuitem", ancestors: ["file"] }),
+			]),
+		).toEqual([]);
+	});
+
+	it("catches a control inside one whose children are presentational", () => {
+		const [found] = nestedInteractives([
+			node({ id: "tab", role: "tab" }),
+			node({ id: "close", role: "button", ancestors: ["tab"] }),
+		]);
+		expect(found?.nodes[0]?.messages[0]).toContain("button inside a tab");
+	});
 });
 
 describe("headingOutline", () => {
