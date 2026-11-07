@@ -43,32 +43,41 @@ export interface Landing {
 	readonly what: string;
 	/** What it means to the session's person, in one line, when said. */
 	readonly person?: string;
+	/**
+	 * Where a person opens it, when it has a web page: the launcher
+	 * opens a change by it, since `ref` drops the change's owner.
+	 */
+	readonly url?: string;
 }
 
 /** Whether a payload is a landing, as this version says one. */
 export function isLanding(data: unknown): data is Landing {
 	if (typeof data !== "object" || data === null) return false;
-	const { at, ref, what, person } = data as Record<string, unknown>;
+	const { at, ref, what, person, url } = data as Record<string, unknown>;
 	return (
 		typeof at === "string" &&
 		typeof ref === "string" &&
 		ref !== "" &&
 		typeof what === "string" &&
-		(person === undefined || typeof person === "string")
+		(person === undefined || typeof person === "string") &&
+		(url === undefined || typeof url === "string")
 	);
 }
 
 /** Say on `bus` that `ref` landed now. */
 export function sayLanded(
 	bus: Pick<EventBus, "emit">,
-	landed: { ref: string; what: string; person?: string },
+	landed: { ref: string; what: string; person?: string; url?: string },
 	now: number = Date.now(),
 ): void {
+	const person = landed.person ? oneLine(landed.person) : "";
+	const url = landed.url?.trim() ?? "";
 	const landing: Landing = {
 		at: new Date(now).toISOString(),
 		ref: landed.ref,
 		what: oneLine(landed.what),
-		...(landed.person ? { person: oneLine(landed.person) } : {}),
+		...(person ? { person } : {}),
+		...(url ? { url } : {}),
 	};
 	try {
 		bus.emit(SESSION_LANDED, landing);

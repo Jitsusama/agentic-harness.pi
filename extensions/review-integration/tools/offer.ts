@@ -124,6 +124,7 @@ interface OfferParams {
 	comment?: string;
 	method?: string;
 	expectedHead?: string;
+	person?: string;
 	reviewers?: string[];
 	labels?: string[];
 	labelMode?: "add" | "set";
@@ -375,6 +376,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				Type.String({
 					description:
 						"For merge: refuse unless the head is still this commit. The only guard against merging work nobody saw.",
+				}),
+			),
+			person: Type.Optional(
+				Type.String({
+					description:
+						"For merge: what the change means to the session's person, in one line, kept in the landing their launcher shows, e.g. what to try. Say it only where a check supports it.",
 				}),
 			),
 			reviewers: Type.Optional(
@@ -1561,21 +1568,28 @@ async function headGuard(
  * Say on the bus that a change landed, so the mesh keeps it in this
  * session's presence for an orchestrator to read rather than be told
  * (lib/internal/session/landings.ts). Named as `repo#number`, without
- * the owner, as people write it.
+ * the owner, as people write it, so its web page goes beside it for the
+ * launcher to open; `person` is the line the merge was asked to carry.
  */
 async function sayMerged(
 	bus: EventBus,
 	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
+	person: string | undefined,
 ): Promise<void> {
-	let title: string | undefined;
+	let read: { title?: string; url?: string } | null = null;
 	try {
-		title = (await bound.proposal())?.title;
+		read = await bound.proposal();
 	} catch {
 		// A change that can't be read now still landed; it is named alone.
 	}
 	const ref = change.label.slice(change.label.lastIndexOf("/") + 1);
-	sayLanded(bus, { ref, what: title ?? `${change.label} merged` });
+	sayLanded(bus, {
+		ref,
+		what: read?.title ?? `${change.label} merged`,
+		...(read?.url ? { url: read.url } : {}),
+		...(person ? { person } : {}),
+	});
 }
 
 /** Land the change. */
@@ -1639,7 +1653,7 @@ async function merge(
 	// checks fail, which is exactly the state in which it is still
 	// yours to watch.
 	const letGo = await attachments().detach(change.label);
-	if (bus) await sayMerged(bus, bound, change);
+	if (bus) await sayMerged(bus, bound, change, params.person);
 	return say(
 		`${GLYPH.lands} ${change.label} merged${outcome.commit ? ` at ${outcome.commit.slice(0, 12)}` : ""}.${letGo ? " Detached, since it is no longer what you are working on." : ""}`,
 		{
