@@ -22,6 +22,7 @@ import { type Exec, run } from "../../exec/index.ts";
 import { withoutCredentials } from "../../remote/index.ts";
 import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
+import { refreshStart } from "../fresh-start.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
 
 /**
@@ -49,29 +50,40 @@ function sameCommit(head: string, asked: string): boolean {
  * that named it from then on.
  */
 async function branchArgs(
-	git: (...args: string[]) => ReturnType<Exec>,
+	exec: Exec,
+	checkout: string,
 	path: string,
 	branch: string,
 	base: string | undefined,
+	signal: AbortSignal | undefined,
 ): Promise<string[]> {
 	const fullName = fullRefRefusal(branch);
 	if (fullName) throw new Error(fullName);
+	const git = (...args: string[]) => exec("git", ["-C", checkout, ...args]);
 	const exists = async (ref: string) =>
 		(await git("rev-parse", "--verify", "--quiet", ref)).code === 0;
+	// A new branch starts where the remote has its start now, not where
+	// the checkout's last fetch left it: trees cut from a checkout that
+	// had not fetched since a merge came out a merge behind. A fetch that
+	// fails leaves the start as it was, since offline work is still work.
+	const fresh = async (from: string) =>
+		(await refreshStart(exec, checkout, from, signal)).start;
 	if (await exists(`refs/heads/${branch}`)) return [path, branch];
 	if (await exists(`refs/remotes/origin/${branch}`)) {
-		return ["--track", "-b", branch, path, `origin/${branch}`];
+		return ["--track", "-b", branch, path, await fresh(`origin/${branch}`)];
 	}
 	if (await exists(`refs/remotes/${branch}`)) {
 		throw new Error(
 			`${branch} is a remote's branch, and a local branch of that name would shadow it. To work from it, name the branch to work on and give ${branch} as its base; to read it, take a snapshot.`,
 		);
 	}
-	if (base !== undefined) return ["--no-track", "-b", branch, path, base];
+	if (base !== undefined) {
+		return ["--no-track", "-b", branch, path, await fresh(base)];
+	}
 	const head = await git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD");
 	const start =
 		head.code === 0 && head.stdout.trim() !== ""
-			? head.stdout.trim().replace(/^refs\/remotes\//, "")
+			? await fresh(head.stdout.trim().replace(/^refs\/remotes\//, ""))
 			: "HEAD";
 	return ["--no-track", "-b", branch, path, start];
 }
@@ -279,7 +291,14 @@ export function createGitTreeProvider(deps: {
 						`${displayPath(source.path)} is a mirror: every fetch makes its branches match its remote's, so a branch made in a tree cut from it is gone at the next one, and git commits the whole tree as a new history in its place. Cut the worktree from a working checkout of ${request.repo.key}, or take a snapshot to read it.`,
 					);
 				}
-				at = await branchArgs(git, path, request.branch, request.baseBranch);
+				at = await branchArgs(
+					exec,
+					source.path,
+					path,
+					request.branch,
+					request.baseBranch,
+					options?.signal,
+				);
 			}
 			// git fills an empty directory as readily as it makes one. A
 			// subvolume that can't be made, `btrfs` missing say, leaves git

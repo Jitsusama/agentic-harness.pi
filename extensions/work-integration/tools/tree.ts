@@ -32,6 +32,7 @@ import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../../lib/core/work/events.ts";
+import { FETCH_MS, refreshStart } from "../../../lib/core/work/fresh-start.ts";
 import {
 	blocksRepoint,
 	createGitHistory,
@@ -66,7 +67,6 @@ import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
-import { FETCH_MS, refreshStart } from "../fresh-start.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
 import { carryHome } from "./carry.ts";
@@ -557,7 +557,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			onto: Type.Optional(
 				Type.String({
 					description:
-						"For rebase: what to replay onto, as a branch, a tag or a commit.",
+						"For rebase: what to replay onto, as a branch, a tag or a commit. A remote's branch, such as origin/main, is fetched first.",
 				}),
 			),
 			replace: Type.Optional(
@@ -710,8 +710,21 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						cwd: ctx?.cwd ?? process.cwd(),
 						session: ctx?.sessionManager?.getSessionId?.() ?? "",
 					});
+					// Named, as a branch's start is, so a tree cut from a stale base
+					// shows at once; a head that will not read is left out.
+					const head = await exec("git", [
+						"-C",
+						held.path,
+						"rev-parse",
+						"--short=12",
+						"HEAD",
+					]);
+					const at =
+						head.code === 0 && head.stdout.trim() !== ""
+							? ` · at ${head.stdout.trim()}`
+							: "";
 					return say(
-						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${warmed}${rules ? `\n\n${rules}` : ""}`,
+						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${at}${warmed}${rules ? `\n\n${rules}` : ""}`,
 						// The details keep the absolute path on purpose. A tilde is a
 						// courtesy for a reader, not something a caller can open, and
 						// this is the value another call gets fed.
@@ -1001,7 +1014,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					action === "resume" ||
 					action === "abandon"
 				) {
-					return await replay(exec, found, action, args.onto);
+					return await replay(exec, found, action, args.onto, signal);
 				}
 
 				if (
@@ -1114,6 +1127,7 @@ async function replay(
 	found: HeldTree,
 	action: "rebase" | "resume" | "abandon",
 	onto: string | undefined,
+	signal?: AbortSignal,
 ): Promise<Answer> {
 	const rebaser = createGitRebaser({ exec });
 
@@ -1161,13 +1175,27 @@ async function replay(
 		);
 	}
 
-	const outcome = await rebaser.rebase(found.path, onto);
+	// A remote's branch is replayed onto as the remote holds it: replayed
+	// onto the last fetch's origin/main, a branch went up a merge behind and
+	// its checks ran against a main that was no longer there.
+	const fresh = await refreshStart(
+		spawnExec({ ...(signal ? { signal } : {}), timeoutMs: FETCH_MS }),
+		found.path,
+		onto,
+		signal,
+	);
+	const stale = fresh.stale ? [fresh.stale] : [];
+	const named = (ref: string) => (ref === fresh.start ? onto : ref);
+	const outcome = await rebaser.rebase(found.path, fresh.start);
 	if (outcome.kind === "refused") {
-		return refuse(`${GLYPH.refused} ${outcome.reason}`);
+		return refuse([`${GLYPH.refused} ${outcome.reason}`, ...stale].join("\n"));
 	}
 	if (outcome.kind === "already-there") {
 		return say(
-			`${GLYPH.clean} ${outcome.branch} is already on top of ${outcome.onto}. Nothing to replay.`,
+			[
+				`${GLYPH.clean} ${outcome.branch} is already on top of ${named(outcome.onto)}. Nothing to replay.`,
+				...stale,
+			].join("\n"),
 			{ ok: true, branch: outcome.branch, replayed: 0 },
 		);
 	}
@@ -1175,7 +1203,7 @@ async function replay(
 		return refuse(
 			haltLines(
 				outcome.conflicted,
-				`${outcome.branch} onto ${outcome.onto}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
+				`${outcome.branch} onto ${named(outcome.onto)}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
 				outcome,
 			),
 		);
@@ -1184,13 +1212,16 @@ async function replay(
 	// base that moved on, and "0 commits" would read as nothing happening.
 	const done =
 		outcome.commits === 0
-			? `${outcome.branch} moved up to ${outcome.onto}, with no commits of its own to replay.`
-			: `${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`;
-	return say([`${GLYPH.tree} ${done}`, ...settlingLines(outcome)].join("\n"), {
-		ok: true,
-		branch: outcome.branch,
-		replayed: outcome.commits,
-	});
+			? `${outcome.branch} moved up to ${named(outcome.onto)}, with no commits of its own to replay.`
+			: `${outcome.branch} replayed onto ${named(outcome.onto)}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`;
+	return say(
+		[`${GLYPH.tree} ${done}`, ...settlingLines(outcome), ...stale].join("\n"),
+		{
+			ok: true,
+			branch: outcome.branch,
+			replayed: outcome.commits,
+		},
+	);
 }
 
 /**
