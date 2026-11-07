@@ -30,8 +30,18 @@ export const BILL_PERIODS = [
 /** One of the periods spend-watch answers for. */
 export type BillPeriod = (typeof BILL_PERIODS)[number];
 
-/** The ledger's groupings spend-watch also cuts by. */
-export const BILL_CUTS = ["repo", "quest", "model", "day", "session"] as const;
+/**
+ * The groupings spend-watch cuts by: the ledger's own, and budget, which
+ * only spend-watch knows, since it reads each turn's budget from its log.
+ */
+export const BILL_CUTS = [
+	"repo",
+	"quest",
+	"model",
+	"day",
+	"session",
+	"budget",
+] as const;
 
 /** A grouping spend-watch can cut its bill by. */
 export type BillCut = (typeof BILL_CUTS)[number];
