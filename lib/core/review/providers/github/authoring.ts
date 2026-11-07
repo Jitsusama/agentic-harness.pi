@@ -244,23 +244,28 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 
 	return {
 		async propose(draft: ChangeDraft): Promise<Change> {
-			const raw = await send(
-				"POST",
-				`repos/${slugOf(draft.repo)}/pulls`,
-				{
-					base: draft.base,
-					head: draft.head,
-					title: draft.title,
-					body: draft.body,
-					// Always sent, never omitted. This backend defaults to
-					// ready and another defaults to draft, so an absent flag
-					// means two different things and the same call would
-					// produce a different change depending on where it landed.
-					draft: draft.draft,
-				},
-				`proposing ${draft.head} onto ${draft.base}`,
+			const create = () =>
+				send(
+					"POST",
+					`repos/${slugOf(draft.repo)}/pulls`,
+					{
+						base: draft.base,
+						head: draft.head,
+						title: draft.title,
+						body: draft.body,
+						// Always sent, never omitted. This backend defaults to
+						// ready and another defaults to draft, so an absent flag
+						// means two different things and the same call would
+						// produce a different change depending on where it landed.
+						draft: draft.draft,
+					},
+					`proposing ${draft.head} onto ${draft.base}`,
+				);
+			const raw = await create();
+			const proposed = proposalFrom(
+				draft.repo,
+				raw.trim() === "" ? await afterNoAnswer(draft, create) : raw,
 			);
-			const proposed = proposalFrom(draft.repo, raw);
 
 			// A second call, because the create route does not take them: a
 			// pull request is an issue with a branch, and labels belong to
@@ -494,6 +499,48 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			);
 		},
 	};
+
+	/**
+	 * The change a create made, when the create answered with nothing.
+	 *
+	 * On 6 November `gh api` twice ended a create cleanly with nothing on
+	 * its output and made no pull request, while the same call from a shell
+	 * made one at once. An empty answer says neither whether the change
+	 * exists nor what it is, so the open pull request from the head is
+	 * looked up; when there is none, nothing was made, and creating again
+	 * can't make a second.
+	 */
+	async function afterNoAnswer(
+		draft: ChangeDraft,
+		create: () => Promise<string>,
+	): Promise<string> {
+		const open = await openFrom(draft);
+		if (open !== undefined) return open;
+		const again = await create();
+		if (again.trim() !== "") return again;
+		throw new Error(
+			`GitHub answered proposing ${draft.head} onto ${draft.base} with nothing, twice, and no pull request from ${draft.head} is open.`,
+		);
+	}
+
+	/** The one open pull request from the draft's head, as the API gives it. */
+	async function openFrom(draft: ChangeDraft): Promise<string | undefined> {
+		const slug = slugOf(draft.repo);
+		const owner = slug.split("/")[0] ?? "";
+		const listed: unknown = JSON.parse(
+			(await run(
+				exec,
+				"gh",
+				[
+					"api",
+					`repos/${slug}/pulls?head=${encodeURIComponent(`${owner}:${draft.head}`)}&base=${encodeURIComponent(draft.base)}&state=open`,
+				],
+				`looking for the pull request from ${draft.head}`,
+			)) || "[]",
+		);
+		if (!Array.isArray(listed) || listed.length !== 1) return undefined;
+		return JSON.stringify(listed[0]);
+	}
 
 	/** The change the API handed back, read the way a fetch reads one. */
 	function proposalFrom(repo: RepoLocator, stdout: string): Change {
