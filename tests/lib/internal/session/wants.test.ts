@@ -14,8 +14,10 @@ import {
 	ownWants,
 	SAID_CHARS,
 	sessionWants,
+	showWants,
 	type WantEvent,
 	waitedOn,
+	wantsShown,
 } from "../../../../lib/internal/session/wants.ts";
 
 const AT = new Date("2026-10-22T08:00:00.000Z");
@@ -212,5 +214,22 @@ describe("a panel waited on", () => {
 
 		await expect(waited).rejects.toThrow("session ended");
 		expect(heard.at(-1)).toEqual({ kind: "approval", said: null });
+	});
+});
+
+describe("wants shown to the person", () => {
+	afterEach(() => forgetWants());
+
+	it("are shown while any showing stands, each hidden once", () => {
+		expect(wantsShown()).toBe(false);
+		const old = showWants();
+		// A reload's new copy shows them before the old copy hides its own.
+		const reloaded = showWants();
+		old();
+		old();
+
+		expect(wantsShown()).toBe(true);
+		reloaded();
+		expect(wantsShown()).toBe(false);
 	});
 });

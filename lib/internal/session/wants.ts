@@ -29,10 +29,12 @@ export const SESSION_WANTS = "session:wants:v1";
 
 /**
  * What a session can be waiting on its person for: an answer, an
- * approval, an unattended run that ended blocked, or something only he
- * can do (a login, a look, a yes), said with mesh_wait.
+ * approval, or an unattended run that ended blocked. Something only he
+ * can do while the session carries on, said with mesh_wait, is no want:
+ * the launcher's Needs You reads it from its own file, and the session
+ * is still free to answer its peers.
  */
-export type WantKind = "question" | "approval" | "blocked" | "action";
+export type WantKind = "question" | "approval" | "blocked";
 
 /** What `SESSION_WANTS` carries: a want standing, or one kind ended. */
 export type WantEvent =
@@ -45,12 +47,7 @@ export type WantEvent =
 	  }
 	| { readonly kind: WantKind; readonly said: null };
 
-const KINDS: ReadonlySet<string> = new Set([
-	"question",
-	"approval",
-	"blocked",
-	"action",
-]);
+const KINDS: ReadonlySet<string> = new Set(["question", "approval", "blocked"]);
 
 /** Whether a payload is a want, as this version says one. */
 function isWant(data: unknown): data is WantEvent {
@@ -204,10 +201,40 @@ const OWNERS = Symbol.for("agentic-harness.session-wants-owners");
 
 type OwnersHolder = { [OWNERS]?: Map<string, OwnWants> };
 
-/** Forget this process's wants and their owners. For tests. */
+const SHOWN = Symbol.for("agentic-harness.session-wants-shown");
+
+type ShownHolder = { [SHOWN]?: number };
+
+/**
+ * Say that this process's wants are shown to the person, as the mesh
+ * shows them in the session's presence for the launcher, until the
+ * answer is called. While they are, a want is the one voice for what it
+ * waits on: the launcher already posts a notice for each, so a desktop
+ * notification of the same thing reached Joel twice, and one the
+ * launcher never withdrew. Kept on `globalThis`, like the wants, so a
+ * reload's old copy and new one count the same showing.
+ */
+export function showWants(): () => void {
+	const holder = globalThis as ShownHolder;
+	holder[SHOWN] = (holder[SHOWN] ?? 0) + 1;
+	let hidden = false;
+	return () => {
+		if (hidden) return;
+		hidden = true;
+		holder[SHOWN] = Math.max(0, (holder[SHOWN] ?? 0) - 1);
+	};
+}
+
+/** Whether something shows this process's wants to the person. */
+export function wantsShown(): boolean {
+	return ((globalThis as ShownHolder)[SHOWN] ?? 0) > 0;
+}
+
+/** Forget this process's wants, their owners and their showing. For tests. */
 export function forgetWants(): void {
 	delete (globalThis as Holder)[HELD];
 	delete (globalThis as OwnersHolder)[OWNERS];
+	delete (globalThis as ShownHolder)[SHOWN];
 }
 
 /** One raising per kind on these wants, replaced as what it says changes. */

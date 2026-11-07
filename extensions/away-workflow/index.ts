@@ -63,7 +63,11 @@ import {
 } from "../../lib/internal/away/state.ts";
 import { type Notice, notify } from "../../lib/internal/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
-import { ownWants, sessionWants } from "../../lib/internal/session/wants.ts";
+import {
+	ownWants,
+	sessionWants,
+	wantsShown,
+} from "../../lib/internal/session/wants.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
@@ -153,6 +157,15 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		void notify(notice);
 	};
 
+	/**
+	 * Reach the person about something also said as a want, only when
+	 * nothing shows them the want: where presence does, the launcher's
+	 * notice for it is the one they get.
+	 */
+	const reachUnlessWanted = (notice: Notice | undefined) => {
+		if (!wantsShown()) reach(notice);
+	};
+
 	/** The name a notice gives this session: its document, else its folder. */
 	const where = (): string =>
 		planProgress()?.document ?? (basename(latest?.cwd ?? "") || "pi");
@@ -181,7 +194,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (now.since !== undefined) {
 			// Keep-going speaks for an absence; one voice is enough.
 			stopWaiting();
-			reach(heldNotice(where(), now.since, now.held.length, reached));
+			reachUnlessWanted(
+				heldNotice(where(), now.since, now.held.length, reached),
+			);
 		}
 	});
 
@@ -274,7 +289,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		);
 		if (verdict.kind === "rest" && verdict.why === "blocked") {
 			wanting.say("blocked", blockedLine(finished.lastText) ?? "Blocked");
-			reach(blockedNotice(where(), since, finished.lastText, reached));
+			reachUnlessWanted(
+				blockedNotice(where(), since, finished.lastText, reached),
+			);
 			return;
 		}
 		if (verdict.kind === "stop") {
@@ -328,7 +345,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		const progress = planProgress();
 		if (!progress || progress.total - progress.done <= 0) return;
 		const asked = endsAsking(finished.lastText);
-		if (asked) reach(askedNotice(where(), finished.lastText, carrying));
+		if (asked) {
+			reachUnlessWanted(askedNotice(where(), finished.lastText, carrying));
+		}
 		const job = startJob(
 			"carry-on",
 			"carry on with the plan while nobody answers",

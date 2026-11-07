@@ -31,6 +31,7 @@ import {
 import {
 	forgetWants,
 	onWants,
+	showWants,
 	type WantEvent,
 } from "../../../lib/internal/session/wants.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
@@ -287,6 +288,24 @@ describe("reaching the person", () => {
 		expect(desktop.map((n) => n.body)).toEqual([
 			"needs your npm one-time password.",
 		]);
+	});
+
+	it("leaves what it wants to the launcher while presence shows its wants", async () => {
+		// The launcher posts a notice for each want in presence, so a desktop
+		// notification of the same held call or Blocked: reached Joel twice,
+		// and the second one was never withdrawn.
+		const hide = showWants();
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		hold({ guard: "pr", title: "Open PR #1" });
+		await pi.runEnds("Blocked: needs your npm one-time password.");
+		for (let i = 0; i < 3; i++) await pi.runEnds("Hmm.", 0);
+		hide();
+
+		// Resting is no want, so it still says so, quietly.
+		expect(desktop.map((n) => n.urgency)).toEqual(["low"]);
 	});
 
 	it("says quietly that a session rests once it stops being sent back", async () => {

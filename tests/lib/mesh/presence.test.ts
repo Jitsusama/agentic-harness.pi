@@ -20,6 +20,7 @@ import {
 	repositoryName,
 	windowTitle,
 } from "../../../lib/mesh/presence.ts";
+import { wantId } from "../../../lib/mesh/want.ts";
 
 let root: string;
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
@@ -277,8 +278,9 @@ describe("this session's peer", () => {
 		const at = surroundings();
 		const peer = localPeer(at);
 		peer.want({
-			kind: "action",
-			said: "a login",
+			id: wantId("question", "2026-10-26T06:00:00Z"),
+			kind: "question",
+			said: "Which launcher?",
 			since: "2026-10-26T06:00:00Z",
 		});
 
@@ -452,10 +454,20 @@ describe("this session's peer", () => {
 			const peer = localPeer(surroundings());
 			const since = new Date(0).toISOString();
 
-			peer.want({ kind: "question", since, said: "Shall I merge it?" });
+			peer.want({
+				id: wantId("question", since),
+				kind: "question",
+				since,
+				said: "Shall I merge it?",
+			});
 			expect(peer.wants).toBeUndefined();
 
-			peer.want({ kind: "approval", since, said: "git push" });
+			peer.want({
+				id: wantId("approval", since),
+				kind: "approval",
+				since,
+				said: "git push",
+			});
 			expect(peer.wants).toMatchObject({ kind: "approval" });
 		});
 
@@ -559,11 +571,13 @@ describe("this session's peer", () => {
 	it("says what it waits on its person for, longest first, until each is settled", () => {
 		const peer = localPeer(surroundings());
 		const asked = {
+			id: wantId("question", "2026-10-22T08:00:00.000Z"),
 			kind: "question" as const,
 			since: "2026-10-22T08:00:00.000Z",
 			said: "Which launcher?",
 		};
 		const held = {
+			id: wantId("approval", "2026-10-22T07:50:00.000Z"),
 			kind: "approval" as const,
 			since: "2026-10-22T07:50:00.000Z",
 			said: "Push to main?",
@@ -584,6 +598,7 @@ describe("this session's peer", () => {
 	it("waits on nothing after a start, whatever its presence said", () => {
 		const peer = localPeer(surroundings());
 		peer.want({
+			id: wantId("blocked", "2026-10-22T08:00:00.000Z"),
 			kind: "blocked",
 			since: "2026-10-22T08:00:00.000Z",
 			said: "Blocked: needs Joel's say on the launcher",

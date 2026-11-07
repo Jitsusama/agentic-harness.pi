@@ -365,13 +365,13 @@ export function registerTools(
 				Type.Boolean({ description: "It no longer waits: settles the item" }),
 			),
 		}),
-		execute: using((at, params: Parameters<typeof waitOnPerson>[2]) => {
+		execute: using((at, params: Parameters<typeof waitOnPerson>[1]) => {
 			if (!at.waiting) {
 				return answer(
 					"Nothing was kept: this pi keeps no folder for what waits on the person.",
 				);
 			}
-			const outcome = waitOnPerson(at.peer, at.waiting, params);
+			const outcome = waitOnPerson(at.waiting, params);
 			return answer(outcome.text, {
 				written: outcome.written,
 				items: outcome.items,
@@ -1504,7 +1504,6 @@ const WANTING: Record<WantKind, string> = {
 	question: "asked",
 	approval: "held at an approval",
 	blocked: "blocked",
-	action: "waiting on them for",
 };
 
 /** The stops on this peer, said to it. */

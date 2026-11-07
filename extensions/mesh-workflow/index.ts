@@ -88,7 +88,7 @@ import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
-import { onWants } from "../../lib/internal/session/wants.ts";
+import { onWants, showWants } from "../../lib/internal/session/wants.ts";
 import { onJobFinished } from "../../lib/jobs/host.ts";
 import { loadedQuest, type QuestRecords } from "../../lib/mesh/address.ts";
 import {
@@ -201,7 +201,7 @@ import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
 import { tellOnNoModel, tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
-import { seedWaiting, settleFromVerdicts, type Waiting } from "./wait.ts";
+import { settleFromVerdicts, type Waiting } from "./wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -486,6 +486,9 @@ export function meshWorkflow(
 		const awaiting = createAwaiting();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
+		// While a peer stands, its presence shows this session's wants, so
+		// nothing else need notify the person of them (wants.ts).
+		let hideWants: (() => void) | undefined;
 		// What this session's quest has waiting on the person (wait.ts).
 		const waiting: Waiting | undefined = paths.waiting
 			? {
@@ -1218,9 +1221,11 @@ export function meshWorkflow(
 				...terminalOf(),
 			});
 			for (const want of wanting.values()) peer.want(want);
+			hideWants?.();
+			hideWants = showWants();
 			for (const landing of unlanded.splice(0)) peer.landed(landing);
 			if (onNoModelUntold) tellNoModel(onNoModelUntold);
-			if (waiting) seedWaiting(peer, waiting);
+			if (waiting) settleFromVerdicts(waiting);
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
 			env[MESH_SESSION_ENV] = peer.session;
@@ -1390,7 +1395,7 @@ export function meshWorkflow(
 			tidy();
 			peer?.setBusy(false);
 			// What the desktop's daemon found done or ready since (wait.ts).
-			if (peer && waiting) settleFromVerdicts(peer, waiting);
+			if (waiting) settleFromVerdicts(waiting);
 			// What a run claimed is claimed only while it runs.
 			own?.releaseAll(RUN_KINDS);
 		});
@@ -1430,6 +1435,8 @@ export function meshWorkflow(
 			// which the session heard nothing more (and on 22 October, a
 			// reload's landing note did the same).
 			peer = undefined;
+			hideWants?.();
+			hideWants = undefined;
 		});
 
 		/** Claim or give up heavy work, saying so when it overlaps another's. */

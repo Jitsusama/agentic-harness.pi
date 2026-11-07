@@ -11,9 +11,9 @@
  * its items, each with an id, what it is, why it waits, how many
  * minutes it takes, when, the window it is done in, its quest, and
  * whether he can do it now. The file outlives the session that wrote
- * it, so what waits on him is not lost when a session ends; presence
- * only mirrors it, and only what is ready, since the desktop raises a
- * notice for each want a session's presence says.
+ * it, so what waits on him is not lost when a session ends. Presence
+ * says none of it: the session carries on while he does it, so it is
+ * free to answer, and the launcher already shows the file.
  *
  * Each file is written whole under a temporary name beside it and
  * renamed in, so a reader never sees half of one, and a file left with
@@ -40,7 +40,6 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { questAddress } from "./address.ts";
-import type { Want } from "./want.ts";
 
 /** The version of a quest's file this writes. */
 export const WAITING_VERSION = 2;
@@ -191,29 +190,6 @@ export function applyVerdicts(
 /** Remove what `quest` has waiting, as the quest ends. */
 export function clearWaiting(folder: string, quest: string): void {
 	rmSync(waitingFile(folder, quest), { force: true });
-}
-
-/**
- * The want presence says for what waits: the first item ready, and how
- * many more are, or nothing while none is. An item not ready is kept in
- * the file alone, for the launcher's Waiting on you, since a want in
- * presence raises a notice and he can't do it yet. A want already
- * standing keeps its time, so he sees how long he has been waited on.
- */
-export function wantFor(
-	items: readonly WaitingItem[],
-	standing: string | undefined,
-	now: Date,
-): Want | undefined {
-	const ready = items.filter((one) => one.ready);
-	const [first] = ready;
-	if (!first) return undefined;
-	const more = ready.length > 1 ? ` and ${ready.length - 1} more` : "";
-	return {
-		kind: "action",
-		since: standing ?? now.toISOString(),
-		said: `${first.title}${more}`,
-	};
 }
 
 /** A quest's file, as the launcher reads it. */

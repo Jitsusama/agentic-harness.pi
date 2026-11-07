@@ -29,16 +29,28 @@ export const WANT_KINDS: readonly WantKind[] = [
 	"question",
 	"approval",
 	"blocked",
-	"action",
 ];
 
 /** One thing a peer is waiting on its person for. */
 export interface Want {
+	/**
+	 * Which want this is, the same however its words change: a count of
+	 * calls held or the latest of them changes what it says, and the
+	 * launcher keyed its notice by the words, so each change posted the
+	 * notice and its sound again. Its kind and when it began, which a
+	 * want keeps until it ends.
+	 */
+	readonly id: string;
 	readonly kind: WantKind;
 	/** When it began waiting, as an ISO time. */
 	readonly since: string;
 	/** What it asked or said, in one short line. */
 	readonly said: string;
+}
+
+/** The id a want of this kind, begun then, goes by. */
+export function wantId(kind: WantKind, since: string): string {
+	return `${kind}@${since}`;
 }
 
 /**
@@ -63,9 +75,11 @@ export function wantFrom(value: unknown): Want | undefined {
 	if (!isWantKind(one.kind) || typeof one.said !== "string") return undefined;
 	const since = typeof one.since === "string" ? Date.parse(one.since) : NaN;
 	if (!Number.isFinite(since)) return undefined;
+	const began = new Date(since).toISOString();
 	return {
+		id: wantId(one.kind, began),
 		kind: one.kind,
-		since: new Date(since).toISOString(),
+		since: began,
 		said: oneLine(one.said),
 	};
 }

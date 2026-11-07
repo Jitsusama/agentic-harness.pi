@@ -51,7 +51,10 @@ import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
 } from "../../../lib/internal/session/rollover.ts";
-import { SESSION_WANTS } from "../../../lib/internal/session/wants.ts";
+import {
+	SESSION_WANTS,
+	wantsShown,
+} from "../../../lib/internal/session/wants.ts";
 import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
 import {
 	MOST_CAUGHT_UP,
@@ -2164,7 +2167,12 @@ describe("groups", () => {
 				worksOn: "",
 				owns: [],
 				busy: false,
-				wants: { kind: "approval", since, said: "Push to main?" },
+				wants: {
+					id: `approval@${since}`,
+					kind: "approval",
+					since,
+					said: "Push to main?",
+				},
 				...(ended ? { owner: { pid: process.pid, startedAt: 1 } } : {}),
 				at: new Date().toISOString(),
 			});
@@ -2254,12 +2262,16 @@ describe("groups", () => {
 			undefined,
 			(early) => early(SESSION_WANTS, held),
 		);
-		expect(kept()).toEqual(held);
+		const withId = (want: { kind: string; since: string }) => ({
+			...want,
+			id: `${want.kind}@${want.since}`,
+		});
+		expect(kept()).toEqual(withId(held));
 
 		emit(SESSION_WANTS, asked);
-		expect(kept()).toEqual(held);
+		expect(kept()).toEqual(withId(held));
 		emit(SESSION_WANTS, { kind: "approval", said: null });
-		expect(kept()).toEqual(asked);
+		expect(kept()).toEqual(withId(asked));
 		emit(SESSION_WANTS, { kind: "question", said: null });
 		expect(kept()).toBeUndefined();
 		emit(SESSION_WANTS, { kind: "lunch", since: held.since, said: "hi" });
@@ -2643,7 +2655,16 @@ describe("a message that names no group", () => {
 		);
 	});
 
-	it("says in presence what the file already holds, as a session starts", async () => {
+	it("shows the session's wants while its peer stands, so nothing else notifies", async () => {
+		const { fire } = await startSession();
+		expect(wantsShown()).toBe(true);
+
+		await fire("session_shutdown");
+
+		expect(wantsShown()).toBe(false);
+	});
+
+	it("says nothing in presence of what the file holds, as a session starts", async () => {
 		paths = { ...paths, waiting: join(root, "waiting") };
 		mkdirSync(paths.waiting ?? "", { recursive: true });
 		writeFileSync(
@@ -2670,7 +2691,7 @@ describe("a message that names no group", () => {
 
 		expect(
 			createPresences(join(paths.mesh, "presence")).of(session)?.wants,
-		).toMatchObject({ kind: "action", said: "Look at the sheet" });
+		).toBeUndefined();
 	});
 
 	it("tells the orchestrator when a quest or document ends", async () => {
@@ -2807,7 +2828,7 @@ describe("a message that names no group", () => {
 		expect(transport.ids()).toEqual([]);
 	});
 
-	it("keeps what waits on the person where the launcher reads it, mirrored in presence", async () => {
+	it("keeps what waits on the person where the launcher reads it, and out of presence", async () => {
 		paths = { ...paths, waiting: join(root, "waiting") };
 		const { tools } = await startSession();
 		const wait = (params: Record<string, unknown>) =>
@@ -2890,10 +2911,8 @@ describe("a message that names no group", () => {
 				},
 			],
 		});
-		expect(presence()?.wants).toMatchObject({
-			kind: "action",
-			said: "Log in to eero",
-		});
+		expect(presence()?.wants).toBeUndefined();
+		expect(presence()?.state).not.toBe("waiting");
 
 		const refused = await wait({ id: "look", title: "Look" });
 		expect(refused?.content[0]?.text).toContain("Nothing was kept");

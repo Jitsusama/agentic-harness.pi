@@ -195,8 +195,9 @@ and can answer a question or a gate left open on screen.
   waiting on the person that only they can do, or with `done`
   that it no longer waits. It is kept in
   `~/.local/state/mission/waiting/<ADDRESS>.json` (version 2), the
-  file the launcher's Needs You reads, so it outlives the session;
-  presence mirrors what is ready as an `action` want. Every item
+  file the launcher's Needs You reads, so it outlives the session.
+  It is no want in presence, since the session carries on and is
+  still free to answer its peers. Every item
   says how it will be known done (`doneWhen`: a check, a signal
   such as `boot` or `signin:google`, or `by: person`), and may say
   what it waits for first (`readyWhen`). The desktop's daemon
@@ -786,15 +787,23 @@ until he answers, and its presence would say only that it is
 idle. So while it waits, its presence carries `wants`:
 
 ```json
-{ "kind": "question", "since": "2026-10-22T08:00:00.000Z", "said": "Which launcher?" }
+{
+  "id": "question@2026-10-22T08:00:00.000Z",
+  "kind": "question",
+  "since": "2026-10-22T08:00:00.000Z",
+  "said": "Which launcher?"
+}
 ```
 
 `kind` is `question`, `approval` or `blocked`; `since` is when
 it began waiting; `said` is what it asked or said, on one line
-of at most 120 characters. Each kind stands until it is
+of at most 120 characters. `id` is its kind and `since`, which
+stay put while `said` changes with a count of calls held, so a
+launcher keys its notice by `id` and posts it once. Each kind stands until it is
 settled, and while more than one stands, presence holds the
 one that has stood longest. The field is absent when nothing
-waits. The desktop reads it to mark a session that wants Joel;
+waits. The desktop reads it to mark a session that wants Joel, and
+posts the one notice for it;
 a peer can read it, and `mesh_groups` lists it, so none is
 waited on as though it were free.
 
