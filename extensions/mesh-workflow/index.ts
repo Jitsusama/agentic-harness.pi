@@ -147,6 +147,7 @@ import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
+import { toolDetail } from "../../lib/mesh/step.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
 	answers,
@@ -158,6 +159,12 @@ import {
 } from "../../lib/mesh/thread.ts";
 import { toldIn } from "../../lib/mesh/told.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
+import {
+	localDay,
+	noUsage,
+	usageFromLog,
+	withCall,
+} from "../../lib/mesh/usage.ts";
 import { waitingFolder } from "../../lib/mesh/waiting.ts";
 import { type Want, type WantKind, wantFrom } from "../../lib/mesh/want.ts";
 import {
@@ -486,6 +493,8 @@ export function meshWorkflow(
 		const awaiting = createAwaiting();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
+		// The model call under way, timed for the usage presence says.
+		let call: { startedAt: number; firstTokenAt?: number } | undefined;
 		// While a peer stands, its presence shows this session's wants, so
 		// nothing else need notify the person of them (wants.ts).
 		let hideWants: (() => void) | undefined;
@@ -1221,6 +1230,10 @@ export function meshWorkflow(
 				...terminalOf(),
 			});
 			for (const want of wanting.values()) peer.want(want);
+			// Today's usage, carried in its last presence or counted from its log.
+			if (!peer.usage) {
+				peer.setUsage(usageFromLog(branch, new Date()));
+			}
 			hideWants?.();
 			hideWants = showWants();
 			for (const landing of unlanded.splice(0)) peer.landed(landing);
@@ -1375,13 +1388,39 @@ export function meshWorkflow(
 		// a talk the person follows hears the step, its reply as it is
 		// written, and the reply once the run settles.
 		pi.on("tool_execution_start", async (event) => {
-			peer?.setStep(event.toolName);
+			peer?.setStep(event.toolName, toolDetail(event.args));
 			talks.step(event.toolName);
 		});
+		// Each model call: thinking until it answers, and timed for usage.
+		pi.on("turn_start", async () => {
+			call = { startedAt: Date.now() };
+			peer?.setThinking();
+		});
 		pi.on("message_update", async (event) => {
+			if (event.message.role === "assistant" && call && !call.firstTokenAt) {
+				call = { ...call, firstTokenAt: Date.now() };
+			}
 			talks.writing(assistantText(event.message));
 		});
-		pi.on("message_end", async (event) => {
+		pi.on("message_end", async (event, ctx) => {
+			if (peer && event.message.role === "assistant") {
+				const context = ctx.getContextUsage?.();
+				peer.setUsage(
+					withCall(peer.usage ?? noUsage(localDay(new Date())), event.message, {
+						at: new Date(),
+						...call,
+						...(context
+							? {
+									context: {
+										used: context.tokens,
+										limit: context.contextWindow,
+									},
+								}
+							: {}),
+					}),
+				);
+				call = undefined;
+			}
 			// The steer's own message, once in the conversation, is what
 			// takes its talk into the run that answers it.
 			talks.heard(userText(event.message));

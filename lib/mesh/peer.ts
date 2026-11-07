@@ -46,7 +46,9 @@ import {
 	type QuestInfo,
 	workOf,
 } from "./presence.ts";
+import { type StepDetail, stepName } from "./step.ts";
 import type { Stop } from "./stop.ts";
+import { carriedUsage, type SessionUsage } from "./usage.ts";
 import {
 	longestStanding,
 	type Want,
@@ -116,12 +118,18 @@ export interface Peer {
 	 */
 	park(): void;
 	/**
-	 * Say the step a run is on, such as the tool it is running. Said at
-	 * most once every STEP_MS, since the desktop watches presence and
-	 * a run starts a tool every few seconds; the newest step said inside
-	 * that window is said when it ends.
+	 * Say the step a run is on: the tool it is running, and what the call
+	 * is about (see step.ts). Said at most once every STEP_MS, since the
+	 * desktop watches presence and a run starts a tool every few seconds;
+	 * the newest step said inside that window is said when it ends.
 	 */
-	setStep(step: string): void;
+	setStep(tool: string, detail?: string): void;
+	/** Say the run is thinking between tools, under the same clock. */
+	setThinking(): void;
+	/** What its model calls took, carried in from its last presence today. */
+	readonly usage: SessionUsage | undefined;
+	/** Keep this usage, said with the next presence written (usage.ts). */
+	setUsage(usage: SessionUsage): void;
 	/** Join a canonical group; answers whether it was new. */
 	join(group: string): boolean;
 	/**
@@ -183,6 +191,54 @@ export function stateOf(
 	if (paused) return "paused";
 	if (busy) return "busy";
 	return waiting ? "waiting" : "listening";
+}
+
+/** A step as a run says it, and when it began. */
+interface Step {
+	readonly kind: "tool" | "thinking";
+	readonly name: string;
+	readonly detail: string;
+	readonly began: number;
+}
+
+/** Whether two steps are the same, whenever each began. */
+function sameStep(one: Step, other: Step): boolean {
+	return (
+		one.kind === other.kind &&
+		one.name === other.name &&
+		one.detail === other.detail
+	);
+}
+
+/**
+ * The step presence says in full: waiting, while the person's want
+ * stands mid-run, since a gate is holding the run; else the step said.
+ */
+function stepDetailOf(
+	busy: boolean,
+	step: Step | undefined,
+	want: Want | undefined,
+): { stepDetail?: StepDetail } {
+	if (!busy) return {};
+	if (want) {
+		return {
+			stepDetail: {
+				kind: "waiting",
+				name: want.kind,
+				detail: want.said,
+				since: want.since,
+			},
+		};
+	}
+	if (!step) return {};
+	return {
+		stepDetail: {
+			kind: step.kind,
+			name: step.name,
+			detail: step.detail,
+			since: new Date(step.began).toISOString(),
+		},
+	};
 }
 
 /** A presence's title field, when there is a title to say. */
@@ -249,21 +305,48 @@ export function localPeer(at: Surroundings): Peer {
 	let busy = false;
 	// When the run in progress began, and the step it was last said on.
 	let since: string | undefined;
-	let step: { text: string; at: number } | undefined;
+	let step: (Step & { at: number }) | undefined;
 	// The newest step said inside the window, said when the window ends,
 	// so a long tool started just after a short one is not hidden by it.
-	let pending: string | undefined;
+	let pending: Step | undefined;
 	let trailing: ReturnType<typeof setTimeout> | undefined;
 	const dropPending = () => {
 		if (trailing) clearTimeout(trailing);
 		trailing = undefined;
 		pending = undefined;
 	};
-	const sayStep = (text: string) => {
-		step = { text, at: now() };
+	const sayStep = (next: Step) => {
+		step = { ...next, at: now() };
 		publish();
 	};
+	const offerStep = (next: Step) => {
+		if (!busy) return;
+		if (step && sameStep(step, next)) {
+			pending = undefined;
+			return;
+		}
+		const wait = step ? STEP_MS - (now() - step.at) : 0;
+		if (wait <= 0) {
+			dropPending();
+			sayStep(next);
+			return;
+		}
+		pending = next;
+		if (trailing) return;
+		trailing = setTimeout(() => {
+			const later = pending;
+			trailing = undefined;
+			pending = undefined;
+			if (busy && later && !(step && sameStep(step, later))) sayStep(later);
+		}, wait);
+		trailing.unref?.();
+	};
+	// Every want standing, the person's or not; presence says which.
 	const wanting = new Map<WantKind, Want>();
+	const forPerson = (want: Want) =>
+		wantsThePerson(want.kind, roles.orchestratedBy);
+	const personal = () => [...wanting.values()].filter(forPerson);
+	let usage = carriedUsage(before?.usage, new Date(now()));
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
 	// What was last published, less its time, so an unchanged presence is
 	// not written again.
@@ -279,10 +362,21 @@ export function localPeer(at: Surroundings): Peer {
 			owns: receiver.owns,
 			...(quest ? { quest } : {}),
 			busy,
-			state: stateOf(busy, wanting.size > 0, paused, parked),
+			state: stateOf(busy, personal().length > 0, paused, parked),
 			...(busy && since ? { since } : {}),
-			...(busy && step ? { step: step.text } : {}),
-			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
+			...(busy && step ? { step: stepName(step) } : {}),
+			...stepDetailOf(busy, step, longestStanding(personal())),
+			...(personal().length > 0 ? { wants: longestStanding(personal()) } : {}),
+			...(wanting.size > 0
+				? {
+						wanting: [...wanting.values()]
+							.sort(
+								(one, other) => Date.parse(one.since) - Date.parse(other.since),
+							)
+							.map((want) => ({ ...want, forPerson: forPerson(want) })),
+					}
+				: {}),
+			...(usage ? { usage } : {}),
 			...(landings.length > 0 ? { landings } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 			...titled(at.title?.()),
@@ -372,7 +466,13 @@ export function localPeer(at: Surroundings): Peer {
 			return roles.orchestrates;
 		},
 		get wants() {
-			return longestStanding(wanting.values());
+			return longestStanding(personal());
+		},
+		get usage() {
+			return usage;
+		},
+		setUsage(next) {
+			usage = next;
 		},
 		get yieldedTo() {
 			return yieldedTo;
@@ -389,7 +489,6 @@ export function localPeer(at: Surroundings): Peer {
 			publish();
 		},
 		want(want) {
-			if (!wantsThePerson(want.kind, roles.orchestratedBy)) return;
 			wanting.set(want.kind, want);
 			publish();
 		},
@@ -416,27 +515,11 @@ export function localPeer(at: Surroundings): Peer {
 			parked = true;
 			publish();
 		},
-		setStep(text) {
-			if (!busy) return;
-			if (step?.text === text) {
-				pending = undefined;
-				return;
-			}
-			const wait = step ? STEP_MS - (now() - step.at) : 0;
-			if (wait <= 0) {
-				dropPending();
-				sayStep(text);
-				return;
-			}
-			pending = text;
-			if (trailing) return;
-			trailing = setTimeout(() => {
-				const next = pending;
-				trailing = undefined;
-				pending = undefined;
-				if (busy && next !== undefined && next !== step?.text) sayStep(next);
-			}, wait);
-			trailing.unref?.();
+		setStep(tool, detail = "") {
+			offerStep({ kind: "tool", name: tool, detail, began: now() });
+		},
+		setThinking() {
+			offerStep({ kind: "thinking", name: "", detail: "", began: now() });
 		},
 		join(group) {
 			if (joined.includes(group)) return false;

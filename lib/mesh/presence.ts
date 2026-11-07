@@ -31,8 +31,10 @@ import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import { loadedQuest, type QuestRecords, questAddress } from "./address.ts";
 import { scopesOf } from "./scope.ts";
+import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
+import { isUsage, type SessionUsage } from "./usage.ts";
 import { type Want, wantFrom } from "./want.ts";
 
 /** Every state a presence may say. */
@@ -158,8 +160,24 @@ export interface Presence {
 	readonly cwd?: string;
 	/** The repository that folder is a checkout of, by name, when it is one. */
 	readonly repo?: string;
+	/**
+	 * Every want standing, oldest first, each saying whether it is the
+	 * person's to answer: an orchestrated session's question is its
+	 * orchestrator's. `wants` stays the person's longest standing, as
+	 * every peer reads it. Missing while none stands.
+	 */
+	readonly wanting?: readonly StandingWant[];
+	/** The step a run is on, in full, while busy (see step.ts). */
+	readonly stepDetail?: StepDetail;
+	/** What its model calls took, today and last (see usage.ts). */
+	readonly usage?: SessionUsage;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
+}
+
+/** A want standing, and whether it is the person's to answer. */
+export interface StandingWant extends Want {
+	readonly forPerson: boolean;
 }
 
 /** A session's quest as the launcher draws it. */
@@ -503,8 +521,25 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(isQuestInfo(one.questInfo) ? { questInfo: one.questInfo } : {}),
 		...(typeof one.cwd === "string" ? { cwd: one.cwd } : {}),
 		...(typeof one.repo === "string" ? { repo: one.repo } : {}),
+		...(standingFrom(one.wanting).length > 0
+			? { wanting: standingFrom(one.wanting) }
+			: {}),
+		...(isStepDetail(one.stepDetail) ? { stepDetail: one.stepDetail } : {}),
+		...(isUsage(one.usage) ? { usage: one.usage } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
+}
+
+/** The wants a presence lists, skipping any this version can't read. */
+function standingFrom(value: unknown): StandingWant[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((one) => {
+		const want = wantFrom(one);
+		const forPerson = (one as { forPerson?: unknown } | null)?.forPerson;
+		return want && typeof forPerson === "boolean"
+			? [{ ...want, forPerson }]
+			: [];
+	});
 }
 
 function isQuestInfo(value: unknown): value is QuestInfo {
