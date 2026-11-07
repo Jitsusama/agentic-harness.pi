@@ -69,6 +69,7 @@ import {
 	ORPHAN_LOOK_WINDOW_MS,
 	recoverReviewerRuns,
 } from "../../lib/subagent/recovery.ts";
+import { watchRun } from "../../lib/subagent/run-record.ts";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
 import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
 import { type Aside, asideFor } from "../../lib/ui/aside.ts";
@@ -898,6 +899,26 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					`could not clear an earlier cancellation of ${runId}, so its jobs may stop the moment they start`,
 					say,
 				);
+				// Said in its run record while it goes on, for the launcher,
+				// under the session waiting on it.
+				const record =
+					session === undefined
+						? undefined
+						: watchRun(
+								{
+									store: "fleet",
+									artifacts: runs,
+									runId,
+									kind: "fleet",
+									parent: session,
+									about: runId,
+									since: new Date(),
+								},
+								assignments.map(({ spec }) => ({
+									id: spec.id,
+									...(spec.model === undefined ? {} : { model: spec.model }),
+								})),
+							);
 				// Whether anything was cut off before it could answer. Set
 				// inside the try and read in the finally, because the finally
 				// is the only place that sees both endings.
@@ -929,6 +950,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						details: { ok: true, ...located },
 					};
 				} finally {
+					await record?.end();
 					// From a finally, because a failed fleet is handed back like
 					// any other: the caller has the result and can go and look.
 					// Settling only on the happy path would protect every failure

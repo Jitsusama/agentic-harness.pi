@@ -104,6 +104,12 @@ companion skill.
   right now from one nobody came back for: both are open
   records, and only the second is worth mentioning or safe
   to offer to release.
+- `run-record.ts`: what a fleet or a review round is
+  doing, said for the launcher under the session that
+  started it: one file per run in the mesh's `runs/`
+  folder, rebuilt from each member's request, lease and
+  result while the run goes on. The file's shape is in
+  mesh-workflow's README.
 - `errno.ts`: what a filesystem error was, and how a run
   id is spelled as a path segment. Both are one definition
   because a caller reading "broken" as "missing" answers

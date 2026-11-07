@@ -148,6 +148,7 @@ import {
 } from "../roster.ts";
 import { watchStartedRound } from "../round-job.ts";
 import { roundToRead } from "../round-to-read.ts";
+import { askedInRound, roundDispatched, roundOpened } from "../run-records.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
 import {
 	type Answer,
@@ -910,8 +911,10 @@ async function startRound(
 			// the only thing that will ever say these seven directories
 			// were a round, so failing to write it has to stop the round
 			// rather than cost it later.
-			opened: (opening) =>
-				store.keep(change, { ...opening, startedBy: sessionKey() }),
+			opened: (opening) => {
+				roundOpened(change, opening);
+				return store.keep(change, { ...opening, startedBy: sessionKey() });
+			},
 			warmed: (participant, runId) => firstResponseOf(runId, participant.id),
 			async start(participant, asked, runId) {
 				await startReviewer({
@@ -960,6 +963,9 @@ async function startRound(
 	// Left there it is an alarm about a round that never ran, pointing
 	// at directories that will always be empty.
 	const kept = await keptOnLedger(change, run);
+	// Its record says each reviewer until it ends, and anyone who could
+	// not be started as failed.
+	await roundDispatched(run.id);
 
 	// Held as a job where a host is loaded, so the model is told when
 	// the round is ready rather than polling for it. Only once something
@@ -2413,127 +2419,15 @@ function deps(
 	return {
 		warmed: (participant: Participant, runId: string) =>
 			firstResponseOf(runId, participant.id, watch.signalFor(participant.id)),
-		async ask(
+		// Said in the round's run record while it goes on, for the launcher.
+		ask: (
 			participant: Participant,
 			prompt: string,
 			context: AskContext,
-		): Promise<AskAnswer> {
-			// This participant's, which is the round's unless it keeps its
-			// own. Resolved here rather than once for the round, because a
-			// clock sized for the slowest member is a clock every faster
-			// member is also held to.
-			const budget = (await bounds)(participant);
-			// Taken here rather than from the result, since what a run cost
-			// in wall time is a fact about the round and the runner does
-			// not report one.
-			const startedAt = Date.now();
-			const result = await runReviewer({
-				reviewer: {
-					id: participant.id,
-					...(participant.model === undefined
-						? {}
-						: { model: participant.model }),
-					...(participant.thinkingLevel === undefined
-						? {}
-						: {
-								thinkingLevel:
-									participant.thinkingLevel as ReviewerThinkingLevel,
-							}),
-					...(participant.tools === undefined
-						? {}
-						: { tools: participant.tools }),
-				},
-				prompt,
-				cwd,
-				isolated: ISOLATED,
-				// The round's output contract, which is what the prompt means
-				// by "your output contract skill". Attaching it here rather
-				// than restating it in the prompt keeps one copy: a contract
-				// stated twice drifts, and the copy in the prompt is the one
-				// nobody updates.
-				extraSkills: [contract],
-				// So a finding survives the reviewer that found it. Every
-				// other protection here recovers an answer, and an answer
-				// only exists if the reviewer reached the end.
-				...(RECORDS_FINDINGS.has(watch.round)
-					? { extraExtensions: [journalPack()] }
-					: {}),
-				// The charter is a standing instruction, and the system prompt
-				// says so, but it rides after the round's brief: every
-				// participant's request is then the same up to the end of the
-				// brief, which the first writes to the cache and the rest read.
-				...lensFor(charters.get(participant.id)),
-				// Supervised rather than fire-and-forget, so the reviewer
-				// leaves a transcript, a stderr log and a resumable session
-				// under the round's own directory. The spawn runner kept all
-				// of that in memory and dropped it, which is why a round that
-				// cost fifty dollars could be investigated only by paying for
-				// it again.
-				runPi: reviewerRunner(getParentPiInstall(), runArtifactDir()),
-				// Names what this reviewer leaves behind after the round that
-				// paid for it, so a transcript can be found from the ledger.
-				runId: context.runId,
-				// Two things, both of which need the session the supervisor
-				// persists: a resume after a transient provider drop, and,
-				// for a reviewer we stopped, an ask for the findings it had
-				// already formed. The second is the one that matters here,
-				// since a stop carries no error and so can never reach the
-				// first.
-				autoResume: true,
-				// Cancellable, so Escape on the panel really stops the work
-				// rather than only hiding it. The runner kills the child on
-				// abort; all that was ever missing was passing the signal down.
-				// This participant's own, so cancelling one leaves the rest
-				// running. It is derived from the round's, so Escape still
-				// reaches every one of them.
-				signal: watch.signalFor(participant.id),
-				// Bounded twice, and the idle clock is the one doing the work:
-				// it catches a participant that has gone silent, while the wall
-				// clock only backstops one that nothing else will stop. Bounding
-				// on the wall clock alone is what killed six rounds of reviewers
-				// that were still working.
-				...budget,
-				// The one place a subprocess becomes something a person can
-				// watch. The library cannot see a stream, so it is told.
-				...(context.report === undefined
-					? {}
-					: {
-							onEvent(event) {
-								const activity = summarizeStreamActivity(event);
-								if (activity !== null) context.report?.(activity);
-							},
-						}),
-			});
-			// Counted before it is read, and counted whatever it turns
-			// out to say. This is the same publication a fleet makes for
-			// each of its subagents, and it is what puts a round in the
-			// footer meter and in the run table beside one.
-			recordReviewerRun({
-				runId: billTo ?? context.runId,
-				participantId: participant.id,
-				...(participant.model === undefined
-					? {}
-					: { model: participant.model }),
-				// Left unset, the child inherits pi's default, which this
-				// process cannot see, so unset records as unknown.
-				thinkingLevel: participant.thinkingLevel ?? null,
-				startedAt,
-				result,
-			});
-			// Told what it was allowed, so a stop records the clock it ran
-			// out of rather than only that one did. A retry cannot
-			// otherwise tell whether anything has changed since.
-			const answer = answerFromReviewer(result, budget);
-			if ("failure" in answer) return answer;
-			// Kept before it is read, and kept whatever it turns out to
-			// hold. An answer that parses is already represented by its
-			// findings; the one worth keeping is the one that does not,
-			// and that is exactly the one the old path threw away.
-			return {
-				...answer,
-				answerPath: await keptAt(context.runId, participant.id, answer.text),
-			};
-		},
+		): Promise<AskAnswer> =>
+			askedInRound(change, watch.round, context.runId, participant, () =>
+				askOne(participant, prompt, context),
+			),
 		record(raised: Omit<Finding, "id">[]) {
 			return findings.record(change, raised);
 		},
@@ -2543,6 +2437,7 @@ function deps(
 		// nothing records until it is over. Recorded rather than
 		// replaced, since at this point the round is new.
 		async opened(run: AskRun) {
+			roundOpened(change, run);
 			try {
 				await createRunStore(runDir()).keep(change, {
 					...run,
@@ -2559,6 +2454,125 @@ function deps(
 		// the whole reason this exists.
 		progress: watch.progress,
 	};
+
+	async function askOne(
+		participant: Participant,
+		prompt: string,
+		context: AskContext,
+	): Promise<AskAnswer> {
+		// This participant's, which is the round's unless it keeps its
+		// own. Resolved here rather than once for the round, because a
+		// clock sized for the slowest member is a clock every faster
+		// member is also held to.
+		const budget = (await bounds)(participant);
+		// Taken here rather than from the result, since what a run cost
+		// in wall time is a fact about the round and the runner does
+		// not report one.
+		const startedAt = Date.now();
+		const result = await runReviewer({
+			reviewer: {
+				id: participant.id,
+				...(participant.model === undefined
+					? {}
+					: { model: participant.model }),
+				...(participant.thinkingLevel === undefined
+					? {}
+					: {
+							thinkingLevel: participant.thinkingLevel as ReviewerThinkingLevel,
+						}),
+				...(participant.tools === undefined
+					? {}
+					: { tools: participant.tools }),
+			},
+			prompt,
+			cwd,
+			isolated: ISOLATED,
+			// The round's output contract, which is what the prompt means
+			// by "your output contract skill". Attaching it here rather
+			// than restating it in the prompt keeps one copy: a contract
+			// stated twice drifts, and the copy in the prompt is the one
+			// nobody updates.
+			extraSkills: [contract],
+			// So a finding survives the reviewer that found it. Every
+			// other protection here recovers an answer, and an answer
+			// only exists if the reviewer reached the end.
+			...(RECORDS_FINDINGS.has(watch.round)
+				? { extraExtensions: [journalPack()] }
+				: {}),
+			// The charter is a standing instruction, and the system prompt
+			// says so, but it rides after the round's brief: every
+			// participant's request is then the same up to the end of the
+			// brief, which the first writes to the cache and the rest read.
+			...lensFor(charters.get(participant.id)),
+			// Supervised rather than fire-and-forget, so the reviewer
+			// leaves a transcript, a stderr log and a resumable session
+			// under the round's own directory. The spawn runner kept all
+			// of that in memory and dropped it, which is why a round that
+			// cost fifty dollars could be investigated only by paying for
+			// it again.
+			runPi: reviewerRunner(getParentPiInstall(), runArtifactDir()),
+			// Names what this reviewer leaves behind after the round that
+			// paid for it, so a transcript can be found from the ledger.
+			runId: context.runId,
+			// Two things, both of which need the session the supervisor
+			// persists: a resume after a transient provider drop, and,
+			// for a reviewer we stopped, an ask for the findings it had
+			// already formed. The second is the one that matters here,
+			// since a stop carries no error and so can never reach the
+			// first.
+			autoResume: true,
+			// Cancellable, so Escape on the panel really stops the work
+			// rather than only hiding it. The runner kills the child on
+			// abort; all that was ever missing was passing the signal down.
+			// This participant's own, so cancelling one leaves the rest
+			// running. It is derived from the round's, so Escape still
+			// reaches every one of them.
+			signal: watch.signalFor(participant.id),
+			// Bounded twice, and the idle clock is the one doing the work:
+			// it catches a participant that has gone silent, while the wall
+			// clock only backstops one that nothing else will stop. Bounding
+			// on the wall clock alone is what killed six rounds of reviewers
+			// that were still working.
+			...budget,
+			// The one place a subprocess becomes something a person can
+			// watch. The library cannot see a stream, so it is told.
+			...(context.report === undefined
+				? {}
+				: {
+						onEvent(event) {
+							const activity = summarizeStreamActivity(event);
+							if (activity !== null) context.report?.(activity);
+						},
+					}),
+		});
+		// Counted before it is read, and counted whatever it turns
+		// out to say. This is the same publication a fleet makes for
+		// each of its subagents, and it is what puts a round in the
+		// footer meter and in the run table beside one.
+		recordReviewerRun({
+			runId: billTo ?? context.runId,
+			participantId: participant.id,
+			...(participant.model === undefined ? {} : { model: participant.model }),
+			// Left unset, the child inherits pi's default, which this
+			// process cannot see, so unset records as unknown.
+			thinkingLevel: participant.thinkingLevel ?? null,
+			startedAt,
+			result,
+		});
+		// Told what it was allowed, so a stop records the clock it ran
+		// out of rather than only that one did. A retry cannot
+		// otherwise tell whether anything has changed since.
+		const answer = answerFromReviewer(result, budget);
+		if ("failure" in answer) return answer;
+		// Kept before it is read, and kept whatever it turns out to
+		// hold. An answer that parses is already represented by its
+		// findings; the one worth keeping is the one that does not,
+		// and that is exactly the one the old path threw away.
+		return {
+			...answer,
+			answerPath: await keptAt(context.runId, participant.id, answer.text),
+		};
+	}
 }
 
 /**

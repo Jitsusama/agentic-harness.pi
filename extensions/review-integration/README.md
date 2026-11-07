@@ -126,6 +126,11 @@ The board leaves as the call returns, and the answer's card opens
 with the same rows as they ended, so what each participant did
 stays in the transcript after the board has gone.
 
+Every round, a detached one included, is also said in its run
+record, the mesh's `runs/` file the launcher reads under the
+session that asked, until each participant has ended
+(`run-records.ts`; the shape is in mesh-workflow's README).
+
 ## Configuration
 
 The `review` section of

@@ -253,7 +253,9 @@ sessions skip the board and just return results.
   the cancellation registry and the progress reporter,
   and holds `sweepFleetRuns`, which is its own function
   rather than a handler body because it is four policies
-  in a row.
+  in a row. It says each fleet in its run record, the
+  mesh's `runs/` file the launcher reads, from before it
+  runs until its call returns.
 
 - `sizing.ts`, `place.ts`, `fleet-settings.ts`: what
   each job runs on and the fleet's cap (see
