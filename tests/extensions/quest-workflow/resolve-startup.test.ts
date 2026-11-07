@@ -99,11 +99,13 @@ beforeEach(() => {
 	savedHome = process.env.HOME;
 	process.env.HOME = tmpRoot;
 	delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+	delete process.env.QUEST_WORKFLOW_ORCHESTRATE;
 });
 afterEach(() => {
 	if (savedHome !== undefined) process.env.HOME = savedHome;
 	else delete process.env.HOME;
 	delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+	delete process.env.QUEST_WORKFLOW_ORCHESTRATE;
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
 });
@@ -222,5 +224,48 @@ describe("resolveStartup precedence", () => {
 		);
 		expect(resolution.source).toBe("none");
 		expect(resolution.questId).toBeNull();
+	});
+});
+
+describe("a session the launcher starts to orchestrate", () => {
+	const marked = (id: string) =>
+		parseQuestFrontMatter(
+			readFileSync(join(tmpRoot, "quests", id, "README.md"), "utf8"),
+		)?.frontMatter.orchestrator === true;
+
+	it("marks the quest it autoloads as orchestrating, once, and forgets the ask", async () => {
+		const id = await createQuest("Never Orchestrated");
+		process.env.QUEST_WORKFLOW_AUTOLOAD_ID = id;
+		process.env.QUEST_WORKFLOW_ORCHESTRATE = "1";
+
+		resolveStartup(buildState(), fakePi(), ctxWith({ cwd: tmpRoot }));
+
+		expect(marked(id)).toBe(true);
+		expect(process.env.QUEST_WORKFLOW_ORCHESTRATE).toBeUndefined();
+	});
+
+	it("marks nothing when the autoload fails, nor a quest it resolves another way", async () => {
+		const persisted = await createQuest("Persisted");
+		process.env.QUEST_WORKFLOW_AUTOLOAD_ID = "QEST-20260101-NOSUCH";
+		process.env.QUEST_WORKFLOW_ORCHESTRATE = "1";
+
+		const resolution = resolveStartup(
+			buildState(),
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, persistedQuestId: persisted }),
+		);
+
+		expect(resolution.questId).toBe(persisted);
+		expect(marked(persisted)).toBe(false);
+		expect(process.env.QUEST_WORKFLOW_ORCHESTRATE).toBeUndefined();
+	});
+
+	it("marks nothing without the ask", async () => {
+		const id = await createQuest("Plain");
+		process.env.QUEST_WORKFLOW_AUTOLOAD_ID = id;
+
+		resolveStartup(buildState(), fakePi(), ctxWith({ cwd: tmpRoot }));
+
+		expect(marked(id)).toBe(false);
 	});
 });

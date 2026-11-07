@@ -46,6 +46,15 @@ import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import { sessionNameFor } from "./render.ts";
 import type { QuestState } from "./state.ts";
+import { orchestrate } from "./verbs/orchestrate.ts";
+
+/**
+ * Set to `1` beside the autoload id, it makes the session mark the quest
+ * it loads as orchestrating, so the launcher can start an orchestrator
+ * for a quest that never had one: the shell never writes a quest's
+ * front matter itself.
+ */
+export const ORCHESTRATE_VARIABLE = "QUEST_WORKFLOW_ORCHESTRATE";
 
 export {
 	addAliasesToLoaded,
@@ -434,10 +443,13 @@ export function resolveStartup(
 	ctx: ExtensionContext,
 ): StartupResolution {
 	const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
+	const orchestrating = process.env[ORCHESTRATE_VARIABLE] === "1";
+	delete process.env[ORCHESTRATE_VARIABLE];
 	if (autoloadId) {
 		delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
 		if (loadQuest(state, pi, autoloadId).ok) {
 			autoFocusPlan(state);
+			if (orchestrating) orchestrate(state, { action: "orchestrate" }, true);
 			return { source: "explicit", questId: state.questId };
 		}
 	}

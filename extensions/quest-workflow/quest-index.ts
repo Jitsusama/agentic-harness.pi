@@ -49,6 +49,7 @@ import {
 	type LivenessSnapshot,
 } from "../../lib/internal/quest/session-liveness.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
+import { createPresences } from "../../lib/mesh/presence.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import type { TerminalProbe } from "../../lib/terminal/index.ts";
 import { writeWhenChanged } from "./desktop-file.ts";
@@ -91,10 +92,17 @@ export interface QuestIndexEntry {
 	 */
 	readonly sessions: readonly string[];
 	/**
-	 * The session a closed quest is reopened in, and the folder it ran in:
-	 * its newest saved session, absent when that one's folder is gone.
+	 * The session a closed quest is reopened in, the folder it ran in, and
+	 * when it was last live (ISO): its newest saved session, absent when
+	 * that one's folder is gone. Last live is the later of its log's
+	 * newest entry and its presence on the mesh, which an idle session
+	 * keeps writing while its log stands still.
 	 */
-	readonly resume?: { readonly id: string; readonly cwd: string };
+	readonly resume?: {
+		readonly id: string;
+		readonly cwd: string;
+		readonly at?: string;
+	};
 	/** The folder a new session for it opens in. */
 	readonly start: string;
 	readonly updated: string;
@@ -134,6 +142,9 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 					// The quest index is still worth writing; the next pass retries.
 				}
 				const snapshot = await snapshotOf(openSessions(index));
+				const presences = createPresences(
+					join(stateDir("mesh-workflow"), "presence"),
+				);
 				writeWhenChanged(questIndexPath(), {
 					quests: questsIn(
 						index,
@@ -141,6 +152,7 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 						questsRoot,
 						undefined,
 						lastQuests(),
+						(session) => presences.of(session)?.at,
 					),
 				});
 			} catch {
@@ -164,6 +176,8 @@ export function questsIn(
 	home?: string,
 	/** The quest each session was last on, by the session registry. */
 	lastQuestOf: (sessionId: string) => string | undefined = () => undefined,
+	/** When each session last said it was on the mesh, ISO. */
+	presentAt: (sessionId: string) => string | undefined = () => undefined,
 ): QuestIndexEntry[] {
 	const found: QuestIndexEntry[] = [];
 	const seen = new Set<string>();
@@ -188,13 +202,20 @@ export function questsIn(
 					sessions,
 					ancestors: ancestorTreesOf(fm.parent ?? undefined, read),
 				}).cwd;
-				const resume = sessionToReopen({
+				const reopened = sessionToReopen({
 					questDir: entry.dir,
 					store,
 					sessions,
 					// A session the registry never knew is judged by the README.
 					stillOn: (session) => (lastQuestOf(session) ?? id) === id,
 				});
+				const at =
+					reopened &&
+					latest(
+						sessions.find((s) => s.id === reopened.id)?.lastActivity,
+						presentAt(reopened.id),
+					);
+				const resume = reopened && { ...reopened, ...(at ? { at } : {}) };
 				found.push({
 					id,
 					address: questAddress(id),
@@ -226,6 +247,16 @@ export function questsIn(
 	};
 	visit("");
 	return found;
+}
+
+/** The later of two ISO times, as ISO; either may be missing or unreadable. */
+function latest(...times: readonly (string | undefined)[]): string | undefined {
+	const read = times
+		.map((time) => (time ? Date.parse(time) : Number.NaN))
+		.filter((ms) => !Number.isNaN(ms));
+	return read.length > 0
+		? new Date(Math.max(...read)).toISOString()
+		: undefined;
 }
 
 /** Each recorded session's last quest, read once per pass. */
