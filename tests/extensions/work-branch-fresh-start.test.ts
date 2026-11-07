@@ -12,12 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { forgetTreeBroker } from "../../extensions/work-integration/broker.ts";
+import workIntegration from "../../extensions/work-integration/index.ts";
+import { spawnExec } from "../../lib/core/exec/index.ts";
 import {
 	refreshStart,
 	remoteBranchOf,
-} from "../../extensions/work-integration/fresh-start.ts";
-import workIntegration from "../../extensions/work-integration/index.ts";
-import { spawnExec } from "../../lib/core/exec/index.ts";
+} from "../../lib/core/work/fresh-start.ts";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
@@ -226,6 +226,39 @@ describe("refreshing a start point before branching", () => {
 		expect(answer.details?.ok).not.toBe(true);
 		expect(answer.content[0]?.text).toMatch(
 			/Could not fetch origin\/never-fetched/,
+		);
+	});
+
+	it("is what work tree does for a new branch, naming the commit it starts at", async () => {
+		const now = await moveOriginOn();
+		await git(behind, "remote", "set-head", "origin", "main");
+
+		const answer = (await workTool()({
+			action: "tree",
+			repo: "github:someone/fresh",
+			checkout: behind,
+			branch: "jg/new",
+			purpose: "fresh",
+		})) as { content: { text: string }[]; details?: { path?: string } };
+
+		const path = answer.details?.path ?? "";
+		expect(await git(path, "rev-parse", "HEAD")).toBe(now);
+		expect(answer.content[0]?.text).toContain(`at ${now.slice(0, 12)}`);
+	});
+
+	it("is what work rebase does onto a remote's branch", async () => {
+		const now = await moveOriginOn();
+		await git(behind, "checkout", "-q", "-b", "jg/topic");
+
+		const answer = await workTool()({
+			action: "rebase",
+			tree: behind,
+			onto: "origin/main",
+		});
+
+		expect(await git(behind, "rev-parse", "HEAD")).toBe(now);
+		expect(answer.content[0]?.text).toContain(
+			"jg/topic moved up to origin/main",
 		);
 	});
 

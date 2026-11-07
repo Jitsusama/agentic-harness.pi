@@ -16,18 +16,18 @@
  * offline work is still work; and the answer names the commit the branch
  * starts at either way, so a stale base can be seen rather than inferred.
  *
+ * The same holds for a tree cut on a new branch, which starts from the
+ * base asked for or the remote's default branch, and for a rebase onto a
+ * remote's branch: both fetch the one branch first, here.
+ *
  * Refreshing the tracking ref does not weaken a later `push replace`: its
  * lease compares against the tracking ref of the branch being pushed, and
  * where that is the branch fetched here, the new branch starts at exactly
  * the commit the lease then holds, which is the work it was built on.
  */
 
-import {
-	EXIT_ABORTED,
-	EXIT_TIMED_OUT,
-	type Exec,
-} from "../../lib/core/exec/index.ts";
-import { safeBranchName } from "../../lib/core/work/author.ts";
+import { EXIT_ABORTED, EXIT_TIMED_OUT, type Exec } from "../exec/index.ts";
+import { safeBranchName } from "./author.ts";
 
 /**
  * How long fetching one branch may take before the branch is made from
@@ -132,7 +132,7 @@ function fetchFailure(
 	fetched: { code: number; stderr: string },
 ): string {
 	if (fetched.code === EXIT_TIMED_OUT) {
-		return `Fetching ${from} took longer than ${FETCH_MS / 60_000} minutes, so it starts where ${from} stood at the last fetch. Fetch it on its own, in the background, then branch again.`;
+		return `Fetching ${from} ran out of time, so it starts where ${from} stood at the last fetch. Fetch it on its own, in the background, then try again.`;
 	}
 	const said = fetched.stderr.trim().split("\n")[0]?.trim() ?? "";
 	const why =

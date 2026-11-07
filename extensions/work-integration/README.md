@@ -29,6 +29,17 @@ that matches what you are about to do, and always say what it is
 for: the purpose names the tree, which is how it is recognised
 later and how a second caller avoids cutting a duplicate.
 
+What starts from a remote's branch starts from where the remote
+has it now, not where the checkout last fetched it: a new branch
+made by `branch` from `origin/main`, a tree cut on a new branch
+(from its base, or the remote's default branch), and a `rebase`
+onto `origin/main`. Each fetches that one branch first, and the
+answer names the commit it starts at. Trees cut from a checkout
+that had not fetched since a merge came out a merge behind, and
+were built and checked on a main that was gone. A fetch that
+fails leaves the start as it was and, for `branch` and `rebase`,
+says why.
+
 The tool is marked sequential, so pi runs any batch holding a
 `work` call one call at a time, in the order written. Side by side,
 a resume once read the tree before the `git add` written ahead of
