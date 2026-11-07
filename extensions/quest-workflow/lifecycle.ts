@@ -148,7 +148,7 @@ export function releaseSessionOnShutdown(
  * core folds into this package, does not know the field and keeps it
  * among the extras; the harness's own parser reads it directly.
  */
-function shortNameOf(frontMatter: {
+export function shortNameOf(frontMatter: {
 	short?: unknown;
 	_extra?: Record<string, unknown>;
 }): string | undefined {

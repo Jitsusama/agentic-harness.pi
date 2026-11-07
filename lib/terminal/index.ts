@@ -23,6 +23,7 @@ export {
 	sightChain,
 	type TerminalLandscape,
 } from "./discover.ts";
+export type { WindowPlace } from "./niri.ts";
 export {
 	currentPlatform,
 	describePlan,

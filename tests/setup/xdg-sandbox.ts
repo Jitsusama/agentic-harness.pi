@@ -50,3 +50,5 @@ process.env.PI_NOTIFY = "off";
 process.env.PI_LAUNCHER = "off";
 // Nor may an opened window ask the developer's niri where to go.
 delete process.env.NIRI_SOCKET;
+// Nor may a reopen wake, or close, a window of the developer's.
+process.env.PI_SETTLE = "off";

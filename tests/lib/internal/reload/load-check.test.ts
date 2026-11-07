@@ -111,6 +111,7 @@ describe("reading pi's answer", () => {
 			XDG_RUNTIME_DIR: "/tmp/box/runtime",
 			PI_NOTIFY: "off",
 			PI_LAUNCHER: "off",
+			PI_SETTLE: "off",
 			PI_OFFLINE: "1",
 		});
 	});

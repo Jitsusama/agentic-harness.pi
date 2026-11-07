@@ -199,6 +199,15 @@ describe("kitty", () => {
 		).toEqual(["--", "/bin/sh", "-c", "pi"]);
 	});
 
+	it("marks the window with the user variables asked for", () => {
+		const args = kittyLaunchArgs(
+			{ layout: "window", marks: { pi_session: "s1" } },
+			"x",
+		);
+
+		expect(args[args.indexOf("--var") + 1]).toBe("pi_session=s1");
+	});
+
 	it("reads the window id a launch prints", () => {
 		expect(kittyWindowIdFromLaunch("12\n")).toBe("12");
 		expect(kittyWindowIdFromLaunch("Error: no")).toBeUndefined();

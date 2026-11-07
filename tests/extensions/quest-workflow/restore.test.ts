@@ -310,7 +310,9 @@ describe("restore verb", () => {
 			}),
 		);
 		expect(spawnedCommand).toBeUndefined();
-		expect(typed).toEqual([{ pane: "7", text: "pi --session 'sess-A'\n" }]);
+		expect(typed).toEqual([
+			{ pane: "7", text: "exec pi --session 'sess-A'\n" },
+		]);
 		expect(result.message).toContain("Reopened 1 of 1");
 	});
 
@@ -498,7 +500,9 @@ describe("restore verb", () => {
 				force: true,
 			}),
 		);
-		expect(typed.map((t) => t.text)).toEqual(["pi --session 'sess-lost'\n"]);
+		expect(typed.map((t) => t.text)).toEqual([
+			"exec pi --session 'sess-lost'\n",
+		]);
 	});
 
 	describe("naming sessions with id", () => {
@@ -517,7 +521,9 @@ describe("restore verb", () => {
 			saveRecord(lostSession("sess-lost", "QEST-1"));
 			saveRecord(quitSession("sess-quit", "QEST-2"));
 			const result = succeeded(await restoreIds("sess-quit", true));
-			expect(typed.map((t) => t.text)).toEqual(["pi --session 'sess-quit'\n"]);
+			expect(typed.map((t) => t.text)).toEqual([
+				"exec pi --session 'sess-quit'\n",
+			]);
 			expect(result.message).toContain("Reopened 1 of 1");
 		});
 
@@ -528,8 +534,8 @@ describe("restore verb", () => {
 			saveRecord(quitSession("01ccc-quit", "QEST-3"));
 			succeeded(await restoreIds("01aaa, 01ccc", true));
 			expect(typed.map((t) => t.text).sort()).toEqual([
-				"pi --session '01aaa-lost'\n",
-				"pi --session '01ccc-quit'\n",
+				"exec pi --session '01aaa-lost'\n",
+				"exec pi --session '01ccc-quit'\n",
 			]);
 		});
 
@@ -600,7 +606,7 @@ describe("restore verb", () => {
 				}),
 			);
 			expect(typed.map((t) => t.text)).toEqual([
-				"QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
+				"exec env QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
 			]);
 			expect(result.message).toContain("Reopened 1 of 1");
 			expect(result.message).toContain(
@@ -700,7 +706,7 @@ describe("restore through the desktop's launcher", () => {
 			await restore(buildState(), { act: true, launcher: shell.call }),
 		);
 		expect(shell.handed).toHaveLength(1);
-		expect(typed.map((t) => t.text)).toEqual(["pi --session 'sess-A'\n"]);
+		expect(typed.map((t) => t.text)).toEqual(["exec pi --session 'sess-A'\n"]);
 		expect(message).toContain("Reopened 1 of 1 session, through recording");
 	});
 
@@ -715,7 +721,7 @@ describe("restore through the desktop's launcher", () => {
 		);
 		expect(shell.handed.flat().map((one) => one.id)).toEqual(["sess-A"]);
 		expect(typed.map((t) => t.text)).toEqual([
-			"QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
+			"exec env QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
 		]);
 		expect(message).toContain(
 			"through the launcher, each where it sat, and recording",
@@ -749,6 +755,54 @@ describe("restore through the desktop's launcher", () => {
 		expect(shell.handed).toEqual([]);
 		expect(message).toContain(
 			"First it would hand those pi saved to the launcher",
+		);
+	});
+});
+
+describe("a reopen that replaces windows", () => {
+	it("opens only the dead sessions, each in a window that ends with its pi, placed and marked", async () => {
+		const typed = recordingDriver();
+		savedSessions("sess-dead");
+		const records = ["sess-run", "sess-woke", "sess-dead", "sess-stuck"].map(
+			(id) => lostSession(id, "QEST-1"),
+		);
+		for (const record of records) saveRecord(record);
+		const asked: string[][] = [];
+		const placedFor: string[] = [];
+
+		const outcome = await reopenLostSessions(records, {
+			confirmMs: 300,
+			settle: async (sessions) => {
+				asked.push([...sessions]);
+				return {
+					running: ["sess-run"],
+					woken: ["sess-woke"],
+					parked: ["sess-stuck"],
+					reopen: ["sess-dead"],
+					closed: 1,
+				};
+			},
+			placeOf: (record) => {
+				placedFor.push(record.sessionId);
+				return { beside: ["π - Lead - core.nix"] };
+			},
+		});
+
+		expect(asked).toEqual([
+			["sess-run", "sess-woke", "sess-dead", "sess-stuck"],
+		]);
+		expect(placedFor).toEqual(["sess-dead"]);
+		expect(typed).toEqual([
+			{ pane: "1", text: "exec pi --session 'sess-dead'\n" },
+		]);
+		expect(outcome).toMatchObject({
+			reopened: ["sess-dead"],
+			woken: ["sess-woke"],
+			running: ["sess-run"],
+		});
+		expect(outcome.failed.map((one) => one.sessionId)).toEqual(["sess-stuck"]);
+		expect(outcome.notes).toContain(
+			"closed 1 window a dead session had left with no pi in it",
 		);
 	});
 });

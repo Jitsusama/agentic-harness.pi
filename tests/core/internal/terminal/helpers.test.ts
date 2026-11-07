@@ -64,6 +64,18 @@ describe("running a command under the person's shell", () => {
 		);
 	});
 
+	it("replaces the shell with a command that ends its window, through env", () => {
+		expect(typedLine("pi --session x", { A: "1" }, true)).toBe(
+			"exec env A='1' pi --session x\n",
+		);
+		expect(typedLine("pi", undefined, true)).toBe("exec pi\n");
+	});
+
+	it("types a line of more than one command as it is, even when asked to end with it", () => {
+		expect(typedLine("cd /w && pi", undefined, true)).toBe("cd /w && pi\n");
+		expect(typedLine("pi $(echo x)", undefined, true)).toBe("pi $(echo x)\n");
+	});
+
 	it("runs it through a login, interactive shell that stays open afterwards", () => {
 		expect(loginShellArgv("/bin/zsh", "pi", { env: { A: "1" } })).toEqual([
 			"/bin/zsh",

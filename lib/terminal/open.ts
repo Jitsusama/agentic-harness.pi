@@ -42,7 +42,15 @@ import {
 	sightChain,
 	type TerminalLandscape,
 } from "./discover.ts";
-import { type NiriCall, niriAt, placeOnAskersWorkspace } from "./niri.ts";
+import {
+	moveOnceOpen,
+	type NiriCall,
+	niriAt,
+	type OpenedWait,
+	type Placed,
+	placeWindow,
+	type WindowPlace,
+} from "./niri.ts";
 import {
 	describeLayer,
 	type PlanningExclusions,
@@ -70,6 +78,11 @@ import type {
 /** A shell to open. The layout, when given, is the call's own choice. */
 export interface OpenRequest extends Omit<TerminalRequest, "layout"> {
 	readonly layout?: TerminalLayout;
+	/**
+	 * Where its window goes under niri: beside its orchestrator's window,
+	 * in its order. The asker's own window is tried after these.
+	 */
+	readonly window?: WindowPlace;
 }
 
 /** What opening is done with. */
@@ -108,6 +121,11 @@ export interface OpenOptions {
 	 * environment names (`NIRI_SOCKET`), on Linux.
 	 */
 	readonly niri?: NiriCall | false;
+	/**
+	 * How long a window placed after it opens is waited for, on a niri
+	 * that refused to be asked beforehand.
+	 */
+	readonly opened?: OpenedWait;
 }
 
 /** How a command reached its shell. */
@@ -224,6 +242,7 @@ interface Context {
 	readonly ancestryRead: boolean;
 	/** niri's IPC, when windows can be placed through it. */
 	readonly niri: NiriCall | undefined;
+	readonly opened: OpenedWait;
 }
 
 /**
@@ -280,6 +299,7 @@ async function prepare(options: OpenOptions): Promise<Context> {
 		dryRun: options.dryRun === true,
 		ancestryRead: ancestry !== undefined || options.ancestry === false,
 		niri: niriFor(options, env, platform),
+		opened: options.opened ?? {},
 	};
 }
 
@@ -294,40 +314,79 @@ function niriFor(
 	return platform === "linux" && socket ? niriAt(socket) : undefined;
 }
 
+/** A request placed under niri, and where. */
+interface Placing {
+	readonly request: OpenRequest;
+	readonly where?: Placed;
+}
+
 /**
- * The request with a class niri was told to open on the asking
- * session's workspace, for a window that doesn't take focus, with a
- * note saying where; the request as it was when niri isn't there, the
- * terminal can't name the asker's window, or niri can't place it.
+ * The request with a class niri was told to open on the workspace of
+ * the first window the request names, else the asker's, for a window
+ * that doesn't take focus; the request as it was when niri isn't
+ * there, the terminal can't carry a class, or no window named is found.
  */
 async function placed(
 	context: Context,
 	plan: TerminalPlan,
 	request: OpenRequest,
-): Promise<{ request: OpenRequest; note?: string }> {
+): Promise<Placing> {
 	const niri = context.niri;
 	if (!niri || plan.layout !== "window" || request.takeFocus) {
 		return { request };
 	}
 	const driver = context.drivers.find((each) => each.id === plan.terminal);
 	if (!driver || !canPlace(driver)) return { request };
-	const asker = context.landscape.chain.find(
-		(seen) => seen.driverId === driver.id && seen.handle !== undefined,
-	)?.handle;
-	if (!asker) return { request };
 	try {
-		const title = await driver.windowTitle(asker);
-		const where = title ? await placeOnAskersWorkspace(niri, title) : undefined;
+		const asker = await askersTitle(context, driver);
+		const beside = [
+			...(request.window?.beside ?? []),
+			...(asker ? [asker] : []),
+		];
+		if (beside.length === 0) return { request };
+		const where = await placeWindow(niri, { ...request.window, beside });
 		if (!where) return { request };
-		return {
-			request: { ...request, windowClass: where.windowClass },
-			note: `opens on niri workspace ${where.workspace}, the one holding this session's window`,
-		};
+		return { request: { ...request, windowClass: where.windowClass }, where };
 	} catch {
 		// A niri or terminal that can't answer leaves the window where niri
 		// puts it, as before there was anything to ask.
 		return { request };
 	}
+}
+
+/** The title of the window this session runs in, when its terminal says. */
+async function askersTitle(
+	context: Context,
+	driver: TerminalDriver & TerminalPlacingCapability,
+): Promise<string | undefined> {
+	const asker = context.landscape.chain.find(
+		(seen) => seen.driverId === driver.id && seen.handle !== undefined,
+	)?.handle;
+	return asker ? driver.windowTitle(asker) : undefined;
+}
+
+/**
+ * Finish placing a window once it has opened, moving it on a niri that
+ * refused the ask, and say where it went.
+ */
+async function settled(
+	context: Context,
+	where: Placed | undefined,
+): Promise<string | undefined> {
+	if (!where) return undefined;
+	const column = where.column ? `, column ${where.column}` : "";
+	if (where.asked) {
+		return `opens on niri workspace ${where.workspace}${column}, beside the window it belongs with`;
+	}
+	const niri = context.niri;
+	try {
+		if (niri && (await moveOnceOpen(niri, where, context.opened))) {
+			return `moved to niri workspace ${where.workspace} once it opened, beside the window it belongs with, since this niri can't be told beforehand`;
+		}
+	} catch {
+		// A niri that stops answering leaves the window where it opened.
+	}
+	return undefined;
 }
 
 function canPlace(
@@ -357,11 +416,10 @@ async function openWith(
 	const plan = planned.plan;
 	if (ctx.dryRun) return { plan, how: "planned", notes: plan.notes };
 	try {
-		const where = await placed(ctx, plan, request);
-		const opened = await carryOut(ctx, plan, where.request);
-		return where.note
-			? { ...opened, notes: [...opened.notes, where.note] }
-			: opened;
+		const placing = await placed(ctx, plan, request);
+		const opened = await carryOut(ctx, plan, placing.request);
+		const note = await settled(ctx, placing.where);
+		return note ? { ...opened, notes: [...opened.notes, note] } : opened;
 	} catch (error) {
 		if (plan.tier === "printed") throw error;
 		forgetBinaries();
@@ -521,7 +579,10 @@ async function typeInto(
 			],
 		};
 	}
-	await driver.typeInto(handle, typedLine(request.command, request.env));
+	await driver.typeInto(
+		handle,
+		typedLine(request.command, request.env, request.endsWithCommand),
+	);
 	return { ...base, how: "typed", notes: plan.notes };
 }
 
