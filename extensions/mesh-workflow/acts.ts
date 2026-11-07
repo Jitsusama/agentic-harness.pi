@@ -29,6 +29,8 @@ export interface Acts<T> {
 	take(): T[];
 	/** Stop waiting on whatever matches, without acting on it. */
 	drop(matches: (item: T) => boolean): void;
+	/** Whether anything waits, so a turn is coming for it. */
+	pending(): boolean;
 	/** Stop the wait for good, as a session ending does. */
 	stop(): void;
 }
@@ -72,6 +74,7 @@ export function createActs<T>(
 			waiting = waiting.filter((item) => !matches(item));
 			if (waiting.length === 0) cancel();
 		},
+		pending: () => waiting.length > 0,
 		stop() {
 			take();
 		},

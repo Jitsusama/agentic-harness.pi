@@ -134,6 +134,13 @@ export const PARK_ASK = "session:park-ask:v1";
  */
 export const PARKING = "session:parking:v1";
 
+/**
+ * Said on the bus as a session starts again from a park, naming it, so
+ * the mesh runs a turn over what waited for it once it has caught up:
+ * a key that wakes it brings no message of its own.
+ */
+export const SESSION_WOKEN = "session:woken:v1";
+
 /** What {@link PARK_ASK} carries. */
 export interface ParkAsk {
 	readonly session: string;

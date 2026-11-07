@@ -45,6 +45,33 @@ describe("waking a parked peer", () => {
 		expect(wakes(message({ intent: "finding" }), parked, nothing)).toBe(false);
 	});
 
+	it("wakes an orchestrator for what a session it leads finds or lands", () => {
+		const sender: Presence = {
+			...parked,
+			session: "s-led",
+			addresses: ["80ECO2"],
+			state: "listening",
+			orchestratedBy: "85PKB2",
+		};
+		const finding = message({ intent: "finding" });
+		const landed = message({ intent: "fyi", text: "#920 is merged" });
+
+		expect(wakes(finding, parked, nothing, sender)).toBe(true);
+		expect(wakes(landed, parked, nothing, sender)).toBe(true);
+		expect(wakes(finding, parked, nothing, { orchestratedBy: "WCJQSG" })).toBe(
+			false,
+		);
+		const asked: string[] = [];
+		wakeParked(
+			landed,
+			[parked, sender],
+			nothing,
+			() => true,
+			(session) => asked.push(session),
+		);
+		expect(asked).toEqual(["s-parked"]);
+	});
+
 	it("wakes it for an answer to its question, however it was sent", () => {
 		const asked = message({
 			id: "1-85PKB2-1-bbbb",

@@ -83,6 +83,7 @@ import {
 	isParking,
 	PARK_ASK,
 	PARKING,
+	SESSION_WOKEN,
 } from "../../lib/internal/session/park.ts";
 import {
 	carriedBy,
@@ -142,7 +143,11 @@ import {
 } from "../../lib/mesh/owed.ts";
 import { wakeParked } from "../../lib/mesh/parked.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
-import { createPresences, windowTitle } from "../../lib/mesh/presence.ts";
+import {
+	createPresences,
+	type Presence,
+	windowTitle,
+} from "../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
@@ -238,6 +243,45 @@ const JUDGE_MS = 2500;
  */
 const TURN_PUT_OFF =
 	"The mesh messages above reached you while a reload of your harness waited. Act on them now.";
+
+/** What starts the turn of a session woken from parking with messages waiting. */
+const WOKEN_TO_READ =
+	"Woken from parking. The mesh messages above reached you since your last turn and nothing has acted on them yet: read them and act on what is yours.";
+
+/**
+ * How many mesh notes came after the newest answer of the model on this
+ * branch: handed over, and read by no turn yet.
+ */
+function handedSinceLastTurn(branch: readonly unknown[]): number {
+	let handed = 0;
+	for (let at = branch.length - 1; at >= 0; at -= 1) {
+		const entry = branch[at];
+		if (typeof entry !== "object" || entry === null) continue;
+		if ("message" in entry && isAssistant(entry.message)) break;
+		if ("customType" in entry && entry.customType === NOTED) handed += 1;
+	}
+	return handed;
+}
+
+function isAssistant(message: unknown): boolean {
+	return (
+		typeof message === "object" &&
+		message !== null &&
+		"role" in message &&
+		message.role === "assistant"
+	);
+}
+
+/** Whether `sender` is a session `addresses` orchestrate, as its presence says. */
+function ledBy(
+	sender: Pick<Presence, "orchestratedBy"> | undefined,
+	addresses: readonly string[],
+): boolean {
+	return (
+		sender?.orchestratedBy !== undefined &&
+		addresses.includes(sender.orchestratedBy)
+	);
+}
 
 /**
  * How far back a peer that has never read anything catches up.
@@ -493,6 +537,15 @@ export function meshWorkflow(
 		const awaiting = createAwaiting();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
+		// Woken from parking, this session reads what waited once its
+		// catch-up is done; either can come first, since parking says so
+		// from its own start (see readWhatWaited).
+		let woken = false;
+		let startCaughtUp = false;
+		// A turn was asked for since this start, so what waited is read.
+		let turnAsked = false;
+		// Messages handed over since this start without a turn.
+		let handedNow = 0;
 		// The model call under way, timed for the usage presence says.
 		let call: { startedAt: number; firstTokenAt?: number } | undefined;
 		// While a peer stands, its presence shows this session's wants, so
@@ -731,6 +784,14 @@ export function meshWorkflow(
 							?.landings ?? [],
 					),
 			);
+			const led = messages.map(
+				(message) =>
+					routedFor.orchestrates !== undefined &&
+					ledBy(
+						everyone.find((one) => one.addresses.includes(message.from)),
+						routedFor.addresses,
+					),
+			);
 			const asked = messages.map((message) =>
 				answersQuestion(message, read, self),
 			);
@@ -756,6 +817,7 @@ export function meshWorkflow(
 					askedEach: asksEach(message, listener),
 					now: Date.now(),
 					...(restating[at] ? { restates: true } : {}),
+					...(led[at] ? { led: true } : {}),
 					...(orchestrator ? { orchestrator } : {}),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
@@ -890,6 +952,8 @@ export function meshWorkflow(
 			const content = noted(messages, carried, peer?.orchestratedBy);
 			// pi's own first prompt, still to come, is the turn that reads it.
 			const putOff = turn && (firstPromptPending() || putOffTurn());
+			if (turn) turnAsked = true;
+			else handedNow += messages.length;
 			pi.sendMessage(
 				{
 					customType: NOTED,
@@ -1166,6 +1230,43 @@ export function meshWorkflow(
 			);
 		};
 
+		/**
+		 * Once a session woken from parking has caught up, a turn over what
+		 * was handed over since its last turn, unless one is asked already.
+		 * Without it a key that woke a session left it to the person to type
+		 * something before it read anything (7 November, three orchestrators).
+		 */
+		const readWhatWaited = () => {
+			if (!woken || !startCaughtUp || !ctx) return;
+			woken = false;
+			// A first prompt to come, a run under way, or an act's turn held
+			// for the mesh to settle, reads them itself.
+			if (
+				turnAsked ||
+				pausing.paused ||
+				firstPromptPending() ||
+				(acts?.pending() ?? false)
+			) {
+				return;
+			}
+			let waiting = 0;
+			try {
+				if (!(ctx.isIdle?.() ?? false)) return;
+				waiting =
+					handedNow +
+					handedSinceLastTurn(ctx.sessionManager.getBranch?.() ?? []);
+			} catch {
+				// A stale context: a reload replaced it, and its start reads afresh.
+				return;
+			}
+			if (waiting === 0) return;
+			turnAsked = true;
+			pi.sendMessage(
+				{ customType: NOTED, content: WOKEN_TO_READ, display: true },
+				{ triggerTurn: true },
+			);
+		};
+
 		/** Whether the holds waited on still stand, asked while any is. */
 		const checkWaits = async () => {
 			const ends = await leasing.lapsed().catch(() => []);
@@ -1192,6 +1293,9 @@ export function meshWorkflow(
 			// session it had become never got (lib/internal/session/left.ts).
 			if (sessionLeft(started.sessionManager.getSessionId())) return;
 			ctx = started;
+			startCaughtUp = false;
+			turnAsked = false;
+			handedNow = 0;
 			// The node hears this process end the moment it does, crash or
 			// not; a reload keeps the one connection it already holds.
 			keepPresent(() => nodeSocket(env));
@@ -1312,7 +1416,10 @@ export function meshWorkflow(
 				const message = take(id);
 				if (message) missed.push(message);
 			}
-			void route(missed, true);
+			void route(missed, true).finally(() => {
+				startCaughtUp = true;
+				readWhatWaited();
+			});
 			steer(paths.steer);
 			identity();
 			tidy();
@@ -1629,8 +1736,35 @@ export function meshWorkflow(
 			const quest = presences.of(peer.session)?.quest;
 			if (quest) data.quest = quest;
 		});
+		// Parking says so as it starts a session it woke, which may be before
+		// or after this extension's own start: read what waited once both
+		// have happened.
+		pi.events?.on(SESSION_WOKEN, () => {
+			woken = true;
+			readWhatWaited();
+		});
 		pi.events?.on(PARK_ASK, (data: unknown) => {
 			if (!isParkAsk(data) || !peer || data.session !== peer.session) return;
+			// An orchestrator with sessions at work under it has their findings
+			// coming, and passing them on is its work.
+			if (peer.orchestrates !== undefined) {
+				const session = peer.session;
+				const addresses = peer.addresses;
+				const working = presences
+					.all()
+					.filter(
+						(one) =>
+							one.session !== session &&
+							ledBy(one, addresses) &&
+							one.state !== "parked" &&
+							one.state !== "paused",
+					);
+				if (working.length > 0) {
+					data.refusals.push(
+						`sessions it leads are at work (${working.map((one) => one.addresses[0]).join(", ")})`,
+					);
+				}
+			}
 			const self = { addresses: peer.addresses, pid: process.pid };
 			const held = board
 				.all()

@@ -7,9 +7,10 @@
  * its marker stands, and it is taken as there: what is sent to it rests
  * on disk until it starts again, as for any peer between runs. A sender
  * wakes it for a message that would give it a turn were it there and
- * idle: a question or hold sent to it, an answer to it, a pivot. Judged
- * as attention.ts judges for a receiver, without a classifier, so a
- * message noted or glanced at waits for its next start.
+ * idle: a question or hold sent to it, an answer to it, a pivot, and
+ * for an orchestrator a finding or news sent to it by a session it
+ * leads. Judged as attention.ts judges for a receiver, without a
+ * classifier, so a message noted or glanced at waits for its next start.
  */
 
 import { attend } from "./attention.ts";
@@ -32,6 +33,7 @@ export function wakes(
 	message: Message,
 	parked: Presence,
 	read: Reader,
+	sender?: Pick<Presence, "orchestratedBy">,
 ): boolean {
 	const listener = {
 		addresses: parked.addresses,
@@ -42,6 +44,9 @@ export function wakes(
 	if (!reaches(message, listener, -1)) return false;
 	if (message.intent === "pivot") return true;
 	const self = { addresses: parked.addresses, pid: -1 };
+	const led =
+		sender?.orchestratedBy !== undefined &&
+		parked.addresses.includes(sender.orchestratedBy);
 	const heed = attend(message, {
 		receiver: {
 			addresses: parked.addresses,
@@ -49,12 +54,14 @@ export function wakes(
 			owns: parked.owns,
 		},
 		idle: true,
+		...(led ? { led: true } : {}),
 		answers: answers(message, read, self),
 		asked: answersQuestion(message, read, self),
 		askedEach: asksEach(message, listener),
 		now: Date.parse(message.at),
 	});
-	return heed.attention === "turn";
+	// What it leads acts on once the mesh settles: a turn all the same.
+	return heed.attention === "turn" || (led && heed.attention === "act");
 }
 
 /**
@@ -69,9 +76,10 @@ export function wakeParked(
 	askWake: (session: string, messageId: string) => void,
 ): string[] {
 	const woken: string[] = [];
+	const sender = everyone.find((one) => one.addresses.includes(message.from));
 	for (const one of everyone) {
 		if (!saysParked(one) || !isParked(one.session)) continue;
-		if (!wakes(message, one, read)) continue;
+		if (!wakes(message, one, read, sender)) continue;
 		try {
 			askWake(one.session, message.id);
 			woken.push(one.session);
