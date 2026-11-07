@@ -47,13 +47,23 @@ const ANSWER = {
 	],
 };
 
-function harness(options: { answer?: unknown; hasUI?: boolean } = {}) {
+const STALE =
+	"This extension ctx is stale after session replacement or reload.";
+
+function harness(
+	options: { answer?: unknown; hasUI?: boolean; answerLater?: boolean } = {},
+) {
 	const handlers = new Map<string, Handler[]>();
 	const bus = new Map<string, ((data: unknown) => void)[]>();
 	const statuses: (string | undefined)[] = [];
 	let asks = 0;
+	let answerNow: () => void = () => {};
 	const exec: Exec = async () => {
 		asks++;
+		if (options.answerLater)
+			await new Promise<void>((resolve) => {
+				answerNow = resolve;
+			});
 		return options.answer === undefined
 			? { code: 127, stdout: "", stderr: "not found" }
 			: { code: 0, stdout: JSON.stringify(options.answer), stderr: "" };
@@ -73,14 +83,28 @@ function harness(options: { answer?: unknown; hasUI?: boolean } = {}) {
 		registerCommand: () => {},
 	};
 	registerBudgetItem(pi as never, { exec: () => exec, listPrice: () => 1.5 });
+	// As pi's context does, it throws on every read once replaced.
+	let stale = false;
+	const live = <T>(value: T): T => {
+		if (stale) throw new Error(STALE);
+		return value;
+	};
 	const ctx = {
-		hasUI: options.hasUI ?? true,
-		model: { provider: "anthropic" },
-		sessionManager: { getBranch: () => [] },
-		ui: {
-			theme: { fg: (_colour: string, text: string) => text },
-			setStatus: (_key: string, text: string | undefined) =>
-				statuses.push(text),
+		get hasUI() {
+			return live(options.hasUI ?? true);
+		},
+		get model() {
+			return live({ provider: "anthropic" });
+		},
+		get sessionManager() {
+			return live({ getBranch: () => [] });
+		},
+		get ui() {
+			return live({
+				theme: { fg: (_colour: string, text: string) => text },
+				setStatus: (_key: string, text: string | undefined) =>
+					statuses.push(text),
+			});
 		},
 	};
 	const fire = async (name: string, event: unknown = {}) => {
@@ -88,7 +112,19 @@ function harness(options: { answer?: unknown; hasUI?: boolean } = {}) {
 	};
 	/** Let an ask still on its way land. */
 	const settle = () => new Promise((resolve) => setImmediate(resolve));
-	return { pi, fire, settle, statuses, asks: () => asks };
+	return {
+		pi,
+		fire,
+		settle,
+		statuses,
+		asks: () => asks,
+		/** spend-watch answers an ask still waiting. */
+		answer: () => answerNow(),
+		/** The session is replaced: its context throws from now on. */
+		goStale: () => {
+			stale = true;
+		},
+	};
 }
 
 const saved = process.env.PI_BUDGET;
@@ -153,6 +189,59 @@ describe("the budget item", () => {
 		await item.fire("agent_end");
 		await item.settle();
 		expect(item.asks()).toBe(1);
+	});
+
+	describe("after a reload, while spend-watch is still answering", () => {
+		// An unhandled rejection ends pi, so the test listens for one as
+		// node does.
+		const unhandled: unknown[] = [];
+		const hear = (reason: unknown) => unhandled.push(reason);
+		beforeEach(() => {
+			unhandled.length = 0;
+			process.on("unhandledRejection", hear);
+		});
+		afterEach(() => {
+			process.off("unhandledRejection", hear);
+		});
+		const landed = async () => {
+			for (let turn = 0; turn < 3; turn++)
+				await new Promise((resolve) => setImmediate(resolve));
+		};
+
+		it("lets the answer land on the replaced session without throwing", async () => {
+			process.env.PI_BUDGET = "delta";
+			const item = harness({ answer: ANSWER, answerLater: true });
+			await item.fire("session_start");
+			await item.fire("session_shutdown", { reason: "reload" });
+			item.goStale();
+			item.answer();
+			await landed();
+			expect(unhandled).toEqual([]);
+			expect(item.statuses).toEqual([`${FOOTER_GLYPH.budget} delta`]);
+		});
+
+		it("lets it land without throwing even when the shutdown went unheard", async () => {
+			process.env.PI_BUDGET = "delta";
+			const item = harness({ answer: ANSWER, answerLater: true });
+			await item.fire("session_start");
+			item.goStale();
+			item.answer();
+			await landed();
+			expect(unhandled).toEqual([]);
+		});
+
+		it("draws nothing when the quest settles a budget on the bus a replaced load still hears", async () => {
+			const item = harness({ answer: ANSWER });
+			await item.fire("session_start");
+			await item.settle();
+			await item.fire("session_shutdown", { reason: "reload" });
+			item.goStale();
+			const before = item.statuses.length;
+			expect(() =>
+				item.pi.events.emit(BUDGET_SETTLED, { name: "delta" }),
+			).not.toThrow();
+			expect(item.statuses).toHaveLength(before);
+		});
 	});
 
 	it("asks nothing and says nothing with no person at it", async () => {
