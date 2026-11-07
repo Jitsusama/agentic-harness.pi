@@ -1,0 +1,177 @@
+/**
+ * Keeping a session's first head: the request it gives the model says
+ * what pi's own head would, and the request it gives Anthropic starts
+ * with the system text and tools the provider cached before.
+ */
+
+import {
+	getCurrentSystemMessage,
+	getCurrentSystemPrompt,
+	getCurrentTools,
+	type Message,
+	type Model,
+	type SystemMessage,
+	type Tool,
+} from "@earendil-works/pi-ai";
+import { stream } from "@earendil-works/pi-ai/api/anthropic-messages";
+import { Type } from "@sinclair/typebox";
+import { describe, expect, it } from "vitest";
+import {
+	firstHeadOf,
+	keepFirstHead,
+} from "../../../../lib/internal/session/first-head.ts";
+
+const tool = (name: string): Tool => ({
+	name,
+	description: `The ${name} tool.`,
+	parameters: Type.Object({}),
+});
+
+const first: SystemMessage = {
+	role: "system",
+	content: "You are pi.",
+	sections: { tools: "<tools>read, search</tools>", cwd: "<cwd>/src</cwd>" },
+	toolsAdded: [tool("read"), tool("search")],
+	timestamp: 1,
+};
+
+const user = (text: string, at: number): Message => ({
+	role: "user",
+	content: text,
+	timestamp: at,
+});
+
+/** A later patch, as pi writes one when a session's tools or sections change. */
+const changed: SystemMessage = {
+	role: "system",
+	content: "",
+	sections: { tools: "<tools>read, found</tools>", cwd: null },
+	toolsAdded: [tool("found")],
+	toolsRemoved: [{ name: "search" }],
+	timestamp: 3,
+};
+
+/** What pi leads with after a compaction: every system message folded into one. */
+const folded = getCurrentSystemMessage([first, changed]) as SystemMessage;
+const afterCompaction: Message[] = [
+	folded,
+	user("summary", 5),
+	user("next", 6),
+];
+
+describe("keeping the first head", () => {
+	it("leads with the first head and a patch to where pi's head stood", () => {
+		const kept = keepFirstHead(first, afterCompaction) ?? [];
+
+		expect(kept[0]).toBe(first);
+		expect(kept.slice(2)).toEqual(afterCompaction.slice(1));
+		expect(getCurrentSystemPrompt(kept)).toBe(
+			getCurrentSystemPrompt(afterCompaction),
+		);
+		expect(getCurrentTools(kept)).toEqual(getCurrentTools(afterCompaction));
+	});
+
+	it("leaves a request that already leads with the first head alone", () => {
+		const before: Message[] = [first, user("one", 2), changed, user("two", 4)];
+
+		expect(keepFirstHead(first, before)).toBeUndefined();
+	});
+
+	it("leaves pi's head when it doesn't continue the first one's content", () => {
+		const rewritten: SystemMessage = {
+			...folded,
+			content: "You are someone else.",
+		};
+
+		expect(keepFirstHead(first, [rewritten, user("next", 6)])).toBeUndefined();
+	});
+
+	it("carries content added after the first head's", () => {
+		const added: SystemMessage = {
+			...folded,
+			content: "You are pi.\n\nBe brief.",
+		};
+		const kept = keepFirstHead(first, [added, user("next", 6)]) ?? [];
+
+		expect(getCurrentSystemPrompt(kept)).toBe(getCurrentSystemPrompt([added]));
+	});
+
+	it("leaves a request with no system head alone", () => {
+		expect(keepFirstHead(first, [user("next", 6)])).toBeUndefined();
+	});
+
+	it("finds the first system message on a branch", () => {
+		const branch = [
+			{ type: "session_info" },
+			{ type: "message", message: user("hi", 0) },
+			{ type: "message", message: first },
+			{ type: "message", message: changed },
+		];
+
+		expect(firstHeadOf(branch)).toBe(first);
+		expect(
+			firstHeadOf([{ type: "message", message: user("hi", 0) }]),
+		).toBeUndefined();
+	});
+});
+
+/** An Anthropic model that takes system messages and tool changes mid-conversation, as Claude does. */
+const claude: Model<"anthropic-messages"> = {
+	id: "claude-test",
+	name: "Claude test",
+	api: "anthropic-messages",
+	provider: "anthropic",
+	baseUrl: "http://127.0.0.1:9",
+	reasoning: false,
+	input: ["text"],
+	cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+	contextWindow: 200_000,
+	maxTokens: 8_000,
+	compat: {
+		supportsMidConvoSystemMessages: true,
+		supportsMidConvoToolChanges: true,
+	},
+};
+
+/** The request pi-ai would send Anthropic for `messages`, caught before it leaves. */
+async function payloadFor(messages: Message[]): Promise<{
+	system?: unknown;
+	tools?: unknown;
+}> {
+	let caught: unknown;
+	// pi builds the branded transcript itself; a test can only claim one.
+	const context = { messages } as unknown as Parameters<typeof stream>[1];
+	const events = stream(claude, context, {
+		apiKey: "test",
+		onPayload: (payload) => {
+			caught = payload;
+			throw new Error("caught before sending");
+		},
+	});
+	for await (const _event of events) {
+		// Drained only so the request is built; it fails by design.
+	}
+	return caught as { system?: unknown; tools?: unknown };
+}
+
+describe("the request Anthropic is sent after a compaction", () => {
+	const before: Message[] = [first, user("one", 2), changed, user("two", 4)];
+
+	it("starts with the system text and tools it was sent before", async () => {
+		const cached = await payloadFor(before);
+		const kept = await payloadFor(keepFirstHead(first, afterCompaction) ?? []);
+
+		expect(cached.system).toBeDefined();
+		expect(cached.tools).toBeDefined();
+		expect(kept.system).toEqual(cached.system);
+		expect(kept.tools).toEqual(cached.tools);
+	});
+
+	it("starts with others under pi's own head", async () => {
+		const cached = await payloadFor(before);
+		const pis = await payloadFor(afterCompaction);
+
+		expect(pis.system).not.toEqual(cached.system);
+		expect(pis.tools).not.toEqual(cached.tools);
+	});
+});

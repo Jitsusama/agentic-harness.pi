@@ -106,6 +106,7 @@ import {
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { whileCurrent } from "../../lib/internal/stale.ts";
 import { conversationProvider } from "./conversation.ts";
+import { registerFirstHead } from "./head.ts";
 import { registerCompactionHost } from "./host.ts";
 import { idleTimer } from "./idle.ts";
 import {
@@ -250,6 +251,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		providers: [conversation, piSummaryProvider(pi)],
 		expectedOutputTokens: () => summaryOutput ?? DEFAULT_SUMMARY_OUTPUT_TOKENS,
 	});
+	registerFirstHead(pi);
 
 	// Declared before warming, whose end hands the idle session to it.
 	const idle = idleTimer(
