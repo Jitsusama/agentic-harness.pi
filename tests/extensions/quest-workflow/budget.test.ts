@@ -281,54 +281,6 @@ describe("the session's budget", () => {
 			return { ctx, goStale: () => (stale = true) };
 		}
 
-		/** The rejections nothing handled while `body` ran and settled. */
-		async function unhandledDuring(body: () => Promise<void>) {
-			const heard: unknown[] = [];
-			const hear = (reason: unknown) => heard.push(reason);
-			process.on("unhandledRejection", hear);
-			try {
-				await body();
-				await new Promise((resolve) => setTimeout(resolve, 20));
-			} finally {
-				process.off("unhandledRejection", hear);
-			}
-			return heard;
-		}
-
-		it("leaves the replaced session alone when a provider registers", async () => {
-			const { state, run, top } = await quests();
-			await run({ action: "budget", id: top, ref: "delta" });
-			const events = bus();
-			const keeper = keepQuestBudget(fakePi(events), state);
-			await run({ action: "load", id: top });
-			const session = replaceable();
-			await keeper.keep(session.ctx);
-			const entries = written.length;
-
-			const heard = await unhandledDuring(async () => {
-				keeper.forget();
-				session.goStale();
-				// The reloaded load's provider, heard by the replaced load's host.
-				registerBudgetProvider(events, {
-					id: "reloaded",
-					precedence: 0,
-					resolve: async () => ({
-						kind: "drawn",
-						env: { [KEY]: "replaced" },
-						label: "x",
-					}),
-				});
-			});
-
-			expect(heard).toEqual([]);
-			expect(process.env[KEY], "the replaced load laid a budget").toBe(
-				"personal",
-			);
-			expect(written.length, "the replaced load wrote to the log").toBe(
-				entries,
-			);
-		});
-
 		it("drops an answer that lands after the session was replaced", async () => {
 			const { state, run, top } = await quests();
 			await run({ action: "budget", id: top, ref: "delta" });
@@ -342,16 +294,23 @@ describe("the session's budget", () => {
 			});
 			await run({ action: "load", id: top });
 			const session = replaceable();
+			const entries = written.length;
 
-			const heard = await unhandledDuring(async () => {
-				void keeper.keep(session.ctx).catch(() => {});
-				keeper.forget();
-				session.goStale();
-				answer({ kind: "drawn", env: { [KEY]: "late" }, label: "x" });
-			});
+			// As the ask at start, which nothing awaits, meets a reload.
+			const asked = keeper.keep(session.ctx);
+			keeper.forget();
+			session.goStale();
+			answer({ kind: "drawn", env: { [KEY]: "late" }, label: "x" });
 
-			expect(heard).toEqual([]);
-			expect(process.env[KEY]).toBe("personal");
+			await expect(asked, "it read the replaced context").resolves.toBe(
+				undefined,
+			);
+			expect(process.env[KEY], "the replaced load laid a budget").toBe(
+				"personal",
+			);
+			expect(written.length, "the replaced load wrote to the log").toBe(
+				entries,
+			);
 		});
 
 		it("takes a session up again with its next keep", async () => {

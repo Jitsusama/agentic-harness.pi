@@ -51,11 +51,12 @@ export interface BudgetKeeper {
 	 */
 	keep(ctx: ExtensionContext, options?: { again?: boolean }): Promise<void>;
 	/**
-	 * The session has ended or been replaced: forget its context, so
-	 * neither a provider registering later nor an answer still on its
-	 * way acts for it. pi's event bus outlives a reload, so the replaced
-	 * load keeps hearing providers register, and a stale context throws
-	 * on every read. A later `keep` takes a session up again.
+	 * The session has ended or been replaced: forget its context, so an
+	 * answer still on its way acts for nothing. A provider has seconds to
+	 * answer and the ask at start is awaited by nobody, so a reload or a
+	 * rollover can land in between; the context then throws on every
+	 * read, and the environment is the next load's. A later `keep` takes
+	 * a session up again.
 	 */
 	forget(): void;
 }

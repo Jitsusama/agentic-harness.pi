@@ -230,7 +230,7 @@ describe("the budget item", () => {
 			expect(unhandled).toEqual([]);
 		});
 
-		it("draws nothing when the quest settles a budget on the bus a replaced load still hears", async () => {
+		it("draws nothing when a budget settles after the shutdown, before pi drops the listener", async () => {
 			const item = harness({ answer: ANSWER });
 			await item.fire("session_start");
 			await item.settle();

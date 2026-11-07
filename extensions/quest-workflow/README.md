@@ -238,10 +238,10 @@ shipped and tested.
   and the session waits on it only before a model call, never at
   start. Switching budgets mid-session costs one full cache
   write on the next turn, since the new key's cache is cold.
-  A reload or a session switch ends the old load's keeping: pi's
-  bus outlives it, so it still hears providers register, but it
-  lays nothing, writes nothing and drops an answer still on its
-  way, rather than reading a context that now throws.
+  A reload or a session switch ends the old load's keeping: an
+  answer still on its way when it lands is dropped, laying and
+  writing nothing, rather than read with a context that now
+  throws, and the next load asks again.
 - **The realm's own agent**: a spawn that runs pi, fresh or
   resuming, runs instead the command the chosen machine's node
   declares for the session's realm (`declared.agents`), here or
