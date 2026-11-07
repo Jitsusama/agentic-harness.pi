@@ -43,6 +43,7 @@ import {
 	type PeerState,
 	type Presence,
 	type Presences,
+	type QuestInfo,
 	workOf,
 } from "./presence.ts";
 import type { Stop } from "./stop.ts";
@@ -243,6 +244,8 @@ export function localPeer(at: Surroundings): Peer {
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
 	let quest: string | undefined;
+	let questInfo: QuestInfo | undefined;
+	let repo: string | undefined;
 	let busy = false;
 	// When the run in progress began, and the step it was last said on.
 	let since: string | undefined;
@@ -285,6 +288,9 @@ export function localPeer(at: Surroundings): Peer {
 			...titled(at.title?.()),
 			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
+			...(questInfo ? { questInfo } : {}),
+			cwd: at.cwd,
+			...(repo ? { repo } : {}),
 		};
 		const text = JSON.stringify(said);
 		if (text === published) return;
@@ -322,6 +328,8 @@ export function localPeer(at: Surroundings): Peer {
 		receiver = { addresses, worksOn: work.worksOn, owns: work.owns };
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
 		quest = work.quest;
+		questInfo = work.questInfo;
+		repo = work.repo;
 		publish();
 	};
 	refresh();
