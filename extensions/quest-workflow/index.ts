@@ -672,7 +672,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// which quests orchestrate, and what the desktop lists.
 		if (event.toolName === "quest") {
 			keepQuestWeights(state.questsRoot);
-			await budgets.keep(ctx);
+			const action = (event.input as { action?: unknown }).action;
+			await budgets.keep(ctx, { again: action === "budget" });
 			void keepDesktopListsCurrent(state.questsRoot);
 		}
 		const broke = watch.after(event.toolCallId);

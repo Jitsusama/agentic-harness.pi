@@ -57,7 +57,20 @@ describe("a budget laid over an environment", () => {
 		);
 		layBudget(env, { name: "b", label: "b", env: { KEY: "b" } }, overlay);
 
-		expect(env).toEqual({ KEY: "b" });
+		expect(env).toEqual({ KEY: "b", PI_BUDGET: "b" });
+	});
+
+	it("names the budget in PI_BUDGET, and lifting it puts back an inherited one", () => {
+		const env: NodeJS.ProcessEnv = { PI_BUDGET: "parent" };
+		const overlay = emptyOverlay();
+
+		layBudget(env, delta, overlay);
+		expect(env.PI_BUDGET, "what a child started now inherits").toBe("delta");
+
+		liftBudget(env, overlay);
+		expect(env.PI_BUDGET, "the budget this process was started on").toBe(
+			"parent",
+		);
 	});
 
 	it("leaves a value something else changed while the budget was on", () => {

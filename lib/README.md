@@ -15,7 +15,9 @@ barrel, never from a file behind it.
 
 - **[`budget/`](budget/)**: the contract a budget provider
   registers over the bus to say what a quest's budget means: the
-  variables a session drawing on it runs with, and a label.
+  variables a session drawing on it runs with, and a label; and
+  the `budget` entry a session writes into its log, saying which
+  budget its requests drew on.
 - **[`clock/`](clock/)**: what a duration bounding a child process
   may be. The rules belong to the runner, but a roster read from a
   config file needs them first, so one definition serves both.

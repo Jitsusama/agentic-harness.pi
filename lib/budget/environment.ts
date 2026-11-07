@@ -18,6 +18,7 @@
  */
 
 import { processGlobal } from "../internal/process-global.ts";
+import { BUDGET_VARIABLE } from "./record.ts";
 
 /** One variable a budget set, and what it replaced. */
 interface Laid {
@@ -49,8 +50,9 @@ export function processOverlay(): BudgetOverlay {
 
 /**
  * Lay a budget's variables over `env`, in place of whatever budget was
- * on before. A variable the earlier budget set and this one does not is
- * put back first.
+ * on before, with its name in `PI_BUDGET` so what the process starts
+ * knows which budget it inherited. A variable the earlier budget set
+ * and this one does not is put back first.
  */
 export function layBudget(
 	env: NodeJS.ProcessEnv,
@@ -61,10 +63,11 @@ export function layBudget(
 	},
 	overlay: BudgetOverlay = processOverlay(),
 ): void {
+	const laying = { ...budget.env, [BUDGET_VARIABLE]: budget.name };
 	for (const key of [...overlay.laid.keys()]) {
-		if (!(key in budget.env)) restore(env, overlay, key);
+		if (!(key in laying)) restore(env, overlay, key);
 	}
-	for (const [key, value] of Object.entries(budget.env)) {
+	for (const [key, value] of Object.entries(laying)) {
 		const earlier = overlay.laid.get(key);
 		// A value changed under the budget is newer than what it replaced,
 		// so it is what the next lift puts back.

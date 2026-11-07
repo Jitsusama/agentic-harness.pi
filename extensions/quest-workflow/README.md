@@ -221,6 +221,14 @@ shipped and tested.
   own quest's. The status line says the budget drawn on; a name
   no provider knows, or one it can't draw on yet, leaves the
   default and says why once. Nothing of it reaches the prompt.
+  The session's log says it too: a `budget` entry
+  (`{"v": 1, "name": "delta", "label": ..., "provider": ...}`,
+  `name` null for the default) at start and each time what it
+  draws on changes, read from `PI_BUDGET`, which is laid with the
+  budget's variables. So whatever prices the log (spend-watch,
+  the ledger) gives each request the budget of the nearest entry
+  before it on its branch, and a session started under a budget
+  with no quest of its own records the one it inherited.
   A provider has 5 s to answer before it counts as unavailable,
   and the session waits on it only before a model call, never at
   start. Switching budgets mid-session costs one full cache
