@@ -42,6 +42,7 @@ import {
 	sightChain,
 	type TerminalLandscape,
 } from "./discover.ts";
+import { type NiriCall, niriAt, placeOnAskersWorkspace } from "./niri.ts";
 import {
 	describeLayer,
 	type PlanningExclusions,
@@ -59,6 +60,7 @@ import type {
 	TerminalDriver,
 	TerminalLaunchCapability,
 	TerminalLayout,
+	TerminalPlacingCapability,
 	TerminalPlatform,
 	TerminalRequest,
 	TerminalSessionHandle,
@@ -100,6 +102,12 @@ export interface OpenOptions {
 	 * names the holder (`MYCELIUM_HELD`).
 	 */
 	readonly heldIn?: HeldWindow | false;
+	/**
+	 * niri's IPC, asked to open a window on the asking session's
+	 * workspace, or false to ask nothing. Defaults to the socket the
+	 * environment names (`NIRI_SOCKET`), on Linux.
+	 */
+	readonly niri?: NiriCall | false;
 }
 
 /** How a command reached its shell. */
@@ -214,6 +222,8 @@ interface Context {
 	readonly dryRun: boolean;
 	/** Whether the ancestry has been read into the landscape. */
 	readonly ancestryRead: boolean;
+	/** niri's IPC, when windows can be placed through it. */
+	readonly niri: NiriCall | undefined;
 }
 
 /**
@@ -269,7 +279,64 @@ async function prepare(options: OpenOptions): Promise<Context> {
 		call: options.call ?? {},
 		dryRun: options.dryRun === true,
 		ancestryRead: ancestry !== undefined || options.ancestry === false,
+		niri: niriFor(options, env, platform),
 	};
+}
+
+function niriFor(
+	options: OpenOptions,
+	env: Readonly<Record<string, string | undefined>>,
+	platform: TerminalPlatform,
+): NiriCall | undefined {
+	if (options.niri === false) return undefined;
+	if (options.niri) return options.niri;
+	const socket = env.NIRI_SOCKET;
+	return platform === "linux" && socket ? niriAt(socket) : undefined;
+}
+
+/**
+ * The request with a class niri was told to open on the asking
+ * session's workspace, for a window that doesn't take focus, with a
+ * note saying where; the request as it was when niri isn't there, the
+ * terminal can't name the asker's window, or niri can't place it.
+ */
+async function placed(
+	context: Context,
+	plan: TerminalPlan,
+	request: OpenRequest,
+): Promise<{ request: OpenRequest; note?: string }> {
+	const niri = context.niri;
+	if (!niri || plan.layout !== "window" || request.takeFocus) {
+		return { request };
+	}
+	const driver = context.drivers.find((each) => each.id === plan.terminal);
+	if (!driver || !canPlace(driver)) return { request };
+	const asker = context.landscape.chain.find(
+		(seen) => seen.driverId === driver.id && seen.handle !== undefined,
+	)?.handle;
+	if (!asker) return { request };
+	try {
+		const title = await driver.windowTitle(asker);
+		const where = title ? await placeOnAskersWorkspace(niri, title) : undefined;
+		if (!where) return { request };
+		return {
+			request: { ...request, windowClass: where.windowClass },
+			note: `opens on niri workspace ${where.workspace}, the one holding this session's window`,
+		};
+	} catch {
+		// A niri or terminal that can't answer leaves the window where niri
+		// puts it, as before there was anything to ask.
+		return { request };
+	}
+}
+
+function canPlace(
+	driver: TerminalDriver,
+): driver is TerminalDriver & TerminalPlacingCapability {
+	return (
+		typeof (driver as Partial<TerminalPlacingCapability>).windowTitle ===
+		"function"
+	);
 }
 
 async function openWith(
@@ -290,7 +357,11 @@ async function openWith(
 	const plan = planned.plan;
 	if (ctx.dryRun) return { plan, how: "planned", notes: plan.notes };
 	try {
-		return await carryOut(ctx, plan, request);
+		const where = await placed(ctx, plan, request);
+		const opened = await carryOut(ctx, plan, where.request);
+		return where.note
+			? { ...opened, notes: [...opened.notes, where.note] }
+			: opened;
 	} catch (error) {
 		if (plan.tier === "printed") throw error;
 		forgetBinaries();

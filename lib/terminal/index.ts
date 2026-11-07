@@ -88,6 +88,7 @@ export type {
 	TerminalLayout,
 	TerminalLivenessCapability,
 	TerminalNesting,
+	TerminalPlacingCapability,
 	TerminalPlatform,
 	TerminalProbe,
 	TerminalRequest,

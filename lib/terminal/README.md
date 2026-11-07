@@ -56,6 +56,16 @@ zellij opens a tab with `--no-focus`, and wezterm and a zellij pane
 give focus back to the pane they came from. A terminal launched
 blind takes whatever focus the compositor gives it.
 
+Under niri (`NIRI_SOCKET`), a kitty OS window opened without focus
+goes to the workspace of the asking session's window rather than
+the one you are looking at. Kitty says the title of the window the
+session runs in, niri the workspace of the one window with that
+title, and niri is asked, by `OpenNextWindowOn` (core's patch), to
+open the next window of a class of its own, `pi-spawned.<n>`, there.
+No such window, two with the title, or a niri that refuses the ask,
+and the window opens where niri puts it, as it did before
+(`niri.ts`).
+
 A kitty the driver starts afresh starts in the systemd user slice
 `agents.slice` when a user manager answers, through `systemd-run
 --scope`. Kitty puts each window's scope in its own slice, so the
