@@ -19,7 +19,9 @@ first.
 ## What It Answers
 
 The `spend` tool reports the overall total, or spend grouped by repo,
-quest, model, day, session or kind. Each slice carries its turn count and
+quest, model, day, session or kind. Grouped by budget it quotes
+spend-watch's bill alone, since only spend-watch reads which budget each
+turn drew on; `/budget` says how the session's budget stands. Each slice carries its turn count and
 its cost per turn, which is the figure worth watching: cost per turn is
 97 percent explained by the context resident when a turn runs, and it
 varies more than fivefold between subjects.

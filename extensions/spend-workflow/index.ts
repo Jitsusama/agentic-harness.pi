@@ -130,6 +130,15 @@ const DIMENSIONS: readonly CostDimension[] = [
 	"thinking",
 ];
 
+/**
+ * The grouping only spend-watch's bill answers: pi's ledger holds no
+ * budget, so asked by budget the answer is the bill's cut alone.
+ */
+const BUDGET = "budget";
+
+/** A grouping the tool takes: the ledger's, or budget. */
+type Grouping = CostDimension | typeof BUDGET;
+
 /** Human wording for each dimension's heading. */
 const HEADINGS: Record<CostDimension, string> = {
 	repo: "Cost by repo",
@@ -210,7 +219,7 @@ function assistantCost(message: { role: string }): number {
  */
 async function quoteBill(
 	period: BillPeriod,
-	by: CostDimension | undefined,
+	by: Grouping | undefined,
 	limit: number,
 	signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
@@ -428,10 +437,12 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			by: Type.Optional(
 				Type.Union(
-					DIMENSIONS.map((d) => Type.Literal(d)),
+					[...DIMENSIONS, BUDGET].map((d) => Type.Literal(d)),
 					{
 						description:
-							"Group spend by this dimension. Omit for the overall total.",
+							"Group spend by this dimension. Omit for the overall total. " +
+							"budget is answered by spend-watch's bill alone, since the " +
+							"ledger doesn't know which budget a turn drew on.",
 					},
 				),
 			),
@@ -697,10 +708,16 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 			const total = await opened.total();
 			const sections = [formatTotal(total)];
 			let slices: readonly CostSlice[] = [];
-			if (params.by) {
-				slices = await opened.costBy(params.by);
+			const dimension = params.by === BUDGET ? undefined : params.by;
+			if (params.by === BUDGET) {
 				sections.push(
-					formatSlices(HEADINGS[params.by], slices, params.limit ?? 12),
+					"The ledger doesn't know which budget a turn drew on; spend-watch's bill below cuts by budget.",
+				);
+			}
+			if (dimension) {
+				slices = await opened.costBy(dimension);
+				sections.push(
+					formatSlices(HEADINGS[dimension], slices, params.limit ?? 12),
 				);
 			}
 			const bill = await quoteBill(
@@ -716,7 +733,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					summarizeFanOut(fanOut),
 					fanOutView(
 						fanOut,
-						params.by,
+						dimension,
 						params.limit ?? 12,
 						await opened.sessions(),
 					),
