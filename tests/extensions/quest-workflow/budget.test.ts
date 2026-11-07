@@ -258,6 +258,86 @@ describe("the session's budget", () => {
 		expect(process.env[KEY]).toBe("late");
 	});
 
+	describe("after a reload", () => {
+		const STALE =
+			"This extension ctx is stale after session replacement or reload.";
+
+		/** A context that throws on every read once its session is replaced, as pi's does. */
+		function replaceable() {
+			const live = ui().ctx;
+			let stale = false;
+			const read = <T>(value: T): T => {
+				if (stale) throw new Error(STALE);
+				return value;
+			};
+			const ctx = {
+				get ui() {
+					return read(live.ui);
+				},
+				get sessionManager() {
+					return read(live.sessionManager);
+				},
+			} as unknown as typeof live;
+			return { ctx, goStale: () => (stale = true) };
+		}
+
+		it("drops an answer that lands after the session was replaced", async () => {
+			const { state, run, top } = await quests();
+			await run({ action: "budget", id: top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(fakePi(events), state);
+			let answer: (value: BudgetAnswer) => void = () => {};
+			registerBudgetProvider(events, {
+				id: "slow",
+				precedence: 0,
+				resolve: () => new Promise((resolve) => (answer = resolve)),
+			});
+			await run({ action: "load", id: top });
+			const session = replaceable();
+			const entries = written.length;
+
+			// As the ask at start, which nothing awaits, meets a reload.
+			const asked = keeper.keep(session.ctx);
+			keeper.forget();
+			session.goStale();
+			answer({ kind: "drawn", env: { [KEY]: "late" }, label: "x" });
+
+			await expect(asked, "it read the replaced context").resolves.toBe(
+				undefined,
+			);
+			expect(process.env[KEY], "the replaced load laid a budget").toBe(
+				"personal",
+			);
+			expect(written.length, "the replaced load wrote to the log").toBe(
+				entries,
+			);
+		});
+
+		it("takes a session up again with its next keep", async () => {
+			const { state, run, top } = await quests();
+			await run({ action: "budget", id: top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(fakePi(events), state);
+			registerBudgetProvider(events, {
+				id: "test",
+				precedence: 0,
+				resolve: async () => ({
+					kind: "drawn",
+					env: { [KEY]: "team" },
+					label: "x",
+				}),
+			});
+			await run({ action: "load", id: top });
+			await keeper.keep(ui().ctx);
+
+			keeper.forget();
+			process.env[KEY] = "personal";
+			await keeper.keep(ui().ctx);
+
+			expect(process.env[KEY], "the same name was asked again").toBe("team");
+		});
+	});
+
 	it("asks again when the budget is named again, as after writing its file", async () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });

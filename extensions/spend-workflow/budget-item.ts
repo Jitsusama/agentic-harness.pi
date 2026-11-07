@@ -160,9 +160,10 @@ export function registerBudgetItem(
 		if (withUI()) void ask(false);
 	});
 
-	// A reload or a session switch leaves this load's listeners behind,
-	// the bus's among them, with a context that throws; from here they
-	// draw nothing.
+	// A reload or a session switch leaves this load's context throwing.
+	// pi drops its bus listeners only once every shutdown handler has
+	// run, and an answer may still be on its way, so from here nothing
+	// is drawn.
 	pi.on("session_shutdown", async () => {
 		shown = undefined;
 	});

@@ -756,7 +756,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// fresh session launched inside a quest or its tree.
 		resolveStartup(state, pi, ctx);
 		// Asked now, waited on before the first model call (above).
-		void budgets.keep(ctx);
+		budgets.keep(ctx).catch(() => {
+			// Nothing awaits this ask, and an unwatched rejection ends pi;
+			// before_agent_start keeps again and is awaited.
+		});
 		// A session a spawn started sets to work on its quest by itself,
 		// once start is done (resources_discover, below).
 		firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
@@ -833,6 +836,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (event, ctx) => {
+		budgets.forget();
 		const sid = currentSessionId(ctx, undefined);
 		// Stop beating before stamping: a tick that landed afterwards
 		// would touch the file again and re-date a session that has
