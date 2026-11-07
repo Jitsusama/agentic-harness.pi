@@ -3901,6 +3901,55 @@ describe("presence", () => {
 		expect(own()).toBe(false);
 	});
 
+	it("says a run's step and what its model calls took, from pi's events", async () => {
+		const { fire } = await startSession();
+		const own = () => createPresences(join(paths.mesh, "presence")).of(session);
+		const answer = {
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude-opus-5-5",
+			content: [],
+			usage: {
+				input: 5,
+				output: 40,
+				cacheRead: 9_000,
+				cacheWrite: 100,
+				cost: { total: 0.1 },
+			},
+		};
+
+		await fire("agent_start");
+		await fire("turn_start", { turnIndex: 0, timestamp: Date.now() });
+		expect(own()?.stepDetail).toMatchObject({ kind: "thinking" });
+		await fire("message_update", { message: answer });
+		await fire(
+			"message_end",
+			{ message: answer },
+			{
+				getContextUsage: () => ({
+					tokens: 9_145,
+					contextWindow: 200_000,
+					percent: 4,
+				}),
+			},
+		);
+		await fire("tool_execution_start", {
+			toolName: "bash",
+			args: { command: "pnpm check" },
+		});
+		await fire("agent_end");
+
+		expect(own()?.stepDetail).toBeUndefined();
+		expect(own()?.usage).toMatchObject({
+			"gen_ai.request.model": "claude-opus-5-5",
+			"gen_ai.provider.name": "anthropic",
+			today: { "gen_ai.usage.cache_read.input_tokens": 9_000 },
+			context: { used: 9_145, limit: 200_000 },
+			turns: { today: 1, last: { first_token_ms: expect.any(Number) } },
+			"pi.cost.usd": { last: 0.1, today: 0.1 },
+		});
+	});
+
 	it("keeps a pause through a reload, until the person types in the window", async () => {
 		const presences = createPresences(join(paths.mesh, "presence"));
 		presences.publish({
