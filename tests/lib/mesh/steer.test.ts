@@ -95,6 +95,11 @@ describe("the steer inbox", () => {
 			file: "f",
 		});
 		expect(steerFrom('{"act":"stop","text":"now"}', "f")?.text).toBe("");
+		expect(steerFrom('{"act":"close","text":"bye"}', "f")).toEqual({
+			text: "",
+			act: "close",
+			file: "f",
+		});
 		expect(steerFrom('{"act":"resume","text":"go on"}', "f")).toMatchObject({
 			act: "resume",
 			text: "go on",
@@ -115,6 +120,7 @@ describe("the steer inbox", () => {
 			file: "f",
 		});
 		expect(steerFrom('{"from":"machine","act":"pause"}', "f")).toBeUndefined();
+		expect(steerFrom('{"from":"machine","act":"close"}', "f")).toBeUndefined();
 		expect(steerFrom('{"from":"Joel","act":"pause"}', "f")?.act).toBe("pause");
 	});
 

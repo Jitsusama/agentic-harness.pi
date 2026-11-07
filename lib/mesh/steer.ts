@@ -12,7 +12,8 @@
  * file there under a temporary name and renames it to end in `.json`,
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
- * talk.ts). An `act` of `pause`, `resume` or `stop` needs no text. The
+ * talk.ts). An `act` of `pause`, `resume`, `stop` or `close` needs no
+ * text. The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -33,9 +34,10 @@ import { isTalkId } from "./talk.ts";
 
 /**
  * What the person may do to a session besides talk: pause it after its
- * current step, resume it, or stop the run in progress.
+ * current step, resume it, stop the run in progress, or close the
+ * session for good, as /exit does.
  */
-export const STEER_ACTS = ["pause", "resume", "stop"] as const;
+export const STEER_ACTS = ["pause", "resume", "stop", "close"] as const;
 
 /** One of STEER_ACTS. */
 export type SteerAct = (typeof STEER_ACTS)[number];
@@ -102,7 +104,7 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (typeof parsed !== "object" || parsed === null) return undefined;
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
-	// Only the person may pause, resume or stop a session.
+	// Only the person may pause, resume, stop or close a session.
 	const act =
 		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)
 			? parsed.act
@@ -111,7 +113,8 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		"text" in parsed && typeof parsed.text === "string"
 			? parsed.text.trim()
 			: "";
-	const text = act === "pause" || act === "stop" ? "" : said;
+	// Words would start the run a pause, stop or close is ending.
+	const text = act && act !== "resume" ? "" : said;
 	if (!act && text === "") return undefined;
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;

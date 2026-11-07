@@ -1,5 +1,5 @@
 /**
- * Pause, Resume and Stop: what the person does to a session from
+ * Pause, Resume, Stop and Close: what the person does to a session from
  * outside its window besides talk, through a steer's `act`.
  *
  * - Stop ends the run in progress at once; the session stays open and
@@ -10,6 +10,11 @@
  *   it, and the mesh hands its messages over without a turn.
  * - Resume clears the pause and has the session carry on; a talk or
  *   typing in the window does the same, its words being the turn.
+ * - Close ends the session for good, as /exit does: any run in progress
+ *   is ended, then pi shuts down, so its record reads closed rather
+ *   than lost and nothing offers it back unasked. Its quest, trees and
+ *   what waits on the person stay as they are (the launcher's Close,
+ *   VKCF3Z's ruling, 7 November).
  *
  * An ended run ends away mode (away-workflow), so a Stop, or a Pause
  * landing mid-run, ends it for every session: pressing either says the
@@ -35,6 +40,8 @@ export interface PausingHost {
 	readonly carryOn: () => void;
 	/** Say on screen what the person did. */
 	readonly tell: (text: string) => void;
+	/** End the session, as /exit does. */
+	readonly close: () => void;
 }
 
 /** Pausing for one session. */
@@ -61,6 +68,12 @@ export function createPausing(host: PausingHost): Pausing {
 			return host.paused();
 		},
 		act(act) {
+			if (act === "close") {
+				if (!host.idle()) host.abort();
+				host.tell("Closed from outside this window.");
+				host.close();
+				return;
+			}
 			if (act === "stop") {
 				host.setPaused(false);
 				if (!host.idle()) host.abort();

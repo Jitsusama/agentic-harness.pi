@@ -595,6 +595,8 @@ export function meshWorkflow(
 			tell: (text) => {
 				if (ctx?.hasUI) ctx.ui.notify(text, "info");
 			},
+			// pi waits until it is idle, so the run just ended winds down first.
+			close: () => ctx?.shutdown(),
 		});
 
 		/**
