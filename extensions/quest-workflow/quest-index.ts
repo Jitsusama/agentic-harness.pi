@@ -19,6 +19,14 @@
  * its pane. A pid taken again by another process, which spawn alone
  * catches, can leave a dead session's folder in `start`, behind every
  * tree the quest has.
+ *
+ * The concluded and retired quests, which the launcher finds as it is
+ * typed in, are kept apart in `ended.json`, with less of each: no
+ * documents, sessions or session to reopen, which an ended quest has no
+ * more of. They are many more than the open ones and change only as a
+ * quest ends or reopens, so a quest action rewrites only the short list
+ * of open ones, and the realm's node, which serves both, reads the long
+ * one again only when it changed.
  */
 
 import { existsSync } from "node:fs";
@@ -108,9 +116,30 @@ export interface QuestIndexEntry {
 	readonly updated: string;
 }
 
+/** One concluded or retired quest, as the desktop finds it. */
+export interface EndedQuestEntry {
+	readonly id: string;
+	readonly address: string;
+	readonly short?: string;
+	readonly title: string;
+	/** The Summary's first paragraph, as plain text. */
+	readonly summary?: string;
+	readonly kind: string;
+	readonly status: string;
+	readonly parent?: string;
+	/** The folder a new session for it opens in. */
+	readonly start: string;
+	readonly updated: string;
+}
+
 /** Where the index is kept. */
 export function questIndexPath(): string {
 	return join(stateDir("quest-workflow"), "quests.json");
+}
+
+/** Where the list of ended quests is kept. */
+export function endedQuestsPath(): string {
+	return join(stateDir("quest-workflow"), "ended.json");
 }
 
 let running: Promise<void> | undefined;
@@ -154,6 +183,9 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 						lastQuests(),
 						(session) => presences.of(session)?.at,
 					),
+				});
+				writeWhenChanged(endedQuestsPath(), {
+					quests: endedQuestsIn(index, questsRoot),
 				});
 			} catch {
 				// The next quest action tries again.
@@ -247,6 +279,51 @@ export function questsIn(
 	};
 	visit("");
 	return found;
+}
+
+/**
+ * Every concluded or retired quest, by id, each with the folder a new
+ * session for it opens in, chosen as for an open one. Its sessions have
+ * all ended, so the newest to start counts first, as the README says,
+ * and none is asked whether it still runs.
+ */
+export function endedQuestsIn(
+	index: QuestIndex,
+	store: string,
+	home?: string,
+): EndedQuestEntry[] {
+	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
+	return [...index.quests.entries()]
+		.filter(([, entry]) => !isOpen(entry.doc.frontMatter.status))
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([id, entry]) => {
+			const fm = entry.doc.frontMatter;
+			const summary = extractSectionParagraph(entry.doc.body, "summary");
+			const start = resolveSpawnCwd({
+				questDir: entry.dir,
+				store,
+				...(home ? { home } : {}),
+				trees: fm.trees ?? [],
+				sessions: fm.sessions.map((session) => ({
+					...session,
+					liveness: "detached" as const,
+					...(session.started ? { lastActivity: session.started } : {}),
+				})),
+				ancestors: ancestorTreesOf(fm.parent ?? undefined, read),
+			}).cwd;
+			return {
+				id,
+				address: questAddress(id),
+				...(fm.short ? { short: fm.short } : {}),
+				title: entry.doc.title ?? id,
+				...(summary ? { summary } : {}),
+				kind: fm.kind,
+				status: fm.status,
+				...(fm.parent ? { parent: fm.parent } : {}),
+				start,
+				updated: fm.updated,
+			};
+		});
 }
 
 /** The later of two ISO times, as ISO; either may be missing or unreadable. */
