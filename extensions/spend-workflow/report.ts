@@ -94,7 +94,10 @@ export function formatBill(bill: Bill, limit = 12, uncut?: string): string {
 		return lines.join("\n");
 	}
 	for (const row of bill.rows.slice(0, limit)) {
-		const amount = row.estimated ? `about ${row.shown}` : row.shown;
+		// spend-watch says "about" itself on some cuts, its budget's among
+		// them, so it's said here only where it isn't already.
+		const said = row.shown.startsWith("about ");
+		const amount = row.estimated && !said ? `about ${row.shown}` : row.shown;
 		lines.push(`  ${elide(row.name).padEnd(KEY_WIDTH)} ${amount.padStart(15)}`);
 	}
 	if (bill.rows.length > limit) {
