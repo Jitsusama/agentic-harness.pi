@@ -30,18 +30,61 @@
  * host activating later. Direct imports of the functions
  * below are supported too, primarily for tests and
  * tightly-coupled internal callers.
+ *
+ * Each default is held by what it is, its package and its
+ * path inside that package, rather than by where it was
+ * loaded from. A reload onto a worktree and back loads the
+ * registering extension once from each root, and pi's bus
+ * keeps every load's listeners, so the same file arrives
+ * from each root; held by its path, a subagent loaded every
+ * copy, and once a tree was released pi refused the run.
+ * The latest registration wins, and the newest load is the
+ * last to hear an event. The slots are new ones, since a
+ * module loaded before this change still writes paths into
+ * the old.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { processGlobal } from "../internal/process-global.ts";
+import { isRecord } from "../internal/record.ts";
 
 const defaultExtensions = processGlobal(
-	"pi:subagent-default-extensions",
-	() => new Set<string>(),
+	"pi:subagent-default-extensions:v2",
+	() => new Map<string, string>(),
 );
 const defaultSkills = processGlobal(
-	"pi:subagent-default-skills",
-	() => new Set<string>(),
+	"pi:subagent-default-skills:v2",
+	() => new Map<string, string>(),
 );
+
+/**
+ * What a path is, whichever root it was loaded from: its package's
+ * name and its path inside the package, or the path itself when no
+ * package holds it.
+ */
+export function defaultKey(path: string): string {
+	for (let dir = dirname(path); ; dir = dirname(dir)) {
+		const manifest = join(dir, "package.json");
+		if (existsSync(manifest)) {
+			const name = packageName(manifest);
+			return name === undefined ? path : `${name}:${relative(dir, path)}`;
+		}
+		if (dirname(dir) === dir) return path;
+	}
+}
+
+function packageName(manifest: string): string | undefined {
+	try {
+		const body: unknown = JSON.parse(readFileSync(manifest, "utf8"));
+		const name = isRecord(body) ? body.name : undefined;
+		return typeof name === "string" && name !== "" ? name : undefined;
+	} catch {
+		// A manifest that won't read names nothing; the path stands for
+		// itself, as one outside any package does.
+		return undefined;
+	}
+}
 
 /**
  * Register an extension file that should be loaded into
@@ -50,10 +93,10 @@ const defaultSkills = processGlobal(
  * Paths must be absolute and accepted by pi's
  * `--extension` flag (a `.ts` or `.mjs` file, or a
  * directory containing an `index.ts`). Registering the
- * same path twice is a no-op.
+ * same file again, from this root or another, replaces it.
  */
 export function registerSubagentDefaultExtension(path: string): void {
-	defaultExtensions.add(path);
+	defaultExtensions.set(defaultKey(path), path);
 }
 
 /**
@@ -62,10 +105,10 @@ export function registerSubagentDefaultExtension(path: string): void {
  *
  * Paths must be absolute and accepted by pi's `--skill`
  * flag (typically a `SKILL.md` file). Registering the
- * same path twice is a no-op.
+ * same file again, from this root or another, replaces it.
  */
 export function registerSubagentDefaultSkill(path: string): void {
-	defaultSkills.add(path);
+	defaultSkills.set(defaultKey(path), path);
 }
 
 /**
@@ -78,8 +121,8 @@ export function getSubagentDefaults(): {
 	readonly skills: readonly string[];
 } {
 	return {
-		extensions: Array.from(defaultExtensions),
-		skills: Array.from(defaultSkills),
+		extensions: Array.from(defaultExtensions.values()),
+		skills: Array.from(defaultSkills.values()),
 	};
 }
 
