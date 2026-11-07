@@ -3,7 +3,7 @@
 Opens shells in a window, a tab or a pane of whatever terminal you
 use, types into them, and asks whether they are still there. The
 quest workflow uses it for `spawn`, `spawn-tab`, `spawn-pane`,
-`spawn-window` and `restore`. Its drivers live in
+`spawn-window` and `reopen-sessions`. Its drivers live in
 `lib/core/internal/terminal`.
 
 ## Words

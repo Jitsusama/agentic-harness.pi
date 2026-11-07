@@ -84,7 +84,7 @@ shipped and tested.
   quest they refuse rather than pick one, and a path that names
   none of them is refused with the list.
 - **Terminal spawn**: `spawn`, `spawn-tab`, `spawn-pane`,
-  `spawn-window`, and `restore` with `force`. Each takes
+  `spawn-window`, and `reopen-sessions` with `force`. Each takes
   `terminal`, `layout` and `nesting` for the call and
   `dryRun` to see the decision without opening anything;
   otherwise the person's `terminal` settings decide, by
@@ -101,15 +101,15 @@ shipped and tested.
   chose: pi loads a repo's
   AGENTS.md only when it starts inside it, and a new builder
   subquest has nothing of its own yet.
-  Restore gathers tabs with no window to hold them into one
+  `reopen-sessions` gathers tabs with no window to hold them into one
   new window, and counts a session reopened only once its pi
   has started. A lost session pi never saved, since it was
   lost before its first message, has nothing to resume:
-  restore starts a fresh pi on its quest in its folder
+  it starts a fresh pi on its quest in its folder
   instead, says so, and stops offering it once a session is
   running in its place. See the terminal library's README for
   the settings.
-- **Restore through the launcher**: `restore` with `force`
+- **Reopen through the launcher**: `reopen-sessions` with `force`
   first hands the sessions pi saved to the desktop's launcher
   (`qs ipc call sessions reopen`), which opens them one at a
   time, each back on its workspace in its place, so one placer
@@ -125,15 +125,16 @@ shipped and tested.
   minted for it and its quest, which the launcher starts with
   `pi --session-id`. A restart's `command`, `pi --session <id>`
   alone or with `--model <model>`, goes too, with that model.
-  The same cases as restore's leave it out, and so do another
-  terminal or layout, any other command and another machine; a launcher that doesn't take it leaves the
-  window to open as above. A dry run asks it nothing.
-- **Without taking focus**: every session restore and spawn hand
-  the launcher goes with `focus: false`, its quest and the session
-  that asked, so its window opens unfocused where its quest's
-  sessions are. A session restored or resumed also says
-  `replaces`, its own id, so it opens where its window was; one they open themselves leaves focus where it is
-  (lib/terminal). Only the person's own press focuses a window.
+  The same cases as reopen-sessions' leave it out, and so do
+  another terminal or layout, any other command and another
+  machine; a launcher that doesn't take it leaves the window to
+  open as above. A dry run asks it nothing.
+- **Without taking focus**: every session reopen-sessions and
+  spawn hand the launcher goes with `focus: false`, its quest and
+  the session that asked, so its window opens unfocused where its
+  quest's sessions are. A session reopened or resumed also says
+  `replaces`, its own id, so it opens where its window was; one
+  they open themselves leaves focus where it is (lib/terminal). Only the person's own press focuses a window.
 - **Sets to work by itself**: a session a spawn starts running
   pi, fresh, resumed or with flags the call's `command` gives it
   (`pi --model ...`), is told first to carry on with its quest
@@ -170,7 +171,7 @@ shipped and tested.
   on its own machine. A dry run asks the node nothing. A held
   session runs under its holder, not kitty, so a session it
   spawns in turn opens beside the window the node says it is
-  shown in (see the terminal library's README). `restore`
+  shown in (see the terminal library's README). `reopen-sessions`
   refuses `machine` and `needs`: it reopens this machine's saved
   sessions.
 - **Windows on another machine's sessions**: a session another
@@ -181,7 +182,7 @@ shipped and tested.
   session's attach words, as the mycelium node gives them, in
   `windows-elsewhere.json` beside the session records. The next
   boot's `restore.json` offers each as an entry with `machine` and
-  `attach`, for the launcher to rejoin, and `restore` lists the
+  `attach`, for the launcher to rejoin, and `reopen-sessions` lists the
   words. A session joined again in a window now drops out.
   A session pi never saved is offered too, marked `fresh`, which
   the launcher starts afresh under its id with `pi --session-id`,

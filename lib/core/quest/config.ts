@@ -29,7 +29,7 @@ export interface QuestWorkflowConfig {
 	 * working directory at session start. Defaults to true, the
 	 * cd-into-a-tree-and-attach flow. Set false to keep fresh
 	 * sessions idle until an explicit `quest load`; /reload
-	 * restore and spawn hints still work.
+	 * reopen-sessions and spawn hints still work.
 	 */
 	autoloadFromCwd?: boolean;
 	/**

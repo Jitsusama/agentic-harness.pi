@@ -308,7 +308,7 @@ mutates anything:
 - `quest sessions` is the live view: one row per session,
   never collapsed per quest, so two live panes read as two
   rows and a crash shows beside its live sibling.
-- `quest restore` brings back the tabs something took away.
+- `quest reopen-sessions` brings back the tabs something took away.
   A session records itself when it loads a quest, and a
   crash, a closed tab, the terminal dying or quitting, or a
   shutdown all leave that record marked lost; a deliberate

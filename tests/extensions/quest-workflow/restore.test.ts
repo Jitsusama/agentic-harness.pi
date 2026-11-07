@@ -189,7 +189,9 @@ function recordingDriver(): { pane: string; text: string }[] {
 
 async function restoreNow() {
 	return succeeded(
-		await handle(buildState(), fakePi(), fakeCtx(), { action: "restore" }),
+		await handle(buildState(), fakePi(), fakeCtx(), {
+			action: "reopen-sessions",
+		}),
 	);
 }
 
@@ -270,7 +272,7 @@ describe("restore verb", () => {
 				id: quest,
 			}),
 		);
-		expect((await restoreNow()).message).toContain("nothing to restore");
+		expect((await restoreNow()).message).toContain("nothing to reopen");
 	});
 
 	it("reopens by typing into a shell, not by spawning the command", async () => {
@@ -303,7 +305,7 @@ describe("restore verb", () => {
 
 		const result = succeeded(
 			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "restore",
+				action: "reopen-sessions",
 				force: true,
 			}),
 		);
@@ -336,7 +338,7 @@ describe("restore verb", () => {
 
 		const result = succeeded(
 			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "restore",
+				action: "reopen-sessions",
 				force: true,
 			}),
 		);
@@ -396,7 +398,7 @@ describe("restore verb", () => {
 		saveRecord(lostSession("sess-B", "QEST-2"));
 		succeeded(
 			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "restore",
+				action: "reopen-sessions",
 				force: true,
 				layout: "window",
 			}),
@@ -423,7 +425,7 @@ describe("restore verb", () => {
 		}
 		const result = succeeded(
 			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "restore",
+				action: "reopen-sessions",
 				force: true,
 			}),
 		);
@@ -467,7 +469,7 @@ describe("restore verb", () => {
 	it("lists recently closed sessions even when nothing was lost", async () => {
 		saveRecord(quitSession("sess-quit", "QEST-2"));
 		const { message } = await restoreNow();
-		expect(message).toContain("nothing to restore");
+		expect(message).toContain("nothing to reopen");
 		expect(message).toContain("pi --session 'sess-quit'");
 	});
 
@@ -492,7 +494,7 @@ describe("restore verb", () => {
 		saveRecord(quitSession("sess-quit", "QEST-2"));
 		succeeded(
 			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "restore",
+				action: "reopen-sessions",
 				force: true,
 			}),
 		);
@@ -502,7 +504,7 @@ describe("restore verb", () => {
 	describe("naming sessions with id", () => {
 		async function restoreIds(id: string, force = false) {
 			return handle(buildState(), fakePi(), fakeCtx(), {
-				action: "restore",
+				action: "reopen-sessions",
 				id,
 				force,
 			});
@@ -593,7 +595,7 @@ describe("restore verb", () => {
 			saveRecord(lostSession("sess-new", "QEST-2"));
 			const result = succeeded(
 				await handle(buildState(), fakePi(), fakeCtx(), {
-					action: "restore",
+					action: "reopen-sessions",
 					force: true,
 				}),
 			);
@@ -606,14 +608,14 @@ describe("restore verb", () => {
 			);
 			expect(result.message).toContain("- sess-new: QEST-2");
 			expect(result.message).not.toContain("not yet seen running");
-			expect((await restoreNow()).message).toContain("nothing to restore");
+			expect((await restoreNow()).message).toContain("nothing to reopen");
 		});
 
 		it("stops being offered once a session is started in its place", async () => {
 			savedSessions("sess-other");
 			saveRecord(lostSession("sess-new", "QEST-2"));
 			checkIn("QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi");
-			expect((await restoreNow()).message).toContain("nothing to restore");
+			expect((await restoreNow()).message).toContain("nothing to reopen");
 		});
 
 		it("is resumed as before when pi's store cannot be read", async () => {
@@ -642,7 +644,7 @@ describe("restore verb", () => {
 				id: quest,
 			}),
 		);
-		expect((await restoreNow()).message).toContain("nothing to restore");
+		expect((await restoreNow()).message).toContain("nothing to reopen");
 	});
 });
 

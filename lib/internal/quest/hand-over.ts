@@ -1,7 +1,7 @@
 /**
  * Handing sessions to the desktop's launcher to reopen, so one placer
  * puts every window back where it sat: on 30 October six sessions
- * `quest restore` opened itself came out reversed on their workspace.
+ * `quest reopen-sessions` opened itself came out reversed on their workspace.
  * The launcher (core.nix's Quickshell Sessions) takes a JSON object
  * whose `sessions` lists each `{id, cwd}` through
  * `qs ipc call sessions reopen`, and answers "taken", "taken N of M" or
