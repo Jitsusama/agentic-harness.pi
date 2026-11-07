@@ -29,7 +29,7 @@ import { isLanding, type Landing } from "../internal/session/landings.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
-import { loadedQuest, type QuestRecords } from "./address.ts";
+import { loadedQuest, type QuestRecords, questAddress } from "./address.ts";
 import { scopesOf } from "./scope.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
@@ -148,8 +148,29 @@ export interface Presence {
 	 * taken out, since only its own machine can judge its process.
 	 */
 	readonly machine?: string;
+	/**
+	 * The quest it has loaded, as the launcher shows it, so the desktop
+	 * draws a session's quest without reading its README (see QuestInfo).
+	 * `quest` stays the id alone, as every peer reads it.
+	 */
+	readonly questInfo?: QuestInfo;
+	/** The folder it runs in. Missing from an older presence. */
+	readonly cwd?: string;
+	/** The repository that folder is a checkout of, by name, when it is one. */
+	readonly repo?: string;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
+}
+
+/** A session's quest as the launcher draws it. */
+export interface QuestInfo {
+	readonly id: string;
+	/** Its README's heading. */
+	readonly title: string;
+	/** The address it gives a peer: its id's last six letters. */
+	readonly short: string;
+	/** Its front matter's status, such as active or concluded. */
+	readonly status: string;
 }
 
 /** Where presence is kept, and what can be asked of it. */
@@ -197,6 +218,10 @@ export interface PeerWork {
 	readonly owns: readonly string[];
 	/** The quest it has loaded, by id, when its README can be read. */
 	readonly quest?: string;
+	/** That quest as the launcher draws it. */
+	readonly questInfo?: QuestInfo;
+	/** The repository its folder is a checkout of, by name, when it is one. */
+	readonly repo?: string;
 	/** The groups the work puts it in (see scope.ts). */
 	readonly scopes: readonly string[];
 	/** Where its quest sits among orchestrations, by quest id. */
@@ -221,8 +246,10 @@ export function workOf(
 	const quest = loadedQuest(sessionId, records.sessions);
 	const readme = quest ? readReadme(records.quests, quest) : undefined;
 	const parsed = readme ? parseQuestFrontMatter(readme) : undefined;
+	const repo = runsIn[0];
 	if (!quest || !parsed) {
 		return {
+			...(repo ? { repo } : {}),
 			worksOn: `the work in ${cwd}`,
 			owns: [...new Set([...runsIn, ...here, ...named])],
 			scopes: scopesOf({ questChain: [], repositories: runsIn }),
@@ -245,6 +272,13 @@ export function workOf(
 	const orchestration = orchestrationOf(quest, read);
 	return {
 		quest,
+		questInfo: {
+			id: quest,
+			title: titleOf(parsed.body),
+			short: questAddress(quest),
+			status: parsed.frontMatter.status,
+		},
+		...(repo ? { repo } : {}),
 		worksOn: describe(parsed.body),
 		owns: [...new Set([quest, ...repositories, ...here, ...named])],
 		scopes: scopesOf({
@@ -466,13 +500,27 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(typeof one.machine === "string" && one.machine !== ""
 			? { machine: one.machine }
 			: {}),
+		...(isQuestInfo(one.questInfo) ? { questInfo: one.questInfo } : {}),
+		...(typeof one.cwd === "string" ? { cwd: one.cwd } : {}),
+		...(typeof one.repo === "string" ? { repo: one.repo } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }
 
+function isQuestInfo(value: unknown): value is QuestInfo {
+	if (typeof value !== "object" || value === null) return false;
+	const { id, title, short, status } = value as Record<string, unknown>;
+	return [id, title, short, status].every((one) => typeof one === "string");
+}
+
+/** A README's heading. */
+function titleOf(body: string): string {
+	return body.match(/^# (.+)$/m)?.[1]?.trim() ?? "";
+}
+
 /** The quest's title and the start of its summary. */
 function describe(body: string): string {
-	const title = body.match(/^# (.+)$/m)?.[1]?.trim() ?? "";
+	const title = titleOf(body);
 	const summary =
 		body
 			.split(/^## .*Summary.*$/m)[1]

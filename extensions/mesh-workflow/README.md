@@ -632,6 +632,11 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   ending), never on a clock. Its `title` is the exact window
   title pi sets, so the desktop finds a peer's window by it
   rather than by parsing the title, which carries no address.
+  Its `questInfo` is the loaded quest as the launcher draws it
+  (`id`, `title`, `short` and `status`), beside `quest`, which
+  stays the id alone; `cwd` is its folder and `repo` the
+  repository that folder is a checkout of. The launcher reads
+  these rather than the quest's README or the session's log.
 - `leases/`: one file per peer, by session id, holding its
   current leases, so each peer writes only its own. It is
   rewritten when a lease is taken, given up, or renewed by a

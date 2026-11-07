@@ -151,6 +151,51 @@ describe("this session's peer", () => {
 			worksOn: "A Stable Substrate: Grow the mesh.",
 			owns: expect.arrayContaining(["QEST-20261021-LUQ49E", "harness"]),
 		});
+		// What the launcher draws, said so it reads no README itself.
+		expect(at.presences.of(session)).toMatchObject({
+			quest: "QEST-20261021-LUQ49E",
+			questInfo: {
+				id: "QEST-20261021-LUQ49E",
+				title: "A Stable Substrate",
+				short: "LUQ49E",
+				status: "active",
+			},
+			cwd: root,
+		});
+	});
+
+	it("says its folder and the repository it is a checkout of, on no quest", () => {
+		const main = join(root, "core.nix");
+		mkdirSync(join(main, ".git"), { recursive: true });
+		writeFileSync(
+			join(main, ".git", "config"),
+			'[remote "origin"]\n\turl = git@github.com:Jitsusama/core.nix.git\n',
+		);
+		const at = { ...surroundings(), cwd: main };
+
+		localPeer(at);
+
+		const said = at.presences.of(session);
+		expect(said).toMatchObject({ cwd: main, repo: "core.nix" });
+		expect(said?.questInfo).toBeUndefined();
+	});
+
+	it("reads an older presence with no quest, folder or repository as it was", () => {
+		const presences = createPresences(join(root, "presence"));
+		presences.publish({
+			session,
+			addresses: ["24B025FE"],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+
+		const read = presences.of(session);
+		expect(read?.questInfo).toBeUndefined();
+		expect(read?.cwd).toBeUndefined();
+		expect(read?.repo).toBeUndefined();
 	});
 
 	it("owns its worktree's repository by the repository's name", () => {
