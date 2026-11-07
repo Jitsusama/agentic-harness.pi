@@ -44,8 +44,12 @@ const STATUS_KEY = "quest-budget";
 
 /** What keeps the session on its quest's budget. */
 export interface BudgetKeeper {
-	/** Draw on the budget the loaded quest names, if it changed. */
-	keep(ctx: ExtensionContext): Promise<void>;
+	/**
+	 * Draw on the budget the loaded quest names, if it changed. With
+	 * `again`, ask the providers even when it didn't: naming a budget
+	 * once more is how a person takes up one whose file they just wrote.
+	 */
+	keep(ctx: ExtensionContext, options?: { again?: boolean }): Promise<void>;
 }
 
 /** Host budget providers and keep the session on its quest's budget. */
@@ -109,7 +113,7 @@ export function keepQuestBudget(
 		if (last && typeof wanted === "string") void keep(last, true);
 	});
 
-	return { keep: (ctx) => keep(ctx) };
+	return { keep: (ctx, options) => keep(ctx, options?.again ?? false) };
 }
 
 /**

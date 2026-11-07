@@ -258,6 +258,32 @@ describe("the session's budget", () => {
 
 		expect(process.env[KEY]).toBe("late");
 	});
+
+	it("asks again when the budget is named again, as after writing its file", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi(events), state);
+		const answers: Record<string, BudgetAnswer> = {};
+		registerBudgetProvider(events, {
+			id: "files",
+			precedence: 0,
+			resolve: async (name) => answers[name] ?? { kind: "unknown" },
+		});
+		await run({ action: "load", id: top });
+		await keeper.keep(ui().ctx);
+
+		answers.delta = { kind: "drawn", env: { [KEY]: "file" }, label: "x" };
+		await keeper.keep(ui().ctx);
+		expect(
+			process.env[KEY],
+			"an unchanged name isn't asked on every tool call",
+		).toBe("personal");
+
+		await run({ action: "budget", id: top, ref: "delta" });
+		await keeper.keep(ui().ctx, { again: true });
+		expect(process.env[KEY]).toBe("file");
+	});
 });
 
 describe("the budget in the session's log", () => {
