@@ -10,6 +10,7 @@ import type {
 	TerminalKind,
 	TerminalLaunchCapability,
 	TerminalLayout,
+	TerminalPlacingCapability,
 	TerminalRequest,
 	TerminalSessionHandle,
 	TerminalTypeCapability,
@@ -31,10 +32,13 @@ export function fakeDriver(
 		launch?: boolean;
 		failSpawn?: boolean;
 		failLaunch?: boolean;
+		/** The title of the window holding each surface, by its value. */
+		titles?: Record<string, string>;
 	} = {},
 ): TerminalDriver &
 	TerminalTypeCapability &
-	Partial<TerminalLaunchCapability> & { calls: FakeCalls } {
+	Partial<TerminalLaunchCapability> &
+	Partial<TerminalPlacingCapability> & { calls: FakeCalls } {
 	const calls: FakeCalls = { spawned: [], launched: [], typed: [] };
 	let next = 100;
 	const handle = (scope: string): TerminalSessionHandle => ({
@@ -100,6 +104,13 @@ export function fakeDriver(
 		async typeInto(target, text) {
 			calls.typed.push({ handle: target, text });
 		},
+		...(options.titles
+			? {
+					async windowTitle(surface: TerminalSessionHandle) {
+						return options.titles?.[surface.value];
+					},
+				}
+			: {}),
 		calls,
 	};
 }

@@ -48,3 +48,5 @@ process.env.XDG_RUNTIME_DIR = join(sandbox, "runtime");
 process.env.PI_NOTIFY = "off";
 // Nor may a restore hand sessions to the desktop's launcher to open.
 process.env.PI_LAUNCHER = "off";
+// Nor may an opened window ask the developer's niri where to go.
+delete process.env.NIRI_SOCKET;

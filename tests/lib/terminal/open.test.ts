@@ -216,3 +216,85 @@ describe("the printed line", () => {
 		);
 	});
 });
+
+describe("a window opened without focus, under niri", () => {
+	const title = "π - Harness - agentic-harness.pi";
+	/** A niri that holds these windows, answering actions with `acted`. */
+	function niri(
+		windows: { title: string; workspace_id: number }[],
+		acted: unknown = { Ok: "Handled" },
+	) {
+		const asked: unknown[] = [];
+		const call = async (request: unknown) => {
+			asked.push(request);
+			return request === "Windows" ? { Ok: { Windows: windows } } : acted;
+		};
+		return { asked, call };
+	}
+	const open = (
+		kitty: ReturnType<typeof fakeDriver>,
+		call: (request: unknown) => Promise<unknown>,
+		layout: "window" | "tab" = "window",
+	) =>
+		openTerminal(
+			{ layout, command: "pi" },
+			{
+				...here,
+				settings,
+				env: { KITTY_PANE: "7" },
+				drivers: [kitty],
+				niri: call,
+			},
+		);
+
+	it("opens on the workspace of the asking session's window, by a class of its own", async () => {
+		const kitty = fakeDriver("kitty", { titles: { "7": title } });
+		const desk = niri([
+			{ title: "π - Other - delta", workspace_id: 1 },
+			{ title, workspace_id: 3 },
+		]);
+		const opened = await open(kitty, desk.call);
+		const windowClass = kitty.calls.spawned[0]?.windowClass;
+
+		expect(windowClass).toMatch(/^pi-spawned\.[0-9]+$/);
+		expect(desk.asked[1]).toEqual({
+			Action: {
+				OpenNextWindowOn: { app_id: windowClass, reference: { Id: 3 } },
+			},
+		});
+		expect(opened.notes).toContain(
+			"opens on niri workspace 3, the one holding this session's window",
+		);
+	});
+
+	it("opens as before when niri refuses the ask", async () => {
+		const kitty = fakeDriver("kitty", { titles: { "7": title } });
+		const desk = niri([{ title, workspace_id: 3 }], {
+			Err: "error parsing request",
+		});
+		const opened = await open(kitty, desk.call);
+
+		expect(kitty.calls.spawned[0]?.windowClass).toBeUndefined();
+		expect(opened.notes.join(" ")).not.toContain("niri workspace");
+	});
+
+	it("asks nothing of where when two windows carry the asker's title", async () => {
+		const kitty = fakeDriver("kitty", { titles: { "7": title } });
+		const desk = niri([
+			{ title, workspace_id: 3 },
+			{ title, workspace_id: 5 },
+		]);
+		await open(kitty, desk.call);
+
+		expect(desk.asked).toEqual(["Windows"]);
+		expect(kitty.calls.spawned[0]?.windowClass).toBeUndefined();
+	});
+
+	it("asks nothing for a tab, which opens in the asker's own window", async () => {
+		const kitty = fakeDriver("kitty", { titles: { "7": title } });
+		const desk = niri([{ title, workspace_id: 3 }]);
+		await open(kitty, desk.call, "tab");
+
+		expect(desk.asked).toEqual([]);
+	});
+});

@@ -26,6 +26,7 @@ import {
 	type TerminalDriver,
 	type TerminalLaunchCapability,
 	type TerminalLivenessCapability,
+	type TerminalPlacingCapability,
 	type TerminalPlatform,
 	type TerminalProbe,
 	type TerminalRequest,
@@ -73,6 +74,8 @@ interface KittyOsWindow {
 	readonly tabs?: readonly {
 		readonly id?: unknown;
 		readonly layout?: unknown;
+		readonly title?: unknown;
+		readonly is_active?: unknown;
 		readonly windows?: readonly { readonly id?: unknown }[];
 	}[];
 }
@@ -128,6 +131,26 @@ export function kittyTabLayoutOf(
 	return undefined;
 }
 
+/**
+ * The title of the OS window holding a window, from a `kitty @ ls`
+ * listing: its active tab's, which is what kitty gives the desktop.
+ */
+export function kittyOsWindowTitleOf(
+	listing: unknown,
+	windowId: string,
+): string | undefined {
+	for (const osWindow of asOsWindows(listing)) {
+		const tabs = osWindow.tabs ?? [];
+		const holds = tabs.some((tab) =>
+			(tab.windows ?? []).some((window) => String(window.id) === windowId),
+		);
+		if (!holds) continue;
+		const shown = tabs.find((tab) => tab.is_active === true) ?? tabs[0];
+		return typeof shown?.title === "string" ? shown.title : undefined;
+	}
+	return undefined;
+}
+
 function asOsWindows(listing: unknown): readonly KittyOsWindow[] {
 	return Array.isArray(listing) ? (listing as KittyOsWindow[]) : [];
 }
@@ -150,7 +173,7 @@ export function kittyLaunchArgs(
 	if (!request.takeFocus) {
 		args.push("--keep-focus");
 		if (request.layout === "window") {
-			args.push("--os-window-class", SPAWNED_CLASS);
+			args.push("--os-window-class", request.windowClass ?? SPAWNED_CLASS);
 		}
 	}
 	// A tab or pane goes beside the surface it was asked to be near, or
@@ -189,7 +212,9 @@ export function kittyProcessArgs(
 		scope,
 		"-o",
 		"allow_remote_control=socket-only",
-		...(request.takeFocus ? [] : ["--class", SPAWNED_CLASS]),
+		...(request.takeFocus
+			? []
+			: ["--class", request.windowClass ?? SPAWNED_CLASS]),
 		...(request.cwd ? ["--directory", request.cwd] : []),
 	];
 }
@@ -277,6 +302,7 @@ export function createKittyDriver(
 ): TerminalDriver &
 	TerminalLivenessCapability &
 	TerminalTypeCapability &
+	TerminalPlacingCapability &
 	TerminalLaunchCapability & {
 		/** What the person should know before a pane is opened. */
 		advise(request: TerminalRequest): Promise<string | undefined>;
@@ -345,6 +371,10 @@ export function createKittyDriver(
 				KITTY_LISTEN_ON: window.within,
 			});
 			return seen ? { ...seen, source: "holder" } : undefined;
+		},
+		async windowTitle(handle) {
+			if (!handle.scope) return undefined;
+			return kittyOsWindowTitleOf(await list(handle.scope), handle.value);
 		},
 		async spawn(request) {
 			const scope = scopeFor(request);

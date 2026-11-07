@@ -83,6 +83,13 @@ export interface TerminalRequest {
 	 * compositor can open it unfocused.
 	 */
 	takeFocus?: boolean;
+	/**
+	 * The class a window opened without focus carries instead of
+	 * `SPAWNED_CLASS`, one of its own that the compositor was told to
+	 * open on a given workspace. A driver with
+	 * {@link TerminalPlacingCapability} honours it; others ignore it.
+	 */
+	windowClass?: string;
 }
 
 /**
@@ -162,6 +169,20 @@ export interface TerminalLivenessCapability {
  */
 export function terminalHandleKey(handle: TerminalSessionHandle): string {
 	return `${handle.driverId}\u0000${handle.hostId}\u0000${handle.scope ?? ""}\u0000${handle.value}`;
+}
+
+/**
+ * Optional capability for opening a window on the workspace of the
+ * session that asked, under a compositor that can be told where.
+ */
+export interface TerminalPlacingCapability {
+	/**
+	 * The title the desktop shows for the window holding a surface, or
+	 * undefined when the terminal can't say. A driver with this opens a
+	 * window with the request's `windowClass`, so the compositor can be
+	 * told to open it on the workspace of the window with that title.
+	 */
+	windowTitle(handle: TerminalSessionHandle): Promise<string | undefined>;
 }
 
 /**

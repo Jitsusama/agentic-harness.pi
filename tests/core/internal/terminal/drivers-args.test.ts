@@ -4,6 +4,7 @@ import {
 	createKittyDriver,
 	kittyLaunchArgs,
 	kittyLaunchSocket,
+	kittyOsWindowTitleOf,
 	kittyProcessArgs,
 	kittyStartCommand,
 	kittyTabLayoutOf,
@@ -122,6 +123,34 @@ describe("kitty", () => {
 		expect(
 			kittyProcessArgs({ layout: "window", takeFocus: true }, "unix:@k"),
 		).not.toContain("--class");
+	});
+
+	it("carries a class of its own that niri was told where to open", () => {
+		const asked = { layout: "window", windowClass: "pi-spawned.42" } as const;
+		const window = kittyLaunchArgs(asked, "x");
+		const started = kittyProcessArgs(asked, "unix:@k");
+
+		expect(window.slice(window.indexOf("--os-window-class"))[1]).toBe(
+			"pi-spawned.42",
+		);
+		expect(started.slice(started.indexOf("--class"))[1]).toBe("pi-spawned.42");
+	});
+
+	it("says the title the desktop shows for the OS window holding a window", () => {
+		const listing = [
+			{ id: 1, tabs: [{ is_active: true, title: "a", windows: [{ id: 2 }] }] },
+			{
+				id: 3,
+				tabs: [
+					{ is_active: false, title: "mine", windows: [{ id: 174 }] },
+					{ is_active: true, title: "shown", windows: [{ id: 175 }] },
+				],
+			},
+		];
+
+		expect(kittyOsWindowTitleOf(listing, "174")).toBe("shown");
+		expect(kittyOsWindowTitleOf(listing, "2")).toBe("a");
+		expect(kittyOsWindowTitleOf(listing, "9")).toBeUndefined();
 	});
 
 	it("starts a kitty of its own in the agents' slice under systemd", () => {
