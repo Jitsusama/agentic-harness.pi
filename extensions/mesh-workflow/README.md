@@ -637,6 +637,23 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   stays the id alone; `cwd` is its folder and `repo` the
   repository that folder is a checkout of. The launcher reads
   these rather than the quest's README or the session's log.
+  While a run goes on, `step` stays the bare tool name, or
+  `thinking`, and `stepDetail` says it in full: `kind` is
+  `tool`, `thinking` or `waiting` (on its person, mid-run),
+  `name` the tool or the want's kind, `detail` what the call is
+  about (a command's first line, a path, a query) cut to 80
+  characters, and `since` when the step began. A command's
+  detail is shared wherever presence is, so it is cut short
+  rather than said whole. `usage` is what its model calls took,
+  under OpenTelemetry's `gen_ai` names: the models and provider,
+  the tokens of the `last` call and of `today`, the `context` in
+  use and its limit, the `turns` made today and the last one's
+  timing, and `pi.cost.usd` at pi's list prices. Today is the
+  local `day`; it carries across a reload, a restart and a
+  rollover, and a session with none for today counts its own
+  log from midnight. Usage is said with the next write, never
+  one of its own, so it is at most 30 seconds old while a run
+  goes on and current once it ends.
 - `leases/`: one file per peer, by session id, holding its
   current leases, so each peer writes only its own. It is
   rewritten when a lease is taken, given up, or renewed by a
@@ -811,6 +828,12 @@ waits. The desktop reads it to mark a session that wants Joel, and
 posts the one notice for it;
 a peer can read it, and `mesh_groups` lists it, so none is
 waited on as though it were free.
+
+Beside it, `wanting` lists every want standing, oldest first,
+each with `forPerson`. An orchestrated session's question is
+its orchestrator's to answer, so it is listed with `forPerson`
+false and never makes `wants` or the `waiting` state; every
+other want is the person's.
 
 The session says each want as it starts and ends, over the bus
 (`session:wants:v1`, see `lib/internal/session/wants.ts`): a

@@ -20,6 +20,7 @@ import {
 	repositoryName,
 	windowTitle,
 } from "../../../lib/mesh/presence.ts";
+import { localDay, noUsage } from "../../../lib/mesh/usage.ts";
 import { wantId } from "../../../lib/mesh/want.ts";
 
 let root: string;
@@ -306,6 +307,93 @@ describe("this session's peer", () => {
 		}
 	});
 
+	it("says its step in full: the tool and what it is about, thinking, or waiting on its person", () => {
+		vi.useFakeTimers();
+		try {
+			saysItsStepInFull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	const saysItsStepInFull = () => {
+		let clock = Date.parse("2026-11-06T22:00:00Z");
+		const at = { ...surroundings(), now: () => clock };
+		const peer = localPeer(at);
+		const seen = () => at.presences.of(session);
+
+		peer.setBusy(true);
+		peer.setThinking();
+		expect(seen()).toMatchObject({
+			step: "thinking",
+			stepDetail: {
+				kind: "thinking",
+				name: "",
+				detail: "",
+				since: "2026-11-06T22:00:00.000Z",
+			},
+		});
+
+		// Begun inside the window, it is said when the window ends, with
+		// the time it began rather than the time it was said.
+		clock += 10_000;
+		vi.advanceTimersByTime(10_000);
+		peer.setStep("bash", "pnpm check");
+		expect(seen()?.stepDetail?.kind).toBe("thinking");
+		clock += STEP_MS - 10_000;
+		vi.advanceTimersByTime(STEP_MS - 10_000);
+		expect(seen()).toMatchObject({
+			step: "bash",
+			stepDetail: {
+				kind: "tool",
+				name: "bash",
+				detail: "pnpm check",
+				since: "2026-11-06T22:00:10.000Z",
+			},
+		});
+
+		peer.want({
+			id: wantId("approval", "2026-11-06T22:01:00.000Z"),
+			kind: "approval",
+			since: "2026-11-06T22:01:00.000Z",
+			said: "git push origin main",
+		});
+		expect(seen()).toMatchObject({
+			step: "bash",
+			stepDetail: {
+				kind: "waiting",
+				name: "approval",
+				detail: "git push origin main",
+				since: "2026-11-06T22:01:00.000Z",
+			},
+		});
+
+		peer.setBusy(false);
+		expect(seen()?.stepDetail).toBeUndefined();
+	};
+
+	it("says its usage with the next presence it writes, and carries today's into its next start", () => {
+		let clock = Date.parse("2026-11-06T22:00:00");
+		const at = { ...surroundings(), now: () => clock };
+		const peer = localPeer(at);
+		const usage = {
+			...noUsage(localDay(new Date(clock))),
+			turns: { today: 3 },
+			"pi.cost.usd": { last: 0.5, today: 1.25 },
+		};
+
+		peer.setBusy(true);
+		peer.setUsage(usage);
+		expect(at.presences.of(session)?.usage).toBeUndefined();
+		peer.setBusy(false);
+		expect(at.presences.of(session)?.usage).toEqual(usage);
+
+		expect(localPeer(at).usage).toEqual(usage);
+
+		clock = Date.parse("2026-11-07T00:01:00");
+		expect(localPeer(at).usage).toBeUndefined();
+	});
+
 	it("is paused over all else, and still paused after a reload", () => {
 		const at = surroundings();
 		const peer = localPeer(at);
@@ -514,6 +602,55 @@ describe("this session's peer", () => {
 				said: "git push",
 			});
 			expect(peer.wants).toMatchObject({ kind: "approval" });
+		});
+
+		it("lists every want standing, saying the question is its orchestrator's", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const at = surroundings();
+			const peer = localPeer(at);
+			const asked = "2026-11-06T22:00:00.000Z";
+			const held = "2026-11-06T22:05:00.000Z";
+
+			peer.want({
+				id: wantId("question", asked),
+				kind: "question",
+				since: asked,
+				said: "Shall I merge it?",
+			});
+			expect(at.presences.of(session)).toMatchObject({
+				state: "listening",
+				wanting: [{ kind: "question", forPerson: false }],
+			});
+			expect(at.presences.of(session)?.wants).toBeUndefined();
+
+			peer.want({
+				id: wantId("approval", held),
+				kind: "approval",
+				since: held,
+				said: "git push",
+			});
+			expect(at.presences.of(session)).toMatchObject({
+				state: "waiting",
+				wants: { kind: "approval" },
+				wanting: [
+					{
+						id: wantId("question", asked),
+						kind: "question",
+						forPerson: false,
+					},
+					{ id: wantId("approval", held), kind: "approval", forPerson: true },
+				],
+			});
+
+			peer.settle("question");
+			peer.settle("approval");
+			expect(at.presences.of(session)?.wanting).toBeUndefined();
 		});
 
 		it("heads its own orchestration as a member of the one above", () => {
