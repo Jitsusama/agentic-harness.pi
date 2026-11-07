@@ -658,6 +658,26 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   current leases, so each peer writes only its own. It is
   rewritten when a lease is taken, given up, or renewed by a
   minute or more, and taken away when the peer holds none.
+- `runs/`: one file per fleet or review round, written by the
+  session that started it (through subagent-workflow and
+  review-integration, not this extension), so the launcher
+  reads a session's runs through the node as `run:<id>`. Each
+  holds `{ v: 1, runs: [run] }`, the list being what the
+  node's folder source reads. A run has its `id`, unique on
+  the machine (`fleet.` or `review.` and its run id), its
+  `kind` (`fleet`, `council`, `judge`, `critique`, `audit` or
+  `stack`), its `parent` session id, what it is `about` (the
+  change's label, or the fleet's run id), its `state`
+  (`running`, `done`, `failed` or `stopped`), `since`, `ended`
+  once it has, `at`, `pi.cost.usd`, and its `members`. Each
+  member has its `id`, its supervisor's `state` (`queued`,
+  `running`, or the state it ended in), `model`, `persona`,
+  `usage` in the four `gen_ai.usage` token names and
+  `pi.cost.usd` once it has ended, `answer` (its result's
+  path), `since` and `ended`. A file is rewritten when what it
+  says changes, looked at every 5 seconds while the run goes
+  on, and goes a day after its run ends, or a day after it was
+  last written for a run whose session ended under it.
 - `told/`: one file per overlap a peer told another of, by
   teller, holder, kind and subject, so every process of the
   teller, its hands among them, sends that fyi once an hour.
