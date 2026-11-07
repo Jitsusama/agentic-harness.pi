@@ -17,6 +17,7 @@ import {
 	parkAfterMs,
 	readParked,
 	restartCommand,
+	SESSION_WOKEN,
 	WAKE_ENV,
 	whyNotPark,
 	writeParked,
@@ -188,6 +189,7 @@ export function watch(
 	// Started again, it is parked no more; its holder clears the wake.
 	const woke = readParked(session, folder) !== undefined;
 	clearParked(session, folder);
+	if (woke) bus.emit(SESSION_WOKEN, { session });
 	// Idle counts from its log, not from this start: every install that
 	// moves reloads every session, and on 6 November installs moved about
 	// every half hour, so a clock started here never reached its hour. A

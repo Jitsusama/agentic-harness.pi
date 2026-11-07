@@ -105,6 +105,12 @@ export interface Standing {
 	 * read there (see internal/session/landings.ts).
 	 */
 	readonly restates?: boolean;
+	/**
+	 * This peer orchestrates, and the message comes from a session it
+	 * leads: what those sessions find is the orchestrator's work, so it is
+	 * not left for a turn something else starts.
+	 */
+	readonly led?: boolean;
 }
 
 /** The attention a message gets, and why, for the screen and the tests. */
@@ -162,8 +168,25 @@ export function attend(message: Message, at: Standing): Heed {
 	) {
 		return { attention: "glance", why: "a hold past the longest one stands" };
 	}
+	// On 7 November three orchestrators sat on their sessions' findings and
+	// landings, noted with no turn, until they parked, and Joel woke each
+	// and typed "." to have them read. Passing what its sessions land and
+	// find on to the person is an orchestrator's work, so an idle one acts
+	// on it: held until the mesh settles, so a burst costs one turn.
+	if (
+		at.led &&
+		at.idle &&
+		(message.intent === "finding" || message.intent === "fyi") &&
+		isHomeTo(message, at.receiver.addresses)
+	) {
+		return {
+			attention: "act",
+			why: `${message.intent === "fyi" ? "news" : "a finding"} from a session it leads`,
+		};
+	}
 	// Status an orchestrator reads from its sender's presence costs it
-	// nothing more as one line; an fyi that answers it is still heard.
+	// nothing more as one line, while it is busy; an fyi that answers it is
+	// still heard.
 	if (message.intent === "fyi" && at.restates && !at.answers) {
 		return {
 			attention: "glance",
@@ -194,6 +217,7 @@ export function attend(message: Message, at: Standing): Heed {
 		) {
 			return { attention: "turn", why, addressed: true };
 		}
+
 		return at.idle && message.intent === "question"
 			? { attention: "turn", why }
 			: { attention: "note", why };

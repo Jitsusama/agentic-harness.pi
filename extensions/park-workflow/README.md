@@ -24,7 +24,10 @@ What must not be out:
 - no run, retry or queued continuation, and no messages waiting for it;
 - no background job running or waiting to say its result;
 - no prompt open for its person, and nothing typed and unsent;
-- no peer waiting on a hold it sent.
+- no peer waiting on a hold it sent;
+- for an orchestrator, no session it leads at work (listening, busy
+  or waiting rather than parked or paused), since their findings and
+  landings are its to pass on.
 
 Idle counts from the last thing that happened in it: a prompt typed,
 a run starting or ending, a prompt opening or closing.
@@ -69,8 +72,14 @@ would exit to the shell's prompt rather than to its holder.
    an end.
 
 A message that would give the parked peer a turn (a question or hold
-sent to it, an answer to it, a pivot) makes its sender write the
+sent to it, an answer to it, a pivot, and for an orchestrator a
+finding or news from a session it leads) makes its sender write the
 message's id to the marker's `wake` file. The holder looks once a
 second, deletes the file and starts the `pi --session` command in the
 same window; a key typed in the window wakes it too. The session
-deletes its marker as it starts.
+deletes its marker as it starts, and says on pi's bus that it woke
+(`session:woken:v1`). Once the mesh has caught up, that starts a turn
+over the mesh notes no turn has read yet, so a key that woke it is
+not left waiting for the person to type something (on 2026-11-07
+Joel had to type "." into three woken orchestrators). A first prompt
+to come, a run under way or a turn already asked reads them instead.

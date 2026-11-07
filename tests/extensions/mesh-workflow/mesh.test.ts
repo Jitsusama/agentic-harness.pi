@@ -47,6 +47,7 @@ import {
 	stayInSession,
 } from "../../../lib/internal/session/left.ts";
 import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
+import { PARK_ASK, SESSION_WOKEN } from "../../../lib/internal/session/park.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -741,7 +742,94 @@ describe("a turn", () => {
 			process.argv = argv;
 		}
 	});
+
+	it("reads, woken from a park, what was handed over since its last turn", async () => {
+		const argv = process.argv;
+		process.argv = [argv[0] ?? "node", "pi", "--session", "/logs/s.jsonl"];
+		try {
+			const { sent } = await startSession(
+				{},
+				{ isIdle: () => true },
+				unreadSinceLastTurn(),
+				undefined,
+				undefined,
+				(early) => early(SESSION_WOKEN, { session }),
+			);
+
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			expect(sent[0]?.options).toEqual({ triggerTurn: true });
+			expect(sent[0]?.message.content).toContain("Woken from parking");
+		} finally {
+			process.argv = argv;
+		}
+	});
+
+	it("reads what waited when parking says it woke after the mesh started", async () => {
+		const argv = process.argv;
+		process.argv = [argv[0] ?? "node", "pi", "--session", "/logs/s.jsonl"];
+		try {
+			const { sent, emit } = await startSession(
+				{},
+				{ isIdle: () => true },
+				unreadSinceLastTurn(),
+			);
+			await new Promise((settle) => setTimeout(settle, 100));
+			expect(sent).toEqual([]);
+
+			emit(SESSION_WOKEN, { session });
+
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			expect(sent[0]?.options).toEqual({ triggerTurn: true });
+		} finally {
+			process.argv = argv;
+		}
+	});
+
+	it("takes no turn, woken, when its last turn read everything", async () => {
+		const argv = process.argv;
+		process.argv = [argv[0] ?? "node", "pi", "--session", "/logs/s.jsonl"];
+		try {
+			const { sent } = await startSession(
+				{},
+				{ isIdle: () => true },
+				[...unreadSinceLastTurn(), assistantEntry()],
+				undefined,
+				undefined,
+				(early) => early(SESSION_WOKEN, { session }),
+			);
+			await new Promise((settle) => setTimeout(settle, 100));
+
+			expect(sent).toEqual([]);
+		} finally {
+			process.argv = argv;
+		}
+	});
 });
+
+/** A model's answer, as the session's branch holds one. */
+function assistantEntry() {
+	return {
+		type: "message",
+		id: "a1",
+		timestamp: new Date(0).toISOString(),
+		message: { role: "assistant", content: [] },
+	};
+}
+
+/** A branch whose last answer was followed by a mesh note no turn read. */
+function unreadSinceLastTurn() {
+	return [
+		assistantEntry(),
+		{
+			type: "custom_message",
+			id: "m1",
+			timestamp: new Date(0).toISOString(),
+			customType: NOTED,
+			content: "From 4UHC5Q, a finding: your node socket moved",
+			display: true,
+		},
+	];
+}
 
 describe("news for an idle peer", () => {
 	// On 2026-11-03, 764 of 1,518 messages reaching a peer started a turn,
@@ -2357,6 +2445,29 @@ describe("groups", () => {
 	});
 });
 
+/**
+ * This peer as the orchestrator of its quest, 7M6JKG, with 85PKB2 a
+ * session it leads, in the state given.
+ */
+function leading(state: "listening" | "parked" = "listening") {
+	onQuest();
+	writeFileSync(
+		join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+		"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
+	);
+	createPresences(join(paths.mesh, "presence")).publish({
+		session: "session-l",
+		addresses: ["85PKB2"],
+		groups: ["#orchestration/7m6jkg"],
+		orchestratedBy: "7M6JKG",
+		state,
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: new Date().toISOString(),
+	});
+}
+
 /** The fixture's quest, under 5GV2AH, with this worktree's checkout. */
 function onQuest() {
 	const readme = (id: string, parent: string) =>
@@ -2774,6 +2885,53 @@ describe("a message that names no group", () => {
 				why: "status its sender's presence already carries",
 			},
 		});
+	});
+
+	it("takes one turn, as an idle orchestrator, for a burst of what its sessions find and land", async () => {
+		leading();
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({ to: ["@7M6JKG"], from: "85PKB2", text: "#920 is merged." });
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			from: "85PKB2",
+			intent: "finding",
+			text: "the launcher drops a landing's url",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+		expect(sent[0]?.message.content).toContain("#920");
+		expect(sent[0]?.message.content).toContain("landing's url");
+	});
+
+	it("starts no turn for a finding from a session it does not lead", async () => {
+		leading();
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			from: "4UHC5Q",
+			intent: "finding",
+			text: "your node socket moved",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("refuses, as an orchestrator, to park while a session it leads is at work", async () => {
+		leading();
+		const { emit } = await startSession();
+		const ask = { session, refusals: [] as string[] };
+
+		emit(PARK_ASK, ask);
+		expect(ask.refusals).toEqual(["sessions it leads are at work (85PKB2)"]);
+
+		leading("parked");
+		const later = { session, refusals: [] as string[] };
+		emit(PARK_ASK, later);
+		expect(later.refusals).toEqual([]);
 	});
 
 	it("tells the orchestrator once, as a finding, when its session is on no model", async () => {

@@ -96,6 +96,35 @@ describe("attention", () => {
 		expect(attend(finding, idle).attention).toBe("note");
 	});
 
+	it("acts, idle, on what a session it leads finds or lands, landing named or not", () => {
+		const idle = { ...standing, idle: true, led: true };
+		const finding = message({ intent: "finding", to: ["@5GV2AH"] });
+		const landed = message({ to: ["@5GV2AH"], text: "#920 is merged" });
+
+		expect(attend(finding, idle)).toEqual({
+			attention: "act",
+			why: "a finding from a session it leads",
+		});
+		expect(attend(landed, { ...idle, restates: true })).toEqual({
+			attention: "act",
+			why: "news from a session it leads",
+		});
+	});
+
+	it("leaves a led session's news to the run under way, or to a group's readers", () => {
+		const led = { ...standing, led: true };
+		const finding = message({ intent: "finding", to: ["@5GV2AH"] });
+
+		expect(attend(finding, led).attention).toBe("note");
+		expect(
+			attend(message({ intent: "finding" }), { ...led, idle: true }).attention,
+		).not.toBe("act");
+		expect(
+			attend(message({ to: ["@5GV2AH"] }), { ...led, restates: true })
+				.attention,
+		).toBe("glance");
+	});
+
 	it("glances at another peer's own business, never passing it by", () => {
 		const heed = attend(message(), { ...standing, concern: "other" });
 		expect(heed.attention).toBe("glance");

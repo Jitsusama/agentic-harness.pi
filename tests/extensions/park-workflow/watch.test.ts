@@ -23,6 +23,7 @@ import {
 	PARKING,
 	parkSwitch,
 	readParked,
+	SESSION_WOKEN,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
@@ -212,6 +213,29 @@ describe("parking a session", () => {
 		});
 		expect(watching(logged).look()).toBe("not idle long enough");
 		expect(shutdowns).toBe(0);
+	});
+
+	it("says it woke from a park, and says nothing on any other start", () => {
+		const woken: unknown[] = [];
+		events.on(SESSION_WOKEN, (data) => woken.push(data));
+		watching().stop();
+		expect(woken).toEqual([]);
+
+		writeParked(
+			{
+				session: SESSION,
+				sessionFile: logOf(),
+				cwd: "/src",
+				addresses: [],
+				parkedAt: new Date(0).toISOString(),
+				pid: 1,
+				wake: join(folder, "held.wake"),
+			},
+			folder,
+		);
+		watching().stop();
+
+		expect(woken).toEqual([{ session: SESSION }]);
 	});
 
 	it("counts idle from the last thing that happened in it", () => {

@@ -250,7 +250,11 @@ and its groups.
   Glances survive a reload: each delivery records which it
   carried.
 - **Act:** a note that starts a turn once the mesh settles,
-  for an idle peer: a question to a group about its work. It
+  for an idle peer: a question to a group about its work, and
+  for an orchestrator a finding or fyi sent to it by a session
+  it leads, since passing those on to the person is its work
+  (on 2026-11-07 three orchestrators sat on theirs until they
+  parked). It
   waits 30 seconds and up to 30 more, the extra different for
   each session so peers hearing one message do not start at
   once, and what arrives meanwhile goes in the same turn. A
@@ -275,7 +279,8 @@ and its groups.
   gave each member its own part was silenced by the first
   reply.
 
-An fyi or a finding never starts a turn, nor does a hold that
+Short of an orchestrator's own sessions, an fyi or a finding
+never starts a turn, nor does a hold that
 wasn't put to this peer; none asks an idle peer to do anything
 now, so each waits in the session and is read with whatever
 turn comes next, the person's or another message's. A finding
