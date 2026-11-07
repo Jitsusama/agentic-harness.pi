@@ -37,7 +37,7 @@ export const BILL_CUTS = ["repo", "quest", "model", "day", "session"] as const;
 export type BillCut = (typeof BILL_CUTS)[number];
 
 /** The command, as the spend-watch module installs it. */
-const COMMAND = "spend-watch";
+export const SPEND_WATCH = "spend-watch";
 
 /** One line of the bill: a quest, a model, a day or the like. */
 export interface BillRow {
@@ -84,7 +84,7 @@ export async function askBill(
 		"--format",
 		"json",
 	];
-	const result = await exec(COMMAND, args);
+	const result = await exec(SPEND_WATCH, args);
 	if (result.code !== 0) return undefined;
 	try {
 		return billFrom(JSON.parse(result.stdout));

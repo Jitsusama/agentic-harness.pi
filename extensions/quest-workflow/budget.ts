@@ -17,9 +17,10 @@
  *
  * A name no provider knows, or one a provider cannot draw on now,
  * leaves the session on its default and says why, once a name. The
- * status line says the budget drawn on, and the session's log says it
- * too (lib/budget/record.ts), each time it changes, so whatever prices
- * the log knows whose money each request spent. Nothing of it goes
+ * session's log says the budget drawn on (lib/budget/record.ts) each
+ * time it changes, so whatever prices the log knows whose money each
+ * request spent, and the bus says it each time it settles, for
+ * spend-workflow's footer item, which tells it with its standing. Nothing of it goes
  * into the prompt: what a session bills is the person's to see, not
  * the model's to reason about.
  */
@@ -32,15 +33,14 @@ import { layBudget, liftBudget } from "../../lib/budget/environment.ts";
 import { type BudgetDrawing, hostBudgets } from "../../lib/budget/host.ts";
 import {
 	BUDGET_ENTRY,
+	BUDGET_SETTLED,
 	type BudgetRecord,
+	type BudgetSettled,
 	budgetDrawnOn,
 	lastRecorded,
 } from "../../lib/budget/record.ts";
 import { budgetInRecord } from "../../lib/internal/quest/budget.ts";
 import type { QuestState } from "./state.ts";
-
-/** The status line's key for the budget drawn on. */
-const STATUS_KEY = "quest-budget";
 
 /** What keeps the session on its quest's budget. */
 export interface BudgetKeeper {
@@ -87,7 +87,6 @@ export function keepQuestBudget(
 	) => {
 		if (name === null) {
 			liftBudget(process.env);
-			ctx.ui.setStatus(STATUS_KEY, undefined);
 			recordDrawn(pi, ctx);
 			return;
 		}
@@ -96,12 +95,10 @@ export function keepQuestBudget(
 		if (drawing.kind === "drawn") {
 			layBudget(process.env, { name, label: drawing.label, env: drawing.env });
 			told.delete(name);
-			ctx.ui.setStatus(STATUS_KEY, statusOf(name, drawing.label, ctx));
 			recordDrawn(pi, ctx, drawing);
 			return;
 		}
 		liftBudget(process.env);
-		ctx.ui.setStatus(STATUS_KEY, undefined);
 		recordDrawn(pi, ctx);
 		if (told.has(name)) return;
 		told.add(name);
@@ -121,6 +118,8 @@ export function keepQuestBudget(
  * last entry on its branch already says it. It is read back from the
  * environment, so a budget inherited from the process that started
  * this one is what's written when this session lays none of its own.
+ * The bus hears it every time, written or not, since a footer that
+ * loaded after the entry was written still needs telling.
  */
 function recordDrawn(
 	pi: ExtensionAPI,
@@ -128,6 +127,8 @@ function recordDrawn(
 	drawing?: { readonly provider: string; readonly label: string },
 ): void {
 	const name = budgetDrawnOn(process.env);
+	const settled: BudgetSettled = { name };
+	pi.events.emit(BUDGET_SETTLED, settled);
 	const branch = ctx.sessionManager?.getBranch?.() ?? [];
 	if (lastRecorded(branch) === name) return;
 	const record: BudgetRecord =
@@ -135,12 +136,6 @@ function recordDrawn(
 			? { v: 1, name, label: drawing.label, provider: drawing.provider }
 			: { v: 1, name };
 	pi.appendEntry(BUDGET_ENTRY, record);
-}
-
-function statusOf(name: string, label: string, ctx: ExtensionContext): string {
-	const said =
-		label && label !== name ? `budget ${name} (${label})` : `budget ${name}`;
-	return ctx.ui.theme.fg("muted", said);
 }
 
 /** Why a budget could not be drawn on, in words for the person. */

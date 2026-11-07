@@ -127,7 +127,7 @@ driving a real browser.
 
 **Live in the terminal.** Widgets round out the experience:
 `content-viewer-widget`, `mermaid-widget`, `panel-zoom-widget`,
-`status-line-widget` and `claude-plan-widget`, `terminal-modes-widget`
+`status-line-widget`, `terminal-modes-widget`
 says pi's terminal modes again to a terminal that joins a held
 session, `link-click-widget` opens the URL, path, pull request or
 quest a click lands on, while `panel-lifecycle-workflow`
