@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	describePlan,
+	type OpenRequest,
 	openTerminal,
 	openTerminals,
 	printedLine,
@@ -219,37 +220,59 @@ describe("the printed line", () => {
 
 describe("a window opened without focus, under niri", () => {
 	const title = "π - Harness - agentic-harness.pi";
-	/** A niri that holds these windows, answering actions with `acted`. */
+	const orchestrator = "π - Orchestrator - core.nix";
+	interface Seen {
+		title: string;
+		workspace_id: number;
+		id?: number;
+		app_id?: string;
+		layout?: { pos_in_scrolling_layout: [number, number] };
+	}
+	/**
+	 * A niri that holds these windows, and once kitty has opened one, that
+	 * one too on workspace 1; it answers each action as `act` says.
+	 */
 	function niri(
-		windows: { title: string; workspace_id: number }[],
-		acted: unknown = { Ok: "Handled" },
+		kitty: ReturnType<typeof fakeDriver>,
+		windows: Seen[],
+		act: (request: unknown) => unknown = () => ({ Ok: "Handled" }),
 	) {
 		const asked: unknown[] = [];
 		const call = async (request: unknown) => {
 			asked.push(request);
-			return request === "Windows" ? { Ok: { Windows: windows } } : acted;
+			if (request !== "Windows") return act(request);
+			const opened = kitty.calls.spawned[0]?.windowClass;
+			const extra: Seen[] = opened
+				? [{ title: "zsh", workspace_id: 1, id: 99, app_id: opened }]
+				: [];
+			return { Ok: { Windows: [...windows, ...extra] } };
 		};
 		return { asked, call };
 	}
+	const refusing = (request: unknown) =>
+		JSON.stringify(request).includes("OpenNextWindowOn")
+			? { Err: "error parsing request" }
+			: { Ok: "Handled" };
 	const open = (
 		kitty: ReturnType<typeof fakeDriver>,
 		call: (request: unknown) => Promise<unknown>,
-		layout: "window" | "tab" = "window",
+		request: Partial<OpenRequest> = {},
 	) =>
 		openTerminal(
-			{ layout, command: "pi" },
+			{ layout: "window", command: "pi", ...request },
 			{
 				...here,
 				settings,
 				env: { KITTY_PANE: "7" },
 				drivers: [kitty],
 				niri: call,
+				opened: { waitMs: 200, everyMs: 5 },
 			},
 		);
 
 	it("opens on the workspace of the asking session's window, by a class of its own", async () => {
 		const kitty = fakeDriver("kitty", { titles: { "7": title } });
-		const desk = niri([
+		const desk = niri(kitty, [
 			{ title: "π - Other - delta", workspace_id: 1 },
 			{ title, workspace_id: 3 },
 		]);
@@ -263,24 +286,73 @@ describe("a window opened without focus, under niri", () => {
 			},
 		});
 		expect(opened.notes).toContain(
-			"opens on niri workspace 3, the one holding this session's window",
+			"opens on niri workspace 3, beside the window it belongs with",
 		);
 	});
 
-	it("opens as before when niri refuses the ask", async () => {
+	it("opens beside its orchestrator's window before the asker's, after the columns that sort before it", async () => {
 		const kitty = fakeDriver("kitty", { titles: { "7": title } });
-		const desk = niri([{ title, workspace_id: 3 }], {
-			Err: "error parsing request",
+		const at = (column: number) => ({
+			pos_in_scrolling_layout: [column, 1] as [number, number],
 		});
+		const desk = niri(kitty, [
+			{ title, workspace_id: 3 },
+			{ title: orchestrator, workspace_id: 5, layout: at(1) },
+			{ title: "π - Alpha - core.nix", workspace_id: 5, layout: at(2) },
+			{ title: "π - Zulu - core.nix", workspace_id: 5, layout: at(3) },
+		]);
+		const opened = await open(kitty, desk.call, {
+			window: {
+				beside: [orchestrator],
+				first: orchestrator,
+				title: "π - Mike - core.nix",
+			},
+		});
+
+		expect(desk.asked[1]).toMatchObject({
+			Action: { OpenNextWindowOn: { reference: { Id: 5 }, column: 3 } },
+		});
+		expect(opened.notes).toContain(
+			"opens on niri workspace 5, column 3, beside the window it belongs with",
+		);
+	});
+
+	it("moves the window there once it opens, without focus, when niri refuses the ask", async () => {
+		const kitty = fakeDriver("kitty", { titles: { "7": title } });
+		const desk = niri(kitty, [{ title, workspace_id: 3 }], refusing);
 		const opened = await open(kitty, desk.call);
 
-		expect(kitty.calls.spawned[0]?.windowClass).toBeUndefined();
+		expect(desk.asked).toContainEqual({
+			Action: {
+				MoveWindowToWorkspace: {
+					window_id: 99,
+					reference: { Id: 3 },
+					focus: false,
+				},
+			},
+		});
+		expect(opened.notes.join(" ")).toContain(
+			"moved to niri workspace 3 once it opened",
+		);
+	});
+
+	it("leaves a window that never opens where it is", async () => {
+		const kitty = fakeDriver("kitty", { titles: { "7": title } });
+		const asked: unknown[] = [];
+		const opened = await open(kitty, async (request) => {
+			asked.push(request);
+			return request === "Windows"
+				? { Ok: { Windows: [{ title, workspace_id: 3 }] } }
+				: refusing(request);
+		});
+
+		expect(JSON.stringify(asked)).not.toContain("MoveWindowToWorkspace");
 		expect(opened.notes.join(" ")).not.toContain("niri workspace");
 	});
 
 	it("asks nothing of where when two windows carry the asker's title", async () => {
 		const kitty = fakeDriver("kitty", { titles: { "7": title } });
-		const desk = niri([
+		const desk = niri(kitty, [
 			{ title, workspace_id: 3 },
 			{ title, workspace_id: 5 },
 		]);
@@ -292,9 +364,28 @@ describe("a window opened without focus, under niri", () => {
 
 	it("asks nothing for a tab, which opens in the asker's own window", async () => {
 		const kitty = fakeDriver("kitty", { titles: { "7": title } });
-		const desk = niri([{ title, workspace_id: 3 }]);
-		await open(kitty, desk.call, "tab");
+		const desk = niri(kitty, [{ title, workspace_id: 3 }]);
+		await open(kitty, desk.call, { layout: "tab" });
 
 		expect(desk.asked).toEqual([]);
+	});
+});
+
+describe("a command that ends its window", () => {
+	it("replaces the shell it is typed into, so the window closes with it", async () => {
+		const kitty = fakeDriver("kitty");
+		await openTerminal(
+			{
+				layout: "tab",
+				command: "pi --session abc",
+				env: { A: "b c" },
+				endsWithCommand: true,
+			},
+			{ ...here, settings, env: { KITTY_PANE: "1" }, drivers: [kitty] },
+		);
+
+		expect(kitty.calls.typed[0]?.text).toBe(
+			"exec env A='b c' pi --session abc\n",
+		);
 	});
 });

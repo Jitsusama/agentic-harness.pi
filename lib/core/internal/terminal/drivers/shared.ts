@@ -107,15 +107,38 @@ export async function untilPromptShown(
  * shell, which may be zsh, bash or fish, and all three take a
  * `KEY=value command` prefix while only the first two read `exec sh
  * -c` the same way.
+ *
+ * Asked to end with the command, a single simple one replaces the shell
+ * (`exec`), so the window closes when it ends rather than staying open
+ * as a bare prompt: on 7 November nine such prompts were left by
+ * sessions that had died (P9R1KI [871f8a4f]). Its variables then go
+ * through `env`, which all three shells read alike. A line with more
+ * than one command, or the shell's own syntax, is typed as it is.
  */
 export function typedLine(
 	command: string,
 	env: Readonly<Record<string, string>> | undefined,
+	endsWithCommand = false,
 ): string {
-	const assignments = Object.entries(env ?? {})
-		.map(([k, v]) => `${k}=${shellQuote(v)} `)
-		.join("");
+	const pairs = Object.entries(env ?? {}).map(
+		([k, v]) => `${k}=${shellQuote(v)}`,
+	);
+	if (endsWithCommand && isSimpleCommand(command)) {
+		const through = pairs.length > 0 ? `env ${pairs.join(" ")} ` : "";
+		return `exec ${through}${command.trim()}\n`;
+	}
+	const assignments = pairs.map((pair) => `${pair} `).join("");
 	return `${assignments}${command}\n`;
+}
+
+/**
+ * Whether a command is one program and its words: it starts with a
+ * program's name or path and holds nothing a shell reads as joining,
+ * redirecting, grouping or substituting.
+ */
+export function isSimpleCommand(command: string): boolean {
+	const line = command.trim();
+	return /^[A-Za-z0-9_./-]+(\s|$)/.test(line) && !/[;&|<>()`$\n\\]/.test(line);
 }
 
 /**

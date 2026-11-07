@@ -38,6 +38,10 @@ import {
 } from "../../lib/internal/quest/process-liveness.ts";
 import { extractTitle } from "../../lib/internal/quest/quest-doc.ts";
 import {
+	SESSION_MARK,
+	type Settled,
+} from "../../lib/internal/quest/reopen-in-place.ts";
+import {
 	bootEndedBefore,
 	type RestoreEntry,
 	restoreFileOf,
@@ -79,7 +83,9 @@ import {
 	type OpenOptions,
 	openTerminals,
 	type TerminalLayout,
+	type WindowPlace,
 } from "../../lib/terminal/index.ts";
+import { count } from "../../lib/ui/count.ts";
 
 /** Where the per-session records live. */
 export { sessionRegistryDir };
@@ -742,6 +748,10 @@ export interface ReopenOutcome {
 	/** Sessions whose terminal opened but which had not checked in yet. */
 	unconfirmed: string[];
 	failed: { sessionId: string; reason: string }[];
+	/** Sessions held parked, woken in their own holder and window. */
+	woken: string[];
+	/** Sessions a holder was found running, so nothing was opened. */
+	running: string[];
 	/** The line saying what the terminals were opened through. */
 	used?: string;
 	/** What the person should know, once each. */
@@ -809,6 +819,14 @@ export async function reopenLostSessions(
 		readonly handOver?: (
 			sessions: readonly HandedSession[],
 		) => Promise<number | undefined>;
+		/**
+		 * Settles each session first: one a holder runs is left, one held
+		 * parked is woken there, and the windows a dead one left are closed
+		 * (reopen-in-place.ts).
+		 */
+		readonly settle?: (sessions: readonly string[]) => Promise<Settled>;
+		/** Where each session's window goes under niri. */
+		readonly placeOf?: (record: SessionRecord) => WindowPlace | undefined;
 	} = {},
 ): Promise<ReopenOutcome> {
 	const {
@@ -817,28 +835,62 @@ export async function reopenLostSessions(
 		paceMs = REOPEN_PACE_MS,
 		saved = savedSessions(),
 		handOver,
+		settle,
+		placeOf,
 		...open
 	} = options;
-	const handed =
-		handOver && !open.dryRun
-			? await handedToLauncher(records, saved, handOver)
-			: [];
-	const here = records.filter((record) => !handed.includes(record));
-	const outcomes = await openTerminals(
-		here.map((record) => ({
-			...(layout ? { layout } : {}),
-			cwd: record.cwd,
-			...reopenCommand(record, saved(record.sessionId)),
-		})),
-		{ ...open, paceMs },
-	);
 	const outcome: ReopenOutcome = {
 		reopened: [],
 		fresh: [],
 		unconfirmed: [],
 		failed: [],
+		woken: [],
+		running: [],
 		notes: [],
 	};
+	const settled =
+		settle && !open.dryRun
+			? await settle(records.map((record) => record.sessionId))
+			: undefined;
+	if (settled) {
+		outcome.woken.push(...settled.woken);
+		outcome.running.push(...settled.running);
+		for (const sessionId of settled.parked) {
+			outcome.failed.push({
+				sessionId,
+				reason:
+					"it is held parked, and its holder can't be woken from here; a key in its window wakes it",
+			});
+		}
+		if (settled.closed > 0) {
+			outcome.notes.push(
+				`closed ${count(settled.closed, "window")} a dead session had left with no pi in it`,
+			);
+		}
+	}
+	const toOpen = settled
+		? records.filter((record) => settled.reopen.includes(record.sessionId))
+		: records;
+	const handed =
+		handOver && !open.dryRun
+			? await handedToLauncher(toOpen, saved, handOver)
+			: [];
+	const here = toOpen.filter((record) => !handed.includes(record));
+	const outcomes = await openTerminals(
+		here.map((record) => {
+			const window = placeOf?.(record);
+			return {
+				...(layout ? { layout } : {}),
+				cwd: record.cwd,
+				...reopenCommand(record, saved(record.sessionId)),
+				// Its window closes with its pi, and says whose it was.
+				endsWithCommand: true,
+				marks: { [SESSION_MARK]: record.sessionId },
+				...(window ? { window } : {}),
+			};
+		}),
+		{ ...open, paceMs },
+	);
 	const opened: SessionRecord[] = [...handed];
 	outcomes.forEach((result, index) => {
 		const record = here[index];

@@ -115,6 +115,18 @@ shipped and tested.
   instead, says so, and stops offering it once a session is
   running in its place. See the terminal library's README for
   the settings.
+- **Replaces a window, never adds one**: before `reopen-sessions`
+  with `force`, or a `spawn` that resumes a session, opens anything,
+  it asks the machine's node what it holds (`mycelium held`). A
+  session a holder still runs is left alone; one held parked is
+  woken in its own window; and for the rest, every window still
+  showing it with no pi left under it is closed: the holder's, and
+  any kitty window marked `pi_session=<id>`. A window it opens
+  itself ends with its pi (`exec`), carries that mark, and sits
+  on its orchestrator's workspace, the orchestrator's window first
+  and its sessions after it by title (`window-place.ts`). Off
+  Linux, and with `PI_SETTLE=off`, as the tests set, it settles
+  nothing.
 - **Reopen through the launcher**: `reopen-sessions` with `force`
   first hands the sessions pi saved to the desktop's launcher
   (`qs ipc call sessions reopen`), which opens them one at a

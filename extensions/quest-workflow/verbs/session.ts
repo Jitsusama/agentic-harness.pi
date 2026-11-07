@@ -19,6 +19,10 @@ import {
 	resolveSpawnCwd,
 } from "../../../lib/internal/quest/reopen.ts";
 import {
+	SESSION_MARK,
+	settleHere,
+} from "../../../lib/internal/quest/reopen-in-place.ts";
+import {
 	deriveLiveness,
 	formatRelativeAge,
 	type SessionView,
@@ -47,6 +51,7 @@ import {
 } from "../lookup.ts";
 import type { QuestState } from "../state.ts";
 import { terminalOptions } from "../terminal.ts";
+import { presencesHere, windowPlaceFor } from "../window-place.ts";
 import { addressOf } from "./address.ts";
 import { needsOf } from "./needs.ts";
 import {
@@ -66,6 +71,7 @@ import {
 import {
 	launcherOpens,
 	launcherSession,
+	resumedBy,
 	spawnedByLauncher,
 } from "./spawn-launcher.ts";
 
@@ -469,6 +475,30 @@ export async function spawn(
 			autoloadQuestId: questIdForSpawn,
 		});
 	}
+	// A restart replaces the session's window rather than adding one: one
+	// a holder runs is left, one held parked is woken in its own window,
+	// and a dead one's windows are closed first.
+	const restarting = resumedSessionId ?? resumedBy(command)?.id;
+	if (restarting && !params.dryRun) {
+		const settled = await settleHere([restarting]);
+		if (settled.running.includes(restarting)) {
+			return ok(
+				`Session ${restarting} is already running under its holder, so nothing was opened.`,
+				{ how: "running", sessionId: restarting, cwd, command },
+			);
+		}
+		if (settled.woken.includes(restarting)) {
+			return ok(
+				`Woke session ${restarting} in its own window, where its holder kept it parked.`,
+				{ how: "woken", sessionId: restarting, cwd, command },
+			);
+		}
+		if (settled.parked.includes(restarting)) {
+			return refuse(
+				`Session ${restarting} is held parked, and its holder can't be woken from here; a key in its window wakes it. Nothing was opened, since a second pi on one log would split it.`,
+			);
+		}
+	}
 	// A kitty window of plain pi is the launcher's to open, so one placer
 	// orders every pi window on the screen; it opens here when it doesn't
 	// answer.
@@ -493,6 +523,17 @@ export async function spawn(
 		command,
 		cwd,
 		env,
+		// Its window closes with its pi, sits with its orchestrator's, and
+		// says whose it was.
+		endsWithCommand: spawnsPi || runsPi(spawned.command),
+		window: windowPlaceFor(
+			questIdForSpawn,
+			cwd,
+			index,
+			presencesHere(),
+			restarting,
+		),
+		...(restarting ? { marks: { [SESSION_MARK]: restarting } } : {}),
 	};
 	const resumeNote = params.command?.trim()
 		? undefined

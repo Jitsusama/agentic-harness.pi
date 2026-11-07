@@ -57,14 +57,27 @@ give focus back to the pane they came from. A terminal launched
 blind takes whatever focus the compositor gives it.
 
 Under niri (`NIRI_SOCKET`), a kitty OS window opened without focus
-goes to the workspace of the asking session's window rather than
-the one you are looking at. Kitty says the title of the window the
-session runs in, niri the workspace of the one window with that
-title, and niri is asked, by `OpenNextWindowOn` (core's patch), to
-open the next window of a class of its own, `pi-spawned.<n>`, there.
-No such window, two with the title, or a niri that refuses the ask,
-and the window opens where niri puts it, as it did before
-(`niri.ts`).
+goes to a workspace the request names rather than the one you are
+looking at. The request's `window` lists titles of windows to sit
+beside, its orchestrator's first, and the asking session's window
+is the last one tried; niri gives the workspace of the first title
+held by exactly one window. Within it, the window titled `first`
+stays in column 1 and the new one takes the column after the last
+that sorts before its own `title`. Niri is asked, by
+`OpenNextWindowOn` (core's patch), to open the next window of a
+class of its own, `pi-spawned.<n>`, there and in that column; a
+niri that refuses the column is asked without one. A niri that
+refuses the ask outright has the window moved there once it opens,
+by `MoveWindowToWorkspace` without focus, so it goes last. No
+window of a title it names, and the window opens where niri puts
+it, as it did before (`niri.ts`).
+
+A request may set `endsWithCommand` for one simple command, as a
+pi is: the line typed into the new shell then starts with `exec`,
+so the window closes when the command ends rather than leaving a
+bare prompt behind. Its `marks` become kitty user variables on the
+window (`--var`), which is how a later reopen finds the window a
+session was opened in.
 
 A kitty the driver starts afresh starts in the systemd user slice
 `agents.slice` when a user manager answers, through `systemd-run

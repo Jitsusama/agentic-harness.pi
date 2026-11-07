@@ -90,6 +90,20 @@ export interface TerminalRequest {
 	 * {@link TerminalPlacingCapability} honours it; others ignore it.
 	 */
 	windowClass?: string;
+	/**
+	 * Names and values the terminal keeps on the new surface, so it can
+	 * be found again later: kitty's user variables, which say which
+	 * session a window was opened for once its pi has gone. Drivers
+	 * that keep none ignore them.
+	 */
+	marks?: Record<string, string>;
+	/**
+	 * Whether the shell a command is typed into ends with it, so its
+	 * window closes when its program does rather than staying open as a
+	 * bare prompt. Only a single simple command is run so; anything
+	 * more is typed as it is.
+	 */
+	endsWithCommand?: boolean;
 }
 
 /**

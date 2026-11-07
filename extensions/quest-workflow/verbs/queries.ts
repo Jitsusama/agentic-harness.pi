@@ -19,6 +19,7 @@ import {
 	type LauncherCall,
 } from "../../../lib/internal/quest/hand-over.ts";
 import { currentBootToken } from "../../../lib/internal/quest/process-liveness.ts";
+import { settleHere } from "../../../lib/internal/quest/reopen-in-place.ts";
 import type { RestoreEntry } from "../../../lib/internal/quest/restore-file.ts";
 import {
 	restoreRecipe,
@@ -68,6 +69,7 @@ import {
 } from "../session-registry.ts";
 import type { QuestState } from "../state.ts";
 import { type TerminalCall, terminalOptions } from "../terminal.ts";
+import { presencesHere, windowPlaceFor } from "../window-place.ts";
 import {
 	ok,
 	type QuestResult,
@@ -489,11 +491,25 @@ export async function restore(
 	);
 	if (!read.ok) return refuse(read.refusal);
 	const launcher = launcherFor(opts);
+	const { index } = discoverQuests(state.questsRoot);
+	const presences = presencesHere();
 	const reopenWith = {
 		...read.options,
 		...(read.layout ? { layout: read.layout } : {}),
 		saved,
 		...(launcher ? { handOver: launcher } : {}),
+		// A restart replaces the session's window rather than adding one.
+		settle: (sessions: readonly string[]) => settleHere(sessions),
+		placeOf: (record: SessionRecord) =>
+			record.quest
+				? windowPlaceFor(
+						record.quest,
+						record.cwd,
+						index,
+						presences,
+						record.sessionId,
+					)
+				: undefined,
 	};
 	if (!opts.act || opts.dryRun) {
 		// Planning opens nothing, so the listing can say how force would
@@ -546,6 +562,20 @@ export async function restore(
 		`Reopened ${outcome.reopened.length + outcome.fresh.length} of ${count(toRestore.length, "session")}${outcome.used ? `, through ${outcome.used}` : ""}.`,
 		...outcome.notes.map((note) => `Note: ${note}.`),
 	];
+	if (outcome.woken.length > 0) {
+		lines.push(
+			"",
+			"Woken in their own windows, where their holders kept them parked:",
+			...outcome.woken.map((id) => `- ${id}`),
+		);
+	}
+	if (outcome.running.length > 0) {
+		lines.push(
+			"",
+			"Left alone, since a holder already runs them:",
+			...outcome.running.map((id) => `- ${id}`),
+		);
+	}
 	if (outcome.fresh.length > 0) {
 		lines.push(
 			"",

@@ -375,7 +375,10 @@ export function nodeSocket(
 	return base ? join(base, "mycelium", `${realm}.sock`) : undefined;
 }
 
-function realmOf(env: NodeJS.ProcessEnv): string | undefined {
+/** The realm the machine's node is asked in, or nothing when none is named. */
+export function realmOf(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
 	// The session's own first: the node's kept realm is the machine's
 	// first, and a session in its second realm would ask the wrong node.
 	if (env.MYCELIUM_REALM) return env.MYCELIUM_REALM;

@@ -60,6 +60,7 @@ export function loadCheckEnvironment(
 		XDG_RUNTIME_DIR: join(sandbox, "runtime"),
 		PI_NOTIFY: "off",
 		PI_LAUNCHER: "off",
+		PI_SETTLE: "off",
 		PI_OFFLINE: "1",
 	};
 }

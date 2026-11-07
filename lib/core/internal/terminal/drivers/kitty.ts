@@ -186,6 +186,9 @@ export function kittyLaunchArgs(
 	for (const [key, value] of Object.entries(request.env ?? {})) {
 		args.push("--env", `${key}=${value}`);
 	}
+	for (const [key, value] of Object.entries(request.marks ?? {})) {
+		args.push("--var", `${key}=${value}`);
+	}
 	// The title is left to the program running in the window unless the
 	// caller set one, since kitty's title flags pin it for good and pi
 	// names its window after its quest.
