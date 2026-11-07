@@ -162,6 +162,7 @@ describe("the quests the desktop lists", () => {
 			sessions: string[],
 			snapshot: LivenessSnapshot,
 			lastQuestOf?: (sessionId: string) => string | undefined,
+			presentAt?: (sessionId: string) => string | undefined,
 		) => {
 			quest(
 				MISSION,
@@ -176,6 +177,7 @@ describe("the quests the desktop lists", () => {
 				root,
 				"/home/someone",
 				lastQuestOf,
+				presentAt,
 			)[0];
 		};
 
@@ -193,7 +195,28 @@ describe("the quests the desktop lists", () => {
 			);
 
 			expect(listed?.sessions).toEqual([]);
-			expect(listed?.resume).toEqual({ id: "s-last-night", cwd: work });
+			expect(listed?.resume).toEqual({
+				id: "s-last-night",
+				cwd: work,
+				at: "2026-01-01T23:00:00.000Z",
+			});
+		});
+
+		it("was last live when its presence last said so, past its log's newest entry", () => {
+			const work = join(elsewhere, "src", "karst");
+			mkdirSync(work, { recursive: true });
+			// An idle session's log stands still while its presence is kept.
+			const closedThisMorning = "2026-01-02T07:30:00.000Z";
+
+			const listed = listedFor(
+				[ended("s-idle-all-night", work, "detached")],
+				seen({ "s-idle-all-night": lastNight }),
+				undefined,
+				(session) =>
+					session === "s-idle-all-night" ? closedThisMorning : undefined,
+			);
+
+			expect(listed?.resume?.at).toBe(closedThisMorning);
 		});
 
 		it("is none when its newest one's folder is gone, rather than an older one", () => {
@@ -230,7 +253,7 @@ describe("the quests the desktop lists", () => {
 					session === "s-moved-on" ? "QEST-20260101-ANOTHR" : MISSION,
 			);
 
-			expect(listed?.resume).toEqual({ id: "s-mine", cwd: mine });
+			expect(listed?.resume).toMatchObject({ id: "s-mine", cwd: mine });
 		});
 
 		it("is none for a session pi never saved", () => {

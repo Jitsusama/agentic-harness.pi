@@ -66,9 +66,15 @@ shipped and tested.
   `quests.json` beside it, for the launcher's Agents place:
   its id, address, short name, title, Summary, kind, status,
   priority, rank, parent, the address of its orchestrator, its
-  documents with their stages, its attached sessions, `start`
+  documents with their stages, its attached sessions, `resume`
+  (the session a closed quest reopens in, its folder, and `at`,
+  when it was last live by its log or its presence), `start`
   (the folder `spawn` would open it in) and `updated`. What a
-  session is doing stays in presence.
+  session is doing stays in presence. A session started with
+  `QUEST_WORKFLOW_ORCHESTRATE=1` beside
+  `QUEST_WORKFLOW_AUTOLOAD_ID` marks the quest it loads as
+  orchestrating, which is how the launcher starts an
+  orchestrator for a quest that never had one.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`, `session-audit` (report any session active on
   more than one quest).
