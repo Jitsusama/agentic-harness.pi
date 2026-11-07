@@ -12,10 +12,57 @@
  * It catches what nothing static can: a dependency the install does
  * not hold, an export a dependency no longer has, a flag two
  * extensions both register, a module that throws while it loads.
+ *
+ * Every extension starts up in that pi, so it runs in a sandbox of its
+ * own, as the tests do: the code under check is often unmerged, and on
+ * 7 November one check rewrote the launcher's list of quests from a
+ * branch a minute before it merged.
  */
 
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SESSION_ONLY_VARIABLES } from "../../core/internal/terminal/drivers/shared.ts";
+
+/**
+ * What ties a process to this session, its holder, its terminal or the
+ * desktop, beyond the variables a terminal it opens leaves out.
+ */
+const MACHINE_TIES = ["NIRI_SOCKET", "WAYLAND_DISPLAY", "DISPLAY"];
+
+/**
+ * The environment the checking pi starts with: the parent's, with its
+ * own state, data, cache and runtime folders under `sandbox`, nothing
+ * that reaches the person (notifications, the launcher), and none of
+ * the variables that tie a process to a session, its holder, its
+ * terminal or the desktop. Configuration stays the person's, since
+ * what loads may depend on it, and the check only reads it.
+ */
+export function loadCheckEnvironment(
+	parent: Readonly<Record<string, string | undefined>>,
+	sandbox: string,
+): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(parent)) {
+		if (value === undefined) continue;
+		if (SESSION_ONLY_VARIABLES.includes(key) || MACHINE_TIES.includes(key)) {
+			continue;
+		}
+		if (key.startsWith("MYCELIUM_")) continue;
+		env[key] = value;
+	}
+	return {
+		...env,
+		XDG_STATE_HOME: join(sandbox, "state"),
+		XDG_DATA_HOME: join(sandbox, "data"),
+		XDG_CACHE_HOME: join(sandbox, "cache"),
+		XDG_RUNTIME_DIR: join(sandbox, "runtime"),
+		PI_NOTIFY: "off",
+		PI_LAUNCHER: "off",
+		PI_OFFLINE: "1",
+	};
+}
 
 /** One extension pi could not load, and what it said about it. */
 export interface LoadFailure {
@@ -136,8 +183,13 @@ export function checkLoad(
 	timeoutMs = LOAD_TIMEOUT_MS,
 ): Promise<LoadReport> {
 	return new Promise((resolve) => {
-		const env: NodeJS.ProcessEnv = { ...process.env, PI_OFFLINE: "1" };
+		const sandbox = mkdtempSync(join(tmpdir(), "load-check-sandbox-"));
+		const env: NodeJS.ProcessEnv = loadCheckEnvironment(process.env, sandbox);
 		if (pi.packageDir) env.PI_PACKAGE_DIR = pi.packageDir;
+		const settle = (report: LoadReport) => {
+			rmSync(sandbox, { recursive: true, force: true });
+			resolve(report);
+		};
 		// A directory with no project settings or context files of its own,
 		// so the load is the package's and nothing the cwd adds.
 		const child = spawn(pi.node, [pi.entry, ...loadCheckArgs(packageRoot)], {
@@ -160,7 +212,7 @@ export function checkLoad(
 		}, timeoutMs);
 		child.on("error", (error) => {
 			clearTimeout(timer);
-			resolve({
+			settle({
 				ok: false,
 				failures: [],
 				problem: `pi would not start: ${error.message}`,
@@ -169,14 +221,14 @@ export function checkLoad(
 		child.on("close", (code) => {
 			clearTimeout(timer);
 			if (hung) {
-				resolve({
+				settle({
 					ok: false,
 					failures: loadFailures(stderr),
 					problem: `pi was still loading after ${Math.ceil(timeoutMs / 1000)}s`,
 				});
 				return;
 			}
-			resolve(readLoad(stdout, stderr, code));
+			settle(readLoad(stdout, stderr, code));
 		});
 		child.stdin.on("error", () => {
 			// pi exited before reading its request; close says why.
