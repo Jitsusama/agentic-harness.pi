@@ -68,6 +68,34 @@ describe("a landing said on the bus", () => {
 		expect(heard).toEqual([]);
 		expect(isLanding({ ...landing("x"), person: "Try it" })).toBe(true);
 		expect(isLanding({ ...landing("x"), person: 1 })).toBe(false);
+		expect(isLanding({ ...landing("x"), url: "https://x.invalid/1" })).toBe(
+			true,
+		);
+		expect(isLanding({ ...landing("x"), url: 1 })).toBe(false);
+	});
+
+	it("carries its web page and its person's line when said", () => {
+		const events = bus();
+		const heard: Landing[] = [];
+		onLanded(events, (one) => heard.push(one));
+
+		sayLanded(
+			events,
+			{
+				ref: "core.nix#2140",
+				what: "Landed",
+				url: " https://github.com/Jitsusama/core.nix/pull/2140 ",
+				person: "Try\nit",
+			},
+			noon,
+		);
+		sayLanded(events, { ref: "core.nix#2141", what: "x", url: "" }, noon);
+
+		expect(heard[0]).toMatchObject({
+			url: "https://github.com/Jitsusama/core.nix/pull/2140",
+			person: "Try it",
+		});
+		expect(heard[1]).not.toHaveProperty("url");
 	});
 });
 

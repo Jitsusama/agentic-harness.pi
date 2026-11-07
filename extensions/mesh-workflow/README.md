@@ -890,7 +890,10 @@ newest five from the last day as `landings`:
 
 `ref` names a change as `repo#number` or a plan item as
 `DOCUMENT#item`; `what` is one line; an optional `person` says
-what it means to the session's person. A ref landing again takes
+what it means to the session's person, which a merge carries
+when `review_offer merge` is given `person`; and an optional
+`url` is where a person opens it, which a merge fills with the
+change's web page, since `ref` drops its owner. A ref landing again takes
 the earlier one's place, and an unticked plan item is taken back
 (`session:unlanded:v1`). Landings are read back from the
 session's own presence at start, and from the one it rolled over

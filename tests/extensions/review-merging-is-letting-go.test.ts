@@ -96,7 +96,10 @@ function backend(outcome: { kind: "merged" | "enqueued" }) {
 }
 
 /** Attach 438, then merge it, and report what is left attached. */
-async function attachThenMerge(outcome: { kind: "merged" | "enqueued" }) {
+async function attachThenMerge(
+	outcome: { kind: "merged" | "enqueued" },
+	asked: { person?: string } = {},
+) {
 	registerReviewProvider(backend(outcome));
 	const stub = activate();
 	const review = toolNamed(stub, "review");
@@ -111,7 +114,7 @@ async function attachThenMerge(outcome: { kind: "merged" | "enqueued" }) {
 	);
 	const merged = await offer.execute(
 		"merge",
-		{ action: "merge", change: "438" },
+		{ action: "merge", change: "438", ...asked },
 		undefined,
 		undefined,
 		HEADLESS,
@@ -171,6 +174,28 @@ describe("what merging says it landed", () => {
 			expect.objectContaining({
 				ref: "world#438",
 				what: "Make a Panel Cover What It Is Drawn Over",
+			}),
+		]);
+	});
+
+	it("carries the change's web page, since its ref drops the owner", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged" });
+
+		expect(landed).toEqual([
+			expect.objectContaining({ url: "https://example.invalid/438" }),
+		]);
+		expect(landed[0]).not.toHaveProperty("person");
+	});
+
+	it("carries the person's line the merge was asked to", async () => {
+		const { landed } = await attachThenMerge(
+			{ kind: "merged" },
+			{ person: "Panels now cover\nwhat they're drawn over." },
+		);
+
+		expect(landed).toEqual([
+			expect.objectContaining({
+				person: "Panels now cover what they're drawn over.",
 			}),
 		]);
 	});
