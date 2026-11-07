@@ -79,6 +79,18 @@ export interface ChangesFacet {
 	 * not have locally.
 	 */
 	fileAt?(ref: ChangeRef, path: string, at: string): Promise<string>;
+	/**
+	 * How many lines the change touches, read apart from the change.
+	 *
+	 * For a backend whose change leaves its counts out: Delta sends
+	 * none on a pull, though its files listing carries each file's.
+	 * Asked only where a count is needed, as the PR format's depth
+	 * needs one, since it can cost a read of every file. Absent where
+	 * the change says its own size, or nothing can.
+	 */
+	size?(
+		ref: ChangeRef,
+	): Promise<Pick<Change, "additions" | "deletions" | "changedFiles">>;
 }
 
 /** A local ref, for providers that read stacks off disk. */

@@ -11,6 +11,7 @@ import { forgetRefusals } from "../../extensions/review-integration/tools/resubm
 import {
 	type AuthoringCapabilities,
 	type Change,
+	type ChangesFacet,
 	clearReviewProviders,
 	clearTargetBindings,
 	type RepoLocator,
@@ -63,6 +64,7 @@ const SECTIONS = {
 function recordingProvider(
 	current: string = composePrBody(SECTIONS),
 	size: Pick<Change, "additions" | "deletions"> = {},
+	count?: ChangesFacet["size"],
 ) {
 	const proposed: { body: string; title?: string }[] = [];
 	const edited: (string | undefined)[] = [];
@@ -93,6 +95,7 @@ function recordingProvider(
 			changes: {
 				fetch: async () => existing,
 				diff: unused("diff a change"),
+				...(count ? { size: count } : {}),
 			},
 			authoring: {
 				close: unused("close a change"),
@@ -400,5 +403,37 @@ describe("a large change going deeper", () => {
 			"the meteorite provider does not report how many lines",
 		);
 		expect(unmeasured.edited).toHaveLength(0);
+	});
+
+	it("counts the lines apart when the change leaves them out", async () => {
+		const { provider, edited } = recordingProvider(undefined, {}, async () => ({
+			additions: 23_211,
+			deletions: 2_050,
+			changedFiles: 154,
+		}));
+		registerReviewProvider(provider);
+
+		await offer({ action: "edit", change: "7", solution: DEEP_SOLUTION });
+
+		expect(readPrFields(edited[0] ?? "").fields).toEqual({
+			...SECTIONS,
+			solution: DEEP_SOLUTION,
+		});
+	});
+
+	it("says why when counting the lines apart fails", async () => {
+		const { provider, edited } = recordingProvider(undefined, {}, async () => {
+			throw new Error("the files listing answered 502");
+		});
+		registerReviewProvider(provider);
+
+		const answer = JSON.stringify(
+			await offer({ action: "edit", change: "7", solution: DEEP_SOLUTION }),
+		);
+
+		expect(answer).toContain(
+			"the meteorite provider could not count the lines this change touches: the files listing answered 502",
+		);
+		expect(edited).toHaveLength(0);
 	});
 });

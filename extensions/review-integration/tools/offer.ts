@@ -632,7 +632,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 									? {
 											unknown: `the ${bound.provider.id} provider cannot read this change`,
 										}
-									: hostedSize(current, bound.provider.id);
+									: await hostedSize(
+											current,
+											bound.provider.id,
+											bound.provider.changes,
+										);
 							const complaint = proposalComplaint(undefined, params.body, size);
 							if (complaint) {
 								return refuse(sayRefusal(complaint, undefined, params.body));
@@ -650,7 +654,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 							undefined,
 							next.body,
 							usesDepth(next.body, PR_SHAPE)
-								? hostedSize(current, bound.provider.id)
+								? await hostedSize(
+										current,
+										bound.provider.id,
+										bound.provider.changes,
+									)
 								: undefined,
 						);
 						if (complaint) {

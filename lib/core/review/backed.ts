@@ -40,10 +40,11 @@ type FacetName = "changes" | "conversation" | "authoring";
  * This table was checked against the contract rather than assembled from
  * memory: every capability whose name matches a facet method is in it. Three
  * optional methods have no capability of any kind, which is the opposite gap
- * and a milder one: `unreact` and `fileAt` can only be discovered by looking
- * for the method, so a consumer cannot ask ahead of time and has to degrade on
- * absence instead. Nothing lies; it just cannot be asked. `commentOn` used to
- * be the third, and is now spoken for by `fileLevelComments`.
+ * and a milder one: `unreact`, `fileAt` and the changes facet's `size` can
+ * only be discovered by looking for the method, so a consumer cannot ask ahead
+ * of time and has to degrade on absence instead. Nothing lies; it just cannot
+ * be asked. `commentOn` was once among them, and is now spoken for by
+ * `fileLevelComments`.
  *
  * A row carries a predicate over the declared value rather than assuming
  * `true`, because several capabilities say more than a boolean can and leaving

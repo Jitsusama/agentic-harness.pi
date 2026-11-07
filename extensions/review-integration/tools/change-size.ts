@@ -5,13 +5,15 @@
  *
  * A proposal has no change yet, so its size is the checkout's diff from
  * where its base and head part. An edit has one, and its size is what
- * the backend reports. Either can fail to say, and then the size is
- * unknown with the reason, which the refusal passes on, rather than a
- * guess that would read as "too small".
+ * the backend reports, on the change or, where the change leaves it
+ * out as Delta's does, from the provider's own count. Either can fail
+ * to say, and then the size is unknown with the reason, which the
+ * refusal passes on, rather than a guess that would read as "too
+ * small".
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Change } from "../../../lib/core/review/index.ts";
+import type { Change, ChangesFacet } from "../../../lib/core/review/index.ts";
 import type { ChangeSize } from "../../../lib/core/sections/shape.ts";
 
 const INSERTIONS = /(\d+) insertions?\(\+\)/;
@@ -57,12 +59,37 @@ export async function checkoutSize(
 	};
 }
 
-/** The lines a hosted change touches, as its backend reports them. */
-export function hostedSize(change: Change, provider: string): ChangeSize {
-	if (change.additions === undefined || change.deletions === undefined) {
-		return {
-			unknown: `the ${provider} provider does not report how many lines this change touches`,
-		};
+/**
+ * The lines a hosted change touches, as its backend reports them: on
+ * the change, or else from the changes facet's own count.
+ */
+export async function hostedSize(
+	change: Change,
+	provider: string,
+	changes?: Pick<ChangesFacet, "size">,
+): Promise<ChangeSize> {
+	const said = linesSaid(change);
+	if (said !== undefined) return { lines: said };
+	if (changes?.size) {
+		try {
+			const counted = linesSaid(await changes.size(change.ref));
+			if (counted !== undefined) return { lines: counted };
+		} catch (error) {
+			return {
+				unknown: `the ${provider} provider could not count the lines this change touches: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
 	}
-	return { lines: change.additions + change.deletions };
+	return {
+		unknown: `the ${provider} provider does not report how many lines this change touches`,
+	};
+}
+
+/** Added and deleted lines together, when both are said. */
+function linesSaid(
+	size: Pick<Change, "additions" | "deletions">,
+): number | undefined {
+	return size.additions === undefined || size.deletions === undefined
+		? undefined
+		: size.additions + size.deletions;
 }
