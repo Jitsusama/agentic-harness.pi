@@ -47,6 +47,17 @@ describe("formatBill", () => {
 		expect(text).toContain("579 more under $13,991 together.");
 	});
 
+	it("says about once where spend-watch already says it", () => {
+		const said = formatBill({
+			...bill,
+			rows: [
+				{ name: "aquifer", dollars: 32, shown: "about $32", estimated: true },
+			],
+		});
+		expect(said).toMatch(/aquifer +about \$32/);
+		expect(said).not.toContain("about about");
+	});
+
 	it("names one day once", () => {
 		expect(formatBill({ ...bill, from: "2026-10-26" })).toContain(
 			"$33,198 (2026-10-26),",
