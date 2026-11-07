@@ -74,18 +74,40 @@ export function registerBudgetItem(
 
 	const current = () => sessionBudget({ budgets, provider, drawn, plan });
 
+	/**
+	 * The session's context while it has a person at it, else undefined.
+	 * A context left behind by a reload or a session switch throws on
+	 * every read, and a throw from an answer landing late is unwatched,
+	 * so it would take pi down: on 7 November an install's reloads
+	 * killed sessions that way. The load that replaced this one
+	 * draws the footer, so a stale context is forgotten.
+	 */
+	const withUI = (): ExtensionContext | undefined => {
+		try {
+			return shown?.hasUI ? shown : undefined;
+		} catch {
+			shown = undefined;
+			return undefined;
+		}
+	};
+
 	const render = (): void => {
-		const ctx = shown;
-		if (!ctx?.hasUI) return;
+		const ctx = withUI();
+		if (!ctx) return;
 		const budget = current();
 		const line = budget && budgetLine(budget, hourMinute);
-		const theme = ctx.ui.theme;
-		const text = line
-			? `${footerMark("budget", line.tone, theme)} ${theme.fg("dim", line.text)}`
-			: undefined;
-		if (text === said) return;
-		said = text;
-		ctx.ui.setStatus(STATUS_KEY, text);
+		try {
+			const theme = ctx.ui.theme;
+			const text = line
+				? `${footerMark("budget", line.tone, theme)} ${theme.fg("dim", line.text)}`
+				: undefined;
+			if (text === said) return;
+			ctx.ui.setStatus(STATUS_KEY, text);
+			said = text;
+		} catch {
+			// Stale since withUI looked: the replacing load draws it.
+			shown = undefined;
+		}
 	};
 
 	/** Ask spend-watch afresh, unless it was asked within the minute. */
@@ -98,6 +120,10 @@ export function registerBudgetItem(
 			.then((answer) => {
 				budgets = answer;
 				render();
+			})
+			.catch(() => {
+				// Nobody awaits this, and an unhandled rejection ends pi; a
+				// failed ask leaves the footer as it was until the next.
 			})
 			.finally(() => {
 				asking = undefined;
@@ -131,7 +157,14 @@ export function registerBudgetItem(
 	});
 
 	pi.on("agent_end", async () => {
-		if (shown?.hasUI) void ask(false);
+		if (withUI()) void ask(false);
+	});
+
+	// A reload or a session switch leaves this load's listeners behind,
+	// the bus's among them, with a context that throws; from here they
+	// draw nothing.
+	pi.on("session_shutdown", async () => {
+		shown = undefined;
 	});
 
 	pi.events.on(BUDGET_SETTLED, (data: unknown) => {
