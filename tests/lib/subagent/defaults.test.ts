@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	clearSubagentDefaults,
@@ -66,6 +69,54 @@ describe("subagent defaults registry", () => {
 		const snapshot = getSubagentDefaults();
 		expect(snapshot.extensions).toEqual(["/abs/auth.ts"]);
 		expect(snapshot.skills).toEqual(["/abs/conv.md"]);
+	});
+
+	describe("the same file from several roots", () => {
+		const roots: string[] = [];
+		afterEach(() => {
+			for (const root of roots.splice(0))
+				rmSync(root, { recursive: true, force: true });
+		});
+
+		/** A package root, as an install, a version or a worktree is one. */
+		function packageRoot(name: string): string {
+			const root = mkdtempSync(join(tmpdir(), "defaults-root-"));
+			roots.push(root);
+			writeFileSync(join(root, "package.json"), JSON.stringify({ name }));
+			mkdirSync(join(root, "extensions", "mesh-workflow"), { recursive: true });
+			return root;
+		}
+
+		it("holds one copy, the latest registered, as a reload onto a tree and back registers it", () => {
+			// What mesh-workflow's hands did: the install's, then each
+			// worktree's, then the install's again, and pi refused the
+			// subagent once a tree was released.
+			const install = packageRoot("agentic-harness.pi");
+			const tree = packageRoot("agentic-harness.pi");
+			const hands = (root: string) =>
+				join(root, "extensions", "mesh-workflow", "hand.ts");
+
+			registerSubagentDefaultExtension(hands(install));
+			registerSubagentDefaultExtension(hands(tree));
+			registerSubagentDefaultExtension(hands(install));
+
+			expect(getSubagentDefaults().extensions).toEqual([hands(install)]);
+		});
+
+		it("keeps two packages' files of the same name apart", () => {
+			const ours = packageRoot("agentic-harness.pi");
+			const theirs = packageRoot("joel.gerber.pi");
+			const index = (root: string) =>
+				join(root, "extensions", "mesh-workflow", "index.ts");
+
+			registerSubagentDefaultExtension(index(ours));
+			registerSubagentDefaultExtension(index(theirs));
+
+			expect(getSubagentDefaults().extensions).toEqual([
+				index(ours),
+				index(theirs),
+			]);
+		});
 	});
 
 	it("clearSubagentDefaults empties the registry", () => {
