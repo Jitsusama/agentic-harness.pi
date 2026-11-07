@@ -117,6 +117,7 @@ describe("a run's record", () => {
 		expect(record).toEqual({
 			id: "fleet.fleet-a",
 			kind: "fleet",
+			"run.kind": "fleet",
 			parent: "01a1b240-2928-74b2-80e2-553612fecd1a",
 			about: "fleet-a",
 			state: "running",

@@ -72,6 +72,13 @@ export interface RunRecord {
 	/** Unique on the machine: the store it runs in, and its run id. */
 	readonly id: string;
 	readonly kind: RunKind;
+	/**
+	 * The kind again, under a name the node leaves alone: it serves every
+	 * record with `kind` set to its own, "run", so on 7 November the
+	 * launcher read all 47 of optimus's runs (36 fleets, 10 councils and
+	 * a judge on disk) as plain runs.
+	 */
+	readonly "run.kind": RunKind;
 	/** The session that started it, by id. */
 	readonly parent: string;
 	/** The change it reads, or what the fleet is, by its run id. */
@@ -145,6 +152,7 @@ export async function runRecord(
 	return {
 		id: `${asked.store}.${asked.runId}`,
 		kind: asked.kind,
+		"run.kind": asked.kind,
 		parent: asked.parent,
 		about: asked.about,
 		state,

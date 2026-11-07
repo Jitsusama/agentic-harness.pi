@@ -674,7 +674,9 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   node's folder source reads. A run has its `id`, unique on
   the machine (`fleet.` or `review.` and its run id), its
   `kind` (`fleet`, `council`, `judge`, `critique`, `audit` or
-  `stack`), its `parent` session id, what it is `about` (the
+  `stack`), said again as `run.kind` since the node serves
+  every record with `kind` set to its own kind, `run`, its
+  `parent` session id, what it is `about` (the
   change's label, or the fleet's run id), its `state`
   (`running`, `done`, `failed` or `stopped`), `since`, `ended`
   once it has, `at`, `pi.cost.usd`, and its `members`. Each
