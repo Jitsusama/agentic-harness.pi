@@ -31,10 +31,23 @@ function bus() {
 	};
 }
 
+/** The custom entries the session under test wrote, as its branch. */
+let written: { type: string; customType: string; data: unknown }[] = [];
+
 function fakePi(events = bus()) {
-	return { setSessionName: () => {}, events } as unknown as Parameters<
-		typeof handle
-	>[1];
+	return {
+		setSessionName: () => {},
+		events,
+		appendEntry: (customType: string, data: unknown) =>
+			written.push({ type: "custom", customType, data }),
+	} as unknown as Parameters<typeof handle>[1];
+}
+
+/** The budgets the session's log says, in the order it said them. */
+function recorded(): unknown[] {
+	return written
+		.filter((entry) => entry.customType === "budget")
+		.map((entry) => entry.data);
 }
 function fakeCtx() {
 	return {
@@ -47,8 +60,10 @@ const envGuard = createEnvGuard();
 beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "budget-"));
-	for (const key of ["HOME", "XDG_STATE_HOME", KEY])
+	written = [];
+	for (const key of ["HOME", "XDG_STATE_HOME", "PI_BUDGET", KEY])
 		kept[key] = process.env[key];
+	delete process.env.PI_BUDGET;
 	process.env.HOME = tmpRoot;
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
 	process.env[KEY] = "personal";
@@ -152,6 +167,7 @@ describe("the session's budget", () => {
 					notify: (message: string) => notices.push(message),
 					theme: { fg: (_colour: string, text: string) => text },
 				},
+				sessionManager: { getBranch: () => written },
 			} as unknown as Parameters<ReturnType<typeof keepQuestBudget>["keep"]>[0],
 		};
 	}
@@ -241,5 +257,85 @@ describe("the session's budget", () => {
 		await new Promise((resolve) => setImmediate(resolve));
 
 		expect(process.env[KEY]).toBe("late");
+	});
+});
+
+describe("the budget in the session's log", () => {
+	function ctx() {
+		return {
+			ui: {
+				setStatus: () => {},
+				notify: () => {},
+				theme: { fg: (_colour: string, text: string) => text },
+			},
+			sessionManager: { getBranch: () => written },
+		} as unknown as Parameters<ReturnType<typeof keepQuestBudget>["keep"]>[0];
+	}
+
+	it("says each budget drawn on once, and the default when it's put down", async () => {
+		const { state, run, top, child } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi(events), state);
+		registerBudgetProvider(events, {
+			id: "test",
+			precedence: 0,
+			resolve: async (name) =>
+				name === "delta"
+					? { kind: "drawn", env: { [KEY]: "team" }, label: "Delta team" }
+					: { kind: "unknown" },
+		});
+
+		await run({ action: "unload" });
+		await keeper.keep(ctx());
+		await run({ action: "load", id: child });
+		await keeper.keep(ctx());
+		await keeper.keep(ctx());
+		await run({ action: "unload" });
+		await keeper.keep(ctx());
+
+		expect(recorded()).toEqual([
+			{ v: 1, name: null },
+			{ v: 1, name: "delta", label: "Delta team", provider: "test" },
+			{ v: 1, name: null },
+		]);
+		expect(process.env.PI_BUDGET, "lifted with the budget").toBeUndefined();
+	});
+
+	it("says the default when the quest's budget can't be drawn on", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const keeper = keepQuestBudget(fakePi(), state);
+
+		await run({ action: "load", id: top });
+		await keeper.keep(ctx());
+
+		expect(recorded(), "the session spends its default").toEqual([
+			{ v: 1, name: null },
+		]);
+	});
+
+	it("says the budget a session was started on when it lays none of its own", async () => {
+		const { state } = await quests();
+		process.env.PI_BUDGET = "aquifer";
+		const keeper = keepQuestBudget(fakePi(), state);
+
+		await keeper.keep(ctx());
+
+		expect(recorded()).toEqual([{ v: 1, name: "aquifer" }]);
+	});
+
+	it("says nothing again when the branch already says it, as on a resume", async () => {
+		const { state } = await quests();
+		written.push({
+			type: "custom",
+			customType: "budget",
+			data: { v: 1, name: null },
+		});
+		const keeper = keepQuestBudget(fakePi(), state);
+
+		await keeper.keep(ctx());
+
+		expect(recorded()).toHaveLength(1);
 	});
 });

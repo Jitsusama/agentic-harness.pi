@@ -17,9 +17,11 @@
  *
  * A name no provider knows, or one a provider cannot draw on now,
  * leaves the session on its default and says why, once a name. The
- * status line says the budget drawn on. Nothing of it goes into the
- * prompt: what a session bills is the person's to see, not the model's
- * to reason about.
+ * status line says the budget drawn on, and the session's log says it
+ * too (lib/budget/record.ts), each time it changes, so whatever prices
+ * the log knows whose money each request spent. Nothing of it goes
+ * into the prompt: what a session bills is the person's to see, not
+ * the model's to reason about.
  */
 
 import type {
@@ -28,6 +30,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { layBudget, liftBudget } from "../../lib/budget/environment.ts";
 import { type BudgetDrawing, hostBudgets } from "../../lib/budget/host.ts";
+import {
+	BUDGET_ENTRY,
+	type BudgetRecord,
+	budgetDrawnOn,
+	lastRecorded,
+} from "../../lib/budget/record.ts";
 import { budgetInRecord } from "../../lib/internal/quest/budget.ts";
 import type { QuestState } from "./state.ts";
 
@@ -76,6 +84,7 @@ export function keepQuestBudget(
 		if (name === null) {
 			liftBudget(process.env);
 			ctx.ui.setStatus(STATUS_KEY, undefined);
+			recordDrawn(pi, ctx);
 			return;
 		}
 		const drawing = await host.draw(name);
@@ -84,10 +93,12 @@ export function keepQuestBudget(
 			layBudget(process.env, { name, label: drawing.label, env: drawing.env });
 			told.delete(name);
 			ctx.ui.setStatus(STATUS_KEY, statusOf(name, drawing.label, ctx));
+			recordDrawn(pi, ctx, drawing);
 			return;
 		}
 		liftBudget(process.env);
 		ctx.ui.setStatus(STATUS_KEY, undefined);
+		recordDrawn(pi, ctx);
 		if (told.has(name)) return;
 		told.add(name);
 		ctx.ui.notify(undrawable(name, drawing), "warning");
@@ -99,6 +110,27 @@ export function keepQuestBudget(
 	});
 
 	return { keep: (ctx) => keep(ctx) };
+}
+
+/**
+ * Write the budget this session now draws on into its log, unless the
+ * last entry on its branch already says it. It is read back from the
+ * environment, so a budget inherited from the process that started
+ * this one is what's written when this session lays none of its own.
+ */
+function recordDrawn(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	drawing?: { readonly provider: string; readonly label: string },
+): void {
+	const name = budgetDrawnOn(process.env);
+	const branch = ctx.sessionManager?.getBranch?.() ?? [];
+	if (lastRecorded(branch) === name) return;
+	const record: BudgetRecord =
+		drawing && name !== null
+			? { v: 1, name, label: drawing.label, provider: drawing.provider }
+			: { v: 1, name };
+	pi.appendEntry(BUDGET_ENTRY, record);
 }
 
 function statusOf(name: string, label: string, ctx: ExtensionContext): string {
