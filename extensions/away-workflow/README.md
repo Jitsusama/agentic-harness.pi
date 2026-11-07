@@ -56,7 +56,10 @@ plan, and the rest are listed when you are back. A run that ends
 session that stops being sent back says so quietly. Each session
 carries on with what does not need you. This uses `notify-send` on
 Linux and `osascript` on macOS, and does nothing where neither is
-there.
+there. Where the mesh shows the session's wants in its presence, a
+launcher posts the notice for each, so the session sends none of its
+own for held calls, `Blocked:` or a question; only the quiet note
+that it rests is still its own.
 
 Each session also says what it is waiting on you for, so a launcher
 can mark it: calls held, a run ended `Blocked:`, a run that ended

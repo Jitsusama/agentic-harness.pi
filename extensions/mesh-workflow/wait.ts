@@ -3,12 +3,11 @@
  * and say when it no longer waits.
  *
  * One call in place of each quest writing its file by hand with a
- * shell script: it keeps the item where the launcher's Waiting on you
- * reads it (lib/mesh/waiting.ts), and mirrors what of it is ready in
- * this peer's presence as an `action` want, so its orchestrator and
- * every other peer see it waits on him now. The desktop raises a notice
- * for each want, so an item not yet ready stays in the file alone. The
- * file is the record and outlives the session; presence follows it.
+ * shell script: it keeps the item where the launcher's Needs You reads
+ * it (lib/mesh/waiting.ts). The file is the record and outlives the
+ * session. It is not said in presence as a want: the session carries
+ * on while he does it, so it is still free to answer its peers, and a
+ * want there was a second notice of what Needs You already showed.
  *
  * Every item says how it will be known done, so it clears itself: the
  * desktop's daemon runs its check or hears its signal and says so in
@@ -20,7 +19,6 @@
  */
 
 import { existsSync } from "node:fs";
-import type { Peer } from "../../lib/mesh/peer.ts";
 import {
 	addWaiting,
 	applyVerdicts,
@@ -32,7 +30,6 @@ import {
 	verdictsIn,
 	type WaitingItem,
 	waitingOf,
-	wantFor,
 } from "../../lib/mesh/waiting.ts";
 
 /** Where what waits on the person is kept, and whose it is here. */
@@ -54,48 +51,19 @@ export interface Waiting {
 }
 
 /**
- * Say in presence what the file already holds for this session's quest,
- * as a session starts or takes a quest over: the file outlives the
- * session that wrote it, and presence otherwise says nothing until the
- * next mesh_wait.
+ * Apply the daemon's verdicts to this session's quest, as a session
+ * starts and as each run ends, settling what is done and marking what
+ * is ready.
  */
-export function seedWaiting(
-	peer: Peer,
-	waiting: Waiting,
-	now = new Date(),
-): void {
+export function settleFromVerdicts(waiting: Waiting, now = new Date()): void {
 	const quest = waiting.quest();
 	if (!quest) return;
-	const items = settled(waiting, quest, now);
-	if (items.length > 0) mirror(peer, items, now);
-}
-
-/**
- * Apply the daemon's verdicts to this session's quest, as a run ends,
- * and say in presence what changed.
- */
-export function settleFromVerdicts(
-	peer: Peer,
-	waiting: Waiting,
-	now = new Date(),
-): void {
-	const quest = waiting.quest();
-	if (!quest) return;
-	const before = waitingOf(waiting.folder, quest);
-	if (before.length === 0) return;
-	const after = settled(waiting, quest, now);
-	const moved =
-		after.length !== before.length ||
-		after.some((one, at) => one.ready !== before[at]?.ready);
-	if (moved) mirror(peer, after, now);
-}
-
-/** What waits for `quest` once the daemon's verdicts are applied. */
-function settled(waiting: Waiting, quest: string, now: Date): WaitingItem[] {
+	if (waitingOf(waiting.folder, quest).length === 0) return;
 	const verdicts = verdictsIn(verdictsFile(waiting.folder));
-	if (verdicts.size === 0) return waitingOf(waiting.folder, quest);
-	const apply = () => applyVerdicts(waiting.folder, quest, verdicts, now).items;
-	return waiting.locked ? waiting.locked(quest, apply) : apply();
+	if (verdicts.size === 0) return;
+	const apply = () => applyVerdicts(waiting.folder, quest, verdicts, now);
+	if (waiting.locked) waiting.locked(quest, apply);
+	else apply();
 }
 
 /** What mesh_wait is given. */
@@ -122,9 +90,8 @@ export interface WaitOutcome {
 	readonly written: boolean;
 }
 
-/** Add, replace or settle one item, and mirror what waits in presence. */
+/** Add, replace or settle one item. */
 export function waitOnPerson(
-	peer: Peer,
 	waiting: Waiting,
 	params: WaitParams,
 	now = new Date(),
@@ -155,7 +122,6 @@ export function waitOnPerson(
 			};
 		}
 		const items = settled.items;
-		mirror(peer, items, now);
 		return {
 			text: `${id} no longer waits on the person. ${remaining(items)}`,
 			items,
@@ -237,28 +203,15 @@ export function waitOnPerson(
 		};
 		return { before, item, items: addWaiting(waiting.folder, item, now) };
 	});
-	mirror(peer, items, before.length > 0 ? undefined : now);
 	const replaced = before.some((one) => one.id === id);
 	const unjudged = existsSync(verdictsFile(waiting.folder))
 		? ""
 		: unjudgedOf(item.ready ? undefined : readyWhen, doneWhen);
 	return {
-		text: `${replaced ? "Replaced" : "Kept"} ${id} as waiting on the person: ${item.title} (${item.minutes} min). The launcher shows it${item.ready ? ", with a notice now, since it is ready" : " under Later until it is ready"}, and it clears itself once ${saidOf(doneWhen)}. Settle it sooner with done: true.${unjudged}`,
+		text: `${replaced ? "Replaced" : "Kept"} ${id} as waiting on the person: ${item.title} (${item.minutes} min). The launcher shows it${item.ready ? " in Needs You now, since it is ready" : " under Later until it is ready"}, and it clears itself once ${saidOf(doneWhen)}. Settle it sooner with done: true.${unjudged}`,
 		items,
 		written: true,
 	};
-}
-
-/** Presence says what is ready (wantFor), or settles the want. */
-function mirror(
-	peer: Peer,
-	items: readonly WaitingItem[],
-	startedAt: Date | undefined,
-): void {
-	const standing = peer.wants?.kind === "action" ? peer.wants.since : undefined;
-	const want = wantFor(items, standing, startedAt ?? new Date());
-	if (want) peer.want(want);
-	else peer.settle("action");
 }
 
 /** The forms doneWhen and readyWhen take, as a refusal says them. */
