@@ -303,6 +303,46 @@ describe("analyseWalk", () => {
 		expect(found.missed.map((c) => c.name)).toEqual(["Skipped"]);
 	});
 
+	it("counts a radio group reached when Tab stopped on one of its radios", () => {
+		const radio = (index: number, name: string, group: string) =>
+			candidate(index, name, { tag: "INPUT", group });
+		const found = analyseWalk(
+			capture({
+				candidates: [
+					radio(0, "Small", "radio size"),
+					radio(1, "Medium", "radio size"),
+					radio(2, "Tea", "radio drink"),
+					radio(3, "Coffee", "radio drink"),
+				],
+				stops: [stop(1, "Medium", { tag: "INPUT" })],
+			}),
+		);
+		expect(found.missed.map((c) => c.name)).toEqual(["Tea", "Coffee"]);
+	});
+
+	it("does not call a radio group stranded when its tab stop cycles", () => {
+		// The whole page tabs round and round, which is correct; the
+		// group's other radios sit outside the cycle only because Tab
+		// stops on one radio of a group.
+		const found = analyseWalk(
+			capture({
+				candidates: [
+					candidate(0, "Everyone", { tag: "INPUT", group: "radio who" }),
+					candidate(1, "Joel", { tag: "INPUT", group: "radio who" }),
+					candidate(2, "Save"),
+				],
+				stops: [
+					stop(0, "Everyone", { tag: "INPUT" }),
+					stop(2, "Save"),
+					stop(0, "Everyone", { tag: "INPUT" }),
+					stop(2, "Save"),
+				],
+			}),
+		);
+		expect(found.trap).toBeUndefined();
+		expect(found.missed).toEqual([]);
+	});
+
 	it("flags focus landing off screen", () => {
 		const found = analyseWalk(
 			capture({

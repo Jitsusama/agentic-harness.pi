@@ -50,6 +50,11 @@ export interface WalkCandidate {
 	readonly tabindex?: number;
 	/** Inside an open dialog that is holding focus on purpose. */
 	readonly inModal?: boolean;
+	/**
+	 * The named radio group it belongs to. Tab stops once in a group
+	 * and arrow keys move within it, so one stop reaches them all.
+	 */
+	readonly group?: string;
 	readonly resting: FocusStyle;
 }
 
@@ -410,6 +415,25 @@ function trailingCycle(indices: readonly number[]): readonly number[] {
 	return [];
 }
 
+/**
+ * Whether a set of stops reaches a candidate: it is one of them, or
+ * a radio of its group is, since Tab stops once in a group and arrow
+ * keys reach the rest.
+ */
+function coveredBy(
+	candidates: readonly WalkCandidate[],
+	indices: ReadonlySet<number>,
+): (candidate: WalkCandidate) => boolean {
+	const groups = new Set(
+		candidates
+			.filter((candidate) => indices.has(candidate.index))
+			.map((candidate) => candidate.group),
+	);
+	return (candidate) =>
+		indices.has(candidate.index) ||
+		(candidate.group !== undefined && groups.has(candidate.group));
+}
+
 /** Read the walk. */
 export function analyseWalk(capture: WalkCapture): WalkFindings {
 	const { candidates, stops } = capture;
@@ -448,9 +472,8 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 	}
 
 	const visited = new Set(stops.map((stop) => stop.index));
-	const missed = candidates.filter(
-		(candidate) => !visited.has(candidate.index),
-	);
+	const reachedByVisit = coveredBy(candidates, visited);
+	const missed = candidates.filter((candidate) => !reachedByVisit(candidate));
 
 	const cycle = trailingCycle(stops.map((stop) => stop.index));
 	const cycleMembers = new Set(cycle);
@@ -502,9 +525,8 @@ export function analyseWalk(capture: WalkCapture): WalkFindings {
 	// links, was reported as passing for exactly this reason, and
 	// only looked detected while phantom candidates were padding
 	// the missed list.
-	const outsideCycle = candidates.filter(
-		(candidate) => !cycleMembers.has(candidate.index),
-	);
+	const inCycle = coveredBy(candidates, cycleMembers);
+	const outsideCycle = candidates.filter((candidate) => !inCycle(candidate));
 	const trapped = looping && outsideCycle.length > 0 && !modalCycle;
 	const ranOut = capture.cappedAt !== undefined && !looping;
 	const trap: Trap | undefined = trapped

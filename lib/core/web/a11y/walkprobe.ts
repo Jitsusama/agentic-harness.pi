@@ -78,7 +78,8 @@ export const WALK_COLLECT = `(() => {
 	${DEEP_DOM}
 	const selector = [
 		"a[href]", "button", "input", "select", "textarea",
-		"[tabindex]", "details", "audio[controls]", "video[controls]",
+		"[tabindex]", "details", "summary", "audio[controls]",
+		"video[controls]",
 		"[contenteditable]",
 	].join(",");
 	const modalSelector = ${JSON.stringify(MODAL_SELECTOR)};
@@ -189,6 +190,14 @@ ${NAMING}
 
 	window.__walkCandidates = focusable;
 
+	// Tab stops once in a named radio group, on its checked radio or
+	// else its first, and arrow keys move within it. Its other radios
+	// can hold focus and are rightly never tabbed to.
+	const groupOf = (el) =>
+		el.tagName === "INPUT" && el.type === "radio" && el.name
+			? "radio " + (el.form ? deepSelectorFor(el.form) + " " : "") + el.name
+			: undefined;
+
 	const candidates = focusable.map((el, index) => {
 		const tabindex = el.getAttribute("tabindex");
 		return {
@@ -197,6 +206,7 @@ ${NAMING}
 			...(el.getAttribute("role") ? { role: el.getAttribute("role") } : {}),
 			...(tabindex === null ? {} : { tabindex: Number(tabindex) }),
 			...(inModal(el) ? { inModal: true } : {}),
+			...(groupOf(el) ? { group: groupOf(el) } : {}),
 			resting: resting.get(el) || styleOf(el),
 		};
 	});
@@ -233,7 +243,23 @@ ${NAMING}
 	// thing failing the keyboard check.
 	const DELEGATES = new Set(["HTML", "BODY", "MAIN", "#document"]);
 
+	// Widgets a keyboard enters with one Tab and moves through with
+	// arrow keys: a roving tabindex leaves every item but one at -1,
+	// and active-descendant focuses the widget itself. An item of one
+	// that a Tab reaches is reached, as a radiogroup's unchecked
+	// radios are.
+	const COMPOSITE = [
+		"radiogroup", "tablist", "menu", "menubar", "listbox", "tree",
+		"treegrid", "grid", "toolbar",
+	].map((role) => '[role="' + role + '"]').join(",");
 	const reachable = new Set(focusable);
+	const enteredByTab = (el) => {
+		const widget = el.closest(COMPOSITE);
+		if (!widget) return false;
+		if (reachable.has(widget)) return true;
+		for (const one of reachable) if (widget.contains(one)) return true;
+		return false;
+	};
 	const unreachable = [];
 	for (const el of deepElements(document)) {
 		if (reachable.has(el)) continue;
@@ -251,6 +277,7 @@ ${NAMING}
 		// visible, and tab is right not to reach them. Complaining
 		// here would blame a page for a dialog that is shut.
 		if (inert(el)) continue;
+		if (enteredByTab(el)) continue;
 		unreachable.push({
 			tag: el.tagName, name: nameOf(el), selector: deepSelectorFor(el),
 			...(role ? { role } : {}),
