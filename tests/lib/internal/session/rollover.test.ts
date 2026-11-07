@@ -20,6 +20,7 @@ import {
 	ancestry,
 	carriedBy,
 	type Entry,
+	leaveInParentLog,
 	ROLLOVER_RECORD,
 	recordIndex,
 	rolledFrom,
@@ -128,6 +129,36 @@ describe("a rolled-over log", () => {
 				.map((e) => [e.customType, e.data]);
 
 		expect(custom(fresh.getBranch())).toEqual(custom(manager.getBranch()));
+	});
+
+	it("leaves a record nobody reads back in the parent, keeping the one after the compaction", () => {
+		const { manager, ids } = longSession();
+		const before = manager.appendCustomEntry("a-report", { n: 1 });
+		const next = manager.appendMessage(user("next"));
+		manager.appendCompaction("again", next, 10);
+		const after = manager.appendCustomEntry("a-report", { n: 2 });
+		const rolled = rollOver(branchOf(manager), {
+			parentSession: manager.getSessionFile() ?? "",
+			cwd: manager.getCwd(),
+			leftBehind: new Set(["a-report"]),
+		});
+		const freshIds = rolled?.entries.map((e) => e.id);
+
+		expect(freshIds).not.toContain(before);
+		expect(freshIds).toContain(after);
+		expect(freshIds).toContain(ids.state);
+	});
+
+	it("leaves behind what an owner named with leaveInParentLog", () => {
+		const { manager } = longSession();
+		const record = manager.appendCustomEntry("rollover-test-record", {});
+		const next = manager.appendMessage(user("next"));
+		manager.appendCompaction("again", next, 10);
+		leaveInParentLog("rollover-test-record");
+		const { fresh } = rolledInto(manager);
+
+		expect(fresh.getBranch().map((e) => e.id)).not.toContain(record);
+		expect(fresh.buildSessionContext()).toEqual(manager.buildSessionContext());
 	});
 
 	it("leaves the summarised conversation, and labels on it, in the parent", () => {

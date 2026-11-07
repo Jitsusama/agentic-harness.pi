@@ -17,7 +17,10 @@
  *   is the whole of what the model sees;
  * - before that, every extension's state (`custom` entries), model and
  *   thinking changes and the session's name, in their order, so each
- *   extension rebuilds from the branch exactly as before;
+ *   extension rebuilds from the branch exactly as before. A type its
+ *   owner said is never read from before the last compaction
+ *   (`leaveInParentLog`) stays in the parent log instead, since every
+ *   roll would otherwise copy it again;
  * - before that too, the system messages folded into one, which
  *   declares the tools they left declared and removes the ones they
  *   took away. pi builds a resumed session's tools by replaying the
@@ -45,6 +48,7 @@ import {
 	type SystemMessage,
 } from "@earendil-works/pi-ai";
 import { stateDir } from "../paths.ts";
+import { processGlobal } from "../process-global.ts";
 
 /** The bus event asking extensions what to carry over; see `Carry`. */
 export const ROLLOVER_CARRY = "session:rollover-carry:v1";
@@ -331,7 +335,10 @@ export function foldSystemMessages(
  * state, in its order, and the system messages folded into one where
  * the last of them stood, under its id.
  */
-function keptBefore(before: readonly Entry[]): Entry[] {
+function keptBefore(
+	before: readonly Entry[],
+	leftBehind: ReadonlySet<string>,
+): Entry[] {
 	const systems = before.filter(isSystemEntry);
 	const last = systems[systems.length - 1];
 	const folded = foldSystemMessages(systems.map((entry) => entry.message));
@@ -341,9 +348,33 @@ function keptBefore(before: readonly Entry[]): Entry[] {
 		}
 		const state =
 			STATE.has(entry.type) &&
-			!(entry.type === "custom" && entry.customType === ROLLOVER_RECORD);
+			!(
+				entry.type === "custom" &&
+				(entry.customType === ROLLOVER_RECORD ||
+					(typeof entry.customType === "string" &&
+						leftBehind.has(entry.customType)))
+			);
 		return state ? [entry] : [];
 	});
+}
+
+/** The custom types every load in this process said a roll leaves behind. */
+function typesLeftBehind(): Set<string> {
+	return processGlobal(
+		"pi:harness:rollover-leaves-behind:v1",
+		() => new Set<string>(),
+	);
+}
+
+/**
+ * Say that entries of `customType` are records, never read from before
+ * the last compaction, so a rollover leaves them in the parent log
+ * rather than copying them into the fresh one. `session_recall` still
+ * reads them there. A type something rebuilds its state from must never
+ * be named here: the fresh log would start without it.
+ */
+export function leaveInParentLog(customType: string): void {
+	typesLeftBehind().add(customType);
 }
 
 /** An id no entry in `taken` has, in pi's eight-hex form. */
@@ -367,6 +398,8 @@ export function rollOver(
 		readonly carried?: Record<string, unknown>;
 		readonly now?: Date;
 		readonly id?: string;
+		/** Custom types to leave behind; every `leaveInParentLog` by default. */
+		readonly leftBehind?: ReadonlySet<string>;
 	},
 ): Rolled | undefined {
 	let compaction = -1;
@@ -383,7 +416,13 @@ export function rollOver(
 	// a context from; better to leave it as it is.
 	if (from === -1 || from > compaction) return undefined;
 
-	const chosen = [...keptBefore(branch.slice(0, from)), ...branch.slice(from)];
+	const chosen = [
+		...keptBefore(
+			branch.slice(0, from),
+			options.leftBehind ?? typesLeftBehind(),
+		),
+		...branch.slice(from),
+	];
 	const kept = new Set(chosen.map((entry) => entry.id));
 	const pointed = chosen.filter((entry) => {
 		const field = POINTING[entry.type];

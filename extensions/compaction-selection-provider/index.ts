@@ -38,7 +38,9 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { SUMMARY_CONTRIBUTIONS } from "../../lib/compaction/contributions.ts";
+import { SELECTION_HOLDS_ENTRY } from "../../lib/compaction/selection/holds.ts";
 import { answerCompactionStatus } from "../../lib/compaction/status.ts";
+import { leaveInParentLog } from "../../lib/internal/session/rollover.ts";
 import { classifierStatus } from "./classifier.ts";
 import { excerptTokens, selectionContributor } from "./contribution.ts";
 import { selectionSection } from "./status.ts";
@@ -49,6 +51,10 @@ import { tagger } from "./tagger.ts";
 const RECALL_TOOL = "session_recall";
 
 export default function compactionSelectionProvider(pi: ExtensionAPI) {
+	// A judgement is read only after the last compaction (`readHolds`),
+	// and a rollover copies only what came before it, so none is carried.
+	// Tags stay: an old paragraph's tag spares tagging it again.
+	leaveInParentLog(SELECTION_HOLDS_ENTRY);
 	let session: ExtensionContext | undefined;
 	const store =
 		selectionStoreKind() === "memory"

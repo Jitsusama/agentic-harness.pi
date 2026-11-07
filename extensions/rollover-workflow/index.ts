@@ -64,6 +64,7 @@ import {
 	builtInsLostToRollover,
 	type Carry,
 	type Entry,
+	leaveInParentLog,
 	ROLLOVER_BYTES,
 	ROLLOVER_CARRY,
 	rollOver,
@@ -484,6 +485,8 @@ export async function restoreModelBeforeTurn(
 }
 
 export default function rolloverWorkflow(pi: ExtensionAPI) {
+	// Said for the person reading the log, never read back.
+	leaveInParentLog(MODEL_NOT_SET_BACK);
 	// A compaction has made the log's history dead weight; the next still
 	// moment hands the rollover to the command, which can switch logs.
 	let due = false;
