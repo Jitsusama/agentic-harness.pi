@@ -24,18 +24,21 @@ import { drift, readGlossary } from "../../lib/glossary/index.ts";
 import { registered } from "./registered-tools.ts";
 
 /** The core.nix commit core-glossary.txt was copied from. */
-const PINNED = "cd6aa51fa428cd8fe308314c7aba626437d8132b";
+const PINNED = "cc08e9950df813c2da87e188690e2ae2b9b456eb";
 
 /** Names whose word means something the glossary doesn't replace, each with why. */
 const OTHER_SENSE: Record<string, string> = {
 	"browser_go storage": "a page's storage, not a disk",
 	"quest drive": "driving is a quest's priority, not a disk",
-	"quest budget":
-		"the named account a quest's model calls bill to, such as a project's team token, not what agents have cost",
 };
 
 /** Names waiting on a rename by the harness's owner, each with the rename. */
-const WAITING: Record<string, string> = {};
+const WAITING: Record<string, string> = {
+	// core's glossary (from cc08e995) calls opening a closed session again
+	// reopen, which quest reopen already says of a concluded quest, so the
+	// action's new name is the owner's to choose.
+	"quest restore": "a name saying reopen, such as quest reopen-sessions",
+};
 
 const KEPT = [...Object.keys(OTHER_SENSE), ...Object.keys(WAITING)];
 
