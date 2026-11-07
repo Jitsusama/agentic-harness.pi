@@ -93,6 +93,16 @@ loads the install and the install is `main`.
   lost the tool gateway. The servers pi lists as a reload begins are
   registered again once it lands, where the reload lost them, and pi
   connects them at once. One the reload kept is left alone.
+- **Work left for a replaced session never ends pi.** A reload,
+  rollover or switch makes the old context throw pi's stale error on
+  every read, and work still on its way that reads it rejects. When
+  nothing watches it, Node raises an uncaught exception and pi exits:
+  on 7 November one footer item ended sessions that way dozens of
+  times. One handler per process drops exactly that rejection and
+  writes it with its stack to `stale-rejections.jsonl` in this
+  extension's state folder, so each is found and fixed where it
+  happens. Any other rejection is thrown again, and pi crashes on it
+  as before.
 - **`⇄` on the footer** while the session runs code other than the
   install pi's settings name, muted, and only then.
 - **`/harness`** says what runs, from where, at which commit, and

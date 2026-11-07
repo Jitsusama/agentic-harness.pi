@@ -57,6 +57,7 @@ const PROCESS_TESTS = [
 	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
 	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
+	"tests/lib/internal/reload/stale-rejections.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
 	"tests/lib/internal/priority/push-hooks.test.ts",

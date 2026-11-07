@@ -17,20 +17,27 @@
  * A session that runs the install follows it (follow.ts): when it
  * moves, the session reloads itself once nothing would be lost, and
  * says what came in, so nobody has to tell it to.
+ *
+ * Work left for a replaced session never ends the process: a rejection
+ * nothing watched that is pi's stale-context error is dropped and
+ * logged (lib/internal/reload/stale-rejections.ts).
  */
 
 import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	describeLoaded,
 	type Loaded,
 } from "../../lib/internal/reload/loaded.ts";
 import { piPackageSettings } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
@@ -71,6 +78,9 @@ function settledAborted(event: unknown): boolean {
 }
 
 export default function reloadWorkflow(pi: ExtensionAPI) {
+	spareStaleRejections(
+		join(stateDir("reload-workflow"), "stale-rejections.jsonl"),
+	);
 	keepMcpServersAcrossReloads(pi);
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
