@@ -50,6 +50,14 @@ export interface BudgetKeeper {
 	 * once more is how a person takes up one whose file they just wrote.
 	 */
 	keep(ctx: ExtensionContext, options?: { again?: boolean }): Promise<void>;
+	/**
+	 * The session has ended or been replaced: forget its context, so
+	 * neither a provider registering later nor an answer still on its
+	 * way acts for it. pi's event bus outlives a reload, so the replaced
+	 * load keeps hearing providers register, and a stale context throws
+	 * on every read. A later `keep` takes a session up again.
+	 */
+	forget(): void;
 }
 
 /** Host budget providers and keep the session on its quest's budget. */
@@ -107,10 +115,25 @@ export function keepQuestBudget(
 
 	// A provider that registers late may know the name nothing did.
 	host.onRegistered(() => {
-		if (last && typeof wanted === "string") void keep(last, true);
+		if (!last || typeof wanted !== "string") return;
+		keep(last, true).catch(() => {
+			// Nothing awaits this ask, and an unwatched rejection ends pi;
+			// the next keep, before the next model call, asks again.
+		});
 	});
 
-	return { keep: (ctx, options) => keep(ctx, options?.again ?? false) };
+	const forget = () => {
+		last = undefined;
+		// Asked again in full by the next session's first keep, and any
+		// answer still on its way is overtaken, so it lays nothing.
+		wanted = undefined;
+		asking++;
+	};
+
+	return {
+		keep: (ctx, options) => keep(ctx, options?.again ?? false),
+		forget,
+	};
 }
 
 /**
