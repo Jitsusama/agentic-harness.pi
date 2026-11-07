@@ -435,6 +435,34 @@ function endedOnWord(
 	return { hold };
 }
 
+/**
+ * The intent a send goes with, and why when it is not the one asked: a
+ * hold that answers a hold goes as an fyi. Answering this peer's own
+ * hold ends it, so sent as a hold the end would put everyone off again
+ * for two hours; and an answer to another peer's hold is news for its
+ * sender, where a hold would park everyone it reached. Twice on 7
+ * November an end of 85PKB2's went as a hold, and sessions woken hours
+ * later answered it as one to park on. A hold that replaces this peer's
+ * own (supersedes) stays one, since that is how a hold changes its words.
+ */
+export function answeringIntent(
+	asked: Message["intent"],
+	answered: Message | undefined,
+	self: { readonly addresses: readonly string[]; readonly pid: number },
+	replacing: Message | undefined,
+): { intent: Message["intent"]; why?: string } {
+	if (asked !== "hold" || answered?.intent !== "hold" || replacing) {
+		return { intent: asked };
+	}
+	const id = shortId(answered);
+	return {
+		intent: "fyi",
+		why: sentBy(answered, self)
+			? `it answers [${id}], this peer's own hold, which answering ends, so it went as an fyi rather than a new hold; to hold on in other words, replace [${id}] with supersedes`
+			: `it answers [${id}], another peer's hold, so it went as an fyi: a hold would park everyone it reached; send a hold of this peer's own without re`,
+	};
+}
+
 /** Whether the mesh's own routing, not the sender, picked the groups. */
 function routedWide(
 	routed: Route | undefined,
@@ -565,6 +593,12 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 	// A send is never refused for how it was written: what does not hold
 	// is left out and said, and the message goes on without it.
 	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
+	const intent = answeringIntent(
+		params.intent,
+		answersNamed ? at.transport.read(answersNamed) : undefined,
+		self,
+		ownReplaced,
+	);
 	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
 	// Meant for one recipient that is not there: routed by rule, it would
@@ -593,6 +627,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 			? `${unnamed.join(", ")} cannot be a group, so it was left out`
 			: "",
 		ended.why ?? "",
+		intent.why ?? "",
 	].filter(Boolean);
 	const notes: string[] =
 		said.length > 0
@@ -666,7 +701,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		chosen.length > 0 || aimed
 			? undefined
 			: await routeOf(
-					{ intent: params.intent, text: params.text },
+					{ intent: intent.intent, text: params.text },
 					at.peer,
 					everyone,
 					at.route,
@@ -690,7 +725,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 	// groups instead; what the sender named there is left out, and with
 	// nowhere else to go is refused with where to send it.
 	const machineRefused =
-		meantFor.includes(ALL) && !machineTakes(params.intent, asker);
+		meantFor.includes(ALL) && !machineTakes(intent.intent, asker);
 	const ownWork = at.peer.scopes;
 	const wanted = !machineRefused
 		? meantFor
@@ -769,7 +804,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 	const taken =
 		params.re === undefined &&
 		supersedes === undefined &&
-		(params.intent === "fyi" || params.intent === "finding")
+		(intent.intent === "fyi" || intent.intent === "finding")
 			? questionTaken(at, to)
 			: undefined;
 	const re = answersNamed ?? taken?.id;
@@ -781,7 +816,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 	const message = at.transport.send({
 		from: at.peer.signature,
 		to,
-		intent: params.intent,
+		intent: intent.intent,
 		text: params.text,
 		pid: process.pid,
 		...(re ? { re } : {}),

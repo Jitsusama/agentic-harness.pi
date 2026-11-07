@@ -3563,6 +3563,48 @@ describe("a lease", () => {
 		expect(ownBoard()).toEqual([]);
 	});
 
+	it("ends its own hold with an fyi even when the end is sent as a hold", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { tools } = await startSession();
+		await send(tools, "all", "hold", "hold heavy builds");
+		const messages = folderTransport(join(paths.mesh, "messages"));
+		const [hold = ""] = messages.ids();
+
+		const said = await tools.get("mesh_send")?.execute("call-2", {
+			to: "all",
+			intent: "hold",
+			text: "the hold is over; carry on",
+			re: hold,
+		});
+		const end = messages.ids().find((id) => id !== hold) ?? "";
+
+		expect(messages.read(end)?.intent).toBe("fyi");
+		expect(said?.content[0]?.text).toContain(
+			"this peer's own hold, which answering ends, so it went as an fyi",
+		);
+		expect(said?.content[0]?.text).not.toContain("It holds for two hours");
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("answers another peer's hold with an fyi, so the answer parks nobody", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { tools } = await startSession();
+		const hold = fromElsewhere({ intent: "hold", text: "rebooting" });
+		const messages = folderTransport(join(paths.mesh, "messages"));
+
+		const said = await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "hold",
+			text: "parked",
+			re: hold.id,
+		});
+		const answer = messages.ids().find((id) => id !== hold.id) ?? "";
+
+		expect(messages.read(answer)?.intent).toBe("fyi");
+		expect(said?.content[0]?.text).toContain("another peer's hold");
+		expect(ownBoard()).toMatchObject([{ kind: "wait", subject: hold.id }]);
+	});
+
 	it("waits on another's hold it answers, and carries on with a turn when it ends", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
