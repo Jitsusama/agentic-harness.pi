@@ -65,7 +65,12 @@ on where it was.
   all the model sees.
 - Before that, every extension's own state, the model and thinking
   changes and the session's name, in their order, so each extension
-  starts as it would on a resumed session.
+  starts as it would on a resumed session. A record its owner named
+  with `leaveInParentLog` (`lib/internal/session/rollover.ts`) stays
+  in the parent instead: guard reports, compaction-selection holds
+  and `model-not-set-back`, none of which is read from before the last
+  compaction. Every roll copied them again until 7 November, so one
+  fresh log started with 4.45 MB from before its first message.
 - Before that too, the system messages folded into one, which
   declares the tools they left declared and removes the ones they took
   away. pi works out a resumed session's tools by replaying the system

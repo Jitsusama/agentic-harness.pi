@@ -26,6 +26,7 @@ import {
 	setGuardReportSink,
 } from "../../lib/guardian/report.ts";
 import { list } from "../../lib/internal/guardian/registry.ts";
+import { leaveInParentLog } from "../../lib/internal/session/rollover.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
 import { view } from "../../lib/ui/panel.ts";
 import { guardsCompletions, parseGuardsCommand } from "./command.ts";
@@ -34,6 +35,8 @@ import { guardReportLines, guardTableLines } from "./render.ts";
 
 export default function guardPolicyWorkflow(pi: ExtensionAPI) {
 	setGuardReportSink((report) => pi.appendEntry(GUARD_REPORT_ENTRY, report));
+	// A report is shown where it was written and never read back.
+	leaveInParentLog(GUARD_REPORT_ENTRY);
 
 	pi.registerEntryRenderer(GUARD_REPORT_ENTRY, (entry, options, theme) => {
 		const report = entry.data;
