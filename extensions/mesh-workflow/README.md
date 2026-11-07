@@ -443,7 +443,10 @@ doing only when it is the easy thing:
   the run.
 - **hold:** a hold sent claims what it holds, until its sender
   answers (`re`) or replaces (`supersedes`) it, or for two
-  hours at most. No lease outlives the boot it was taken in:
+  hours at most. A hold that answers a hold goes as an fyi,
+  saying so: its sender's end would hold everyone again, and
+  another peer's answer would park everyone it reached. Only
+  a replacement keeps a hold a hold. No lease outlives the boot it was taken in:
   a session restored after a reboot lets go of what it
   claimed before, and a hand is not held by a hold from then.
 - **wait:** answering another peer's hold says this peer waits
