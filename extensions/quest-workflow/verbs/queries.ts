@@ -357,7 +357,7 @@ function namedSessions(
 		if (matches.length === 0) {
 			return {
 				ok: false,
-				guidance: `No lost or recently closed session matches "${name}". Run restore without id to see the ones it knows.`,
+				guidance: `No lost or recently closed session matches "${name}". Run reopen-sessions without id to see the ones it knows.`,
 			};
 		}
 		if (matches.length > 1) {
@@ -469,7 +469,7 @@ export async function restore(
 			[
 				joins && joins.windows.length > 0
 					? "No session here was running when the last boot ended."
-					: "No session was running when the last boot ended; nothing to restore.",
+					: "No session was running when the last boot ended; nothing to reopen.",
 				...closedSection,
 			].join("\n"),
 			{ restore: { toRestore: [], recipe: [], recentlyClosed: closed } },
@@ -514,7 +514,7 @@ export async function restore(
 				? ["", `force could not open them: ${planned.failed[0]?.reason}.`]
 				: [];
 		const body = [
-			`${count(toRestore.length, "session")} to restore:`,
+			`${count(toRestore.length, "session")} to reopen:`,
 			...rows,
 			...how,
 			"",
@@ -533,7 +533,7 @@ export async function restore(
 		// reopen would leave the user working out which half happened.
 		return ok(
 			[
-				`${toRestore.length} sessions to restore, more than the ${MAX_REOPEN_AT_ONCE} restore will open at once.`,
+				`${toRestore.length} sessions to restore, more than the ${MAX_REOPEN_AT_ONCE} reopen-sessions will open at once.`,
 				"Reopen the ones you want by hand:",
 				"",
 				...recipe,

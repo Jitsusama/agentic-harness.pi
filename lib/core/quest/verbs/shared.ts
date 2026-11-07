@@ -35,9 +35,9 @@ export interface QuestToolParams {
 	role?: string;
 	name?: string;
 	layout?: string;
-	/** spawn and restore: the terminal to open in, by driver or launcher id. */
+	/** spawn and reopen-sessions: the terminal to open in, by driver or launcher id. */
 	terminal?: string;
-	/** spawn and restore: innermost or outermost, for a nested session. */
+	/** spawn and reopen-sessions: innermost or outermost, for a nested session. */
 	nesting?: string;
 	/** spawn: the machine to start the session on, held by its mycelium node. */
 	machine?: string;

@@ -724,7 +724,7 @@ export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
  * already closed says what it is without asking the operating system,
  * so a crash nobody has noticed yet is not counted here. It becomes
  * visible the first time something reads the registry properly, which
- * is what `quest restore` does.
+ * is what `quest reopen-sessions` does.
  */
 export function lostSessionCount(): number {
 	return loadRecords().filter(({ record }) => wasLost(record)).length;

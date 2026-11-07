@@ -134,7 +134,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	id: Type.Optional(
 		Type.String({
 			description:
-				"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a status sweep that also removes each one's whole scratch folder, of which undo restores only status and priority; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
+				"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and reopen-sessions: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a status sweep that also removes each one's whole scratch folder, of which undo restores only status and priority; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
 		}),
 	),
 	url: Type.Optional(
@@ -233,31 +233,31 @@ export const QUEST_PARAMETERS = Type.Object({
 	layout: Type.Optional(
 		Type.String({
 			description:
-				"spawn and restore: window, tab or pane. Defaults to the person's terminal setting, else tab; spawn-* takes its suffix.",
+				"spawn and reopen-sessions: window, tab or pane. Defaults to the person's terminal setting, else tab; spawn-* takes its suffix.",
 		}),
 	),
 	terminal: Type.Optional(
 		Type.String({
 			description:
-				"spawn and restore: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
+				"spawn and reopen-sessions: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
 		}),
 	),
 	nesting: Type.Optional(
 		Type.String({
 			description:
-				"spawn and restore: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
+				"spawn and reopen-sessions: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
 		}),
 	),
 	machine: Type.Optional(
 		Type.String({
 			description:
-				"spawn: the machine to start the session on, by the name its mycelium node gives it (this one, or one its links reach). The node starts it held there, in the same folder under that machine's home, or its home; the window opened here joins it, and closing that window leaves it running. restore refuses it.",
+				"spawn: the machine to start the session on, by the name its mycelium node gives it (this one, or one its links reach). The node starts it held there, in the same folder under that machine's home, or its home; the window opened here joins it, and closing that window leaves it running. reopen-sessions refuses it.",
 		}),
 	),
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, each as kind=value (machine, system, arch, reach, accelerator), such as reach=home or system=macos. The mycelium node chooses the machine among those its realm links, ranking down one on battery or short of memory or disk, and the session starts held there as with machine, which counts as one more need. Given neither this nor machine, spawn places by the quest's own needs (need-add), if it says any. dryRun asks the node only where. restore refuses it.",
+				"spawn: what the machine must be, each as kind=value (machine, system, arch, reach, accelerator), such as reach=home or system=macos. The mycelium node chooses the machine among those its realm links, ranking down one on battery or short of memory or disk, and the session starts held there as with machine, which counts as one more need. Given neither this nor machine, spawn places by the quest's own needs (need-add), if it says any. dryRun asks the node only where. reopen-sessions refuses it.",
 		}),
 	),
 	command: Type.Optional(
@@ -304,13 +304,13 @@ export const QUEST_PARAMETERS = Type.Object({
 	force: Type.Optional(
 		Type.Boolean({
 			description:
-				"tree-release: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. section: replace a large section with a body that drops most of it, on purpose. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
+				"tree-release: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. section: replace a large section with a body that drops most of it, on purpose. reopen-sessions: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
 		}),
 	),
 	dryRun: Type.Optional(
 		Type.Boolean({
 			description:
-				"reparent, and conclude/retire of quests not loaded here: say what would change, writing nothing. spawn and restore: say what would open where, and which setting chose it, opening nothing. Every other action, and conclude/retire of the loaded quest or a document, refuses it and does nothing.",
+				"reparent, and conclude/retire of quests not loaded here: say what would change, writing nothing. spawn and reopen-sessions: say what would open where, and which setting chose it, opening nothing. Every other action, and conclude/retire of the loaded quest or a document, refuses it and does nothing.",
 		}),
 	),
 	limit: Type.Optional(
@@ -972,7 +972,7 @@ function showSessionHint(
 	const lost = lostSessionCount();
 	if (lost > 0) {
 		ctx.ui.notify(
-			`${count(lost, "quest session")} went with a crash or a closed terminal. Run \`quest restore\` to see them, or \`quest restore force\` to reopen them.`,
+			`${count(lost, "quest session")} went with a crash or a closed terminal. Run \`quest reopen-sessions\` to see them, or \`quest reopen-sessions force\` to reopen them.`,
 			"info",
 		);
 	}
