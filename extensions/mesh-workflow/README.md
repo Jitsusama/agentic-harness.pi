@@ -735,6 +735,15 @@ A steer may instead carry an `act`, with no text needed
   it.
 - `resume` clears the pause and has the session carry on
   where it left off; with text, the text is the turn instead.
+- `close` ends the session for good, as /exit does: any run in
+  progress is ended, then pi shuts down, so its record reads
+  closed rather than lost, and `restore.json` and Reopen Them
+  All don't offer it back. Its quest, trees and Needs You
+  items stay, and for 24 hours `quest reopen-sessions` can
+  still reopen it by id.
+
+Only the person may act: a steer from anyone else that carries
+an `act` is read for its text alone.
 
 An ended run ends away mode on every session, so a Stop, or a
 Pause landing mid-run, ends it too: pressing either says the

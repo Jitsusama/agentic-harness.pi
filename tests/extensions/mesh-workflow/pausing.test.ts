@@ -1,5 +1,5 @@
 /**
- * Pause, Resume and Stop from outside a session's window.
+ * Pause, Resume, Stop and Close from outside a session's window.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -33,6 +33,7 @@ function session(idle: boolean): Session {
 			},
 			carryOn: () => did.push("carry on"),
 			tell: () => {},
+			close: () => did.push("close"),
 		}),
 		did,
 	};
@@ -87,5 +88,17 @@ describe("stopping a session", () => {
 		const idle = session(true);
 		idle.pausing.act("stop");
 		expect(idle.did).toEqual([]);
+	});
+});
+
+describe("closing a session", () => {
+	it("ends the run in progress, then the session, as /exit does", () => {
+		const busy = session(false);
+		busy.pausing.act("close");
+		expect(busy.did).toEqual(["abort", "close"]);
+
+		const idle = session(true);
+		idle.pausing.act("close");
+		expect(idle.did).toEqual(["close"]);
 	});
 });
