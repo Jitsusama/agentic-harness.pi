@@ -4,7 +4,13 @@
  * the one request, stderr read for failures, a hang cut off.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,6 +18,7 @@ import {
 	checkLoad,
 	describeLoad,
 	loadCheckArgs,
+	loadCheckEnvironment,
 	loadFailures,
 	readLoad,
 } from "../../../../lib/internal/reload/load-check.ts";
@@ -83,6 +90,31 @@ describe("reading pi's answer", () => {
 		);
 	});
 
+	it("keeps the person's configuration and PATH, and nothing of the holder's", () => {
+		const env = loadCheckEnvironment(
+			{
+				PATH: "/bin",
+				XDG_CONFIG_HOME: "/home/j/.config",
+				XDG_STATE_HOME: "/home/j/.local/state",
+				MYCELIUM_WAKE: "/run/user/1000/mycelium/work.held/x.wake",
+				KITTY_WINDOW_ID: "174",
+			},
+			"/tmp/box",
+		);
+
+		expect(env).toEqual({
+			PATH: "/bin",
+			XDG_CONFIG_HOME: "/home/j/.config",
+			XDG_STATE_HOME: "/tmp/box/state",
+			XDG_DATA_HOME: "/tmp/box/data",
+			XDG_CACHE_HOME: "/tmp/box/cache",
+			XDG_RUNTIME_DIR: "/tmp/box/runtime",
+			PI_NOTIFY: "off",
+			PI_LAUNCHER: "off",
+			PI_OFFLINE: "1",
+		});
+	});
+
 	it("lists the failures one to a line", () => {
 		expect(describeLoad(readLoad("", PI_FAILURE, 1), "~/tree")).toBe(
 			[
@@ -144,6 +176,41 @@ describe("asking a pi", () => {
 			ok: false,
 			problem: "pi was still loading after 1s",
 		});
+	});
+
+	it("starts pi in a sandbox of its own, off the machine's state and this session's ties", async () => {
+		const seen = join(dir, "seen.json");
+		const pi = fakePi(`
+			import * as fs from "node:fs";
+			const e = process.env;
+			fs.writeFileSync(${JSON.stringify(seen)}, JSON.stringify({
+				state: e.XDG_STATE_HOME, runtime: e.XDG_RUNTIME_DIR,
+				held: e.MYCELIUM_HELD ?? null, session: e.PI_SESSION_ID ?? null,
+				niri: e.NIRI_SOCKET ?? null, launcher: e.PI_LAUNCHER,
+			}));
+			process.stdout.write(${JSON.stringify(ANSWER)});
+		`);
+		const before = { ...process.env };
+		process.env.MYCELIUM_HELD = "2b685b99";
+		process.env.PI_SESSION_ID = "01a1b240";
+		process.env.NIRI_SOCKET = "/run/user/1000/niri.sock";
+		try {
+			expect((await checkLoad(pi, "/t")).ok).toBe(true);
+		} finally {
+			process.env = before;
+		}
+		const env = JSON.parse(readFileSync(seen, "utf8"));
+
+		expect(env).toMatchObject({
+			held: null,
+			session: null,
+			niri: null,
+			launcher: "off",
+		});
+		expect(env.state).not.toBe(process.env.XDG_STATE_HOME);
+		expect(env.state).toMatch(/load-check-sandbox-/);
+		// And the sandbox goes with the check.
+		expect(existsSync(env.state.replace(/\/state$/, ""))).toBe(false);
 	});
 
 	it("says when pi cannot be started at all", async () => {
