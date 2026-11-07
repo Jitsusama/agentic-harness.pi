@@ -155,6 +155,8 @@ describe("spawn through the desktop's launcher", () => {
 			focus: false,
 		});
 		expect(session?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/);
+		// A new session takes nobody's place.
+		expect(session).not.toHaveProperty("replaces");
 		expect(opened).toBeUndefined();
 		expect(result.message).toContain(`Handed a new session, ${session?.id}`);
 	});
@@ -203,6 +205,47 @@ describe("spawn through the desktop's launcher", () => {
 		expect(wordsFor(token)).toContain(`Carry on with ${id}`);
 		expect(wordsFor(token)).toContain("Audit the checks.");
 		expect(result.details).toMatchObject({ firstWordsKey: token });
+	});
+
+	it("hands a restart to the launcher, in its own place and on the model it names", async () => {
+		// 11-07 00:37: orchestrators restart sessions under a new holder as
+		// `pi --session <id> --model ...`, which opened kitty on whatever
+		// workspace was focused, never through the launcher's placing.
+		const { state, id } = await quest();
+		const back = "01a1b496-049b-7607-91e1-3d9c8adb7edc";
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command: `pi --session ${back} --model anthropic/claude-opus-5-5:high`,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const given = handed() as { sessions: Record<string, unknown>[] };
+		expect(given.sessions).toEqual([
+			{
+				id: back,
+				cwd: tmpRoot,
+				quest: id,
+				from: "spawner",
+				replaces: back,
+				model: "anthropic/claude-opus-5-5:high",
+				focus: false,
+			},
+		]);
+		expect(opened).toBeUndefined();
+	});
+
+	it("opens a resume that asks for more than a model itself", async () => {
+		const { state, id } = await quest();
+		const command =
+			"pi --session 01a1b496-049b-7607-91e1-3d9c8adb7edc --no-extensions";
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(handed()).toBeUndefined();
+		expect(opened).toBe(command);
 	});
 
 	it("leaves no words for a command of the caller's own", async () => {

@@ -652,10 +652,10 @@ describe("restore through the desktop's launcher", () => {
 	 * does, starts each pi, or answers `answer` and starts nothing.
 	 */
 	function launcher(answer = "taken") {
-		const handed: { id: string; cwd: string }[][] = [];
+		const handed: { id: string; cwd: string; replaces?: string }[][] = [];
 		const call = async (argument: string) => {
 			const { sessions } = JSON.parse(argument) as {
-				sessions: { id: string; cwd: string }[];
+				sessions: { id: string; cwd: string; replaces?: string }[];
 			};
 			handed.push(sessions);
 			if (answer === "taken") {
@@ -681,6 +681,8 @@ describe("restore through the desktop's launcher", () => {
 			"sess-B",
 		]);
 		expect(shell.handed[0]?.[0]?.cwd).toBe(tmpRoot);
+		// Each takes its own place, so it opens where its window was.
+		for (const one of shell.handed[0] ?? []) expect(one.replaces).toBe(one.id);
 		expect(typed).toEqual([]);
 		expect(message).toContain(
 			"Reopened 2 of 2 sessions, through the launcher, each where it sat.",

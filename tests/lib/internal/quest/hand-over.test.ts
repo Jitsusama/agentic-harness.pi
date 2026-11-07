@@ -54,6 +54,37 @@ describe("handing sessions to the launcher", () => {
 		});
 	});
 
+	it("says whose place a restarted session takes, and the model it runs on", async () => {
+		const sent: string[] = [];
+		await handOver(
+			[
+				{
+					id: "01a1-back",
+					cwd: "/w",
+					from: "01a1-me",
+					replaces: "01a1-back",
+					model: "anthropic/claude-opus-5-5:high",
+				},
+			],
+			async (argument) => {
+				sent.push(argument);
+				return "taken";
+			},
+		);
+		expect(JSON.parse(sent[0] ?? "")).toEqual({
+			sessions: [
+				{
+					id: "01a1-back",
+					cwd: "/w",
+					from: "01a1-me",
+					replaces: "01a1-back",
+					model: "anthropic/claude-opus-5-5:high",
+					focus: false,
+				},
+			],
+		});
+	});
+
 	it("hands over two sessions asked for at once, each in its own call", async () => {
 		// Y2YBTS [51dbc285], 2026-11-04: two spawns 0.4 s apart both said
 		// they were handed over, and the shell logged both; only one opened.

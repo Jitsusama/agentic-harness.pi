@@ -477,7 +477,6 @@ export async function spawn(
 		command,
 		cwd,
 		questId: questIdForSpawn,
-		...(resumedSessionId ? { resumedSessionId } : {}),
 		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
 		...(asking ? { fromSessionId: asking } : {}),
 	});

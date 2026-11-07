@@ -915,6 +915,8 @@ async function handedToLauncher(
 			id: record.sessionId,
 			cwd: record.cwd,
 			...(record.quest ? { quest: record.quest } : {}),
+			// Back where its own window was.
+			replaces: record.sessionId,
 		})),
 	);
 	return taken === undefined ? [] : going;

@@ -31,12 +31,28 @@ export interface LauncherSpawn {
 	readonly command: string;
 	readonly cwd: string;
 	readonly questId: string;
-	/** The session the spawn resumes, when it resumes one. */
-	readonly resumedSessionId?: string;
 	/** Whether the call named a terminal, a layout or a nesting. */
 	readonly named: boolean;
 	/** The session asking for it, which its window goes beside. */
 	readonly fromSessionId?: string;
+}
+
+/**
+ * `pi --session <id>`, alone or with the model to run it on: what a
+ * restart asks for, since orchestrators restart a session under a new
+ * holder as `pi --session <id> --model <model>`. Anything more is the
+ * caller's own and opens as it says; a log's path in place of an id is
+ * turned away by `launcherTakes`.
+ */
+const RESUMING = /^pi --session (\S+)(?: --model (\S+))?$/;
+
+/** The session a command resumes and the model it names, if it only resumes. */
+export function resumedBy(
+	command: string,
+): { id: string; model?: string } | undefined {
+	const [, id, model] = RESUMING.exec(command.trim()) ?? [];
+	if (id === undefined) return undefined;
+	return model ? { id, model } : { id };
 }
 
 /**
@@ -45,26 +61,31 @@ export interface LauncherSpawn {
  * other than the machine's home one (the launcher holds what it opens
  * there), with `PI_LAUNCHER=off` as the test suite sets it, or for a
  * command other than pi resuming or starting. A new session is given an
- * id now, since the launcher starts it under one.
+ * id now, since the launcher starts it under one. A resumed one says it
+ * takes its own place, so the launcher opens it where its window was.
  */
 export function launcherSession(
 	spawn: LauncherSpawn,
 ): HandedSession | undefined {
 	if (spawn.named || realmSegments().length > 0) return undefined;
 	if (process.env.PI_LAUNCHER === "off") return undefined;
-	const resumed = spawn.resumedSessionId;
+	const resumed = resumedBy(spawn.command);
 	// Its quest and the session asking say where its window goes.
 	const placed = {
 		cwd: spawn.cwd,
 		quest: spawn.questId,
 		...(spawn.fromSessionId ? { from: spawn.fromSessionId } : {}),
 	};
-	const session: HandedSession | undefined =
-		resumed !== undefined && spawn.command === `pi --session ${resumed}`
-			? { id: resumed, ...placed }
-			: spawn.command === "pi"
-				? { id: uuidv7(), fresh: true, ...placed }
-				: undefined;
+	const session: HandedSession | undefined = resumed
+		? {
+				id: resumed.id,
+				replaces: resumed.id,
+				...(resumed.model ? { model: resumed.model } : {}),
+				...placed,
+			}
+		: spawn.command === "pi"
+			? { id: uuidv7(), fresh: true, ...placed }
+			: undefined;
 	return session && launcherTakes(session) ? session : undefined;
 }
 

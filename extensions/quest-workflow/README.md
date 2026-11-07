@@ -123,14 +123,16 @@ shipped and tested.
   the launcher the same way, so it places that window too: a
   resumed session by its id, a new one marked fresh with an id
   minted for it and its quest, which the launcher starts with
-  `pi --session-id`. The same cases as restore's leave it out,
-  and so do another terminal or layout, another command and
-  another machine; a launcher that doesn't take it leaves the
+  `pi --session-id`. A restart's `command`, `pi --session <id>`
+  alone or with `--model <model>`, goes too, with that model.
+  The same cases as restore's leave it out, and so do another
+  terminal or layout, any other command and another machine; a launcher that doesn't take it leaves the
   window to open as above. A dry run asks it nothing.
 - **Without taking focus**: every session restore and spawn hand
   the launcher goes with `focus: false`, its quest and the session
   that asked, so its window opens unfocused where its quest's
-  sessions are; one they open themselves leaves focus where it is
+  sessions are. A session restored or resumed also says
+  `replaces`, its own id, so it opens where its window was; one they open themselves leaves focus where it is
   (lib/terminal). Only the person's own press focuses a window.
 - **Sets to work by itself**: a session a spawn starts running
   pi, fresh, resumed or with flags the call's `command` gives it

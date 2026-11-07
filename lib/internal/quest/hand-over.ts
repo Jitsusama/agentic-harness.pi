@@ -50,6 +50,17 @@ export interface HandedSession {
 	readonly quest?: string;
 	/** The session that asked for it, which the window goes beside. */
 	readonly from?: string;
+	/**
+	 * The session whose window this one takes the place of: itself, for a
+	 * session restored or resumed, so the launcher opens it where that
+	 * window was rather than beside whoever asked. Absent for a new one.
+	 */
+	readonly replaces?: string;
+	/**
+	 * The model a resumed session runs on, as `pi --model` names it, for a
+	 * restart that names one. Absent, it runs on what its log says.
+	 */
+	readonly model?: string;
 }
 
 /** Runs the launcher's call with its one argument, answering its words. */
@@ -105,14 +116,18 @@ export async function handOver(
 ): Promise<number | undefined> {
 	if (sessions.length === 0) return undefined;
 	const argument = JSON.stringify({
-		sessions: sessions.map(({ id, cwd, fresh, quest, from }) => ({
-			id,
-			cwd,
-			...(fresh ? { fresh: true } : {}),
-			...(quest ? { quest } : {}),
-			...(from ? { from } : {}),
-			focus: false,
-		})),
+		sessions: sessions.map(
+			({ id, cwd, fresh, quest, from, replaces, model }) => ({
+				id,
+				cwd,
+				...(fresh ? { fresh: true } : {}),
+				...(quest ? { quest } : {}),
+				...(from ? { from } : {}),
+				...(replaces ? { replaces } : {}),
+				...(model ? { model } : {}),
+				focus: false,
+			}),
+		),
 	});
 	try {
 		return takenBy(await call(argument), sessions.length);
