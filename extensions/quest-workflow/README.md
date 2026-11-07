@@ -218,7 +218,9 @@ shipped and tested.
   session starts afterwards inherit it. A session spawned for
   another quest does not: its terminal starts with the
   environment as it was before any budget, and it draws on its
-  own quest's. The status line says the budget drawn on; a name
+  own quest's. The footer says the budget drawn on, through
+  spend-workflow, which hears it on the bus (`budget:settled:v1`)
+  each time it settles; a name
   no provider knows, or one it can't draw on yet, leaves the
   default and says why once. Nothing of it reaches the prompt.
   The session's log says it too: a `budget` entry

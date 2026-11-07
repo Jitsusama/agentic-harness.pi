@@ -78,6 +78,7 @@ function costTool(): Tool {
 		registerTool: (definition: Tool) => {
 			found = definition;
 		},
+		registerCommand: () => {},
 		events: { on: () => () => {}, emit: () => {} },
 	};
 	spendWorkflow(pi as never);

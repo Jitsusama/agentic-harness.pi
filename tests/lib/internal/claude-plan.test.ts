@@ -1,11 +1,13 @@
 /**
  * A Claude plan's two windows, read from what the Claude Code provider
- * said after a turn, and told on the footer.
+ * said after a turn.
  */
 import { describe, expect, it } from "vitest";
 import {
+	lastPlanUse,
+	PLAN_PROVIDER,
 	planUseFrom,
-	planUseLine,
+	planUseOf,
 	RATE_LIMIT,
 } from "../../../lib/internal/claude-plan.ts";
 
@@ -25,7 +27,10 @@ function said(over: Record<string, unknown> = {}, windows?: unknown) {
 	};
 }
 
-const clock = (at: number) => new Date(at).toISOString().slice(11, 16);
+/** An assistant message as pi logs it. */
+function reply(provider: string, diagnostics: unknown[] = [said()]) {
+	return { role: "assistant", provider, diagnostics };
+}
 
 describe("a Claude plan's use", () => {
 	it("reads both windows, resets in milliseconds", () => {
@@ -44,40 +49,35 @@ describe("a Claude plan's use", () => {
 		expect(planUseFrom([said({}, {})])).toBeUndefined();
 	});
 
-	it("is quiet while there's room in both windows", () => {
-		const use = planUseFrom([said()]);
-		expect(use && planUseLine(use, clock)).toEqual({
-			tone: "dim",
-			text: "5h 0% wk 3%",
+	it("says a refused turn stopped", () => {
+		expect(planUseFrom([said({ status: "rejected" })])?.stopped).toBe(true);
+	});
+});
+
+describe("the plan's use in a session", () => {
+	it("is read only from Claude Code's replies", () => {
+		expect(planUseOf(reply(PLAN_PROVIDER))?.week).toEqual({
+			used: 0.03,
+			resets: 1792994400000,
 		});
+		expect(planUseOf(reply("anthropic"))).toBeUndefined();
+		expect(
+			planUseOf({ role: "user", provider: PLAN_PROVIDER }),
+		).toBeUndefined();
+		expect(
+			planUseOf(reply(PLAN_PROVIDER, ["not a diagnostic"])),
+		).toBeUndefined();
 	});
 
-	it("warns near a window's end, saying when it starts again", () => {
-		const use = planUseFrom([
-			said(
-				{},
-				{
-					five_hour: { utilization: 0.84, resetsAt: 1792986600 },
-					seven_day: { utilization: 0.2, resetsAt: 1792994400 },
-				},
-			),
-		]);
-		expect(use && planUseLine(use, clock)).toEqual({
-			tone: "warning",
-			text: `5h 84% until ${clock(1792986600000)} wk 20%`,
-		});
-	});
-
-	it("says a refused turn in the error tone, with its reset", () => {
-		const use = planUseFrom([
-			said(
-				{ status: "rejected" },
-				{ five_hour: { utilization: 1, resetsAt: 1792986600 } },
-			),
-		]);
-		expect(use && planUseLine(use, clock)).toEqual({
-			tone: "error",
-			text: `5h 100% until ${clock(1792986600000)}`,
-		});
+	it("is the newest the branch holds", () => {
+		const newer = said({}, { five_hour: { utilization: 0.7 } });
+		const branch = [
+			{ type: "message", message: reply(PLAN_PROVIDER) },
+			{ type: "message", message: reply(PLAN_PROVIDER, [newer]) },
+			{ type: "custom" },
+			{ type: "message", message: { role: "user" } },
+		];
+		expect(lastPlanUse(branch)?.fiveHour).toEqual({ used: 0.7 });
+		expect(lastPlanUse([{ type: "custom" }])).toBeUndefined();
 	});
 });

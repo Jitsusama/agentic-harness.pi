@@ -1,12 +1,13 @@
 /**
- * How much of a Claude plan's allowance is spent, as the Claude Code
+ * How much of a Claude plan's allowances is spent, as the Claude Code
  * provider (earendil-works/pi-claude-code) reports it after each turn.
  *
- * A plan's limits are windows: five hours, and a week. On Pro they are
- * small for agent work, and a turn past one stops until it resets, so
- * the person spends them knowingly only when the footer says where each
- * stands. The provider puts Anthropic's answer on each assistant
- * message as a `claude-code.rate-limit` diagnostic; this reads it.
+ * A plan has two allowances, each over a window: five hours, and a
+ * week. On Pro they are small for agent work, and a turn past one stops
+ * until it resets, so the person spends them knowingly only when the
+ * footer says where each stands. The provider puts Anthropic's answer
+ * on each assistant message as a `claude-code.rate-limit` diagnostic;
+ * this reads it.
  */
 
 import { isRecord } from "./record.ts";
@@ -55,35 +56,38 @@ export function planUseFrom(
 	};
 }
 
-/** Past this much of either window, the footer warns. */
-export const WARN_AT = 0.8;
+/** The provider a Claude plan is reached through. */
+export const PLAN_PROVIDER = "claude-code";
 
-/** How a footer status is coloured, as the theme names it. */
-export type PlanTone = "dim" | "warning" | "error";
+/** The plan's standing from a message, when Claude Code said one. */
+export function planUseOf(message: unknown): PlanUse | undefined {
+	if (!isRecord(message) || message.role !== "assistant") return undefined;
+	if (message.provider !== PLAN_PROVIDER) return undefined;
+	const { diagnostics } = message;
+	if (!Array.isArray(diagnostics)) return undefined;
+	return planUseFrom(
+		diagnostics.flatMap((one: unknown) =>
+			isRecord(one) && typeof one.type === "string"
+				? [{ type: one.type, details: one.details }]
+				: [],
+		),
+	);
+}
 
-/** The footer's words for the plan, and the tone its mark takes. */
-export function planUseLine(
-	use: PlanUse,
-	clock: (at: number) => string,
-): { tone: PlanTone; text: string } {
-	const near = (window: PlanWindow | undefined) =>
-		window !== undefined && (use.stopped || window.used >= WARN_AT);
-	const part = (name: string, window: PlanWindow | undefined) => {
-		if (!window) return undefined;
-		const percent = `${name} ${Math.round(window.used * 100)}%`;
-		return near(window) && window.resets !== undefined
-			? `${percent} until ${clock(window.resets)}`
-			: percent;
-	};
-	const text = [part("5h", use.fiveHour), part("wk", use.week)]
-		.filter((one) => one !== undefined)
-		.join(" ");
-	const tone = use.stopped
-		? "error"
-		: near(use.fiveHour) || near(use.week)
-			? "warning"
-			: "dim";
-	return { tone, text };
+/**
+ * The newest standing a session's branch holds, so a reloaded or
+ * resumed session knows where the plan stood before its next turn.
+ */
+export function lastPlanUse(
+	branch: readonly { readonly type: string; readonly message?: unknown }[],
+): PlanUse | undefined {
+	for (let at = branch.length - 1; at >= 0; at--) {
+		const entry = branch[at];
+		if (entry?.type !== "message") continue;
+		const said = planUseOf(entry.message);
+		if (said) return said;
+	}
+	return undefined;
 }
 
 function windowFrom(raw: unknown): PlanWindow | undefined {

@@ -19,6 +19,11 @@
  * stays a visible slice, because a share computed against a total that
  * quietly excluded it is worse than no share at all.
  *
+ * The footer says the budget the session spends and how near its
+ * allowances stand, and `/budget` says every budget's, with all AI
+ * spend in billed dollars (`budget.ts`, `budget-item.ts`), as
+ * spend-watch keeps them.
+ *
  * Money is not the only cost. `disk` reports what each quest holds on
  * disk and what of it could go now (`disk.ts`), measured on asking and
  * never from the ledger, since disk is a standing amount rather than a
@@ -71,6 +76,7 @@ import {
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
 import { formatAudit } from "./audit.ts";
 import { gatherAudit } from "./audit-input.ts";
+import { registerBudgetItem } from "./budget-item.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs, sessionsDir } from "./indexer.ts";
@@ -304,6 +310,11 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	pi.on("message_end", async (event) => {
 		observeTurn(assistantCost(event.message));
 		publish();
+	});
+
+	registerBudgetItem(pi, {
+		exec: () => spawnExec({ timeoutMs: BILL_TIMEOUT_MS }),
+		listPrice: () => sessionSpend,
 	});
 
 	// What the machine did for each turn, which no log records. Only a

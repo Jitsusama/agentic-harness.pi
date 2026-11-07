@@ -70,8 +70,8 @@ may import from here, and any of it may change without notice.
   hour-long cache entry warm: when a warm falls due, which requests
   may be replayed, and when a warm missed its prefix.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
-  windows stand, read from what the Claude Code provider says after
-  each turn, and the footer's words for them.
+  allowances stand, read from what the Claude Code provider says
+  after each turn, for spend-workflow's budget item.
 - **`model-failure.ts`**: whether a failed model call is one a
   later try could get past, by pi's own judgement, and the wait
   before each try, for `model-retry-workflow` and the compaction
@@ -106,6 +106,9 @@ may import from here, and any of it may change without notice.
   join.
 - **`spend-watch.ts`**: the bill for a period, asked of spend-watch's
   command line where it is installed, for the spend tool.
+- **`spend-watch-budgets.ts`**: where every budget stands, its
+  allowances in their own units, and the total across all AI spend,
+  asked of `spend-watch budgets --json`, for the footer and `/budget`.
 - **`stale.ts`**: telling pi's stale-context error, after a reload
   or session switch, from any other.
 - **`state.ts`**: persisting an extension's state across sessions

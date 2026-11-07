@@ -29,6 +29,18 @@ export const BUDGET_ENTRY = "budget";
  */
 export const BUDGET_VARIABLE = "PI_BUDGET";
 
+/**
+ * The bus event said each time the session settles which budget it
+ * draws on, with `{ name }` (null for the default), so whatever tells
+ * the person (the footer) needn't watch the environment.
+ */
+export const BUDGET_SETTLED = "budget:settled:v1";
+
+/** What {@link BUDGET_SETTLED} carries. */
+export interface BudgetSettled {
+	readonly name: string | null;
+}
+
 /** What a `budget` entry holds. */
 export interface BudgetRecord {
 	readonly v: 1;

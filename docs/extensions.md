@@ -124,7 +124,9 @@ it does:
   the session logs pi already writes, so there is one writer of
   the truth and the ledger can be rebuilt whenever its shape
   changes. Anything else that learns a cost should emit to it
-  rather than keep a second figure.
+  rather than keep a second figure. It also tells the budget the
+  session spends, on the footer and in `/budget`, since a
+  budget's standing is money too.
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
@@ -145,8 +147,8 @@ it does:
 
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
-  `panel-zoom-widget`, `claude-plan-widget`,
-  `terminal-modes-widget`, `link-click-widget`
+  `panel-zoom-widget`, `terminal-modes-widget`,
+  `link-click-widget`
 
 - **Providers** (`*-provider`): contribute an implementation to
   a host over the `pi.events` bus without importing the host's

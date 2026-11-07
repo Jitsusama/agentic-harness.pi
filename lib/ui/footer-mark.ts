@@ -16,8 +16,8 @@
  *
  * The marks live in one table, so a glance tells the person what is
  * talking and the same idea never wears two faces. Every glyph is in
- * the monospace fonts the harness targets, and none draws double
- * width.
+ * the monospace fonts the harness targets (the budget's in the Nerd
+ * Font the desktop's theme sets), and none draws double width.
  */
 
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
@@ -35,8 +35,10 @@ export const FOOTER_GLYPH = {
 	failed: "\u2715",
 	// The session runs a tree in place of the install pi's settings name.
 	swapped: "\u21c4",
-	// A Claude plan's allowance: the spark Claude Code draws for itself.
-	plan: "\u273b",
+	// The budget the session spends: AI spend's own mark, the robot the
+	// desktop's spend notices sign with (the theme's `agent` glyph), in
+	// the Nerd Font's single-cell cut.
+	budget: "\u{f06a9}",
 	// A model call failed for a moment, and the session will ask again.
 	retrying: "\u21bb",
 } as const;

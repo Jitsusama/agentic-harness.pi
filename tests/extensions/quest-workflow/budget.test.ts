@@ -10,6 +10,7 @@ import {
 	type BudgetAnswer,
 	registerBudgetProvider,
 } from "../../../lib/budget/provider";
+import { BUDGET_SETTLED } from "../../../lib/budget/record";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
@@ -155,15 +156,11 @@ describe("the budget verb", () => {
 
 describe("the session's budget", () => {
 	function ui() {
-		const statuses: (string | undefined)[] = [];
 		const notices: string[] = [];
 		return {
-			statuses,
 			notices,
 			ctx: {
 				ui: {
-					setStatus: (_key: string, text: string | undefined) =>
-						statuses.push(text),
 					notify: (message: string) => notices.push(message),
 					theme: { fg: (_colour: string, text: string) => text },
 				},
@@ -186,16 +183,18 @@ describe("the session's budget", () => {
 			resolve: async (name) => answers[name] ?? { kind: "unknown" },
 		});
 		const seen = ui();
+		const settled: unknown[] = [];
+		events.on(BUDGET_SETTLED, (data) => settled.push(data));
 
 		await run({ action: "load", id: child });
 		await keeper.keep(seen.ctx);
 		expect(process.env[KEY], "the subquest draws on its parent's").toBe("team");
-		expect(seen.statuses.at(-1)).toBe("budget delta (delta (dev))");
+		expect(settled.at(-1), "the footer hears it").toEqual({ name: "delta" });
 
 		await run({ action: "unload" });
 		await keeper.keep(seen.ctx);
 		expect(process.env[KEY], "the person's key is back").toBe("personal");
-		expect(seen.statuses.at(-1)).toBeUndefined();
+		expect(settled.at(-1)).toEqual({ name: null });
 	});
 
 	it("stays on the default and says why once when no provider knows the name", async () => {
@@ -290,7 +289,6 @@ describe("the budget in the session's log", () => {
 	function ctx() {
 		return {
 			ui: {
-				setStatus: () => {},
 				notify: () => {},
 				theme: { fg: (_colour: string, text: string) => text },
 			},

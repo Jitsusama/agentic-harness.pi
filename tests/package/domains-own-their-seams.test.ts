@@ -73,6 +73,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"budget:ready:v1",
 			"budget:register-provider:v1",
 			"budget:request:v1",
+			"budget:settled:v1",
 			"compaction:outcome:v1",
 			"compaction:ready:v1",
 			"compaction:register-provider:v1",

@@ -21,7 +21,15 @@ import {
 	type EventBus,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// spend-workflow's footer asks spend-watch where the budgets stand; this
+// test is about the log it rolls to, so the machine's spend-watch isn't run.
+vi.mock("../../../lib/internal/spend-watch-budgets.ts", async (original) => ({
+	...(await original<object>()),
+	askBudgets: async () => undefined,
+}));
+
 import rolloverWorkflow, {
 	COMMAND,
 } from "../../../extensions/rollover-workflow/index.ts";
@@ -147,7 +155,7 @@ function contextOf(manager: SessionManager, idle = true) {
 		isIdle: () => idle,
 		model: { provider: "anthropic", id: "claude" },
 		modelRegistry: { find: () => undefined },
-		ui: { notify: () => {} },
+		ui: { notify: () => {}, setStatus: () => {} },
 	};
 }
 
@@ -158,7 +166,10 @@ function commandContext(manager: SessionManager) {
 	const ctx = {
 		...contextOf(manager),
 		waitForIdle: async () => {},
-		ui: { notify: (text: string) => notices.push(text) },
+		ui: {
+			notify: (text: string) => notices.push(text),
+			setStatus: () => {},
+		},
 		switchSession: async (
 			path: string,
 			options?: { withSession?: (fresh: unknown) => Promise<void> },
