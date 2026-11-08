@@ -80,8 +80,14 @@ describe("renderRequests", () => {
 		// with no way to read it back.
 		const long = `https://example.test/x?${"q=1&".repeat(80)}`;
 
-		expect(anyUrlShortened([request({ url: long })])).toBe(true);
-		expect(anyUrlShortened([request()])).toBe(false);
+		expect(
+			anyUrlShortened([request({ url: long })]),
+			`a ${long.length} character url counts as shortened`,
+		).toBe(true);
+		expect(
+			anyUrlShortened([request()]),
+			"an ordinary url does not count as shortened",
+		).toBe(false);
 	});
 
 	it("counts a redirect hop it had to shorten", () => {
@@ -89,6 +95,7 @@ describe("renderRequests", () => {
 
 		expect(
 			anyUrlShortened([request({ redirects: [{ status: 302, url: long }] })]),
+			`a redirect hop to a ${long.length} character url counts as shortened`,
 		).toBe(true);
 	});
 

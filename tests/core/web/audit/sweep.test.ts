@@ -73,7 +73,7 @@ describe("renderSweep", () => {
 
 	it("does not call a sweep clean when something warned", () => {
 		const out = renderSweep([at("375px", "warn"), at("768px", "pass")]);
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 		expect(out).toContain("1 of 2 conditions raised something");
 	});
 

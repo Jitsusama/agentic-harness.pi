@@ -29,7 +29,10 @@ const node = (over: Partial<IndexedNode> = {}): IndexedNode => ({
 
 describe("matches", () => {
 	it("matches a tag whatever case it is asked for in", () => {
-		expect(matches(node({ nodeName: "BUTTON" }), { tag: "button" })).toBe(true);
+		expect(
+			matches(node({ nodeName: "BUTTON" }), { tag: "button" }),
+			"a BUTTON matches the tag button",
+		).toBe(true);
 	});
 
 	it("matches on an attribute being present", () => {
@@ -37,34 +40,57 @@ describe("matches", () => {
 			matches(node({ attributes: { "data-test": "x" } }), {
 				attribute: "data-test",
 			}),
+			"a node carrying data-test matches the attribute data-test",
 		).toBe(true);
 	});
 
 	it("matches on an attribute's value when one is given", () => {
 		const target = node({ attributes: { role: "button" } });
-		expect(matches(target, { attribute: "role", value: "button" })).toBe(true);
-		expect(matches(target, { attribute: "role", value: "link" })).toBe(false);
+		expect(
+			matches(target, { attribute: "role", value: "button" }),
+			'role="button" matches role button',
+		).toBe(true);
+		expect(
+			matches(target, { attribute: "role", value: "link" }),
+			'role="button" does not match role link',
+		).toBe(false);
 	});
 
 	it("matches a class without matching a longer one that contains it", () => {
 		const target = node({ attributes: { class: "card cardinal" } });
-		expect(matches(target, { className: "card" })).toBe(true);
-		expect(matches(target, { className: "car" })).toBe(false);
+		expect(
+			matches(target, { className: "card" }),
+			'class="card cardinal" matches the class card',
+		).toBe(true);
+		expect(
+			matches(target, { className: "car" }),
+			'class="card cardinal" does not match the class car',
+		).toBe(false);
 	});
 
 	it("matches text case-insensitively", () => {
-		expect(matches(node({ text: "Save Changes" }), { text: "save" })).toBe(
-			true,
-		);
+		expect(
+			matches(node({ text: "Save Changes" }), { text: "save" }),
+			'the text "Save Changes" matches save',
+		).toBe(true);
 	});
 
 	it("can ask for exactly what was not rendered", () => {
-		expect(matches(node({ rendered: false }), { rendered: false })).toBe(true);
-		expect(matches(node({ rendered: true }), { rendered: false })).toBe(false);
+		expect(
+			matches(node({ rendered: false }), { rendered: false }),
+			"an unrendered node matches rendered: false",
+		).toBe(true);
+		expect(
+			matches(node({ rendered: true }), { rendered: false }),
+			"a rendered node does not match rendered: false",
+		).toBe(false);
 	});
 
 	it("can ask only for shadow content", () => {
-		expect(matches(node({ inShadow: true }), { inShadow: true })).toBe(true);
+		expect(
+			matches(node({ inShadow: true }), { inShadow: true }),
+			"a shadowed node matches inShadow: true",
+		).toBe(true);
 	});
 
 	it("can narrow to one frame", () => {
@@ -72,16 +98,20 @@ describe("matches", () => {
 			matches(node({ documentUrl: "http://a/f.html" }), {
 				documentUrl: "http://a/f.html",
 			}),
+			"a node in http://a/f.html matches that document",
 		).toBe(true);
 	});
 
 	it("requires every stated condition, not any of them", () => {
 		const target = node({ nodeName: "BUTTON", rendered: false });
-		expect(matches(target, { tag: "button", rendered: true })).toBe(false);
+		expect(
+			matches(target, { tag: "button", rendered: true }),
+			"an unrendered button does not match a rendered button",
+		).toBe(false);
 	});
 
 	it("matches everything when asked for nothing", () => {
-		expect(matches(node(), {})).toBe(true);
+		expect(matches(node(), {}), "any node matches an empty query").toBe(true);
 	});
 });
 

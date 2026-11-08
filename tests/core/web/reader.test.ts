@@ -60,7 +60,7 @@ describe("assembleBundle", () => {
 	it("writes the article and inner text when present", () => {
 		const sink = fakeSink();
 		const bundle = assembleBundle(captured, sink);
-		expect(sink.texts.has("article.md")).toBe(true);
+		expect([...sink.texts.keys()]).toContain("article.md");
 		expect(bundle.articlePath).toBe("/tmp/pi-web-read/fake/article.md");
 		expect(bundle.innerTextPath).toBe("/tmp/pi-web-read/fake/innertext.txt");
 	});
@@ -68,7 +68,7 @@ describe("assembleBundle", () => {
 	it("omits the article when extraction found none", () => {
 		const sink = fakeSink();
 		const bundle = assembleBundle({ ...captured, article: null }, sink);
-		expect(sink.texts.has("article.md")).toBe(false);
+		expect([...sink.texts.keys()]).not.toContain("article.md");
 		expect(bundle.articlePath).toBeUndefined();
 	});
 
@@ -121,7 +121,7 @@ describe("assembleBundle", () => {
 		const sink = fakeSink();
 		const bundle = assembleBundle({ ...captured, truncated: true }, sink);
 		expect(bundle.url).toBe("https://example.com/article");
-		expect(bundle.truncated).toBe(true);
+		expect(bundle).toMatchObject({ truncated: true });
 	});
 });
 
@@ -181,8 +181,14 @@ describe("reapBundles", () => {
 			now: Date.now(),
 			legacyMaxAgeMs: 5_000,
 		});
-		expect(fs.existsSync(dead)).toBe(false);
-		expect(fs.existsSync(live)).toBe(true);
+		expect(
+			fs.existsSync(dead),
+			`${dead}, a dead session's directory, is reaped`,
+		).toBe(false);
+		expect(
+			fs.existsSync(live),
+			`${live}, a live session's directory, is kept`,
+		).toBe(true);
 	});
 
 	it("sweeps a stray non-pid dir in the current root by age", () => {
@@ -197,7 +203,10 @@ describe("reapBundles", () => {
 			now,
 			legacyMaxAgeMs: 5_000,
 		});
-		expect(fs.existsSync(stray)).toBe(false);
+		expect(
+			fs.existsSync(stray),
+			`${stray}, a stale stray directory, is swept`,
+		).toBe(false);
 	});
 
 	it("sweeps the legacy root by age", () => {
@@ -215,8 +224,14 @@ describe("reapBundles", () => {
 			now,
 			legacyMaxAgeMs: 5_000,
 		});
-		expect(fs.existsSync(stale)).toBe(false);
-		expect(fs.existsSync(fresh)).toBe(true);
+		expect(
+			fs.existsSync(stale),
+			`${stale}, older than the legacy limit, is swept`,
+		).toBe(false);
+		expect(
+			fs.existsSync(fresh),
+			`${fresh}, younger than the legacy limit, is kept`,
+		).toBe(true);
 	});
 
 	it("sweeps every legacy root, not just the first", () => {
@@ -243,8 +258,14 @@ describe("reapBundles", () => {
 				legacyMaxAgeMs: 5_000,
 			});
 
-			expect(fs.existsSync(inFirst)).toBe(false);
-			expect(fs.existsSync(inSecond)).toBe(false);
+			expect(
+				fs.existsSync(inFirst),
+				`${inFirst}, in the first legacy root, is swept`,
+			).toBe(false);
+			expect(
+				fs.existsSync(inSecond),
+				`${inSecond}, in the second legacy root, is swept`,
+			).toBe(false);
 		} finally {
 			fs.rmSync(second, { recursive: true, force: true });
 		}
@@ -265,13 +286,25 @@ describe("reapBundles", () => {
 
 describe("isAuthRedirect", () => {
 	it("flags redirects to auth providers", () => {
-		expect(isAuthRedirect("https://accounts.google.com/signin")).toBe(true);
-		expect(isAuthRedirect("https://example.com/login")).toBe(true);
-		expect(isAuthRedirect("https://example.com/oauth/authorize")).toBe(true);
+		expect(
+			isAuthRedirect("https://accounts.google.com/signin"),
+			"Google's sign-in page is an auth redirect",
+		).toBe(true);
+		expect(
+			isAuthRedirect("https://example.com/login"),
+			"a /login path is an auth redirect",
+		).toBe(true);
+		expect(
+			isAuthRedirect("https://example.com/oauth/authorize"),
+			"an /oauth/authorize path is an auth redirect",
+		).toBe(true);
 	});
 
 	it("leaves an ordinary content URL alone", () => {
-		expect(isAuthRedirect("https://example.com/article")).toBe(false);
+		expect(
+			isAuthRedirect("https://example.com/article"),
+			"an article URL is no auth redirect",
+		).toBe(false);
 	});
 });
 

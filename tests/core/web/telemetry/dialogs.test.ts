@@ -13,7 +13,7 @@ import {
 
 describe("DEFAULT_DIALOG_POLICY", () => {
 	it("dismisses, so a confirm guarding a deletion gets a no", () => {
-		expect(DEFAULT_DIALOG_POLICY.accept).toBe(false);
+		expect(DEFAULT_DIALOG_POLICY).toMatchObject({ accept: false });
 	});
 });
 

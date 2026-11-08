@@ -108,7 +108,7 @@ describe("extractDuckDuckGoUrl", () => {
 		// redirect wrapper masquerading as the destination.
 		const out = extractDuckDuckGoUrl(href);
 		expect(out).toBe(href);
-		expect(out.startsWith("https://duckduckgo.com/l/")).toBe(false);
+		expect(out).not.toMatch(/^https:\/\/duckduckgo\.com\/l\//);
 	});
 });
 

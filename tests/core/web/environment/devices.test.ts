@@ -47,7 +47,7 @@ describe("what a device name means", () => {
 			deviceScaleFactor: 3,
 			mobile: true,
 		});
-		expect(asked?.touch).toBe(true);
+		expect(asked).toMatchObject({ touch: true });
 	});
 
 	it("keeps the name, so a report can say what is being pretended", () => {
@@ -63,8 +63,8 @@ describe("what a device name means", () => {
 
 	it("says a desktop profile is neither mobile nor touch", () => {
 		const asked = deviceEmulation("Nexus 10 landscape", catalogue);
-		expect(asked?.viewport?.mobile).toBe(false);
-		expect(asked?.touch).toBe(false);
+		expect(asked?.viewport).toMatchObject({ mobile: false });
+		expect(asked).toMatchObject({ touch: false });
 	});
 
 	it("carries the user agent, since a server decides on that", () => {

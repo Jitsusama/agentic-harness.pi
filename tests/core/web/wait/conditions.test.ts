@@ -43,35 +43,55 @@ describe("inFlight", () => {
 
 describe("isIdle", () => {
 	it("is idle when nothing has ever happened", () => {
-		expect(isIdle([], 500, 1000)).toBe(true);
+		expect(isIdle([], 500, 1000), "a page that made no request is idle").toBe(
+			true,
+		);
 	});
 
 	it("is busy while anything is outstanding", () => {
-		expect(isIdle([request({ state: "pending" })], 500, 9999)).toBe(false);
+		expect(
+			isIdle([request({ state: "pending" })], 500, 9999),
+			"a page with a request pending is busy, however late",
+		).toBe(false);
 	});
 
 	it("is busy just after a request finishes", () => {
 		// Finished at 1000 + 20ms. A tenth of a second later is not
 		// long enough to call the page done.
-		expect(isIdle([request()], 500, 1000.1)).toBe(false);
+		expect(
+			isIdle([request()], 500, 1000.1),
+			"80ms after the last request is short of 500ms quiet",
+		).toBe(false);
 	});
 
 	it("is idle once the quiet period has passed", () => {
-		expect(isIdle([request()], 500, 1001)).toBe(true);
+		expect(
+			isIdle([request()], 500, 1001),
+			"980ms after the last request is past 500ms quiet",
+		).toBe(true);
 	});
 
 	it("measures quiet from the last request, not the first", () => {
 		const early = request({ startedAt: 1000, durationMs: 10 });
 		const late = request({ id: "R2", startedAt: 1005, durationMs: 10 });
-		expect(isIdle([early, late], 500, 1005.2)).toBe(false);
-		expect(isIdle([early, late], 500, 1006)).toBe(true);
+		expect(
+			isIdle([early, late], 500, 1005.2),
+			"190ms after the later request ends is short of 500ms quiet",
+		).toBe(false);
+		expect(
+			isIdle([early, late], 500, 1006),
+			"990ms after the later request ends is past 500ms quiet",
+		).toBe(true);
 	});
 
 	it("reads the two clocks in their own units", () => {
 		// startedAt is seconds and durationMs is milliseconds. Adding
 		// them without converting would put the end 2000 seconds out.
 		const slow = request({ startedAt: 1000, durationMs: 2000 });
-		expect(isIdle([slow], 100, 1002.5)).toBe(true);
+		expect(
+			isIdle([slow], 100, 1002.5),
+			"a request started at 1000s for 2000ms has been quiet 500ms at 1002.5s",
+		).toBe(true);
 	});
 });
 

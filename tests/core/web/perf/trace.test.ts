@@ -236,7 +236,7 @@ describe("foldTrace requests", () => {
 		expect(request.status).toBe(200);
 		expect(request.sentAtMs).toBe(0);
 		expect(request.finishedAtMs).toBe(300);
-		expect(request.failed).toBe(false);
+		expect(request).toMatchObject({ failed: false });
 	});
 
 	it("reports how many were in flight at once", () => {
@@ -262,7 +262,7 @@ describe("foldTrace requests", () => {
 			instant("ResourceFinish", 1_900_000, { requestId: "R1" }),
 		]);
 
-		expect(capture.resolvedOutOfOrder).toBe(true);
+		expect(capture).toMatchObject({ resolvedOutOfOrder: true });
 	});
 
 	it("drops a request belonging to another session's frame", () => {

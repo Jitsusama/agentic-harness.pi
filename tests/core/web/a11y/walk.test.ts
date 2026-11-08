@@ -287,10 +287,12 @@ describe("analyseWalk", () => {
 			candidates: [candidate(0, "Outside"), candidate(1, "In")],
 			stops: [stop(1, "In"), stop(1, "In")],
 		};
-		expect(analyseWalk(capture(stuck)).trap?.escapeFreed).toBe(false);
+		expect(analyseWalk(capture(stuck)).trap).toMatchObject({
+			escapeFreed: false,
+		});
 		expect(
-			analyseWalk(capture({ ...stuck, escapeFreed: true })).trap?.escapeFreed,
-		).toBe(true);
+			analyseWalk(capture({ ...stuck, escapeFreed: true })).trap,
+		).toMatchObject({ escapeFreed: true });
 	});
 
 	it("lists focusable things the walk never arrived at", () => {
@@ -390,7 +392,7 @@ describe("analyseWalk", () => {
 				stops: [stop(1, "Second"), stop(0, "First")],
 			}),
 		);
-		expect(found.reordered).toBe(true);
+		expect(found).toMatchObject({ reordered: true });
 	});
 
 	it("does not cry reorder over a straightforward page", () => {
@@ -400,7 +402,7 @@ describe("analyseWalk", () => {
 				stops: [stop(0, "a"), stop(1, "b"), stop(2, "c")],
 			}),
 		);
-		expect(found.reordered).toBe(false);
+		expect(found).toMatchObject({ reordered: false });
 	});
 
 	it("carries through what looked interactive but was unreachable", () => {
@@ -645,7 +647,7 @@ describe("telling a contained page from a broken one", () => {
 		const findings = analyseWalk(modal());
 
 		expect(findings.trap).toBeUndefined();
-		expect(findings.modalHeldFocus).toBe(true);
+		expect(findings).toMatchObject({ modalHeldFocus: true });
 		expect(renderWalk(findings)).toMatch(/^PASS/);
 	});
 

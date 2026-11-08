@@ -12,17 +12,31 @@ describe("recognizing a tab that died under the operation", () => {
 	it("knows the failures a dead tab produces", () => {
 		// Chrome reports the death of the frame to whoever was driving
 		// it, and only afterwards announces the crash that caused it.
-		expect(diedWithTheTab("Navigating frame was detached")).toBe(true);
-		expect(diedWithTheTab("Session closed")).toBe(true);
-		expect(diedWithTheTab("Target closed")).toBe(true);
+		for (const failure of [
+			"Navigating frame was detached",
+			"Session closed",
+			"Target closed",
+		]) {
+			expect(
+				diedWithTheTab(failure),
+				`${JSON.stringify(failure)} reads as the tab dying`,
+			).toBe(true);
+		}
 	});
 
 	it("does not mistake an ordinary network failure for a death", () => {
 		// The navigation that provokes a crash is aborted rather than
 		// detached, and retrying it would crash the replacement too.
-		expect(diedWithTheTab("net::ERR_ABORTED")).toBe(false);
-		expect(diedWithTheTab("net::ERR_INTERNET_DISCONNECTED")).toBe(false);
-		expect(diedWithTheTab("the navigation failed")).toBe(false);
+		for (const failure of [
+			"net::ERR_ABORTED",
+			"net::ERR_INTERNET_DISCONNECTED",
+			"the navigation failed",
+		]) {
+			expect(
+				diedWithTheTab(failure),
+				`${JSON.stringify(failure)} is an ordinary failure, not the tab dying`,
+			).toBe(false);
+		}
 	});
 });
 

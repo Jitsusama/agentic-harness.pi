@@ -39,9 +39,11 @@ describe("describeThrow", () => {
 
 	it("knows a rejection from a throw", () => {
 		expect(
-			describeThrow({ text: "Uncaught (in promise) Error: nope" }).fromPromise,
-		).toBe(true);
-		expect(describeThrow({ text: "Uncaught" }).fromPromise).toBe(false);
+			describeThrow({ text: "Uncaught (in promise) Error: nope" }),
+		).toMatchObject({ fromPromise: true });
+		expect(describeThrow({ text: "Uncaught" })).toMatchObject({
+			fromPromise: false,
+		});
 	});
 
 	it("reads the frames the protocol gave", () => {

@@ -293,7 +293,7 @@ describe("headingOutline", () => {
 
 	it("reports a page with two level ones", () => {
 		const found = headingOutline([heading("a", 1), heading("b", 1)]);
-		expect(found.some((f) => f.rule === "single-first-heading")).toBe(true);
+		expect(found.map((f) => f.rule)).toContain("single-first-heading");
 	});
 
 	it("says nothing about a page with exactly one level one", () => {

@@ -47,13 +47,13 @@ describe("compareHeap", () => {
 		// this could report.
 		const compared = compareHeap(reading(12, false), reading(10, false));
 
-		expect(compared.trustworthy).toBe(false);
+		expect(compared).toMatchObject({ trustworthy: false });
 	});
 
 	it("trusts a comparison where both readings followed a collection", () => {
 		const compared = compareHeap(reading(12), reading(10));
 
-		expect(compared.trustworthy).toBe(true);
+		expect(compared).toMatchObject({ trustworthy: true });
 	});
 });
 

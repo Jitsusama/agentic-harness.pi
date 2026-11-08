@@ -45,7 +45,10 @@ describe("toHar", () => {
 	it("declares itself a HAR 1.2 log", () => {
 		const har = toHar([]);
 		expect(har.log.version).toBe("1.2");
-		expect(har.log.creator.name).toBeTruthy();
+		expect(
+			har.log.creator.name,
+			"the log names the tool that made it",
+		).toBeTruthy();
 		expect(har.log.entries).toEqual([]);
 	});
 
@@ -230,7 +233,7 @@ describe("toHar", () => {
 			"comment",
 		]);
 		for (const key of Object.keys(entry)) {
-			if (!known.has(key)) expect(key.startsWith("_")).toBe(true);
+			if (!known.has(key)) expect(key).toMatch(/^_/);
 		}
 	});
 

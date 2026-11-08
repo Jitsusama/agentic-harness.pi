@@ -90,28 +90,40 @@ describe("formatLaunchFailure", () => {
 describe("shouldForceKill", () => {
 	it("does not force-kill after a successful graceful close", () => {
 		// The process is already gone; its pid may have been reused.
-		expect(shouldForceKill(true, true)).toBe(false);
-		expect(shouldForceKill(true, false)).toBe(false);
+		expect(
+			shouldForceKill(true, true),
+			"a cleanly closed process that still verifies is left alone",
+		).toBe(false);
+		expect(
+			shouldForceKill(true, false),
+			"a cleanly closed process that no longer verifies is left alone",
+		).toBe(false);
 	});
 
 	it("force-kills a not-cleanly-closed process that still verifies", () => {
-		expect(shouldForceKill(false, true)).toBe(true);
+		expect(
+			shouldForceKill(false, true),
+			"a process that did not close cleanly and still verifies is killed",
+		).toBe(true);
 	});
 
 	it("does not signal a process that no longer verifies as ours", () => {
-		expect(shouldForceKill(false, false)).toBe(false);
+		expect(
+			shouldForceKill(false, false),
+			"a process that no longer verifies as ours is not signalled",
+		).toBe(false);
 	});
 });
 
 describe("shouldCloseWhenIdle", () => {
 	it("closes when only the initial blank page remains", () => {
-		expect(shouldCloseWhenIdle(1)).toBe(true);
-		expect(shouldCloseWhenIdle(0)).toBe(true);
+		expect(shouldCloseWhenIdle(1), "one blank page left closes").toBe(true);
+		expect(shouldCloseWhenIdle(0), "no page left closes").toBe(true);
 	});
 
 	it("stays open while a consumer page is present", () => {
-		expect(shouldCloseWhenIdle(2)).toBe(false);
-		expect(shouldCloseWhenIdle(5)).toBe(false);
+		expect(shouldCloseWhenIdle(2), "two pages left stays open").toBe(false);
+		expect(shouldCloseWhenIdle(5), "five pages left stays open").toBe(false);
 	});
 });
 
@@ -128,7 +140,7 @@ describe("createIdleCloser", () => {
 			clearTimer: t.clearTimer,
 		});
 		closer.touch();
-		expect(t.armed).toBe(true);
+		expect(t.armed, "a touch arms the idle timer").toBe(true);
 		t.fire();
 		expect(closes).toBe(1);
 	});
@@ -182,7 +194,7 @@ describe("createIdleCloser", () => {
 		});
 		closer.touch();
 		closer.cancel();
-		expect(t.armed).toBe(false);
+		expect(t.armed, "cancel disarms the idle timer").toBe(false);
 		t.fire();
 		expect(closes).toBe(0);
 	});
@@ -192,27 +204,36 @@ describe("namesProfile", () => {
 	const dir = "/tmp/pi-web-chrome/1234-abcd";
 
 	it("matches a command that uses this exact profile", () => {
-		expect(namesProfile(`chrome --user-data-dir=${dir} --headless`, dir)).toBe(
-			true,
-		);
+		expect(
+			namesProfile(`chrome --user-data-dir=${dir} --headless`, dir),
+			"the profile flag followed by another flag names it",
+		).toBe(true);
 		// Also at end of line.
-		expect(namesProfile(`chrome --user-data-dir=${dir}`, dir)).toBe(true);
+		expect(
+			namesProfile(`chrome --user-data-dir=${dir}`, dir),
+			"the profile flag at the end of the line names it",
+		).toBe(true);
 	});
 
 	it("rejects a longer sibling profile path (prefix collision)", () => {
-		expect(namesProfile(`chrome --user-data-dir=${dir}0 --headless`, dir)).toBe(
-			false,
-		);
+		expect(
+			namesProfile(`chrome --user-data-dir=${dir}0 --headless`, dir),
+			"a sibling profile one character longer is not this one",
+		).toBe(false);
 	});
 
 	it("rejects a differently-prefixed flag that ends with the value", () => {
 		expect(
 			namesProfile(`chrome --some-user-data-dir=${dir} --headless`, dir),
+			"--some-user-data-dir is not the profile flag",
 		).toBe(false);
 	});
 
 	it("does not match when the profile is absent", () => {
-		expect(namesProfile("chrome --headless about:blank", dir)).toBe(false);
+		expect(
+			namesProfile("chrome --headless about:blank", dir),
+			"a command with no profile flag names no profile",
+		).toBe(false);
 	});
 });
 

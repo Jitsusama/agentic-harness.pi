@@ -119,7 +119,7 @@ describe("judgeHydration", () => {
 				),
 			}),
 		);
-		expect(report.shell).toBe(true);
+		expect(report).toMatchObject({ shell: true });
 		expect(report.standing).toBe("warn");
 		expect(report.appeared).toEqual([]);
 	});
@@ -141,14 +141,14 @@ describe("judgeHydration", () => {
 describe("renderHydration", () => {
 	it("passes plainly when the renders agree", () => {
 		const out = renderHydration(judgeHydration(capture()));
-		expect(out.startsWith("PASS")).toBe(true);
+		expect(out).toMatch(/^PASS/);
 	});
 
 	it("names the vanished content", () => {
 		const out = renderHydration(
 			judgeHydration(capture({ clientTexts: TEXTS.slice(1) })),
 		);
-		expect(out.startsWith("FAIL")).toBe(true);
+		expect(out).toMatch(/^FAIL/);
 		expect(out).toContain('"Welcome to the page"');
 	});
 
@@ -172,7 +172,7 @@ describe("renderHydration", () => {
 				}),
 			),
 		);
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 		expect(out).toContain("client-rendered");
 	});
 

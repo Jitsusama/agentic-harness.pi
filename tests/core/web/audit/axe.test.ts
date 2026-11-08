@@ -215,21 +215,32 @@ describe("the experimental rules we switch on", () => {
 
 describe("withinBar", () => {
 	it("asks for a level at or below the bar", () => {
-		expect(withinBar(["A"], "AA")).toBe(true);
-		expect(withinBar(["AA"], "AA")).toBe(true);
-		expect(withinBar(["AAA"], "AA")).toBe(false);
-		expect(withinBar(["AAA"], "AAA")).toBe(true);
-		expect(withinBar(["AA"], "A")).toBe(false);
+		expect(withinBar(["A"], "AA"), "an A rule is asked for at AA").toBe(true);
+		expect(withinBar(["AA"], "AA"), "an AA rule is asked for at AA").toBe(true);
+		expect(withinBar(["AAA"], "AA"), "an AAA rule is not asked for at AA").toBe(
+			false,
+		);
+		expect(withinBar(["AAA"], "AAA"), "an AAA rule is asked for at AAA").toBe(
+			true,
+		);
+		expect(withinBar(["AA"], "A"), "an AA rule is not asked for at A").toBe(
+			false,
+		);
 	});
 
 	it("keeps a finding that carries no level at all", () => {
 		// A best-practice rule was never the standard's to demand, so
 		// no bar can excuse it.
-		expect(withinBar([], "A")).toBe(true);
+		expect(withinBar([], "A"), "a rule with no level is kept even at A").toBe(
+			true,
+		);
 	});
 
 	it("keeps a rule spanning levels when the lower one is asked for", () => {
-		expect(withinBar(["AA", "AAA"], "AA")).toBe(true);
+		expect(
+			withinBar(["AA", "AAA"], "AA"),
+			"a rule at AA and AAA is asked for at AA",
+		).toBe(true);
 	});
 });
 
@@ -430,15 +441,15 @@ describe("mergeFindings", () => {
 		const merged = mergeFindings(readAxeRun(RUN), ours, {
 			"heading-skips-level": "heading-order",
 		});
-		expect(merged.some((f) => f.rule === "heading-skips-level")).toBe(false);
-		expect(merged.some((f) => f.rule === "heading-order")).toBe(true);
+		expect(merged.map((f) => f.rule)).not.toContain("heading-skips-level");
+		expect(merged.map((f) => f.rule)).toContain("heading-order");
 	});
 
 	it("keeps a rule the primary set never reported", () => {
 		const merged = mergeFindings(readAxeRun(RUN), ours, {
 			"heading-skips-level": "heading-order",
 		});
-		expect(merged.some((f) => f.rule === "reference-resolves")).toBe(true);
+		expect(merged.map((f) => f.rule)).toContain("reference-resolves");
 	});
 
 	it("keeps a superseded rule when the primary set is absent", () => {
@@ -446,7 +457,7 @@ describe("mergeFindings", () => {
 		const merged = mergeFindings([], ours, {
 			"heading-skips-level": "heading-order",
 		});
-		expect(merged.some((f) => f.rule === "heading-skips-level")).toBe(true);
+		expect(merged.map((f) => f.rule)).toContain("heading-skips-level");
 	});
 
 	it("orders findings the caller handed over unsorted", () => {
@@ -712,8 +723,8 @@ describe("renderAudit", () => {
 	const tally = tallyFindings(findings);
 
 	it("opens with a verdict every check shares", () => {
-		expect(renderAudit(findings, tally).startsWith("FAIL")).toBe(true);
-		expect(renderAudit([], tallyFindings([])).startsWith("PASS")).toBe(true);
+		expect(renderAudit(findings, tally)).toMatch(/^FAIL/);
+		expect(renderAudit([], tallyFindings([]))).toMatch(/^PASS/);
 	});
 
 	it("names the bar it judged against", () => {
@@ -784,9 +795,7 @@ describe("renderAudit", () => {
 		const unsure = readAxeRun({
 			incomplete: [{ id: "color-contrast", impact: "serious", nodes: [{}] }],
 		});
-		expect(renderAudit(unsure, tallyFindings(unsure)).startsWith("WARN")).toBe(
-			true,
-		);
+		expect(renderAudit(unsure, tallyFindings(unsure))).toMatch(/^WARN/);
 	});
 
 	it("says what it measured, so a clean pass is not a shrug", () => {
