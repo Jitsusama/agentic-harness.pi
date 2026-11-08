@@ -14,7 +14,7 @@ import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyseWalk, renderWalk } from "../../../lib/core/web/a11y/walk.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -143,7 +143,7 @@ const GROUPED = page(
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
+describe("capturing a page, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/subject", body: SUBJECT },

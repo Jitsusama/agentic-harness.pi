@@ -5,7 +5,7 @@ import {
 	releaseRecording,
 } from "../../../lib/core/web/session/recording.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 /**
  * A button whose handler schedules the work we want explained: two
@@ -26,7 +26,7 @@ document.getElementById("go").addEventListener("click", function () {
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("recording a trace, in a real browser", () => {
+describe("recording a trace, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/causal", body: CAUSAL },

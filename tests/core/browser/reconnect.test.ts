@@ -18,11 +18,10 @@ import {
 	connectShared,
 	getBrowser,
 } from "../../../lib/core/web/browser.ts";
-import { haveChrome } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
-describe.skipIf(!haveChrome)("connectShared", () => {
+describe("connectShared", () => {
 	beforeAll(async () => {
 		// Establishes this process as the owner: launches Chrome and
 		// publishes the reconnect endpoint connectShared() reads back.

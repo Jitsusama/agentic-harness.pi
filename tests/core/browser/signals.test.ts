@@ -14,7 +14,6 @@ import {
 	getBrowser,
 	isPidAlive,
 } from "../../../lib/core/web/browser.ts";
-import { haveChrome } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -26,46 +25,43 @@ function listeners(): Record<string, number> {
 	);
 }
 
-describe.skipIf(!haveChrome)(
-	"the warm browser and this process's signals",
-	() => {
-		afterAll(async () => {
-			await closeBrowser();
-		});
+describe("the warm browser and this process's signals", () => {
+	afterAll(async () => {
+		await closeBrowser();
+	});
 
-		it("adds at most its own one handler to each signal", async () => {
-			const before = listeners();
-			await getBrowser();
-			const after = listeners();
+	it("adds at most its own one handler to each signal", async () => {
+		const before = listeners();
+		await getBrowser();
+		const after = listeners();
 
-			for (const signal of SIGNALS) {
-				expect(after[signal] - before[signal]).toBeLessThanOrEqual(1);
+		for (const signal of SIGNALS) {
+			expect(after[signal] - before[signal]).toBeLessThanOrEqual(1);
+		}
+	});
+
+	it("kills Chrome on a signal and leaves the exit to the host's handler", async () => {
+		const browser = await getBrowser();
+		const pid = browser.process()?.pid;
+		expect(pid).toBeGreaterThan(0);
+		const host = vi.fn();
+		process.on("SIGHUP", host);
+		try {
+			// Delivered to the listeners the way a real signal is, without
+			// the real one, which would end this worker if nothing listened.
+			process.emit("SIGHUP", "SIGHUP");
+
+			expect(host).toHaveBeenCalledTimes(1);
+			const end = Date.now() + 5000;
+			while (isPidAlive(pid ?? 0) && Date.now() < end) {
+				await new Promise((resolve) => setTimeout(resolve, 50));
 			}
-		});
-
-		it("kills Chrome on a signal and leaves the exit to the host's handler", async () => {
-			const browser = await getBrowser();
-			const pid = browser.process()?.pid;
-			expect(pid).toBeGreaterThan(0);
-			const host = vi.fn();
-			process.on("SIGHUP", host);
-			try {
-				// Delivered to the listeners the way a real signal is, without
-				// the real one, which would end this worker if nothing listened.
-				process.emit("SIGHUP", "SIGHUP");
-
-				expect(host).toHaveBeenCalledTimes(1);
-				const end = Date.now() + 5000;
-				while (isPidAlive(pid ?? 0) && Date.now() < end) {
-					await new Promise((resolve) => setTimeout(resolve, 50));
-				}
-				expect(
-					isPidAlive(pid ?? 0),
-					`Chrome, process ${pid}, is gone within five seconds of the signal`,
-				).toBe(false);
-			} finally {
-				process.off("SIGHUP", host);
-			}
-		});
-	},
-);
+			expect(
+				isPidAlive(pid ?? 0),
+				`Chrome, process ${pid}, is gone within five seconds of the signal`,
+			).toBe(false);
+		} finally {
+			process.off("SIGHUP", host);
+		}
+	});
+});

@@ -3,7 +3,7 @@ import {
 	type ActResult,
 	BrowserSession,
 } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, serve } from "./_harness.ts";
+import { type Fixture, serve } from "./_harness.ts";
 
 /**
  * A page with enough structure that a target below the fold has to
@@ -48,70 +48,65 @@ const STRUCTURED = `<!doctype html><html lang="en"><head><meta charset="utf-8">
   </script>
 </body></html>`;
 
-describe.skipIf(!haveChrome)(
-	"acting on a target that must be scrolled to",
-	() => {
-		let fixture: Fixture;
-		let session: BrowserSession;
+describe("acting on a target that must be scrolled to", () => {
+	let fixture: Fixture;
+	let session: BrowserSession;
 
-		beforeAll(async () => {
-			fixture = await serve([
-				{ path: "/", body: STRUCTURED, type: "text/html" },
-			]);
-			session = await BrowserSession.open("occlusion");
+	beforeAll(async () => {
+		fixture = await serve([{ path: "/", body: STRUCTURED, type: "text/html" }]);
+		session = await BrowserSession.open("occlusion");
+	});
+
+	afterAll(async () => {
+		await session.close();
+		await fixture.close();
+	});
+
+	/**
+	 * The blocker, or undefined when the act went through. Asserting
+	 * on this rather than on `ok` puts the refusal's own words in the
+	 * failure, which is the whole evidence: the claim is a coverage
+	 * one, naming an element that is not there.
+	 */
+	const refusal = (result: ActResult): string | undefined =>
+		"blocked" in result ? result.blocked.blocker : undefined;
+
+	const outcome = async (): Promise<unknown> => {
+		const answer = await session.evaluate(
+			"document.getElementById('out').textContent",
+		);
+		return answer.ok ? answer.result.value : answer;
+	};
+
+	it("clicks a button below the fold on a page with structure", async () => {
+		await session.navigate(fixture.url("/"));
+		// The default 800 by 600 viewport, with the filler above
+		// putting the target past the fold: the shape the live audit
+		// reproduced. Emulating a shorter viewport instead makes the
+		// target so far off screen that a different branch handles it
+		// and the bug hides.
+
+		const result = await session.act({
+			kind: "click",
+			target: { role: "button", name: "Deep button" },
 		});
 
-		afterAll(async () => {
-			await session.close();
-			await fixture.close();
+		expect(refusal(result)).toBeUndefined();
+		expect(await outcome()).toBe("clicked");
+	});
+
+	it("does not call a shadow host an occluder of its own content", async () => {
+		// No emulation: the host sits within the default viewport, so
+		// nothing scrolls and the hit test runs on its own centre,
+		// which is where the host masks its own content.
+		await session.navigate(fixture.url("/"));
+
+		const result = await session.act({
+			kind: "click",
+			target: { role: "button", name: "Inside a shadow root" },
 		});
 
-		/**
-		 * The blocker, or undefined when the act went through. Asserting
-		 * on this rather than on `ok` puts the refusal's own words in the
-		 * failure, which is the whole evidence: the claim is a coverage
-		 * one, naming an element that is not there.
-		 */
-		const refusal = (result: ActResult): string | undefined =>
-			"blocked" in result ? result.blocked.blocker : undefined;
-
-		const outcome = async (): Promise<unknown> => {
-			const answer = await session.evaluate(
-				"document.getElementById('out').textContent",
-			);
-			return answer.ok ? answer.result.value : answer;
-		};
-
-		it("clicks a button below the fold on a page with structure", async () => {
-			await session.navigate(fixture.url("/"));
-			// The default 800 by 600 viewport, with the filler above
-			// putting the target past the fold: the shape the live audit
-			// reproduced. Emulating a shorter viewport instead makes the
-			// target so far off screen that a different branch handles it
-			// and the bug hides.
-
-			const result = await session.act({
-				kind: "click",
-				target: { role: "button", name: "Deep button" },
-			});
-
-			expect(refusal(result)).toBeUndefined();
-			expect(await outcome()).toBe("clicked");
-		});
-
-		it("does not call a shadow host an occluder of its own content", async () => {
-			// No emulation: the host sits within the default viewport, so
-			// nothing scrolls and the hit test runs on its own centre,
-			// which is where the host masks its own content.
-			await session.navigate(fixture.url("/"));
-
-			const result = await session.act({
-				kind: "click",
-				target: { role: "button", name: "Inside a shadow root" },
-			});
-
-			expect(refusal(result)).toBeUndefined();
-			expect(await outcome()).toBe("shadow clicked");
-		});
-	},
-);
+		expect(refusal(result)).toBeUndefined();
+		expect(await outcome()).toBe("shadow clicked");
+	});
+});

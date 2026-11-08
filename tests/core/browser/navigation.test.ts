@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { SETTLE_QUIET_MS } from "../../../lib/core/web/wait/index.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -55,7 +55,7 @@ setInterval(() => {
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
+describe("navigating, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/first", body: FIRST },

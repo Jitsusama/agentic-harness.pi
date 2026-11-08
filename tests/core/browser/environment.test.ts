@@ -13,7 +13,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -30,237 +30,234 @@ document.cookie = "baked=yes; path=/";
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)(
-	"the visit's conditions, in a real browser",
-	() => {
-		beforeAll(async () => {
-			fixture = await serve([
-				{ path: "/store", body: STORE },
-				{ path: "/plain", body: page("Plain", "<main><h1>Plain</h1></main>") },
-				{ path: "/data.json", body: '{"n":1}', type: "application/json" },
-			]);
-			session = await BrowserSession.open("environment-contract");
-			await session.navigate(fixture.url("/store"));
+describe("the visit's conditions, in a real browser", () => {
+	beforeAll(async () => {
+		fixture = await serve([
+			{ path: "/store", body: STORE },
+			{ path: "/plain", body: page("Plain", "<main><h1>Plain</h1></main>") },
+			{ path: "/data.json", body: '{"n":1}', type: "application/json" },
+		]);
+		session = await BrowserSession.open("environment-contract");
+		await session.navigate(fixture.url("/store"));
+	});
+
+	afterAll(async () => {
+		await session?.close();
+		await fixture?.close();
+	});
+
+	it("reads what the page put in local storage", async () => {
+		const kept = await session.storage({ local: true });
+
+		expect(JSON.stringify(kept)).toContain("local value");
+	});
+
+	it("reads session storage separately from local", async () => {
+		const kept = await session.storage({ session: true });
+
+		expect(JSON.stringify(kept)).toContain("session value");
+	});
+
+	it("reads the cookies the page set", async () => {
+		const kept = await session.storage({ cookies: true });
+
+		expect(JSON.stringify(kept)).toContain("baked");
+	});
+
+	it("writes a value the page can then read back", async () => {
+		// Writing into a store the page cannot see would be a
+		// convincing illusion and no use to anybody.
+		await session.setStored(true, "written-by-us", "our value");
+
+		const readBack = await session.evaluate(
+			"localStorage.getItem('written-by-us')",
+		);
+		expect(readBack.ok && readBack.result.value).toBe("our value");
+	});
+
+	it("clears a store, and the page sees it gone", async () => {
+		await session.setStored(true, "to-be-cleared", "temporary");
+
+		await session.clearStorage({ local: true });
+
+		const readBack = await session.evaluate(
+			"localStorage.getItem('to-be-cleared')",
+		);
+		expect(readBack.ok && readBack.result.value).toBe(null);
+	});
+
+	it("clears only the store it was asked to clear", async () => {
+		await session.navigate(fixture.url("/store"));
+
+		await session.clearStorage({ local: true });
+
+		const survivor = await session.evaluate(
+			"sessionStorage.getItem('session-key')",
+		);
+		expect(survivor.ok && survivor.result.value).toBe("session value");
+	});
+
+	it("carries a signed-in state into a session that never signed in", async () => {
+		// The whole point, and the only test that proves it: a second
+		// browser session, with its own cookie jar, wearing the first
+		// one's identity. Asserting a round trip within one session
+		// would pass even if nothing were ever applied.
+		await session.navigate(fixture.url("/store"));
+		await session.setStored(true, "token", "secret-token");
+		const saved = await session.saveState();
+
+		const fresh = await BrowserSession.open("environment-restored");
+		try {
+			await fresh.navigate(fixture.url("/plain"));
+			const landed = await fresh.loadState(saved);
+
+			expect(landed.wrongOrigin).toBeUndefined();
+			expect(landed.cookies).toBeGreaterThan(0);
+			const token = await fresh.evaluate("localStorage.getItem('token')");
+			expect(token.ok && token.result.value).toBe("secret-token");
+			const baked = await fresh.evaluate("document.cookie");
+			expect(JSON.stringify(baked)).toContain("baked=yes");
+		} finally {
+			await fresh.close();
+		}
+	});
+
+	it("will not pretend local storage landed on the wrong origin", async () => {
+		// Local storage belongs to an origin. Writing it somewhere
+		// else is impossible, and counting it as restored anyway is
+		// how someone concludes a site signed them out.
+		await session.navigate(fixture.url("/store"));
+		const saved = await session.saveState();
+
+		const landed = await session.loadState({
+			...saved,
+			origin: "https://somewhere.else.example",
+			local: [["token", "secret-token"]],
 		});
 
-		afterAll(async () => {
-			await session?.close();
-			await fixture?.close();
-		});
+		expect(landed.wrongOrigin).toBeDefined();
+		expect(landed.local).toBe(0);
+	});
 
-		it("reads what the page put in local storage", async () => {
-			const kept = await session.storage({ local: true });
+	it("reports the shaping in force, having been given a profile by name", async () => {
+		await session.shape({ throttle: "slow-3g" });
+		try {
+			expect(session.shaping.throttle).toBeDefined();
+		} finally {
+			await session.shape({ throttle: "none" });
+		}
+	});
 
-			expect(JSON.stringify(kept)).toContain("local value");
-		});
-
-		it("reads session storage separately from local", async () => {
-			const kept = await session.storage({ session: true });
-
-			expect(JSON.stringify(kept)).toContain("session value");
-		});
-
-		it("reads the cookies the page set", async () => {
-			const kept = await session.storage({ cookies: true });
-
-			expect(JSON.stringify(kept)).toContain("baked");
-		});
-
-		it("writes a value the page can then read back", async () => {
-			// Writing into a store the page cannot see would be a
-			// convincing illusion and no use to anybody.
-			await session.setStored(true, "written-by-us", "our value");
-
-			const readBack = await session.evaluate(
-				"localStorage.getItem('written-by-us')",
+	it("actually slows a request down when throttled", async () => {
+		// A profile that is recorded and never applied is the exact
+		// fault the emulation suite was written for, on a different
+		// knob. Timing is the only way to tell the two apart.
+		await session.navigate(fixture.url("/plain"));
+		const timed = async (): Promise<number> => {
+			const started = Date.now();
+			await session.evaluate(
+				"fetch('/data.json?x=' + Math.random()).then(r => r.text())",
 			);
-			expect(readBack.ok && readBack.result.value).toBe("our value");
-		});
+			await session.waitFor({ kind: "idle", quietMs: 200 }, 30_000);
+			return Date.now() - started;
+		};
 
-		it("clears a store, and the page sees it gone", async () => {
-			await session.setStored(true, "to-be-cleared", "temporary");
+		const quick = await timed();
+		await session.shape({ throttle: "slow-3g" });
+		try {
+			const slow = await timed();
+			expect(slow).toBeGreaterThan(quick);
+		} finally {
+			await session.shape({ throttle: "none" });
+		}
+	});
 
-			await session.clearStorage({ local: true });
-
-			const readBack = await session.evaluate(
-				"localStorage.getItem('to-be-cleared')",
+	it("refuses to reach the network at all when offline", async () => {
+		await session.navigate(fixture.url("/plain"));
+		await session.shape({ throttle: "offline" });
+		try {
+			const answer = await session.evaluate(
+				"fetch('/data.json').then(() => 'reached').catch(() => 'refused')",
 			);
-			expect(readBack.ok && readBack.result.value).toBe(null);
+
+			expect(answer.ok && answer.result.value).toBe("refused");
+		} finally {
+			await session.shape({ throttle: "none" });
+		}
+	});
+
+	it("blocks a url pattern the caller named", async () => {
+		await session.navigate(fixture.url("/plain"));
+		await session.shape({
+			rules: [{ action: "block", pattern: "*/data.json" }],
 		});
-
-		it("clears only the store it was asked to clear", async () => {
-			await session.navigate(fixture.url("/store"));
-
-			await session.clearStorage({ local: true });
-
-			const survivor = await session.evaluate(
-				"sessionStorage.getItem('session-key')",
+		try {
+			const answer = await session.evaluate(
+				"fetch('/data.json').then(() => 'reached').catch(() => 'blocked')",
 			);
-			expect(survivor.ok && survivor.result.value).toBe("session value");
+
+			expect(answer.ok && answer.result.value).toBe("blocked");
+		} finally {
+			await session.shape({ rules: [] });
+		}
+	});
+
+	it("answers a mocked url itself, without troubling the server", async () => {
+		await session.navigate(fixture.url("/plain"));
+		await session.shape({
+			rules: [
+				{
+					action: "mock",
+					pattern: "*/invented.json",
+					status: 200,
+					body: '{"invented":true}',
+					contentType: "application/json",
+				},
+			],
 		});
+		try {
+			const answer = await session.evaluate(
+				"fetch('/invented.json').then(r => r.text())",
+			);
 
-		it("carries a signed-in state into a session that never signed in", async () => {
-			// The whole point, and the only test that proves it: a second
-			// browser session, with its own cookie jar, wearing the first
-			// one's identity. Asserting a round trip within one session
-			// would pass even if nothing were ever applied.
-			await session.navigate(fixture.url("/store"));
-			await session.setStored(true, "token", "secret-token");
-			const saved = await session.saveState();
+			expect(String(answer.ok && answer.result.value)).toContain("invented");
+		} finally {
+			await session.shape({ rules: [] });
+		}
+	});
 
-			const fresh = await BrowserSession.open("environment-restored");
-			try {
-				await fresh.navigate(fixture.url("/plain"));
-				const landed = await fresh.loadState(saved);
+	it("puts an emulation state back the way it was found", async () => {
+		// Restoring is not the same as clearing an override: clearing
+		// hands the page to puppeteer's own default, which is not where
+		// it started.
+		const before = session.emulated;
 
-				expect(landed.wrongOrigin).toBeUndefined();
-				expect(landed.cookies).toBeGreaterThan(0);
-				const token = await fresh.evaluate("localStorage.getItem('token')");
-				expect(token.ok && token.result.value).toBe("secret-token");
-				const baked = await fresh.evaluate("document.cookie");
-				expect(JSON.stringify(baked)).toContain("baked=yes");
-			} finally {
-				await fresh.close();
-			}
-		});
+		await session.emulate({ viewport: { width: 375, height: 700 } });
+		await session.restoreEmulation(before);
 
-		it("will not pretend local storage landed on the wrong origin", async () => {
-			// Local storage belongs to an origin. Writing it somewhere
-			// else is impossible, and counting it as restored anyway is
-			// how someone concludes a site signed them out.
-			await session.navigate(fixture.url("/store"));
-			const saved = await session.saveState();
+		expect(session.emulated).toEqual(before);
+	});
 
-			const landed = await session.loadState({
-				...saved,
-				origin: "https://somewhere.else.example",
-				local: [["token", "secret-token"]],
-			});
+	it("says whether it is pretending to have a touch screen", async () => {
+		const before = session.emulated;
+		try {
+			await session.emulate({ touch: true });
 
-			expect(landed.wrongOrigin).toBeDefined();
-			expect(landed.local).toBe(0);
-		});
-
-		it("reports the shaping in force, having been given a profile by name", async () => {
-			await session.shape({ throttle: "slow-3g" });
-			try {
-				expect(session.shaping.throttle).toBeDefined();
-			} finally {
-				await session.shape({ throttle: "none" });
-			}
-		});
-
-		it("actually slows a request down when throttled", async () => {
-			// A profile that is recorded and never applied is the exact
-			// fault the emulation suite was written for, on a different
-			// knob. Timing is the only way to tell the two apart.
-			await session.navigate(fixture.url("/plain"));
-			const timed = async (): Promise<number> => {
-				const started = Date.now();
-				await session.evaluate(
-					"fetch('/data.json?x=' + Math.random()).then(r => r.text())",
-				);
-				await session.waitFor({ kind: "idle", quietMs: 200 }, 30_000);
-				return Date.now() - started;
-			};
-
-			const quick = await timed();
-			await session.shape({ throttle: "slow-3g" });
-			try {
-				const slow = await timed();
-				expect(slow).toBeGreaterThan(quick);
-			} finally {
-				await session.shape({ throttle: "none" });
-			}
-		});
-
-		it("refuses to reach the network at all when offline", async () => {
-			await session.navigate(fixture.url("/plain"));
-			await session.shape({ throttle: "offline" });
-			try {
-				const answer = await session.evaluate(
-					"fetch('/data.json').then(() => 'reached').catch(() => 'refused')",
-				);
-
-				expect(answer.ok && answer.result.value).toBe("refused");
-			} finally {
-				await session.shape({ throttle: "none" });
-			}
-		});
-
-		it("blocks a url pattern the caller named", async () => {
-			await session.navigate(fixture.url("/plain"));
-			await session.shape({
-				rules: [{ action: "block", pattern: "*/data.json" }],
-			});
-			try {
-				const answer = await session.evaluate(
-					"fetch('/data.json').then(() => 'reached').catch(() => 'blocked')",
-				);
-
-				expect(answer.ok && answer.result.value).toBe("blocked");
-			} finally {
-				await session.shape({ rules: [] });
-			}
-		});
-
-		it("answers a mocked url itself, without troubling the server", async () => {
-			await session.navigate(fixture.url("/plain"));
-			await session.shape({
-				rules: [
-					{
-						action: "mock",
-						pattern: "*/invented.json",
-						status: 200,
-						body: '{"invented":true}',
-						contentType: "application/json",
-					},
-				],
-			});
-			try {
-				const answer = await session.evaluate(
-					"fetch('/invented.json').then(r => r.text())",
-				);
-
-				expect(String(answer.ok && answer.result.value)).toContain("invented");
-			} finally {
-				await session.shape({ rules: [] });
-			}
-		});
-
-		it("puts an emulation state back the way it was found", async () => {
-			// Restoring is not the same as clearing an override: clearing
-			// hands the page to puppeteer's own default, which is not where
-			// it started.
-			const before = session.emulated;
-
-			await session.emulate({ viewport: { width: 375, height: 700 } });
+			expect(
+				session.touchEmulated,
+				"the session says it is emulating touch once asked to",
+			).toBe(true);
+		} finally {
 			await session.restoreEmulation(before);
+		}
+	});
 
-			expect(session.emulated).toEqual(before);
-		});
+	it("remembers when it was last used, so an idle session can be reaped", async () => {
+		const before = session.lastUsedAt;
+		await session.waitFor({ kind: "duration", ms: 20 }, 1_000);
 
-		it("says whether it is pretending to have a touch screen", async () => {
-			const before = session.emulated;
-			try {
-				await session.emulate({ touch: true });
+		await session.evaluate("1 + 1");
 
-				expect(
-					session.touchEmulated,
-					"the session says it is emulating touch once asked to",
-				).toBe(true);
-			} finally {
-				await session.restoreEmulation(before);
-			}
-		});
-
-		it("remembers when it was last used, so an idle session can be reaped", async () => {
-			const before = session.lastUsedAt;
-			await session.waitFor({ kind: "duration", ms: 20 }, 1_000);
-
-			await session.evaluate("1 + 1");
-
-			expect(session.lastUsedAt).toBeGreaterThan(before);
-		});
-	},
-);
+		expect(session.lastUsedAt).toBeGreaterThan(before);
+	});
+});

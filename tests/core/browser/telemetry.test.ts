@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { strandedByCrash } from "../../../lib/core/web/telemetry/index.ts";
 import { until } from "../../support/until.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -74,7 +74,7 @@ const LIVE = page(
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
+describe("telemetry, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve(
 			[
@@ -436,7 +436,7 @@ const CATCHES_UP_MS = 10_000;
  * caller reads an empty download list and concludes the page
  * offered nothing.
  */
-describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
+describe("a session whose tab crashed", () => {
 	let fixture: Fixture;
 
 	beforeAll(async () => {

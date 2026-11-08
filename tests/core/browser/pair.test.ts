@@ -9,9 +9,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { renderPair } from "../../../lib/core/web/audit/index.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, serve } from "./_harness.ts";
+import { type Fixture, serve } from "./_harness.ts";
 
-describe.skipIf(!haveChrome)("contrast between two elements", () => {
+describe("contrast between two elements", () => {
 	let fixture: Fixture;
 	let session: BrowserSession;
 

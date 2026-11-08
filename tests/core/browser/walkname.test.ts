@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, serve } from "./_harness.ts";
+import { type Fixture, serve } from "./_harness.ts";
 
 /**
  * Three fields, named three ways: a label pointing at its control, a
@@ -22,7 +22,7 @@ const FORM = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 </form>
 </body></html>`;
 
-describe.skipIf(!haveChrome)("what a keyboard walk calls each stop", () => {
+describe("what a keyboard walk calls each stop", () => {
 	let fixture: Fixture;
 	let session: BrowserSession;
 

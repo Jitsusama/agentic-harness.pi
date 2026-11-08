@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyseMotion } from "../../../lib/core/web/audit/motion.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -40,7 +40,7 @@ const IGNORES = page(
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("motion under reduce, in a real browser", () => {
+describe("motion under reduce, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/honours", body: HONOURS },

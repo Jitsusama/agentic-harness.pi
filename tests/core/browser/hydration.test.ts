@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { judgeHydration } from "../../../lib/core/web/hydration/judge.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -42,7 +42,7 @@ const FAITHFUL = page(
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("hydration capture, in a real browser", () => {
+describe("hydration capture, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/mutates", body: MUTATES },

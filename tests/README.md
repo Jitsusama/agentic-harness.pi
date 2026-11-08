@@ -11,7 +11,7 @@ The rest are folders of their own:
 | ---------- | ------------------------------------------------------------------ |
 | `package/` | rules the whole package keeps, read across every file            |
 | `screen/`  | pi itself on a terminal read back, for what only a real screen shows |
-| `setup/`   | what vitest runs around every test: a sandboxed XDG tree, a temp root |
+| `setup/`   | what vitest runs around every test: a sandboxed XDG tree, a temp root, and a Chrome before the browser lane |
 | `support/` | helpers several folders' tests share                              |
 
 A helper one folder's tests need stays beside them, in a `support/` folder

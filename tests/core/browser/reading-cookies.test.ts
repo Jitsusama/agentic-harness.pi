@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeBrowser } from "../../../lib/core/web/browser.ts";
 import { readPage } from "../../../lib/core/web/reader.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -26,7 +26,7 @@ const ECHO = page(
 
 let fixture: Fixture;
 
-describe.skipIf(!haveChrome)("reads share the cookies a site sets", () => {
+describe("reads share the cookies a site sets", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{
