@@ -98,7 +98,12 @@ holds it, whose startup files run outside, nor in one holding its
 repository's git folder, whose hooks and settings git runs outside. A
 tree the work tool cuts (`work tree`), or a snapshot, keeps its git
 folder elsewhere, so a strict session works in one; a plain clone
-won't do. Its `TMPDIR` is the sandbox's, not the quest's scratch `tmp`,
+won't do. Its repository's git folder is readable, so git reads the
+history, and never writable, so a strict session commits nothing: a
+worktree's own folder there names the repository git uses, and writing
+it would hand over your next git command in that tree. The `.git` file
+naming it lies in the work, so it counts only when the folder it names
+points back at it. Its `TMPDIR` is the sandbox's, not the quest's scratch `tmp`,
 so what a command saves there for later lands under
 `~/.cache/pi-sandbox/tmp`.
 Code written in the working folder can still run later outside, an

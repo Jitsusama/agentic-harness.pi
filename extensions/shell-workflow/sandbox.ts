@@ -36,6 +36,10 @@
  * the person's startup files, and one holding its repository's git folder
  * would hand over the hooks and settings git runs outside, so the sandbox
  * runs no command in either; a worktree keeps its git folder elsewhere.
+ * Its repository is readable, so git works, and never writable: a
+ * worktree's own folder there names the repository git uses and may hold
+ * its settings, so writing it would hand over the person's next git
+ * command in that tree.
  * Code written in the working folder can still run later outside, an
  * `.envrc` once the person allows it. The sandbox narrows what a command
  * reaches now, not what the person later runs from what it wrote.
@@ -45,10 +49,18 @@ import {
 	accessSync,
 	constants,
 	mkdirSync,
+	readFileSync,
 	realpathSync,
 	statSync,
 } from "node:fs";
-import { delimiter, join, relative } from "node:path";
+import {
+	basename,
+	delimiter,
+	dirname,
+	join,
+	relative,
+	resolve,
+} from "node:path";
 
 /** The variable that asks for the sandbox, and the one value it takes. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
@@ -96,6 +108,8 @@ export interface SandboxPlace {
 	/** `XDG_RUNTIME_DIR`, where the Nix door is. */
 	readonly runtimeDir: string | undefined;
 	readonly cwd: string;
+	/** The git folder of the repository `cwd` is a worktree of, if it is one. */
+	readonly repository?: string;
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -133,6 +147,7 @@ export function strictRules(place: SandboxPlace): Rule[] {
 		home(".config/git"),
 		home(".config/dev"),
 		home(".config/nix/nix.conf"),
+		...(place.repository ? [place.repository] : []),
 	];
 	const own = sandboxFolders(place.home);
 	const writable = [
@@ -259,6 +274,37 @@ export function unfencedFolder(cwd: string, home: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * The git folder of the repository `cwd` is a worktree of, for the
+ * sandbox to read, or nothing when it isn't one.
+ *
+ * The `.git` file naming it lies in the working folder, which commands
+ * write, so it is taken only when the folder it names is a worktree's
+ * own, in its repository's `worktrees`, and points back at this `.git`;
+ * a command can make neither outside its work. A repository holding the
+ * home folder is never given.
+ */
+export function worktreeRepository(
+	cwd: string,
+	home: string,
+): string | undefined {
+	try {
+		const dotGit = join(cwd, ".git");
+		const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
+		if (!named) return undefined;
+		const own = real(resolve(cwd, named.trim()));
+		if (basename(dirname(own)) !== "worktrees") return undefined;
+		const repository = dirname(dirname(own));
+		const back = readFileSync(join(own, "gitdir"), "utf8").trim();
+		if (real(resolve(own, back)) !== real(dotGit)) return undefined;
+		if (!statSync(join(repository, "objects")).isDirectory()) return undefined;
+		return within(home, repository) ? undefined : repository;
+	} catch {
+		// No .git file here, or one naming no worktree of a repository.
+		return undefined;
+	}
+}
+
 /** How a session's commands run: as they are, fenced, or not at all. */
 export type Sandbox =
 	| { readonly kind: "none" }
@@ -321,6 +367,7 @@ export function wrapFor(
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
+				repository: worktreeRepository(place.cwd, home),
 			});
 			return (command) => sandboxedCommand(command, rules, sandbox.landrun);
 		}
