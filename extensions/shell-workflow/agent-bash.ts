@@ -11,10 +11,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
+import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { withoutInteraction } from "./environment.ts";
 import { reapsWhatItLeft } from "./reap.ts";
-import { type Sandbox, wrapFor } from "./sandbox.ts";
 
 /** The settings of pi's own that the agent's bash is built with too. */
 export type ShellSettings = Pick<

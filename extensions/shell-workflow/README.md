@@ -113,6 +113,11 @@ Code written in the working folder can still run later outside, an
 `.envrc` once you allow it. The sandbox narrows what a command reaches
 now, not what you later run from what it wrote.
 
+pi's own file tools run outside Landlock, so the
+[sandbox file interceptor][sandbox-file] holds them to the same fence.
+
+[sandbox-file]: ../sandbox-file-interceptor/README.md
+
 ## Stopping a Command
 
 Before it moves, Escape stops it as always. After it moves, `/jobs`

@@ -28,9 +28,9 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { sandboxFor } from "../../lib/internal/sandbox.ts";
 import { agentBash, type ShellSettings } from "./agent-bash.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
-import { sandboxFor } from "./sandbox.ts";
 
 type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 

@@ -31,7 +31,7 @@ import {
 	strictRules,
 	unfencedFolder,
 	worktreeRepository,
-} from "../../../extensions/shell-workflow/sandbox.ts";
+} from "../../../lib/internal/sandbox.ts";
 
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
