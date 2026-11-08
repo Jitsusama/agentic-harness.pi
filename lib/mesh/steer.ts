@@ -13,7 +13,9 @@
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
  * talk.ts). An `act` of `pause`, `resume`, `stop`, `close` or `carry`
- * needs no text, and a `carry` names the machine it goes to as `to`. The
+ * needs no text, and a `carry` names the machine it goes to as `to`. A
+ * program of the machine's writes `"from": "machine"` and may name itself
+ * as `by` (`"by": "nix-offload"`), which the session is told. The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -61,6 +63,9 @@ function isSteerAct(value: unknown): value is SteerAct {
  */
 export const FROM_MACHINE = "machine";
 
+/** A program's name as a machine steer's `by` may give it. */
+const PROGRAM_NAME = /^[a-z][a-z0-9-]{0,39}$/;
+
 /**
  * The `from` mycelium's node writes for what the person asked through it,
  * as `mycelium carry` steers each session with.
@@ -92,6 +97,12 @@ export interface Steer {
 	readonly at?: string;
 	/** Who wrote it, if the writer said; the launcher says "joel". */
 	readonly from?: string;
+	/**
+	 * Which of the machine's programs wrote it, beside a `from` of
+	 * "machine": the node when none is named, or a daemon such as
+	 * nix-offload telling integration no builder answers (5FWIUS).
+	 */
+	readonly by?: string;
 	/** The talk it opens, when the writer gave one (see talk.ts). */
 	readonly id?: string;
 	/** The file it came in, for what is said about it on screen. */
@@ -145,12 +156,20 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (!act && text === "") return undefined;
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
+	const by =
+		from === FROM_MACHINE &&
+		"by" in parsed &&
+		typeof parsed.by === "string" &&
+		PROGRAM_NAME.test(parsed.by)
+			? parsed.by
+			: undefined;
 	return {
 		text,
 		...(act ? { act } : {}),
 		...(to ? { to } : {}),
 		...(at ? { at } : {}),
 		...(from ? { from } : {}),
+		...(by ? { by } : {}),
 		...(id ? { id } : {}),
 		file,
 	};

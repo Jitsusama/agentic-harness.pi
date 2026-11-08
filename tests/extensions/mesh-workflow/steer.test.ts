@@ -27,4 +27,16 @@ describe("a steer as the session reads it", () => {
 		);
 		expect(said).toMatch(/this machine leaves at 17:00$/);
 	});
+
+	it("names the machine's program that wrote it, when it says", () => {
+		const said = steerText({
+			text: "no builder answers",
+			from: "machine",
+			by: "nix-offload",
+			file: "f",
+		});
+		expect(said).toMatch(
+			/^\[Said by this machine's nix-offload, not by the person/,
+		);
+	});
 });
