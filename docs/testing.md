@@ -184,8 +184,10 @@ the load check's, not every test that shells out. It costs about 45 seconds, and
 project, this one included.
 
 There is no CI. `pnpm check` runs `pnpm lint`, `pnpm typecheck`,
-the tests the change touches beside origin's main, and
-`pnpm load-check`, before merging. The load check installs a copy with production dependencies only, the way pi
+the tests the change touches beside origin's main, the browser
+tests it touches (`pnpm test:browser:changed`), and
+`pnpm load-check`, before merging. A change that reaches no
+browser test runs none, so only one that does needs a Chrome. The load check installs a copy with production dependencies only, the way pi
 installs from git, and loads it through pi with nothing else
 loaded; it is the only check that sees a runtime dependency the
 install does not hold.

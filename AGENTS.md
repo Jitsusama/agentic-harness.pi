@@ -152,7 +152,7 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 ## Commands
 
 ```sh
-pnpm check           # lint, typecheck, the tests a change touches, load check
+pnpm check           # lint, typecheck, the tests a change touches (browser too), load check
 pnpm check:there     # the same, for a pushed branch, on penelope (or a named host)
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
@@ -160,6 +160,7 @@ pnpm typecheck       # tsc over the whole project, which reports nothing
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
 pnpm test:changed    # the tests this branch's changes reach, before a merge
+pnpm test:browser    # the browser lane, which needs a Chrome
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
@@ -183,9 +184,9 @@ history.
 How this repository holds the `repo-quality-standard` skill's
 rules, and where it doesn't yet.
 
-- **Gate:** `pnpm check`. It leaves out the browser lane
-  (`pnpm test:browser`, which needs a Chrome) and runs only the
-  tests a change's imports reach.
+- **Gate:** `pnpm check`. It runs only the tests a change's
+  imports reach, the browser lane's among them, which need a
+  Chrome.
 - **Linters:** Biome at its `recommended` preset over every
   `.ts` and `.mjs`, and `tsc` with `strict` over both. The
   `skills/*/scripts/*.sh` have no shellcheck, and markdown no

@@ -37,7 +37,7 @@
 		"./ts-import-specifiers": "./scripts/ts-import-specifiers.ts"
 	},
 	"scripts": {
-		"check": "pnpm lint && pnpm typecheck && vitest run --changed origin/main && pnpm load-check",
+		"check": "pnpm lint && pnpm typecheck && vitest run --changed origin/main && pnpm test:browser:changed && pnpm load-check",
 		"check:there": "bash scripts/check-there.sh",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
@@ -47,6 +47,7 @@
 		"test:unit": "vitest run --project unit",
 		"test:changed": "vitest run --changed origin/main",
 		"test:browser": "vitest run --config vitest.browser.config.ts",
+		"test:browser:changed": "vitest run --config vitest.browser.config.ts --changed origin/main",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage"
 	},
