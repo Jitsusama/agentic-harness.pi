@@ -140,7 +140,7 @@ describe("uncommitted work", () => {
 		// reviewer reads a diff missing the last thing they wrote.
 		const answer = fillProposal({}, facts({ dirty: true }));
 
-		expect("fill" in answer).toBe(true);
+		expect(answer).toHaveProperty("fill");
 		expect("fill" in answer && answer.fill.warnings.join(" ")).toMatch(
 			/uncommitted|not been committed/i,
 		);

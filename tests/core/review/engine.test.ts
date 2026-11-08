@@ -92,7 +92,9 @@ describe("resolving a reference", () => {
 		);
 		expect(bound.provider.id).toBe("github");
 		expect(bound.target.kind).toBe("change");
-		expect(bound.capabilities.conversation?.anchoredBatchReview).toBe(true);
+		expect(bound.capabilities.conversation).toMatchObject({
+			anchoredBatchReview: true,
+		});
 	});
 
 	it("reads a bare number against the checkout it was asked from", async () => {
@@ -156,7 +158,10 @@ index 1111111..2222222 100644
 		const bound = await engine.resolve(
 			"https://github.com/Shopify/world/pull/123",
 		);
-		expect(bound.conversation).toBeTruthy();
+		expect(
+			bound.conversation,
+			"a pull request offers the provider's conversation",
+		).toBeTruthy();
 	});
 });
 

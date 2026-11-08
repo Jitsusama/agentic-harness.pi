@@ -21,7 +21,7 @@ describe("starting a round without waiting for it", () => {
 			async start() {},
 		});
 
-		expect(run.open).toBe(true);
+		expect(run).toMatchObject({ open: true });
 		expect(run.outcomes).toEqual([]);
 		expect(run.participants.map((p) => p.id)).toEqual(["hawk", "owl"]);
 	});
@@ -79,7 +79,7 @@ describe("starting a round without waiting for it", () => {
 		expect(run.outcomes[0]?.participantId).toBe("hawk");
 		expect(run.outcomes[0]?.failure).toMatch(/no such binary/);
 		// And the round stays open for the one that did start.
-		expect(run.open).toBe(true);
+		expect(run).toMatchObject({ open: true });
 	});
 
 	it("refuses the round when nobody could be started", async () => {

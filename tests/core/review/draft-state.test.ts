@@ -57,7 +57,7 @@ describe("a review draft", () => {
 		expect(state.items).toHaveLength(1);
 		const [item] = state.items;
 		expect(item.kind).toBe("finding");
-		expect(item.id).toBeTruthy();
+		expect(item.id, "the finding is given an id").toBeTruthy();
 		expect(item.kind === "finding" && item.body).toBe("this leaks");
 	});
 

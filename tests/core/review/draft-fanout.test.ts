@@ -90,7 +90,7 @@ describe("publishing across a stack", () => {
 		const outcome = await publishAcross([], provider);
 
 		expect(posted).toEqual([]);
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect(outcome.changes).toEqual([]);
 	});
 
@@ -103,7 +103,7 @@ describe("publishing across a stack", () => {
 		);
 
 		expect(posted).toEqual(["1", "2"]);
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect(outcome.changes.map((c) => c.ref)).toEqual([
 			"refs/heads/base",
 			"refs/heads/tip",
@@ -121,8 +121,8 @@ describe("publishing across a stack", () => {
 		);
 
 		expect(posted).toEqual(["2"]);
-		expect(outcome.changes[0]?.outcome.ok).toBe(false);
-		expect(outcome.changes[1]?.outcome.ok).toBe(true);
+		expect(outcome.changes[0]?.outcome).toMatchObject({ ok: false });
+		expect(outcome.changes[1]?.outcome).toMatchObject({ ok: true });
 	});
 
 	it("is not ok when any change failed", async () => {
@@ -133,7 +133,7 @@ describe("publishing across a stack", () => {
 			provider,
 		);
 
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 	});
 
 	it("says which changes landed and which are left", async () => {
@@ -184,7 +184,7 @@ describe("publishing across a stack", () => {
 		const outcome = await publishAcross([empty], provider);
 
 		expect(posted).toEqual([]);
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect(outcome.landed).toEqual(["refs/heads/quiet"]);
 	});
 });

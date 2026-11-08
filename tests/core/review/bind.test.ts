@@ -40,7 +40,7 @@ afterEach(() => {
 describe("resolveTarget", () => {
 	it("refuses when the target's provider is not registered", () => {
 		const result = resolveTarget(hosted);
-		expect(result.resolved).toBe(false);
+		expect(result).toMatchObject({ resolved: false });
 		expect(!result.resolved && result.message).toMatch(/meteorite/);
 	});
 
@@ -240,7 +240,7 @@ describe("resolving a local target from what the probe found", () => {
 		});
 
 		expect(seen).toEqual([["git@github.com:Shopify/world.git"]]);
-		expect(resolution.resolved).toBe(true);
+		expect(resolution).toMatchObject({ resolved: true });
 		expect(resolution.resolved && resolution.repo.key).toBe(
 			"github:Shopify/world",
 		);
@@ -251,7 +251,7 @@ describe("resolving a local target from what the probe found", () => {
 			claimingProvider("local-ish", 10, { key: "local:/src/app" }),
 		);
 
-		expect(resolveTarget(localRange).resolved).toBe(true);
+		expect(resolveTarget(localRange)).toMatchObject({ resolved: true });
 	});
 });
 
@@ -303,7 +303,7 @@ describe("resolving a checkout with nothing to review yet", () => {
 
 		const resolution = resolveRepo({ repoRoot: "/src/app", remoteUrls: [] });
 
-		expect(resolution.resolved).toBe(false);
+		expect(resolution).toMatchObject({ resolved: false });
 		expect(!resolution.resolved && resolution.tried).toContain("github");
 	});
 

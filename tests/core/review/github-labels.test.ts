@@ -133,11 +133,9 @@ describe("writing labels", () => {
 			labels: { action: "remove", value: ["team/core"] },
 		});
 
-		expect(
-			calls.some((call) =>
-				call.args.some((arg) => arg.endsWith("/labels/team%2Fcore")),
-			),
-		).toBe(true);
+		expect(calls.flatMap((call) => call.args)).toContainEqual(
+			expect.stringMatching(/\/labels\/team%2Fcore$/),
+		);
 	});
 
 	it("empties the set when clearing", async () => {
@@ -202,16 +200,11 @@ describe("proposing with labels", () => {
 		// The create call must not carry them, or GitHub silently ignores
 		// them and the caller believes they landed.
 		expect(created?.input).not.toContain("risky");
-		expect(
-			calls.some((call) =>
-				call.args.some((arg) => arg.endsWith("/issues/42/labels")),
-			),
-		).toBe(true);
-		expect(
-			calls.some((call) =>
-				call.args.some((arg) => arg.endsWith("/issues/42/assignees")),
-			),
-		).toBe(true);
+		const args = calls.flatMap((call) => call.args);
+		expect(args).toContainEqual(expect.stringMatching(/\/issues\/42\/labels$/));
+		expect(args).toContainEqual(
+			expect.stringMatching(/\/issues\/42\/assignees$/),
+		);
 	});
 });
 
@@ -224,11 +217,11 @@ describe("an edit that only touches labels", () => {
 		});
 
 		expect(proposal.title).toBe("A change");
-		const patchedPull = calls.some(
+		const pullPatches = calls.filter(
 			(call) =>
 				call.args.includes("PATCH") &&
 				call.args.some((arg) => arg.endsWith("/pulls/42")),
 		);
-		expect(patchedPull).toBe(false);
+		expect(pullPatches).toEqual([]);
 	});
 });

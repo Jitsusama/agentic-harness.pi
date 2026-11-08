@@ -154,8 +154,10 @@ describe("what the GitHub provider says it can do", () => {
 	const capabilities = provider.capabilities(repo);
 
 	it("batches anchored comments into one review", () => {
-		expect(capabilities.conversation?.anchoredBatchReview).toBe(true);
-		expect(capabilities.conversation?.multiLineRanges).toBe(true);
+		expect(capabilities.conversation).toMatchObject({
+			anchoredBatchReview: true,
+			multiLineRanges: true,
+		});
 	});
 
 	it("takes a whole-file remark only on its own, not in that batch", () => {
@@ -175,7 +177,9 @@ describe("what the GitHub provider says it can do", () => {
 	});
 
 	it("cannot thread a reply onto a top-level message", () => {
-		expect(capabilities.conversation?.topLevelThreading).toBe(false);
+		expect(capabilities.conversation).toMatchObject({
+			topLevelThreading: false,
+		});
 	});
 
 	it("only ever derives a stack, because GitHub records none", () => {

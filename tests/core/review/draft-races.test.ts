@@ -142,7 +142,7 @@ describe("publishing a draft one operation at a time", () => {
 		});
 
 		expect(called).toEqual(["review 7"]);
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		const unsent = outcome.outcomes.filter((entry) => !entry.ok);
 		expect(unsent.map((entry) => entry.error)).toEqual([
 			"stopped before this was sent",
@@ -181,7 +181,7 @@ describe("publishing drafts across a stack", () => {
 			provider,
 		);
 
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect((await deps.store.load(one.id))?.items).toEqual([]);
 		expect((await deps.store.load(two.id))?.items).toEqual([]);
 	});

@@ -77,7 +77,7 @@ describe("collecting a round nobody was there to finish", () => {
 		);
 
 		expect(run.open).toBeUndefined();
-		expect("open" in run).toBe(false);
+		expect(run).not.toHaveProperty("open");
 	});
 
 	it("anchors against the witness the round recorded", async () => {
@@ -196,7 +196,7 @@ describe("collecting a round nobody was there to finish", () => {
 			recorder(),
 		);
 
-		expect(run.open).toBe(true);
+		expect(run).toMatchObject({ open: true });
 		expect(warnings.join(" ")).toMatch(/left open/i);
 	});
 

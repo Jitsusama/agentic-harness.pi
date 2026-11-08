@@ -112,7 +112,7 @@ describe("asking a judge", () => {
 
 		expect(order).toEqual(["written down", "asked"]);
 		expect(opened).toHaveLength(1);
-		expect(opened[0]?.open).toBe(true);
+		expect(opened[0]).toMatchObject({ open: true });
 		expect(opened[0]?.round).toBe("judge");
 		// The judge as a judge, so a ledger entry for an interrupted
 		// round says who was asked rather than merely that somebody was.

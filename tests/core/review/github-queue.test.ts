@@ -53,7 +53,7 @@ describe("queueStateFrom", () => {
 
 		expect(state.posture).toBe("queued");
 		expect(state.position).toBe(4);
-		expect(state.solo).toBe(false);
+		expect(state).toMatchObject({ solo: false });
 	});
 
 	it("reports waiting while the queue is still running checks", () => {
@@ -94,7 +94,7 @@ describe("queueStateFrom", () => {
 		);
 
 		expect(state.posture).toBe("waiting");
-		expect(state.solo).toBe(true);
+		expect(state).toMatchObject({ solo: true });
 	});
 
 	it("prefers a queue entry over an auto-merge request", () => {
@@ -108,7 +108,7 @@ describe("queueStateFrom", () => {
 		);
 
 		expect(state.posture).toBe("queued");
-		expect(state.solo).toBe(false);
+		expect(state).toMatchObject({ solo: false });
 	});
 
 	it("asks for exactly the fields it reads", () => {

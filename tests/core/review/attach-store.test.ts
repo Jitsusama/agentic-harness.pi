@@ -59,7 +59,10 @@ describe("attachments belong to the session that made them", () => {
 		await mine.attach(change("shop/world#1"));
 		await theirs.attach(change("shop/world#1"));
 
-		expect(await theirs.detach("shop/world#1")).toBe(true);
+		expect(
+			await theirs.detach("shop/world#1"),
+			"session-b detaches the change it attached",
+		).toBe(true);
 
 		expect((await mine.list()).map((a) => a.change.label)).toEqual([
 			"shop/world#1",
@@ -72,7 +75,10 @@ describe("attachments belong to the session that made them", () => {
 		const theirs = createAttachmentStore(root, "session-b");
 		await theirs.attach(change("shop/world#2"));
 
-		expect(await mine.detach("shop/world#2")).toBe(false);
+		expect(
+			await mine.detach("shop/world#2"),
+			"session-a cannot detach a change only session-b attached",
+		).toBe(false);
 		expect((await theirs.list()).map((a) => a.change.label)).toEqual([
 			"shop/world#2",
 		]);
@@ -144,12 +150,18 @@ describe("createAttachmentStore", () => {
 	it("detaches a change by label and says it did", async () => {
 		await store.attach(change("Shopify/world#1"));
 
-		expect(await store.detach("Shopify/world#1")).toBe(true);
+		expect(
+			await store.detach("Shopify/world#1"),
+			"detaching an attached change says it did",
+		).toBe(true);
 		expect(await store.list()).toEqual([]);
 	});
 
 	it("reports detaching something that was never attached", async () => {
-		expect(await store.detach("Shopify/world#9")).toBe(false);
+		expect(
+			await store.detach("Shopify/world#9"),
+			"detaching a change never attached says it did not",
+		).toBe(false);
 	});
 
 	it("keeps changes whose labels differ only by characters a path cannot hold", async () => {

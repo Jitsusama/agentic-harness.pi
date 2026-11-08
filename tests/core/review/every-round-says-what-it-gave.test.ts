@@ -227,7 +227,7 @@ describe("a round records what its reviewers were given", () => {
 		);
 
 		expect(run.given).toBeUndefined();
-		expect("given" in run).toBe(false);
+		expect(run).not.toHaveProperty("given");
 	});
 
 	it("including a kind these cases have not heard of", async () => {

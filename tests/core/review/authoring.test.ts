@@ -50,21 +50,23 @@ describe("what a provider will accept", () => {
 		// thing somebody needs to know.
 		const answer = offerable({ kind: "reopen" }, meteorite, "meteorite");
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toContain("meteorite");
 	});
 
 	it("refuses when there is no authoring facet at all", () => {
 		const answer = offerable({ kind: "propose" }, undefined, "git");
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toContain("git");
 	});
 });
 
 describe("retargeting, which is not the same operation everywhere", () => {
 	it("allows a change retarget where the backend retargets changes", () => {
-		expect(offerable({ kind: "retarget" }, github, "github").ok).toBe(true);
+		expect(offerable({ kind: "retarget" }, github, "github")).toMatchObject({
+			ok: true,
+		});
 	});
 
 	it("refuses a change retarget where retargeting is a stack operation", () => {
@@ -73,16 +75,16 @@ describe("retargeting, which is not the same operation everywhere", () => {
 		// is not a smaller version of the same thing.
 		const answer = offerable({ kind: "retarget" }, meteorite, "meteorite");
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.instead).toMatch(/stack/i);
 	});
 });
 
 describe("reviewers, which one backend only takes at creation", () => {
 	it("allows requesting reviewers later where the backend does", () => {
-		expect(offerable({ kind: "request-reviewers" }, github, "github").ok).toBe(
-			true,
-		);
+		expect(
+			offerable({ kind: "request-reviewers" }, github, "github"),
+		).toMatchObject({ ok: true });
 	});
 
 	it("refuses requesting reviewers later where they are creation-only", () => {
@@ -92,7 +94,7 @@ describe("reviewers, which one backend only takes at creation", () => {
 			"meteorite",
 		);
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		// The refusal has to name the door that is open, whichever word it
 		// uses for the moment: this is the difference between a caller
 		// giving up and a caller moving the reviewers to the propose call.
@@ -107,8 +109,8 @@ describe("reviewers, which one backend only takes at creation", () => {
 				{ kind: "propose", withReviewers: true },
 				meteorite,
 				"meteorite",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("refuses naming reviewers on a proposal where reviewers are never a thing", () => {
@@ -118,7 +120,7 @@ describe("reviewers, which one backend only takes at creation", () => {
 			"forge",
 		);
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 	});
 });
 
@@ -133,7 +135,7 @@ describe("mutating a change that is queued to merge", () => {
 			"meteorite",
 		);
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toMatch(/queue|enqueued/i);
 	});
 
@@ -143,8 +145,8 @@ describe("mutating a change that is queued to merge", () => {
 				{ kind: "retarget", queue: { posture: "unqueued" } },
 				{ ...meteorite, retarget: "change" },
 				"meteorite",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("allows the mutation when no queue state was reported at all", () => {
@@ -155,8 +157,8 @@ describe("mutating a change that is queued to merge", () => {
 				{ kind: "retarget" },
 				{ ...meteorite, retarget: "change" },
 				"meteorite",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("allows a mutation while enqueued where the backend does not care", () => {
@@ -165,8 +167,8 @@ describe("mutating a change that is queued to merge", () => {
 				{ kind: "retarget", queue: { posture: "queued" } },
 				github,
 				"github",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("still allows reading-shaped intents while enqueued", () => {
@@ -177,8 +179,8 @@ describe("mutating a change that is queued to merge", () => {
 				{ kind: "merge", queue: { posture: "queued" } },
 				meteorite,
 				"meteorite",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("refuses a mutation while waiting on checks, for a different reason", () => {
@@ -190,7 +192,7 @@ describe("mutating a change that is queued to merge", () => {
 			"meteorite",
 		);
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toMatch(/waiting/i);
 	});
 });
@@ -199,11 +201,13 @@ describe("the draft flag, which defaults opposite ways", () => {
 	it("refuses flipping draft where the backend cannot", () => {
 		const answer = offerable({ kind: "set-draft" }, meteorite, "meteorite");
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 	});
 
 	it("allows flipping draft where it can", () => {
-		expect(offerable({ kind: "set-draft" }, github, "github").ok).toBe(true);
+		expect(offerable({ kind: "set-draft" }, github, "github")).toMatchObject({
+			ok: true,
+		});
 	});
 });
 

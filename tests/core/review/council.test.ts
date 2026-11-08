@@ -114,7 +114,7 @@ describe("a round on the ledger before it costs anything", () => {
 		// Nothing has answered yet, and the record must not pretend
 		// otherwise.
 		expect(opened[0].outcomes).toEqual([]);
-		expect(opened[0].open).toBe(true);
+		expect(opened[0]).toMatchObject({ open: true });
 	});
 
 	it("settles it by dropping the mark once it is over", async () => {
@@ -129,7 +129,7 @@ describe("a round on the ledger before it costs anything", () => {
 		// and stack round will always have, so an alarm keyed on it
 		// would call the whole history abandoned.
 		expect(run.open).toBeUndefined();
-		expect("open" in run).toBe(false);
+		expect(run).not.toHaveProperty("open");
 	});
 
 	it("remembers the witness it was asked against", async () => {
