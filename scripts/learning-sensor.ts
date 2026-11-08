@@ -3,25 +3,35 @@
  *
  * Counts what keeps going wrong in the pi session logs, so each
  * recurring mistake can become a proposed harness change and the
- * same count can show whether the change made it recur less. Three
+ * same count can show whether the change made it recur less. Four
  * kinds of signal, each counted as distinct sessions per ISO week, or
  * per day for a daily measure:
  *
  * - refusal: a harness tool answered `⊘`, refusing the call. The
  *   refusal's first line is the group, and each `- ` bullet under it
  *   (a PR section over its word limit, say) is a reason of its own.
- * - guard: a shell command a harness guard blocked (`Blocked:`,
- *   `Quest workflow:`, `History guard:`). Ordinary command failures
- *   are left out; a failing grep is not a mistake.
- * - habit: a tool call that breaks a standing rule of the harness,
- *   such as editing a tracked file with sed or waiting with sleep.
- *   Shell commands are read with their heredoc bodies cut, so a
- *   script inside one is not read as the command itself.
+ * - guard: a call a harness guard refused: a shell command a blocking
+ *   guard stopped (`Blocked:`, `Quest workflow:`, `History guard:`),
+ *   or any call a redirecting guard turned back, known by the override
+ *   hint its refusal ends with. Ordinary command failures are left
+ *   out; a failing grep is not a mistake.
+ * - override: a redirect the agent made again unchanged, so it went
+ *   through, read from the guard report the policy stores for it.
+ * - habit: a tool call that breaks a standing rule no guard catches,
+ *   such as adding nice or reading a whole plan. Shell commands are
+ *   read with their heredoc bodies cut, so a script inside one is not
+ *   read as the command itself.
  *
- * Refusals and guards are exact, since the logs mark them. Habits
- * are patterns, tuned for precision over recall: a trend that bends
- * is the goal, not a census. Each period also says how many sessions
- * were active in it, so a quiet day reads as a rate, not a drop.
+ * Refusals, guards and overrides are exact, since the logs mark them.
+ * A habit a guard catches is counted by the guard, never guessed again
+ * from the command: a pattern can't tell a tracked file from scratch,
+ * and once counted 2,368 shell edits in a week, nearly all of them of
+ * scratch or untracked files the guard rightly let be.
+ * Habits are patterns, tuned for precision over recall: a trend that
+ * bends is the goal, not a census. Each period also says how many
+ * sessions were active in it, so a quiet day reads as a rate, not a
+ * drop. A habit an interceptor fixes silently, such as build output
+ * cut with tail, costs nothing and is not counted.
  *
  * A log last written before the window opened is not read at all, so
  * a day's count reads a day's logs rather than every log since March.
@@ -42,6 +52,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Span } from "../extensions/spend-workflow/audit.ts";
+import {
+	GUARD_REPORT_ENTRY,
+	isGuardReport,
+	OVERRIDE_HINT,
+} from "../lib/guardian/report.ts";
 import { sessionsDir } from "../lib/internal/paths.ts";
 import {
 	backupIndexPath,
@@ -49,12 +64,10 @@ import {
 	readAway,
 	sessionLogs,
 } from "../lib/internal/session-logs.ts";
-import { sleepRefusal } from "../lib/internal/shell-habits.ts";
-import { stripShellData } from "../lib/shell/index.ts";
 import { isoWeek } from "./convention-recurrence.ts";
 
 /** What kind of thing went wrong. */
-export type SignalKind = "refusal" | "reason" | "guard" | "habit";
+export type SignalKind = "refusal" | "reason" | "guard" | "override" | "habit";
 
 /** One thing that went wrong, as it groups with others like it. */
 export interface Signal {
@@ -78,41 +91,16 @@ interface Habit {
 
 const QUEST_DOCUMENT =
 	/quest-workflow\/quests\/[^\s'"]*\/(plans|research|briefs|reports)\//;
-const BUILD_OUTPUT_CUT =
-	/\b(vitest|pnpm\s+(test|lint|typecheck|exec)|npm\s+test|cargo\s+(test|build|clippy)|nix\s+(build|flake\s+check)|go\s+test|make)\b[^;\n]*\|\s*(tail|head)\b/;
-// An in-place sed or perl, its script, then a file outside scratch.
-const IN_PLACE_EDIT =
-	/\b(sed\s+(-[a-zA-Z]*i\S*|--in-place)|perl\s+-[a-zA-Z]*i\S*(\s+-e)?)\s+('[^']*'|"[^"]*"|[^\s-]\S*)\s+(?!["']?(\/tmp|\$TMPDIR|~\/\.cache))\S/;
-// Text appended or written into a source file outside scratch.
-const REDIRECT_EDIT =
-	/\b(cat|printf|echo)\b[^|;&\n]*>>?\s*(?!\/tmp|\$TMPDIR|~\/\.cache)[^\s;|&]+\.(ts|md|nix|rs)\b/;
-// A command run in scratch space edits nothing tracked.
-const IN_SCRATCH = /(^|[;&|]\s*)cd\s+("?\$TMPDIR|\/tmp|~\/\.cache)/;
 
-/** The habits counted, each named by the rule it breaks. */
+/**
+ * The habits counted, each named by the rule it breaks. A shell edit
+ * of a tracked file, a long sleep and git stash are not here: their
+ * guards refuse them, so the guard and override rows count them.
+ */
 export const HABITS: readonly Habit[] = [
-	{
-		key: "tracked file edited from the shell",
-		test: (_, c) =>
-			(IN_PLACE_EDIT.test(c) || REDIRECT_EDIT.test(c)) && !IN_SCRATCH.test(c),
-	},
-	{
-		key: "git stash run directly",
-		test: (_, c) => /\bgit\s+stash\b(?!\s+(list|show))/.test(c),
-	},
-	{
-		// What the sleep guard refuses, and nothing shorter: a pause of a
-		// few seconds between polls is how a wait should go.
-		key: "sleep used to wait",
-		test: (_, c) => sleepRefusal(stripShellData(c)) !== undefined,
-	},
 	{
 		key: "nice or ionice added",
 		test: (_, c) => /(^|[;&|]\s*)(nice\s+(-n\s*)?-?\d|ionice\s+-c)/.test(c),
-	},
-	{
-		key: "build or test output cut with tail or head",
-		test: (_, c) => BUILD_OUTPUT_CUT.test(c),
 	},
 	{
 		key: "git worktree run by hand",
@@ -182,10 +170,34 @@ export function signalsFromResult(
 		}
 		return signals;
 	}
-	if (isError && toolName === "bash" && GUARD_LINE.test(trimmed)) {
+	if (
+		trimmed.endsWith(OVERRIDE_HINT) ||
+		(isError && toolName === "bash" && GUARD_LINE.test(trimmed))
+	) {
 		return [{ kind: "guard", key: normalise(trimmed.split("\n")[0]), sample }];
 	}
 	return [];
+}
+
+/**
+ * The signal a stored session entry carries: a redirect made again
+ * unchanged, which the guard let through and reported. Every other
+ * entry, and every other kind of report, carries none.
+ */
+export function signalsFromEntry(entry: {
+	readonly customType?: unknown;
+	readonly data?: unknown;
+}): Signal[] {
+	if (entry.customType !== GUARD_REPORT_ENTRY) return [];
+	const report = entry.data;
+	if (!isGuardReport(report) || report.kind !== "overridden") return [];
+	return [
+		{
+			kind: "override",
+			key: `${report.guard}: ${report.title}`,
+			sample: (report.body ?? "").slice(0, 300),
+		},
+	];
 }
 
 /** The habits a tool call shows. */
@@ -280,7 +292,8 @@ const HEADINGS: Record<SignalKind, string> = {
 	habit: "Habits",
 	refusal: "Refusals",
 	reason: "Reasons Given in Refusals",
-	guard: "Shell Commands Guards Blocked",
+	guard: "Calls Guards Refused",
+	override: "Refusals Made Again, Which Went Through",
 };
 
 /**
@@ -298,7 +311,13 @@ export function renderReport(
 		"",
 		`Sessions active: ${periods.map((p) => `${p} ${active[p]}`).join(", ")}.`,
 	];
-	for (const kind of ["habit", "refusal", "reason", "guard"] as const) {
+	for (const kind of [
+		"habit",
+		"refusal",
+		"reason",
+		"guard",
+		"override",
+	] as const) {
 		const rows = groups.filter((g) => g.kind === kind).slice(0, options.top);
 		if (rows.length === 0) continue;
 		lines.push(
@@ -324,6 +343,8 @@ export function renderReport(
 interface LogEntry {
 	type?: unknown;
 	timestamp?: unknown;
+	customType?: unknown;
+	data?: unknown;
 	message?: {
 		role?: unknown;
 		toolName?: unknown;
@@ -384,12 +405,18 @@ function scanSession(
 			// A live session's torn last line.
 			continue;
 		}
-		if (entry.type !== "message" || !entry.message) continue;
+		const custom = entry.type === "custom";
+		if (!custom && (entry.type !== "message" || !entry.message)) continue;
 		const when = Date.parse(String(entry.timestamp));
 		if (Number.isNaN(when) || when < sinceMs) continue;
 		const period = periodOf(when, by);
+		if (custom) {
+			for (const s of signalsFromEntry(entry))
+				sightings.push({ ...s, period, session });
+			continue;
+		}
 		periods.add(period);
-		const m = entry.message;
+		const m = entry.message ?? {};
 		const signals =
 			m.role === "toolResult"
 				? signalsFromResult(
