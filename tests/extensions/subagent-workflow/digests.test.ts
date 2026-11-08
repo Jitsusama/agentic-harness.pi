@@ -78,7 +78,7 @@ describe("digestFleetRuns", () => {
 		const [header, ...records] = await readDigest("fleet-1", "a");
 		expect(header.kind).toBe("header");
 		expect(header.result.usage.cost.total).toBe(0.5);
-		expect(records.some((r) => r.kind === "assistant")).toBe(true);
+		expect(records.map((r) => r.kind)).toContain("assistant");
 	});
 
 	it("reads rotated segments oldest first, joined before splitting lines", async () => {
@@ -149,7 +149,10 @@ describe("digestFleetRuns", () => {
 
 		expect(outcome.written).toBe(0);
 		expect(outcome.deferred).toEqual(new Set(["fleet-live"]));
-		expect(existsSync(join(digests, "fleet-live", "a.jsonl"))).toBe(false);
+		expect(
+			existsSync(join(digests, "fleet-live", "a.jsonl")),
+			`${join(digests, "fleet-live", "a.jsonl")} is not written`,
+		).toBe(false);
 	});
 
 	it("digests a stream with no result once it has been quiet a while", async () => {

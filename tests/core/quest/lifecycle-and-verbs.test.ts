@@ -120,7 +120,7 @@ describe("aliasAdd / aliasRemove", () => {
 			action: "alias-add",
 			ref: "github-pr:shop/world#47281,github-issue:shop/world#100",
 		});
-		expect(added.ok).toBe(true);
+		expect(added).toMatchObject({ ok: true });
 
 		const dupe = addAliasesToLoaded(state, [
 			{ type: "github-pr", value: "shop/world#47281" },
@@ -133,7 +133,7 @@ describe("aliasAdd / aliasRemove", () => {
 			action: "alias-remove",
 			ref: "github-pr:shop/world#47281",
 		});
-		expect(removed.ok).toBe(true);
+		expect(removed).toMatchObject({ ok: true });
 		const remaining = removeAliasesFromLoaded(state, [
 			{ type: "github-issue", value: "shop/world#100" },
 		]);
@@ -143,7 +143,7 @@ describe("aliasAdd / aliasRemove", () => {
 	it("refuses when no quest is loaded", () => {
 		const state = buildState();
 		const result = aliasAdd(state, { action: "alias-add", ref: "x:y" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -156,7 +156,7 @@ describe("reorder / priority verbs", () => {
 		loadIntoState(state, a);
 
 		const result = reorder(state, { action: "bottom", id: a.id });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 
 	it("jumps and shifts the loaded quest's priority bucket", () => {
@@ -165,11 +165,11 @@ describe("reorder / priority verbs", () => {
 		loadIntoState(state, fm);
 
 		const jumped = priorityJump(state, "driving");
-		expect(jumped.ok).toBe(true);
+		expect(jumped).toMatchObject({ ok: true });
 		expect(state.questPriority).toBe("driving");
 
 		const shifted = priorityShift(state, "down");
-		expect(shifted.ok).toBe(true);
+		expect(shifted).toMatchObject({ ok: true });
 		expect(state.questPriority).toBe("active");
 	});
 
@@ -183,11 +183,11 @@ describe("reorder / priority verbs", () => {
 		loadIntoState(state, loaded);
 
 		expect(
-			priorityJump(state, "bench", { action: "park", id: other.id }).ok,
-		).toBe(true);
+			priorityJump(state, "bench", { action: "park", id: other.id }),
+		).toMatchObject({ ok: true });
 		expect(
-			priorityShift(state, "down", { action: "demote", id: other.id }).ok,
-		).toBe(true);
+			priorityShift(state, "down", { action: "demote", id: other.id }),
+		).toMatchObject({ ok: true });
 
 		expect(findQuestEntry(state, other.id)?.doc.frontMatter.priority).toBe(
 			"someday",
@@ -210,7 +210,7 @@ describe("reorder / priority verbs", () => {
 			id: "QEST-20261026-NOSUCH",
 		});
 
-		expect(parked.ok).toBe(false);
+		expect(parked).toMatchObject({ ok: false });
 		expect(findQuestEntry(state, loaded.id)?.doc.frontMatter.priority).toBe(
 			"driving",
 		);
@@ -228,7 +228,7 @@ describe("reorder / priority verbs", () => {
 		priorityJump(state, "bench", { action: "park", id: other.id });
 		expect(findQuestEntry(state, other.id)?.doc.frontMatter.rank).toBe(2);
 
-		expect(undo(state).ok).toBe(true);
+		expect(undo(state)).toMatchObject({ ok: true });
 
 		const back = findQuestEntry(state, other.id)?.doc.frontMatter;
 		expect(back?.priority).toBe("driving");
@@ -248,10 +248,10 @@ describe("reparent / undo", () => {
 			id: child.id,
 			parent: parent.id,
 		});
-		expect(moved.ok).toBe(true);
+		expect(moved).toMatchObject({ ok: true });
 
 		const reverted = undo(state);
-		expect(reverted.ok).toBe(true);
+		expect(reverted).toMatchObject({ ok: true });
 	});
 
 	it("counts the quests it put back, not the fields", () => {
@@ -265,8 +265,8 @@ describe("reparent / undo", () => {
 			bulkConcludeOrRetire(state, "conclude", {
 				action: "conclude",
 				id: swept.id,
-			}).ok,
-		).toBe(true);
+			}),
+		).toMatchObject({ ok: true });
 
 		const reverted = undo(state);
 
@@ -294,11 +294,11 @@ describe("lifecycle mutations", () => {
 		loadIntoState(state, fm);
 
 		const status = setLoadedStatus(state, "paused");
-		expect(status.ok && status.changed).toBe(true);
+		expect(status).toMatchObject({ ok: true, changed: true });
 
 		// A subquest needs a parent; the loaded quest has none.
 		const kind = setLoadedKind(state, "subquest");
-		expect(kind.ok).toBe(false);
+		expect(kind).toMatchObject({ ok: false });
 	});
 
 	it("creates a document under the loaded quest", () => {
@@ -339,9 +339,9 @@ describe("lifecycle mutations", () => {
 			id: "sess-1",
 			cwd: tmpRoot,
 		});
-		expect(attached.attached).toBe(true);
+		expect(attached).toMatchObject({ attached: true });
 
 		const detached = detachSessionFromLoaded(state, "sess-1");
-		expect(detached.ok && detached.detached).toBe(true);
+		expect(detached).toMatchObject({ ok: true, detached: true });
 	});
 });

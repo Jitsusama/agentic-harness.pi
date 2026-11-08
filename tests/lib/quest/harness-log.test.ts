@@ -68,7 +68,13 @@ describe("a quest's harness log", () => {
 	it("writes nothing for a folder with no README", () => {
 		rmSync(join(questDir, "README.md"));
 
-		expect(appendHarnessLog(questDir, "Adopted tree.")).toBe(false);
-		expect(existsSync(harnessLogPath(questDir))).toBe(false);
+		expect(
+			appendHarnessLog(questDir, "Adopted tree."),
+			"a folder with no README takes no harness log line",
+		).toBe(false);
+		expect(
+			existsSync(harnessLogPath(questDir)),
+			`${harnessLogPath(questDir)} is not written`,
+		).toBe(false);
 	});
 });

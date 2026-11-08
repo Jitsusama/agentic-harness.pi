@@ -19,9 +19,14 @@ describe("FleetCancellationRegistry", () => {
 		const run = registry.beginRun("r");
 		const handle = run.register({ id: "alpha" }, undefined);
 		const outcome = registry.cancel("r", "alpha");
-		expect(handle.signal.aborted).toBe(true);
-		expect(handle.wasCancelledByUser()).toBe(true);
-		expect(outcome.ok).toBe(true);
+		expect(handle.signal.aborted, "cancelling alpha aborts its signal").toBe(
+			true,
+		);
+		expect(
+			handle.wasCancelledByUser(),
+			"alpha counts as cancelled by the user",
+		).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		if (outcome.ok && outcome.mode === "one") {
 			expect(outcome.subagentId).toBe("alpha");
 		}
@@ -34,9 +39,9 @@ describe("FleetCancellationRegistry", () => {
 		const a = run.register({ id: "alpha" }, undefined);
 		const b = run.register({ id: "beta" }, undefined);
 		const outcome = registry.cancel("r");
-		expect(a.signal.aborted).toBe(true);
-		expect(b.signal.aborted).toBe(true);
-		expect(outcome.ok).toBe(true);
+		expect(a.signal.aborted, "cancelling the run aborts alpha").toBe(true);
+		expect(b.signal.aborted, "cancelling the run aborts beta").toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		if (outcome.ok && outcome.mode === "all") {
 			expect(outcome.count).toBe(2);
 		}
@@ -54,8 +59,14 @@ describe("FleetCancellationRegistry", () => {
 		const run = registry.beginRun("r");
 		registry.cancel("r", "late");
 		const handle = run.register({ id: "late" }, undefined);
-		expect(handle.signal.aborted).toBe(true);
-		expect(handle.wasCancelledByUser()).toBe(true);
+		expect(
+			handle.signal.aborted,
+			"a subagent cancelled before it registered is aborted on registering",
+		).toBe(true);
+		expect(
+			handle.wasCancelledByUser(),
+			"a subagent cancelled early counts as cancelled by the user",
+		).toBe(true);
 		run.end();
 	});
 
@@ -68,7 +79,10 @@ describe("FleetCancellationRegistry", () => {
 		const parent = new AbortController();
 		const handle = run.register({ id: "child" }, parent.signal);
 		parent.abort();
-		expect(handle.signal.aborted).toBe(true);
+		expect(
+			handle.signal.aborted,
+			"aborting the parent signal aborts the child's",
+		).toBe(true);
 		run.end();
 	});
 
@@ -84,17 +98,35 @@ describe("FleetCancellationRegistry", () => {
 		const twoAlpha = two.register({ id: "alpha" }, undefined);
 		const twoBeta = two.register({ id: "beta" }, undefined);
 
-		expect(registry.cancel("one", "alpha").ok).toBe(true);
-		expect(oneAlpha.signal.aborted).toBe(true);
-		expect(twoAlpha.signal.aborted).toBe(false);
+		expect(registry.cancel("one", "alpha")).toMatchObject({ ok: true });
+		expect(
+			oneAlpha.signal.aborted,
+			"cancelling alpha in fleet one aborts it",
+		).toBe(true);
+		expect(
+			twoAlpha.signal.aborted,
+			"cancelling alpha in fleet one leaves fleet two's alpha running",
+		).toBe(false);
 
 		registry.cancel("one");
-		expect(twoAlpha.signal.aborted).toBe(false);
-		expect(twoBeta.signal.aborted).toBe(false);
+		expect(
+			twoAlpha.signal.aborted,
+			"cancelling all of fleet one leaves fleet two's alpha running",
+		).toBe(false);
+		expect(
+			twoBeta.signal.aborted,
+			"cancelling all of fleet one leaves fleet two's beta running",
+		).toBe(false);
 
 		registry.cancel("two", "beta");
-		expect(twoBeta.signal.aborted).toBe(true);
-		expect(twoAlpha.signal.aborted).toBe(false);
+		expect(
+			twoBeta.signal.aborted,
+			"cancelling beta in fleet two aborts it",
+		).toBe(true);
+		expect(
+			twoAlpha.signal.aborted,
+			"cancelling beta in fleet two leaves its alpha running",
+		).toBe(false);
 		one.end();
 		two.end();
 	});
@@ -104,8 +136,14 @@ describe("FleetCancellationRegistry", () => {
 		const one = registry.beginRun("one");
 		const two = registry.beginRun("two");
 		registry.cancel("one", "late");
-		expect(two.register({ id: "late" }, undefined).signal.aborted).toBe(false);
-		expect(one.register({ id: "late" }, undefined).signal.aborted).toBe(true);
+		expect(
+			two.register({ id: "late" }, undefined).signal.aborted,
+			"an early cancel in fleet one leaves fleet two's late running",
+		).toBe(false);
+		expect(
+			one.register({ id: "late" }, undefined).signal.aborted,
+			"an early cancel in fleet one aborts its own late on registering",
+		).toBe(true);
 		one.end();
 		two.end();
 	});
@@ -113,7 +151,7 @@ describe("FleetCancellationRegistry", () => {
 	it("reports failure when nothing matches the cancel target", () => {
 		const registry = new FleetCancellationRegistry();
 		const outcome = registry.cancel("r", "nobody");
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		if (!outcome.ok) expect(outcome.error).toContain("nobody");
 	});
 });
@@ -141,8 +179,14 @@ describe("formatFleetCancellation", () => {
 describe("SubagentCancelledError", () => {
 	it("is recognised by isSubagentCancelledError", () => {
 		const err = new SubagentCancelledError("alpha");
-		expect(isSubagentCancelledError(err)).toBe(true);
+		expect(
+			isSubagentCancelledError(err),
+			"a SubagentCancelledError is recognised",
+		).toBe(true);
 		expect(err.subagentId).toBe("alpha");
-		expect(isSubagentCancelledError(new Error("other"))).toBe(false);
+		expect(
+			isSubagentCancelledError(new Error("other")),
+			"a plain Error is not taken for a cancellation",
+		).toBe(false);
 	});
 });

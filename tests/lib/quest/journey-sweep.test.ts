@@ -128,14 +128,20 @@ describe("moving the Journey up beside the README", () => {
 			"# 🌄 Journey\n\n- **2026-06-02**: Old place.\n- **2026-06-01**: Created.\n",
 		);
 		expect(readme()).toBe(`# Title\n\n## 🌄 Journey\n\n${JOURNEY_POINTER}\n`);
-		expect(existsSync(join(questDir, "attachments"))).toBe(false);
+		expect(
+			existsSync(join(questDir, "attachments")),
+			`${join(questDir, "attachments")} is removed`,
+		).toBe(false);
 	});
 
 	it("keeps attachments/ when it holds anything else", () => {
 		writeFileSync(join(questDir, "attachments", "chart.png"), "png");
 		sweepJourney(questDir);
-		expect(existsSync(former())).toBe(false);
-		expect(existsSync(join(questDir, "attachments", "chart.png"))).toBe(true);
+		expect(existsSync(former()), `${former()} is removed`).toBe(false);
+		expect(
+			existsSync(join(questDir, "attachments", "chart.png")),
+			`${join(questDir, "attachments", "chart.png")} is kept`,
+		).toBe(true);
 	});
 
 	it("folds in what an older session wrote at the old place by date", () => {
@@ -155,7 +161,7 @@ describe("moving the Journey up beside the README", () => {
 				"",
 			].join("\n"),
 		);
-		expect(existsSync(former())).toBe(false);
+		expect(existsSync(former()), `${former()} is removed`).toBe(false);
 	});
 
 	it("drops the pointer an older session filed as an entry", () => {
@@ -215,7 +221,7 @@ describe("moving the Journey up beside the README", () => {
 		expect(journeyFile()).toBe(
 			`${[JOURNEY_TITLE, "", ...merged, "", "[a]: https://a", "[b]: https://b"].join("\n")}\n`,
 		);
-		expect(existsSync(former())).toBe(false);
+		expect(existsSync(former()), `${former()} is removed`).toBe(false);
 	});
 });
 

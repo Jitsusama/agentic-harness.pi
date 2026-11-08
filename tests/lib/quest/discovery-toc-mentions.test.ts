@@ -99,13 +99,11 @@ describe("discoverQuests", () => {
 		});
 		const { index, errors } = discoverQuests(root);
 		expect(index.quests.size).toBe(1);
-		expect(index.quests.has("QEST-20260603-AAA111")).toBe(true);
-		expect(index.quests.has("QEST-20260603-BBB222")).toBe(false);
-		expect(
-			errors.some((e) =>
-				e.message.includes('Nested quest "QEST-20260603-BBB222"'),
-			),
-		).toBe(true);
+		expect([...index.quests.keys()]).toContain("QEST-20260603-AAA111");
+		expect([...index.quests.keys()]).not.toContain("QEST-20260603-BBB222");
+		expect(errors.map((e) => e.message)).toContainEqual(
+			expect.stringContaining('Nested quest "QEST-20260603-BBB222"'),
+		);
 	});
 
 	it("refuses a misplaced document at the quest-dir root", () => {
@@ -122,9 +120,9 @@ describe("discoverQuests", () => {
 		const { index, errors } = discoverQuests(root);
 		expect(index.quests.size).toBe(1);
 		expect(index.quests.get("QEST-20260603-AAA111")?.documents.length).toBe(0);
-		expect(
-			errors.some((e) => e.message.includes("sits at the quest-dir root")),
-		).toBe(true);
+		expect(errors.map((e) => e.message)).toContainEqual(
+			expect.stringContaining("sits at the quest-dir root"),
+		);
 	});
 
 	it("refuses an unexpected top-level directory at quests root", () => {
@@ -136,11 +134,9 @@ describe("discoverQuests", () => {
 		});
 		const { index, errors } = discoverQuests(root);
 		expect(index.quests.size).toBe(1);
-		expect(
-			errors.some((e) =>
-				e.message.includes('Unexpected directory "stray-folder"'),
-			),
-		).toBe(true);
+		expect(errors.map((e) => e.message)).toContainEqual(
+			expect.stringContaining('Unexpected directory "stray-folder"'),
+		);
 	});
 
 	it("accepts documents in their canonical kind subdirectory", () => {
@@ -166,7 +162,9 @@ describe("discoverQuests", () => {
 		mkdirSync(join(root, "QEST-20260603-CCC333"), { recursive: true });
 		const { index, errors } = discoverQuests(root);
 		expect(index.quests.size).toBe(0);
-		expect(errors.some((e) => e.message.includes("README"))).toBe(true);
+		expect(errors.map((e) => e.message)).toContainEqual(
+			expect.stringContaining("README"),
+		);
 	});
 
 	it("records an error when directory name and id disagree", () => {
@@ -191,7 +189,9 @@ describe("discoverQuests", () => {
 			}),
 		);
 		const { errors } = discoverQuests(root);
-		expect(errors.some((e) => e.message.includes("does not match"))).toBe(true);
+		expect(errors.map((e) => e.message)).toContainEqual(
+			expect.stringContaining("does not match"),
+		);
 	});
 
 	it("ignores hidden and node_modules directories", () => {
@@ -246,7 +246,9 @@ describe("discoverQuests", () => {
 			parentDir = join(parentDir, id);
 		}
 		const { errors } = discoverQuests(root);
-		expect(errors.some((e) => e.message.includes("depth exceeded"))).toBe(true);
+		expect(errors.map((e) => e.message)).toContainEqual(
+			expect.stringContaining("depth exceeded"),
+		);
 	});
 });
 

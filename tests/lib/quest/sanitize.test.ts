@@ -22,16 +22,16 @@ describe("sanitizeSingleLine", () => {
 describe("escapeMarkdownStructure", () => {
 	it("escapes leading heading markers with a zero-width space", () => {
 		const result = escapeMarkdownStructure("# Important\nbody\n## Sub");
-		expect(result.startsWith("\u200b# Important")).toBe(true);
+		expect(result).toMatch(/^\u200b# Important/);
 		expect(result).toContain("\u200b## Sub");
 		expect(result).toContain("body");
 	});
 
 	it("escapes fence and rule markers", () => {
-		expect(
-			escapeMarkdownStructure("```bash\nrm -rf /\n```").startsWith("\u200b```"),
-		).toBe(true);
-		expect(escapeMarkdownStructure("---").startsWith("\u200b---")).toBe(true);
+		expect(escapeMarkdownStructure("```bash\nrm -rf /\n```")).toMatch(
+			/^\u200b```/,
+		);
+		expect(escapeMarkdownStructure("---")).toMatch(/^\u200b---/);
 	});
 
 	it("leaves prose lines alone", () => {

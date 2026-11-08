@@ -64,17 +64,17 @@ function writeNote(
 describe("create", () => {
 	it("refuses without a title", () => {
 		const result = create(dir, { type: "journal" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("refuses without a valid type", () => {
 		const result = create(dir, { title: "x", type: "not-a-type" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("mints an id, scaffolds README.md, and returns the id as the message", () => {
 		const result = create(dir, { title: "My New Note", type: "journal" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.message).toMatch(/^NOTE-\d{8}-[0-9A-Z]{6}$/);
 		const text = readFileSync(join(dir, result.message, "README.md"), "utf8");
@@ -88,9 +88,9 @@ describe("create", () => {
 			type: "journal",
 			created: "20130120T000000Z",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
-		expect(result.message.startsWith("NOTE-20130120-")).toBe(true);
+		expect(result.message).toMatch(/^NOTE-20130120-/);
 	});
 
 	it("refuses an unknown parent", () => {
@@ -99,7 +99,7 @@ describe("create", () => {
 			type: "journal",
 			parent: "NOTE-nope",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("accepts a real parent and links it", () => {
@@ -109,7 +109,7 @@ describe("create", () => {
 			type: "journal",
 			parent: "NOTE-20130101-PAREN0",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		const text = readFileSync(join(dir, result.message, "README.md"), "utf8");
 		expect(text).toContain("parent: NOTE-20130101-PAREN0");
@@ -121,7 +121,7 @@ describe("find", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", type: "journal" });
 		writeNote({ id: "NOTE-20130102-BBBBBB", type: "reference" });
 		const result = find(dir, { type: "journal" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.details?.count).toBe(1);
 	});
@@ -130,7 +130,7 @@ describe("find", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", tags: ["Linux"] });
 		writeNote({ id: "NOTE-20130102-BBBBBB", tags: ["Cooking"] });
 		const result = find(dir, { tags: "Linux" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.details?.count).toBe(1);
 	});
@@ -145,7 +145,7 @@ describe("find", () => {
 			"# A recipe\n\nsalt and pepper\n",
 		);
 		const result = find(dir, { q: "routers" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.details?.count).toBe(1);
 	});
@@ -154,7 +154,7 @@ describe("find", () => {
 		writeNote({ id: "NOTE-20120101-AAAAAA", created: "20120101T000000Z" });
 		writeNote({ id: "NOTE-20140101-BBBBBB", created: "20140101T000000Z" });
 		const result = find(dir, { since: "20130101", until: "20150101" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.details?.count).toBe(1);
 	});
@@ -164,7 +164,7 @@ describe("find", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", created: "20130101T000000Z" });
 		writeNote({ id: "NOTE-20130102-BBBBBB", created: "20130102T000000Z" });
 		const result = find(dir, { limit: 2 });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		const notes = result.details?.notes as { id: string }[];
 		expect(notes.map((n) => n.id)).toEqual([
@@ -178,7 +178,7 @@ describe("show", () => {
 	it("returns the full note text", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", title: "Hello" });
 		const result = show(dir, { id: "NOTE-20130101-AAAAAA" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.message).toContain("title: Hello");
 	});
@@ -186,19 +186,19 @@ describe("show", () => {
 	it("resolves an unambiguous id prefix", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", title: "Hello" });
 		const result = show(dir, { id: "AAAAAA" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 
 	it("refuses an ambiguous prefix", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA" });
 		writeNote({ id: "NOTE-20130101-AAAABB" });
 		const result = show(dir, { id: "AAAA" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("refuses an id that matches nothing", () => {
 		const result = show(dir, { id: "NOPE" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -206,7 +206,7 @@ describe("retype", () => {
 	it("changes the type field", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", type: "inbox" });
 		const result = retype(dir, { id: "NOTE-20130101-AAAAAA", type: "journal" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(
 			join(dir, "NOTE-20130101-AAAAAA", "README.md"),
 			"utf8",
@@ -217,7 +217,7 @@ describe("retype", () => {
 	it("refuses an invalid type", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA" });
 		const result = retype(dir, { id: "NOTE-20130101-AAAAAA", type: "bogus" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -231,7 +231,7 @@ describe("retitle", () => {
 			id: "NOTE-20130101-AAAAAA",
 			title: "New Title",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(
 			join(dir, "NOTE-20130101-AAAAAA", "README.md"),
 			"utf8",
@@ -262,7 +262,7 @@ describe("retitle", () => {
 	it("refuses without a title", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA" });
 		const result = retitle(dir, { id: "NOTE-20130101-AAAAAA" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -273,7 +273,7 @@ describe("tag", () => {
 			id: "NOTE-20130101-AAAAAA",
 			add: "Linux, Networking",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.details?.tags).toEqual(["Linux", "Networking"]);
 	});
@@ -281,7 +281,7 @@ describe("tag", () => {
 	it("removes tags", () => {
 		writeNote({ id: "NOTE-20130101-AAAAAA", tags: ["Linux", "Networking"] });
 		const result = tag(dir, { id: "NOTE-20130101-AAAAAA", remove: "Linux" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.details?.tags).toEqual(["Networking"]);
 	});
@@ -295,7 +295,7 @@ describe("reparent", () => {
 			id: "NOTE-20130102-CHILD0",
 			parent: "NOTE-20130101-PAREN0",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(
 			join(dir, "NOTE-20130102-CHILD0", "README.md"),
 			"utf8",
@@ -310,7 +310,7 @@ describe("reparent", () => {
 			id: "NOTE-20130102-CHILD0",
 			parent: "none",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(
 			join(dir, "NOTE-20130102-CHILD0", "README.md"),
 			"utf8",
@@ -324,7 +324,7 @@ describe("reparent", () => {
 			id: "NOTE-20130101-AAAAAA",
 			parent: "NOTE-20130101-AAAAAA",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("refuses a reparent that would form a cycle", () => {
@@ -336,7 +336,7 @@ describe("reparent", () => {
 			id: "NOTE-20130101-AAAAAA",
 			parent: "NOTE-20130102-BBBBBB",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("refuses an unknown parent", () => {
@@ -345,7 +345,7 @@ describe("reparent", () => {
 			id: "NOTE-20130101-AAAAAA",
 			parent: "NOPE",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -358,7 +358,7 @@ describe("tree", () => {
 			parent: "NOTE-20130101-PAREN0",
 		});
 		const result = tree(dir, {});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.message).toContain("NOTE-20130101-PAREN0");
 		expect(result.message).toContain("  - NOTE-20130102-CHILD0");
@@ -369,7 +369,7 @@ describe("tree", () => {
 		writeNote({ id: "NOTE-20130102-CHILD0", parent: "NOTE-20130101-PAREN0" });
 		writeNote({ id: "NOTE-20130103-UNRELA0" });
 		const result = tree(dir, { id: "NOTE-20130101-PAREN0" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.message).not.toContain("UNRELA0");
 	});
@@ -381,7 +381,7 @@ describe("types", () => {
 		writeNote({ id: "NOTE-20130102-BBBBBB", type: "journal" });
 		writeNote({ id: "NOTE-20130103-CCCCCC", type: "reference" });
 		const result = types(dir);
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		const counts = result.details?.counts as Record<string, number>;
 		expect(counts.journal).toBe(2);
@@ -403,7 +403,7 @@ describe("reindex", () => {
 			title: "First",
 		});
 		const result = reindex(dir);
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(join(dir, "INDEX.md"), "utf8");
 		expect(text.indexOf("First")).toBeLessThan(text.indexOf("Second"));
 		expect(text).toContain("2 notes");
