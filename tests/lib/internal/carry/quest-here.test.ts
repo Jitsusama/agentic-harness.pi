@@ -145,7 +145,13 @@ describe("what a quest has on this machine", () => {
 				sessions: [{ id: "s-readme" }],
 				trees: [
 					{ path: here, providerId: "git", host: hostname() },
-					{ path: "/elsewhere/tree", providerId: "git", host: "penelope" },
+					// A host that can't be this one: named penelope, it was this
+					// machine when the check ran there (Y9XISP, 8 November).
+					{
+						path: "/elsewhere/tree",
+						providerId: "git",
+						host: `${hostname()}-elsewhere`,
+					},
 				],
 			})}\n# Carry\n`,
 		);
