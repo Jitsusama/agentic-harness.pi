@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeBrowser, newPage } from "../../../lib/core/web/browser.ts";
 import { readPage } from "../../../lib/core/web/reader.ts";
 import { captureTiles, preparePage } from "../../../lib/core/web/screenshot.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -108,7 +108,7 @@ function drawnIn(tiles: readonly TileReading[], marker: Marker): number[] {
 
 let fixture: Fixture;
 
-describe.skipIf(!haveChrome)("screenshot tiles of a tall page", () => {
+describe("screenshot tiles of a tall page", () => {
 	let tiles: TileReading[];
 
 	beforeAll(async () => {

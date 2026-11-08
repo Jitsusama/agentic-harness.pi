@@ -10,9 +10,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { renderFocus } from "../../../lib/core/web/a11y/index.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, serve } from "./_harness.ts";
+import { type Fixture, serve } from "./_harness.ts";
 
-describe.skipIf(!haveChrome)("what holds focus", () => {
+describe("what holds focus", () => {
 	let fixture: Fixture;
 	let session: BrowserSession;
 

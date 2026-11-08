@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PNG } from "pngjs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, serve } from "./_harness.ts";
+import { type Fixture, serve } from "./_harness.ts";
 
 /**
  * Taller than the viewport, deliberately. Every capture fixture in
@@ -29,7 +29,7 @@ const TALL = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 /** The marker's colour, exactly as the page declares it. */
 const MARKER = "0,184,148";
 
-describe.skipIf(!haveChrome)("clipping a capture to one element", () => {
+describe("clipping a capture to one element", () => {
 	let fixture: Fixture;
 	let session: BrowserSession;
 

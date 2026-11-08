@@ -22,7 +22,7 @@ import {
 	newPage,
 } from "../../../lib/core/web/browser.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -37,7 +37,7 @@ function heldChildren(): number {
 
 let fixture: Fixture;
 
-describe.skipIf(!haveChrome)("the warm browser and the event loop", () => {
+describe("the warm browser and the event loop", () => {
 	beforeAll(async () => {
 		fixture = await serve([{ path: "/hello", body: HELLO }]);
 	});

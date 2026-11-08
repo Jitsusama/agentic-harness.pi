@@ -15,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyseStructure } from "../../../lib/core/web/audit/index.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -103,7 +103,7 @@ root.innerHTML = '<button type="button" id="in-shadow">Deep button</button>';
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
+describe("observing a page, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/main", body: MAIN },

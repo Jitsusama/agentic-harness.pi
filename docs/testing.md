@@ -145,8 +145,11 @@ The snapshot needs a global key precisely because a reload
 does re-evaluate this module, the same re-evaluation the
 previous note is about.
 
-`pnpm test` runs everything in about 94 seconds. The browser tests
-moved to agentic-harness.core with the code they prove.
+`pnpm test` runs everything in about 94 seconds but the browser
+tests, which drive a real Chrome in a lane of their own,
+`pnpm test:browser`. That lane fails before any test runs where
+there is no Chrome, rather than skipping every suite and reporting
+a pass that tested nothing.
 
 It was not always this fast, and the reason is worth knowing because
 it was not a slow test anywhere. The browser lane ran twice, once in

@@ -22,7 +22,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { resolveChromePath } from "../../../lib/core/web/chrome.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 
 // Launching a browser, loading pages and shaping the network is
@@ -67,24 +66,7 @@ let redirectOrigin: string;
  */
 const RACE_ATTEMPTS = 5;
 
-/**
- * Whether there is a browser to drive.
- *
- * Skipped rather than failed where there is none, so a checkout on
- * a machine without Chrome still runs the rest of the suite. CI
- * installs one, so a skip there would be a real signal.
- */
-const haveChrome = ((): boolean => {
-	try {
-		resolveChromePath(process.env.CHROME_PATH);
-		return true;
-	} catch {
-		// The only failure mode is "no Chrome", which is the answer.
-		return false;
-	}
-})();
-
-describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
+describe("emulating a device, in a real browser", () => {
 	beforeAll(async () => {
 		// Serves the page, and a subresource that takes its time, which
 		// keeps the navigation in flight long enough for the race below.
@@ -401,7 +383,7 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 	});
 });
 
-describe.skipIf(!haveChrome)("shaping the network, in a real browser", () => {
+describe("shaping the network, in a real browser", () => {
 	let shaped: BrowserSession;
 	let shapedServer: Server;
 	let shapedOrigin: string;
