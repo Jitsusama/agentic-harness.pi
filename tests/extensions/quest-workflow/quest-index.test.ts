@@ -14,6 +14,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { orchestratorsPath } from "../../../extensions/quest-workflow/orchestrators";
 import {
+	endedQuestsIn,
+	endedQuestsPath,
 	keepDesktopListsCurrent,
 	questIndexPath,
 	questsIn,
@@ -269,6 +271,62 @@ describe("the quests the desktop lists", () => {
 		});
 	});
 
+	it("leave the ended ones to their own list, by id, each starting in its newest session's folder", () => {
+		const newer = mkdtempSync(join(tmpdir(), "quest-index-newer-"));
+		try {
+			quest(MISSION, "status: active", "# Bootstrap optimus");
+			quest(
+				OLD,
+				[
+					"status: concluded",
+					"short: Old",
+					`parent: ${MISSION}`,
+					"sessions:",
+					"  - id: s-first",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:00:00Z",
+					"    status: detached",
+					"  - id: s-last",
+					`    cwd: ${newer}`,
+					"    started: 2026-01-01T02:00:00Z",
+					"    status: detached",
+				].join("\n"),
+				"# Old\n\n## 📜 Summary\n\nIt was done.",
+			);
+			quest(CHILD, "status: retired", "# A child");
+			const { index } = discoverQuests(root);
+
+			expect(endedQuestsIn(index, root, "/home/someone")).toEqual([
+				{
+					id: CHILD,
+					address: "CHILDQ",
+					title: "A child",
+					kind: "quest",
+					status: "retired",
+					start: "/home/someone",
+					updated: "2026-01-01T03:00:00Z",
+				},
+				{
+					id: OLD,
+					address: "OLDONE",
+					short: "Old",
+					title: "Old",
+					summary: "It was done.",
+					kind: "quest",
+					status: "concluded",
+					parent: MISSION,
+					start: newer,
+					updated: "2026-01-01T03:00:00Z",
+				},
+			]);
+			expect(questsIn(index, nothingKnown, root).map((one) => one.id)).toEqual([
+				MISSION,
+			]);
+		} finally {
+			rmSync(newer, { recursive: true, force: true });
+		}
+	});
+
 	it("are written with the orchestrators from one pass over the store", async () => {
 		const state = mkdtempSync(join(tmpdir(), "quest-index-state-"));
 		const before = process.env.XDG_STATE_HOME;
@@ -279,6 +337,7 @@ describe("the quests the desktop lists", () => {
 				"status: active\norchestrator: true",
 				"# Bootstrap optimus",
 			);
+			quest(OLD, "status: concluded", "# Old");
 
 			await keepDesktopListsCurrent(root);
 
@@ -289,6 +348,9 @@ describe("the quests the desktop lists", () => {
 			expect(
 				read(questIndexPath()).quests.map((one: { id: string }) => one.id),
 			).toEqual([MISSION]);
+			expect(
+				read(endedQuestsPath()).quests.map((one: { id: string }) => one.id),
+			).toEqual([OLD]);
 		} finally {
 			if (before === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = before;
