@@ -219,7 +219,7 @@ describe("the guards section of the package config", () => {
 	it("refuses a mode it does not know rather than ignoring it", () => {
 		const parsed = parseGuardSection({ modes: { commit: "ask" } });
 
-		expect(parsed.ok).toBe(false);
+		expect(parsed).toMatchObject({ ok: false });
 		expect(!parsed.ok && parsed.error).toMatch(/modes\.commit/);
 	});
 });
@@ -326,14 +326,17 @@ describe("reports", () => {
 	});
 
 	it("read back from stored data", () => {
-		expect(isGuardReport({ guard: "commit", kind: "shown", title: "x" })).toBe(
-			true,
-		);
+		expect(
+			isGuardReport({ guard: "commit", kind: "shown", title: "x" }),
+			"a shown report reads back as one",
+		).toBe(true);
 		expect(
 			isGuardReport({ guard: "commit", kind: "overridden", title: "x" }),
+			"an overridden report reads back as one",
 		).toBe(true);
-		expect(isGuardReport({ guard: "commit", kind: "maybe", title: "x" })).toBe(
-			false,
-		);
+		expect(
+			isGuardReport({ guard: "commit", kind: "maybe", title: "x" }),
+			"a report of an unknown kind does not read back as one",
+		).toBe(false);
 	});
 });

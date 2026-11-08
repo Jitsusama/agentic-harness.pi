@@ -88,7 +88,10 @@ describe("Slack's authorization panel", () => {
 		expect(await outcome(run)).toMatchObject({
 			message: "Slack authorization was cancelled.",
 		});
-		expect(handed.callback?.aborted).toBe(true);
+		expect(
+			handed.callback?.aborted,
+			"Escape aborts the callback listener",
+		).toBe(true);
 		expect(await s.settled()).not.toContain("Slack Authorization");
 	});
 });

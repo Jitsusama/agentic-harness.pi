@@ -123,7 +123,7 @@ describe("readSummary", () => {
 			stopReason: "length",
 			content: [text("## Go")],
 		});
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 	});
 
 	it("refuses a reply that called a tool", () => {
@@ -148,9 +148,9 @@ describe("readSummary", () => {
 	});
 
 	it("refuses an empty reply", () => {
-		expect(readSummary({ stopReason: "stop", content: [text("  ")] }).ok).toBe(
-			false,
-		);
+		expect(
+			readSummary({ stopReason: "stop", content: [text("  ")] }),
+		).toMatchObject({ ok: false });
 	});
 });
 
@@ -271,13 +271,13 @@ describe("extendSentPayload", () => {
 			},
 			100,
 		);
-		expect(out.ok).toBe(false);
+		expect(out).toMatchObject({ ok: false });
 	});
 
 	it("refuses a payload that is not a messages request", () => {
-		expect(extendSentPayload({ input: [] }, { messages: [] }, 100).ok).toBe(
-			false,
-		);
-		expect(extendSentPayload(sent, "nope", 100).ok).toBe(false);
+		expect(
+			extendSentPayload({ input: [] }, { messages: [] }, 100),
+		).toMatchObject({ ok: false });
+		expect(extendSentPayload(sent, "nope", 100)).toMatchObject({ ok: false });
 	});
 });

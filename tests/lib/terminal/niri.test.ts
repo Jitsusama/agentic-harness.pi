@@ -265,7 +265,10 @@ describe("moving a window once it opens", () => {
 			{ title: "zsh", workspace_id: 1, id: 41, app_id: "pi-spawned.7" },
 		]);
 
-		expect(await moveOnceOpen(niri.call, placed, quick)).toBe(true);
+		expect(
+			await moveOnceOpen(niri.call, placed, quick),
+			"a window open on workspace 1 is moved",
+		).toBe(true);
 		expect(niri.asked[1]).toEqual({
 			Action: {
 				MoveWindowToWorkspace: {
@@ -282,14 +285,20 @@ describe("moving a window once it opens", () => {
 			{ title: "zsh", workspace_id: 5, id: 41, app_id: "pi-spawned.7" },
 		]);
 
-		expect(await moveOnceOpen(niri.call, placed, quick)).toBe(true);
+		expect(
+			await moveOnceOpen(niri.call, placed, quick),
+			"a window already on workspace 5 counts as placed",
+		).toBe(true);
 		expect(niri.asked).toEqual(["Windows"]);
 	});
 
 	it("gives up on a window that doesn't open in time", async () => {
 		const niri = desk([{ title: "zsh", workspace_id: 1, id: 41, app_id: "x" }]);
 
-		expect(await moveOnceOpen(niri.call, placed, quick)).toBe(false);
+		expect(
+			await moveOnceOpen(niri.call, placed, quick),
+			"no window of the class opened, so none is placed",
+		).toBe(false);
 		expect(JSON.stringify(niri.asked)).not.toContain("MoveWindowToWorkspace");
 	});
 });

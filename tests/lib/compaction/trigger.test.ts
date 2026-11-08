@@ -55,7 +55,7 @@ describe("deciding whether to compact now", () => {
 			cost,
 			floorTokens: 0,
 		});
-		expect(decision.fire).toBe(false);
+		expect(decision).toMatchObject({ fire: false });
 	});
 
 	it("compacts once the rent paid reaches what compacting costs", () => {
@@ -65,7 +65,7 @@ describe("deciding whether to compact now", () => {
 			cost,
 			floorTokens: 0,
 		});
-		expect(decision.fire).toBe(true);
+		expect(decision).toMatchObject({ fire: true });
 	});
 
 	it("never compacts a context at or below a floor someone set", () => {
@@ -75,7 +75,7 @@ describe("deciding whether to compact now", () => {
 			cost,
 			floorTokens: 200_000,
 		});
-		expect(decision.fire).toBe(false);
+		expect(decision).toMatchObject({ fire: false });
 	});
 });
 
@@ -93,6 +93,7 @@ describe("compacting before an idle session's cache expires", () => {
 				cost,
 				prices: PRICES,
 			}),
+			"compacting 280k down to 130k before the cache expires pays",
 		).toBe(true);
 	});
 
@@ -104,6 +105,7 @@ describe("compacting before an idle session's cache expires", () => {
 				cost,
 				prices: PRICES,
 			}),
+			"compacting 160k down to 130k before the cache expires does not pay",
 		).toBe(false);
 	});
 });

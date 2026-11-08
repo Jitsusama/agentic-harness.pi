@@ -183,7 +183,7 @@ describe("leaving the queue", () => {
 		ahead.resolve("ahead");
 		expect(await holding).toBe("ahead");
 		expect(await behind).toBe("behind");
-		expect(mounted).toBe(false);
+		expect(mounted, "a gate stopped while it waited never mounts").toBe(false);
 	});
 
 	it("never mounts a gate whose signal was stopped already", async () => {
@@ -196,7 +196,7 @@ describe("leaving the queue", () => {
 				{ signal: AbortSignal.abort() },
 			),
 		).rejects.toMatchObject({ name: "AbortError" });
-		expect(mounted).toBe(false);
+		expect(mounted, "a gate stopped before it queued never mounts").toBe(false);
 	});
 
 	it("keeps the screen for a mounted gate until its panel is gone", async () => {

@@ -60,18 +60,27 @@ describe("defaultWriteSignal", () => {
 	it("uses annotations when present, ignoring the name", () => {
 		expect(
 			defaultWriteSignal(tool("delete_everything", { readOnlyHint: true })),
+			"a read-only hint makes even delete_everything a read",
 		).toBe(false);
 		expect(
 			defaultWriteSignal(tool("harmless", { destructiveHint: true })),
+			"a destructive hint makes even harmless a write",
 		).toBe(true);
-		expect(defaultWriteSignal(tool("harmless", { readOnlyHint: false }))).toBe(
-			true,
-		);
+		expect(
+			defaultWriteSignal(tool("harmless", { readOnlyHint: false })),
+			"a read-only hint of false makes even harmless a write",
+		).toBe(true);
 	});
 
 	it("falls back to a name-verb match when no annotations exist", () => {
-		expect(defaultWriteSignal(tool("slack_post"))).toBe(true);
-		expect(defaultWriteSignal(tool("grokt_search_code"))).toBe(false);
+		expect(
+			defaultWriteSignal(tool("slack_post")),
+			"slack_post, by its post verb, is a write",
+		).toBe(true);
+		expect(
+			defaultWriteSignal(tool("grokt_search_code")),
+			"grokt_search_code, by its search verb, is a read",
+		).toBe(false);
 	});
 });
 
@@ -153,7 +162,7 @@ describe("makeDefaultWrap", () => {
 			tool("read_thing"),
 		);
 		const out = await wrapped({}, ctx);
-		expect(out.isError).toBe(true);
+		expect(out).toMatchObject({ isError: true });
 		expect(out.content).toEqual([{ type: "text", text: "boom" }]);
 	});
 });

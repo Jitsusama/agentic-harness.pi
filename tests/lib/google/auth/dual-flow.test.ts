@@ -128,7 +128,10 @@ describe("a Google login's waiting panel", () => {
 		expect(await outcome(run)).toMatchObject({
 			message: AUTH_MESSAGES.cancelled,
 		});
-		expect(handed.poll?.aborted).toBe(true);
+		expect(
+			handed.poll?.aborted,
+			"Escape on the device panel aborts the poll",
+		).toBe(true);
 		await screenShows(s, "ABCD-EFGH", false);
 	});
 
@@ -155,7 +158,10 @@ describe("a Google login's waiting panel", () => {
 		expect(await outcome(run)).toMatchObject({
 			message: AUTH_MESSAGES.cancelled,
 		});
-		expect(handed.callback?.aborted).toBe(true);
+		expect(
+			handed.callback?.aborted,
+			"Escape on the web flow's panel aborts the callback listener",
+		).toBe(true);
 		await screenShows(s, "Web Flow Authentication", false);
 	});
 });

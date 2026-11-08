@@ -44,11 +44,13 @@ describe("matchHeredocs", () => {
 		expect(matches).toHaveLength(1);
 		expect(matches[0].delim).toBe("EOF");
 		expect(matches[0].body).toBe("message");
-		expect(matches[0].quoted).toBe(true);
+		expect(matches[0]).toMatchObject({ quoted: true });
 	});
 
 	it("reports an unquoted delimiter", () => {
-		expect(matchHeredocs("cmd <<EOF\nx\nEOF")[0].quoted).toBe(false);
+		expect(matchHeredocs("cmd <<EOF\nx\nEOF")[0]).toMatchObject({
+			quoted: false,
+		});
 	});
 
 	it("returns every heredoc in order with spans", () => {
@@ -182,7 +184,13 @@ describe("splitAtCommand", () => {
 
 describe("hasUnquotedHeredoc", () => {
 	it("is true for a bare delimiter and false for a quoted one", () => {
-		expect(hasUnquotedHeredoc("cat <<EOF\nx\nEOF")).toBe(true);
-		expect(hasUnquotedHeredoc("cat <<'EOF'\nx\nEOF")).toBe(false);
+		expect(
+			hasUnquotedHeredoc("cat <<EOF\nx\nEOF"),
+			"a bare EOF delimiter is unquoted",
+		).toBe(true);
+		expect(
+			hasUnquotedHeredoc("cat <<'EOF'\nx\nEOF"),
+			"a single-quoted 'EOF' delimiter is quoted",
+		).toBe(false);
 	});
 });

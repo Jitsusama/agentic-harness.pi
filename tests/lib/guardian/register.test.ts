@@ -123,7 +123,7 @@ describe("registerGuardian under the policy", () => {
 		const result = await handler()(bashEvent("git commit -m x"), ctx(true));
 
 		expect(result).toBeUndefined();
-		expect(detected).toBe(false);
+		expect(detected, "a bypassed guard never runs detect").toBe(false);
 	});
 
 	it("hands review the guard's mode", async () => {
@@ -172,7 +172,7 @@ describe("registerGuardian under the policy", () => {
 			ctx(true),
 		);
 
-		expect(result?.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 	});
 });
 
@@ -211,8 +211,10 @@ describe("registerGuardian pipeline", () => {
 			ctx(true),
 		);
 
-		expect(result?.block).toBe(true);
-		expect(parsed).toBe(false);
+		expect(result).toMatchObject({ block: true });
+		expect(parsed, "an unsupported shape is blocked before parse runs").toBe(
+			false,
+		);
 	});
 
 	it("skips without a UI unless enforceWithoutUI is set", async () => {
@@ -232,7 +234,7 @@ describe("registerGuardian pipeline", () => {
 		const result = await handler()(bashEvent("git commit -m x"), ctx(false));
 
 		expect(result).toBeUndefined();
-		expect(reviewed).toBe(false);
+		expect(reviewed, "without a UI the guard never runs review").toBe(false);
 		expect(list()[0].lastOutcome).toEqual({ kind: "skipped", why: "no-ui" });
 	});
 
@@ -253,7 +255,7 @@ describe("registerGuardian pipeline", () => {
 		const result = await handler()(bashEvent("git commit -m x"), ctx(true));
 
 		expect(result).toBeUndefined();
-		expect(detected).toBe(false);
+		expect(detected, "a bypass that returns true skips detect").toBe(false);
 	});
 
 	it("passes the command through when the guardian allows", async () => {

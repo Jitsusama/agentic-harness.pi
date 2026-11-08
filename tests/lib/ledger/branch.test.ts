@@ -284,7 +284,7 @@ describe("runs", () => {
 
 		const turns = facts(log);
 		expect(turns.get("a2")?.facts?.runId).toBe(turns.get("a1")?.facts?.runId);
-		expect(turns.get("c1")?.compaction?.resumed).toBe(true);
+		expect(turns.get("c1")?.compaction).toMatchObject({ resumed: true });
 	});
 });
 

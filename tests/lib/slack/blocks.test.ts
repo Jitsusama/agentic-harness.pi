@@ -39,9 +39,11 @@ describe("parseMrkdwnToElements", () => {
 
 describe("mrkdwnToBlocks", () => {
 	it("turns a fenced block into a preformatted element", () => {
-		const { blocks, hasStructure } = mrkdwnToBlocks("```\ncode line\n```");
+		const converted = mrkdwnToBlocks("```\ncode line\n```");
 
-		expect(hasStructure).toBe(true);
-		expect(JSON.stringify(blocks)).toContain("rich_text_preformatted");
+		expect(converted).toMatchObject({ hasStructure: true });
+		expect(JSON.stringify(converted.blocks)).toContain(
+			"rich_text_preformatted",
+		);
 	});
 });

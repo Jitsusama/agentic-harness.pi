@@ -69,7 +69,7 @@ describe("a gate panel", () => {
 
 		await showSinglePrompt(ctx, SINGLE);
 
-		expect(seen[0]?.options?.overlay).toBe(true);
+		expect(seen[0]?.options).toMatchObject({ overlay: true });
 	});
 
 	it("is shown as an overlay when it carries tabs too", async () => {
@@ -78,7 +78,7 @@ describe("a gate panel", () => {
 
 		await showTabbedPrompt(ctx, TABBED);
 
-		expect(seen[0]?.options?.overlay).toBe(true);
+		expect(seen[0]?.options).toMatchObject({ overlay: true });
 	});
 
 	it("spans the width and sits at the bottom, where the editor was", async () => {

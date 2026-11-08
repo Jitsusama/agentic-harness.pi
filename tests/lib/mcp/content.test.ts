@@ -66,7 +66,7 @@ describe("truncateForDisplay", () => {
 	it("caps by line count and reports totals", () => {
 		const text = ["1", "2", "3", "4", "5"].join("\n");
 		const out = truncateForDisplay(text, { maxLines: 3, maxBytes: 10000 });
-		expect(out.truncated).toBe(true);
+		expect(out).toMatchObject({ truncated: true });
 		expect(out.shownLines).toBe(3);
 		expect(out.totalLines).toBe(5);
 		expect(out.text.split("\n").slice(0, 3)).toEqual(["1", "2", "3"]);
@@ -75,7 +75,7 @@ describe("truncateForDisplay", () => {
 	it("caps by byte budget", () => {
 		const text = ["aaaa", "bbbb", "cccc"].join("\n");
 		const out = truncateForDisplay(text, { maxLines: 100, maxBytes: 6 });
-		expect(out.truncated).toBe(true);
+		expect(out).toMatchObject({ truncated: true });
 		expect(out.shownLines).toBeLessThan(3);
 	});
 });

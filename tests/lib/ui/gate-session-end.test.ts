@@ -59,7 +59,10 @@ describe("a panel when its session ends", () => {
 		expect(closeEveryPanel()).toBe(1);
 		expect(await answer).toBeNull();
 		expect(await s.settled()).not.toContain("GATE ONE body");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack once the panel closes",
+		).toBe(false);
 	});
 
 	it("withdraws one still waiting, so it never mounts in the next session", async () => {
@@ -73,7 +76,10 @@ describe("a panel when its session ends", () => {
 		const screen = await s.settled();
 		expect(screen).not.toContain("GATE ONE body");
 		expect(screen).not.toContain("GATE TWO body");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack, the withdrawn panel included",
+		).toBe(false);
 	});
 
 	it("leaves the screen free for the next session's panels", async () => {
@@ -104,7 +110,10 @@ describe("a panel when its session ends", () => {
 		const screen = await s.settled();
 		expect(screen).not.toContain("GATE ONE body");
 		expect(screen).toContain("FOREIGN PANEL");
-		expect(overlaysLeft(s.tui)).toBe(true);
+		expect(
+			overlaysLeft(s.tui),
+			"the foreign panel is still on pi's stack",
+		).toBe(true);
 	});
 
 	it("counts nothing once every panel has answered", async () => {

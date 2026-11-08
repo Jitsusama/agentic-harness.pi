@@ -13,10 +13,18 @@ const gpt: ModelRef = { id: "gpt-5", provider: "openai" };
 
 describe("looksLikeGlm", () => {
 	it("matches on id or provider, case-insensitively", () => {
-		expect(looksLikeGlm(glm)).toBe(true);
-		expect(looksLikeGlm({ id: "x", provider: "z-ai" })).toBe(true);
-		expect(looksLikeGlm({ id: "y", provider: "Zhipu" })).toBe(true);
-		expect(looksLikeGlm(opus)).toBe(false);
+		expect(looksLikeGlm(glm), "a glm id is GLM").toBe(true);
+		expect(
+			looksLikeGlm({ id: "x", provider: "z-ai" }),
+			"the z-ai provider is GLM",
+		).toBe(true);
+		expect(
+			looksLikeGlm({ id: "y", provider: "Zhipu" }),
+			"the Zhipu provider, capitalised, is GLM",
+		).toBe(true);
+		expect(looksLikeGlm(opus), "an anthropic opus model is not GLM").toBe(
+			false,
+		);
 	});
 });
 
@@ -94,14 +102,30 @@ describe("isModelUnreachable", () => {
 			isModelUnreachable(
 				'404 {"error":{"message":"Model not found, inaccessible, and/or not deployed"}}',
 			),
+			"a 404 for a model not deployed is unreachable",
 		).toBe(true);
-		expect(isModelUnreachable("model_not_found")).toBe(true);
-		expect(isModelUnreachable("401 Unauthorized")).toBe(true);
+		expect(
+			isModelUnreachable("model_not_found"),
+			"model_not_found is unreachable",
+		).toBe(true);
+		expect(
+			isModelUnreachable("401 Unauthorized"),
+			"a refused credential is unreachable",
+		).toBe(true);
 	});
 
 	it("leaves a failure of the request itself alone", () => {
-		expect(isModelUnreachable("429 rate limited")).toBe(false);
-		expect(isModelUnreachable("context length exceeded")).toBe(false);
-		expect(isModelUnreachable("network down")).toBe(false);
+		expect(
+			isModelUnreachable("429 rate limited"),
+			"a rate limit is not unreachable",
+		).toBe(false);
+		expect(
+			isModelUnreachable("context length exceeded"),
+			"an over-long context is not unreachable",
+		).toBe(false);
+		expect(
+			isModelUnreachable("network down"),
+			"a network failure is not unreachable",
+		).toBe(false);
 	});
 });

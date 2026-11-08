@@ -40,6 +40,6 @@ describe("slack credentials store", () => {
 
 		writeFile({}, file);
 
-		expect(existsSync(file)).toBe(true);
+		expect(existsSync(file), `${file} exists`).toBe(true);
 	});
 });

@@ -46,6 +46,6 @@ describe("google credentials store", () => {
 
 		writeFile({ accounts: [], tokens: {} }, file);
 
-		expect(existsSync(file)).toBe(true);
+		expect(existsSync(file), `${file} exists`).toBe(true);
 	});
 });

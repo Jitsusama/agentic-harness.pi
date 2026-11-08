@@ -40,16 +40,20 @@ function provider(overrides: Partial<FrontEndProvider> = {}): FrontEndProvider {
 
 describe("isFrontEndProvider", () => {
 	it("accepts a well-formed provider", () => {
-		expect(isFrontEndProvider(provider())).toBe(true);
+		expect(
+			isFrontEndProvider(provider()),
+			"a well-formed provider is accepted",
+		).toBe(true);
 	});
 
 	it("rejects payloads missing ids, a matcher, or with a non-function hook", () => {
-		expect(isFrontEndProvider(null)).toBe(false);
+		expect(isFrontEndProvider(null), "null is rejected").toBe(false);
 		expect(
 			isFrontEndProvider({
 				serverId: "s",
 				match: { kind: "glob", pattern: "x" },
 			}),
+			"a provider without a providerId is rejected",
 		).toBe(false);
 		expect(
 			isFrontEndProvider({
@@ -57,10 +61,12 @@ describe("isFrontEndProvider", () => {
 				providerId: "p",
 				match: { kind: "nope" },
 			}),
+			"a provider with an unknown match kind is rejected",
 		).toBe(false);
-		expect(isFrontEndProvider({ ...provider(), shape: "not a function" })).toBe(
-			false,
-		);
+		expect(
+			isFrontEndProvider({ ...provider(), shape: "not a function" }),
+			"a provider whose shape hook is not a function is rejected",
+		).toBe(false);
 	});
 });
 

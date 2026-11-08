@@ -20,14 +20,14 @@ describe("createResultStore", () => {
 		const store = createResultStore({ dir });
 		const stored = store.put("hello world");
 		expect(store.read(stored.handle)).toBe("hello world");
-		expect(store.has(stored.handle)).toBe(true);
+		expect(store.has(stored.handle), `${stored.handle} is held`).toBe(true);
 		expect(fs.readFileSync(stored.path, "utf-8")).toBe("hello world");
 	});
 
 	it("throws HandleExpiredError for an unknown handle", () => {
 		const store = createResultStore({ dir });
 		expect(() => store.read("nope")).toThrow(HandleExpiredError);
-		expect(store.has("nope")).toBe(false);
+		expect(store.has("nope"), "a handle never stored is not held").toBe(false);
 	});
 
 	it("evicts the oldest entry when the disk quota is exceeded", () => {
@@ -44,14 +44,20 @@ describe("createResultStore", () => {
 		expect(store.read(stored.handle)).toBe(
 			"a much larger payload than the quota",
 		);
-		expect(store.has(stored.handle)).toBe(true);
+		expect(
+			store.has(stored.handle),
+			`${stored.handle}, over the quota alone, is still held`,
+		).toBe(true);
 	});
 
 	it("has returns false once the backing file vanishes", () => {
 		const store = createResultStore({ dir });
 		const stored = store.put("payload");
 		fs.rmSync(stored.path);
-		expect(store.has(stored.handle)).toBe(false);
+		expect(
+			store.has(stored.handle),
+			`${stored.handle} is not held once ${stored.path} is gone`,
+		).toBe(false);
 	});
 
 	it("expires a handle whose file somebody else removed", () => {
@@ -66,7 +72,10 @@ describe("createResultStore", () => {
 		fs.rmSync(stored.path, { force: true });
 
 		expect(() => store.read(stored.handle)).toThrow(HandleExpiredError);
-		expect(store.has(stored.handle)).toBe(false);
+		expect(
+			store.has(stored.handle),
+			`${stored.handle} is not held once ${stored.path} is removed`,
+		).toBe(false);
 	});
 
 	it("throws HandleExpiredError when the backing file vanishes", () => {

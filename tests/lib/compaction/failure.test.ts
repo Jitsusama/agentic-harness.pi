@@ -23,7 +23,10 @@ describe("backing off after a compaction fails", () => {
 
 describe("telling a cancelled compaction from a failed one", () => {
 	it("reads pi's cancellation as the user choosing not to compact", () => {
-		expect(wasCancelled(new Error("Compaction cancelled"))).toBe(true);
+		expect(
+			wasCancelled(new Error("Compaction cancelled")),
+			"pi's own cancellation reads as cancelled",
+		).toBe(true);
 	});
 
 	it("reads a summary cut off at the token cap as a failure", () => {
@@ -33,6 +36,7 @@ describe("telling a cancelled compaction from a failed one", () => {
 					"Summarization failed: generation hit the token cap and the summary is incomplete",
 				),
 			),
+			"a summary cut off at the token cap is not a cancellation",
 		).toBe(false);
 	});
 });

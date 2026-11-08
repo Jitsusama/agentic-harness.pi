@@ -71,7 +71,10 @@ describe("a panel shown while work runs", () => {
 
 		expect(await outcome(run)).toEqual({ value: "signed in" });
 		expect(await s.settled()).not.toContain("WAITING FOR THE LOGIN");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack once the work finishes",
+		).toBe(false);
 	});
 
 	it("stops the work when Escape closes it", async () => {
@@ -85,7 +88,7 @@ describe("a panel shown while work runs", () => {
 		s.terminal.press(ESCAPE);
 
 		expect(await outcome(run)).toMatchObject({ name: "AbortError" });
-		expect(handed?.aborted).toBe(true);
+		expect(handed?.aborted, "Escape aborts the work's signal").toBe(true);
 		expect(await s.settled()).not.toContain("WAITING FOR THE LOGIN");
 	});
 
@@ -119,7 +122,10 @@ describe("a panel shown while work runs", () => {
 			});
 		});
 		await s.settled();
-		expect(handed?.aborted).toBe(false);
+		expect(
+			handed?.aborted,
+			"a headless panel leaves the work's signal alone",
+		).toBe(false);
 
 		finish("signed in");
 

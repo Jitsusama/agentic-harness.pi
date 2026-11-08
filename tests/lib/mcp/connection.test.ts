@@ -88,7 +88,7 @@ describe("createMcpConnection", () => {
 		await conn.connect();
 		const result = await conn.callTool("slack_post", { a: 1 });
 		expect(result.content).toEqual([{ type: "text", text: "done" }]);
-		expect(result.isError).toBe(false);
+		expect(result).toMatchObject({ isError: false });
 	});
 
 	it("surfaces a transport failure as an errored result carrying the status", async () => {
@@ -98,7 +98,7 @@ describe("createMcpConnection", () => {
 		const conn = createMcpConnection(config, { client, transport: {} });
 		await conn.connect();
 		const result = await conn.callTool("slack_post", {});
-		expect(result.isError).toBe(true);
+		expect(result).toMatchObject({ isError: true });
 		expect(JSON.stringify(result.content)).toContain("unauthorized");
 		expect(
 			(result._meta as { transportError?: { status?: number } })?.transportError

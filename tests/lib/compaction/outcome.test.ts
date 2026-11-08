@@ -32,9 +32,15 @@ describe("a compaction's outcome on the bus", () => {
 	});
 
 	it("is recognised by its kind and session, and nothing else is", () => {
-		expect(isCompactionOutcome(unused)).toBe(true);
-		expect(isCompactionOutcome({ ...unused, kind: "exploded" })).toBe(false);
-		expect(isCompactionOutcome({ kind: "failed" })).toBe(false);
-		expect(isCompactionOutcome(null)).toBe(false);
+		expect(isCompactionOutcome(unused), "an unused outcome is one").toBe(true);
+		expect(
+			isCompactionOutcome({ ...unused, kind: "exploded" }),
+			"an unknown kind is not an outcome",
+		).toBe(false);
+		expect(
+			isCompactionOutcome({ kind: "failed" }),
+			"a kind without a session is not an outcome",
+		).toBe(false);
+		expect(isCompactionOutcome(null), "null is not an outcome").toBe(false);
 	});
 });
