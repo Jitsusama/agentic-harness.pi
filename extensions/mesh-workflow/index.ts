@@ -230,7 +230,7 @@ import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
 import { tellOnNoModel, tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
-import { settleFromVerdicts, type Waiting } from "./wait.ts";
+import { markOwnerRunning, settleFromVerdicts, type Waiting } from "./wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -362,6 +362,24 @@ export interface MeshPaths extends QuestRecords {
 	readonly looks?: string;
 }
 
+/**
+ * Put the person's words in the prompt, unsent, for them to read and
+ * send: what a to-do's drawer fills when it brings this session forward.
+ * A prompt they were already typing in is left as it is, and the words
+ * shown beside it, so nothing of theirs is lost.
+ */
+function fillPrompt(ctx: ExtensionContext | undefined, text: string): void {
+	if (!ctx?.hasUI) return;
+	if (ctx.ui.getEditorText().trim() === "") {
+		ctx.ui.setEditorText(text);
+		return;
+	}
+	ctx.ui.notify(
+		`Your prompt already has words in it, so this was left out of it: ${text}`,
+		"info",
+	);
+}
+
 /** How often a session looks whether it's its turn to ask GitHub about looks. */
 const LOOKS_CHECK_MS = 60_000;
 
@@ -393,7 +411,10 @@ async function askAboutLooks(
 			],
 			{ timeout: LOOKS_ASK_TIMEOUT_MS },
 		);
-		if (ran.code !== 0) return;
+		// Not on its exit: one pull request GitHub can't find (deleted, or
+		// a repo now private) makes gh exit 1 with the others' answers still
+		// in its data, as a live ask on 8 November showed.
+		if (ran.stdout.trim() === "") return;
 		markResolved(dir, resolutionsFrom(asked, JSON.parse(ran.stdout)));
 	} catch {
 		// GitHub unreachable or its answer unreadable: asked again next turn.
@@ -759,6 +780,10 @@ export function meshWorkflow(
 				deliver: (one, inbox) => {
 					if (one.act === "carry") {
 						if (one.to !== undefined) void pausing.carry(one.to);
+						return;
+					}
+					if (one.act === "fill") {
+						fillPrompt(ctx, one.text);
 						return;
 					}
 					// Resume with words is a talk; any other act is only the act.
@@ -1441,7 +1466,10 @@ export function meshWorkflow(
 			hideWants = showWants();
 			for (const landing of unlanded.splice(0)) peer.landed(landing);
 			if (onNoModelUntold) tellNoModel(onNoModelUntold);
-			if (waiting) settleFromVerdicts(waiting);
+			if (waiting) {
+				settleFromVerdicts(waiting);
+				markOwnerRunning(waiting, true);
+			}
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
 			env[MESH_SESSION_ENV] = peer.session;
@@ -1662,6 +1690,11 @@ export function meshWorkflow(
 			lookClock = undefined;
 			clearInterval(looksClock);
 			looksClock = undefined;
+			// A session parking is still there to wake, so only one ending for
+			// good says its items' owner has ended.
+			if (waiting && !(peer && isParked(peer.session))) {
+				markOwnerRunning(waiting, false);
+			}
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;

@@ -83,6 +83,18 @@ describe("asking GitHub about the person's looks", () => {
 			{ id: "c", how: "reviewed by Jitsusama" },
 		]);
 		expect(resolutionsFrom(asked, { errors: [{}] })).toEqual([]);
+		// GitHub's answer when one pull request can't be found: the rest stand.
+		const partly = {
+			data: {
+				viewer: { login: "Jitsusama" },
+				p0: { pullRequest: null },
+				p1: answer.data.p0,
+			},
+			errors: [{ type: "NOT_FOUND", path: ["p0", "pullRequest"] }],
+		};
+		expect(resolutionsFrom(asked.slice(0, 2), partly)).toEqual([
+			{ id: "b", how: "merged" },
+		]);
 	});
 
 	it("marks what resolved, leaving a look the person already cleared as it was", () => {

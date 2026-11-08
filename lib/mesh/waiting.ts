@@ -65,6 +65,14 @@ export interface Where {
 export interface Owner {
 	readonly session: string;
 	readonly address: string;
+	/**
+	 * "ended" once the session ended with the item still waiting, so the
+	 * launcher says so rather than send the person into a session that's
+	 * gone (Joel, 8 November: "so far past what i'm being asked that i
+	 * don't know if it is still relevant"). Left out while it runs, and
+	 * taken away when it starts again.
+	 */
+	readonly state?: "ended";
 }
 
 /**
@@ -114,6 +122,11 @@ export interface WaitingItem {
 	readonly owner?: Owner;
 	/** When it was first raised. */
 	readonly raisedAt?: string;
+	/**
+	 * When it was last found still true: said again by its session, or
+	 * found ready by the desktop's daemon.
+	 */
+	readonly checkedAt?: string;
 }
 
 /** What the desktop's daemon found of one item. */
@@ -177,14 +190,52 @@ export function applyVerdicts(
 			changed = true;
 			return [];
 		}
-		if (verdict?.state === "ready" && !one.ready) {
-			changed = true;
-			return [{ ...one, ready: true }];
+		if (verdict?.state === "ready") {
+			const checkedAt = laterOf(one.checkedAt, verdict.at);
+			if (!one.ready || checkedAt !== one.checkedAt) {
+				changed = true;
+				return [{ ...one, ready: true, ...(checkedAt ? { checkedAt } : {}) }];
+			}
 		}
 		return [one];
 	});
 	if (changed) write(folder, quest, items, now);
 	return { items, changed };
+}
+
+/** The later of two ISO times, either of which may be missing. */
+function laterOf(
+	a: string | undefined,
+	b: string | undefined,
+): string | undefined {
+	if (!b || Number.isNaN(Date.parse(b))) return a;
+	if (!a || Number.isNaN(Date.parse(a))) return b;
+	return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
+/**
+ * Say, in `quest`'s file, whether `session` runs for each item it
+ * raised: "ended" as it ends, nothing as it starts again. Answers
+ * whether anything changed.
+ */
+export function markOwner(
+	folder: string,
+	quest: string,
+	session: string,
+	ended: boolean,
+	now = new Date(),
+): boolean {
+	const held = waitingOf(folder, quest);
+	let changed = false;
+	const items = held.map((one): WaitingItem => {
+		if (one.owner?.session !== session) return one;
+		if (ended === (one.owner.state === "ended")) return one;
+		changed = true;
+		const { state: _was, ...owner } = one.owner;
+		return { ...one, owner: ended ? { ...owner, state: "ended" } : owner };
+	});
+	if (changed) write(folder, quest, items, now);
+	return changed;
 }
 
 /** Remove what `quest` has waiting, as the quest ends. */

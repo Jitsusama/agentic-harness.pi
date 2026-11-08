@@ -19,6 +19,7 @@ import {
 	applyVerdicts,
 	clearWaiting,
 	isKnowing,
+	markOwner,
 	settleWaiting,
 	verdictsFile,
 	verdictsIn,
@@ -106,6 +107,27 @@ describe("what waits on the person", () => {
 		]);
 	});
 
+	// Joel, 8 November: a to-do sent him into a session "so far past what
+	// i'm being asked that i don't know if it is still relevant".
+	it("says when the session that raised an item has ended, and not once it runs again", () => {
+		const owner = { session: "S1", address: "85PKB2" };
+		addWaiting(folder, item({ owner }), at);
+		addWaiting(
+			folder,
+			item({ id: "other", owner: { session: "S2", address: "X" } }),
+			at,
+		);
+
+		expect(markOwner(folder, QUEST, "S1", true, at)).toBe(true);
+		expect(waitingOf(folder, QUEST).map((one) => one.owner?.state)).toEqual([
+			"ended",
+			undefined,
+		]);
+		expect(markOwner(folder, QUEST, "S1", true, at)).toBe(false);
+		expect(markOwner(folder, QUEST, "S1", false, at)).toBe(true);
+		expect(waitingOf(folder, QUEST)[0]?.owner).toEqual(owner);
+	});
+
 	it("goes with its quest", () => {
 		addWaiting(folder, item(), at);
 		clearWaiting(folder, QUEST);
@@ -187,6 +209,26 @@ describe("the desktop's verdicts", () => {
 			["sign", false],
 		]);
 		expect(waitingOf(folder, QUEST)).toEqual(items);
+	});
+
+	it("say when an item was last found still true", () => {
+		addWaiting(
+			folder,
+			item({ ready: true, checkedAt: "2026-10-26T03:00:00.000Z" }),
+			at,
+		);
+		const found = { state: "ready", at: "2026-10-26T04:00:00.000Z" };
+
+		applyVerdicts(
+			folder,
+			QUEST,
+			verdicts({ [`${QUEST}:eero-login`]: found }),
+			at,
+		);
+
+		expect(waitingOf(folder, QUEST)[0]?.checkedAt).toBe(
+			"2026-10-26T04:00:00.000Z",
+		);
 	});
 
 	it("are none while the daemon has written none", () => {

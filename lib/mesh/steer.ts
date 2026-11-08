@@ -13,7 +13,8 @@
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
  * talk.ts). An `act` of `pause`, `resume`, `stop`, `close` or `carry`
- * needs no text, and a `carry` names the machine it goes to as `to`. A
+ * needs no text, a `carry` names the machine it goes to as `to`, and a
+ * `fill` puts its `text` in the prompt without sending it. A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. The
  * session going by that address takes it by renaming it again, so two
@@ -38,12 +39,16 @@ import { isTalkId } from "./talk.ts";
 /**
  * What the person may do to a session besides talk: pause it after its
  * current step, resume it, stop the run in progress, close the session
- * for good, as /exit does, or carry its work to another machine and
- * then close it.
+ * for good, as /exit does, carry its work to another machine and then
+ * close it, or fill its prompt with words left for the person to send.
+ * Joel, 8 November, of a to-do that sends him to a session: "it should
+ * give me a prompt that gets filled into it stating i'm reayd to deal
+ * with it if it is still valid".
  */
 export const STEER_ACTS = [
 	"pause",
 	"resume",
+	"fill",
 	"stop",
 	"close",
 	"carry",
@@ -141,18 +146,21 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)
 			? parsed.act
 			: undefined;
-	// A carry goes nowhere without a machine, so one naming none is no act.
 	const to =
 		asked === "carry" && "to" in parsed && isMachineName(parsed.to)
 			? parsed.to
 			: undefined;
-	const act = asked === "carry" && to === undefined ? undefined : asked;
 	const said =
 		"text" in parsed && typeof parsed.text === "string"
 			? parsed.text.trim()
 			: "";
+	// A carry goes nowhere without a machine, nor a fill without words.
+	const act =
+		(asked === "carry" && to === undefined) || (asked === "fill" && said === "")
+			? undefined
+			: asked;
 	// Words would start the run a pause, stop or close is ending.
-	const text = act && act !== "resume" ? "" : said;
+	const text = act && act !== "resume" && act !== "fill" ? "" : said;
 	if (!act && text === "") return undefined;
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
