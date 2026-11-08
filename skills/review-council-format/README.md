@@ -10,7 +10,7 @@ change, its diff, and where an anchor can legitimately land. This owes
 it the shape.
 
 Read [`SKILL.md`](./SKILL.md) for the contract itself. The reader it
-describes is [`lib/review/ask/harvest.ts`][harvest]; if the two ever
+describes is [`lib/core/review/ask/harvest.ts`][harvest]; if the two ever
 disagree, the reader wins and this file is the bug.
 
 Related: [`review-judge-format`](../review-judge-format),
@@ -19,4 +19,4 @@ Related: [`review-judge-format`](../review-judge-format),
 [`review-stack-format`](../review-stack-format) for the other rounds,
 and [`review-guide`](../review-guide) for driving the tools.
 
-[harvest]: ../../lib/review/ask/harvest.ts
+[harvest]: ../../lib/core/review/ask/harvest.ts

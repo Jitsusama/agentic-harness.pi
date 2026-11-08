@@ -13,9 +13,9 @@ on one change is routinely answered by a sibling, and reporting that as
 addressed sends whoever replies looking in the wrong diff.
 
 Read [`SKILL.md`](./SKILL.md) for the contract. The reader it describes
-is [`lib/review/ask/audit.ts`][audit].
+is [`lib/core/review/ask/audit.ts`][audit].
 
 Related: [`review-guide`](../review-guide) for driving the tools, and
 [`comment-format`](../comment-format) for the reply an audit informs.
 
-[audit]: ../../lib/review/ask/audit.ts
+[audit]: ../../lib/core/review/ask/audit.ts
