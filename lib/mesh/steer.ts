@@ -61,9 +61,20 @@ function isSteerAct(value: unknown): value is SteerAct {
  */
 export const FROM_MACHINE = "machine";
 
-/** Whether a steer's writer is the person: one who names nobody, or Joel. */
+/**
+ * The `from` mycelium's node writes for what the person asked through it,
+ * as `mycelium carry` steers each session with.
+ */
+export const FROM_PERSON = "person";
+
+/**
+ * Whether a steer's writer is the person: one who names nobody, Joel, or
+ * the node writing on the person's word.
+ */
 export function isFromPerson(from: string | undefined): boolean {
-	return from === undefined || from === "" || from.toLowerCase() === "joel";
+	if (from === undefined || from === "") return true;
+	const who = from.toLowerCase();
+	return who === "joel" || who === FROM_PERSON;
 }
 
 /** One thing the person said, as the inbox carries it. */

@@ -146,6 +146,10 @@ describe("the steer inbox", () => {
 		expect(
 			steerFrom('{"from":"machine","act":"carry","to":"penelope"}', "f"),
 		).toBeUndefined();
+		// mycelium carry steers on the person's word, saying so.
+		expect(
+			steerFrom('{"from":"person","act":"carry","to":"penelope"}', "f"),
+		).toMatchObject({ act: "carry", to: "penelope" });
 	});
 
 	it("reads what waits without taking it", () => {
