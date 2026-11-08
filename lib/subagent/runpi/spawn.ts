@@ -63,6 +63,7 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 		onEvent,
 		timeoutMs: callTimeoutMs,
 		idleTimeoutMs,
+		env: given,
 	}) {
 		const timeoutMs = callTimeoutMs ?? configTimeoutMs;
 		// The spawn runner has no supervisor protocol and
@@ -95,12 +96,16 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 					// upgrade deletes, so override it with the immutable
 					// store path captured at startup. Left untouched when
 					// the parent had no PI_PACKAGE_DIR (self-locating
-					// installs need no override).
-					...(config.piInstall.packageDir
+					// installs need no override). The caller's own variables
+					// go on top.
+					...(config.piInstall.packageDir || given
 						? {
 								env: {
 									...process.env,
-									PI_PACKAGE_DIR: config.piInstall.packageDir,
+									...(config.piInstall.packageDir
+										? { PI_PACKAGE_DIR: config.piInstall.packageDir }
+										: {}),
+									...given,
 								},
 							}
 						: {}),

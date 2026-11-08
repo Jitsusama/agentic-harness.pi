@@ -21,14 +21,19 @@ Each call to one of them is checked before it runs:
   system's settings, and git's and Nix's settings in the home folder.
   `/proc` is left out, since pi's own process holds every token the
   sandbox keeps from commands.
+- **The session's skills** may be read too, never written. pi names
+  each skill's file and leaves the model to read it, so refusing them
+  would leave a reviewer without the contract its answer follows.
 - **Writing** reaches only the working folder and the sandbox's own
   cache and temporary folder.
 - **Every link** in the path is followed, a dangling one too, so a link
   a command made inside the work leads nowhere the command couldn't go.
   Each spelling pi tries for a missing file is checked as well.
-- **A working folder the sandbox won't fence** (the home folder, or one
-  holding its repository's git folder) runs no file tool, as it runs no
-  command.
+- **A working folder the sandbox won't fence** runs no command. In the
+  home folder it runs no file tool either. One holding its repository's
+  git folder, a plain clone, may be read but never written, since only
+  writing reaches the hooks git runs outside; a review that falls back
+  to the session's own checkout still reads it.
 
 A session with no sandbox is let through untouched, and a `PI_SANDBOX`
 naming no sandbox refuses every file tool, as it refuses every command.

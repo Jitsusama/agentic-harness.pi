@@ -578,20 +578,37 @@ export interface ToolCall {
  * it does: one naming a path that leads where a fenced command couldn't
  * reach, or that it couldn't write to for a tool that writes. Every path
  * the tool may open is checked, through its links, so a link made inside
- * the work leads nowhere it couldn't. Any other tool, or a session with
- * no sandbox, is let through.
+ * the work leads nowhere it couldn't. A working folder holding its git
+ * folder may be read but never written. Any other tool, or a session
+ * with no sandbox, is let through.
  */
 export function fileToolRefusal(
 	call: ToolCall,
-	place: { cwd: string; env: NodeJS.ProcessEnv; home: string },
+	place: {
+		cwd: string;
+		env: NodeJS.ProcessEnv;
+		home: string;
+		/**
+		 * The folders of the skills pi offered this session. pi names each
+		 * skill's file and leaves the model to read it, so a fence that
+		 * refused them would quietly strip a reviewer of its output
+		 * contract; they are read, never written.
+		 */
+		skills?: readonly string[];
+	},
 ): string | undefined {
 	const asked = place.env[SANDBOX_VARIABLE]?.trim();
 	const tool = FILE_TOOLS.get(call.toolName);
 	if (!asked || !tool) return undefined;
 	if (asked !== STRICT) return noSuchSandbox(asked, "file tool");
 	const { cwd, home } = place;
+	// A folder holding its git folder is refused for what writing there
+	// would reach, which reading it doesn't, so a review that falls back
+	// to a plain clone still reads it. The home folder is refused both ways.
 	const unfenced = unfencedFolder(cwd, home);
-	if (unfenced) return `${unfenced} pi's file tools don't run there either.`;
+	if (unfenced && (tool.use === "write" || within(home, cwd))) {
+		return `${unfenced} pi's file tools don't ${tool.use} there either.`;
+	}
 	const path = pathOf(call.input, tool.searches);
 	if (path === undefined) {
 		return `${SANDBOX_VARIABLE}=${STRICT} checks the path each file tool names, and this ${call.toolName} named none it could check, so it didn't run.`;
@@ -610,7 +627,9 @@ export function fileToolRefusal(
 			repository: worktreeRepository(cwd, home),
 		},
 		tool.use,
-	).flatMap((folder) => leadsTo(folder) ?? []);
+	)
+		.concat(tool.use === "read" ? (place.skills ?? []) : [])
+		.flatMap((folder) => leadsTo(folder) ?? []);
 	for (const candidate of candidates) {
 		const real = leadsTo(candidate);
 		if (real !== undefined && reach.some((folder) => inside(real, folder))) {
@@ -621,7 +640,7 @@ export function fileToolRefusal(
 		const what =
 			tool.use === "write"
 				? "may write only in the working folder and the sandbox's own cache and temporary folder"
-				: "may read only what its commands may: the work, the store, and the system's and git's settings";
+				: "may read only what its commands may, and the session's skills: the work, the store, and the system's and git's settings";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${call.toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}
 	return undefined;

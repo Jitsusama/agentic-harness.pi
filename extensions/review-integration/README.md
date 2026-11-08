@@ -131,6 +131,14 @@ record, the mesh's `runs/` file the launcher reads under the
 session that asked, until each participant has ended
 (`run-records.ts`; the shape is in mesh-workflow's README).
 
+Every participant reads a change a stranger may have written, so
+each runs under `PI_SANDBOX=strict` and loads the sandbox file
+interceptor and the secret scrub, whatever its round. Its file
+tools reach only what a fenced command could, and a credential
+its tools turn up is scrubbed before a finding could quote it
+onto the change. The setting is given to each run, wrap-up and
+resume as it starts, never read from a run saved before.
+
 ## Configuration
 
 The `review` section of

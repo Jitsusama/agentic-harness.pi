@@ -476,6 +476,38 @@ describe("createSupervisorRunPi", () => {
 		expect(result.finalAssistantText).toBe("QEST-20261024-ABC123");
 	});
 
+	it("gives the child the run's own variables, and writes none of them to disk", async () => {
+		const stateDir = await tempStateDir();
+		const childFolder = await mkdtemp(join(tmpdir(), "supervisor-child-"));
+		const childPath = join(childFolder, "child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_SANDBOX)}]}})+"\\n");`,
+		);
+		const result = await createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		})({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "fenced",
+			env: { PI_SANDBOX: "strict" },
+		});
+		expectRan(result);
+		expect(result.finalAssistantText).toBe("strict");
+		// A request outlives its run, and a resume reads it again, so the
+		// variables live only in the process they were given to.
+		const written = await readdir(stateDir, { recursive: true });
+		for (const name of written) {
+			const path = join(stateDir, name);
+			if (!(await stat(path)).isFile()) continue;
+			expect(await readFile(path, "utf8")).not.toContain("PI_SANDBOX");
+		}
+	});
+
 	it("gives the child the cache retention its runner names, in place of the session's", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "child.mjs");

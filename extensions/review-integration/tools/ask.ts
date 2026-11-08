@@ -91,6 +91,7 @@ import {
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { SANDBOX_VARIABLE, STRICT } from "../../../lib/internal/sandbox.ts";
 import {
 	personsWords,
 	refusedModel,
@@ -936,12 +937,13 @@ async function startRound(
 					prompt: asked,
 					cwd: tree.path,
 					isolated: ISOLATED,
+					env: FENCED,
 					extraSkills: [contract],
 					// Not optional here the way it is on the waiting path.
 					// A detached reviewer's answer is only ever read off
 					// disk, so a finding it did not write down before it
 					// died is a finding nothing can recover.
-					extraExtensions: [journalPack()],
+					extraExtensions: [journalPack(), ...fencePacks()],
 					...lensFor(charters.get(participant.id)),
 					runId,
 					stateDir: runArtifactDir(),
@@ -2370,6 +2372,33 @@ function chartersFor(
 const ISOLATED = true;
 
 /**
+ * What every reviewer's pi runs under: the strict sandbox, always and
+ * for every round, since each reads a change a stranger may have
+ * written, and one rule is easier to trust than a choice. Given to each
+ * run as it starts, so a resumed or retried reviewer takes it from the
+ * round that starts it, never from a run saved earlier.
+ */
+const FENCED = { [SANDBOX_VARIABLE]: STRICT } as const;
+
+/**
+ * The extensions that hold a reviewer to that sandbox, by their place
+ * in this package. `ISOLATED` loads none of the session's, and a
+ * reviewer runs no commands, so the sandbox alone would fence nothing:
+ * these hold its file tools to the fence and scrub credentials from
+ * what they answer, before a finding could quote one onto the change.
+ */
+const FENCE_EXTENSIONS = [
+	"extensions/sandbox-file-interceptor/index.ts",
+	"extensions/secret-scrub-interceptor/index.ts",
+] as const;
+
+/** The fence's extensions, where this package has them. */
+export function fencePacks(): string[] {
+	const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
+}
+
+/**
  * The change and its diff, which every round needs. A local range has no
  * proposal of its own to read, so its commits stand in for one.
  */
@@ -2496,9 +2525,11 @@ function deps(
 			// So a finding survives the reviewer that found it. Every
 			// other protection here recovers an answer, and an answer
 			// only exists if the reviewer reached the end.
-			...(RECORDS_FINDINGS.has(watch.round)
-				? { extraExtensions: [journalPack()] }
-				: {}),
+			extraExtensions: [
+				...(RECORDS_FINDINGS.has(watch.round) ? [journalPack()] : []),
+				...fencePacks(),
+			],
+			env: FENCED,
 			// The charter is a standing instruction, and the system prompt
 			// says so, but it rides after the round's brief: every
 			// participant's request is then the same up to the end of the

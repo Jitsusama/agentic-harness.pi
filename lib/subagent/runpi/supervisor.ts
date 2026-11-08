@@ -205,7 +205,7 @@ export function createSupervisorStartPi(
 			[where.script, paths.requestPath],
 			{
 				cwd: options.cwd,
-				env: supervisorEnvironment(config),
+				env: supervisorEnvironment(config, options.env),
 				// Its own process group. A child in the session's group
 				// takes the session's signals, so the interrupt that ends a
 				// pi session would end the round with it, which is the
@@ -252,10 +252,13 @@ export function createSupervisorStartPi(
  * and what the session offers its commands, such as the loaded quest.
  * A subagent does its session's work, so the machine counts it for the
  * same quest. A runner that names a cache retention gives it in place of
- * the session's.
+ * the session's. The run's own variables go on top, on the supervisor
+ * rather than in its request, since the reviewer takes the supervisor's
+ * environment and a request on disk outlives the run that wrote it.
  */
 function supervisorEnvironment(
 	config: SupervisorRunPiConfig,
+	given: Readonly<Record<string, string>> | undefined,
 ): NodeJS.ProcessEnv {
 	return {
 		...process.env,
@@ -263,6 +266,7 @@ function supervisorEnvironment(
 		...(config.cacheRetention === undefined
 			? {}
 			: { PI_CACHE_RETENTION: config.cacheRetention }),
+		...given,
 	};
 }
 
@@ -379,7 +383,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				[supervisorPath, paths.requestPath],
 				{
 					cwd,
-					env: supervisorEnvironment(config),
+					env: supervisorEnvironment(config, options.env),
 					detached: false,
 					stdio: ["ignore", "pipe", "pipe"],
 				},
