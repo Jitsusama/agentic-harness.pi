@@ -149,7 +149,14 @@ it does:
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
   `panel-zoom-widget`, `terminal-modes-widget`,
-  `link-click-widget`
+  `link-click-widget`, `done-chime-widget`
+
+  `done-chime-widget` is the one a person hears rather than sees:
+  a run they typed into rings once it outlasts their glance, with
+  a ding and a local voice naming the session. It decides when;
+  the machine says what it sounds like, in a file a Nix module
+  can write, so the harness names no player, voice or path of
+  its own on Linux.
 
 - **Providers** (`*-provider`): contribute an implementation to
   a host over the `pi.events` bus without importing the host's
