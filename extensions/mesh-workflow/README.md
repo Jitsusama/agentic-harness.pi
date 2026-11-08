@@ -751,9 +751,29 @@ A steer may instead carry an `act`, with no text needed
   All don't offer it back. Its quest, trees and Needs You
   items stay, and for 24 hours `quest reopen-sessions` can
   still reopen it by id.
+- `carry`, with `to` naming a machine (`{"act": "carry", "to":
+  "penelope"}`), takes the session's work to that machine, as
+  `mycelium carry <quest> --to <machine>` asks of each of a
+  quest's sessions: any run in progress is ended and waited
+  out, every tree the work broker holds for it and its own file
+  go into its quest's handover with its done file written last
+  ([`carrying.ts`](carrying.ts)), and then it closes as `close`
+  does. A run that starts from then on is ended. A carry with no
+  machine, or one that isn't a hostname, is no act; one that
+  fails, as with no quest loaded, leaves the session open and
+  says why. The work integration's README says what the handover
+  holds.
 
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.
+
+A parked session reads its inbox only as it wakes, and `close`
+and `carry` wait on it running. So each session, as it looks
+about itself every minute, asks the holder of any parked peer
+whose inbox holds one to wake it, as a sender does for a message
+that would give it a turn ([`lib/mesh/parked.ts`](../../lib/mesh/parked.ts)).
+A pause or stop waits for its next start, since a parked session
+has no run to end.
 
 An ended run ends away mode on every session, so a Stop, or a
 Pause landing mid-run, ends it too: pressing either says the

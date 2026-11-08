@@ -168,6 +168,75 @@ would be lost. While it is removed, its record names the sweeping
 session, so no other session is handed it. A shareable tree, or one
 whose provider can't judge it, is kept.
 
+## Carrying a Quest to Another Machine
+
+Joel, 2026-11-07: "how do i take over work from one personal
+laptop to another?" `mycelium carry <quest> --to <machine>` does
+it, and the harness does the half only it knows how to: what each
+session holds, and putting it back on the other side.
+
+Each of the quest's sessions with a pi running or parked is steered
+to `carry` (the mesh workflow's README says how it takes that). The
+rest goes by `pi-carry`, which mycelium runs once those have
+carried:
+
+```sh
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pi-carry.ts <quest> --to <machine>
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pi-carry.ts arrive <quest> --from <machine> --session <id>
+```
+
+The first carries the quest's sessions nobody closed that no pi
+runs, each with the trees the broker's records say it holds, and
+then every tree of the quest no done file names yet (those its
+README lists here, and those the broker cut for any of its
+sessions) under a done file named for the quest. It prints a JSON
+line a tree and ends with `{"kind": "done", "files": [...]}`.
+
+Everything goes in the quest's scratch, under
+`handover/<this machine>/`, the machine named by its hostname's
+short form as mycelium names it (the `carry` action writes there
+too). Each session writes `<session id>.done.json` last, whole,
+once every file it names is in place:
+
+```json
+{
+  "session": "<id>", "quest": "<quest>", "cwd": "~/src/app",
+  "title": "...", "sessionFile": "<its file, beside it>",
+  "trees": [{"path": "~/src/app", "origin": "<url>", "branch": "topic",
+             "head": "<commit>", "bundle": "<file>", "needs": [...],
+             "patch": "<file>"}]
+}
+```
+
+Paths are within home, since the other machine's home is
+elsewhere. `bundle` holds the commits no remote has and is absent
+when a remote has them all; `needs` names what a remote holds that
+the tree needs first, each commit with the remote branch it was on
+(with no bundle, the head itself). `patch` holds every change never
+committed, untracked files included, made from a copy of the tree's
+index so the tree's own index and files are never touched, and is
+absent when it was clean. A tree on no branch is passed over when
+it's clean at a commit a remote has, and refused otherwise; the
+rest still go. The quest's own done file holds trees only.
+
+`pi-carry arrive` runs on the machine the quest went to, before
+`pi --session <id>`. It waits up to ten minutes for the done file
+and every file it names, since the share may land late, saying
+`{"kind": "waiting", ...}` each half minute. Then each tree is
+cloned from its origin where nothing is, or fetched where it
+stands with that origin and nothing changed, given what it needs
+from the remotes named, the bundle's commits, its branch at its
+head and its patch; one line each, `{"kind": "tree", "path",
+"branch", "did": "cloned" | "fetched" | "refused", "why"?}`. A
+folder with another origin or changes of its own, or a branch
+holding commits the carried one lacks, is refused, never written
+over; a tree that already stands as carried is left as it is. The
+session's file is placed where pi finds it from its folder here,
+over any older copy, and it ends with `{"kind": "sessions",
+"sessions": [{"id", "cwd"}]}`. It exits 1 when a tree was refused
+or nothing came, so nothing starts half arrived, and 2 when it was
+asked wrongly.
+
 ## What It Will Not Do
 
 **It will not clone.** A repo known only by remote is refused,

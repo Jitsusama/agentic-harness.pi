@@ -10,20 +10,18 @@
  * `mycelium share QUEST --scratch handover`.
  */
 
-import { hostname } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import { carrySession, carryTree } from "../../../lib/core/work/carry.ts";
+import { HANDOVER, handoverOf } from "../../../lib/internal/carry/handover.ts";
+import { thisMachine } from "../../../lib/internal/machine.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 import { type Answer, refuse, say } from "./shared.ts";
-
-/** The folder of the quest's scratch the share carries a handover in. */
-export const HANDOVER = "handover";
 
 /** Carries the work in `found`, and this session, into the quest's handover. */
 export async function carryHome(
@@ -38,7 +36,7 @@ export async function carryHome(
 			`${GLYPH.refused} No quest is loaded, and a handover goes home in its quest's scratch. Load the quest first.`,
 		);
 	}
-	const into = join(questWorkspacesRoot(), quest, HANDOVER, hostname());
+	const into = handoverOf(questWorkspacesRoot(), quest, thisMachine());
 	const name = found.identity.key.replace(/[^A-Za-z0-9._-]/g, "-");
 	const tree = await carryTree(exec, found.path, into, name);
 	if (tree.kind === "refused") {

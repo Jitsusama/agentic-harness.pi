@@ -29,9 +29,9 @@ import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { sessionsNobodyClosed } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
+import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
-import { treeRecordDir } from "./broker.ts";
 
 /** How long after a session starts its first sweep runs. */
 const FIRST_SWEEP_MS = 3 * 60 * 1000;

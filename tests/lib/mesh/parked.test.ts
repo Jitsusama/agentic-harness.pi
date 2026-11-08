@@ -1,11 +1,26 @@
 /**
- * Parked peers: which messages start a parked peer again.
+ * Parked peers: which messages and steers start a parked peer again.
  */
 
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+	askWake,
+	isParked,
+	writeParked,
+} from "../../../lib/internal/session/park.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
-import { wakeParked, wakes } from "../../../lib/mesh/parked.ts";
+import { wakeParked, wakeSteered, wakes } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import { inboxOf } from "../../../lib/mesh/steer.ts";
 
 const parked: Presence = {
 	session: "s-parked",
@@ -140,5 +155,106 @@ describe("waking a parked peer", () => {
 		);
 		expect(woken).toEqual(["s-parked"]);
 		expect(asked).toEqual([["s-parked", "2-80ECO2-1-aaaa"]]);
+	});
+});
+
+/** Writes a steer into an address's inbox as a writer does: renamed in. */
+function steer(root: string, address: string, body: object): void {
+	const inbox = inboxOf(root, address);
+	mkdirSync(inbox, { recursive: true });
+	writeFileSync(join(inbox, "1-a.json.tmp"), JSON.stringify(body));
+	renameSync(join(inbox, "1-a.json.tmp"), join(inbox, "1-a.json"));
+}
+
+describe("waking a parked peer for a steer", () => {
+	it("wakes it for a carry or a close, which it can only do by running", () => {
+		for (const act of [{ act: "carry", to: "penelope" }, { act: "close" }]) {
+			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+			steer(root, "8859FF67", act);
+			const asked: string[] = [];
+
+			const woken = wakeSteered(
+				[parked],
+				root,
+				() => true,
+				(session) => asked.push(session),
+			);
+
+			expect(woken, act.act).toEqual(["s-parked"]);
+			expect(asked, act.act).toEqual(["s-parked"]);
+		}
+	});
+
+	it("lets a pause or stop wait for its next start, as it does nothing parked", () => {
+		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+		steer(root, "85PKB2", { act: "pause" });
+
+		expect(
+			wakeSteered(
+				[parked],
+				root,
+				() => true,
+				() => {},
+			),
+		).toEqual([]);
+	});
+
+	it("asks only for peers parked now, whose marker stands", () => {
+		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+		steer(root, "85PKB2", { act: "carry", to: "penelope" });
+		const listening: Presence = {
+			...parked,
+			session: "s-on",
+			state: "listening",
+		};
+
+		expect(
+			wakeSteered(
+				[listening],
+				root,
+				() => true,
+				() => {},
+			),
+		).toEqual([]);
+		expect(
+			wakeSteered(
+				[parked],
+				root,
+				() => false,
+				() => {},
+			),
+		).toEqual([]);
+	});
+
+	it("writes the wake its holder starts it again on", () => {
+		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+		const park = mkdtempSync(join(tmpdir(), "park-"));
+		const wake = join(park, "s-parked.wake");
+		writeParked(
+			{
+				session: "s-parked",
+				sessionFile: "/sessions/s-parked.jsonl",
+				cwd: "/home/aquifer",
+				addresses: parked.addresses,
+				parkedAt: "2026-11-07T20:00:00.000Z",
+				pid: 4242,
+				wake,
+			},
+			park,
+		);
+		steer(root, "85PKB2", { act: "carry", to: "penelope" });
+		const booted = () => undefined;
+
+		wakeSteered(
+			[parked],
+			root,
+			(session) => isParked(session, park, booted),
+			(session, why) => askWake(session, why, park, new Date(), booted),
+		);
+
+		expect(JSON.parse(readFileSync(wake, "utf8"))).toMatchObject({
+			session: "s-parked",
+			messageId: "steer-1-a.json",
+		});
 	});
 });

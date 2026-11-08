@@ -9,6 +9,11 @@ may import from here, and any of it may change without notice.
 - **`away/`**: whether the person is away from the machine, shared
   by every session on it and read by the gates without importing
   `away-workflow`.
+- **`carry/`**: carrying a quest's work to another of the person's
+  machines: a session's trees, as bundles and patches, and its file
+  put in the quest's handover with a done file saying so, what
+  `pi-carry` carries of the rest, and arriving with it on the other
+  machine.
 - **`config/`**: the loader for the package's one configuration
   file.
 - **`cost-meter/`**: what the status line says about money and
@@ -74,6 +79,8 @@ may import from here, and any of it may change without notice.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
+- **`machine.ts`**: this machine's name as its realm's other
+  machines say it, its hostname's short form, and what may be one.
 - **`model-failure.ts`**: whether a failed model call is one a
   later try could get past, by pi's own judgement, and the wait
   before each try, for `model-retry-workflow` and the compaction
@@ -126,5 +133,8 @@ may import from here, and any of it may change without notice.
   governance distiller reads.
 - **`unattended-exec.ts`**: running git and gh with nobody at the
   keyboard.
+- **`work-records.ts`**: where the work broker writes down the trees
+  it cut, and which trees each session holds, for the work extension
+  and for carrying a session's work.
 - **`write-whole.ts`**: replacing a file whole through a `.writing`
   subfolder, so a watcher of its folder hears one event a write.
