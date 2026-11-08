@@ -74,7 +74,12 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   session logs are out of reach. Of your variables, a command keeps only
   those known to be harmless (where things are, how to show them, what
   the queue sets), never one whose name holds a word like TOKEN, KEY or
-  AUTH, since your environment holds tokens too.
+  AUTH, since your environment holds tokens too. The one exception is
+  GitHub: where your machine runs `github-broker`, a command gets an
+  hour-long token from its GitHub App, as `GH_TOKEN` and git's helper
+  for github.com. It reads code and writes pull requests and issues,
+  and can't push, merge or change a setting. The broker's socket stays
+  out of reach, so a command can't ask for one itself.
 - **No sockets but two.** Name lookups through nscd, and the Nix
   daemon's door for sandboxes, `$XDG_RUNTIME_DIR/nix-untrusted.sock`,
   which takes the caller as untrusted; `NIX_REMOTE` points there. No

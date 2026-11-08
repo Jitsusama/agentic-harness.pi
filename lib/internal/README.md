@@ -79,6 +79,8 @@ may import from here, and any of it may change without notice.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
+- **`github-broker.ts`**: the hour-long GitHub tokens the machine's
+  github-broker gives the strict sandbox, asked for every few minutes.
 - **`machine.ts`**: this machine's name as its realm's other
   machines say it, its hostname's short form, and what may be one.
 - **`model-failure.ts`**: whether a failed model call is one a
