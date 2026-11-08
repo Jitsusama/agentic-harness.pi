@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { strandedByCrash } from "../../../lib/core/web/telemetry/index.ts";
+import { until } from "../../support/until.ts";
 import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -418,19 +419,12 @@ const OFFERS_FILE = page(
 	'<main><a id="get" href="/file.txt" download>Get the file</a></main>',
 );
 
-/** Poll until the browser has caught up, or give up saying so. */
-async function until(
-	condition: () => boolean,
-	what: string,
-	budgetMs = 10_000,
-): Promise<void> {
-	const deadline = Date.now() + budgetMs;
-	while (Date.now() < deadline) {
-		if (condition()) return;
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	throw new Error(`timed out waiting for ${what}`);
-}
+/**
+ * How long the browser gets to catch up. Longer than the shared default,
+ * because Chrome announces a crash and replaces the tab a second or more
+ * after the navigation that caused it.
+ */
+const CATCHES_UP_MS = 10_000;
 
 /**
  * What a session can still hear after its tab has been replaced.
@@ -505,7 +499,11 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 		try {
 			await session.navigate(fixture.url("/offers"));
 			await inner.page.goto("chrome://crash").catch(() => {});
-			await until(() => attempts > 0, "a replacement tab to be asked for");
+			await until(
+				"a replacement tab to be asked for",
+				() => attempts > 0,
+				CATCHES_UP_MS,
+			);
 			// An unhandled rejection is reported once the tick it was made
 			// in drains, so give it well past that to show itself.
 			await new Promise((resolve) => setTimeout(resolve, 500));
@@ -536,8 +534,9 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 			// announces the crash a second or so later, so the reading
 			// has to wait for the announcement rather than assume it.
 			await until(
-				() => strandedByCrash(session.history),
 				"the crash to be announced and the tab replaced",
+				() => strandedByCrash(session.history),
+				CATCHES_UP_MS,
 			);
 
 			// Going somewhere is what ends it. A session parked on a
@@ -564,8 +563,9 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 			// afterwards is about recovery and not about the fixture.
 			await fetchOnce();
 			await until(
-				() => session.downloads().length > 0,
 				"the first download to be recorded",
+				() => session.downloads().length > 0,
+				CATCHES_UP_MS,
 			);
 			const before = session.downloads().length;
 
@@ -575,8 +575,9 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 
 			await fetchOnce();
 			await until(
-				() => session.downloads().length > before,
 				"a download recorded after the tab was replaced",
+				() => session.downloads().length > before,
+				CATCHES_UP_MS,
 			);
 		} finally {
 			await session.close();

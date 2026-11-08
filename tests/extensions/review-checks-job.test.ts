@@ -16,14 +16,13 @@ import {
 	type JobOutcome,
 	jobStopReason,
 } from "../../lib/jobs/index.ts";
+import { until } from "../support/until.ts";
 
-async function until(condition: () => boolean, ms = 2000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!condition()) {
-		if (Date.now() > deadline) throw new Error("timed out waiting");
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-}
+/**
+ * How long a watch gets to end. Short of the test's own timeout, so a
+ * watch that never ends fails naming what it was waited on for.
+ */
+const ENDS_WITHIN_MS = 2_000;
 
 const controllers: AbortController[] = [];
 const disposers: (() => void)[] = [];
@@ -84,7 +83,11 @@ describe("watching checks", () => {
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		expect(outcomes).toHaveLength(0);
 		state = "failing";
-		await until(() => outcomes.length > 0);
+		await until(
+			"the watch to say CI failed",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 
 		expect(outcomes[0]?.summary).toContain("have settled: failing");
 		expect(outcomes[0]?.summary).toContain("state failing");
@@ -98,7 +101,11 @@ describe("watching checks", () => {
 
 		expect(watch(bus, read)).toBe("already-watching");
 		state = "passing";
-		await until(() => outcomes.length > 0);
+		await until(
+			"the first watch to end",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 		expect(typeof watch(bus, async () => rollup("pending"))).toBe("object");
 	});
 
@@ -116,7 +123,11 @@ describe("watching checks", () => {
 			throw new Error("rate limited");
 		});
 
-		await until(() => outcomes.length > 0);
+		await until(
+			"the watch to give up on its failed looks",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 
 		expect(looks).toBe(MAX_FAILED_LOOKS);
 		expect(outcomes[0]?.failed).toBe(true);
@@ -140,7 +151,11 @@ describe("watching checks", () => {
 			now: () => clock,
 		});
 
-		await until(() => outcomes.length > 0);
+		await until(
+			"the watch to run out of time",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 
 		expect(outcomes[0]?.summary).toContain("still pending");
 	});

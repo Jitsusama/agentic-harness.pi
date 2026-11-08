@@ -20,15 +20,13 @@ import {
 	type JobSpec,
 	jobStopReason,
 } from "../../lib/jobs/index.ts";
+import { until } from "../support/until.ts";
 
-/** Wait until a condition holds, failing the test if it never does. */
-async function until(condition: () => boolean, ms = 2000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!condition()) {
-		if (Date.now() > deadline) throw new Error("timed out waiting");
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-}
+/**
+ * How long a watched round gets to do what is waited on. Short of the
+ * test's own timeout, so a round that never does fails naming it.
+ */
+const WITHIN_MS = 2_000;
 
 /** A host that records what was started and how each job ended. */
 function recordingHost() {
@@ -88,7 +86,11 @@ describe("a started round with a job host", () => {
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		expect(outcomes).toHaveLength(0);
 		running = false;
-		await until(() => outcomes.length === 1);
+		await until(
+			"the model to be told to collect",
+			() => outcomes.length === 1,
+			WITHIN_MS,
+		);
 		expect(outcomes[0]?.summary).toContain("review_ask collect run=council-1");
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		expect(outcomes).toHaveLength(1);
@@ -108,7 +110,7 @@ describe("a started round with a job host", () => {
 			stop: async () => {},
 			pollMs: 5,
 		});
-		await until(() => checks >= 3);
+		await until("three failed looks", () => checks >= 3, WITHIN_MS);
 		expect(outcomes).toHaveLength(0);
 		controller.abort(jobStopReason("session"));
 	});
@@ -146,7 +148,7 @@ describe("a started round with a job host", () => {
 			pollMs: 5,
 		});
 		controller.abort(jobStopReason("person"));
-		await until(() => stopped === 1);
+		await until("the round to be stopped", () => stopped === 1, WITHIN_MS);
 	});
 
 	it("stops the round when the agent stops the job", async () => {
@@ -163,7 +165,7 @@ describe("a started round with a job host", () => {
 			pollMs: 5,
 		});
 		controller.abort(jobStopReason("agent"));
-		await until(() => stopped === 1);
+		await until("the round to be stopped", () => stopped === 1, WITHIN_MS);
 	});
 
 	it("leaves the round running when only the session ends", async () => {
@@ -183,7 +185,7 @@ describe("a started round with a job host", () => {
 			},
 			pollMs: 5,
 		});
-		await until(() => checks >= 1);
+		await until("the first look", () => checks >= 1, WITHIN_MS);
 		controller.abort(jobStopReason("session"));
 		const after = checks;
 		await new Promise((resolve) => setTimeout(resolve, 40));

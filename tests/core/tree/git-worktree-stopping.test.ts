@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGitWorktreeProvider } from "../../../lib/core/internal/tree/providers/git-worktree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+import { until } from "../../support/until.ts";
 
 let repoRoot: string;
 let scratch: string;
@@ -56,14 +57,6 @@ function alive(pid: number): boolean {
 	}
 }
 
-async function until(check: () => boolean, ms = 5_000): Promise<void> {
-	const started = Date.now();
-	while (!check()) {
-		if (Date.now() - started > ms) throw new Error("never happened");
-		await new Promise((r) => setTimeout(r, 20));
-	}
-}
-
 /** How the work settled, or that it was still running after `ms`. */
 function outcome(work: Promise<unknown>, ms = 5_000): Promise<string> {
 	return Promise.race([
@@ -89,7 +82,9 @@ describe("git-worktree provider, stopped or out of time", () => {
 			repoRoot,
 			signal: stop.signal,
 		});
-		await until(() => existsSync(pidFile));
+		await until("the checkout hook to write its pid", () =>
+			existsSync(pidFile),
+		);
 		const hook = Number(readFileSync(pidFile, "utf8"));
 
 		const started = Date.now();
@@ -97,7 +92,7 @@ describe("git-worktree provider, stopped or out of time", () => {
 		expect(await outcome(creating)).toMatch(/^AbortError/);
 		expect(Date.now() - started).toBeLessThan(3_000);
 
-		await until(() => !alive(hook), 3_000);
+		await until("the hung hook to be gone", () => !alive(hook), 3_000);
 		expect(existsSync(join(repoRoot, ".worktrees", "stuck"))).toBe(false);
 		expect(await branchExists("stuck")).toBe(false);
 	}, 20_000);

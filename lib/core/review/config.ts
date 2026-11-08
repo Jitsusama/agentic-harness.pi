@@ -11,6 +11,8 @@
  * link shape can be adopted without shipping code.
  */
 
+import { isRecord } from "../../internal/record.ts";
+
 /** Pins a repo to providers, first registered one winning. */
 export interface RepoMapping {
 	/**
@@ -63,10 +65,6 @@ export interface LoadedReviewConfig {
 	config: ReviewConfig;
 	/** Complaints about the section, for the user to see. */
 	problems: string[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stringList(value: unknown): string[] {

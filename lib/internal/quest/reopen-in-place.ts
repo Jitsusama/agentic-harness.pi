@@ -27,6 +27,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { realmOf } from "../../mesh/node.ts";
+import { isRecord } from "../record.ts";
 import { askWake } from "../session/park.ts";
 
 /** The kitty user variable naming the session a window was opened for. */
@@ -50,10 +51,6 @@ export interface HeldSession {
 	readonly pid: number;
 	readonly parked: boolean;
 	readonly windows: readonly HeldWindow[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function heldWindowsOf(value: unknown): HeldWindow[] {

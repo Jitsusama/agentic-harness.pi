@@ -14,6 +14,7 @@
  * informed.
  */
 
+import { isRecord } from "../../../internal/record.ts";
 import { askOne } from "./council.ts";
 import type { CritiqueDeps } from "./critique.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
@@ -25,13 +26,7 @@ import {
 	whatItGave,
 	whatItRead,
 } from "./run.ts";
-import {
-	ANSWER_WAS_CUT_OFF,
-	isRecord,
-	readAnswer,
-	wireText,
-	wireWhole,
-} from "./wire.ts";
+import { ANSWER_WAS_CUT_OFF, readAnswer, wireText, wireWhole } from "./wire.ts";
 
 /**
  * Where an inbound thread stands against the change.

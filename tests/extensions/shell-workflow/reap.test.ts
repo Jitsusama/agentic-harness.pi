@@ -19,6 +19,7 @@ import {
 	reap,
 	reapsWhatItLeft,
 } from "../../../extensions/shell-workflow/reap.ts";
+import { until } from "../../support/until.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -76,13 +77,12 @@ function running(word: string): boolean {
 	}
 }
 
-async function until(condition: () => boolean, ms = 10_000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!condition()) {
-		if (Date.now() > deadline) throw new Error("timed out waiting");
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-}
+/**
+ * How long a real shell gets to start or lose a process. Longer than the
+ * shared default, because these run real commands under a real bash on
+ * whatever load the machine carries, inside a test given thirty seconds.
+ */
+const SETTLES_WITHIN_MS = 10_000;
 
 const bash = reapsWhatItLeft(createLocalBashOperations());
 
@@ -112,11 +112,19 @@ describe.skipIf(!linux)(
 					env: { ...process.env },
 				})
 				.catch((error: unknown) => error);
-			await until(() => running(`sleep ${word}`));
+			await until(
+				"the sleep to be running",
+				() => running(`sleep ${word}`),
+				SETTLES_WITHIN_MS,
+			);
 			stop.abort();
 			await done;
 
-			await until(() => !running(`sleep ${word}`));
+			await until(
+				"the stopped sleep to be gone",
+				() => !running(`sleep ${word}`),
+				SETTLES_WITHIN_MS,
+			);
 		});
 
 		it("is stopped whole when pi's time limit ends it", async () => {
@@ -131,7 +139,11 @@ describe.skipIf(!linux)(
 				.catch((caught: unknown) => caught);
 
 			expect(String(error)).toMatch(/timeout:1/);
-			await until(() => !running(`sleep ${word}`));
+			await until(
+				"the timed-out sleep to be gone",
+				() => !running(`sleep ${word}`),
+				SETTLES_WITHIN_MS,
+			);
 		});
 
 		it("leaves what it set going on purpose once it ends by itself", async () => {
@@ -142,7 +154,11 @@ describe.skipIf(!linux)(
 					process.cwd(),
 					{ onData: () => {}, env: { ...process.env } },
 				);
-				await until(() => running(`sleep ${word}`));
+				await until(
+					"the set-going sleep to be running",
+					() => running(`sleep ${word}`),
+					SETTLES_WITHIN_MS,
+				);
 				await new Promise((resolve) => setTimeout(resolve, 200));
 
 				expect(running(`sleep ${word}`)).toBe(true);

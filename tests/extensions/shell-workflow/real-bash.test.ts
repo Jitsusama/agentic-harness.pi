@@ -22,20 +22,13 @@ import {
 	jobRuntime,
 	reloadJobs,
 } from "../../support/job-runtime.ts";
+import { until } from "../../support/until.ts";
 
 const disposers: (() => void)[] = [];
 afterEach(() => {
 	for (const dispose of disposers.splice(0)) dispose();
 	forgetParkedJobs();
 });
-
-async function until(condition: () => boolean, ms = 5000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!condition()) {
-		if (Date.now() > deadline) throw new Error("timed out waiting");
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-}
 
 const bash = createBashToolDefinition(process.cwd(), {
 	spawnHook: withoutInteraction,
@@ -121,8 +114,8 @@ describe("a real command handed off", () => {
 		expect(running(marker)).toBe(true);
 
 		controller.abort(jobStopReason("person"));
-		await until(() => outcomes.length > 0);
-		await until(() => !running(marker));
+		await until("the stopped job to end", () => outcomes.length > 0);
+		await until("the stopped command to be gone", () => !running(marker));
 		expect(outcomes[0]?.failed).toBe(true);
 	});
 
@@ -156,12 +149,18 @@ describe("a real command handed off", () => {
 				bash.execute("t5", { command }, signal, onUpdate, undefined as never),
 		});
 		expect(textOf(result)).toContain("background command j1");
-		await until(() => running(piped) && running(nested));
+		await until(
+			"both grandchildren to be running",
+			() => running(piped) && running(nested),
+		);
 
 		const stopped = await runtime.tool("jobs", { action: "stop", id: "j1" });
 
 		expect(stopped).toContain("Stopped j1");
-		await until(() => !running(piped) && !running(nested));
+		await until(
+			"both grandchildren to be gone",
+			() => !running(piped) && !running(nested),
+		);
 		await runtime.fire("session_shutdown", { reason: "quit" });
 	});
 
@@ -186,11 +185,15 @@ describe("a real command handed off", () => {
 				bash.execute("t4", { command }, signal, onUpdate, undefined as never),
 		});
 		expect(textOf(result)).toContain("as background command j1");
-		await until(() => running(marker));
+		await until("the background command to be running", () => running(marker));
 
 		const next = await reloadJobs(events, first);
 		expect(running(marker)).toBe(true);
-		await until(() => next.said.length > 0, 15_000);
+		await until(
+			"the reloaded runtime to say how the job ended",
+			() => next.said.length > 0,
+			15_000,
+		);
 		expect(next.said[0]).toContain("[j1]");
 		expect(next.said[0]).toContain("exited 0");
 		expect(next.said[0]).toContain("finished");

@@ -19,6 +19,7 @@ import {
 	type JobOutcome,
 } from "../../../lib/jobs/index.ts";
 import type { RunPi } from "../../../lib/subagent/subagent.ts";
+import { until } from "../../support/until.ts";
 import { activateWith } from "../support/review-extension.ts";
 
 let answer: RunPi;
@@ -125,14 +126,6 @@ async function inBackground(host?: JobHost, turn?: AbortSignal) {
 const textOf = (result: { content: { text: string }[] }) =>
 	result.content[0]?.text ?? "";
 
-/** Wait until the check holds, or fail saying it never did. */
-async function until(check: () => boolean): Promise<void> {
-	for (let i = 0; i < 200 && !check(); i++) {
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-	expect(check()).toBe(true);
-}
-
 describe("a fleet in the background", () => {
 	it("returns before the fleet finishes, naming the job", async () => {
 		let release: (() => void) | undefined;
@@ -154,16 +147,16 @@ describe("a fleet in the background", () => {
 		if (returned === "still running") return;
 		expect(textOf(returned)).toContain("j7");
 		expect(textOf(returned)).toMatch(/do not poll/i);
-		await until(() => release !== undefined);
+		await until("the run to start", () => release !== undefined);
 		expect(outcomes).toHaveLength(0);
 		release?.();
-		await until(() => outcomes.length === 1);
+		await until("the fleet to end", () => outcomes.length === 1);
 	});
 
 	it("says its summary through the host when it ends", async () => {
 		const { host, outcomes } = recordingHost();
 		await inBackground(host);
-		await until(() => outcomes.length === 1);
+		await until("the fleet to end", () => outcomes.length === 1);
 		expect(outcomes[0]?.summary).toContain("Fleet fleet-bg: 1/1 complete");
 		expect(outcomes[0]?.failed).toBeFalsy();
 	});
@@ -181,10 +174,10 @@ describe("a fleet in the background", () => {
 			});
 		const { host, outcomes, stop } = recordingHost();
 		await inBackground(host);
-		await until(() => running);
+		await until("the run to start", () => running);
 		stop.abort();
-		await until(() => stoppedFleet);
-		await until(() => outcomes.length === 1);
+		await until("the run to be stopped", () => stoppedFleet);
+		await until("the fleet to end", () => outcomes.length === 1);
 	});
 
 	it("outlives an Escape on the turn that started it", async () => {
@@ -204,10 +197,10 @@ describe("a fleet in the background", () => {
 		const { host, outcomes } = recordingHost();
 		const turn = new AbortController();
 		await inBackground(host, turn.signal);
-		await until(() => release !== undefined);
+		await until("the run to start", () => release !== undefined);
 		turn.abort();
 		release?.();
-		await until(() => outcomes.length === 1);
+		await until("the fleet to end", () => outcomes.length === 1);
 		expect(interrupted).toBe(false);
 		expect(outcomes[0]?.failed).toBeFalsy();
 	});
@@ -215,7 +208,7 @@ describe("a fleet in the background", () => {
 	it("keeps its board up until the result is in the session", async () => {
 		const { host, outcomes, delivered } = recordingHost();
 		await inBackground(host);
-		await until(() => outcomes.length === 1);
+		await until("the fleet to end", () => outcomes.length === 1);
 		expect(boardsClosed).toBe(0);
 		for (const listener of delivered) listener();
 		expect(boardsClosed).toBeGreaterThan(0);
@@ -232,9 +225,9 @@ describe("a fleet in the background", () => {
 			});
 		const { host, stop } = recordingHost();
 		await inBackground(host);
-		await until(() => running);
+		await until("the run to start", () => running);
 		stop.abort();
-		await until(() => boardsClosed > 0);
+		await until("the board to come down", () => boardsClosed > 0);
 	});
 
 	it("reaches the model once, as a prompt, through the real job host", async () => {
@@ -271,7 +264,10 @@ describe("a fleet in the background", () => {
 			undefined,
 			{ hasUI: false },
 		);
-		await until(() => prompts.length === 1);
+		await until(
+			"the model to be prompted with the result",
+			() => prompts.length === 1,
+		);
 		expect(prompts[0]).toContain("Fleet fleet-e2e: 1/1 complete");
 		await lifecycle.get("session_shutdown")?.({ reason: "quit" }, session);
 	});

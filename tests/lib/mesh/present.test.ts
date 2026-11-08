@@ -9,6 +9,7 @@ import {
 	stopPresent,
 	whenPresent,
 } from "../../../lib/mesh/present.ts";
+import { until } from "../../support/until.ts";
 
 let dir: string;
 let path: string;
@@ -41,16 +42,12 @@ async function node(answer: string): Promise<Node> {
 	return heard;
 }
 
-/** Waits until `holds` does, failing after a second. */
-async function until(holds: () => boolean, what: string): Promise<void> {
-	const by = Date.now() + 1000;
-	// Nothing tells the test when a socket event has run, so it looks
-	// again each few milliseconds.
-	while (!holds()) {
-		if (Date.now() > by) throw new Error(`never: ${what}`);
-		await new Promise((next) => setTimeout(next, 5));
-	}
-}
+/**
+ * How long a socket event gets to run. Nothing tells the test when one
+ * has, so it is polled for; a second is ample within one process, and
+ * failing then names the wait rather than the test's own timeout.
+ */
+const HEARD_WITHIN_MS = 1_000;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "present-"));
@@ -70,7 +67,11 @@ describe("being present on the node", () => {
 
 		keepPresent(() => path);
 
-		await until(isKeptPresent, "the node counts this process present");
+		await until(
+			"the node counts this process present",
+			isKeptPresent,
+			HEARD_WITHIN_MS,
+		);
 		expect(heard.said, "one word, once").toEqual(['"Present"']);
 		expect(heard.open, "the connection stays open").toHaveLength(1);
 	});
@@ -78,7 +79,7 @@ describe("being present on the node", () => {
 	it("keeps the one connection when loaded again in the same process", async () => {
 		const heard = await node('{"Ok":"Present"}');
 		keepPresent(() => path);
-		await until(isKeptPresent, "the first load is present");
+		await until("the first load is present", isKeptPresent, HEARD_WITHIN_MS);
 
 		keepPresent(() => path);
 
@@ -89,12 +90,20 @@ describe("being present on the node", () => {
 	it("connects again after the node drops it", async () => {
 		const heard = await node('{"Ok":"Present"}');
 		keepPresent(() => path, 10);
-		await until(isKeptPresent, "the first connection is present");
+		await until(
+			"the first connection is present",
+			isKeptPresent,
+			HEARD_WITHIN_MS,
+		);
 
 		heard.open[0]?.destroy();
 
-		await until(() => heard.connections === 2, "a second connection");
-		await until(isKeptPresent, "present again");
+		await until(
+			"a second connection",
+			() => heard.connections === 2,
+			HEARD_WITHIN_MS,
+		);
+		await until("present again", isKeptPresent, HEARD_WITHIN_MS);
 	});
 
 	it("waits longer before asking a node that refused", async () => {
@@ -104,8 +113,16 @@ describe("being present on the node", () => {
 
 		keepPresent(() => path, 10, 60_000);
 
-		await until(() => heard.said.length === 1, "the node was asked");
-		await until(() => heard.open.length === 0, "the refused connection closed");
+		await until(
+			"the node was asked",
+			() => heard.said.length === 1,
+			HEARD_WITHIN_MS,
+		);
+		await until(
+			"the refused connection closed",
+			() => heard.open.length === 0,
+			HEARD_WITHIN_MS,
+		);
 		await new Promise((next) => setTimeout(next, 50));
 		expect(isKeptPresent(), "a refusal counts nothing").toBe(false);
 		expect(heard.connections, "not asked again at the short retry").toBe(1);
@@ -118,7 +135,7 @@ describe("being present on the node", () => {
 		keepPresent(() => named, 10);
 		named = path;
 
-		await until(isKeptPresent, "present once a node is named");
+		await until("present once a node is named", isKeptPresent, HEARD_WITHIN_MS);
 		expect(heard.connections).toBe(1);
 	});
 });
@@ -134,11 +151,15 @@ describe("hearing when the node counts this process present", () => {
 		let times = 0;
 		unhearing.push(whenPresent(() => (times += 1)));
 		keepPresent(() => path, 10);
-		await until(() => times === 1, "heard the first time");
+		await until("heard the first time", () => times === 1, HEARD_WITHIN_MS);
 
 		heard.open[0]?.destroy();
 
-		await until(() => times === 2, "heard again once present anew");
+		await until(
+			"heard again once present anew",
+			() => times === 2,
+			HEARD_WITHIN_MS,
+		);
 	});
 
 	it("says nothing to a listener stopped, as a reload's old load is", async () => {
@@ -150,7 +171,7 @@ describe("hearing when the node counts this process present", () => {
 
 		keepPresent(() => path, 10);
 
-		await until(() => fresh === 1, "the new load heard");
+		await until("the new load heard", () => fresh === 1, HEARD_WITHIN_MS);
 		expect(old).toBe(0);
 	});
 });

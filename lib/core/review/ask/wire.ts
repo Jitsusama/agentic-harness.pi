@@ -9,6 +9,8 @@
  * same time, and there should be one place to fix it.
  */
 
+import { isRecord } from "../../../internal/record.ts";
+
 /**
  * The JSON object in an answer, wherever it is.
  *
@@ -201,9 +203,4 @@ export function wireWhole(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isInteger(value)
 		? value
 		: undefined;
-}
-
-/** A plain object, as against an array or a primitive. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

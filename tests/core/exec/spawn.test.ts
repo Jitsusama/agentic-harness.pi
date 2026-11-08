@@ -17,6 +17,7 @@ import {
 	NONINTERACTIVE_ENV,
 	spawnExec,
 } from "../../../lib/core/exec/index.ts";
+import { until } from "../../support/until.ts";
 
 /** Whether a pid still names a running process. */
 function alive(pid: number): boolean {
@@ -29,14 +30,12 @@ function alive(pid: number): boolean {
 	}
 }
 
-async function until(check: () => boolean, ms = 3000): Promise<boolean> {
-	const end = Date.now() + ms;
-	while (Date.now() < end) {
-		if (check()) return true;
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-	return check();
-}
+/**
+ * How long a stopped process gets to be gone. Short of the test's own
+ * timeout, so a process that outlives its stop fails naming it rather
+ * than as a test that ran too long.
+ */
+const GONE_WITHIN_MS = 3_000;
 
 describe("a command run unattended", () => {
 	it("returns what it said and how it exited", async () => {
@@ -111,7 +110,11 @@ describe("a command that will not finish", () => {
 		expect(result.code).toBe(EXIT_ABORTED);
 		expect(result.stderr).toContain("aborted");
 		expect(grandchild).toBeGreaterThan(0);
-		expect(await until(() => !alive(grandchild))).toBe(true);
+		await until(
+			"the aborted command's child to be gone",
+			() => !alive(grandchild),
+			GONE_WITHIN_MS,
+		);
 	});
 
 	it("is stopped with everything it started when its clock runs out", async () => {
@@ -125,7 +128,11 @@ describe("a command that will not finish", () => {
 		expect(result.code).toBe(EXIT_TIMED_OUT);
 		expect(result.stderr).toContain("timed out after 300 ms");
 		expect(Date.now() - started).toBeLessThan(3000);
-		expect(await until(() => !alive(grandchild))).toBe(true);
+		await until(
+			"the timed-out command's child to be gone",
+			() => !alive(grandchild),
+			GONE_WITHIN_MS,
+		);
 	});
 
 	it("is killed outright when it ignores the polite stop", async () => {
@@ -138,7 +145,11 @@ describe("a command that will not finish", () => {
 
 		expect(result.code).toBe(EXIT_TIMED_OUT);
 		expect(Date.now() - started).toBeLessThan(3000);
-		expect(await until(() => !alive(shell))).toBe(true);
+		await until(
+			"the shell that ignored the polite stop to be killed",
+			() => !alive(shell),
+			GONE_WITHIN_MS,
+		);
 	});
 
 	it("never starts when its signal has already fired", async () => {

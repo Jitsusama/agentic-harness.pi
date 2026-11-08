@@ -94,7 +94,8 @@ may import from here, and any of it may change without notice.
 - **`project.ts`**: which project a checkout is, for settings keyed
   by project.
 - **`record.ts`**: whether a parsed value is an object whose keys
-  can be read by name; one copy for the package outside `lib/core`.
+  can be read by name; one copy for the whole package, `lib/core`
+  included.
 - **`resources.ts`**: the CPU, disk and memory this pi process and
   its work used, from the kernel's counters.
 - **`sandbox.ts`**: the strict sandbox's fence, as landrun's rules
