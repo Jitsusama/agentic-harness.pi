@@ -112,6 +112,7 @@ describe("coloursAreNear", () => {
 				"rgb(200, 204, 209)",
 				"rgb(200, 204, 209) rgb(200, 204, 209) rgb(32, 33, 34)",
 			),
+			"a one-sided colour is not near a three-sided one",
 		).toBe(false);
 	});
 
@@ -121,6 +122,7 @@ describe("coloursAreNear", () => {
 				"rgb(32, 33, 34) rgb(200, 204, 209) rgb(200, 204, 209)",
 				"rgb(32, 33, 34) rgb(32, 33, 34) rgb(32, 33, 34)",
 			),
+			"values sharing only their first side are not near",
 		).toBe(false);
 	});
 
@@ -130,59 +132,76 @@ describe("coloursAreNear", () => {
 				"rgb(118, 118, 118) rgb(200, 204, 209)",
 				"rgb(119, 119, 119) rgb(201, 205, 210)",
 			),
+			"two-sided values whose every side drifted a step are near",
 		).toBe(true);
 	});
 
 	it("calls two greys one step apart the same intent", () => {
-		expect(coloursAreNear("rgb(118, 118, 118)", "rgb(119, 119, 119)")).toBe(
-			true,
-		);
+		expect(
+			coloursAreNear("rgb(118, 118, 118)", "rgb(119, 119, 119)"),
+			"greys 118 and 119 are near",
+		).toBe(true);
 	});
 
 	it("keeps genuinely different colours apart", () => {
-		expect(coloursAreNear("rgb(0, 85, 204)", "rgb(204, 51, 0)")).toBe(false);
+		expect(
+			coloursAreNear("rgb(0, 85, 204)", "rgb(204, 51, 0)"),
+			"a blue and an orange are not near",
+		).toBe(false);
 	});
 
 	it("does not treat transparent as a near-black", () => {
 		// Both parse to zeroes, and a channel comparison would call
 		// them the same thing, which they emphatically are not.
-		expect(coloursAreNear("rgba(0, 0, 0, 0)", "rgb(0, 0, 0)")).toBe(false);
+		expect(
+			coloursAreNear("rgba(0, 0, 0, 0)", "rgb(0, 0, 0)"),
+			"transparent is not near black",
+		).toBe(false);
 	});
 
 	it("says nothing about a value it cannot read", () => {
-		expect(coloursAreNear("oklch(0.7 0.1 200)", "rgb(0, 0, 0)")).toBe(false);
+		expect(
+			coloursAreNear("oklch(0.7 0.1 200)", "rgb(0, 0, 0)"),
+			"an oklch value it cannot read is near nothing",
+		).toBe(false);
 	});
 });
 
 describe("lengthsAreNear", () => {
 	it("calls 16px and 15px one intent", () => {
-		expect(lengthsAreNear("16px", "15px")).toBe(true);
+		expect(lengthsAreNear("16px", "15px"), "16px and 15px are near").toBe(true);
 	});
 
 	it("keeps 16px and 24px apart", () => {
-		expect(lengthsAreNear("16px", "24px")).toBe(false);
+		expect(lengthsAreNear("16px", "24px"), "16px and 24px are apart").toBe(
+			false,
+		);
 	});
 
 	it("keeps a deliberate type step apart", () => {
 		// 14 and 16 are a step in any type scale. A purely relative
 		// threshold called them one value, which is what sent me
 		// looking for a second, absolute one.
-		expect(lengthsAreNear("14px", "16px")).toBe(false);
+		expect(lengthsAreNear("14px", "16px"), "14px and 16px are apart").toBe(
+			false,
+		);
 	});
 
 	it("still catches drift at the small end", () => {
 		// 4 and 5 pixels of radius is a fifth apart in relative
 		// terms and obviously the same intent in real ones.
-		expect(lengthsAreNear("4px", "5px")).toBe(true);
+		expect(lengthsAreNear("4px", "5px"), "4px and 5px are near").toBe(true);
 	});
 
 	it("catches drift at the large end that relative terms hide", () => {
-		expect(lengthsAreNear("32px", "30px")).toBe(true);
-		expect(lengthsAreNear("32px", "24px")).toBe(false);
+		expect(lengthsAreNear("32px", "30px"), "32px and 30px are near").toBe(true);
+		expect(lengthsAreNear("32px", "24px"), "32px and 24px are apart").toBe(
+			false,
+		);
 	});
 
 	it("gives zero no neighbours, since nothing is nearly nothing", () => {
-		expect(lengthsAreNear("0px", "1px")).toBe(false);
+		expect(lengthsAreNear("0px", "1px"), "0px and 1px are apart").toBe(false);
 	});
 
 	it("reads the first length out of a shadow", () => {
@@ -191,6 +210,7 @@ describe("lengthsAreNear", () => {
 				"rgba(0, 0, 0, 0.1) 0px 1px 2px 0px",
 				"rgba(0, 0, 0, 0.12) 0px 1px 3px 0px",
 			),
+			"shadows whose lengths drifted by a pixel are near",
 		).toBe(true);
 	});
 });
@@ -286,10 +306,8 @@ describe("takeInventory", () => {
 
 	it("leaves out a property nothing used", () => {
 		expect(
-			takeInventory(GREYS).some(
-				(dimension) => dimension.property === "border-radius",
-			),
-		).toBe(false);
+			takeInventory(GREYS).map((dimension) => dimension.property),
+		).not.toContain("border-radius");
 	});
 });
 
@@ -303,7 +321,7 @@ describe("renderInventory", () => {
 		expect(out).toContain("1 of 1 properties hold values close enough");
 		// Drift is a question rather than a failure: two blues a
 		// step apart may well be a hover state.
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 	});
 
 	it("passes a page whose values all stand apart", () => {
@@ -311,7 +329,7 @@ describe("renderInventory", () => {
 			sample("a", { color: "rgb(0, 0, 0)" }),
 			sample("b", { color: "rgb(255, 255, 255)" }),
 		]);
-		expect(renderInventory(clean).startsWith("PASS")).toBe(true);
+		expect(renderInventory(clean)).toMatch(/^PASS/);
 	});
 
 	it("says what it sampled, so a clean pass is not a shrug", () => {
@@ -359,39 +377,59 @@ describe("nearness is about how two values look", () => {
 		// Contrast compares relative luminance and nothing else, so
 		// it rates this pair at about 1.001 and any sameness
 		// threshold accepted it. Delta E puts them 104 apart.
-		expect(coloursAreNear("rgb(255, 0, 0)", "rgb(127, 127, 127)")).toBe(false);
+		expect(
+			coloursAreNear("rgb(255, 0, 0)", "rgb(127, 127, 127)"),
+			"pure red and a mid grey are not near",
+		).toBe(false);
 	});
 
 	it("still clusters two greys a step apart", () => {
-		expect(coloursAreNear("rgb(102, 102, 102)", "rgb(104, 104, 104)")).toBe(
-			true,
-		);
+		expect(
+			coloursAreNear("rgb(102, 102, 102)", "rgb(104, 104, 104)"),
+			"greys 102 and 104 are near",
+		).toBe(true);
 	});
 
 	it("leaves a deliberate palette step alone", () => {
 		// Two neighbouring blues from a real scale.
-		expect(coloursAreNear("rgb(59, 130, 246)", "rgb(37, 99, 235)")).toBe(false);
+		expect(
+			coloursAreNear("rgb(59, 130, 246)", "rgb(37, 99, 235)"),
+			"neighbouring blues from a palette are not near",
+		).toBe(false);
 	});
 
 	it("keeps a colour apart from its own translucent version", () => {
-		expect(coloursAreNear("rgba(0, 0, 0, 1)", "rgba(0, 0, 0, 0.5)")).toBe(
-			false,
-		);
+		expect(
+			coloursAreNear("rgba(0, 0, 0, 1)", "rgba(0, 0, 0, 0.5)"),
+			"black is not near half-transparent black",
+		).toBe(false);
 	});
 
 	it("compares every length in a value, not just the first", () => {
 		// Reading only the first number made every shadow whose x
 		// offset is 0px cluster with every other, which is all of
 		// them, and called two different paddings one value.
-		expect(lengthsAreNear("0px 1px 2px", "0px 2px 4px")).toBe(false);
-		expect(lengthsAreNear("8px 16px", "8px 4px")).toBe(false);
+		expect(
+			lengthsAreNear("0px 1px 2px", "0px 2px 4px"),
+			"shadows sharing only a 0px x offset are apart",
+		).toBe(false);
+		expect(
+			lengthsAreNear("8px 16px", "8px 4px"),
+			"paddings sharing only their first length are apart",
+		).toBe(false);
 	});
 
 	it("still clusters a shadow that drifted slightly", () => {
-		expect(lengthsAreNear("0px 1px 2px", "0px 1px 2.5px")).toBe(true);
+		expect(
+			lengthsAreNear("0px 1px 2px", "0px 1px 2.5px"),
+			"shadows half a pixel apart in blur are near",
+		).toBe(true);
 	});
 
 	it("does not cluster values with different numbers of parts", () => {
-		expect(lengthsAreNear("8px", "8px 8px")).toBe(false);
+		expect(
+			lengthsAreNear("8px", "8px 8px"),
+			"one length and two are apart, even when equal",
+		).toBe(false);
 	});
 });

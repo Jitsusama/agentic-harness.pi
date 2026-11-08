@@ -204,7 +204,7 @@ describe("createNetworkRecorder", () => {
 				response: { ...received().response, fromDiskCache: true },
 			}),
 		});
-		expect(log.all()[0]?.fromCache).toBe(true);
+		expect(log.all()[0]).toMatchObject({ fromCache: true });
 	});
 
 	it("ignores a reply for a request it never saw start", () => {

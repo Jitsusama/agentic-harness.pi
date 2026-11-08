@@ -92,7 +92,10 @@ describe("composite", () => {
 
 	it("stays transparent when nothing underneath is opaque either", () => {
 		const blended = composite({ ...BLACK, a: 0 }, { r: 0, g: 0, b: 0, a: 0 });
-		expect(isTransparent(blended)).toBe(true);
+		expect(
+			isTransparent(blended),
+			`clear black over a clear backing stays transparent, not ${formatRgb(blended)}`,
+		).toBe(true);
 	});
 
 	it("makes a translucent foreground judgeable at all", () => {
@@ -166,13 +169,25 @@ describe("parseRgb", () => {
 
 describe("isLargeText", () => {
 	it("calls 24px normal text large", () => {
-		expect(isLargeText({ fontSizePx: 24, fontWeight: 400 })).toBe(true);
-		expect(isLargeText({ fontSizePx: 23.9, fontWeight: 400 })).toBe(false);
+		expect(
+			isLargeText({ fontSizePx: 24, fontWeight: 400 }),
+			"24px normal text is large",
+		).toBe(true);
+		expect(
+			isLargeText({ fontSizePx: 23.9, fontWeight: 400 }),
+			"23.9px normal text is not large",
+		).toBe(false);
 	});
 
 	it("lets bold text be large from 18.66px, which is 14pt", () => {
-		expect(isLargeText({ fontSizePx: 18.66, fontWeight: 700 })).toBe(true);
-		expect(isLargeText({ fontSizePx: 18.66, fontWeight: 400 })).toBe(false);
+		expect(
+			isLargeText({ fontSizePx: 18.66, fontWeight: 700 }),
+			"18.66px bold text is large",
+		).toBe(true);
+		expect(
+			isLargeText({ fontSizePx: 18.66, fontWeight: 400 }),
+			"18.66px normal text is not large",
+		).toBe(false);
 	});
 });
 
@@ -199,7 +214,7 @@ describe("judgeText", () => {
 			background: WHITE,
 			sizing,
 		});
-		expect(verdict.kind === "judged" && verdict.passes).toBe(true);
+		expect(verdict).toMatchObject({ kind: "judged", passes: true });
 	});
 
 	it("fails mid grey on white, and says what was needed", () => {
@@ -208,7 +223,7 @@ describe("judgeText", () => {
 			background: WHITE,
 			sizing,
 		});
-		expect(verdict.kind === "judged" && verdict.passes).toBe(false);
+		expect(verdict).not.toMatchObject({ kind: "judged", passes: true });
 		expect(verdict.kind === "judged" && verdict.required).toBe(4.5);
 	});
 
@@ -221,8 +236,8 @@ describe("judgeText", () => {
 			sizing,
 			level: "AAA",
 		});
-		expect(aa.kind === "judged" && aa.passes).toBe(true);
-		expect(aaa.kind === "judged" && aaa.passes).toBe(false);
+		expect(aa).toMatchObject({ kind: "judged", passes: true });
+		expect(aaa).not.toMatchObject({ kind: "judged", passes: true });
 	});
 
 	it("does not fail a ratio that rounds to exactly the threshold", () => {
@@ -235,7 +250,7 @@ describe("judgeText", () => {
 		});
 		if (verdict.kind !== "judged") throw new Error("should have judged");
 		expect(verdict.ratio).toBeGreaterThanOrEqual(4.5);
-		expect(verdict.passes).toBe(true);
+		expect(verdict).toMatchObject({ passes: true });
 	});
 });
 
@@ -246,7 +261,7 @@ describe("judgeNonText", () => {
 			background: WHITE,
 		});
 		expect(verdict.kind === "judged" && verdict.required).toBe(3);
-		expect(verdict.kind === "judged" && verdict.passes).toBe(true);
+		expect(verdict).toMatchObject({ kind: "judged", passes: true });
 	});
 
 	it("fails a focus ring too faint to see", () => {
@@ -254,7 +269,7 @@ describe("judgeNonText", () => {
 			foreground: { r: 220, g: 220, b: 220, a: 1 },
 			background: WHITE,
 		});
-		expect(verdict.kind === "judged" && verdict.passes).toBe(false);
+		expect(verdict).not.toMatchObject({ kind: "judged", passes: true });
 	});
 });
 
@@ -300,7 +315,10 @@ describe("formatting helpers", () => {
 	});
 
 	it("knows opaque from transparent", () => {
-		expect(isOpaque(REBECCA)).toBe(true);
-		expect(isTransparent({ ...REBECCA, a: 0 })).toBe(true);
+		expect(isOpaque(REBECCA), "a colour at full alpha is opaque").toBe(true);
+		expect(
+			isTransparent({ ...REBECCA, a: 0 }),
+			"a colour at zero alpha is transparent",
+		).toBe(true);
 	});
 });

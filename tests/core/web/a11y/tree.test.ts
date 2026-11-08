@@ -70,7 +70,7 @@ describe("normalizeAxTree", () => {
 		const checkbox = tree.children[0];
 		expect(checkbox?.role).toBe("checkbox");
 		expect(checkbox?.properties.checked).toBe("true");
-		expect(checkbox?.properties.focusable).toBe(true);
+		expect(checkbox?.properties).toMatchObject({ focusable: true });
 	});
 
 	it("keeps a control's current value and a heading's level", () => {

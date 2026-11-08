@@ -68,7 +68,7 @@ describe("analyseTypography", () => {
 				lastLine: { words: 1, width: 90, text: "stranded" },
 			}),
 		]);
-		expect(findings[0]?.heading).toBe(true);
+		expect(findings[0]).toMatchObject({ heading: true });
 	});
 
 	it("orders headings first and orphans before runts", () => {
@@ -97,14 +97,14 @@ describe("analyseTypography", () => {
 describe("renderTypography", () => {
 	it("passes a page whose blocks all end cleanly", () => {
 		const out = renderTypography([block()], analyseTypography([block()]));
-		expect(out.startsWith("PASS")).toBe(true);
+		expect(out).toMatch(/^PASS/);
 		expect(out).toContain("ends cleanly");
 	});
 
 	it("warns rather than fails, because this is taste", () => {
 		const bad = [block({ lastLine: { words: 1, width: 60, text: "alone" } })];
 		const out = renderTypography(bad, analyseTypography(bad));
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 		expect(out).toContain('"alone"');
 	});
 

@@ -28,14 +28,14 @@ const at = (
 describe("judgeTarget", () => {
 	it("passes a target at exactly the minimum", () => {
 		const button = at("b", 0, 0, MINIMUM_TARGET_PX, MINIMUM_TARGET_PX);
-		expect(judgeTarget(button, [button]).passes).toBe(true);
+		expect(judgeTarget(button, [button])).toMatchObject({ passes: true });
 	});
 
 	it("treats a target too short in one dimension as undersized", () => {
 		// Wide but 20 tall, with a neighbour close enough to crowd it.
 		const button = at("b", 0, 0, 100, 20);
 		const verdict = judgeTarget(button, [button, at("c", 40, 5)]);
-		expect(verdict.passes).toBe(false);
+		expect(verdict).toMatchObject({ passes: false });
 	});
 
 	it("measures a full size neighbour by its box, not its centre", () => {
@@ -48,7 +48,7 @@ describe("judgeTarget", () => {
 			rect: { x: 12, y: 0, width: 400, height: 40 },
 		};
 		const verdict = judgeTarget(small, [small, wide]);
-		expect(verdict.passes).toBe(false);
+		expect(verdict).toMatchObject({ passes: false });
 		expect(verdict.crowdedBy).toEqual(["wide"]);
 	});
 
@@ -58,7 +58,7 @@ describe("judgeTarget", () => {
 			id: "wide",
 			rect: { x: 100, y: 0, width: 400, height: 40 },
 		};
-		expect(judgeTarget(small, [small, wide]).passes).toBe(true);
+		expect(judgeTarget(small, [small, wide])).toMatchObject({ passes: true });
 	});
 
 	it("passes a small target with open space around it", () => {
@@ -67,7 +67,7 @@ describe("judgeTarget", () => {
 		const lonely = at("lonely", 0, 0);
 		const distant = at("distant", 500, 500);
 		const verdict = judgeTarget(lonely, [lonely, distant]);
-		expect(verdict.passes).toBe(true);
+		expect(verdict).toMatchObject({ passes: true });
 		expect(verdict.exception).toBe("spacing");
 	});
 
@@ -75,7 +75,7 @@ describe("judgeTarget", () => {
 		const first = at("first", 0, 0);
 		const second = at("second", 22, 0);
 		const verdict = judgeTarget(first, [first, second]);
-		expect(verdict.passes).toBe(false);
+		expect(verdict).toMatchObject({ passes: false });
 		expect(verdict.crowdedBy).toEqual(["second"]);
 	});
 
@@ -84,18 +84,18 @@ describe("judgeTarget", () => {
 		// clears a 24px circle even though the boxes nearly touch.
 		const first = at("first", 0, 0);
 		const second = at("second", 25, 0);
-		expect(judgeTarget(first, [first, second]).passes).toBe(true);
+		expect(judgeTarget(first, [first, second])).toMatchObject({ passes: true });
 	});
 
 	it("does not count itself as a crowding neighbour", () => {
 		const only = at("only", 0, 0);
-		expect(judgeTarget(only, [only]).passes).toBe(true);
+		expect(judgeTarget(only, [only])).toMatchObject({ passes: true });
 	});
 
 	it("excepts a target sitting in a line of text", () => {
 		const link = at("link", 0, 0, 30, 18, { inline: true });
 		const verdict = judgeTarget(link, [link, at("other", 5, 0)]);
-		expect(verdict.passes).toBe(true);
+		expect(verdict).toMatchObject({ passes: true });
 		expect(verdict.exception).toBe("inline");
 	});
 
@@ -132,13 +132,13 @@ describe("judgeTarget", () => {
 		const button = at("b", 0, 0, 30, 30);
 		const verdict = judgeTarget(button, [button], "AAA");
 		expect(verdict.required).toBe(ENHANCED_TARGET_PX);
-		expect(verdict.passes).toBe(false);
+		expect(verdict).toMatchObject({ passes: false });
 	});
 
 	it("gives AAA no spacing exception, since it has none", () => {
 		const lonely = at("lonely", 0, 0, 30, 30);
 		const verdict = judgeTarget(lonely, [lonely], "AAA");
-		expect(verdict.passes).toBe(false);
+		expect(verdict).toMatchObject({ passes: false });
 		expect(verdict.exception).toBeUndefined();
 	});
 });
@@ -147,7 +147,7 @@ describe("judgeTargets", () => {
 	it("judges a crowded row as failing on both sides", () => {
 		const row = [at("a", 0, 0), at("b", 20, 0), at("c", 40, 0)];
 		const verdicts = judgeTargets(row);
-		expect(verdicts.every((verdict) => !verdict.passes)).toBe(true);
+		expect(verdicts.filter((verdict) => verdict.passes)).toEqual([]);
 		expect(verdicts[1]?.crowdedBy).toEqual(["a", "c"]);
 	});
 });

@@ -277,7 +277,7 @@ describe("withoutFeature", () => {
 
 		expect(left.forcedColors).toBeUndefined();
 		expect(left.colorScheme).toBe("dark");
-		expect(left.reducedMotion).toBe(true);
+		expect(left).toMatchObject({ reducedMotion: true });
 		// And the survivor is what would now go to the browser.
 		expect(mediaFeaturesOf(left).map((f) => f.name)).not.toContain(
 			"forced-colors",

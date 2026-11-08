@@ -82,7 +82,9 @@ describe("judgeActionability", () => {
 describe("sameBox", () => {
 	it("calls an unmoved box the same", () => {
 		const box = { x: 1, y: 2, width: 3, height: 4 };
-		expect(sameBox(box, { ...box })).toBe(true);
+		expect(sameBox(box, { ...box }), "a copy of the same box is the same").toBe(
+			true,
+		);
 	});
 
 	it("calls a moved box different", () => {
@@ -91,6 +93,7 @@ describe("sameBox", () => {
 				{ x: 1, y: 2, width: 3, height: 4 },
 				{ x: 9, y: 2, width: 3, height: 4 },
 			),
+			"a box moved 8px right is different",
 		).toBe(false);
 	});
 
@@ -102,6 +105,7 @@ describe("sameBox", () => {
 				{ x: 1, y: 2, width: 3, height: 4 },
 				{ x: 1.4, y: 2, width: 3, height: 4 },
 			),
+			"a box moved 0.4px is the same",
 		).toBe(true);
 	});
 
@@ -111,12 +115,17 @@ describe("sameBox", () => {
 				{ x: 1, y: 2, width: 3, height: 4 },
 				{ x: 1, y: 2, width: 30, height: 4 },
 			),
+			"a box grown from 3px to 30px wide is different",
 		).toBe(false);
 	});
 
 	it("treats a box that appeared or vanished as movement", () => {
 		const box = { x: 1, y: 2, width: 3, height: 4 };
-		expect(sameBox(undefined, box)).toBe(false);
-		expect(sameBox(box, undefined)).toBe(false);
+		expect(sameBox(undefined, box), "a box that appeared is different").toBe(
+			false,
+		);
+		expect(sameBox(box, undefined), "a box that vanished is different").toBe(
+			false,
+		);
 	});
 });

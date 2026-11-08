@@ -145,9 +145,9 @@ describe("flattenSnapshot", () => {
 	it("marks a node the browser never laid out as unrendered", () => {
 		// This is the browser's own answer, and the only one that
 		// accounts for an ancestor being hidden.
-		expect(byId("0:4").rendered).toBe(false);
+		expect(byId("0:4")).toMatchObject({ rendered: false });
 		expect(byId("0:4").bounds).toBeUndefined();
-		expect(byId("0:3").rendered).toBe(true);
+		expect(byId("0:3")).toMatchObject({ rendered: true });
 	});
 
 	it("keeps the unrendered node rather than dropping it", () => {
@@ -160,18 +160,18 @@ describe("flattenSnapshot", () => {
 		// The protocol marks every node of the tree, not just its
 		// root, so this is the browser's answer rather than one
 		// derived by walking ancestors.
-		expect(byId("0:6").inShadow).toBe(true);
-		expect(byId("0:3").inShadow).toBe(false);
+		expect(byId("0:6")).toMatchObject({ inShadow: true });
+		expect(byId("0:3")).toMatchObject({ inShadow: false });
 	});
 
 	it("does not call the host of a shadow tree shadowed", () => {
-		expect(byId("0:5").inShadow).toBe(false);
-		expect(byId("0:2").inShadow).toBe(false);
+		expect(byId("0:5")).toMatchObject({ inShadow: false });
+		expect(byId("0:2")).toMatchObject({ inShadow: false });
 	});
 
 	it("carries the clickable flag the browser worked out", () => {
-		expect(byId("0:6").clickable).toBe(true);
-		expect(byId("0:3").clickable).toBe(false);
+		expect(byId("0:6")).toMatchObject({ clickable: true });
+		expect(byId("0:3")).toMatchObject({ clickable: false });
 	});
 
 	it("includes nodes from framed documents", () => {
@@ -200,12 +200,12 @@ describe("flattenSnapshot", () => {
 		const plain = flattenSnapshot({ ...SNAPSHOT, documents: [framed] }, [
 			"display",
 		]);
-		expect(plain.every((node) => !node.inShadow)).toBe(true);
-		expect(plain.every((node) => !node.clickable)).toBe(true);
+		expect(plain.filter((node) => node.inShadow)).toEqual([]);
+		expect(plain.filter((node) => node.clickable)).toEqual([]);
 	});
 
 	it("tells elements from text", () => {
-		expect(isElement(byId("0:3"))).toBe(true);
-		expect(isText(byId("0:3"))).toBe(false);
+		expect(isElement(byId("0:3")), "node 0:3 reads as an element").toBe(true);
+		expect(isText(byId("0:3")), "node 0:3 does not read as text").toBe(false);
 	});
 });

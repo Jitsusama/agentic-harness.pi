@@ -58,6 +58,7 @@ describe("isVisuallyHidden", () => {
 					clientWidth: 1,
 				}),
 			),
+			"a 1 by 1 box clipped by inset(50%) is visually hidden",
 		).toBe(true);
 	});
 
@@ -66,11 +67,15 @@ describe("isVisuallyHidden", () => {
 			isVisuallyHidden(
 				el({ id: "off", rect: { x: -9999, y: 54, width: 240, height: 18 } }),
 			),
+			"a box pushed to x -9999 is visually hidden",
 		).toBe(true);
 	});
 
 	it("does not call ordinary content hidden", () => {
-		expect(isVisuallyHidden(el({ id: "p" }))).toBe(false);
+		expect(
+			isVisuallyHidden(el({ id: "p" })),
+			"an ordinary paragraph is not visually hidden",
+		).toBe(false);
 	});
 
 	it("does not call a small visible box hidden", () => {
@@ -80,6 +85,7 @@ describe("isVisuallyHidden", () => {
 			isVisuallyHidden(
 				el({ id: "hr", rect: { x: 0, y: 0, width: 2, height: 200 } }),
 			),
+			"an unclipped 2px wide box on the page is not visually hidden",
 		).toBe(false);
 	});
 });

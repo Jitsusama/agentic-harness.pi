@@ -22,7 +22,7 @@ describe("asking for a network by name", () => {
 	// none were found, and nothing was shaped. A navigation then came
 	// back 200 while the caller believed the network was offline.
 	it("means the conditions that name stands for", () => {
-		expect(resolveThrottle("offline").offline).toBe(true);
+		expect(resolveThrottle("offline")).toMatchObject({ offline: true });
 		expect(resolveThrottle("slow-3g").download).toBeGreaterThan(0);
 	});
 
@@ -41,7 +41,7 @@ describe("asking for a network by name", () => {
 
 describe("throttleProfile", () => {
 	it("goes properly offline", () => {
-		expect(throttleProfile("offline")?.offline).toBe(true);
+		expect(throttleProfile("offline")).toMatchObject({ offline: true });
 	});
 
 	it("uses Chrome's own slow 3G numbers", () => {
@@ -73,36 +73,44 @@ describe("throttleProfile", () => {
 
 describe("matchesPattern", () => {
 	it("matches everything under a star", () => {
-		expect(matchesPattern({ pattern: "*", url: "http://a/b" })).toBe(true);
+		expect(
+			matchesPattern({ pattern: "*", url: "http://a/b" }),
+			"* matches any URL",
+		).toBe(true);
 	});
 
 	it("matches a glob", () => {
 		expect(
 			matchesPattern({ pattern: "*/api/*", url: "http://a/api/data" }),
+			"*/api/* matches http://a/api/data",
 		).toBe(true);
 		expect(
 			matchesPattern({ pattern: "*.css", url: "http://a/style.css" }),
+			"*.css matches http://a/style.css",
 		).toBe(true);
 	});
 
 	it("matches a plain fragment, which is how people actually type", () => {
 		expect(
 			matchesPattern({ pattern: "/api/data", url: "http://a/api/data?x=1" }),
+			"the fragment /api/data matches a URL holding it",
 		).toBe(true);
 	});
 
 	it("does not match what it should not", () => {
 		expect(
 			matchesPattern({ pattern: "*.css", url: "http://a/script.js" }),
+			"*.css does not match a .js URL",
 		).toBe(false);
 	});
 
 	it("treats regex characters in a pattern as literal text", () => {
 		// A url is full of dots and question marks; a pattern that
 		// read them as regex would match far too much.
-		expect(matchesPattern({ pattern: "a.css", url: "http://x/aXcss" })).toBe(
-			false,
-		);
+		expect(
+			matchesPattern({ pattern: "a.css", url: "http://x/aXcss" }),
+			"the dot in a.css is a dot, so it does not match aXcss",
+		).toBe(false);
 	});
 });
 

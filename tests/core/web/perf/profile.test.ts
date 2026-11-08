@@ -79,9 +79,7 @@ describe("foldProfile", () => {
 		// the time that passed.
 		const folded = foldProfile(profile([1, 2], [10_000, 10_000]));
 
-		expect(folded.hotspots.some((spot) => spot.function === "(root)")).toBe(
-			true,
-		);
+		expect(folded.hotspots.map((spot) => spot.function)).toContain("(root)");
 	});
 
 	it("survives a profile that caught nothing", () => {

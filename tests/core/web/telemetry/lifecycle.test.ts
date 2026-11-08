@@ -193,6 +193,7 @@ describe("strandedByCrash", () => {
 				{ kind: "crashed" },
 				{ kind: "recovered" },
 			]),
+			"a session that recovered from a crash and went nowhere is stranded",
 		).toBe(true);
 	});
 
@@ -203,13 +204,18 @@ describe("strandedByCrash", () => {
 				{ kind: "recovered" },
 				{ kind: "navigated", url: "http://a/" },
 			]),
+			"a session that navigated after recovering is not stranded",
 		).toBe(false);
 	});
 
 	it("says nothing of a session that never crashed", () => {
-		expect(strandedByCrash([{ kind: "navigated", url: "http://a/" }])).toBe(
-			false,
-		);
-		expect(strandedByCrash([])).toBe(false);
+		expect(
+			strandedByCrash([{ kind: "navigated", url: "http://a/" }]),
+			"a session that only navigated is not stranded",
+		).toBe(false);
+		expect(
+			strandedByCrash([]),
+			"a session with no history is not stranded",
+		).toBe(false);
 	});
 });

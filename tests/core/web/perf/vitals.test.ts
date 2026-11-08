@@ -191,7 +191,7 @@ describe("measure", () => {
 
 	it("rates a page that behaves as good throughout", () => {
 		const quiet = measure({ ...CAPTURE, shifts: [], longTasks: [] });
-		expect(quiet.every((one) => one.rating === "good")).toBe(true);
+		expect(quiet.filter((one) => one.rating !== "good")).toEqual([]);
 	});
 
 	it("rates a page that shifts badly as poor", () => {
@@ -254,7 +254,7 @@ describe("renderVitals", () => {
 	it("passes a page inside every threshold", () => {
 		const quiet: Vitals = { ...CAPTURE, shifts: [], longTasks: [] };
 		const out = renderVitals(quiet, measure(quiet));
-		expect(out.startsWith("PASS")).toBe(true);
+		expect(out).toMatch(/^PASS/);
 		expect(out).toContain("Every measure is within its threshold");
 	});
 
@@ -270,7 +270,7 @@ describe("renderVitals", () => {
 
 	it("warns about a page that paints fast and then misbehaves", () => {
 		const out = renderVitals(CAPTURE, measure(CAPTURE));
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 		// One, not two: the 199ms of blocking this fixture produces
 		// is inside the published TBT boundary of 200. Only the
 		// layout shift is outside its threshold.
@@ -293,7 +293,7 @@ describe("renderVitals", () => {
 	it("names the worst measure when something is out", () => {
 		const bad: Vitals = { ...CAPTURE, shifts: [shift(0.4, 100)] };
 		const out = renderVitals(bad, measure(bad));
-		expect(out.startsWith("FAIL")).toBe(true);
+		expect(out).toMatch(/^FAIL/);
 		expect(out).toContain("cumulative layout shift");
 	});
 
@@ -307,13 +307,13 @@ describe("renderVitals", () => {
 			{ shifts: [], longTasks: [], paints: {}, error: "no observers here" },
 			[],
 		);
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 		expect(out).toContain("no observers here");
 	});
 
 	it("does not report a clean pass when nothing was measured", () => {
 		const out = renderVitals({ shifts: [], longTasks: [], paints: {} }, []);
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 	});
 });
 
@@ -353,7 +353,7 @@ describe("measureSamples", () => {
 	it("calls a metric stable when every load rated it the same", () => {
 		const measures = measureSamples([lcpAt(100), lcpAt(300), lcpAt(200)]);
 		const lcp = measures.find((one) => one.name.includes("largest"));
-		expect(lcp?.spread?.straddles).toBe(false);
+		expect(lcp?.spread).toMatchObject({ straddles: false });
 	});
 
 	it("rates the median sample, so thresholds stay in one place", () => {
@@ -404,14 +404,14 @@ describe("renderVitals over samples", () => {
 		// Median good, worst poor: the instability is the finding.
 		const samples = [lcpAt(100), lcpAt(9000), lcpAt(200)];
 		const out = renderVitals(lcpAt(200), measureSamples(samples));
-		expect(out.startsWith("WARN")).toBe(true);
+		expect(out).toMatch(/^WARN/);
 		expect(out).toContain("Rated differently between loads");
 	});
 
 	it("passes a page that rated the same on every load", () => {
 		const samples = [lcpAt(100), lcpAt(300), lcpAt(200)];
 		const out = renderVitals(lcpAt(200), measureSamples(samples));
-		expect(out.startsWith("PASS")).toBe(true);
+		expect(out).toMatch(/^PASS/);
 	});
 });
 
@@ -459,8 +459,6 @@ describe("a measure nobody watched for is not a measure", () => {
 			unavailable: ["layout-shift: not supported"],
 		};
 
-		expect(renderVitals(partial, measure(partial)).startsWith("WARN")).toBe(
-			true,
-		);
+		expect(renderVitals(partial, measure(partial))).toMatch(/^WARN/);
 	});
 });

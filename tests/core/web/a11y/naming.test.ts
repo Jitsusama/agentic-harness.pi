@@ -117,16 +117,28 @@ describe("nameSource", () => {
 
 describe("isWeakName", () => {
 	it("counts a title or placeholder as a weak way to name a control", () => {
-		expect(isWeakName("title")).toBe(true);
-		expect(isWeakName("placeholder")).toBe(true);
+		expect(isWeakName("title"), "a title alone is a weak name").toBe(true);
+		expect(
+			isWeakName("placeholder"),
+			"a placeholder alone is a weak name",
+		).toBe(true);
 	});
 
 	it("counts a real label or the element's own text as sound", () => {
-		expect(isWeakName("label")).toBe(false);
-		expect(isWeakName("labelledby")).toBe(false);
-		expect(isWeakName("nativeLabel")).toBe(false);
-		expect(isWeakName("content")).toBe(false);
-		expect(isWeakName("alt")).toBe(false);
+		expect(isWeakName("label"), "an aria-label is a sound name").toBe(false);
+		expect(
+			isWeakName("labelledby"),
+			"a name from aria-labelledby is sound",
+		).toBe(false);
+		expect(
+			isWeakName("nativeLabel"),
+			"a name from a native label, such as a <label>, is sound",
+		).toBe(false);
+		expect(
+			isWeakName("content"),
+			"a name from the element's own text is sound",
+		).toBe(false);
+		expect(isWeakName("alt"), "a name from alt text is sound").toBe(false);
 	});
 });
 

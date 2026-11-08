@@ -41,7 +41,7 @@ describe("chooseTab", () => {
 	it("finds the tab asked for", () => {
 		const chosen = chooseTab(OPEN, 2);
 
-		expect("refusal" in chosen).toBe(false);
+		expect(chosen).not.toHaveProperty("refusal");
 		if ("refusal" in chosen) return;
 		expect(chosen.title).toBe("Pay");
 	});
@@ -52,7 +52,7 @@ describe("chooseTab", () => {
 		// already in hand.
 		const chosen = chooseTab(OPEN, 5);
 
-		expect("refusal" in chosen).toBe(true);
+		expect(chosen).toHaveProperty("refusal");
 		if (!("refusal" in chosen)) return;
 		expect(chosen.refusal).toContain("2");
 		expect(chosen.refusal).toContain("Pay");
@@ -61,6 +61,6 @@ describe("chooseTab", () => {
 	it("refuses nothing at all rather than reporting an empty list", () => {
 		const chosen = chooseTab([], 1);
 
-		expect("refusal" in chosen).toBe(true);
+		expect(chosen).toHaveProperty("refusal");
 	});
 });

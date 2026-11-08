@@ -30,7 +30,7 @@ describe("saving and reading back a signed-in state", () => {
 
 		const read = readState(JSON.stringify(state));
 
-		expect("problem" in read).toBe(false);
+		expect(read).not.toHaveProperty("problem");
 		if ("problem" in read) return;
 		expect(read.cookies[0]?.name).toBe("sid");
 		expect(read.origin).toBe("https://shop.example");
@@ -43,13 +43,13 @@ describe("saving and reading back a signed-in state", () => {
 		// signed you out.
 		const read = readState("<html>not a state</html>");
 
-		expect("problem" in read).toBe(true);
+		expect(read).toHaveProperty("problem");
 	});
 
 	it("refuses JSON that is not a saved state", () => {
 		const read = readState(JSON.stringify({ hello: "world" }));
 
-		expect("problem" in read).toBe(true);
+		expect(read).toHaveProperty("problem");
 		if (!("problem" in read)) return;
 		expect(read.problem).toContain("origin");
 	});
@@ -61,7 +61,7 @@ describe("saving and reading back a signed-in state", () => {
 			JSON.stringify({ origin: "https://x.example", cookies: ["sid=abc"] }),
 		);
 
-		expect("problem" in read).toBe(true);
+		expect(read).toHaveProperty("problem");
 	});
 });
 

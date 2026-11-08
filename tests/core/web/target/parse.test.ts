@@ -49,16 +49,30 @@ describe("parseTarget", () => {
 
 describe("foldEquals", () => {
 	it("ignores case and surrounding space", () => {
-		expect(foldEquals("  Add To Cart ", "add to cart")).toBe(true);
-		expect(foldEquals("button", "link")).toBe(false);
+		expect(
+			foldEquals("  Add To Cart ", "add to cart"),
+			"a padded, capitalized name equals its folded form",
+		).toBe(true);
+		expect(foldEquals("button", "link"), "button does not equal link").toBe(
+			false,
+		);
 	});
 
 	it("treats a missing name as an empty one, rather than throwing", () => {
 		// parseTarget yields "" for a bare role and a node with
 		// nothing to call it normalizes the same way, so the two have
 		// to compare equal instead of crashing a caller.
-		expect(foldEquals(undefined, "")).toBe(true);
-		expect(foldEquals(undefined, undefined)).toBe(true);
-		expect(foldEquals("button", undefined)).toBe(false);
+		expect(
+			foldEquals(undefined, ""),
+			"a missing name equals an empty one",
+		).toBe(true);
+		expect(
+			foldEquals(undefined, undefined),
+			"two missing names are equal",
+		).toBe(true);
+		expect(
+			foldEquals("button", undefined),
+			"a real name does not equal a missing one",
+		).toBe(false);
 	});
 });

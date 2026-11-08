@@ -161,7 +161,10 @@ describe("authoredPosition", () => {
 			line: 0,
 			column: named?.generatedColumn ?? 0,
 		});
-		expect(found?.name).toBeTruthy();
+		expect(
+			found?.name,
+			"a segment with a name index reads back with its authored name",
+		).toBeTruthy();
 	});
 
 	it("carries the authored text when the map embedded it", () => {

@@ -125,7 +125,7 @@ function heavyReachableFrom(
 describe("web analysis barrels", () => {
 	it.each(ANALYSIS)("%s reaches no heavy dependency", (name) => {
 		const barrel = path.join(ROOT, "web", name, "index.ts");
-		expect(existsSync(barrel)).toBe(true);
+		expect(existsSync(barrel), `${barrel} exists`).toBe(true);
 		expect(heavyReachableFrom(barrel)).toEqual([]);
 	});
 

@@ -4,8 +4,8 @@ import { pathComponent } from "../../../../lib/core/web/envelope/naming.ts";
 
 describe("turning a caller-chosen word into a path component", () => {
 	const root = "/data/baselines";
-	const under = (name: string) =>
-		path.join(root, pathComponent(name)).startsWith(`${root}/`);
+	const joined = (name: string) => path.join(root, pathComponent(name));
+	const under = /^\/data\/baselines\//;
 
 	it("leaves an ordinary name alone", () => {
 		expect(pathComponent("checkout-empty")).toBe("checkout-empty");
@@ -24,7 +24,7 @@ describe("turning a caller-chosen word into a path component", () => {
 			"a/b/c",
 			"..\\..\\windows",
 		]) {
-			expect(under(hostile)).toBe(true);
+			expect(joined(hostile)).toMatch(under);
 		}
 	});
 
@@ -33,7 +33,7 @@ describe("turning a caller-chosen word into a path component", () => {
 		// is how a file lands one directory above where it belongs.
 		for (const empty of ["", "/", "///", "..."]) {
 			expect(pathComponent(empty)).not.toBe("");
-			expect(under(empty)).toBe(true);
+			expect(joined(empty)).toMatch(under);
 		}
 	});
 

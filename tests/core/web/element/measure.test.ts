@@ -67,14 +67,14 @@ describe("measureBetween", () => {
 		// defect and invisible to the eye.
 		const measured = measureBetween(at(0, 0, 100, 40), at(0, 52, 99, 40));
 
-		expect(measured.sameSize).toBe(false);
+		expect(measured).toMatchObject({ sameSize: false });
 		expect(measured.widthDelta).toBe(1);
 	});
 
 	it("calls identical boxes the same size", () => {
 		const measured = measureBetween(at(0, 0, 100, 40), at(0, 52, 100, 40));
 
-		expect(measured.sameSize).toBe(true);
+		expect(measured).toMatchObject({ sameSize: true });
 	});
 });
 

@@ -26,7 +26,7 @@ describe("claimRecording", () => {
 		claimRecording("checkout", ["async"]);
 		const second = claimRecording("search", ["frames"]);
 
-		expect("refusal" in second).toBe(true);
+		expect(second).toHaveProperty("refusal");
 		if (!("refusal" in second)) return;
 		// The reader's next move is to go and stop that one, so the
 		// refusal has to say which session to go to.

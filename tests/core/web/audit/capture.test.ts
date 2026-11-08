@@ -96,7 +96,7 @@ describe("what the join decides can take focus", () => {
 			attributes: { inert: "" },
 		});
 		const child = node({ id: "2", parent: "1" });
-		expect(focusableOf([parent, child])["2"]).toBe(false);
+		expect(focusableOf([parent, child])).toMatchObject({ "2": false });
 	});
 
 	it("refuses a control inert by a grandparent, not just a parent", () => {
@@ -107,7 +107,7 @@ describe("what the join decides can take focus", () => {
 		});
 		const middle = node({ id: "2", nodeName: "DIV", parent: "1" });
 		const child = node({ id: "3", parent: "2" });
-		expect(focusableOf([grand, middle, child])["3"]).toBe(false);
+		expect(focusableOf([grand, middle, child])).toMatchObject({ "3": false });
 	});
 
 	it("takes the tree's word over markup when the tree spoke", () => {
@@ -120,15 +120,15 @@ describe("what the join decides can take focus", () => {
 			attributes: { tabindex: "0" },
 		});
 		expect(
-			focusableOf([div], [{ backendNodeId: 7, focusable: true }])["7"],
-		).toBe(true);
+			focusableOf([div], [{ backendNodeId: 7, focusable: true }]),
+		).toMatchObject({ "7": true });
 	});
 
 	it("believes the tree when it says a visible control cannot focus", () => {
 		const input = node({ id: "8", backendNodeId: 8 });
 		expect(
-			focusableOf([input], [{ backendNodeId: 8, focusable: false }])["8"],
-		).toBe(false);
+			focusableOf([input], [{ backendNodeId: 8, focusable: false }]),
+		).toMatchObject({ "8": false });
 	});
 
 	it("still refuses a disabled control", () => {

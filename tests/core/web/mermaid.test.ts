@@ -58,8 +58,8 @@ describe("pngPixelSize", () => {
 	for (const [name, intrinsic] of cases) {
 		it(`keeps ${name} within both caps after integer rounding`, () => {
 			const { width, height } = pngPixelSize(intrinsic);
-			expect(Number.isInteger(width)).toBe(true);
-			expect(Number.isInteger(height)).toBe(true);
+			expect(Number.isInteger(width), `width ${width} is whole`).toBe(true);
+			expect(Number.isInteger(height), `height ${height} is whole`).toBe(true);
 			expect(width).toBeGreaterThanOrEqual(1);
 			expect(height).toBeGreaterThanOrEqual(1);
 			expect(Math.max(width, height)).toBeLessThanOrEqual(MAX_LONG_EDGE);

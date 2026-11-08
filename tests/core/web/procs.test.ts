@@ -44,7 +44,10 @@ describe("a ps that never answers", () => {
 			verifyBrowser(process.pid, "/nowhere/profile"),
 		);
 		expect(took).toBeLessThan(PS_TIMEOUT_MS + MARGIN_MS);
-		expect(answer).toBe(false);
+		expect(
+			answer,
+			"a browser is not confirmed as ours when ps does not answer in time",
+		).toBe(false);
 	}, 40_000);
 
 	it("is given up on when finding a profile's processes, which are then unknown", () => {
@@ -58,7 +61,10 @@ describe("a ps that never answers", () => {
 
 describe("a ps that answers", () => {
 	it("still confirms nothing for a profile no process names", () => {
-		expect(verifyBrowser(process.pid, "/nowhere/profile")).toBe(false);
+		expect(
+			verifyBrowser(process.pid, "/nowhere/profile"),
+			"this test process does not verify as a browser on /nowhere/profile",
+		).toBe(false);
 		expect(findProcsByProfile("/nowhere/profile")).toEqual([]);
 	});
 });
