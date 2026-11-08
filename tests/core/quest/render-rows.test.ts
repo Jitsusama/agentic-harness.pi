@@ -219,7 +219,7 @@ describe("renderListingExpanded", () => {
 		const out = renderListingExpanded(details);
 		const lines = out.split("\n");
 		const depth1Line = lines.find((l) => l.includes("QEST-20260603-CCC222"));
-		expect(depth1Line?.startsWith("  ")).toBe(true);
+		expect(depth1Line).toMatch(/^ {2}/);
 	});
 
 	it("surfaces the empty-page tail when total > 0 but rows empty", () => {
@@ -304,18 +304,21 @@ describe("isListingDetails", () => {
 			limit: 25,
 			remaining: 0,
 		};
-		expect(isListingDetails(payload)).toBe(true);
+		expect(
+			isListingDetails(payload),
+			"an empty page with every field is a listing",
+		).toBe(true);
 	});
 
 	it("rejects undefined, null and non-objects", () => {
-		expect(isListingDetails(undefined)).toBe(false);
-		expect(isListingDetails(null)).toBe(false);
-		expect(isListingDetails("listing")).toBe(false);
-		expect(isListingDetails(7)).toBe(false);
+		expect(isListingDetails(undefined), "undefined is no listing").toBe(false);
+		expect(isListingDetails(null), "null is no listing").toBe(false);
+		expect(isListingDetails("listing"), "a string is no listing").toBe(false);
+		expect(isListingDetails(7), "a number is no listing").toBe(false);
 	});
 
 	it("rejects payloads missing required fields or with wrong types", () => {
-		expect(isListingDetails({})).toBe(false);
+		expect(isListingDetails({}), "an empty object is no listing").toBe(false);
 		expect(
 			isListingDetails({
 				rows: "not-an-array",
@@ -324,6 +327,7 @@ describe("isListingDetails", () => {
 				limit: 0,
 				remaining: 0,
 			}),
+			"a listing whose rows are a string is refused",
 		).toBe(false);
 		expect(
 			isListingDetails({
@@ -333,6 +337,7 @@ describe("isListingDetails", () => {
 				limit: 0,
 				remaining: 0,
 			}),
+			"a listing whose total is a string is refused",
 		).toBe(false);
 	});
 });

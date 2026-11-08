@@ -113,10 +113,19 @@ describe("the card a fleet leaves behind", () => {
 	});
 
 	it("draws only details that are a fleet's result", () => {
-		expect(isFleetRunResult(ended(["complete"]))).toBe(true);
-		expect(isFleetRunResult({ ok: false })).toBe(false);
-		expect(isFleetRunResult({ results: [{ id: 3 }] })).toBe(false);
-		expect(isFleetRunResult(undefined)).toBe(false);
+		expect(
+			isFleetRunResult(ended(["complete"])),
+			"a fleet that ended with one job complete is drawn",
+		).toBe(true);
+		expect(
+			isFleetRunResult({ ok: false }),
+			"a refusal with no results is not drawn",
+		).toBe(false);
+		expect(
+			isFleetRunResult({ results: [{ id: 3 }] }),
+			"results whose id is a number are not drawn",
+		).toBe(false);
+		expect(isFleetRunResult(undefined), "no details are not drawn").toBe(false);
 	});
 });
 

@@ -158,7 +158,10 @@ describe("a fleet in the background", () => {
 		await inBackground(host);
 		await until("the fleet to end", () => outcomes.length === 1);
 		expect(outcomes[0]?.summary).toContain("Fleet fleet-bg: 1/1 complete");
-		expect(outcomes[0]?.failed).toBeFalsy();
+		expect(
+			outcomes[0]?.failed,
+			"a fleet whose one job completed is not said to have failed",
+		).toBeFalsy();
 	});
 
 	it("stops the fleet when its job is stopped", async () => {
@@ -201,8 +204,14 @@ describe("a fleet in the background", () => {
 		turn.abort();
 		release?.();
 		await until("the fleet to end", () => outcomes.length === 1);
-		expect(interrupted).toBe(false);
-		expect(outcomes[0]?.failed).toBeFalsy();
+		expect(
+			interrupted,
+			"aborting the turn that started the fleet does not abort its job",
+		).toBe(false);
+		expect(
+			outcomes[0]?.failed,
+			"a fleet that outlived an Escape is not said to have failed",
+		).toBeFalsy();
 	});
 
 	it("keeps its board up until the result is in the session", async () => {
@@ -279,6 +288,6 @@ describe("a fleet in the background", () => {
 			return { exitCode: 0, finalAssistantText: "done", warnings: [] };
 		};
 		await expect(inBackground()).rejects.toThrow(/job-workflow/);
-		expect(ran).toBe(false);
+		expect(ran, "no job runs when nobody could say the result").toBe(false);
 	});
 });

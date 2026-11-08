@@ -44,8 +44,11 @@ function writeReadme(lines: string[]): void {
 describe("appendJourneyByPath", () => {
 	it("returns false when the README is missing", () => {
 		const ok = appendJourneyByPath(questDir, "anything", { now: fixedNow });
-		expect(ok).toBe(false);
-		expect(existsSync(join(questDir, JOURNEY_FILE))).toBe(false);
+		expect(ok, "a folder with no README takes no journey entry").toBe(false);
+		expect(
+			existsSync(join(questDir, JOURNEY_FILE)),
+			`${join(questDir, JOURNEY_FILE)} is not written`,
+		).toBe(false);
 	});
 
 	it("writes the entry to the Journey file and points the README at it", () => {
@@ -62,7 +65,7 @@ describe("appendJourneyByPath", () => {
 		const ok = appendJourneyByPath(questDir, "started the work", {
 			now: fixedNow,
 		});
-		expect(ok).toBe(true);
+		expect(ok, "a quest with a README takes a journey entry").toBe(true);
 		expect(journeyFile()).toBe(
 			"# 🌄 Journey\n\n- **2026-06-03**: started the work\n",
 		);

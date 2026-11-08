@@ -214,7 +214,12 @@ describe("a fleet child whose supervisor died", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(paths.cancelPath)).toBe(true));
+		await vi.waitFor(() =>
+			expect(
+				existsSync(paths.cancelPath),
+				`${paths.cancelPath} is written`,
+			).toBe(true),
+		);
 	});
 
 	it("kills it, and says so, when the lease names it exactly", async () => {
@@ -271,9 +276,13 @@ describe("a fleet child whose supervisor died", () => {
 			// about the ordinary case where the child had already gone.
 			expect(said.join(" ")).toContain("asked 1 subagent");
 			expect(said.join(" ")).toContain("killed 1 child");
-			await vi.waitFor(() => expect(systemFacts.alive(pid)).toBe(false), {
-				timeout: 30_000,
-			});
+			await vi.waitFor(
+				() =>
+					expect(systemFacts.alive(pid), `process ${pid} is killed`).toBe(
+						false,
+					),
+				{ timeout: 30_000 },
+			);
 		} finally {
 			try {
 				process.kill(pid, "SIGKILL");
@@ -317,7 +326,10 @@ describe("a fleet child whose supervisor died", () => {
 		await startSession();
 
 		await finished();
-		expect(existsSync(paths.cancelPath)).toBe(false);
+		expect(
+			existsSync(paths.cancelPath),
+			`${paths.cancelPath} is not written`,
+		).toBe(false);
 	});
 
 	it("is looked for by the first session start in a window, not by every one", async () => {
@@ -371,7 +383,10 @@ describe("a fleet child whose supervisor died", () => {
 		await startSession();
 
 		await finished();
-		expect(existsSync(paths.cancelPath)).toBe(false);
+		expect(
+			existsSync(paths.cancelPath),
+			`${paths.cancelPath} is not written`,
+		).toBe(false);
 	});
 });
 
@@ -392,7 +407,9 @@ describe("the fleet retention sweep", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(transcripts), `${transcripts} is removed`).toBe(false),
+		);
 	});
 
 	it("keeps a fleet nobody has collected, however old", async () => {
@@ -413,8 +430,10 @@ describe("the fleet retention sweep", () => {
 		await age(other);
 
 		await startSession();
-		await vi.waitFor(() => expect(existsSync(other)).toBe(false));
-		expect(existsSync(transcripts)).toBe(true);
+		await vi.waitFor(() =>
+			expect(existsSync(other), `${other} is removed`).toBe(false),
+		);
+		expect(existsSync(transcripts), `${transcripts} is kept`).toBe(true);
 	});
 
 	it("forgets a settled record once its transcripts have gone", async () => {
@@ -440,7 +459,9 @@ describe("the fleet retention sweep", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(record)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(record), `${record} is removed`).toBe(false),
+		);
 	});
 
 	it("declines the sweep when the fleet ledger will not read", async () => {
@@ -460,7 +481,7 @@ describe("the fleet retention sweep", () => {
 			expect(about[0]).toContain("torn.json");
 			expect(about[0]).toContain("every session");
 		});
-		expect(existsSync(transcripts)).toBe(true);
+		expect(existsSync(transcripts), `${transcripts} is kept`).toBe(true);
 	});
 
 	it("cuts off the fleets whose session has gone, and says nothing", async () => {
@@ -501,10 +522,13 @@ describe("the fleet retention sweep", () => {
 			});
 			// Aged past every ordinary window, and kept: what a cut-off
 			// fleet wrote is the only copy there is.
-			expect(existsSync(stateDir("runs", `fleet-${n}`))).toBe(true);
+			expect(
+				existsSync(stateDir("runs", `fleet-${n}`)),
+				`${stateDir("runs", `fleet-${n}`)} is kept`,
+			).toBe(true);
 		}
 		for (let n = 3; n < 5; n++) {
-			expect((await recordOf(`fleet-${n}`))?.open).toBe(true);
+			expect(await recordOf(`fleet-${n}`)).toMatchObject({ open: true });
 		}
 		expect(said.filter(aboutFleets)).toEqual([]);
 	});
@@ -530,8 +554,12 @@ describe("the fleet retention sweep", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
-		await vi.waitFor(() => expect(existsSync(record)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(transcripts), `${transcripts} is removed`).toBe(false),
+		);
+		await vi.waitFor(() =>
+			expect(existsSync(record), `${record} is removed`).toBe(false),
+		);
 	});
 
 	it("tells the conversation that dispatched a cut-off fleet, once", async () => {
@@ -558,7 +586,9 @@ describe("the fleet retention sweep", () => {
 		expect(first[0]?.content).toContain("fleet-0 (one, two)");
 		expect(first[0]?.content).toContain(transcripts);
 		await vi.waitFor(async () =>
-			expect((await recordOf("fleet-0"))?.cutOff?.told).toBe(true),
+			expect(await recordOf("fleet-0")).toMatchObject({
+				cutOff: { told: true },
+			}),
 		);
 		expect(said.filter(aboutFleets)).toEqual([]);
 
@@ -620,7 +650,9 @@ describe("the fleet retention sweep", () => {
 		const first = staleFleet("fleet-done");
 		await age(first);
 		await startSession("conversation-new", NEW);
-		await vi.waitFor(() => expect(existsSync(first)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(first), `${first} is removed`).toBe(false),
+		);
 
 		await ledger.open({
 			id: "fleet-later",
@@ -641,13 +673,17 @@ describe("the fleet retention sweep", () => {
 		const told = await startSession("conversation-a", CAME_BACK);
 		await vi.waitFor(() => expect(told).toHaveLength(1));
 		await vi.waitFor(async () =>
-			expect((await recordOf("fleet-0"))?.cutOff?.told).toBe(true),
+			expect(await recordOf("fleet-0")).toMatchObject({
+				cutOff: { told: true },
+			}),
 		);
-		expect(existsSync(later)).toBe(true);
+		expect(existsSync(later), `${later} is kept`).toBe(true);
 
 		vi.setSystemTime(opens + DAY_MS);
 		await startSession("conversation-next", NEW);
-		await vi.waitFor(() => expect(existsSync(later)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(later), `${later} is removed`).toBe(false),
+		);
 	});
 
 	it("agrees with itself when sessions start together", async () => {
@@ -683,7 +719,9 @@ describe("the fleet retention sweep", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(note)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(note), `${note} is removed`).toBe(false),
+		);
 	});
 
 	it("says nothing about a held fleet another session is running", async () => {
@@ -716,7 +754,7 @@ describe("the fleet retention sweep", () => {
 		expect(said.filter(aboutFleets)).toEqual([]);
 		// Nor cut off: work in flight is not lost.
 		for (let n = 0; n < 5; n++) {
-			expect((await recordOf(`fleet-${n}`))?.open).toBe(true);
+			expect(await recordOf(`fleet-${n}`)).toMatchObject({ open: true });
 		}
 	});
 
@@ -738,7 +776,9 @@ describe("the fleet retention sweep", () => {
 		await age(transcripts);
 
 		await startSession();
-		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(transcripts), `${transcripts} is removed`).toBe(false),
+		);
 		expect(said).toEqual([]);
 	});
 
@@ -764,7 +804,9 @@ describe("the fleet retention sweep", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(transcripts), `${transcripts} is removed`).toBe(false),
+		);
 		expect(said).toEqual([]);
 	});
 });

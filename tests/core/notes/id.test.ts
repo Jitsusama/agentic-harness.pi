@@ -52,23 +52,51 @@ describe("mintIdFromDateString", () => {
 
 describe("isId / dateOf", () => {
 	it("accepts a valid id", () => {
-		expect(isId("NOTE-20260603-AB12CD")).toBe(true);
+		expect(isId("NOTE-20260603-AB12CD"), "a well-formed id is accepted").toBe(
+			true,
+		);
 	});
 
 	it("rejects invalid ids", () => {
-		expect(isId("NOTE-20260603-ab12cd")).toBe(false); // lowercase
-		expect(isId("NOTE-20260603-AB12")).toBe(false); // too short
-		expect(isId("QEST-20260603-AB12CD")).toBe(false); // wrong prefix
-		expect(isId("NOTE-2026063-AB12CD")).toBe(false); // bad date
-		expect(isId("not-an-id")).toBe(false);
+		expect(
+			isId("NOTE-20260603-ab12cd"),
+			"an id with a lowercase suffix is refused",
+		).toBe(false);
+		expect(
+			isId("NOTE-20260603-AB12"),
+			"an id with a short suffix is refused",
+		).toBe(false);
+		expect(
+			isId("QEST-20260603-AB12CD"),
+			"an id with a quest's prefix is refused",
+		).toBe(false);
+		expect(
+			isId("NOTE-2026063-AB12CD"),
+			"an id with a seven-digit date is refused",
+		).toBe(false);
+		expect(isId("not-an-id"), "a string of no id shape is refused").toBe(false);
 	});
 
 	it("rejects impossible calendar dates that pass digit-count", () => {
-		expect(isId("NOTE-00000000-AAAAAA")).toBe(false); // year 0000
-		expect(isId("NOTE-20261345-AAAAAA")).toBe(false); // month 13, day 45
-		expect(isId("NOTE-20260230-AAAAAA")).toBe(true); // Feb 30 still passes (shape, not calendar)
-		expect(isId("NOTE-20260001-AAAAAA")).toBe(false); // month 00
-		expect(isId("NOTE-20260100-AAAAAA")).toBe(false); // day 00
+		expect(
+			isId("NOTE-00000000-AAAAAA"),
+			"an id dated in year 0000 is refused",
+		).toBe(false);
+		expect(
+			isId("NOTE-20261345-AAAAAA"),
+			"an id dated month 13, day 45 is refused",
+		).toBe(false);
+		expect(
+			isId("NOTE-20260230-AAAAAA"),
+			"an id dated February 30 is accepted, since the check is of shape, not calendar",
+		).toBe(true);
+		expect(
+			isId("NOTE-20260001-AAAAAA"),
+			"an id dated month 00 is refused",
+		).toBe(false);
+		expect(isId("NOTE-20260100-AAAAAA"), "an id dated day 00 is refused").toBe(
+			false,
+		);
 	});
 
 	it("dateOf returns undefined for an invalid id", () => {

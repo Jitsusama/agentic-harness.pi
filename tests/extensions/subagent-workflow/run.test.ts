@@ -131,7 +131,7 @@ describe("dispatchFleet", () => {
 			"second",
 			"third",
 		]);
-		expect(result.results.every((r) => r.state === "complete")).toBe(true);
+		expect(result.results.filter((r) => r.state !== "complete")).toEqual([]);
 	});
 
 	it("files each job with the level it launched at and the session it billed under", async () => {
@@ -307,7 +307,7 @@ describe("dispatchFleet", () => {
 			cancellations,
 			progress,
 		});
-		expect(events.some((e) => e.startsWith("activity:watcher:"))).toBe(true);
+		expect(events).toContainEqual(expect.stringMatching(/^activity:watcher:/));
 	});
 
 	it("reports non-zero pi exits as failed, not complete", async () => {
@@ -336,7 +336,7 @@ describe("dispatchFleet", () => {
 		expect(result.results[0].state).toBe("failed");
 		expect(result.results[0].error).toMatch(/exited with code 1/);
 		expect(result.results[0].finalAssistantText).toBe("partial");
-		expect(events.some((e) => e.startsWith("failed:bad-exit:"))).toBe(true);
+		expect(events).toContainEqual(expect.stringMatching(/^failed:bad-exit:/));
 	});
 
 	it("reports a terminal provider error as failed even when pi exits zero", async () => {
@@ -367,7 +367,7 @@ describe("dispatchFleet", () => {
 		});
 		expect(result.results[0].state).toBe("failed");
 		expect(result.results[0].error).toMatch(/stream ended/);
-		expect(events.some((e) => e.startsWith("failed:dropped:"))).toBe(true);
+		expect(events).toContainEqual(expect.stringMatching(/^failed:dropped:/));
 	});
 
 	it("reports a subagent that exited partway as failed, in words that say so", async () => {
@@ -434,9 +434,9 @@ describe("dispatchFleet", () => {
 		expect(failure.error).toMatch(/exited with code 1/);
 		expect(failure.error).toMatch(/No API key found for anthropic/);
 		expect(failure.stderr).toBe(stderr);
-		expect(
-			events.some((e) => e.includes("failed:unauth:") && e.includes("API key")),
-		).toBe(true);
+		expect(events.filter((e) => e.includes("failed:unauth:"))).toContainEqual(
+			expect.stringContaining("API key"),
+		);
 	});
 
 	it("omits `stderr` when the child wrote nothing to stderr", async () => {
@@ -535,7 +535,7 @@ describe("buildAssignment", () => {
 			cwd: "/tmp",
 			userPrompt: "do work",
 		});
-		expect(out.job.isolated).toBe(true);
+		expect(out.job).toMatchObject({ isolated: true });
 	});
 
 	it("honours an explicit isolated=false override", () => {
@@ -545,7 +545,7 @@ describe("buildAssignment", () => {
 			userPrompt: "do work",
 			isolated: false,
 		});
-		expect(out.job.isolated).toBe(false);
+		expect(out.job).toMatchObject({ isolated: false });
 	});
 
 	it("separates spec fields from job fields", () => {
@@ -612,8 +612,8 @@ describe("buildAssignment", () => {
 			cwd: "/tmp",
 			userPrompt: "x",
 		});
-		expect("timeoutMs" in out.job).toBe(false);
-		expect("idleTimeoutMs" in out.job).toBe(false);
+		expect(out.job).not.toHaveProperty("timeoutMs");
+		expect(out.job).not.toHaveProperty("idleTimeoutMs");
 	});
 
 	it("forwards verify packs with and without companion skills", () => {
@@ -779,9 +779,8 @@ describe("locateArtifacts", () => {
 		expect(located.results[0].resultPath).toContain("result.json");
 		expect(located.results[1].resultPath).toContain("beta");
 		// The result.json lives beneath the run dir.
-		expect(
-			located.results[0].resultPath?.startsWith(located.runDir ?? ""),
-		).toBe(true);
+		const runDir = located.runDir ?? "";
+		expect(located.results[0].resultPath?.slice(0, runDir.length)).toBe(runDir);
 	});
 
 	it("preserves the original fields and per-subagent identity", () => {
@@ -823,6 +822,6 @@ describe("summarizeStderrTail", () => {
 		const long = "x".repeat(1000);
 		const tail = summarizeStderrTail(long);
 		expect(tail.length).toBeLessThanOrEqual(240);
-		expect(tail.endsWith("...")).toBe(true);
+		expect(tail).toMatch(/\.\.\.$/);
 	});
 });

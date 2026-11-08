@@ -152,7 +152,10 @@ describe("withQuestLock", () => {
 					atomicWriteFile(join(questDir, "ok.txt"), "y");
 				}),
 			).toThrow(/Timed out/);
-			expect(existsSync(join(questDir, "ok.txt"))).toBe(false);
+			expect(
+				existsSync(join(questDir, "ok.txt")),
+				`${join(questDir, "ok.txt")} is not written`,
+			).toBe(false);
 		},
 		15_000,
 	);
@@ -172,7 +175,10 @@ describe("withQuestLock", () => {
 			atomicWriteFile(join(questDir, "ok.txt"), "y");
 		});
 
-		expect(existsSync(join(questDir, "ok.txt"))).toBe(true);
+		expect(
+			existsSync(join(questDir, "ok.txt")),
+			`${join(questDir, "ok.txt")} exists`,
+		).toBe(true);
 		expect(readdirSync(questDir).sort()).toEqual([WRITING, "ok.txt"]);
 		expect(readdirSync(join(questDir, WRITING))).toEqual([]);
 	});
@@ -192,6 +198,9 @@ describe("withQuestLock", () => {
 				atomicWriteFile(join(questDir, "ok.txt"), "y");
 			}),
 		).not.toThrow();
-		expect(existsSync(join(questDir, "ok.txt"))).toBe(true);
+		expect(
+			existsSync(join(questDir, "ok.txt")),
+			`${join(questDir, "ok.txt")} exists`,
+		).toBe(true);
 	});
 });

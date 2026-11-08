@@ -28,12 +28,12 @@ describe("parseQuestWorkflowConfig", () => {
 
 	it("rejects a non-object section", () => {
 		const result = parseQuestWorkflowConfig(42);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("rejects a non-string questsRoot", () => {
 		const result = parseQuestWorkflowConfig({ questsRoot: 7 });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected failure");
 		expect(result.error).toMatch(/questsRoot/);
 	});
@@ -47,7 +47,7 @@ describe("parseQuestWorkflowConfig", () => {
 
 	it("rejects a non-boolean autoloadFromCwd", () => {
 		const result = parseQuestWorkflowConfig({ autoloadFromCwd: "no" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected failure");
 		expect(result.error).toMatch(/autoloadFromCwd/);
 	});
@@ -110,7 +110,7 @@ describe("summarizeQuestConfig", () => {
 			configPath: "/cfg/config.json",
 			dataDir: "/data",
 		});
-		expect(summary.autoloadFromCwd).toBe(false);
+		expect(summary).toMatchObject({ autoloadFromCwd: false });
 		expect(summary.autoloadFromCwdSource).toBe("config");
 	});
 

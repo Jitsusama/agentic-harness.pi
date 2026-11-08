@@ -181,7 +181,7 @@ describe("a config that is there and wrong", () => {
 		[[], "subagent in"],
 	])("refuses %j, naming %s", (section, field) => {
 		const read = readFleetConfig(section, PATH);
-		expect(read.ok).toBe(false);
+		expect(read).toMatchObject({ ok: false });
 		if (!read.ok) expect(read.error).toContain(field);
 	});
 
