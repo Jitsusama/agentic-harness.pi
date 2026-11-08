@@ -18,5 +18,5 @@ work up once it is worth showing somebody,
 naming and [`commit-format`](../commit-format/) for the
 message.
 
-Backed by the `work-integration` extension over the `lib/work`
+Backed by the `work-integration` extension over the `lib/core/work`
 library.

@@ -15,8 +15,8 @@ position, never assent, because reading an absent critique as agreement
 would let a critic that ran out of budget manufacture consensus.
 
 Read [`SKILL.md`](./SKILL.md) for the contract. The reader it describes
-is [`lib/review/ask/critique.ts`][critique].
+is [`lib/core/review/ask/critique.ts`][critique].
 
 Related: [`review-guide`](../review-guide) for driving the tools.
 
-[critique]: ../../lib/review/ask/critique.ts
+[critique]: ../../lib/core/review/ask/critique.ts

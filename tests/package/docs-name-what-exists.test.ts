@@ -9,12 +9,15 @@
  * moment somebody decides where to look, so a stale path sends the work the
  * wrong way rather than presenting as missing.
  *
- * Two kinds of mention are checked: a relative link, in any markdown file,
- * and a path in backticks that starts at one of this repository's top-level
- * folders, in the files that describe this repository (skills are left out of
- * that half, since they describe any repository). A path written after "core"
- * or "core's" is agentic-harness.core's, and is not looked for here. Code
- * blocks and inline code are examples, so links inside them are not followed.
+ * Two kinds of mention are checked: a relative link, inline or as a reference
+ * definition, in any markdown file, and a path in backticks that starts at one
+ * of this repository's top-level folders, in the files that describe this
+ * repository. A skill's SKILL.md is left out of that half, since it describes
+ * any repository, but its README.md is for browsing this one, and seven of
+ * them went on citing `lib/review/ask` after it moved under `lib/core`. A path
+ * written after "core" or "core's" is agentic-harness.core's, and is not
+ * looked for here. Code blocks and inline code are examples, so links inside
+ * them are not followed.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -32,6 +35,9 @@ const PATH =
 
 /** A relative link's target, before any anchor. */
 const LINK = /\]\((?!https?:|mailto:|#)([^)\s#]+)(?:#[^)]*)?\)/g;
+
+/** A reference definition's relative target, before any anchor. */
+const REFERENCE = /^\[[^\]\n]+\]:[ \t]*(?!https?:|mailto:|#)([^\s#]+)/gm;
 
 /** A path written as agentic-harness.core's, which this repository doesn't hold. */
 const CORES = /core(?:'s)? $/i;
@@ -66,8 +72,8 @@ function missingIn(file: string): string[] {
 	const name = relative(ROOT, file);
 	const text = withoutFences(readFileSync(file, "utf8"));
 	const missing: string[] = [];
-	const describesThisRepository =
-		!name.startsWith("skills/") && !name.startsWith(".pi/skills/");
+	const inSkills = name.startsWith("skills/") || name.startsWith(".pi/skills/");
+	const describesThisRepository = !inSkills || name.endsWith("/README.md");
 	if (describesThisRepository) {
 		for (const match of text.matchAll(PATH)) {
 			const path = match[1].replace(/\/$/, "");
@@ -77,7 +83,8 @@ function missingIn(file: string): string[] {
 		}
 	}
 	const prose = text.replace(/`[^`\n]*`/g, "");
-	for (const [, target] of prose.matchAll(LINK)) {
+	const targets = [...prose.matchAll(LINK), ...prose.matchAll(REFERENCE)];
+	for (const [, target] of targets) {
 		if (!existsSync(join(dirname(file), target)))
 			missing.push(`${name}: (${target})`);
 	}
