@@ -30,9 +30,11 @@ describe("treeIdentity", () => {
 	it("pins a snapshot to its commit", () => {
 		expect(
 			satisfies(treeIdentity(snapshot("abc123")), snapshot("abc123")),
+			"a snapshot of abc123 serves another ask for abc123",
 		).toBe(true);
 		expect(
 			satisfies(treeIdentity(snapshot("abc123")), snapshot("def456")),
+			"a snapshot of abc123 does not serve an ask for def456",
 		).toBe(false);
 	});
 
@@ -42,18 +44,23 @@ describe("treeIdentity", () => {
 		// orphan the tree you are working in.
 		const held = treeIdentity(worktree("fix/thing"));
 
-		expect(satisfies(held, worktree("fix/thing"))).toBe(true);
+		expect(
+			satisfies(held, worktree("fix/thing")),
+			"a worktree of fix/thing serves another ask for fix/thing",
+		).toBe(true);
 	});
 
 	it("distinguishes two worktrees by branch", () => {
 		expect(
 			satisfies(treeIdentity(worktree("fix/one")), worktree("fix/two")),
+			"a worktree of fix/one does not serve an ask for fix/two",
 		).toBe(false);
 	});
 
 	it("scopes identity to the repo, so one branch name in two repos is two trees", () => {
 		expect(
 			satisfies(treeIdentity(worktree("main", world)), worktree("main", other)),
+			"a worktree of main in one repo does not serve main in another",
 		).toBe(false);
 	});
 
@@ -63,6 +70,7 @@ describe("treeIdentity", () => {
 				treeIdentity(snapshot("abc123", world)),
 				snapshot("abc123", other),
 			),
+			"a snapshot of abc123 in one repo does not serve abc123 in another",
 		).toBe(false);
 	});
 
@@ -75,7 +83,10 @@ describe("treeIdentity", () => {
 			branch: "abc123",
 		};
 
-		expect(satisfies(held, asWorktree)).toBe(false);
+		expect(
+			satisfies(held, asWorktree),
+			"a snapshot of abc123 does not serve a worktree of a branch named abc123",
+		).toBe(false);
 	});
 
 	it("survives being used as a directory name", () => {
@@ -92,8 +103,10 @@ describe("treeIdentity", () => {
 		// Two reviewers reading the same commit can read the same
 		// tree. Two people editing cannot, and the difference is
 		// not a caller's judgement call.
-		expect(treeIdentity(snapshot("abc123")).shareable).toBe(true);
-		expect(treeIdentity(worktree("fix/thing")).shareable).toBe(false);
+		expect(treeIdentity(snapshot("abc123"))).toMatchObject({ shareable: true });
+		expect(treeIdentity(worktree("fix/thing"))).toMatchObject({
+			shareable: false,
+		});
 	});
 
 	it("ignores the paths a snapshot asked to scope to", () => {

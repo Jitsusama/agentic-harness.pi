@@ -59,10 +59,10 @@ describe.skipIf(!haveChrome)("typography capture, in a real browser", () => {
 		expect(orphaned?.lineCount).toBeGreaterThan(1);
 		const findings = analyseTypography(blocks);
 		expect(
-			findings.some(
-				(one) => one.block.selector === "#orphaned" && one.kind === "orphan",
-			),
-		).toBe(true);
+			findings
+				.filter((one) => one.block.selector === "#orphaned")
+				.map((one) => one.kind),
+		).toContain("orphan");
 	});
 
 	it("reads the stranded word itself", async () => {
@@ -75,16 +75,16 @@ describe.skipIf(!haveChrome)("typography capture, in a real browser", () => {
 
 	it("leaves balanced text to the browser", async () => {
 		const blocks = await session.typography();
-		expect(blocks.some((one) => one.selector === "#clean")).toBe(false);
+		expect(blocks.map((one) => one.selector)).not.toContain("#clean");
 	});
 
 	it("skips text inside a collapsed disclosure", async () => {
 		const blocks = await session.typography();
-		expect(blocks.some((one) => one.selector === "#collapsed")).toBe(false);
+		expect(blocks.map((one) => one.selector)).not.toContain("#collapsed");
 	});
 
 	it("skips body text under the floor", async () => {
 		const blocks = await session.typography();
-		expect(blocks.some((one) => one.selector === "#short")).toBe(false);
+		expect(blocks.map((one) => one.selector)).not.toContain("#short");
 	});
 });

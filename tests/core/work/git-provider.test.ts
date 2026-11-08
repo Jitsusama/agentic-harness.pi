@@ -71,8 +71,14 @@ describe("createGitTreeProvider", () => {
 		const { exec } = fakeExec(ok);
 		const provider = createGitTreeProvider({ exec, stateDir: "/state" });
 
-		expect(provider.appliesTo(checkedOut)).toBe(true);
-		expect(provider.appliesTo(unplaceable)).toBe(true);
+		expect(
+			provider.appliesTo(checkedOut),
+			"it applies to a repo checked out on this machine",
+		).toBe(true);
+		expect(
+			provider.appliesTo(unplaceable),
+			"it applies to a repo on no host it knows, with no checkout",
+		).toBe(true);
 		expect(provider.specificity).toBe(0);
 	});
 
@@ -474,7 +480,7 @@ describe("a tree cut on btrfs", () => {
 
 		await provider.ensure(snapshot());
 
-		expect(calls.some((call) => call.command === "btrfs")).toBe(false);
+		expect(calls.map((call) => call.command)).not.toContain("btrfs");
 		expect(addition(calls)).toBeDefined();
 	});
 
@@ -551,7 +557,7 @@ describe("a tree that is already there", () => {
 		});
 
 		expect(held.path).toContain("snapshot-github-o-r-");
-		expect(seen.some((args) => args.includes("add"))).toBe(false);
+		expect(seen.filter((args) => args.includes("add"))).toEqual([]);
 	});
 
 	it("refuses one standing at a different commit", async () => {
@@ -649,7 +655,7 @@ describe("a tree that is already there", () => {
 			commit: SHA,
 		});
 
-		expect(seen.some((args) => args.includes("add"))).toBe(true);
+		expect(seen).toContainEqual(expect.arrayContaining(["add"]));
 	});
 
 	it("runs a call's git under that call's signal, so stopping the call stops git", async () => {
@@ -678,8 +684,8 @@ describe("a tree that is already there", () => {
 
 		expect(asked).toEqual([signal, signal]);
 		expect(addition(stoppable.calls)).toBeDefined();
-		expect(stoppable.calls.some((call) => call.args.includes("remove"))).toBe(
-			true,
+		expect(stoppable.calls.map((call) => call.args)).toContainEqual(
+			expect.arrayContaining(["remove"]),
 		);
 		expect(standing.calls).toEqual([]);
 	});

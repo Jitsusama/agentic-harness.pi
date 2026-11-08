@@ -39,7 +39,7 @@ describe("naming what is held", () => {
 			cwd: "/nowhere",
 			gitRootOf: () => null,
 		});
-		expect(target.ok).toBe(false);
+		expect(target).toMatchObject({ ok: false });
 		if (target.ok) return;
 		expect(target.refusal).toContain(
 			"and 195 more; work's trees action lists them",

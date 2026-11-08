@@ -55,7 +55,7 @@ describe.skipIf(!haveChrome)("recording a trace, in a real browser", () => {
 			return clicked;
 		});
 
-		expect(recorded.result.ok).toBe(true);
+		expect(recorded.result).toMatchObject({ ok: true });
 		expect(recorded.refusal).toBeUndefined();
 		const trace = recorded.trace;
 		if (trace === undefined) throw new Error("expected a trace");
@@ -70,8 +70,8 @@ describe.skipIf(!haveChrome)("recording a trace, in a real browser", () => {
 		// Both fetches are joined to their sends by request id, so the
 		// urls are known rather than being bare ids.
 		const urls = trace.requests.map((request) => request.url ?? "");
-		expect(urls.some((url) => url.includes("/slow"))).toBe(true);
-		expect(urls.some((url) => url.includes("/quick"))).toBe(true);
+		expect(urls).toContainEqual(expect.stringContaining("/slow"));
+		expect(urls).toContainEqual(expect.stringContaining("/quick"));
 	});
 
 	it("notices the quick request answering before the slow one", async () => {
@@ -89,7 +89,7 @@ describe.skipIf(!haveChrome)("recording a trace, in a real browser", () => {
 		// second and answers at once. That is the fact a waterfall
 		// hides and the reason this is worth reporting at all.
 		expect(trace.overlapping).toBeGreaterThanOrEqual(2);
-		expect(trace.resolvedOutOfOrder).toBe(true);
+		expect(trace).toMatchObject({ resolvedOutOfOrder: true });
 	});
 
 	it("attributes the work to this page and nothing else", async () => {
@@ -158,7 +158,7 @@ describe.skipIf(!haveChrome)("recording a trace, in a real browser", () => {
 
 			// The action still happened. Losing the trace must never
 			// cost the caller the thing they asked for.
-			expect(recorded.result.ok).toBe(true);
+			expect(recorded.result).toMatchObject({ ok: true });
 			expect(recorded.trace).toBeUndefined();
 			expect(recorded.refusal).toContain("someone-else");
 		} finally {

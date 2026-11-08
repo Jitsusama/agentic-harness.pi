@@ -125,7 +125,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "Press me" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(await logged()).toBe("clicked");
 	});
 
@@ -139,7 +139,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(await logged()).toBe("icon");
 	});
 
@@ -154,7 +154,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			text: "Ada",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const value = await session.evaluate(
 			"document.getElementById('text').value",
 		);
@@ -167,7 +167,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "textbox", name: "Your name" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const value = await session.evaluate(
 			"document.getElementById('text').value",
 		);
@@ -181,7 +181,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			text: "Beta",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const value = await session.evaluate(
 			"document.getElementById('choice').value",
 		);
@@ -204,7 +204,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "Press me" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		// Focusing is not clicking, and a tool that conflated them
 		// would fire every handler it meant only to reach.
 		expect(await logged()).toBe("nothing yet");
@@ -222,7 +222,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "Far below" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(await logged()).toBe("far");
 		expect(Date.now() - started).toBeLessThan(2000);
 	});
@@ -233,9 +233,9 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "Far below" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const scrolled = await session.evaluate("window.scrollY > 0");
-		expect(scrolled.ok && scrolled.result.value).toBe(true);
+		expect(scrolled).toMatchObject({ ok: true, result: { value: true } });
 	});
 
 	it("refuses a name that is not on the page, rather than doing nothing", async () => {
@@ -244,7 +244,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "No such button" },
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("puts a file on an input the page keeps out of sight", async () => {
@@ -268,7 +268,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			files: [file],
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const picked = await session.evaluate(
 			"document.getElementById('picked').textContent",
 		);
@@ -283,7 +283,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 		const target = { role: "button", name: "Publish" };
 		const result = await session.act({ kind: "click", target });
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		// A name that matches nothing is refused before readiness is
 		// ever consulted, so this is the refusal branch, not blocked.
 		if (result.ok || !("refusal" in result)) throw new Error("no refusal");
@@ -300,7 +300,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "Disabled button" },
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("will not click through something covering the target", async () => {
@@ -312,7 +312,7 @@ describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
 			target: { role: "button", name: "Covered button" },
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(await logged()).toBe("nothing yet");
 	});
 

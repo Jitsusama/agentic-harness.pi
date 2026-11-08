@@ -25,7 +25,7 @@ describe("treeInPlay", () => {
 	});
 
 	it("asks when none are held", () => {
-		expect("candidates" in treeInPlay(undefined, [])).toBe(true);
+		expect(treeInPlay(undefined, [])).toHaveProperty("candidates");
 	});
 });
 

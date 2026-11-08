@@ -59,7 +59,10 @@ describe.skipIf(!haveChrome)(
 				while (isPidAlive(pid ?? 0) && Date.now() < end) {
 					await new Promise((resolve) => setTimeout(resolve, 50));
 				}
-				expect(isPidAlive(pid ?? 0)).toBe(false);
+				expect(
+					isPidAlive(pid ?? 0),
+					`Chrome, process ${pid}, is gone within five seconds of the signal`,
+				).toBe(false);
 			} finally {
 				process.off("SIGHUP", host);
 			}

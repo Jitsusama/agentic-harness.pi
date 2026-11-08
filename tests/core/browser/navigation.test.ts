@@ -100,11 +100,11 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		await session.navigate(fixture.url("/second"));
 
 		const back = await session.step("back");
-		expect(back.ok).toBe(true);
+		expect(back).toMatchObject({ ok: true });
 		expect(session.url).toBe(fixture.url("/first"));
 
 		const forward = await session.step("forward");
-		expect(forward.ok).toBe(true);
+		expect(forward).toMatchObject({ ok: true });
 		expect(session.url).toBe(fixture.url("/second"));
 	});
 
@@ -117,7 +117,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 
 		const outcome = await session.step("forward");
 
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 	});
 
 	it("reloads without losing where it is", async () => {
@@ -136,7 +136,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			5_000,
 		);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 	});
 
 	it("gives up on an element that never arrives, and reports the wait", async () => {
@@ -149,7 +149,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			500,
 		);
 
-		expect(outcome.met).toBe(false);
+		expect(outcome).toMatchObject({ met: false });
 		expect(outcome.waitedMs).toBeGreaterThanOrEqual(500);
 	});
 
@@ -161,7 +161,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			5_000,
 		);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 	});
 
 	it("waits for an element to leave", async () => {
@@ -174,7 +174,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			5_000,
 		);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 	});
 
 	it("waits for the network to go quiet", async () => {
@@ -190,7 +190,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			quietMs * 150,
 		);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 	});
 
 	it("reaches a tab the page opened, and reads it", async () => {
@@ -215,10 +215,10 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		expect(tabs.length).toBeGreaterThan(1);
 		const opened = tabs.find((tab) => tab.url.includes("/second"));
 		expect(opened).toBeDefined();
-		expect(opened?.current).toBe(false);
+		expect(opened).toMatchObject({ current: false });
 
 		const switched = await session.switchTab(opened?.index ?? 0);
-		expect("refusal" in switched).toBe(false);
+		expect(switched).not.toHaveProperty("refusal");
 
 		// The point is not that the list changed but that reads follow.
 		const here = await session.evaluate("document.title");
@@ -228,7 +228,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 	it("refuses a tab that is not open rather than going quiet", async () => {
 		const switched = await session.switchTab(99);
 
-		expect("refusal" in switched).toBe(true);
+		expect(switched).toHaveProperty("refusal");
 	});
 
 	it("waits for an attribute to reach a value", async () => {
@@ -253,7 +253,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			5_000,
 		);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 	});
 
 	it("will not call a missing element an absent attribute", async () => {
@@ -267,7 +267,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			300,
 		);
 
-		expect(outcome.met).toBe(false);
+		expect(outcome).toMatchObject({ met: false });
 		expect(outcome.saw).toContain("Nothing matches");
 	});
 
@@ -286,7 +286,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			5_000,
 		);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 	});
 
 	it("keeps waiting when a request answers the wrong status", async () => {
@@ -302,7 +302,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 			1_000,
 		);
 
-		expect(outcome.met).toBe(false);
+		expect(outcome).toMatchObject({ met: false });
 		expect(outcome.saw).toContain("404");
 
 		// The control, with a fresh request because a wait only counts
@@ -316,13 +316,13 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		await session.evaluate(
 			`fetch(${JSON.stringify(fixture.url("/missing-thing"))}); 'again'`,
 		);
-		expect((await loose).met).toBe(true);
+		expect(await loose).toMatchObject({ met: true });
 	});
 
 	it("waits out a plain duration", async () => {
 		const outcome = await session.waitFor({ kind: "duration", ms: 250 }, 5_000);
 
-		expect(outcome.met).toBe(true);
+		expect(outcome).toMatchObject({ met: true });
 		// Measured at 249 once: a timer can come back a whisker early,
 		// and the elapsed figure is rounded from a clock of its own.
 		// The claim worth holding is that it waited about as long as
@@ -357,8 +357,8 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 		// except to distrust the suite.
 		const settled = await session.settlePage(SETTLE_QUIET_MS * 40);
 
-		expect(settled.quiet).toBe(true);
-		expect(session.settledLast?.quiet).toBe(true);
+		expect(settled).toMatchObject({ quiet: true });
+		expect(session.settledLast).toMatchObject({ quiet: true });
 	});
 
 	it("counts the mutations of a page that will not sit still", async () => {
@@ -368,7 +368,7 @@ describe.skipIf(!haveChrome)("navigating, in a real browser", () => {
 
 		const settled = await session.settlePage();
 
-		expect(settled.quiet).toBe(false);
+		expect(settled).toMatchObject({ quiet: false });
 		expect(settled.mutations).toBeGreaterThan(0);
 	});
 });

@@ -58,7 +58,7 @@ describe.skipIf(!haveChrome)("motion under reduce, in a real browser", () => {
 		await session.navigate(fixture.url("/honours"));
 		const capture = await session.motionUnderReduce();
 
-		expect(capture.reduced).toBe(true);
+		expect(capture).toMatchObject({ reduced: true });
 		expect(analyseMotion(capture)).toEqual([]);
 	});
 
@@ -66,7 +66,7 @@ describe.skipIf(!haveChrome)("motion under reduce, in a real browser", () => {
 		await session.navigate(fixture.url("/ignores"));
 		const capture = await session.motionUnderReduce();
 
-		expect(capture.reduced).toBe(true);
+		expect(capture).toMatchObject({ reduced: true });
 		const findings = analyseMotion(capture);
 		expect(findings.map((one) => one.rule)).toContain(
 			"animation-runs-under-reduced-motion",

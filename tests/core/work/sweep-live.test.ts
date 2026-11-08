@@ -230,7 +230,7 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const outcome = await sweep();
 
 		expect(outcome.taken).toEqual([{ path: tree, branch: "done" }]);
-		expect(existsSync(tree)).toBe(false);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 		expect(await git(main, "branch", "--list", "done")).toContain("done");
 	});
@@ -254,8 +254,13 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const outcome = await sweep([claimed]);
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(live)).toBe(true);
-		expect(existsSync(claimed)).toBe(true);
+		expect(
+			existsSync(live),
+			`${live}, which a running session holds, is kept`,
+		).toBe(true);
+		expect(existsSync(claimed), `${claimed}, which is claimed, is kept`).toBe(
+			true,
+		);
 		expect(outcome.kept.map((one) => one.path)).toEqual([claimed]);
 	});
 
@@ -264,7 +269,10 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const unsaid = await cut("unsaid", ["-b", "unsaid", "@", "main"], []);
 
 		expect((await sweep()).taken).toEqual([]);
-		expect(existsSync(unsaid)).toBe(true);
+		expect(
+			existsSync(unsaid),
+			`${unsaid}, whose record names nobody, is kept`,
+		).toBe(true);
 	});
 
 	it("keeps a dirty tree and one with work trunk doesn't hold", async () => {
@@ -280,7 +288,11 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(outcome.kept.map((one) => one.path).sort()).toEqual(
 			[ahead, dirty].sort(),
 		);
-		expect(existsSync(dirty) && existsSync(ahead)).toBe(true);
+		expect(existsSync(dirty), `${dirty}, which is dirty, is kept`).toBe(true);
+		expect(
+			existsSync(ahead),
+			`${ahead}, which is ahead of trunk, is kept`,
+		).toBe(true);
 	});
 
 	it("leaves a tree and its record as they were when git refuses", async () => {
@@ -291,7 +303,9 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const outcome = await sweep();
 
 		expect(outcome.refused.map((one) => one.path)).toEqual([locked]);
-		expect(existsSync(locked)).toBe(true);
+		expect(existsSync(locked), `${locked}, which git refused, is kept`).toBe(
+			true,
+		);
 		expect(memory.recall().map((one) => one.path)).toContain(locked);
 	});
 
@@ -302,13 +316,18 @@ describe("sweeping the trees whose sessions have ended", () => {
 		writeFileSync(lockPath, String(process.pid));
 		const busy = await sweep();
 		expect(busy.skipped).toContain(String(process.pid));
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept while another sweep runs`).toBe(
+			true,
+		);
 
 		writeFileSync(lockPath, String(NO_SUCH_PID));
 		const after = await sweep();
 		expect(after.skipped).toBeUndefined();
 		expect(after.taken.map((one) => one.path)).toEqual([tree]);
-		expect(existsSync(lockPath)).toBe(false);
+		expect(
+			existsSync(lockPath),
+			`${lockPath} is released once the sweep ends`,
+		).toBe(false);
 	});
 });
 
@@ -320,7 +339,7 @@ describe("trees whose repository is gone", () => {
 		const outcome = await sweep([], (gitDir) => gitDir.startsWith(clone));
 
 		expect(outcome.taken).toEqual([{ path: tree }]);
-		expect(existsSync(tree)).toBe(false);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
@@ -333,7 +352,7 @@ describe("trees whose repository is gone", () => {
 		expect(outcome.kept).toEqual([
 			{ path: tree, why: "its repository is gone" },
 		]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 });
 
@@ -360,7 +379,7 @@ describe("trees a session still uses, whatever their owners say", () => {
 		});
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("takes one whose sessions have all ended too", async () => {
@@ -385,7 +404,7 @@ describe("trees a session still uses, whatever their owners say", () => {
 		});
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("keeps one naming no session whose git moved since the boot", async () => {
@@ -398,7 +417,7 @@ describe("trees a session still uses, whatever their owners say", () => {
 		const outcome = await sweepKnowing({ bootedAt: Date.now() - 60_000 });
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("takes one naming no session whose git hasn't moved since", async () => {
@@ -425,7 +444,7 @@ describe("trees another provider cut", () => {
 
 		expect(holders).toEqual([{ pid: process.pid, startedAt: US_STARTED }]);
 		expect(outcome.taken).toEqual([{ path: tree }]);
-		expect(existsSync(tree)).toBe(false);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
@@ -439,7 +458,7 @@ describe("trees another provider cut", () => {
 			path: tree,
 			why: "it has uncommitted changes",
 		});
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("keeps a shareable one, which a session could join mid-removal", async () => {
@@ -449,7 +468,7 @@ describe("trees another provider cut", () => {
 		const outcome = await sweepWith(elsewhere(undefined));
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("keeps one a quest claims by the checkout inside it", async () => {
@@ -462,7 +481,7 @@ describe("trees another provider cut", () => {
 			path: tree,
 			why: "something still holds it",
 		});
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("never takes a running session's", async () => {
@@ -472,7 +491,7 @@ describe("trees another provider cut", () => {
 		const outcome = await sweepWith(elsewhere(undefined));
 
 		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
 
 	it("gives the record back to its sessions when the release fails", async () => {
@@ -506,7 +525,9 @@ describe("taking a tree only while its sessions have all ended", () => {
 			machine,
 		);
 
-		expect(ran).toBe(false);
+		expect(ran, "the take never ran for a tree a running session holds").toBe(
+			false,
+		);
 		expect(forgotten).toBeUndefined();
 		expect(memory.recall().map((one) => one.path)).toContain(tree);
 	});

@@ -57,7 +57,7 @@ describe("taking back a tree nothing owns", () => {
 		expect(outcome.trees).toEqual([
 			{ kind: "reclaimed", path: tree, branch: "spent" },
 		]);
-		expect(existsSync(tree)).toBe(false);
+		expect(existsSync(tree), `${tree} is reclaimed`).toBe(false);
 		// The whole justification for acting here: the work is still named.
 		expect(await git(local, "rev-parse", "spent")).toEqual(before);
 		expect(await git(local, "worktree", "list")).not.toContain(tree);
@@ -84,8 +84,8 @@ describe("taking back a tree nothing owns", () => {
 			path: second,
 			branch: "fine",
 		});
-		expect(existsSync(tree)).toBe(true);
-		expect(existsSync(second)).toBe(false);
+		expect(existsSync(tree), `${tree}, which git refused, is kept`).toBe(true);
+		expect(existsSync(second), `${second} is reclaimed`).toBe(false);
 	});
 
 	it("says why in git's own words rather than its own", async () => {
@@ -111,6 +111,6 @@ describe("taking back a tree nothing owns", () => {
 		const outcome = await reclaimTrees({ exec, mainPath: local }, []);
 
 		expect(outcome.trees).toEqual([]);
-		expect(existsSync(tree)).toBe(true);
+		expect(existsSync(tree), `${tree}, never offered, is kept`).toBe(true);
 	});
 });

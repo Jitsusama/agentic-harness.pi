@@ -48,7 +48,7 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 			{ role: "region", name: "Card" },
 		);
 
-		expect(judged.ok).toBe(true);
+		expect(judged).toMatchObject({ ok: true });
 		if (!judged.ok) return;
 		expect(judged.report.criterion).toBe("1.4.3");
 		expect(judged.report.compared.one).toBe("color");
@@ -61,7 +61,7 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 			{ role: "region", name: "Card" },
 		);
 
-		expect(judged.ok).toBe(true);
+		expect(judged).toMatchObject({ ok: true });
 		if (!judged.ok) return;
 		expect(judged.report.verdict).toBe("fail");
 		// The ratio is the evidence, so it has to be a real measurement
@@ -78,7 +78,7 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 			{ role: "region", name: "Card" },
 		);
 
-		expect(judged.ok).toBe(true);
+		expect(judged).toMatchObject({ ok: true });
 		if (!judged.ok) return;
 		expect(judged.report.compared.one).toBe("border-color");
 		expect(judged.report.criterion).toBe("1.4.11");
@@ -91,7 +91,7 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 			{ role: "region", name: "No such card" },
 		);
 
-		expect(judged.ok).toBe(false);
+		expect(judged).toMatchObject({ ok: false });
 	});
 
 	it("names the second element when the second is the missing one", async () => {
@@ -105,7 +105,7 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 			{ role: "region", name: "No such card" },
 		);
 
-		expect(judged.ok).toBe(false);
+		expect(judged).toMatchObject({ ok: false });
 		if (judged.ok) return;
 		expect("target" in judged && judged.target).toEqual({
 			role: "region",
@@ -119,7 +119,7 @@ describe.skipIf(!haveChrome)("contrast between two elements", () => {
 			{ role: "region", name: "Card" },
 		);
 
-		expect(judged.ok).toBe(false);
+		expect(judged).toMatchObject({ ok: false });
 		if (judged.ok) return;
 		expect("target" in judged && judged.target).toEqual({
 			role: "heading",
