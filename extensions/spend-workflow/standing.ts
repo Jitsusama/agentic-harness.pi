@@ -33,10 +33,12 @@ export interface StandingPrompt {
 	readonly pieces: Readonly<Record<string, number>>;
 	/**
 	 * Characters later system messages declared again while the session
-	 * was still starting, before its third answer: tools and sections that
-	 * settled only after the first request went out. The prefix keeps
-	 * both copies, so each turn reads them again until a compaction, as
-	 * every session a quest spawn started did from 3 to 4 November 2026.
+	 * was still starting, before its third answer: a tool under a name
+	 * already declared, or a section that replaces one already sent. The
+	 * prefix keeps both copies, so each turn reads them again until a
+	 * compaction, as every session a quest spawn started did from 3 to 4
+	 * November 2026. A tool or section declared for the first time, as a
+	 * tool loaded on demand is, is not counted: that is wanted, not a copy.
 	 */
 	readonly redeclared: number;
 }
@@ -51,6 +53,14 @@ interface LogLine {
 		sections?: Record<string, unknown>;
 		toolsAdded?: unknown[];
 	};
+}
+
+/** A tool declaration's name, when it carries one. */
+function toolName(tool: unknown): string | undefined {
+	if (typeof tool !== "object" || tool === null || !("name" in tool)) {
+		return undefined;
+	}
+	return typeof tool.name === "string" ? tool.name : undefined;
 }
 
 /** The longest a log is read looking for its system message. */
@@ -78,6 +88,32 @@ function declared(message: NonNullable<LogLine["message"]>): {
 }
 
 /**
+ * Characters a later system message sends of what the prefix already
+ * holds: a tool under a name already declared, and a section replacing
+ * one already sent, which pi sends whole. Tools and sections new to the
+ * session are left out.
+ */
+function declaredAgain(
+	message: NonNullable<LogLine["message"]>,
+	toolsHeld: ReadonlySet<string>,
+	sectionsHeld: ReadonlySet<string>,
+): number {
+	const tools = (message.toolsAdded ?? [])
+		.filter((tool) => {
+			const name = toolName(tool);
+			return name !== undefined && toolsHeld.has(name);
+		})
+		.reduce<number>((sum, tool) => sum + JSON.stringify(tool).length, 0);
+	let sections = 0;
+	for (const [name, value] of Object.entries(message.sections ?? {})) {
+		if (typeof value === "string" && sectionsHeld.has(name)) {
+			sections += value.length;
+		}
+	}
+	return tools + sections;
+}
+
+/**
  * The always-on context a session started with, or nothing when its
  * log holds no system message in its first lines (an older pi, or a
  * log that is not a session).
@@ -93,6 +129,10 @@ export async function standingOf(
 	let readAfter = 0;
 	let answers = 0;
 	let redeclared = 0;
+	// Every name the prefix already holds a copy of: removing a tool or
+	// replacing a section leaves the old copy where it was.
+	const toolsHeld = new Set<string>();
+	const sectionsHeld = new Set<string>();
 	const standing = (): StandingPrompt | undefined =>
 		first && {
 			session: session ?? path,
@@ -123,13 +163,16 @@ export async function standingOf(
 			}
 			if (line.message?.role !== "system") continue;
 			const message = declared(line.message);
-			if (!first) {
+			if (first) {
+				redeclared += declaredAgain(line.message, toolsHeld, sectionsHeld);
+			} else {
 				first = message;
-				continue;
 			}
-			redeclared += Object.entries(message.pieces)
-				.filter(([name]) => name !== "declarations" || message.tools.length > 0)
-				.reduce((sum, [, size]) => sum + size, 0);
+			for (const tool of message.tools) {
+				const name = toolName(tool);
+				if (name) toolsHeld.add(name);
+			}
+			for (const name of Object.keys(message.pieces)) sectionsHeld.add(name);
 		}
 		return standing();
 	} finally {

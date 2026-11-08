@@ -23,6 +23,8 @@ function log(lines: unknown[]): string {
 	return path;
 }
 
+const answer = { type: "message", message: { role: "assistant" } };
+
 const SYSTEM = {
 	type: "message",
 	message: {
@@ -68,11 +70,10 @@ describe("the always-on context of a session", () => {
 			message: {
 				role: "system",
 				sections: { rules: "r".repeat(50) },
-				toolsAdded: [{ name: "codemode" }],
-				toolsRemoved: [{ name: "read" }],
+				toolsAdded: [{ name: "read" }, { name: "bash" }],
+				toolsRemoved: [{ name: "read" }, { name: "bash" }],
 			},
 		};
-		const answer = { type: "message", message: { role: "assistant" } };
 		const path = log([
 			{ type: "session", id: "S1", cwd: "/x" },
 			SYSTEM,
@@ -87,9 +88,33 @@ describe("the always-on context of a session", () => {
 		const prompt = await standingOf(path);
 
 		expect(prompt?.redeclared).toBe(
-			50 + JSON.stringify(again.message.toolsAdded).length,
+			50 +
+				again.message.toolsAdded
+					.map((tool) => JSON.stringify(tool).length)
+					.reduce((sum, size) => sum + size, 0),
 		);
 		expect(prompt?.pieces.rules).toBe(30);
+	});
+
+	// A tool loaded on demand is declared for the first time; only the
+	// sections it replaces, which pi sends whole, are a second copy.
+	it("leaves out tools and sections declared for the first time", async () => {
+		const loaded = {
+			type: "message",
+			message: {
+				role: "system",
+				sections: { tools: "- read\n- slack", loadable: "l".repeat(70) },
+				toolsAdded: [{ name: "slack", description: "d".repeat(500) }],
+			},
+		};
+		const path = log([
+			{ type: "session", id: "S1", cwd: "/x" },
+			SYSTEM,
+			answer,
+			loaded,
+		]);
+
+		expect((await standingOf(path))?.redeclared).toBe("- read\n- slack".length);
 	});
 
 	it("counts nothing declared again after a compaction", async () => {
