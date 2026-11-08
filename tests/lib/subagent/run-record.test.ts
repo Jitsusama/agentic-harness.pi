@@ -199,10 +199,16 @@ describe("a run's record", () => {
 });
 
 describe("watching a run", () => {
+	// The watch's clock is the run's own, minutes after it began: on the
+	// system's, a run begun on 7 November aged out of the day records are
+	// kept from the 8th, and nothing was written.
+	const during = () => new Date("2026-11-07T04:20:00.000Z");
+
 	it("says it at once, and how it ended as its call returns", async () => {
 		keep("one", "request", { args: [] });
 		const watch = watchRun(asked(), [{ id: "one" }, { id: "never" }], {
 			dir: records,
+			now: during,
 		});
 		await vi.waitFor(() =>
 			expect(recordIn("fleet.fleet-a.json")).toMatchObject({
@@ -226,6 +232,7 @@ describe("watching a run", () => {
 		const watch = watchRun(asked(), [{ id: "detached" }], {
 			dir: records,
 			everyMs: 10,
+			now: during,
 		});
 		await watch.end();
 		expect(recordIn("fleet.fleet-a.json")).toMatchObject({ state: "running" });
@@ -238,7 +245,10 @@ describe("watching a run", () => {
 	});
 
 	it("takes in a member asked after it began", async () => {
-		const watch = watchRun(asked(), [{ id: "lead" }], { dir: records });
+		const watch = watchRun(asked(), [{ id: "lead" }], {
+			dir: records,
+			now: during,
+		});
 		watch.note({ id: "after", persona: "tests" });
 		answered("lead");
 		answered("after");
