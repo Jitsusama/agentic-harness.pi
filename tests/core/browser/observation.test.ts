@@ -172,7 +172,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			name: "Shipping",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.observation.outline).toContain("Shipping");
 		expect(result.observation.outline).not.toContain("billing prose");
@@ -187,7 +187,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			name: "Warehousing",
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) return;
 		expect(result.refusal).toBeDefined();
 	});
@@ -200,7 +200,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			name: "Save",
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("resolves a name made unambiguous by its container", async () => {
@@ -210,7 +210,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			container: { name: "Shipping" },
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 
 	it("resolves a duplicate name by position when asked", async () => {
@@ -220,7 +220,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			ordinal: 2,
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 
 	it("reaches content inside an iframe", async () => {
@@ -252,7 +252,9 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		expect(nodes.length).toBeGreaterThan(0);
 		// Without a box there is nothing to judge overlap, clipping or
 		// target size from, which is most of the visual audit.
-		expect(nodes.some((node) => node.bounds !== undefined)).toBe(true);
+		expect(
+			nodes.filter((node) => node.bounds !== undefined).length,
+		).toBeGreaterThan(0);
 	});
 
 	it("computes whichever properties the caller names", async () => {
@@ -268,8 +270,8 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		);
 		expect(withValue.length).toBeGreaterThan(0);
 		// And the curated set is genuinely displaced, not merged with.
-		expect(withValue.some((node) => node.styles.color !== undefined)).toBe(
-			false,
+		expect(withValue.filter((node) => node.styles.color !== undefined)).toEqual(
+			[],
 		);
 	});
 
@@ -277,7 +279,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		const structure = await session.structure();
 
 		expect(structure.length).toBeGreaterThan(0);
-		expect(structure.some((node) => node.tag === "h1")).toBe(true);
+		expect(structure.map((node) => node.tag)).toContain("h1");
 	});
 
 	it("measures what was drawn, and in what viewport", async () => {
@@ -305,7 +307,10 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// The fixture has two buttons with the same name and no lang
 		// problems worth relying on, so the assertion is about the
 		// shape of an answer rather than a specific rule firing.
-		expect(Array.isArray(findings)).toBe(true);
+		expect(
+			Array.isArray(findings),
+			`the audit answers with a list, not with ${typeof findings}`,
+		).toBe(true);
 	});
 
 	it("catches a label that does not contain its own visible text", async () => {
@@ -338,7 +343,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			{ role: "button", name: "Cancel" },
 		);
 
-		expect(measured.ok).toBe(true);
+		expect(measured).toMatchObject({ ok: true });
 		if (!measured.ok) return;
 		expect(measured.measurement.horizontal).toEqual({
 			kind: "gap",
@@ -347,7 +352,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 		// Same top and same height, so both edges line up and they are
 		// the same size.
 		expect(measured.measurement.aligned).toContain("top");
-		expect(measured.measurement.sameSize).toBe(true);
+		expect(measured.measurement).toMatchObject({ sameSize: true });
 	});
 
 	it("says which of the two elements it could not find", async () => {
@@ -358,7 +363,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			{ role: "button", name: "Nowhere" },
 		);
 
-		expect(measured.ok).toBe(false);
+		expect(measured).toMatchObject({ ok: false });
 		if (measured.ok) return;
 		// Naming the target back is the whole point: the caller gave
 		// two and needs to know which one was wrong.
@@ -395,13 +400,13 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			role: "status",
 			name: "Save result",
 		});
-		expect(status.ok).toBe(true);
+		expect(status).toMatchObject({ ok: true });
 		if (!status.ok) return;
 		expect(status.inspection.text).toBe("3 items updated");
 		expect(status.inspection.attributes?.["data-test-state"]).toBe("complete");
 
 		const field = await session.inspect({ role: "textbox", name: "Email" });
-		expect(field.ok).toBe(true);
+		expect(field).toMatchObject({ ok: true });
 		if (!field.ok) return;
 		expect(field.inspection.value).toBe("user@example.com");
 	});
@@ -422,7 +427,7 @@ describe.skipIf(!haveChrome)("observing a page, in a real browser", () => {
 			name: "Save result",
 		});
 
-		expect(found.ok).toBe(true);
+		expect(found).toMatchObject({ ok: true });
 		if (!found.ok) return;
 		expect(found.inspection.fonts?.length).toBeGreaterThan(0);
 		// The stack named a face that does not exist, so whatever came

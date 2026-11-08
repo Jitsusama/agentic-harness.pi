@@ -121,7 +121,7 @@ describe.skipIf(!haveChrome)("reading a page always lets go", () => {
 			);
 			// Nothing in a page that runs no script can change it, so
 			// calling it still changing would be untrue.
-			expect(session.settledLast?.quiet).toBe(true);
+			expect(session.settledLast).toMatchObject({ quiet: true });
 		} finally {
 			await session.close();
 		}

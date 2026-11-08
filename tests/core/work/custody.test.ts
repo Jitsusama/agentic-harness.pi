@@ -103,7 +103,10 @@ describe("sessions sharing one tree's record", () => {
 			.find((one) => one.path === path);
 		const holders = (record?.owners ?? []).map((owner) => owner.pid);
 		expect(holders.sort()).toEqual([...pids].sort());
-		expect(seen).toBe(true);
+		expect(
+			seen,
+			"the reader found the record while the children wrote it",
+		).toBe(true);
 		expect(torn).toBe(0);
 	}, 60_000);
 });

@@ -237,14 +237,20 @@ describe("naming what a resumed replay is onto", {
 		await three();
 		writeFileSync(join(repo, "notes.md"), "main, topic\n");
 		expect(await rebaser().resume(repo)).toMatchObject({ kind: "replayed" });
-		expect(await rebaser().halted(repo)).toBe(false);
+		expect(
+			await rebaser().halted(repo),
+			"no replay is left halted once it is resumed to the end",
+		).toBe(false);
 
 		// Again from the start, this time abandoned.
 		disposeRepo(repo);
 		repo = await freshRepo("rebase-settle");
 		await three();
 		expect(await rebaser().abandon(repo)).toMatchObject({ kind: "abandoned" });
-		expect(await rebaser().halted(repo)).toBe(false);
+		expect(
+			await rebaser().halted(repo),
+			"no replay is left halted once it is abandoned",
+		).toBe(false);
 	});
 
 	it("says which commit that was, once the ref has moved on", async () => {

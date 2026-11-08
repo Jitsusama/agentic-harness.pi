@@ -112,24 +112,33 @@ describe("publishing a branch", () => {
 describe("whether a fetch refspec brings a branch in", () => {
 	it("reads a pattern, a single ref and a forced one alike", () => {
 		const topic = "refs/heads/jg/topic";
-		expect(refspecCovers("+refs/heads/*:refs/remotes/origin/*", topic)).toBe(
-			true,
-		);
+		expect(
+			refspecCovers("+refs/heads/*:refs/remotes/origin/*", topic),
+			"a forced pattern over every branch brings it in",
+		).toBe(true);
 		expect(
 			refspecCovers("refs/heads/jg/*:refs/remotes/origin/jg/*", topic),
+			"a pattern over its own prefix brings it in",
 		).toBe(true);
-		expect(refspecCovers(`+${topic}:refs/remotes/origin/jg/topic`, topic)).toBe(
-			true,
-		);
+		expect(
+			refspecCovers(`+${topic}:refs/remotes/origin/jg/topic`, topic),
+			"a forced refspec naming the branch itself brings it in",
+		).toBe(true);
 	});
 
 	it("is false for another branch and for a refspec that leaves refs out", () => {
 		const topic = "refs/heads/jg/topic";
 		expect(
 			refspecCovers("+refs/heads/main:refs/remotes/origin/main", topic),
+			"a refspec naming another branch leaves it out",
 		).toBe(false);
-		expect(refspecCovers("^refs/heads/jg/*", topic)).toBe(false);
-		expect(refspecCovers("", topic)).toBe(false);
+		expect(
+			refspecCovers("^refs/heads/jg/*", topic),
+			"a negative refspec over its prefix leaves it out",
+		).toBe(false);
+		expect(refspecCovers("", topic), "an empty refspec brings nothing in").toBe(
+			false,
+		);
 	});
 });
 

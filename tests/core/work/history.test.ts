@@ -19,7 +19,7 @@ describe("reading what a tree holds", () => {
 
 		const result = await history.status("/trees/one");
 
-		expect(result.clean).toBe(true);
+		expect(result).toMatchObject({ clean: true });
 		expect(result.changed).toEqual([]);
 	});
 
@@ -52,7 +52,7 @@ describe("reading what a tree holds", () => {
 
 		const result = await history.status("/trees/one");
 
-		expect(result.clean).toBe(false);
+		expect(result).toMatchObject({ clean: false });
 		expect(result.changed).toEqual([
 			{ path: "scratch.ts", staged: false, kind: "untracked" },
 		]);

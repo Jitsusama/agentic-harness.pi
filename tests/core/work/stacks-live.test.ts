@@ -203,9 +203,9 @@ describe("a stack in a real repository", { timeout: REAL_GIT_MS }, () => {
 
 		const again = await mustRestack(stacks, dir, "main");
 
-		expect(again.results.every((one) => one.outcome === "already-there")).toBe(
-			true,
-		);
+		expect(
+			again.results.filter((one) => one.outcome !== "already-there"),
+		).toEqual([]);
 	});
 
 	it("reorders a stack, and the commits follow after a restack", async () => {
@@ -244,7 +244,10 @@ describe("a stack in a real repository", { timeout: REAL_GIT_MS }, () => {
 		// And the halt is real: git agrees a rebase is in progress, which is what
 		// resume and abandon act on.
 		const rebaser = createGitRebaser({ exec });
-		expect(await rebaser.halted(dir)).toBe(true);
+		expect(
+			await rebaser.halted(dir),
+			"git has a rebase in progress after the conflict",
+		).toBe(true);
 		await rebaser.abandon(dir);
 	});
 

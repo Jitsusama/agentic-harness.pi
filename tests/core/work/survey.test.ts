@@ -64,14 +64,14 @@ describe("choosing what a survey looks at", () => {
 	it("asks which tree when several are held and the cwd is not a repo", () => {
 		const out = surveyTarget({ held, cwd: "/nowhere", gitRootOf });
 
-		expect(out.ok).toBe(false);
+		expect(out).toMatchObject({ ok: false });
 		expect(out.ok === false && out.refusal).toContain("world/spike");
 	});
 
 	it("refuses a name that is neither a held tree nor a checkout", () => {
 		const out = surveyTarget({ tree: "typo", held, cwd: "/x", gitRootOf });
 
-		expect(out.ok).toBe(false);
+		expect(out).toMatchObject({ ok: false });
 		expect(out.ok === false && out.refusal).toContain("typo");
 	});
 
@@ -85,6 +85,6 @@ describe("choosing what a survey looks at", () => {
 	it("refuses when nothing is held and the cwd is not a checkout", () => {
 		const out = surveyTarget({ held: [], cwd: "/nowhere", gitRootOf });
 
-		expect(out.ok).toBe(false);
+		expect(out).toMatchObject({ ok: false });
 	});
 });

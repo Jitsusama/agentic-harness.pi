@@ -66,7 +66,7 @@ describe.skipIf(!haveChrome)("clipping a capture to one element", () => {
 			target: { role: "image", name: "Marker" },
 		});
 
-		expect(taken.ok).toBe(true);
+		expect(taken).toMatchObject({ ok: true });
 		if (!taken.ok) return;
 		const [path] = taken.shot.paths;
 		expect(path).toBeDefined();
@@ -86,7 +86,7 @@ describe.skipIf(!haveChrome)("clipping a capture to one element", () => {
 			target: { role: "image", name: "Marker" },
 		});
 
-		expect(taken.ok).toBe(true);
+		expect(taken).toMatchObject({ ok: true });
 		if (!taken.ok) return;
 		expect(coloursIn(taken.shot.paths[0] ?? "")).toEqual([MARKER]);
 	});
@@ -99,7 +99,7 @@ describe.skipIf(!haveChrome)("clipping a capture to one element", () => {
 			name: "Faint body text far down the page",
 		});
 
-		expect(judged.ok).toBe(true);
+		expect(judged).toMatchObject({ ok: true });
 		if (!judged.ok) return;
 		expect(judged.report.undecided).toBeUndefined();
 		expect(judged.report.glyphPixels).toBeGreaterThan(100);
@@ -119,7 +119,7 @@ describe.skipIf(!haveChrome)("clipping a capture to one element", () => {
 			name: "Faint body text far down the page",
 		});
 
-		expect(judged.ok).toBe(true);
+		expect(judged).toMatchObject({ ok: true });
 		if (!judged.ok) return;
 		expect(judged.report.undecided).toBeUndefined();
 		expect(judged.report.glyphPixels).toBeGreaterThan(100);

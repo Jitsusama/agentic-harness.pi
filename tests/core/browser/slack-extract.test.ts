@@ -100,7 +100,10 @@ describe.skipIf(!haveChrome)("a Slack credential extraction", () => {
 		await expect(extraction).rejects.toMatchObject({ name: "AbortError" });
 		expect(Date.now() - started).toBeLessThan(10_000);
 		expect(chromes.length).toBeGreaterThan(0);
-		expect(await gone(chromes)).toBe(true);
+		expect(
+			await gone(chromes),
+			`Chrome, processes ${chromes.join(", ")}, is gone once its signal fired`,
+		).toBe(true);
 	});
 
 	it("kills its Chrome on a signal and leaves the exit to the host", async () => {
@@ -139,7 +142,10 @@ describe.skipIf(!haveChrome)("a Slack credential extraction", () => {
 			// Gone because of the signal, not because the extraction ended
 			// and closed its window, which takes the whole clock.
 			expect(chromes.length).toBeGreaterThan(0);
-			expect(await gone(chromes)).toBe(true);
+			expect(
+				await gone(chromes),
+				`Chrome, processes ${chromes.join(", ")}, is gone once SIGINT arrived`,
+			).toBe(true);
 			expect(exit).not.toHaveBeenCalled();
 			expect(host).toHaveBeenCalledTimes(1);
 			await settled;

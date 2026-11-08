@@ -160,8 +160,14 @@ describe("a tree outlives the session that cut it", () => {
 
 		// The distinction a listing needs: an inherited tree may hold work this
 		// session knows nothing about, so it is the one to read status on first.
-		expect(second.cutHere(mine.path)).toBe(true);
-		expect(second.cutHere(inherited.path)).toBe(false);
+		expect(
+			second.cutHere(mine.path),
+			"the tree this session cut was cut here",
+		).toBe(true);
+		expect(
+			second.cutHere(inherited.path),
+			"the tree an earlier session cut was inherited, not cut here",
+		).toBe(false);
 	});
 
 	it("lists this session's trees before the ones it inherited", async () => {
@@ -225,7 +231,10 @@ describe("the directory is the truth, not the record", () => {
 		expect(memoryAt().recall()).toEqual([]);
 		// And it is left alone rather than tidied away, since deleting somebody
 		// else's file to clean up a listing is not this code's decision.
-		expect(existsSync(join(dir, "half.json"))).toBe(true);
+		expect(
+			existsSync(join(dir, "half.json")),
+			`${join(dir, "half.json")} is left alone`,
+		).toBe(true);
 	});
 
 	it("ignores a record missing the identity a caller would rely on", () => {
@@ -339,7 +348,10 @@ describe("a broker with no memory", () => {
 		const cut = await one.ensure(asked("fix-410"));
 
 		expect(one.held()).toHaveLength(1);
-		expect(one.cutHere(cut.path)).toBe(true);
+		expect(
+			one.cutHere(cut.path),
+			"a broker with no memory still knows the tree it cut",
+		).toBe(true);
 		expect(createTreeBroker([provider()]).held()).toEqual([]);
 	});
 });
@@ -608,7 +620,10 @@ describe("a tree remembers which session cut it", () => {
 
 		expect(outcome).toEqual({ kind: "released", kept: 1 });
 		expect(released).toEqual([]);
-		expect(existsSync(cut.path)).toBe(true);
+		expect(
+			existsSync(cut.path),
+			`${cut.path} is kept for its other owner`,
+		).toBe(true);
 	});
 
 	it("asks the machine once per process, not once per record", async () => {

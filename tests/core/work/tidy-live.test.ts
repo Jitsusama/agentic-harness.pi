@@ -67,9 +67,9 @@ describe("reading branch state from a real repository", () => {
 
 		const branches = await createGitHistory({ exec }).branches(local, "main");
 
-		expect(branches.find((b) => b.name === "landed")?.mergedIntoTrunk).toBe(
-			true,
-		);
+		expect(branches.find((b) => b.name === "landed")).toMatchObject({
+			mergedIntoTrunk: true,
+		});
 	});
 
 	it("does not call an unmerged branch merged", async () => {
@@ -79,7 +79,9 @@ describe("reading branch state from a real repository", () => {
 
 		const branches = await createGitHistory({ exec }).branches(local, "main");
 
-		expect(branches.find((b) => b.name === "wip")?.mergedIntoTrunk).toBe(false);
+		expect(branches.find((b) => b.name === "wip")).toMatchObject({
+			mergedIntoTrunk: false,
+		});
 	});
 
 	it("reports the upstream a branch tracks", async () => {
@@ -110,8 +112,10 @@ describe("reading branch state from a real repository", () => {
 		const branches = await createGitHistory({ exec }).branches(local, "main");
 		const squashed = branches.find((b) => b.name === "squashed");
 
-		expect(squashed?.remoteGone).toBe(true);
-		expect(squashed?.mergedIntoTrunk).toBe(false);
+		expect(squashed).toMatchObject({
+			remoteGone: true,
+			mergedIntoTrunk: false,
+		});
 	});
 
 	// The two halves together, which is the claim the feature actually
@@ -133,10 +137,10 @@ describe("reading branch state from a real repository", () => {
 		});
 
 		expect(plan.removable).toEqual([]);
-		expect(plan.keeping.find((k) => k.branch === "squashed")?.decide).toBe(
-			true,
-		);
-		expect(plan.prunable).toBe(true);
+		expect(plan.keeping.find((k) => k.branch === "squashed")).toMatchObject({
+			decide: true,
+		});
+		expect(plan).toMatchObject({ prunable: true });
 	});
 });
 
@@ -213,7 +217,7 @@ describe("reading worktree state from a real repository", () => {
 			{ path: realpathSync(`${local}/.wt/read`) },
 		]);
 		const lone = plan.retained.find((t) => t.path.endsWith("lone"));
-		expect(lone?.decide).toBe(true);
+		expect(lone).toMatchObject({ decide: true });
 	});
 
 	it("passes over a tree whose folder has gone, and reads the rest", async () => {

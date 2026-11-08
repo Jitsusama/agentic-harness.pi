@@ -91,7 +91,9 @@ describe("replaying a branch", () => {
 
 		const outcome = await createGitRebaser({ exec }).rebase(TREE, "base");
 
-		expect(calls.some((one) => one.args.includes("rebase"))).toBe(true);
+		expect(calls.map((one) => one.args)).toContainEqual(
+			expect.arrayContaining(["rebase"]),
+		);
 		expect(outcome).toMatchObject({
 			kind: "replayed",
 			branch: "topic",

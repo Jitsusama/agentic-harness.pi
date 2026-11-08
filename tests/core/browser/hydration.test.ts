@@ -60,7 +60,7 @@ describe.skipIf(!haveChrome)("hydration capture, in a real browser", () => {
 		await session.navigate(fixture.url("/faithful"));
 		const capture = await session.hydration();
 
-		expect(capture.fetched).toBe(true);
+		expect(capture).toMatchObject({ fetched: true });
 		expect(judgeHydration(capture).standing).toBe("pass");
 	});
 

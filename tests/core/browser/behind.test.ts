@@ -72,7 +72,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			name: "Gradient heading",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		// White on white is 1:1, and the gradient reaches white, so the
 		// worst place the glyphs sit has to be near the floor.
@@ -94,7 +94,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			name: "Faint body text",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.report.undecided).toBeUndefined();
 		expect(result.report.glyphPixels).toBeGreaterThan(100);
@@ -114,7 +114,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			name: "Solid heading",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.report.verdict).toBe("pass");
 		expect(result.report.worstRatio).toBeGreaterThan(20);
@@ -132,7 +132,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			name: "Gradient heading",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.report.glyphPixels).toBeLessThan(400 * 60 * 0.5);
 	});
@@ -145,7 +145,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			name: "Ghost heading",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.report.verdict).toBe("undecidable");
 	});
@@ -176,7 +176,7 @@ describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
 			name: "Nothing by this name",
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) return;
 		expect(result.refusal.reason).toBe("notFound");
 	});

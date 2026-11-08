@@ -169,10 +169,11 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 		// in a context window, and it is never what the caller wanted.
 		const shot = await session.shoot();
 
-		expect(shot.ok).toBe(true);
+		expect(shot).toMatchObject({ ok: true });
 		if (!shot.ok) return;
 		expect(shot.shot.paths.length).toBeGreaterThan(0);
-		for (const path of shot.shot.paths) expect(fs.existsSync(path)).toBe(true);
+		for (const path of shot.shot.paths)
+			expect(fs.existsSync(path), `${path} exists`).toBe(true);
 	});
 
 	it("photographs one element when told which", async () => {
@@ -183,7 +184,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 		// it. So the size is checked against the element's own box.
 		const target = { role: "button", name: "Second control" };
 		const found = await session.inspect(target);
-		expect(found.ok).toBe(true);
+		expect(found).toMatchObject({ ok: true });
 		if (!found.ok) return;
 		const box = found.inspection.box?.border;
 		expect(box).toBeDefined();
@@ -191,7 +192,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 
 		const shot = await session.shoot({ target });
 
-		expect(shot.ok).toBe(true);
+		expect(shot).toMatchObject({ ok: true });
 		if (!shot.ok) return;
 		expect(shot.shot.paths.length).toBe(1);
 		expect(shot.shot.width).toBe(Math.round(box.width));
@@ -203,7 +204,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			target: { role: "button", name: "No such control" },
 		});
 
-		expect(shot.ok).toBe(false);
+		expect(shot).toMatchObject({ ok: false });
 	});
 
 	it("records a baseline the first time and compares to it after", async () => {
@@ -279,7 +280,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			// reported it as focused off screen, which on a real article
 			// produced twenty-seven identical findings, every one wrong.
 			expect(stop).toBeDefined();
-			expect(stop?.inViewport).toBe(true);
+			expect(stop).toMatchObject({ inViewport: true });
 		} finally {
 			await session.navigate(fixture.url("/subject"));
 		}
@@ -319,7 +320,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			// control is that there were no candidates and every stop
 			// landed on the body rather than on anything in the page.
 			expect(walk.candidates).toHaveLength(0);
-			expect(walk.stops.every((stop) => stop.index === -1)).toBe(true);
+			expect(walk.stops.filter((stop) => stop.index !== -1)).toEqual([]);
 		} finally {
 			await session.navigate(fixture.url("/subject"));
 		}
@@ -332,8 +333,8 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			const findings = analyseWalk(walk);
 
 			expect(
-				walk.stops.some((stop) => stop.index >= 0 && stop.tag === "SUMMARY"),
-			).toBe(true);
+				walk.stops.filter((stop) => stop.index >= 0).map((stop) => stop.tag),
+			).toContain("SUMMARY");
 			expect(findings.unreachable.map((one) => one.name)).toEqual([]);
 			expect(findings.missed.map((one) => one.name)).toEqual([]);
 		} finally {
@@ -418,7 +419,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			name: "Second control",
 		});
 
-		expect(found.ok).toBe(true);
+		expect(found).toMatchObject({ ok: true });
 		if (!found.ok) return;
 		expect(found.inspection.box).toBeDefined();
 	});
@@ -431,19 +432,21 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 				{ behaviour: true },
 			);
 
-			expect(found.ok).toBe(true);
+			expect(found).toMatchObject({ ok: true });
 			if (!found.ok) return;
 			// Nothing on the button itself, which was the whole of the
 			// old answer, and a click handler on the body, which is the
 			// half that explains what happens when you press it.
 			expect(found.inspection.listeners).toEqual([]);
 			const delegated = found.inspection.delegated ?? [];
-			expect(delegated.some((on) => on.element.includes("body"))).toBe(true);
+			expect(delegated.map((on) => on.element)).toContainEqual(
+				expect.stringContaining("body"),
+			);
 			expect(
-				delegated.some((on) =>
-					on.listeners.some((listener) => listener.type === "click"),
+				delegated.flatMap((on) =>
+					on.listeners.map((listener) => listener.type),
 				),
-			).toBe(true);
+			).toContain("click");
 		} finally {
 			await session.navigate(fixture.url("/subject"));
 		}
@@ -455,7 +458,7 @@ describe.skipIf(!haveChrome)("capturing a page, in a real browser", () => {
 			name: "Nothing of the sort",
 		});
 
-		expect(found.ok).toBe(false);
+		expect(found).toMatchObject({ ok: false });
 	});
 
 	it("tells apart the several ways a page hides something", async () => {

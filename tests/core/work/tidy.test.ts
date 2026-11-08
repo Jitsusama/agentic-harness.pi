@@ -97,7 +97,7 @@ describe("a branch whose remote is gone but which trunk does not contain", () =>
 	it("marks it as a call for a person rather than a refusal", () => {
 		const plan = tidyPlan(squashed);
 
-		expect(plan.keeping[0]?.decide).toBe(true);
+		expect(plan.keeping[0]).toMatchObject({ decide: true });
 	});
 
 	it("names both readings, since they are indistinguishable from here", () => {
@@ -109,8 +109,8 @@ describe("a branch whose remote is gone but which trunk does not contain", () =>
 	});
 
 	it("reports that there are refs worth pruning", () => {
-		expect(tidyPlan(squashed).prunable).toBe(true);
-		expect(tidyPlan(AFTER_A_MERGE).prunable).toBe(false);
+		expect(tidyPlan(squashed)).toMatchObject({ prunable: true });
+		expect(tidyPlan(AFTER_A_MERGE)).toMatchObject({ prunable: false });
 	});
 });
 
@@ -189,7 +189,7 @@ describe("trees left behind", () => {
 		// Merged and unheld, so the rules alone would have reclaimed it.
 		expect(plan.reclaimable).toEqual([]);
 		const kept = plan.retained.at(-1);
-		expect(kept?.decide).toBe(true);
+		expect(kept).toMatchObject({ decide: true });
 		expect(kept?.why).toContain("who cut it");
 	});
 
@@ -228,7 +228,7 @@ describe("trees left behind", () => {
 
 		expect(plan.reclaimable).toEqual([]);
 		const kept = plan.retained.at(-1);
-		expect(kept?.decide).toBe(true);
+		expect(kept).toMatchObject({ decide: true });
 		expect(kept?.why).toContain("no branch or tag holds the commit");
 	});
 
@@ -250,7 +250,7 @@ describe("trees left behind", () => {
 		);
 
 		const kept = plan.retained.at(-1);
-		expect(kept?.decide).toBe(true);
+		expect(kept).toMatchObject({ decide: true });
 		expect(kept?.why).toContain("squash");
 		expect(kept?.why).toContain("only copy");
 	});

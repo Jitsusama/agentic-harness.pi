@@ -100,14 +100,14 @@ describe("the working layer, end to end", () => {
 
 		// A fresh tree is clean, and nothing may block re-pointing it.
 		const before = await history.status(held.path);
-		expect(before.clean).toBe(true);
+		expect(before).toMatchObject({ clean: true });
 		expect(blocksRepoint(before)).toBeUndefined();
 
 		// An untracked file is work, which is the case the layer is
 		// most insistent about, so it is the one used here.
 		writeFileSync(join(held.path, "new.ts"), "export const a = 1;\n");
 		const dirty = await history.status(held.path);
-		expect(dirty.clean).toBe(false);
+		expect(dirty).toMatchObject({ clean: false });
 		expect(dirty.changed).toEqual([
 			{ path: "new.ts", staged: false, kind: "untracked" },
 		]);
@@ -121,7 +121,7 @@ describe("the working layer, end to end", () => {
 
 		// Recording it makes the tree clean again and moves HEAD.
 		const after = await history.status(held.path);
-		expect(after.clean).toBe(true);
+		expect(after).toMatchObject({ clean: true });
 		expect(blocksRepoint(after)).toBeUndefined();
 		const head = await history.head(held.path);
 		expect(head.branch).toBe(target);

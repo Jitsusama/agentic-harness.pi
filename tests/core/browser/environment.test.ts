@@ -245,7 +245,10 @@ describe.skipIf(!haveChrome)(
 			try {
 				await session.emulate({ touch: true });
 
-				expect(session.touchEmulated).toBe(true);
+				expect(
+					session.touchEmulated,
+					"the session says it is emulating touch once asked to",
+				).toBe(true);
 			} finally {
 				await session.restoreEmulation(before);
 			}

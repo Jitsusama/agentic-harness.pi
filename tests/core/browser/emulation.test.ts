@@ -165,7 +165,7 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 		const seen = await asThePageSees();
 		expect(seen.width).toBe(393);
 		expect(seen.touchPoints).toBeGreaterThan(0);
-		expect(seen.phoneAgent).toBe(true);
+		expect(seen).toMatchObject({ phoneAgent: true });
 	});
 
 	/** Whether the page itself reports a touch screen. */
@@ -388,7 +388,7 @@ describe.skipIf(!haveChrome)("emulating a device, in a real browser", () => {
 
 		const seen = await asThePageSees();
 		expect(seen.touchPoints).toBe(0);
-		expect(seen.phoneAgent).toBe(false);
+		expect(seen).toMatchObject({ phoneAgent: false });
 		expect(seen.timezone).not.toBe("Asia/Tokyo");
 	});
 

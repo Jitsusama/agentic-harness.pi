@@ -108,9 +108,9 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		const { entries } = session.logs();
 		const messages = entries.map((entry) => entry.item.text);
 
-		expect(messages.some((text) => text.includes("a plain log"))).toBe(true);
-		expect(messages.some((text) => text.includes("an error happened"))).toBe(
-			true,
+		expect(messages).toContainEqual(expect.stringContaining("a plain log"));
+		expect(messages).toContainEqual(
+			expect.stringContaining("an error happened"),
 		);
 	});
 
@@ -120,7 +120,7 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 
 		const levels = new Set(session.logs().entries.map((e) => e.item.level));
 
-		expect(levels.has("error")).toBe(true);
+		expect([...levels]).toContain("error");
 	});
 
 	it("reads only what arrived after a cursor", async () => {
@@ -132,8 +132,8 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		const later = session.logs(first.cursor);
 
 		const texts = later.entries.map((entry) => entry.item.text);
-		expect(texts.some((text) => text.includes("after the cursor"))).toBe(true);
-		expect(texts.some((text) => text.includes("a plain log"))).toBe(false);
+		expect(texts).toContainEqual(expect.stringContaining("after the cursor"));
+		expect(texts).not.toContainEqual(expect.stringContaining("a plain log"));
 	});
 
 	it("records the requests the page made, with their status", async () => {
@@ -345,7 +345,7 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		await session.navigate(fixture.url("/noisy"));
 		const first = await session.heap();
 		expect(first.direction).toBe("unknown");
-		expect(first.now.collected).toBe(true);
+		expect(first.now).toMatchObject({ collected: true });
 		// A zero here is the failure this instrument is most likely to
 		// have: the metrics domain answers every value as zero until it
 		// is enabled, which reads as a page holding no memory and never
@@ -361,7 +361,7 @@ describe.skipIf(!haveChrome)("telemetry, in a real browser", () => {
 		);
 
 		const second = await session.heap();
-		expect(second.trustworthy).toBe(true);
+		expect(second).toMatchObject({ trustworthy: true });
 		expect(second.direction).toBe("grew");
 		// Measured at about 41MB, so twenty is a floor that proves the
 		// reading follows the page rather than reporting a constant.
@@ -527,7 +527,10 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 		const session = await BrowserSession.open("crash-stranded");
 		try {
 			await session.navigate(fixture.url("/offers"));
-			expect(strandedByCrash(session.history)).toBe(false);
+			expect(
+				strandedByCrash(session.history),
+				"a session that loaded a page and never crashed is not stranded",
+			).toBe(false);
 
 			await session.navigate("chrome://crash");
 			// The abort comes back in about a millisecond and Chrome
@@ -542,7 +545,10 @@ describe.skipIf(!haveChrome)("a session whose tab crashed", () => {
 			// Going somewhere is what ends it. A session parked on a
 			// blank page it chose is not stranded on one.
 			await session.navigate(fixture.url("/offers"));
-			expect(strandedByCrash(session.history)).toBe(false);
+			expect(
+				strandedByCrash(session.history),
+				"a session that went somewhere after the crash is stranded no longer",
+			).toBe(false);
 		} finally {
 			await session.close();
 		}
