@@ -1,6 +1,6 @@
 /**
- * Pause, Resume, Stop and Close: what the person does to a session from
- * outside its window besides talk, through a steer's `act`.
+ * Pause, Resume, Stop, Close and Carry: what the person does to a session
+ * from outside its window besides talk, through a steer's `act`.
  *
  * - Stop ends the run in progress at once; the session stays open and
  *   listening.
@@ -15,6 +15,13 @@
  *   than lost and nothing offers it back unasked. Its quest, trees and
  *   what waits on the person stay as they are (the launcher's Close,
  *   VKCF3Z's ruling, 7 November).
+ * - Carry takes the session's work to another machine, as the person
+ *   does moving from one laptop to another: any run in progress is
+ *   ended, every tree it holds and its own file are put in its quest's
+ *   handover with a done file saying so (carrying.ts), and then it
+ *   closes as Close does. A run that starts from then on is ended, so
+ *   the file carried is the whole session. A carry that fails leaves it
+ *   open, saying why, so nothing is lost.
  *
  * An ended run ends away mode (away-workflow), so a Stop, or a Pause
  * landing mid-run, ends it for every session: pressing either says the
@@ -42,6 +49,11 @@ export interface PausingHost {
 	readonly tell: (text: string) => void;
 	/** End the session, as /exit does. */
 	readonly close: () => void;
+	/**
+	 * Carry its work for the machine `to`, once its run has wound down,
+	 * settling once its done file is written.
+	 */
+	readonly carry: (to: string) => Promise<void>;
 }
 
 /** Pausing for one session. */
@@ -49,7 +61,12 @@ export interface Pausing {
 	/** Whether it is paused now. */
 	readonly paused: boolean;
 	/** The person did this from outside the window. */
-	act(act: SteerAct): void;
+	act(act: Exclude<SteerAct, "carry">): void;
+	/**
+	 * The person carried it to the machine `to` from outside the window:
+	 * settles once it has carried and closed, or said why it couldn't.
+	 */
+	carry(to: string): Promise<void>;
 	/**
 	 * The person talked to it, from the launcher or by typing in its
 	 * window: a pause ends, and what they said is the turn.
@@ -63,6 +80,7 @@ export interface Pausing {
 
 /** Pausing, as its peer last left it. */
 export function createPausing(host: PausingHost): Pausing {
+	let carrying = false;
 	return {
 		get paused() {
 			return host.paused();
@@ -97,8 +115,26 @@ export function createPausing(host: PausingHost): Pausing {
 		talked() {
 			host.setPaused(false);
 		},
+		async carry(to) {
+			carrying = true;
+			if (!host.idle()) host.abort();
+			host.tell(
+				`Carrying this session's work to ${to}, from outside this window.`,
+			);
+			try {
+				await host.carry(to);
+			} catch (error) {
+				carrying = false;
+				host.tell(
+					`This session's work couldn't be carried to ${to}, so it stays open: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				return;
+			}
+			host.tell(`Carried to ${to}; closing.`);
+			host.close();
+		},
 		started() {
-			if (host.paused()) host.abort();
+			if (host.paused() || carrying) host.abort();
 		},
 		turnEnded() {
 			if (host.paused() && !host.idle()) host.abort();

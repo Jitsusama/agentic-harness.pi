@@ -11,10 +11,15 @@ interface Session {
 	idle: boolean;
 	readonly pausing: Pausing;
 	readonly did: string[];
+	readonly told: string[];
 }
 
-function session(idle: boolean): Session {
+function session(
+	idle: boolean,
+	carry: (to: string) => Promise<void> = async () => {},
+): Session {
 	const did: string[] = [];
+	const told: string[] = [];
 	let paused = false;
 	const state = { idle };
 	const at: Session = {
@@ -32,10 +37,15 @@ function session(idle: boolean): Session {
 				paused = now;
 			},
 			carryOn: () => did.push("carry on"),
-			tell: () => {},
+			tell: (text) => told.push(text),
 			close: () => did.push("close"),
+			carry: async (to) => {
+				did.push(`carry to ${to}`);
+				await carry(to);
+			},
 		}),
 		did,
+		told,
 	};
 	return at;
 }
@@ -100,5 +110,50 @@ describe("closing a session", () => {
 		const idle = session(true);
 		idle.pausing.act("close");
 		expect(idle.did).toEqual(["close"]);
+	});
+});
+
+describe("carrying a session to another machine", () => {
+	it("ends the run in progress, carries its work, then closes it", async () => {
+		const busy = session(false);
+		await busy.pausing.carry("penelope");
+		expect(busy.did).toEqual(["abort", "carry to penelope", "close"]);
+
+		const idle = session(true);
+		await idle.pausing.carry("penelope");
+		expect(idle.did).toEqual(["carry to penelope", "close"]);
+	});
+
+	it("ends any run that starts once its work is being carried", async () => {
+		let carried = () => {};
+		const one = session(
+			true,
+			() =>
+				new Promise((done) => {
+					carried = done;
+				}),
+		);
+
+		const carrying = one.pausing.carry("penelope");
+		one.pausing.started();
+		carried();
+		await carrying;
+
+		expect(one.did).toEqual(["carry to penelope", "abort", "close"]);
+		one.pausing.started();
+		expect(one.did.at(-1), "and while pi winds down to close").toBe("abort");
+	});
+
+	it("stays open and says why when its work could not be carried", async () => {
+		const one = session(true, async () => {
+			throw new Error("the scratch folder can't be written");
+		});
+
+		await one.pausing.carry("penelope");
+
+		expect(one.did).toEqual(["carry to penelope"]);
+		expect(one.told.at(-1)).toContain("the scratch folder can't be written");
+		one.pausing.started();
+		expect(one.did, "and goes on working as it was").toHaveLength(1);
 	});
 });

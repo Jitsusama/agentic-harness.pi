@@ -143,7 +143,7 @@ import {
 	createAwaiting,
 	createOwing,
 } from "../../lib/mesh/owed.ts";
-import { wakeParked } from "../../lib/mesh/parked.ts";
+import { wakeParked, wakeSteered } from "../../lib/mesh/parked.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import {
 	createPresences,
@@ -182,6 +182,7 @@ import { identifyCurrentTerminal } from "../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../lib/terminal/types.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
+import { carryThisSession } from "./carrying.ts";
 import {
 	type Delivered,
 	digest,
@@ -636,7 +637,7 @@ export function meshWorkflow(
 		let steering: Steering | undefined;
 		// What became of each steer that asked to be followed (talks.ts).
 		const talks = createTalks({ session: () => peer?.session ?? "" });
-		// Pause, Resume and Stop from outside the window (pausing.ts).
+		// Pause, Resume, Stop, Close and Carry from outside the window (pausing.ts).
 		const pausing = createPausing({
 			idle: () => ctx?.isIdle?.() ?? true,
 			abort: () => {
@@ -652,6 +653,10 @@ export function meshWorkflow(
 			},
 			// pi waits until it is idle, so the run just ended winds down first.
 			close: () => ctx?.shutdown(),
+			carry: async (to) => {
+				if (!ctx) throw new Error("the session isn't there to carry.");
+				await carryThisSession(ctx, to);
+			},
 		});
 
 		/**
@@ -672,6 +677,10 @@ export function meshWorkflow(
 				root,
 				addresses: () => peer?.addresses ?? [],
 				deliver: (one, inbox) => {
+					if (one.act === "carry") {
+						if (one.to !== undefined) void pausing.carry(one.to);
+						return;
+					}
 					// Resume with words is a talk; any other act is only the act.
 					if (one.act && !(one.act === "resume" && one.text)) {
 						pausing.act(one.act);
@@ -1184,6 +1193,10 @@ export function meshWorkflow(
 				peer?.refresh();
 				identity();
 				steering?.look();
+				// A parked peer told to close or carry is started again to do it.
+				if (paths.steer !== undefined) {
+					wakeSteered(presences.all(), paths.steer, isParked, askWake);
+				}
 			});
 			if (left.size > 0) void reconsider();
 			const missed = transport

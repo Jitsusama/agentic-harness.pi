@@ -109,16 +109,39 @@ export function placeCarried(
 	if (had !== undefined) return { kind: "already", path: had };
 	const path = join(sessionFolderOf(sessions, homeCwd), basename(carried.file));
 	if (existsSync(path)) return { kind: "already", path };
-	const text = readFileSync(carried.file, "utf8");
+	writePlaced(carried.file, path, homeCwd);
+	return { kind: "placed", path };
+}
+
+/**
+ * Places the session `id`, carried here at `file` to be taken over
+ * (`pi-carry arrive`), for `homeCwd` in the store `sessions`, answering
+ * where, or nothing when the file's header names another session.
+ *
+ * Unlike Restore's, this placing writes over a copy already there: the
+ * session went on where it was carried from, so the copy it brings is
+ * newer than any this machine kept from an earlier visit.
+ */
+export function placeTakenOver(
+	id: string,
+	file: string,
+	homeCwd: string,
+	sessions: string,
+): string | undefined {
+	if (!SAFE_ID.test(id) || headerId(file) !== id) return undefined;
+	const path = join(sessionFolderOf(sessions, homeCwd), basename(file));
+	writePlaced(file, path, homeCwd);
+	return path;
+}
+
+/** A copy of the session file at `from` at `to`, its header naming `homeCwd`. */
+function writePlaced(from: string, to: string, homeCwd: string): void {
+	const text = readFileSync(from, "utf8");
 	const end = text.indexOf("\n");
 	const header = JSON.parse(end < 0 ? text : text.slice(0, end));
 	const rest = end < 0 ? "\n" : text.slice(end);
-	mkdirSync(dirname(path), { recursive: true });
-	atomicWriteFile(
-		path,
-		`${JSON.stringify({ ...header, cwd: homeCwd })}${rest}`,
-	);
-	return { kind: "placed", path };
+	mkdirSync(dirname(to), { recursive: true });
+	atomicWriteFile(to, `${JSON.stringify({ ...header, cwd: homeCwd })}${rest}`);
 }
 
 /** Where taking carried sessions up looks, and puts them. */

@@ -61,6 +61,12 @@ export type CarryOutcome =
 	| { kind: "nothing"; branch: string; left: string[] }
 	| { kind: "refused"; reason: string };
 
+/** What bundling a tree did, before any note is written of it. */
+export type BundleOutcome =
+	| { kind: "bundled"; carried: CarriedTree }
+	| { kind: "nothing"; branch: string; left: string[] }
+	| { kind: "refused"; reason: string };
+
 /** Ask git one thing in the tree, or undefined when it says nothing. */
 async function ask(
 	exec: Exec,
@@ -104,23 +110,33 @@ async function needed(exec: Exec, treePath: string): Promise<Needed[]> {
 		.filter((line) => line.startsWith("-"))
 		.map((line) => line.slice(1));
 	return Promise.all(
-		commits.map(async (commit) => {
-			// A remote's HEAD names no branch to fetch, so it is passed over.
-			const on = (
-				await ask(exec, treePath, [
-					"branch",
-					"--remotes",
-					"--contains",
-					commit,
-					"--format=%(refname)",
-				])
-			)
-				?.split("\n")
-				.filter((ref) => !ref.endsWith("/HEAD"))
-				.map((ref) => ref.replace(/^refs\/remotes\//, ""))[0];
-			return on === undefined ? { commit } : { commit, on };
-		}),
+		commits.map((commit) => neededFrom(exec, treePath, commit)),
 	);
+}
+
+/**
+ * The commit `commit` as something to fetch: with a remote branch in the
+ * tree at `treePath` that holds it, when one does.
+ */
+export async function neededFrom(
+	exec: Exec,
+	treePath: string,
+	commit: string,
+): Promise<Needed> {
+	// A remote's HEAD names no branch to fetch, so it is passed over.
+	const on = (
+		await ask(exec, treePath, [
+			"branch",
+			"--remotes",
+			"--contains",
+			commit,
+			"--format=%(refname)",
+		])
+	)
+		?.split("\n")
+		.filter((ref) => !ref.endsWith("/HEAD"))
+		.map((ref) => ref.replace(/^refs\/remotes\//, ""))[0];
+	return on === undefined ? { commit } : { commit, on };
 }
 
 /**
@@ -136,6 +152,24 @@ export async function carryTree(
 	into: string,
 	name: string,
 ): Promise<CarryOutcome> {
+	const bundled = await bundleTree(exec, treePath, into, name);
+	if (bundled.kind !== "bundled") return bundled;
+	const note = join(into, `${name}.json`);
+	writeFileSync(note, `${JSON.stringify(bundled.carried, null, 2)}\n`);
+	return { kind: "carried", carried: bundled.carried, note };
+}
+
+/**
+ * Bundles the commits in the tree at `treePath` that no remote has into
+ * `into` as `<name>.bundle`, saying what it bundled and needs, and writes
+ * nothing else: whoever carries it says so in a note of its own.
+ */
+export async function bundleTree(
+	exec: Exec,
+	treePath: string,
+	into: string,
+	name: string,
+): Promise<BundleOutcome> {
 	const branch = await ask(exec, treePath, [
 		"rev-parse",
 		"--abbrev-ref",
@@ -208,9 +242,7 @@ export async function carryTree(
 		bundle,
 		left,
 	};
-	const note = join(into, `${name}.json`);
-	writeFileSync(note, `${JSON.stringify(carried, null, 2)}\n`);
-	return { kind: "carried", carried, note };
+	return { kind: "bundled", carried };
 }
 
 /** What Restore needs of a session carried home. */

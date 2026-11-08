@@ -12,8 +12,8 @@
  * file there under a temporary name and renames it to end in `.json`,
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
- * talk.ts). An `act` of `pause`, `resume`, `stop` or `close` needs no
- * text. The
+ * talk.ts). An `act` of `pause`, `resume`, `stop`, `close` or `carry`
+ * needs no text, and a `carry` names the machine it goes to as `to`. The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -30,14 +30,22 @@ import {
 	unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
+import { isMachineName } from "../internal/machine.ts";
 import { isTalkId } from "./talk.ts";
 
 /**
  * What the person may do to a session besides talk: pause it after its
- * current step, resume it, stop the run in progress, or close the
- * session for good, as /exit does.
+ * current step, resume it, stop the run in progress, close the session
+ * for good, as /exit does, or carry its work to another machine and
+ * then close it.
  */
-export const STEER_ACTS = ["pause", "resume", "stop", "close"] as const;
+export const STEER_ACTS = [
+	"pause",
+	"resume",
+	"stop",
+	"close",
+	"carry",
+] as const;
 
 /** One of STEER_ACTS. */
 export type SteerAct = (typeof STEER_ACTS)[number];
@@ -53,9 +61,20 @@ function isSteerAct(value: unknown): value is SteerAct {
  */
 export const FROM_MACHINE = "machine";
 
-/** Whether a steer's writer is the person: one who names nobody, or Joel. */
+/**
+ * The `from` mycelium's node writes for what the person asked through it,
+ * as `mycelium carry` steers each session with.
+ */
+export const FROM_PERSON = "person";
+
+/**
+ * Whether a steer's writer is the person: one who names nobody, Joel, or
+ * the node writing on the person's word.
+ */
 export function isFromPerson(from: string | undefined): boolean {
-	return from === undefined || from === "" || from.toLowerCase() === "joel";
+	if (from === undefined || from === "") return true;
+	const who = from.toLowerCase();
+	return who === "joel" || who === FROM_PERSON;
 }
 
 /** One thing the person said, as the inbox carries it. */
@@ -67,6 +86,8 @@ export interface Steer {
 	readonly text: string;
 	/** What they did besides talk, when they did. */
 	readonly act?: SteerAct;
+	/** The machine a carry goes to, as it names itself; only beside `carry`. */
+	readonly to?: string;
 	/** When it was written, as an ISO time, if the writer said. */
 	readonly at?: string;
 	/** Who wrote it, if the writer said; the launcher says "joel". */
@@ -104,11 +125,17 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (typeof parsed !== "object" || parsed === null) return undefined;
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
-	// Only the person may pause, resume, stop or close a session.
-	const act =
+	// Only the person may pause, resume, stop, close or carry a session.
+	const asked =
 		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)
 			? parsed.act
 			: undefined;
+	// A carry goes nowhere without a machine, so one naming none is no act.
+	const to =
+		asked === "carry" && "to" in parsed && isMachineName(parsed.to)
+			? parsed.to
+			: undefined;
+	const act = asked === "carry" && to === undefined ? undefined : asked;
 	const said =
 		"text" in parsed && typeof parsed.text === "string"
 			? parsed.text.trim()
@@ -121,6 +148,7 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	return {
 		text,
 		...(act ? { act } : {}),
+		...(to ? { to } : {}),
 		...(at ? { at } : {}),
 		...(from ? { from } : {}),
 		...(id ? { id } : {}),
@@ -203,6 +231,32 @@ function lastChange(dir: string): { at: number; empty: boolean } | undefined {
 		}
 	}
 	return { at, empty };
+}
+
+/**
+ * The steers waiting in an inbox, oldest name first, read and left where
+ * they are for their own session to take: what is not a steer, or was
+ * taken as it was read, is passed over.
+ */
+export function waitingSteers(inbox: string): Steer[] {
+	let names: string[];
+	try {
+		names = readdirSync(inbox);
+	} catch {
+		// No inbox: nothing was ever written to it.
+		return [];
+	}
+	return names
+		.filter((name) => name.endsWith(READY))
+		.sort()
+		.flatMap((name) => {
+			try {
+				return steerFrom(readFileSync(join(inbox, name), "utf8"), name) ?? [];
+			} catch {
+				// Taken by its session between the listing and the read.
+				return [];
+			}
+		});
 }
 
 /**

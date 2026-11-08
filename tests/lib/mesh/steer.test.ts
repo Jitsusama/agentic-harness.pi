@@ -12,7 +12,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { inboxOf, steerFrom, takeSteers } from "../../../lib/mesh/steer.ts";
+import {
+	inboxOf,
+	steerFrom,
+	takeSteers,
+	waitingSteers,
+} from "../../../lib/mesh/steer.ts";
 
 let root: string;
 beforeEach(() => {
@@ -122,6 +127,40 @@ describe("the steer inbox", () => {
 		expect(steerFrom('{"from":"machine","act":"pause"}', "f")).toBeUndefined();
 		expect(steerFrom('{"from":"machine","act":"close"}', "f")).toBeUndefined();
 		expect(steerFrom('{"from":"Joel","act":"pause"}', "f")?.act).toBe("pause");
+	});
+
+	it("reads a carry with the machine it goes to, and no carry that names none", () => {
+		expect(steerFrom('{"act":"carry","to":"penelope"}', "f")).toEqual({
+			text: "",
+			act: "carry",
+			to: "penelope",
+			file: "f",
+		});
+		expect(steerFrom('{"act":"carry"}', "f")).toBeUndefined();
+		expect(steerFrom('{"act":"carry","to":"../x"}', "f")).toBeUndefined();
+		expect(steerFrom('{"act":"close","to":"penelope"}', "f")).toEqual({
+			text: "",
+			act: "close",
+			file: "f",
+		});
+		expect(
+			steerFrom('{"from":"machine","act":"carry","to":"penelope"}', "f"),
+		).toBeUndefined();
+		// mycelium carry steers on the person's word, saying so.
+		expect(
+			steerFrom('{"from":"person","act":"carry","to":"penelope"}', "f"),
+		).toMatchObject({ act: "carry", to: "penelope" });
+	});
+
+	it("reads what waits without taking it", () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		takeSteers(inbox, "1");
+		put(inbox, "1-a.json", JSON.stringify({ act: "carry", to: "penelope" }));
+		put(inbox, "2-b.json", "not json");
+
+		expect(waitingSteers(inbox).map((one) => one.act)).toEqual(["carry"]);
+		expect(readdirSync(inbox).sort()).toEqual(["1-a.json", "2-b.json"]);
+		expect(waitingSteers(inboxOf(root, "NOBODY"))).toEqual([]);
 	});
 
 	it("leaves a talk's replies folder in the inbox alone", () => {

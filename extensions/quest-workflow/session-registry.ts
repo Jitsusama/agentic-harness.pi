@@ -21,9 +21,10 @@ import {
 	unlinkSync,
 	utimesSync,
 } from "node:fs";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { machineBooted } from "../../lib/internal/booted.ts";
+import { thisMachine } from "../../lib/internal/machine.ts";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import { takeUpCarried } from "../../lib/internal/quest/carried.ts";
 import {
@@ -668,7 +669,7 @@ export function carriedHome(questsRoot: string): RestoreEntry[] {
 	const ranHere = new Set(loadRecords().map(({ record }) => record.sessionId));
 	return takeUpCarried({
 		workspaces: questWorkspacesRoot(),
-		here: hostname(),
+		here: thisMachine(),
 		sessions: sessionsDir(),
 		known: indexSessionFiles(sessionsDir()),
 		quests: questsRoot,

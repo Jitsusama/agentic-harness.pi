@@ -74,7 +74,11 @@ would exit to the shell's prompt rather than to its holder.
 A message that would give the parked peer a turn (a question or hold
 sent to it, an answer to it, a pivot, and for an orchestrator a
 finding or news from a session it leads) makes its sender write the
-message's id to the marker's `wake` file. The holder looks once a
+message's id to the marker's `wake` file. A steer telling it to
+close or carry its work to another machine wakes it the same way:
+any session on the mesh that finds one in a parked peer's inbox,
+as it looks about itself each minute, writes the steer's file name
+there. The holder looks once a
 second, deletes the file and starts the `pi --session` command in the
 same window; a key typed in the window wakes it too. The session
 deletes its marker as it starts, and says on pi's bus that it woke

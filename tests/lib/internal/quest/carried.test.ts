@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	carriedSessions,
 	placeCarried,
+	placeTakenOver,
 	sessionFolderOf,
 	takeUpCarried,
 } from "../../../../lib/internal/quest/carried.ts";
@@ -196,5 +197,37 @@ describe("sessions carried home", () => {
 				)[0] ?? "",
 			).cwd,
 		).toBe(tree);
+	});
+});
+
+describe("a session taken over from another machine", () => {
+	it("is placed for its folder here, over a copy from an earlier visit", () => {
+		const store = folder();
+		const carried = join(folder(), FILE);
+		writeFileSync(carried, sessionText("01a19111-sbx1", "/Users/joel/src/app"));
+		const earlier = join(sessionFolderOf(store, "/home/joel/src/app"), FILE);
+		mkdirSync(join(earlier, ".."), { recursive: true });
+		writeFileSync(earlier, "what it was before it left\n");
+
+		const path = placeTakenOver(
+			"01a19111-sbx1",
+			carried,
+			"/home/joel/src/app",
+			store,
+		);
+
+		expect(path).toBe(earlier);
+		const [header, turn] = readFileSync(earlier, "utf8").split("\n");
+		expect(JSON.parse(header ?? "").cwd).toBe("/home/joel/src/app");
+		expect(turn).toContain('"content":"hi"');
+	});
+
+	it("is never placed from a file that names another session", () => {
+		const carried = join(folder(), FILE);
+		writeFileSync(carried, sessionText("someone-else", "/Users/joel"));
+
+		expect(
+			placeTakenOver("01a19111-sbx1", carried, "/home/joel", folder()),
+		).toBeUndefined();
 	});
 });

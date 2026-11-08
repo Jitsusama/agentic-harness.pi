@@ -11,11 +11,19 @@
  * for an orchestrator a finding or news sent to it by a session it
  * leads. Judged as attention.ts judges for a receiver, without a
  * classifier, so a message noted or glanced at waits for its next start.
+ *
+ * A steer waits in its inbox the same way, read as the peer starts. One
+ * that closes it or carries its work to another machine can only be done
+ * by the peer running, and whoever asked is waiting on it: mycelium
+ * waits for a carried session's done file before it carries the rest.
+ * So a peer that looks about it wakes a parked peer whose inbox holds
+ * one, through the same holder.
  */
 
 import { attend } from "./attention.ts";
 import { asksEach, type Message, reaches } from "./message.ts";
 import type { Presence } from "./presence.ts";
+import { inboxOf, type Steer, waitingSteers } from "./steer.ts";
 import { answers, answersQuestion, type Reader } from "./thread.ts";
 
 /** Whether a presence says its session is parked. */
@@ -62,6 +70,40 @@ export function wakes(
 	});
 	// What it leads acts on once the mesh settles: a turn all the same.
 	return heed.attention === "turn" || (led && heed.attention === "act");
+}
+
+/** Whether a steer waits on its parked peer running: a close or a carry. */
+function steerWakes(steer: Steer): boolean {
+	return steer.act === "close" || steer.act === "carry";
+}
+
+/**
+ * Ask the holder of every parked peer whose steer inbox under `root`
+ * holds a close or a carry to wake it, the steer's file named as why;
+ * answers the sessions asked for. The steer stays where it is, for the
+ * peer to take as it starts.
+ */
+export function wakeSteered(
+	everyone: readonly Presence[],
+	root: string,
+	isParked: (session: string) => boolean,
+	askWake: (session: string, why: string) => void,
+): string[] {
+	const woken: string[] = [];
+	for (const one of everyone) {
+		if (!saysParked(one) || !isParked(one.session)) continue;
+		const waking = one.addresses
+			.flatMap((address) => waitingSteers(inboxOf(root, address)))
+			.find(steerWakes);
+		if (waking === undefined) continue;
+		try {
+			askWake(one.session, `steer-${waking.file}`);
+			woken.push(one.session);
+		} catch {
+			// Unwoken, it takes the steer at its next start all the same.
+		}
+	}
+	return woken;
 }
 
 /**

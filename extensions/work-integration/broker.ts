@@ -38,22 +38,12 @@ import {
 	queuedExec,
 } from "../../lib/internal/priority/queued-exec.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
+import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
 	return join(stateDir("work"), "trees");
-}
-
-/**
- * Where the record of a cut tree goes.
- *
- * Beside the trees rather than inside one: a file written into a worktree shows
- * up as an untracked change in somebody's status, and `status` refusing to
- * repoint over uncommitted work would then be refusing over our own bookkeeping.
- */
-export function treeRecordDir(): string {
-	return join(stateDir("work"), "cut");
 }
 
 /**
