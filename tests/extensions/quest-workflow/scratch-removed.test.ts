@@ -47,7 +47,7 @@ describe("scratchRemoved", () => {
 			nobody,
 		);
 
-		expect(existsSync(dir)).toBe(false);
+		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 		expect(said).toBe("Removed its scratch folder, which held 2.5 GB.");
 	});
 
@@ -73,7 +73,7 @@ describe("scratchRemoved", () => {
 			7,
 		]);
 
-		expect(existsSync(dir)).toBe(true);
+		expect(existsSync(dir), `${dir} is kept`).toBe(true);
 		expect(said).toContain("since a process still works in it");
 	});
 

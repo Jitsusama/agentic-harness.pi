@@ -91,7 +91,7 @@ describe("spawn resume", () => {
 			action: "spawn-tab",
 			id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(spawned?.command).toBe("pi --session idle-1");
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.message).toContain("Resuming idle session idle-1");
@@ -105,7 +105,7 @@ describe("spawn resume", () => {
 			id,
 			command: "pi --model x",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(spawned?.command).toBe("pi --model x");
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.message).not.toContain("Resuming");

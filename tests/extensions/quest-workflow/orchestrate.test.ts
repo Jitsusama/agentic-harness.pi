@@ -54,7 +54,7 @@ describe("orchestrate", () => {
 
 		const result = succeeded(await run({ action: "orchestrate" }));
 
-		expect(marked()).toBe(true);
+		expect(marked(), "the quest is marked as orchestrating").toBe(true);
 		expect(result.message).toContain(`#orchestration/${address}`);
 		expect(journeyOf(state.questDir ?? "")).toContain(
 			"Marked as orchestrating",

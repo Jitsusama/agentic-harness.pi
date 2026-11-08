@@ -34,17 +34,26 @@ describe("matchesQuery", () => {
 			title: "Repair the Quest Workflow",
 			body: "config loader",
 		});
-		expect(matchesQuery(e, "quest config")).toBe(true);
+		expect(
+			matchesQuery(e, "quest config"),
+			"every token is found across title and body",
+		).toBe(true);
 	});
 
 	it("fails when one token is missing", () => {
 		const e = entry({ title: "Repair the Quest Workflow" });
-		expect(matchesQuery(e, "quest banana")).toBe(false);
+		expect(
+			matchesQuery(e, "quest banana"),
+			"one missing token fails the match",
+		).toBe(false);
 	});
 
 	it("is case-insensitive and order-independent", () => {
 		const e = entry({ title: "Quest Workflow Repair" });
-		expect(matchesQuery(e, "REPAIR workflow")).toBe(true);
+		expect(
+			matchesQuery(e, "REPAIR workflow"),
+			"case and order do not matter",
+		).toBe(true);
 	});
 
 	it("matches tokens spread across title, id and aliases", () => {
@@ -53,10 +62,16 @@ describe("matchesQuery", () => {
 			id: "QEST-20260604-ZZZ999",
 			aliases: [{ type: "github-pr", value: "Shopify/world#42" }],
 		});
-		expect(matchesQuery(e, "reopening ZZZ999 world")).toBe(true);
+		expect(
+			matchesQuery(e, "reopening ZZZ999 world"),
+			"tokens spread across title, id and aliases match",
+		).toBe(true);
 	});
 
 	it("treats an empty query as matching everything", () => {
-		expect(matchesQuery(entry({ title: "anything" }), "   ")).toBe(true);
+		expect(
+			matchesQuery(entry({ title: "anything" }), "   "),
+			"a blank query matches everything",
+		).toBe(true);
 	});
 });

@@ -337,7 +337,10 @@ describe("spawn through the desktop's launcher", () => {
 		if (!result.ok) throw new Error(result.guidance);
 		expect(opened).toBe("htop");
 		expect(openedEnv?.[FIRST_WORDS_VARIABLE]).toBeUndefined();
-		expect(existsSync(firstWordsDir())).toBe(false);
+		expect(
+			existsSync(firstWordsDir()),
+			`${firstWordsDir()} is never made`,
+		).toBe(false);
 	});
 
 	it("opens the window itself when the launcher refuses", async () => {
@@ -390,6 +393,9 @@ describe("spawn through the desktop's launcher", () => {
 		expect(handed()).toBeUndefined();
 		expect(opened).toBeUndefined();
 		expect(result.message).toContain("it goes first to the desktop's launcher");
-		expect(existsSync(firstWordsDir())).toBe(false);
+		expect(
+			existsSync(firstWordsDir()),
+			`${firstWordsDir()} is never made`,
+		).toBe(false);
 	});
 });

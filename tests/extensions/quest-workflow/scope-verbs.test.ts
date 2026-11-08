@@ -75,7 +75,7 @@ describe("reclassify verb", () => {
 			action: "reclassify",
 			kind: "sidequest",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(readFileSync(path, "utf8")).toMatch(/^kind: sidequest$/m);
 	});
 
@@ -99,7 +99,7 @@ describe("reclassify verb", () => {
 			action: "undo",
 			id: id,
 		});
-		expect(undone.ok).toBe(true);
+		expect(undone).toMatchObject({ ok: true });
 		expect(readFileSync(path, "utf8")).toMatch(/^kind: quest$/m);
 	});
 
@@ -118,7 +118,7 @@ describe("reclassify verb", () => {
 			action: "reclassify",
 			kind: "subquest",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toMatch(/parent/i);
 	});
@@ -135,7 +135,7 @@ describe("priority verbs", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "promote",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/priority: driving/);
 	});
@@ -172,7 +172,7 @@ describe("priority verbs", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "park",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/priority: bench/);
 	});
@@ -213,7 +213,7 @@ describe("conclude / retire scope", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.guidance).toContain(`id: ${a.id}`);
 		expect(result.guidance).toContain("unload");
@@ -231,7 +231,7 @@ describe("conclude / retire scope", () => {
 			action: "conclude",
 			id: a.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.message).toContain(`Concluded quest ${a.id} (Named Quest).`);
 		expect(readFileSync(a.path, "utf8")).toMatch(/status: concluded/);
@@ -283,7 +283,7 @@ describe("conclude / retire scope", () => {
 			action: "conclude",
 			id: a.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 
 		const quest = readFileSync(a.path, "utf8");
 		expect(quest).toMatch(/status: concluded/);
@@ -303,7 +303,7 @@ describe("conclude / retire scope", () => {
 			action: "retire",
 			id: a.id,
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("retire stamps status retired when reason is given", async () => {
@@ -318,7 +318,7 @@ describe("conclude / retire scope", () => {
 			id: a.id,
 			reason: "no longer relevant",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/status: retired/);
 	});
@@ -349,7 +349,7 @@ describe("conclude / retire scope", () => {
 			action: "conclude",
 			id: a.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.message).toMatch(/unchecked|open work|item/i);
 		const drift = (
@@ -382,7 +382,7 @@ describe("conclude / retire scope", () => {
 			action: "conclude",
 			id: a.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("expected ok");
 		expect(
 			(result.details as { planDrift?: unknown }).planDrift,
@@ -400,7 +400,7 @@ describe("conclude / retire scope", () => {
 			action: "conclude",
 			scope: "document",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -512,8 +512,8 @@ describe("find with extended filters", () => {
 				listing: { rows: { id: string; kind: string }[] };
 			}
 		).listing.rows;
-		expect(rows.every((r) => r.kind !== "subquest")).toBe(true);
-		expect(rows.some((r) => r.id === parent.id)).toBe(true);
+		expect(rows.filter((r) => r.kind === "subquest")).toEqual([]);
+		expect(rows).toContainEqual(expect.objectContaining({ id: parent.id }));
 	});
 
 	it("accepts field=activity and rejects an unknown field", async () => {
@@ -523,7 +523,7 @@ describe("find with extended filters", () => {
 			action: "find",
 			field: "activity",
 		});
-		expect(ok.ok).toBe(true);
+		expect(ok).toMatchObject({ ok: true });
 
 		// Under an activity window, a quest with no recorded activity is
 		// excluded rather than slipping through on an undefined date.
@@ -540,7 +540,7 @@ describe("find with extended filters", () => {
 			action: "find",
 			field: "banana",
 		});
-		expect(bad.ok).toBe(false);
+		expect(bad).toMatchObject({ ok: false });
 	});
 
 	it("filters by refType", async () => {

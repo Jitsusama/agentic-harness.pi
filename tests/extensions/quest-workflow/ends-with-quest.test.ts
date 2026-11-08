@@ -109,14 +109,13 @@ describe("a look at a session", () => {
 			questEnded: true,
 			busy: true,
 		});
-		expect(look({ idle: false }).busy).toBe(true);
+		expect(look({ idle: false })).toMatchObject({ busy: true });
 	});
 
 	it("never ends a session with no quest loaded", () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		expect(
-			lookAt(state, context() as unknown as Parameters<typeof lookAt>[1])
-				.questEnded,
-		).toBe(false);
+			lookAt(state, context() as unknown as Parameters<typeof lookAt>[1]),
+		).toMatchObject({ questEnded: false });
 	});
 });

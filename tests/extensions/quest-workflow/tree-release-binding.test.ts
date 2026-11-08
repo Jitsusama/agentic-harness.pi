@@ -79,7 +79,7 @@ describe("tree-release provider binding", () => {
 			action: "tree-release",
 			target: treePath,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(pruned).toEqual([treePath]);
 	});
 });

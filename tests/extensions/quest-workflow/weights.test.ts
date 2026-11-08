@@ -116,7 +116,7 @@ describe("a quest put first in the queue", () => {
 		const lab = await act(s, { action: "create", title: "Lab" });
 		await act(s, { action: "load", id: lab.id });
 		const result = await handle(s, pi, ctx(), { action: "queue-first" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -140,7 +140,10 @@ describe("each quest's weight", () => {
 		await act(s, { action: "load", id: b.id });
 		await act(s, { action: "drive" });
 
-		expect(writeQuestWeights(questsRoot, jobs)).toBe(true);
+		expect(
+			writeQuestWeights(questsRoot, jobs),
+			"the weights are written for the open quests",
+		).toBe(true);
 
 		expect(weights()).toEqual({
 			[a.id]: PRIORITY_WEIGHT.active,
@@ -176,7 +179,10 @@ describe("each quest's weight", () => {
 		writeQuestWeights(questsRoot, jobs);
 		const before = statSync(join(jobs, QUEST_WEIGHTS_FILE)).mtimeMs;
 
-		expect(writeQuestWeights(questsRoot, jobs)).toBe(false);
+		expect(
+			writeQuestWeights(questsRoot, jobs),
+			"nothing changed, so nothing is written",
+		).toBe(false);
 		expect(statSync(join(jobs, QUEST_WEIGHTS_FILE)).mtimeMs).toBe(before);
 	});
 
@@ -204,7 +210,13 @@ describe("each quest's weight", () => {
 	});
 
 	it("is not written where there is no quests root to read", () => {
-		expect(writeQuestWeights(join(tmpRoot, "none"), jobs)).toBe(false);
-		expect(existsSync(join(jobs, QUEST_WEIGHTS_FILE))).toBe(false);
+		expect(
+			writeQuestWeights(join(tmpRoot, "none"), jobs),
+			"a missing quests root writes nothing",
+		).toBe(false);
+		expect(
+			existsSync(join(jobs, QUEST_WEIGHTS_FILE)),
+			`${join(jobs, QUEST_WEIGHTS_FILE)} is not written`,
+		).toBe(false);
 	});
 });

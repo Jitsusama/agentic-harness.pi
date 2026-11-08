@@ -71,9 +71,7 @@ describe("the widget's quest marks", () => {
 		);
 		// The kind is muted, not the accent: this line is on screen all
 		// session, and the accent is kept for where the keys go.
-		expect(
-			line?.startsWith("<muted>\u25c7 <warning>\u25cb <muted>Quest title "),
-		).toBe(true);
+		expect(line).toMatch(/^<muted>\u25c7 <warning>\u25cb <muted>Quest title /);
 	});
 
 	it("dims the id", () => {
@@ -103,7 +101,7 @@ describe("the widget's quest marks", () => {
 			identityTheme,
 			80,
 		);
-		expect(line?.endsWith(" QEST-20260603-AAA111")).toBe(true);
+		expect(line).toMatch(/ QEST-20260603-AAA111$/);
 		expect(visibleWidth(line ?? "")).toBe(79);
 	});
 
@@ -122,7 +120,7 @@ describe("the widget's quest marks", () => {
 				200,
 			);
 			const glyph = (line ?? "").split(" ")[1] ?? "";
-			expect(seen.has(glyph)).toBe(false);
+			expect([...seen]).not.toContain(glyph);
 			seen.add(glyph);
 		}
 	});
@@ -157,7 +155,7 @@ describe("the widget short of room", () => {
 	function at(width: number): string {
 		const [line] = renderWidget(input, identityTheme, width);
 		expect(visibleWidth(line ?? "")).toBeLessThanOrEqual(width - 1);
-		expect(line?.endsWith(" QEST-20261012-DGXMKM")).toBe(true);
+		expect(line).toMatch(/ QEST-20261012-DGXMKM$/);
 		return (line ?? "").replace(/ +QEST-20261012-DGXMKM$/, "");
 	}
 
@@ -179,8 +177,8 @@ describe("the widget short of room", () => {
 
 	it("then shortens the quest title", () => {
 		const out = at(40);
-		expect(out.endsWith("\u2026 \u00b7 2/5")).toBe(true);
-		expect(out.startsWith("The Next")).toBe(true);
+		expect(out).toMatch(/\u2026 \u00b7 2\/5$/);
+		expect(out).toMatch(/^The Next/);
 		// Cut as plain text, so no reset lands inside the muted span.
 		expect(out).not.toContain("\x1b");
 	});
@@ -262,7 +260,7 @@ describe("renderWidget", () => {
 		// so the cap is inclusive rather than exact.
 		expect(arrow.length).toBeLessThanOrEqual(40);
 		expect(arrow.length).toBeGreaterThan(35);
-		expect(arrow.endsWith("\u2026")).toBe(true);
+		expect(arrow).toMatch(/\u2026$/);
 	});
 
 	it("strips markdown chrome from the trailer source", () => {

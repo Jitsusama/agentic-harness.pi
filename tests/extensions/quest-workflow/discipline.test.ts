@@ -75,7 +75,7 @@ describe("quest discipline (plan phase)", () => {
 			repo,
 			noScratch,
 		);
-		expect(result?.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 	});
 
 	it("lets new (untracked) files flow while a plan is in draft", () => {
@@ -120,7 +120,7 @@ describe("quest discipline (plan phase)", () => {
 			{ command: "git commit -m foo" },
 			"/tmp",
 		);
-		expect(result?.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 	});
 
 	it("blocks git with global options between git and the verb", () => {
@@ -145,7 +145,7 @@ describe("quest discipline (plan phase)", () => {
 			repo,
 			noScratch,
 		);
-		expect(result?.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 	});
 
 	it("defers an in-place edit of already-tracked code in draft", () => {
@@ -175,7 +175,7 @@ describe("quest discipline (plan phase)", () => {
 			noScratch,
 		);
 		// tmp-dump.json is untracked and not ignored: a new file, never cornered.
-		expect(result?.block).toBeFalsy();
+		expect(result?.block, "a new untracked file is never cornered").toBeFalsy();
 	});
 
 	it("does not block read-only bash, including literal mutating verbs", () => {
@@ -195,9 +195,10 @@ describe("quest discipline (plan phase)", () => {
 	it("isFocusedDocWrite recognises edits to the focused doc", () => {
 		const state = stateFixture();
 		const path = state.documentPath ?? "";
-		expect(isFocusedDocWrite("edit", { path }, state.documentPath, "/")).toBe(
-			true,
-		);
+		expect(
+			isFocusedDocWrite("edit", { path }, state.documentPath, "/"),
+			"an edit to the focused document is recognised",
+		).toBe(true);
 		expect(
 			isFocusedDocWrite(
 				"write",
@@ -205,6 +206,7 @@ describe("quest discipline (plan phase)", () => {
 				state.documentPath,
 				"/tmp",
 			),
+			"a write to another file is not one to the focused document",
 		).toBe(false);
 	});
 });

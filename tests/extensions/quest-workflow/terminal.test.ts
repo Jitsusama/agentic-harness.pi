@@ -41,7 +41,7 @@ describe("the terminal options a quest verb opens with", () => {
 			{ nesting: "outermost" },
 			{ questId: "QEST-1" },
 		);
-		expect(read.ok).toBe(true);
+		expect(read).toMatchObject({ ok: true });
 		if (!read.ok) return;
 		const chosen = resolveTerminalChoice(read.options.settings, {
 			...read.options.place,
@@ -55,7 +55,7 @@ describe("the terminal options a quest verb opens with", () => {
 	it("refuses a section that is wrong, naming the field and the file", async () => {
 		writeConfig({ terminal: { defaults: { layout: "split" } } });
 		const read = await terminalOptions({}, {});
-		expect(read.ok).toBe(false);
+		expect(read).toMatchObject({ ok: false });
 		if (!read.ok) {
 			expect(read.refusal).toContain("terminal.defaults.layout");
 			expect(read.refusal).toContain("config.json");
@@ -63,8 +63,12 @@ describe("the terminal options a quest verb opens with", () => {
 	});
 
 	it("refuses a layout or nesting the call cannot mean", async () => {
-		expect((await terminalOptions({ layout: "split" }, {})).ok).toBe(false);
-		expect((await terminalOptions({ nesting: "middle" }, {})).ok).toBe(false);
+		expect(await terminalOptions({ layout: "split" }, {})).toMatchObject({
+			ok: false,
+		});
+		expect(await terminalOptions({ nesting: "middle" }, {})).toMatchObject({
+			ok: false,
+		});
 	});
 
 	it("passes a dry run through", async () => {

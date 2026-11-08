@@ -149,7 +149,7 @@ describe("reorder verbs", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "top",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 
 		// After `top` on Charlie: Charlie=1, Alpha=2,
 		// Bravo=3. Each rank is asserted exactly.
@@ -196,7 +196,7 @@ describe("reorder verbs", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "before",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -212,7 +212,7 @@ describe("alias verbs", () => {
 			action: "alias-add",
 			ref: "github-pr:shop/world#47281",
 		});
-		expect(add.ok).toBe(true);
+		expect(add).toMatchObject({ ok: true });
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toContain("type: github-pr");
 		expect(text).toContain("value: shop/world#47281");
@@ -221,7 +221,7 @@ describe("alias verbs", () => {
 			action: "alias-remove",
 			ref: "github-pr:shop/world#47281",
 		});
-		expect(remove.ok).toBe(true);
+		expect(remove).toMatchObject({ ok: true });
 		const after = readFileSync(a.path, "utf8");
 		// Frontmatter `aliases` list should be empty; Journey
 		// log keeps the historical mention.
@@ -239,7 +239,7 @@ describe("alias verbs", () => {
 			action: "alias-add",
 			ref: "not a valid alias",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -255,7 +255,7 @@ describe("session verbs", () => {
 			action: "session-attach",
 			name: "investigation",
 		});
-		expect(attach.ok).toBe(true);
+		expect(attach).toMatchObject({ ok: true });
 		let text = readFileSync(a.path, "utf8");
 		expect(text).toContain("id: sess-99");
 		expect(text).toContain("name: investigation");
@@ -264,7 +264,7 @@ describe("session verbs", () => {
 		const detach = await handle(state, fakePi(), fakeCtx(tmpRoot, "sess-99"), {
 			action: "session-detach",
 		});
-		expect(detach.ok).toBe(true);
+		expect(detach).toMatchObject({ ok: true });
 		text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/status: detached/);
 	});
@@ -284,7 +284,7 @@ describe("session verbs", () => {
 			action: "session-attach",
 			...named,
 		});
-		expect(attach.ok).toBe(true);
+		expect(attach).toMatchObject({ ok: true });
 		expect(readFileSync(other.path, "utf8")).toContain("id: sess-elsewhere");
 		expect(readFileSync(loaded.path, "utf8")).not.toContain("sess-elsewhere");
 
@@ -293,12 +293,12 @@ describe("session verbs", () => {
 			name: "moved",
 			...named,
 		});
-		expect(rename.ok).toBe(true);
+		expect(rename).toMatchObject({ ok: true });
 		const detach = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "session-detach",
 			...named,
 		});
-		expect(detach.ok).toBe(true);
+		expect(detach).toMatchObject({ ok: true });
 		const text = readFileSync(other.path, "utf8");
 		expect(text).toContain("name: moved");
 		expect(text).toMatch(/status: detached/);
@@ -315,11 +315,11 @@ describe("find / who / links", () => {
 			action: "find",
 			query: "authentication",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		const rows = (result.details as { listing: { rows: { id: string }[] } })
 			.listing.rows;
-		expect(rows.some((r) => r.id === a.id)).toBe(true);
+		expect(rows).toContainEqual(expect.objectContaining({ id: a.id }));
 	});
 
 	it("who filters Cast bullets across quests", async () => {
@@ -337,7 +337,7 @@ describe("find / who / links", () => {
 			action: "who",
 			name: "joel",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		const hits = (result.details as { hits: { subject: string }[] }).hits;
 		expect(hits.length).toBeGreaterThan(0);
@@ -362,7 +362,7 @@ describe("find / who / links", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "links",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		const links = (
 			result.details as {
@@ -372,7 +372,9 @@ describe("find / who / links", () => {
 				};
 			}
 		).links;
-		expect(links.incoming.some((e) => e.questId === b.id)).toBe(true);
+		expect(links.incoming).toContainEqual(
+			expect.objectContaining({ questId: b.id }),
+		);
 	});
 });
 
@@ -407,7 +409,7 @@ describe("spawn verbs", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "spawn-tab",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(calls).toHaveLength(1);
 		expect(calls[0].layout).toBe("tab");
 		expect(calls[0].command).toBe("pi");
@@ -457,7 +459,7 @@ describe("spawn verbs", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "spawn-tab",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(calls[0].cwd).toBe(treeDir);
 		if (!result.ok) throw new Error("expected ok");
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe("tree");
@@ -576,7 +578,7 @@ describe("spawn verbs", () => {
 			action: "spawn-tab",
 			id: other.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(calls[0].env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: other.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
@@ -602,7 +604,7 @@ describe("spawn verbs", () => {
 			action: "spawn-tab",
 			id: "QEST-29991231-MISSING",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unexpected ok");
 		expect(result.guidance).toContain("No quest with id");
 	});
@@ -628,7 +630,7 @@ describe("URL-seeded create", () => {
 			action: "create",
 			url: "https://github.com/shop/world/pull/47281",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok) {
 			expect(result.guidance).toContain(a.id);
 		}
@@ -650,7 +652,7 @@ describe("URL-seeded create", () => {
 			action: "create",
 			url: "https://github.com/shop/world/pull/99999",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		const path = (result.details as { path: string }).path;
 		const text = readFileSync(path, "utf8");
@@ -701,7 +703,7 @@ describe("URL-seeded create", () => {
 			url: "https://github.com/shop/world/pull/77777",
 		});
 		// No fetcher registered, no title param: refuse.
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -725,7 +727,7 @@ describe("action aliases and refusals", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "lst",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unexpected ok");
 		expect(result.guidance).toContain('Did you mean "list"');
 	});
@@ -859,7 +861,7 @@ describe("show by id", () => {
 		expect(result.message).toContain("Other quest");
 		// The loaded quest is unchanged.
 		expect(state.questId).toBe(loaded.id);
-		expect((result.details as { readOnly?: boolean }).readOnly).toBe(true);
+		expect(result.details).toMatchObject({ readOnly: true });
 	});
 
 	it("refuses an unknown id", async () => {
@@ -869,7 +871,7 @@ describe("show by id", () => {
 			action: "show",
 			id: "QEST-20260604-NOPE00",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -1095,8 +1097,8 @@ describe("listing verbs: brief, expanded and pagination", () => {
 		const lines = result.message.split("\n");
 		const parentLine = lines.find((l) => l.includes("Parent quest"));
 		const childLine = lines.find((l) => l.includes("Child quest"));
-		expect(parentLine?.startsWith(" ")).toBeFalsy();
-		expect(childLine?.startsWith("  ")).toBe(true);
+		expect(parentLine ?? "").not.toMatch(/^ /);
+		expect(childLine).toMatch(/^ {2}/);
 	});
 });
 
@@ -1108,7 +1110,7 @@ describe("create validation", () => {
 			title: "Bad Priority",
 			priority: "high",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toMatch(/priority/i);
 	});
@@ -1120,7 +1122,7 @@ describe("create validation", () => {
 			title: "Orphan",
 			parent: "QEST-20260101-NOEXST",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toMatch(/parent/i);
 	});
@@ -1140,7 +1142,7 @@ describe("create validation", () => {
 			parent: parentId,
 			priority: "queued",
 		});
-		expect(child.ok).toBe(true);
+		expect(child).toMatchObject({ ok: true });
 	});
 });
 
@@ -1168,7 +1170,7 @@ describe("show surfaces unresolved cast per the resolution fallback", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "show",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain("Unresolved cast");
 		expect(result.message).toContain("Nobody Knows");
@@ -1196,7 +1198,7 @@ describe("show surfaces unresolved cast per the resolution fallback", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "show",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).not.toContain("Unresolved cast");
 		setResolutionFallback("warn");

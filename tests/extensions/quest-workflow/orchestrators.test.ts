@@ -83,11 +83,19 @@ describe("the orchestrators the desktop lists", () => {
 		const path = join(root, "state", "orchestrators.json");
 		const list = [{ quest: MISSION, address: "MISSON", title: "Mission" }];
 
-		expect(writeOrchestrators(list, path)).toBe(true);
-		expect(writeOrchestrators(list, path)).toBe(false);
+		expect(
+			writeOrchestrators(list, path),
+			"a first write of the list writes it",
+		).toBe(true);
+		expect(
+			writeOrchestrators(list, path),
+			"the same list again writes nothing",
+		).toBe(false);
 		expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
 			orchestrators: list,
 		});
-		expect(writeOrchestrators([], path)).toBe(true);
+		expect(writeOrchestrators([], path), "a changed list is written").toBe(
+			true,
+		);
 	});
 });

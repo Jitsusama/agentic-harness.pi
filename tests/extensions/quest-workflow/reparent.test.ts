@@ -104,11 +104,11 @@ describe("reparent verb", () => {
 			parent: parent.id,
 			dryRun: true,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		// Nothing written: the child stays top-level.
 		expect(parentOf(child.id)).toBe("null");
 		const details = succeeded(result).details as { dryRun: boolean };
-		expect(details.dryRun).toBe(true);
+		expect(details).toMatchObject({ dryRun: true });
 	});
 
 	it("reparents many quests in one call", async () => {
@@ -122,7 +122,7 @@ describe("reparent verb", () => {
 			id: `${a.id},${b.id}`,
 			parent: parent.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(parentOf(a.id)).toBe(parent.id);
 		expect(parentOf(b.id)).toBe(parent.id);
 	});
@@ -196,7 +196,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: child.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(parentOf(child.id)).toBe("null");
 	});
 
@@ -237,7 +237,7 @@ describe("reparent verb", () => {
 			id: `${a.id},${b.id}`,
 			reason: "duplicates",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("retired");
 		expect(statusOf(b.id)).toBe("retired");
 
@@ -245,7 +245,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: a.id,
 		});
-		expect(undone.ok).toBe(true);
+		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(statusOf(b.id)).toBe("active");
 	});
@@ -263,7 +263,7 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: other.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		// The named quest is concluded; the loaded quest is untouched.
 		expect(statusOf(other.id)).toBe("concluded");
 		expect(statusOf(loaded.id)).toBe("active");
@@ -273,7 +273,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: other.id,
 		});
-		expect(undone.ok).toBe(true);
+		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(other.id)).toBe("active");
 	});
 
@@ -286,7 +286,7 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: a.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("concluded");
 		expect(fieldOf(a.id, "priority")).toBe("someday");
 
@@ -294,7 +294,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: a.id,
 		});
-		expect(undone.ok).toBe(true);
+		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(fieldOf(a.id, "priority")).toBe("active");
 	});
@@ -313,7 +313,7 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: a.id,
 		});
-		expect(concluded.ok).toBe(true);
+		expect(concluded).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("concluded");
 		expect(fieldOf(a.id, "priority")).toBe("someday");
 
@@ -321,7 +321,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: a.id,
 		});
-		expect(undone.ok).toBe(true);
+		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(fieldOf(a.id, "priority")).toBe("driving");
 	});
@@ -381,7 +381,7 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: parent.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain(child.id);
 		expect(statusOf(child.id)).toBe("active");
@@ -401,7 +401,7 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: parent.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain(child.id);
 		// The child is warned about, not sealed.
@@ -436,7 +436,7 @@ describe("reparent verb", () => {
 			id: `${a.id},${b.id}`,
 			dryRun: true,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(statusOf(b.id)).toBe("active");
 	});
@@ -506,7 +506,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: a.id,
 		});
-		expect(first.ok).toBe(true);
+		expect(first).toMatchObject({ ok: true });
 		expect(parentOf(b.id)).toBe("null");
 		expect(parentOf(a.id)).toBe(other.id);
 
@@ -518,7 +518,7 @@ describe("reparent verb", () => {
 			action: "undo",
 			id: a.id,
 		});
-		expect(second.ok).toBe(true);
+		expect(second).toMatchObject({ ok: true });
 		expect(parentOf(a.id)).toBe("null");
 	});
 
@@ -558,7 +558,7 @@ describe("reparent verb", () => {
 			id: child.id,
 			parent: "null",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(parentOf(child.id)).toBe("null");
 	});
 });

@@ -62,7 +62,7 @@ describe("concluding a quest", () => {
 		const { state, put, conclude } = await loadedQuest();
 		put("lab/results.csv");
 		const result = await conclude();
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) return;
 		expect(result.guidance).toContain("lab");
 		expect(result.guidance).toContain(
@@ -76,12 +76,12 @@ describe("concluding a quest", () => {
 		put("attachments/notes.md", "See ![c](cost.png) and ![g](gone.png)\n");
 		cite("Notes in `attachments/notes.md`.");
 		const result = await conclude();
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 
 		const again = await loadedQuest();
 		again.cite("![Gone](attachments/gone.png)");
 		const refused = await again.conclude();
-		expect(refused.ok).toBe(false);
+		expect(refused).toMatchObject({ ok: false });
 		if (refused.ok) return;
 		expect(refused.guidance).toContain("attachments/gone.png");
 	});
@@ -90,7 +90,7 @@ describe("concluding a quest", () => {
 		const { state, put, conclude } = await loadedQuest();
 		put("attachments/lonely.md");
 		const result = await conclude();
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.message).toContain("attachments/lonely.md");
 		expect(state.questStatus).toBe("concluded");

@@ -55,7 +55,7 @@ describe("conclude by document id", () => {
 			action: "conclude",
 			id: planId,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const planText = readFileSync(
 			join(questDir, "plans", `${planId}.md`),
 			"utf8",
@@ -72,7 +72,7 @@ describe("conclude by document id", () => {
 			action: "conclude",
 			id: questId,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		// The by-id path must cascade the seal to the quest's documents,
 		// not only flip the quest status.
 		const planText = readFileSync(
@@ -92,7 +92,7 @@ describe("conclude by document id", () => {
 			id: questId,
 			scope: "document",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toMatch(/scope:document/i);
 	});
@@ -104,7 +104,7 @@ describe("conclude by document id", () => {
 			id: planId,
 			scope: "document",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const planText = readFileSync(
 			join(questDir, "plans", `${planId}.md`),
 			"utf8",
@@ -121,7 +121,7 @@ describe("conclude by document id", () => {
 			action: "conclude",
 			id: "PLAN-20260101-ZZZZZZ",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok) expect(result.guidance).toMatch(/not found/i);
 	});
 
@@ -133,7 +133,7 @@ describe("conclude by document id", () => {
 			action: "conclude",
 			id: "PLAN-/../../README",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok) expect(result.guidance).toMatch(/path separators/i);
 		// The quest README is untouched: still active.
 		expect(readFileSync(join(questDir, "README.md"), "utf8")).toMatch(
@@ -156,12 +156,12 @@ describe("conclude by document id", () => {
 			title: "Second plan",
 		});
 		const secondPath = state.documentPath;
-		expect(secondPath).toBeTruthy();
+		expect(secondPath, "drafting a second plan focuses it").toBeTruthy();
 		const result = await handle(state, fakePi(), ctx, {
 			action: "conclude",
 			id: planId,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(state.documentPath).toBe(secondPath);
 		expect(
 			readFileSync(join(questDir, "plans", `${planId}.md`), "utf8"),

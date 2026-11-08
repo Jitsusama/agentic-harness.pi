@@ -107,10 +107,16 @@ describe("sweeping quests by id", () => {
 		it(`removes each quest's whole scratch folder on ${action}`, async () => {
 			const { state, ids, workspace, sweep } = await twoQuests();
 			const result = await sweep(action);
-			expect(result.ok).toBe(true);
+			expect(result).toMatchObject({ ok: true });
 			for (const id of ids) {
-				expect(existsSync(workspace(id, "tmp"))).toBe(false);
-				expect(existsSync(workspace(id, "lab/results.csv"))).toBe(false);
+				expect(
+					existsSync(workspace(id, "tmp")),
+					`${workspace(id, "tmp")} is removed`,
+				).toBe(false);
+				expect(
+					existsSync(workspace(id, "lab/results.csv")),
+					`${workspace(id, "lab/results.csv")} is removed`,
+				).toBe(false);
 				const dir = join(state.questsRoot, id);
 				expect(readFileSync(harnessLogPath(dir), "utf8")).toContain(
 					"Removed its scratch folder",
@@ -123,7 +129,7 @@ describe("sweeping quests by id", () => {
 	it("says in its answer that each scratch folder went and undo keeps only status and priority", async () => {
 		const { ids, sweep } = await twoQuests();
 		const result = await sweep("conclude");
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		for (const id of ids) {
 			expect(result.message).toContain(`${id}: Removed its scratch folder`);
@@ -150,13 +156,16 @@ describe("sweeping quests by id", () => {
 			id: [...ids, bareId].join(","),
 			dryRun: true,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		for (const id of ids) {
 			expect(result.message).toMatch(
 				new RegExp(`${id}: .*quest-workspace/${id}/`),
 			);
-			expect(existsSync(workspace(id, "lab/results.csv"))).toBe(true);
+			expect(
+				existsSync(workspace(id, "lab/results.csv")),
+				`${workspace(id, "lab/results.csv")} is kept`,
+			).toBe(true);
 		}
 		expect(result.message).not.toMatch(
 			new RegExp(`${bareId}: .*quest-workspace`),
@@ -178,7 +187,7 @@ describe("sweeping quests by id", () => {
 		put(1, "lab/results.csv");
 		put(3, "notes.txt");
 		const result = await sweep("conclude");
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect([0, 1, 2, 3].map(status)).toEqual([
 			"concluded",
@@ -202,7 +211,7 @@ describe("sweeping quests by id", () => {
 		put(0, "lab/results.csv");
 		put(1, "lab/results.csv");
 		const result = await sweep("conclude");
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) return;
 		expect(result.guidance).toContain("nothing was concluded");
 		expect([0, 1].map(status)).toEqual(["active", "active"]);
@@ -212,7 +221,7 @@ describe("sweeping quests by id", () => {
 		const { status, put, sweep } = await batch(2);
 		put(1, "lab/results.csv");
 		const result = await sweep("conclude", { dryRun: true });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.message).toContain("would conclude 1 quest");
 		expect(result.message).toContain("Would skip 1 quest");
@@ -223,7 +232,7 @@ describe("sweeping quests by id", () => {
 		const { status, put, sweep } = await batch(2);
 		put(1, "lab/results.csv");
 		const result = await sweep("retire");
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect([0, 1].map(status)).toEqual(["retired", "retired"]);
 	});
 
@@ -232,7 +241,7 @@ describe("sweeping quests by id", () => {
 		put(1, "lab/results.csv");
 		await sweep("conclude");
 		const undone = await sweep("undo");
-		expect(undone.ok).toBe(true);
+		expect(undone).toMatchObject({ ok: true });
 		expect([0, 1, 2].map(status)).toEqual(["active", "active", "active"]);
 	});
 
@@ -243,7 +252,7 @@ describe("sweeping quests by id", () => {
 			action: "conclude",
 			id: ids[0],
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(status(0)).toBe("active");
 	});
 
@@ -253,9 +262,11 @@ describe("sweeping quests by id", () => {
 			ensureQuestScratchDir(join(state.questsRoot, id), id, null),
 		);
 		const result = await sweep("conclude");
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		for (const [i, id] of ids.entries()) {
-			expect(existsSync(scratch[i] ?? "")).toBe(false);
+			expect(existsSync(scratch[i] ?? ""), `${scratch[i]} is removed`).toBe(
+				false,
+			);
 			const readme = readFileSync(
 				join(state.questsRoot, id, "README.md"),
 				"utf8",

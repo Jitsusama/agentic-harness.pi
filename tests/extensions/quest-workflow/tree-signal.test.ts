@@ -96,7 +96,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			signal,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(handed).toEqual([{ call: "create", signal }]);
 	});
 
@@ -113,7 +113,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			signal,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(handed).toEqual([{ call: "release", signal }]);
 	});
 
@@ -130,7 +130,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			signal,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(handed).toEqual([{ call: "release", signal }]);
 	});
 
@@ -159,7 +159,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			stop.signal,
 		);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(state.questStatus).toBe("active");
 	});
 });

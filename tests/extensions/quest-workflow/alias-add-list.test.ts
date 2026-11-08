@@ -62,7 +62,7 @@ describe("alias-add collision", () => {
 			action: "alias-add",
 			ref: "github-pr:shop/world#7",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toContain(firstId);
 	});
@@ -81,7 +81,7 @@ describe("alias-add with a list", () => {
 			action: "alias-add",
 			ref: "github-pr:shop/world#1, github-issue:shop/world#2",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const readme = readFileSync(
 			join(state.questDir ?? "", "README.md"),
 			"utf8",
@@ -113,7 +113,7 @@ describe("alias-add with a list", () => {
 			action: "alias-add",
 			ref: "github-pr:shop/world#1, github-issue:shop/world#2",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const readme = readFileSync(
 			join(state.questDir ?? "", "README.md"),
 			"utf8",
@@ -145,7 +145,7 @@ describe("alias-remove contract parity", () => {
 			action: "alias-remove",
 			ref: "github-pr:shop/world#1, github-issue:shop/world#2",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const readme = readFileSync(
 			join(state.questDir ?? "", "README.md"),
 			"utf8",
@@ -162,7 +162,7 @@ describe("alias-remove contract parity", () => {
 		});
 		// alias-add reports an already-present no-op as ok; alias-remove
 		// now reports a nothing-to-remove no-op as ok too.
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toMatch(/was not on this quest/i);
 	});
@@ -181,7 +181,7 @@ describe("promote/demote reject a supplied priority", () => {
 			action: "promote",
 			priority: "driving",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toMatch(/drive, park or defer/i);
 	});

@@ -85,7 +85,7 @@ describe("tree-add", () => {
 			name: "feature-x",
 			cwd: repoRoot,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const tree = (
 			succeeded(result).details as {
 				tree: { path: string; branch: string };
@@ -93,16 +93,16 @@ describe("tree-add", () => {
 		).tree;
 		expect(tree.path).toBe(join(repoRoot, ".worktrees", "feature-x"));
 		expect(tree.branch).toBe("feature-x");
-		expect(existsSync(tree.path)).toBe(true);
+		expect(existsSync(tree.path), `${tree.path} exists`).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees?.[0].path).toBe(tree.path);
 		// The path lives in trees alone; only the branch is mirrored.
-		expect(fm?.aliases.some((a) => a.type === "git-worktree")).toBe(false);
-		expect(
-			fm?.aliases.some(
-				(a) => a.type === "git-branch" && a.value === "feature-x",
-			),
-		).toBe(true);
+		expect(fm?.aliases).not.toContainEqual(
+			expect.objectContaining({ type: "git-worktree" }),
+		);
+		expect(fm?.aliases).toContainEqual(
+			expect.objectContaining({ type: "git-branch", value: "feature-x" }),
+		);
 	});
 
 	it("refuses when no quest is loaded", async () => {
@@ -112,7 +112,7 @@ describe("tree-add", () => {
 			name: "feature-y",
 			cwd: repoRoot,
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });
 
@@ -128,7 +128,7 @@ describe("tree-list", () => {
 		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-list",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const trees = (succeeded(result).details as { trees: { path: string }[] })
 			.trees;
 		expect(trees).toHaveLength(1);
@@ -151,8 +151,8 @@ describe("tree-release", () => {
 			action: "tree-release",
 			target: treePath,
 		});
-		expect(pruned.ok).toBe(true);
-		expect(existsSync(treePath)).toBe(false);
+		expect(pruned).toMatchObject({ ok: true });
+		expect(existsSync(treePath), `${treePath} is removed`).toBe(false);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees ?? []).toHaveLength(0);
 	});
@@ -172,8 +172,8 @@ describe("tree-release", () => {
 			action: "tree-release",
 			target: treePath,
 		});
-		expect(pruned.ok).toBe(false);
-		expect(existsSync(treePath)).toBe(true);
+		expect(pruned).toMatchObject({ ok: false });
+		expect(existsSync(treePath), `${treePath} is kept`).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.pendingPrune).toHaveLength(1);
 		expect(fm?.pendingPrune?.[0].path).toBe(treePath);
@@ -197,7 +197,7 @@ describe("tree-release", () => {
 			action: "tree-release",
 			target: treePath,
 		});
-		expect(blocked.ok).toBe(false);
+		expect(blocked).toMatchObject({ ok: false });
 		const blockedFm = parseQuestFrontMatter(
 			readFileSync(q.path, "utf8"),
 		)?.frontMatter;
@@ -209,8 +209,8 @@ describe("tree-release", () => {
 			target: treePath,
 			force: true,
 		});
-		expect(pruned.ok).toBe(true);
-		expect(existsSync(treePath)).toBe(false);
+		expect(pruned).toMatchObject({ ok: true });
+		expect(existsSync(treePath), `${treePath} is removed`).toBe(false);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.pendingPrune).toBeUndefined();
 		expect(fm?.trees ?? []).toHaveLength(0);
@@ -231,7 +231,7 @@ describe("tree-release", () => {
 			cwd: repoRoot,
 		});
 
-		expect(released.ok).toBe(true);
+		expect(released).toMatchObject({ ok: true });
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees ?? []).toHaveLength(0);
 	});
@@ -254,7 +254,10 @@ describe("tree-release", () => {
 
 		expect(released.message).toContain("folder stays");
 		expect(released.message).not.toContain("work release");
-		expect(existsSync(join(repoRoot, ".git"))).toBe(true);
+		expect(
+			existsSync(join(repoRoot, ".git")),
+			`${join(repoRoot, ".git")} is kept`,
+		).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees ?? []).toHaveLength(0);
 	});
@@ -293,7 +296,7 @@ describe("tree-release", () => {
 			expect(released.message).toContain(
 				"`work release` with tree worktree-github-someone-repo-a-branch",
 			);
-			expect(existsSync(cut)).toBe(true);
+			expect(existsSync(cut), `${cut} is kept`).toBe(true);
 		} finally {
 			if (saved === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = saved;
@@ -326,7 +329,7 @@ describe("tree-release", () => {
 			}),
 		);
 
-		expect(existsSync(treePath)).toBe(false);
+		expect(existsSync(treePath), `${treePath} is removed`).toBe(false);
 	});
 });
 
@@ -396,7 +399,7 @@ describe("a quest shared with another machine", () => {
 			force: true,
 		});
 
-		expect(released.ok).toBe(false);
+		expect(released).toMatchObject({ ok: false });
 		if (!released.ok) expect(released.guidance).toMatch(/is on far-machine/);
 		expect(treesOf(q.path).map((tree) => tree.path)).toContain(theirs);
 	});
@@ -409,7 +412,7 @@ describe("a quest shared with another machine", () => {
 			action: "tree-release",
 			cwd: legacy,
 		});
-		expect(asked.ok).toBe(false);
+		expect(asked).toMatchObject({ ok: false });
 		if (!asked.ok) expect(asked.guidance).toMatch(/names no machine/);
 		expect(treesOf(q.path).map((tree) => tree.path)).toContain(legacy);
 
@@ -418,7 +421,7 @@ describe("a quest shared with another machine", () => {
 			cwd: legacy,
 			force: true,
 		});
-		expect(dropped.ok).toBe(true);
+		expect(dropped).toMatchObject({ ok: true });
 		expect(treesOf(q.path).map((tree) => tree.path)).not.toContain(legacy);
 	});
 
@@ -432,7 +435,7 @@ describe("a quest shared with another machine", () => {
 			reason: "testing a shared quest's trees",
 		});
 
-		expect(retired.ok).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
 		expect(treesOf(q.path).map((tree) => tree.path)).toEqual([theirs, legacy]);
 	});
 });
@@ -454,12 +457,12 @@ describe("tree-release attached-session refusal", () => {
 			fakeCtx(treePath, "sess-inside"),
 			{ action: "session-attach", cwd: treePath },
 		);
-		expect(attachResult.ok).toBe(true);
+		expect(attachResult).toMatchObject({ ok: true });
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-release",
 			target: treePath,
 		});
-		expect(pruned.ok).toBe(false);
+		expect(pruned).toMatchObject({ ok: false });
 		if (!pruned.ok) {
 			expect(pruned.guidance).toMatch(/attached/);
 		}
@@ -482,7 +485,7 @@ describe("retire auto-prunes trees", () => {
 			id: state.questId ?? "",
 			reason: "done with it",
 		});
-		expect(retired.ok).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
 		if (retired.ok) {
 			const details = retired.details as {
 				prunedTrees: string[];
@@ -491,7 +494,7 @@ describe("retire auto-prunes trees", () => {
 			expect(details.prunedTrees).toContain(treePath);
 			expect(details.blockedTrees).toHaveLength(0);
 		}
-		expect(existsSync(treePath)).toBe(false);
+		expect(existsSync(treePath), `${treePath} is removed`).toBe(false);
 	});
 
 	it("surfaces blocked trees as manual resolution on retire", async () => {
@@ -510,7 +513,7 @@ describe("retire auto-prunes trees", () => {
 			id: state.questId ?? "",
 			reason: "wrap up",
 		});
-		expect(retired.ok).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
 		if (retired.ok) {
 			const details = retired.details as {
 				prunedTrees: string[];
@@ -522,7 +525,7 @@ describe("retire auto-prunes trees", () => {
 			// until the counting went through the shared pluralizer.
 			expect(retired.message).toMatch(/1 tree needs manual resolution/);
 		}
-		expect(existsSync(treePath)).toBe(true);
+		expect(existsSync(treePath), `${treePath} is kept`).toBe(true);
 	});
 
 	it("keeps every blocker on retire when multiple trees fail", async () => {
@@ -549,7 +552,7 @@ describe("retire auto-prunes trees", () => {
 			id: state.questId ?? "",
 			reason: "both still pending",
 		});
-		expect(retired.ok).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		const pendingPaths = (fm?.pendingPrune ?? []).map((e) => e.path);
 		expect(pendingPaths).toContain(path1);
@@ -575,8 +578,8 @@ describe("retire auto-prunes trees", () => {
 			id: state.questId ?? "",
 			reason: "see you later",
 		});
-		expect(retired.ok).toBe(true);
-		expect(existsSync(treePath)).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
+		expect(existsSync(treePath), `${treePath} is kept`).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		const pending = fm?.pendingPrune ?? [];
 		expect(pending.find((e) => e.path === treePath)?.reason).toMatch(
@@ -598,7 +601,7 @@ describe("tree-expand", () => {
 			action: "tree-expand",
 			ref: "system/foo",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok) {
 			expect(result.guidance).toMatch(/does not support expand/);
 		}

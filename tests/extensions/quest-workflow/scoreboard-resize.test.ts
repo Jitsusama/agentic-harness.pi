@@ -81,8 +81,8 @@ describe("updateScoreboard resize behaviour", () => {
 		const widget = ui.captured.widget;
 		if (typeof widget !== "function") throw new Error("expected a callback");
 		const [line] = widget(null, theme).render(120);
-		expect(line?.startsWith("\u25c6 \u25cb ")).toBe(true);
-		expect(line?.endsWith("QEST-20260101-AAAAAA")).toBe(true);
+		expect(line).toMatch(/^\u25c6 \u25cb /);
+		expect(line).toMatch(/QEST-20260101-AAAAAA$/);
 	});
 
 	it("clears the status and widget when no quest is loaded", () => {

@@ -79,7 +79,7 @@ describe("ancestorsOf", () => {
 			action: "ancestors",
 			id: child,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(
 			(result.details as { ancestors: { id: string }[] }).ancestors,

@@ -45,7 +45,7 @@ describe("creating a document that discovery will be able to find", () => {
 		});
 
 		expect(path).toBeDefined();
-		expect(existsSync(path as string)).toBe(true);
+		expect(existsSync(path as string), `${path} exists`).toBe(true);
 	});
 
 	it("refuses one whose front matter will not parse", () => {
