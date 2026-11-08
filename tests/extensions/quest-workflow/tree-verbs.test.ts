@@ -1,7 +1,9 @@
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -237,6 +239,99 @@ describe("tree-release", () => {
 		expect(released.ok).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees ?? []).toHaveLength(0);
+	});
+
+	it("lets go of an adopted tree without force, leaving its folder", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Feature H");
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-adopt",
+			cwd: repoRoot,
+			force: true,
+		});
+
+		const released = succeeded(
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "tree-release",
+				cwd: repoRoot,
+			}),
+		);
+
+		expect(released.message).toContain("folder stays");
+		expect(released.message).not.toContain("work release");
+		expect(existsSync(join(repoRoot, ".git"))).toBe(true);
+		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
+		expect(fm?.trees ?? []).toHaveLength(0);
+	});
+
+	it("names the work release that gives back an adopted work tree", async () => {
+		const saved = process.env.XDG_STATE_HOME;
+		process.env.XDG_STATE_HOME = join(tmpRoot, "state");
+		try {
+			const trees = join(
+				tmpRoot,
+				"state",
+				"pi",
+				"agentic-harness.pi",
+				"work",
+				"trees",
+			);
+			mkdirSync(trees, { recursive: true });
+			const cut = join(trees, "worktree-github-someone-repo-a-branch");
+			renameSync(repoRoot, cut);
+			repoRoot = cut;
+			const state = buildState();
+			await createQuest(state, "Feature I");
+			await handle(state, fakePi(), fakeCtx(cut), {
+				action: "tree-adopt",
+				cwd: cut,
+				force: true,
+			});
+
+			const released = succeeded(
+				await handle(state, fakePi(), fakeCtx(tmpRoot), {
+					action: "tree-release",
+					cwd: cut,
+				}),
+			);
+
+			expect(released.message).toContain(
+				"`work release` with tree worktree-github-someone-repo-a-branch",
+			);
+			expect(existsSync(cut)).toBe(true);
+		} finally {
+			if (saved === undefined) delete process.env.XDG_STATE_HOME;
+			else process.env.XDG_STATE_HOME = saved;
+		}
+	});
+
+	it("still deletes an adopted tree's folder when forced", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Feature J");
+		const added = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-add",
+			name: "adopted-later",
+			cwd: repoRoot,
+		});
+		const treePath = (succeeded(added).details as { tree: { path: string } })
+			.tree.path;
+		mutateQuestFrontMatter(dirname(q.path), (fm) => ({
+			...fm,
+			trees: (fm.trees ?? []).map((t) => ({
+				...t,
+				origin: "adopted" as const,
+			})),
+		}));
+
+		succeeded(
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "tree-release",
+				cwd: treePath,
+				force: true,
+			}),
+		);
+
+		expect(existsSync(treePath)).toBe(false);
 	});
 });
 

@@ -238,10 +238,14 @@ raw git.
 The two origins are released differently. A tree the tool cut is
 the tool's to remove: it is released when the quest concludes or
 retires, and a manual `tree-release` removes it freely. An
-adopted (or legacy, unmarked) tree is a shared checkout the
-tool did not create, so it is never released by itself, and a
-manual `tree-release` refuses unless you pass `force: true` after
-confirming with the person. Once its quest is concluded or retired, an
+adopted tree is a checkout the tool did not create, so it is
+never released by itself, and a manual `tree-release` drops only
+the quest's record of it and leaves the folder; when the work
+tool cut that folder, the answer names the `work release` that
+gives it back. A legacy, unmarked tree may be a shared checkout,
+so its `tree-release` refuses unless you pass `force: true` after
+confirming with the person, and `force` deletes the folder of
+either. Once its quest is concluded or retired, an
 adopted tree is no longer the quest's to hold: `work tidy`
 and `work reclaim` judge it as any tree nothing holds, taking
 it only when it is clean and trunk holds its branch. Name the

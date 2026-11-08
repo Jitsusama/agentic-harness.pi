@@ -233,15 +233,15 @@ describe("tree-adopt", () => {
 		expect(blocked.ok).toBe(false);
 	});
 
-	it("refuses a manual prune of an adopted tree without force", async () => {
+	it("releases an adopted tree without force by its record alone", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "create",
 			title: "Adopted Prune Guard",
 		});
 		if (!created.ok) throw new Error(created.guidance);
-		// A real, clean secondary worktree: without the origin guard a
-		// non-force prune would happily delete it.
+		// A real, clean secondary worktree, which a release of a tree the
+		// tool cut would delete.
 		const wt = join(tmpRoot, "adopted-guard-wt");
 		await execFileAsync("git", ["worktree", "add", "-b", "guard", wt], {
 			cwd: repoRoot,
@@ -252,13 +252,12 @@ describe("tree-adopt", () => {
 		});
 		expect(adopted.ok).toBe(true);
 
-		const blocked = await handle(state, fakePi(), fakeCtx(repoRoot), {
+		const released = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-release",
 			target: realpathSync(wt),
 		});
-		expect(blocked.ok).toBe(false);
-		if (blocked.ok) throw new Error("unreachable");
-		expect(blocked.guidance).toMatch(/adopted|force/i);
+		if (!released.ok) throw new Error(released.guidance);
+		expect(released.message).toMatch(/adopted.*folder stays/);
 		// The adopted checkout is untouched.
 		expect(existsSync(wt)).toBe(true);
 	});
