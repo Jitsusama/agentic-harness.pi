@@ -78,8 +78,12 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   session or system bus, no SSH or signing agent, no terminal remote
   control and no abstract socket. The daemon's own socket trusts your
   account, so passing it would hand over root.
-- **Writes only to the work.** The working folder, `/tmp`, `TMPDIR`
-  and `~/.cache`. No signal reaches a process outside the sandbox.
+- **Writes only to the work.** The working folder, and a temporary
+  folder and a cache of its own under `~/.cache/pi-sandbox`, which
+  `TMPDIR` and `XDG_CACHE_HOME` name. Your own `~/.cache` and `/tmp`
+  are out of reach both ways, since they hold tokens, code your shell
+  runs at every start, and scripts other sessions run unfenced. No
+  signal reaches a process outside the sandbox.
 - **The network** stays open.
 
 It costs 20 to 35 ms a command. The queue still reads the command as
@@ -89,9 +93,13 @@ landrun on `PATH`, runs no command at all rather than run one unfenced.
 The tool tells the agent it is sandboxed, so a refusal reads as the
 sandbox rather than a fault.
 
-Code written in the working folder can still run later outside: a git
-hook or an `.envrc`. The sandbox narrows what a command reaches now,
-not what you later run from what it wrote.
+It runs no command in a working folder that is your home folder or
+holds it, whose startup files run outside, nor in one holding its
+repository's git folder, whose hooks and settings git runs outside. A
+worktree keeps its git folder elsewhere, so a session works in one.
+Code written in the working folder can still run later outside, an
+`.envrc` once you allow it. The sandbox narrows what a command reaches
+now, not what you later run from what it wrote.
 
 ## Stopping a Command
 

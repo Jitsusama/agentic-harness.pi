@@ -17,8 +17,12 @@
  *   control, and no abstract socket. Nix answers through its door for
  *   sandboxes, which takes its caller as untrusted, since the daemon's own
  *   socket trusts the person's account and so hands over root.
- * - **Writes only to the work:** the working folder, the temporary folders
- *   and the cache. No signal reaches a process outside the sandbox.
+ * - **Writes only to the work:** the working folder, and a temporary
+ *   folder and a cache of the sandbox's own, which `TMPDIR` and
+ *   `XDG_CACHE_HOME` name. The person's own cache and `/tmp` stay out of
+ *   reach both ways: they hold tokens, code their shell runs at every
+ *   start, and scripts other sessions run unfenced. No signal reaches a
+ *   process outside the sandbox.
  * - **The network,** since fetching is most of what such a session does.
  *
  * Landlock alone does this in 20 to 35 ms a command, with no namespaces,
@@ -28,13 +32,23 @@
  * had (not Linux, or no landrun) runs no command at all rather than run
  * one unfenced.
  *
- * Code written in the working folder can still run later outside: a git
- * hook, an `.envrc`. The sandbox narrows what a command reaches now, not
- * what the person later runs from what it wrote.
+ * A working folder that is the home folder, or holds it, would hand over
+ * the person's startup files, and one holding its repository's git folder
+ * would hand over the hooks and settings git runs outside, so the sandbox
+ * runs no command in either; a worktree keeps its git folder elsewhere.
+ * Code written in the working folder can still run later outside, an
+ * `.envrc` once the person allows it. The sandbox narrows what a command
+ * reaches now, not what the person later runs from what it wrote.
  */
 
-import { accessSync, constants, realpathSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import {
+	accessSync,
+	constants,
+	mkdirSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
+import { delimiter, join, relative } from "node:path";
 
 /** The variable that asks for the sandbox, and the one value it takes. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
@@ -48,9 +62,33 @@ export const NIX_DOOR = "nix-untrusted.sock";
 
 /**
  * Variables kept from the sandbox: the bus's address names a socket it
- * can't reach anyway, and Nix is pointed at its door instead.
+ * can't reach anyway, and Nix and the cache are pointed at the sandbox's
+ * own instead.
  */
-const WITHHELD = ["DBUS_SESSION_BUS_ADDRESS", "NIX_REMOTE"] as const;
+const WITHHELD = [
+	"DBUS_SESSION_BUS_ADDRESS",
+	"NIX_REMOTE",
+	"TMPDIR",
+	"XDG_CACHE_HOME",
+] as const;
+
+/**
+ * The sandbox's own folder in the home folder, beneath the person's cache,
+ * which it never reaches: its cache and its temporary folder, shared by
+ * every sandboxed command and used by nothing outside.
+ */
+export const SANDBOX_FOLDER = ".cache/pi-sandbox";
+
+/** The sandbox's cache and temporary folder, for the home folder `home`. */
+export function sandboxFolders(home: string): {
+	cache: string;
+	temporary: string;
+} {
+	return {
+		cache: join(home, SANDBOX_FOLDER, "cache"),
+		temporary: join(home, SANDBOX_FOLDER, "tmp"),
+	};
+}
 
 /** Where a command runs, as the sandbox's rules need it. */
 export interface SandboxPlace {
@@ -58,8 +96,6 @@ export interface SandboxPlace {
 	/** `XDG_RUNTIME_DIR`, where the Nix door is. */
 	readonly runtimeDir: string | undefined;
 	readonly cwd: string;
-	/** The temporary folders the command is given, each as it really is. */
-	readonly temporary: readonly string[];
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -98,10 +134,11 @@ export function strictRules(place: SandboxPlace): Rule[] {
 		home(".config/dev"),
 		home(".config/nix/nix.conf"),
 	];
+	const own = sandboxFolders(place.home);
 	const writable = [
 		place.cwd,
-		...place.temporary,
-		home(".cache"),
+		own.temporary,
+		own.cache,
 		"/dev/null",
 		"/dev/full",
 		"/dev/zero",
@@ -116,6 +153,8 @@ export function strictRules(place: SandboxPlace): Rule[] {
 		...readable.map((path): Rule => ["--ro", path]),
 		...writable.map((path): Rule => ["--rw", path]),
 		...sockets.map((path): Rule => ["--unix", path]),
+		["--env", `TMPDIR=${own.temporary}`],
+		["--env", `XDG_CACHE_HOME=${own.cache}`],
 		...(place.runtimeDir
 			? [
 					[
@@ -194,6 +233,32 @@ function real(path: string): string {
 	}
 }
 
+/** Whether `path` is `folder` or lies inside it, as both really are. */
+function within(path: string, folder: string): boolean {
+	const between = relative(real(folder), real(path));
+	return (
+		between === "" || !(between.startsWith("..") || between.startsWith("/"))
+	);
+}
+
+/**
+ * Why the sandbox can't let commands write `cwd`, when it can't: its
+ * writes would reach what runs outside the sandbox later.
+ */
+export function unfencedFolder(cwd: string, home: string): string | undefined {
+	if (within(home, cwd)) {
+		return `${SANDBOX_VARIABLE}=${STRICT} won't let commands write ${cwd}, which holds the home folder and the startup files that run outside the sandbox, so no command runs. Start the session in the folder it works on.`;
+	}
+	try {
+		if (statSync(join(cwd, ".git")).isDirectory()) {
+			return `${SANDBOX_VARIABLE}=${STRICT} won't let commands write ${cwd}, which holds its repository's git folder, whose hooks and settings git runs outside the sandbox, so no command runs. Work in a worktree, whose git folder lies elsewhere.`;
+		}
+	} catch {
+		// No git folder here, or a worktree's .git file pointing elsewhere.
+	}
+	return undefined;
+}
+
 /** How a session's commands run: as they are, fenced, or not at all. */
 export type Sandbox =
 	| { readonly kind: "none" }
@@ -245,18 +310,17 @@ export function wrapFor(
 		case "refused":
 			return () => refusedCommand(sandbox.reason);
 		case "strict": {
-			const temporary = [
-				...new Set(
-					["/tmp", place.env.TMPDIR]
-						.filter((path): path is string => Boolean(path))
-						.flatMap((path) => [path, real(path)]),
-				),
-			];
+			const unfenced = unfencedFolder(place.cwd, home);
+			if (unfenced) return () => refusedCommand(unfenced);
+			// landrun skips a path that isn't there, and nothing inside could
+			// make one, so the sandbox's folders are made before a command.
+			for (const folder of Object.values(sandboxFolders(home))) {
+				mkdirSync(folder, { recursive: true, mode: 0o700 });
+			}
 			const rules = strictRules({
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
-				temporary,
 			});
 			return (command) => sandboxedCommand(command, rules, sandbox.landrun);
 		}
