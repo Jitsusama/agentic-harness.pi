@@ -9,10 +9,12 @@
  * runs landrun itself, where it is on PATH.
  */
 
+import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -28,7 +30,20 @@ import {
 	sandboxFor,
 	strictRules,
 	unfencedFolder,
+	worktreeRepository,
 } from "../../../extensions/shell-workflow/sandbox.ts";
+
+/** Lay out a repository's git folder with one worktree's own folder in it. */
+function worktreeLayout(base: string, tree: string, back: string): string {
+	const repository = join(base, "repo/.git");
+	const own = join(repository, "worktrees/tree");
+	mkdirSync(join(repository, "objects"), { recursive: true });
+	mkdirSync(own, { recursive: true });
+	mkdirSync(tree, { recursive: true });
+	writeFileSync(join(own, "gitdir"), `${back}\n`);
+	writeFileSync(join(tree, ".git"), `gitdir: ${own}\n`);
+	return repository;
+}
 
 /** Run a command as a session with `sandbox` would; its text and exit. */
 async function run(
@@ -104,6 +119,19 @@ describe("the strict profile", () => {
 		);
 	});
 
+	it("lets a worktree's repository be read and never written", () => {
+		const given = strictRules({
+			home: "/home/someone",
+			runtimeDir: undefined,
+			cwd: "/home/someone/trees/thing",
+			repository: "/home/someone/src/thing/.git",
+		});
+		const flags = given
+			.filter(([, path]) => path === "/home/someone/src/thing/.git")
+			.map(([flag]) => flag);
+		expect(flags).toEqual(["--ro"]);
+	});
+
 	it("reaches no socket but name lookups and Nix's door for sandboxes", () => {
 		expect(paths("--unix")).toEqual([
 			"/run/nscd/socket",
@@ -148,6 +176,60 @@ describe("a working folder the sandbox won't let commands write", () => {
 		);
 		expect(answer).toContain("work tree");
 		expect(answer).not.toMatch(/^ran$/m);
+	});
+});
+
+describe("a worktree's repository", () => {
+	let base: string;
+
+	beforeAll(() => {
+		base = mkdtempSync(join(tmpdir(), "sandbox-repository-"));
+	});
+
+	afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+	it("is the git folder the worktree's .git names, when it points back", () => {
+		const tree = join(base, "back/tree");
+		const repository = worktreeLayout(
+			join(base, "back"),
+			tree,
+			join(tree, ".git"),
+		);
+		expect(worktreeRepository(tree, "/nowhere-home")).toBe(
+			realpathSync(repository),
+		);
+	});
+
+	it("is nothing when the folder named points at another worktree", () => {
+		const tree = join(base, "other/tree");
+		worktreeLayout(join(base, "other"), tree, join(base, "elsewhere/.git"));
+		expect(worktreeRepository(tree, "/nowhere-home")).toBeUndefined();
+	});
+
+	it("is nothing when the folder named isn't a worktree's own", () => {
+		const tree = join(base, "loose/tree");
+		const planted = join(base, "loose/secrets");
+		mkdirSync(join(planted, "objects"), { recursive: true });
+		mkdirSync(tree, { recursive: true });
+		writeFileSync(join(planted, "gitdir"), `${join(tree, ".git")}\n`);
+		writeFileSync(join(tree, ".git"), `gitdir: ${planted}\n`);
+		expect(worktreeRepository(tree, "/nowhere-home")).toBeUndefined();
+	});
+
+	it("is nothing when the repository holds the home folder", () => {
+		const tree = join(base, "home/tree");
+		const repository = worktreeLayout(
+			join(base, "home"),
+			tree,
+			join(tree, ".git"),
+		);
+		const home = join(repository, "inside");
+		mkdirSync(home);
+		expect(worktreeRepository(tree, home)).toBeUndefined();
+	});
+
+	it("is nothing in a folder with no .git file", () => {
+		expect(worktreeRepository(base, "/nowhere-home")).toBeUndefined();
 	});
 });
 
@@ -240,7 +322,23 @@ describe.skipIf(!onPath("landrun") || process.platform !== "linux")(
 		let work: string;
 		let elsewhere: string;
 		let shared: string;
+		let fixture: string;
 		const landrun = onPath("landrun") ?? "";
+
+		/** git on the fixture alone, without the person's own settings. */
+		const git = (cwd: string, ...args: string[]) =>
+			execFileSync("git", args, {
+				cwd,
+				env: {
+					...process.env,
+					GIT_CONFIG_GLOBAL: "/dev/null",
+					GIT_CONFIG_NOSYSTEM: "1",
+					GIT_AUTHOR_NAME: "fixture",
+					GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+					GIT_COMMITTER_NAME: "fixture",
+					GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+				},
+			});
 
 		beforeAll(() => {
 			work = mkdtempSync(join(tmpdir(), "sandbox-work-"));
@@ -251,12 +349,43 @@ describe.skipIf(!onPath("landrun") || process.platform !== "linux")(
 			// /tmp, which other sessions share and run scripts from.
 			shared = mkdtempSync("/tmp/sandbox-shared-");
 			writeFileSync(join(shared, "script"), "the-shared-value");
+			// A repository and a worktree of it, as the work tool cuts one.
+			fixture = mkdtempSync(join(tmpdir(), "sandbox-git-"));
+			git(fixture, "init", "-q", "repo");
+			git(
+				join(fixture, "repo"),
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"fixture-commit",
+			);
+			git(
+				join(fixture, "repo"),
+				"worktree",
+				"add",
+				"-q",
+				"--detach",
+				"../tree",
+			);
 		});
 
 		afterAll(() => {
 			rmSync(work, { recursive: true, force: true });
 			rmSync(elsewhere, { recursive: true, force: true });
 			rmSync(shared, { recursive: true, force: true });
+			rmSync(fixture, { recursive: true, force: true });
+		});
+
+		it("reads its worktree's history, and can't write the repository's hooks", async () => {
+			const hooks = join(fixture, "repo/.git/hooks");
+			const answer = await run(
+				{ kind: "strict", landrun },
+				`git log --format=%s -1; echo x > ${hooks}/post-checkout || echo unhooked`,
+				join(fixture, "tree"),
+			);
+			expect(answer).toContain("fixture-commit");
+			expect(answer).toContain("unhooked");
 		});
 
 		it("writes its work, and can't read what the profile leaves out", async () => {
