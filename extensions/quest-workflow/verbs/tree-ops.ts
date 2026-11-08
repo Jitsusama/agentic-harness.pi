@@ -7,12 +7,13 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	getTreeProvider,
 	resolveTreeProvider,
 } from "../../../lib/core/tree/index.ts";
+import { stateDir } from "../../../lib/internal/paths.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import {
@@ -387,10 +388,15 @@ export async function treeRelease(
 	// because notes are free-form prose the agent generates,
 	// not consent. `force: true` is the consent signal.
 	const force = params.force === true;
-	// Only a tool-scaffolded tree may be pruned without force. An
-	// adopted or unmarked (legacy, hand-registered) tree is a shared
-	// checkout the tool did not create, so deleting it needs explicit,
-	// confirmed consent rather than a mistyped target.
+	// An adopted tree was made by someone else, so releasing it lets go
+	// of the quest's record and leaves the folder to whoever made it.
+	// Nothing is deleted, so neither consent nor a detach is asked for.
+	if (target.origin === "adopted" && !force && !gone) {
+		return letGoOf(state, target.path);
+	}
+	// An unmarked (legacy, hand-registered) tree may be a shared
+	// checkout or one the tool cut before it said so; deleting it needs
+	// explicit, confirmed consent rather than a guess.
 	if (target.origin !== "scaffolded" && !force && !gone) {
 		const kind = target.origin ?? "unmarked";
 		return refuse(
@@ -451,6 +457,45 @@ export async function treeRelease(
 	return ok(`Tree at ${displayPath(target.path)} released.`, {
 		path: target.path,
 	});
+}
+
+/**
+ * Drop the record of a tree the quest adopted, leaving its folder,
+ * since the quest never made it. A tree the work tool cut is still held
+ * there, and only `work release` gives it back, so the answer says so.
+ */
+function letGoOf(state: QuestState, path: string): QuestResult {
+	if (!state.questDir) return refuse("Load a quest first.");
+	const removal = removeTreeFromQuest(state.questDir, path);
+	if (!removal.ok) return refuse(removal.reason);
+	setPendingPrune(state.questDir, null, { clearPath: path });
+	logHarnessEntry(
+		state,
+		`Let go of adopted tree at ${path}; its folder stays.`,
+	);
+	const key = workTreeKey(path);
+	const held = key
+		? ` The work tool still holds it: \`work release\` with tree ${key} gives it back.`
+		: "";
+	return ok(
+		`Tree at ${displayPath(path)} was adopted, not made by the quest, so only its record was dropped and the folder stays.${held}`,
+		{ path },
+	);
+}
+
+/**
+ * The key of the work tool's tree a path sits in, which is its folder's
+ * name under the work tool's trees folder; nothing for any other path.
+ */
+function workTreeKey(path: string): string | undefined {
+	const within = relative(
+		canonicalPath(join(stateDir("work"), "trees")),
+		canonicalPath(resolve(path)),
+	);
+	if (!within || within.startsWith("..") || isAbsolute(within)) {
+		return undefined;
+	}
+	return within.split(sep)[0];
 }
 
 /** Drop the record of a tree whose folder is already gone. */
