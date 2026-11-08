@@ -235,7 +235,7 @@ describe("a worktree's repository", () => {
 
 describe("a command in the sandbox", () => {
 	let folder: string;
-	let sandbox: Sandbox;
+	let sandbox: Extract<Sandbox, { kind: "strict" }>;
 
 	beforeAll(() => {
 		folder = mkdtempSync(join(tmpdir(), "sandbox-"));
