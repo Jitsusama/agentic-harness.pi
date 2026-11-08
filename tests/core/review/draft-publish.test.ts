@@ -114,7 +114,7 @@ describe("publishPlan", () => {
 		const { provider, calls } = recordingProvider();
 		const outcome = await publishPlan(planOf(draft()), provider);
 		expect(calls).toEqual([]);
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect(outcome.outcomes).toEqual([]);
 	});
 
@@ -124,7 +124,7 @@ describe("publishPlan", () => {
 		const { provider, calls } = recordingProvider();
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual(["postReview"]);
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect(outcome.outcomes[0].posted?.url).toBe("https://forge/r1");
 	});
 
@@ -145,7 +145,7 @@ describe("publishPlan", () => {
 		const { provider, calls } = recordingProvider({ reply: "thread is gone" });
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual(["postReview", "reply", "resolve"]);
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		expect(outcome.outcomes.map((entry) => entry.ok)).toEqual([
 			true,
 			false,
@@ -166,7 +166,7 @@ describe("publishPlan", () => {
 		const { provider, calls } = recordingProvider({}, ["react"]);
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual([]);
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		expect(outcome.outcomes[0].error).toMatch(/cannot|does not/i);
 	});
 
@@ -181,7 +181,7 @@ describe("publishPlan", () => {
 		const { provider, calls } = recordingProvider();
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual([]);
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		expect(outcome.outcomes[0].error).toMatch(/not hosted|no change/i);
 	});
 
@@ -189,7 +189,7 @@ describe("publishPlan", () => {
 		const state = setVerdict(draft(), "approve", "fine");
 		const bare = stubProvider({ id: "forge", priority: 100 });
 		const outcome = await publishPlan(planOf(state), bare);
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		expect(outcome.outcomes[0].error).toMatch(/conversation/i);
 	});
 });

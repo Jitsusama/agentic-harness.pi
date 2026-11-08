@@ -136,7 +136,7 @@ describe("reading threads", () => {
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
 		expect(thread.id).toBe("PRRT_kwDO");
-		expect(thread.resolved).toBe(false);
+		expect(thread).toMatchObject({ resolved: false });
 		expect(thread.anchor?.subject).toBe("line");
 		expect(thread.anchor && anchorPath(thread.anchor)).toBe("lib/app.ts");
 		expect(thread.anchor?.subject === "line" && thread.anchor.blob).toBe("new");
@@ -206,7 +206,7 @@ describe("reading threads", () => {
 			},
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
-		expect(thread.stale).toBe(true);
+		expect(thread).toMatchObject({ stale: true });
 	});
 
 	it("keeps paging until GitHub says there is no more", async () => {
@@ -427,7 +427,9 @@ describe("replying, resolving and reacting", () => {
 		]);
 		const posted = await gh.conversation?.reply(ref, thread, "because");
 		expect(posted?.url).toBe("u");
-		expect(callMatching(calls, "threadId=PRRT_kwDO")).toBeTruthy();
+		expect(calls.map((call) => call.args.join(" "))).toContainEqual(
+			expect.stringContaining("threadId=PRRT_kwDO"),
+		);
 	});
 
 	it("resolves and unresolves the same thread", async () => {
@@ -437,8 +439,11 @@ describe("replying, resolving and reacting", () => {
 		]);
 		await gh.conversation?.resolve(ref, thread);
 		await gh.conversation?.unresolve?.(ref, thread);
-		expect(callMatching(calls, "resolveReviewThread")).toBeTruthy();
-		expect(callMatching(calls, "unresolveReviewThread")).toBeTruthy();
+		const said = calls.map((call) => call.args.join(" "));
+		expect(said).toContainEqual(expect.stringContaining("resolveReviewThread"));
+		expect(said).toContainEqual(
+			expect.stringContaining("unresolveReviewThread"),
+		);
 	});
 
 	it("posts a top-level comment", async () => {
@@ -470,7 +475,9 @@ describe("replying, resolving and reacting", () => {
 			{ id: "ic:900", author: { id: "a" }, body: "nice" },
 			"+1",
 		);
-		expect(callMatching(calls, "issues/comments/900/reactions")).toBeTruthy();
+		expect(calls.map((call) => call.args.join(" "))).toContainEqual(
+			expect.stringContaining("issues/comments/900/reactions"),
+		);
 	});
 
 	it("refuses to react to something whose kind it cannot tell", async () => {

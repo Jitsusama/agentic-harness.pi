@@ -34,7 +34,7 @@ describe("anchorable", () => {
 
 	it("accepts a file-level anchor on a file the diff touches", () => {
 		const check = anchorable(diff, { subject: "file", path: "lib/app.ts" });
-		expect(check.anchored).toBe(true);
+		expect(check).toMatchObject({ anchored: true });
 	});
 
 	it("accepts an added line on the new side", () => {
@@ -44,7 +44,7 @@ describe("anchorable", () => {
 			blob: "new",
 			line: 3,
 		});
-		expect(check.anchored).toBe(true);
+		expect(check).toMatchObject({ anchored: true });
 	});
 
 	it("accepts a removed line on the old side", () => {
@@ -54,7 +54,7 @@ describe("anchorable", () => {
 			blob: "old",
 			line: 2,
 		});
-		expect(check.anchored).toBe(true);
+		expect(check).toMatchObject({ anchored: true });
 	});
 
 	it("accepts a context line on either side", () => {
@@ -103,7 +103,7 @@ describe("anchorable", () => {
 			startLine: 2,
 			line: 4,
 		});
-		expect(check.anchored).toBe(true);
+		expect(check).toMatchObject({ anchored: true });
 	});
 
 	it("refuses a range whose start comes after its end", () => {

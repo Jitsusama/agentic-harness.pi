@@ -246,7 +246,9 @@ describe("what the repo asks of its contributors", () => {
 		const { tree } = await repoWith({ "AGENTS.md": "x".repeat(200_000) });
 		const conventions = await guidanceFor(tree, { files: [] });
 
-		expect(givenBy(true, conventions).given.quoted?.cut).toBe(true);
+		expect(givenBy(true, conventions).given.quoted).toMatchObject({
+			cut: true,
+		});
 	});
 
 	it("says when the conventions reached the reviewer unquoted", async () => {
@@ -257,7 +259,9 @@ describe("what the repo asks of its contributors", () => {
 		const { tree } = await repoWith({ "AGENTS.md": "`".repeat(4_000) });
 		const conventions = await guidanceFor(tree, { files: [] });
 
-		expect(givenBy(true, conventions).given.quoted?.withheld).toBe(true);
+		expect(givenBy(true, conventions).given.quoted).toMatchObject({
+			withheld: true,
+		});
 	});
 
 	it("still records the conditions when the repo said nothing", async () => {
@@ -266,12 +270,12 @@ describe("what the repo asks of its contributors", () => {
 		// `given` predates this, and a run with `given` and no `quoted`
 		// ran isolated against a repo that writes nothing down.
 		expect(givenBy(true, {})).toEqual({ given: { isolated: true } });
-		expect("quoted" in givenBy(true, {}).given).toBe(false);
+		expect(givenBy(true, {}).given).not.toHaveProperty("quoted");
 	});
 
 	it("says so when a round was not isolated", async () => {
 		// Three states, and the false one is a record rather than a gap.
-		expect(givenBy(false, {}).given.isolated).toBe(false);
+		expect(givenBy(false, {}).given).toMatchObject({ isolated: false });
 	});
 
 	it("hands a prompt nothing at all when the repo says nothing", async () => {

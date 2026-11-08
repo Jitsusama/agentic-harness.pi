@@ -145,6 +145,9 @@ describe("resolving what somebody typed", () => {
 	it("refuses nothing at all", () => {
 		const found = findReactable("   ", among);
 
-		expect(isReactableRefusal(found)).toBe(true);
+		expect(
+			isReactableRefusal(found),
+			"asking to react to nothing but spaces is refused",
+		).toBe(true);
 	});
 });

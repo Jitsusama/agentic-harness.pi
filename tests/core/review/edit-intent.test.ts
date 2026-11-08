@@ -39,9 +39,11 @@ const STACKED: AuthoringCapabilities = {
 describe("the edit intent", () => {
 	it("is permitted where retargeting is not", () => {
 		// The bug, stated as a test: these two must not answer alike.
-		expect(offerable({ kind: "edit" }, STACKED, "meteorite").ok).toBe(true);
-		expect(offerable({ kind: "retarget" }, STACKED, "meteorite").ok).toBe(
-			false,
+		expect(offerable({ kind: "edit" }, STACKED, "meteorite")).toMatchObject({
+			ok: true,
+		});
+		expect(offerable({ kind: "retarget" }, STACKED, "meteorite")).toMatchObject(
+			{ ok: false },
 		);
 	});
 
@@ -54,7 +56,7 @@ describe("the edit intent", () => {
 			"meteorite",
 		);
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toContain("batched with it");
 	});
 
@@ -64,8 +66,8 @@ describe("the edit intent", () => {
 				{ kind: "edit", queue: { posture: "queued" } },
 				{ ...STACKED, refusesWhileEnqueued: false },
 				"github",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("warns rather than refusing when the queue could not be read", () => {
@@ -76,7 +78,7 @@ describe("the edit intent", () => {
 		// ejection with no warning.
 		const answer = offerable({ kind: "edit" }, STACKED, "meteorite");
 
-		expect(answer.ok).toBe(true);
+		expect(answer).toMatchObject({ ok: true });
 		expect(answer.ok && answer.caution).toContain("merge queue");
 	});
 
@@ -106,14 +108,14 @@ describe("the edit intent", () => {
 		// that had just said it cannot retarget was permitted to.
 		const answer = offerable({ kind: "retarget" }, STACKED, "meteorite");
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toMatch(/stack/i);
 	});
 
 	it("does not let an unknown queue talk over a draft refusal either", () => {
-		expect(offerable({ kind: "set-draft" }, STACKED, "meteorite").ok).toBe(
-			false,
-		);
+		expect(
+			offerable({ kind: "set-draft" }, STACKED, "meteorite"),
+		).toMatchObject({ ok: false });
 	});
 
 	it("says nothing about stacks when refusing an edit", () => {

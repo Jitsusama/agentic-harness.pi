@@ -70,19 +70,31 @@ describe("what a participant id means", () => {
 
 describe("whether a finding is attributed to an id", () => {
 	it("reads a reviewer origin", () => {
-		expect(attributedTo(byReviewer("hawk"), "hawk")).toBe(true);
-		expect(attributedTo(byReviewer("hawk"), "owl")).toBe(false);
+		expect(
+			attributedTo(byReviewer("hawk"), "hawk"),
+			"hawk's finding is attributed to hawk",
+		).toBe(true);
+		expect(
+			attributedTo(byReviewer("hawk"), "owl"),
+			"hawk's finding is not attributed to owl",
+		).toBe(false);
 	});
 
 	it("reads a judge origin", () => {
 		const judged = finding({
 			origin: { kind: "judge", runId: "r2", reviewerId: "owl" },
 		});
-		expect(attributedTo(judged, "owl")).toBe(true);
+		expect(
+			attributedTo(judged, "owl"),
+			"a finding owl judged is attributed to owl",
+		).toBe(true);
 	});
 
 	it("never attributes a hand-written finding to anyone", () => {
-		expect(attributedTo(finding(), "hawk")).toBe(false);
+		expect(
+			attributedTo(finding(), "hawk"),
+			"a hand-written finding is not attributed to hawk",
+		).toBe(false);
 	});
 
 	it("counts an id named only in raisedBy", () => {
@@ -93,9 +105,18 @@ describe("whether a finding is attributed to an id", () => {
 			origin: { kind: "judge", runId: "r2", reviewerId: "owl" },
 			raisedBy: ["hawk", "wren"],
 		});
-		expect(attributedTo(consolidated, "hawk")).toBe(true);
-		expect(attributedTo(consolidated, "wren")).toBe(true);
-		expect(attributedTo(consolidated, "crow")).toBe(false);
+		expect(
+			attributedTo(consolidated, "hawk"),
+			"hawk, named in raisedBy, is attributed",
+		).toBe(true);
+		expect(
+			attributedTo(consolidated, "wren"),
+			"wren, named in raisedBy, is attributed",
+		).toBe(true);
+		expect(
+			attributedTo(consolidated, "crow"),
+			"crow, named nowhere, is not attributed",
+		).toBe(false);
 	});
 });
 
@@ -174,7 +195,7 @@ describe("claiming an id", () => {
 			byReviewer("hawk"),
 		]);
 
-		expect("refusal" in outcome).toBe(true);
+		expect(outcome).toHaveProperty("refusal");
 	});
 
 	it("refuses on a thinking level change, since it changes the answer", () => {
@@ -187,7 +208,7 @@ describe("claiming an id", () => {
 			[byReviewer("hawk")],
 		);
 
-		expect("refusal" in outcome).toBe(true);
+		expect(outcome).toHaveProperty("refusal");
 	});
 
 	it("treats a reordered tool palette as the same palette", () => {
@@ -202,7 +223,7 @@ describe("claiming an id", () => {
 			[byReviewer("hawk")],
 		);
 
-		expect("refusal" in outcome).toBe(false);
+		expect(outcome).not.toHaveProperty("refusal");
 	});
 
 	it("refuses when the palette really differs", () => {
@@ -215,7 +236,7 @@ describe("claiming an id", () => {
 			[byReviewer("hawk")],
 		);
 
-		expect("refusal" in outcome).toBe(true);
+		expect(outcome).toHaveProperty("refusal");
 	});
 
 	it("ignores findings belonging to other ids", () => {
@@ -227,7 +248,7 @@ describe("claiming an id", () => {
 			finding(),
 		]);
 
-		expect("refusal" in outcome).toBe(false);
+		expect(outcome).not.toHaveProperty("refusal");
 	});
 });
 
@@ -236,7 +257,9 @@ describe("releasing an id", () => {
 		const ledger = createIdentityLedger();
 		ledger.claim("reviewer", { id: "hawk", model: "sonnet" }, []);
 
-		expect(ledger.release("hawk")).toBe(true);
+		expect(ledger.release("hawk"), "releasing the held hawk says it did").toBe(
+			true,
+		);
 		expect(ledger.held()).toEqual([]);
 		expect(
 			ledger.claim("reviewer", { id: "hawk", model: "opus" }, [
@@ -246,6 +269,9 @@ describe("releasing an id", () => {
 	});
 
 	it("says so when there was nothing to release", () => {
-		expect(createIdentityLedger().release("nobody")).toBe(false);
+		expect(
+			createIdentityLedger().release("nobody"),
+			"releasing an id nobody holds says it did not",
+		).toBe(false);
 	});
 });

@@ -492,7 +492,10 @@ describe("writing one change's ledger from several places at once", () => {
 				landed = true;
 			});
 			await new Promise((done) => setTimeout(done, 300));
-			expect(landed).toBe(false);
+			expect(
+				landed,
+				"the record waits while another live process holds the lock",
+			).toBe(false);
 
 			rmSync(lock());
 			await writing;

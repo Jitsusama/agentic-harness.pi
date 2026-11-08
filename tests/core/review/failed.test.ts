@@ -42,7 +42,7 @@ describe("explaining a failure against a hosted change", () => {
 		// paraphrases or replaces them costs more than it adds.
 		const said = explainFailure("gh: Not Found (HTTP 404)", claimed);
 
-		expect(said.startsWith("gh: Not Found (HTTP 404)")).toBe(true);
+		expect(said).toMatch(/^gh: Not Found \(HTTP 404\)/);
 	});
 
 	it("says nothing extra when config already chose the provider", async () => {
@@ -83,17 +83,35 @@ describe("explaining a failure against a hosted change", () => {
 
 describe("recognizing a failure that reads as missing", () => {
 	it("catches the spellings backends actually use", async () => {
-		expect(readsAsMissing("gh: Not Found (HTTP 404)")).toBe(true);
-		expect(readsAsMissing("HTTP 404")).toBe(true);
-		expect(readsAsMissing("Could not resolve to a PullRequest")).toBe(true);
-		expect(readsAsMissing("no such pull request")).toBe(true);
+		expect(
+			readsAsMissing("gh: Not Found (HTTP 404)"),
+			"gh's Not Found reads as missing",
+		).toBe(true);
+		expect(readsAsMissing("HTTP 404"), "a bare HTTP 404 reads as missing").toBe(
+			true,
+		);
+		expect(
+			readsAsMissing("Could not resolve to a PullRequest"),
+			"GraphQL's could not resolve reads as missing",
+		).toBe(true);
+		expect(
+			readsAsMissing("no such pull request"),
+			"no such pull request reads as missing",
+		).toBe(true);
 	});
 
 	it("does not catch a request the backend understood", async () => {
-		expect(readsAsMissing("validation failed (HTTP 422)")).toBe(false);
-		expect(readsAsMissing("path is not changed in this pull request")).toBe(
-			false,
-		);
-		expect(readsAsMissing("permission denied (HTTP 403)")).toBe(false);
+		expect(
+			readsAsMissing("validation failed (HTTP 422)"),
+			"a failed validation does not read as missing",
+		).toBe(false);
+		expect(
+			readsAsMissing("path is not changed in this pull request"),
+			"a path the pull request leaves unchanged does not read as missing",
+		).toBe(false);
+		expect(
+			readsAsMissing("permission denied (HTTP 403)"),
+			"a denied permission does not read as missing",
+		).toBe(false);
 	});
 });

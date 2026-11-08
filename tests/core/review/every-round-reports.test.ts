@@ -257,9 +257,9 @@ describe("a round reports that it is working", () => {
 		// The reason reaches the panel, whatever the frame appended to
 		// it: a thrown failure says where it was thrown from as well as
 		// what it said.
-		expect(
-			said.some((one) => one.startsWith(`failed:${ONE.id}:subagent exited 1`)),
-		).toBe(true);
+		expect(said).toContainEqual(
+			expect.stringMatching(new RegExp(`^failed:${ONE.id}:subagent exited 1`)),
+		);
 		expect(said.at(-1)).toBe("finish");
 	});
 

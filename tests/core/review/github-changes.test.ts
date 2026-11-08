@@ -95,7 +95,7 @@ describe("reading a pull request", () => {
 		expect(callMatching(calls, "api")?.command).toBe("gh");
 		expect(proposal?.title).toBe("Teach the widget to fly");
 		expect(proposal?.state).toBe("open");
-		expect(proposal?.draft).toBe(false);
+		expect(proposal).toMatchObject({ draft: false });
 		expect(proposal?.author.id).toBe("someone");
 		expect(proposal?.base).toBe("main");
 		expect(proposal?.head).toBe("widget-flight");
@@ -131,7 +131,7 @@ describe("reading a pull request", () => {
 		const draft = JSON.stringify({ ...JSON.parse(pullJson), draft: true });
 		const { provider: gh } = provider([{ when: ["pulls/123"], stdout: draft }]);
 		const proposal = await gh.changes?.fetch(ref);
-		expect(proposal?.draft).toBe(true);
+		expect(proposal).toMatchObject({ draft: true });
 		expect(proposal?.state).toBe("open");
 	});
 

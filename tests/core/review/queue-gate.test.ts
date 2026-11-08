@@ -118,7 +118,7 @@ describe("the gate, given what the provider read", () => {
 			"github",
 		);
 
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toContain("batched with it");
 		expect(!answer.ok && answer.reason).toContain("7th");
 	});
@@ -134,8 +134,8 @@ describe("the gate, given what the provider read", () => {
 				{ kind: "retarget", queue: proposal.queue },
 				await githubAuthoringCapabilities(),
 				"github",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("permits it when the queue could not be read at all", async () => {
@@ -146,15 +146,15 @@ describe("the gate, given what the provider read", () => {
 				{ kind: "retarget", queue: undefined },
 				await githubAuthoringCapabilities(),
 				"github",
-			).ok,
-		).toBe(true);
+			),
+		).toMatchObject({ ok: true });
 	});
 
 	it("declares that it cares about the queue at all", async () => {
 		// The regression that made this dead twice over. A provider that
 		// says false here is never asked, whatever it reports.
-		expect((await githubAuthoringCapabilities()).refusesWhileEnqueued).toBe(
-			true,
-		);
+		expect(await githubAuthoringCapabilities()).toMatchObject({
+			refusesWhileEnqueued: true,
+		});
 	});
 });

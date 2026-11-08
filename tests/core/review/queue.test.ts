@@ -51,7 +51,10 @@ describe("queueRefusal", () => {
 		const refusal = queueRefusal({ posture: "waiting" }, "github");
 
 		expect(refusal?.reason).toContain("waiting");
-		expect(refusal?.instead).toBeTruthy();
+		expect(
+			refusal?.instead,
+			"a refusal while waiting says what to do instead",
+		).toBeTruthy();
 	});
 
 	it("says something different for waiting than for queued", () => {

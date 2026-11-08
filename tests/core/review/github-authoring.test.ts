@@ -65,7 +65,7 @@ describe("proposing a change", () => {
 		});
 
 		const sent = JSON.parse(calls[0]?.input ?? "{}") as Record<string, unknown>;
-		expect(sent.draft).toBe(false);
+		expect(sent).toMatchObject({ draft: false });
 	});
 
 	it("forwards a draft request as a draft", async () => {
@@ -83,7 +83,7 @@ describe("proposing a change", () => {
 		});
 
 		const sent = JSON.parse(calls[0]?.input ?? "{}") as Record<string, unknown>;
-		expect(sent.draft).toBe(true);
+		expect(sent).toMatchObject({ draft: true });
 	});
 
 	it("posts to the repo's own pulls route", async () => {

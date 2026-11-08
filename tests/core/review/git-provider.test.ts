@@ -122,9 +122,9 @@ describe("reading a stack from a checkout", () => {
 
 		const stack = await git.stacking?.stack({ repo, ref: "topic" });
 
-		expect(
-			stack?.nodes.find((node) => node.ref === "topic")?.behindParent,
-		).toBe(true);
+		expect(stack?.nodes.find((node) => node.ref === "topic")).toMatchObject({
+			behindParent: true,
+		});
 	});
 
 	it("says a node is not behind when it forked from where its parent still is", async () => {
@@ -139,9 +139,9 @@ describe("reading a stack from a checkout", () => {
 
 		const stack = await git.stacking?.stack({ repo, ref: "topic" });
 
-		expect(
-			stack?.nodes.find((node) => node.ref === "topic")?.behindParent,
-		).toBe(false);
+		expect(stack?.nodes.find((node) => node.ref === "topic")).toMatchObject({
+			behindParent: false,
+		});
 	});
 
 	it("leaves it unsaid when there is nothing to measure against", async () => {

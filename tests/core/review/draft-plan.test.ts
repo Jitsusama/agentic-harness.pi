@@ -213,7 +213,7 @@ describe("compilePlan", () => {
 				.split("\n")
 				.find((line) => line.includes("The handle is never closed"));
 			expect(tail).toBeDefined();
-			expect(tail?.startsWith(" ")).toBe(true);
+			expect(tail).toMatch(/^ /);
 		});
 
 		it("trusts the anchor when no diff was supplied to check against", () => {

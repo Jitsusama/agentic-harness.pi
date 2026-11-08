@@ -114,7 +114,7 @@ describe("salvaging a truncated answer", () => {
 		const whole = `{"findings": [${JSON.stringify(finding("a"))}]}`;
 		const read = readAnswer(whole, "findings");
 
-		expect(read.truncated).toBe(false);
+		expect(read).toMatchObject({ truncated: false });
 		expect(subjects(whole)).toEqual(["a"]);
 	});
 
@@ -151,7 +151,7 @@ describe("harvesting an answer that was cut off", () => {
 	it("says the answer was cut off rather than unreadable", () => {
 		const harvest = harvestFindings(cutOff(3, ', {"location": {"kind'), origin);
 
-		expect(harvest.truncated).toBe(true);
+		expect(harvest).toMatchObject({ truncated: true });
 		expect(harvest.warnings.join(" ")).toMatch(/cut off/i);
 		expect(harvest.warnings.join(" ")).not.toMatch(/Nothing in this answer/);
 	});
@@ -160,7 +160,7 @@ describe("harvesting an answer that was cut off", () => {
 		const harvest = harvestFindings("I could not review this, sorry.", origin);
 
 		expect(harvest.findings).toEqual([]);
-		expect(harvest.truncated).toBe(false);
+		expect(harvest).toMatchObject({ truncated: false });
 		expect(harvest.warnings.join(" ")).toMatch(/Nothing in this answer/);
 	});
 });

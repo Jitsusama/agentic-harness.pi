@@ -141,7 +141,7 @@ describe("renderDraft", () => {
 			.markdown.split("\n")
 			.find((line) => line.includes("The handle is never closed"));
 		expect(tail).toBeDefined();
-		expect(tail?.startsWith(" ")).toBe(true);
+		expect(tail).toMatch(/^ /);
 	});
 
 	it("keeps a multi-line reply attached to its own list item", () => {
@@ -160,7 +160,7 @@ describe("renderDraft", () => {
 			.markdown.split("\n")
 			.find((line) => line.includes("The retry now backs off"));
 		expect(tail).toBeDefined();
-		expect(tail?.startsWith(" ")).toBe(true);
+		expect(tail).toMatch(/^ /);
 	});
 
 	it("leaves a blank line inside a remark genuinely blank", () => {

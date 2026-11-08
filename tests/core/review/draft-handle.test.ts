@@ -104,7 +104,10 @@ describe("openDraft", () => {
 	it("starts a draft about the target and saves it at once", async () => {
 		const draft = await openDraft(target, deps);
 		expect(draft.state.target).toEqual(target);
-		expect(await deps.store.load(draft.id)).toBeTruthy();
+		expect(
+			await deps.store.load(draft.id),
+			"the draft is saved as soon as it opens",
+		).toBeTruthy();
 	});
 
 	it("gives the draft a legible id naming what it is about", async () => {
@@ -180,7 +183,7 @@ describe("publishing through the handle", () => {
 			draft.plan({ capabilities: { conversation: capabilities } }),
 			forge(),
 		);
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		expect(draft.state.items).toEqual([]);
 		expect((await deps.store.load(draft.id))?.items).toEqual([]);
 	});
@@ -193,7 +196,7 @@ describe("publishing through the handle", () => {
 			draft.plan({ capabilities: { conversation: capabilities } }),
 			forge({ reply: "thread is gone" }),
 		);
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		expect(draft.state.items.map((item) => item.id)).toEqual([replyId]);
 	});
 

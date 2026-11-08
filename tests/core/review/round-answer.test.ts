@@ -319,7 +319,7 @@ describe("what a round says when it is over", () => {
 		expect(lines[0]).toContain("2/2 answered");
 		expect(lines[0]).toContain("0 findings");
 		expect(lines[0]).not.toContain("failed");
-		expect(lines.some((line) => line.startsWith("[failed]"))).toBe(false);
+		expect(lines).not.toContainEqual(expect.stringMatching(/^\[failed\]/));
 		expect(lines.join("\n")).not.toContain("Nobody answered");
 	});
 

@@ -21,7 +21,7 @@ afterEach(() => clearReviewProviders());
 describe("resolveReference", () => {
 	it("refuses when nothing is registered, and says so", () => {
 		const result = resolveReference("2000970");
-		expect(result.resolved).toBe(false);
+		expect(result).toMatchObject({ resolved: false });
 		expect(!result.resolved && result.reason).toBe("no-providers");
 		expect(!result.resolved && result.message).toMatch(/no review provider/i);
 	});

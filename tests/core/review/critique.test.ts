@@ -171,7 +171,7 @@ describe("a whole critique round", () => {
 			deps({ hawk: { text: answer(one()) }, owl: { text: answer(one()) } }),
 		);
 
-		expect(run.outcomes.every((o) => o.findingIds.length === 0)).toBe(true);
+		expect(run.outcomes.filter((o) => o.findingIds.length !== 0)).toEqual([]);
 	});
 
 	it("survives a critic that fails", async () => {

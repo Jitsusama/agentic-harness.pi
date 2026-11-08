@@ -175,7 +175,7 @@ index 1111111..2222222 100644
 Binary files a/logo.png and b/logo.png differ
 `;
 		const [file] = parseUnifiedDiff(diff).files;
-		expect(file.binary).toBe(true);
+		expect(file).toMatchObject({ binary: true });
 		expect(file.hunks).toEqual([]);
 	});
 
@@ -304,9 +304,9 @@ index abc1234..def5678 100644
 		expect(lines.map((line) => lineNumberOn(line, "old"))).toEqual([
 			10, 11, 12, 13, 14,
 		]);
-		expect(lines.every((line) => lineNumberOn(line, "new") === undefined)).toBe(
-			true,
-		);
+		expect(
+			lines.filter((line) => lineNumberOn(line, "new") !== undefined),
+		).toEqual([]);
 	});
 
 	it("counts the removals and no additions", () => {

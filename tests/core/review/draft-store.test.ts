@@ -69,7 +69,10 @@ describe("the draft store", () => {
 	it("creates the directory it was pointed at", async () => {
 		const nested = createDraftStore(join(root, "deep", "deeper"));
 		await nested.save(emptyDraft("d1", hosted));
-		expect(await nested.load("d1")).toBeTruthy();
+		expect(
+			await nested.load("d1"),
+			"the draft saved into the new directory loads back",
+		).toBeTruthy();
 	});
 
 	it("overwrites a draft saved again under the same id", async () => {
@@ -148,7 +151,10 @@ describe("the draft store", () => {
 	it("keeps a draft id out of the path it writes", async () => {
 		await store.save(emptyDraft("../escape", hosted));
 		const entries = await readdir(root);
-		expect(entries.every((entry) => entry.endsWith(".json"))).toBe(true);
-		expect(await store.load("../escape")).toBeTruthy();
+		expect(entries.filter((entry) => !entry.endsWith(".json"))).toEqual([]);
+		expect(
+			await store.load("../escape"),
+			"the draft whose id climbs out loads back from inside",
+		).toBeTruthy();
 	});
 });

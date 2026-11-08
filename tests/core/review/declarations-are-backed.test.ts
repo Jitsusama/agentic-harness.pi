@@ -213,9 +213,9 @@ describe("the comparison itself", () => {
 			"reactions",
 			"unresolve",
 		]);
-		expect(found.every((one) => one.fault === "declared-without-method")).toBe(
-			true,
-		);
+		expect(
+			found.filter((one) => one.fault !== "declared-without-method"),
+		).toEqual([]);
 	});
 
 	it("catches a method nothing will ever call", () => {

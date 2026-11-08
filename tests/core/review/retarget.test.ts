@@ -107,7 +107,7 @@ describe("who carries out a retarget", () => {
 	it("refuses when a backend can do neither, naming what to do", () => {
 		const route = retargetRoute(undefined, undefined);
 
-		expect("refusal" in route).toBe(true);
+		expect(route).toHaveProperty("refusal");
 		expect("refusal" in route && route.refusal).toContain("no way to retarget");
 	});
 });
