@@ -244,6 +244,15 @@ yet", not "we're not sure yet".
 or the people on a thread: "we agreed on Tuesday" is right when
 they did. It never stands for me and an agent.
 
+A message to other people is meant for humans: short enough to
+read in one go, and saying what they need from it first. Link a
+pull request or an issue as its repository and number
+(`Shopify/world#1234`), so the link says where it goes. Never
+mention or lean on my harness, my agents or how the work was
+done with them; in my words, "don't at all rely on or mention my
+harness, people steal ideas from it." Say what was done, as I
+would.
+
 The voice is mine too, so the rest of this skill applies in
 full: write it the way I would say it, not the way a report
 would put it.
@@ -382,6 +391,19 @@ other prose that a person will read directly.
   prose for people. The `code-style-standard` skill covers when and
   how to write them; this skill covers the voice they should
   use.
+
+#### Telling Me How Things Stand
+
+When I ask where things stand, I'm often tired and holding a lot
+at once. In my words: "spoken at a level i can understand having
+a small memory", and "dumb it down for an exhausted old man." So
+a status update answers three things, in this order: what's
+done, what's happening now, and what's left. Use plain words, a
+few short lines for each, and nothing I'd have to remember from
+an earlier message: name each thing by what it is, not by an id
+alone. Leave out how the work was done unless I ask. If
+something needs me, say it first, in one line, with what I
+should do.
 
 ### A Language Model Reading
 
