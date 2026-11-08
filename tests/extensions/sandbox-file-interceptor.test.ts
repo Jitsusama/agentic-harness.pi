@@ -132,7 +132,15 @@ describe("a strict session's writes", () => {
 describe("a strict session the sandbox can't fence", () => {
 	it("runs no file tool in the home folder", () => {
 		expect(refusal("read", { path: ".npmrc" }, strict, home)).toContain(
-			"file tools don't run there either",
+			"file tools don't read there either",
+		);
+	});
+
+	it("reads a plain clone but never writes it, where git's hooks are", () => {
+		mkdirSync(join(work, ".git/hooks"), { recursive: true });
+		expect(refusal("read", { path: "notes.md" })).toBeUndefined();
+		expect(refusal("write", { path: ".git/hooks/post-checkout" })).toContain(
+			"file tools don't write there either",
 		);
 	});
 

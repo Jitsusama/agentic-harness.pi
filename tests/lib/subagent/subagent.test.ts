@@ -264,6 +264,7 @@ function scriptedRun(results: RunPiResult[]): {
 		timeoutMs?: number;
 		idleTimeoutMs?: number;
 		wrapUpReserveMs?: number;
+		env?: Readonly<Record<string, string>>;
 	}>;
 } {
 	const calls: Array<{
@@ -275,6 +276,7 @@ function scriptedRun(results: RunPiResult[]): {
 		timeoutMs?: number;
 		idleTimeoutMs?: number;
 		wrapUpReserveMs?: number;
+		env?: Readonly<Record<string, string>>;
 	}> = [];
 	const runPi: RunPi = async (opts) => {
 		calls.push({
@@ -286,6 +288,7 @@ function scriptedRun(results: RunPiResult[]): {
 			timeoutMs: opts.timeoutMs,
 			idleTimeoutMs: opts.idleTimeoutMs,
 			wrapUpReserveMs: opts.wrapUpReserveMs,
+			env: opts.env,
 		});
 		const index = Math.min(calls.length - 1, results.length - 1);
 		return results[index];
@@ -716,6 +719,33 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		expect(calls).toHaveLength(2);
 	});
 
+	it("asks with the run's own variables, as the run had them", async () => {
+		// A council's reviewer runs fenced, and its wrap-up is a pi of its
+		// own, so it has to be told again rather than inherit it.
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText: '{"findings": []}',
+			},
+		]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+			env: { PI_SANDBOX: "strict" },
+		});
+
+		expect(calls.map((call) => call.env)).toEqual([
+			{ PI_SANDBOX: "strict" },
+			{ PI_SANDBOX: "strict" },
+		]);
+	});
+
 	it("leaves it alone when recovery is switched off", async () => {
 		const { runPi, calls } = scriptedRun([stopped()]);
 
@@ -780,6 +810,37 @@ describe("runReviewer: auto-resume", () => {
 		expect(result.verification?.ok).toBe(true);
 		expect(result.error).toBeUndefined();
 		expect(result.warnings.some((w) => /resum/i.test(w))).toBe(true);
+	});
+
+	it("resumes with the run's own variables, as the run had them", async () => {
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				error: TRANSIENT,
+				artifacts: {
+					runDir: "/r",
+					reviewerDir: "/r/rev",
+					eventsPath: "/r/rev/events.ndjson",
+					stderrPath: "/r/rev/stderr.log",
+					progressPath: "/r/rev/progress.json",
+					resultPath: "/r/rev/result.json",
+					verifiedOutputPath: "/r/rev/verified-output.json",
+					sessionDir: "/r/rev/session",
+					sessionPath: "/r/rev/session/s.jsonl",
+				},
+			},
+			{ exitCode: 0, finalAssistantText: '{"findings": []}' },
+		]);
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			env: { PI_SANDBOX: "strict" },
+		});
+		expect(calls).toHaveLength(2);
+		expect(calls[1].env).toEqual({ PI_SANDBOX: "strict" });
 	});
 
 	it("resumes at most once and surfaces the error when the resume also fails", async () => {

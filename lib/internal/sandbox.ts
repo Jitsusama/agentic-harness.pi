@@ -578,8 +578,9 @@ export interface ToolCall {
  * it does: one naming a path that leads where a fenced command couldn't
  * reach, or that it couldn't write to for a tool that writes. Every path
  * the tool may open is checked, through its links, so a link made inside
- * the work leads nowhere it couldn't. Any other tool, or a session with
- * no sandbox, is let through.
+ * the work leads nowhere it couldn't. A working folder holding its git
+ * folder may be read but never written. Any other tool, or a session
+ * with no sandbox, is let through.
  */
 export function fileToolRefusal(
 	call: ToolCall,
@@ -590,8 +591,13 @@ export function fileToolRefusal(
 	if (!asked || !tool) return undefined;
 	if (asked !== STRICT) return noSuchSandbox(asked, "file tool");
 	const { cwd, home } = place;
+	// A folder holding its git folder is refused for what writing there
+	// would reach, which reading it doesn't, so a review that falls back
+	// to a plain clone still reads it. The home folder is refused both ways.
 	const unfenced = unfencedFolder(cwd, home);
-	if (unfenced) return `${unfenced} pi's file tools don't run there either.`;
+	if (unfenced && (tool.use === "write" || within(home, cwd))) {
+		return `${unfenced} pi's file tools don't ${tool.use} there either.`;
+	}
 	const path = pathOf(call.input, tool.searches);
 	if (path === undefined) {
 		return `${SANDBOX_VARIABLE}=${STRICT} checks the path each file tool names, and this ${call.toolName} named none it could check, so it didn't run.`;

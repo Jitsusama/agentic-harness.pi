@@ -371,6 +371,13 @@ export type RunPi = (opts: {
 	 * caller knows the override didn't apply.
 	 */
 	readonly idleTimeoutMs?: number;
+	/**
+	 * Variables this run's pi takes on top of the session's, such as
+	 * `PI_SANDBOX`. Given to the process as it starts and never written
+	 * to the run's request on disk, so a resume or wrap-up takes them
+	 * from whoever starts it again, not from what an earlier run saved.
+	 */
+	readonly env?: Readonly<Record<string, string>>;
 }) => Promise<RunPiResult>;
 
 /** Inputs `runReviewer` needs to dispatch one pi process. */
@@ -408,6 +415,12 @@ export interface RunReviewerOptions {
 	readonly ask?: string;
 	/** Working directory for the subprocess (worktree path). */
 	readonly cwd: string;
+	/**
+	 * Variables the reviewer's pi takes on top of the session's, given to
+	 * its run, its wrap-up and its resume alike. The council sets
+	 * `PI_SANDBOX=strict` here, since a reviewer reads a stranger's change.
+	 */
+	readonly env?: Readonly<Record<string, string>>;
 	/**
 	 * Optional system prompt forwarded to pi via
 	 * `--system-prompt`. Callers use this to set the
@@ -679,6 +692,7 @@ export async function startReviewer(
 			...(extraSkills.length > 0 ? { extraSkills } : {}),
 		}),
 		cwd: options.cwd,
+		...(options.env === undefined ? {} : { env: options.env }),
 		runId,
 		reviewerId: options.reviewer.id,
 		// Always. A detached reviewer cannot be resumed by the parent
@@ -779,6 +793,7 @@ export async function runReviewer(
 		result = await options.runPi({
 			args,
 			cwd: options.cwd,
+			...(options.env === undefined ? {} : { env: options.env }),
 			...(options.runId ? { runId: options.runId } : {}),
 			reviewerId: options.reviewer.id,
 			signal: options.signal,
@@ -1011,6 +1026,7 @@ async function dispatchWrapUp(
 	return options.runPi({
 		args,
 		cwd: options.cwd,
+		...(options.env === undefined ? {} : { env: options.env }),
 		...(options.runId ? { runId: options.runId } : {}),
 		reviewerId: `${options.reviewer.id}${WRAP_UP_SUFFIX}`,
 		timeoutMs: wall,
@@ -1119,6 +1135,7 @@ async function dispatchResume(
 	return options.runPi({
 		args,
 		cwd: options.cwd,
+		...(options.env === undefined ? {} : { env: options.env }),
 		...(options.runId ? { runId: options.runId } : {}),
 		// Its own directory, like the wrap-up's. It used to share the
 		// first attempt's, which was harmless while the only shared file

@@ -141,6 +141,32 @@ describe("createSpawnRunPi", () => {
 		);
 	});
 
+	it("gives the child the run's own variables on top of the pinned package dir", async () => {
+		const fake = makeFakeChild();
+		let captured: NodeJS.ProcessEnv | undefined;
+		const runPi = createSpawnRunPi({
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+				packageDir: "/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
+			},
+			spawn: (_command, _args, opts) => {
+				captured = opts.env;
+				queueMicrotask(() => {
+					fake.stdout.end("");
+					fake.stderr.end("");
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		await runPi({ args: [], cwd: "/tmp", env: { PI_SANDBOX: "strict" } });
+		expect(captured?.PI_SANDBOX).toBe("strict");
+		expect(captured?.PI_PACKAGE_DIR).toBe(
+			"/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
+		);
+	});
+
 	it("leaves the child env untouched when no package dir was captured", async () => {
 		// Plain npm/brew installs self-locate from the entry
 		// script and set no PI_PACKAGE_DIR, so the spawn must not
