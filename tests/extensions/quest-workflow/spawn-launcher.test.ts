@@ -207,6 +207,38 @@ describe("spawn through the desktop's launcher", () => {
 		expect(result.details).toMatchObject({ firstWordsKey: token });
 	});
 
+	it("tells a pi started behind a holder to carry on too", async () => {
+		// 11-07 17:48 and 17:50: 95E131 and NZLJZ4 were spawned as
+		// `mycelium --realm work hold -- pi --model ...`, and neither was
+		// told its note, since only a command starting with pi counted.
+		const { state, id } = await quest();
+		const command =
+			"mycelium --realm work hold -- pi --model anthropic/claude-opus-5-5:high";
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command,
+			note: "Audit what slipped.",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(opened).toBe(command);
+		const token = openedEnv?.[FIRST_WORDS_VARIABLE] as string;
+		expect(wordsFor(token)).toContain("Audit what slipped.");
+		expect(result.details).toMatchObject({ firstWordsKey: token });
+		expect(result.message).toContain(`will load ${id}`);
+	});
+
+	it("leaves a command that only mentions pi after its own separator alone", async () => {
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command: "git log -- pi",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(openedEnv?.[FIRST_WORDS_VARIABLE]).toBeUndefined();
+	});
+
 	it("hands a restart to the launcher, in its own place and on the model it names", async () => {
 		// 11-07 00:37: orchestrators restart sessions under a new holder as
 		// `pi --session <id> --model ...`, which opened kitty on whatever

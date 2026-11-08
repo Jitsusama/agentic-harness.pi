@@ -155,7 +155,8 @@ shipped and tested.
   they open themselves leaves focus where it is (lib/terminal). Only the person's own press focuses a window.
 - **Sets to work by itself**: a session a spawn starts running
   pi, fresh, resumed or with flags the call's `command` gives it
-  (`pi --model ...`), is told first to carry on with its quest
+  (`pi --model ...`), or behind a holder's `--`
+  (`mycelium --realm work hold -- pi ...`), is told first to carry on with its quest
   from its README and focused plan, and, when the spawn gives
   `note`, what it was started for. The spawn leaves the words in
   the quest workflow's state folder, named by the session's id for

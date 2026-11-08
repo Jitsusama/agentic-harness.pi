@@ -65,8 +65,8 @@ import {
 	agentCommand,
 	isThisMachine,
 	machineFor,
-	runsPi,
 	spawnHeld,
+	startsPi,
 } from "./spawn-held.ts";
 import {
 	launcherOpens,
@@ -422,7 +422,7 @@ export async function spawn(
 	// left CF3ZG0 untold for 44 minutes on 11-03; any other command is
 	// left as it is.
 	const firstWords =
-		(spawnsPi || runsPi(spawned.command)) && !params.dryRun
+		(spawnsPi || startsPi(spawned.command)) && !params.dryRun
 			? spawnedWords(questIdForSpawn, params.note)
 			: undefined;
 	const leftUnder = (key: string): string | undefined => {
@@ -525,7 +525,7 @@ export async function spawn(
 		env,
 		// Its window closes with its pi, sits with its orchestrator's, and
 		// says whose it was.
-		endsWithCommand: spawnsPi || runsPi(spawned.command),
+		endsWithCommand: spawnsPi || startsPi(spawned.command),
 		window: windowPlaceFor(
 			questIdForSpawn,
 			cwd,
@@ -598,7 +598,7 @@ export async function spawn(
 	// history in resolveStartup, and the target was validated to exist
 	// above, so the load is deterministic. A non-pi command loads no
 	// quest, so the claim is withheld.
-	if (runsPi(command)) {
+	if (startsPi(command)) {
 		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
 	}
 	return ok(message, {

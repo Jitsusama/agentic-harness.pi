@@ -166,6 +166,25 @@ export function runsPi(command: string): boolean {
 	return command === "pi" || command.startsWith("pi ");
 }
 
+/**
+ * Programs that start the command after their `--` in place of
+ * themselves, so a pi there is the session the spawn starts.
+ */
+const HOLDERS = new Set(["mycelium"]);
+
+/**
+ * Whether a command ends up starting pi: pi itself, or pi after a
+ * holder's `--`, as `mycelium --realm work hold -- pi --model ...`. On
+ * 11-07 two sessions spawned that way were never told their notes.
+ */
+export function startsPi(command: string): boolean {
+	if (runsPi(command)) return true;
+	const [program] = command.trim().split(/\s+/);
+	if (!program || !HOLDERS.has(program)) return false;
+	const after = command.indexOf(" -- ");
+	return after >= 0 && runsPi(command.slice(after + 4).trim());
+}
+
 /** What a spawn's machine was chosen for, as a sentence, or nothing. */
 function chosenFor(asked: HeldSpawn): string {
 	if (asked.needs.length === 0) return "";
