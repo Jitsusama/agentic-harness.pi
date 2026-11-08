@@ -134,7 +134,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	id: Type.Optional(
 		Type.String({
 			description:
-				"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and reopen-sessions: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a status sweep that also removes each one's whole scratch folder, of which undo restores only status and priority; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
+				"The quest or document acted on, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it, trees pruned; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document id concludes just that. locate: any quest, document, alias or session id. undo: optional; it reverses only this session's newest change, refused once another session changed that quest.",
 		}),
 	),
 	url: Type.Optional(
@@ -198,7 +198,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	ref: Type.Optional(
 		Type.String({
 			description:
-				"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. need-add/need-remove: what the quest's sessions need of a machine, as kind=value (machine, system, arch, reach, accelerator), such as reach=home; comma-separated for several, on the quest `id` names or the loaded one. budget: the budget the quest's model calls draw on, which the quests under it inherit: a name a budget provider knows, `none` to draw on the session's default, or `inherit` to take the quest's own away; left out, it says what the quest draws on. tree-expand: the zone to add (e.g. system/gitstream).",
+				"alias-add/alias-remove: aliases as `type:value` (e.g. `github-pr:shop/world#47281`), comma-separated. need-add/need-remove: what its sessions need of a machine, kind=value (machine, system, arch, reach, accelerator) such as reach=home, comma-separated, on `id`'s quest or the loaded one. budget: a budget provider's name the quest and those under it draw on, `none` for the session's default, or `inherit` to drop the quest's own; left out, it says which. tree-expand: the zone to add (e.g. system/gitstream).",
 		}),
 	),
 	query: Type.Optional(
@@ -251,13 +251,13 @@ export const QUEST_PARAMETERS = Type.Object({
 	machine: Type.Optional(
 		Type.String({
 			description:
-				"spawn: the machine to start the session on, by the name its mycelium node gives it (this one, or one its links reach). The node starts it held there, in the same folder under that machine's home, or its home; the window opened here joins it, and closing that window leaves it running. reopen-sessions refuses it.",
+				"spawn: the machine to start on, by its mycelium node's name (this one, or one its links reach). It starts held there, in the same folder under that home, or the home; the window here joins it, and closing it leaves it running. reopen-sessions refuses it.",
 		}),
 	),
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, each as kind=value (machine, system, arch, reach, accelerator), such as reach=home or system=macos. The mycelium node chooses the machine among those its realm links, ranking down one on battery or short of memory or disk, and the session starts held there as with machine, which counts as one more need. Given neither this nor machine, spawn places by the quest's own needs (need-add), if it says any. dryRun asks the node only where. reopen-sessions refuses it.",
+				"spawn: what the machine must be, kind=value (machine, system, arch, reach, accelerator) such as reach=home. The mycelium node picks among its realm's machines, ranking down one on battery or short of memory or disk, and starts the session held there as with machine (one more need). With neither, the quest's own needs (need-add) place it. dryRun asks only where. reopen-sessions refuses it.",
 		}),
 	),
 	command: Type.Optional(
@@ -269,7 +269,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	cwd: Type.Optional(
 		Type.String({
 			description:
-				"Working directory: where spawn starts, the repo tree-add cuts from, a path inside the tree tree-adopt registers, or which tree tree-release and tree-expand act on when the quest has several. Defaults: spawn takes the quest's newest tree, else a recent session's folder, else a tree's repo, else the checkout a parent quest's newest tree was cut from, else this session's folder when it is in a repo, else home, never a quest folder or a parent quest's tree; the rest take the loaded quest's directory or the pi cwd.",
+				"Where spawn starts, the repo tree-add cuts from, a path in the tree tree-adopt registers, or the tree tree-release and tree-expand act on when there are several. spawn defaults to the quest's newest tree, else a recent session's folder, a tree's repo, the checkout of a parent quest's newest tree, this session's folder in a repo, else home, never a quest folder or a parent's tree; the rest to the loaded quest's directory or pi's cwd.",
 		}),
 	),
 	sessionId: Type.Optional(
@@ -304,13 +304,13 @@ export const QUEST_PARAMETERS = Type.Object({
 	force: Type.Optional(
 		Type.Boolean({
 			description:
-				"tree-release: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. section: replace a large section with a body that drops most of it, on purpose. reopen-sessions: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
+				"tree-release: override its refusals (dirty tree, unmerged branch, attached session), losing uncommitted work: confirm with the person first. section: let a body drop most of a large section. reopen-sessions: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
 		}),
 	),
 	dryRun: Type.Optional(
 		Type.Boolean({
 			description:
-				"reparent, and conclude/retire of quests not loaded here: say what would change, writing nothing. spawn and reopen-sessions: say what would open where, and which setting chose it, opening nothing. Every other action, and conclude/retire of the loaded quest or a document, refuses it and does nothing.",
+				"Say what would change, doing nothing: reparent, and conclude/retire of quests not loaded here; spawn and reopen-sessions say what would open where and which setting chose it. Every other action, and conclude/retire of the loaded quest or a document, refuses it.",
 		}),
 	),
 	limit: Type.Optional(
