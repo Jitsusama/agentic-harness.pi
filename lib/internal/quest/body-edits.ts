@@ -104,7 +104,9 @@ const ITEM_NUMBER = /^\d+[a-z]?[.)]\s+/;
  * Whether a document numbers its own items, as `7. Write the tests`.
  * One that doesn't is named by position instead, and its outline shows
  * the positions, since agents told to name an item by its number count
- * the items when none carries one.
+ * the items when none carries one. A document that numbers only some of
+ * its items counts as numbered, so its unnumbered items are named by
+ * their words, never by position.
  */
 function numbersItsItems(items: readonly Located[]): boolean {
 	return items.some((i) => ITEM_NUMBER.test(normalise(i.text)));
