@@ -66,6 +66,11 @@ import {
 } from "../../lib/internal/priority/send.ts";
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
 import { typedDir, typedTurns } from "../../lib/internal/priority/typed.ts";
+import {
+	buildsShouldYield,
+	keepYield,
+	systemBuildSlice,
+} from "../../lib/internal/priority/yield.ts";
 
 /**
  * Refuse a push of World that skips dev's pre-push hooks, on any
@@ -198,6 +203,11 @@ interface Machine {
 	readonly room: () => Reading;
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly rules: () => Rules;
+	/**
+	 * Have the daemon's builds give way while a deploy's stamp runs, from
+	 * the queue kept in `dir`, where the machine can.
+	 */
+	readonly yieldBuilds?: (dir: string) => void;
 }
 
 function linuxMachine(own: string | undefined): Machine {
@@ -225,7 +235,21 @@ function linuxMachine(own: string | undefined): Machine {
 			CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined,
 		// Until VM tests run timed, a build waits while a VM check runs.
 		rules: () => ({ buildsWaitForVmChecks: !hasTimed() }),
+		yieldBuilds: (dir) => {
+			const slice = systemBuildSlice(KERNEL.cgroups);
+			keepYield(dir, buildsShouldYield(queueIn(dir), slice), slice);
+		},
 	};
+}
+
+/** The queue's whole record, or nothing while it can't be read. */
+function queueIn(dir: string): unknown {
+	try {
+		return JSON.parse(readFileSync(join(dir, "queue.json"), "utf8"));
+	} catch {
+		// A record being replaced is read whole on the next keep.
+		return undefined;
+	}
 }
 
 function macMachine(): Machine {
@@ -293,6 +317,7 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 				const wanted = folder.hasJobs() || folder.isDue(now);
 				if (wanted && !folder.keptFresh(now)) {
 					folder.keep(room, now, cgroupFor);
+					machine.yieldBuilds?.(dir);
 				}
 			} catch {
 				// A folder that can't be kept this time is kept on the next.
