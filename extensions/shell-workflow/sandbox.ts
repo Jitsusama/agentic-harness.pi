@@ -251,7 +251,7 @@ export function unfencedFolder(cwd: string, home: string): string | undefined {
 	}
 	try {
 		if (statSync(join(cwd, ".git")).isDirectory()) {
-			return `${SANDBOX_VARIABLE}=${STRICT} won't let commands write ${cwd}, which holds its repository's git folder, whose hooks and settings git runs outside the sandbox, so no command runs. Work in a worktree, whose git folder lies elsewhere.`;
+			return `${SANDBOX_VARIABLE}=${STRICT} won't let commands write ${cwd}, which holds its repository's git folder, whose hooks and settings git runs outside the sandbox, so no command runs. Work in a tree the work tool cuts (\`work tree\`) or a snapshot, whose git folder lies elsewhere; a plain clone won't do.`;
 		}
 	} catch {
 		// No git folder here, or a worktree's .git file pointing elsewhere.

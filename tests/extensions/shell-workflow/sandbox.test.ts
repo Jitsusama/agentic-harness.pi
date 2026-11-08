@@ -146,7 +146,7 @@ describe("a working folder the sandbox won't let commands write", () => {
 			"echo ran",
 			join(home, "checkout"),
 		);
-		expect(answer).toContain("worktree");
+		expect(answer).toContain("work tree");
 		expect(answer).not.toMatch(/^ran$/m);
 	});
 });

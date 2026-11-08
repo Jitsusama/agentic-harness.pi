@@ -96,7 +96,11 @@ sandbox rather than a fault.
 It runs no command in a working folder that is your home folder or
 holds it, whose startup files run outside, nor in one holding its
 repository's git folder, whose hooks and settings git runs outside. A
-worktree keeps its git folder elsewhere, so a session works in one.
+tree the work tool cuts (`work tree`), or a snapshot, keeps its git
+folder elsewhere, so a strict session works in one; a plain clone
+won't do. Its `TMPDIR` is the sandbox's, not the quest's scratch `tmp`,
+so what a command saves there for later lands under
+`~/.cache/pi-sandbox/tmp`.
 Code written in the working folder can still run later outside, an
 `.envrc` once you allow it. The sandbox narrows what a command reaches
 now, not what you later run from what it wrote.
