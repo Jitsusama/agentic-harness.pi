@@ -91,7 +91,7 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 			);
 			try {
 				const diags = await backend.diagnostics(broken);
-				expect(diags.some((d) => d.severity === "error")).toBe(true);
+				expect(diags.map((d) => d.severity)).toContain("error");
 			} finally {
 				rmSync(broken, { force: true });
 			}
@@ -125,7 +125,7 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 				position: locate(lib, "greeting"),
 			});
 			expect(refs.length).toBeGreaterThan(1);
-			expect(refs.some((r) => r.path === use)).toBe(true);
+			expect(refs.map((r) => r.path)).toContain(use);
 		},
 		LIVE_TIMEOUT_MS,
 	);

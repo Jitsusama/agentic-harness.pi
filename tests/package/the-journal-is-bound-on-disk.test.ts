@@ -36,14 +36,15 @@ describe("the pack a reviewer records through", () => {
 		// The extension joins this onto its own location to build the
 		// --extension argument. Wrong, pi fails to load a pack and the
 		// reviewer's contract tells it to call a tool nothing has.
-		expect(existsSync(join(ROOT, JOURNAL_PACK_PATH))).toBe(true);
+		const pack = join(ROOT, JOURNAL_PACK_PATH);
+		expect(existsSync(pack), `${pack} exists`).toBe(true);
 	});
 
 	it("is not under a directory pi scans", () => {
 		// A pack is loaded into a subagent by path and must never be
 		// picked up by the session that dispatched one: this tool
 		// belongs to the reviewer, not to the person running the round.
-		expect(JOURNAL_PACK_PATH.startsWith("packs/")).toBe(true);
+		expect(JOURNAL_PACK_PATH).toMatch(/^packs\//);
 	});
 
 	it("registers the tool the dispatcher permits by name", () => {

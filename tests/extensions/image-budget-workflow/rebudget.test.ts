@@ -144,7 +144,7 @@ describe("rebudget", () => {
 			Buffer.from("fromdisk"),
 		);
 
-		expect(seen.every((s) => s === "fromdisk")).toBe(true);
+		expect(seen.filter((s) => s !== "fromdisk")).toEqual([]);
 	});
 
 	it("finds pi's note where pi actually puts it, before the image", async () => {
@@ -166,9 +166,9 @@ describe("rebudget", () => {
 		expect(prose).toHaveLength(2);
 		expect(prose[0].text).toBe("Read image file [image/png]");
 		expect(prose[1].text).toContain("3024x1964");
-		expect(
-			blocks.some((b) => b.type === "text" && b.text.includes("1.51")),
-		).toBe(false);
+		expect(prose.map((b) => b.text)).not.toContainEqual(
+			expect.stringContaining("1.51"),
+		);
 	});
 
 	it("puts pi's note back when it scaled nothing after all", async () => {

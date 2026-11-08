@@ -111,12 +111,12 @@ describe("a real command handed off", () => {
 		});
 
 		expect(textOf(result)).toContain("background command j1");
-		expect(running(marker)).toBe(true);
+		expect(running(marker), `${marker} runs on in the background`).toBe(true);
 
 		controller.abort(jobStopReason("person"));
 		await until("the stopped job to end", () => outcomes.length > 0);
 		await until("the stopped command to be gone", () => !running(marker));
-		expect(outcomes[0]?.failed).toBe(true);
+		expect(outcomes[0]).toMatchObject({ failed: true });
 	});
 
 	it("takes its grandchildren with it when the agent stops its job", async () => {
@@ -188,7 +188,7 @@ describe("a real command handed off", () => {
 		await until("the background command to be running", () => running(marker));
 
 		const next = await reloadJobs(events, first);
-		expect(running(marker)).toBe(true);
+		expect(running(marker), `${marker} runs on through the reload`).toBe(true);
 		await until(
 			"the reloaded runtime to say how the job ended",
 			() => next.said.length > 0,

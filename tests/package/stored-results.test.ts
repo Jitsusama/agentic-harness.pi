@@ -127,8 +127,12 @@ function reachesTheStore(extension: string): boolean {
 describe("tools that can answer big must bound their answers", () => {
 	for (const extension of MUST_BOUND) {
 		it(`${extension} reaches the shared result store`, () => {
-			expect(statSync(join("extensions", extension)).isDirectory()).toBe(true);
-			expect(reachesTheStore(extension)).toBe(true);
+			const dir = join("extensions", extension);
+			expect(statSync(dir).isDirectory(), `${dir} is a directory`).toBe(true);
+			expect(
+				reachesTheStore(extension),
+				`${extension} imports the result library and cites through it`,
+			).toBe(true);
 		});
 	}
 
@@ -145,7 +149,10 @@ describe("tools that can answer big must bound their answers", () => {
 					importsResultLibrary(source) ||
 					/\b(resultPath|runDir|bundle|manifest)\b/.test(source),
 			);
-			expect(pointsSomewhere).toBe(true);
+			expect(
+				pointsSomewhere,
+				`${extension} imports the result library or names a path on disk`,
+			).toBe(true);
 		});
 	}
 

@@ -121,8 +121,9 @@ describe("ensureCommitHook", () => {
 			["-C", repo, "rev-parse", "--git-path", "hooks"],
 			{ encoding: "utf8" },
 		).trim();
-		expect(existsSync(join(repo, hooksDir, "prepare-commit-msg"))).toBe(true);
-		expect(installed.has(repoRootOf(sub) ?? "")).toBe(true);
+		const hook = join(repo, hooksDir, "prepare-commit-msg");
+		expect(existsSync(hook), `${hook} exists`).toBe(true);
+		expect([...installed]).toContain(repoRootOf(sub) ?? "");
 	});
 
 	it("asks git once to install into a repo it has not seen", () => {
@@ -135,7 +136,8 @@ describe("ensureCommitHook", () => {
 		);
 
 		expect(calls).toBe(1);
-		expect(existsSync(join(repo, ".git/hooks/prepare-commit-msg"))).toBe(true);
+		const hook = join(repo, ".git/hooks/prepare-commit-msg");
+		expect(existsSync(hook), `${hook} exists`).toBe(true);
 	});
 
 	it("asks git nothing for a directory it has already handled", () => {
@@ -170,7 +172,8 @@ describe("ensureCommitHook", () => {
 
 		ensureCommitHook(linked, new Set(), OPTIONS);
 
-		expect(existsSync(join(repo, ".git/hooks/prepare-commit-msg"))).toBe(true);
+		const hook = join(repo, ".git/hooks/prepare-commit-msg");
+		expect(existsSync(hook), `${hook} exists`).toBe(true);
 	});
 
 	it("leaves a repo with a custom core.hooksPath alone", () => {
@@ -179,8 +182,10 @@ describe("ensureCommitHook", () => {
 
 		ensureCommitHook(repo, new Set(), OPTIONS);
 
-		expect(existsSync(join(repo, ".husky/prepare-commit-msg"))).toBe(false);
-		expect(existsSync(join(repo, ".git/hooks/prepare-commit-msg"))).toBe(false);
+		const husky = join(repo, ".husky/prepare-commit-msg");
+		const git = join(repo, ".git/hooks/prepare-commit-msg");
+		expect(existsSync(husky), `${husky} is not written`).toBe(false);
+		expect(existsSync(git), `${git} is not written`).toBe(false);
 	});
 
 	it("is a no-op for a directory outside any git repo", () => {
@@ -196,7 +201,7 @@ describe("installCommitHook", () => {
 	it("installs and attributes a real commit end to end", () => {
 		const repo = initRepo();
 
-		expect(installCommitHook(repo, OPTIONS).installed).toBe(true);
+		expect(installCommitHook(repo, OPTIONS)).toMatchObject({ installed: true });
 
 		writeFileSync(join(repo, "f.txt"), "hi");
 		execFileSync("git", ["-C", repo, "add", "."]);
@@ -232,7 +237,7 @@ describe("installCommitHook", () => {
 
 		const result = installCommitHook(repo, OPTIONS);
 
-		expect(result.installed).toBe(false);
+		expect(result).toMatchObject({ installed: false });
 		expect(result.reason).toMatch(/hookspath/i);
 	});
 
@@ -255,14 +260,14 @@ describe("installCommitHook", () => {
 
 		const result = installCommitHook(repo, OPTIONS);
 
-		expect(result.installed).toBe(false);
+		expect(result).toMatchObject({ installed: false });
 		expect(readFileSync(chained, "utf8")).toContain("original backup");
 	});
 
 	it("is idempotent on a second install", () => {
 		const repo = initRepo();
 
-		expect(installCommitHook(repo, OPTIONS).installed).toBe(true);
+		expect(installCommitHook(repo, OPTIONS)).toMatchObject({ installed: true });
 		expect(installCommitHook(repo, OPTIONS)).toEqual({
 			installed: false,
 			reason: "already installed",

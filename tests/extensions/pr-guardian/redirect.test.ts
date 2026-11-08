@@ -110,7 +110,7 @@ describe("redirecting gh pr create to the review tools", () => {
 
 		const result = await createPrGuardian(pi).review(prCommand(), ctx);
 
-		expect(result && "block" in result).toBe(true);
+		expect(result).toHaveProperty("block");
 		const reason = result && "reason" in result ? result.reason : "";
 		expect(reason).toContain("review_offer");
 		expect(reason).toContain("meteorite");

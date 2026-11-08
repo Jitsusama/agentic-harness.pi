@@ -297,19 +297,38 @@ describe("parking a session", () => {
 describe("whether pi's arguments open a session", () => {
 	const log = "/logs/session.jsonl";
 	it("opens only itself by its id or its log, spaced or joined", () => {
-		expect(opensOnlyItself(["--session", log], SESSION, log)).toBe(true);
-		expect(opensOnlyItself([`--session=${log}`], SESSION, log)).toBe(true);
-		expect(opensOnlyItself(["--session-id", SESSION], SESSION, log)).toBe(true);
-		expect(opensOnlyItself([], SESSION, log)).toBe(false);
-		expect(opensOnlyItself(["--session", "other"], SESSION, log)).toBe(false);
-		expect(opensOnlyItself(["--", "--session", log], SESSION, log)).toBe(false);
+		expect(
+			opensOnlyItself(["--session", log], SESSION, log),
+			"--session <log>",
+		).toBe(true);
+		expect(
+			opensOnlyItself([`--session=${log}`], SESSION, log),
+			"--session=<log>",
+		).toBe(true);
+		expect(
+			opensOnlyItself(["--session-id", SESSION], SESSION, log),
+			"--session-id <id>",
+		).toBe(true);
+		expect(opensOnlyItself([], SESSION, log), "no arguments").toBe(false);
+		expect(
+			opensOnlyItself(["--session", "other"], SESSION, log),
+			"--session naming another session",
+		).toBe(false);
+		expect(
+			opensOnlyItself(["--", "--session", log], SESSION, log),
+			"--session after --, which is a prompt",
+		).toBe(false);
 	});
 
 	it("is not only itself with a prompt, which would be sent again", () => {
-		expect(opensOnlyItself(["--session", log, "hi"], SESSION, log)).toBe(false);
-		expect(opensOnlyItself([`--session=${log}`, "hi"], SESSION, log)).toBe(
-			false,
-		);
+		expect(
+			opensOnlyItself(["--session", log, "hi"], SESSION, log),
+			"--session <log> with a prompt",
+		).toBe(false);
+		expect(
+			opensOnlyItself([`--session=${log}`, "hi"], SESSION, log),
+			"--session=<log> with a prompt",
+		).toBe(false);
 	});
 
 	it("loses the flags a restart wouldn't give again, not a prompt or its session", () => {
@@ -322,11 +341,17 @@ describe("whether pi's arguments open a session", () => {
 describe("which sessions may park", () => {
 	it("is only one its person sees, not a subagent, kept by a holder that wakes it", () => {
 		const wake = { MYCELIUM_WAKE: "/run/user/1000/mycelium/work.held/x.wake" };
-		expect(mayPark({ hasUI: true }, wake)).toBe(true);
-		expect(mayPark({ hasUI: true }, {})).toBe(false);
-		expect(mayPark({ hasUI: false }, wake)).toBe(false);
-		expect(mayPark({ hasUI: true }, { ...wake, SUBAGENT_RUN_ID: "r" })).toBe(
+		expect(
+			mayPark({ hasUI: true }, wake),
+			"a seen session a holder wakes",
+		).toBe(true);
+		expect(mayPark({ hasUI: true }, {}), "a seen session nothing wakes").toBe(
 			false,
 		);
+		expect(mayPark({ hasUI: false }, wake), "a session with no UI").toBe(false);
+		expect(
+			mayPark({ hasUI: true }, { ...wake, SUBAGENT_RUN_ID: "r" }),
+			"a subagent",
+		).toBe(false);
 	});
 });

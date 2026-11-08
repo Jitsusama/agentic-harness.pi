@@ -51,7 +51,7 @@ describe("a session's stored payloads", () => {
 			{ type: "session_shutdown", reason },
 			{},
 		);
-		expect(existsSync(payload())).toBe(true);
+		expect(existsSync(payload()), `${payload()} is kept`).toBe(true);
 	});
 
 	it("are removed when pi quits", async () => {
@@ -59,6 +59,6 @@ describe("a session's stored payloads", () => {
 			{ type: "session_shutdown", reason: "quit" },
 			{},
 		);
-		expect(existsSync(payload())).toBe(false);
+		expect(existsSync(payload()), `${payload()} is removed`).toBe(false);
 	});
 });

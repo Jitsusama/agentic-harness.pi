@@ -46,7 +46,7 @@ beforeEach(() => {
 describe("the git-cli interceptor under the policy", () => {
 	it("refuses an amend while every approval reports", async () => {
 		const verdict = await interceptor()(bash("git commit --amend -m 'x'"));
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 	});
 
 	it("lets a chain through while every approval it protects reports", async () => {
@@ -56,7 +56,7 @@ describe("the git-cli interceptor under the policy", () => {
 	it("refuses a chain once one of those approvals blocks", async () => {
 		setSessionMode("pr", "block");
 		const verdict = await interceptor()(bash(CHAIN));
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 	});
 
 	it("lets an amend through when commit-shape is switched off", async () => {

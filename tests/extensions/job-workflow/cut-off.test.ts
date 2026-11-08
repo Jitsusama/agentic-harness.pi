@@ -253,6 +253,9 @@ describe("the job workflow, at a session's end and its return", () => {
 		await pi.fire("session_shutdown", { reason: "reload" });
 		expect(signals.listenerCount("SIGTERM")).toBe(0);
 		expect(signals.listenerCount("SIGHUP")).toBe(0);
-		expect(watchSignals(signals).signalled()).toBe(false);
+		expect(
+			watchSignals(signals).signalled(),
+			"a fresh watch reads no signal after the session shut down",
+		).toBe(false);
 	});
 });

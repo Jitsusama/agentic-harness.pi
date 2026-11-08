@@ -24,8 +24,10 @@ afterEach(() => {
 describe("git-worktree provider", () => {
 	it("applies to directories with a .git entry", () => {
 		const provider = createGitWorktreeProvider();
-		expect(provider.appliesTo(repoRoot)).toBe(true);
-		expect(provider.appliesTo("/tmp")).toBe(false);
+		expect(provider.appliesTo(repoRoot), `${repoRoot} is a git repo`).toBe(
+			true,
+		);
+		expect(provider.appliesTo("/tmp"), "/tmp is not a git repo").toBe(false);
 	});
 
 	it("creates a worktree at <repo>/.worktrees/<name> with a fresh branch", async () => {
@@ -37,7 +39,7 @@ describe("git-worktree provider", () => {
 		expect(handle.path).toBe(join(repoRoot, ".worktrees", "feature-x"));
 		expect(handle.branch).toBe("feature-x");
 		expect(handle.providerId).toBe("git-worktree");
-		expect(existsSync(handle.path)).toBe(true);
+		expect(existsSync(handle.path), `${handle.path} exists`).toBe(true);
 		const branch = (
 			await git(handle.path, "rev-parse", "--abbrev-ref", "HEAD")
 		).trim();
@@ -63,7 +65,7 @@ describe("git-worktree provider", () => {
 		const provider = createGitWorktreeProvider();
 		const handle = await provider.create({ name: "feature-z", repoRoot });
 		await provider.release({ path: handle.path });
-		expect(existsSync(handle.path)).toBe(false);
+		expect(existsSync(handle.path), `${handle.path} is removed`).toBe(false);
 		const branches = await git(repoRoot, "branch", "--list", "feature-z");
 		expect(branches.trim()).toBe("");
 	});
@@ -75,7 +77,7 @@ describe("git-worktree provider", () => {
 		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/uncommitted/,
 		);
-		expect(existsSync(handle.path)).toBe(true);
+		expect(existsSync(handle.path), `${handle.path} is kept`).toBe(true);
 	});
 
 	it("force-prunes a dirty worktree", async () => {
@@ -83,7 +85,7 @@ describe("git-worktree provider", () => {
 		const handle = await provider.create({ name: "dirty-force", repoRoot });
 		writeFileSync(join(handle.path, "scratch.txt"), "dirty\n");
 		await provider.release({ path: handle.path, force: true });
-		expect(existsSync(handle.path)).toBe(false);
+		expect(existsSync(handle.path), `${handle.path} is removed`).toBe(false);
 	});
 
 	it("lists worktrees under a repo, excluding the main one", async () => {
@@ -132,7 +134,7 @@ describe("git-worktree provider", () => {
 		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/not merged/,
 		);
-		expect(existsSync(handle.path)).toBe(true);
+		expect(existsSync(handle.path), `${handle.path} is kept`).toBe(true);
 	});
 });
 
@@ -197,7 +199,7 @@ describe("pruning a branch merged on the host", () => {
 
 		await provider.release({ path: handle.path });
 
-		expect(existsSync(handle.path)).toBe(false);
+		expect(existsSync(handle.path), `${handle.path} is removed`).toBe(false);
 	});
 
 	it("counts a squash merge, and deletes the branch it leaves", async () => {
@@ -206,7 +208,7 @@ describe("pruning a branch merged on the host", () => {
 
 		await provider.release({ path: handle.path });
 
-		expect(existsSync(handle.path)).toBe(false);
+		expect(existsSync(handle.path), `${handle.path} is removed`).toBe(false);
 		expect(await git(repoRoot, "branch", "--list", "squashed-there")).toBe("");
 	});
 
@@ -216,7 +218,7 @@ describe("pruning a branch merged on the host", () => {
 		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/not merged against origin\/main/,
 		);
-		expect(existsSync(handle.path)).toBe(true);
+		expect(existsSync(handle.path), `${handle.path} is kept`).toBe(true);
 	});
 
 	it("still refuses when the host squashed only part of the work", async () => {

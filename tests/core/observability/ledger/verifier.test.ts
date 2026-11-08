@@ -72,7 +72,7 @@ describe("verifier outcomes", () => {
 		await store.recordCalls([call({ verifierKind: "test" })]);
 
 		const outcomes = await store.verifierOutcomes();
-		expect(outcomes.some((o) => o.kind === "build")).toBe(false);
+		expect(outcomes.map((o) => o.kind)).not.toContain("build");
 		await store.close();
 	});
 

@@ -33,7 +33,7 @@ describe("reapAbandonedResults", () => {
 
 		reapAbandonedResults({ root, isPidAlive: () => false });
 
-		expect(fs.existsSync(dead)).toBe(false);
+		expect(fs.existsSync(dead), `${dead} is removed`).toBe(false);
 	});
 
 	it("leaves a live session's payloads alone", () => {
@@ -41,7 +41,7 @@ describe("reapAbandonedResults", () => {
 
 		reapAbandonedResults({ root, isPidAlive: (pid) => pid === process.pid });
 
-		expect(fs.existsSync(live)).toBe(true);
+		expect(fs.existsSync(live), `${live} is kept`).toBe(true);
 	});
 
 	it("does not touch directories it did not name", () => {
@@ -50,7 +50,7 @@ describe("reapAbandonedResults", () => {
 
 		reapAbandonedResults({ root, isPidAlive: () => false });
 
-		expect(fs.existsSync(notOurs)).toBe(true);
+		expect(fs.existsSync(notOurs), `${notOurs} is kept`).toBe(true);
 	});
 
 	it("is quiet about a root that does not exist", () => {
@@ -65,13 +65,19 @@ describe("reapAbandonedResults", () => {
 
 describe("isPidAlive", () => {
 	it("knows this process is running", () => {
-		expect(isPidAlive(process.pid)).toBe(true);
+		expect(
+			isPidAlive(process.pid),
+			`this process, ${process.pid}, reads as alive`,
+		).toBe(true);
 	});
 
 	it("knows a pid that cannot exist is not running", () => {
 		// Above the platform maximum, so it is not a pid that could be
 		// recycled between the check and the assertion.
-		expect(isPidAlive(0x7fffffff)).toBe(false);
+		expect(
+			isPidAlive(0x7fffffff),
+			"a pid above the maximum reads as gone",
+		).toBe(false);
 	});
 });
 
@@ -87,6 +93,7 @@ describe("opening the session store", () => {
 		// one place that knows how to answer when a write fails. An
 		// unwritable temp directory threw past all of it and cost the
 		// caller an answer that had nothing to do with storage.
-		if (!existedBefore) expect(fs.existsSync(dir)).toBe(false);
+		if (!existedBefore)
+			expect(fs.existsSync(dir), `${dir} is not created`).toBe(false);
 	});
 });

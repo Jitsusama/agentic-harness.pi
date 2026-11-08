@@ -155,24 +155,30 @@ describe("a background job's result", () => {
 		job.onDelivered(() => delivered++);
 		job.finish({ summary: "the user is away" });
 
-		expect(job.withdraw()).toBe(true);
+		expect(job.withdraw(), "a finished job not yet said is taken back").toBe(
+			true,
+		);
 		session.busy = false;
 		await fire("agent_settled");
 
 		expect(said).toHaveLength(0);
 		expect(delivered).toBe(1);
-		expect(job.withdraw()).toBe(false);
+		expect(job.withdraw(), "a job already taken back is not taken again").toBe(
+			false,
+		);
 	});
 
 	it("cannot be taken back once it has been said, or before it finished", async () => {
 		const { host, said } = await started();
 		const running = host.start({ kind: "away", label: "keep going" });
-		expect(running.withdraw()).toBe(false);
+		expect(running.withdraw(), "a running job is not taken back").toBe(false);
 
 		running.finish({ summary: "carry on" });
 
 		expect(said).toHaveLength(1);
-		expect(running.withdraw()).toBe(false);
+		expect(running.withdraw(), "a job already said is not taken back").toBe(
+			false,
+		);
 	});
 
 	it("is said once, however often it is finished", async () => {
@@ -209,7 +215,7 @@ describe("when the session ends", () => {
 		const { host, said, fire, events } = await started();
 		const job = host.start({ kind: "subagent", label: "lanes" });
 		await fire("session_shutdown", { reason: "quit" });
-		expect(job.signal.aborted).toBe(true);
+		expect(job.signal.aborted, "the session's end stops the job").toBe(true);
 		expect(jobStopOf(job.signal)).toBe("session");
 		job.finish({ summary: "too late" });
 		expect(said).toHaveLength(0);
@@ -296,12 +302,15 @@ describe("the person stopping a job", () => {
 		expect(jobs).toBeDefined();
 		// Escape on the list leaves it running.
 		await jobs?.handler("", pi.ctx);
-		expect(job.signal.aborted).toBe(false);
+		expect(
+			job.signal.aborted,
+			"Escape on the list leaves the job running",
+		).toBe(false);
 		// Picked, then confirmed; the list's first choice is the job.
 		pi.ctx.ui.select = async (_title: string, options: string[]) =>
 			options[0] === "Stop it" ? "Stop it" : options[0];
 		await jobs?.handler("", pi.ctx);
-		expect(job.signal.aborted).toBe(true);
+		expect(job.signal.aborted, "a confirmed stop stops the job").toBe(true);
 		expect(jobStopOf(job.signal)).toBe("person");
 		expect(pi.said).toHaveLength(1);
 		expect(pi.said[0]).toMatch(/stopped/i);
@@ -361,9 +370,9 @@ describe("the agent stopping a job", () => {
 
 		const answer = await call({ action: "stop", id: job.id });
 
-		expect(answer.isError).not.toBe(true);
+		expect(answer).not.toMatchObject({ isError: true });
 		expect(text(answer)).toContain(`Stopped ${job.id}`);
-		expect(job.signal.aborted).toBe(true);
+		expect(job.signal.aborted, "the tool's stop stops the job").toBe(true);
 		expect(jobStopOf(job.signal)).toBe("agent");
 		// The mesh lets go of the call's lease on hearing this.
 		expect(heard).toEqual([
@@ -388,11 +397,11 @@ describe("the agent stopping a job", () => {
 		const unknown = await call({ action: "stop", id: "j99" });
 		const unnamed = await call({ action: "stop" });
 
-		expect(finished.isError).toBe(true);
+		expect(finished).toMatchObject({ isError: true });
 		expect(text(finished)).toMatch(/finished/);
-		expect(unknown.isError).toBe(true);
+		expect(unknown).toMatchObject({ isError: true });
 		expect(text(unknown)).toContain("j99");
-		expect(unnamed.isError).toBe(true);
+		expect(unnamed).toMatchObject({ isError: true });
 		expect(jobStopOf(done.signal)).toBeUndefined();
 	});
 });

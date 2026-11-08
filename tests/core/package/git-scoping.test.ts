@@ -115,8 +115,11 @@ describe("git invocations name the repo they mean", () => {
 		// exactly the kind of check that quietly matches nothing.
 		const dropped = `["diff", \`\${base}...\${head}\`]`;
 
-		expect(scoped(dropped)).toBe(false);
-		expect(scoped(`["-C", root, "diff", "a...b"]`)).toBe(true);
+		expect(scoped(dropped), "a git call with no -C is unscoped").toBe(false);
+		expect(
+			scoped(`["-C", root, "diff", "a...b"]`),
+			"a git call with -C is scoped",
+		).toBe(true);
 	});
 
 	it("finds the calls it claims to be checking", () => {

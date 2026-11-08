@@ -57,7 +57,7 @@ describe("telling the model who it is on Slack", () => {
 		const third = standingContextTurn(IDENTITY_CONTEXT, second.ledger, who);
 
 		expect(second.message?.content).toBe(who);
-		expect(second.message?.display).toBe(false);
+		expect(second.message).toMatchObject({ display: false });
 		expect(third.message).toBeUndefined();
 	});
 });

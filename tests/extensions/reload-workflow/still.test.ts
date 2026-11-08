@@ -51,7 +51,7 @@ describe("waiting for the session to be still", () => {
 			still = true;
 		});
 		await new Promise((done) => setTimeout(done, STILL_MS * 3));
-		expect(still).toBe(false);
+		expect(still, "the wait holds while the resumed run goes on").toBe(false);
 
 		session.finish();
 		await waiting;
@@ -83,7 +83,7 @@ describe("waiting for the session to be still", () => {
 			return n;
 		});
 		await new Promise((done) => setTimeout(done, STILL_MS * 4));
-		expect(still).toBe(false);
+		expect(still, "the wait holds while a run is under way").toBe(false);
 
 		underWay = false;
 		expect(await waiting).toBeGreaterThan(0);

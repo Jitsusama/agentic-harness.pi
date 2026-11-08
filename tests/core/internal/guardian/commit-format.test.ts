@@ -9,33 +9,39 @@ const GOOD = "feat(work): record a commit through the tool";
 
 describe("judging a commit message", () => {
 	it("accepts conventional form", () => {
-		expect(validate(GOOD).conventionalOk).toBe(true);
+		expect(validate(GOOD)).toMatchObject({ conventionalOk: true });
 		expect(complaintsAbout(GOOD)).toEqual([]);
 	});
 
 	it("accepts a scope with a slash or a dash", () => {
-		expect(validate("fix(a/b-c): thing").conventionalOk).toBe(true);
+		expect(validate("fix(a/b-c): thing")).toMatchObject({
+			conventionalOk: true,
+		});
 	});
 
 	it("accepts a breaking-change marker", () => {
-		expect(validate("feat!: drop the old surface").conventionalOk).toBe(true);
+		expect(validate("feat!: drop the old surface")).toMatchObject({
+			conventionalOk: true,
+		});
 	});
 
 	it("rejects a subject with no type", () => {
-		expect(validate("record a commit").conventionalOk).toBe(false);
+		expect(validate("record a commit")).toMatchObject({
+			conventionalOk: false,
+		});
 	});
 
 	it("measures the subject rather than judging it vaguely", () => {
 		const long = `feat: ${"x".repeat(60)}`;
 
-		expect(validate(long).subjectOk).toBe(false);
+		expect(validate(long)).toMatchObject({ subjectOk: false });
 		expect(validate(long).subjectLength).toBe(66);
 	});
 
 	it("finds the longest body line and says which one it is", () => {
 		const message = `${GOOD}\n\nshort\n${"y".repeat(80)}`;
 
-		expect(validate(message).bodyWrapOk).toBe(false);
+		expect(validate(message)).toMatchObject({ bodyWrapOk: false });
 		expect(validate(message).bodyLongestLine).toBe(80);
 		expect(validate(message).bodyLongestLineNum).toBe(4);
 	});
@@ -104,15 +110,15 @@ describe("wrapping a body", () => {
 	it("keeps paragraphs apart", () => {
 		const wrapped = wrapBody(`${sentence}\n\nSecond.`);
 		expect(wrapped.split("\n\n")).toHaveLength(2);
-		expect(wrapped.endsWith("\n\nSecond.")).toBe(true);
+		expect(wrapped).toMatch(/\n\nSecond\.$/);
 	});
 
 	it("wraps a list item under its own text", () => {
 		const wrapped = wrapBody(`- ${sentence}\n- Next.`);
 		const lines = wrapped.split("\n");
 		expect(longest(wrapped)).toBeLessThanOrEqual(72);
-		expect(lines[0]?.startsWith("- The broker")).toBe(true);
-		expect(lines[1]?.startsWith("  ")).toBe(true);
+		expect(lines[0]).toMatch(/^- The broker/);
+		expect(lines[1]).toMatch(/^ {2}/);
 		expect(lines.at(-1)).toBe("- Next.");
 	});
 

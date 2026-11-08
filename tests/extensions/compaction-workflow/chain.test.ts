@@ -263,7 +263,7 @@ describe("walking the provider chain on the spot", () => {
 		)) as Compacted;
 
 		expect(result.compaction.summary).toBe("by only\n\n## Mastery");
-		expect(seen[0]?.handled).toBe(true);
+		expect(seen[0]).toMatchObject({ handled: true });
 	});
 
 	it("hands the compaction to pi, with every attempt, when no provider writes", async () => {

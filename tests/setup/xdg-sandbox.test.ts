@@ -21,7 +21,10 @@ describe("the test suite's XDG sandbox", () => {
 			dataDir("quest-workflow"),
 			cacheDir("quest-workflow"),
 		]) {
-			expect(path.startsWith(homedir())).toBe(false);
+			expect(
+				path.startsWith(homedir()),
+				`${path} lies outside the home directory, ${homedir()}`,
+			).toBe(false);
 		}
 	});
 
@@ -32,7 +35,10 @@ describe("the test suite's XDG sandbox", () => {
 		// machine's real weights with its throwaway quests'.
 		const queue = machineQueueDir() ?? "";
 
-		expect(queue.startsWith("/run/user/")).toBe(false);
-		expect(queue.startsWith(tmpdir())).toBe(true);
+		expect(queue).not.toMatch(/^\/run\/user\//);
+		expect(
+			queue.startsWith(tmpdir()),
+			`${queue} lies under the temporary directory, ${tmpdir()}`,
+		).toBe(true);
 	});
 });

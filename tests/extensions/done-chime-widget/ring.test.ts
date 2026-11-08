@@ -109,7 +109,9 @@ describe("ringing", () => {
 			env: ON,
 			sound: LINUX,
 		});
-		expect(rang).toBe(true);
+		expect(rang, "a ring with every tool there answers that it rang").toBe(
+			true,
+		);
 		expect(calls.map(([command]) => command)).toEqual([
 			"/bin/pw-play",
 			"/bin/piper",
@@ -123,7 +125,8 @@ describe("ringing", () => {
 		const { exec, calls } = recording();
 		await ring("Ready.", { platform: "linux", exec, env: ON, sound: LINUX });
 		const said = calls[1][1][3];
-		expect(existsSync(said.replace(/said\.wav$/, ""))).toBe(false);
+		const scratch = said.replace(/said\.wav$/, "");
+		expect(existsSync(scratch), `${scratch} is removed`).toBe(false);
 	});
 
 	it("still dings when the voice can't be made, and says nothing", async () => {
@@ -134,7 +137,7 @@ describe("ringing", () => {
 			env: ON,
 			sound: LINUX,
 		});
-		expect(rang).toBe(true);
+		expect(rang, "a ding with no voice still answers that it rang").toBe(true);
 		expect(calls.map(([command]) => command)).toEqual([
 			"/bin/pw-play",
 			"/bin/piper",
@@ -149,7 +152,9 @@ describe("ringing", () => {
 			env: ON,
 			sound: { ...LINUX, voice: undefined },
 		});
-		expect(rang).toBe(false);
+		expect(rang, "a ring with no player answers that it did not ring").toBe(
+			false,
+		);
 	});
 
 	it("answers false rather than throwing when running a tool throws", async () => {
@@ -158,6 +163,7 @@ describe("ringing", () => {
 		};
 		expect(
 			await ring("Ready.", { platform: "linux", exec, env: ON, sound: LINUX }),
+			"a ring whose tools throw answers that it did not ring",
 		).toBe(false);
 	});
 
@@ -169,7 +175,9 @@ describe("ringing", () => {
 			env: { PI_NOTIFY: "off" },
 			sound: LINUX,
 		});
-		expect(rang).toBe(false);
+		expect(rang, "a ring with PI_NOTIFY off answers that it did not ring").toBe(
+			false,
+		);
 		expect(calls).toEqual([]);
 	});
 

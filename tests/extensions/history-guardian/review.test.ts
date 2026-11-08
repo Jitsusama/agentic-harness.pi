@@ -59,9 +59,18 @@ describe("finding history commands", () => {
 	it("sends each severity to its own guardian", () => {
 		const command = "git rebase main && git reset --hard origin/main";
 
-		expect(riskyHistoryGuardian.detect(command)).toBe(true);
-		expect(destructiveHistoryGuardian.detect(command)).toBe(true);
-		expect(destructiveHistoryGuardian.detect("git rebase main")).toBe(false);
+		expect(
+			riskyHistoryGuardian.detect(command),
+			"the risky guardian takes the rebase",
+		).toBe(true);
+		expect(
+			destructiveHistoryGuardian.detect(command),
+			"the destructive guardian takes the hard reset",
+		).toBe(true);
+		expect(
+			destructiveHistoryGuardian.detect("git rebase main"),
+			"the destructive guardian leaves a rebase alone",
+		).toBe(false);
 	});
 });
 
@@ -152,6 +161,6 @@ describe("an irrecoverable command", () => {
 			"block",
 		);
 
-		expect(result && "block" in result && result.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 	});
 });

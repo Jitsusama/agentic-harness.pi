@@ -55,7 +55,9 @@ describe("auditQuestRecord", () => {
 			],
 			uncited: [],
 		});
-		expect(isRecordSound(audit)).toBe(false);
+		expect(isRecordSound(audit), "a broken link makes the record unsound").toBe(
+			false,
+		);
 	});
 
 	it("reports each stray by its outermost path", () => {
@@ -127,7 +129,10 @@ describe("auditQuestRecord", () => {
 	it("calls a record with only uncited attachments sound", () => {
 		put("plans/PLAN-20260924-RUE4Q4.md", "See `attachments/runs/`.\n");
 		put("attachments/lonely.md");
-		expect(isRecordSound(auditQuestRecord(questDir))).toBe(true);
+		expect(
+			isRecordSound(auditQuestRecord(questDir)),
+			"uncited attachments alone leave the record sound",
+		).toBe(true);
 	});
 });
 

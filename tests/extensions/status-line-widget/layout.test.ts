@@ -119,11 +119,9 @@ describe("pi's status line at its full width", () => {
 			behind: 1,
 		};
 
-		expect(
-			read(facts({ git }), 200).endsWith(
-				"B jitsusama/status-line-language *+? \u21912\u21931",
-			),
-		).toBe(true);
+		expect(read(facts({ git }), 200)).toMatch(
+			/B jitsusama\/status-line-language \*\+\? \u21912\u21931$/,
+		);
 	});
 
 	it("writes only what holds, in git's order", () => {
@@ -136,23 +134,17 @@ describe("pi's status line at its full width", () => {
 	});
 
 	it("writes nothing after the branch when the tree is clean and in step", () => {
-		expect(
-			read(facts(), 200).endsWith("B jitsusama/status-line-language"),
-		).toBe(true);
+		expect(read(facts(), 200)).toMatch(/B jitsusama\/status-line-language$/);
 	});
 
 	it("takes pi's own branch, unmarked, when no engine has answered", () => {
-		expect(
-			read(facts({ git: null, branch: "main" }), 200).endsWith(
-				"Σ $1.23  B main",
-			),
-		).toBe(true);
+		expect(read(facts({ git: null, branch: "main" }), 200)).toMatch(
+			/Σ \$1\.23 {2}B main$/,
+		);
 	});
 
 	it("says no branch outside a repository", () => {
-		expect(
-			read(facts({ git: null, branch: null }), 200).endsWith("Σ $1.23"),
-		).toBe(true);
+		expect(read(facts({ git: null, branch: null }), 200)).toMatch(/Σ \$1\.23$/);
 	});
 
 	it("leaves the panel's height unsaid at the usual height and says it otherwise", () => {
@@ -163,7 +155,7 @@ describe("pi's status line at its full width", () => {
 	it("places each extension's mark whole, two spaces from the next", () => {
 		const { right } = layout(facts({ statuses: ["⚑", "⧗ 2"] }), 200);
 
-		expect(text(right).startsWith("⚑  ⧗ 2  ◑ 45.2k")).toBe(true);
+		expect(text(right)).toMatch(/^⚑ {2}⧗ 2 {2}◑ 45\.2k/);
 		expect(right[0]).toEqual({ role: "painted", text: "⚑" });
 	});
 });

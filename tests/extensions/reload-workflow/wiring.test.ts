@@ -292,11 +292,11 @@ describe("the agent asking for a reload", LANDS, () => {
 
 		const command = now.command("reload", next);
 		await new Promise((done) => setTimeout(done, 1_500));
-		expect(reloaded).toBe(false);
+		expect(reloaded, "the reload waits out the resumed run").toBe(false);
 
 		await now.fire("agent_settled");
 		await command;
-		expect(reloaded).toBe(true);
+		expect(reloaded, "the reload goes ahead once the run settles").toBe(true);
 		expect(now.entries).toMatchObject([
 			{ type: "reload-waited-for-run", data: { times: expect.any(Number) } },
 		]);
@@ -509,7 +509,7 @@ describe("a reload nobody asked the agent for", LANDS, () => {
 		}
 
 		expect(left.hidden).toEqual([]);
-		expect(left.statuses.has(STATUS_KEY)).toBe(false);
+		expect([...left.statuses.keys()]).not.toContain(STATUS_KEY);
 	});
 
 	it("drops a request the old code was still waiting to run", async () => {

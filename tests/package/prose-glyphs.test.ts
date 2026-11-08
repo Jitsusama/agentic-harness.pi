@@ -148,16 +148,28 @@ describe("this package's own TypeScript", () => {
 		// The truncation helpers slice to `max - 1` so appending it lands on
 		// exactly `max`. Three periods would overflow every one of them.
 		const truncation = ["`$", "{v.slice(0, max - 1)}\u2026`"].join("");
-		expect(/[\u2014\u2018\u2019\u201c\u201d]/.test(truncation)).toBe(false);
+		expect(truncation).not.toMatch(/[\u2014\u2018\u2019\u201c\u201d]/);
 	});
 
 	it("still permits a separator glyph in rendered output", () => {
-		expect(isRenderedSeparator('\treturn "\u2014";')).toBe(true);
-		expect(isRenderedSeparator('parts.join(" \u2014 ")')).toBe(true);
-		expect(isRenderedSeparator("// a comment \u2014 with prose")).toBe(false);
+		expect(
+			isRenderedSeparator('\treturn "\u2014";'),
+			"a separator returned on its own",
+		).toBe(true);
+		expect(
+			isRenderedSeparator('parts.join(" \u2014 ")'),
+			"a separator that joins rendered parts",
+		).toBe(true);
+		expect(
+			isRenderedSeparator("// a comment \u2014 with prose"),
+			"a dash in a comment's prose",
+		).toBe(false);
 		// The direction this exception would drift, pinned shut.
 		const interpolated = ["`$", "{name} \u2014 $", "{count} members`"].join("");
-		expect(isRenderedSeparator(interpolated)).toBe(false);
+		expect(
+			isRenderedSeparator(interpolated),
+			"a dash between interpolated values in a template",
+		).toBe(false);
 	});
 });
 

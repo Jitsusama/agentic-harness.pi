@@ -66,9 +66,11 @@ describe("the jobs tool over a registry carried from older code", () => {
 
 		const answer = await call({ action: "stop", id: job.id });
 
-		expect(answer.isError).not.toBe(true);
+		expect(answer).not.toMatchObject({ isError: true });
 		expect(answer.text).toContain(`Stopped ${job.id}`);
-		expect(job.signal.aborted).toBe(true);
+		expect(job.signal.aborted, "the older registry's stop stops the job").toBe(
+			true,
+		);
 		// The older stop is the person's, and it says so in a message; the
 		// answer warns that the message is this stop, not a second one.
 		expect(jobStopOf(job.signal)).toBe("person");
@@ -85,9 +87,9 @@ describe("the jobs tool over a registry carried from older code", () => {
 		const finished = await call({ action: "stop", id: done.id });
 		const unknown = await call({ action: "stop", id: "j99" });
 
-		expect(finished.isError).toBe(true);
+		expect(finished).toMatchObject({ isError: true });
 		expect(finished.text).toMatch(/already finished/);
-		expect(unknown.isError).toBe(true);
+		expect(unknown).toMatchObject({ isError: true });
 		expect(unknown.text).toMatch(/holds nothing in the background as j99/);
 	});
 });

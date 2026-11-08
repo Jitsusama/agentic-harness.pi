@@ -19,19 +19,29 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("advisor settings", () => {
 	it("defaults to disabled when no file exists", () => {
-		expect(loadAdvisorEnabled(path)).toBe(false);
+		expect(loadAdvisorEnabled(path), "no settings file means disabled").toBe(
+			false,
+		);
 	});
 
 	it("round-trips the enabled flag", () => {
 		saveAdvisorEnabled(path, true);
-		expect(loadAdvisorEnabled(path)).toBe(true);
+		expect(
+			loadAdvisorEnabled(path),
+			"saved as enabled reads back enabled",
+		).toBe(true);
 		saveAdvisorEnabled(path, false);
-		expect(loadAdvisorEnabled(path)).toBe(false);
+		expect(
+			loadAdvisorEnabled(path),
+			"saved as disabled reads back disabled",
+		).toBe(false);
 	});
 
 	it("stays disabled on a corrupt file", () => {
 		const corrupt = join(dir, "corrupt.json");
 		writeFileSync(corrupt, "{ not json");
-		expect(loadAdvisorEnabled(corrupt)).toBe(false);
+		expect(loadAdvisorEnabled(corrupt), "a corrupt file means disabled").toBe(
+			false,
+		);
 	});
 });

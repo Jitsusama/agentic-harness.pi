@@ -12,13 +12,16 @@ import { createSessionRegistry } from "../../../extensions/browser-integration/r
 describe("what the registry remembers", () => {
 	it("knows nothing about a name never used", () => {
 		const registry = createSessionRegistry();
-		expect(registry.has("nope")).toBe(false);
+		expect(registry.has("nope"), "a name never used is not held").toBe(false);
 		expect(registry.departureOf("nope")).toBeUndefined();
 	});
 
 	it("reports nothing to close for a name never used", async () => {
 		const registry = createSessionRegistry();
-		await expect(registry.close("nope")).resolves.toBe(false);
+		await expect(
+			registry.close("nope"),
+			"closing a name never used answers that nothing closed",
+		).resolves.toBe(false);
 	});
 
 	it("does not invent a departure for a failed close", async () => {

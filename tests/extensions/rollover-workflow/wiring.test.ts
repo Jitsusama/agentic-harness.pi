@@ -427,7 +427,7 @@ describe("the command", () => {
 		await command?.handler("", ctx);
 
 		expect(during).toEqual([true]);
-		expect(reloadSlot().rolling).toBe(false);
+		expect(reloadSlot()).toMatchObject({ rolling: false });
 	});
 
 	it("says why it did not, for a session with no compaction", async () => {

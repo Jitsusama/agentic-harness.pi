@@ -14,7 +14,7 @@ describe("mermaidContent", () => {
 		// turn, buys nothing: 69 renders cost $4,644 in rent this way.
 		const content = mermaidContent(RENDER, false);
 
-		expect(content.some((block) => block.type === "image")).toBe(false);
+		expect(content.map((block) => block.type)).not.toContain("image");
 		expect(JSON.stringify(content)).not.toContain("AAAABBBB");
 	});
 

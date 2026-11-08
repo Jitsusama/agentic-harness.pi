@@ -15,9 +15,6 @@
  * over several lines is missed, which lets some through but never fails a
  * file that keeps the rule. An expect whose argument list holds a comma
  * outside any bracket or string carries a message, and passes.
- *
- * A file still holding a bare one is listed below, with why, and the list
- * fails once that file no longer holds any, so it only shrinks.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -36,93 +33,6 @@ const BARE =
 /** What follows an expect's closing bracket when it is told only true or false. */
 const BOOLEAN_MATCHER =
 	/^\.(toBe\((true|false)\)|toBeTruthy\(\)|toBeFalsy\(\))/;
-
-/** Files still holding a bare boolean expect, each with why. */
-const BATCHED =
-	"its bare boolean expects are being replaced folder by folder; see the repo-quality-standard skill's rule 8";
-
-const WAITING: Record<string, string> = {
-	"tests/core/advisor/settings.test.ts": BATCHED,
-	"tests/core/advisor/substantive.test.ts": BATCHED,
-	"tests/core/attribution/commit-hook.test.ts": BATCHED,
-	"tests/core/governance/store.test.ts": BATCHED,
-	"tests/core/internal/guardian/commit-format.test.ts": BATCHED,
-	"tests/core/internal/guardian/prose-gate.test.ts": BATCHED,
-	"tests/core/internal/quest/record-audit.test.ts": BATCHED,
-	"tests/core/internal/quest/workspace.test.ts": BATCHED,
-	"tests/core/lsp/external.test.ts": BATCHED,
-	"tests/core/lsp/standalone/standalone.integration.test.ts": BATCHED,
-	"tests/core/observability/ledger/verifier.test.ts": BATCHED,
-	"tests/core/package/git-scoping.test.ts": BATCHED,
-	"tests/core/process/process.test.ts": BATCHED,
-	"tests/core/result/location.test.ts": BATCHED,
-	"tests/core/result/spill.test.ts": BATCHED,
-	"tests/core/result/store.test.ts": BATCHED,
-	"tests/core/sections/compose.test.ts": BATCHED,
-	"tests/core/sections/depth.test.ts": BATCHED,
-	"tests/core/sections/detect.test.ts": BATCHED,
-	"tests/core/support/oauth-callback.ts": BATCHED,
-	"tests/core/tree/git-worktree-stopping.test.ts": BATCHED,
-	"tests/core/tree/git-worktree.test.ts": BATCHED,
-	"tests/core/verify/run.test.ts": BATCHED,
-	"tests/extensions/advisor/stopping.test.ts": BATCHED,
-	"tests/extensions/away-workflow/away.test.ts": BATCHED,
-	"tests/extensions/away-workflow/carry-on.test.ts": BATCHED,
-	"tests/extensions/away-workflow/reach.test.ts": BATCHED,
-	"tests/extensions/away-workflow/wiring.test.ts": BATCHED,
-	"tests/extensions/browser-integration/registry-turns.test.ts": BATCHED,
-	"tests/extensions/browser-integration/registry.test.ts": BATCHED,
-	"tests/extensions/commit-guardian/parse.test.ts": BATCHED,
-	"tests/extensions/compaction-workflow/chain.test.ts": BATCHED,
-	"tests/extensions/compaction-workflow/host.test.ts": BATCHED,
-	"tests/extensions/compaction-workflow/kept-request.test.ts": BATCHED,
-	"tests/extensions/convention-context/scope.test.ts": BATCHED,
-	"tests/extensions/done-chime-widget/ring.test.ts": BATCHED,
-	"tests/extensions/done-chime-widget/when.test.ts": BATCHED,
-	"tests/extensions/git-cli-interceptor/policy.test.ts": BATCHED,
-	"tests/extensions/history-guardian/review.test.ts": BATCHED,
-	"tests/extensions/image-budget-workflow/rebudget.test.ts": BATCHED,
-	"tests/extensions/job-workflow/cut-off.test.ts": BATCHED,
-	"tests/extensions/job-workflow/host.test.ts": BATCHED,
-	"tests/extensions/job-workflow/reload.test.ts": BATCHED,
-	"tests/extensions/job-workflow/rollover.test.ts": BATCHED,
-	"tests/extensions/job-workflow/tool.test.ts": BATCHED,
-	"tests/extensions/loadout-workflow/skills.test.ts": BATCHED,
-	"tests/extensions/lsp-integration/restarting.test.ts": BATCHED,
-	"tests/extensions/lsp-integration/stopping.test.ts": BATCHED,
-	"tests/extensions/mermaid-widget/content.test.ts": BATCHED,
-	"tests/extensions/mesh-workflow/hand.test.ts": BATCHED,
-	"tests/extensions/mesh-workflow/mesh.test.ts": BATCHED,
-	"tests/extensions/mesh-workflow/pausing.test.ts": BATCHED,
-	"tests/extensions/mesh-workflow/talks.test.ts": BATCHED,
-	"tests/extensions/park-workflow/watch.test.ts": BATCHED,
-	"tests/extensions/pr-guardian/redirect.test.ts": BATCHED,
-	"tests/extensions/pr-guardian/review.test.ts": BATCHED,
-	"tests/extensions/priority-workflow/push-hooks-guard.test.ts": BATCHED,
-	"tests/extensions/reload-workflow/still.test.ts": BATCHED,
-	"tests/extensions/reload-workflow/wiring.test.ts": BATCHED,
-	"tests/extensions/result-store-workflow/lifetime.test.ts": BATCHED,
-	"tests/extensions/rollover-workflow/wiring.test.ts": BATCHED,
-	"tests/extensions/shell-habit-interceptor/sleep.test.ts": BATCHED,
-	"tests/extensions/shell-workflow/hand-off.test.ts": BATCHED,
-	"tests/extensions/shell-workflow/real-bash.test.ts": BATCHED,
-	"tests/extensions/shell-workflow/reap.test.ts": BATCHED,
-	"tests/extensions/slack-integration/context.test.ts": BATCHED,
-	"tests/extensions/spend-workflow/audit-input.test.ts": BATCHED,
-	"tests/extensions/spend-workflow/resources.test.ts": BATCHED,
-	"tests/extensions/status-line-widget/layout.test.ts": BATCHED,
-	"tests/extensions/verification-workflow/render.test.ts": BATCHED,
-	"tests/extensions/verification-workflow/stopping.test.ts": BATCHED,
-	"tests/package/glyphs-are-owned.test.ts": BATCHED,
-	"tests/package/one-glyph-set-for-spawned-work.test.ts": BATCHED,
-	"tests/package/one-grace-for-a-departed-process.test.ts": BATCHED,
-	"tests/package/prose-glyphs.test.ts": BATCHED,
-	"tests/package/runtime-deps.test.ts": BATCHED,
-	"tests/package/skill-frontmatter-fits.test.ts": BATCHED,
-	"tests/package/stored-results.test.ts": BATCHED,
-	"tests/package/the-journal-is-bound-on-disk.test.ts": BATCHED,
-	"tests/setup/xdg-sandbox.test.ts": BATCHED,
-};
 
 /** A bare boolean expect: the file, its line and what the line says. */
 interface Bare {
@@ -206,8 +116,6 @@ function bareExpects(): Bare[] {
 }
 
 describe("the package's expects", () => {
-	const found = bareExpects();
-
 	it("tell a bare boolean expect from one that says what failed", () => {
 		// A matcher that finds nothing passes everything. This is the check
 		// that it finds what it is meant to and lets the rest by. The
@@ -231,22 +139,12 @@ describe("the package's expects", () => {
 	});
 
 	it("each say what failed, not only that it did", () => {
-		const bare = found
-			.filter(({ file }) => !(file in WAITING))
-			.map(({ file, line, text }) => `${file}:${line}: ${text}`);
+		const bare = bareExpects().map(
+			({ file, line, text }) => `${file}:${line}: ${text}`,
+		);
 		expect(
 			bare,
 			`these expects tell their matcher only true or false, so they fail saying only that false was not true: hand the matcher the value instead (toBe(b), toContain(x), toMatch(/^p/), toMatchObject({ ok: true })), or give the expect a message saying what should hold:\n${bare.join("\n")}`,
-		).toEqual([]);
-	});
-
-	it("keep no file waiting that no longer holds a bare one", () => {
-		const stale = Object.keys(WAITING).filter(
-			(file) => !found.some((bare) => bare.file === file),
-		);
-		expect(
-			stale,
-			`waiting but holding no bare boolean expect now; take them out of WAITING:\n${stale.join("\n")}`,
 		).toEqual([]);
 	});
 });

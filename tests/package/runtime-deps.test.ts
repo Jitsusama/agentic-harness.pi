@@ -157,7 +157,7 @@ describe("what ships can load", () => {
 
 	it("finds the imports at all, so a pass means something", () => {
 		// Without this, a broken scanner reports a clean package.
-		expect(imported.has("puppeteer-core")).toBe(true);
+		expect([...imported.keys()]).toContain("puppeteer-core");
 		expect(imported.size).toBeGreaterThan(3);
 	});
 
@@ -199,7 +199,7 @@ describe("what ships can load", () => {
 		const meta = manifest.peerDependenciesMeta ?? {};
 
 		it("finds the pi imports, so a pass means something", () => {
-			expect(needed.has("@earendil-works/pi-coding-agent")).toBe(true);
+			expect([...needed]).toContain("@earendil-works/pi-coding-agent");
 		});
 
 		it("declares them as peers, which is what pi's own docs ask for", () => {

@@ -137,7 +137,10 @@ describe("the fast layer at the end of a turn", () => {
 
 		await vi.advanceTimersByTimeAsync(FAST_LAYER_WALL_MS + 100);
 
-		expect(turn.settled()).toBe(true);
+		expect(
+			turn.settled(),
+			"the turn ends once the fast layer's clock runs out",
+		).toBe(true);
 		expect(h.sendMessage).not.toHaveBeenCalled();
 		// Deferred knows nothing about the code, so the footer says nothing.
 		expect(h.statuses.at(-1)).toBeUndefined();
@@ -153,8 +156,11 @@ describe("the fast layer at the end of a turn", () => {
 		run.abort();
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
-		expect(turn.settled()).toBe(true);
-		expect(handed[0]?.aborted).toBe(true);
+		expect(turn.settled(), "the turn ends once the run is stopped").toBe(true);
+		expect(
+			handed[0]?.aborted,
+			"the server's signal is stopped with the run",
+		).toBe(true);
 		expect(h.sendMessage).not.toHaveBeenCalled();
 	});
 

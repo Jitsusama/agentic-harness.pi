@@ -93,7 +93,7 @@ describe("one glyph set for spawned work", () => {
 		const owned = new Set(["\u25c6", "\u25c7", "\u25c8", "\u25c9"]);
 
 		for (const state of STATES) {
-			expect(owned.has(AGENT_GLYPH[state])).toBe(false);
+			expect([...owned]).not.toContain(AGENT_GLYPH[state]);
 		}
 	});
 

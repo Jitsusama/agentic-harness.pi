@@ -97,7 +97,9 @@ describe("skill frontmatter", () => {
 
 	it("finds the skills, so the rest is not passing on an empty list", () => {
 		expect(skills.length).toBeGreaterThan(20);
-		expect(skills.every((one) => one.description !== "")).toBe(true);
+		expect(
+			skills.filter((one) => one.description === "").map((one) => one.file),
+		).toEqual([]);
 	});
 
 	it("keeps every description inside pi's limit", () => {
