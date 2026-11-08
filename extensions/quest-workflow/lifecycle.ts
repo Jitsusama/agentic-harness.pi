@@ -416,7 +416,7 @@ export function restore(
 
 /** How the startup resolver chose the quest to load. */
 export interface StartupResolution {
-	source: "explicit" | "persisted" | "cwd" | "none";
+	source: "explicit" | "persisted" | "record" | "cwd" | "none";
 	questId: string | null;
 }
 
@@ -430,7 +430,10 @@ export interface StartupResolution {
  *    held.
  * 2. Persisted session history next. A /reload reuses the same
  *    session, so the last loaded quest and focused document are
- *    exactly the right thing to restore.
+ *    exactly the right thing to restore. A log that never said falls
+ *    back to the quest whose README lists the session as active.
+ *    Either way the session's attach then writes this pi over the
+ *    entry, so its clean end lets the entry go.
  * 3. The cwd last. A fresh session with no history resolves from the
  *    quest directory or working tree it launched inside.
  *
@@ -455,6 +458,9 @@ export function resolveStartup(
 	}
 	if (restore(state, pi, ctx)) {
 		return { source: "persisted", questId: state.questId };
+	}
+	if (restoreFromRecord(state, pi, ctx)) {
+		return { source: "record", questId: state.questId };
 	}
 	// The cwd walk is the only path that attaches a fresh session
 	// it never chose. When the user disables it, a fresh session
@@ -509,6 +515,41 @@ export function sayFirstWords(
 		const idle = ctx.isIdle?.() ?? true;
 		pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
 	};
+}
+
+/**
+ * Load the quest whose README lists this session as active, when its own
+ * log never said which it had: a pi ended before its first tool call
+ * writes no history, so a pi resumed on that log loaded nothing, and its
+ * quest kept the dead pi's entry. On 7 November drill session 01a1b947
+ * was spawned at 22:50, killed a minute on, resumed at 23:15 with no
+ * quest, and when that pi was ended cleanly the entry stayed active and
+ * cadence started it again (80ECO2). The newest such entry wins, should
+ * a straggler list it too. Answers whether a quest was loaded.
+ */
+export function restoreFromRecord(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): boolean {
+	const sessionId = ctx.sessionManager?.getSessionId?.();
+	if (!sessionId) return false;
+	const { index } = discoverQuests(state.questsRoot);
+	const listing = [...index.quests.values()]
+		.flatMap((entry) =>
+			entry.doc.frontMatter.sessions
+				.filter((s) => s.id === sessionId && s.status === "active")
+				.map((s) => ({
+					id: entry.doc.frontMatter.id,
+					started: s.started ?? "",
+				})),
+		)
+		.sort((a, b) => b.started.localeCompare(a.started));
+	const newest = listing[0];
+	if (!newest) return false;
+	if (!loadQuest(state, pi, newest.id).ok) return false;
+	autoFocusPlan(state);
+	return true;
 }
 
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */

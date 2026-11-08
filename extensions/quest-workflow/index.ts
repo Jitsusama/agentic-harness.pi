@@ -788,6 +788,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (sid && isPersistedSession(ctx) && state.questId) {
 				reconcileSessionMembership(state, sid, state.questId);
 			}
+			// Said in the log now, not first at a tool's result, so a pi ended
+			// before its first call still leaves the quest for its resume.
+			persist(state, pi, ctx);
 		}
 		// Record every tab a person could want back, quest or not, so a
 		// later restart can reconstruct what was open together. Only a
