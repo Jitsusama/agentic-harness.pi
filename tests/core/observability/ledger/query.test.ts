@@ -166,6 +166,7 @@ describe("ledger views", () => {
 			missed({ precededBy: "model" }),
 			missed({ precededBy: "nothing" }),
 			missed({ precededBy: "results" }, 40_000),
+			missed({ precededBy: "reload", gapMs: 30_000 }),
 		]);
 
 		const answer = await reader.query(
@@ -180,6 +181,7 @@ describe("ledger views", () => {
 			"model change",
 			"full miss, unexplained",
 			"partial miss, unexplained",
+			"after reload",
 		]);
 		// Written past the estimate of what was new, less the slack.
 		expect(answer.rows[0]?.excess_tokens).toBe(103_500 - 1500 - 2000);

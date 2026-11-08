@@ -15,6 +15,7 @@ import {
 	describeLoaded,
 	homely,
 	isSwapped,
+	LOADED_MESSAGE,
 	type Loaded,
 	readLoaded,
 } from "../../lib/internal/reload/loaded.ts";
@@ -41,9 +42,6 @@ export const PACKAGE_NAME = packageName(PACKAGE_ROOT) ?? "agentic-harness.pi";
 
 /** The footer slot the mark sits in. */
 export const STATUS_KEY = "reload";
-
-/** The custom message a reload nobody asked the agent for is said in. */
-export const LOADED_MESSAGE = "harness-loaded";
 
 /** A path with symlinks resolved and no trailing slash, so two can be compared. */
 export function canonical(path: string): string {

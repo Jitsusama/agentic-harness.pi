@@ -76,15 +76,16 @@ export interface TurnRecord {
  * What stood between a turn and the billed turn before it on its branch,
  * reduced to the one that best explains a cache miss. When several
  * apply, the first in this order wins: a compaction, a model change, a
- * change to the tool set, a change to the system prompt, a typed
- * message, a message the harness sent to resume a run, tool results,
- * and nothing at all.
+ * change to the tool set, a change to the system prompt, a reload of the
+ * harness, a typed message, a message the harness sent to resume a run,
+ * tool results, and nothing at all.
  */
 export type TurnPrecedent =
 	| "compaction"
 	| "model"
 	| "tools"
 	| "system"
+	| "reload"
 	| "typed"
 	| "resume"
 	| "results"

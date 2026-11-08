@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RESUME_TEXT } from "../../../lib/compaction/index.ts";
+import { LOADED_MESSAGE } from "../../../lib/internal/reload/loaded.ts";
 import { readTurns } from "../../../lib/ledger/index.ts";
 
 /**
@@ -168,6 +169,29 @@ describe("what came before a turn", () => {
 				(id) => turns.get(id)?.facts?.precededBy,
 			),
 		).toEqual(["model", "tools", "system", "typed", "nothing"]);
+	});
+
+	it("names a reload between turns, unless the prompt it brought says more", () => {
+		// 11-07 18:31 to 18:33: fifteen full misses read as unexplained, and
+		// only the logs could say which came after a reload and which didn't.
+		const reloaded = { type: "custom_message", customType: LOADED_MESSAGE };
+		const log = new Log()
+			.typed("u1")
+			.turn("a1")
+			.typed("u2")
+			.add("l1", reloaded)
+			.turn("a2")
+			.add("l2", reloaded)
+			.message("s1", { role: "system", content: "", sections: {} })
+			.turn("a3")
+			.add("c1", { type: "custom_message", customType: "mesh" })
+			.turn("a4");
+
+		const turns = facts(log);
+
+		expect(
+			["a2", "a3", "a4"].map((id) => turns.get(id)?.facts?.precededBy),
+		).toEqual(["reload", "system", "nothing"]);
 	});
 
 	it("follows the branch a turn is on, not the order of the lines", () => {

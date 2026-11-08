@@ -5,6 +5,7 @@ import type {
 	TurnPrecedent,
 } from "../core/observability/index.ts";
 import { isAutomatedText } from "../internal/automated.ts";
+import { LOADED_MESSAGE } from "../internal/reload/loaded.ts";
 
 /**
  * The same rough ratio pi's own compaction estimates with. Good enough
@@ -20,13 +21,15 @@ const IMAGE_CHARS = 1500 * CHARS_PER_TOKEN;
  * What can stand between two billed turns, in the order that decides
  * which one a turn is said to follow. Earlier explains a miss better:
  * a compaction rewrites the context whatever else happened, and a model
- * change starts a new cache.
+ * change starts a new cache. A reload comes after the prompt changes it
+ * may bring, which say more exactly what changed.
  */
 const PRECEDENCE: readonly Exclude<TurnPrecedent, "nothing">[] = [
 	"compaction",
 	"model",
 	"tools",
 	"system",
+	"reload",
 	"typed",
 	"resume",
 	"results",
@@ -113,9 +116,11 @@ function advance(
 		return { after: noting(before, "model"), step: {} };
 	}
 	if (entry.type === "custom_message") {
+		const seen =
+			entry.customType === LOADED_MESSAGE ? noting(before, "reload") : before;
 		return {
 			after: {
-				...before,
+				...seen,
 				addedChars: before.addedChars + charsOf(entry.content),
 			},
 			step: {},
