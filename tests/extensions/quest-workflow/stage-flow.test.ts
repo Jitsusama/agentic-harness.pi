@@ -59,9 +59,9 @@ describe("document stage flow", () => {
 			title: "Actually A Plan",
 			kind: "plan",
 		});
-		expect(drafted.ok).toBe(true);
+		expect(drafted).toMatchObject({ ok: true });
 		expect(state.documentKind).toBe("plan");
-		expect(state.documentId?.startsWith("PLAN-")).toBe(true);
+		expect(state.documentId).toMatch(/^PLAN-/);
 	});
 
 	it("thinks and drafts in one call when given a note and a title", async () => {
@@ -85,9 +85,9 @@ describe("document stage flow", () => {
 			note: "why it is slow",
 			title: "Why It Is Slow",
 		});
-		expect(drafted.ok).toBe(true);
+		expect(drafted).toMatchObject({ ok: true });
 		expect(state.documentStage).toBe("draft");
-		expect(state.documentId?.startsWith("RSCH-")).toBe(true);
+		expect(state.documentId).toMatch(/^RSCH-/);
 	});
 
 	it("puts a concluded document down, and starts afresh beside it", async () => {
@@ -109,7 +109,7 @@ describe("document stage flow", () => {
 		const concluded = await handle(state, fakePi(), fakeCtx(), {
 			action: "conclude",
 		});
-		expect(concluded.ok).toBe(true);
+		expect(concluded).toMatchObject({ ok: true });
 		expect(state.documentStage).toBe("idle");
 		expect(state.documentPath).toBeNull();
 		expect(readFileSync(first, "utf8")).toContain("stage: concluded");
@@ -213,7 +213,7 @@ describe("document stage flow", () => {
 			note: "the plan met something it did not expect",
 		});
 
-		expect(back.ok).toBe(true);
+		expect(back).toMatchObject({ ok: true });
 		expect(state.documentStage).toBe("think");
 		expect(state.documentId).toBe(planId);
 	});
@@ -234,7 +234,7 @@ describe("document stage flow", () => {
 
 		const again = await handle(state, fakePi(), fakeCtx(), { action: "draft" });
 
-		expect(again.ok).toBe(false);
+		expect(again).toMatchObject({ ok: false });
 		expect(state.documentStage).toBe("build");
 	});
 
@@ -263,7 +263,7 @@ describe("document stage flow", () => {
 		const built = await handle(state, fakePi(), fakeCtx(), {
 			action: "build",
 		});
-		expect(built.ok).toBe(false);
+		expect(built).toMatchObject({ ok: false });
 		// Memory must not run ahead of a disk write that never happened.
 		expect(state.documentStage).toBe("draft");
 	});

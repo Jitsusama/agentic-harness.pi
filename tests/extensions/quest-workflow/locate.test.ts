@@ -163,7 +163,7 @@ describe("locateOwner", () => {
 
 		const hits = locateOwner(state, "github-pr:shop/world#9");
 		expect(hits).toHaveLength(2);
-		expect(hits.every((h) => h.matchKind === "alias")).toBe(true);
+		expect(hits.filter((h) => h.matchKind !== "alias")).toEqual([]);
 		expect(hits.map((h) => h.questId).sort()).toEqual([
 			"QEST-20260101-OWNER1",
 			"QEST-20260101-OWNER2",

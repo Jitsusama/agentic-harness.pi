@@ -85,7 +85,7 @@ async function createQuest(
 		action: "load",
 		id: String(r.details?.id),
 	});
-	expect(loaded.ok).toBe(true);
+	expect(loaded).toMatchObject({ ok: true });
 	return {
 		id: state.questId as string,
 		dir: state.questDir as string,
@@ -127,7 +127,7 @@ describe("session membership reconcile", () => {
 			action: "load",
 			id: b.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		// The straggler on Alpha is detached; Bravo keeps it active.
 		expect(sessionStatus(a.dir, "sess-1")).toBe("detached");
 		expect(sessionStatus(b.dir, "sess-1")).toBe("active");
@@ -147,7 +147,7 @@ describe("session membership reconcile", () => {
 			action: "load",
 			id: c.id,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(sessionStatus(a.dir, "sess-1")).toBe("detached");
 		expect(sessionStatus(b.dir, "sess-1")).toBe("detached");
 		expect(sessionStatus(c.dir, "sess-1")).toBe("active");
@@ -168,7 +168,7 @@ describe("persist + restore", () => {
 		// the quest that was loaded before the reload.
 		const next = buildState();
 		const restored = restore(next, pi, fakeCtx(tmpRoot));
-		expect(restored).toBe(true);
+		expect(restored, "the loaded quest is restored").toBe(true);
 		expect(next.questId).toBe(a.id);
 		expect(next.questTitle).toBe("Alpha");
 	});
@@ -176,7 +176,9 @@ describe("persist + restore", () => {
 	it("returns false when nothing is persisted", () => {
 		const state = buildState();
 		const restored = restore(state, pi, fakeCtx(tmpRoot));
-		expect(restored).toBe(false);
+		expect(restored, "with nothing persisted there is nothing to restore").toBe(
+			false,
+		);
 		expect(state.questId).toBeNull();
 	});
 
@@ -201,7 +203,9 @@ describe("persist + restore", () => {
 
 		const next = buildState();
 		const restored = restore(next, pi, fakeCtx(tmpRoot));
-		expect(restored).toBe(true);
+		expect(restored, "the quest and its focused document are restored").toBe(
+			true,
+		);
 		expect(next.questId).toBe(a.id);
 		expect(next.documentPath).toBe(state.documentPath);
 		expect(next.documentId).toBe(state.documentId);
@@ -225,7 +229,7 @@ describe("persist + restore", () => {
 
 		const next = buildState();
 		const restored = restore(next, pi, fakeCtx(tmpRoot));
-		expect(restored).toBe(true);
+		expect(restored, "the most recent entry is restored").toBe(true);
 		expect(next.questId).toBe(b.id);
 	});
 
@@ -296,7 +300,7 @@ describe("persist + restore", () => {
 		rmSync(a.dir, { recursive: true, force: true });
 		const next = buildState();
 		const restored = restore(next, pi, fakeCtx(tmpRoot));
-		expect(restored).toBe(false);
+		expect(restored, "a quest gone from disk is not restored").toBe(false);
 		expect(next.questId).toBeNull();
 	});
 });
@@ -345,8 +349,8 @@ describe("auto-attach on load", () => {
 			action: "load",
 			id: a.id,
 		});
-		expect(sessionsOf(a.dir).some((s) => s.id === "sess-ephemeral")).toBe(
-			false,
+		expect(sessionsOf(a.dir)).not.toContainEqual(
+			expect.objectContaining({ id: "sess-ephemeral" }),
 		);
 	});
 
@@ -410,7 +414,9 @@ describe("auto-attach on load", () => {
 		// is a phantom. Loading again under a different session id must
 		// garbage-collect it rather than carry it forever.
 		detachSessionFromLoaded(state, "phantom");
-		expect(sessionsOf(a.dir).some((s) => s.id === "phantom")).toBe(true);
+		expect(sessionsOf(a.dir)).toContainEqual(
+			expect.objectContaining({ id: "phantom" }),
+		);
 		await handle(state, pi, fakeCtx("/work/dir", "fresh"), {
 			action: "load",
 			id: a.id,

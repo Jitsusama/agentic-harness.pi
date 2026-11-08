@@ -82,13 +82,13 @@ describe("tick and untick", () => {
 		const { run, planPath, head } = await questWithPlan();
 		succeeded(await run({ action: "tick", query: "second" }));
 		succeeded(await run({ action: "untick", query: "second" }));
-		expect(readFileSync(planPath, "utf8").startsWith(head)).toBe(true);
+		expect(readFileSync(planPath, "utf8").slice(0, head.length)).toBe(head);
 	});
 
 	it("refuses an item it cannot pick out", async () => {
 		const { run } = await questWithPlan();
 		const result = await run({ action: "tick", query: "item" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("says on the bus what a tick landed, and an untick takes it back", async () => {

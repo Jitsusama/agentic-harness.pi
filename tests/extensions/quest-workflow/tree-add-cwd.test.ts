@@ -55,7 +55,7 @@ describe("tree-add from a repo subdirectory", () => {
 			name: "feature-x",
 			cwd: subdir,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 });
 

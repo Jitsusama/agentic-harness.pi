@@ -243,7 +243,7 @@ describe("resolveStartup precedence", () => {
 	it("loadQuest resolves a known id", async () => {
 		const id = await createQuest("Known");
 		const state = buildState();
-		expect(loadQuest(state, fakePi(), id).ok).toBe(true);
+		expect(loadQuest(state, fakePi(), id)).toMatchObject({ ok: true });
 	});
 
 	it("resolves from a scaffolded tree the quest owns", async () => {
@@ -288,7 +288,10 @@ describe("a session the launcher starts to orchestrate", () => {
 
 		resolveStartup(buildState(), fakePi(), ctxWith({ cwd: tmpRoot }));
 
-		expect(marked(id)).toBe(true);
+		expect(
+			marked(id),
+			`the autoloaded quest ${id} is marked as orchestrating`,
+		).toBe(true);
 		expect(process.env.QUEST_WORKFLOW_ORCHESTRATE).toBeUndefined();
 	});
 
@@ -304,7 +307,10 @@ describe("a session the launcher starts to orchestrate", () => {
 		);
 
 		expect(resolution.questId).toBe(persisted);
-		expect(marked(persisted)).toBe(false);
+		expect(
+			marked(persisted),
+			"a quest resolved another way is not marked",
+		).toBe(false);
 		expect(process.env.QUEST_WORKFLOW_ORCHESTRATE).toBeUndefined();
 	});
 
@@ -314,6 +320,6 @@ describe("a session the launcher starts to orchestrate", () => {
 
 		resolveStartup(buildState(), fakePi(), ctxWith({ cwd: tmpRoot }));
 
-		expect(marked(id)).toBe(false);
+		expect(marked(id), "without the ask nothing is marked").toBe(false);
 	});
 });

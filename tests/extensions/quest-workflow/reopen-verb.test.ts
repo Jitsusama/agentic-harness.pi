@@ -46,7 +46,7 @@ describe("reopen", () => {
 			id: state.questId ?? "",
 		});
 		const result = await handle(state, fakePi(), ctx, { action: "reopen" });
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const readme = readFileSync(
 			join(state.questDir ?? "", "README.md"),
 			"utf8",
@@ -57,6 +57,6 @@ describe("reopen", () => {
 	it("refuses to reopen a quest that is already active", async () => {
 		const { state, ctx } = await activeQuest();
 		const result = await handle(state, fakePi(), ctx, { action: "reopen" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 });

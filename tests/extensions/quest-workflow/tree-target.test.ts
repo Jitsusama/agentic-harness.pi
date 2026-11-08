@@ -105,7 +105,7 @@ describe("the tree a prune acts on", () => {
 			cwd: second,
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(seen.pruned).toEqual([second]);
 		expect(treesOn(state)).toEqual([first]);
 	});
@@ -121,7 +121,7 @@ describe("the tree a prune acts on", () => {
 			cwd: join(second, "src", "lib"),
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(seen.pruned).toEqual([second]);
 	});
 
@@ -136,7 +136,7 @@ describe("the tree a prune acts on", () => {
 			cwd: "~/.tree-target-never-created/second",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(seen.pruned).toEqual([home]);
 	});
 
@@ -151,7 +151,7 @@ describe("the tree a prune acts on", () => {
 			cwd: join(tmpRoot, "third"),
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(seen.pruned).toEqual([]);
 		expect(treesOn(state)).toEqual([first, second]);
 		if (!result.ok) {
@@ -170,7 +170,7 @@ describe("the tree a prune acts on", () => {
 			action: "tree-release",
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(seen.pruned).toEqual([]);
 		if (!result.ok) expect(result.guidance).toMatch(/cwd/);
 	});
@@ -184,7 +184,7 @@ describe("the tree a prune acts on", () => {
 			action: "tree-release",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(seen.pruned).toEqual([only]);
 	});
 
@@ -199,7 +199,7 @@ describe("the tree a prune acts on", () => {
 			cwd: join(inner, "src"),
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(seen.pruned).toEqual([inner]);
 	});
 });
@@ -217,7 +217,7 @@ describe("the tree an expand acts on", () => {
 			ref: "system/gitstream",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(seen.expanded).toEqual([{ path: second, zone: "system/gitstream" }]);
 	});
 
@@ -248,7 +248,7 @@ describe("the tree an expand acts on", () => {
 			ref: "system/gitstream",
 		});
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(expanded).toEqual([only]);
 	});
 
@@ -264,7 +264,7 @@ describe("the tree an expand acts on", () => {
 			ref: "system/gitstream",
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(seen.expanded).toEqual([]);
 	});
 });
@@ -307,8 +307,8 @@ describe("quest calls in one parallel batch", () => {
 		const [first, second] = await Promise.all([a, b]);
 
 		expect(pruned).toEqual([only]);
-		expect(first.ok).toBe(true);
-		expect(second.ok).toBe(false);
+		expect(first).toMatchObject({ ok: true });
+		expect(second).toMatchObject({ ok: false });
 	});
 
 	it("lets a call stopped while it waits leave without running", async () => {
@@ -346,7 +346,7 @@ describe("quest calls in one parallel batch", () => {
 		controller.abort();
 		await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
 		release();
-		expect((await holding).ok).toBe(true);
+		expect(await holding).toMatchObject({ ok: true });
 		expect(pruned).toEqual([first]);
 		expect(treesOn(state)).toEqual([second]);
 	});

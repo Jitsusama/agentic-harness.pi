@@ -13,7 +13,10 @@ const untrusted: TrustFacts = {
 
 describe("whether pi's folder-trust prompt waits", () => {
 	it("waits in a gated folder nobody has decided on", () => {
-		expect(trustPromptWaits("/tree", "pi", untrusted)).toBe(true);
+		expect(
+			trustPromptWaits("/tree", "pi", untrusted),
+			"an undecided gated folder waits",
+		).toBe(true);
 	});
 
 	it("doesn't wait once a decision is saved, either way", () => {
@@ -23,6 +26,7 @@ describe("whether pi's folder-trust prompt waits", () => {
 					...untrusted,
 					saved: () => decision,
 				}),
+				`a saved decision of ${decision} does not wait`,
 			).toBe(false);
 		}
 	});
@@ -30,6 +34,7 @@ describe("whether pi's folder-trust prompt waits", () => {
 	it("doesn't wait in a folder with nothing trust gates", () => {
 		expect(
 			trustPromptWaits("/tree", "pi", { ...untrusted, gated: () => false }),
+			"a folder with nothing gated does not wait",
 		).toBe(false);
 	});
 
@@ -40,15 +45,17 @@ describe("whether pi's folder-trust prompt waits", () => {
 					...untrusted,
 					byDefault: () => setting,
 				}),
+				`a default of ${setting} does not wait`,
 			).toBe(false);
 		}
 	});
 
 	it("doesn't wait when the command decides for itself", () => {
 		for (const flag of ["--approve", "-a", "--no-approve", "-na"]) {
-			expect(trustPromptWaits("/tree", `pi ${flag} --model m`, untrusted)).toBe(
-				false,
-			);
+			expect(
+				trustPromptWaits("/tree", `pi ${flag} --model m`, untrusted),
+				`${flag} decides for itself, so nothing waits`,
+			).toBe(false);
 		}
 	});
 
@@ -60,6 +67,9 @@ describe("whether pi's folder-trust prompt waits", () => {
 			},
 		};
 
-		expect(trustPromptWaits("/tree", "pi", unreadable)).toBe(false);
+		expect(
+			trustPromptWaits("/tree", "pi", unreadable),
+			"an unreadable folder does not wait",
+		).toBe(false);
 	});
 });

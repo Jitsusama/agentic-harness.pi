@@ -85,11 +85,17 @@ describe("an ending", () => {
 				ready: true,
 				doneWhen: { by: "person" },
 			});
-			expect(existsSync(waitingFile(folder, quest))).toBe(true);
+			expect(
+				existsSync(waitingFile(folder, quest)),
+				`${waitingFile(folder, quest)} exists`,
+			).toBe(true);
 
 			succeeded(await run({ action: "conclude", id: quest }));
 
-			expect(existsSync(waitingFile(folder, quest))).toBe(false);
+			expect(
+				existsSync(waitingFile(folder, quest)),
+				`${waitingFile(folder, quest)} is removed`,
+			).toBe(false);
 		} finally {
 			if (savedState === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = savedState;

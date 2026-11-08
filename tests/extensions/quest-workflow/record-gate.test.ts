@@ -48,7 +48,7 @@ function check(
 describe("the record gate", () => {
 	it("sends a stray to the workspace with nothing loaded", () => {
 		const verdict = check("write", { path: join(questDir, "lab/results.csv") });
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain(
 			join(workspaceRoot, QUEST, "lab/results.csv"),
 		);

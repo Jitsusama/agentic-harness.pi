@@ -129,8 +129,14 @@ describe("the words a held spawn uses", () => {
 	});
 
 	it("knows this machine by its short name, as its node names it", () => {
-		expect(isThisMachine("optimus", "optimus.local")).toBe(true);
-		expect(isThisMachine("equilibrius", "optimus")).toBe(false);
+		expect(
+			isThisMachine("optimus", "optimus.local"),
+			"a node named by its short name is this machine",
+		).toBe(true);
+		expect(
+			isThisMachine("equilibrius", "optimus"),
+			"another machine's name is not this one",
+		).toBe(false);
 	});
 });
 
@@ -165,7 +171,7 @@ describe("spawning on a machine", () => {
 		const outcome = await spawnHeld(asked(kitty, true), start);
 		expect(starts).toEqual([]);
 		expect(kitty.calls.spawned).toEqual([]);
-		expect(outcome.ok && outcome.planned).toBe(true);
+		expect(outcome).toMatchObject({ ok: true, planned: true });
 		expect(outcome.ok && outcome.message).toContain(
 			"Would ask equilibrius's mycelium node to start a held session in src/core.nix, running: pi",
 		);

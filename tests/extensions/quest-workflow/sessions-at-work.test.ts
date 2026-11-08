@@ -128,7 +128,7 @@ describe("sessionsAtWork", () => {
 		// sess-dead has no log, so it derives dead by the recency fallback.
 		const entries = await sessionsAtWork(state);
 		expect(entries).toHaveLength(2);
-		expect(entries.every((e) => e.questId === quest)).toBe(true);
+		expect(entries.filter((e) => e.questId !== quest)).toEqual([]);
 		expect(entries.map((e) => e.sessionId)).toEqual(["sess-live", "sess-dead"]);
 		expect(entries[0].liveness).toBe("live");
 		expect(entries[1].liveness).toBe("dead");
@@ -142,7 +142,7 @@ describe("sessionsAtWork", () => {
 		const result = await handle(state, fakePi(), fakeCtx(), {
 			action: "sessions",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain(live);
 	});

@@ -85,7 +85,7 @@ describe("build transition", () => {
 		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "build",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 
 	it("still crosses into build after a tree is added", async () => {
@@ -99,7 +99,7 @@ describe("build transition", () => {
 		const result = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "build",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 });
 
@@ -116,7 +116,7 @@ describe("the draft hold", () => {
 			noScratch,
 		);
 
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 	});
 
 	it("holds tracked code in a tree the quest works in", async () => {
@@ -132,7 +132,7 @@ describe("the draft hold", () => {
 			noScratch,
 		);
 
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 	});
 
 	it("lets a fix to some other repository through", async () => {
@@ -203,7 +203,7 @@ describe("build home gate", () => {
 			repoRoot,
 			noScratch,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toMatch(/tree-adopt/);
 		expect(verdict?.reason).toContain(repoRoot);
 	});
@@ -251,7 +251,7 @@ describe("build home gate", () => {
 			tmpRoot,
 			noScratch,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toMatch(/tree-add/);
 	});
 
@@ -266,7 +266,7 @@ describe("build home gate", () => {
 			tmpRoot,
 			noScratch,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toMatch(/tree-add/);
 	});
 
@@ -364,10 +364,10 @@ describe("workspace funnel", () => {
 			repoRoot,
 		);
 		const tmp = join(workspaceOf(state), "tmp");
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain(tmp);
 		expect(verdict?.reason).not.toMatch(/tree-add/);
-		expect(existsSync(tmp)).toBe(true);
+		expect(existsSync(tmp), `${tmp} is kept`).toBe(true);
 		expect(state.scratchDir).toBeNull();
 	});
 
@@ -381,7 +381,7 @@ describe("workspace funnel", () => {
 			{ command: "go test ./... > /tmp/test.log 2>&1" },
 			repoRoot,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain(join(workspaceOf(state), "tmp"));
 	});
 
@@ -449,7 +449,7 @@ describe("workspace funnel", () => {
 			{ path: "/tmp/draft-repro.log" },
 			repoRoot,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain(join(workspaceOf(state), "tmp"));
 	});
 
@@ -465,8 +465,8 @@ describe("workspace funnel", () => {
 			action: "conclude",
 			id: state.questId ?? "",
 		});
-		expect(concluded.ok).toBe(true);
-		expect(existsSync(workspace)).toBe(false);
+		expect(concluded).toMatchObject({ ok: true });
+		expect(existsSync(workspace), `${workspace} is removed`).toBe(false);
 		if (concluded.ok) {
 			expect(concluded.message).toContain("Removed its scratch folder");
 		}
@@ -485,8 +485,8 @@ describe("workspace funnel", () => {
 			action: "conclude",
 			id: state.questId ?? "",
 		});
-		expect(concluded.ok).toBe(true);
-		expect(existsSync(legacy)).toBe(false);
+		expect(concluded).toMatchObject({ ok: true });
+		expect(existsSync(legacy), `${legacy} is removed`).toBe(false);
 		expect(state.scratchDir).toBeNull();
 	});
 });

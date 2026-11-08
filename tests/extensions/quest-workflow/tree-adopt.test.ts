@@ -65,7 +65,7 @@ describe("tree-adopt", () => {
 			cwd: repoRoot,
 			force: true,
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const fm = parseQuestFrontMatter(
 			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
 		)?.frontMatter;
@@ -83,7 +83,7 @@ describe("tree-adopt", () => {
 			action: "tree-adopt",
 			cwd: repoRoot,
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("unreachable");
 		expect(result.guidance).toMatch(/main working tree|force/i);
 	});
@@ -124,13 +124,11 @@ describe("tree-adopt", () => {
 		});
 		if (!first.ok) throw new Error(first.guidance);
 		expect(
-			(
-				await handle(state, fakePi(), fakeCtx(wt), {
-					action: "tree-adopt",
-					cwd: wt,
-				})
-			).ok,
-		).toBe(true);
+			await handle(state, fakePi(), fakeCtx(wt), {
+				action: "tree-adopt",
+				cwd: wt,
+			}),
+		).toMatchObject({ ok: true });
 
 		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "create",
@@ -145,7 +143,7 @@ describe("tree-adopt", () => {
 			action: "tree-adopt",
 			cwd: wt,
 		});
-		expect(blocked.ok).toBe(false);
+		expect(blocked).toMatchObject({ ok: false });
 		if (blocked.ok) throw new Error("unreachable");
 		expect(blocked.guidance).toMatch(/already tracked|force/i);
 	});
@@ -168,13 +166,11 @@ describe("tree-adopt", () => {
 		});
 		if (!first.ok) throw new Error(first.guidance);
 		expect(
-			(
-				await handle(state, fakePi(), fakeCtx(wt), {
-					action: "tree-adopt",
-					cwd: wt,
-				})
-			).ok,
-		).toBe(true);
+			await handle(state, fakePi(), fakeCtx(wt), {
+				action: "tree-adopt",
+				cwd: wt,
+			}),
+		).toMatchObject({ ok: true });
 		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
 			id: state.questId ?? "",
@@ -191,7 +187,7 @@ describe("tree-adopt", () => {
 			cwd: wt,
 		});
 
-		expect(adopted.ok).toBe(true);
+		expect(adopted).toMatchObject({ ok: true });
 	});
 
 	it("still refuses when the other holder is live", async () => {
@@ -226,7 +222,7 @@ describe("tree-adopt", () => {
 			cwd: wt,
 		});
 
-		expect(blocked.ok).toBe(false);
+		expect(blocked).toMatchObject({ ok: false });
 	});
 
 	it("releases an adopted tree without force by its record alone", async () => {
@@ -246,7 +242,7 @@ describe("tree-adopt", () => {
 			action: "tree-adopt",
 			cwd: wt,
 		});
-		expect(adopted.ok).toBe(true);
+		expect(adopted).toMatchObject({ ok: true });
 
 		const released = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "tree-release",
@@ -255,7 +251,7 @@ describe("tree-adopt", () => {
 		if (!released.ok) throw new Error(released.guidance);
 		expect(released.message).toMatch(/adopted.*folder stays/);
 		// The adopted checkout is untouched.
-		expect(existsSync(wt)).toBe(true);
+		expect(existsSync(wt), `${wt} is kept`).toBe(true);
 	});
 
 	it("keeps an adopted tree when the quest is retired", async () => {
@@ -275,13 +271,13 @@ describe("tree-adopt", () => {
 			action: "tree-adopt",
 			cwd: wt,
 		});
-		expect(adopted.ok).toBe(true);
+		expect(adopted).toMatchObject({ ok: true });
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
 			id: state.questId ?? "",
 			reason: "done",
 		});
-		expect(retired.ok).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
 		if (retired.ok) {
 			const details = retired.details as { prunedTrees?: string[] };
 			// prunedTrees records canonicalized paths, so compare against
@@ -290,7 +286,7 @@ describe("tree-adopt", () => {
 			// make the assertion pass vacuously.
 			expect(details.prunedTrees ?? []).not.toContain(realpathSync(wt));
 		}
-		expect(existsSync(wt)).toBe(true);
+		expect(existsSync(wt), `${wt} is kept`).toBe(true);
 	});
 
 	it("keeps a legacy tree with no origin marker when retired", async () => {
@@ -310,17 +306,17 @@ describe("tree-adopt", () => {
 			path: realpathSync(wt),
 			providerId: "git-worktree",
 		});
-		expect(added.ok).toBe(true);
+		expect(added).toMatchObject({ ok: true });
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
 			id: state.questId ?? "",
 			reason: "done",
 		});
-		expect(retired.ok).toBe(true);
+		expect(retired).toMatchObject({ ok: true });
 		if (retired.ok) {
 			const details = retired.details as { prunedTrees?: string[] };
 			expect(details.prunedTrees ?? []).not.toContain(realpathSync(wt));
 		}
-		expect(existsSync(wt)).toBe(true);
+		expect(existsSync(wt), `${wt} is kept`).toBe(true);
 	});
 });

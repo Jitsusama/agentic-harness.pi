@@ -96,7 +96,10 @@ describe("restoreFromCwd (session_start handler)", () => {
 		mkdirSync(deep, { recursive: true });
 		const fresh = buildState();
 		restoreFromCwd(fresh, fakePi(), fakeCtx(deep));
-		expect(fresh.questId).toBeTruthy();
+		expect(
+			fresh.questId,
+			"a cwd below the tree attaches its quest",
+		).toBeTruthy();
 	});
 
 	it("prefers a live quest over a sealed one sharing the same scaffolded tree", () => {
@@ -177,7 +180,10 @@ describe("restoreFromCwd (session_start handler)", () => {
 		try {
 			const fresh = buildState();
 			restoreFromCwd(fresh, fakePi(), fakeCtx(linkPath));
-			expect(fresh.questId).toBeTruthy();
+			expect(
+				fresh.questId,
+				"a cwd reached through a symlink attaches its quest",
+			).toBeTruthy();
 		} finally {
 			rmSync(linkRoot, { recursive: true, force: true });
 		}
@@ -203,7 +209,7 @@ describe("quest load with no id falls back to the cwd-resolved quest", () => {
 		const loaded = await handle(fresh2, fakePi(), fakeCtx(treePath), {
 			action: "load",
 		});
-		expect(loaded.ok).toBe(true);
+		expect(loaded).toMatchObject({ ok: true });
 		expect(fresh1.questId).toBe(fresh2.questId);
 	});
 });

@@ -98,7 +98,7 @@ describe("focusing a document with incomplete front-matter", () => {
 			id: planId,
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(refusalText(result)).toContain("kind");
 		expect(refusalText(result)).toContain("updated");
 	});
@@ -113,7 +113,7 @@ describe("focusing a document with incomplete front-matter", () => {
 			id: planId,
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(refusalText(result)).toMatch(/no front-matter block/i);
 	});
 });
@@ -136,7 +136,7 @@ describe("focusing a document that belongs to another quest", () => {
 			id: strayId,
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(refusalText(result)).toContain(owner);
 		expect(refusalText(result)).not.toMatch(/does not exist/i);
 	});
@@ -149,7 +149,7 @@ describe("focusing a document that belongs to another quest", () => {
 			id: "PLAN-20990101-ZZZZZZ",
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(refusalText(result)).toMatch(/no document|does not exist/i);
 	});
 });

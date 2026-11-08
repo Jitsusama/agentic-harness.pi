@@ -60,7 +60,7 @@ describe("a quest's workspace folder", () => {
 
 		expect(subvolumes).toEqual([dir]);
 		expect(asked).toEqual([join(root, "workspaces")]);
-		expect(statSync(dir).isDirectory()).toBe(true);
+		expect(statSync(dir).isDirectory(), `${dir} is a folder`).toBe(true);
 	});
 
 	it("is a plain folder off btrfs", () => {
@@ -70,7 +70,7 @@ describe("a quest's workspace folder", () => {
 		makeWorkspace(dir, maker);
 
 		expect(subvolumes).toEqual([]);
-		expect(statSync(dir).isDirectory()).toBe(true);
+		expect(statSync(dir).isDirectory(), `${dir} is a folder`).toBe(true);
 	});
 
 	it("is a plain folder when a subvolume can't be made", () => {
@@ -80,7 +80,7 @@ describe("a quest's workspace folder", () => {
 		makeWorkspace(dir, maker);
 
 		expect(subvolumes).toEqual([dir]);
-		expect(statSync(dir).isDirectory()).toBe(true);
+		expect(statSync(dir).isDirectory(), `${dir} is a folder`).toBe(true);
 	});
 
 	it("is left as it is once made", () => {
@@ -94,7 +94,9 @@ describe("a quest's workspace folder", () => {
 		makeWorkspace(dir, maker);
 
 		expect(subvolumes).toEqual([]);
-		expect(existsSync(join(dir, "kept"))).toBe(true);
+		expect(existsSync(join(dir, "kept")), `${join(dir, "kept")} is kept`).toBe(
+			true,
+		);
 	});
 
 	it("is made this way when a quest's commands first need a TMPDIR", () => {
@@ -106,6 +108,9 @@ describe("a quest's workspace folder", () => {
 		questTempDir(workspaces, QUEST, links, maker);
 
 		expect(subvolumes).toEqual([join(workspaces, QUEST)]);
-		expect(statSync(join(workspaces, QUEST, "tmp")).isDirectory()).toBe(true);
+		expect(
+			statSync(join(workspaces, QUEST, "tmp")).isDirectory(),
+			`${join(workspaces, QUEST, "tmp")} is a folder`,
+		).toBe(true);
 	});
 });

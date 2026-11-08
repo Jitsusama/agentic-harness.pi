@@ -552,7 +552,7 @@ describe("seeding tabs that predate the registry", () => {
 		// the flag on would keep calling its ending unknowable long
 		// after it stopped being so.
 		seedLiveSessions([live]);
-		expect(readRecord("sess-old")?.adopted).toBe(true);
+		expect(readRecord("sess-old")).toMatchObject({ adopted: true });
 		recordSession({
 			sessionId: "sess-old",
 			cwd: "/work",

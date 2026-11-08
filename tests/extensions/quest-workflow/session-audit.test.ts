@@ -125,7 +125,7 @@ describe("auditSessionMembership", () => {
 		const result = await handle(state, fakePi(), fakeCtx(), {
 			action: "session-audit",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain("sess-z");
 	});
@@ -152,14 +152,14 @@ describe("auditSessionMembership", () => {
 		const preview = await handle(state, fakePi(), fakeCtx(), {
 			action: "session-audit",
 		});
-		expect(preview.ok).toBe(true);
+		expect(preview).toMatchObject({ ok: true });
 		expect(auditSessionMembership(state)).toHaveLength(1);
 
 		const applied = await handle(state, fakePi(), fakeCtx(), {
 			action: "session-audit",
 			force: true,
 		});
-		expect(applied.ok).toBe(true);
+		expect(applied).toMatchObject({ ok: true });
 		expect(auditSessionMembership(state)).toEqual([]);
 		const statusOn = (dir: string) =>
 			parseQuestFrontMatter(
@@ -177,7 +177,7 @@ describe("auditSessionMembership", () => {
 		const preview = await handle(state, fakePi(), fakeCtx(), {
 			action: "session-audit",
 		});
-		expect(preview.ok).toBe(true);
+		expect(preview).toMatchObject({ ok: true });
 		if (!preview.ok) throw new Error("unreachable");
 		expect(preview.message).toContain("sess-dead");
 
@@ -185,7 +185,7 @@ describe("auditSessionMembership", () => {
 			action: "session-audit",
 			force: true,
 		});
-		expect(applied.ok).toBe(true);
+		expect(applied).toMatchObject({ ok: true });
 		const status = parseQuestFrontMatter(
 			readFileSync(join(q.dir, "README.md"), "utf8"),
 		)?.frontMatter.sessions.find((s) => s.id === "sess-dead")?.status;

@@ -87,10 +87,10 @@ describe("inventoryWorktrees", () => {
 		]);
 		const state = buildState();
 		const inv = inventoryWorktrees(state);
-		expect(inv.find((t) => t.path === live)?.exists).toBe(true);
+		expect(inv.find((t) => t.path === live)).toMatchObject({ exists: true });
 		expect(
-			inv.find((t) => t.path === join(tmpRoot, "vanished-tree"))?.exists,
-		).toBe(false);
+			inv.find((t) => t.path === join(tmpRoot, "vanished-tree")),
+		).toMatchObject({ exists: false });
 	});
 
 	it("tree-list with no loaded quest returns the global inventory", async () => {
@@ -99,13 +99,15 @@ describe("inventoryWorktrees", () => {
 		const result = await handle(state, fakePi(), fakeCtx(), {
 			action: "tree-list",
 		});
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) throw new Error("expected ok");
 		const details = result.details as {
 			scope: string;
 			trees: { path: string }[];
 		};
 		expect(details.scope).toBe("global");
-		expect(details.trees.some((t) => t.path === "/work/c")).toBe(true);
+		expect(details.trees).toContainEqual(
+			expect.objectContaining({ path: "/work/c" }),
+		);
 	});
 });

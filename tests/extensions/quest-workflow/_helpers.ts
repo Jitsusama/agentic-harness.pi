@@ -37,9 +37,9 @@ interface EnvGuard {
  *
  * `QuestResult` is a union on `ok`, so reading `details` off
  * one that has not been narrowed does not typecheck. Tests
- * were writing `expect(result.ok).toBe(true)` and then
- * reaching for `details` anyway, which reads as though the
- * assertion narrowed it and does not.
+ * were asserting that `result.ok` held and then reaching
+ * for `details` anyway, which reads as though the assertion
+ * narrowed it and does not.
  *
  * Worth a helper rather than an `if` at each site for what it
  * says when it fails. A refusal reached through a cast gives

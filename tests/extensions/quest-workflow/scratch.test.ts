@@ -47,7 +47,9 @@ describe("a quest's TMPDIR", () => {
 
 		expect(dir).toBe(join(links, `${TEMP_LINK_PREFIX}${QUEST}`));
 		expect(readlinkSync(dir ?? "")).toBe(tmpOf());
-		expect(lstatSync(tmpOf()).isDirectory()).toBe(true);
+		expect(lstatSync(tmpOf()).isDirectory(), `${tmpOf()} is a folder`).toBe(
+			true,
+		);
 	});
 
 	it("carries the name disk-guard leaves alone", () => {
@@ -60,7 +62,7 @@ describe("a quest's TMPDIR", () => {
 		const dir = questTempDir(workspaces, QUEST, links) ?? "";
 
 		expect(TEMP_LINK_PREFIX).toBe("pi-quest-");
-		expect(dir.slice(links.length + 1).startsWith("pi-quest-")).toBe(true);
+		expect(dir.slice(links.length + 1)).toMatch(/^pi-quest-/);
 	});
 
 	it("keeps a socket path short enough wherever the workspace lives", () => {
@@ -81,7 +83,9 @@ describe("a quest's TMPDIR", () => {
 		rmSync(tmpOf(), { recursive: true });
 
 		expect(questTempDir(workspaces, QUEST, links)).toBe(dir);
-		expect(lstatSync(tmpOf()).isDirectory()).toBe(true);
+		expect(lstatSync(tmpOf()).isDirectory(), `${tmpOf()} is a folder`).toBe(
+			true,
+		);
 	});
 
 	it("repairs a link of ours that points somewhere else", () => {
@@ -115,9 +119,14 @@ describe("a quest's compiled TypeScript", () => {
 	it("goes in the cache every pi shares, so a first start finds it compiled", () => {
 		made();
 
-		expect(lstatSync(cacheOf()).isSymbolicLink()).toBe(true);
+		expect(
+			lstatSync(cacheOf()).isSymbolicLink(),
+			`${cacheOf()} is a link`,
+		).toBe(true);
 		expect(readlinkSync(cacheOf())).toBe(shared());
-		expect(lstatSync(shared()).isDirectory()).toBe(true);
+		expect(lstatSync(shared()).isDirectory(), `${shared()} is a folder`).toBe(
+			true,
+		);
 	});
 
 	it("replaces a quest's own copy with the link", async () => {
@@ -143,13 +152,19 @@ describe("a quest's compiled TypeScript", () => {
 		expect(removeQuestWorkspace(workspaces, QUEST, () => [])).toEqual({
 			removed: true,
 		});
-		expect(existsSync(join(shared(), "a.1234abcd.mjs"))).toBe(true);
+		expect(
+			existsSync(join(shared(), "a.1234abcd.mjs")),
+			`${join(shared(), "a.1234abcd.mjs")} is kept`,
+		).toBe(true);
 	});
 
 	it("keeps its own when the pi itself runs inside the quest's TMPDIR", () => {
 		questTempDir(workspaces, QUEST, links, undefined, cacheOf());
 
-		expect(lstatSync(cacheOf()).isDirectory()).toBe(true);
+		expect(
+			lstatSync(cacheOf()).isDirectory(),
+			`${cacheOf()} is a folder of its own, not a link`,
+		).toBe(true);
 	});
 });
 
@@ -184,9 +199,10 @@ describe("what a quest's commands carry", () => {
 		dropTempLink(QUEST, links);
 		dropTempLink("QEST-20260101-NOLINK", links);
 
-		expect(existsSync(link)).toBe(false);
+		expect(existsSync(link), `${link} is removed`).toBe(false);
 		expect(
 			lstatSync(join(links, `${TEMP_LINK_PREFIX}${other}`)).isSymbolicLink(),
+			`${join(links, `${TEMP_LINK_PREFIX}${other}`)} is still a link`,
 		).toBe(true);
 	});
 

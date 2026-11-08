@@ -92,7 +92,7 @@ describe("session-attach identity capture", () => {
 		const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "session-attach",
 		});
-		expect(r.ok).toBe(true);
+		expect(r).toMatchObject({ ok: true });
 		const s = sessionOf(dir, "sess-1");
 		expect(typeof s?.instanceId).toBe("string");
 		expect(s?.instanceId?.length).toBeGreaterThan(0);
@@ -106,7 +106,7 @@ describe("session-attach identity capture", () => {
 			action: "session-attach",
 			sessionId: "sess-OTHER",
 		});
-		expect(r.ok).toBe(true);
+		expect(r).toMatchObject({ ok: true });
 		const s = sessionOf(dir, "sess-OTHER");
 		expect(s?.instanceId).toBeUndefined();
 		expect(s?.process).toBeUndefined();
@@ -119,7 +119,7 @@ describe("detachSessionIfOwner (instance lease)", () => {
 		const dir = await createQuest(state);
 		attachCurrentSession(state, { id: "sess-1", ...IDENTITY });
 		const r = detachSessionIfOwner(dir, "sess-1", "inst-1");
-		expect(r.ok && r.detached).toBe(true);
+		expect(r).toMatchObject({ ok: true, detached: true });
 		expect(sessionOf(dir, "sess-1")?.status).toBe("detached");
 	});
 
@@ -128,7 +128,10 @@ describe("detachSessionIfOwner (instance lease)", () => {
 		const dir = await createQuest(state);
 		attachCurrentSession(state, { id: "sess-1", ...IDENTITY });
 		const r = detachSessionIfOwner(dir, "sess-1", "inst-OTHER");
-		expect(r.ok && r.detached).toBe(false);
+		expect(
+			r.ok && r.detached,
+			"a session another instance owns stays attached",
+		).toBe(false);
 		expect(sessionOf(dir, "sess-1")?.status).toBe("active");
 	});
 
@@ -137,7 +140,7 @@ describe("detachSessionIfOwner (instance lease)", () => {
 		const dir = await createQuest(state);
 		attachCurrentSession(state, { id: "sess-1", cwd: tmpRoot });
 		const r = detachSessionIfOwner(dir, "sess-1", "inst-1");
-		expect(r.ok && r.detached).toBe(true);
+		expect(r).toMatchObject({ ok: true, detached: true });
 		expect(sessionOf(dir, "sess-1")?.status).toBe("detached");
 	});
 });

@@ -181,11 +181,18 @@ describe("a spawner watching for its session's first turn", () => {
 		"finds a running process by a word of its command line, and none by a word no process has",
 		() => {
 			const ownWord = process.argv[1] ?? "";
-			expect(piRunsFor({ ...spawned, sessionId: ownWord })).toBe(true);
+			expect(
+				piRunsFor({ ...spawned, sessionId: ownWord }),
+				"a word of this process's own command line finds it",
+			).toBe(true);
 			expect(
 				piRunsFor({ ...spawned, sessionId: "01a1ffff-no-such-session" }),
+				"a word no process has finds none",
 			).toBe(false);
-			expect(piRunsFor(spawned)).toBe(false);
+			expect(
+				piRunsFor(spawned),
+				"a spawn naming no session finds no process",
+			).toBe(false);
 		},
 	);
 

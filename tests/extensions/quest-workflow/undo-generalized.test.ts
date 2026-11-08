@@ -148,7 +148,7 @@ describe("undo over any journalled field", () => {
 			id: quest.id,
 		});
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(fieldOf(quest.id, "kind")).toBe("quest");
 	});
 
