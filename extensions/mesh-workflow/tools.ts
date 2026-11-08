@@ -366,7 +366,8 @@ export function registerTools(
 			),
 			steps: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "What they do, step by step, a few words each",
+					description:
+						"What they do, step by step, a few words each; required for a new item",
 				}),
 			),
 			done: Type.Optional(

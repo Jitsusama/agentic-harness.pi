@@ -87,6 +87,35 @@ export function sayLanded(
 	}
 }
 
+/** Said on the bus, with its URL, when a session closes a change unmerged. */
+export const SESSION_CLOSED_CHANGE = "session:change-closed:v1";
+
+/**
+ * Say on `bus` that the change at `url` was closed without merging, so
+ * whatever waited on it, such as a look the person was pointed at, can
+ * stop waiting.
+ */
+export function sayClosed(bus: Pick<EventBus, "emit">, url: string): void {
+	try {
+		bus.emit(SESSION_CLOSED_CHANGE, { url });
+	} catch {
+		// A bus nobody can say on, after a reload: a look at it waits for
+		// the person to clear it.
+	}
+}
+
+/** Hear every change a session closes, by its URL. Returns a disposer. */
+export function onClosed(
+	bus: EventBus,
+	listener: (url: string) => void,
+): () => void {
+	return bus.on(SESSION_CLOSED_CHANGE, (data) => {
+		if (typeof data !== "object" || data === null) return;
+		const { url } = data as Record<string, unknown>;
+		if (typeof url === "string" && url !== "") listener(url);
+	});
+}
+
 /** Say on `bus` that what landed as `ref` is taken back: a plan item unticked. */
 export function sayUnlanded(bus: Pick<EventBus, "emit">, ref: string): void {
 	try {

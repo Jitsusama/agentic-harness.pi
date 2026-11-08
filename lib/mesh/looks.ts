@@ -27,8 +27,17 @@ export const LOOK_KINDS = ["pr", "page", "file", "diff", "terminal"] as const;
 /** What a look opens. */
 export type LookKind = (typeof LOOK_KINDS)[number];
 
-/** Where a look stands: waiting for the person, or done with by them. */
-export type LookState = "waiting" | "opened" | "cleared";
+/**
+ * Where a look stands: waiting for the person, done with by them, or
+ * resolved without them, since what it pointed at merged or closed.
+ */
+export type LookState = "waiting" | "opened" | "cleared" | "resolved";
+
+/**
+ * How a look's change was resolved without the person: it merged or
+ * closed, or their own account reviewed it on GitHub (looks-github.ts).
+ */
+export type LookResolution = "merged" | "closed" | `reviewed by ${string}`;
 
 /** One thing a session points the person at. */
 export interface Look {
@@ -54,6 +63,9 @@ export interface Look {
 	readonly why: string;
 	/** Waiting until the launcher says the person opened or cleared it. */
 	readonly state: LookState;
+	/** How it resolved, and when, once its change merged or closed. */
+	readonly how?: LookResolution;
+	readonly resolvedAt?: string;
 }
 
 /** What a session says to point the person at something. */
@@ -151,6 +163,56 @@ function isLook(value: unknown): value is Look {
 		"target" in value &&
 		typeof value.target === "string"
 	);
+}
+
+/** A change's URL as compared: no trailing slash, fragment or query. */
+function urlKey(url: string): string {
+	return url
+		.trim()
+		.replace(/[?#].*$/, "")
+		.replace(/\/+$/, "");
+}
+
+/** The URL a look at a change opens, read to its change: a PR's tabs are the PR. */
+function changeKey(target: string): string {
+	return urlKey(target).replace(
+		/(\/pull\/\d+)\/(?:files|commits|checks|changes)(?:\/.*)?$/,
+		"$1",
+	);
+}
+
+/**
+ * Mark every waiting look at the change at `url` resolved, since it
+ * merged or closed, so the person isn't asked to look at what no longer
+ * needs them (Joel, 8 November). Answers how many it marked. A look the
+ * person already opened or cleared is left as they left it.
+ */
+export function resolveLooks(
+	dir: string,
+	url: string,
+	how: LookResolution,
+	now: Date = new Date(),
+): number {
+	const key = changeKey(url);
+	if (key === "") return 0;
+	let marked = 0;
+	for (const look of looksIn(dir)) {
+		if (look.state !== "waiting") continue;
+		if (look.kind !== "pr" && look.kind !== "diff") continue;
+		if (changeKey(look.target) !== key) continue;
+		const resolved: Look = {
+			...look,
+			state: "resolved",
+			how,
+			resolvedAt: now.toISOString(),
+		};
+		writeWhole(
+			join(dir, `${look.id}.json`),
+			`${JSON.stringify(resolved, null, 2)}\n`,
+		);
+		marked++;
+	}
+	return marked;
 }
 
 /** Every look kept in `dir`, newest first; none for a folder not there. */

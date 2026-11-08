@@ -3022,6 +3022,15 @@ describe("a message that names no group", () => {
 		expect(kept?.content[0]?.text).toContain(
 			"Nothing judges checks or signals yet, since the desktop's daemon hasn't written its verdicts, so settle it with done: true once it is done.",
 		);
+		// Joel, 8 November: "I have no clue what to act on or even how."
+		const stepless = await wait({
+			id: "router-look",
+			title: "Look at the router",
+			why: "Only Joel is home",
+			minutes: 1,
+			doneWhen: { by: "person" },
+		});
+		expect(stepless?.content[0]?.text).toContain("give the steps he takes");
 		const later = await wait({
 			id: "router-look",
 			title: "Look at the router",
@@ -3029,6 +3038,7 @@ describe("a message that names no group", () => {
 			minutes: 1,
 			readyWhen: { signal: "switch:d6f916e3" },
 			doneWhen: { by: "person" },
+			steps: ["Look at its light"],
 		});
 		expect(later?.content[0]?.text).toContain(
 			"so say it again with ready: true once it is.",
@@ -3045,6 +3055,7 @@ describe("a message that names no group", () => {
 			minutes: 1,
 			readyWhen: { signal: "switch:d6f916e3" },
 			doneWhen: { by: "person" },
+			steps: ["Look at its light"],
 		});
 		expect(judged?.content[0]?.text).not.toContain("Nothing judges");
 		await wait({ id: "router-look", done: true });
@@ -3064,6 +3075,7 @@ describe("a message that names no group", () => {
 					steps: ["Open the eero app", "Sign in"],
 					owner: { session },
 					raisedAt: expect.any(String),
+					checkedAt: expect.any(String),
 				},
 			],
 		});

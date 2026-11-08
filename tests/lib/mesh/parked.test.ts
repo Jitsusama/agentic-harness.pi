@@ -167,8 +167,12 @@ function steer(root: string, address: string, body: object): void {
 }
 
 describe("waking a parked peer for a steer", () => {
-	it("wakes it for a carry or a close, which it can only do by running", () => {
-		for (const act of [{ act: "carry", to: "penelope" }, { act: "close" }]) {
+	it("wakes it for a carry, a close or a fill, which it can only do by running", () => {
+		for (const act of [
+			{ act: "carry", to: "penelope" },
+			{ act: "close" },
+			{ act: "fill", text: "Ready for this, if it still holds." },
+		]) {
 			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
 			steer(root, "8859FF67", act);
 			const asked: string[] = [];

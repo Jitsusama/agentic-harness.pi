@@ -205,7 +205,22 @@ and can answer a question or a gate left open on screen.
   what it waits for first (`readyWhen`). The desktop's daemon
   writes what it found in `~/.local/state/mission/verdicts.json`;
   a session applies those as it starts and as each run ends, so an
-  item clears itself. Sealing a quest removes its file.
+  item clears itself. Sealing a quest removes its file. An item
+  needs its why and its steps, since it opens in a drawer of its
+  own rather than in the session (Joel, 8 November: "I have no
+  clue what to act on or even how"). It carries `checkedAt`, when
+  it was last found still true (said again, or found ready by the
+  daemon), and its `owner.state` is `ended` once the session that
+  raised it ends for good, not parks, until that session starts
+  again.
+- `show_person`: point the person at something to look at (a pull
+  request, a page, a file, a diff, a terminal) rather than open it.
+  Each look is a file of its own in
+  `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks.ts`),
+  naming its session, what it is and why, which the launcher shows
+  and marks opened or cleared. Nothing here removes one. A look at a
+  change resolves itself, with `how` and `resolvedAt`, when a session
+  merges or closes that change through `review_offer`.
 
 ## Context, Not a Prompt
 
@@ -772,6 +787,12 @@ A steer may instead carry an `act`, with no text needed
   fails, as with no quest loaded, leaves the session open and
   says why. The work integration's README says what the handover
   holds.
+- `fill`, with `text`, puts the text in the session's prompt
+  without sending it, for the person to read and send: what a
+  to-do's act fills as it brings the session forward, as Joel
+  asked on 8 November. A prompt with words in it already is left
+  alone, and the text is shown beside it instead. A fill with no
+  text is no act.
 
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.

@@ -161,8 +161,8 @@ describe("a command that will not finish", () => {
 			"touch ran",
 		]);
 		expect(result.code).toBe(EXIT_ABORTED);
-		expect(
-			(await spawnExec({ cwd: dir })("ls", [])).stdout.includes("ran"),
-		).toBe(false);
+		expect((await spawnExec({ cwd: dir })("ls", [])).stdout).not.toContain(
+			"ran",
+		);
 	});
 });

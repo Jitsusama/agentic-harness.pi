@@ -145,6 +145,26 @@ describe("the steer inbox", () => {
 		).not.toHaveProperty("by");
 	});
 
+	// Joel, 8 November: "it should give me a prompt that gets filled into it".
+	it("reads a fill with its words, and no fill without words or not the person's", () => {
+		expect(
+			steerFrom(
+				'{"act":"fill","from":"joel","text":" ready if still valid "}',
+				"f",
+			),
+		).toEqual({
+			text: "ready if still valid",
+			act: "fill",
+			from: "joel",
+			file: "f",
+		});
+		expect(steerFrom('{"act":"fill"}', "f")).toBeUndefined();
+		// A machine's fill is only words, said as a message, never typed in.
+		expect(
+			steerFrom('{"act":"fill","from":"machine","text":"x"}', "f"),
+		).not.toHaveProperty("act");
+	});
+
 	it("reads a carry with the machine it goes to, and no carry that names none", () => {
 		expect(steerFrom('{"act":"carry","to":"penelope"}', "f")).toEqual({
 			text: "",

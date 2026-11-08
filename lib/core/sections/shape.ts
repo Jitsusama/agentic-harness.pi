@@ -337,7 +337,9 @@ export function countWords(text: string): number {
  * tool or identifier (`niri`, `core`) is still a new sentence, and
  * reading it as part of the one before refused descriptions for a run-on
  * nobody wrote. The abbreviations above have lost their stop by now, so
- * they cannot end one.
+ * they cannot end one. Nor need it start with a letter: one opening on
+ * a change's number ("#1066 shortens it") is a sentence of its own, where
+ * it was read as the end of the one before (QCXZEB, 8 November).
  */
 export function sentencesOf(text: string): string[] {
 	const prose = text
@@ -347,7 +349,7 @@ export function sentencesOf(text: string): string[] {
 	return prose
 		.split(/\n\s*\n|\n(?=\s*(?:[-*+]|\d+\.)\s)/)
 		.flatMap((chunk) =>
-			chunk.split(/(?<=[.!?]["')\]]?)\s+(?=["'([]?[\p{L}\p{N}])/u),
+			chunk.split(/(?<=[.!?]["')\]]?)\s+(?=["'([]?(?:[\p{L}\p{N}]|#\d))/u),
 		)
 		.map((s) => s.replace(/\s+/g, " ").trim())
 		.filter((s) => countWords(s) > 0);

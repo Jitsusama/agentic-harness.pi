@@ -68,6 +68,7 @@ import {
 import {
 	type Landing,
 	namesLanding,
+	onClosed,
 	onLanded,
 	onUnlanded,
 	withoutLanding,
@@ -129,6 +130,18 @@ import {
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
+import {
+	type LookResolution,
+	looksIn,
+	resolveLooks,
+} from "../../lib/mesh/looks.ts";
+import {
+	askable,
+	markResolved,
+	queryFor,
+	resolutionsFrom,
+	takeTurnToAsk,
+} from "../../lib/mesh/looks-github.ts";
 import {
 	asksEach,
 	clock,
@@ -217,7 +230,7 @@ import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
 import { tellOnNoModel, tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
-import { settleFromVerdicts, type Waiting } from "./wait.ts";
+import { markOwnerRunning, settleFromVerdicts, type Waiting } from "./wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -347,6 +360,83 @@ export interface MeshPaths extends QuestRecords {
 	 * nothing.
 	 */
 	readonly looks?: string;
+}
+
+/**
+ * Put the person's words in the prompt, unsent, for them to read and
+ * send: what a to-do's drawer fills when it brings this session forward.
+ * A prompt they were already typing in is left as it is, and the words
+ * shown beside it, so nothing of theirs is lost.
+ */
+function fillPrompt(ctx: ExtensionContext | undefined, text: string): void {
+	if (!ctx?.hasUI) return;
+	if (ctx.ui.getEditorText().trim() === "") {
+		ctx.ui.setEditorText(text);
+		return;
+	}
+	ctx.ui.notify(
+		`Your prompt already has words in it, so this was left out of it: ${text}`,
+		"info",
+	);
+}
+
+/** How often a session looks whether it's its turn to ask GitHub about looks. */
+const LOOKS_CHECK_MS = 60_000;
+
+/** How long one ask of GitHub about looks may take. */
+const LOOKS_ASK_TIMEOUT_MS = 30_000;
+
+/**
+ * Ask GitHub about the pull requests the person's waiting looks point at,
+ * when it's this session's turn, and mark what merged, closed or got
+ * their review resolved. A GitHub that can't be asked now leaves them
+ * waiting for the next turn.
+ */
+async function askAboutLooks(
+	pi: Pick<ExtensionAPI, "exec">,
+	dir: string,
+	session: string,
+): Promise<void> {
+	try {
+		const asked = askable(looksIn(dir));
+		if (asked.length === 0) return;
+		if (!takeTurnToAsk(dir, session, Date.now())) return;
+		const ran = await pi.exec(
+			"gh",
+			[
+				"api",
+				"graphql",
+				"-f",
+				`query=${queryFor(asked.map((one) => one.pull))}`,
+			],
+			{ timeout: LOOKS_ASK_TIMEOUT_MS },
+		);
+		// Not on its exit: one pull request GitHub can't find (deleted, or
+		// a repo now private) makes gh exit 1 with the others' answers still
+		// in its data, as a live ask on 8 November showed.
+		if (ran.stdout.trim() === "") return;
+		markResolved(dir, resolutionsFrom(asked, JSON.parse(ran.stdout)));
+	} catch {
+		// GitHub unreachable or its answer unreadable: asked again next turn.
+	}
+}
+
+/**
+ * Mark the person's looks at a change that merged or closed resolved, so
+ * nothing asks them to look at what no longer needs them (Joel, 8
+ * November). A look list that can't be written now keeps them waiting.
+ */
+function resolveLooksAt(
+	dir: string | undefined,
+	url: string,
+	how: LookResolution,
+): void {
+	if (!dir) return;
+	try {
+		resolveLooks(dir, url, how);
+	} catch {
+		// The looks stay waiting, for the person to clear by hand.
+	}
 }
 
 /** The machine's mesh and the quest records it reads. */
@@ -605,6 +695,9 @@ export function meshWorkflow(
 		// How far the read marker may move: only past what was handed over.
 		let front = createReadFront();
 		let lookClock: ReturnType<typeof setInterval> | undefined;
+		// Asking GitHub about the person's looks at pull requests, a turn
+		// across every session (looks-github.ts).
+		let looksClock: ReturnType<typeof setInterval> | undefined;
 		// A turn a note would start waits for a reload that is waiting: the
 		// note is said now, without it, and the landing starts it (hold.ts).
 		const holdTurn = createReloadHold();
@@ -687,6 +780,10 @@ export function meshWorkflow(
 				deliver: (one, inbox) => {
 					if (one.act === "carry") {
 						if (one.to !== undefined) void pausing.carry(one.to);
+						return;
+					}
+					if (one.act === "fill") {
+						fillPrompt(ctx, one.text);
 						return;
 					}
 					// Resume with words is a talk; any other act is only the act.
@@ -1369,7 +1466,10 @@ export function meshWorkflow(
 			hideWants = showWants();
 			for (const landing of unlanded.splice(0)) peer.landed(landing);
 			if (onNoModelUntold) tellNoModel(onNoModelUntold);
-			if (waiting) settleFromVerdicts(waiting);
+			if (waiting) {
+				settleFromVerdicts(waiting);
+				markOwnerRunning(waiting, true);
+			}
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
 			env[MESH_SESSION_ENV] = peer.session;
@@ -1429,6 +1529,16 @@ export function meshWorkflow(
 			clearInterval(lookClock);
 			lookClock = setInterval(lookAgain, lookAgainMs);
 			lookClock.unref?.();
+			clearInterval(looksClock);
+			const looksDir = paths.looks;
+			if (looksDir) {
+				const asking = peer.session;
+				looksClock = setInterval(
+					() => void askAboutLooks(pi, looksDir, asking),
+					LOOKS_CHECK_MS,
+				);
+				looksClock.unref?.();
+			}
 			const since =
 				transport.lastRead(peer.addresses) ??
 				`${Date.now() - FIRST_CATCH_UP_MS}`;
@@ -1578,6 +1688,13 @@ export function meshWorkflow(
 			acts?.stop();
 			clearInterval(lookClock);
 			lookClock = undefined;
+			clearInterval(looksClock);
+			looksClock = undefined;
+			// A session parking is still there to wake, so only one ending for
+			// good says its items' owner has ended.
+			if (waiting && !(peer && isParked(peer.session))) {
+				markOwnerRunning(waiting, false);
+			}
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;
@@ -1711,7 +1828,10 @@ export function meshWorkflow(
 			onLanded(pi.events, (landing) => {
 				if (peer) peer.landed(landing);
 				else unlanded.push(landing);
+				if (landing.url) resolveLooksAt(paths.looks, landing.url, "merged");
 			});
+			// A change closed unmerged no longer needs the person either.
+			onClosed(pi.events, (url) => resolveLooksAt(paths.looks, url, "closed"));
 			onUnlanded(pi.events, (ref) => {
 				if (peer) peer.unlanded(ref);
 				else

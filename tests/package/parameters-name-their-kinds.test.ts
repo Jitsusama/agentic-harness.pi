@@ -144,8 +144,8 @@ describe("a parameter that serves some actions says which", () => {
 		const pretend =
 			'\t\t\twhich: Type.Optional(Type.String({ description: "For rerun: a pipeline." })),';
 
-		expect(
-			NAMES_ITS_ACTIONS.test(parametersOf(pretend)[0]?.description ?? ""),
-		).toBe(true);
+		expect(parametersOf(pretend)[0]?.description ?? "").toMatch(
+			NAMES_ITS_ACTIONS,
+		);
 	});
 });

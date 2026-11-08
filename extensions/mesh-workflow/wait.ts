@@ -24,6 +24,7 @@ import {
 	applyVerdicts,
 	isKnowing,
 	type Knowing,
+	markOwner,
 	type Owner,
 	settleWaiting,
 	verdictsFile,
@@ -88,6 +89,26 @@ export interface WaitOutcome {
 	readonly text: string;
 	readonly items: readonly WaitingItem[];
 	readonly written: boolean;
+}
+
+/**
+ * Say whether this session still runs for what it raised: ended as it
+ * ends, so the launcher doesn't send the person into a session that's
+ * gone, and running again as it starts. A file that can't be written
+ * now is told at the next start or end.
+ */
+export function markOwnerRunning(waiting: Waiting, running: boolean): void {
+	const quest = waiting.quest();
+	const owner = waiting.owner?.();
+	if (!quest || !owner) return;
+	try {
+		const change = () =>
+			markOwner(waiting.folder, quest, owner.session, !running);
+		if (waiting.locked) waiting.locked(quest, change);
+		else change();
+	} catch {
+		// Said again at this session's next start or end.
+	}
 }
 
 /** Add, replace or settle one item. */
@@ -168,6 +189,13 @@ export function waitOnPerson(
 	if (steps.some((step) => step === "")) {
 		return refused("Nothing was kept: a step is a few words, never empty.");
 	}
+	// Joel, 8 November: "I have no clue what to act on or even how." An
+	// item opens in a drawer of its own, so it has to say how.
+	if (steps.length === 0) {
+		return refused(
+			"Nothing was kept: give the steps he takes, a few words each, so he can act on it without opening this session.",
+		);
+	}
 	const doneWhen: Knowing = params.doneWhen;
 	const readyWhen = isKnowing(params.readyWhen) ? params.readyWhen : undefined;
 	const window = waiting.window();
@@ -197,9 +225,10 @@ export function waitOnPerson(
 						},
 					}
 				: {}),
-			...(steps.length > 0 ? { steps } : {}),
+			steps,
 			...(owner ? { owner } : {}),
 			raisedAt: was?.raisedAt ?? now.toISOString(),
+			checkedAt: now.toISOString(),
 		};
 		return { before, item, items: addWaiting(waiting.folder, item, now) };
 	});

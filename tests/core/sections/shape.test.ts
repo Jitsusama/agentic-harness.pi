@@ -150,6 +150,13 @@ describe("detectShapeViolations", () => {
 		expect(rules(body({ [SOLUTION]: two }))).not.toContain("sentenceWords");
 	});
 
+	it("ends a sentence before one that opens with a change's number", () => {
+		// QCXZEB, 8 November: "busy timeout. #1066 shortens" read as one.
+		const half = words(25);
+		const two = `It waits on the busy timeout ${half}. #1066 shortens ${half} again.`;
+		expect(rules(body({ [SOLUTION]: two }))).not.toContain("sentenceWords");
+	});
+
 	it("treats a semicolon chain as one sentence", () => {
 		const half = words(25);
 		expect(rules(body({ [VALIDATION]: `${half}; ${half}.` }))).toContain(
