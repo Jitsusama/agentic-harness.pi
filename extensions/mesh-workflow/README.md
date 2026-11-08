@@ -97,7 +97,9 @@ and can answer a question or a gate left open on screen.
   (park-workflow). A parked peer is taken as there while its
   marker stands, so what is sent to it waits on disk, and a
   message that would give it a turn wakes it through its
-  holder.
+  holder. Its presence names that holder's `wake` file, so
+  a mycelium node steering it can wake it with no live
+  session on the machine.
 - **Want:** what a peer waits on its person for: a question
   it asked, an approval it is held at, an unattended run
   that ended blocked, or something only they can do, said

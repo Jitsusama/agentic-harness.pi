@@ -115,9 +115,11 @@ export interface Peer {
 	/**
 	 * Say it is parking: ending idle to hold no memory until it is woken
 	 * (parked.ts). It says so to the end, and its next start, a new peer,
-	 * does not carry it.
+	 * does not carry it. `wake` is the file its holder wakes it on, said
+	 * in its presence so a node steering it can wake it with no live
+	 * session on the machine.
 	 */
-	park(): void;
+	park(wake?: string): void;
 	/**
 	 * Say the step a run is on: the tool it is running, and what the call
 	 * is about (see step.ts). Said at most once every STEP_MS, since the
@@ -293,6 +295,8 @@ export function localPeer(at: Surroundings): Peer {
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
 	let parked = false;
+	// The file its holder wakes it on, while it's parked.
+	let wakeFile: string | undefined;
 	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Found once a start: reading every README on each refresh would
@@ -369,6 +373,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(quest ? { quest } : {}),
 			busy,
 			state: stateOf(busy, personal().length > 0, paused, parked),
+			...(parked && wakeFile ? { wake: wakeFile } : {}),
 			...(busy && since ? { since } : {}),
 			...(busy && step ? { step: stepName(step) } : {}),
 			...stepDetailOf(busy, step, longestStanding(personal())),
@@ -524,8 +529,9 @@ export function localPeer(at: Surroundings): Peer {
 			paused = now;
 			publish();
 		},
-		park() {
+		park(wake) {
 			parked = true;
+			wakeFile = wake;
 			publish();
 		},
 		setStep(tool, detail = "") {

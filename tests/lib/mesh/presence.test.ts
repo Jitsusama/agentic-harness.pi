@@ -247,6 +247,22 @@ describe("this session's peer", () => {
 		expect(kept.of(session)).toMatchObject({ busy: true });
 	});
 
+	it("names the file its holder wakes it on while it's parked, and not before", () => {
+		// 8 November: a node steering a parked session found no wake in its
+		// presence, only in the park marker, so it couldn't wake it (KP0L6A).
+		const at = surroundings();
+		const peer = localPeer(at);
+		peer.refresh();
+		expect(at.presences.of(session)).not.toHaveProperty("wake");
+
+		peer.park("/run/user/1000/mycelium/work.held/54960192.wake");
+
+		expect(at.presences.of(session)).toMatchObject({
+			state: "parked",
+			wake: "/run/user/1000/mycelium/work.held/54960192.wake",
+		});
+	});
+
 	it("says what it is doing: since when a run began, and its step at most every 30 s", () => {
 		let clock = Date.parse("2026-10-26T06:00:00Z");
 		const at = { ...surroundings(), now: () => clock };

@@ -12,7 +12,8 @@
  * `pi-carry` for the sessions no pi runs, carry the trees these name.
  */
 
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { createTreeMemory } from "../core/work/memory.ts";
 import { stateDir } from "./paths.ts";
 
@@ -37,6 +38,33 @@ export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
 				? tree.sessions.filter((one): one is string => typeof one === "string")
 				: [],
 		}));
+}
+
+/** A path as the disk names it, links followed, where it can be. */
+function canonical(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// A path that isn't there is compared as written.
+		return resolve(path);
+	}
+}
+
+/**
+ * Whether `folder` is, or lies inside, a tree the work broker cut: one an
+ * agent made for its own work. Joel ruled on 8 November that such trees
+ * are trusted by default, so pi's folder-trust prompt never stops a
+ * session started in one.
+ */
+export function isAgentCut(
+	folder: string,
+	dir: string = treeRecordDir(),
+): boolean {
+	const here = canonical(folder);
+	return recordedTrees(dir).some((tree) => {
+		const root = canonical(tree.path);
+		return here === root || here.startsWith(`${root}${sep}`);
+	});
 }
 
 /** The folders of the trees the records in `dir` name as held by `session`. */

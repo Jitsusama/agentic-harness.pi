@@ -77,6 +77,17 @@ On a 58 GiB walgit-rs target the clone took 1.3 seconds and
 compiled 30 packages in 32 seconds: the workspace's own crates,
 and the gix family above its `gix-hash` patched from a path.
 
+## A Tree It Cut Is Trusted
+
+A pi started in a tree the work tool cut, or a folder inside one,
+is trusted without pi's folder-trust prompt: this extension answers
+pi's `project_trust` yes for any folder its records name, for that
+process only, so no decision is saved for a tree that goes. On
+2026-11-07 three spawned sessions sat at that prompt in agent-cut
+trees until their orchestrator answered it by hand, and Joel ruled
+the next morning that such trees are trusted by default. Every
+other folder asks as pi always has.
+
 ## A Tree Comes With Its Repo's Rules
 
 pi loads AGENTS.md only from the folder a session starts in and

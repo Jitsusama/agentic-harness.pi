@@ -231,7 +231,7 @@ export function watch(
 		const unnamed = restartNamed(again, args, session, sessionFile);
 		if (unnamed !== undefined) return unnamed;
 		parked = true;
-		const parking: Parking = { session, addresses: [] };
+		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
 		writeParked(
 			{

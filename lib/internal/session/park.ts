@@ -166,6 +166,8 @@ export interface Parking {
 	readonly session: string;
 	addresses: readonly string[];
 	quest?: string;
+	/** The file its holder wakes it on, which its presence says too. */
+	readonly wake?: string;
 }
 
 /** Whether a payload is a {@link ParkAsk}. */
