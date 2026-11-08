@@ -118,8 +118,14 @@ describe("a start reading moved by a clock correction", () => {
 	});
 
 	it("reads tokens that are not times exactly", () => {
-		expect(sameStart("tok-1", "tok-1")).toBe(true);
-		expect(sameStart("tok-1", "tok-2")).toBe(false);
+		expect(
+			sameStart("tok-1", "tok-1"),
+			"the same token is the same start",
+		).toBe(true);
+		expect(
+			sameStart("tok-1", "tok-2"),
+			"tokens that differ are different starts, read as text and not as times",
+		).toBe(false);
 	});
 });
 

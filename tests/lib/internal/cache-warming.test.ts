@@ -97,8 +97,16 @@ describe("the warm itself", () => {
 	});
 
 	it("missed its prefix when it wrote more than 2,000 tokens", () => {
-		expect(prefixMissed({ cacheWrite: 2_000 })).toBe(false);
-		expect(prefixMissed({ cacheWrite: 2_001 })).toBe(true);
-		expect(prefixMissed({})).toBe(false);
+		expect(
+			prefixMissed({ cacheWrite: 2_000 }),
+			"writing exactly 2,000 tokens is no miss",
+		).toBe(false);
+		expect(
+			prefixMissed({ cacheWrite: 2_001 }),
+			"writing 2,001 tokens missed the prefix",
+		).toBe(true);
+		expect(prefixMissed({}), "a reply that wrote nothing is no miss").toBe(
+			false,
+		);
 	});
 });

@@ -43,9 +43,18 @@ describe("a rejection nothing watched", () => {
 	});
 
 	it("is pi's only when the message opens with pi's words", () => {
-		expect(isStaleContext(new Error(STALE))).toBe(true);
-		expect(isStaleContext(new Error(`wrapped: ${STALE}`))).toBe(false);
-		expect(isStaleContext({ message: STALE })).toBe(false);
+		expect(
+			isStaleContext(new Error(STALE)),
+			"an Error carrying pi's words is pi's",
+		).toBe(true);
+		expect(
+			isStaleContext(new Error(`wrapped: ${STALE}`)),
+			"an Error that only quotes pi's words further in is not pi's",
+		).toBe(false);
+		expect(
+			isStaleContext({ message: STALE }),
+			"a plain object with pi's words is no Error, so not pi's",
+		).toBe(false);
 	});
 });
 

@@ -54,7 +54,10 @@ describe("a command's steps", () => {
 			command: "git rev-parse 9a6eebb0",
 			cwd: "/t",
 		});
-		expect(steps[2]?.vars.has("R")).toBe(false);
+		expect(
+			steps[2]?.vars.has("R"),
+			"R, set from a command, is kept as substituted and not as a plain variable",
+		).toBe(false);
 	});
 
 	it("keeps a redirection's ampersand inside its step", () => {
@@ -63,7 +66,7 @@ describe("a command's steps", () => {
 			"a >x 2>&1",
 			"b &>y",
 		]);
-		expect(steps.some((step) => step.piped)).toBe(false);
+		expect(steps.filter((step) => step.piped)).toEqual([]);
 	});
 
 	it("follows the folder through cd and the variables set before it", () => {
@@ -80,7 +83,10 @@ describe("a command's steps", () => {
 			undefined,
 		]);
 		expect(steps[2]?.vars.get("K")).toBe(`${HOME}/trees/one`);
-		expect(steps[6]?.vars.has("W")).toBe(false);
+		expect(
+			steps[6]?.vars.has("W"),
+			"W, set from $(pwd), is no plain variable for the cd after it",
+		).toBe(false);
 	});
 
 	it("reads nothing of a command holding a heredoc", () => {

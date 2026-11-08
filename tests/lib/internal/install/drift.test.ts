@@ -8,23 +8,58 @@ import {
 
 describe("a version against a range", () => {
 	it("reads a caret by its leftmost non-zero part", () => {
-		expect(satisfies("0.6.18", "^0.6.18")).toBe(true);
-		expect(satisfies("0.6.15", "^0.6.18")).toBe(false);
-		expect(satisfies("0.7.0", "^0.6.18")).toBe(false);
-		expect(satisfies("1.40.2", "^1.29.0")).toBe(true);
-		expect(satisfies("2.0.0", "^1.29.0")).toBe(false);
-		expect(satisfies("0.0.3", "^0.0.3")).toBe(true);
-		expect(satisfies("0.0.4", "^0.0.3")).toBe(false);
+		expect(
+			satisfies("0.6.18", "^0.6.18"),
+			"the version a caret names is in it",
+		).toBe(true);
+		expect(
+			satisfies("0.6.15", "^0.6.18"),
+			"a patch below the caret's floor is out",
+		).toBe(false);
+		expect(
+			satisfies("0.7.0", "^0.6.18"),
+			"a new minor is out when the caret's leftmost non-zero part is the minor",
+		).toBe(false);
+		expect(
+			satisfies("1.40.2", "^1.29.0"),
+			"a later minor is in when the caret's leftmost non-zero part is the major",
+		).toBe(true);
+		expect(satisfies("2.0.0", "^1.29.0"), "a new major is out of ^1.29.0").toBe(
+			false,
+		);
+		expect(
+			satisfies("0.0.3", "^0.0.3"),
+			"the version a caret names is in it, even at 0.0",
+		).toBe(true);
+		expect(
+			satisfies("0.0.4", "^0.0.3"),
+			"a new patch is out when the caret's leftmost non-zero part is the patch",
+		).toBe(false);
 	});
 
 	it("reads a tilde, an exact version, a floor and anything", () => {
-		expect(satisfies("1.2.9", "~1.2.3")).toBe(true);
-		expect(satisfies("1.3.0", "~1.2.3")).toBe(false);
-		expect(satisfies("1.2.3", "1.2.3")).toBe(true);
-		expect(satisfies("1.2.4", "1.2.3")).toBe(false);
-		expect(satisfies("9.0.0", ">=1.2.3")).toBe(true);
-		expect(satisfies("1.2.2", ">=1.2.3")).toBe(false);
-		expect(satisfies("3.1.4", "*")).toBe(true);
+		expect(satisfies("1.2.9", "~1.2.3"), "a later patch is in a tilde").toBe(
+			true,
+		);
+		expect(satisfies("1.3.0", "~1.2.3"), "a new minor is out of a tilde").toBe(
+			false,
+		);
+		expect(satisfies("1.2.3", "1.2.3"), "an exact version is in itself").toBe(
+			true,
+		);
+		expect(
+			satisfies("1.2.4", "1.2.3"),
+			"any other version is out of an exact one",
+		).toBe(false);
+		expect(
+			satisfies("9.0.0", ">=1.2.3"),
+			"any later major is above a floor",
+		).toBe(true);
+		expect(
+			satisfies("1.2.2", ">=1.2.3"),
+			"a version below a floor is out",
+		).toBe(false);
+		expect(satisfies("3.1.4", "*"), "any version is in a star").toBe(true);
 	});
 
 	it("will not guess at a shape it does not read", () => {

@@ -27,14 +27,16 @@ function clocked() {
 
 describe("a delivery held for a waiting reload", () => {
 	it("goes at once when no reload is asked for", () => {
-		expect(clocked().hold()).toBe(false);
+		expect(clocked().hold(), "nothing is held with no reload asked for").toBe(
+			false,
+		);
 	});
 
 	it("waits while a reload is asked for, then goes once its moment has passed", () => {
 		reloadSlot().request = { reason: "the install moved", by: "self" };
 		const { hold, later } = clocked();
 
-		expect(hold()).toBe(true);
+		expect(hold(), "a delivery is held once a reload is asked for").toBe(true);
 		let held = 0;
 		while (later(1_000)) held += 1;
 
@@ -45,22 +47,28 @@ describe("a delivery held for a waiting reload", () => {
 		const slot = reloadSlot();
 		slot.request = { reason: "asked", by: "agent" };
 		const { hold } = clocked();
-		expect(hold()).toBe(true);
+		expect(hold(), "a delivery is held once a reload is asked for").toBe(true);
 
 		slot.reloading = true;
 
-		expect(hold()).toBe(false);
+		expect(hold(), "a delivery goes once the reload is under way").toBe(false);
 	});
 
 	it("takes each free moment afresh, so a long run never spends the hold", () => {
 		reloadSlot().request = { reason: "the install moved", by: "self" };
 		const { hold, later } = clocked();
-		expect(hold()).toBe(true);
+		expect(hold(), "a delivery is held once a reload is asked for").toBe(true);
 		let spent = false;
 		while (!spent) spent = !later(1_000);
 
 		// The outbox stops asking while a run goes, here for 20 minutes.
-		expect(later(20 * 60_000)).toBe(true);
-		expect(later(MOMENT_GAP_MS)).toBe(true);
+		expect(
+			later(20 * 60_000),
+			"a look after a 20 minute gap is held afresh",
+		).toBe(true);
+		expect(
+			later(MOMENT_GAP_MS),
+			"a look MOMENT_GAP_MS after that is held afresh too",
+		).toBe(true);
 	});
 });

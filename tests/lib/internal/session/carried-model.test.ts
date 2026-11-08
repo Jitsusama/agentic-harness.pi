@@ -121,8 +121,14 @@ describe("the model a log chose", () => {
 
 describe("a session on no model", () => {
 	it("has none, or pi's placeholder", () => {
-		expect(hasNoModel(undefined)).toBe(true);
-		expect(hasNoModel({ provider: NO_PROVIDER })).toBe(true);
-		expect(hasNoModel({ provider: "anthropic" })).toBe(false);
+		expect(hasNoModel(undefined), "no model at all is none").toBe(true);
+		expect(
+			hasNoModel({ provider: NO_PROVIDER }),
+			"pi's placeholder provider is none",
+		).toBe(true);
+		expect(
+			hasNoModel({ provider: "anthropic" }),
+			"a real provider is a model",
+		).toBe(false);
 	});
 });

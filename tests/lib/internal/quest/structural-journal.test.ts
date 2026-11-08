@@ -46,7 +46,10 @@ describe("structural journal", () => {
 		reparentAs("session-a", "QEST-1");
 
 		const last = lastStructuralOp(root);
-		expect(Number.isNaN(Date.parse(last?.ts ?? ""))).toBe(false);
+		expect(
+			Number.isNaN(Date.parse(last?.ts ?? "")),
+			`the entry's stamp, ${last?.ts}, reads as a time`,
+		).toBe(false);
 		expect(last?.entry).toMatch(/^[0-9a-f-]{36}$/);
 		expect(last?.session).toBe("session-a");
 	});

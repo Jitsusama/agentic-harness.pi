@@ -164,9 +164,15 @@ describe("the note on disk", () => {
 		const path = join(dir, "state", "windows-elsewhere.json");
 		const note = nextNote(undefined, "boot-now", [macWindow]);
 
-		expect(writeWindowsNote(path, note)).toBe(true);
+		expect(
+			writeWindowsNote(path, note),
+			`a new note is written to ${path}`,
+		).toBe(true);
 		expect(readWindowsNote(path)).toEqual(note);
-		expect(writeWindowsNote(path, note)).toBe(false);
+		expect(
+			writeWindowsNote(path, note),
+			`the same note again is not written to ${path}`,
+		).toBe(false);
 		expect(JSON.parse(readFileSync(path, "utf8")).v).toBe(1);
 	});
 

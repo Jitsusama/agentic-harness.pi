@@ -41,12 +41,20 @@ beforeAll(() => {
 
 describe("isWithin", () => {
 	it("matches a path that is the parent or under it", () => {
-		expect(isWithin("/a/feat", "/a/feat")).toBe(true);
-		expect(isWithin("/a/feat/x/y", "/a/feat")).toBe(true);
+		expect(isWithin("/a/feat", "/a/feat"), "/a/feat is within itself").toBe(
+			true,
+		);
+		expect(
+			isWithin("/a/feat/x/y", "/a/feat"),
+			"/a/feat/x/y is within /a/feat",
+		).toBe(true);
 	});
 
 	it("rejects a sibling whose name shares a prefix", () => {
-		expect(isWithin("/a/feature-2/x", "/a/feat")).toBe(false);
+		expect(
+			isWithin("/a/feature-2/x", "/a/feat"),
+			"/a/feature-2/x is not within /a/feat, whose name it only begins with",
+		).toBe(false);
 	});
 
 	it("canonicalizes both sides so a symlinked path still matches", () => {
@@ -55,9 +63,10 @@ describe("isWithin", () => {
 		symlinkSync(real, link);
 		mkdirSync(path.join(real, "w"));
 		try {
-			expect(isWithin(path.join(link, "w", "f.ts"), path.join(real, "w"))).toBe(
-				true,
-			);
+			expect(
+				isWithin(path.join(link, "w", "f.ts"), path.join(real, "w")),
+				`${link}/w/f.ts is within ${real}/w through the link`,
+			).toBe(true);
 		} finally {
 			rmSync(link, { force: true });
 			rmSync(real, { recursive: true, force: true });
@@ -167,38 +176,68 @@ describe("trackedTreeRoot", () => {
 
 describe("isGitignored", () => {
 	it("is true for an ignored path", () => {
-		expect(isGitignored(path.join(repo, "build.log"))).toBe(true);
-		expect(isGitignored(path.join(repo, "ignored", "x.ts"))).toBe(true);
+		expect(
+			isGitignored(path.join(repo, "build.log")),
+			"build.log is ignored by *.log",
+		).toBe(true);
+		expect(
+			isGitignored(path.join(repo, "ignored", "x.ts")),
+			"ignored/x.ts is ignored by ignored/",
+		).toBe(true);
 	});
 
 	it("is false for a tracked or merely untracked path", () => {
-		expect(isGitignored(path.join(repo, "src", "tracked.ts"))).toBe(false);
-		expect(isGitignored(path.join(repo, "src", "brand-new.ts"))).toBe(false);
+		expect(
+			isGitignored(path.join(repo, "src", "tracked.ts")),
+			"the tracked src/tracked.ts is not ignored",
+		).toBe(false);
+		expect(
+			isGitignored(path.join(repo, "src", "brand-new.ts")),
+			"the untracked src/brand-new.ts is not ignored",
+		).toBe(false);
 	});
 
 	it("is false outside a repository", () => {
-		expect(isGitignored(path.join(outside, "x.log"))).toBe(false);
+		expect(
+			isGitignored(path.join(outside, "x.log")),
+			`${outside}/x.log, in no repository, is not ignored`,
+		).toBe(false);
 	});
 });
 
 describe("isTracked", () => {
 	it("is true for a committed path", () => {
-		expect(isTracked(path.join(repo, "src", "tracked.ts"))).toBe(true);
+		expect(
+			isTracked(path.join(repo, "src", "tracked.ts")),
+			"the committed src/tracked.ts is tracked",
+		).toBe(true);
 	});
 
 	it("is false for a new untracked path", () => {
-		expect(isTracked(path.join(repo, "src", "brand-new.ts"))).toBe(false);
+		expect(
+			isTracked(path.join(repo, "src", "brand-new.ts")),
+			"the new src/brand-new.ts is not tracked",
+		).toBe(false);
 	});
 
 	it("is false outside a repository", () => {
-		expect(isTracked(path.join(outside, "x.ts"))).toBe(false);
+		expect(
+			isTracked(path.join(outside, "x.ts")),
+			`${outside}/x.ts, in no repository, is not tracked`,
+		).toBe(false);
 	});
 });
 
 describe("isMainWorkingTree", () => {
 	it("is true for a repository's primary checkout", () => {
-		expect(isMainWorkingTree(repo)).toBe(true);
-		expect(isMainWorkingTree(path.join(repo, "src"))).toBe(true);
+		expect(
+			isMainWorkingTree(repo),
+			`${repo} is its repository's primary checkout`,
+		).toBe(true);
+		expect(
+			isMainWorkingTree(path.join(repo, "src")),
+			`${repo}/src is inside the primary checkout`,
+		).toBe(true);
 	});
 
 	it("is false for a linked worktree", () => {
@@ -209,7 +248,10 @@ describe("isMainWorkingTree", () => {
 			stdio: "ignore",
 		});
 		try {
-			expect(isMainWorkingTree(worktree)).toBe(false);
+			expect(
+				isMainWorkingTree(worktree),
+				`the linked worktree ${worktree} is not the primary checkout`,
+			).toBe(false);
 		} finally {
 			execFileSync("git", ["worktree", "remove", "--force", worktree], {
 				cwd: repo,
@@ -220,6 +262,9 @@ describe("isMainWorkingTree", () => {
 	});
 
 	it("is false outside a repository", () => {
-		expect(isMainWorkingTree(outside)).toBe(false);
+		expect(
+			isMainWorkingTree(outside),
+			`${outside}, in no repository, is no checkout`,
+		).toBe(false);
 	});
 });

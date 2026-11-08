@@ -367,7 +367,7 @@ describe("pickResumeSession", () => {
 			view("older", "live", "2026-06-04T09:00:00.000Z"),
 			view("newer", "live", "2026-06-04T11:00:00.000Z"),
 		]);
-		expect(result && "ambiguous" in result).toBe(true);
+		expect(result).toHaveProperty("ambiguous");
 		if (!result || !("ambiguous" in result))
 			throw new Error("expected ambiguous");
 		expect(result.ambiguous.map((s) => s.id)).toEqual(["newer", "older"]);
@@ -411,7 +411,7 @@ describe("summariseSessions", () => {
 			view("phantom", "dead"),
 			view("gone", "detached", "2026-06-04T12:00:00.000Z"),
 		]);
-		expect(out.some((s) => s.resumeTarget)).toBe(false);
+		expect(out.filter((s) => s.resumeTarget)).toEqual([]);
 	});
 
 	it("orders newest activity first", () => {
@@ -438,7 +438,7 @@ describe("summariseSessions", () => {
 		const out = summariseSessions([
 			view("a", "detached", "2026-06-04T09:00:00.000Z"),
 		]);
-		expect(out.some((s) => s.resumeTarget)).toBe(false);
+		expect(out.filter((s) => s.resumeTarget)).toEqual([]);
 	});
 
 	it("carries name and cwd through", () => {

@@ -125,7 +125,9 @@ describe("reading the logs on Drive only", () => {
 			unread: 0,
 		});
 		const folder = dirname(fetched[0] ?? "");
-		expect(existsSync(folder)).toBe(false);
+		expect(existsSync(folder), `${folder} is not kept past the read`).toBe(
+			false,
+		);
 	});
 
 	it("counts a copy it couldn't read back and goes on to the next", () => {
@@ -174,7 +176,7 @@ describe("reading the logs on Drive only", () => {
 			),
 		).toThrow("a bug in the sensor");
 		expect(
-			readdirSync(tmpdir()).some((name) => name.startsWith("away-logs-")),
-		).toBe(false);
+			readdirSync(tmpdir()).filter((name) => name.startsWith("away-logs-")),
+		).toEqual([]);
 	});
 });

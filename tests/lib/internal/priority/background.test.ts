@@ -39,21 +39,35 @@ describe("a pi that may yield the CPU", () => {
 		expect(dir).toBe(join(runtime, "pi", "background"));
 		const turns = follow();
 		turns.began(1_000);
-		expect(existsSync(file())).toBe(false);
+		expect(
+			existsSync(file()),
+			`${file()} is not written before a quiet minute`,
+		).toBe(false);
 		turns.settle(QUIET_MS);
-		expect(existsSync(file())).toBe(true);
+		expect(
+			existsSync(file()),
+			`${file()} is written after a quiet minute`,
+		).toBe(true);
 	});
 
 	it("goes at the first key, and comes back only after another quiet minute", () => {
 		const turns = follow();
 		turns.began(QUIET_MS);
-		expect(existsSync(file())).toBe(true);
+		expect(
+			existsSync(file()),
+			`${file()} is written for a turn begun a quiet minute in`,
+		).toBe(true);
 		turns.key(QUIET_MS + 1);
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} goes at the first key`).toBe(false);
 		turns.settle(QUIET_MS + 2);
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} stays gone just after the key`).toBe(
+			false,
+		);
 		turns.settle(2 * QUIET_MS + 1);
-		expect(existsSync(file())).toBe(true);
+		expect(
+			existsSync(file()),
+			`${file()} comes back a quiet minute after the key`,
+		).toBe(true);
 	});
 
 	it("is never said for a turn a person typed", () => {
@@ -61,31 +75,47 @@ describe("a pi that may yield the CPU", () => {
 		const turns = follow();
 		turns.began(QUIET_MS);
 		turns.settle(2 * QUIET_MS);
-		expect(existsSync(file())).toBe(false);
+		expect(
+			existsSync(file()),
+			`${file()} is never written for a typed turn`,
+		).toBe(false);
 	});
 
 	it("is never said while the editor holds the person's words", () => {
 		text = "half a thought";
 		const turns = follow();
 		turns.began(QUIET_MS);
-		expect(existsSync(file())).toBe(false);
+		expect(
+			existsSync(file()),
+			`${file()} is not written while the editor holds words`,
+		).toBe(false);
 		text = "";
 		turns.settle(QUIET_MS + 1);
-		expect(existsSync(file())).toBe(true);
+		expect(
+			existsSync(file()),
+			`${file()} is written once the editor is empty`,
+		).toBe(true);
 	});
 
 	it("is never said between turns, and goes when the turn or session ends", () => {
 		const turns = follow();
 		turns.settle(QUIET_MS);
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} is not written between turns`).toBe(
+			false,
+		);
 		turns.began(QUIET_MS);
 		turns.ended();
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} goes when the turn ends`).toBe(false);
 		turns.settle(2 * QUIET_MS);
-		expect(existsSync(file())).toBe(false);
+		expect(
+			existsSync(file()),
+			`${file()} is not written after the turn ended`,
+		).toBe(false);
 		turns.began(2 * QUIET_MS);
 		turns.stop();
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} goes when the session ends`).toBe(
+			false,
+		);
 	});
 
 	it("keeps the full weight when the editor can't be read or there is no runtime folder", () => {
@@ -98,7 +128,10 @@ describe("a pi that may yield the CPU", () => {
 			typed: () => false,
 		});
 		turns.began(QUIET_MS);
-		expect(existsSync(file())).toBe(false);
+		expect(
+			existsSync(file()),
+			`${file()} is not written when the editor cannot be read`,
+		).toBe(false);
 		expect(backgroundDir({})).toBeUndefined();
 		const none = backgroundTurns(undefined, {
 			editorText: () => "",

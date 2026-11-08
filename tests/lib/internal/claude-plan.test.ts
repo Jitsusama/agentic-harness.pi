@@ -50,7 +50,9 @@ describe("a Claude plan's use", () => {
 	});
 
 	it("says a refused turn stopped", () => {
-		expect(planUseFrom([said({ status: "rejected" })])?.stopped).toBe(true);
+		expect(planUseFrom([said({ status: "rejected" })])).toMatchObject({
+			stopped: true,
+		});
 	});
 });
 

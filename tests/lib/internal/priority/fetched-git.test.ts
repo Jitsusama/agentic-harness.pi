@@ -60,7 +60,10 @@ beforeEach(() => {
 		"remote.origin.url",
 		"https://u@delta.example/shop/world.git",
 	);
-	expect(placeFetchedGit(queue, world)).toBe(true);
+	expect(
+		placeFetchedGit(queue, world),
+		`fetched/git is placed in ${queue} to run`,
+	).toBe(true);
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 

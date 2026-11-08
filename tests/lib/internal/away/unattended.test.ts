@@ -37,7 +37,7 @@ describe("a context handed to something that might prompt", () => {
 	it("says nobody can be asked while they are away", () => {
 		goAway();
 
-		expect(unattended(context()).hasUI).toBe(false);
+		expect(unattended(context())).toMatchObject({ hasUI: false });
 	});
 
 	it("still reads everything else live", () => {

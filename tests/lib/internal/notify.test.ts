@@ -21,7 +21,7 @@ describe("notify", () => {
 			{ title: "Needs you", body: "Publish 0.14.0", urgency: "critical" },
 			{ platform: "linux", exec, env: ON },
 		);
-		expect(shown).toBe(true);
+		expect(shown, "notify says it showed the notification").toBe(true);
 		expect(calls).toEqual([
 			[
 				"notify-send",
@@ -67,6 +67,7 @@ describe("notify", () => {
 		const { exec } = recording(1);
 		expect(
 			await notify({ title: "t" }, { platform: "linux", exec, env: ON }),
+			"a notify-send that exits 1 showed nothing",
 		).toBe(false);
 	});
 
@@ -76,6 +77,7 @@ describe("notify", () => {
 		};
 		expect(
 			await notify({ title: "t" }, { platform: "linux", exec, env: ON }),
+			"a notifier that could not be started showed nothing",
 		).toBe(false);
 	});
 
@@ -83,6 +85,7 @@ describe("notify", () => {
 		const { exec, calls } = recording();
 		expect(
 			await notify({ title: "t" }, { platform: "win32", exec, env: ON }),
+			"nothing is shown on win32, which has no notifier",
 		).toBe(false);
 		expect(calls).toEqual([]);
 	});
@@ -93,7 +96,7 @@ describe("notify", () => {
 			{ title: "t" },
 			{ platform: "linux", exec, env: { PI_NOTIFY: "off" } },
 		);
-		expect(shown).toBe(false);
+		expect(shown, "nothing is shown with PI_NOTIFY off").toBe(false);
 		expect(calls).toEqual([]);
 	});
 

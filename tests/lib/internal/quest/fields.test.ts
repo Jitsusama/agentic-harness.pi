@@ -42,7 +42,7 @@ describe("the table that says how to read and write a quest field", () => {
 
 		const written = lens?.write(frontMatter(), "driving");
 
-		expect(written?.ok).toBe(true);
+		expect(written).toMatchObject({ ok: true });
 		expect(written?.ok === true && lens?.read(written.fm)).toBe("driving");
 	});
 
@@ -52,7 +52,7 @@ describe("the table that says how to read and write a quest field", () => {
 		// word the vocabulary lost, and the cast would write it.
 		const written = lensForField("status")?.write(frontMatter(), "sleepy");
 
-		expect(written?.ok).toBe(false);
+		expect(written).toMatchObject({ ok: false });
 	});
 
 	it("names the offending value and the vocabulary it missed", () => {
@@ -89,6 +89,6 @@ describe("the table that says how to read and write a quest field", () => {
 	it("refuses a rank that is not a number", () => {
 		const written = lensForField("rank")?.write(frontMatter(), "eleventh");
 
-		expect(written?.ok).toBe(false);
+		expect(written).toMatchObject({ ok: false });
 	});
 });

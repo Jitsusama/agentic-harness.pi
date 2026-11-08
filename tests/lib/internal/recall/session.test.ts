@@ -156,9 +156,8 @@ describe("a recall", () => {
 		const ref = paragraphRef(unit?.hash ?? "");
 		const answer = recall(log, { entryId: ref });
 		expect(answer.kind).toBe("entry");
-		expect(answer.view.startsWith(`[u7] (${ref}) As I said before.`)).toBe(
-			true,
-		);
+		const opening = `[u7] (${ref}) As I said before.`;
+		expect(answer.view.slice(0, opening.length)).toBe(opening);
 	});
 
 	it("says plainly when no entry says the paragraph a reference names", () => {
@@ -176,7 +175,7 @@ describe("a recall", () => {
 		});
 		expect(answer.kind).toBe("entry");
 		if (answer.kind !== "entry") return;
-		expect(answer.cut).toBe(true);
+		expect(answer).toMatchObject({ cut: true });
 		expect(answer.view.length).toBeLessThan(PAGE_CHARS + 20);
 		expect(answer.entry.text).toHaveLength(PAGE_CHARS * 3);
 	});
@@ -201,7 +200,10 @@ describe("a recall", () => {
 		expect(first.more).toContain("page 2");
 
 		const second = recall(log, { query: "widget", page: 2 });
-		expect(second.kind === "hits" && second.more).toBeFalsy();
+		expect(
+			second.kind === "hits" && second.more,
+			"the last page leaves no hits for later",
+		).toBeFalsy();
 		expect(second.view.split("\n\n")).toHaveLength(3);
 	});
 

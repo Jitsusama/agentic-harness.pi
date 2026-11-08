@@ -81,18 +81,29 @@ describe("a parked session's marker and wake", () => {
 	});
 
 	it("says it is parked until it clears its marker on starting", () => {
-		expect(isParked("s-1", folder)).toBe(false);
+		expect(isParked("s-1", folder), "s-1 is not parked before its marker").toBe(
+			false,
+		);
 		writeParked(marker(join(folder, "s-1.wake")), folder);
-		expect(isParked("s-1", folder)).toBe(true);
+		expect(
+			isParked("s-1", folder),
+			"s-1 is parked once its marker is written",
+		).toBe(true);
 		expect(readParked("s-1", folder)?.sessionFile).toBe("/logs/s-1.jsonl");
 		clearParked("s-1", folder);
-		expect(isParked("s-1", folder)).toBe(false);
+		expect(
+			isParked("s-1", folder),
+			"s-1 is not parked once its marker is cleared",
+		).toBe(false);
 	});
 
 	it("wakes it by writing to the file its holder watches", () => {
 		const wake = join(folder, "s-1.wake");
 		writeParked(marker(wake), folder);
-		expect(askWake("s-1", "2-80ECO2-1-aaaa", folder)).toBe(true);
+		expect(
+			askWake("s-1", "2-80ECO2-1-aaaa", folder),
+			"waking the parked s-1 says it asked",
+		).toBe(true);
 		expect(JSON.parse(readFileSync(wake, "utf8"))).toMatchObject({
 			session: "s-1",
 			messageId: "2-80ECO2-1-aaaa",
@@ -100,7 +111,10 @@ describe("a parked session's marker and wake", () => {
 	});
 
 	it("wakes nothing for a session not parked", () => {
-		expect(askWake("s-1", "2-80ECO2-1-aaaa", folder)).toBe(false);
+		expect(
+			askWake("s-1", "2-80ECO2-1-aaaa", folder),
+			"waking s-1, which is not parked, asks nothing",
+		).toBe(false);
 	});
 });
 
@@ -126,18 +140,26 @@ describe("a park the machine's boot outlived", () => {
 	it("is no park, so nothing writes to a wake no holder watches", () => {
 		parkBefore("s-old");
 
-		expect(isParked("s-old", folder, booted)).toBe(false);
+		expect(
+			isParked("s-old", folder, booted),
+			"a park written before the boot is no park",
+		).toBe(false);
 		expect(readParked("s-old", folder, booted)).toBeUndefined();
 		expect(
 			askWake("s-old", "2-80ECO2-1-aaaa", folder, new Date(), booted),
+			"waking a park the boot outlived asks nothing",
 		).toBe(false);
-		expect(existsSync(join(folder, "s-old.wake"))).toBe(false);
+		const wake = join(folder, "s-old.wake");
+		expect(existsSync(wake), `${wake} is never written`).toBe(false);
 	});
 
 	it("still counts a park written since the boot", () => {
 		writeParked(marker("s-new"), folder);
 
-		expect(isParked("s-new", folder, booted)).toBe(true);
+		expect(
+			isParked("s-new", folder, booted),
+			"a park written since the boot counts",
+		).toBe(true);
 	});
 
 	it("is cleared, and only the parks the boot outlived are", () => {
@@ -145,14 +167,24 @@ describe("a park the machine's boot outlived", () => {
 		writeParked(marker("s-new"), folder);
 
 		expect(clearOutlivedParks(folder, booted)).toEqual(["s-old"]);
-		expect(existsSync(parkedPath("s-old", folder))).toBe(false);
-		expect(existsSync(parkedPath("s-new", folder))).toBe(true);
+		const outlived = parkedPath("s-old", folder);
+		const since = parkedPath("s-new", folder);
+		expect(
+			existsSync(outlived),
+			`${outlived}, which the boot outlived, goes`,
+		).toBe(false);
+		expect(existsSync(since), `${since}, written since the boot, stays`).toBe(
+			true,
+		);
 	});
 
 	it("is judged by nothing where the machine won't say when it booted", () => {
 		parkBefore("s-old");
 
-		expect(isParked("s-old", folder, () => undefined)).toBe(true);
+		expect(
+			isParked("s-old", folder, () => undefined),
+			"an old park counts when the boot time is unknown",
+		).toBe(true);
 		expect(clearOutlivedParks(folder, () => undefined)).toEqual([]);
 	});
 });

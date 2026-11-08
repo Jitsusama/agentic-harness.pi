@@ -242,13 +242,18 @@ describe("a pi under a window", () => {
 			3: { comm: "pi" },
 		});
 
-		expect(piUnder(1, proc)).toBe(true);
+		expect(
+			piUnder(1, proc),
+			"pi, two holders below the window's process, is found",
+		).toBe(true);
 	});
 
 	it("is not found under a shell whose pi has gone", () => {
 		proc = processes({ 1: { comm: "zsh", children: [4] }, 4: { comm: "ls" } });
 
-		expect(piUnder(1, proc)).toBe(false);
-		expect(piUnder(9, proc)).toBe(false);
+		expect(piUnder(1, proc), "a shell running only ls holds no pi").toBe(false);
+		expect(piUnder(9, proc), "a process that is not there holds no pi").toBe(
+			false,
+		);
 	});
 });

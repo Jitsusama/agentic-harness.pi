@@ -52,22 +52,28 @@ describe("saying which code runs", () => {
 		expect(describeLoaded(NAME, { root: "/src/tree" })).toContain(
 			"pi's settings name no install of it",
 		);
-		expect(isSwapped({ root: "/src/tree" })).toBe(true);
+		expect(
+			isSwapped({ root: "/src/tree" }),
+			"a load with no install named counts as swapped",
+		).toBe(true);
 	});
 
 	it("counts a version the install's link has left as the install, behind it", () => {
 		const versions = "/p/github.com/Jitsusama/agentic-harness.pi/versions";
 		expect(
 			isSwapped({ root: `${versions}/aaa`, install: `${versions}/bbb` }),
+			"a version the link has left counts as the install",
 		).toBe(false);
-		expect(isSwapped({ root: "/src/tree", install: `${versions}/bbb` })).toBe(
-			true,
-		);
+		expect(
+			isSwapped({ root: "/src/tree", install: `${versions}/bbb` }),
+			"a tree outside the install counts as swapped",
+		).toBe(true);
 		expect(
 			isSwapped({
 				root: "/p/github.com/Jitsusama/neovim.pi/versions/aaa",
 				install: `${versions}/bbb`,
 			}),
+			"another package's version counts as swapped",
 		).toBe(true);
 	});
 
@@ -78,6 +84,7 @@ describe("saying which code runs", () => {
 				root: `${install}/releases/aaa`,
 				install: `${install}/versions/bbb`,
 			}),
+			"a version in releases/ counts as the install",
 		).toBe(false);
 	});
 

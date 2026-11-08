@@ -97,9 +97,15 @@ describe("dependenciesReady", () => {
 		const installed = join(dir, "node_modules", ".modules.yaml");
 		utimesSync(installed, 1_000, 1_000);
 		utimesSync(lock, 2_000, 2_000);
-		expect(dependenciesReady(dir)).toBe(false);
+		expect(
+			dependenciesReady(dir),
+			"an install older than the lockfile is not ready",
+		).toBe(false);
 		utimesSync(installed, 3_000, 3_000);
-		expect(dependenciesReady(dir)).toBe(true);
+		expect(
+			dependenciesReady(dir),
+			"an install newer than the lockfile is ready",
+		).toBe(true);
 	});
 
 	it("waits for an install that follows the move, though the lockfile stayed", async () => {
@@ -113,9 +119,15 @@ describe("dependenciesReady", () => {
 		utimesSync(join(dir, "pnpm-lock.yaml"), 1_000, 1_000);
 		utimesSync(installed, 2_000, 2_000);
 		const movedAt = 5_000_000;
-		expect(dependenciesReady(dir, movedAt, movedAt + 1_000)).toBe(false);
+		expect(
+			dependenciesReady(dir, movedAt, movedAt + 1_000),
+			"an install from before the move is not ready a second after it",
+		).toBe(false);
 		utimesSync(installed, 5_020, 5_020);
-		expect(dependenciesReady(dir, movedAt, movedAt + 21_000)).toBe(true);
+		expect(
+			dependenciesReady(dir, movedAt, movedAt + 21_000),
+			"an install finished after the move is ready",
+		).toBe(true);
 	});
 
 	it("takes a move nothing installed after as done once the grace has passed", async () => {
@@ -129,10 +141,12 @@ describe("dependenciesReady", () => {
 		const movedAt = 5_000_000;
 		expect(
 			dependenciesReady(dir, movedAt, movedAt + INSTALL_GRACE_MS - 1),
+			"a move nothing installed after is not done just inside the grace",
 		).toBe(false);
-		expect(dependenciesReady(dir, movedAt, movedAt + INSTALL_GRACE_MS)).toBe(
-			true,
-		);
+		expect(
+			dependenciesReady(dir, movedAt, movedAt + INSTALL_GRACE_MS),
+			"a move nothing installed after is done once the grace has passed",
+		).toBe(true);
 	});
 
 	it("takes a version a link moved onto as ready once its own install is, whenever that was", async () => {
@@ -151,21 +165,33 @@ describe("dependenciesReady", () => {
 		symlinkSync(version, current);
 		const movedAt = 5_000_000;
 
-		expect(dependenciesReady(current, movedAt, movedAt + 1_000)).toBe(true);
+		expect(
+			dependenciesReady(current, movedAt, movedAt + 1_000),
+			"a version installed before the link moved onto it is ready",
+		).toBe(true);
 		// Behind its own lockfile, it waits as any install does.
 		utimesSync(installed, 500, 500);
-		expect(dependenciesReady(current, movedAt, movedAt + 1_000)).toBe(false);
+		expect(
+			dependenciesReady(current, movedAt, movedAt + 1_000),
+			"a version whose install is older than its lockfile is not ready",
+		).toBe(false);
 	});
 
 	it("waits while no install has finished", async () => {
 		const dir = await repo();
 		writeFileSync(join(dir, "pnpm-lock.yaml"), "lock\n");
 		mkdirSync(join(dir, "node_modules"));
-		expect(dependenciesReady(dir)).toBe(false);
+		expect(
+			dependenciesReady(dir),
+			"node_modules with no finished install is not ready",
+		).toBe(false);
 	});
 
 	it("has nothing to wait for without a lockfile", async () => {
-		expect(dependenciesReady(await repo())).toBe(true);
+		expect(
+			dependenciesReady(await repo()),
+			"a tree with no lockfile is ready",
+		).toBe(true);
 	});
 });
 

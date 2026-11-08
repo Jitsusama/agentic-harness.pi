@@ -21,16 +21,17 @@ beforeEach(() => {
 
 describe("an absence", () => {
 	it("starts once and ends with what waited", () => {
-		expect(goAway("finish the plan", new Date("2026-10-12T22:00:00Z"))).toBe(
-			true,
-		);
-		expect(isAway()).toBe(true);
+		expect(
+			goAway("finish the plan", new Date("2026-10-12T22:00:00Z")),
+			"going away when present starts an absence",
+		).toBe(true);
+		expect(isAway(), "the person is away once they have gone").toBe(true);
 
 		hold({ guard: "slack", title: "Send", body: "hi" });
 		decide({ question: "Which?", answer: "a", by: "recommendation" });
 		const back = comeBack();
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "the person is back once they come back").toBe(false);
 		expect(back?.since).toBe("2026-10-12T22:00:00.000Z");
 		expect(back?.goal).toBe("finish the plan");
 		expect(back?.held.map((h) => [h.id, h.title])).toEqual([[1, "Send"]]);
@@ -42,7 +43,10 @@ describe("an absence", () => {
 		goAway("first");
 		hold({ guard: "slack", title: "Send" });
 
-		expect(goAway("second")).toBe(false);
+		expect(
+			goAway("second"),
+			"going away while already away starts no new absence",
+		).toBe(false);
 		expect(awayGoal()).toBe("second");
 		expect(snapshot().held).toHaveLength(1);
 	});
@@ -106,7 +110,7 @@ describe("persistence", () => {
 
 		restore(saved);
 
-		expect(isAway()).toBe(true);
+		expect(isAway(), "the restored snapshot is still away").toBe(true);
 		expect(snapshot()).toEqual(saved);
 	});
 
