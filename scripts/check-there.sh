@@ -35,8 +35,8 @@ if [ ! -d "$dir/.git" ]; then
   git clone -q https://github.com/Jitsusama/agentic-harness.pi.git "$dir"
 fi
 cd "$dir"
-git fetch -q origin main "$branch"
-git checkout -q --force FETCH_HEAD
+git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" main
+git checkout -q --force "origin/$branch"
 git log --oneline -1
 want=$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)
 bin=$(ls -d /nix/store/*-pnpm-"$want"/bin 2>/dev/null | head -1)
@@ -46,9 +46,9 @@ if [ -z "$bin" ]; then
 fi
 export PATH="$bin:$PATH"
 pnpm install --frozen-lockfile --silent
-# Without nix-ld a prebuilt binary can't find its loader, so biome is run
-# through glibc's by hand.
-if [ ! -e /lib64/ld-linux-x86-64.so.2 ]; then
+# On NixOS a prebuilt binary finds only nix-ld's stub loader, which runs
+# nothing without nix-ld set up, so biome is run through glibc's by hand.
+if [ -e /etc/NIXOS ]; then
   ld=$(ls /nix/store/*-glibc-2.*/lib/ld-linux-x86-64.so.2 2>/dev/null | grep -v -- -bin | tail -1)
   real=$(ls -d node_modules/.pnpm/@biomejs+cli-linux-x64@*/node_modules/@biomejs/cli-linux-x64/biome | head -1)
   mkdir -p ~/.cache/harness-check-bin
