@@ -495,6 +495,71 @@ function floorsWait(room: Room): boolean {
 /** Memory pressure (avg10, percent) past which no job starts. */
 export const MOST_MEMORY_PRESSURE = 10;
 
+/**
+ * CPU pressure (avg10, percent) the person's own programs, those a
+ * memory floor keeps, may feel before no job starts. CPU weights keep
+ * them first, so the machine's figure says little of them: at 21:27 on
+ * 7 November the machine read 63% while app.slice read 0.3% and
+ * session.slice 0.5%, the rest being agents waiting on each other. Past
+ * this, the work started is what they wait behind.
+ */
+export const MOST_FLOORS_CPU_PRESSURE = 5;
+
+/**
+ * CPU pressure (avg10, percent) on the whole machine past which no
+ * build or benchmark starts, as no VM does past
+ * {@link MOST_CPU_PRESSURE_BESIDE_VMS}. At 21:09 on 7 November, with
+ * Joel at the desk and the machine at load 66, cargo, clippy and
+ * vitest runs from several sessions all started, since only memory held
+ * them (80ECO2). Quick work still goes, as it ends in seconds.
+ */
+export const MOST_CPU_PRESSURE_FOR_BUILDS = 70;
+
+/**
+ * Whether the person's own programs wait on CPU past
+ * {@link MOST_FLOORS_CPU_PRESSURE}, which holds every job. Where no floor
+ * is read, nobody's programs are known to wait.
+ */
+function floorsBusy(room: Room): boolean {
+	return (
+		room.floorsCpuPressure !== undefined &&
+		room.floorsCpuPressure > MOST_FLOORS_CPU_PRESSURE
+	);
+}
+
+/**
+ * A step Nix builds through its build hook, which a builder elsewhere
+ * takes while one has a slot free: `nix develop -c cargo build` is
+ * cargo, run here, so it isn't one.
+ */
+const HOOK_BUILDS = new RegExp(
+	[
+		/\bnix(?:\s+--?\S+)*\s+(?:build|flake\s+check)\b|\bnix-build(?![\w.*-])|(?<![\w./-])nix-fast-build(?![\w.-])/
+			.source,
+		THERE_HERE,
+	].join("|"),
+);
+
+/**
+ * Whether a job must wait while the machine is busy: every job while the
+ * person's programs wait on CPU, and a build or benchmark that isn't
+ * quick while the machine is past {@link MOST_CPU_PRESSURE_FOR_BUILDS}.
+ * A Nix build goes while a builder elsewhere has a build slot free,
+ * since it runs there, not here.
+ */
+function busyWaits(job: Job, room: Room): boolean {
+	if (floorsBusy(room)) return true;
+	if (job.kind !== "build" && job.kind !== "benchmark") return false;
+	if (isQuick(job) || room.cpuPressure < MOST_CPU_PRESSURE_FOR_BUILDS) {
+		return false;
+	}
+	const sentElsewhere =
+		job.kind === "build" &&
+		(room.offload?.builds ?? 0) > 0 &&
+		HOOK_BUILDS.test(job.what);
+	return !sentElsewhere;
+}
+
 /** How far apart two turns are given. */
 export const SPREAD_MS = 3_000;
 
@@ -662,6 +727,11 @@ export interface Room {
 	 * where no floor is read.
 	 */
 	readonly floorsPressure?: number;
+	/**
+	 * CPU pressure, avg10, in percent, the most any memory floor's
+	 * programs feel. Nothing where no floor is read.
+	 */
+	readonly floorsCpuPressure?: number;
 	/** A builder elsewhere Nix sends work to, while one stands. */
 	readonly offload?: Offload;
 	/**
@@ -1013,8 +1083,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * main waiting for one running, then answered by it (fetched.ts). 8:
  * a folder kept within folder.ts's `KEPT_FOR_MS`, with nothing come or
  * gone since, left as it is, which older keepers would keep regardless.
+ * 9: no job starts while the person's programs wait on CPU, no build or
+ * benchmark past {@link MOST_CPU_PRESSURE_FOR_BUILDS}, and vitest and
+ * the pnpm scripts that run it are builds.
  */
-export const RULES_VERSION = 8;
+export const RULES_VERSION = 9;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -1039,6 +1112,7 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
+	if (floorsBusy(room)) return undefined;
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
@@ -1059,6 +1133,7 @@ export function nextTurn(
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
 		if (holds(job) || waitsForLending(job, room, now)) continue;
+		if (busyWaits(job, room)) continue;
 		if (
 			isVm(job) &&
 			vmWaits(job, { vmsHere, vmsElsewhere, vmSettling: settling }, room, rules)
@@ -1090,9 +1165,11 @@ export function nextTurn(
  * allowed at once are running; `behind`, a VM check runs and builds
  * beside one are at their limit; `order`, jobs ahead of it come first;
  * `planning`, its shell is asking Nix what it will build; `lending`, a
- * builder elsewhere is being lent and will take it.
+ * builder elsewhere is being lent and will take it; `busy`, the person's
+ * programs wait on CPU, or a build waits for the machine's to fall.
  */
 export type WaitReason =
+	| "busy"
 	| "memory"
 	| "vms"
 	| "walks"
@@ -1152,6 +1229,10 @@ export function waitReasons(
 		for (const job of waiting) reasons.set(job.id, "memory");
 		return reasons;
 	}
+	if (floorsBusy(room)) {
+		for (const job of waiting) reasons.set(job.id, "busy");
+		return reasons;
+	}
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
@@ -1174,6 +1255,7 @@ export function waitReasons(
 			}
 			if (waitsForLending(job, room, now)) return "lending";
 			if (holds(job) || given) return "order";
+			if (busyWaits(job, room)) return "busy";
 			if (
 				isVm(job) &&
 				vmWaits(
@@ -1333,7 +1415,9 @@ export function roomLeft(
 	now: number,
 	rules: Rules = RULES,
 ): RoomLeft {
-	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return { vms: 0, builds: 0 };
+	if (room.memoryPressure >= MOST_MEMORY_PRESSURE || floorsBusy(room)) {
+		return { vms: 0, builds: 0 };
+	}
 	const { growing, vmsHere, vmsElsewhere, settling, builds } = standing(
 		jobs,
 		room,
@@ -1354,9 +1438,10 @@ export function roomLeft(
 	);
 	// A build waiting is held by memory or the rule, and so is the next.
 	const buildWaits = waiting.some((job) => job.kind === "build");
+	const cpuHolds = room.cpuPressure >= MOST_CPU_PRESSURE_FOR_BUILDS;
 	return {
 		vms: buildWaits && builds < 1 ? 0 : Math.min(fits("vm-test"), slots),
-		builds: buildWaits ? 0 : Math.min(fits("build"), builds),
+		builds: buildWaits || cpuHolds ? 0 : Math.min(fits("build"), builds),
 	};
 }
 
@@ -1375,8 +1460,11 @@ export function roomSaid(left: RoomLeft): string {
  * number the queue's limits are tuned to bring to nothing.
  */
 export function waitsWithRoom(jobs: readonly Job[], room: Room): boolean {
+	// Waiting while the machine is busy is the rule's aim, not a waste.
 	return (
 		room.memoryPressure < MOST_MEMORY_PRESSURE &&
+		!floorsBusy(room) &&
+		room.cpuPressure < MOST_CPU_PRESSURE_FOR_BUILDS &&
 		waitingInOrder(jobs).some((job) => needsGibOf(job) <= room.availableGib)
 	);
 }
@@ -1438,6 +1526,12 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 					`${CARGO}(?:build|b|check|c|clippy|test|t|nextest|run|r|install|doc|llvm-cov|miri|insta)\\b`,
 				),
 				/\bmake\b[^\n]*\s-j\s*\d*|\bcmake\s+--build\b|\bgo\s+(?:build|test|install|vet)\b/,
+				// A test suite's workers fill the cores as a build does: vitest as
+				// a program, not a file named for it, and the package scripts
+				// that run it. Several ran at once at 21:09 on 7 November. npm's
+				// test is left alone: Acceluary's deploy waits on its, which is
+				// timed work rather than bulk (N3Q98W).
+				/(?<![\w./-])vitest(?![\w.-])|\bpnpm\s+(?:run\s+)?(?:check|test(?::[\w-]+)?)(?![\w:-])/,
 			]
 				.map((pattern) => pattern.source)
 				.join("|"),

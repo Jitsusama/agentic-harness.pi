@@ -12,6 +12,8 @@ import {
 	LENDING_WAIT_MS,
 	leastGibOfCommand,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
+	MOST_CPU_PRESSURE_FOR_BUILDS,
+	MOST_FLOORS_CPU_PRESSURE,
 	MOST_FLOORS_PRESSURE,
 	MOST_MEMORY_PRESSURE,
 	MOST_VMS,
@@ -98,11 +100,46 @@ describe("why each job waits", () => {
 		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("vm");
 	});
 
-	it("starts no VM here while CPU pressure is past its line, and builds still go", () => {
+	it("starts no VM here while CPU pressure is past its line, and a build a builder takes still goes", () => {
 		const vm = older("vm", 9_000, { kind: "vm-test" });
-		expect(nextTurn([vm], BUSY, NOW)).toBeUndefined();
-		expect(waitReasons([vm], BUSY, NOW).get("vm")).toBe("vms");
-		expect(nextTurn([vm, older("build", 8_000)], BUSY, NOW)?.id).toBe("build");
+		const lent = { ...BUSY, offload: { builds: 1, vms: 0 } };
+		expect(nextTurn([vm], lent, NOW)).toBeUndefined();
+		expect(waitReasons([vm], lent, NOW).get("vm")).toBe("vms");
+		expect(nextTurn([vm, older("build", 8_000)], lent, NOW)?.id).toBe("build");
+	});
+
+	it("holds builds that run here while the machine is past its CPU line", () => {
+		// 21:09 on 7 November: cargo, clippy and vitest from several
+		// sessions all started with the machine at load 66 (80ECO2).
+		const cargo = older("cargo", 9_000, { what: "cargo clippy" });
+		const nix = older("nix", 8_000);
+		const lent = { ...BUSY, offload: { builds: 1, vms: 0 } };
+		expect(nextTurn([cargo], BUSY, NOW)).toBeUndefined();
+		expect(waitReasons([cargo], BUSY, NOW).get("cargo")).toBe("busy");
+		expect(nextTurn([cargo, nix], lent, NOW)?.id).toBe("nix");
+		const under = { ...ROOMY, cpuPressure: MOST_CPU_PRESSURE_FOR_BUILDS - 1 };
+		expect(nextTurn([cargo], under, NOW)?.id).toBe("cargo");
+		const quick = older("quick", 9_000, { what: "cargo test", quick: true });
+		expect(nextTurn([quick], BUSY, NOW)?.id).toBe("quick");
+	});
+
+	it("starts nothing while the person's own programs wait on CPU", () => {
+		// 21:27 on 7 November: the machine read 63% while app.slice read
+		// 0.3%, so only what the person feels holds everything.
+		const jobs = [older("vm", 9_000, { kind: "vm-test" }), older("b", 8_000)];
+		const felt = {
+			...ROOMY,
+			floorsCpuPressure: MOST_FLOORS_CPU_PRESSURE + 1,
+		};
+		expect(nextTurn(jobs, felt, NOW)).toBeUndefined();
+		expect(Object.fromEntries(waitReasons(jobs, felt, NOW))).toEqual({
+			vm: "busy",
+			b: "busy",
+		});
+		expect(roomLeft(jobs, felt, NOW)).toEqual({ vms: 0, builds: 0 });
+		expect(waitsWithRoom(jobs, felt)).toBe(false);
+		const calm = { ...ROOMY, cpuPressure: 63, floorsCpuPressure: 0.3 };
+		expect(nextTurn(jobs, calm, NOW)?.id).toBe("vm");
 	});
 
 	it("gives a VM check held here a builder's VM slot", () => {
@@ -116,11 +153,12 @@ describe("why each job waits", () => {
 	it("says behind when builds beside a VM check are at their limit", () => {
 		const jobs = [
 			job("check", { kind: "vm-check", started: long }),
+			job("beside", { started: long, capped: true }),
 			older("build", 9_000),
 			older("after", 8_000),
 		];
-		expect(nextTurn(jobs, BUSY, NOW)).toBeUndefined();
-		expect(Object.fromEntries(waitReasons(jobs, BUSY, NOW))).toEqual({
+		expect(nextTurn(jobs, ROOMY, NOW)).toBeUndefined();
+		expect(Object.fromEntries(waitReasons(jobs, ROOMY, NOW))).toEqual({
 			build: "behind",
 			after: "order",
 		});
@@ -151,6 +189,25 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("cd x && cargo clippy --all")).toBe("build");
 		expect(kindOf("nix flake check")).toBe("build");
 		expect(kindOf("sudo nixos-rebuild switch")).toBe("build");
+	});
+
+	it("reads a test suite of vitest's, and the pnpm scripts that run one, as a build", () => {
+		// 21:09 on 7 November: several 4- to 8-worker vitest runs took no
+		// turn beside cargo and clippy (80ECO2).
+		expect(kindOf("pnpm exec vitest run tests/lib --testTimeout=60000")).toBe(
+			"build",
+		);
+		expect(kindOf("npx vitest")).toBe("build");
+		expect(kindOf("cd $T && timeout 2400 pnpm check; echo done")).toBe("build");
+		expect(kindOf("pnpm test:unit")).toBe("build");
+		expect(kindOf("pnpm run test")).toBe("build");
+		// Looking at it, a file named for it, and other scripts are not.
+		expect(kindOf("grep vitest package.json")).toBeUndefined();
+		expect(kindOf("code vitest.config.ts")).toBeUndefined();
+		expect(kindOf("pnpm lint")).toBeUndefined();
+		expect(kindOf("pnpm checkout-thing")).toBeUndefined();
+		// npm's test is Acceluary's deploy stamp, timed work of its own.
+		expect(kindOf("npm test")).toBeUndefined();
 	});
 
 	it("reads changed-checks and an evaluation of every check as heavy", () => {
@@ -521,8 +578,9 @@ describe("a builder elsewhere", () => {
 		const pressed = { ...BUSY, vms: 1 };
 		const build = job("build");
 		expect(nextTurn([...checking, build], pressed, NOW)).toBeUndefined();
+		// With no builder, it would run here, past the CPU line.
 		expect(waitReasons([...checking, build], pressed, NOW).get("build")).toBe(
-			"behind",
+			"busy",
 		);
 
 		const oneSlot = { ...pressed, offload: { builds: 1, vms: 0 } };
@@ -907,7 +965,8 @@ describe("whose turn it is", () => {
 		expect(nextTurn([check, older], ROOMY, NOW)).toBeUndefined();
 		expect(nextTurn([older], ROOMY, NOW)?.id).toBe("older");
 		const waiting = [job("build"), job("bench", { kind: "benchmark" })];
-		expect(nextTurn([check, ...waiting], BUSY, NOW)?.id).toBe("bench");
+		// Past the CPU line a benchmark waits too, as builds do.
+		expect(nextTurn([check, ...waiting], BUSY, NOW)).toBeUndefined();
 		expect(
 			nextTurn([check, job("build")], ROOMY, NOW, {
 				buildsWaitForVmChecks: false,

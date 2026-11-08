@@ -88,6 +88,25 @@ describe("the machine's room", () => {
 		expect(reading.cpuPressure).toBe(1.5);
 	});
 
+	it("reads the CPU pressure the person's own programs feel, apart from the machine's", () => {
+		// 21:27 on 7 November: the machine read 63% and app.slice 0.3%.
+		const app = cgroup("app.slice", 8 * GIB);
+		const session = cgroup("session.slice", 1 * GIB);
+		const said = (dir: string, avg: string) =>
+			writeFileSync(
+				join(dir, "cpu.pressure"),
+				`some avg10=${avg} avg60=0.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n`,
+			);
+		said(app, "0.30");
+		said(session, "6.20");
+		const reading = readRoom([app, session], {
+			proc: proc(40),
+			cgroups: join(root, "cgroups"),
+		});
+		expect(reading.floorsCpuPressure).toBe(6.2);
+		expect(reading.cpuPressure).toBe(1.5);
+	});
+
 	describe("memory pressure", () => {
 		/** A cgroup stalled this much, holding this much against its high. */
 		function stalls(path: string, avg: number, high = "max", current = 0) {
