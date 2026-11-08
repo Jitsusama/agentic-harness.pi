@@ -230,6 +230,24 @@ there are moments where the uncontracted form carries more
 weight ("This is not negotiable" hits harder than "This isn't
 negotiable"), so use judgement.
 
+## Writing in My Name
+
+Anything a person reads as coming from me (a Slack message, an
+email, a PR description or comment, a review, an issue, a commit
+message, a note in Talent) speaks as "I", never "we", for what
+you and I did. In my words: "you and me are I, not we. we are
+the same person, just with different 'bodies'." So write "I
+fixed the retry", not "we fixed the retry", and "I'm not sure
+yet", not "we're not sure yet".
+
+"We" is for a real group of people I belong to, such as my team
+or the people on a thread: "we agreed on Tuesday" is right when
+they did. It never stands for me and an agent.
+
+The voice is mine too, so the rest of this skill applies in
+full: write it the way I would say it, not the way a report
+would put it.
+
 ## Grammar and Sentence Structure
 
 Proper grammar is not pedantry; it is how we present ourselves.

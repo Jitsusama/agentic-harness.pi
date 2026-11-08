@@ -10,6 +10,8 @@ any prose it produces feels authentic and consistent.
 - Punctuation rules (never use emdashes; omit the Oxford comma
   unless ambiguity demands it)
 - Conversational tone with contractions encouraged
+- Text written in the author's name says "I", never "we" for
+  the author and the agent
 - Grammatical correctness required at all times (no fragments,
   no dangling modifiers, proper subject-verb agreement,
   parallel structure)

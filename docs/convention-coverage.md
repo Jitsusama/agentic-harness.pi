@@ -140,6 +140,7 @@ Voice and style rules for all written output.
 | No emphasis in running prose | Decoration in Prose | 🚫 | Detecting "running prose" requires judgment about whether a span is a heading, list item or a code lead-in. Skill-only plus resident reminder. |
 | No backticks in running prose | Decoration in Prose | 🚫 | Same as above. Backticks are legitimate in lists, code lead-ins and validation evidence. |
 | Tone (matter-of-fact, no praise, no apology) | Tone | ⚪ | Judgment. |
+| "I", not "we", in text written in the person's name | Writing in My Name | 🚫 | Whether a "we" means the person and the agent or a real group ("we agreed on Tuesday") is judgment; a gate would refuse correct sentences. Skill-only. |
 | Sentence structure (active voice, plain words) | Grammar and Sentence Structure | ⚪ | Judgment. |
 | List hygiene (no orphan items, parallel grammar) | Lists | ⚪ | Judgment for prose; mechanical for Slack only (see `slack-guide`). |
 | Headings | Headings | ⚪ | Owned by `markdown-standard`. |
