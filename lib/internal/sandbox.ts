@@ -12,7 +12,12 @@
  * - **No credentials:** nothing in the home folder is readable but git's
  *   and Nix's settings, so keys, tokens, browser profiles and session logs
  *   are out of reach, and only variables known to be harmless are passed
- *   in, since a session's environment holds tokens too.
+ *   in, since a session's environment holds tokens too. The one
+ *   exception is GitHub's: where the machine's github-broker gives one,
+ *   a command gets a token, an hour long, that can read code and write
+ *   pull requests and issues, and nothing more, as `GH_TOKEN` and git's
+ *   helper for github.com. The broker's socket stays out of reach, so a
+ *   command can't mint one of its own.
  * - **No sockets but one:** no session or system bus (the way into the
  *   keyring and to root), no SSH or signing agent, no terminal's remote
  *   control, and no abstract socket. Nix answers through its door for
@@ -69,6 +74,7 @@ import {
 	resolve,
 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { isRecord } from "./record.ts";
 
 /** The variable that asks for the sandbox, and the one value it takes. */
@@ -282,24 +288,32 @@ export function quoted(text: string): string {
  * each one it exports that `KEPT` allows, as it stands once the queue has
  * had its say, less those withheld and any whose name `NEVER` matches. The command travels in a variable, as it does through
  * the shell, so `pkill -f` matches only what it names (see
- * `command-line.ts`), and it is unset before it runs.
+ * `command-line.ts`), and it is unset before it runs. Each of `passed`
+ * travels the same way, set for landrun alone and named to it, so a
+ * token handed in shows on no command line.
  */
 export function sandboxedCommand(
 	command: string,
 	rules: readonly Rule[],
 	landrun: string,
+	passed: Readonly<Record<string, string>> = {},
 ): string {
 	const refused = [...WITHHELD, ...NEVER].join("|");
 	const kept = KEPT.join("|");
 	const flags = rules.map(([flag, value]) => `${flag} ${quoted(value)}`);
 	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	const handed = Object.entries(passed).filter(([name]) =>
+		/^[A-Z_][A-Z0-9_]*$/.test(name),
+	);
 	return [
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${refused}) ;; ${kept}) __pi_env+=(--env "$__pi_name");; esac; done`,
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
+			...handed.map(([name, value]) => `${name}=${quoted(value)}`),
 			quoted(landrun),
 			...flags,
 			"--unrestricted-network --ignore-missing",
+			...handed.map(([name]) => `--env ${name}`),
 			`"\${__pi_env[@]}" --env ${SANDBOXED_COMMAND}`,
 			`-- bash -c ${quoted(stub)}`,
 		].join(" "),
@@ -395,11 +409,42 @@ export function worktreeRepository(
 	}
 }
 
-/** How a session's commands run: as they are, fenced, or not at all. */
+/**
+ * How a session's commands run: as they are, fenced, or not at all. A
+ * fenced command is handed a GitHub token from `github`, when it gives one.
+ */
 export type Sandbox =
 	| { readonly kind: "none" }
-	| { readonly kind: "strict"; readonly landrun: string }
+	| {
+			readonly kind: "strict";
+			readonly landrun: string;
+			readonly github?: GitHubTokenSource;
+	  }
 	| { readonly kind: "refused"; readonly reason: string };
+
+/** The broker's tokens, asked for once every few minutes for the session. */
+const sessionTokens = brokerTokens();
+
+/**
+ * What git is told in a command handed a GitHub token: for github.com, no
+ * helper but one answering with the token, so git fetches the App's
+ * private repositories (and pushes nowhere, which the App can't). The
+ * empty helper drops those the person's settings name,
+ * which run outside the sandbox's reach and would fail or prompt.
+ */
+const TOKEN_HELPER = `!f() { test "$1" = get || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f`;
+
+/** The rules telling git, through its environment, to use `TOKEN_HELPER`. */
+export function githubRules(): Rule[] {
+	const key = "credential.https://github.com.helper";
+	return [
+		["--env", "GIT_CONFIG_COUNT=2"],
+		["--env", `GIT_CONFIG_KEY_0=${key}`],
+		["--env", "GIT_CONFIG_VALUE_0="],
+		["--env", `GIT_CONFIG_KEY_1=${key}`],
+		["--env", `GIT_CONFIG_VALUE_1=${TOKEN_HELPER}`],
+	];
+}
 
 /** Why a sandbox that isn't there is refused, for what it would fence. */
 function noSuchSandbox(asked: string, what: string): string {
@@ -411,6 +456,7 @@ export function sandboxFor(
 	env: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = process.platform,
 	find: (program: string) => string | undefined = onPath,
+	github: GitHubTokenSource = sessionTokens,
 ): Sandbox {
 	const asked = env[SANDBOX_VARIABLE]?.trim();
 	if (!asked) return { kind: "none" };
@@ -430,7 +476,7 @@ export function sandboxFor(
 			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but landrun isn't on PATH, so no command runs unfenced.`,
 		};
 	}
-	return { kind: "strict", landrun };
+	return { kind: "strict", landrun, github };
 }
 
 /**
@@ -461,7 +507,12 @@ export function wrapFor(
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
 			});
-			return (command) => sandboxedCommand(command, rules, sandbox.landrun);
+			// gh reads GH_TOKEN, and git asks its helper for it.
+			const token = sandbox.github?.();
+			const given = token ? [...rules, ...githubRules()] : rules;
+			const passed: Record<string, string> = token ? { GH_TOKEN: token } : {};
+			return (command) =>
+				sandboxedCommand(command, given, sandbox.landrun, passed);
 		}
 	}
 }

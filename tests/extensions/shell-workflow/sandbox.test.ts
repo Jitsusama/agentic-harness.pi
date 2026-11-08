@@ -74,10 +74,10 @@ describe("what a session asks for", () => {
 	});
 
 	it("is the strict sandbox on Linux with landrun", () => {
-		expect(sandboxFor({ PI_SANDBOX: "strict" }, "linux", found)).toEqual({
-			kind: "strict",
-			landrun: "/bin/landrun",
-		});
+		const github = () => undefined;
+		expect(
+			sandboxFor({ PI_SANDBOX: "strict" }, "linux", found, github),
+		).toEqual({ kind: "strict", landrun: "/bin/landrun", github });
 	});
 
 	it("runs nothing where the sandbox can't be had", () => {
@@ -308,6 +308,40 @@ describe("a command in the sandbox", () => {
 		const own = sandboxFolders(homedir());
 		expect(answer).toContain(`own:${own.cache} ${own.temporary}`);
 		expect(answer).toContain("dropped:none none path:set");
+	});
+
+	it("hands gh and git the broker's token for github.com alone, on no command line", async () => {
+		const token = "ghs_0123456789abcdefghijABCDEFGHIJ";
+		const home = join(folder, "home");
+		const work = join(home, "work");
+		mkdirSync(work, { recursive: true });
+		// The person's own helper, which runs outside the sandbox's reach.
+		writeFileSync(
+			join(home, ".gitconfig"),
+			'[credential]\n\thelper = "!f() { echo username=me; echo password=persons; }; f"\n',
+		);
+		const before = process.env.HOME;
+		process.env.HOME = home;
+		const answer = await run(
+			{ ...sandbox, github: () => token },
+			[
+				'echo "gh:$GH_TOKEN"',
+				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				"printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill",
+				"printf 'protocol=https\\nhost=example.com\\n\\n' | git credential fill",
+			].join("; "),
+			work,
+		).finally(() => {
+			process.env.HOME = before;
+		});
+		const lines = answer.split("\n");
+		expect(lines[0]).toBe(`gh:${token}`);
+		expect(lines[1]).not.toContain(token);
+		expect(answer).toContain(
+			`protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}`,
+		);
+		expect(answer).toContain("host=example.com\nusername=me\npassword=persons");
+		expect(answer.match(/password=persons/g)).toHaveLength(1);
 	});
 
 	it("runs nothing when the sandbox was refused, and says why", async () => {
