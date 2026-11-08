@@ -187,9 +187,9 @@ rules, and where it doesn't yet.
   (`pnpm test:browser`, which needs a Chrome) and runs only the
   tests a change's imports reach.
 - **Linters:** Biome at its `recommended` preset over every
-  `.ts` and `.mjs`, and `tsc` with `strict` over the `.ts`. The
-  `.mjs` files have no type check, the `skills/*/scripts/*.sh`
-  no shellcheck, and markdown no linter.
+  `.ts` and `.mjs`, and `tsc` with `strict` over both. The
+  `skills/*/scripts/*.sh` have no shellcheck, and markdown no
+  linter.
 - **Test levels:** the `unit` project, `tests/**/*.test.ts`; the
   `process` project, the files `PROCESS_TESTS` in
   `vitest.config.ts` names, one at a time; `tests/screen/`, real
@@ -202,10 +202,12 @@ rules, and where it doesn't yet.
   `tools-say-the-glossary`, and every `biome-ignore` carries its
   reason.
 - **Skips:** a test skips only when the machine lacks what it
-  drives: `haveChrome`, `hasServer` (a language server),
-  `NPM_RUNS`, `PI_RACE_TESTS` or a platform. Nothing yet fails a
-  skip or an uncommented sleep; the 147 fixed sleeps are the
-  standard's open item here.
+  drives: `hasServer` (a language server), `NPM_RUNS`,
+  `PI_RACE_TESTS` or a platform. The browser lane fails without
+  a Chrome rather than skipping.
+- **Sleeps:** a fixed sleep in a test says why in a comment. The
+  129 that didn't on 8 November are listed in
+  `tests/package/uncommented-sleeps.txt`, which only shrinks.
 
 ## Before Trusting a Live Run
 
