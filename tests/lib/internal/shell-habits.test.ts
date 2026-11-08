@@ -154,6 +154,22 @@ describe("a tracked file rewritten from the shell", () => {
 		}
 	});
 
+	// 4 to 8 November: 15 of the 38 overrides whose command was found
+	// were a touch, to make cargo rebuild what it had cached.
+	it("leaves alone a touch, which changes when a file changed and not what it holds", () => {
+		for (const command of [
+			`touch ${join(repo, "a.test.ts")}`,
+			`cd ${repo} && touch *.ts && pnpm test > /tmp/run.log 2>&1`,
+		]) {
+			expect(edits(command), command).toEqual([]);
+		}
+	});
+
+	it("still finds a rewrite of a file the same command touches", () => {
+		const file = join(repo, "a.test.ts");
+		expect(edits(`touch ${file} && echo x > ${file}`)).toEqual([file]);
+	});
+
 	it("names each file and the tools to use instead", () => {
 		const reason = shellEditRefusal(["/r/a.ts", "/r/b.ts"]);
 		expect(reason).toContain("`/r/a.ts`, `/r/b.ts`");

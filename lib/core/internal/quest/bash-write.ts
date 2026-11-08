@@ -177,6 +177,11 @@ export interface CommandPlace {
 export interface ResolvedWrites {
 	/** Absolute paths the command writes to. */
 	readonly paths: string[];
+	/**
+	 * Absolute paths only a `touch` names, also in `paths`: it may create
+	 * a file, but one already there keeps what it holds.
+	 */
+	readonly touched: string[];
 	/** Absolute paths the command removes. */
 	readonly removed: string[];
 	/** Targets it writes to whose location the command does not say. */
@@ -213,6 +218,8 @@ export function resolveBashWrites(
 	const skeleton = stripShellData(command);
 	const known = assignmentsIn(skeleton, command);
 	const paths: string[] = [];
+	const stamped: string[] = [];
+	const rewritten: string[] = [];
 	const removed: string[] = [];
 	const unresolved: string[] = [];
 	const locate = (
@@ -238,7 +245,12 @@ export function resolveBashWrites(
 				dir = changeDirectory(dir, argv[1], known, place.home);
 				continue;
 			}
-			for (const target of commandTargets(simple)) locate(target, dir);
+			const run = unwrap(argv);
+			const stamps = run[0] === "touch" ? createdBy(run) : [];
+			for (const target of commandTargets(simple)) {
+				locate(target, dir);
+				locate(target, dir, stamps.includes(target) ? stamped : rewritten);
+			}
 			for (const target of removedBy(unwrap(argv))) {
 				locate(target, dir, removed);
 			}
@@ -254,6 +266,7 @@ export function resolveBashWrites(
 
 	return {
 		paths: [...new Set(paths)],
+		touched: [...new Set(stamped)].filter((one) => !rewritten.includes(one)),
 		removed: [...new Set(removed)],
 		unresolved: [...new Set(unresolved)],
 	};
