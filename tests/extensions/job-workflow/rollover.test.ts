@@ -81,7 +81,7 @@ describe("a rollover", () => {
 		const job = host.start({ kind: "shell", label: "nix build .#kernel" });
 
 		const fresh = await switchInto(events, first, logOf("s2", oldLog), "s2");
-		expect(job.signal.aborted).toBe(false);
+		expect(job.signal.aborted, "a rollover leaves the job running").toBe(false);
 		expect(findJobHost(events)?.pending?.()).toBe(1);
 
 		job.finish({ summary: "exited 0 after 50 minutes" });

@@ -30,27 +30,41 @@ const typed = (text = "fix the flaky test"): Arrival => ({
 
 describe("whether a settled run rings", () => {
 	it("rings for a run the person typed that outlasted their glance", () => {
-		expect(rings(settled())).toBe(true);
+		expect(rings(settled()), "a typed run that outlasted the glance").toBe(
+			true,
+		);
 	});
 
 	it("stays quiet for a run that ended while they were still watching", () => {
-		expect(rings(settled({ at: TYPED_AT + LOOKED_AWAY_MS - 1 }))).toBe(false);
+		expect(
+			rings(settled({ at: TYPED_AT + LOOKED_AWAY_MS - 1 })),
+			"a run that ended 1ms inside the glance",
+		).toBe(false);
 	});
 
 	it("stays quiet for a run nobody typed", () => {
-		expect(rings(settled({ heardAt: undefined }))).toBe(false);
+		expect(rings(settled({ heardAt: undefined })), "a run nobody typed").toBe(
+			false,
+		);
 	});
 
 	it("stays quiet where nobody can be at the session", () => {
-		expect(rings(settled({ attended: false }))).toBe(false);
+		expect(rings(settled({ attended: false })), "an unattended session").toBe(
+			false,
+		);
 	});
 
 	it("stays quiet for a run the person stopped, since they are right there", () => {
-		expect(rings(settled({ aborted: true }))).toBe(false);
+		expect(rings(settled({ aborted: true })), "a run the person stopped").toBe(
+			false,
+		);
 	});
 
 	it("stays quiet while the person is away from the machine", () => {
-		expect(rings(settled({ away: true }))).toBe(false);
+		expect(
+			rings(settled({ away: true })),
+			"a person away from the machine",
+		).toBe(false);
 	});
 });
 

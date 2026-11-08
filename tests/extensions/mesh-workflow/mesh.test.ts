@@ -309,7 +309,7 @@ describe("a message as context", () => {
 			/Mesh message \[[0-9a-f]{8}\] \(fyi\) from WCJQSG to #all at \d\d:\d\d:/,
 		);
 		expect(content).toContain("hold heavy builds until I say done");
-		expect(content.endsWith(ADVISORY)).toBe(true);
+		expect(content.slice(-ADVISORY.length)).toBe(ADVISORY);
 	});
 
 	it("catches up on what arrived before it started, once, without a turn", async () => {
@@ -553,7 +553,7 @@ describe("a glance", () => {
 
 		const content = sent[0]?.message.content ?? "";
 		expect(content.split("\n")).toHaveLength(MOST_GLANCES + 2);
-		expect(content.endsWith("- and 3 more")).toBe(true);
+		expect(content).toMatch(/- and 3 more$/);
 	});
 
 	it("is cut to one line however long it was", async () => {
@@ -565,7 +565,7 @@ describe("a glance", () => {
 
 		const glance = sent[0]?.message.content.split("\n")[1] ?? "";
 		expect(glance.length).toBeLessThanOrEqual(160);
-		expect(glance.endsWith("…")).toBe(true);
+		expect(glance).toMatch(/…$/);
 	});
 
 	it("still reaches the model after a reload, and only once", async () => {
@@ -700,7 +700,7 @@ describe("a turn", () => {
 			await vi.waitFor(() => expect(sent).toHaveLength(1));
 			expect(sent[0]?.options).toEqual({ triggerTurn: false });
 			expect(JSON.stringify(sent[0]?.message)).toContain("why?");
-			expect(slot.turnOwed).toBe(true);
+			expect(slot).toMatchObject({ turnOwed: true });
 		} finally {
 			slot.request = undefined;
 			slot.turnOwed = undefined;
@@ -987,7 +987,9 @@ describe("a session switched out", () => {
 			},
 		);
 		fromElsewhere({ text: "merging core.nix#330 now" });
-		await vi.waitFor(() => expect(judged).toBe(true));
+		await vi.waitFor(() =>
+			expect(judged, "the message reached the classifier").toBe(true),
+		);
 
 		await first.fire("session_shutdown", { reason: "resume" });
 		stale = true;
@@ -1544,17 +1546,15 @@ describe("sending", () => {
 			.find((one) => one?.to.includes("@7M6JKG"));
 		expect(told).toMatchObject({ from: "24B025FE", intent: "fyi" });
 		expect(told?.text).toContain("has quest 7M6JKG loaded too");
-		expect(
-			sent.some(({ message }) =>
-				message.content.startsWith("Another live session, 7M6JKG"),
-			),
-		).toBe(true);
+		expect(sent.map(({ message }) => message.content)).toContainEqual(
+			expect.stringMatching(/^Another live session, 7M6JKG/),
+		);
 
 		fromElsewhere({ from: "7M6JKG", to: ["@24B025FE"], text: "which part?" });
 		await vi.waitFor(() =>
-			expect(
-				sent.some(({ message }) => message.content.includes("which part?")),
-			).toBe(true),
+			expect(sent.map(({ message }) => message.content)).toContainEqual(
+				expect.stringContaining("which part?"),
+			),
 		);
 	});
 
@@ -1569,11 +1569,9 @@ describe("sending", () => {
 
 		const transport = folderTransport(join(paths.mesh, "messages"));
 		expect(transport.ids()).toHaveLength(0);
-		expect(
-			sent.some(({ message }) =>
-				message.content.startsWith("Another live session"),
-			),
-		).toBe(false);
+		expect(sent.map(({ message }) => message.content)).not.toContainEqual(
+			expect.stringMatching(/^Another live session/),
+		);
 	});
 
 	it("keeps its quest's address from a peer that held it and ended", async () => {
@@ -2102,9 +2100,9 @@ describe("a message that crossed from another realm", () => {
 		const { sent, tools } = await startSession();
 		const id = crossedIn();
 		await vi.waitFor(() =>
-			expect(
-				sent.some(({ message }) => message.content.includes("can the harness")),
-			).toBe(true),
+			expect(sent.map(({ message }) => message.content)).toContainEqual(
+				expect.stringContaining("can the harness"),
+			),
 		);
 
 		const named = await sendWith(tools, {
@@ -2135,13 +2133,13 @@ describe("a message that crossed from another realm", () => {
 		fromElsewhere({ to: ["@7M6JKG"], text: "after it" });
 
 		await vi.waitFor(() =>
-			expect(
-				sent.some(({ message }) => message.content.includes("after it")),
-			).toBe(true),
+			expect(sent.map(({ message }) => message.content)).toContainEqual(
+				expect.stringContaining("after it"),
+			),
 		);
-		expect(
-			sent.some(({ message }) => message.content.includes("for work")),
-		).toBe(false);
+		expect(sent.map(({ message }) => message.content)).not.toContainEqual(
+			expect.stringContaining("for work"),
+		);
 	});
 });
 
@@ -2173,11 +2171,9 @@ describe("groups", () => {
 		fromElsewhere({ to: ["#harness"], text: "for the harness" });
 
 		await vi.waitFor(() =>
-			expect(
-				again.sent.some((one) =>
-					one.message.content.includes("for the harness"),
-				),
-			).toBe(true),
+			expect(again.sent.map((one) => one.message.content)).toContainEqual(
+				expect.stringContaining("for the harness"),
+			),
 		);
 	});
 
@@ -2199,7 +2195,7 @@ describe("groups", () => {
 		const lately = text.split("Said in #harness lately, oldest first")[1] ?? "";
 		const said = lately.split("\n").slice(1);
 		expect(said).toHaveLength(10);
-		expect(said.every((one) => one.includes("#harness"))).toBe(true);
+		expect(said.filter((one) => !one.includes("#harness"))).toEqual([]);
 		expect(lately).not.toContain("elsewhere");
 		expect(again?.content[0]?.text ?? "").not.toContain("Said in");
 	});
@@ -2768,11 +2764,13 @@ describe("a message that names no group", () => {
 
 	it("shows the session's wants while its peer stands, so nothing else notifies", async () => {
 		const { fire } = await startSession();
-		expect(wantsShown()).toBe(true);
+		expect(wantsShown(), "a running session shows its wants").toBe(true);
 
 		await fire("session_shutdown");
 
-		expect(wantsShown()).toBe(false);
+		expect(wantsShown(), "a session shut down stops showing its wants").toBe(
+			false,
+		);
 	});
 
 	it("says nothing in presence of what the file holds, as a session starts", async () => {
@@ -3004,7 +3002,7 @@ describe("a message that names no group", () => {
 		expect(unknowable?.content[0]?.text).toContain(
 			"Nothing was kept: say how it will be known done",
 		);
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), `${file} is not written`).toBe(false);
 
 		const kept = await wait({
 			id: "eero-login",
@@ -3077,7 +3075,7 @@ describe("a message that names no group", () => {
 
 		await wait({ id: "eero-login", done: true });
 
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), `${file} is removed`).toBe(false);
 		expect(presence()?.wants).toBeUndefined();
 	});
 
@@ -3247,7 +3245,7 @@ describe("a stop", () => {
 		});
 
 		await vi.waitFor(() =>
-			expect(entries.some(({ type }) => type === GLANCE)).toBe(true),
+			expect(entries.map(({ type }) => type)).toContain(GLANCE),
 		);
 		expect(
 			createPresences(join(paths.mesh, "presence")).of(session)?.joined,
@@ -3414,7 +3412,7 @@ describe("a lease", () => {
 		};
 		const again = await fire(...editing("a.ts"));
 
-		expect(first.block).toBe(true);
+		expect(first).toMatchObject({ block: true });
 		expect(first.reason).toMatch(
 			/^Not changed yet: WCJQSG \(since \d\d:\d\d\) is changing .*a\.ts\./,
 		);
@@ -3490,7 +3488,7 @@ describe("a lease", () => {
 		const first = await run("git reset --hard");
 		const again = await run("git reset --hard");
 
-		expect(first?.block).toBe(true);
+		expect(first).toMatchObject({ block: true });
 		expect(first?.reason).toMatch(
 			/^Not run yet: `git reset --hard` rewrites the files of .*, where WCJQSG \(since \d\d:\d\d\) is changing .*a\.ts\. /,
 		);
@@ -3571,7 +3569,7 @@ describe("a lease", () => {
 		};
 		const again = await fire(...editing("a.ts"));
 
-		expect(first.block).toBe(true);
+		expect(first).toMatchObject({ block: true });
 		expect(first.reason).toContain(
 			`is working on what \`git checkout main\` left in ${root}, so what is there may not be what this peer read`,
 		);
@@ -4094,11 +4092,11 @@ describe("presence", () => {
 		const own = () =>
 			createPresences(join(paths.mesh, "presence")).of(session)?.busy;
 
-		expect(own()).toBe(false);
+		expect(own(), "a peer not yet running reads as not busy").toBe(false);
 		await fire("agent_start");
-		expect(own()).toBe(true);
+		expect(own(), "a peer mid-run reads as busy").toBe(true);
 		await fire("agent_end");
-		expect(own()).toBe(false);
+		expect(own(), "a peer whose run ended reads as not busy").toBe(false);
 	});
 
 	it("says a run's step and what its model calls took, from pi's events", async () => {
@@ -4188,7 +4186,8 @@ describe("retention", () => {
 		await startSession();
 		await new Promise((done) => setTimeout(done, 20));
 
-		expect(existsSync(join(dir, `${old}.json`))).toBe(false);
+		const stale = join(dir, `${old}.json`);
+		expect(existsSync(stale), `${stale} is removed`).toBe(false);
 	});
 });
 

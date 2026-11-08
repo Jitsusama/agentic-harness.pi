@@ -124,7 +124,10 @@ describe("an lsp call whose server never answers", () => {
 		setTimeout(() => controller.abort(), 50);
 		expect(await outcome(call)).toBe("failed: AbortError");
 		expect(handed).toHaveLength(1);
-		expect(handed[0]?.aborted).toBe(true);
+		expect(
+			handed[0]?.aborted,
+			"the backend's signal is stopped with the call",
+		).toBe(true);
 	});
 
 	it.each(
@@ -139,6 +142,9 @@ describe("an lsp call whose server never answers", () => {
 		await vi.advanceTimersByTimeAsync(LSP_CALL_WALL_MS);
 		vi.useRealTimers();
 		expect(await outcome(watched)).toMatch(/^answered: .*given up on/);
-		expect(handed[0]?.aborted).toBe(true);
+		expect(
+			handed[0]?.aborted,
+			"the backend's signal is stopped at the call's clock",
+		).toBe(true);
 	});
 });

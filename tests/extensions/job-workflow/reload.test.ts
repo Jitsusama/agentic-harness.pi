@@ -43,7 +43,7 @@ describe("a reload", () => {
 		const job = host.start({ kind: "shell", label: "nix build .#kernel" });
 
 		const next = await reloadJobs(events, first);
-		expect(job.signal.aborted).toBe(false);
+		expect(job.signal.aborted, "a reload leaves the job running").toBe(false);
 
 		job.finish({ summary: "exited 0 after 50 minutes" });
 		expect(first.said).toEqual([]);
@@ -185,7 +185,9 @@ describe("a reload", () => {
 		first.invalidate();
 
 		vi.advanceTimersByTime(CARRY_MS - 1);
-		expect(job.signal.aborted).toBe(false);
+		expect(job.signal.aborted, "the job runs until its carry time is up").toBe(
+			false,
+		);
 		vi.advanceTimersByTime(1);
 		expect(jobStopOf(job.signal)).toBe("session");
 	});

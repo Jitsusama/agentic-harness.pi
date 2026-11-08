@@ -51,7 +51,7 @@ describe("detectSectionViolations", () => {
 	it("flags a sanctioned name with the wrong emoji as invented", () => {
 		const body = cleanPr.replace("### 🌐 Situation", "### 🌍 Situation");
 		const violations = detectSectionViolations(body, PR);
-		expect(violations.some((v) => v.issue === "invented")).toBe(true);
+		expect(violations.map((v) => v.issue)).toContain("invented");
 	});
 
 	it("flags a missing required section", () => {
@@ -88,16 +88,14 @@ describe("detectSectionViolations", () => {
 			found: "### 🌐 Situation then ### 🔧 Resolution then ### 🔬 Validation",
 		});
 		// All three are present, so neither invented nor missing fires.
-		expect(violations.some((v) => v.issue === "invented")).toBe(false);
-		expect(violations.some((v) => v.issue === "missing")).toBe(false);
+		expect(violations.map((v) => v.issue)).not.toContain("invented");
+		expect(violations.map((v) => v.issue)).not.toContain("missing");
 	});
 
 	it("does not flag order when the sections are in the sanctioned order", () => {
 		expect(
-			detectSectionViolations(cleanPr, PR).some(
-				(v) => v.issue === "misordered",
-			),
-		).toBe(false);
+			detectSectionViolations(cleanPr, PR).map((v) => v.issue),
+		).not.toContain("misordered");
 	});
 
 	it("ignores hashes inside a fenced code block", () => {

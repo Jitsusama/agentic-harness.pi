@@ -21,39 +21,55 @@ describe("shouldWait", () => {
 	it("waits after a run that left a plan in build open", () => {
 		expect(
 			shouldWait(ran("Merged the first piece."), open, freshCarryOn()),
+			"a run that leaves a plan open waits",
 		).toBe(true);
 	});
 
 	it("does not wait without an open plan", () => {
 		const memory = freshCarryOn();
-		expect(shouldWait(ran("Here you go."), undefined, memory)).toBe(false);
-		expect(shouldWait(ran("All of it."), { ...open, done: 4 }, memory)).toBe(
-			false,
-		);
+		expect(
+			shouldWait(ran("Here you go."), undefined, memory),
+			"no plan at all",
+		).toBe(false);
+		expect(
+			shouldWait(ran("All of it."), { ...open, done: 4 }, memory),
+			"a plan with every item done",
+		).toBe(false);
 	});
 
 	it("lets a run that said Done or Blocked rest", () => {
 		const memory = freshCarryOn();
-		expect(shouldWait(ran("Done: all shipped."), open, memory)).toBe(false);
-		expect(shouldWait(ran("Blocked: needs your OTP."), open, memory)).toBe(
-			false,
-		);
+		expect(
+			shouldWait(ran("Done: all shipped."), open, memory),
+			"a run that said Done:",
+		).toBe(false);
+		expect(
+			shouldWait(ran("Blocked: needs your OTP."), open, memory),
+			"a run that said Blocked:",
+		).toBe(false);
 	});
 
 	it("does not wait after a run the person stopped", () => {
 		expect(
 			shouldWait({ ...ran("Half"), aborted: true }, open, freshCarryOn()),
+			"a run the person stopped",
 		).toBe(false);
 	});
 
 	it("never carries on a reply that only talked, such as agreeing to wait", () => {
-		expect(shouldWait(ran("Holding.", 0), open, freshCarryOn())).toBe(false);
+		expect(
+			shouldWait(ran("Holding.", 0), open, freshCarryOn()),
+			"a run with no tool calls",
+		).toBe(false);
 	});
 
 	it("stops after as many carry-ons as away mode allows nudges", () => {
 		const memory = freshCarryOn();
 		memory.carried = MAX_NUDGES;
-		expect(shouldWait(ran("Next piece."), open, memory)).toBe(false);
+		expect(
+			shouldWait(ran("Next piece."), open, memory),
+			`a run after ${MAX_NUDGES} carry-ons`,
+		).toBe(false);
 	});
 });
 
@@ -76,9 +92,15 @@ describe("what the session is told", () => {
 
 describe("a question left unanswered", () => {
 	it("is read from the reply's last line", () => {
-		expect(endsAsking("Built it.\n\nShall I merge it?\n")).toBe(true);
-		expect(endsAsking("Is it? Yes.\nMerged.")).toBe(false);
-		expect(endsAsking("")).toBe(false);
+		expect(
+			endsAsking("Built it.\n\nShall I merge it?\n"),
+			"a last line ending in a question mark",
+		).toBe(true);
+		expect(
+			endsAsking("Is it? Yes.\nMerged."),
+			"a question mark on an earlier line",
+		).toBe(false);
+		expect(endsAsking(""), "an empty reply").toBe(false);
 	});
 
 	it("reaches the person once a stretch", () => {

@@ -33,7 +33,9 @@ describe("toBackendEntry", () => {
 		expect(entry).not.toBeNull();
 		expect(entry?.name).toBe("neovim");
 		expect(entry?.priority).toBe(50);
-		expect(entry?.isAvailable()).toBe(true);
+		expect(entry?.isAvailable(), "the entry keeps its isAvailable check").toBe(
+			true,
+		);
 	});
 
 	it("rejects a non-object payload", () => {

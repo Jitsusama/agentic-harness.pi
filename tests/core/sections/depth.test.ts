@@ -180,7 +180,7 @@ describe("a large change's depth", () => {
 	});
 
 	it("tells a large change from an ordinary one only by its parts", () => {
-		expect(usesDepth(deep(), PR_SHAPE)).toBe(true);
+		expect(usesDepth(deep(), PR_SHAPE), "a body with depth's parts").toBe(true);
 		expect(
 			usesDepth(
 				deep({
@@ -190,6 +190,7 @@ describe("a large change's depth", () => {
 				}),
 				PR_SHAPE,
 			),
+			"a body with only one line per section",
 		).toBe(false);
 	});
 });

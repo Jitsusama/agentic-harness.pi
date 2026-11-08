@@ -39,7 +39,7 @@ describe("createPrGuardian review without a UI", () => {
 			prCommand(`${cleanBody}\n\n### Notes\nextra`),
 			ctx,
 		);
-		expect(result && "block" in result).toBe(true);
+		expect(result).toHaveProperty("block");
 	});
 
 	it("allows a clean body without invoking the panel", async () => {
@@ -54,7 +54,7 @@ describe("createPrGuardian review without a UI", () => {
 			prCommand(cleanBody, "chore(monitoring): define the policies as code"),
 			ctx,
 		);
-		expect(result && "block" in result).toBe(true);
+		expect(result).toHaveProperty("block");
 		if (result && "block" in result) {
 			expect(result.reason).toMatch(/conventional commit/i);
 		}
@@ -69,7 +69,7 @@ describe("createPrGuardian review without a UI", () => {
 			prNumber: "42",
 		};
 		const result = await createPrGuardian(pi).review(titleOnlyEdit, ctx);
-		expect(result && "block" in result).toBe(true);
+		expect(result).toHaveProperty("block");
 		if (result && "block" in result) {
 			expect(result.reason).toMatch(/Title Case/i);
 		}
@@ -83,7 +83,7 @@ describe("createPrGuardian review without a UI", () => {
 			prCommand(cleanBody, tooLong),
 			ctx,
 		);
-		expect(result && "block" in result).toBe(true);
+		expect(result).toHaveProperty("block");
 		if (result && "block" in result) {
 			expect(result.reason).toContain("72");
 		}

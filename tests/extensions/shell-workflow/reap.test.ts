@@ -161,7 +161,9 @@ describe.skipIf(!linux)(
 				);
 				await new Promise((resolve) => setTimeout(resolve, 200));
 
-				expect(running(`sleep ${word}`)).toBe(true);
+				expect(running(`sleep ${word}`), `sleep ${word} is still running`).toBe(
+					true,
+				);
 			} finally {
 				execFileSync("pkill", ["-f", `sleep ${word}`]);
 			}

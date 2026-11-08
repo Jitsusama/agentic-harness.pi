@@ -49,8 +49,11 @@ describe("verification's line in the transcript", () => {
 	});
 
 	it("draws only what it wrote itself", () => {
-		expect(isVerificationReport(report)).toBe(true);
-		expect(isVerificationReport({ text: "something else" })).toBe(false);
-		expect(isVerificationReport(undefined)).toBe(false);
+		expect(isVerificationReport(report), "a report of errors").toBe(true);
+		expect(
+			isVerificationReport({ text: "something else" }),
+			"another tool's details",
+		).toBe(false);
+		expect(isVerificationReport(undefined), "no details at all").toBe(false);
 	});
 });

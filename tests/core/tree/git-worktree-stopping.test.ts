@@ -93,8 +93,9 @@ describe("git-worktree provider, stopped or out of time", () => {
 		expect(Date.now() - started).toBeLessThan(3_000);
 
 		await until("the hung hook to be gone", () => !alive(hook), 3_000);
-		expect(existsSync(join(repoRoot, ".worktrees", "stuck"))).toBe(false);
-		expect(await branchExists("stuck")).toBe(false);
+		const tree = join(repoRoot, ".worktrees", "stuck");
+		expect(existsSync(tree), `${tree} is removed`).toBe(false);
+		expect(await branchExists("stuck"), "branch stuck is removed").toBe(false);
 	}, 20_000);
 
 	it("gives up on a tree that takes longer than its clock, leaving nothing behind", async () => {
@@ -105,8 +106,9 @@ describe("git-worktree provider, stopped or out of time", () => {
 			/^TimeoutError/,
 		);
 		expect(Date.now() - started).toBeLessThan(4_000);
-		expect(existsSync(join(repoRoot, ".worktrees", "slow"))).toBe(false);
-		expect(await branchExists("slow")).toBe(false);
+		const tree = join(repoRoot, ".worktrees", "slow");
+		expect(existsSync(tree), `${tree} is removed`).toBe(false);
+		expect(await branchExists("slow"), "branch slow is removed").toBe(false);
 	}, 20_000);
 
 	it("cuts nothing once already stopped", async () => {
@@ -119,8 +121,9 @@ describe("git-worktree provider, stopped or out of time", () => {
 				provider.create({ name: "never", repoRoot, signal: stop.signal }),
 			),
 		).toMatch(/^AbortError/);
-		expect(existsSync(pidFile)).toBe(false);
-		expect(existsSync(join(repoRoot, ".worktrees", "never"))).toBe(false);
+		const tree = join(repoRoot, ".worktrees", "never");
+		expect(existsSync(pidFile), `${pidFile} is never written`).toBe(false);
+		expect(existsSync(tree), `${tree} is never made`).toBe(false);
 	}, 20_000);
 
 	it("stops a prune when told to, leaving the tree where it was", async () => {
@@ -147,6 +150,6 @@ describe("git-worktree provider, stopped or out of time", () => {
 		} finally {
 			process.env.PATH = path;
 		}
-		expect(existsSync(handle.path)).toBe(true);
+		expect(existsSync(handle.path), `${handle.path} is kept`).toBe(true);
 	}, 20_000);
 });

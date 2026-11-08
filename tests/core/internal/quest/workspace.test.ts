@@ -54,7 +54,7 @@ describe("ensureQuestWorkspaceTmp", () => {
 	it("creates tmp/ on first need and reuses it after", () => {
 		const tmp = ensureQuestWorkspaceTmp(root, QUEST_ID);
 		expect(tmp).toBe(join(root, QUEST_ID, "tmp"));
-		expect(existsSync(tmp)).toBe(true);
+		expect(existsSync(tmp), `${tmp} exists`).toBe(true);
 		writeFileSync(join(tmp, "kept.txt"), "x");
 		expect(ensureQuestWorkspaceTmp(root, QUEST_ID)).toBe(tmp);
 		expect(readdirSync(tmp)).toEqual(["kept.txt"]);
@@ -74,7 +74,7 @@ describe("removeQuestWorkspace", () => {
 		expect(removeQuestWorkspace(root, QUEST_ID, nobody)).toEqual({
 			removed: true,
 		});
-		expect(existsSync(dir)).toBe(false);
+		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 	});
 
 	it("takes a folder made read-only, as Go's module cache is", () => {
@@ -84,8 +84,10 @@ describe("removeQuestWorkspace", () => {
 		writeFileSync(join(module, "go.mod"), "module example.com\n");
 		chmodSync(module, 0o555);
 
-		expect(removeQuestWorkspace(root, QUEST_ID, nobody).removed).toBe(true);
-		expect(existsSync(dir)).toBe(false);
+		expect(removeQuestWorkspace(root, QUEST_ID, nobody)).toMatchObject({
+			removed: true,
+		});
+		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 	});
 
 	it("leaves a workspace a process still works in", () => {
@@ -96,7 +98,7 @@ describe("removeQuestWorkspace", () => {
 			removed: false,
 			why: "in use",
 		});
-		expect(existsSync(dir)).toBe(true);
+		expect(existsSync(dir), `${dir} is kept`).toBe(true);
 	});
 
 	it("says there was none to take", () => {

@@ -28,7 +28,10 @@ describe("createResultStore", () => {
 
 		const stored = writer.put('{"outline":"deep"}');
 
-		expect(reader.has(stored.handle)).toBe(true);
+		expect(
+			reader.has(stored.handle),
+			"a second store over the directory sees the payload",
+		).toBe(true);
 		expect(reader.read(stored.handle)).toBe('{"outline":"deep"}');
 	});
 
@@ -59,7 +62,10 @@ describe("createResultStore", () => {
 		const old = first.put("x".repeat(30));
 		second.put("y".repeat(30));
 
-		expect(second.has(old.handle)).toBe(false);
+		expect(
+			second.has(old.handle),
+			"the first store's payload is evicted for the second's",
+		).toBe(false);
 	});
 
 	it("cannot be talked into reading a file outside its directory", () => {
@@ -75,7 +81,7 @@ describe("createResultStore", () => {
 
 		try {
 			for (const attempt of ["../escape", "..%2Fescape", "/etc/passwd"]) {
-				expect(store.has(attempt)).toBe(false);
+				expect(store.has(attempt), `${attempt} is not a handle`).toBe(false);
 				expect(() => store.read(attempt)).toThrow(HandleExpiredError);
 			}
 			expect(fs.readFileSync(outside, "utf-8")).toBe("not yours");
@@ -90,7 +96,10 @@ describe("createResultStore", () => {
 		// simply is not here, which is what a caller sees after eviction.
 		const store = createResultStore({ dir });
 
-		expect(store.has("result-0123456789abcdef")).toBe(false);
+		expect(
+			store.has("result-0123456789abcdef"),
+			"a handle the store never minted is not held",
+		).toBe(false);
 		expect(() => store.read("result-0123456789abcdef")).toThrow(
 			HandleExpiredError,
 		);
@@ -105,7 +114,7 @@ describe("createResultStore", () => {
 		// deleted to make room: this directory is not exclusively ours.
 		const stored = store.put("mine");
 
-		expect(fs.existsSync(foreign)).toBe(true);
+		expect(fs.existsSync(foreign), `${foreign} is kept`).toBe(true);
 		expect(store.read(stored.handle)).toBe("mine");
 	});
 });

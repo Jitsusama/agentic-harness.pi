@@ -92,7 +92,7 @@ describe("runVerify", () => {
 
 		const result = await runVerify({ cwd: dir });
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.output).toContain("No verification command found");
 	});
 
@@ -107,7 +107,7 @@ describe("runVerify", () => {
 
 			const result = await runVerify({ cwd: dir });
 
-			expect(result.ok).toBe(true);
+			expect(result).toMatchObject({ ok: true });
 			expect(result.command).toBe("npm run lint");
 			expect(result.output).toContain("Passed:");
 		},
@@ -124,7 +124,7 @@ describe("runVerify", () => {
 
 			const result = await runVerify({ cwd: dir });
 
-			expect(result.ok).toBe(false);
+			expect(result).toMatchObject({ ok: false });
 			expect(result.output).toContain("Failed");
 			expect(result.output).toContain("boom");
 		},
@@ -138,7 +138,7 @@ describe("runVerify", () => {
 
 		const result = await runVerify({ cwd: dir, questVerify: "true" });
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.command).toBe("true");
 	});
 });

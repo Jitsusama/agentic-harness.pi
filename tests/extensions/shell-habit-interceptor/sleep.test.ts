@@ -43,7 +43,7 @@ describe("the sleep guard", () => {
 			bash({ command: "sleep 120; gh run list" }),
 			ctx,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain("A sleep of 120 s holds this session");
 	});
 
@@ -64,6 +64,6 @@ describe("the sleep guard", () => {
 			bash({ command: "sleep 1500; echo fired", background: false }),
 			ctx,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 	});
 });

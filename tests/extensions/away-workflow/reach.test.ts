@@ -47,7 +47,7 @@ describe("reaching the absent person", () => {
 		const long = `Blocked: ${"word ".repeat(100)}`;
 		const body = blockedNotice("q", "a", long, freshReach())?.body ?? "";
 		expect(body.length).toBe(MOST_SAID);
-		expect(body.endsWith("…")).toBe(true);
+		expect(body).toMatch(/…$/);
 	});
 
 	it("says a rest once an absence, quietly", () => {

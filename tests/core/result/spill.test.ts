@@ -19,7 +19,7 @@ describe("spillText", () => {
 		const written = spillText('{"a":1}', dir);
 
 		expect(fs.readFileSync(written.path, "utf-8")).toBe('{"a":1}');
-		expect(written.reused).toBe(false);
+		expect(written).toMatchObject({ reused: false });
 	});
 
 	it("creates the directory when it is not there yet", () => {
@@ -51,7 +51,7 @@ describe("spillText", () => {
 		const again = spillText(outline, dir);
 
 		expect(again.path).toBe(first.path);
-		expect(again.reused).toBe(true);
+		expect(again).toMatchObject({ reused: true });
 		expect(fs.readdirSync(dir).filter((n) => n.endsWith(".json"))).toHaveLength(
 			1,
 		);
@@ -90,9 +90,9 @@ describe("spillText", () => {
 		// commits to the name. Whatever it uses must not survive, or the
 		// directory fills with debris the quota counts and the reaper
 		// does not recognize.
-		expect(fs.readdirSync(dir).every((name) => name.endsWith(".json"))).toBe(
-			true,
-		);
+		expect(
+			fs.readdirSync(dir).filter((name) => !name.endsWith(".json")),
+		).toEqual([]);
 	});
 
 	it("writes a payload with its credentials scrubbed, and counts what it wrote", () => {

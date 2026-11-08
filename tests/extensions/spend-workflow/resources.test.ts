@@ -156,7 +156,7 @@ describe("booking to quests", () => {
 			["QEST-A", 2, 30, 0, 900],
 			[null, 1, 1, 0, 1],
 		]);
-		expect(uses[2]?.partial).toBe(true);
+		expect(uses[2]).toMatchObject({ partial: true });
 	});
 
 	it("reads the moments a session's quest changed from the ledger itself", async () => {

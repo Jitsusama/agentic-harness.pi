@@ -64,7 +64,10 @@ export function callbackServerCases(wait: WaitForCallback): void {
 		const result = await waiting;
 
 		expect(result.code).toBe("abc");
-		expect(await portIsFree(port)).toBe(true);
+		expect(
+			await portIsFree(port),
+			`port ${port} is free after the redirect`,
+		).toBe(true);
 		expect(timers()).toBeLessThanOrEqual(before);
 	});
 
@@ -78,7 +81,9 @@ export function callbackServerCases(wait: WaitForCallback): void {
 		stop.abort();
 
 		await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
-		expect(await portIsFree(port)).toBe(true);
+		expect(await portIsFree(port), `port ${port} is free after the abort`).toBe(
+			true,
+		);
 		expect(timers()).toBeLessThanOrEqual(before);
 	});
 
@@ -90,6 +95,6 @@ export function callbackServerCases(wait: WaitForCallback): void {
 		await expect(wait(port, { signal: stop.signal })).rejects.toMatchObject({
 			name: "AbortError",
 		});
-		expect(await portIsFree(port)).toBe(true);
+		expect(await portIsFree(port), `port ${port} is never taken`).toBe(true);
 	});
 }

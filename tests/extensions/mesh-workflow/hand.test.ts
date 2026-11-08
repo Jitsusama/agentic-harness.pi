@@ -178,7 +178,7 @@ describe("a peer's hand", () => {
 			block: boolean;
 			reason: string;
 		};
-		expect(first.block).toBe(true);
+		expect(first).toMatchObject({ block: true });
 		expect(first.reason).toContain(`OTHERS holds [${shortId(hold)}]`);
 		expect(first.reason).toContain("hold builds: rebooting");
 		expect(first.reason).toContain("this runs a build");

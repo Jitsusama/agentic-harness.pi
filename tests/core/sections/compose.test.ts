@@ -23,9 +23,9 @@ describe("composePrBody", () => {
 	it("writes the four sections in order, under the sanctioned headings", () => {
 		const body = composePrBody(FIELDS);
 		const positions = PR_SECTIONS.map((h) => body.indexOf(h));
-		expect(positions.every((p) => p >= 0)).toBe(true);
+		expect(PR_SECTIONS.filter((h) => !body.includes(h))).toEqual([]);
 		expect([...positions].sort((a, b) => a - b)).toEqual(positions);
-		expect(body.startsWith(PR_SECTIONS[0])).toBe(true);
+		expect(body.slice(0, PR_SECTIONS[0].length)).toBe(PR_SECTIONS[0]);
 	});
 
 	it("produces a body the contract accepts", () => {

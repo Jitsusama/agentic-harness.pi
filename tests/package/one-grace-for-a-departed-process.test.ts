@@ -60,7 +60,7 @@ describe("the grace a departed process gets to flush", () => {
 		};
 
 		for (const [name, text] of Object.entries(readers)) {
-			expect(name && text).toBeTruthy();
+			expect(name && text, `${name} is read and holds text`).toBeTruthy();
 			expect(text).not.toMatch(/(?:const|let)\s+STDIO_GRACE_MS\s*=/);
 			expect(text).toContain("STDIO_GRACE_MS");
 		}

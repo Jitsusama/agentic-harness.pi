@@ -62,10 +62,12 @@ describe("pausing a session", () => {
 		one.pausing.turnEnded();
 		one.pausing.started();
 		expect(one.did).toEqual(["abort", "abort"]);
-		expect(one.pausing.paused).toBe(true);
+		expect(one.pausing.paused, "the session stays paused until resumed").toBe(
+			true,
+		);
 
 		one.pausing.act("resume");
-		expect(one.pausing.paused).toBe(false);
+		expect(one.pausing.paused, "resuming ends the pause").toBe(false);
 		expect(one.did).toEqual(["abort", "abort", "carry on"]);
 		one.pausing.started();
 		expect(one.did).toHaveLength(3);
@@ -76,7 +78,7 @@ describe("pausing a session", () => {
 		one.pausing.act("pause");
 		one.pausing.talked();
 		one.pausing.started();
-		expect(one.pausing.paused).toBe(false);
+		expect(one.pausing.paused, "a talk ends the pause").toBe(false);
 		expect(one.did).toEqual([]);
 	});
 
@@ -93,7 +95,7 @@ describe("stopping a session", () => {
 		one.pausing.act("pause");
 		one.pausing.act("stop");
 		expect(one.did).toEqual(["abort"]);
-		expect(one.pausing.paused).toBe(false);
+		expect(one.pausing.paused, "a stop ends the pause").toBe(false);
 
 		const idle = session(true);
 		idle.pausing.act("stop");

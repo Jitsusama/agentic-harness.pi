@@ -46,8 +46,8 @@ describe("openRuleStore", () => {
 	it("removes a rule by id and reports whether it removed one", () => {
 		const store = openRuleStore(path);
 		const filed = store.add({ text: "temporary" });
-		expect(store.remove("nope")).toBe(false);
-		expect(store.remove(filed.id)).toBe(true);
+		expect(store.remove("nope"), "an unknown id removes nothing").toBe(false);
+		expect(store.remove(filed.id), "a filed rule's id removes it").toBe(true);
 		expect(store.list()).toEqual([]);
 		expect(openRuleStore(path).list()).toEqual([]);
 	});
@@ -106,6 +106,6 @@ describe("openRuleStore", () => {
 		openRuleStore(path).add({ text: "readable" });
 		const raw = readFileSync(path, "utf8");
 		expect(raw).toContain("\n  ");
-		expect(raw.endsWith("\n")).toBe(true);
+		expect(raw).toMatch(/\n$/);
 	});
 });

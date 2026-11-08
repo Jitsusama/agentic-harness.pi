@@ -115,8 +115,13 @@ describe("calls on a browser session", () => {
 		await next;
 
 		expect(answered).toMatchObject({ name: "AbortError" });
-		expect(nextRanBeforeBrowserAnswered).toBe(false);
-		expect(nextRan).toBe(true);
+		expect(
+			nextRanBeforeBrowserAnswered,
+			"the next call waits until the abandoned one ends",
+		).toBe(false);
+		expect(nextRan, "the next call runs once the abandoned one ends").toBe(
+			true,
+		);
 	});
 
 	it("leave the queue unrun when stopped while waiting their turn", async () => {
@@ -143,7 +148,9 @@ describe("calls on a browser session", () => {
 		await pause(IDLE_MS);
 
 		expect(answered).toMatchObject({ name: "AbortError" });
-		expect(waiterRan).toBe(false);
+		expect(waiterRan, "a call stopped while waiting its turn never runs").toBe(
+			false,
+		);
 	});
 
 	it("refuse a call already stopped without running it", async () => {
@@ -157,7 +164,7 @@ describe("calls on a browser session", () => {
 			.catch((error: Error) => error);
 
 		expect(answered).toMatchObject({ name: "AbortError" });
-		expect(ran).toBe(false);
+		expect(ran, "a call already stopped never runs").toBe(false);
 	});
 
 	it("keep their session open however long they run", async () => {
@@ -173,8 +180,11 @@ describe("calls on a browser session", () => {
 		await running;
 		await pause(IDLE_MS * 10);
 
-		expect(closedWhileRunning).toBe(false);
-		expect(state.closed).toBe(true);
+		expect(
+			closedWhileRunning,
+			"the session stays open while its call runs",
+		).toBe(false);
+		expect(state).toMatchObject({ closed: true });
 	});
 
 	it("leave their session a full idle stretch after they finish", async () => {
@@ -196,7 +206,10 @@ describe("calls on a browser session", () => {
 		const closedSoonAfter = state.closed;
 		await pause(idleMs);
 
-		expect(closedSoonAfter).toBe(false);
-		expect(state.closed).toBe(true);
+		expect(
+			closedSoonAfter,
+			"the session stays open for a full idle stretch after the call",
+		).toBe(false);
+		expect(state).toMatchObject({ closed: true });
 	});
 });

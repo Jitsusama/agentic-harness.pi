@@ -148,7 +148,10 @@ describe("the advisor at the end of a turn", () => {
 		await reviewStarted(1);
 		run.abort();
 
-		expect(reviews[0]?.signal.aborted).toBe(true);
+		expect(
+			reviews[0]?.signal.aborted,
+			"the review's signal is stopped with the run",
+		).toBe(true);
 	});
 
 	it("still runs one review at a time", async () => {

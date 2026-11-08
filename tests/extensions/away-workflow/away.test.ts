@@ -62,7 +62,7 @@ describe("reading a departure", () => {
 		"keep going overnight please",
 		"afk, carry on",
 	])("reads %j as a departure", (text) => {
-		expect(readsLikeDeparture(text)).toBe(true);
+		expect(readsLikeDeparture(text), `${text} reads as a departure`).toBe(true);
 	});
 
 	it.each([
@@ -71,7 +71,9 @@ describe("reading a departure", () => {
 		"the overnight build failed",
 		"what happens when the user is away?",
 	])("does not read %j as one", (text) => {
-		expect(readsLikeDeparture(text)).toBe(false);
+		expect(readsLikeDeparture(text), `${text} reads as no departure`).toBe(
+			false,
+		);
 	});
 });
 

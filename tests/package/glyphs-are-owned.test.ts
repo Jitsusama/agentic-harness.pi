@@ -138,7 +138,7 @@ describe("glyph ownership across the package", () => {
 
 		expect(uses.length).toBeGreaterThan(30);
 		for (const surface of OWNED_SURFACES) {
-			expect(uses.some((use) => use.where === surface)).toBe(true);
+			expect(uses.map((use) => use.where)).toContain(surface);
 		}
 	});
 

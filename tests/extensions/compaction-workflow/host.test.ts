@@ -258,7 +258,7 @@ describe("the conversation summariser", () => {
 		expect(result.compaction.summary).toBe(
 			`${SUMMARY_SPAN}\n\n## Goal\n\n<read-files>\na.ts\n</read-files>\n\n## Mastery\nlayer 2`,
 		);
-		expect(seen[0]?.handled).toBe(true);
+		expect(seen[0]).toMatchObject({ handled: true });
 	});
 
 	it("sizes the summary to pi's estimate of what it replaces", async () => {
@@ -329,7 +329,7 @@ describe("the conversation summariser", () => {
 			context([userEntry, replyEntry]),
 		);
 		expect(seen).toHaveLength(1);
-		expect(seen[0]?.handled).toBe(false);
+		expect(seen[0]).toMatchObject({ handled: false });
 		expect(seen[0]?.preparation).toBe(event.preparation);
 	});
 
@@ -888,9 +888,7 @@ describe("the conversation summariser", () => {
 			)) as { compaction: { summary: string } };
 
 			expect(closing).toContain("Additional focus: keep the mastery layer");
-			expect(result.compaction.summary.endsWith("## Mastery\nlayer 2")).toBe(
-				true,
-			);
+			expect(result.compaction.summary).toMatch(/## Mastery\nlayer 2$/);
 			expect(result.compaction.summary.split("## Mastery")).toHaveLength(2);
 			expect(seen.map((c) => c.handled)).toEqual([false, true]);
 		});
@@ -952,7 +950,10 @@ describe("the conversation summariser", () => {
 			fail(new Error("the keychain is locked"));
 			await settle();
 
-			expect(settled).toBe(true);
+			expect(
+				settled,
+				"compacting ends once the key lookup fails, however often it fails",
+			).toBe(true);
 			await compacting;
 		});
 
@@ -975,7 +976,10 @@ describe("the conversation summariser", () => {
 
 				await vi.advanceTimersByTimeAsync(SUMMARY_WALL_MS + 1000);
 
-				expect(handed?.aborted).toBe(true);
+				expect(
+					handed?.aborted,
+					"the summary call's signal is stopped once its clock runs out",
+				).toBe(true);
 				expect(summary.state()).toBe("failed");
 				expect(entries).toEqual([
 					[

@@ -47,7 +47,7 @@ describe("a push of World past its pre-push hooks", () => {
 			bash("git push --no-verify origin HEAD:refs/heads/x 2>&1"),
 			WORLD_TREE,
 		);
-		expect(verdict?.block).toBe(true);
+		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain("without --no-verify");
 	});
 

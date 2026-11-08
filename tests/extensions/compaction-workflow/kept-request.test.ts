@@ -76,7 +76,8 @@ describe("a request kept across a restart", () => {
 		saveKeptRequest(dir, "s1", sent());
 		writeFileSync(join(dir, "s1.json.gz"), "not gzip");
 		expect(takeKeptRequest(dir, "s1")).toBeNull();
-		expect(existsSync(join(dir, "s1.json.gz"))).toBe(false);
+		const kept = join(dir, "s1.json.gz");
+		expect(existsSync(kept), `${kept} is removed`).toBe(false);
 	});
 
 	it("sweeps away what is older than any cache, and leaves the rest", () => {
@@ -93,8 +94,14 @@ describe("a request kept across a restart", () => {
 	});
 
 	it("is switched off by PI_COMPACTION_KEEP_REQUEST=off", () => {
-		expect(keepingRequests({})).toBe(true);
-		expect(keepingRequests({ PI_COMPACTION_KEEP_REQUEST: "off" })).toBe(false);
-		expect(keepingRequests({ PI_COMPACTION_KEEP_REQUEST: "OFF" })).toBe(false);
+		expect(keepingRequests({}), "unset keeps requests").toBe(true);
+		expect(
+			keepingRequests({ PI_COMPACTION_KEEP_REQUEST: "off" }),
+			"off switches it off",
+		).toBe(false);
+		expect(
+			keepingRequests({ PI_COMPACTION_KEEP_REQUEST: "OFF" }),
+			"OFF switches it off too",
+		).toBe(false);
 	});
 });

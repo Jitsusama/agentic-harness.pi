@@ -91,7 +91,7 @@ describe("an lsp call whose standalone server has died", () => {
 
 		expect(answer.content[0]?.text).not.toMatch(/closed/i);
 		expect(started).toHaveLength(2);
-		expect(started[0]?.disposed).toBe(true);
+		expect(started[0]).toMatchObject({ disposed: true });
 	});
 
 	it("asks only once more, and reports a second death as it came", async () => {

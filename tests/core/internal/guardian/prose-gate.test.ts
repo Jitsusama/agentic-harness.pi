@@ -27,14 +27,14 @@ describe("runProseGate", () => {
 		const d = deps();
 		const result = runProseGate(d, "Pick a color.");
 		expect(result).toBeDefined();
-		expect(result && "block" in result && result.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 		expect(d.signatures).toHaveLength(1);
 	});
 
 	it("relents to the human gate when the same violation was already blocked", () => {
 		const d = deps();
 		const first = runProseGate(d, "Pick a color."); // first: blocks, records
-		expect(first && "block" in first && first.block).toBe(true);
+		expect(first).toMatchObject({ block: true });
 		// Same violation again: do not block the AI in a loop. Fall
 		// through to the human review gate (undefined) so the user is
 		// the safety net, and do not record a duplicate signature.
@@ -47,7 +47,7 @@ describe("runProseGate", () => {
 		const d = deps();
 		runProseGate(d, "Pick a color.");
 		const second = runProseGate(d, "Pick a behavior.");
-		expect(second && "block" in second && second.block).toBe(true);
+		expect(second).toMatchObject({ block: true });
 		expect(d.signatures).toHaveLength(2);
 	});
 });

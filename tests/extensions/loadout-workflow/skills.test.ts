@@ -71,7 +71,9 @@ describe("the loadout section", () => {
 			ok: true,
 			value: { skills: { "shopify-world-*": ["~/world"] } },
 		});
-		expect(parseLoadoutSettings({ skills: { x: "~/world" } }).ok).toBe(false);
-		expect(parseLoadoutSettings([]).ok).toBe(false);
+		expect(parseLoadoutSettings({ skills: { x: "~/world" } })).toMatchObject({
+			ok: false,
+		});
+		expect(parseLoadoutSettings([])).toMatchObject({ ok: false });
 	});
 });

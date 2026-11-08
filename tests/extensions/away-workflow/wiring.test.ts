@@ -239,7 +239,7 @@ describe("while away", () => {
 		await pi.runEnds("Blocked: needs your credentials.");
 
 		expect(pi.jobs).toHaveLength(0);
-		expect(isAway()).toBe(true);
+		expect(isAway(), "a Blocked run leaves away mode on").toBe(true);
 	});
 
 	it("does not nudge when the person is here", async () => {
@@ -407,7 +407,7 @@ describe("coming back", () => {
 
 		await pi.fire("input", { text: "morning", source: "interactive" });
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "a message the person submits ends away mode").toBe(false);
 		const back = pi.said.find((s) => s.customType === "away-return");
 		expect(back?.content).toContain("#1 Send to #team");
 		expect(back?.options).toEqual({ deliverAs: "nextTurn" });
@@ -434,7 +434,7 @@ describe("coming back", () => {
 
 		await pi.fire("input", { text: "I'm back", source: "interactive" });
 
-		expect(pi.jobs[0]?.withdrawn).toBe(true);
+		expect(pi.jobs[0]).toMatchObject({ withdrawn: true });
 	});
 
 	it("is not triggered by a message an extension sent", async () => {
@@ -447,7 +447,9 @@ describe("coming back", () => {
 			source: "extension",
 		});
 
-		expect(isAway()).toBe(true);
+		expect(isAway(), "a message an extension sent leaves away mode on").toBe(
+			true,
+		);
 	});
 
 	it("ends when the person stops a run with Escape, and does not nudge", async () => {
@@ -457,7 +459,7 @@ describe("coming back", () => {
 
 		await pi.runEnds("", 0, "aborted");
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "the person's Escape ends away mode").toBe(false);
 		expect(pi.jobs).toHaveLength(0);
 	});
 
@@ -471,7 +473,7 @@ describe("coming back", () => {
 		stoppingFromOutside();
 		await pi.runEnds("", 0, "aborted");
 
-		expect(isAway()).toBe(true);
+		expect(isAway(), "a steer's stop leaves away mode on").toBe(true);
 		expect(pi.jobs).toHaveLength(0);
 		expect(readMachineWord()?.away).toBeDefined();
 	});
@@ -485,7 +487,9 @@ describe("coming back", () => {
 
 		await pi.runEnds("", 0, "aborted");
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "an Escape after a steer's stop ends away mode").toBe(
+			false,
+		);
 	});
 
 	it("ends on pi's own aborted flag too", async () => {
@@ -496,7 +500,7 @@ describe("coming back", () => {
 
 		await pi.fire("agent_settled", { aborted: true });
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "pi's aborted flag ends away mode").toBe(false);
 	});
 });
 
@@ -510,7 +514,9 @@ describe("a message that reads like leaving", () => {
 			source: "interactive",
 		});
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "words that read as a departure leave away mode off").toBe(
+			false,
+		);
 		expect(pi.said.map((s) => s.customType)).toEqual(["away-hint"]);
 	});
 });
@@ -528,7 +534,7 @@ describe("across a restart", () => {
 		second.entries.push(...saved);
 		await second.fire("session_start");
 
-		expect(isAway()).toBe(true);
+		expect(isAway(), "a reloaded session comes back away").toBe(true);
 		await second.fire("input", { text: "hi", source: "interactive" });
 		expect(
 			second.said.find((s) => s.customType === "away-return")?.content,
@@ -543,7 +549,7 @@ describe("across a restart", () => {
 		const other = activate();
 		await other.fire("session_start");
 
-		expect(isAway()).toBe(false);
+		expect(isAway(), "another session starts present").toBe(false);
 	});
 
 	it("starts away in another session while the machine is away", async () => {
@@ -555,7 +561,7 @@ describe("across a restart", () => {
 		const other = activate();
 		await other.fire("session_start");
 
-		expect(isAway()).toBe(true);
+		expect(isAway(), "another session starts away with the machine").toBe(true);
 	});
 });
 
@@ -575,7 +581,9 @@ describe("across the machine", () => {
 
 		publishMachineWord({ since: new Date().toISOString(), goal: "sleep" });
 
-		await vi.waitFor(() => expect(isAway()).toBe(true));
+		await vi.waitFor(() =>
+			expect(isAway(), "another window's word sends this one away").toBe(true),
+		);
 	});
 
 	it("comes back when the person types in another window", async () => {
@@ -586,7 +594,11 @@ describe("across the machine", () => {
 
 		publishMachineWord(undefined, new Date(Date.now() + 1_000));
 
-		await vi.waitFor(() => expect(isAway()).toBe(false));
+		await vi.waitFor(() =>
+			expect(isAway(), "typing in another window brings this one back").toBe(
+				false,
+			),
+		);
 		const back = pi.said.find((s) => s.customType === "away-return");
 		expect(back?.content).toContain("typed in another window");
 		expect(back?.content).toContain("#1 Send to #team");
@@ -689,7 +701,7 @@ describe("carrying on when nobody answers", () => {
 		vi.advanceTimersByTime(QUIET_MS);
 		await pi.fire("input", { text: "wait", source: "interactive" });
 
-		expect(pi.jobs[0]?.withdrawn).toBe(true);
+		expect(pi.jobs[0]).toMatchObject({ withdrawn: true });
 	});
 
 	it("reaches the person once with a question it asked, and carries on", async () => {

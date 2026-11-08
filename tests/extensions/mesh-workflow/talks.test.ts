@@ -152,7 +152,8 @@ describe("a talk a session follows", () => {
 		const following = talks();
 		take(following, { text: "a", file: "f" });
 		following.settled(false);
-		expect(existsSync(join(inbox, "replies"))).toBe(false);
+		const replies = join(inbox, "replies");
+		expect(existsSync(replies), `${replies} is not made`).toBe(false);
 	});
 });
 

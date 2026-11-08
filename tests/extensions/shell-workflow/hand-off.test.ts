@@ -207,7 +207,7 @@ describe("a command still running when the time comes", () => {
 			ENDS_WITHIN_MS,
 		);
 
-		expect(outcomes[0]?.failed).toBe(true);
+		expect(outcomes[0]).toMatchObject({ failed: true });
 		expect(outcomes[0]?.summary).toMatch(/^`pnpm test` exited 1 after /);
 		expect(outcomes[0]?.summary).toContain("2 failed");
 	});
@@ -227,10 +227,15 @@ describe("a command still running when the time comes", () => {
 		});
 
 		escapeKey.abort();
-		expect(command.signal()?.aborted).toBe(false);
+		expect(
+			command.signal()?.aborted,
+			"the call's Escape leaves the command running",
+		).toBe(false);
 
 		controllers[0]?.abort(jobStopReason("person"));
-		expect(command.signal()?.aborted).toBe(true);
+		expect(command.signal()?.aborted, "the job's stop stops the command").toBe(
+			true,
+		);
 		await until(
 			"the stopped job to end",
 			() => outcomes.length > 0,

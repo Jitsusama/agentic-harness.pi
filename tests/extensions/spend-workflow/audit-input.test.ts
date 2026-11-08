@@ -53,7 +53,7 @@ describe("gathering the weekly audit", () => {
 		const input = await gatherAudit(ledger, { now: NOW, sessionsDir });
 
 		expect(input.loading).toBeUndefined();
-		expect(asked.some((sql) => sql.includes("name IN ("))).toBe(false);
+		expect(asked).not.toContainEqual(expect.stringContaining("name IN ("));
 	});
 
 	it("asks after the on-demand tools it is told of", async () => {

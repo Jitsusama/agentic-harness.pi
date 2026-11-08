@@ -42,42 +42,59 @@ describe("whether two readings are one process", () => {
 	it("allows the second the process table rounds away", () => {
 		// `ps` reports whole seconds against a recorded millisecond, so
 		// the same process reads differently either side of a second.
-		expect(sameProcess(1_000_900, 1_000_000)).toBe(true);
+		expect(
+			sameProcess(1_000_900, 1_000_000),
+			"readings 900ms apart are one process",
+		).toBe(true);
 	});
 
 	it("refuses a reading that is far earlier, not just far later", () => {
 		// Two-sided deliberately. A truncated pid can name `1`, and `1`
 		// started at boot, which is emphatically earlier: one-sided, it
 		// passes, and the caller then signals init's process group.
-		expect(sameProcess(1_000_000, 9_000_000)).toBe(false);
-		expect(sameProcess(9_000_000, 1_000_000)).toBe(false);
+		expect(
+			sameProcess(1_000_000, 9_000_000),
+			"a reading 8000s earlier is another process",
+		).toBe(false);
+		expect(
+			sameProcess(9_000_000, 1_000_000),
+			"a reading 8000s later is another process",
+		).toBe(false);
 	});
 });
 
 describe("whether a record identifies anybody", () => {
 	it("wants both halves, since a pid alone is whoever holds it next", () => {
-		expect(isOwner({ pid: 4001, startedAt: 1 })).toBe(true);
-		expect(isOwner({ pid: 4001 })).toBe(false);
-		expect(isOwner({ startedAt: 1 })).toBe(false);
+		expect(isOwner({ pid: 4001, startedAt: 1 }), "a pid and a start time").toBe(
+			true,
+		);
+		expect(isOwner({ pid: 4001 }), "a pid with no start time").toBe(false);
+		expect(isOwner({ startedAt: 1 }), "a start time with no pid").toBe(false);
 	});
 
 	it("refuses a pid no process can have", () => {
 		// Zero is every process in this group to `kill`, and a negative
 		// pid is the group itself. A record carrying either is one a
 		// caller must not act on.
-		expect(isOwner({ pid: 0, startedAt: 1 })).toBe(false);
-		expect(isOwner({ pid: -1, startedAt: 1 })).toBe(false);
+		expect(isOwner({ pid: 0, startedAt: 1 }), "pid 0").toBe(false);
+		expect(isOwner({ pid: -1, startedAt: 1 }), "pid -1").toBe(false);
 	});
 
 	it("takes a boot when it is a name, and refuses one that is not", () => {
-		expect(isOwner({ pid: 4001, startedAt: 1, bootId: "b1" })).toBe(true);
-		expect(isOwner({ pid: 4001, startedAt: 1, bootId: 7 })).toBe(false);
+		expect(
+			isOwner({ pid: 4001, startedAt: 1, bootId: "b1" }),
+			"a boot named by a string",
+		).toBe(true);
+		expect(
+			isOwner({ pid: 4001, startedAt: 1, bootId: 7 }),
+			"a boot given as a number",
+		).toBe(false);
 	});
 
 	it("refuses what is not a record at all", () => {
-		expect(isOwner(null)).toBe(false);
-		expect(isOwner(undefined)).toBe(false);
-		expect(isOwner("4001")).toBe(false);
+		expect(isOwner(null), "null").toBe(false);
+		expect(isOwner(undefined), "undefined").toBe(false);
+		expect(isOwner("4001"), "a bare string pid").toBe(false);
 	});
 });
 
@@ -142,7 +159,10 @@ describe("where the process that wrote a record stands", () => {
 			return true;
 		};
 		expect(await ownerStanding({ ...ours, bootId: "b1" }, facts)).toBe("gone");
-		expect(asked).toBe(false);
+		expect(
+			asked,
+			"the process table is not asked about another boot's pid",
+		).toBe(false);
 	});
 
 	it("is judged as before on this boot, or where no boot is named", async () => {
@@ -185,7 +205,10 @@ describe("asking once", () => {
 
 describe("what the machine itself says", () => {
 	it("knows this process is running", async () => {
-		expect(systemFacts.alive(process.pid)).toBe(true);
+		expect(
+			systemFacts.alive(process.pid),
+			`this process, ${process.pid}, reads as alive`,
+		).toBe(true);
 		expect(await systemFacts.startedAt(process.pid)).toBeGreaterThan(0);
 	});
 
@@ -195,7 +218,7 @@ describe("what the machine itself says", () => {
 		// for a supervisor we spawned, since one we cannot signal
 		// cannot be ours, and is not safe for a worktree whose holder
 		// can be another user's session.
-		expect(systemFacts.alive(1)).toBe(true);
+		expect(systemFacts.alive(1), "pid 1 reads as alive").toBe(true);
 	});
 
 	it("says nothing about a pid nothing wears", async () => {
@@ -223,7 +246,10 @@ describe("what the machine itself says", () => {
 			);
 			const fromProc = await systemFacts.startedAt(process.pid);
 			expect(fromProc).toBeDefined();
-			expect(sameProcess(fromProc as number, fromPs)).toBe(true);
+			expect(
+				sameProcess(fromProc as number, fromPs),
+				`${fromProc} from /proc and ${fromPs} from ps are one process`,
+			).toBe(true);
 			expect(Math.abs((fromProc as number) - fromPs)).toBeLessThan(
 				SAME_PROCESS_MS / 2,
 			);
@@ -262,7 +288,10 @@ describe("what the machine itself says", () => {
 					}).trim(),
 				);
 				const fromProc = await systemFacts.startedAt(pid);
-				expect(sameProcess(fromProc as number, fromPs)).toBe(true);
+				expect(
+					sameProcess(fromProc as number, fromPs),
+					`${fromProc} from /proc and ${fromPs} from ps are one process`,
+				).toBe(true);
 			} finally {
 				child.kill();
 				rmSync(dir, { recursive: true, force: true });
