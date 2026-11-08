@@ -207,6 +207,23 @@ const EVERY_CHECK =
 	/\bnix(?:\s+--?\S+)*\s+eval\b[^\n]*#checks(?:\.[\w-]+)?(?![\w.-])/;
 
 /**
+ * An evaluation of a whole machine, a home or a flake's machines, by
+ * `nix eval` or `nix-instantiate`: at 01:15 on 8 November one of a
+ * nixosSystem through `--expr` ran at 9% beside two evaluations of
+ * checks at 108% and 83%, with the machine at load 223 an hour before
+ * and a deploy's tests failing under it (P9R1KI). One attribute's
+ * evaluation, as a check's drvPath, still isn't heavy work. This is
+ * what such an evaluation names, as a word; {@link EVALUATES} is the
+ * step that runs it.
+ */
+const SYSTEM_EVALUATION =
+	/\b(?:nixosSystem|darwinSystem|nixosConfigurations|darwinConfigurations|homeConfigurations|homeManagerConfiguration|system\.build|toplevel)\b/;
+
+/** A step that evaluates Nix: `nix eval` or `nix-instantiate`. */
+const EVALUATES =
+	/\bnix(?:\s+--?\S+)*\s+eval\b|(?<![\w.-])nix-instantiate(?![\w.-])/;
+
+/**
  * The argument a `nix eval` applies to what it evaluates, unquoted as
  * the shell would: `'c: builtins.attrNames c'` or `builtins.attrNames`.
  */
@@ -524,6 +541,45 @@ export const MOST_FLOORS_CPU_PRESSURE = 5;
 export const MOST_CPU_PRESSURE_FOR_BUILDS = 70;
 
 /**
+ * Whether the machine is past {@link MOST_CPU_PRESSURE_FOR_BUILDS} over
+ * the last ten seconds or the last minute. avg10 alone swings either
+ * side of the line: a cargo test held 173 s started at 01:20 on 8
+ * November with avg10 read at 79.9%, in a dip between readings, then
+ * linked 16 binaries at load 288 (80ECO2).
+ */
+function cpuHoldsBuilds(room: Room): boolean {
+	return (
+		cpuOf(room) >= MOST_CPU_PRESSURE_FOR_BUILDS ||
+		(room.ioPressure ?? 0) >= MOST_IO_PRESSURE_FOR_BUILDS
+	);
+}
+
+/** The machine's CPU pressure, the greater of avg10 and avg60. */
+function cpuOf(room: Room): number {
+	return Math.max(room.cpuPressure, room.cpuPressureMinute ?? 0);
+}
+
+/**
+ * IO pressure past which no build or benchmark starts here: at 01:30 on
+ * 8 November 48 links of three cargo tests stood in D state at IO
+ * pressure 96% and load 429 (P9R1KI).
+ */
+export const MOST_IO_PRESSURE_FOR_BUILDS = 60;
+
+/**
+ * CPU pressure past which a build started here is capped, to
+ * {@link CAPPED_NIX}'s cores and cargo's jobs to match: below the line
+ * that holds builds, but busy enough that one build's sixteen link jobs
+ * would push the machine past it.
+ */
+export const CAPS_BUILDS_FROM_CPU_PRESSURE = 40;
+
+/** Whether a build given its turn now is capped, for how busy the machine is. */
+function warm(room: Room): boolean {
+	return cpuOf(room) >= CAPS_BUILDS_FROM_CPU_PRESSURE;
+}
+
+/**
  * Whether the person's own programs wait on CPU past
  * {@link MOST_FLOORS_CPU_PRESSURE}, which holds every job. Where no floor
  * is read, nobody's programs are known to wait.
@@ -557,10 +613,12 @@ const HOOK_BUILDS = new RegExp(
  */
 function busyWaits(job: Job, room: Room): boolean {
 	if (floorsBusy(room)) return true;
+	// A run that sends itself whole to a builder works the CPU there, not
+	// here: held at 70%, core's changed-checks waited 46 minutes at place
+	// 3 from 00:12 on 8 November though it evaluates nothing here (5FWIUS).
+	if (job.sent) return false;
 	if (job.kind !== "build" && job.kind !== "benchmark") return false;
-	if (isQuick(job) || room.cpuPressure < MOST_CPU_PRESSURE_FOR_BUILDS) {
-		return false;
-	}
+	if (isQuick(job) || !cpuHoldsBuilds(room)) return false;
 	const sentElsewhere =
 		job.kind === "build" &&
 		(room.offload?.builds ?? 0) > 0 &&
@@ -602,6 +660,12 @@ export interface Job {
 	readonly started?: string;
 	/** What a walk of World's objects does, read from its whole command. */
 	readonly walk?: Walk;
+	/**
+	 * It sends its whole run to a builder elsewhere, as a committed
+	 * changed-checks does (send.ts's `sendsWholeRun`), so this machine's
+	 * CPU holds it not.
+	 */
+	readonly sent?: true;
 	/**
 	 * Its fetch of World's main was answered by one that had just made it
 	 * (fetched.ts): given its turn past the walks at once, it walks nothing.
@@ -729,6 +793,14 @@ export interface Room {
 	readonly vms: number;
 	/** CPU pressure, avg10, in percent. */
 	readonly cpuPressure: number;
+	/**
+	 * CPU pressure, avg60, in percent, which a build's hold reads beside
+	 * avg10 so a dip of a few seconds doesn't let builds in. Nothing where
+	 * it isn't read.
+	 */
+	readonly cpuPressureMinute?: number;
+	/** IO pressure, the greater of avg10 and avg60, in percent, where read. */
+	readonly ioPressure?: number;
 	/**
 	 * Memory pressure, avg10, in percent, the most any memory floor's
 	 * programs feel: the person's own, as app.slice holds them. Nothing
@@ -1095,8 +1167,10 @@ function memoryWaitedMs(job: Job, now: number): number {
  * benchmark past {@link MOST_CPU_PRESSURE_FOR_BUILDS}, and vitest and
  * the pnpm scripts that run it are builds. 10: a deploy's stamp, a kind
  * older code can't read, goes first with only the capped build beside.
+ * 11: builds held on the minute's CPU and on IO too, capped from 40%,
+ * and a changed-checks sent whole to a builder spared the holds.
  */
-export const RULES_VERSION = 10;
+export const RULES_VERSION = 11;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -1161,7 +1235,7 @@ export function nextTurn(
 			);
 			continue;
 		}
-		return job.kind === "build" && Number.isFinite(builds)
+		return job.kind === "build" && (Number.isFinite(builds) || warm(room))
 			? { ...job, capped: true }
 			: job;
 	}
@@ -1450,7 +1524,7 @@ export function roomLeft(
 	);
 	// A build waiting is held by memory or the rule, and so is the next.
 	const buildWaits = waiting.some((job) => job.kind === "build");
-	const cpuHolds = room.cpuPressure >= MOST_CPU_PRESSURE_FOR_BUILDS;
+	const cpuHolds = cpuHoldsBuilds(room);
 	return {
 		vms: buildWaits && builds < 1 ? 0 : Math.min(fits("vm-test"), slots),
 		builds: buildWaits || cpuHolds ? 0 : Math.min(fits("build"), builds),
@@ -1476,7 +1550,7 @@ export function waitsWithRoom(jobs: readonly Job[], room: Room): boolean {
 	return (
 		room.memoryPressure < MOST_MEMORY_PRESSURE &&
 		!floorsBusy(room) &&
-		room.cpuPressure < MOST_CPU_PRESSURE_FOR_BUILDS &&
+		!cpuHoldsBuilds(room) &&
 		waitingInOrder(jobs).some((job) => needsGibOf(job) <= room.availableGib)
 	);
 }
@@ -1572,9 +1646,115 @@ export function kindOf(
 	const steps = runSteps(command);
 	const runs = steps.join("\n");
 	if (stamps(runs, where)) return "stamp";
+	if (searchesWorldWhole(command, where)) return "build";
+	// An evaluation's expression is quoted, which reading the steps blanks
+	// as prose, so what it evaluates is read from the command as written.
+	if (EVALUATES.test(runs) && SYSTEM_EVALUATION.test(command)) return "build";
 	const kind = KINDS.find(([pattern]) => pattern.test(runs))?.[1];
 	if (kind !== undefined) return kind;
 	return worldWalks(steps, where).length > 0 ? "world-walk" : undefined;
+}
+
+/** A World checkout's root: its folder, or a tree's `src`. */
+const WORLD_ROOT = /\/world(?:\/trees\/[^/]+\/src|\/src)?\/?$/;
+
+/** rg's options that take the next word as their value. */
+const RG_VALUED = new Set([
+	"-e",
+	"-f",
+	"-g",
+	"-t",
+	"-T",
+	"-m",
+	"-A",
+	"-B",
+	"-C",
+	"-j",
+	"-M",
+	"-E",
+	"--glob",
+	"--iglob",
+	"--type",
+	"--type-not",
+	"--max-count",
+	"--context",
+	"--after-context",
+	"--before-context",
+	"--threads",
+	"--max-columns",
+	"--regexp",
+	"--file",
+	"--encoding",
+]);
+
+/**
+ * Whether a command searches the whole of a World checkout: `rg` or
+ * `git grep` run at a checkout's root, naming no narrower path, either
+ * from where it runs or after a `cd` (or `-C`) to that root. Over a
+ * checkout this size one reads gigabytes of files, and several at once
+ * piled on a machine whose CPU the queue was holding for builds
+ * (P9R1KI, 01:16 on 8 November). A search of one zone is left alone,
+ * as a look is.
+ */
+function searchesWorldWhole(command: string, where: Where): boolean {
+	const expand = (path: string) =>
+		path.replace(/^~(?=\/|$)/, where.home).replace(/\$HOME\b/, where.home);
+	const atRoot = (path: string | undefined) =>
+		(path?.startsWith(join(where.home, WORLD_FOLDER)) ?? false) &&
+		WORLD_ROOT.test(path ?? "");
+	let folder = where.cwd;
+	for (const whole of shellSteps(command)) {
+		const words = whole.trim().split(/\s+/).filter(Boolean);
+		if (words[0] === "cd" || words[0] === "pushd") {
+			const to = words[1] ? expand(words[1]) : where.home;
+			folder = isAbsolute(to) ? resolve(to) : folder && resolve(folder, to);
+			continue;
+		}
+		if (words[0] === "rg") {
+			if (atRoot(folder) && narrowest(words.slice(1), RG_VALUED) <= 1) {
+				return true;
+			}
+			continue;
+		}
+		if (words[0] !== "git") continue;
+		let at = folder;
+		let next = 1;
+		while (words[next]?.startsWith("-")) {
+			if (words[next] === "-C") {
+				const to = expand(words[next + 1] ?? "");
+				at = isAbsolute(to) ? resolve(to) : at && resolve(at, to);
+				next += 2;
+			} else next += words[next] === "-c" ? 2 : 1;
+		}
+		if (words[next] !== "grep") continue;
+		const rest = words.slice(next + 1);
+		if (atRoot(at) && !rest.includes("--") && narrowest(rest, RG_VALUED) <= 1) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * How many words a search names besides its options: the pattern, then
+ * any paths. A search naming only its pattern covers where it runs.
+ */
+function narrowest(
+	words: readonly string[],
+	valued: ReadonlySet<string>,
+): number {
+	let named = 0;
+	for (let at = 0; at < words.length; at += 1) {
+		const word = words[at] ?? "";
+		if (/^[|;&>]|^\d?>/.test(word)) break;
+		if (word.startsWith("-")) {
+			if (valued.has(word)) at += 1;
+			continue;
+		}
+		if (word === "." || word === "./") continue;
+		named += 1;
+	}
+	return named;
 }
 
 /** The suite a deploy of Acceluary's or Estuary's runs as its stamp. */
@@ -1690,6 +1870,13 @@ function answersFetch(walk: RegExpExecArray): boolean {
  * blanked, and the steps that only look left out.
  */
 function runSteps(command: string): string[] {
+	return shellSteps(command).filter(
+		(step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")),
+	);
+}
+
+/** A command's steps as the shell runs them, quoted prose and heredocs blanked. */
+function shellSteps(command: string): string[] {
 	return (
 		command
 			.replace(HEREDOC, "\n")
@@ -1703,7 +1890,6 @@ function runSteps(command: string): string[] {
 					: quoted.slice(1, -1).replace(/[|;&]/g, " "),
 			)
 			.split(SEGMENTS)
-			.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")))
 	);
 }
 

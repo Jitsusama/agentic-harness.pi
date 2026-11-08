@@ -91,7 +91,7 @@ does, so the wait never uses it up (see
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
 | stamp | a deploy's whole suite: `node deploy/suite.mjs` or `node estero/suite.mjs`, and `npm test` run in a folder of Acceluary's; only the capped build starts beside one | timed | 4 GiB |
-| build | Nix builds and checks, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, vitest and the pnpm scripts that run it (`pnpm check`, `pnpm test`, `pnpm test:<lane>`), `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
+| build | Nix builds and checks, evaluations of a whole machine or home (`nix eval` or `nix-instantiate` naming nixosSystem, nixosConfigurations, system.build or toplevel), `rg` and `git grep` over a whole World checkout, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, vitest and the pnpm scripts that run it (`pnpm check`, `pnpm test`, `pnpm test:<lane>`), `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
 | world-walk | `git push`, `fetch`, `pull`, `clone`, `gc`, `repack` or `pack-objects` in or against a World checkout | bulk | 6 GiB |
 
 A world-walk is git walking World's objects: the folder it runs in,
@@ -207,9 +207,13 @@ is a build, never a VM check.
 - **While the machine is busy**: no job starts while the person's own
   programs, those core.nix's memory floors keep (app.slice and
   session.slice), wait on CPU more than 5% of the time. No build or
-  benchmark starts here while the machine's CPU pressure is at 70% or
-  more, though a Nix build still goes while a builder elsewhere has a
-  build slot free, and quick work still goes. Both wait on `busy`. The
+  benchmark starts here while the machine's CPU pressure, over ten
+  seconds or the last minute, is at 70% or more, or its IO pressure at
+  60% or more, though a Nix build still goes while a builder elsewhere
+  has a build slot free, a changed-checks sent whole to a builder goes,
+  and quick work still goes. Both wait on `busy`. From 40% CPU pressure
+  a build given its turn is capped, its cargo jobs with it, so one
+  build's links can't push the machine past the line. The
   machine's figure alone says little of the person: at 21:27 on 7
   November it read 63% while app.slice read 0.3%, since CPU weights
   keep the person's programs first and agents wait on each other.

@@ -444,10 +444,16 @@ describe("heavy work waiting for its turn", () => {
 			"direnv exec . changed-checks --here > $TMPDIR/here.log",
 			"/tree",
 		);
-		const held = new Map(
-			jobIds()
-				.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
-				.map((job) => [job.what, job.needsGib]),
+		const jobs = jobIds().map((id) =>
+			JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
+		);
+		const held = new Map(jobs.map((job) => [job.what, job.needsGib]));
+		// The one sent is marked so, which spares it the CPU holds here.
+		expect(new Map(jobs.map((job) => [job.what, job.sent]))).toEqual(
+			new Map([
+				[cc, true],
+				["direnv exec . changed-checks --here > $TMPDIR/here.log", undefined],
+			]),
 		);
 		expect(held).toEqual(
 			new Map([

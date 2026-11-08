@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NOBODY } from "../../../../lib/internal/priority/awaited.ts";
 import {
+	CAPS_BUILDS_FROM_CPU_PRESSURE,
 	CHANGED_CHECKS_GIB,
 	EVAL_TESTS_GIB,
 	EVALUATION_GIB,
@@ -15,6 +16,7 @@ import {
 	MOST_CPU_PRESSURE_FOR_BUILDS,
 	MOST_FLOORS_CPU_PRESSURE,
 	MOST_FLOORS_PRESSURE,
+	MOST_IO_PRESSURE_FOR_BUILDS,
 	MOST_MEMORY_PRESSURE,
 	MOST_VMS,
 	needsGibOf,
@@ -121,6 +123,24 @@ describe("why each job waits", () => {
 		expect(nextTurn([cargo], under, NOW)?.id).toBe("cargo");
 		const quick = older("quick", 9_000, { what: "cargo test", quick: true });
 		expect(nextTurn([quick], BUSY, NOW)?.id).toBe("quick");
+		// 00:12 on 8 November: a changed-checks sent whole to a builder
+		// waited 46 minutes here, evaluating nothing here (5FWIUS).
+		const sent = older("sent", 9_000, { what: "changed-checks", sent: true });
+		expect(nextTurn([sent], BUSY, NOW)?.id).toBe("sent");
+		// 01:20 on 8 November: avg10 dipped and a held cargo test started
+		// at 79.9%; the minute's figure holds it through a dip.
+		const dipped = { ...ROOMY, cpuPressure: 60, cpuPressureMinute: 75 };
+		expect(nextTurn([cargo], dipped, NOW)).toBeUndefined();
+		// 01:30: 48 links in D state at IO pressure 96% (P9R1KI).
+		const stuck = { ...ROOMY, ioPressure: MOST_IO_PRESSURE_FOR_BUILDS };
+		expect(waitReasons([cargo], stuck, NOW).get("cargo")).toBe("busy");
+		// Busy but under the line, a build goes capped, cargo's jobs with it.
+		const warm = { ...ROOMY, cpuPressure: CAPS_BUILDS_FROM_CPU_PRESSURE };
+		expect(nextTurn([cargo], warm, NOW)).toEqual({ ...cargo, capped: true });
+		expect(nextTurn([cargo], ROOMY, NOW)).toEqual(cargo);
+		// While the person's own programs wait, even it waits.
+		const felt = { ...ROOMY, floorsCpuPressure: MOST_FLOORS_CPU_PRESSURE + 1 };
+		expect(nextTurn([sent], felt, NOW)).toBeUndefined();
 	});
 
 	it("starts nothing while the person's own programs wait on CPU", () => {
@@ -252,6 +272,51 @@ describe("the kind of heavy work a command runs", () => {
 		).toBeUndefined();
 		expect(kindOf("cat deploy/suite.mjs")).toBeUndefined();
 		expect(kindOf("node deploy/suite.mjs.bak")).toBeUndefined();
+	});
+
+	it("reads an evaluation of a whole machine as a build, and one attribute's not", () => {
+		// 01:15 on 8 November: a nixosSystem evaluated through --expr ran
+		// beside two of every check, with a deploy's tests failing (P9R1KI).
+		expect(
+			kindOf(
+				`nix eval --impure --raw --expr 'let f = builtins.getFlake "path:/t"; c = f.inputs.nixpkgs.lib.nixosSystem { system = "x86_64-linux"; }; in c.config.system.build.toplevel.drvPath'`,
+			),
+		).toBe("build");
+		expect(
+			kindOf(
+				"nix eval --raw .#nixosConfigurations.optimus.config.system.build.toplevel",
+			),
+		).toBe("build");
+		expect(
+			kindOf(
+				"nix-instantiate -A nixosConfigurations.x.config.system.build.toplevel",
+			),
+		).toBe("build");
+		expect(
+			kindOf("nix eval --raw .#packages.x86_64-linux.hello.version"),
+		).toBeUndefined();
+	});
+
+	it("reads a search of a whole World checkout as a build, and one of a zone not", () => {
+		const home = "/home/joel";
+		const root = `${home}/world/trees/root/src`;
+		expect(kindOf("rg -n 'foo bar'", { home, cwd: root })).toBe("build");
+		expect(kindOf("git grep -n needle", { home, cwd: root })).toBe("build");
+		expect(kindOf(`cd ${root} && rg -l -t ts needle .`, { home })).toBe(
+			"build",
+		);
+		expect(kindOf(`git -C ${root} grep needle`, { home })).toBe("build");
+		// A zone, a path named, another repository: a look, as before.
+		expect(kindOf("rg needle areas/core", { home, cwd: root })).toBeUndefined();
+		expect(
+			kindOf("rg needle", { home, cwd: `${root}/areas/core` }),
+		).toBeUndefined();
+		expect(
+			kindOf("git grep needle -- areas", { home, cwd: root }),
+		).toBeUndefined();
+		expect(
+			kindOf("rg needle", { home, cwd: `${home}/src/core.nix` }),
+		).toBeUndefined();
 	});
 
 	it("reads changed-checks and an evaluation of every check as heavy", () => {
