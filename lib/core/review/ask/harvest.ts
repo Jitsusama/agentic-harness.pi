@@ -15,6 +15,7 @@
  * caller would believe the reviewer had nothing more to say.
  */
 
+import { isRecord } from "../../../internal/record.ts";
 import { type Anchor, anchorPath } from "../anchor.ts";
 import type { DiffSide } from "../diff.ts";
 import type {
@@ -24,13 +25,7 @@ import type {
 	FindingSeverity,
 } from "../finding.ts";
 import { anchorWitness, type TreeRead } from "./run.ts";
-import {
-	ANSWER_WAS_CUT_OFF,
-	isRecord,
-	readAnswer,
-	wireText,
-	wireWhole,
-} from "./wire.ts";
+import { ANSWER_WAS_CUT_OFF, readAnswer, wireText, wireWhole } from "./wire.ts";
 
 /**
  * Said of a reviewer that produced no answer at all.
