@@ -15,11 +15,17 @@
  * two tools answering at once is ordinary. With content
  * addressing a collision is not a conflict: whoever lost the race
  * wrote the same bytes, so the existing file is the correct answer.
+ *
+ * A payload is written with its credentials scrubbed, as the answer
+ * citing it is. The tool's execute stores it before the scrub on its
+ * answer runs, so without this a token the model never saw still sat
+ * on disk under a handle it could query.
  */
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { scrubSecrets } from "../../internal/secrets.ts";
 
 /** Owner only, since a payload can hold anything the tool saw. */
 const DIR_MODE = 0o700;
@@ -37,6 +43,8 @@ const NAME_HEX_LENGTH = 16;
 /** A stored payload, and whether it was already there. */
 export interface SpilledPayload {
 	readonly path: string;
+	/** How many bytes it holds, once scrubbed. */
+	readonly bytes: number;
 	/** True when an identical payload was already stored. */
 	readonly reused: boolean;
 }
@@ -57,7 +65,8 @@ export interface SpilledPayload {
  * thing took the name's existence as proof the content matched and
  * handed back a handle to a truncated payload.
  */
-export function spillText(text: string, dir: string): SpilledPayload {
+export function spillText(given: string, dir: string): SpilledPayload {
+	const { text } = scrubSecrets(given);
 	fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
 	const realDir = fs.realpathSync(dir);
 	const digest = crypto
@@ -79,7 +88,7 @@ export function spillText(text: string, dir: string): SpilledPayload {
 		} catch {
 			// The timestamp is a hint for eviction order, not correctness.
 		}
-		return { path: target, reused: true };
+		return { path: target, bytes: bytes.length, reused: true };
 	}
 
 	// A name nothing else will choose: the process, the moment and a
@@ -105,7 +114,7 @@ export function spillText(text: string, dir: string): SpilledPayload {
 		}
 		throw err;
 	}
-	return { path: target, reused: false };
+	return { path: target, bytes: bytes.length, reused: false };
 }
 
 /**

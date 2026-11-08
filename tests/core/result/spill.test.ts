@@ -94,4 +94,15 @@ describe("spillText", () => {
 			true,
 		);
 	});
+
+	it("writes a payload with its credentials scrubbed, and counts what it wrote", () => {
+		// Made from pieces, so the repository never holds a token-shaped string.
+		const token = `gh${"p"}_${"a1B2c3D4e5".repeat(4)}`;
+
+		const written = spillText(`{"token":"${token}"}`, dir);
+
+		const stored = fs.readFileSync(written.path, "utf-8");
+		expect(stored).toBe('{"token":"[secret scrubbed: GitHub token]"}');
+		expect(written.bytes).toBe(Buffer.byteLength(stored));
+	});
 });

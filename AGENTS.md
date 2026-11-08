@@ -55,8 +55,8 @@ category commits to and why each workflow and integration exists.
 - **Guardians** (`*-guardian`): intercept a shell command and
   show it for review, inline or in a gate as the guard policy
   says. They implement `CommandGuardian<T>`.
-- **Interceptors** (`*-interceptor`): rewrite or block a shell
-  command silently, with no review.
+- **Interceptors** (`*-interceptor`): rewrite or block a tool's
+  call, or rewrite its answer, silently, with no review.
 - **Workflows** (`*-workflow`): a multi-step or session-wide
   process with state and stages.
 - **Integrations** (`*-integration`): bridge to an outside
