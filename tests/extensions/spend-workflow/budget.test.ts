@@ -279,6 +279,66 @@ describe("the report", () => {
 		expect(lines.at(-1)?.text).toBe("$3.10 billed, on delta");
 	});
 
+	it("says every fact spend-watch put in words, each under what it's of", () => {
+		const lines = budgetReport({
+			budgets: budgets(
+				budget({
+					standing: "$18,400 of $40,000",
+					said: {
+						words: "the employer's money",
+						spent: "$412 today \u00b7 $9,100 this month",
+						reading: "reading fine",
+					},
+					allowances: [
+						allowance({
+							dollars: { spent: 18400, allowance: 40000 },
+							said: {
+								state: "warned",
+								read: "the AI proxy at 10:00",
+								warns: "at $36,000",
+								ends: "Wed 2 Dec \u00b7 a guess",
+								changed: "raised $30,000 to $40,000 \u00b7 Thu 11:31",
+							},
+						}),
+					],
+				}),
+			),
+			listPrice: 1,
+			when,
+		});
+		const proxy = lines.findIndex((line) => line.text.startsWith("proxy"));
+		expect(lines.slice(proxy, proxy + 11).map((line) => line.text)).toEqual([
+			"proxy  Your proxy cap, the default",
+			"$18,400 of $40,000",
+			"the employer's money",
+			"spent $412 today \u00b7 $9,100 this month",
+			"feed reading fine",
+			`$18,400 of $40,000, resets ${clock(RESETS)}`,
+			"  feed says warned",
+			"  read by the AI proxy at 10:00",
+			"  warns at $36,000",
+			"  override ends Wed 2 Dec \u00b7 a guess",
+			"  raised $30,000 to $40,000 \u00b7 Thu 11:31",
+		]);
+	});
+
+	it("leaves out a budget's spend where its standing already says it", () => {
+		const lines = budgetReport({
+			budgets: budgets(
+				budget({
+					allowances: [],
+					standing: "about $911 this month",
+					said: { spent: "about $911 this month" },
+				}),
+			),
+			listPrice: 1,
+			when,
+		});
+		expect(lines.map((line) => line.text)).not.toContain(
+			"spent about $911 this month",
+		);
+	});
+
 	it("says what it can without spend-watch, and that the figure is list price", () => {
 		const lines = budgetReport({
 			session: { name: "delta", chosen: true, allowances: [] },

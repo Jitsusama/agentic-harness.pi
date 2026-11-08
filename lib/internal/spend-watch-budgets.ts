@@ -39,6 +39,35 @@ export interface Allowance {
 	/** When the window starts again, in milliseconds since the epoch. */
 	readonly resets?: number;
 	readonly state: AllowanceState;
+	/** spend-watch's facts of it in words, those it said. */
+	readonly said?: AllowanceSaid;
+}
+
+/**
+ * An allowance's facts as spend-watch words them, so pi formats none:
+ * where it warns ("at $36,000"), whose reading it is and when ("the AI
+ * proxy at 14:05"), what its feed says beyond that it's within it
+ * ("warned"), when an override of it ends and how it last changed.
+ * Each is absent where spend-watch had nothing to say.
+ */
+export interface AllowanceSaid {
+	readonly warns?: string;
+	readonly read?: string;
+	readonly state?: string;
+	readonly ends?: string;
+	readonly changed?: string;
+}
+
+/**
+ * A budget's facts as spend-watch words them: whose money and what kind
+ * ("the employer's money"), what it spent over each period, what a
+ * plan's turns were worth at list, and how its feeds read.
+ */
+export interface BudgetSaid {
+	readonly words?: string;
+	readonly spent?: string;
+	readonly worth?: string;
+	readonly reading?: string;
 }
 
 /** One budget and where it stands. */
@@ -58,6 +87,8 @@ export interface BudgetStanding {
 	readonly standing: string;
 	/** The nearest allowance's share, for ordering; absent with none. */
 	readonly nearest?: number;
+	/** spend-watch's facts of it in words, those it said. */
+	readonly said?: BudgetSaid;
 }
 
 /** Every budget the machine declares, and the total across them. */
@@ -147,7 +178,43 @@ function budgetFrom(value: unknown): BudgetStanding | undefined {
 			: [],
 		standing,
 		...(isMeasure(nearest) ? { nearest } : {}),
+		...budgetSaidFrom(value),
 	};
+}
+
+/**
+ * A budget's words, from its `words` and its `said`, which spend-watch
+ * writes from schema 1's additions of 8 Nov 2026; an older spend-watch
+ * says none, and the report then says what it said before.
+ */
+function budgetSaidFrom(value: Record<string, unknown>): {
+	said?: BudgetSaid;
+} {
+	const said = isRecord(value.said) ? value.said : {};
+	return saidOf(["words", "spent", "worth", "reading"], {
+		...said,
+		words: value.words,
+	});
+}
+
+function allowanceSaidFrom(value: Record<string, unknown>): {
+	said?: AllowanceSaid;
+} {
+	if (!isRecord(value.said)) return {};
+	return saidOf(["warns", "read", "state", "ends", "changed"], value.said);
+}
+
+/** Only the facts given in words, or none at all when there are none. */
+function saidOf<Key extends string>(
+	keys: readonly Key[],
+	facts: Record<string, unknown>,
+): { said?: Partial<Record<Key, string>> } {
+	const said: Partial<Record<Key, string>> = {};
+	for (const key of keys) {
+		const fact = facts[key];
+		if (typeof fact === "string" && fact !== "") said[key] = fact;
+	}
+	return keys.some((key) => key in said) ? { said } : {};
 }
 
 function allowanceFrom(value: unknown): Allowance | undefined {
@@ -181,6 +248,7 @@ function allowanceFrom(value: unknown): Allowance | undefined {
 			value.state === "notified" || value.state === "refused"
 				? value.state
 				: "ok",
+		...allowanceSaidFrom(value),
 	};
 }
 
