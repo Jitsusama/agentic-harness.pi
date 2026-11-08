@@ -560,6 +560,16 @@ const FILL_FACTS = `UPDATE turns SET ${FACT_COLUMNS.map(
 	(f) => `${f.column} = COALESCE(${f.column}, ?)`,
 ).join(", ")} WHERE digest = ?`;
 
+/**
+ * How many rows one transaction writes before it commits and lets go of
+ * the ledger's lock. One transaction for a whole log held it past the
+ * other connections' 5 s busy timeout: on 8 November the daily measure
+ * died on SQLITE_BUSY at 06:17, and the spend tool hit it twice (16V6F4).
+ * Small enough that a transaction ends in well under a second on a busy
+ * machine; large enough that commits, each a disk sync, stay few.
+ */
+export const ROWS_PER_TRANSACTION = 500;
+
 class SqliteTurnStore implements TurnStore {
 	private readonly db: Db;
 
@@ -576,26 +586,45 @@ class SqliteTurnStore implements TurnStore {
 		for (const t of turns) if (!fresh.has(t.digest)) fresh.set(t.digest, t);
 		const known = await this.known([...fresh.keys()]);
 
-		// One transaction per batch rather than one per row. Each row is
-		// otherwise its own durable commit, which is disk-sync bound: a
+		// Transactions of many rows rather than one per row: each row is
+		// otherwise its own durable commit, which is disk-sync bound, and a
 		// first pass over the corpus took 13 minutes on that shape.
-		await this.db.exec("BEGIN");
-		try {
-			const inserted = await this.writeAll(fresh, known);
-			await this.db.exec("COMMIT");
-			return { inserted, duplicates: turns.length - inserted };
-		} catch (error) {
-			await this.db.exec("ROLLBACK");
-			throw error;
+		const inserted = await this.inTransactions([...fresh.values()], (chunk) =>
+			this.writeAll(chunk, known),
+		);
+		return { inserted, duplicates: turns.length - inserted };
+	}
+
+	/**
+	 * Write `rows` in transactions of {@link ROWS_PER_TRANSACTION}, so no
+	 * write holds the lock long; answers how many rows `write` inserted.
+	 * A chunk that fails is rolled back and stops the rest; the chunks
+	 * before it stand, which a later pass, finding them held, keeps.
+	 */
+	private async inTransactions<T>(
+		rows: readonly T[],
+		write: (chunk: readonly T[]) => Promise<number>,
+	): Promise<number> {
+		let inserted = 0;
+		for (let at = 0; at < rows.length; at += ROWS_PER_TRANSACTION) {
+			await this.db.exec("BEGIN");
+			try {
+				inserted += await write(rows.slice(at, at + ROWS_PER_TRANSACTION));
+				await this.db.exec("COMMIT");
+			} catch (error) {
+				await this.db.exec("ROLLBACK");
+				throw error;
+			}
 		}
+		return inserted;
 	}
 
 	private async writeAll(
-		fresh: ReadonlyMap<string, TurnRecord>,
+		fresh: readonly TurnRecord[],
 		known: ReadonlySet<string>,
 	): Promise<number> {
 		let inserted = 0;
-		for (const t of fresh.values()) {
+		for (const t of fresh) {
 			if (known.has(t.digest)) {
 				// Seen before, so not billed again, but the sighting is still
 				// recorded: deduplicating must not hide that it happened.
@@ -670,11 +699,10 @@ class SqliteTurnStore implements TurnStore {
 		for (const c of calls) if (!fresh.has(c.digest)) fresh.set(c.digest, c);
 		const known = await this.knownCalls([...fresh.keys()]);
 
-		await this.db.exec("BEGIN");
-		try {
-			let inserted = 0;
-			for (const c of fresh.values()) {
-				if (known.has(c.digest)) continue;
+		const unknown = [...fresh.values()].filter((c) => !known.has(c.digest));
+		const inserted = await this.inTransactions(unknown, async (chunk) => {
+			let written = 0;
+			for (const c of chunk) {
 				// Ignored rather than refused: a concurrent pass over the same
 				// logs may have landed it since the probe, which is not an error.
 				const { changes } = await this.db.run(
@@ -700,14 +728,11 @@ class SqliteTurnStore implements TurnStore {
 						c.verifierKind,
 					],
 				);
-				inserted += changes;
+				written += changes;
 			}
-			await this.db.exec("COMMIT");
-			return { inserted, duplicates: calls.length - inserted };
-		} catch (error) {
-			await this.db.exec("ROLLBACK");
-			throw error;
-		}
+			return written;
+		});
+		return { inserted, duplicates: calls.length - inserted };
 	}
 
 	async queryCalls(): Promise<ToolCallRecord[]> {
@@ -844,25 +869,21 @@ class SqliteTurnStore implements TurnStore {
 		}
 		const known = await this.alreadyHeld("dropped_calls", [...fresh.keys()]);
 
-		await this.db.exec("BEGIN");
-		try {
-			let inserted = 0;
-			for (const d of fresh.values()) {
-				if (known.has(d.callDigest)) continue;
+		const unknown = [...fresh.values()].filter((d) => !known.has(d.callDigest));
+		const inserted = await this.inTransactions(unknown, async (chunk) => {
+			let written = 0;
+			for (const d of chunk) {
 				const { changes } = await this.db.run(
 					`INSERT OR IGNORE INTO dropped_calls (
 						digest, session_id, dropped_at_entry_id, dropped_at_timestamp
 					) VALUES (?, ?, ?, ?)`,
 					[d.callDigest, d.sessionId, d.droppedAtEntryId, d.droppedAtTimestamp],
 				);
-				inserted += changes;
+				written += changes;
 			}
-			await this.db.exec("COMMIT");
-			return { inserted, duplicates: dropped.length - inserted };
-		} catch (error) {
-			await this.db.exec("ROLLBACK");
-			throw error;
-		}
+			return written;
+		});
+		return { inserted, duplicates: dropped.length - inserted };
 	}
 
 	async queryDropped(): Promise<DroppedCallRecord[]> {

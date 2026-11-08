@@ -8,6 +8,7 @@ import {
 	type ToolCallRecord,
 	type TurnRecord,
 } from "../../../../lib/core/observability/ledger/index.ts";
+import { ROWS_PER_TRANSACTION } from "../../../../lib/core/observability/ledger/store.ts";
 
 function turn(digest: string): TurnRecord {
 	return {
@@ -108,6 +109,28 @@ describe("two stores indexing one ledger at once", () => {
 
 		expect(first.inserted + second.inserted).toBe(BATCH);
 		expect(await a.queryDropped()).toHaveLength(BATCH);
+		await a.close();
+		await b.close();
+	});
+
+	// Written in transactions of ROWS_PER_TRANSACTION, so a pass longer
+	// than one lets go of the lock between them (16V6F4, 8 November).
+	it("records a pass longer than one transaction whole, from both at once", async () => {
+		const [a, b] = await twoStores();
+		const many = ROWS_PER_TRANSACTION * 2 + 1;
+		const names = Array.from({ length: many }, (_, i) => `x${i}`);
+
+		const [turnsA, turnsB] = await Promise.all([
+			a.recordTurns(names.map(turn)),
+			b.recordTurns(names.map(turn)),
+		]);
+		const calls = await a.recordCalls(names.map(call));
+		const gone = await b.recordDropped(names.map(dropped));
+
+		expect(turnsA.inserted + turnsB.inserted).toBe(many);
+		expect((await a.total()).turns).toBe(many);
+		expect(calls.inserted).toBe(many);
+		expect(gone.inserted).toBe(many);
 		await a.close();
 		await b.close();
 	});
