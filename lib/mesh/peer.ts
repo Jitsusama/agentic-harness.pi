@@ -38,6 +38,7 @@ import {
 	yieldsTo,
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
+import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
 import {
 	type PeerState,
@@ -170,6 +171,11 @@ export interface Surroundings {
 	readonly terminal?: TerminalSessionHandle;
 	/** The clock, in milliseconds; the system's unless a test sets one. */
 	readonly now?: () => number;
+	/**
+	 * Where what it lands is kept past its presence, told whose each one
+	 * is (see landing-history.ts).
+	 */
+	readonly history?: LandingKeeper;
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -483,10 +489,17 @@ export function localPeer(at: Surroundings): Peer {
 		landed(landing) {
 			landings = withLanding(landings, landing, now());
 			publish();
+			at.history?.landed(landing, {
+				session: at.session,
+				address: addresses[0] ?? at.session,
+				...(quest ? { quest } : {}),
+				...(repo ? { repo } : {}),
+			});
 		},
 		unlanded(ref) {
 			landings = withoutLanding(landings, ref);
 			publish();
+			at.history?.unlanded(at.session, ref);
 		},
 		want(want) {
 			wanting.set(want.kind, want);

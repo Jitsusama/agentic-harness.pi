@@ -113,6 +113,7 @@ import {
 import { crossAt, flowsAt } from "../../lib/mesh/flow.ts";
 import { groupNamed, homeOf, isJoinable } from "../../lib/mesh/group.ts";
 import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
+import { landingKeeper } from "../../lib/mesh/landing-history.ts";
 import {
 	awaitedSessions,
 	carryLeases,
@@ -1335,6 +1336,8 @@ export function meshWorkflow(
 				...(owner ? { owner } : {}),
 				...(previous ? { previous } : {}),
 				...terminalOf(),
+				// Kept a month past the presence, for the desktop's Landed.
+				history: landingKeeper(paths.mesh),
 			});
 			for (const want of wanting.values()) peer.want(want);
 			// Today's usage, carried in its last presence or counted from its log.
