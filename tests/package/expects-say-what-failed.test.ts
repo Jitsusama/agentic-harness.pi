@@ -11,10 +11,11 @@
  * argument, saying in plain words what should have held. This is rule 8
  * of the repo-quality-standard skill.
  *
- * Only an expect written on one line is read. One a formatter has broken
- * over several lines is missed, which lets some through but never fails a
- * file that keeps the rule. An expect whose argument list holds a comma
- * outside any bracket or string carries a message, and passes.
+ * A file is read whole, so an expect a formatter has broken over several
+ * lines is read as one; before, only one-line expects were, and a split
+ * one went by (Y9XISP, 8 November). An expect whose argument list holds a
+ * comma outside any bracket or string, with an argument after it,
+ * carries a message and passes; a formatter's trailing comma is none.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -26,13 +27,9 @@ const ROOT = join(import.meta.dirname, "..", "..");
 /** Folders that are not the package's own: tools' output and checkouts. */
 const SKIPPED = new Set(["node_modules", "dist", "coverage"]);
 
-/** A line holding an expect whose matcher is told only true or false. */
-const BARE =
-	/expect\([^;]*\)\.(toBe\((true|false)\)|toBeTruthy\(\)|toBeFalsy\(\))/;
-
 /** What follows an expect's closing bracket when it is told only true or false. */
 const BOOLEAN_MATCHER =
-	/^\.(toBe\((true|false)\)|toBeTruthy\(\)|toBeFalsy\(\))/;
+	/^\s*\.(toBe\(\s*(true|false)\s*,?\s*\)|toBeTruthy\(\s*\)|toBeFalsy\(\s*\))/;
 
 /** A bare boolean expect: the file, its line and what the line says. */
 interface Bare {
@@ -72,47 +69,62 @@ function argumentsAt(
 	open: number,
 ): { readonly close: number; readonly message: boolean } | undefined {
 	let depth = 0;
+	let comma = false;
 	let message = false;
 	for (let at = open; at < text.length; at++) {
 		const char = text.charAt(at);
 		if (char === '"' || char === "'" || char === "`") {
 			at = closingQuote(text, at);
+			if (comma) message = true;
 		} else if ("([{".includes(char)) {
 			depth++;
+			if (comma && depth === 2) message = true;
 		} else if (")]}".includes(char)) {
 			depth--;
 			if (depth === 0) return { close: at, message };
 		} else if (char === "," && depth === 1) {
+			comma = true;
+		} else if (comma && depth === 1 && /\S/.test(char)) {
+			// Something after the comma: a second argument, not a trailing comma.
 			message = true;
 		}
 	}
 	return undefined;
 }
 
-/** Whether a line holds an expect told only true or false and given no message. */
-function isBare(text: string): boolean {
-	if (!BARE.test(text)) return false;
-	for (const found of text.matchAll(/\bexpect\(/g)) {
-		const list = argumentsAt(text, found.index + "expect".length);
+/** Where in some source an expect is told only true or false and given no message. */
+function bareAt(text: string): number[] {
+	const found: number[] = [];
+	for (const opening of text.matchAll(/\bexpect\(/g)) {
+		const list = argumentsAt(text, opening.index + "expect".length);
 		if (
 			list !== undefined &&
 			!list.message &&
 			BOOLEAN_MATCHER.test(text.slice(list.close + 1))
 		)
-			return true;
+			found.push(opening.index);
 	}
-	return false;
+	return found;
+}
+
+/** Whether some source holds an expect told only true or false and given no message. */
+function isBare(text: string): boolean {
+	return bareAt(text).length > 0;
 }
 
 /** Every bare boolean expect in the package's tests, wherever it is. */
 function bareExpects(): Bare[] {
-	return sourcesUnder(join(ROOT, "tests")).flatMap((file) =>
-		readFileSync(join(ROOT, file), "utf8")
-			.split("\n")
-			.flatMap((text, index): Bare[] =>
-				isBare(text) ? [{ file, line: index + 1, text: text.trim() }] : [],
-			),
-	);
+	return sourcesUnder(join(ROOT, "tests")).flatMap((file) => {
+		const text = readFileSync(join(ROOT, file), "utf8");
+		return bareAt(text).map((at): Bare => {
+			const line = text.slice(0, at).split("\n").length;
+			return {
+				file,
+				line,
+				text: text.slice(at, text.indexOf("\n", at)).trim(),
+			};
+		});
+	});
 }
 
 describe("the package's expects", () => {
@@ -136,6 +148,18 @@ describe("the package's expects", () => {
 			isBare(`expect(said.includes("a, b"))${told}`),
 			"a comma inside a string is no message",
 		).toBe(true);
+		expect(
+			isBare(`expect(\n\tisAlive(pid),\n)${told}`),
+			"a split expect is read whole, and its trailing comma is no message",
+		).toBe(true);
+		expect(
+			isBare("expect(isAlive(pid)).toBe(\n\ttrue,\n);"),
+			"a split matcher is read whole",
+		).toBe(true);
+		expect(
+			isBare(`expect(\n\tisAlive(pid),\n\t"the process runs",\n)${told}`),
+			"a split expect with a message passes",
+		).toBe(false);
 	});
 
 	it("each say what failed, not only that it did", () => {
