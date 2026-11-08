@@ -332,6 +332,16 @@ is a build, never a VM check.
 - **Timed work** then runs in the cgroup `TIMED_CGROUP` names, or in
   jobs while there is none. A wait of 5 seconds or more is said in the
   call's output.
+- **Builds give way to a stamp:** jobs is an idle group, so timed work
+  there gets only what the Nix daemon's builds in build.slice leave,
+  and on 8 November stamps beside 9 to 14 builds ran 10 to 14 minutes
+  against 3 to 5 calm. So while a stamp runs, the session keeping the
+  queue sets build.slice's `CPUWeight` to 1 for this boot, keeping the
+  weight it found in `builds-yield` in the queue's folder, and puts it
+  back once no stamp runs, whichever session that is. Nothing is
+  lowered while a VM runs, by the queue or by a qemu, test driver or
+  nspawn in build.slice or machine.slice, since a starved guest fails
+  its timeouts. On Linux only, through core.nix's polkit grant.
 - **Giving way:** a shell runs its command anyway when its job is given
   up or nobody has kept the queue for two minutes. Nobody keeps it
   while the machine sleeps, so a shell whose clock has jumped gives the
