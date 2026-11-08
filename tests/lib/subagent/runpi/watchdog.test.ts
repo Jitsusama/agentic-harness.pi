@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error - a plain .mjs sibling of the spawned supervisor
-// script, which cannot import TypeScript because node runs it directly.
 import { clockVerdict } from "../../../../lib/subagent/runpi/watchdog.mjs";
 
 /** A run that started a minute ago and has been quiet for a second. */

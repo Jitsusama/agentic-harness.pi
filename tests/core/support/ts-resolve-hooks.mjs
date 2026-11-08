@@ -9,7 +9,11 @@
  * relative `.js` that does not resolve as the `.ts` of the same name.
  */
 
-/** Resolve as node would, falling back to the `.ts` of a missing `.js`. */
+/**
+ * Resolve as node would, falling back to the `.ts` of a missing `.js`.
+ *
+ * @type {import("node:module").ResolveHook}
+ */
 export async function resolve(specifier, context, next) {
 	try {
 		return await next(specifier, context);
