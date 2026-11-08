@@ -208,6 +208,12 @@ rules, and where it doesn't yet.
 - **Sleeps:** a fixed sleep in a test says why in a comment. The
   129 that didn't on 8 November are listed in
   `tests/package/uncommented-sleeps.txt`, which only shrinks.
+- **Embedded programs:** SQL and GraphQL live in `.sql` and
+  `.graphql` files beside the code that runs them, read in with
+  `sqlFile` (`lib/core/internal/sqlite/sql-file.ts`) and
+  `graphqlFile`. The page scripts, shell and one generated
+  insert still written as strings are listed in
+  `tests/package/embedded-programs.txt`, which only shrinks.
 
 ## Before Trusting a Live Run
 

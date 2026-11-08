@@ -422,8 +422,12 @@ is followed by judgment, not by a regex.
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.
 
-  `repo-quality-standard` sits with them, and two of its rules
-  are held by package tests: 🟢 rule 7's fixed sleeps, each said
+  `repo-quality-standard` sits with them, and three of its rules
+  are held by package tests: 🟢 rule 5's programs of more than
+  five lines written as strings, past the shrink-only list in
+  `tests/package/embedded-programs.txt`
+  (`tests/package/programs-live-in-their-own-files.test.ts`),
+  🟢 rule 7's fixed sleeps, each said
   why in a comment, past the shrink-only list in
   `tests/package/uncommented-sleeps.txt`
   (`tests/package/sleeps-say-why.test.ts`), and 🟢 rule 8's bare
