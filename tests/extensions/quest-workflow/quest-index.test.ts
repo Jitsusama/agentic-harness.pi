@@ -40,11 +40,13 @@ const nothingKnown: LivenessSnapshot = {
 	conflicted: new Set(),
 };
 
+/** A quest's README; a quest unless its head says another kind. */
 function quest(id: string, head: string, body: string): void {
 	mkdirSync(join(root, id), { recursive: true });
+	const kind = /^kind: /m.test(head) ? "" : "kind: quest\n";
 	writeFileSync(
 		join(root, id, "README.md"),
-		`---\nid: ${id}\nkind: quest\npriority: active\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01T03:00:00Z\n${head}\n---\n\n${body}\n`,
+		`---\nid: ${id}\n${kind}priority: active\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01T03:00:00Z\n${head}\n---\n\n${body}\n`,
 	);
 }
 
@@ -70,6 +72,7 @@ describe("the quests the desktop lists", () => {
 		quest(
 			CHILD,
 			[
+				"kind: subquest",
 				"status: active",
 				`parent: ${MISSION}`,
 				"sessions:",
@@ -106,6 +109,7 @@ describe("the quests the desktop lists", () => {
 				title: "Bootstrap optimus",
 				summary: "Make optimus the machine.\nIt is close.",
 				kind: "quest",
+				"quest.kind": "quest",
 				status: "active",
 				priority: "active",
 				rank: 1,
@@ -118,7 +122,8 @@ describe("the quests the desktop lists", () => {
 				id: CHILD,
 				address: "CHILDQ",
 				title: "A child",
-				kind: "quest",
+				kind: "subquest",
+				"quest.kind": "subquest",
 				status: "active",
 				priority: "active",
 				rank: 1,
@@ -293,7 +298,7 @@ describe("the quests the desktop lists", () => {
 				].join("\n"),
 				"# Old\n\n## 📜 Summary\n\nIt was done.",
 			);
-			quest(CHILD, "status: retired", "# A child");
+			quest(CHILD, "kind: sidequest\nstatus: retired", "# A child");
 			const { index } = discoverQuests(root);
 
 			expect(endedQuestsIn(index, root, "/home/someone")).toEqual([
@@ -301,7 +306,8 @@ describe("the quests the desktop lists", () => {
 					id: CHILD,
 					address: "CHILDQ",
 					title: "A child",
-					kind: "quest",
+					kind: "sidequest",
+					"quest.kind": "sidequest",
 					status: "retired",
 					start: "/home/someone",
 					updated: "2026-01-01T03:00:00Z",
@@ -313,6 +319,7 @@ describe("the quests the desktop lists", () => {
 					title: "Old",
 					summary: "It was done.",
 					kind: "quest",
+					"quest.kind": "quest",
 					status: "concluded",
 					parent: MISSION,
 					start: newer,
