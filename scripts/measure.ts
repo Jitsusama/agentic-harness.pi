@@ -109,6 +109,50 @@ export async function measure(opts: {
 	return out;
 }
 
+/** How many times a measure meeting a locked ledger is run in all. */
+export const BUSY_TRIES = 5;
+
+/** How long the first wait after a locked ledger is; each next is longer. */
+const BUSY_WAIT_MS = 30_000;
+
+/** Whether an error is SQLite saying another connection holds the lock. */
+function isBusy(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		(error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
+	);
+}
+
+/**
+ * Run `attempt`, and again after a wait when the ledger was locked, up
+ * to {@link BUSY_TRIES} runs. A session indexing its log can hold the
+ * ledger's write lock past the busy timeout, which killed the daily
+ * measure on 8 November 2026 with no report for the day. Running again
+ * is safe: indexing skips what the ledger holds and resumes from its
+ * watermarks. Any other error, or a lock that outlasts every wait, is
+ * thrown.
+ */
+export async function whileBusy<T>(
+	attempt: () => Promise<T>,
+	wait: (ms: number) => Promise<void> = (ms) =>
+		new Promise((done) => setTimeout(done, ms)),
+): Promise<T> {
+	for (let run = 1; ; run++) {
+		try {
+			return await attempt();
+		} catch (error) {
+			if (!isBusy(error) || run >= BUSY_TRIES) throw error;
+			const ms = BUSY_WAIT_MS * run;
+			console.error(
+				`The ledger was locked (run ${run} of ${BUSY_TRIES}); trying again in ${ms / 1000} s.`,
+			);
+			await wait(ms);
+		}
+	}
+}
+
 const USAGE =
 	"Usage: node scripts/measure.ts [--week] [--out <file>] [--top N]";
 
@@ -147,12 +191,14 @@ async function main(): Promise<void> {
 	};
 	const span: Span = args.includes("--week") ? "week" : "day";
 	const top = option("--top");
-	const out = await measure({
-		now: Date.now(),
-		span,
-		...(option("--out") ? { out: option("--out") } : {}),
-		...(top ? { top: Number(top) } : {}),
-	});
+	const out = await whileBusy(() =>
+		measure({
+			now: Date.now(),
+			span,
+			...(option("--out") ? { out: option("--out") } : {}),
+			...(top ? { top: Number(top) } : {}),
+		}),
+	);
 	console.log(
 		`Wrote the ${span === "week" ? "weekly" : "daily"} measure to ${out}.`,
 	);
