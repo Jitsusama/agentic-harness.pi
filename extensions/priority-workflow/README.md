@@ -90,6 +90,7 @@ does, so the wait never uses it up (see
 | vm-test | A VM or a test's driver run here, `run-subtests` | timed | 6 GiB |
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
+| stamp | a deploy's whole suite: `node deploy/suite.mjs` or `node estero/suite.mjs`, and `npm test` run in a folder of Acceluary's; only the capped build starts beside one | timed | 4 GiB |
 | build | Nix builds and checks, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, vitest and the pnpm scripts that run it (`pnpm check`, `pnpm test`, `pnpm test:<lane>`), `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
 | world-walk | `git push`, `fetch`, `pull`, `clone`, `gc`, `repack` or `pack-objects` in or against a World checkout | bulk | 6 GiB |
 

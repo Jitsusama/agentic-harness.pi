@@ -56,7 +56,8 @@ export type Kind =
 	| "vm-check"
 	| "benchmark"
 	| "build"
-	| "world-walk";
+	| "world-walk"
+	| "stamp";
 
 /** What a walk of World's objects does, as {@link walkOf} reads it. */
 export type Walk = "push" | "main-fetch" | "other";
@@ -77,6 +78,12 @@ export const CLASS_OF: Readonly<Record<Kind, Class>> = {
 	benchmark: "timed",
 	build: "bulk",
 	"world-walk": "bulk",
+	// A deploy's whole suite, headless Chrome and all, which every
+	// production deploy of Acceluary and Estuary waits on: beside ten
+	// builds at 74% pressure, train 8's took 13 minutes on 7 November
+	// against 3 to 5 at 10 to 40%, and load flakes its Chrome tests
+	// (N3Q98W). Its owner ruled it goes first (E2ZIAQ, 22:57).
+	stamp: "timed",
 };
 
 /**
@@ -92,6 +99,7 @@ export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
 	benchmark: 2,
 	build: 4,
 	"world-walk": 6,
+	stamp: 4,
 };
 
 /**
@@ -1085,9 +1093,10 @@ function memoryWaitedMs(job: Job, now: number): number {
  * gone since, left as it is, which older keepers would keep regardless.
  * 9: no job starts while the person's programs wait on CPU, no build or
  * benchmark past {@link MOST_CPU_PRESSURE_FOR_BUILDS}, and vitest and
- * the pnpm scripts that run it are builds.
+ * the pnpm scripts that run it are builds. 10: a deploy's stamp, a kind
+ * older code can't read, goes first with only the capped build beside.
  */
-export const RULES_VERSION = 9;
+export const RULES_VERSION = 10;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -1363,9 +1372,12 @@ function standing(
 	).length;
 	const vmsHere = Math.max(tests + justStarted, room.vms);
 	const vmsElsewhere = Math.max(0, (room.offload?.vms ?? 0) - justStarted);
+	// A deploy's stamp runs with only the capped build beside, as a VM
+	// check does, so ten builds no longer slow it fourfold.
 	const checking =
-		rules.buildsWaitForVmChecks &&
-		(running.some((job) => job.kind === "vm-check") || room.vms > tests);
+		(rules.buildsWaitForVmChecks &&
+			(running.some((job) => job.kind === "vm-check") || room.vms > tests)) ||
+		running.some((job) => job.kind === "stamp");
 	const stillQuick = (job: Job) =>
 		isQuick(job) && now - Date.parse(job.started as string) < QUICK_OUTRUN_MS;
 	const quickRunning = running.filter(stillQuick).length;
@@ -1559,9 +1571,34 @@ export function kindOf(
 ): Kind | undefined {
 	const steps = runSteps(command);
 	const runs = steps.join("\n");
+	if (stamps(runs, where)) return "stamp";
 	const kind = KINDS.find(([pattern]) => pattern.test(runs))?.[1];
 	if (kind !== undefined) return kind;
 	return worldWalks(steps, where).length > 0 ? "world-walk" : undefined;
+}
+
+/** The suite a deploy of Acceluary's or Estuary's runs as its stamp. */
+const STAMP_SUITE =
+	/(?<![\w.-])node\s+(?:\S*\/)?(?:deploy|estero)\/suite\.mjs(?![\w.-])/;
+
+/** npm's test, which in Acceluary's checkout runs the deploy's suite. */
+const NPM_TEST = /(?<![\w.-])npm\s+(?:run\s+)?test(?![\w:-])/;
+
+/** A folder of Acceluary's: its checkout, or a tree or snapshot of it. */
+const ACCELUARY = /(?:^|\/)[^/\s]*acceluary[^/\s]*(?:\/|$)/;
+
+/**
+ * Whether a command runs a deploy's stamp: the suite by its file, or
+ * `npm test` from Acceluary's own folder, named by where the command
+ * runs or the `cd` it makes. Elsewhere `npm test` is somebody's tests.
+ */
+function stamps(runs: string, where: Where): boolean {
+	if (STAMP_SUITE.test(runs)) return true;
+	if (!NPM_TEST.test(runs)) return false;
+	const inAcceluary = (path: string | undefined) =>
+		path !== undefined && ACCELUARY.test(path);
+	const cds = [...runs.matchAll(/(?:^|\n)\s*cd\s+(\S+)/g)].map((m) => m[1]);
+	return inAcceluary(where.cwd) || cds.some(inAcceluary);
 }
 
 /**
@@ -1768,6 +1805,7 @@ export const KIND_SAID: Readonly<Record<Kind, string>> = {
 	benchmark: "a benchmark",
 	build: "a build",
 	"world-walk": "a walk of World's git objects",
+	stamp: "a deploy stamp",
 };
 
 /** Where a command's steps and the parts of its pipes end. */
