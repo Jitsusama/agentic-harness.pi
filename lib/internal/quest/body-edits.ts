@@ -101,42 +101,71 @@ export function setCheckbox(
 const ITEM_NUMBER = /^\d+[a-z]?[.)]\s+/;
 
 /**
+ * Whether a document numbers its own items, as `7. Write the tests`.
+ * One that doesn't is named by position instead, and its outline shows
+ * the positions, since agents told to name an item by its number count
+ * the items when none carries one.
+ */
+function numbersItsItems(items: readonly Located[]): boolean {
+	return items.some((i) => ITEM_NUMBER.test(normalise(i.text)));
+}
+
+/**
+ * How long a text must be to name the one item it is found inside: two
+ * words or ten characters, so `fix` can't name an item by luck.
+ */
+const INSIDE_WORDS = 2;
+const INSIDE_CHARS = 10;
+
+/**
  * The one item a caller names: by its exact text, else by a start only
  * one item has, read with or without the number in front of it, so
- * `Write the` finds `7. Write the tests`. A bare number names the item
- * it numbers, so `7` finds `7. Write the tests` and not `70. ...`.
+ * `Write the` finds `7. Write the tests`, else by a long enough text
+ * found inside one item alone. A bare number names the item it numbers,
+ * so `7` finds `7. Write the tests` and not `70. ...`; in a document
+ * whose items carry no numbers, it names the item at that position,
+ * ticked and open alike, counted from 1 in document order.
  */
 function findItem(
 	items: readonly Located[],
 	item: string,
 ): { ok: true; match: Located } | EditRefused {
 	const wanted = normalise(item);
+	const numbered = numbersItsItems(items);
 	const readings = (i: Located) => {
 		const text = normalise(i.text);
 		return [text, text.replace(ITEM_NUMBER, "")];
 	};
-	const exact = items.filter((i) => readings(i).includes(wanted));
-	const prefixed = items.filter((i) =>
-		readings(i).some((text) => text.startsWith(wanted)),
-	);
+	const inside = () =>
+		wanted.split(" ").length >= INSIDE_WORDS || wanted.length >= INSIDE_CHARS
+			? items.filter((i) => normalise(i.text).includes(wanted))
+			: [];
+	const byText = () => {
+		const exact = items.filter((i) => readings(i).includes(wanted));
+		if (exact.length > 0) return exact;
+		const prefixed = items.filter((i) =>
+			readings(i).some((text) => text.startsWith(wanted)),
+		);
+		return prefixed.length > 0 ? prefixed : inside();
+	};
 	// A number names only the item it numbers, never one starting `12:00`.
-	const matches = /^\d+$/.test(wanted)
-		? items.filter((i) =>
-				new RegExp(`^${wanted}[.):]?(\\s|$)`).test(normalise(i.text)),
-			)
-		: exact.length > 0
-			? exact
-			: prefixed;
+	const byNumber = () =>
+		numbered
+			? items.filter((i) =>
+					new RegExp(`^${wanted}[.):]?(\\s|$)`).test(normalise(i.text)),
+				)
+			: items.filter((i) => i.position === Number(wanted));
+	const matches = /^\d+$/.test(wanted) ? byNumber() : byText();
 	if (matches.length === 0) {
 		return {
 			ok: false,
-			reason: `No item reads "${item.trim()}". The items are:\n${listItems(items)}`,
+			reason: `No item reads "${item.trim()}". The items are:\n${listItems(items, !numbered)}`,
 		};
 	}
 	if (matches.length > 1) {
 		return {
 			ok: false,
-			reason: `${matches.length} items fit "${item.trim()}"; name more of the one meant:\n${listItems(matches)}`,
+			reason: `${matches.length} items fit "${item.trim()}"; name more of the one meant:\n${listItems(matches, !numbered)}`,
 		};
 	}
 	return { ok: true, match: matches[0] };
@@ -155,6 +184,12 @@ export interface OutlineItem {
 	readonly done: boolean;
 	/** How far it is nested: 0 for a top-level item. */
 	readonly depth: number;
+	/**
+	 * The number that names it, counted from 1 over every item in
+	 * document order, given only where the document numbers none of its
+	 * items itself.
+	 */
+	readonly position?: number;
 }
 
 /** One `##` section, as an outline lists it. */
@@ -180,7 +215,9 @@ export function outlineOf(body: string): Outline {
 			lines.slice(h.index, headings[at + 1]?.index ?? lines.length).join("\n"),
 		),
 	}));
-	const items = checkboxLines(lines).map((i) => {
+	const located = checkboxLines(lines);
+	const positioned = !numbersItsItems(located);
+	const items = located.map((i) => {
 		const parts = CHECKBOX.exec(lines[i.index]);
 		const indent = parts?.[1].match(/^\s*/)?.[0].replace(/\t/g, "  ").length;
 		const wrapped: string[] = [i.text];
@@ -193,6 +230,7 @@ export function outlineOf(body: string): Outline {
 			text: wrapped.join(" "),
 			done: parts?.[2] !== " ",
 			depth: Math.floor((indent ?? 0) / 2),
+			...(positioned ? { position: i.position } : {}),
 		};
 	});
 	return { sections, items };
@@ -431,14 +469,18 @@ function headingWords(heading: string): string {
 interface Located {
 	index: number;
 	text: string;
+	/** A checkbox item's place among them all, counted from 1. */
+	position?: number;
 }
 
 /** Checkbox lines outside fenced code, with their item text. */
 function checkboxLines(lines: readonly string[]): Located[] {
-	return outsideFences(lines).flatMap((index) => {
-		const parts = CHECKBOX.exec(lines[index]);
-		return parts ? [{ index, text: parts[4] }] : [];
-	});
+	return outsideFences(lines)
+		.flatMap((index) => {
+			const parts = CHECKBOX.exec(lines[index]);
+			return parts ? [{ index, text: parts[4] }] : [];
+		})
+		.map((item, at) => ({ ...item, position: at + 1 }));
 }
 
 /** Second-level headings outside fenced code. */
@@ -467,8 +509,16 @@ function outsideFences(lines: readonly string[]): number[] {
 /** How many candidates a refusal names; a plan can hold hundreds. */
 const LISTED_ITEMS = 20;
 
-function listItems(items: readonly Located[]): string {
-	const listed = items.slice(0, LISTED_ITEMS).map((i) => `- ${i.text}`);
+/**
+ * Items as a refusal lists them, each led by its position where the
+ * document names its items that way.
+ */
+function listItems(items: readonly Located[], positioned: boolean): string {
+	const listed = items
+		.slice(0, LISTED_ITEMS)
+		.map((i) =>
+			positioned && i.position ? `- ${i.position}. ${i.text}` : `- ${i.text}`,
+		);
 	const more = items.length - listed.length;
 	if (more > 0) {
 		listed.push(

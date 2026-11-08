@@ -67,13 +67,13 @@ describe("ticking a checkbox", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.reason).toContain("2 items fit");
-		expect(result.reason).toContain("- Restore the docs");
+		expect(result.reason).toContain("- 3. Restore the docs");
 	});
 
 	it("refuses an item nothing reads, listing what does", () => {
 		const result = setCheckbox(PLAN, "deploy", true);
 		if (result.ok) throw new Error("expected a refusal");
-		expect(result.reason).toContain("- Core: prune fetch and content check");
+		expect(result.reason).toContain("- 1. Core: prune fetch and content check");
 	});
 
 	it("leaves code examples alone", () => {
@@ -252,10 +252,98 @@ describe("naming an item by its number", () => {
 	});
 
 	it("refuses a number no item carries, rather than matching a time", () => {
-		const body = "- [ ] 12:00 run failed\n- [ ] Ship it\n";
-		const result = setCheckbox(body, "1", true);
+		const body = "- [ ] 1. Ship it\n- [ ] 12:00 run failed\n";
+		const result = setCheckbox(body, "12", true);
 		if (result.ok) throw new Error("expected a refusal");
-		expect(result.reason).toContain('No item reads "1"');
+		expect(result.reason).toContain('No item reads "12"');
+	});
+});
+
+describe("naming an item by its position, in a document that numbers none", () => {
+	const LISTED = [
+		"- [x] Gate the tree",
+		"- [ ] Count the refusals",
+		"  - [ ] a nested step",
+		"- [ ] 12:00 run failed",
+		"",
+	].join("\n");
+
+	it("counts ticked and open items alike, nested ones included", () => {
+		const second = setCheckbox(LISTED, "2", true);
+		if (!second.ok) throw new Error(second.reason);
+		expect(second.line).toBe("- [x] Count the refusals");
+		const fourth = setCheckbox(LISTED, "4", true);
+		if (!fourth.ok) throw new Error(fourth.reason);
+		expect(fourth.line).toBe("- [x] 12:00 run failed");
+	});
+
+	it("keeps a number on its item as items above it are ticked", () => {
+		const ticked = setCheckbox(LISTED, "2", true);
+		if (!ticked.ok) throw new Error(ticked.reason);
+		const nested = setCheckbox(ticked.body, "3", true);
+		if (!nested.ok) throw new Error(nested.reason);
+		expect(nested.line).toBe("  - [x] a nested step");
+	});
+
+	it("refuses a position past the last item, listing the positions", () => {
+		const result = setCheckbox(LISTED, "5", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("- 2. Count the refusals");
+		expect(result.reason).toContain("- 4. 12:00 run failed");
+	});
+
+	it("reads the item at a position with its notes", () => {
+		const result = itemOf(LISTED, "2");
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.found).toBe("- [ ] Count the refusals");
+		expect(result.text).toBe("  - [ ] a nested step");
+	});
+
+	it("gives the outline those positions, and none in a numbered plan", () => {
+		expect(outlineOf(LISTED).items.map((i) => i.position)).toEqual([
+			1, 2, 3, 4,
+		]);
+		const numbered = outlineOf("- [ ] 1. Ship it\n- [ ] Unnumbered\n");
+		expect(numbered.items.map((i) => i.position)).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
+});
+
+describe("naming an item by words inside it", () => {
+	const BODY = [
+		"- [ ] **Item 8:** frictions that stop sessions getting things done",
+		"- [ ] Weekly card of what moved, by measurement",
+		"- [ ] Fix the sessions getting things wrong",
+		"",
+	].join("\n");
+
+	it("finds the one item holding two or more words", () => {
+		const result = setCheckbox(BODY, "stop sessions", true);
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.line).toContain("frictions that stop sessions");
+	});
+
+	it("finds the one item holding a single word of ten characters", () => {
+		const result = setCheckbox(BODY, "MEASUREMENT ", true);
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.line).toContain("by measurement");
+	});
+
+	it("won't name an item by a short word found inside it", () => {
+		const result = setCheckbox(BODY, "card", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain('No item reads "card"');
+	});
+
+	it("refuses words found inside several items, naming them", () => {
+		const result = setCheckbox(BODY, "sessions ", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("No item reads");
+		const both = setCheckbox(BODY, "sessions getting", true);
+		if (both.ok) throw new Error("expected a refusal");
+		expect(both.reason).toContain('2 items fit "sessions getting"');
 	});
 
 	it("names at most twenty candidates in a refusal", () => {
@@ -264,7 +352,7 @@ describe("naming an item by its number", () => {
 		);
 		const result = setCheckbox(body, "nothing like it", true);
 		if (result.ok) throw new Error("expected a refusal");
-		expect(result.reason).toContain("- Step 19\n- and 10 more");
+		expect(result.reason).toContain("- 20. Step 19\n- and 10 more");
 		expect(result.reason).not.toContain("Step 20");
 	});
 });
