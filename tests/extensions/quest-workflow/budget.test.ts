@@ -12,6 +12,7 @@ import {
 } from "../../../lib/budget/provider";
 import { BUDGET_SETTLED } from "../../../lib/budget/record";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -35,14 +36,16 @@ function bus() {
 /** The custom entries the session under test wrote, as its branch. */
 let written: { type: string; customType: string; data: unknown }[] = [];
 
-function fakePi(events = bus()) {
-	return {
-		setSessionName: () => {},
-		events,
-		appendEntry: (customType: string, data: unknown) =>
-			written.push({ type: "custom", customType, data }),
-	} as unknown as Parameters<typeof handle>[1];
-}
+/**
+ * What each pi in a test is handed, so that all of them append to the
+ * one branch. The tool runs and the budget keeper are two parts of one
+ * session, and the keeper reads back what was written.
+ */
+const intoTheBranch = {
+	appendEntry: (customType: string, data?: unknown) => {
+		written.push({ type: "custom", customType, data });
+	},
+};
 
 /** The budgets the session's log says, in the order it said them. */
 function recorded(): unknown[] {
@@ -84,7 +87,7 @@ afterEach(() => {
 async function quests() {
 	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 	const run = (params: Parameters<typeof handle>[3]) =>
-		handle(state, fakePi(), fakeCtx(), params);
+		handle(state, fakePi(intoTheBranch), fakeCtx(), params);
 	succeeded(await run({ action: "create", title: "Delta Work" }));
 	const top = state.questId as string;
 	succeeded(
@@ -173,7 +176,7 @@ describe("the session's budget", () => {
 		const { state, run, top, child } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
 		const events = bus();
-		const keeper = keepQuestBudget(fakePi(events), state);
+		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
 		const answers: Record<string, BudgetAnswer> = {
 			delta: { kind: "drawn", env: { [KEY]: "team" }, label: "delta (dev)" },
 		};
@@ -200,7 +203,7 @@ describe("the session's budget", () => {
 	it("stays on the default and says why once when no provider knows the name", async () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
-		const keeper = keepQuestBudget(fakePi(), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
 		const seen = ui();
 
 		await run({ action: "load", id: top });
@@ -217,7 +220,7 @@ describe("the session's budget", () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
 		const events = bus();
-		const keeper = keepQuestBudget(fakePi(events), state);
+		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
 		let answer: (value: BudgetAnswer) => void = () => {};
 		registerBudgetProvider(events, {
 			id: "slow",
@@ -240,7 +243,7 @@ describe("the session's budget", () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
 		const events = bus();
-		const keeper = keepQuestBudget(fakePi(events), state);
+		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
 		await run({ action: "load", id: top });
 		await keeper.keep(ui().ctx);
 
@@ -285,7 +288,10 @@ describe("the session's budget", () => {
 			const { state, run, top } = await quests();
 			await run({ action: "budget", id: top, ref: "delta" });
 			const events = bus();
-			const keeper = keepQuestBudget(fakePi(events), state);
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				state,
+			);
 			let answer: (value: BudgetAnswer) => void = () => {};
 			registerBudgetProvider(events, {
 				id: "slow",
@@ -317,7 +323,10 @@ describe("the session's budget", () => {
 			const { state, run, top } = await quests();
 			await run({ action: "budget", id: top, ref: "delta" });
 			const events = bus();
-			const keeper = keepQuestBudget(fakePi(events), state);
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				state,
+			);
 			registerBudgetProvider(events, {
 				id: "test",
 				precedence: 0,
@@ -342,7 +351,7 @@ describe("the session's budget", () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
 		const events = bus();
-		const keeper = keepQuestBudget(fakePi(events), state);
+		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
 		const answers: Record<string, BudgetAnswer> = {};
 		registerBudgetProvider(events, {
 			id: "files",
@@ -380,7 +389,7 @@ describe("the budget in the session's log", () => {
 		const { state, run, top, child } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
 		const events = bus();
-		const keeper = keepQuestBudget(fakePi(events), state);
+		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
 		registerBudgetProvider(events, {
 			id: "test",
 			precedence: 0,
@@ -409,7 +418,7 @@ describe("the budget in the session's log", () => {
 	it("says the default when the quest's budget can't be drawn on", async () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
-		const keeper = keepQuestBudget(fakePi(), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
 
 		await run({ action: "load", id: top });
 		await keeper.keep(ctx());
@@ -422,7 +431,7 @@ describe("the budget in the session's log", () => {
 	it("says the budget a session was started on when it lays none of its own", async () => {
 		const { state } = await quests();
 		process.env.PI_BUDGET = "aquifer";
-		const keeper = keepQuestBudget(fakePi(), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
 
 		await keeper.keep(ctx());
 
@@ -436,7 +445,7 @@ describe("the budget in the session's log", () => {
 			customType: "budget",
 			data: { v: 1, name: null },
 		});
-		const keeper = keepQuestBudget(fakePi(), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
 
 		await keeper.keep(ctx());
 

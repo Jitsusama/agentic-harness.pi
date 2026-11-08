@@ -9,16 +9,11 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 let guard: ReturnType<typeof createEnvGuard>;
-
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 
 function fakeCtx(cwd: string) {
 	return {

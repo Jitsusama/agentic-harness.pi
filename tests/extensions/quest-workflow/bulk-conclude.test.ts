@@ -15,16 +15,11 @@ import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
 import { harnessLogPath } from "../../../lib/internal/quest/harness-log";
 import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
+import { fakePi } from "../../support/fake-pi.ts";
 import { journeyOf } from "./_helpers";
 
 let root: string;
 let savedCache: string | undefined;
-
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 
 function fakeCtx(cwd: string) {
 	return {

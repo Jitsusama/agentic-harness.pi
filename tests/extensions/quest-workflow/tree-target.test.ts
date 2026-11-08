@@ -11,6 +11,7 @@ import {
 } from "../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
 // Which tree a verb acts on. A prune deletes a working tree, so a verb
@@ -20,11 +21,6 @@ import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(cwd: string) {
 	return {
 		cwd,

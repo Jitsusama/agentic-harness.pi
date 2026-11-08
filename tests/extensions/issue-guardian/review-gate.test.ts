@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createIssueGuardian } from "../../../extensions/issue-guardian/review.ts";
+import { fakePi } from "../../support/fake-pi.ts";
 
-// Derive the pi and context types from the factory so the test never
-// imports the pi package directly (which does not resolve for test
-// files under this tsconfig).
+// Derive the context type from the factory, so it stays whatever the
+// guardian's review step is handed.
 type Guardian = ReturnType<typeof createIssueGuardian>;
-type Pi = Parameters<typeof createIssueGuardian>[0];
 type Ctx = Parameters<NonNullable<Guardian["review"]>>[1];
-
-function fakePi(): Pi {
-	return { appendEntry: () => {} } as unknown as Pi;
-}
 
 function fakeCtx(hasUI: boolean): Ctx {
 	return {

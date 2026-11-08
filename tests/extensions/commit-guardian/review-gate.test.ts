@@ -17,6 +17,7 @@ import {
 	provideVerificationCheck,
 	type VerificationScope,
 } from "../../../lib/internal/verification/signal.ts";
+import { fakePi } from "../../support/fake-pi.ts";
 
 /** A verification check that finds `problems`, keeping each scope asked. */
 function failingWith(problems: string[]): VerificationScope[] {
@@ -28,16 +29,10 @@ function failingWith(problems: string[]): VerificationScope[] {
 	return asked;
 }
 
-// Derive the pi and context types from the factory so the test never
-// imports the pi package directly (which does not resolve for test
-// files under this tsconfig).
+// Derive the context type from the factory, so it stays whatever the
+// guardian's review step is handed.
 type Guardian = ReturnType<typeof createCommitGuardian>;
-type Pi = Parameters<typeof createCommitGuardian>[0];
 type Ctx = Parameters<NonNullable<Guardian["review"]>>[1];
-
-function fakePi(): Pi {
-	return { appendEntry: () => {} } as unknown as Pi;
-}
 
 function fakeCtx(hasUI: boolean): Ctx {
 	return {

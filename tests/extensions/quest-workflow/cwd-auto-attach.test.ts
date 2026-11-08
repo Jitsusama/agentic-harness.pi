@@ -16,17 +16,13 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/core/tree/index.ts";
+import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 let repoRoot: string;
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(cwd: string, sessionId = "sess-1") {
 	return {
 		cwd,

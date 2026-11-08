@@ -9,17 +9,13 @@ import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
 } from "../../../lib/terminal/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 let spawned: string | undefined;
 const kept: Record<string, string | undefined> = {};
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx() {
 	return {
 		cwd: tmpRoot,

@@ -18,6 +18,7 @@ import {
 } from "../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
+import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
@@ -25,11 +26,6 @@ const execFileAsync = promisify(execFile);
 let tmpRoot: string;
 let repoRoot: string;
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(cwd: string) {
 	return {
 		cwd,

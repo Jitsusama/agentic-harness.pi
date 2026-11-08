@@ -20,18 +20,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, refused, succeeded } from "./_helpers";
 
 let root: string;
 let savedCache: string | undefined;
 const envGuard = createEnvGuard();
-
-function fakePi() {
-	return {
-		setSessionName: () => {},
-		appendEntry: () => {},
-	} as unknown as Parameters<typeof handle>[1];
-}
 
 function fakeCtx() {
 	return {

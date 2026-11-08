@@ -27,6 +27,7 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -38,11 +39,6 @@ const opens = vi.mocked(fs.openSync);
 
 let tmpRoot: string;
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx() {
 	return {
 		cwd: tmpRoot,
