@@ -46,6 +46,7 @@ industry best practices used by:
    - `.../auth/spreadsheets.readonly`
    - `.../auth/presentations.readonly`
    - `.../auth/meetings.space.created`
+   - `.../auth/meetings.space.readonly`
 4. Add test users if not published
 
 ### 4. Add Credentials to Extension

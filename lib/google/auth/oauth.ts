@@ -32,6 +32,10 @@ export const SCOPES = [
 	// Meet - make a meeting space and manage only the ones made here,
 	// so a new meeting's link can be had without opening Meet
 	"https://www.googleapis.com/auth/meetings.space.created",
+
+	// Meet - read the calls Joel is in, who's in them and since when,
+	// so the desktop's call says its people without opening the tab
+	"https://www.googleapis.com/auth/meetings.space.readonly",
 ];
 
 /** OAuth2 client configuration. */
