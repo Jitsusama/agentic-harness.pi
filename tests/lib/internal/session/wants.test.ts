@@ -99,9 +99,9 @@ describe("a want", () => {
 		wants.raise("question", `Which\n  one ${"x".repeat(200)}?`, AT);
 
 		const said = heard[0]?.said ?? "";
-		expect(said.startsWith("Which one x")).toBe(true);
+		expect(said).toMatch(/^Which one x/);
 		expect(said).toHaveLength(SAID_CHARS);
-		expect(said.endsWith("\u2026")).toBe(true);
+		expect(said).toMatch(/\u2026$/);
 	});
 
 	it("is said again on the bus bound after a reload, and never on the old one", () => {
@@ -221,15 +221,20 @@ describe("wants shown to the person", () => {
 	afterEach(() => forgetWants());
 
 	it("are shown while any showing stands, each hidden once", () => {
-		expect(wantsShown()).toBe(false);
+		expect(wantsShown(), "nothing is shown before any showing").toBe(false);
 		const old = showWants();
 		// A reload's new copy shows them before the old copy hides its own.
 		const reloaded = showWants();
 		old();
 		old();
 
-		expect(wantsShown()).toBe(true);
+		expect(
+			wantsShown(),
+			"the reloaded copy's showing stands though the old one hid twice",
+		).toBe(true);
 		reloaded();
-		expect(wantsShown()).toBe(false);
+		expect(wantsShown(), "nothing is shown once every showing is hidden").toBe(
+			false,
+		);
 	});
 });

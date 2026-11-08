@@ -50,7 +50,7 @@ describe("ticking a checkbox", () => {
 	it("ticks the item a unique prefix names", () => {
 		const result = setCheckbox(PLAN, "core:", true);
 		if (!result.ok) throw new Error(result.reason);
-		expect(result.changed).toBe(true);
+		expect(result).toMatchObject({ changed: true });
 		expect(result.body).toContain("- [x] Core: prune fetch and content check");
 		expect(result.body).toContain("- [ ] Restore: one recording helper");
 	});
@@ -64,7 +64,7 @@ describe("ticking a checkbox", () => {
 
 	it("refuses when several items fit, and names them", () => {
 		const result = setCheckbox(PLAN, "restore", true);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.reason).toContain("2 items fit");
 		expect(result.reason).toContain("- 3. Restore the docs");
@@ -78,7 +78,7 @@ describe("ticking a checkbox", () => {
 
 	it("leaves code examples alone", () => {
 		const result = setCheckbox(PLAN, "not an item", true);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("names an item by the words it shows, not its markdown", () => {
@@ -95,7 +95,7 @@ describe("ticking a checkbox", () => {
 
 		for (const result of [labelled, coded, literal]) {
 			if (!result.ok) throw new Error(result.reason);
-			expect(result.changed).toBe(true);
+			expect(result).toMatchObject({ changed: true });
 		}
 		expect(labelled.ok && labelled.line).toMatch(/^- \[x\] \*\*R5\./);
 	});
@@ -106,7 +106,7 @@ describe("ticking a checkbox", () => {
 		expect(unticked.body).toContain("- [ ] Restore the docs");
 		const again = setCheckbox(unticked.body, "restore the docs", false);
 		if (!again.ok) throw new Error(again.reason);
-		expect(again.changed).toBe(false);
+		expect(again).toMatchObject({ changed: false });
 	});
 });
 
@@ -122,7 +122,7 @@ describe("replacing a section", () => {
 
 	it("skips a heading inside fenced code", () => {
 		const result = replaceSection(PLAN, "not a heading", "x");
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	it("keeps the final newline when the section is the last", () => {
@@ -139,7 +139,7 @@ describe("replacing a section", () => {
 
 	it("refuses text that would split the section", () => {
 		const result = replaceSection(PLAN, "Purpose", "Text\n\n## Extra\n");
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 	});
 
 	describe("in a README", () => {
@@ -168,7 +168,7 @@ describe("replacing a section", () => {
 				"readme",
 			);
 			if (!result.ok) throw new Error(result.reason);
-			expect(result.added).toBe(true);
+			expect(result).toMatchObject({ added: true });
 			expect(result.body).toContain(
 				"See attachments/journey.md.\n\n## \u{1F525} Spirit\n\nThe north star.\n\n## \u{1F3C6} Outcomes",
 			);
@@ -192,7 +192,7 @@ describe("replacing a section", () => {
 
 		it("never adds a mandatory section it lacks", () => {
 			const result = replaceSection(README, "Cast", "- **owner**: x", "readme");
-			expect(result.ok).toBe(false);
+			expect(result).toMatchObject({ ok: false });
 		});
 	});
 

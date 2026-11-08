@@ -89,7 +89,7 @@ describe("a click on what pi's components draw", () => {
 			0,
 			theme,
 		).render(width);
-		expect(screen.some((line) => line.includes("\x1b[33m"))).toBe(true);
+		expect(screen).toContainEqual(expect.stringContaining("\x1b[33m"));
 		expect(clickOn(screen, "and-another", width)).toBe(
 			pathToFileURL(deep).href,
 		);

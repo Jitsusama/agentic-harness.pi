@@ -247,7 +247,9 @@ describe("whether a repository's build may go", () => {
 			ok: true,
 			value: ["Owner/public"],
 		});
-		expect(parseRemoteChecks({ repos: "Owner/public" }).ok).toBe(false);
+		expect(parseRemoteChecks({ repos: "Owner/public" })).toMatchObject({
+			ok: false,
+		});
 	});
 
 	it("reads a GitHub origin in each form git writes it", () => {
@@ -406,9 +408,15 @@ describe("whether a builder is ready", () => {
 
 	it("is ready while one stands, and not with none standing or lent", async () => {
 		writeFileSync(join(root, "machines"), LINE);
-		expect(await builderReady(kernel())).toBe(true);
+		expect(
+			await builderReady(kernel()),
+			"a builder standing in machines is ready",
+		).toBe(true);
 		writeFileSync(join(root, "machines"), "");
-		expect(await builderReady(kernel())).toBe(false);
+		expect(
+			await builderReady(kernel()),
+			"an empty machines file with nothing lent is not ready",
+		).toBe(false);
 	});
 
 	it("waits while one is being lent, until it stands", async () => {
@@ -416,7 +424,7 @@ describe("whether a builder is ready", () => {
 		writeFileSync(join(root, "lending"), "builder\n");
 		const ready = builderReady(kernel(), undefined, Date.now, 5);
 		setTimeout(() => writeFileSync(join(root, "machines"), LINE), 20);
-		expect(await ready).toBe(true);
+		expect(await ready, "the lent builder is ready once it stands").toBe(true);
 	});
 
 	it("stops waiting on a lend past the queue's few minutes", async () => {
@@ -424,6 +432,9 @@ describe("whether a builder is ready", () => {
 		writeFileSync(join(root, "lending"), "builder\n");
 		const started = (Date.now() - LENDING_WAIT_MS) / 1000;
 		utimesSync(join(root, "lending"), started, started);
-		expect(await builderReady(kernel(), undefined, Date.now, 5)).toBe(false);
+		expect(
+			await builderReady(kernel(), undefined, Date.now, 5),
+			"a lend older than LENDING_WAIT_MS is not waited on",
+		).toBe(false);
 	});
 });

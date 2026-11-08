@@ -67,8 +67,8 @@ describe("openRecord", () => {
 
 	it("omits identity a session could not capture rather than inventing it", () => {
 		const record = opened();
-		expect("process" in record).toBe(false);
-		expect("terminal" in record).toBe(false);
+		expect(record).not.toHaveProperty("process");
+		expect(record).not.toHaveProperty("terminal");
 	});
 });
 
@@ -169,7 +169,10 @@ describe("startedAgain", () => {
 
 	it("sees a session opened in its place since, on its quest and in its folder", () => {
 		const fresh = opened({ sessionId: "sess-2", now: LATER_STILL });
-		expect(startedAgain(lost, [lost, fresh])).toBe(true);
+		expect(
+			startedAgain(lost, [lost, fresh]),
+			"sess-2, opened later on the same quest and folder, started it again",
+		).toBe(true);
 	});
 
 	it("does not count one opened before it closed, elsewhere or on another quest", () => {
@@ -184,7 +187,10 @@ describe("startedAgain", () => {
 			questId: "QEST-2",
 			now: LATER_STILL,
 		});
-		expect(startedAgain(lost, [lost, before, elsewhere, other])).toBe(false);
+		expect(
+			startedAgain(lost, [lost, before, elsewhere, other]),
+			"none opened before it closed, in /other or on QEST-2 started it again",
+		).toBe(false);
 	});
 
 	it("counts only a running one when asked", () => {
@@ -193,8 +199,14 @@ describe("startedAgain", () => {
 			"quit",
 			LATER_STILL,
 		);
-		expect(startedAgain(lost, [gone])).toBe(true);
-		expect(startedAgain(lost, [gone], { running: true })).toBe(false);
+		expect(
+			startedAgain(lost, [gone]),
+			"one opened since and quit counts when running is not asked",
+		).toBe(true);
+		expect(
+			startedAgain(lost, [gone], { running: true }),
+			"one opened since and quit does not count when running is asked",
+		).toBe(false);
 	});
 });
 

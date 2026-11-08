@@ -28,7 +28,7 @@ function initRepo(): string {
 describe("pi's installed commit hook", () => {
 	it("attributes a commit made with PI_CO_AUTHOR set", () => {
 		const repo = initRepo();
-		expect(installCommitHook(repo).installed).toBe(true);
+		expect(installCommitHook(repo)).toMatchObject({ installed: true });
 
 		writeFileSync(join(repo, "f.txt"), "hi");
 		execFileSync("git", ["-C", repo, "add", "."]);

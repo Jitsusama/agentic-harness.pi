@@ -84,21 +84,39 @@ describe("work that takes seconds", () => {
 
 	it("is a build whose last run was quick, or that builds checks and no VM", () => {
 		const check = "nix build .#checks.x86_64-linux.formatting";
-		expect(quickAfter("build", check, [])).toBe(true);
-		expect(quickAfter("build", check, [ran(check, QUICK_S)])).toBe(false);
+		expect(
+			quickAfter("build", check, []),
+			"a build of a named check that never ran is quick",
+		).toBe(true);
+		expect(
+			quickAfter("build", check, [ran(check, QUICK_S)]),
+			"a build whose last run took QUICK_S is not quick",
+		).toBe(false);
 		expect(
 			quickAfter("build", check, [ran(check, QUICK_S), ran(check, 4)]),
+			"a build whose latest run took 4 s is quick again",
 		).toBe(true);
-		expect(quickAfter("build", "cargo test", [])).toBe(false);
-		expect(quickAfter("build", "cargo test", [ran("cargo test", 9)])).toBe(
-			true,
-		);
+		expect(
+			quickAfter("build", "cargo test", []),
+			"work that never ran and builds no check is not quick",
+		).toBe(false);
+		expect(
+			quickAfter("build", "cargo test", [ran("cargo test", 9)]),
+			"work whose last run took 9 s is quick",
+		).toBe(true);
 		expect(
 			quickAfter("build", "nix build .#checks.x86_64-linux.vm-desktop", []),
+			"a build of a VM test's check is not quick",
 		).toBe(false);
-		expect(quickAfter("vm-check", check, [ran(check, 4)])).toBe(false);
+		expect(
+			quickAfter("vm-check", check, [ran(check, 4)]),
+			"a VM check is never quick",
+		).toBe(false);
 		const waited = outcome({ kind: "build", what: check, ranS: undefined });
-		expect(quickAfter("build", check, [ran(check, 600), waited])).toBe(false);
+		expect(
+			quickAfter("build", check, [ran(check, 600), waited]),
+			"a run that never had its turn leaves the slow one before it counting",
+		).toBe(false);
 	});
 });
 
@@ -139,7 +157,10 @@ describe("work that runs VMs, whatever it is named", () => {
 
 		expect(kindAfter("build", net, [built(arrival, true)])).toBe("vm-check");
 		expect(kindAfter("build", named, [built(arrival, true)])).toBe("vm-check");
-		expect(quickAfter("build", named, [built(arrival, true)])).toBe(false);
+		expect(
+			quickAfter("build", named, [built(arrival, true)]),
+			"a check that ran a VM is not quick",
+		).toBe(false);
 		expect(
 			kindAfter("build", "nix build $c.formatting", [built(arrival, true)]),
 		).toBe("build");
@@ -167,8 +188,14 @@ describe("work that runs VMs, whatever it is named", () => {
 		expect(kindAfter("build", lint, [built(cut, true)])).toBe("build");
 		expect(workKey(cut)).not.toBe(workKey(lint));
 		// Nor is work the log cut quick for the checks it shows.
-		expect(quickAfter("build", cut, [])).toBe(false);
-		expect(quickAfter("build", lint, [])).toBe(true);
+		expect(
+			quickAfter("build", cut, []),
+			"a command the log cut is not quick",
+		).toBe(false);
+		expect(
+			quickAfter("build", lint, []),
+			"the lint check named in full is quick",
+		).toBe(true);
 	});
 
 	it("goes by a check's latest run alone", () => {

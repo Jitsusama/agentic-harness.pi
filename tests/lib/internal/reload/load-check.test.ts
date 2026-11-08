@@ -60,7 +60,7 @@ describe("reading pi's answer", () => {
 
 	it("fails a load with failures, whatever pi exited with", () => {
 		const report = readLoad("", PI_FAILURE, 1);
-		expect(report.ok).toBe(false);
+		expect(report).toMatchObject({ ok: false });
 		expect(report.failures).toHaveLength(2);
 	});
 
@@ -164,7 +164,7 @@ describe("asking a pi", () => {
 			`process.stderr.write(${JSON.stringify(PI_FAILURE)}); process.exit(1);`,
 		);
 		const report = await checkLoad(pi, "/t");
-		expect(report.ok).toBe(false);
+		expect(report).toMatchObject({ ok: false });
 		expect(report.failures.map((failure) => failure.error)).toContain(
 			"Cannot find module 'pixelmatch'",
 		);
@@ -196,7 +196,7 @@ describe("asking a pi", () => {
 		process.env.PI_SESSION_ID = "01a1b240";
 		process.env.NIRI_SOCKET = "/run/user/1000/niri.sock";
 		try {
-			expect((await checkLoad(pi, "/t")).ok).toBe(true);
+			expect(await checkLoad(pi, "/t")).toMatchObject({ ok: true });
 		} finally {
 			process.env = before;
 		}
@@ -211,7 +211,8 @@ describe("asking a pi", () => {
 		expect(env.state).not.toBe(process.env.XDG_STATE_HOME);
 		expect(env.state).toMatch(/load-check-sandbox-/);
 		// And the sandbox goes with the check.
-		expect(existsSync(env.state.replace(/\/state$/, ""))).toBe(false);
+		const sandbox = env.state.replace(/\/state$/, "");
+		expect(existsSync(sandbox), `${sandbox} goes with the check`).toBe(false);
 	});
 
 	it("says when pi cannot be started at all", async () => {
@@ -219,7 +220,7 @@ describe("asking a pi", () => {
 			{ node: join(dir, "no-such-node"), entry: "x" },
 			"/t",
 		);
-		expect(report.ok).toBe(false);
+		expect(report).toMatchObject({ ok: false });
 		expect(report.problem).toMatch(/^pi would not start/);
 	});
 });

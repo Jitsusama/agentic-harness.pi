@@ -145,8 +145,10 @@ describe("askBill", () => {
 describe("isBillCut", () => {
 	it("accepts the groupings spend-watch cuts by and nothing else", () => {
 		expect(
-			["repo", "quest", "model", "day", "session", "budget"].every(isBillCut),
-		).toBe(true);
-		expect(["document", "kind", "thinking"].some(isBillCut)).toBe(false);
+			["repo", "quest", "model", "day", "session", "budget"].filter(
+				(cut) => !isBillCut(cut),
+			),
+		).toEqual([]);
+		expect(["document", "kind", "thinking"].filter(isBillCut)).toEqual([]);
 	});
 });

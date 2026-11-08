@@ -68,7 +68,9 @@ describe("pointing the package's entry at a tree", () => {
 		const restore = await pointEntryAt(settings, NAME, tree);
 		expect(onDisk().packages).toEqual(["npm:other", tree]);
 
-		expect(await restore()).toBe(true);
+		expect(await restore(), "restoring the untouched entry says it did").toBe(
+			true,
+		);
 		expect(onDisk().packages).toEqual(["npm:other", GIT_SOURCE]);
 	});
 
@@ -110,7 +112,10 @@ describe("pointing the package's entry at a tree", () => {
 			JSON.stringify({ packages: ["npm:other"] }),
 		);
 
-		expect(await restore()).toBe(false);
+		expect(
+			await restore(),
+			"restoring an entry changed underneath says it did not",
+		).toBe(false);
 		expect(onDisk().packages).toEqual(["npm:other"]);
 	});
 

@@ -23,7 +23,10 @@ describe("the turns the harness starts itself", () => {
 
 	it("recognises every one of them, whoever sent it", () => {
 		for (const text of [RESUME_TEXT, FAILED_RESUME_TEXT, OUTBOX_HEADER]) {
-			expect(isAutomatedText(`${text}\n\n[quest context]`)).toBe(true);
+			expect(
+				isAutomatedText(`${text}\n\n[quest context]`),
+				`a turn opening ${JSON.stringify(text)} reads as automated`,
+			).toBe(true);
 		}
 	});
 
@@ -35,6 +38,7 @@ describe("the turns the harness starts itself", () => {
 		// A result sent just before a reload reaches the code loaded after.
 		expect(
 			isOutboxMessage(automatedHeader("background jobs are reporting")),
+			"the older background jobs header still reads as a job report",
 		).toBe(true);
 	});
 
@@ -44,25 +48,41 @@ describe("the turns the harness starts itself", () => {
 			"Compacting the context failed, so it was left as it is. Carry on.",
 			"Verification found 3 errors in files you changed this turn.",
 		]) {
-			expect(isAutomatedText(legacy)).toBe(true);
+			expect(
+				isAutomatedText(legacy),
+				`${JSON.stringify(legacy)}, sent before the header, reads as automated`,
+			).toBe(true);
 		}
 		expect(
 			isResumeText(
 				"The context was compacted to keep this session affordable. Carry on.",
 			),
+			"the resume sent before the header still reads as a resume",
 		).toBe(true);
 	});
 
 	it("leaves what a person typed alone", () => {
-		expect(isAutomatedText("please fix the verification")).toBe(false);
-		expect(isAutomatedText("[Automated message] is what I'd call it")).toBe(
-			false,
-		);
+		expect(
+			isAutomatedText("please fix the verification"),
+			"a typed request naming the verification is a person's",
+		).toBe(false);
+		expect(
+			isAutomatedText("[Automated message] is what I'd call it"),
+			"a typed line that only borrows the header's words is a person's",
+		).toBe(false);
 	});
 
 	it("tells a resume from a job report", () => {
-		expect(isResumeText(RESUME_TEXT)).toBe(true);
-		expect(isResumeText(FAILED_RESUME_TEXT)).toBe(true);
-		expect(isResumeText(OUTBOX_HEADER)).toBe(false);
+		expect(isResumeText(RESUME_TEXT), "the resume reads as a resume").toBe(
+			true,
+		);
+		expect(
+			isResumeText(FAILED_RESUME_TEXT),
+			"the resume after a failed compaction reads as a resume",
+		).toBe(true);
+		expect(
+			isResumeText(OUTBOX_HEADER),
+			"a job report does not read as a resume",
+		).toBe(false);
 	});
 });

@@ -42,22 +42,30 @@ describe("a reply that failed for a moment", () => {
 		["a server error", "500 Internal Server Error"],
 		["an overloaded provider", '{"type":"overloaded_error"}'],
 	])("is %s", (_, error) => {
-		expect(failedForAMoment(reply("error", error), WINDOW)).toBe(true);
+		expect(
+			failedForAMoment(reply("error", error), WINDOW),
+			`a reply that failed with ${error} failed for a moment`,
+		).toBe(true);
 	});
 
 	it("is never a reply that finished", () => {
-		expect(failedForAMoment(reply("stop"), WINDOW)).toBe(false);
+		expect(
+			failedForAMoment(reply("stop"), WINDOW),
+			"a reply that stopped on its own did not fail",
+		).toBe(false);
 	});
 
 	it("is never a reply somebody stopped", () => {
 		expect(
 			failedForAMoment(reply("aborted", "Request timed out."), WINDOW),
+			"an aborted reply is no passing failure, even one that timed out",
 		).toBe(false);
 	});
 
 	it("is never a request the provider refused as malformed", () => {
 		expect(
 			failedForAMoment(reply("error", "400 invalid_request_error"), WINDOW),
+			"a 400 invalid request will fail the same way again",
 		).toBe(false);
 	});
 
@@ -67,6 +75,7 @@ describe("a reply that failed for a moment", () => {
 				reply("error", "prompt is too long: 250000 tokens > 200000 maximum"),
 				WINDOW,
 			),
+			"a prompt too long for the model will fail the same way again",
 		).toBe(false);
 	});
 });
@@ -114,7 +123,7 @@ describe("the line a failure is told in", () => {
 	it("is cut to a notice's length", () => {
 		const line = failureLine(reply("error", "x".repeat(300)));
 		expect(line.length).toBe(100);
-		expect(line.endsWith("...")).toBe(true);
+		expect(line).toMatch(/\.\.\.$/);
 	});
 
 	it("says the call failed when the message is empty", () => {

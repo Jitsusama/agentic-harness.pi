@@ -41,7 +41,7 @@ describe("loadPackageConfig", () => {
 		const path = join(dir, "config.json");
 		await writeFile(path, "{ not json", "utf8");
 		const result = await loadPackageConfig(path);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected failure");
 		expect(result.path).toBe(path);
 		expect(result.error).toMatch(/pars/i);
@@ -51,7 +51,7 @@ describe("loadPackageConfig", () => {
 		const path = join(dir, "config.json");
 		await writeFile(path, JSON.stringify([1, 2, 3]), "utf8");
 		const result = await loadPackageConfig(path);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected failure");
 		expect(result.error).toMatch(/object/i);
 	});
@@ -60,7 +60,7 @@ describe("loadPackageConfig", () => {
 		const path = join(dir, "config.json");
 		await writeFile(path, JSON.stringify({ version: 1, sections: 7 }), "utf8");
 		const result = await loadPackageConfig(path);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (result.ok) throw new Error("expected failure");
 		expect(result.error).toMatch(/sections/i);
 	});

@@ -325,10 +325,10 @@ describe("the fresh log on disk", () => {
 
 		expect(lines).toHaveLength(rolled.entries.length + 1);
 		expect(JSON.parse(lines[0] ?? "{}").type).toBe("session");
-		expect(readdirSync(dir).some((name) => name.endsWith(".partial"))).toBe(
-			false,
-		);
-		expect(existsSync(path)).toBe(true);
+		expect(
+			readdirSync(dir).filter((name) => name.endsWith(".partial")),
+		).toEqual([]);
+		expect(existsSync(path), `${path} is written`).toBe(true);
 	});
 
 	it("is named the way pi names a log", () => {

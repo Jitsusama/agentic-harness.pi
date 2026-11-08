@@ -69,7 +69,7 @@ describe("duMeasure", () => {
 		const path = dir("ws");
 		writeFileSync(join(path, "data"), Buffer.alloc(200 * 1024));
 		const size = await duMeasure()(path);
-		expect(size?.complete).toBe(true);
+		expect(size).toMatchObject({ complete: true });
 		expect(size?.bytes).toBeGreaterThanOrEqual(200 * 1024);
 	});
 

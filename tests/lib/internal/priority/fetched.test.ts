@@ -77,11 +77,26 @@ describe("a fetch of World's main answered by one just made", () => {
 	});
 
 	it("takes a fetch to have moved main only when its last reading is a new commit", () => {
-		expect(movedMain(`${A}\n`, `${B}\n`)).toBe(true);
-		expect(movedMain("", `${B}\n`)).toBe(true);
-		expect(movedMain(`${A}\n`, `${A}\n`)).toBe(false);
-		expect(movedMain(`${A}\n`, "")).toBe(false);
-		expect(movedMain(`${A}\n`, "fatal: not a git repository\n")).toBe(false);
+		expect(
+			movedMain(`${A}\n`, `${B}\n`),
+			"a fetch that ends on another commit moved main",
+		).toBe(true);
+		expect(
+			movedMain("", `${B}\n`),
+			"a fetch that finds a commit where there was none moved main",
+		).toBe(true);
+		expect(
+			movedMain(`${A}\n`, `${A}\n`),
+			"a fetch that ends on the same commit did not move main",
+		).toBe(false);
+		expect(
+			movedMain(`${A}\n`, ""),
+			"a fetch whose last reading is empty did not move main",
+		).toBe(false);
+		expect(
+			movedMain(`${A}\n`, "fatal: not a git repository\n"),
+			"a fetch whose last reading is an error did not move main",
+		).toBe(false);
 	});
 
 	it("reads origin/main from World's repository, quietly", () => {

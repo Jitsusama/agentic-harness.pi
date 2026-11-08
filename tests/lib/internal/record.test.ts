@@ -8,13 +8,19 @@ import { isRecord } from "../../../lib/internal/record.ts";
 
 describe("isRecord", () => {
 	it("takes an object, empty or not", () => {
-		expect(isRecord({})).toBe(true);
-		expect(isRecord({ usage: { input: 1 } })).toBe(true);
+		expect(isRecord({}), "an empty object is a record").toBe(true);
+		expect(
+			isRecord({ usage: { input: 1 } }),
+			"an object with a field is a record",
+		).toBe(true);
 	});
 
 	it("refuses an array, which has no named fields", () => {
-		expect(isRecord([])).toBe(false);
-		expect(isRecord([{ usage: 1 }])).toBe(false);
+		expect(isRecord([]), "an empty array is no record").toBe(false);
+		expect(
+			isRecord([{ usage: 1 }]),
+			"an array holding a record is no record",
+		).toBe(false);
 	});
 
 	it("refuses null, undefined and every primitive", () => {

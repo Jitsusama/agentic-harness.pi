@@ -108,7 +108,10 @@ beforeEach(() => {
 		'read -r ref rest; echo "other $(git config --get core.hooksPath || echo unset) $ref" >> "$MARK"',
 	);
 	hookFile(join(hooks, "post-commit"), 'echo post-commit >> "$MARK"');
-	expect(placePushHooks(queue)).toBe(true);
+	expect(
+		placePushHooks(queue),
+		`every push hook is placed in ${queue} to run`,
+	).toBe(true);
 });
 
 afterEach(() => {

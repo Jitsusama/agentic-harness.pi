@@ -53,7 +53,7 @@ describe("reading a stray write", () => {
 		});
 
 		expect(report.line).toHaveLength(160);
-		expect(report.line.endsWith("...")).toBe(true);
+		expect(report.line).toMatch(/\.\.\.$/);
 		expect(report.line).not.toContain("\u001b");
 		expect(report.writer).toBeUndefined();
 	});

@@ -25,9 +25,12 @@ function stamped(): unknown {
 
 describe("the rules a keeper keeps by", () => {
 	it("are stamped now and then, not at every keep", () => {
-		expect(mayKeep(dir, 2, NOW)).toBe(true);
+		expect(mayKeep(dir, 2, NOW), "the first keeper may keep").toBe(true);
 		for (let at = NOW; at < NOW + RESTAMP_MS; at += KEEP_EVERY_MS) {
-			expect(mayKeep(dir, 2, at)).toBe(true);
+			expect(
+				mayKeep(dir, 2, at),
+				`the same keeper may keep again ${at - NOW} ms on`,
+			).toBe(true);
 		}
 		expect(stamped(), "unchanged while it is fresh").toEqual({
 			version: 2,
@@ -47,7 +50,13 @@ describe("the rules a keeper keeps by", () => {
 	it("still hold an older keeper back between a newer one's stamps", () => {
 		mayKeep(dir, 2, NOW);
 		mayKeep(dir, 2, NOW + RESTAMP_MS - 1);
-		expect(mayKeep(dir, 1, NOW + RESTAMP_MS - 1)).toBe(false);
-		expect(mayKeep(dir, 1, NOW + NEWER_KEEPER_MS)).toBe(true);
+		expect(
+			mayKeep(dir, 1, NOW + RESTAMP_MS - 1),
+			"an older keeper is held back between the newer one's stamps",
+		).toBe(false);
+		expect(
+			mayKeep(dir, 1, NOW + NEWER_KEEPER_MS),
+			"an older keeper may keep once the newer one's stamp is NEWER_KEEPER_MS old",
+		).toBe(true);
 	});
 });

@@ -27,17 +27,22 @@ describe("a turn a person typed", () => {
 		expect(dir).toBe(join(runtime, "pi", "typed"));
 		const turns = typedTurns(dir, 4242);
 		turns.typed(1);
-		expect(existsSync(file())).toBe(true);
+		expect(existsSync(file()), `${file()} is written at the input`).toBe(true);
 		turns.began(2);
 		turns.ended();
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} goes when the typed turn ends`).toBe(
+			false,
+		);
 	});
 
 	it("is never said for a turn nobody typed", () => {
 		const turns = typedTurns(dir, 4242);
 		turns.began(1);
 		turns.ended();
-		expect(existsSync(file())).toBe(false);
+		expect(
+			existsSync(file()),
+			`${file()} is never written for a turn nobody typed`,
+		).toBe(false);
 	});
 
 	it("stays for the next turn when a person typed during this one", () => {
@@ -46,27 +51,34 @@ describe("a turn a person typed", () => {
 		turns.began(2);
 		turns.typed(3);
 		turns.ended();
-		expect(existsSync(file())).toBe(true);
+		expect(
+			existsSync(file()),
+			`${file()} stays for the turn typed during this one`,
+		).toBe(true);
 		turns.began(4);
 		turns.ended();
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} goes when that next turn ends`).toBe(
+			false,
+		);
 	});
 
 	it("says whether it holds, even where it can't write the file", () => {
 		const turns = typedTurns(undefined, 4242);
-		expect(turns.held()).toBe(false);
+		expect(turns.held(), "nothing is held before any input").toBe(false);
 		turns.typed(1);
-		expect(turns.held()).toBe(true);
+		expect(turns.held(), "a typed turn is held with no folder").toBe(true);
 		turns.began(2);
 		turns.ended();
-		expect(turns.held()).toBe(false);
+		expect(turns.held(), "nothing is held once the typed turn ends").toBe(
+			false,
+		);
 	});
 
 	it("goes with the session, and says nothing with no runtime folder", () => {
 		const turns = typedTurns(dir, 4242);
 		turns.typed(1);
 		turns.stop();
-		expect(existsSync(file())).toBe(false);
+		expect(existsSync(file()), `${file()} goes with the session`).toBe(false);
 		expect(typedDir({})).toBeUndefined();
 		expect(() => typedTurns(undefined).typed()).not.toThrow();
 	});

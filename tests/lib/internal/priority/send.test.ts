@@ -166,14 +166,19 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				TAKES,
 				committed,
 			),
+			"a committed tree's changed-checks run goes to the builder",
 		).toBe(true);
 	});
 
 	it("doesn't before nix-offload says what it takes, or when it can't take it", () => {
 		const cc = "direnv exec . changed-checks";
-		expect(sendsWholeRun(cc, "/tree", undefined, committed)).toBe(false);
+		expect(
+			sendsWholeRun(cc, "/tree", undefined, committed),
+			"nothing is sent before nix-offload says what it takes",
+		).toBe(false);
 		expect(
 			sendsWholeRun(cc, "/tree", { ...TAKES, changed: false }, committed),
+			"nothing is sent when nix-offload cannot take changed-checks",
 		).toBe(false);
 	});
 
@@ -184,7 +189,10 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			"direnv exec . changed-checks --base jitsusama/greeter",
 			"direnv exec . changed-checks --base=origin/main",
 		]) {
-			expect(sendsWholeRun(cc, "/tree", TAKES, committed)).toBe(false);
+			expect(
+				sendsWholeRun(cc, "/tree", TAKES, committed),
+				`${cc} stays here`,
+			).toBe(false);
 		}
 	});
 
@@ -199,7 +207,7 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				return false;
 			},
 		);
-		expect(sent).toBe(false);
+		expect(sent, "a run whose folder is uncommitted stays here").toBe(false);
 		expect(asked).toEqual(["/other"]);
 	});
 
@@ -211,10 +219,12 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				TAKES,
 				committed,
 			),
+			"a changed-checks run behind a nix build stays here",
 		).toBe(false);
-		expect(sendsWholeRun("nix build .#x", "/tree", TAKES, committed)).toBe(
-			false,
-		);
+		expect(
+			sendsWholeRun("nix build .#x", "/tree", TAKES, committed),
+			"a nix build with no changed-checks is not sent",
+		).toBe(false);
 	});
 
 	it("reads a tree with a change git tracks as uncommitted, as changed-checks does", () => {
@@ -222,14 +232,21 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 		try {
 			execFileSync("git", ["-C", tree, "init", "-q"], { stdio: "ignore" });
 			writeFileSync(join(tree, "flake.nix"), "{}\n");
-			expect(sendsWholeRun("changed-checks", tree, TAKES)).toBe(true);
+			expect(
+				sendsWholeRun("changed-checks", tree, TAKES),
+				"a tree whose only file git does not track reads as committed",
+			).toBe(true);
 			execFileSync("git", ["-C", tree, "add", "flake.nix"], {
 				stdio: "ignore",
 			});
-			expect(sendsWholeRun("changed-checks", tree, TAKES)).toBe(false);
-			expect(sendsWholeRun("changed-checks", join(tree, "gone"), TAKES)).toBe(
-				false,
-			);
+			expect(
+				sendsWholeRun("changed-checks", tree, TAKES),
+				"a tree with a staged change reads as uncommitted",
+			).toBe(false);
+			expect(
+				sendsWholeRun("changed-checks", join(tree, "gone"), TAKES),
+				"a folder that is not there is never sent",
+			).toBe(false);
 		} finally {
 			rmSync(tree, { recursive: true, force: true });
 		}

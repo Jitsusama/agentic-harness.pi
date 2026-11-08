@@ -58,7 +58,7 @@ describe("mutateQuestFrontMatter", () => {
 			priority: "driving",
 		}));
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.fm.trees?.map((tree) => tree.host)).toEqual([
 			hostname(),
@@ -75,7 +75,7 @@ describe("mutateQuestFrontMatter", () => {
 			priority: "driving",
 		}));
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.fm.priority).toBe("driving");
 		expect(result.changes).toContainEqual({
@@ -96,7 +96,7 @@ describe("mutateQuestFrontMatter", () => {
 			status: "parked" as QuestStatusCast,
 		}));
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(readFileSync(join(questDir, "README.md"), "utf8")).toBe(before);
 	});
 
@@ -107,7 +107,7 @@ describe("mutateQuestFrontMatter", () => {
 			priority: "urgent" as QuestPriorityCast,
 		}));
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(readFileSync(join(questDir, "README.md"), "utf8")).toBe(before);
 	});
 
@@ -118,7 +118,7 @@ describe("mutateQuestFrontMatter", () => {
 			rank: Number.NaN,
 		}));
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(readFileSync(join(questDir, "README.md"), "utf8")).toBe(before);
 	});
 
@@ -128,7 +128,7 @@ describe("mutateQuestFrontMatter", () => {
 			priority: "queued",
 		}));
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		const text = readFileSync(join(questDir, "README.md"), "utf8");
 		expect(text).toContain("Body stays put.");
 		expect(text).not.toContain("updated: 2026-01-01");
@@ -137,7 +137,7 @@ describe("mutateQuestFrontMatter", () => {
 	it("reports no changes for a no-op transform", () => {
 		const result = mutateQuestFrontMatter(questDir, (fm) => fm);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		if (!result.ok) return;
 		expect(result.changes).toEqual([]);
 	});

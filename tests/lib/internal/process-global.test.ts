@@ -22,7 +22,7 @@ describe("processGlobal", () => {
 		const first = processGlobal(key, () => new Set<string>());
 		first.add("x");
 		const second = processGlobal(key, () => new Set<string>());
-		expect(second.has("x")).toBe(true);
+		expect(second).toContain("x");
 	});
 
 	it("keeps distinct keys independent", () => {

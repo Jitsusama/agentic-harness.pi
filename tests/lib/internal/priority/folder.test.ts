@@ -94,9 +94,15 @@ describe("the machine's queue folder", () => {
 
 		older.ask(job("build"));
 		older.keep(ROOMY, NOW + 1_000, () => undefined);
-		expect(older.hasTurn("build")).toBe(false);
+		expect(
+			older.hasTurn("build"),
+			"the older keeper gives build no turn while the newer one keeps",
+		).toBe(false);
 		newer.keep(ROOMY, NOW + 2_000, () => undefined);
-		expect(newer.hasTurn("build")).toBe(true);
+		expect(
+			newer.hasTurn("build"),
+			"the newer keeper gives build its turn",
+		).toBe(true);
 	});
 
 	it("keeps on older rules once no newer session has kept for a minute", () => {
@@ -110,7 +116,10 @@ describe("the machine's queue folder", () => {
 		const later = NOW + NEWER_KEEPER_MS;
 		older.ask(job("next", { since: new Date(later - 1_000).toISOString() }));
 		older.keep(ROOMY, later, () => undefined);
-		expect(older.hasTurn("next")).toBe(true);
+		expect(
+			older.hasTurn("next"),
+			"the older keeper gives next its turn once the newer one is quiet",
+		).toBe(true);
 	});
 
 	it("counts a folder kept a moment ago, with nothing come or gone, as kept", () => {
@@ -119,12 +128,18 @@ describe("the machine's queue folder", () => {
 		const queue = folder();
 		queue.ask(job("build"));
 		shellSays("build", 300);
-		expect(queue.keptFresh(NOW)).toBe(false);
+		expect(queue.keptFresh(NOW), "a folder never kept is not kept").toBe(false);
 
 		queue.keep(ROOMY, NOW, () => undefined);
 
-		expect(queue.keptFresh(NOW + KEPT_FOR_MS - 1)).toBe(true);
-		expect(queue.keptFresh(NOW + KEPT_FOR_MS)).toBe(false);
+		expect(
+			queue.keptFresh(NOW + KEPT_FOR_MS - 1),
+			"a folder kept just under KEPT_FOR_MS ago is kept",
+		).toBe(true);
+		expect(
+			queue.keptFresh(NOW + KEPT_FOR_MS),
+			"a folder kept KEPT_FOR_MS ago is not kept",
+		).toBe(false);
 	});
 
 	it("counts a folder a job came into since its keep as not kept", () => {
@@ -134,7 +149,10 @@ describe("the machine's queue folder", () => {
 
 		queue.ask(job("next"));
 
-		expect(queue.keptFresh(NOW + 1)).toBe(false);
+		expect(
+			queue.keptFresh(NOW + 1),
+			"a folder a job came into since its keep is not kept",
+		).toBe(false);
 	});
 
 	it("counts a folder a job's end came into since its keep as not kept", () => {
@@ -144,7 +162,10 @@ describe("the machine's queue folder", () => {
 
 		writeFileSync(join(dir, "build.end"), "0\n");
 
-		expect(queue.keptFresh(NOW + 1)).toBe(false);
+		expect(
+			queue.keptFresh(NOW + 1),
+			"a folder a job's end came into since its keep is not kept",
+		).toBe(false);
 	});
 
 	it("says it kept the folder only where the desktop's watch can't hear", () => {
@@ -153,8 +174,13 @@ describe("the machine's queue folder", () => {
 
 		queue.keep(ROOMY, NOW, () => undefined);
 
-		expect(existsSync(join(dir, "kept.json"))).toBe(false);
-		expect(existsSync(join(dir, "locks", "kept.json"))).toBe(true);
+		const heard = join(dir, "kept.json");
+		const unheard = join(dir, "locks", "kept.json");
+		expect(
+			existsSync(heard),
+			`${heard}, where the desktop's watch hears, is not written`,
+		).toBe(false);
+		expect(existsSync(unheard), `${unheard} is written`).toBe(true);
 	});
 
 	it("leaves a folder a newer keeper keeps unmarked by an older one", () => {
@@ -165,7 +191,10 @@ describe("the machine's queue folder", () => {
 
 		older.keep(ROOMY, NOW + KEPT_FOR_MS, () => undefined);
 
-		expect(older.keptFresh(NOW + KEPT_FOR_MS)).toBe(false);
+		expect(
+			older.keptFresh(NOW + KEPT_FOR_MS),
+			"the older keeper's keep did not mark the folder kept",
+		).toBe(false);
 	});
 
 	it("holds a job while it plans, then queues it as what its plan found", () => {
@@ -174,13 +203,18 @@ describe("the machine's queue folder", () => {
 		shellSays("cached", 300);
 
 		queue.keep({ ...ROOMY, vms: MOST_VMS }, NOW, () => undefined);
-		expect(queue.hasTurn("cached")).toBe(false);
+		expect(queue.hasTurn("cached"), "a job still planning has no turn").toBe(
+			false,
+		);
 		expect(record().jobs[0]).toMatchObject({ waitingOn: "planning" });
 		expect(record().jobs[0]?.place).toBeUndefined();
 
 		writeFileSync(join(dir, "cached.plan"), "cached\n");
 		queue.keep({ ...ROOMY, vms: MOST_VMS }, NOW + 5_000, () => undefined);
-		expect(queue.hasTurn("cached")).toBe(true);
+		expect(
+			queue.hasTurn("cached"),
+			"a job whose plan found a build has its turn",
+		).toBe(true);
 		expect(record().jobs[0]).toMatchObject({ kind: "build" });
 	});
 
@@ -194,8 +228,11 @@ describe("the machine's queue folder", () => {
 
 		queue.keep({ ...ROOMY, availableGib: 5 }, NOW, () => undefined);
 
-		expect(queue.hasTurn("lab")).toBe(true);
-		expect(queue.hasTurn("older")).toBe(false);
+		expect(queue.hasTurn("lab"), "the quest put first has its turn").toBe(true);
+		expect(
+			queue.hasTurn("older"),
+			"the older job waits behind the quest put first",
+		).toBe(false);
 		expect(record().jobs.find((one) => one.id === "lab")).toMatchObject({
 			quest: "QEST-LAB",
 			first: true,
@@ -233,9 +270,12 @@ describe("the machine's queue folder", () => {
 		queue.keep(ROOMY, NOW, (one) =>
 			one.kind === "vm-test" ? "/timed" : undefined,
 		);
-		expect(queue.hasTurn("first")).toBe(true);
+		expect(queue.hasTurn("first"), "the first job has its turn").toBe(true);
 		expect(readFileSync(join(dir, "first.turn"), "utf8")).toBe("/timed");
-		expect(queue.hasTurn("second")).toBe(false);
+		expect(
+			queue.hasTurn("second"),
+			"the second job waits while the first VM grows",
+		).toBe(false);
 		const shown = record();
 		expect(shown.heartbeat).toBe(NOW / 1000);
 		expect(shown.machine).toEqual({
@@ -317,8 +357,14 @@ describe("the machine's queue folder", () => {
 				}),
 			);
 			queue.keep(ROOMY, NOW, () => undefined);
-			expect(queue.hasTurn("waited")).toBe(true);
-			expect(queue.hasTurn("older")).toBe(false);
+			expect(
+				queue.hasTurn("waited"),
+				"the job a session waits on has its turn",
+			).toBe(true);
+			expect(
+				queue.hasTurn("older"),
+				"the older job nobody waits on gives way",
+			).toBe(false);
 			const waiting = record().jobs.filter((one) => one.state === "waiting");
 			expect(
 				waiting.map((one) => [one.id, one.place, one.awaited ?? false]),
@@ -346,14 +392,26 @@ describe("the machine's queue folder", () => {
 			NOW,
 			() => undefined,
 		);
-		expect(held.hasTurn("build")).toBe(false);
+		expect(
+			held.hasTurn("build"),
+			"a build waits beside a VM check while the CPU is busy",
+		).toBe(false);
 		held.keep(ROOMY, NOW, () => undefined);
-		expect(held.hasTurn("build")).toBe(true);
-		expect(existsSync(join(dir, "build.capped"))).toBe(true);
+		expect(
+			held.hasTurn("build"),
+			"a build has its turn beside a VM check once the CPU is free",
+		).toBe(true);
+		const capped = join(dir, "build.capped");
+		expect(
+			existsSync(capped),
+			`${capped} holds the build beside the check`,
+		).toBe(true);
 		expect(readFileSync(join(dir, "capped.conf"), "utf8")).toBe(
 			"max-jobs = 2\ncores = 4\n",
 		);
-		expect(record().jobs.find((one) => one.id === "build")?.capped).toBe(true);
+		expect(record().jobs.find((one) => one.id === "build")).toMatchObject({
+			capped: true,
+		});
 		const free = queueFolder(
 			dir,
 			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
@@ -365,11 +423,21 @@ describe("the machine's queue folder", () => {
 		free.ask(job("other"));
 		shellSays("other", 603);
 		free.keep(ROOMY, NOW + 3_000, () => undefined);
-		expect(free.hasTurn("other")).toBe(true);
-		expect(existsSync(join(dir, "other.capped"))).toBe(false);
+		expect(
+			free.hasTurn("other"),
+			"a keeper whose rules let builds run beside checks gives other its turn",
+		).toBe(true);
+		const otherCapped = join(dir, "other.capped");
+		expect(
+			existsSync(otherCapped),
+			`${otherCapped} is not written by rules that do not hold builds`,
+		).toBe(false);
 		running.delete(602);
 		free.keep(ROOMY, NOW + 6_000, () => undefined);
-		expect(existsSync(join(dir, "build.capped"))).toBe(false);
+		expect(
+			existsSync(capped),
+			`${capped} goes once the build's shell has ended`,
+		).toBe(false);
 		// Quick work has a turn of its own beside the check, held tighter,
 		// however busy the CPU is.
 		held.ask(job("quick", { quick: true }));
@@ -379,11 +447,16 @@ describe("the machine's queue folder", () => {
 			NOW + 9_000,
 			() => undefined,
 		);
-		expect(held.hasTurn("quick")).toBe(true);
+		expect(
+			held.hasTurn("quick"),
+			"quick work has its turn beside the check however busy the CPU is",
+		).toBe(true);
 		expect(readFileSync(join(dir, "quick.capped"), "utf8")).toBe(
 			"max-jobs = 1\ncores = 2\n",
 		);
-		expect(record().jobs.find((one) => one.id === "quick")?.quick).toBe(true);
+		expect(record().jobs.find((one) => one.id === "quick")).toMatchObject({
+			quick: true,
+		});
 	});
 
 	it("gives up jobs whose shell or session has ended", () => {
@@ -398,8 +471,16 @@ describe("the machine's queue folder", () => {
 		queue.ask(job("kept"));
 		queue.keep(TIGHT, NOW, () => undefined);
 		expect(record().jobs.map((one) => one.id)).toEqual(["kept"]);
-		expect(existsSync(join(dir, "finished.pid"))).toBe(false);
-		expect(existsSync(join(dir, "unsaid.job"))).toBe(false);
+		const finished = join(dir, "finished.pid");
+		const unsaid = join(dir, "unsaid.job");
+		expect(
+			existsSync(finished),
+			`${finished} goes with the job whose shell ended`,
+		).toBe(false);
+		expect(
+			existsSync(unsaid),
+			`${unsaid} goes with the job whose shell never said its pid`,
+		).toBe(false);
 	});
 
 	it("clears what a job left behind once its .job is gone", () => {
@@ -429,11 +510,22 @@ describe("the machine's queue folder", () => {
 
 		queue.keep(ROOMY, NOW, () => undefined);
 
-		for (const file of old) expect(existsSync(file)).toBe(false);
-		expect(existsSync(keptBegan)).toBe(true);
-		expect(existsSync(fresh)).toBe(true);
-		expect(existsSync(other)).toBe(true);
-		expect(existsSync(join(dir, "queue.json"))).toBe(true);
+		for (const file of old)
+			expect(
+				existsSync(file),
+				`${file}, left by a job long gone, is cleared`,
+			).toBe(false);
+		expect(
+			existsSync(keptBegan),
+			`${keptBegan}, of a job still queued, stays`,
+		).toBe(true);
+		expect(
+			existsSync(fresh),
+			`${fresh}, younger than a minute's grace, stays`,
+		).toBe(true);
+		expect(existsSync(other), `${other}, no job's file, stays`).toBe(true);
+		const shown = join(dir, "queue.json");
+		expect(existsSync(shown), `${shown} stays`).toBe(true);
 	});
 
 	it("leaves the queue to a session keeping it, until its lock is stale", () => {
@@ -442,12 +534,20 @@ describe("the machine's queue folder", () => {
 		const lock = join(dir, "locks", "queue");
 		mkdirSync(lock, { recursive: true });
 		queue.keep(ROOMY, Date.now(), () => undefined);
-		expect(queue.hasTurn("first")).toBe(false);
+		expect(
+			queue.hasTurn("first"),
+			"no turn is given while another session holds a fresh lock",
+		).toBe(false);
 		const old = (Date.now() - 11_000) / 1000;
 		utimesSync(lock, old, old);
 		queue.keep(ROOMY, Date.now(), () => undefined);
-		expect(queue.hasTurn("first")).toBe(true);
-		expect(existsSync(lock)).toBe(false);
+		expect(
+			queue.hasTurn("first"),
+			"the turn is given once the lock is stale",
+		).toBe(true);
+		expect(existsSync(lock), `the stale lock ${lock} is taken away`).toBe(
+			false,
+		);
 	});
 
 	it("reads the machine only when it keeps the queue", () => {
@@ -468,7 +568,10 @@ describe("the machine's queue folder", () => {
 		rmSync(lock, { recursive: true });
 		queue.keep(room, Date.now(), () => undefined);
 		expect(readings).toBe(1);
-		expect(queue.hasTurn("first")).toBe(true);
+		expect(
+			queue.hasTurn("first"),
+			"the session holding the lock gives first its turn",
+		).toBe(true);
 	});
 
 	it("counts each minute a job waited with its memory free, once", () => {
@@ -504,11 +607,17 @@ describe("the machine's queue folder", () => {
 			"/run/user/1000/jobs",
 		);
 		expect(machineQueueDir({})).toBeUndefined();
-		expect(isKept(dir)).toBe(false);
+		expect(isKept(dir), "a folder with no queue.json is not kept").toBe(false);
 		folder().keep(ROOMY, NOW, () => undefined);
 		const written = statSync(join(dir, "queue.json")).mtimeMs;
-		expect(isKept(dir, written + 119_999)).toBe(true);
-		expect(isKept(dir, written + 120_000)).toBe(false);
+		expect(
+			isKept(dir, written + 119_999),
+			"a queue.json just under two minutes old is kept",
+		).toBe(true);
+		expect(
+			isKept(dir, written + 120_000),
+			"a queue.json two minutes old is not kept",
+		).toBe(false);
 	});
 
 	it("is read back only while it is kept, and only in a shape it knows", () => {
@@ -535,16 +644,17 @@ describe("the machine's queue folder", () => {
 		const first = record().heartbeat;
 		queue.keep(TIGHT, NOW + HEARTBEAT_MS - 1, () => undefined);
 		expect(record().heartbeat).toBe(first);
-		expect(queue.isDue(statSync(join(dir, "queue.json")).mtimeMs + 1)).toBe(
-			false,
-		);
+		expect(
+			queue.isDue(statSync(join(dir, "queue.json")).mtimeMs + 1),
+			"no heartbeat is due a moment after queue.json was written",
+		).toBe(false);
 		queue.keep(TIGHT, NOW + HEARTBEAT_MS, () => undefined);
 		expect(record().heartbeat).toBe(first + HEARTBEAT_MS / 1000);
 		queue.ask(job("another"));
 		shellSays("another", 502);
 		queue.keep(TIGHT, NOW + HEARTBEAT_MS + 1_000, () => undefined);
 		expect(record().jobs).toHaveLength(2);
-		expect(queue.hasJobs()).toBe(true);
+		expect(queue.hasJobs(), "a queue holding two jobs has jobs").toBe(true);
 	});
 
 	it("leaves pressure alone to the heartbeat, whichever session keeps it", () => {
@@ -590,7 +700,10 @@ describe("the machine's queue folder", () => {
 		shellSays("fetching", 601);
 		shellSays("main", 602);
 		queue.keep(ROOMY, NOW, () => undefined);
-		expect(queue.hasTurn("main")).toBe(false);
+		expect(
+			queue.hasTurn("main"),
+			"a fetch of main waits while another is running",
+		).toBe(false);
 
 		// Its shell read origin/main as it began and as it ended.
 		writeFileSync(join(dir, "fetching.main-before"), `${"a".repeat(40)}\n`);
@@ -598,7 +711,10 @@ describe("the machine's queue folder", () => {
 		writeFileSync(join(dir, "fetching.end"), "1\n");
 		running.delete(601);
 		queue.keep(ROOMY, NOW + 5_000, () => undefined);
-		expect(queue.hasTurn("main")).toBe(true);
+		expect(
+			queue.hasTurn("main"),
+			"the waiting fetch is answered once the running one moved main",
+		).toBe(true);
 		expect(readFileSync(join(dir, "main.fetched"), "utf8")).toBe("fetching\n");
 		const given = JSON.parse(readFileSync(join(dir, "main.job"), "utf8"));
 		expect(given).toMatchObject({ answered: true });
@@ -620,12 +736,23 @@ describe("the machine's queue folder", () => {
 		queue.ask(fetch("soon"));
 		shellSays("soon", 603);
 		queue.keep(ROOMY, NOW + 30_000, () => undefined);
-		expect(existsSync(join(dir, "soon.fetched"))).toBe(true);
+		const soon = join(dir, "soon.fetched");
+		expect(
+			existsSync(soon),
+			`${soon} answers a fetch asked within the minute`,
+		).toBe(true);
 		queue.ask(fetch("late"));
 		shellSays("late", 604);
 		queue.keep(ROOMY, NOW + 70_000, () => undefined);
-		expect(queue.hasTurn("late")).toBe(true);
-		expect(existsSync(join(dir, "late.fetched"))).toBe(false);
+		expect(
+			queue.hasTurn("late"),
+			"a fetch asked after the minute takes its own turn",
+		).toBe(true);
+		const late = join(dir, "late.fetched");
+		expect(
+			existsSync(late),
+			`${late} is not written for a fetch asked after the minute`,
+		).toBe(false);
 	});
 
 	it("leaves the fetches of main waiting to their own turns when the one running moved nothing", () => {
@@ -656,8 +783,14 @@ describe("the machine's queue folder", () => {
 		writeFileSync(join(dir, "fetching.main-after"), `${"a".repeat(40)}\n`);
 		running.delete(601);
 		queue.keep(ROOMY, NOW, () => undefined);
-		expect(queue.hasTurn("main")).toBe(true);
-		expect(existsSync(join(dir, "main.fetched"))).toBe(false);
+		expect(queue.hasTurn("main"), "the waiting fetch takes its own turn").toBe(
+			true,
+		);
+		const fetched = join(dir, "main.fetched");
+		expect(
+			existsSync(fetched),
+			`${fetched} is not written when the running fetch moved nothing`,
+		).toBe(false);
 	});
 
 	it("keeps how each job ended and what ran beside it", () => {
@@ -712,9 +845,10 @@ describe("the machine's queue folder", () => {
 			}),
 		]);
 		expect(kept[0]).not.toHaveProperty("exit");
-		expect(existsSync(join(dir, "check.end"))).toBe(false);
+		const ended = join(dir, "check.end");
+		expect(existsSync(ended), `${ended} is cleared once kept`).toBe(false);
 		// A VM failed beside a capped build, so the next one gets fewer cores.
-		expect(queue.hasTurn("next")).toBe(true);
+		expect(queue.hasTurn("next"), "the next job has its turn").toBe(true);
 		expect(readFileSync(join(dir, "capped.conf"), "utf8")).toBe(
 			"max-jobs = 2\ncores = 2\n",
 		);
@@ -743,7 +877,10 @@ describe("the machine's queue folder", () => {
 			() => undefined,
 		);
 		queue.keep(ROOMY, NOW + 24_000, () => undefined);
-		expect(queue.hasTurn("test")).toBe(true);
+		expect(
+			queue.hasTurn("test"),
+			"the VM test has its turn once there is room",
+		).toBe(true);
 		writeFileSync(join(dir, "test.end"), "0\n");
 		utimesSync(
 			join(dir, "test.end"),
@@ -972,13 +1109,19 @@ describe("the machine's queue folder", () => {
 		queue.ask(job("last", { kind: "vm-check" }));
 		shellSays("last", 799);
 		queue.keep(machine, NOW + 120_000, () => undefined);
-		expect(queue.hasTurn("last")).toBe(false);
+		expect(
+			queue.hasTurn("last"),
+			"one VM fewer may run after checks failed at the most",
+		).toBe(false);
 		// The failure is read out of the file again once it has changed.
 		writeFileSync(
 			file,
 			`${JSON.stringify(check("passed", 0, MOST_VMS - 1))}\n`,
 		);
 		queue.keep(machine, NOW + 130_000, () => undefined);
-		expect(queue.hasTurn("last")).toBe(true);
+		expect(
+			queue.hasTurn("last"),
+			"the full count returns once the file says a check passed",
+		).toBe(true);
 	});
 });

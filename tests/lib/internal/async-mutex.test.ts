@@ -104,7 +104,7 @@ describe("createMutex", () => {
 		release();
 		expect(await holding).toBe("held");
 		expect(await behind).toBe("behind");
-		expect(ran).toBe(false);
+		expect(ran, "the stopped waiter's section never ran").toBe(false);
 	});
 
 	it("waits out a section that had started before its signal stopped", async () => {
@@ -138,7 +138,7 @@ describe("createMutex", () => {
 				{ signal: AbortSignal.abort() },
 			),
 		).rejects.toMatchObject({ name: "AbortError" });
-		expect(ran).toBe(false);
+		expect(ran, "the section stopped before it began never ran").toBe(false);
 		expect(await mutex.runExclusive(async () => "next")).toBe("next");
 	});
 });

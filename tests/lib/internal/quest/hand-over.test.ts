@@ -21,7 +21,7 @@ describe("handing sessions to the launcher", () => {
 		);
 		expect(taken).toBe(2);
 		expect(sent).toHaveLength(1);
-		expect(sent[0]?.startsWith("{")).toBe(true);
+		expect(sent[0]).toMatch(/^\{/);
 		expect(JSON.parse(sent[0] ?? "")).toEqual({
 			sessions: [
 				{ id: "01a1-one", cwd: "/work/one", focus: false },
@@ -138,7 +138,7 @@ describe("handing sessions to the launcher", () => {
 			return "taken";
 		});
 		expect(taken).toBeUndefined();
-		expect(asked).toBe(false);
+		expect(asked, "the launcher is not asked to take no sessions").toBe(false);
 	});
 
 	it("reads how many the launcher's answer says it took", () => {
@@ -150,8 +150,17 @@ describe("handing sessions to the launcher", () => {
 	});
 
 	it("gives only what the launcher would take as given", () => {
-		expect(launcherTakes({ id: "01a1-x_y.z", cwd: "/w" })).toBe(true);
-		expect(launcherTakes({ id: "a b", cwd: "/w" })).toBe(false);
-		expect(launcherTakes({ id: "a", cwd: "w" })).toBe(false);
+		expect(
+			launcherTakes({ id: "01a1-x_y.z", cwd: "/w" }),
+			"an id of word characters, dashes and dots in an absolute folder is taken",
+		).toBe(true);
+		expect(
+			launcherTakes({ id: "a b", cwd: "/w" }),
+			"an id holding a space is not taken",
+		).toBe(false);
+		expect(
+			launcherTakes({ id: "a", cwd: "w" }),
+			"a relative folder is not taken",
+		).toBe(false);
 	});
 });

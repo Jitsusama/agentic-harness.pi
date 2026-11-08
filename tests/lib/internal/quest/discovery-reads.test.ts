@@ -178,7 +178,7 @@ describe("a rebuild after a change", () => {
 		discoverQuests(root);
 		writeSettled(readmePath, "no front matter\n");
 		const broken = discoverQuests(root);
-		expect(broken.index.quests.has(ID)).toBe(false);
+		expect([...broken.index.quests.keys()]).not.toContain(ID);
 		expect(broken.errors.map((e) => e.message)).toContain(
 			"Front-matter invalid or absent.",
 		);

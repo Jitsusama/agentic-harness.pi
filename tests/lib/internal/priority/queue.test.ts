@@ -157,7 +157,10 @@ describe("why each job waits", () => {
 			b: "busy",
 		});
 		expect(roomLeft(jobs, felt, NOW)).toEqual({ vms: 0, builds: 0 });
-		expect(waitsWithRoom(jobs, felt)).toBe(false);
+		expect(
+			waitsWithRoom(jobs, felt),
+			"a wait the person's own programs cause is not wasted",
+		).toBe(false);
 		const calm = { ...ROOMY, cpuPressure: 63, floorsCpuPressure: 0.3 };
 		expect(nextTurn(jobs, calm, NOW)?.id).toBe("vm");
 	});
@@ -964,7 +967,7 @@ describe("whose turn it is", () => {
 		const chain = `cd converge && { (set -e; cargo fmt --check; cargo clippy --all-targets -- -D warnings; cargo test; ${tec}); echo done; }`;
 		expect(needsGibOfCommand("build", chain)).toBe(EVAL_TESTS_GIB);
 		expect(leastGibOfCommand(chain)).toBe(EVAL_TESTS_GIB);
-		expect(whatOf(chain).startsWith(tec)).toBe(true);
+		expect(whatOf(chain).slice(0, tec.length)).toBe(tec);
 		// Named, not run, or another target: no floor.
 		expect(leastGibOfCommand(`echo "then ${tec}"`)).toBe(0);
 		expect(leastGibOfCommand("tec run //system/aquifer/converge:test")).toBe(0);
@@ -1025,9 +1028,9 @@ describe("whose turn it is", () => {
 		).toBeUndefined();
 		// A VM outside the queue is a check the daemon runs: builds beside
 		// it are capped.
-		expect(nextTurn([job("build")], { ...ROOMY, vms: 1 }, NOW)?.capped).toBe(
-			true,
-		);
+		expect(nextTurn([job("build")], { ...ROOMY, vms: 1 }, NOW)).toMatchObject({
+			capped: true,
+		});
 		const test = job("test", { kind: "vm-test", started: startedAgo(RAMP_MS) });
 		expect(nextTurn([test, job("build")], { ...ROOMY, vms: 1 }, NOW)).toEqual(
 			job("build"),
@@ -1139,10 +1142,17 @@ describe("whose turn it is", () => {
 
 	it("counts a wait as wasted only when its memory stands free", () => {
 		const waiting = [job("vm", { kind: "vm-test" })];
-		expect(waitsWithRoom(waiting, ROOMY)).toBe(true);
-		expect(waitsWithRoom(waiting, { ...ROOMY, availableGib: 5 })).toBe(false);
+		expect(
+			waitsWithRoom(waiting, ROOMY),
+			"a VM test waiting with its memory free is a wasted wait",
+		).toBe(true);
+		expect(
+			waitsWithRoom(waiting, { ...ROOMY, availableGib: 5 }),
+			"a VM test waiting for memory is no wasted wait",
+		).toBe(false);
 		expect(
 			waitsWithRoom([{ ...waiting[0], started: startedAgo(1) }], ROOMY),
+			"a VM test already started is not waiting",
 		).toBe(false);
 	});
 });
@@ -1397,6 +1407,7 @@ describe("walks of World's objects among themselves", () => {
 				cwd: `${home}/src/core.nix`,
 				home,
 			}),
+			"a push that skips hooks outside World is none of this",
 		).toBe(false);
 	});
 

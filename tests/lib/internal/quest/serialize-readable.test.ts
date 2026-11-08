@@ -35,7 +35,7 @@ describe("serializing frontmatter that has to survive a read", () => {
 
 		const outcome = serializeReadable(frontMatter, body);
 
-		expect(outcome.ok).toBe(true);
+		expect(outcome).toMatchObject({ ok: true });
 		if (!outcome.ok) return;
 		expect(parseQuestFrontMatter(outcome.text)?.frontMatter.id).toBe(
 			"QEST-20260101-AAAAAA",
@@ -55,7 +55,7 @@ describe("serializing frontmatter that has to survive a read", () => {
 			body,
 		);
 
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		if (outcome.ok) return;
 		expect(outcome.reason).toMatch(/read back/i);
 	});
@@ -68,7 +68,7 @@ describe("serializing frontmatter that has to survive a read", () => {
 			body,
 		);
 
-		expect(outcome.ok).toBe(false);
+		expect(outcome).toMatchObject({ ok: false });
 		if (outcome.ok) return;
 		expect(outcome.reason).toContain("QEST-20260101-AAAAAA");
 	});

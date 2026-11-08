@@ -77,7 +77,11 @@ describe("what a pi says it loaded", () => {
 		expect(packageFolderOf(tree, undefined)).toBeUndefined();
 		expect(packageFolderOf(tree, join(root, "nowhere"))).toBeUndefined();
 		expect(sayLoaded(tree, undefined, 4242)).toBeUndefined();
-		expect(existsSync(join(install, LOADED_FOLDER))).toBe(false);
+		const loaded = join(install, LOADED_FOLDER);
+		expect(
+			existsSync(loaded),
+			`${loaded} is not made for a package pi-packages does not keep`,
+		).toBe(false);
 	});
 
 	it("takes it back as the pi ends", () => {
@@ -85,6 +89,6 @@ describe("what a pi says it loaded", () => {
 
 		unsayLoaded(file);
 
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), `${file} goes as the pi ends`).toBe(false);
 	});
 });

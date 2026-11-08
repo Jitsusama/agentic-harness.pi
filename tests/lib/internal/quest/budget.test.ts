@@ -76,10 +76,21 @@ describe("the budget a quest draws on", () => {
 
 describe("a budget's name", () => {
 	it("is letters, digits, dots, dashes and underscores, never a path", () => {
-		expect(isBudgetName("delta-dev_1.2")).toBe(true);
-		expect(isBudgetName(".hidden")).toBe(false);
-		expect(isBudgetName("a/b")).toBe(false);
-		expect(isBudgetName("")).toBe(false);
-		expect(isBudgetName("x".repeat(65))).toBe(false);
+		expect(
+			isBudgetName("delta-dev_1.2"),
+			"letters, a dash, an underscore, a digit and a dot make a name",
+		).toBe(true);
+		expect(
+			isBudgetName(".hidden"),
+			"a name opening with a dot is refused",
+		).toBe(false);
+		expect(isBudgetName("a/b"), "a name holding a slash is refused").toBe(
+			false,
+		);
+		expect(isBudgetName(""), "an empty name is refused").toBe(false);
+		expect(
+			isBudgetName("x".repeat(65)),
+			"a name of 65 characters is refused",
+		).toBe(false);
 	});
 });

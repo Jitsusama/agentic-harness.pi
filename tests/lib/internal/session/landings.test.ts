@@ -66,12 +66,22 @@ describe("a landing said on the bus", () => {
 		events.emit(SESSION_LANDED, { ...landing(""), ref: "" });
 
 		expect(heard).toEqual([]);
-		expect(isLanding({ ...landing("x"), person: "Try it" })).toBe(true);
-		expect(isLanding({ ...landing("x"), person: 1 })).toBe(false);
-		expect(isLanding({ ...landing("x"), url: "https://x.invalid/1" })).toBe(
-			true,
-		);
-		expect(isLanding({ ...landing("x"), url: 1 })).toBe(false);
+		expect(
+			isLanding({ ...landing("x"), person: "Try it" }),
+			"a landing whose person's line is text is one",
+		).toBe(true);
+		expect(
+			isLanding({ ...landing("x"), person: 1 }),
+			"a landing whose person's line is a number is none",
+		).toBe(false);
+		expect(
+			isLanding({ ...landing("x"), url: "https://x.invalid/1" }),
+			"a landing whose url is text is one",
+		).toBe(true);
+		expect(
+			isLanding({ ...landing("x"), url: 1 }),
+			"a landing whose url is a number is none",
+		).toBe(false);
 	});
 
 	it("carries its web page and its person's line when said", () => {
@@ -140,7 +150,7 @@ describe("a message naming a landing", () => {
 		"PR 920 landed.",
 		"Ticked 14a in PLAN-20261030-QMUYBH.",
 	])("names one: %s", (text) => {
-		expect(namesLanding(text, landings)).toBe(true);
+		expect(namesLanding(text, landings), `${text} names a landing`).toBe(true);
 	});
 
 	it.each([
@@ -148,6 +158,8 @@ describe("a message naming a landing", () => {
 		"920 tests pass.",
 		"Ticked PLAN-20261030-IH3IS7#7.",
 	])("names none: %s", (text) => {
-		expect(namesLanding(text, landings)).toBe(false);
+		expect(namesLanding(text, landings), `${text} names no landing`).toBe(
+			false,
+		);
 	});
 });

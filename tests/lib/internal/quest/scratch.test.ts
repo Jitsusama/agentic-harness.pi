@@ -76,7 +76,7 @@ function setRecordedScratchDir(value: string): void {
 describe("ensureQuestScratchDir", () => {
 	it("creates a unique dir under the OS temp dir and records it", () => {
 		const dir = track(ensureQuestScratchDir(questDir, QUEST_ID, null));
-		expect(existsSync(dir)).toBe(true);
+		expect(existsSync(dir), `${dir} is made`).toBe(true);
 		expect(realpathSync(dirname(dir))).toBe(realpathSync(tmpdir()));
 		expect(dir).toContain(QUEST_ID);
 		expect(recordedScratchDir()).toBe(dir);
@@ -106,8 +106,8 @@ describe("reapQuestScratchDir", () => {
 	it("removes the dir and clears the frontmatter field", () => {
 		const dir = ensureQuestScratchDir(questDir, QUEST_ID, null);
 		const reaped = reapQuestScratchDir(questDir, dir);
-		expect(reaped).toBe(true);
-		expect(existsSync(dir)).toBe(false);
+		expect(reaped, "reaping says a folder was recorded to reap").toBe(true);
+		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 		expect(recordedScratchDir()).toBeUndefined();
 	});
 
@@ -118,9 +118,13 @@ describe("reapQuestScratchDir", () => {
 		writeFileSync(join(precious, "keep.txt"), "important");
 		setRecordedScratchDir(precious);
 		const reaped = reapQuestScratchDir(questDir, precious);
-		expect(reaped).toBe(true);
-		expect(existsSync(precious)).toBe(true);
-		expect(existsSync(join(precious, "keep.txt"))).toBe(true);
+		expect(
+			reaped,
+			"reaping says a folder was recorded, though it does not manage it",
+		).toBe(true);
+		expect(existsSync(precious), `${precious} is left in place`).toBe(true);
+		const kept = join(precious, "keep.txt");
+		expect(existsSync(kept), `${kept} is left in place`).toBe(true);
 		expect(recordedScratchDir()).toBeUndefined();
 	});
 });
