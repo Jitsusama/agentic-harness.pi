@@ -24,13 +24,13 @@ describe("a held tree as a line", () => {
 	it("marks a snapshot as pinned rather than as a place", () => {
 		const line = treeLine(held("snapshot-repo-abc123", true));
 
-		expect(line.startsWith(GLYPH.snapshot)).toBe(true);
+		expect(line.slice(0, GLYPH.snapshot.length)).toBe(GLYPH.snapshot);
 	});
 
 	it("marks a worktree as a place", () => {
 		const line = treeLine(held("worktree-repo-topic", false));
 
-		expect(line.startsWith(GLYPH.tree)).toBe(true);
+		expect(line.slice(0, GLYPH.tree.length)).toBe(GLYPH.tree);
 	});
 
 	it("draws the two differently, which is the whole point", () => {

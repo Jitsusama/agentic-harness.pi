@@ -381,7 +381,10 @@ type Act = (session: PiSession, ours: boolean) => Promise<void>;
 async function hopOut(session: PiSession, raiser: Raiser): Promise<void> {
 	if (raiser !== "tool" && raiser !== "guardian") return;
 	await session.key("ctrl+alt+n");
-	expect(session.editorFocused()).toBe(true);
+	expect(
+		session.editorFocused(),
+		`the hop out of a ${raiser} gate reaches the editor`,
+	).toBe(true);
 }
 
 /**
@@ -525,7 +528,10 @@ async function leftNoRecord(session: PiSession): Promise<void> {
 async function editorTakesTyping(session: PiSession): Promise<void> {
 	session.mark("typing");
 	await session.type("x");
-	expect(session.editorFocused()).toBe(true);
+	expect(
+		session.editorFocused(),
+		"the editor holds the keys it was typed into",
+	).toBe(true);
 	expect(session.editorText()).toContain("x");
 }
 
@@ -533,12 +539,18 @@ async function editorTakesTyping(session: PiSession): Promise<void> {
 async function stillAnswerable(session: PiSession): Promise<void> {
 	expect(answers).toEqual([]);
 	await session.key("ctrl+alt+n");
-	expect(session.editorFocused()).toBe(false);
+	expect(
+		session.editorFocused(),
+		"the hop takes the keys back to the waiting gate",
+	).toBe(false);
 	await session.key("enter");
 	await waitFor(() => answers.length === 1, "the gate to answer");
 	expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
 	await waitFor(() => session.onScreen("MARK-after"), "the turn to go on");
-	expect(session.editorFocused()).toBe(true);
+	expect(
+		session.editorFocused(),
+		"the editor has the keys back once the gate is answered",
+	).toBe(true);
 }
 
 describe.each(
@@ -556,7 +568,10 @@ describe.each(
 			newTyped,
 			leftNoRecord,
 		);
-		expect(existsSync(guardedFile())).toBe(false);
+		expect(
+			existsSync(guardedFile()),
+			`${guardedFile()} is never written, as the guarded command never ran`,
+		).toBe(false);
 		expectNoWorseThan(ours, twin);
 	});
 
@@ -580,7 +595,9 @@ describe.each(
 			"progress",
 			newTyped,
 			async (session) => {
-				expect(await session.onScreen("MARK-progress")).toBe(false);
+				expect(await session.viewport()).not.toContainEqual(
+					expect.stringContaining("MARK-progress"),
+				);
 				await editorTakesTyping(session);
 			},
 		);
@@ -674,7 +691,10 @@ describe.each([
 
 		expect(session.exits()).toEqual([0]);
 		expect(answers).toEqual(raiser === "progress" ? [] : [null]);
-		expect(existsSync(guardedFile())).toBe(false);
+		expect(
+			existsSync(guardedFile()),
+			`${guardedFile()} is never written, as the guarded command never ran`,
+		).toBe(false);
 	});
 });
 

@@ -207,7 +207,7 @@ describe("proposing a stack with bodies", () => {
 		const tldr = bottom.indexOf("the first thing is there now.");
 		const note = bottom.indexOf("> [!NOTE]");
 		const problem = bottom.indexOf("Problem");
-		expect(bottom.startsWith("### ")).toBe(true);
+		expect(bottom).toMatch(/^### /);
 		expect(tldr).toBeLessThan(note);
 		expect(note).toBeLessThan(problem);
 	});

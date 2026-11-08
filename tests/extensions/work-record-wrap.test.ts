@@ -18,18 +18,18 @@ describe("the message work record commits", () => {
 	it("wraps a body line past 72 so the format holds", () => {
 		const message = recordMessage("fix(work): wrap it", LONG);
 
-		expect(message.wrapped).toBe(true);
+		expect(message).toMatchObject({ wrapped: true });
 		expect(complaintsAbout(message.proposed)).toEqual([]);
-		expect(message.body?.split("\n").every((line) => line.length <= 72)).toBe(
-			true,
-		);
+		expect(
+			message.body?.split("\n").filter((line) => line.length > 72),
+		).toEqual([]);
 	});
 
 	it("leaves a body that already fits exactly as written", () => {
 		const body = "Short enough.\n\n- one\n- two";
 		const message = recordMessage("fix(work): wrap it", body);
 
-		expect(message.wrapped).toBe(false);
+		expect(message).toMatchObject({ wrapped: false });
 		expect(message.body).toBe(body);
 	});
 

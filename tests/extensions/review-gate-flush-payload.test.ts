@@ -46,8 +46,8 @@ describe("the payload of a write gate", () => {
 		const body = drawn.find((line) => line.includes("Fixed in 0671cb0."));
 		const destination = drawn.find((line) => line.includes("shop/world"));
 		expect(body).toBeDefined();
-		expect(body?.startsWith(" Fixed")).toBe(true);
-		expect(destination?.startsWith(" \u25b6")).toBe(true);
+		expect(body).toMatch(/^ Fixed/);
+		expect(destination).toMatch(/^ \u25b6/);
 	});
 
 	it("keeps quoted context inset, since quoting is the point there", () => {

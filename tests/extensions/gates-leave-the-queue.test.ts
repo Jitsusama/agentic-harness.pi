@@ -67,12 +67,18 @@ describe.each(families)("a $name gate waiting its turn", ({ raise }) => {
 		await s.settled();
 
 		turn.abort();
-		expect(await answersSoon(second)).toBe(true);
+		expect(
+			await answersSoon(second),
+			`the queued gate answers within ${PATIENCE_MS}ms of its turn stopping`,
+		).toBe(true);
 
 		s.terminal.press(ESCAPE);
 		await first;
 		expect(await s.settled()).not.toContain("SECOND BODY");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no panel is left up once the first is cancelled",
+		).toBe(false);
 	});
 
 	it("never mounts once its session has ended", async () => {
@@ -83,8 +89,14 @@ describe.each(families)("a $name gate waiting its turn", ({ raise }) => {
 
 		expect(closeEveryPanel()).toBe(2);
 		await first;
-		expect(await answersSoon(second)).toBe(true);
+		expect(
+			await answersSoon(second),
+			`the queued gate answers within ${PATIENCE_MS}ms of its session ending`,
+		).toBe(true);
 		expect(await s.settled()).not.toContain("SECOND BODY");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no panel is left up once the session has ended",
+		).toBe(false);
 	});
 });

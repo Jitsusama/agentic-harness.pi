@@ -179,15 +179,23 @@ describe("a running round", () => {
 		await session.type("a steer");
 
 		expect(session.editorText()).toBe("a steer");
-		expect(await session.onScreen("MARK-activity-alpha")).toBe(true);
-		expect(await session.onScreen("MARK-activity-beta")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-activity-alpha"),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-activity-beta"),
+		);
 	});
 
 	it("says how to reach its keys, and not the keys it cannot yet take", async () => {
 		const session = await startRounds(COUNCIL);
 
-		expect(await session.onScreen("Ctrl+Alt+N to manage")).toBe(true);
-		expect(await session.onScreen("r cancel selected")).toBe(false);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N to manage"),
+		);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("r cancel selected"),
+		);
 	});
 
 	it("leaves Escape to pi, which stops the turn and so the round", async () => {
@@ -203,7 +211,9 @@ describe("a running round", () => {
 			() => !session.runtime.session.isStreaming,
 			"the turn to stop",
 		);
-		expect(await session.onScreen("MARK-after-the-round")).toBe(false);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("MARK-after-the-round"),
+		);
 	});
 });
 
@@ -230,8 +240,14 @@ describe("the board, once the hop chord reaches it", () => {
 			() => held.get("beta")?.signal.aborted === true,
 			"beta to be stopped",
 		);
-		expect(held.get("alpha")?.signal.aborted).toBe(false);
-		expect(session.runtime.session.isStreaming).toBe(true);
+		expect(
+			held.get("alpha")?.signal.aborted,
+			"r on beta leaves alpha running",
+		).toBe(false);
+		expect(
+			session.runtime.session.isStreaming,
+			"cancelling one reviewer leaves the turn going",
+		).toBe(true);
 		await waitFor(
 			() => session.onScreen("cancelled beta"),
 			"the board to say so",
@@ -242,15 +258,23 @@ describe("the board, once the hop chord reaches it", () => {
 		const session = await startRounds(COUNCIL);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(session.editorFocused(), "the hop takes the keys to the board").toBe(
+			false,
+		);
 		await session.key("escape");
 
 		await waitFor(
 			() => held.get("alpha")?.signal.aborted === true,
 			"alpha to be stopped",
 		);
-		expect(held.get("beta")?.signal.aborted).toBe(true);
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			held.get("beta")?.signal.aborted,
+			"Escape on the board stops beta too",
+		).toBe(true);
+		expect(
+			session.editorFocused(),
+			"Escape on the board hands the editor back",
+		).toBe(true);
 		await waitFor(
 			() => session.onScreen("MARK-after-the-round"),
 			"the turn to carry on past the round",
@@ -261,13 +285,22 @@ describe("the board, once the hop chord reaches it", () => {
 		const session = await startRounds(COUNCIL);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the first hop takes the keys to the board",
+		).toBe(false);
 		await session.key("ctrl+alt+n");
 
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the second hop gives the keys back to the editor",
+		).toBe(true);
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
-		expect(held.get("alpha")?.signal.aborted).toBe(false);
+		expect(
+			held.get("alpha")?.signal.aborted,
+			"hopping in and out cancels nothing",
+		).toBe(false);
 	});
 });
 
@@ -293,9 +326,16 @@ describe("when the round's call returns", () => {
 		expect(verdict.desync).toEqual([]);
 		expect(verdict.hygiene).toEqual([]);
 		expect(verdict.blankMax).toBe(0);
-		expect(await session.onScreen("Ctrl+Alt+N")).toBe(false);
-		expect(await session.onScreen("MARK-digest")).toBe(true);
-		expect(session.editorFocused()).toBe(true);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N"),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-digest"),
+		);
+		expect(
+			session.editorFocused(),
+			"the editor keeps the keys once the round is done",
+		).toBe(true);
 	});
 
 	it("keeps the rows on its card, answered, after the board has gone", async () => {
@@ -339,22 +379,38 @@ describe("two rounds in one call", () => {
 	it("draws a board for each", async () => {
 		const session = await startRounds(TWO);
 
-		expect(await session.onScreen("MARK-activity-alpha")).toBe(true);
-		expect(await session.onScreen("MARK-activity-gamma")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-activity-alpha"),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-activity-gamma"),
+		);
 	});
 
 	it("hops into the first, whose Escape stops that round alone", async () => {
 		const session = await startRounds(TWO);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop takes the keys to the first board",
+		).toBe(false);
 		await session.key("escape");
 
 		// Escape on a board hands the editor back as it cancels, so this is
 		// the moment the cancelling has been done.
 		await waitFor(() => session.editorFocused(), "the editor to come back");
-		expect(held.get("alpha")?.signal.aborted).toBe(true);
-		expect(held.get("gamma")?.signal.aborted).toBe(false);
-		expect(session.runtime.session.isStreaming).toBe(true);
+		expect(
+			held.get("alpha")?.signal.aborted,
+			"Escape on the first board stops its round",
+		).toBe(true);
+		expect(
+			held.get("gamma")?.signal.aborted,
+			"Escape on the first board leaves the second round running",
+		).toBe(false);
+		expect(
+			session.runtime.session.isStreaming,
+			"cancelling one round leaves the turn going",
+		).toBe(true);
 	});
 });

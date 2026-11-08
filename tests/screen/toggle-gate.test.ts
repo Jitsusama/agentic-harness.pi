@@ -157,16 +157,25 @@ describe("a toggle list raised by a tool", () => {
 	it("docks above the editor rather than covering it", async () => {
 		const session = await raise();
 
-		expect(overlaid(session)).toBe(false);
-		expect(await session.onScreen(TITLE)).toBe(true);
-		expect(await session.onScreen("MARK-row-2")).toBe(true);
+		expect(
+			overlaid(session),
+			"the list docks above the editor rather than opening an overlay",
+		).toBe(false);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(TITLE),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-row-2"),
+		);
 	});
 
 	it("says the way out to the editor while it has the keys", async () => {
 		const session = await raise();
 		await waitFor(() => !session.editorFocused(), "the list to take focus");
 
-		expect(await session.onScreen("Ctrl+Alt+N editor")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N editor"),
+		);
 	});
 
 	it("submits what was cycled and settles into the transcript without a blank row", async () => {
@@ -182,7 +191,10 @@ describe("a toggle list raised by a tool", () => {
 		expect(await session.inBuffer("✓ 1 changed")).toBe(1);
 		// A record takes no keys, so it offers none.
 		expect(await session.inBuffer("Enter cycle")).toBe(0);
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor has the keys back once the list is submitted",
+		).toBe(true);
 		await expectClean(session);
 	});
 
@@ -196,7 +208,10 @@ describe("a toggle list raised by a tool", () => {
 
 		expect(answers).toEqual([opening(3)]);
 		expect(await session.inBuffer("− nothing changed")).toBe(1);
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor has the keys back once the list is cancelled",
+		).toBe(true);
 		await expectClean(session);
 	});
 
@@ -205,13 +220,21 @@ describe("a toggle list raised by a tool", () => {
 		await armed(session);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(true);
-		expect(await session.onScreen("Ctrl+Alt+N back to this")).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the hop out of the list reaches the editor",
+		).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N back to this"),
+		);
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop from the editor takes the keys back to the list",
+		).toBe(false);
 		await session.key("enter");
 		await session.key("ctrl+enter");
 		await turnEnds(session);
@@ -226,7 +249,9 @@ describe("a toggle list raised by a tool", () => {
 		await armed(session);
 
 		for (let i = 1; i < rows; i++) await session.key("down");
-		expect(await session.onScreen(`MARK-row-${rows - 1}`)).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(`MARK-row-${rows - 1}`),
+		);
 		await session.key("enter");
 		await session.key("ctrl+enter");
 		await turnEnds(session);
@@ -241,8 +266,12 @@ describe("a toggle list raised by a tool", () => {
 		const session = await raise({ kitty: false });
 		await armed(session);
 
-		expect(await session.onScreen("Ctrl+S submit")).toBe(true);
-		expect(await session.onScreen("Ctrl+Enter")).toBe(false);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+S submit"),
+		);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("Ctrl+Enter"),
+		);
 		// Ctrl+Enter arrives as Enter, which cycles the row.
 		await session.key("ctrl+enter");
 		await session.key("ctrl+s");
@@ -256,7 +285,9 @@ describe("a toggle list raised by a tool", () => {
 		await armed(session);
 
 		// Where the terminal is known to send it, Ctrl+Enter is what it says.
-		expect(await session.onScreen("Ctrl+Enter submit")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Enter submit"),
+		);
 		await session.key("enter");
 		await session.key("ctrl+s");
 		await turnEnds(session);

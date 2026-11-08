@@ -37,7 +37,10 @@ describe("the screen harness", () => {
 			],
 		});
 		await waitFor(() => pi?.onScreen("MARK-widget") ?? false, "the widget");
-		expect(pi.editorFocused()).toBe(true);
+		expect(
+			pi.editorFocused(),
+			"the editor keeps the keys beside a docked widget",
+		).toBe(true);
 	});
 
 	for (const cols of [60, 100]) {

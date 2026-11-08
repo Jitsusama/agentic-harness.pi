@@ -54,7 +54,7 @@ describe("what the publish gate puts on screen", () => {
 			HERE,
 			undefined,
 		);
-		expect(tabs[0]?.summary).toBe(true);
+		expect(tabs[0]).toMatchObject({ summary: true });
 		expect(tabs[0]?.item.label).toBe("\u2261");
 	});
 

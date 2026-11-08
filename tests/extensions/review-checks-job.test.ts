@@ -130,7 +130,7 @@ describe("watching checks", () => {
 		);
 
 		expect(looks).toBe(MAX_FAILED_LOOKS);
-		expect(outcomes[0]?.failed).toBe(true);
+		expect(outcomes[0]).toMatchObject({ failed: true });
 		expect(outcomes[0]?.summary).toContain("rate limited");
 	});
 

@@ -45,7 +45,7 @@ describe("settling a thread behind a reply", () => {
 		const { calls, facet } = conversation();
 		const outcome = await settleAfter(facet, CHANGE, THREAD, "resolve");
 		expect(calls).toEqual(["resolve"]);
-		expect(outcome.settled).toBe(true);
+		expect(outcome).toMatchObject({ settled: true });
 		expect(outcome.note).toContain("resolved");
 	});
 
@@ -53,7 +53,7 @@ describe("settling a thread behind a reply", () => {
 		const { calls, facet } = conversation();
 		const outcome = await settleAfter(facet, CHANGE, THREAD, "unresolve");
 		expect(calls).toEqual(["unresolve"]);
-		expect(outcome.settled).toBe(true);
+		expect(outcome).toMatchObject({ settled: true });
 		expect(outcome.note).toContain("reopened");
 	});
 
@@ -61,7 +61,7 @@ describe("settling a thread behind a reply", () => {
 		const { calls, facet } = conversation();
 		const outcome = await settleAfter(facet, CHANGE, THREAD, "leave");
 		expect(calls).toEqual([]);
-		expect(outcome.settled).toBe(false);
+		expect(outcome).toMatchObject({ settled: false });
 		expect(outcome.note).toBeUndefined();
 	});
 
@@ -75,7 +75,7 @@ describe("settling a thread behind a reply", () => {
 	it("reports both facts when the settle fails behind a landed reply", async () => {
 		const { facet } = conversation("resolve");
 		const outcome = await settleAfter(facet, CHANGE, THREAD, "resolve");
-		expect(outcome.settled).toBe(false);
+		expect(outcome).toMatchObject({ settled: false });
 		// Both halves, because either one alone misleads.
 		expect(outcome.note).toContain("upstream said no");
 		expect(outcome.note).toContain("still open");

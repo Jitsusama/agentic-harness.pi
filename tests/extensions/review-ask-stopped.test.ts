@@ -291,17 +291,14 @@ describe("the runner a round's reviewers run on", () => {
 			reviewerId: "gitstream-test",
 		});
 
-		expect(
-			existsSync(
-				join(
-					stateDir,
-					"runs",
-					"council-20260805T181723289-000001",
-					"reviewers",
-					"gitstream-test",
-				),
-			),
-		).toBe(true);
+		const artifacts = join(
+			stateDir,
+			"runs",
+			"council-20260805T181723289-000001",
+			"reviewers",
+			"gitstream-test",
+		);
+		expect(existsSync(artifacts), `${artifacts} exists`).toBe(true);
 	});
 });
 
@@ -345,7 +342,7 @@ describe("keeping what a reviewer said", () => {
 		// fail the whole round for a naming choice.
 		const at = await keepAnswer(root, "council-1", "../../escape", "contained");
 
-		expect(at.startsWith(root)).toBe(true);
+		expect(at.slice(0, root.length)).toBe(root);
 		expect(readFileSync(at, "utf8")).toBe("contained");
 	});
 });

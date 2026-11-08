@@ -196,7 +196,7 @@ describe("a round nobody waited for", () => {
 		const later = createRunStore(join(root, "ledger"));
 		const held = await later.byId(change, run.id);
 		if (held === undefined) throw new Error("the round was never written");
-		expect(held.open).toBe(true);
+		expect(held).toMatchObject({ open: true });
 		expect(held.witness).toBe("abc1234");
 
 		// The refusal itself, not the read under it. Real facts, real

@@ -125,7 +125,7 @@ describe("a rebase through a log both sides appended to", () => {
 		});
 		const said = answer.content[0]?.text ?? "";
 
-		expect(answer.details?.ok).toBe(true);
+		expect(answer).toMatchObject({ details: { ok: true } });
 		expect(said).toContain("topic replayed onto main, 1 commit.");
 		expect(said).toContain("HISTORY.md: both sides only added");
 		expect(said).toContain("HISTORY §2 is now HISTORY §3");
@@ -163,7 +163,7 @@ describe("a rebase through a log both sides appended to", () => {
 		});
 		const said = answer.content[0]?.text ?? "";
 
-		expect(answer.details?.ok).toBe(true);
+		expect(answer).toMatchObject({ details: { ok: true } });
 		expect(said).toContain("replayed onto main, 2 commits.");
 		expect(said).not.toContain("still cite");
 		expect(said).toContain(
@@ -191,7 +191,7 @@ describe("a rebase of a branch with no commits of its own", () => {
 		});
 		const said = answer.content[0]?.text ?? "";
 
-		expect(answer.details?.ok).toBe(true);
+		expect(answer).toMatchObject({ details: { ok: true } });
 		expect(said).toContain(
 			"topic moved up to base, with no commits of its own to replay.",
 		);

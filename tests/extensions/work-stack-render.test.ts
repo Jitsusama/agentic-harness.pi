@@ -22,9 +22,9 @@ describe("drawing a stack", () => {
 	it("carries parentage in the indentation", () => {
 		const lines = stackLines(chain);
 
-		expect(lines[0].startsWith(GLYPH.named)).toBe(true);
-		expect(lines[1].startsWith("  ")).toBe(true);
-		expect(lines[2].startsWith("    ")).toBe(true);
+		expect(lines[0].slice(0, GLYPH.named.length)).toBe(GLYPH.named);
+		expect(lines[1]).toMatch(/^ {2}/);
+		expect(lines[2]).toMatch(/^ {4}/);
 	});
 
 	it("marks where you are, and marks it by shape not only by words", () => {

@@ -55,7 +55,10 @@ describe("the review integration", () => {
 
 		outer.abort();
 
-		expect(one.aborted).toBe(true);
+		expect(
+			one.aborted,
+			"aborting the outer signal aborts a reviewer's signal with no UI",
+		).toBe(true);
 	});
 
 	it("registers one tool per intent, not one per subject", () => {
@@ -81,7 +84,7 @@ describe("the review integration", () => {
 	it("announces that the registry is open", () => {
 		const { emitted } = activate();
 		const ready = emitted.find((entry) => entry.event === REVIEW_READY);
-		expect(ready).toBeTruthy();
+		expect(ready).toMatchObject({ event: REVIEW_READY });
 		const api = ready?.data as ReviewSubstrateApi;
 		expect(api.listProviders()).toContain("github");
 	});

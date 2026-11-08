@@ -147,7 +147,7 @@ describe("proposing with sections", () => {
 		await offer({ ...proposing, ...SECTIONS });
 
 		const body = proposed[0]?.body ?? "";
-		expect(body.startsWith(PR_SECTIONS[0])).toBe(true);
+		expect(body.slice(0, PR_SECTIONS[0].length)).toBe(PR_SECTIONS[0]);
 		expect(readPrFields(body).fields).toEqual(SECTIONS);
 	});
 

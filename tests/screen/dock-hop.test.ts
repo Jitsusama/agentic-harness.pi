@@ -164,19 +164,28 @@ describe("two fleets up at once", () => {
 		const session = await twoFleets();
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the first hop takes the keys to the first board",
+		).toBe(false);
 		await session.key("r");
 		await waitFor(() => stopped().length === 1, "the first board's r");
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the second hop takes the keys to the second board",
+		).toBe(false);
 		await session.key("r");
 		await waitFor(() => stopped().length === 2, "the second board's r");
 
 		// The first row of each board, one from either fleet.
 		expect(stopped()).toEqual(["alpha", "gamma"]);
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the third hop gives the keys back to the editor",
+		).toBe(true);
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
 	});
@@ -221,7 +230,10 @@ describe("two fleets up at once", () => {
 		await waitFor(() => stopped().length === 1, "the first board's r");
 		const first = stopped()[0] === "alpha" ? "one" : "two";
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop takes the keys to the other board",
+		).toBe(false);
 
 		for (const id of first === "one" ? ["gamma", "delta"] : ["alpha", "beta"])
 			held.get(id)?.release();
@@ -230,7 +242,10 @@ describe("two fleets up at once", () => {
 			"its board to go",
 		);
 
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor has the keys once the board holding them is gone",
+		).toBe(true);
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
 	});
@@ -248,8 +263,14 @@ describe("two fleets up at once", () => {
 			(both: string[]) =>
 				both.join() === "alpha,beta" || both.join() === "delta,gamma",
 		);
-		expect(session.editorFocused()).toBe(true);
-		expect(session.runtime.session.isStreaming).toBe(true);
+		expect(
+			session.editorFocused(),
+			"Escape on the second board hands the editor back",
+		).toBe(true);
+		expect(
+			session.runtime.session.isStreaming,
+			"the turn goes on after Escape cancels the fleet",
+		).toBe(true);
 	});
 
 	it("passes Ctrl+C through to pi from the second board", async () => {
@@ -257,7 +278,10 @@ describe("two fleets up at once", () => {
 		await session.type("a draft");
 		await session.key("ctrl+alt+n");
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"two hops take the keys to the second board",
+		).toBe(false);
 
 		await session.key("ctrl+c");
 
@@ -269,7 +293,10 @@ describe("two fleets up at once", () => {
 		const session = await twoFleets();
 		await session.key("ctrl+alt+n");
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"two hops take the keys to the second board",
+		).toBe(false);
 
 		await session.runtime.newSession();
 		await waitFor(
@@ -331,19 +358,28 @@ describe("a gate up beside a fleet", () => {
 		const session = await gateAndFleet();
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop from the gate takes the keys to the fleet",
+		).toBe(false);
 		await session.key("r");
 		await waitFor(() => stopped().length === 1, "the board's r");
 		expect(stopped()).toEqual(["alpha"]);
 		expect(await screen(session)).toContain(`${HOP} twice back to this`);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the hop from the fleet gives the keys to the editor",
+		).toBe(true);
 		expect(await screen(session)).toContain(`${HOP} back to this`);
 		expect(await screen(session)).not.toContain("twice");
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop from the editor takes the keys back to the gate",
+		).toBe(false);
 		await session.key("enter");
 		await waitFor(() => answers.length === 1, "the gate to answer");
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }]);

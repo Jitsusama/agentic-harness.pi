@@ -22,8 +22,12 @@ function subjectOf(length: number): string {
 
 describe("the commit subject's limit", () => {
 	it("is the one core's commit format enforces", () => {
-		expect(validate(subjectOf(SUBJECT_LIMIT)).subjectOk).toBe(true);
-		expect(validate(subjectOf(SUBJECT_LIMIT + 1)).subjectOk).toBe(false);
+		expect(validate(subjectOf(SUBJECT_LIMIT))).toMatchObject({
+			subjectOk: true,
+		});
+		expect(validate(subjectOf(SUBJECT_LIMIT + 1))).toMatchObject({
+			subjectOk: false,
+		});
 	});
 
 	it("is said in the subject's description, with a shorter length to aim for", () => {

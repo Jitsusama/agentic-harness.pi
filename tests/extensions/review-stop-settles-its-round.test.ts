@@ -134,6 +134,6 @@ describe("stopping a round", () => {
 
 		const held = await store.byId(other, run);
 		expect(held?.open).toBeUndefined();
-		expect(held?.closed).toBe(true);
+		expect(held).toMatchObject({ closed: true });
 	});
 });

@@ -80,8 +80,8 @@ describe("the propose gate", () => {
 			.find((one) => one.includes("It builds a panel now."));
 
 		expect(line).toBeDefined();
-		expect(line?.startsWith(" <md:")).toBe(true);
-		expect(shown.startsWith(" ")).toBe(true);
+		expect(line).toMatch(/^ <md:/);
+		expect(shown).toMatch(/^ /);
 	});
 
 	it("names where the change is going, since the checkout cannot say", () => {
