@@ -9,12 +9,8 @@
 import { createHash } from "node:crypto";
 import { hold, isAway } from "../internal/away/state.ts";
 import { guardMode } from "./policy.ts";
-import { reportGuard } from "./report.ts";
+import { OVERRIDE_HINT, reportGuard } from "./report.ts";
 import type { GuardianResult } from "./types.ts";
-
-/** What a redirected refusal adds, so the agent knows its way past. */
-const OVERRIDE_HINT =
-	"If this is right as it is, make the same call again, unchanged, and it will go through as a recorded override.";
 
 /**
  * How many refusals are remembered for an override. An override is

@@ -121,13 +121,17 @@ checking a group against what the logs say.
 - **Refusals**: a harness tool answered `⊘`. Grouped by the
   refusal's first line, with each bullet under it (a section over
   its limit, say) counted again as a reason.
-- **Guards**: a shell command a harness guard blocked. Ordinary
-  command failures are left out.
-- **Habits**: a tool call that breaks a standing rule, such as a
-  tracked file edited with sed, `sleep` to wait or `git stash`.
-  Heredoc bodies are cut before matching.
+- **Guards**: a call a harness guard refused, a blocking guard's
+  or a redirecting guard's (a tracked file edited from the shell,
+  a long `sleep`, `git stash`). Ordinary command failures are left
+  out.
+- **Overrides**: a redirect made again unchanged, so it went
+  through, read from the guard report it left.
+- **Habits**: a tool call that breaks a standing rule no guard
+  catches, such as `nice` added or a plan read whole. Heredoc
+  bodies are cut before matching.
 
-Refusals and guards are exact. Habits are patterns, so check a
+Refusals, guards and overrides are exact. Habits are patterns, so check a
 group's samples before acting on it. A group that recurs across
 many sessions is a candidate harness change: a refusal that
 loops wants a better answer or an automatic fix, and a habit

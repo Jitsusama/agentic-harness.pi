@@ -21,6 +21,14 @@
 export const GUARD_REPORT_ENTRY = "guard-report";
 
 /**
+ * What a redirected refusal ends with, so the agent knows its way past.
+ * It lives here, beside the report an override leaves, because it is
+ * also how a reader of the logs knows a redirect's refusal for one.
+ */
+export const OVERRIDE_HINT =
+	"If this is right as it is, make the same call again, unchanged, and it will go through as a recorded override.";
+
+/**
  * What became of the action the guard looked at.
  *
  * - shown: an approval that would have asked, and went ahead.

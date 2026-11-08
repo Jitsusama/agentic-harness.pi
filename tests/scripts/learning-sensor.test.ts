@@ -2,6 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { refusalUnder } from "../../lib/guardian/apply";
+import { restoreSessionModes } from "../../lib/guardian/policy";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards";
+import {
+	shellEditRefusal,
+	sleepRefusal,
+} from "../../lib/internal/shell-habits";
 import {
 	normalise,
 	periodOf,
@@ -10,6 +17,7 @@ import {
 	type Sighting,
 	sense,
 	signalsFromCall,
+	signalsFromEntry,
 	signalsFromResult,
 	tally,
 	withoutHeredocs,
@@ -65,6 +73,44 @@ describe("reading a tool's answer", () => {
 		expect(signalsFromResult("read", "fine", false)).toEqual([]);
 	});
 
+	it("counts any call a redirecting guard turned back, by its refusal's opening", () => {
+		declareGuards(GUARDS.shellEdit);
+		restoreSessionModes({});
+		const redirected = (reason: string, subject: string) =>
+			refusalUnder(GUARDS.shellEdit.name, { block: true, reason }, "t", subject)
+				?.reason ?? "";
+		const edit = redirected(shellEditRefusal(["/r/lib/x.ts"]), "sed -i x");
+		const sleep = redirected(sleepRefusal("sleep 30") ?? "", "sleep 30");
+
+		expect(
+			[edit, sleep].flatMap((text) =>
+				signalsFromResult("bash", text, true).map((s) => [s.kind, s.key]),
+			),
+		).toEqual([
+			[
+				"guard",
+				"This rewrites `x` from the shell, which git tracks. Use the edit tool for a change in place, or writ",
+			],
+			[
+				"guard",
+				"A sleep of # s holds this session and hears nothing meanwhile. Run what you are waiting on with back",
+			],
+		]);
+	});
+
+	it("counts a redirect made again from the report it left, and nothing else", () => {
+		const report = (kind: string) => ({
+			customType: "guard-report",
+			data: { guard: "sleep", kind, title: "A long sleep", body: "A sleep" },
+		});
+
+		expect(signalsFromEntry(report("overridden"))).toEqual([
+			{ kind: "override", key: "sleep: A long sleep", sample: "A sleep" },
+		]);
+		expect(signalsFromEntry(report("waved"))).toEqual([]);
+		expect(signalsFromEntry({ customType: "other", data: {} })).toEqual([]);
+	});
+
 	it("folds paths, ids, numbers and quotes so alike refusals group", () => {
 		expect(
 			normalise(
@@ -76,28 +122,25 @@ describe("reading a tool's answer", () => {
 
 describe("reading a tool call for habits", () => {
 	it("names each habit a shell command shows", () => {
-		expect(habits("perl -pi -e 's/a/b/' lib/x.ts")).toEqual([
-			"tracked file edited from the shell",
-		]);
-		expect(habits("sed -i 's/a/b/' lib/x.ts")).toEqual([
-			"tracked file edited from the shell",
-		]);
-		expect(habits("cat >> tests/a.test.ts")).toEqual([
-			"tracked file edited from the shell",
-		]);
-		expect(habits("git stash -q && pnpm test")).toEqual([
-			"git stash run directly",
-		]);
-		expect(habits("sleep 30; gh run list")).toEqual(["sleep used to wait"]);
 		expect(habits("cd x && nice -n 10 pnpm exec tsc")).toEqual([
 			"nice or ionice added",
-		]);
-		expect(habits("pnpm exec vitest run tests/a 2>&1 | tail -20")).toEqual([
-			"build or test output cut with tail or head",
 		]);
 		expect(habits("git worktree add ../t main")).toEqual([
 			"git worktree run by hand",
 		]);
+	});
+
+	it("leaves to the guards and interceptors the habits they catch", () => {
+		for (const command of [
+			"perl -pi -e 's/a/b/' lib/x.ts",
+			"sed -i 's/a/b/' lib/x.ts",
+			"cat >> tests/a.test.ts",
+			"git stash -q && pnpm test",
+			"sleep 30; gh run list",
+			"pnpm exec vitest run tests/a 2>&1 | tail -20",
+		]) {
+			expect(habits(command), command).toEqual([]);
+		}
 	});
 
 	it("leaves alone what only looks like a habit", () => {
@@ -216,6 +259,26 @@ describe("counting and reporting", () => {
 				["quest: Nothing is focused.", 3],
 			]);
 			expect(read).toEqual({ here: 1, away: 2, unread: 0 });
+			const overridden = JSON.stringify({
+				type: "custom",
+				customType: "guard-report",
+				timestamp: "2026-10-27T10:01:00Z",
+				data: { guard: "sleep", kind: "overridden", title: "A long sleep" },
+			});
+			writeFileSync(
+				join(sessionsDir, "--a--", "2026-10-27T10-00-00-000Z_s-here.jsonl"),
+				`${refused("2026-10-27T10:00:00Z")}\n${overridden}\n`,
+			);
+			expect(
+				sense(Date.parse("2026-10-01"), "week", {
+					sessionsDir,
+					indexPath,
+					hereOnly: true,
+				}).groups.map((g) => [g.kind, g.key, g.sessions]),
+			).toEqual([
+				["refusal", "quest: Nothing is focused.", 1],
+				["override", "sleep: A long sleep", 1],
+			]);
 			expect(
 				sense(Date.parse("2026-06-01"), "week", {
 					sessionsDir,
