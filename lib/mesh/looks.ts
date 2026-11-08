@@ -33,8 +33,11 @@ export type LookKind = (typeof LOOK_KINDS)[number];
  */
 export type LookState = "waiting" | "opened" | "cleared" | "resolved";
 
-/** How a look's change was resolved without the person. */
-export type LookResolution = "merged" | "closed";
+/**
+ * How a look's change was resolved without the person: it merged or
+ * closed, or their own account reviewed it on GitHub (looks-github.ts).
+ */
+export type LookResolution = "merged" | "closed" | `reviewed by ${string}`;
 
 /** One thing a session points the person at. */
 export interface Look {

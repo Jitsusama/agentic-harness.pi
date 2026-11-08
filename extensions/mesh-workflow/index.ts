@@ -130,7 +130,18 @@ import {
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
-import { type LookResolution, resolveLooks } from "../../lib/mesh/looks.ts";
+import {
+	type LookResolution,
+	looksIn,
+	resolveLooks,
+} from "../../lib/mesh/looks.ts";
+import {
+	askable,
+	markResolved,
+	queryFor,
+	resolutionsFrom,
+	takeTurnToAsk,
+} from "../../lib/mesh/looks-github.ts";
 import {
 	asksEach,
 	clock,
@@ -349,6 +360,44 @@ export interface MeshPaths extends QuestRecords {
 	 * nothing.
 	 */
 	readonly looks?: string;
+}
+
+/** How often a session looks whether it's its turn to ask GitHub about looks. */
+const LOOKS_CHECK_MS = 60_000;
+
+/** How long one ask of GitHub about looks may take. */
+const LOOKS_ASK_TIMEOUT_MS = 30_000;
+
+/**
+ * Ask GitHub about the pull requests the person's waiting looks point at,
+ * when it's this session's turn, and mark what merged, closed or got
+ * their review resolved. A GitHub that can't be asked now leaves them
+ * waiting for the next turn.
+ */
+async function askAboutLooks(
+	pi: Pick<ExtensionAPI, "exec">,
+	dir: string,
+	session: string,
+): Promise<void> {
+	try {
+		const asked = askable(looksIn(dir));
+		if (asked.length === 0) return;
+		if (!takeTurnToAsk(dir, session, Date.now())) return;
+		const ran = await pi.exec(
+			"gh",
+			[
+				"api",
+				"graphql",
+				"-f",
+				`query=${queryFor(asked.map((one) => one.pull))}`,
+			],
+			{ timeout: LOOKS_ASK_TIMEOUT_MS },
+		);
+		if (ran.code !== 0) return;
+		markResolved(dir, resolutionsFrom(asked, JSON.parse(ran.stdout)));
+	} catch {
+		// GitHub unreachable or its answer unreadable: asked again next turn.
+	}
 }
 
 /**
@@ -625,6 +674,9 @@ export function meshWorkflow(
 		// How far the read marker may move: only past what was handed over.
 		let front = createReadFront();
 		let lookClock: ReturnType<typeof setInterval> | undefined;
+		// Asking GitHub about the person's looks at pull requests, a turn
+		// across every session (looks-github.ts).
+		let looksClock: ReturnType<typeof setInterval> | undefined;
 		// A turn a note would start waits for a reload that is waiting: the
 		// note is said now, without it, and the landing starts it (hold.ts).
 		const holdTurn = createReloadHold();
@@ -1449,6 +1501,16 @@ export function meshWorkflow(
 			clearInterval(lookClock);
 			lookClock = setInterval(lookAgain, lookAgainMs);
 			lookClock.unref?.();
+			clearInterval(looksClock);
+			const looksDir = paths.looks;
+			if (looksDir) {
+				const asking = peer.session;
+				looksClock = setInterval(
+					() => void askAboutLooks(pi, looksDir, asking),
+					LOOKS_CHECK_MS,
+				);
+				looksClock.unref?.();
+			}
 			const since =
 				transport.lastRead(peer.addresses) ??
 				`${Date.now() - FIRST_CATCH_UP_MS}`;
@@ -1598,6 +1660,8 @@ export function meshWorkflow(
 			acts?.stop();
 			clearInterval(lookClock);
 			lookClock = undefined;
+			clearInterval(looksClock);
+			looksClock = undefined;
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;
