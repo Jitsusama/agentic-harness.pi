@@ -11,7 +11,9 @@
  * command's own exit status is what comes back instead of tail's.
  *
  * `stash` refuses git stash saving work, `sleep` a sleep of ten
- * seconds or more, and `shell-edit` a redirect, `tee`, `sed -i` or
+ * seconds or more in a call that holds the session (one already sent
+ * to the background holds nothing, and is what the refusal asks for),
+ * and `shell-edit` a redirect, `tee`, `sed -i` or
  * `perl -i` onto a file git tracks, each naming what to do instead.
  * `mixed-turn` refuses VM work chained after a build in one call, which
  * would hold a VM slot through the build, printing the call split in
@@ -55,7 +57,9 @@ export default function shellHabitInterceptor(pi: ExtensionAPI) {
 					command,
 				);
 			}
-			const sleep = sleepRefusal(stripped);
+			const sleep = inBackground(event.input)
+				? undefined
+				: sleepRefusal(stripped);
 			if (sleep) {
 				const refused = refusalUnder(
 					GUARDS.sleep.name,
@@ -96,4 +100,14 @@ export default function shellHabitInterceptor(pi: ExtensionAPI) {
 			return undefined;
 		},
 	);
+}
+
+/**
+ * Whether a bash call was sent to the background from the start, so a
+ * sleep in it holds nothing: on 7 November, 828 of the 872 long
+ * sleeps agents sent again past the guard already ran with
+ * `background: true`, polling a remote run or waiting on a timer.
+ */
+function inBackground(input: object): boolean {
+	return "background" in input && input.background === true;
 }
