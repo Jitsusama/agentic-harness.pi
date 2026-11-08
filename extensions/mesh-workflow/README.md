@@ -206,6 +206,14 @@ and can answer a question or a gate left open on screen.
   writes what it found in `~/.local/state/mission/verdicts.json`;
   a session applies those as it starts and as each run ends, so an
   item clears itself. Sealing a quest removes its file.
+- `show_person`: point the person at something to look at (a pull
+  request, a page, a file, a diff, a terminal) rather than open it.
+  Each look is a file of its own in
+  `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks.ts`),
+  naming its session, what it is and why, which the launcher shows
+  and marks opened or cleared. Nothing here removes one. A look at a
+  change resolves itself, with `how` and `resolvedAt`, when a session
+  merges or closes that change through `review_offer`.
 
 ## Context, Not a Prompt
 

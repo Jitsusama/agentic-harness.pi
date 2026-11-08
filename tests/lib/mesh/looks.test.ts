@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { looksIn, pointAt, refusalOf } from "../../../lib/mesh/looks.ts";
+import {
+	looksIn,
+	pointAt,
+	refusalOf,
+	resolveLooks,
+} from "../../../lib/mesh/looks.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -76,6 +81,32 @@ describe("the person's look list", () => {
 		writeFileSync(join(dir, "torn.json"), "{not json");
 		expect(looksIn(dir)).toEqual([]);
 		expect(looksIn(join(dir, "none"))).toEqual([]);
+	});
+
+	// Joel, 8 November: anything that no longer needs him clears itself.
+	it("resolves a waiting look at a change once it merges, its tabs included", () => {
+		pointAt(dir, { ...pr, target: `${pr.target}/files` }, who, new Date("2026-11-08T09:00:00Z"));
+		const other = { ...pr, target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1071" };
+		pointAt(dir, other, who, new Date("2026-11-08T09:01:00Z"));
+
+		const merged = new Date("2026-11-08T12:00:00Z");
+		expect(resolveLooks(dir, `${pr.target}/`, "merged", merged)).toBe(1);
+		const [newest, first] = looksIn(dir);
+		expect(first).toMatchObject({
+			state: "resolved",
+			how: "merged",
+			resolvedAt: "2026-11-08T12:00:00.000Z",
+			at: "2026-11-08T09:00:00.000Z",
+		});
+		expect(newest?.state).toBe("waiting");
+	});
+
+	it("leaves a look the person opened, or one at a file, as it is", () => {
+		const file = { kind: "file" as const, target: "/home/joel/notes.md", title: "Notes", why: "Yours." };
+		pointAt(dir, file, who);
+		expect(resolveLooks(dir, "/home/joel/notes.md", "closed")).toBe(0);
+		expect(resolveLooks(dir, "", "closed")).toBe(0);
+		expect(looksIn(dir)[0]?.state).toBe("waiting");
 	});
 
 	it("refuses a look with no why, or one that can't open in its place", () => {

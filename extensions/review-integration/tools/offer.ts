@@ -48,7 +48,10 @@ import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
-import { sayLanded } from "../../../lib/internal/session/landings.ts";
+import {
+	sayClosed,
+	sayLanded,
+} from "../../../lib/internal/session/landings.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { REVIEW_SLUG } from "../config.ts";
@@ -720,6 +723,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 							change,
 							...(params.comment === undefined ? [] : [params.comment]),
 						);
+						await sayChangeClosed(pi.events, bound);
 						return say(`${GLYPH.lands} ${change.label} closed.`);
 					}
 					case "reopen": {
@@ -1651,6 +1655,23 @@ async function gated(
 		return `${change.repo.key} has a merge gate, \`${gate.command}\`, and the head of ${change.label} couldn't be read to hand it. Merge with expectedHead set to the head's full sha.`;
 	}
 	return gateRefusal(gate.command, head, gating.cwd, gating.run);
+}
+
+/**
+ * Say on the bus that a change was closed, by its web page, so a look
+ * the person was pointed at stops waiting on it.
+ */
+async function sayChangeClosed(
+	bus: EventBus,
+	bound: BoundTarget,
+): Promise<void> {
+	try {
+		const url = (await bound.proposal())?.url;
+		if (url) sayClosed(bus, url);
+	} catch {
+		// A change that can't be read now is closed all the same; a look at
+		// it waits for the person to clear it.
+	}
 }
 
 /** Land the change. */

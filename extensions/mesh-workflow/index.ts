@@ -68,6 +68,7 @@ import {
 import {
 	type Landing,
 	namesLanding,
+	onClosed,
 	onLanded,
 	onUnlanded,
 	withoutLanding,
@@ -129,6 +130,7 @@ import {
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
+import { type LookResolution, resolveLooks } from "../../lib/mesh/looks.ts";
 import {
 	asksEach,
 	clock,
@@ -347,6 +349,24 @@ export interface MeshPaths extends QuestRecords {
 	 * nothing.
 	 */
 	readonly looks?: string;
+}
+
+/**
+ * Mark the person's looks at a change that merged or closed resolved, so
+ * nothing asks them to look at what no longer needs them (Joel, 8
+ * November). A look list that can't be written now keeps them waiting.
+ */
+function resolveLooksAt(
+	dir: string | undefined,
+	url: string,
+	how: LookResolution,
+): void {
+	if (!dir) return;
+	try {
+		resolveLooks(dir, url, how);
+	} catch {
+		// The looks stay waiting, for the person to clear by hand.
+	}
 }
 
 /** The machine's mesh and the quest records it reads. */
@@ -1711,7 +1731,10 @@ export function meshWorkflow(
 			onLanded(pi.events, (landing) => {
 				if (peer) peer.landed(landing);
 				else unlanded.push(landing);
+				if (landing.url) resolveLooksAt(paths.looks, landing.url, "merged");
 			});
+			// A change closed unmerged no longer needs the person either.
+			onClosed(pi.events, (url) => resolveLooksAt(paths.looks, url, "closed"));
 			onUnlanded(pi.events, (ref) => {
 				if (peer) peer.unlanded(ref);
 				else
