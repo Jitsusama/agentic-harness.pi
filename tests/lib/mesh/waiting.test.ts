@@ -118,13 +118,21 @@ describe("what waits on the person", () => {
 			at,
 		);
 
-		expect(markOwner(folder, QUEST, "S1", true, at)).toBe(true);
+		expect(markOwner(folder, QUEST, "S1", true, at), "ending marks it").toBe(
+			true,
+		);
 		expect(waitingOf(folder, QUEST).map((one) => one.owner?.state)).toEqual([
 			"ended",
 			undefined,
 		]);
-		expect(markOwner(folder, QUEST, "S1", true, at)).toBe(false);
-		expect(markOwner(folder, QUEST, "S1", false, at)).toBe(true);
+		expect(
+			markOwner(folder, QUEST, "S1", true, at),
+			"ending again changes nothing",
+		).toBe(false);
+		expect(
+			markOwner(folder, QUEST, "S1", false, at),
+			"starting again unmarks it",
+		).toBe(true);
 		expect(waitingOf(folder, QUEST)[0]?.owner).toEqual(owner);
 	});
 
