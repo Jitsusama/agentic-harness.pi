@@ -80,7 +80,7 @@ describe("runSubagent", () => {
 		// assert the final positional is the reference and the
 		// raw prompt is not passed as an argument.
 		const positional = fake.calls[0].args[fake.calls[0].args.length - 1];
-		expect(positional.startsWith("@")).toBe(true);
+		expect(positional).toMatch(/^@/);
 		expect(args).not.toContain("investigate the parser");
 		expect(fake.calls[0].cwd).toBe("/tmp/wt-a");
 		expect(fake.calls[0].reviewerId).toBe("fleet-1");
@@ -150,8 +150,7 @@ describe("runSubagent", () => {
 		const args = fake.calls[0].args.join(" ");
 		expect(args).toContain("--extension /abs/verify.ts");
 		expect(args).toContain("--skill /abs/output.skill");
-		expect(result.verification?.called).toBe(false);
-		expect(result.verification?.ok).toBe(false);
+		expect(result.verification).toMatchObject({ called: false, ok: false });
 	});
 
 	it("carries the sessions its process announced, so the job joins its bill", async () => {

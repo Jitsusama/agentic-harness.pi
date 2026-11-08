@@ -31,8 +31,14 @@ describe("a telling", () => {
 		toldIn(root).note(telling, now);
 
 		const elsewhere = toldIn(root);
-		expect(elsewhere.already(telling, now + TOLD_FOR_MS - 1)).toBe(true);
-		expect(elsewhere.already(telling, now + TOLD_FOR_MS)).toBe(false);
+		expect(
+			elsewhere.already(telling, now + TOLD_FOR_MS - 1),
+			"the telling is known just inside its hour",
+		).toBe(true);
+		expect(
+			elsewhere.already(telling, now + TOLD_FOR_MS),
+			"the telling is not known once its hour is up",
+		).toBe(false);
 	});
 
 	it.each([
@@ -40,10 +46,13 @@ describe("a telling", () => {
 		["another holder", { holder: "session-j" }],
 		["another kind", { kind: "heavy" }],
 		["another subject", { subject: "walgit-rs:README.md" }],
-	])("is not known for %s", (_, over) => {
+	])("is not known for %s", (other, over) => {
 		toldIn(root).note(telling, now);
 
-		expect(toldIn(root).already({ ...telling, ...over }, now)).toBe(false);
+		expect(
+			toldIn(root).already({ ...telling, ...over }, now),
+			`a telling for ${other} is not known`,
+		).toBe(false);
 	});
 
 	it("sweeps tellings past their hour as it notes another", () => {

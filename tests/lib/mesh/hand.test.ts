@@ -14,9 +14,15 @@ const minutes = (count: number) => count * 60 * 1000;
 
 describe("a subagent", () => {
 	it("is told by the environment its supervisor starts it with", () => {
-		expect(isSubagent({ SUBAGENT_SUPERVISOR: "1" })).toBe(true);
-		expect(isSubagent({ SUBAGENT_RUN_ID: "run" })).toBe(true);
-		expect(isSubagent({})).toBe(false);
+		expect(
+			isSubagent({ SUBAGENT_SUPERVISOR: "1" }),
+			"SUBAGENT_SUPERVISOR marks a subagent",
+		).toBe(true);
+		expect(
+			isSubagent({ SUBAGENT_RUN_ID: "run" }),
+			"SUBAGENT_RUN_ID marks a subagent",
+		).toBe(true);
+		expect(isSubagent({}), "an empty environment is no subagent's").toBe(false);
 	});
 });
 

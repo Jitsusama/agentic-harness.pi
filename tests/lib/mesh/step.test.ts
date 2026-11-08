@@ -38,7 +38,7 @@ describe("a step's detail", () => {
 		);
 		const cut = toolDetail({ command: long });
 		expect(cut).toHaveLength(DETAIL_CHARS);
-		expect(cut.endsWith("\u2026")).toBe(true);
+		expect(cut).toMatch(/\u2026$/);
 	});
 });
 
@@ -58,8 +58,16 @@ describe("a step read back", () => {
 			since: "2026-11-06T22:00:00.000Z",
 		};
 
-		expect(isStepDetail(step)).toBe(true);
-		expect(isStepDetail({ ...step, kind: "dreaming" })).toBe(false);
-		expect(isStepDetail({ ...step, since: 0 })).toBe(false);
+		expect(isStepDetail(step), "a step this version writes reads back").toBe(
+			true,
+		);
+		expect(
+			isStepDetail({ ...step, kind: "dreaming" }),
+			"a step of an unknown kind does not read",
+		).toBe(false);
+		expect(
+			isStepDetail({ ...step, since: 0 }),
+			"a step whose since is no timestamp does not read",
+		).toBe(false);
 	});
 });

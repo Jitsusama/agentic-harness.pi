@@ -36,13 +36,25 @@ const nothing = () => undefined;
 
 describe("waking a parked peer", () => {
 	it("wakes it for a question or hold sent to it", () => {
-		expect(wakes(message(), parked, nothing)).toBe(true);
-		expect(wakes(message({ intent: "hold" }), parked, nothing)).toBe(true);
+		expect(
+			wakes(message(), parked, nothing),
+			"a question sent to it wakes it",
+		).toBe(true);
+		expect(
+			wakes(message({ intent: "hold" }), parked, nothing),
+			"a hold sent to it wakes it",
+		).toBe(true);
 	});
 
 	it("lets an fyi or finding sent to it wait for its next start", () => {
-		expect(wakes(message({ intent: "fyi" }), parked, nothing)).toBe(false);
-		expect(wakes(message({ intent: "finding" }), parked, nothing)).toBe(false);
+		expect(
+			wakes(message({ intent: "fyi" }), parked, nothing),
+			"an fyi sent to it does not wake it",
+		).toBe(false);
+		expect(
+			wakes(message({ intent: "finding" }), parked, nothing),
+			"a finding sent to it does not wake it",
+		).toBe(false);
 	});
 
 	it("wakes an orchestrator for what a session it leads finds or lands", () => {
@@ -56,11 +68,18 @@ describe("waking a parked peer", () => {
 		const finding = message({ intent: "finding" });
 		const landed = message({ intent: "fyi", text: "#920 is merged" });
 
-		expect(wakes(finding, parked, nothing, sender)).toBe(true);
-		expect(wakes(landed, parked, nothing, sender)).toBe(true);
-		expect(wakes(finding, parked, nothing, { orchestratedBy: "WCJQSG" })).toBe(
-			false,
-		);
+		expect(
+			wakes(finding, parked, nothing, sender),
+			"a finding from a session it leads wakes it",
+		).toBe(true);
+		expect(
+			wakes(landed, parked, nothing, sender),
+			"a landing from a session it leads wakes it",
+		).toBe(true);
+		expect(
+			wakes(finding, parked, nothing, { orchestratedBy: "WCJQSG" }),
+			"a finding from a session another peer leads does not wake it",
+		).toBe(false);
 		const asked: string[] = [];
 		wakeParked(
 			landed,
@@ -80,7 +99,10 @@ describe("waking a parked peer", () => {
 		});
 		const read = (id: string) => (id === asked.id ? asked : undefined);
 		const answer = message({ intent: "fyi", re: asked.id });
-		expect(wakes(answer, parked, read)).toBe(true);
+		expect(
+			wakes(answer, parked, read),
+			"an fyi answering its question wakes it",
+		).toBe(true);
 	});
 
 	it("wakes it for a pivot that reaches it", () => {
@@ -89,11 +111,16 @@ describe("waking a parked peer", () => {
 			from: "WCJQSG",
 			to: ["#quest/wcjqsg"],
 		});
-		expect(wakes(pivot, parked, nothing)).toBe(true);
+		expect(wakes(pivot, parked, nothing), "a pivot to its group wakes it").toBe(
+			true,
+		);
 	});
 
 	it("never wakes it for what doesn't reach it", () => {
-		expect(wakes(message({ to: ["@5FWIUS"] }), parked, nothing)).toBe(false);
+		expect(
+			wakes(message({ to: ["@5FWIUS"] }), parked, nothing),
+			"a question to another peer does not wake it",
+		).toBe(false);
 	});
 
 	it("asks the holder of only the parked peers whose marker stands", () => {

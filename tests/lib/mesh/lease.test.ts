@@ -61,7 +61,8 @@ describe("the board", () => {
 		expect(board.of("one")?.leases).toEqual([lease()]);
 		expect(board.all().map(({ session }) => session)).toEqual(["one", "two/x"]);
 		board.hold({ session: "one", leases: [] });
-		expect(existsSync(join(root, "leases", "one.json"))).toBe(false);
+		const emptied = join(root, "leases", "one.json");
+		expect(existsSync(emptied), `${emptied} is gone`).toBe(false);
 		expect(board.all().map(({ session }) => session)).toEqual(["two/x"]);
 	});
 
@@ -369,8 +370,14 @@ describe("other peers in a checkout", () => {
 			{ session: "two", lease: file },
 			{ session: "two", lease: whole },
 		]);
-		expect(claimsCheckout(whole)).toBe(true);
-		expect(claimsCheckout(file)).toBe(false);
+		expect(
+			claimsCheckout(whole),
+			"a lease on the whole checkout claims it",
+		).toBe(true);
+		expect(
+			claimsCheckout(file),
+			"a lease on one file does not claim the checkout",
+		).toBe(false);
 		expect(holdingFrom(board[2])?.leases).toEqual([whole]);
 	});
 });

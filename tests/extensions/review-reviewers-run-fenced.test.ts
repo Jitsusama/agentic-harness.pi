@@ -15,7 +15,8 @@ describe("the extensions a reviewer is fenced with", () => {
 			"sandbox-file-interceptor",
 			"secret-scrub-interceptor",
 		]);
-		for (const path of packs) expect(existsSync(path)).toBe(true);
+		for (const path of packs)
+			expect(existsSync(path), `${path} exists`).toBe(true);
 	});
 
 	it("each load as an extension does", async () => {

@@ -402,7 +402,9 @@ describe("this session's peer", () => {
 		expect(at.presences.of(session)?.state).toBe("paused");
 
 		const reloaded = localPeer(at);
-		expect(reloaded.paused).toBe(true);
+		expect(reloaded.paused, "the peer is still paused after a reload").toBe(
+			true,
+		);
 		reloaded.setPaused(false);
 		expect(at.presences.of(session)?.state).toBe("listening");
 	});
@@ -730,15 +732,24 @@ describe("this session's peer", () => {
 		const again = localPeer(surroundings());
 
 		expect(again.groups).toEqual(["#optimus/power"]);
-		expect(again.leave("#optimus/power")).toBe(true);
-		expect(again.leave("#optimus/power")).toBe(false);
+		expect(
+			again.leave("#optimus/power"),
+			"leaving a group kept across the reload says it left",
+		).toBe(true);
+		expect(
+			again.leave("#optimus/power"),
+			"leaving it a second time says it was not in it",
+		).toBe(false);
 	});
 
 	it("keeps its stops across a reload, until it lifts them", () => {
 		const stop = { address: "P9R1KI", session: "s-p", at: "2026-10-22" };
 		const first = localPeer(surroundings());
-		expect(first.stop(stop)).toBe(true);
-		expect(first.stop({ ...stop, why: "again" })).toBe(false);
+		expect(first.stop(stop), "a first stop of P9R1KI is taken").toBe(true);
+		expect(
+			first.stop({ ...stop, why: "again" }),
+			"a second stop of P9R1KI is not taken",
+		).toBe(false);
 
 		const again = localPeer(surroundings());
 
@@ -770,10 +781,16 @@ describe("this session's peer", () => {
 		expect(kept()).toEqual(asked);
 		peer.want(held);
 		expect(kept()).toEqual(held);
-		expect(peer.settle("approval")).toBe(true);
+		expect(peer.settle("approval"), "the standing approval is settled").toBe(
+			true,
+		);
 		expect(kept()).toEqual(asked);
-		expect(peer.settle("approval")).toBe(false);
-		expect(peer.settle("question")).toBe(true);
+		expect(peer.settle("approval"), "no approval is left to settle").toBe(
+			false,
+		);
+		expect(peer.settle("question"), "the standing question is settled").toBe(
+			true,
+		);
 		expect(kept()).toBeUndefined();
 	});
 

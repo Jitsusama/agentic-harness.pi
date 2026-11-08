@@ -308,7 +308,7 @@ describe("a fleet ledger", () => {
 
 		await ledger.forgetSettledBefore(new Date());
 
-		expect(existsSync(live)).toBe(true);
+		expect(existsSync(live), `${live} is kept`).toBe(true);
 	});
 
 	it("keeps a record whose settled time will not parse", async () => {
@@ -480,7 +480,7 @@ describe("a fleet ledger", () => {
 		await ledger.open(settled);
 
 		const again = (await ledger.everyFleet()).runs[0];
-		expect(again?.open).toBe(true);
+		expect(again).toMatchObject({ open: true });
 		expect(again?.settledAt).toBeUndefined();
 	});
 
@@ -574,7 +574,7 @@ describe("a fleet cut off before its answers were handed over", () => {
 		await ledger.cutOff("fleet-a", "owner-gone");
 
 		expect((await ledger.everyFleet()).runs[0]?.cutOff).toEqual(first);
-		expect(first?.told).toBe(true);
+		expect(first).toMatchObject({ told: true });
 	});
 
 	it("never reports a fleet somebody was handed as lost", async () => {

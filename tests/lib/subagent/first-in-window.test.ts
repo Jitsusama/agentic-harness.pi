@@ -25,15 +25,19 @@ afterEach(() => {
 
 describe("a walk claimed for a window", () => {
 	it("goes to the first session to ask in it", async () => {
-		expect(await firstInWindow(dir, "orphans", WINDOW_MS, OPENS)).toBe(true);
+		expect(
+			await firstInWindow(dir, "orphans", WINDOW_MS, OPENS),
+			"the first session to ask is given the walk",
+		).toBe(true);
 	});
 
 	it("goes to no other session asking later in the same window", async () => {
 		await firstInWindow(dir, "orphans", WINDOW_MS, OPENS);
 
-		expect(await firstInWindow(dir, "orphans", WINDOW_MS, OPENS + 60_000)).toBe(
-			false,
-		);
+		expect(
+			await firstInWindow(dir, "orphans", WINDOW_MS, OPENS + 60_000),
+			"a later session in the same window is not given the walk",
+		).toBe(false);
 	});
 
 	it("goes to exactly one of the sessions asking at once", async () => {
@@ -51,6 +55,7 @@ describe("a walk claimed for a window", () => {
 
 		expect(
 			await firstInWindow(dir, "orphans", WINDOW_MS, OPENS + WINDOW_MS),
+			"the first session in the next window is given the walk",
 		).toBe(true);
 	});
 
@@ -64,7 +69,10 @@ describe("a walk claimed for a window", () => {
 	it("is claimed apart from a walk of another name", async () => {
 		await firstInWindow(dir, "orphans", WINDOW_MS, OPENS);
 
-		expect(await firstInWindow(dir, "sweep", WINDOW_MS, OPENS)).toBe(true);
+		expect(
+			await firstInWindow(dir, "sweep", WINDOW_MS, OPENS),
+			"a walk of another name is given apart",
+		).toBe(true);
 	});
 
 	it("goes ahead where there is no folder to claim it in", async () => {
@@ -72,6 +80,7 @@ describe("a walk claimed for a window", () => {
 		// find either; a session refused it would only be wrong later.
 		expect(
 			await firstInWindow(join(dir, "missing"), "orphans", WINDOW_MS, OPENS),
+			"a session with no folder to claim in is given the walk",
 		).toBe(true);
 	});
 });

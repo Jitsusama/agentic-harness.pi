@@ -32,7 +32,10 @@ describe("waiting for a run's first response", () => {
 		const path = await log();
 		await writeFile(path, `${USER_START}${ASSISTANT_START}`);
 
-		expect(await firstResponseBegun(path, { withinMs: 1_000 })).toBe(true);
+		expect(
+			await firstResponseBegun(path, { withinMs: 1_000 }),
+			"the assistant's message start is seen",
+		).toBe(true);
 	});
 
 	it("is not fooled by the brief going out", async () => {
@@ -41,7 +44,10 @@ describe("waiting for a run's first response", () => {
 		const path = await log();
 		await writeFile(path, USER_START);
 
-		expect(await firstResponseBegun(path, { withinMs: 300 })).toBe(false);
+		expect(
+			await firstResponseBegun(path, { withinMs: 300 }),
+			"the user's message start is not taken for a response",
+		).toBe(false);
 	});
 
 	it("waits for a log that does not exist yet, then for the line", async () => {
@@ -54,14 +60,20 @@ describe("waiting for a run's first response", () => {
 		await appendFile(path, ASSISTANT_START.slice(0, 10));
 		await appendFile(path, ASSISTANT_START.slice(10));
 
-		expect(await waiting).toBe(true);
+		expect(
+			await waiting,
+			"the response is seen once its line is written in full",
+		).toBe(true);
 	});
 
 	it("gives up when the time runs out", async () => {
 		const path = await log();
 		const began = Date.now();
 
-		expect(await firstResponseBegun(path, { withinMs: 300 })).toBe(false);
+		expect(
+			await firstResponseBegun(path, { withinMs: 300 }),
+			"the wait gives up seeing no response",
+		).toBe(false);
 		expect(Date.now() - began).toBeLessThan(2_000);
 	});
 
@@ -75,6 +87,6 @@ describe("waiting for a run's first response", () => {
 
 		stop.abort();
 
-		expect(await waiting).toBe(false);
+		expect(await waiting, "a cancelled wait sees no response").toBe(false);
 	});
 });

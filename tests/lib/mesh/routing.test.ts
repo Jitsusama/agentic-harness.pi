@@ -123,7 +123,7 @@ describe("routeFrom", () => {
 			sender,
 			candidatesOf(everyone, sender),
 		);
-		expect(told.keys.has("all")).toBe(false);
+		expect([...told.keys.keys()]).not.toContain("all");
 		expect(keys.get("all")).toBe(ALL);
 	});
 	const picked = (choice: string, sure: number) => ({

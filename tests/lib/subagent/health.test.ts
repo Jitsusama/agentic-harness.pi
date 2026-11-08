@@ -127,6 +127,9 @@ describe("detectStaleInstallInStderr", () => {
 			"Error: ENOENT: no such file or directory, open '/home/x/.pi/pkg/pi-1.2.3/package.json'";
 		const message = detectStaleInstallInStderr(stderr);
 		expect(message).not.toBeNull();
-		expect(message?.startsWith(STALE_RUNTIME_WARNING_PREFIX)).toBe(true);
+		expect(
+			message?.startsWith(STALE_RUNTIME_WARNING_PREFIX),
+			`${message} opens with ${STALE_RUNTIME_WARNING_PREFIX}`,
+		).toBe(true);
 	});
 });
