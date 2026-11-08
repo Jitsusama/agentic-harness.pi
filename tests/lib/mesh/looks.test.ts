@@ -85,8 +85,16 @@ describe("the person's look list", () => {
 
 	// Joel, 8 November: anything that no longer needs him clears itself.
 	it("resolves a waiting look at a change once it merges, its tabs included", () => {
-		pointAt(dir, { ...pr, target: `${pr.target}/files` }, who, new Date("2026-11-08T09:00:00Z"));
-		const other = { ...pr, target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1071" };
+		pointAt(
+			dir,
+			{ ...pr, target: `${pr.target}/files` },
+			who,
+			new Date("2026-11-08T09:00:00Z"),
+		);
+		const other = {
+			...pr,
+			target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1071",
+		};
 		pointAt(dir, other, who, new Date("2026-11-08T09:01:00Z"));
 
 		const merged = new Date("2026-11-08T12:00:00Z");
@@ -102,7 +110,12 @@ describe("the person's look list", () => {
 	});
 
 	it("leaves a look the person opened, or one at a file, as it is", () => {
-		const file = { kind: "file" as const, target: "/home/joel/notes.md", title: "Notes", why: "Yours." };
+		const file = {
+			kind: "file" as const,
+			target: "/home/joel/notes.md",
+			title: "Notes",
+			why: "Yours.",
+		};
 		pointAt(dir, file, who);
 		expect(resolveLooks(dir, "/home/joel/notes.md", "closed")).toBe(0);
 		expect(resolveLooks(dir, "", "closed")).toBe(0);

@@ -164,7 +164,10 @@ function isLook(value: unknown): value is Look {
 
 /** A change's URL as compared: no trailing slash, fragment or query. */
 function urlKey(url: string): string {
-	return url.trim().replace(/[?#].*$/, "").replace(/\/+$/, "");
+	return url
+		.trim()
+		.replace(/[?#].*$/, "")
+		.replace(/\/+$/, "");
 }
 
 /** The URL a look at a change opens, read to its change: a PR's tabs are the PR. */
