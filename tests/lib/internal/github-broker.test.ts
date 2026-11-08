@@ -52,12 +52,22 @@ describe("the broker's tokens", () => {
 		expect(asked.count).toBe(1);
 	});
 
+	it("take an installation token as GitHub mints one, long and with dots and dashes", () => {
+		const installation = `ghs_${"a1B2.c3-D4_e".repeat(32)}`;
+		expect(installation.length).toBeGreaterThan(380);
+		expect(brokerTokens(broker(installation).ask, () => 0)()).toBe(
+			installation,
+		);
+	});
+
 	it("are none when the broker answers with something other than a token", () => {
 		for (const answer of [
 			"",
 			"ghs_short",
 			`${TOKEN} extra`,
 			"ghs_$(rm -rf ~)xxxxxxxxxxxxxx",
+			"ghs_quote'breaks'outxxxxxxxxxx",
+			`ghs_${"x".repeat(1100)}`,
 		]) {
 			expect(brokerTokens(broker(answer).ask, () => 0)()).toBeUndefined();
 		}

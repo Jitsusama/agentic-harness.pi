@@ -25,8 +25,12 @@ export const ASK_EVERY_MS = 5 * 60_000;
 /** How long the broker has to answer before a command runs without it. */
 const PATIENCE_MS = 10_000;
 
-/** A token as GitHub mints one: letters, digits and underscores. */
-const TOKEN = /^[A-Za-z0-9_]{20,255}$/;
+/**
+ * A token as GitHub mints one. An App's installation token runs to about
+ * 390 characters and holds dots and dashes as well as letters, digits and
+ * underscores, none of which a shell reads as anything but itself.
+ */
+const TOKEN = /^[A-Za-z0-9_.-]{20,1024}$/;
 
 /** Gives a GitHub token for a sandboxed command, or nothing. */
 export type GitHubTokenSource = () => string | undefined;
