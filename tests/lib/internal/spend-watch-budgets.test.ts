@@ -57,10 +57,25 @@ const ANSWER = {
 					spent: 18400,
 					warn: 0.9,
 					state: "notified",
+					said: {
+						window: "a week",
+						warns: "at $36,000",
+						resets: "",
+						ends: "Wed 2 Dec \u00b7 a guess",
+						changed: "",
+						read: "the AI proxy at 10:00",
+						state: "warned",
+					},
 				},
 			],
 			standing: "$18,400 of $40,000",
 			nearest: 0.46,
+			words: "the employer's money",
+			said: {
+				spent: "$412 today \u00b7 $9,100 this month",
+				worth: "",
+				reading: "reading fine",
+			},
 		},
 	],
 	session: {
@@ -101,6 +116,27 @@ describe("where each budget stands", () => {
 		const weekly = budgetsFrom(ANSWER)?.budgets[1]?.allowances[0];
 		expect(weekly?.used).toBeCloseTo(0.46);
 		expect(weekly?.state).toBe("notified");
+	});
+
+	it("keeps the facts spend-watch put in words, and none it left empty", () => {
+		const proxy = budgetsFrom(ANSWER)?.budgets[1];
+		expect(proxy?.said).toEqual({
+			words: "the employer's money",
+			spent: "$412 today \u00b7 $9,100 this month",
+			reading: "reading fine",
+		});
+		expect(proxy?.allowances[0]?.said).toEqual({
+			warns: "at $36,000",
+			read: "the AI proxy at 10:00",
+			state: "warned",
+			ends: "Wed 2 Dec \u00b7 a guess",
+		});
+	});
+
+	it("says no words of a budget from a spend-watch that wrote none", () => {
+		const claude = budgetsFrom(ANSWER)?.budgets[0];
+		expect(claude?.said).toBeUndefined();
+		expect(claude?.allowances[0]?.said).toBeUndefined();
 	});
 
 	it("says the session asked about", () => {

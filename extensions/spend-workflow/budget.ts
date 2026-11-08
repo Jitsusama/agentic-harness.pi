@@ -165,7 +165,13 @@ const TOTAL_PERIODS = ["this month", "7 days", "today"] as const;
 /**
  * `/budget`'s report: all AI spend in billed dollars first, then every
  * budget nearest its end first, each allowance in its own unit with its
- * reset, then what this session spent and on which. Without spend-watch
+ * reset, then what this session spent and on which. Each budget and
+ * allowance carries every fact spend-watch put in words, as the
+ * launcher's drawers do, so the two never say different things: under
+ * an allowance what its feed says, whose reading it is, where it warns,
+ * when an override ends and how it last changed; under a budget whose
+ * money it is, what it spent, a plan's worth at list and how its feed
+ * reads. A spend-watch older than those words leaves them out. Without spend-watch
  * it says what it can: the session's budget by name and the ledger's
  * list-price figure, saying that it is one.
  */
@@ -198,6 +204,7 @@ export function budgetReport(inputs: ReportInputs): ReportLine[] {
 		lines.push(
 			{ face: "heading", text: `${one.name}  ${kind}` },
 			{ face: "text", text: one.standing, tone: near ? toneOf(near) : "dim" },
+			...budgetFacts(one).map(quiet),
 		);
 		for (const allowance of one.allowances) {
 			const resets =
@@ -209,6 +216,10 @@ export function budgetReport(inputs: ReportInputs): ReportLine[] {
 				text: `${standingOf(allowance, undefined)}${resets}`,
 				tone: toneOf(allowance),
 			});
+			// Indented under its allowance, past the mark's column.
+			lines.push(
+				...allowanceFacts(allowance).map((fact) => quiet(`  ${fact}`)),
+			);
 		}
 	}
 	lines.push(
@@ -216,6 +227,45 @@ export function budgetReport(inputs: ReportInputs): ReportLine[] {
 		{ face: "text", text: sessionWords(session, sessionSpent, listPrice) },
 	);
 	return lines;
+}
+
+/**
+ * A budget's facts beyond its standing: whose money it is, what it
+ * spent where that says more than the standing, a plan's worth at list,
+ * and how its feed reads.
+ */
+function budgetFacts(one: BudgetStanding): string[] {
+	const said = one.said;
+	if (!said) return [];
+	return [
+		said.words,
+		said.spent && said.spent !== one.standing
+			? `spent ${said.spent}`
+			: undefined,
+		said.worth && `worth at list ${said.worth}`,
+		said.reading && `feed ${said.reading}`,
+	].filter((fact): fact is string => fact !== undefined && fact !== "");
+}
+
+/**
+ * An allowance's facts beyond its standing and reset, in the drawer's
+ * order, what moves most first: what its feed says, whose reading it
+ * is, where it warns, when an override ends and how it last changed.
+ */
+function allowanceFacts(allowance: Allowance): string[] {
+	const said = allowance.said;
+	if (!said) return [];
+	return [
+		said.state && `feed says ${said.state}`,
+		said.read && `read by ${said.read}`,
+		said.warns && `warns ${said.warns}`,
+		said.ends && `override ends ${said.ends}`,
+		said.changed,
+	].filter((fact): fact is string => fact !== undefined && fact !== "");
+}
+
+function quiet(text: string): ReportLine {
+	return { face: "dim", text };
 }
 
 function sessionWords(
