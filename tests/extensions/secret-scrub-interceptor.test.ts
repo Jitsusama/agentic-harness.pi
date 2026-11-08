@@ -6,10 +6,15 @@
  * repository never holds a string shaped like a live one.
  */
 
+import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import secretScrubInterceptor from "../../extensions/secret-scrub-interceptor/index.ts";
-import { scrubSecrets } from "../../extensions/secret-scrub-interceptor/secrets.ts";
+import { savedOutputFile } from "../../extensions/secret-scrub-interceptor/output-file.ts";
+import { scrubSecrets } from "../../lib/internal/secrets.ts";
 
 const mixed = (length: number) =>
 	"a1B2c3D4e5".repeat(Math.ceil(length / 10)).slice(0, length);
@@ -164,5 +169,73 @@ describe("a tool's answer", () => {
 			content: [{ type: "text", text: "all clean" }],
 		});
 		expect(result).toBeUndefined();
+	});
+
+	describe("whose whole output pi saved to a file", () => {
+		const written: string[] = [];
+		const saved = (name: string, text: string) => {
+			const file = path.join(os.tmpdir(), name);
+			fs.writeFileSync(file, text, { mode: 0o600 });
+			written.push(file);
+			return file;
+		};
+
+		afterEach(() => {
+			for (const file of written.splice(0)) fs.rmSync(file, { force: true });
+		});
+
+		it("has the file scrubbed, even where the answer left the secret out", async () => {
+			const token = `gh${"p"}_${mixed(36)}`;
+			const file = saved(
+				`pi-bash-${randomBytes(8).toString("hex")}.log`,
+				`early ${token}\nlate\n`,
+			);
+			const result = await answer({
+				content: [{ type: "text", text: "late" }],
+				details: { fullOutputPath: file },
+			});
+			expect(result).toBeUndefined();
+			expect(fs.readFileSync(file, "utf8")).toBe(
+				"early [secret scrubbed: GitHub token]\nlate\n",
+			);
+			expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+		});
+
+		it("leaves a file pi didn't name alone", async () => {
+			const token = `gh${"p"}_${mixed(36)}`;
+			const file = saved(`notes-${randomBytes(8).toString("hex")}.log`, token);
+			await answer({
+				content: [{ type: "text", text: "done" }],
+				details: { fullOutputPath: file },
+			});
+			expect(fs.readFileSync(file, "utf8")).toBe(token);
+		});
+	});
+});
+
+describe("the file an answer names as its saved output", () => {
+	const folder = "/tmp/pi-folder";
+
+	it("is one pi saved, in the temporary folder", () => {
+		const file = `${folder}/pi-bash-0a1b2c3d4e5f6a7b.log`;
+		expect(savedOutputFile({ fullOutputPath: file }, folder)).toBe(file);
+	});
+
+	it("is never one elsewhere, however it is named", () => {
+		for (const named of [
+			"/home/someone/pi-bash-0a1b2c3d4e5f6a7b.log",
+			`${folder}/../pi-bash-0a1b2c3d4e5f6a7b.log`,
+			`${folder}/deeper/pi-bash-0a1b2c3d4e5f6a7b.log`,
+			`${folder}/session.jsonl`,
+		]) {
+			expect(
+				savedOutputFile({ fullOutputPath: named }, folder),
+			).toBeUndefined();
+		}
+	});
+
+	it("is nothing when the details name none", () => {
+		expect(savedOutputFile(undefined, folder)).toBeUndefined();
+		expect(savedOutputFile({ fullOutputPath: 3 }, folder)).toBeUndefined();
 	});
 });

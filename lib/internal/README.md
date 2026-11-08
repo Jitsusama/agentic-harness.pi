@@ -97,6 +97,9 @@ may import from here, and any of it may change without notice.
   can be read by name; one copy for the package outside `lib/core`.
 - **`resources.ts`**: the CPU, disk and memory this pi process and
   its work used, from the kernel's counters.
+- **`secrets.ts`**: the shapes a credential takes in a tool's output,
+  and how one is replaced by a mark naming its kind, for the answers,
+  the saved output and the stored results that hold them.
 - **`session-logs.ts`**: every session log a span holds, those still
   on the machine and those only on Drive, read back through
   session-backup's index one at a time and removed once read, for

@@ -177,12 +177,11 @@ export function createResultStore(deps: {
 	return {
 		put(text) {
 			const written = spillText(text, deps.dir);
-			const bytes = Buffer.byteLength(text, "utf-8");
 			evictWhileOver(path.basename(written.path));
 			return {
 				handle: handleFor(written.path),
 				path: written.path,
-				bytes,
+				bytes: written.bytes,
 			};
 		},
 		read(handle) {

@@ -3,7 +3,7 @@
  *
  * Puts every credential a tool's answer holds out of sight before the
  * model reads it or pi writes it to the session's log, leaving words that
- * say what kind it was (see `secrets.ts` for the shapes).
+ * say what kind it was (see `lib/internal/secrets.ts` for the shapes).
  *
  * An agent's tools print what they find, and some of what they find is a
  * credential: a token in a shell's history, a key in a file read, a
@@ -17,14 +17,17 @@
  * know a secret was there and not to ask for it again. The text, the
  * details and the structured answer are each scrubbed, since pi logs all
  * three; a picture is handed on as it is. A result with nothing to hide
- * is handed on untouched.
+ * is handed on untouched. The file a long command's whole output was
+ * saved to is scrubbed too (`output-file.ts`), and so is each payload the
+ * result store keeps, as it is written (`lib/core/result/spill.ts`).
  */
 
 import type {
 	ExtensionAPI,
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import { scrubDeep, scrubSecrets } from "./secrets.ts";
+import { scrubDeep, scrubSecrets } from "../../lib/internal/secrets.ts";
+import { savedOutputFile, scrubOutputFile } from "./output-file.ts";
 
 type Content = ToolResultEvent["content"];
 
@@ -47,6 +50,10 @@ function scrubContent(content: Content): {
 /** Wires the scrub onto every tool's answer. */
 export default function secretScrubInterceptor(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event) => {
+		// Before anything else, and whatever the answer holds: a credential
+		// can sit in the part of the output the answer left out.
+		const saved = savedOutputFile(event.details);
+		if (saved) scrubOutputFile(saved);
 		const content = scrubContent(event.content);
 		const details = scrubDeep(event.details);
 		const structured = scrubDeep(event.structuredContent);
