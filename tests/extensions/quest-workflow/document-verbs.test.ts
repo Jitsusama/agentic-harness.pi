@@ -15,17 +15,12 @@ import {
 	SESSION_LANDED,
 	SESSION_UNLANDED,
 } from "../../../lib/internal/session/landings.ts";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
 
-function fakePi() {
-	return {
-		setSessionName: () => {},
-		appendEntry: () => {},
-	} as unknown as Parameters<typeof handle>[1];
-}
 function fakeCtx() {
 	return {
 		cwd: tmpRoot,

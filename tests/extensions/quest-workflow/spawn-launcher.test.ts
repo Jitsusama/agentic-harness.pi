@@ -21,6 +21,7 @@ import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
 } from "../../../lib/terminal/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
 // The launcher is asked through `qs` on PATH, so a stand-in `qs` writes
@@ -55,11 +56,6 @@ function wordsFor(key: string): string | undefined {
 }
 const envGuard = createEnvGuard();
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(cwd: string, sessionId: string) {
 	return {
 		cwd,

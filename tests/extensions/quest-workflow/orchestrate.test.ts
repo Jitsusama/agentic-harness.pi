@@ -9,17 +9,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
 
-function fakePi() {
-	return {
-		setSessionName: () => {},
-		appendEntry: () => {},
-	} as unknown as Parameters<typeof handle>[1];
-}
 function fakeCtx() {
 	return {
 		cwd: tmpRoot,

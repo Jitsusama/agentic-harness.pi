@@ -10,19 +10,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { persist, restore } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
 
-/** A pi that keeps what the workflow persists, so restore can read it. */
-function fakePi(entries: { customType: string; data: unknown }[] = []) {
-	return {
-		setSessionName: () => {},
-		appendEntry: (customType: string, data: unknown) =>
-			entries.push({ customType, data }),
-	} as unknown as Parameters<typeof handle>[1];
-}
+/**
+ * A context whose session holds `entries`. Handing it what a fake pi
+ * recorded lets restore read back what the workflow persisted.
+ */
 function fakeCtx(entries: { customType: string; data: unknown }[] = []) {
 	return {
 		cwd: tmpRoot,
@@ -138,19 +135,20 @@ describe("loading a quest", () => {
 describe("resuming a session", () => {
 	it("keeps a plan unfocused on purpose unfocused", async () => {
 		const { id } = await questWithPlans(["build"]);
-		const entries: { customType: string; data: unknown }[] = [];
+		const pi = fakePi();
+		const entries = pi.recorded.entries;
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
-		await handle(state, fakePi(entries), fakeCtx(entries), {
+		await handle(state, pi, fakeCtx(entries), {
 			action: "load",
 			id,
 		});
-		await handle(state, fakePi(entries), fakeCtx(entries), {
+		await handle(state, pi, fakeCtx(entries), {
 			action: "unfocus",
 		});
-		persist(state, fakePi(entries), fakeCtx(entries));
+		persist(state, pi, fakeCtx(entries));
 
 		const resumed = createQuestState({ questsRoot: join(tmpRoot, "quests") });
-		restore(resumed, fakePi(entries), fakeCtx(entries));
+		restore(resumed, pi, fakeCtx(entries));
 
 		expect(resumed.questId).toBe(id);
 		expect(resumed.documentId).toBeNull();
@@ -158,14 +156,15 @@ describe("resuming a session", () => {
 
 	it("focuses the active plan when nothing was focused before", async () => {
 		const { id, plans } = await questWithPlans(["build"]);
-		const entries = [
-			{
-				customType: "quest-workflow",
-				data: { questId: id, documentPath: null, cwd: tmpRoot },
-			},
-		];
+		// What an earlier session persisted, already in this one's log.
+		const pi = fakePi();
+		const entries = pi.recorded.entries;
+		entries.push({
+			customType: "quest-workflow",
+			data: { questId: id, documentPath: null, cwd: tmpRoot },
+		});
 		const resumed = createQuestState({ questsRoot: join(tmpRoot, "quests") });
-		restore(resumed, fakePi(entries), fakeCtx(entries));
+		restore(resumed, pi, fakeCtx(entries));
 
 		expect(resumed.documentId).toBe(plans[0]);
 	});

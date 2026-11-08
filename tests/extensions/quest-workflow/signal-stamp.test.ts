@@ -9,17 +9,13 @@ import {
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { parseQuestFrontMatter } from "../../../lib/quest/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
 let savedState: string | undefined;
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(sessionId: string) {
 	return {
 		cwd: tmpRoot,

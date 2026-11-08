@@ -10,15 +10,11 @@ import {
 	registerTreeProvider,
 } from "../../../lib/core/tree/index.ts";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(cwd: string) {
 	return {
 		cwd,

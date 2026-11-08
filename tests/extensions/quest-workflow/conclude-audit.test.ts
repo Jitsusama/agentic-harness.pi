@@ -11,15 +11,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
+import { fakePi } from "../../support/fake-pi.ts";
 
 let root: string;
 let savedCache: string | undefined;
-
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 
 function fakeCtx(cwd: string) {
 	return {

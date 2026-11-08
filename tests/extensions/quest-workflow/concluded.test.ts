@@ -14,22 +14,14 @@ import {
 	waitingFile,
 	waitingFolder,
 } from "../../../lib/mesh/waiting";
+import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
+let pi: FakePi;
 let said: [string, unknown][];
 
-function fakePi() {
-	return {
-		setSessionName: () => {},
-		appendEntry: () => {},
-		events: {
-			emit: (channel: string, data: unknown) => said.push([channel, data]),
-			on: () => () => {},
-		},
-	} as unknown as Parameters<typeof handle>[1];
-}
 function fakeCtx() {
 	return {
 		cwd: tmpRoot,
@@ -44,7 +36,8 @@ function fakeCtx() {
 beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "concluded-"));
-	said = [];
+	pi = fakePi();
+	said = pi.recorded.emitted;
 });
 afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
@@ -55,7 +48,7 @@ describe("an ending", () => {
 	it("is said on the bus with what ended and what the tool answered", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const run = (params: Parameters<typeof handle>[3]) =>
-			handle(state, fakePi(), fakeCtx(), params);
+			handle(state, pi, fakeCtx(), params);
 		succeeded(await run({ action: "create", title: "Ending Quest" }));
 		succeeded(await run({ action: "think", kind: "plan", note: "x" }));
 		succeeded(await run({ action: "draft", title: "A Plan" }));
@@ -78,7 +71,7 @@ describe("an ending", () => {
 		try {
 			const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 			const run = (params: Parameters<typeof handle>[3]) =>
-				handle(state, fakePi(), fakeCtx(), params);
+				handle(state, pi, fakeCtx(), params);
 			succeeded(await run({ action: "create", title: "Waiting Quest" }));
 			const quest = state.questId ?? "";
 			const folder = waitingFolder();
@@ -106,7 +99,7 @@ describe("an ending", () => {
 	it("is not said for a refusal", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const run = (params: Parameters<typeof handle>[3]) =>
-			handle(state, fakePi(), fakeCtx(), params);
+			handle(state, pi, fakeCtx(), params);
 
 		refused(await run({ action: "retire", id: "PLAN-20991231-NOSUCH" }));
 

@@ -18,6 +18,7 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
 function addTree(
@@ -60,13 +61,6 @@ function addSession(
 }
 
 let tmpRoot: string;
-
-function fakePi() {
-	return {
-		setSessionName: () => {},
-		appendEntry: () => {},
-	} as unknown as Parameters<typeof handle>[1];
-}
 
 // A ctx whose session history carries a persisted loaded-quest slice,
 // the shape restore() reads on a /reload.

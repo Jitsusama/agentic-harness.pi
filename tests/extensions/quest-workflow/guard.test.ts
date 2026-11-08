@@ -26,6 +26,7 @@ import {
 	declareGuards,
 	GUARDS,
 } from "../../../lib/internal/guardian/guards.ts";
+import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo, git } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
@@ -35,11 +36,6 @@ let reports: GuardReport[];
 const noScratch = { tempRoots: [] as string[] };
 const envGuard = createEnvGuard();
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx(cwd: string) {
 	return {
 		cwd,

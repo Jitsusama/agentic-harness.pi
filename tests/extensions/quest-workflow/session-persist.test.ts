@@ -15,24 +15,16 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index";
+import {
+	type AppendedEntry,
+	type FakePi,
+	fakePi,
+} from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
-interface AppendedEntry {
-	customType: string;
-	data: unknown;
-}
-
 let tmpRoot: string;
+let pi: FakePi;
 let entries: AppendedEntry[];
-
-function fakePi() {
-	return {
-		setSessionName: () => {},
-		appendEntry: (customType: string, data?: unknown) => {
-			entries.push({ customType, data });
-		},
-	} as unknown as Parameters<typeof handle>[1];
-}
 
 function fakeCtx(cwd: string, sessionId = "sess-1", persisted = true) {
 	return {
@@ -59,7 +51,11 @@ let savedHome: string | undefined;
 beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "quest-persist-"));
-	entries = [];
+	// One pi for the whole test, so everything the workflow appends
+	// lands in the one log the context reads back, as a session's does
+	// across a reload.
+	pi = fakePi();
+	entries = pi.recorded.entries;
 	// Point the pi session store (sessionsDir keys off HOME) at an
 	// empty tmp home so phantom-prune and liveness tests read a known
 	// store rather than the developer's real ~/.pi/agent/sessions.
@@ -77,7 +73,7 @@ async function createQuest(
 	state: ReturnType<typeof buildState>,
 	title: string,
 ) {
-	const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+	const r = await handle(state, pi, fakeCtx(tmpRoot), {
 		action: "create",
 		kind: "quest",
 		title,
@@ -85,7 +81,7 @@ async function createQuest(
 	if (!r.ok) throw new Error(r.guidance);
 	// A session already on a quest stays there when it creates one, so
 	// these tests, which create one quest after another, load each.
-	const loaded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+	const loaded = await handle(state, pi, fakeCtx(tmpRoot), {
 		action: "load",
 		id: String(r.details?.id),
 	});
@@ -127,7 +123,7 @@ describe("session membership reconcile", () => {
 		addActiveSession(join(a.dir, "README.md"), "sess-1");
 		expect(sessionStatus(a.dir, "sess-1")).toBe("active");
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: b.id,
 		});
@@ -147,7 +143,7 @@ describe("session membership reconcile", () => {
 		addActiveSession(join(a.dir, "README.md"), "sess-1");
 		addActiveSession(join(b.dir, "README.md"), "sess-1");
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: c.id,
 		});
@@ -162,16 +158,16 @@ describe("persist + restore", () => {
 	it("persists the loaded quest and restores it on a fresh state", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: a.id,
 		});
-		persist(state, fakePi());
+		persist(state, pi);
 
 		// Fresh state, same session history. restore picks up
 		// the quest that was loaded before the reload.
 		const next = buildState();
-		const restored = restore(next, fakePi(), fakeCtx(tmpRoot));
+		const restored = restore(next, pi, fakeCtx(tmpRoot));
 		expect(restored).toBe(true);
 		expect(next.questId).toBe(a.id);
 		expect(next.questTitle).toBe("Alpha");
@@ -179,7 +175,7 @@ describe("persist + restore", () => {
 
 	it("returns false when nothing is persisted", () => {
 		const state = buildState();
-		const restored = restore(state, fakePi(), fakeCtx(tmpRoot));
+		const restored = restore(state, pi, fakeCtx(tmpRoot));
 		expect(restored).toBe(false);
 		expect(state.questId).toBeNull();
 	});
@@ -187,24 +183,24 @@ describe("persist + restore", () => {
 	it("restores the focused document alongside the quest", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: a.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "think",
 			kind: "plan",
 			note: "investigate",
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "draft",
 			title: "Doc One",
 		});
 		expect(state.documentPath).not.toBeNull();
-		persist(state, fakePi());
+		persist(state, pi);
 
 		const next = buildState();
-		const restored = restore(next, fakePi(), fakeCtx(tmpRoot));
+		const restored = restore(next, pi, fakeCtx(tmpRoot));
 		expect(restored).toBe(true);
 		expect(next.questId).toBe(a.id);
 		expect(next.documentPath).toBe(state.documentPath);
@@ -216,19 +212,19 @@ describe("persist + restore", () => {
 		const a = await createQuest(state, "Alpha");
 		const b = await createQuest(state, "Beta");
 
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: a.id,
 		});
-		persist(state, fakePi());
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		persist(state, pi);
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: b.id,
 		});
-		persist(state, fakePi());
+		persist(state, pi);
 
 		const next = buildState();
-		const restored = restore(next, fakePi(), fakeCtx(tmpRoot));
+		const restored = restore(next, pi, fakeCtx(tmpRoot));
 		expect(restored).toBe(true);
 		expect(next.questId).toBe(b.id);
 	});
@@ -236,7 +232,7 @@ describe("persist + restore", () => {
 	it("skips appending when the snapshot equals the most recent entry", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: a.id,
 		});
@@ -248,13 +244,13 @@ describe("persist + restore", () => {
 		// One persist with ctx commits the first snapshot.
 		// Four back-to-back persists with no state change
 		// dedup against it.
-		persist(state, fakePi(), fakeCtx(tmpRoot));
+		persist(state, pi, fakeCtx(tmpRoot));
 		const afterFirst = entries.filter(
 			(e) => e.customType === "quest-workflow",
 		).length;
 		expect(afterFirst - questEntriesBefore).toBe(1);
 
-		for (let i = 0; i < 4; i++) persist(state, fakePi(), fakeCtx(tmpRoot));
+		for (let i = 0; i < 4; i++) persist(state, pi, fakeCtx(tmpRoot));
 		const afterRepeats = entries.filter(
 			(e) => e.customType === "quest-workflow",
 		).length;
@@ -265,20 +261,20 @@ describe("persist + restore", () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
 		const b = await createQuest(state, "Bravo");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: a.id,
 		});
-		persist(state, fakePi(), fakeCtx(tmpRoot));
+		persist(state, pi, fakeCtx(tmpRoot));
 		const before = entries.filter(
 			(e) => e.customType === "quest-workflow",
 		).length;
 
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: b.id,
 		});
-		persist(state, fakePi(), fakeCtx(tmpRoot));
+		persist(state, pi, fakeCtx(tmpRoot));
 		const after = entries.filter(
 			(e) => e.customType === "quest-workflow",
 		).length;
@@ -288,18 +284,18 @@ describe("persist + restore", () => {
 	it("refuses to restore a quest that no longer exists on disk", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await handle(state, pi, fakeCtx(tmpRoot), {
 			action: "load",
 			id: a.id,
 		});
-		persist(state, fakePi());
+		persist(state, pi);
 
 		// Wipe the on-disk quest while keeping the session
 		// entry pointing at it. Restore should report false
 		// instead of half-loading or throwing.
 		rmSync(a.dir, { recursive: true, force: true });
 		const next = buildState();
-		const restored = restore(next, fakePi(), fakeCtx(tmpRoot));
+		const restored = restore(next, pi, fakeCtx(tmpRoot));
 		expect(restored).toBe(false);
 		expect(next.questId).toBeNull();
 	});
@@ -309,11 +305,11 @@ describe("persisted cwd", () => {
 	it("records the session cwd in the snapshot", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/here"), {
+		await handle(state, pi, fakeCtx("/work/here"), {
 			action: "load",
 			id: a.id,
 		});
-		persist(state, fakePi(), fakeCtx("/work/here"));
+		persist(state, pi, fakeCtx("/work/here"));
 		const last = entries
 			.filter((e) => e.customType === "quest-workflow")
 			.at(-1);
@@ -331,7 +327,7 @@ describe("auto-attach on load", () => {
 	it("attaches the current session to the loaded quest's frontmatter", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-load"), {
 			action: "load",
 			id: a.id,
 		});
@@ -345,15 +341,10 @@ describe("auto-attach on load", () => {
 	it("does not attach an ephemeral (--no-session) session", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(
-			state,
-			fakePi(),
-			fakeCtx("/work/dir", "sess-ephemeral", false),
-			{
-				action: "load",
-				id: a.id,
-			},
-		);
+		await handle(state, pi, fakeCtx("/work/dir", "sess-ephemeral", false), {
+			action: "load",
+			id: a.id,
+		});
 		expect(sessionsOf(a.dir).some((s) => s.id === "sess-ephemeral")).toBe(
 			false,
 		);
@@ -362,11 +353,11 @@ describe("auto-attach on load", () => {
 	it("keeps the session active when the same quest is reloaded (no switch-detach)", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "stay"), {
+		await handle(state, pi, fakeCtx("/work/dir", "stay"), {
 			action: "load",
 			id: a.id,
 		});
-		await handle(state, fakePi(), fakeCtx("/work/dir", "stay"), {
+		await handle(state, pi, fakeCtx("/work/dir", "stay"), {
 			action: "load",
 			id: a.id,
 		});
@@ -378,11 +369,11 @@ describe("auto-attach on load", () => {
 	it("does not duplicate the session when the same quest is reloaded", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-load"), {
 			action: "load",
 			id: a.id,
 		});
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-load"), {
 			action: "load",
 			id: a.id,
 		});
@@ -411,7 +402,7 @@ describe("auto-attach on load", () => {
 	it("prunes a detached no-log phantom when the quest is next loaded", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "phantom"), {
+		await handle(state, pi, fakeCtx("/work/dir", "phantom"), {
 			action: "load",
 			id: a.id,
 		});
@@ -420,7 +411,7 @@ describe("auto-attach on load", () => {
 		// garbage-collect it rather than carry it forever.
 		detachSessionFromLoaded(state, "phantom");
 		expect(sessionsOf(a.dir).some((s) => s.id === "phantom")).toBe(true);
-		await handle(state, fakePi(), fakeCtx("/work/dir", "fresh"), {
+		await handle(state, pi, fakeCtx("/work/dir", "fresh"), {
 			action: "load",
 			id: a.id,
 		});
@@ -434,11 +425,11 @@ describe("auto-attach on load", () => {
 		const a = await createQuest(state, "Alpha");
 		const b = await createQuest(state, "Beta");
 		// One session loads Alpha, then switches to Beta.
-		await handle(state, fakePi(), fakeCtx("/work/dir", "roamer"), {
+		await handle(state, pi, fakeCtx("/work/dir", "roamer"), {
 			action: "load",
 			id: a.id,
 		});
-		await handle(state, fakePi(), fakeCtx("/work/dir", "roamer"), {
+		await handle(state, pi, fakeCtx("/work/dir", "roamer"), {
 			action: "load",
 			id: b.id,
 		});
@@ -459,7 +450,7 @@ describe("auto-attach on load", () => {
 		// kept its tabs active for ever.
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-x"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-x"), {
 			action: "load",
 			id: a.id,
 		});
@@ -478,7 +469,7 @@ describe("auto-attach on load", () => {
 		// old process shutting down late must not release it.
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-x"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-x"), {
 			action: "load",
 			id: a.id,
 		});
@@ -502,7 +493,7 @@ describe("auto-attach on load", () => {
 	it("preserves the original started timestamp across reloads", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-load"), {
 			action: "load",
 			id: a.id,
 		});
@@ -513,7 +504,7 @@ describe("auto-attach on load", () => {
 
 		// A later load of the same session must not re-stamp started to
 		// the latest attach time.
-		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-load"), {
+		await handle(state, pi, fakeCtx("/work/dir", "sess-load"), {
 			action: "load",
 			id: a.id,
 		});

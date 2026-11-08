@@ -9,6 +9,7 @@ import {
 	type QuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index";
+import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
@@ -17,11 +18,6 @@ function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
-function fakePi() {
-	return { setSessionName: () => {} } as unknown as Parameters<
-		typeof handle
-	>[1];
-}
 function fakeCtx() {
 	return {
 		cwd: tmpRoot,
