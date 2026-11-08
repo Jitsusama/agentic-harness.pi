@@ -424,7 +424,14 @@ doing only when it is the easy thing:
   overlap. A peer reaching for a file another peer still there
   is changing is stopped once, with who, since when and their
   work, and the holder is sent an fyi; reaching again goes
-  ahead beside them. The holder hears of it once an hour from
+  ahead beside them. When every peer changing it works in
+  another worktree, whose copy of the file is its own, the edit
+  goes ahead at once and its result says who, since a merge of
+  the two may clash; that holder is not told. A lease naming no
+  checkout, from an older harness, still stops the edit. In
+  the day to 11-08, 549 edits were stopped, mostly on core.nix
+  files every worktree touches, and 492 went through on the
+  next try. The holder hears of it once an hour from
   this peer, whichever of its processes or hands reaches, and
   however often it retakes its own claim (`told/`). The holder
   itself is never stopped. It

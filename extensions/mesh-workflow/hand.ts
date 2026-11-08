@@ -39,6 +39,7 @@ import { folderTransport } from "../../lib/mesh/transport.ts";
 import { NOTED } from "./delivery.ts";
 import { type MeshPaths, machinePaths, registerHands } from "./index.ts";
 import {
+	createEditNotes,
 	createHeavyCalls,
 	createLeasing,
 	heavySaid,
@@ -106,6 +107,7 @@ export function meshHand(
 					.catch(() => {}),
 			(command) => `${whatOf(command)}, by a subagent`,
 		);
+		const editNotes = createEditNotes();
 
 		// The holds this hand was told of, and those a heavy command was
 		// stopped for, each once.
@@ -217,8 +219,10 @@ export function meshHand(
 							? event.input.path
 							: undefined;
 					if (typeof path !== "string" || path === "") return undefined;
-					const why = await leasing.reach(path, called?.cwd ?? process.cwd());
-					return why ? { block: true, reason: why } : undefined;
+					return editNotes.met(
+						event.toolCallId,
+						await leasing.reach(path, called?.cwd ?? process.cwd()),
+					);
 				} catch {
 					return undefined;
 				}
@@ -226,7 +230,8 @@ export function meshHand(
 		);
 		pi.on("tool_result", async (event) => {
 			heavyCalls.answered(event.toolCallId, event.content);
-			return undefined;
+			const content = editNotes.noted(event.toolCallId, event.content);
+			return content ? { content } : undefined;
 		});
 		if (pi.events) {
 			onJobFinished(pi.events, ({ toolCallId }) => {

@@ -201,6 +201,7 @@ import {
 	saidIn,
 } from "./glances.ts";
 import {
+	createEditNotes,
 	createHeavyCalls,
 	createLeasing,
 	type HoldEnd,
@@ -1633,6 +1634,7 @@ export function meshWorkflow(
 
 		// The calls a reload carried over from the runtime before this one.
 		const heavyCalls = createHeavyCalls(heavy, undefined, takeHeavyCalls());
+		const editNotes = createEditNotes();
 
 		// A change claims its file, and a peer reaching for a file another is
 		// changing is told who, once, before it goes ahead beside them. A git
@@ -1671,11 +1673,10 @@ export function meshWorkflow(
 							? event.input.path
 							: undefined;
 					if (typeof path !== "string" || path === "") return undefined;
-					const why = await leasing.reach(
-						path,
-						called?.cwd ?? ctx?.cwd ?? process.cwd(),
+					return editNotes.met(
+						event.toolCallId,
+						await leasing.reach(path, called?.cwd ?? ctx?.cwd ?? process.cwd()),
 					);
-					return why ? { block: true, reason: why } : undefined;
 				} catch {
 					return undefined;
 				}
@@ -1684,7 +1685,8 @@ export function meshWorkflow(
 
 		pi.on("tool_result", async (event) => {
 			heavyCalls.answered(event.toolCallId, event.content);
-			return undefined;
+			const content = editNotes.noted(event.toolCallId, event.content);
+			return content ? { content } : undefined;
 		});
 		if (pi.events) {
 			onJobFinished(pi.events, ({ toolCallId }) => {

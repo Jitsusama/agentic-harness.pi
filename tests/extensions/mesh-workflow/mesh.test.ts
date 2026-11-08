@@ -3469,6 +3469,44 @@ describe("a lease", () => {
 		expect(sentOut()).toEqual([]);
 	});
 
+	it("lets an edit through when the peer changing the file works in another worktree, noting it on the result", async () => {
+		// 549 edits were stopped from 11-07 11:00 to 11-08 09:00, mostly on
+		// core.nix files every worktree touches, and 492 went through on the
+		// next try: a peer's copy in another worktree is its own.
+		mkdirSync(join(root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", {
+			subject: `${basename(root)}:a.ts`,
+			checkout: join(tmpdir(), "another-worktree"),
+		});
+		const { fire } = await startSession();
+
+		const called = await fire(...editing("a.ts"));
+		const answered = (await fire("tool_result", {
+			type: "tool_result",
+			toolCallId: "t1",
+			content: [{ type: "text", text: "edited" }],
+		})) as { content?: { text?: string }[] } | undefined;
+
+		expect(called).toBeUndefined();
+		expect(answered?.content?.map(({ text }) => text)).toEqual([
+			"edited",
+			expect.stringMatching(
+				/^WCJQSG \(since \d\d:\d\d\) is changing .*:a\.ts in another worktree too, so merging the two may clash;/,
+			),
+		]);
+		expect(sentOut()).toEqual([]);
+	});
+
+	it("still stops an edit when the other peer's lease names no checkout, as an older harness's does", async () => {
+		mkdirSync(join(root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { subject: `${basename(root)}:a.ts` });
+		const { fire } = await startSession();
+
+		expect(await fire(...editing("a.ts"))).toMatchObject({ block: true });
+	});
+
 	it("stops a git command once that rewrites a checkout another peer changes files in", async () => {
 		mkdirSync(join(root, ".git"));
 		peer("session-w", ["WCJQSG"], []);
