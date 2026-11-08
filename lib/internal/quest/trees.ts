@@ -7,9 +7,8 @@
  * alias so a change on that branch finds its quest. A tree's
  * path is not mirrored: the cwd resolver and the lookups read
  * `trees` itself, and a `git-worktree:<path>` alias repeated
- * it (884 of them on the store, migrated away by
- * scripts/drop-worktree-aliases.ts). Removing a tree still
- * removes an old one.
+ * it, until 884 of them were migrated off the store. Removing
+ * a tree still removes an old one.
  */
 
 import { existsSync, readFileSync } from "node:fs";

@@ -28,8 +28,9 @@ a rule covers.
   loads on demand when a task matches their description
 - `docs/`: the reasoning behind the rules here, a page a
   subject
-- `scripts/`: programs run by hand or by `pnpm`: the load
-  check, the sensors, and one-shot migrators of the quest store
+- `scripts/`: programs run by hand, by `pnpm` or by a user
+  service: the load check, the sensors and the launcher's
+  restore file. A one-shot migrator goes once its run is done
 - `tests/`: the tests, mirroring the source;
   [`tests/README.md`](./tests/README.md) says which folders
   don't
