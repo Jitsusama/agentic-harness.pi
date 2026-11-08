@@ -316,6 +316,7 @@ SELECT f.*,
 		WHEN f.gap_ms > ${FIVE_MINUTES_MS} AND f.cache_write_1h = 0
 			THEN 'idle over five minutes'
 		WHEN f.preceded_by IN ('tools', 'system') THEN 'prompt changed'
+		WHEN f.preceded_by = 'reload' THEN 'after reload'
 		WHEN f.preceded_by = 'typed' THEN 'after a typed message'
 		WHEN f.tokens_cache_read < ${FULL_MISS_READ_TOKENS}
 			THEN 'full miss, unexplained'
