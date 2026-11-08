@@ -1,7 +1,7 @@
 /**
- * The first head a session sent, kept at the front of every request
- * after a compaction, so the provider's cache of the prompt and tools
- * still answers for it.
+ * The head a session sent, kept at the front of every request after a
+ * compaction, so the provider's cache of the prompt and tools still
+ * answers for it.
  *
  * pi sends a session's prompt and tools once, in the system message that
  * leads its first request, and every later change as a patch further
@@ -17,6 +17,13 @@
  * Put back, the first head leads again and one patch after it carries
  * what changed, so the model reads the same prompt and tools as pi's
  * fold would give it, and the cached head is read rather than written.
+ *
+ * The patch grows with a session's age, though, and is written again at
+ * every compaction and read on every turn. On 8 November the patch
+ * averaged 66,830 characters across 629 compactions, against a head of
+ * 148,319, and 106,778 in sessions one to three days old. So once a compaction's head differs from
+ * the kept one by a quarter of it, that compaction's head is kept from
+ * then on, and is written once.
  */
 
 import {
@@ -29,31 +36,76 @@ import {
 /** What a patch message joins one prompt's content to the next with. */
 const CONTENT_JOIN = "\n\n";
 
-/** The first system message on a session's branch, which led its first request. */
-export function firstHeadOf(
-	entries: readonly { readonly type: string; readonly message?: unknown }[],
+/**
+ * The share of the kept head a patch may reach before a compaction's
+ * own head is kept instead. Writing a head costs $8 a million tokens and
+ * reading one $0.20, so moving costs about 7.8 of the head's size; a
+ * patch is written at the compaction and read on each of a cycle's
+ * turns, 109 on average on 8 November, so carrying it costs about 29.8
+ * of its size. Past a quarter, moving pays within the cycle.
+ */
+export const MOVE_SHARE = 0.25;
+
+/**
+ * The head a session's requests lead with now: its first system
+ * message, or the head of the compaction that last moved it there,
+ * walked from the branch alone so every request in a cycle agrees.
+ */
+export function keptHeadOf(
+	entries: readonly {
+		readonly type: string;
+		readonly message?: unknown;
+		readonly systemMessage?: unknown;
+	}[],
 ): SystemMessage | undefined {
+	let kept: SystemMessage | undefined;
 	for (const entry of entries) {
-		if (entry.type !== "message") continue;
-		if (isSystemMessage(entry.message)) return entry.message;
+		if (kept === undefined) {
+			if (entry.type === "message" && isSystemMessage(entry.message)) {
+				kept = entry.message;
+			}
+			continue;
+		}
+		if (entry.type !== "compaction" || !isSystemMessage(entry.systemMessage)) {
+			continue;
+		}
+		if (outgrown(kept, entry.systemMessage)) kept = entry.systemMessage;
 	}
-	return undefined;
+	return kept;
+}
+
+/** Whether the patch from `kept` to `head` has reached `MOVE_SHARE` of `kept`, or can't be said. */
+function outgrown(kept: SystemMessage, head: SystemMessage): boolean {
+	const patch = patchBetween(kept, head);
+	if (patch === SAME) return false;
+	if (patch === undefined) return true;
+	return sizeOf(patch) >= MOVE_SHARE * sizeOf(kept);
+}
+
+/** A system message's size as sent: its content, its sections and its tools. */
+function sizeOf(message: SystemMessage): number {
+	let size = contentText(message.content).length;
+	for (const text of Object.values(message.sections ?? {})) {
+		size += text?.length ?? 0;
+	}
+	const tools = message.toolsAdded ?? [];
+	return tools.length > 0 ? size + JSON.stringify(tools).length : size;
 }
 
 /**
- * The request's messages with `first` leading them and a patch after it
+ * The request's messages with `kept` leading them and a patch after it
  * that brings it to the head they had, or nothing when they already
- * start with `first` or the difference can't be said as a patch.
+ * start with `kept` or the difference can't be said as a patch.
  */
-export function keepFirstHead<M extends { readonly role: string }>(
-	first: SystemMessage,
+export function keepHead<M extends { readonly role: string }>(
+	kept: SystemMessage,
 	messages: readonly M[],
 ): (M | SystemMessage)[] | undefined {
 	const head = messages[0];
 	if (!isSystemMessage(head)) return undefined;
-	const patch = patchBetween(first, head);
+	const patch = patchBetween(kept, head);
 	if (patch === undefined || patch === SAME) return undefined;
-	return [first, patch, ...messages.slice(1)];
+	return [kept, patch, ...messages.slice(1)];
 }
 
 /** The two heads already say the same thing. */

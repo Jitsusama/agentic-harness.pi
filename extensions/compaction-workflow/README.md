@@ -152,7 +152,7 @@ of Opus 5.5.
 Interactive and RPC sessions only, since a subagent ends with its run.
 `/compaction-status` says what warming is doing.
 
-## Keeping the First Head
+## Keeping the Head
 
 pi sends a session's prompt and tools in the system message that leads
 its first request, and each later change as a patch further on, so the
@@ -172,6 +172,15 @@ removed, tools added or withdrawn. The model reads the same prompt and
 tools as under pi's head. Where the difference can't be said as a
 patch, content that doesn't continue the first head's, pi's head
 stands.
+
+That patch grows with a session's age, and is written at every
+compaction and read on every turn. On 8 November it averaged 66,830
+characters across 629 compactions, against a head of 148,319. So once
+a compaction's head differs from the kept one by a quarter of it
+(`MOVE_SHARE` in `lib/internal/session/first-head.ts`), that
+compaction's head is kept from then on: writing it once costs less
+than carrying the patch for a cycle. Which head is kept is worked out
+from the branch alone, so every request in a cycle agrees.
 
 ## Interrupt, Trigger, Resume
 

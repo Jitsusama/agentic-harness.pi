@@ -17,8 +17,9 @@ import { stream } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 import {
-	firstHeadOf,
-	keepFirstHead,
+	keepHead,
+	keptHeadOf,
+	MOVE_SHARE,
 } from "../../../../lib/internal/session/first-head.ts";
 
 const tool = (name: string): Tool => ({
@@ -61,7 +62,7 @@ const afterCompaction: Message[] = [
 
 describe("keeping the first head", () => {
 	it("leads with the first head and a patch to where pi's head stood", () => {
-		const kept = keepFirstHead(first, afterCompaction) ?? [];
+		const kept = keepHead(first, afterCompaction) ?? [];
 
 		expect(kept[0]).toBe(first);
 		expect(kept.slice(2)).toEqual(afterCompaction.slice(1));
@@ -74,7 +75,7 @@ describe("keeping the first head", () => {
 	it("leaves a request that already leads with the first head alone", () => {
 		const before: Message[] = [first, user("one", 2), changed, user("two", 4)];
 
-		expect(keepFirstHead(first, before)).toBeUndefined();
+		expect(keepHead(first, before)).toBeUndefined();
 	});
 
 	it("leaves pi's head when it doesn't continue the first one's content", () => {
@@ -83,7 +84,7 @@ describe("keeping the first head", () => {
 			content: "You are someone else.",
 		};
 
-		expect(keepFirstHead(first, [rewritten, user("next", 6)])).toBeUndefined();
+		expect(keepHead(first, [rewritten, user("next", 6)])).toBeUndefined();
 	});
 
 	it("carries content added after the first head's", () => {
@@ -91,16 +92,47 @@ describe("keeping the first head", () => {
 			...folded,
 			content: "You are pi.\n\nBe brief.",
 		};
-		const kept = keepFirstHead(first, [added, user("next", 6)]) ?? [];
+		const kept = keepHead(first, [added, user("next", 6)]) ?? [];
 
 		expect(getCurrentSystemPrompt(kept)).toBe(getCurrentSystemPrompt([added]));
 	});
 
 	it("leaves a request with no system head alone", () => {
-		expect(keepFirstHead(first, [user("next", 6)])).toBeUndefined();
+		expect(keepHead(first, [user("next", 6)])).toBeUndefined();
 	});
+});
 
-	it("finds the first system message on a branch", () => {
+/** A head whose skills section is most of it, as a real session's is. */
+const big: SystemMessage = {
+	role: "system",
+	content: "You are pi.",
+	sections: { skills: "s".repeat(1_000), cwd: "<cwd>/src</cwd>" },
+	toolsAdded: [tool("read")],
+	timestamp: 1,
+};
+
+/** A compaction's entry, leading with the head `systemMessage`. */
+const compaction = (systemMessage: SystemMessage) => ({
+	type: "compaction",
+	systemMessage,
+});
+
+/** `big`'s size as sent: its content, its sections and its tools. */
+const bigSize =
+	"You are pi.".length +
+	1_000 +
+	"<cwd>/src</cwd>".length +
+	JSON.stringify(big.toolsAdded).length;
+
+/** `big` with a notes section `length` long added, so the patch is that section. */
+const withNotes = (length: number, at: number): SystemMessage => ({
+	...big,
+	sections: { ...big.sections, notes: "n".repeat(length) },
+	timestamp: at,
+});
+
+describe("the head a session keeps", () => {
+	it("is the first system message on a branch before any compaction", () => {
 		const branch = [
 			{ type: "session_info" },
 			{ type: "message", message: user("hi", 0) },
@@ -108,10 +140,67 @@ describe("keeping the first head", () => {
 			{ type: "message", message: changed },
 		];
 
-		expect(firstHeadOf(branch)).toBe(first);
+		expect(keptHeadOf(branch)).toBe(first);
 		expect(
-			firstHeadOf([{ type: "message", message: user("hi", 0) }]),
+			keptHeadOf([{ type: "message", message: user("hi", 0) }]),
 		).toBeUndefined();
+	});
+
+	it("stays the first through a compaction whose head differs a little", () => {
+		const nearly: SystemMessage = {
+			...big,
+			sections: { ...big.sections, cwd: "<cwd>/elsewhere</cwd>" },
+			timestamp: 5,
+		};
+		const branch = [{ type: "message", message: big }, compaction(nearly)];
+
+		expect(keptHeadOf(branch)).toBe(big);
+	});
+
+	it("moves to a compaction's head once the patch reaches its share of the kept one", () => {
+		const reach = Math.ceil(MOVE_SHARE * bigSize);
+		const under = withNotes(reach - 1, 5);
+		const at = withNotes(reach, 5);
+
+		expect(
+			keptHeadOf([{ type: "message", message: big }, compaction(under)]),
+		).toBe(big);
+		expect(
+			keptHeadOf([{ type: "message", message: big }, compaction(at)]),
+		).toBe(at);
+	});
+
+	it("measures each later compaction against the head it moved to", () => {
+		const grown = withNotes(bigSize, 5);
+		const thenNearly: SystemMessage = {
+			...grown,
+			sections: { ...grown.sections, cwd: "<cwd>/elsewhere</cwd>" },
+			timestamp: 9,
+		};
+		const branch = [
+			{ type: "message", message: big },
+			compaction(grown),
+			{ type: "message", message: user("on", 6) },
+			compaction(thenNearly),
+		];
+
+		expect(keptHeadOf(branch)).toBe(grown);
+	});
+
+	it("moves to a compaction's head that can't be said as a patch", () => {
+		const rewritten: SystemMessage = {
+			...big,
+			content: "You are someone else.",
+		};
+		const branch = [{ type: "message", message: big }, compaction(rewritten)];
+
+		expect(keptHeadOf(branch)).toBe(rewritten);
+	});
+
+	it("ignores a compaction that recorded no head", () => {
+		const branch = [{ type: "message", message: big }, { type: "compaction" }];
+
+		expect(keptHeadOf(branch)).toBe(big);
 	});
 });
 
@@ -159,7 +248,7 @@ describe("the request Anthropic is sent after a compaction", () => {
 
 	it("starts with the system text and tools it was sent before", async () => {
 		const cached = await payloadFor(before);
-		const kept = await payloadFor(keepFirstHead(first, afterCompaction) ?? []);
+		const kept = await payloadFor(keepHead(first, afterCompaction) ?? []);
 
 		expect(cached.system).toBeDefined();
 		expect(cached.tools).toBeDefined();
