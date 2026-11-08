@@ -9,7 +9,8 @@
 #
 # The branch defaults to the one checked out, which must be pushed as it
 # stands; the host defaults to penelope. The host keeps a clone of its own
-# under ~/.cache/harness-check, fetched from GitHub each time, so nothing
+# under ~/.cache/harness-check.git, fetched from GitHub each time and
+# checked out in a worktree of it at ~/.cache/harness-check-tree, so nothing
 # of the person's on it is touched. It finds the pnpm that package.json
 # names in its Nix store, since corepack can't fetch one there, and runs
 # npm's prebuilt biome through glibc's own loader where the host has no
@@ -30,13 +31,21 @@ fi
 exec ssh -o BatchMode=yes "$host" bash -s -- "$branch" <<'THERE'
 set -euo pipefail
 branch="$1"
-dir=~/.cache/harness-check
-if [ ! -d "$dir/.git" ]; then
-  git clone -q https://github.com/Jitsusama/agentic-harness.pi.git "$dir"
+# The check runs in a worktree of a bare clone, as the harness's own trees
+# are: the strict sandbox's tests refuse a plain clone's folder, whose git
+# folder commands could write.
+repo=~/.cache/harness-check.git
+dir=~/.cache/harness-check-tree
+if [ ! -d "$repo" ]; then
+  git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
+fi
+git -C "$repo" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" "+refs/heads/main:refs/remotes/origin/main"
+if [ ! -e "$dir/.git" ]; then
+  git -C "$repo" worktree prune
+  git -C "$repo" worktree add -q --detach "$dir" "origin/$branch"
 fi
 cd "$dir"
-git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" main
-git checkout -q --force "origin/$branch"
+git checkout -q --force --detach "origin/$branch"
 git log --oneline -1
 want=$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)
 bin=$(ls -d /nix/store/*-pnpm-"$want"/bin 2>/dev/null | head -1)
