@@ -123,12 +123,14 @@ describe("a command in the sandbox", () => {
 				"kept=()",
 				'while [ "$1" != -- ]; do',
 				"  case $1 in",
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 				'    --env) case $2 in *=*) kept+=("$2");; *) [ -n "${!2+set}" ] && kept+=("$2=${!2}");; esac; shift 2;;',
 				"    --unrestricted-network|--ignore-missing) shift;;",
 				"    *) shift 2;;",
 				"  esac",
 				"done",
 				"shift",
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 				'exec env -i "${kept[@]}" "$@"',
 			].join("\n"),
 		);
@@ -148,6 +150,7 @@ describe("a command in the sandbox", () => {
 	it("shows its text on no process's command line, and leaves no copy behind", async () => {
 		const answer = await run(
 			sandbox,
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 			'tr "\\0" " " < /proc/$$/cmdline; echo; echo "copy:${PI_SANDBOXED_COMMAND-none}" # marker-in-text',
 		);
 		expect(answer).not.toMatch(/marker-in-text.*\n.*copy/);
@@ -161,6 +164,7 @@ describe("a command in the sandbox", () => {
 		process.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
 		const answer = await run(
 			sandbox,
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 			'echo "$SANDBOX_TEST_KEPT ${DBUS_SESSION_BUS_ADDRESS-nobus} $NIX_REMOTE"',
 		).finally(() => {
 			delete process.env.SANDBOX_TEST_KEPT;
