@@ -76,6 +76,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			...(process.env.JOBS_CGROUP
 				? [
 						"Do not add nice or ionice to a command. Every command already runs in a cgroup below everything the person uses, where nice only ranks it against other agents' work: a niced VM test loses to every build beside it and times out, and a niced nix build slows only its own evaluation, since the Nix daemon does the building.",
+						"Builds and test suites here (cargo, clippy, vitest, pnpm check) wait their turn while the machine is busy. Where a repository has a Nix check for the crate or package, run that through `nix-offload there` instead, which builds it elsewhere.",
 					]
 				: []),
 		],

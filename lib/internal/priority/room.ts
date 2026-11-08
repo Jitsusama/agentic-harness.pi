@@ -285,6 +285,11 @@ export function readRoom(
 					floorsPressure: Math.max(
 						...floors.map((floor) => stalled(join(floor, "memory.pressure"))),
 					),
+					// And on CPU, which the machine's figure hides: weights keep
+					// the person's programs first while agents wait on each other.
+					floorsCpuPressure: Math.max(
+						...floors.map((floor) => stalled(join(floor, "cpu.pressure"))),
+					),
 				}
 			: {}),
 		cores: cores(kernel.proc),
