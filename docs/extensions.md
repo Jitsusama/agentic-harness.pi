@@ -16,11 +16,12 @@ it does:
   `commit-guardian`, `pr-guardian`, `issue-guardian`,
   `history-guardian`
 
-- **Interceptors** (`*-interceptor`): intercept shell commands
-  and modify or block them silently, without a review gate.
-  `attribution-interceptor`, `edit-escape-interceptor`,
+- **Interceptors** (`*-interceptor`): intercept a tool's call or
+  its answer and modify or block it silently, without a review
+  gate. `attribution-interceptor`, `edit-escape-interceptor`,
   `git-cli-interceptor`, `github-cli-interceptor`,
-  `remote-check-interceptor`, `shell-habit-interceptor`
+  `read-after-write-interceptor`, `remote-check-interceptor`,
+  `secret-scrub-interceptor`, `shell-habit-interceptor`
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
