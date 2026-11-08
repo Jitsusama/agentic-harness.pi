@@ -278,6 +278,11 @@ export function readRoom(
 			builds.filter((build) => build.timed && !build.qemu).length,
 		builds: builds.map(({ qemu: _, ...seen }) => seen),
 		cpuPressure: cpu,
+		cpuPressureMinute: stalledOverMinute(join(kernel.proc, "pressure", "cpu")),
+		ioPressure: Math.max(
+			pressure(kernel.proc, "io"),
+			stalledOverMinute(join(kernel.proc, "pressure", "io")),
+		),
 		// The person's own programs, as the floors keep them, so VMs past
 		// the first few wait while those programs wait on memory.
 		...(floors.length > 0
@@ -383,6 +388,12 @@ function pressure(proc: string, kind: string): number {
 /** The share of time some task stalled, avg10, from a pressure file. */
 function stalled(path: string): number {
 	const some = /^some avg10=([\d.]+)/m.exec(text(path));
+	return some ? Number(some[1]) : 0;
+}
+
+/** The share of time some task stalled over the last minute, from a pressure file. */
+function stalledOverMinute(path: string): number {
+	const some = /^some avg10=[\d.]+ avg60=([\d.]+)/m.exec(text(path));
 	return some ? Number(some[1]) : 0;
 }
 

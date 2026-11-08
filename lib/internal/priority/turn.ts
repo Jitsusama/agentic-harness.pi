@@ -195,6 +195,7 @@ export function queuedCommand(
 		...(lastRanS !== undefined ? { lastRanS } : {}),
 		...(quick ? { quick: true as const } : {}),
 		...(walk ? { walk } : {}),
+		...(sent ? { sent: true as const } : {}),
 		...(quest ? { quest } : {}),
 		...(plan ? { planning: true as const } : {}),
 		owner: { session: queueing.session, pid: queueing.pid },
