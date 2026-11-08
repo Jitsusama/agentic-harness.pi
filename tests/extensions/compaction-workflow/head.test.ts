@@ -84,6 +84,21 @@ const tools: InlineExtension = {
 	},
 };
 
+/** A tool far larger than the rest of the head, as a big loaded tool is. */
+const large: InlineExtension = {
+	name: "first-head-large-tool",
+	hidden: true,
+	factory: (pi) => {
+		pi.registerTool({
+			name: "large_tool",
+			label: "large_tool",
+			description: "A large tool. ".repeat(2_000),
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [], details: undefined }),
+		});
+	},
+};
+
 /** Just the head keeping, loaded as pi loads an extension. */
 const keeping: InlineExtension = {
 	name: "first-head",
@@ -91,13 +106,17 @@ const keeping: InlineExtension = {
 	factory: registerFirstHead,
 };
 
-async function open(options: { keep: boolean }): Promise<AgentSession> {
+async function open(options: {
+	keep: boolean;
+	large?: boolean;
+}): Promise<AgentSession> {
+	const factories = [tools, ...(options.large ? [large] : [])];
 	const services = await createAgentSessionServices({
 		cwd: dir,
 		agentDir,
 		resourceLoaderOptions: {
 			noExtensions: true,
-			extensionFactories: options.keep ? [tools, keeping] : [tools],
+			extensionFactories: options.keep ? [...factories, keeping] : factories,
 			noSkills: true,
 			noContextFiles: true,
 			noPromptTemplates: true,
@@ -181,6 +200,26 @@ describe("a request after a compaction", () => {
 		expect(getCurrentSystemPrompt(kept.after)).toBe(
 			getCurrentSystemPrompt(pis.after),
 		);
+	});
+
+	it("leads with pi's own head once what changed outgrows the first", async () => {
+		const session = await open({ keep: true, large: true });
+		const all = session.getActiveToolNames();
+		session.setActiveToolsByName(all.filter((name) => name !== "large_tool"));
+		const before = await turn(session, "first");
+		session.setActiveToolsByName(all);
+		await turn(session, "second");
+		await turn(session, "third");
+		faux.appendResponses([reply("what happened"), reply("how it started")]);
+		await session.compact();
+		const after = await turn(session, "after the compaction");
+		const later = await turn(session, "and after that");
+		session.dispose();
+
+		expect(names(before)).not.toContain("large_tool");
+		expect(systemOf(after)).toHaveLength(1);
+		expect(names(after)).toContain("large_tool");
+		expect(later[0]).toEqual(after[0]);
 	});
 
 	it("keeps pi's own head when keeping is turned off", async () => {
