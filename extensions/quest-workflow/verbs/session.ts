@@ -51,6 +51,7 @@ import {
 } from "../lookup.ts";
 import type { QuestState } from "../state.ts";
 import { terminalOptions } from "../terminal.ts";
+import { trustPromptNote, trustPromptWaits } from "../trust-prompt.ts";
 import { presencesHere, windowPlaceFor } from "../window-place.ts";
 import { addressOf } from "./address.ts";
 import { needsOf } from "./needs.ts";
@@ -405,6 +406,14 @@ export async function spawn(
 				machine ?? hostname().split(".")[0] ?? "",
 			)
 		: spawned.command;
+	// A pi that will stop at the folder-trust prompt is said so at once;
+	// one held on another machine is that machine's to judge.
+	const trustWaits =
+		startsPi(command) &&
+		(machine === undefined || isThisMachine(machine)) &&
+		trustPromptWaits(cwd, command);
+	const trustNote = trustWaits ? trustPromptNote(cwd) : "";
+	const trusting = trustWaits ? { trustWaits: cwd } : {};
 
 	// Pass the target quest id through to the spawned
 	// process via an env var. The new pi's quest-workflow
@@ -466,9 +475,11 @@ export async function spawn(
 			: params.command?.trim()
 				? undefined
 				: resumeMessage(resume, sessions, now);
-		return ok(resumed ? `${held.message} ${resumed}` : held.message, {
+		const said = resumed ? `${held.message} ${resumed}` : held.message;
+		return ok(`${said}${trustNote}`, {
 			...held.details,
 			...(token && !held.planned ? { firstWordsKey: token } : {}),
+			...trusting,
 			cwd,
 			command,
 			resumedSessionId,
@@ -547,11 +558,12 @@ export async function spawn(
 			? `a new session, ${forLauncher.id}, which loads ${questIdForSpawn} as it starts`
 			: `session ${forLauncher.id}, which brings back its own quest`;
 		return ok(
-			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}`,
+			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}${trustNote}`,
 			{
 				how: "launcher",
 				sessionId: forLauncher.id,
 				...(token ? { firstWordsKey: token } : {}),
+				...trusting,
 				fresh: forLauncher.fresh === true,
 				layout: "window",
 				cwd,
@@ -579,8 +591,15 @@ export async function spawn(
 				? " Run for real, it goes first to the desktop's launcher, which opens that window itself, and opens as planned only when the launcher doesn't answer."
 				: "";
 		return ok(
-			`Would spawn a ${layout} in ${cwd} (${chosenBy}) through ${used}, running: ${command}.${noted}${first}`,
-			{ plan, cwd, cwdSource, command, autoloadQuestId: questIdForSpawn },
+			`Would spawn a ${layout} in ${cwd} (${chosenBy}) through ${used}, running: ${command}.${noted}${first}${trustNote}`,
+			{
+				plan,
+				cwd,
+				cwdSource,
+				command,
+				autoloadQuestId: questIdForSpawn,
+				...trusting,
+			},
 		);
 	}
 
@@ -601,7 +620,9 @@ export async function spawn(
 	if (startsPi(command)) {
 		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
 	}
+	message += trustNote;
 	return ok(message, {
+		...trusting,
 		driver: plan.terminal,
 		tier: plan.tier,
 		how: opened.how,

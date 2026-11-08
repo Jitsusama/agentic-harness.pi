@@ -174,6 +174,13 @@ shipped and tested.
   starts its own turn,
   naming the session, the quest and what the records show; when
   the session ran, it says nothing.
+- **Says when trust waits**: a pi started in a folder pi will ask
+  to trust (resources its trust gates, no saved decision, the
+  default `ask`, and no `--approve` or `--no-approve`) stops at
+  that prompt before it reads its words. The spawn's answer says
+  so, and the look a minute on tells at once, naming the folder,
+  rather than waiting 5 minutes for a slow start. Trusting the
+  folder stays the person's call.
 - **Behind a lock**: a session handed to the launcher while the
   screen is locked starts behind the lock and goes to its place
   once the lock is gone.

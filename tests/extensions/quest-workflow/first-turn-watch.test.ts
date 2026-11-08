@@ -8,6 +8,7 @@ import {
 	FIRST_TURN_WATCH_MS,
 	MOST_START_MS,
 	piRunsFor,
+	spawnedBy,
 	stopFirstTurnWatches,
 	watchFirstTurn,
 } from "../../../extensions/quest-workflow/first-turn-watch";
@@ -142,6 +143,38 @@ describe("a spawner watching for its session's first turn", () => {
 		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
 		expect(said).toHaveLength(1);
 		expect(said[0]?.text).toContain("60 s after the spawn");
+	});
+
+	it("reads the folder a spawn said waits to be trusted from its answer", () => {
+		const details = {
+			firstWordsKey: "token-1",
+			autoloadQuestId: "QEST-1",
+			trustWaits: "/trees/alpha",
+		};
+
+		expect(spawnedBy("spawn", details)).toEqual({
+			key: "token-1",
+			questId: "QEST-1",
+			trustWaits: "/trees/alpha",
+		});
+	});
+
+	it("tells at the first look, naming the folder, when its pi waits to be trusted", () => {
+		// 11-07 20:20: a pi at the trust prompt runs and leaves its words
+		// waiting, which the look took for a slow start for five minutes.
+		watchFirstTurn(
+			pi,
+			ctx,
+			{ ...spawned, trustWaits: "/trees/alpha" },
+			() => waiting,
+			FIRST_TURN_WATCH_MS,
+			running,
+		);
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said).toHaveLength(1);
+		expect(said[0]?.text).toContain(
+			"Nothing had trusted /trees/alpha when it was spawned",
+		);
 	});
 
 	it.runIf(existsSync("/proc/self/cmdline"))(
