@@ -13,6 +13,7 @@
  */
 
 import { whyUnusableClock, whyUnusableClocks } from "../../../clock/index.ts";
+import { isRecord } from "../../../internal/record.ts";
 import { isThinkingLevel, THINKING_LEVELS } from "../../../thinking/index.ts";
 import type { Participant, ParticipantClocks } from "./identity.ts";
 
@@ -296,11 +297,6 @@ export function parseRoster(value: unknown): RosterParse {
 	}
 
 	return { roster: { reviewers, judge: judge.participant } };
-}
-
-/** A plain object, as against an array or a primitive. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** A string field that may be absent, refused if present and wrong. */

@@ -29,6 +29,7 @@
  */
 
 import { connect } from "node:net";
+import { isRecord } from "../internal/record.ts";
 import { SPAWNED_CLASS } from "./types.ts";
 
 /** How long niri may take to answer one request. */
@@ -87,10 +88,6 @@ export interface NiriWindow {
 	readonly appId?: string;
 	/** Its column in the workspace's scrolling layout, from 1. */
 	readonly column?: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function columnOf(layout: unknown): number | undefined {

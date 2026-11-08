@@ -18,9 +18,10 @@
  * second change" is wrong as soon as anything lands underneath.
  */
 
+import { isRecord } from "../../../internal/record.ts";
 import type { Finding, FindingOrigin } from "../finding.ts";
 import { readWireFinding, SAID_NOTHING, saysTheSame } from "./harvest.ts";
-import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.ts";
+import { ANSWER_WAS_CUT_OFF, readAnswer, wireText } from "./wire.ts";
 
 /** The changes a finding is about, in stack order. */
 export interface FindingSpan {

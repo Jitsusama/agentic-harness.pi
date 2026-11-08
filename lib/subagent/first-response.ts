@@ -16,6 +16,7 @@
  */
 
 import { open } from "node:fs/promises";
+import { isRecord } from "../internal/record.ts";
 
 /** How often the log is read while waiting. */
 const READ_EVERY_MS = 250;
@@ -123,10 +124,6 @@ function beginsResponse(line: string): boolean {
 		// A torn or foreign line is not a response starting.
 		return false;
 	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 /** Wait a while, or until the signal aborts. */

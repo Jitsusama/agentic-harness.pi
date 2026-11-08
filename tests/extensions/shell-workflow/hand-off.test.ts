@@ -22,14 +22,13 @@ import {
 	type JobSpec,
 	jobStopReason,
 } from "../../../lib/jobs/index.ts";
+import { until } from "../../support/until.ts";
 
-async function until(condition: () => boolean, ms = 2000): Promise<void> {
-	const deadline = Date.now() + ms;
-	while (!condition()) {
-		if (Date.now() > deadline) throw new Error("timed out waiting");
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-}
+/**
+ * How long a handed-off job gets to end. Short of the test's own
+ * timeout, so a job that never ends fails naming what was waited on.
+ */
+const ENDS_WITHIN_MS = 2_000;
 
 const disposers: (() => void)[] = [];
 afterEach(() => {
@@ -202,7 +201,11 @@ describe("a command still running when the time comes", () => {
 			afterMs: 10,
 		});
 		command.end(said("2 failed", 1));
-		await until(() => outcomes.length > 0);
+		await until(
+			"the job to say how it ended",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 
 		expect(outcomes[0]?.failed).toBe(true);
 		expect(outcomes[0]?.summary).toMatch(/^`pnpm test` exited 1 after /);
@@ -228,7 +231,11 @@ describe("a command still running when the time comes", () => {
 
 		controllers[0]?.abort(jobStopReason("person"));
 		expect(command.signal()?.aborted).toBe(true);
-		await until(() => outcomes.length > 0);
+		await until(
+			"the stopped job to end",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 		expect(outcomes[0]?.summary).toContain("stopped after");
 	});
 
@@ -254,7 +261,11 @@ describe("a command still running when the time comes", () => {
 			(_, i) => `line ${i}`,
 		);
 		command.end(said(lines.join("\n")));
-		await until(() => outcomes.length > 0);
+		await until(
+			"the job with long output to end",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 
 		expect(kept).toHaveLength(1);
 		expect(outcomes[0]?.summary).toContain("Full output: /tmp/");
@@ -284,7 +295,11 @@ describe("a command still running when the time comes", () => {
 		);
 		lines.push("[Showing lines 1-50 of 9000. Full output: /tmp/pi-bash-1.log]");
 		command.end(said(lines.join("\n")));
-		await until(() => outcomes.length > 0);
+		await until(
+			"the job with pi's saved output to end",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
 
 		expect(kept).toEqual([]);
 		expect(outcomes[0]?.summary).toContain("/tmp/pi-bash-1.log");

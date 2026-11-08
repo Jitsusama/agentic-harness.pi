@@ -13,6 +13,7 @@
  */
 
 import { CLOCK_FLOOR_MS } from "../../clock/index.ts";
+import { isRecord } from "../../internal/record.ts";
 import type { AskLimit, AskStop, Participant } from "./index.ts";
 
 /**
@@ -322,9 +323,4 @@ function positiveNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0
 		? value
 		: undefined;
-}
-
-/** Whether config handed us something with fields to read. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -13,6 +13,7 @@
  * here: it makes a weakly supported finding look corroborated.
  */
 
+import { isRecord } from "../../../internal/record.ts";
 import { type Ask, askRoster, type Warmed } from "./council.ts";
 import { participantIdentity } from "./identity.ts";
 import type { AskProgress } from "./progress.ts";
@@ -25,7 +26,7 @@ import {
 	whatItGave,
 	whatItRead,
 } from "./run.ts";
-import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.ts";
+import { ANSWER_WAS_CUT_OFF, readAnswer, wireText } from "./wire.ts";
 
 /** Where a critic stands on a finding. */
 export type Position = "agree" | "disagree" | "qualify" | "unsure";

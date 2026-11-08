@@ -263,13 +263,13 @@ describe("a question taken up", () => {
 
 		at.stillAnswering();
 
-		const until = (subject: string) =>
+		const endsAt = (subject: string) =>
 			Date.parse(
 				own.leases.find((lease) => lease.subject === subject)?.until ?? "",
 			);
-		expect(until(going.id)).toBeGreaterThanOrEqual(now + RUN_LEASE_MS);
-		expect(until(dropped.id)).toBeLessThan(now);
-		expect(until("a.ts")).toBeLessThan(now + RUN_LEASE_MS);
+		expect(endsAt(going.id)).toBeGreaterThanOrEqual(now + RUN_LEASE_MS);
+		expect(endsAt(dropped.id)).toBeLessThan(now);
+		expect(endsAt("a.ts")).toBeLessThan(now + RUN_LEASE_MS);
 	});
 });
 
