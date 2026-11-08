@@ -284,16 +284,20 @@ describe("a command in the sandbox", () => {
 		expect(answer.split("\n")[0]).not.toContain("marker-in-text");
 	});
 
-	it("keeps the person's variables, less the bus, and points Nix and the cache at its own", async () => {
+	it("keeps only harmless variables, never a token, and points Nix and the cache at its own", async () => {
 		const bus = process.env.DBUS_SESSION_BUS_ADDRESS;
-		process.env.SANDBOX_TEST_KEPT = "kept";
+		process.env.SANDBOX_TEST_HOME = "kept";
+		process.env.SANDBOX_TEST_TOKEN_HOME = "a-token";
+		process.env.SANDBOX_TEST_OTHER = "unknown";
 		process.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
 		const answer = await run(
 			sandbox,
 			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
-			'echo "$SANDBOX_TEST_KEPT ${DBUS_SESSION_BUS_ADDRESS-nobus} $NIX_REMOTE"; echo "own:$XDG_CACHE_HOME $TMPDIR"',
+			'echo "$SANDBOX_TEST_HOME ${DBUS_SESSION_BUS_ADDRESS-nobus} $NIX_REMOTE"; echo "own:$XDG_CACHE_HOME $TMPDIR"; echo "dropped:${SANDBOX_TEST_TOKEN_HOME-none} ${SANDBOX_TEST_OTHER-none} path:${PATH:+set}"',
 		).finally(() => {
-			delete process.env.SANDBOX_TEST_KEPT;
+			delete process.env.SANDBOX_TEST_HOME;
+			delete process.env.SANDBOX_TEST_TOKEN_HOME;
+			delete process.env.SANDBOX_TEST_OTHER;
 			if (bus === undefined) delete process.env.DBUS_SESSION_BUS_ADDRESS;
 			else process.env.DBUS_SESSION_BUS_ADDRESS = bus;
 		});
@@ -303,6 +307,7 @@ describe("a command in the sandbox", () => {
 		);
 		const own = sandboxFolders(homedir());
 		expect(answer).toContain(`own:${own.cache} ${own.temporary}`);
+		expect(answer).toContain("dropped:none none path:set");
 	});
 
 	it("runs nothing when the sandbox was refused, and says why", async () => {
@@ -397,6 +402,21 @@ describe.skipIf(!onPath("landrun") || process.platform !== "linux")(
 			expect(answer).toContain("made");
 			expect(answer).not.toContain("the-hidden-value");
 			expect(answer).toContain("refused");
+		});
+
+		it("can't read a token from its environment or its parent's", async () => {
+			process.env.SANDBOX_TEST_TOKEN = "the-token-value";
+			const answer = await run(
+				{ kind: "strict", landrun },
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+				'echo "own:${SANDBOX_TEST_TOKEN-none}"; tr "\\0" "\\n" < /proc/$PPID/environ || echo parent-unread',
+				work,
+			).finally(() => {
+				delete process.env.SANDBOX_TEST_TOKEN;
+			});
+			expect(answer).toContain("own:none");
+			expect(answer).toContain("parent-unread");
+			expect(answer).not.toContain("the-token-value");
 		});
 
 		it("neither reads nor writes /tmp, and has a temporary folder of its own", async () => {

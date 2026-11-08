@@ -11,7 +11,8 @@
  *
  * - **No credentials:** nothing in the home folder is readable but git's
  *   and Nix's settings, so keys, tokens, browser profiles and session logs
- *   are out of reach.
+ *   are out of reach, and only variables known to be harmless are passed
+ *   in, since a session's environment holds tokens too.
  * - **No sockets but one:** no session or system bus (the way into the
  *   keyring and to root), no SSH or signing agent, no terminal's remote
  *   control, and no abstract socket. Nix answers through its door for
@@ -73,15 +74,80 @@ export const SANDBOXED_COMMAND = "PI_SANDBOXED_COMMAND";
 export const NIX_DOOR = "nix-untrusted.sock";
 
 /**
- * Variables kept from the sandbox: the bus's address names a socket it
- * can't reach anyway, and Nix and the cache are pointed at the sandbox's
- * own instead.
+ * Variables kept from the sandbox whatever their names: the bus's address
+ * names a socket it can't reach anyway, and Nix and the cache are pointed
+ * at the sandbox's own instead.
  */
 const WITHHELD = [
 	"DBUS_SESSION_BUS_ADDRESS",
 	"NIX_REMOTE",
 	"TMPDIR",
 	"XDG_CACHE_HOME",
+] as const;
+
+/**
+ * The variables a command keeps, as the shell's patterns: where things
+ * are, how to show them, and what the queue sets. A session's environment
+ * holds registry, gateway and cloud tokens under names nobody could list
+ * ahead, so the sandbox passes the names it knows are harmless rather
+ * than withholding the ones it knows are not. `PI_SANDBOX` is kept, so a
+ * pi started inside stays fenced.
+ */
+const KEPT = [
+	"PATH",
+	"HOME",
+	"USER",
+	"LOGNAME",
+	"SHELL",
+	"SHLVL",
+	"PWD",
+	"OLDPWD",
+	"HOSTNAME",
+	"TERM",
+	"TERMINFO",
+	"COLORTERM",
+	"NO_COLOR",
+	"FORCE_COLOR",
+	"CLICOLOR",
+	"CLICOLOR_FORCE",
+	"LANG",
+	"LANGUAGE",
+	"LC_*",
+	"TZ",
+	"TZDIR",
+	"LOCALE_ARCHIVE",
+	"EDITOR",
+	"VISUAL",
+	"PAGER",
+	"GIT_PAGER",
+	"LESS",
+	"CI",
+	"NIX_PROFILES",
+	"NIX_SSL_CERT_FILE",
+	"NIX_USER_CONF_FILES",
+	"NIX_BUILD_CORES",
+	"SSL_CERT_FILE",
+	"CURL_CA_BUNDLE",
+	"GIT_SSL_CAINFO",
+	"CARGO_BUILD_JOBS",
+	"PI_SANDBOX",
+	"*_HOME",
+	"*PATH",
+	"*_DIR",
+	"*_DIRS",
+] as const;
+
+/** Words no kept variable's name may hold, even one `KEPT` lets through. */
+const NEVER = [
+	"*TOKEN*",
+	"*KEY*",
+	"*SECRET*",
+	"*PASS*",
+	"*AUTH*",
+	"*CRED*",
+	"*COOKIE*",
+	"*SESSION*",
+	"*SOCK*",
 ] as const;
 
 /**
@@ -190,8 +256,8 @@ export function quoted(text: string): string {
  * The shell text that runs `command` under landrun with `rules`.
  *
  * landrun passes only the variables it is told to, so the shell names
- * every one it exports, as it stands once the queue has had its say, less
- * those withheld. The command travels in a variable, as it does through
+ * each one it exports that `KEPT` allows, as it stands once the queue has
+ * had its say, less those withheld and any whose name `NEVER` matches. The command travels in a variable, as it does through
  * the shell, so `pkill -f` matches only what it names (see
  * `command-line.ts`), and it is unset before it runs.
  */
@@ -200,11 +266,12 @@ export function sandboxedCommand(
 	rules: readonly Rule[],
 	landrun: string,
 ): string {
-	const withheld = WITHHELD.join("|");
+	const refused = [...WITHHELD, ...NEVER].join("|");
+	const kept = KEPT.join("|");
 	const flags = rules.map(([flag, value]) => `${flag} ${quoted(value)}`);
 	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
 	return [
-		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${withheld}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
+		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${refused}) ;; ${kept}) __pi_env+=(--env "$__pi_name");; esac; done`,
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
 			quoted(landrun),

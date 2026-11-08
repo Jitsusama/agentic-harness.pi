@@ -71,7 +71,10 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
 - **No credentials.** Nothing in your home folder is readable but
   git's settings (`~/.gitconfig`, `~/.config/git`, `~/.config/dev`)
   and `~/.config/nix/nix.conf`. Keys, tokens, browser profiles and
-  session logs are out of reach.
+  session logs are out of reach. Of your variables, a command keeps only
+  those known to be harmless (where things are, how to show them, what
+  the queue sets), never one whose name holds a word like TOKEN, KEY or
+  AUTH, since your environment holds tokens too.
 - **No sockets but two.** Name lookups through nscd, and the Nix
   daemon's door for sandboxes, `$XDG_RUNTIME_DIR/nix-untrusted.sock`,
   which takes the caller as untrusted; `NIX_REMOTE` points there. No
