@@ -96,7 +96,8 @@ export function createSteering(host: SteeringHost): Steering {
  */
 export function steerText(steer: Steer): string {
 	if (steer.from === FROM_MACHINE) {
-		return `[Said by this machine's mycelium node, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
+		const who = steer.by ?? "mycelium node";
+		return `[Said by this machine's ${who}, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
 	}
 	const who = steer.from ?? "the person";
 	return `[Steered by ${who} from outside this window, so a reply here may go unread until they come to it.]\n\n${steer.text}`;

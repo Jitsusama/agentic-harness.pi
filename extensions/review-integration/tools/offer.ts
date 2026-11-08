@@ -46,12 +46,20 @@ import {
 } from "../../../lib/core/title/index.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
+import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
+import { REVIEW_SLUG } from "../config.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";
+import {
+	GATE_TIMEOUT_MS,
+	gateFor,
+	gateRefusal,
+	type RunGate,
+} from "../merge-gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
 import { checkoutSize, hostedSize } from "./change-size.ts";
 import {
@@ -306,7 +314,10 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				}),
 			),
 			repo: Type.Optional(
-				Type.String({ description: "Checkout path, for propose." }),
+				Type.String({
+					description:
+						"Checkout path, for propose; for merge, where the repo's merge gate runs.",
+				}),
 			),
 			base: Type.Optional(
 				Type.String({
@@ -762,7 +773,15 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "retarget-stack":
 						return retargetStack(ctx, bound, change, authoring);
 					case "merge":
-						return merge(ctx, bound, change, authoring, params, pi.events);
+						return merge(ctx, bound, change, authoring, params, pi.events, {
+							review: await reviewSection(),
+							cwd: params.repo ?? change.repo.localPath ?? process.cwd(),
+							run: (line, cwd) =>
+								pi.exec("bash", ["-c", line], {
+									cwd,
+									timeout: GATE_TIMEOUT_MS,
+								}),
+						});
 					case "reviewers":
 						return reviewers(ctx, change, authoring, params);
 				}
@@ -1600,6 +1619,40 @@ async function sayMerged(
 	});
 }
 
+/** The package config's `review` section, or nothing when it can't be read. */
+async function reviewSection(): Promise<unknown> {
+	const loaded = await loadPackageConfig();
+	return loaded.ok ? loaded.config.sections[REVIEW_SLUG] : undefined;
+}
+
+/** What a merge asks of the repo's own gate: its config, where and how to run it. */
+export interface MergeGating {
+	readonly review: unknown;
+	readonly cwd: string;
+	readonly run: RunGate;
+}
+
+/**
+ * Why the repo's gate refuses this merge, or nothing when it names none
+ * or lets it through (merge-gate.ts).
+ */
+async function gated(
+	gating: MergeGating | undefined,
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+	expectedHead: string | undefined,
+): Promise<string | undefined> {
+	if (!gating) return undefined;
+	const gate = gateFor(gating.review, change.repo.key);
+	if (gate.kind === "none") return undefined;
+	if (gate.kind === "malformed") return `${gate.problem} Not merged.`;
+	const head = expectedHead ?? (await bound.proposal())?.headCommit;
+	if (!head) {
+		return `${change.repo.key} has a merge gate, \`${gate.command}\`, and the head of ${change.label} couldn't be read to hand it. Merge with expectedHead set to the head's full sha.`;
+	}
+	return gateRefusal(gate.command, head, gating.cwd, gating.run);
+}
+
 /** Land the change. */
 async function merge(
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
@@ -1608,6 +1661,7 @@ async function merge(
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
 	bus?: EventBus,
+	gating?: MergeGating,
 ): Promise<Answer> {
 	// Checked here, before the gate, rather than left to the backend. Two
 	// reasons. The backend that has this guard answers "Head branch was
@@ -1619,6 +1673,10 @@ async function merge(
 	const guard = await headGuard(bound, change.label, params.expectedHead);
 	if ("refusal" in guard) return refuse(guard.refusal);
 	const expectedHead = guard.head;
+	// The repo's own say comes before the person is asked, so a head its
+	// gate refuses never reaches a confirmation.
+	const barred = await gated(gating, bound, change, expectedHead);
+	if (barred) return refuse(barred);
 
 	const decision = await confirmWrite(
 		ctx,

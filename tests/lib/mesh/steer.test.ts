@@ -129,6 +129,22 @@ describe("the steer inbox", () => {
 		expect(steerFrom('{"from":"Joel","act":"pause"}', "f")?.act).toBe("pause");
 	});
 
+	it("keeps which of the machine's programs wrote a steer, and only a machine's", () => {
+		// nix-offload telling integration no builder answers (5FWIUS, 8 November).
+		const said =
+			'{"from":"machine","by":"nix-offload","text":"no builder answers"}';
+		expect(steerFrom(said, "f")).toMatchObject({
+			from: "machine",
+			by: "nix-offload",
+		});
+		expect(
+			steerFrom('{"from":"joel","by":"nix-offload","text":"x"}', "f"),
+		).not.toHaveProperty("by");
+		expect(
+			steerFrom('{"from":"machine","by":"the person","text":"x"}', "f"),
+		).not.toHaveProperty("by");
+	});
+
 	it("reads a carry with the machine it goes to, and no carry that names none", () => {
 		expect(steerFrom('{"act":"carry","to":"penelope"}', "f")).toEqual({
 			text: "",

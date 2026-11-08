@@ -169,6 +169,22 @@ URL or short form no provider recognizes. Neither is required,
 and nothing defaults: an unrecognized reference comes back as a
 refusal naming the knob that would fix it.
 
+### What a Repo Says Before a Merge
+
+`merge.gates` names, by repo key, a command `review_offer merge`
+runs before it asks to merge, with the head's full sha as its last
+word, in the change's local checkout (or the `repo` the call names):
+
+```json
+{ "merge": { "gates": { "github:Jitsusama/core.nix": "merge-net ready" } } }
+```
+
+Exit 0 lets the merge go on. Any other exit refuses it, with what
+the gate said; so does a gate that isn't on the machine or runs past
+five minutes, since a gate skipped whenever it breaks guards
+nothing. It came of four checks going red on core.nix's main on 8
+November, each from a branch that built before rebasing.
+
 ### Who a Round Asks
 
 A round works with no `ask` subsection at all. It then asks the
