@@ -72,12 +72,12 @@ function limits(rules: { words?: number; codeSpans?: number }): string {
 
 /** The ceiling every sentence in every section is held to. */
 const SENTENCE = PR_SHAPE.sentenceWords
-	? ` In every section, no sentence may pass ${PR_SHAPE.sentenceWords} words; keep each under about ${aim(PR_SHAPE.sentenceWords)}.`
+	? ` In every section no sentence may pass ${PR_SHAPE.sentenceWords} words (aim under ${aim(PR_SHAPE.sentenceWords)}).`
 	: "";
 
 /** Where a large change learns it may go deeper, said once on the first field. */
 const DEPTH = PR_SHAPE.depth
-	? ` A change of ${PR_SHAPE.depth.fromLines.toLocaleString("en-CA")} changed lines or more, measured by the tool, may go deeper under #### parts: see the github-pr-format skill, A Large Change.`
+	? ` From ${PR_SHAPE.depth.fromLines.toLocaleString("en-CA")} changed lines it may go deeper under #### parts (github-pr-format, A Large Change).`
 	: "";
 
 /**
@@ -93,12 +93,17 @@ const DEPTH = PR_SHAPE.depth
  * sentence ceiling and the Solution's code spans went unsaid while the
  * numbers were typed out here, and of the reasons refusals gave on 21
  * and 22 October, 30 were a long sentence and 7 the Solution's spans.
+ *
+ * Each is said in as few words as keep its rules: every session reads
+ * the declaration on every turn, about 60,000 turns a day, and on 8
+ * November these four were 3,500 of review_offer's 8,000 characters
+ * (QCXZEB). The why behind each rule is the github-pr-format skill's.
  */
 export const SECTION_DESCRIPTIONS = {
-	problem: `For propose and edit: the limits on every section are ceilings, not targets, and most changes need well under half.${SENTENCE} The reader knows the product, has not seen this change, was not in the session and will not open the diff. Why the change exists: what was wrong compared with what they know, who it hurt, and how we know (a count, an incident, an error a person saw). No tour of the subsystem. If they would assume the wrong cause, say 'it looks like X; it is actually Y, because Z'. Prose only. ${limits(PROBLEM)} Never the fix.${DEPTH}`,
-	solution: `For propose and edit: what the change does, as behaviour and the mechanism behind it. Open with a sentence of prose saying when what happens, what now follows, and why that fixes the problem. For each behaviour claimed, name the path where it does not hold (an exception, a fallback, an opt-in) in the same sentence. State a real choice as a contrast: X rather than Y, because Z, with what it gives up only when the change shows a cost; never invent either. Always keep what a reader must act on, named as they will type it: something breaking, refused or removed (by its name), a config key and every key it accepts, a command, a CI job or trigger, a dependency and its range, a migration. Add no fact the diff, the commits or what you ran do not show. Bullets only for parallel behaviours, at most ${SOLUTION.bullets}, each opening with what tells it apart, never a list of artifacts such as Docs:, Tests: or Files:. ${limits(SOLUTION)}`,
-	validation: `For propose and edit: Checked: what ran and what it showed, for each claim, named so the reader could rerun it (the command, the test directory or test, the count); coverage is not a result, and never a bare 'tests pass'. Not covered: where those checks stop, as a fact about them ('the tests use a stand-in for the server, so a real crash is not exercised'), never a guess about what was not run. Watch: an observable signal after merge that would show it is wrong, only if the change makes one visible; never a guessed cause. No hedges (should work, likely) or assurances (thoroughly tested, robust). ${limits(VALIDATION)} At most ${VALIDATION.bullets} bullets.`,
-	tldr: `For propose and edit: the eight-second version, written last and shown first; most readers read only this. ${limits(TLDR)} At most ${count(TLDR.sentences ?? 2, "sentence")}. The first opens with the thing that changed (never 'This PR') and says what is different and for whom; the second carries the key decision, or how far the checks reach when that narrows the first. Every claim carries the Solution's qualifiers; if one will not fit, drop the claim, not the qualifier. A number keeps its exact meaning. Give the count or name the set, never a bare all, every or most. No code, file names, links, bullets or bold. A tracking-issue line such as 'Part of #482' may follow as its own paragraph and does not count.`,
+	problem: `For propose and edit. Limits are ceilings, not targets.${SENTENCE} Why the change exists, for a reader who knows the product but not this change and won't open the diff: what was wrong, who it hurt, how we know (a count, an incident, an error seen). If they'd assume the wrong cause: 'it looks like X; it is actually Y, because Z'. Prose only; no tour, never the fix. ${limits(PROBLEM)}${DEPTH}`,
+	solution: `For propose and edit: behaviour and its mechanism. Open with prose: when what happens, what follows, why that fixes it. Each behaviour names where it doesn't hold (exception, fallback, opt-in) in the same sentence. A real choice reads 'X rather than Y, because Z'; invent none. Keep, as typed, what a reader must act on: what breaks, is refused or removed, config keys and values, commands, CI jobs, dependency ranges, migrations. No fact beyond the diff, commits or what ran. Bullets only for parallel behaviours, at most ${SOLUTION.bullets}, each opening with what sets it apart, never Docs:, Tests: or Files:. ${limits(SOLUTION)}`,
+	validation: `For propose and edit. Checked: what ran and what it showed, per claim, so it can be rerun (command, test, count); never a bare 'tests pass'. Not covered: where the checks stop, as fact, not guess. Watch: a signal after merge that would show it wrong, only if the change makes one. No hedges (should, likely) or assurances (robust). ${limits(VALIDATION)} At most ${VALIDATION.bullets} bullets.`,
+	tldr: `For propose and edit: the eight-second version, written last; most readers read only this. ${limits(TLDR)} At most ${count(TLDR.sentences ?? 2, "sentence")}. The first opens with what changed (never 'This PR'): what differs, for whom. The second: the key decision, or how far the checks reach. Keep the Solution's qualifiers (drop the claim, never the qualifier) and numbers' exact meaning; a count or named set, never a bare all, every or most. No code, file names, links, bullets or bold. A 'Part of #482' paragraph may follow, uncounted.`,
 } as const;
 
 /** The schema entries for the four fields, in the order they should be written. */
