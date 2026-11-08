@@ -150,7 +150,8 @@ it does:
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
   `panel-zoom-widget`, `terminal-modes-widget`,
-  `link-click-widget`, `done-chime-widget`
+  `link-click-widget`, `done-chime-widget`,
+  `working-spinner-widget`
 
   `done-chime-widget` is the one a person hears rather than sees:
   a run they typed into rings once it outlasts their glance, with

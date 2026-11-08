@@ -38,6 +38,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
+import { isTyped } from "./terminal-reports.ts";
 
 /**
  * The chord that moves focus from the editor through every widget that
@@ -550,6 +551,8 @@ function noteKey(
 	owner: DockProtocol,
 	data: string,
 ): { consume: true } | undefined {
+	// Focus and mouse reports aren't typing, and say nothing of a key's repeats.
+	if (!isTyped(data)) return undefined;
 	if (!isKeyRelease(data)) owner.lastTyped = Date.now();
 	const held = owner.swallow;
 	if (held === undefined) return undefined;

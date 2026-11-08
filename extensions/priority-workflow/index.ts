@@ -71,6 +71,7 @@ import {
 	keepYield,
 	systemBuildSlice,
 } from "../../lib/internal/priority/yield.ts";
+import { meansPresence } from "../../lib/ui/terminal-reports.ts";
 
 /**
  * Refuse a push of World that skips dev's pre-push hooks, on any
@@ -151,8 +152,8 @@ function sayTypedTurns(pi: ExtensionAPI): ReturnType<typeof typedTurns> {
  * (lib/internal/priority/background.ts). A key takes the file away at
  * once. A subagent, or a pi in RPC or print mode, never has one.
  */
-function sayBackgroundTurns(
-	pi: ExtensionAPI,
+export function sayBackgroundTurns(
+	pi: Pick<ExtensionAPI, "on">,
 	typed: Pick<ReturnType<typeof typedTurns>, "held">,
 ) {
 	if (process.env.SUBAGENT_RUN_ID) return;
@@ -173,8 +174,10 @@ function sayBackgroundTurns(
 			typed: typed.held,
 		});
 		turns = own;
-		unlisten = ctx.ui.onTerminalInput(() => {
-			own.key();
+		// Focus leaving and the pointer passing over arrive as input too,
+		// and say the person is elsewhere.
+		unlisten = ctx.ui.onTerminalInput((data) => {
+			if (meansPresence(data)) own.key();
 			return undefined;
 		});
 	});
