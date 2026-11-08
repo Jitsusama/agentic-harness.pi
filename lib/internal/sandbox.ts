@@ -584,7 +584,18 @@ export interface ToolCall {
  */
 export function fileToolRefusal(
 	call: ToolCall,
-	place: { cwd: string; env: NodeJS.ProcessEnv; home: string },
+	place: {
+		cwd: string;
+		env: NodeJS.ProcessEnv;
+		home: string;
+		/**
+		 * The folders of the skills pi offered this session. pi names each
+		 * skill's file and leaves the model to read it, so a fence that
+		 * refused them would quietly strip a reviewer of its output
+		 * contract; they are read, never written.
+		 */
+		skills?: readonly string[];
+	},
 ): string | undefined {
 	const asked = place.env[SANDBOX_VARIABLE]?.trim();
 	const tool = FILE_TOOLS.get(call.toolName);
@@ -616,7 +627,9 @@ export function fileToolRefusal(
 			repository: worktreeRepository(cwd, home),
 		},
 		tool.use,
-	).flatMap((folder) => leadsTo(folder) ?? []);
+	)
+		.concat(tool.use === "read" ? (place.skills ?? []) : [])
+		.flatMap((folder) => leadsTo(folder) ?? []);
 	for (const candidate of candidates) {
 		const real = leadsTo(candidate);
 		if (real !== undefined && reach.some((folder) => inside(real, folder))) {
@@ -627,7 +640,7 @@ export function fileToolRefusal(
 		const what =
 			tool.use === "write"
 				? "may write only in the working folder and the sandbox's own cache and temporary folder"
-				: "may read only what its commands may: the work, the store, and the system's and git's settings";
+				: "may read only what its commands may, and the session's skills: the work, the store, and the system's and git's settings";
 		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${call.toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
 	}
 	return undefined;

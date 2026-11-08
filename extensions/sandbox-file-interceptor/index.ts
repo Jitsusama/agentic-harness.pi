@@ -17,6 +17,10 @@
  * It blocks rather than asks, and goes through no guard policy, since a
  * fence that a policy could soften is one an injected instruction could
  * talk its way past.
+ *
+ * The skills pi offers the session stay readable, since pi names each
+ * skill's file and leaves the model to read it; refusing them would
+ * leave a reviewer without the contract its answer is written to.
  */
 
 import { homedir } from "node:os";
@@ -25,11 +29,19 @@ import { fileToolRefusal } from "../../lib/internal/sandbox.ts";
 
 /** Wires the fence onto each call to pi's file tools. */
 export default function sandboxFileInterceptor(pi: ExtensionAPI) {
+	let skills: readonly string[] = [];
+	pi.on("before_agent_start", async (event) => {
+		skills = (event.systemPromptOptions.skills ?? []).map(
+			(skill) => skill.baseDir,
+		);
+		return undefined;
+	});
 	pi.on("tool_call", async (event, ctx) => {
 		const reason = fileToolRefusal(event, {
 			cwd: ctx.cwd,
 			env: process.env,
 			home: homedir(),
+			skills,
 		});
 		if (reason) return { block: true, reason };
 		return undefined;

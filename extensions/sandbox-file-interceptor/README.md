@@ -21,6 +21,9 @@ Each call to one of them is checked before it runs:
   system's settings, and git's and Nix's settings in the home folder.
   `/proc` is left out, since pi's own process holds every token the
   sandbox keeps from commands.
+- **The session's skills** may be read too, never written. pi names
+  each skill's file and leaves the model to read it, so refusing them
+  would leave a reviewer without the contract its answer follows.
 - **Writing** reaches only the working folder and the sandbox's own
   cache and temporary folder.
 - **Every link** in the path is followed, a dangling one too, so a link

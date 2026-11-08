@@ -102,6 +102,22 @@ describe("a strict session's reads", () => {
 		expect(refusal("read", { path: "it's.md" })).toContain("didn't run");
 	});
 
+	it("reach the skills pi offered the session, and never write them", () => {
+		const skill = join(home, ".pi/agent/skills/review-format");
+		mkdirSync(skill, { recursive: true });
+		writeFileSync(join(skill, "SKILL.md"), "# Format\n");
+		const offered = (toolName: string) =>
+			fileToolRefusal(
+				{ toolName, input: { path: join(skill, "SKILL.md") } },
+				{ cwd: work, env: strict, home, skills: [skill] },
+			);
+		expect(offered("read")).toBeUndefined();
+		expect(offered("write")).toContain("may write only");
+		expect(refusal("read", { path: join(skill, "SKILL.md") })).toContain(
+			"didn't run",
+		);
+	});
+
 	it("refuse a loop of links rather than chase it", () => {
 		symlinkSync(join(work, "b"), join(work, "a"));
 		symlinkSync(join(work, "a"), join(work, "b"));
@@ -164,17 +180,25 @@ describe("the interceptor", () => {
 		event: { toolName: string; input: unknown },
 		ctx: { cwd: string },
 	) => Promise<unknown>;
+	type Starting = (event: {
+		systemPromptOptions: { skills: Array<{ baseDir: string }> };
+	}) => Promise<unknown>;
 	let handler: Handler;
+	let starting: Starting;
 	let asked: string | undefined;
 
 	beforeEach(() => {
 		asked = process.env.PI_SANDBOX;
-		const handlers = new Map<string, Handler>();
-		const pi = { on: (name: string, on: Handler) => handlers.set(name, on) };
+		const handlers = new Map<string, unknown>();
+		const pi = { on: (name: string, on: unknown) => handlers.set(name, on) };
 		sandboxFileInterceptor(pi as unknown as ExtensionAPI);
 		const registered = handlers.get("tool_call");
-		if (!registered) throw new Error("the fence never listened for calls");
-		handler = registered;
+		const start = handlers.get("before_agent_start");
+		if (typeof registered !== "function" || typeof start !== "function") {
+			throw new Error("the fence never listened for calls and skills");
+		}
+		handler = registered as Handler;
+		starting = start as Starting;
 	});
 
 	afterEach(() => {
@@ -190,6 +214,19 @@ describe("the interceptor", () => {
 		);
 		expect(answer).toMatchObject({ block: true });
 		expect(JSON.stringify(answer)).toContain("didn't run");
+	});
+
+	it("reads the skills pi offered as the session started", async () => {
+		process.env.PI_SANDBOX = "strict";
+		const skill = join(home, "skills/review-format");
+		mkdirSync(skill, { recursive: true });
+		writeFileSync(join(skill, "SKILL.md"), "# Format\n");
+		await starting({ systemPromptOptions: { skills: [{ baseDir: skill }] } });
+		const answer = await handler(
+			{ toolName: "read", input: { path: join(skill, "SKILL.md") } },
+			{ cwd: work },
+		);
+		expect(answer).toBeUndefined();
 	});
 
 	it("lets a session with no sandbox read as it likes", async () => {
