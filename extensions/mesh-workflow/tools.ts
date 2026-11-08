@@ -28,6 +28,12 @@ import {
 import { type Board, isCurrent, othersOn } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
 import {
+	LOOK_KINDS,
+	type Pointing,
+	pointAt,
+	refusalOf,
+} from "../../lib/mesh/looks.ts";
+import {
 	clock,
 	INTENTS,
 	line,
@@ -87,6 +93,8 @@ export interface Local {
 	confirmEnd?(hold: Message, text: string): Promise<string | undefined>;
 	/** Where what waits on the person is kept (see wait.ts). */
 	readonly waiting?: Waiting;
+	/** Where what sessions point the person at is kept (lib/mesh/looks.ts). */
+	readonly looks?: string;
 	/** Ask a session's process to end; pi's own SIGTERM by default. */
 	readonly endProcess?: EndProcess;
 }
@@ -376,6 +384,48 @@ export function registerTools(
 				written: outcome.written,
 				items: outcome.items,
 			});
+		}),
+	});
+
+	pi.registerTool({
+		name: "show_person",
+		label: "Mesh",
+		promptSnippet:
+			"Point the person at something to look at (a PR, a page, a file, a diff, a terminal): it goes on their look list, never opened for them.",
+		description:
+			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. Pointing at the same thing again from this session brings it to the top rather than adding it twice. Use it whenever you would otherwise tell them a link or a path to go and find.",
+		parameters: Type.Object({
+			kind: StringEnum([...LOOK_KINDS], {
+				description:
+					"What it opens: pr or page (a URL, in their browser), file or diff (a file's absolute path, or a diff's URL, in their editor), terminal (a session's window)",
+			}),
+			target: Type.String({
+				description:
+					"What opens: the URL, the file's absolute path, or the session's id",
+			}),
+			title: Type.String({ description: "What it is, in a few words" }),
+			why: Type.String({
+				description: "Why they should look, in a sentence",
+			}),
+		}),
+		execute: using((at, params: Pointing) => {
+			if (!at.looks) {
+				return answer(
+					"Nothing was kept: this pi keeps no folder for the person's look list.",
+				);
+			}
+			const refused = refusalOf(params);
+			if (refused) return answer(`⊘ ${refused} Nothing was added.`);
+			const quest = at.presences.of(at.peer.session)?.quest;
+			const look = pointAt(at.looks, params, {
+				session: at.peer.session,
+				address: at.peer.signature,
+				...(quest ? { quest } : {}),
+			});
+			return answer(
+				`On the person's look list: ${look.title}. It stays there until they open or clear it.`,
+				{ look },
+			);
 		}),
 	});
 

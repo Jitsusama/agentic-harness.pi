@@ -341,6 +341,12 @@ export interface MeshPaths extends QuestRecords {
 	 * it (lib/mesh/waiting.ts); none, and mesh_wait keeps nothing.
 	 */
 	readonly waiting?: string;
+	/**
+	 * What sessions point the person at to look at, where the launcher's
+	 * look list reads it (lib/mesh/looks.ts); none, and show_person keeps
+	 * nothing.
+	 */
+	readonly looks?: string;
 }
 
 /** The machine's mesh and the quest records it reads. */
@@ -349,6 +355,7 @@ export function machinePaths(): MeshPaths {
 		mesh: stateDir("mesh-workflow"),
 		steer: stateDir("steer"),
 		waiting: waitingFolder(),
+		looks: stateDir("looks"),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
 	};
@@ -1860,6 +1867,7 @@ export function meshWorkflow(
 						},
 						confirmEnd: (hold, text) =>
 							confirmEnd(ctx, hold, text, waitingOn(hold.id)),
+						...(paths.looks ? { looks: paths.looks } : {}),
 						...(waiting ? { waiting } : {}),
 					}
 				: undefined,
