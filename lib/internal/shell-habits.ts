@@ -77,13 +77,18 @@ export function stashRefusal(stripped: string): string | undefined {
  * the directory each part of the command runs in. A target whose place
  * the command does not say is left out rather than guessed, and so is
  * anything git does not track: a new file, scratch, `/dev/null`.
+ *
+ * A file only a `touch` names is left out too: it changes when the file
+ * changed, never what it holds, and agents touch sources to make cargo
+ * rebuild them (15 of the 38 overrides found from 4 to 8 November).
  */
 export function trackedShellEdits(
 	command: string,
 	place: CommandPlace,
 	tracked: (path: string) => boolean = isTracked,
 ): string[] {
-	return resolveBashWrites(command, place).paths.filter(tracked);
+	const { paths, touched } = resolveBashWrites(command, place);
+	return paths.filter((path) => !touched.includes(path)).filter(tracked);
 }
 
 /** Why a command that rewrites tracked files from the shell is refused. */

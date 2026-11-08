@@ -19,12 +19,16 @@ test output with tail or head, 13 waited with sleep, and 5 ran
   does any sleep in a call already sent with `background: true`,
   which holds nothing: on 2026-11-07, 828 of the 872 sleeps agents
   sent again past the guard were in such calls.
-- **`shell-edit`** refuses a redirect, `tee`, `sed -i` or `perl -i`
-  onto a file git tracks, pointing at the edit and write tools. A shell
+- **`shell-edit`** refuses a redirect, `tee`, `sed -i`, `perl -i`, or
+  a `cp`, `tar` or other copy onto a file git tracks, pointing at the
+  edit and write tools. A shell
   rewrite skips the edit path and leaves the language server answering
   from a stale copy; the learning sensor saw it in 45 sessions in the
   week to 2026-10-26. Each target is placed where the command's own
-  `cd` puts it, and a new file, scratch or `/dev/null` goes ahead.
+  `cd` puts it, and a new file, scratch or `/dev/null` goes ahead. So
+  does a `touch`, which changes when a file changed but not what it
+  holds: from 4 to 8 November, 15 of 38 overrides were one, made to
+  have cargo rebuild.
 - **`mixed-turn`** refuses one call that runs VM work beside other
   heavy work, such as `changed-checks --no-vm` and then `run-subtests`,
   and prints the split: each step its own call, the VM work last. The

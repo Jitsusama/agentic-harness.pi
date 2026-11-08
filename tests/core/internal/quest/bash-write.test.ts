@@ -12,6 +12,7 @@ describe("resolveBashWrites", () => {
 		const command = "cd /tree/src && cat >> x_test.go <<'EOF'\nbody\nEOF";
 		expect(resolveBashWrites(command, where)).toEqual({
 			paths: ["/tree/src/x_test.go"],
+			touched: [],
 			removed: [],
 			unresolved: [],
 		});
@@ -20,6 +21,17 @@ describe("resolveBashWrites", () => {
 	it("places nothing for a command that only reads through a redirect", () => {
 		expect(resolveBashWrites("wc -l < /etc/hosts", where)).toEqual({
 			paths: [],
+			touched: [],
+			removed: [],
+			unresolved: [],
+		});
+	});
+
+	it("keeps what only a touch names apart, and a redirect on its line with the rest", () => {
+		const command = "cd /tree && touch a.rs b.rs > log.txt && echo x > b.rs";
+		expect(resolveBashWrites(command, where)).toEqual({
+			paths: ["/tree/log.txt", "/tree/a.rs", "/tree/b.rs"],
+			touched: ["/tree/a.rs"],
 			removed: [],
 			unresolved: [],
 		});
@@ -56,6 +68,7 @@ describe("resolveBashWrites", () => {
 		const command = "cd $(git rev-parse --show-toplevel) && echo x > out.txt";
 		expect(resolveBashWrites(command, where)).toEqual({
 			paths: [],
+			touched: [],
 			removed: [],
 			unresolved: ["out.txt"],
 		});
@@ -69,6 +82,7 @@ describe("resolveBashWrites", () => {
 	it("reports a target built from an unknown variable as unresolved", () => {
 		expect(resolveBashWrites('echo x > "$OUT/f.txt"', where)).toEqual({
 			paths: [],
+			touched: [],
 			removed: [],
 			unresolved: ["$OUT/f.txt"],
 		});
@@ -78,6 +92,7 @@ describe("resolveBashWrites", () => {
 		const command = "(cd sub && echo x > b.txt)";
 		expect(resolveBashWrites(command, where)).toEqual({
 			paths: [],
+			touched: [],
 			removed: [],
 			unresolved: ["b.txt"],
 		});
@@ -188,6 +203,7 @@ describe("resolveBashWrites", () => {
 	it("reports a removal it cannot place as unresolved", () => {
 		expect(resolveBashWrites('rm "$DIR/f.md"', where)).toEqual({
 			paths: [],
+			touched: [],
 			removed: [],
 			unresolved: ["$DIR/f.md"],
 		});
@@ -391,6 +407,7 @@ describe("what a heredoc's opening line says after it", () => {
 		const command = "python3 - <<'PY' 2>&1 | tail -5\nprint(1)\nPY";
 		expect(resolveBashWrites(command, where)).toEqual({
 			paths: [],
+			touched: [],
 			removed: [],
 			unresolved: [],
 		});
