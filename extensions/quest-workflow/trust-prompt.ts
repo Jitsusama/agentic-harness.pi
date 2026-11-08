@@ -11,7 +11,8 @@
  * override decides first, then a folder with resources the trust gates,
  * then the closest saved decision, then the default setting. An
  * extension that answers `project_trust` could decide before the saved
- * decisions; none here does.
+ * decisions; work-integration does, for trees the work tool cut, which
+ * Joel ruled trusted on 8 November.
  */
 
 import { readFileSync } from "node:fs";
@@ -21,6 +22,7 @@ import {
 	hasTrustRequiringProjectResources,
 	ProjectTrustStore,
 } from "@earendil-works/pi-coding-agent";
+import { isAgentCut } from "../../lib/internal/work-records.ts";
 
 /** What deciding a folder's trust reads, so tests can say it. */
 export interface TrustFacts {
@@ -30,6 +32,11 @@ export interface TrustFacts {
 	readonly saved: (cwd: string) => boolean | null;
 	/** The `defaultProjectTrust` setting, `ask` when unset. */
 	readonly byDefault: () => string;
+	/**
+	 * Whether the harness itself trusts the folder before pi asks: a tree
+	 * the work tool cut (work-integration answers `project_trust` yes).
+	 */
+	readonly trustedHere: (cwd: string) => boolean;
 }
 
 /** The flags that decide trust for one pi process. */
@@ -60,6 +67,7 @@ export const piTrust: TrustFacts = {
 	gated: hasTrustRequiringProjectResources,
 	saved: (cwd) => new ProjectTrustStore(getAgentDir()).get(cwd),
 	byDefault: () => defaultTrustSetting(),
+	trustedHere: (cwd) => isAgentCut(cwd),
 };
 
 /**
@@ -76,6 +84,7 @@ export function trustPromptWaits(
 		return false;
 	}
 	try {
+		if (facts.trustedHere(cwd)) return false;
 		if (!facts.gated(cwd)) return false;
 		if (facts.saved(cwd) !== null) return false;
 		return facts.byDefault() === "ask";

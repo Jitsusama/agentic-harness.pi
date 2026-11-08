@@ -97,8 +97,10 @@ const watching = (
 
 describe("parking a session", () => {
 	it("parks one idle past its time, with what the mesh says of it, exiting for its holder", () => {
+		const wakes: (string | undefined)[] = [];
 		events.on(PARKING, (data) => {
 			if (!isParking(data)) return;
+			wakes.push(data.wake);
 			data.addresses = ["85PKB2", "8859FF67"];
 			data.quest = "QEST-20261025-85PKB2";
 		});
@@ -115,6 +117,8 @@ describe("parking a session", () => {
 			quest: "QEST-20261025-85PKB2",
 			wake: join(folder, "held.wake"),
 		});
+		// The mesh is told the wake too, to say in its presence.
+		expect(wakes).toEqual([join(folder, "held.wake")]);
 		expect(exits).toEqual([PARKED_EXIT]);
 		expect(shutdowns).toBe(1);
 		// Asked again before pi has gone, it doesn't park twice.

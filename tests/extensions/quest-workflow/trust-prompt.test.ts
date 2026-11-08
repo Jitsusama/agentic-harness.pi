@@ -9,9 +9,20 @@ const untrusted: TrustFacts = {
 	gated: () => true,
 	saved: () => null,
 	byDefault: () => "ask",
+	trustedHere: () => false,
 };
 
 describe("whether pi's folder-trust prompt waits", () => {
+	it("doesn't wait in a tree the work tool cut, which the harness trusts", () => {
+		expect(
+			trustPromptWaits("/tree", "pi", {
+				...untrusted,
+				trustedHere: () => true,
+			}),
+			"an agent-cut tree is trusted without asking",
+		).toBe(false);
+	});
+
 	it("waits in a gated folder nobody has decided on", () => {
 		expect(
 			trustPromptWaits("/tree", "pi", untrusted),

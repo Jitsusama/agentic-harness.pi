@@ -28,6 +28,7 @@ import {
 	listTreeProviders,
 	registerTreeProvider,
 } from "../../lib/core/work/register.ts";
+import { isAgentCut } from "../../lib/internal/work-records.ts";
 import {
 	forgetTreeBroker,
 	registerBuiltinTreeProviders,
@@ -60,6 +61,16 @@ export default function workIntegration(pi: ExtensionAPI) {
 	registerWorkTool(pi);
 
 	registerTreeSweeps(pi);
+
+	// A tree the work tool cut is trusted without asking, as Joel ruled on
+	// 8 November: an agent made it for its own work, and pi's folder-trust
+	// prompt stopped three spawned sessions' notes at 20:20 the day before.
+	// Only for this process, so no decision is saved for a folder that goes.
+	pi.on("project_trust", async (event) =>
+		isAgentCut(event.cwd)
+			? { trusted: "yes" as const, remember: false }
+			: { trusted: "undecided" as const },
+	);
 
 	const api: WorkApi = {
 		registerTreeProvider(provider: TreeProvider) {

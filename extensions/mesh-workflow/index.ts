@@ -1757,7 +1757,7 @@ export function meshWorkflow(
 		// they send it and wake it; one that holds others off stays.
 		pi.events?.on(PARKING, (data: unknown) => {
 			if (!isParking(data) || !peer || data.session !== peer.session) return;
-			peer.park();
+			peer.park(data.wake);
 			data.addresses = peer.addresses;
 			const quest = presences.of(peer.session)?.quest;
 			if (quest) data.quest = quest;

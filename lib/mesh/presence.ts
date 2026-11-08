@@ -158,6 +158,15 @@ export interface Presence {
 	readonly questInfo?: QuestInfo;
 	/** The folder it runs in. Missing from an older presence. */
 	readonly cwd?: string;
+	/**
+	 * The file its holder wakes it on, while it's parked: anything written
+	 * there starts it again, and the holder deletes it. The same path its
+	 * park marker names, said here so a mycelium node steering a parked
+	 * session can wake it itself (KP0L6A, 8 November). A park from before
+	 * the machine's latest boot names a holder that is gone: check the
+	 * owner's bootId first.
+	 */
+	readonly wake?: string;
 	/** The repository that folder is a checkout of, by name, when it is one. */
 	readonly repo?: string;
 	/**
@@ -520,6 +529,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...(isQuestInfo(one.questInfo) ? { questInfo: one.questInfo } : {}),
 		...(typeof one.cwd === "string" ? { cwd: one.cwd } : {}),
+		...(typeof one.wake === "string" && one.wake !== ""
+			? { wake: one.wake }
+			: {}),
 		...(typeof one.repo === "string" ? { repo: one.repo } : {}),
 		...(standingFrom(one.wanting).length > 0
 			? { wanting: standingFrom(one.wanting) }

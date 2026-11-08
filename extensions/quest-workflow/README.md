@@ -179,8 +179,9 @@ shipped and tested.
   default `ask`, and no `--approve` or `--no-approve`) stops at
   that prompt before it reads its words. The spawn's answer says
   so, and the look a minute on tells at once, naming the folder,
-  rather than waiting 5 minutes for a slow start. Trusting the
-  folder stays the person's call.
+  rather than waiting 5 minutes for a slow start. A tree the
+  work tool cut is trusted by the harness itself
+  (work-integration), so a spawn there never waits on it.
 - **Behind a lock**: a session handed to the launcher while the
   screen is locked starts behind the lock and goes to its place
   once the lock is gone.

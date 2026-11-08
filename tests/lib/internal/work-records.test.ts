@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import {
+	isAgentCut,
 	recordedTrees,
 	treesHeldBy,
 } from "../../../lib/internal/work-records.ts";
@@ -39,5 +40,24 @@ describe("the work broker's records", () => {
 			recordedTrees(dir).find((tree) => tree.path.endsWith("old")),
 			"a record naming no session holds it for nobody",
 		).toEqual({ path: join(root, "trees", "old"), sessions: [] });
+	});
+
+	// Joel, 8 November: trees agents cut are trusted by default.
+	it("tell a folder in a tree the broker cut from one beside it", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const tree = join(root, "trees", "one");
+		recorded(dir, tree);
+		mkdirSync(join(tree, "src"), { recursive: true });
+		mkdirSync(join(root, "trees", "one-more"), { recursive: true });
+
+		const cut = [tree, join(tree, "src")].filter(
+			(folder) => !isAgentCut(folder, dir),
+		);
+		const beside = [join(root, "trees", "one-more"), root].filter((folder) =>
+			isAgentCut(folder, dir),
+		);
+		expect(cut, "every folder in the cut tree counts").toEqual([]);
+		expect(beside, "no folder outside it counts").toEqual([]);
 	});
 });
