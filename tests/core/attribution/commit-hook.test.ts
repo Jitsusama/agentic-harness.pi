@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,8 +44,13 @@ const OPTIONS: CommitHookOptions = {
 	trailerExpr: '"$TEST_CO_AUTHOR"',
 };
 
+/**
+ * A folder named as git names it, with no symlink on the way: a
+ * symlinked /tmp hid that a command run at a repo's own root never got
+ * the hook, since only a root named some other way was installed into.
+ */
 function tempDir(): string {
-	return mkdtempSync(join(tmpdir(), "attribution-hook-"));
+	return realpathSync(mkdtempSync(join(tmpdir(), "attribution-hook-")));
 }
 
 function writeHook(dir: string): string {

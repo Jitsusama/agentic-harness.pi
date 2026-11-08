@@ -166,8 +166,14 @@ export function ensureCommitHook(
 		return;
 	}
 	if (!layout) return;
+	// The root is asked after before the folder is noted: noted first, a
+	// command run at the repo's own root, as git spells it, found its root
+	// already there and never installed. Only a folder named some other
+	// way, such as through a symlinked /tmp, ever got the hook, which is
+	// why it passed on one machine and failed on penelope (8 November).
+	const rootSeen = installed.has(layout.root);
 	installed.add(dir);
-	if (installed.has(layout.root)) return;
+	if (rootSeen) return;
 	installed.add(layout.root);
 	try {
 		installInto(layout, options);
