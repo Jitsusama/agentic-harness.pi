@@ -274,7 +274,10 @@ describe("cloning a sibling's cargo target", () => {
 		// the sibling ran after this tree was cut would pass for fresh here.
 		const { from, to } = fixture();
 
-		expect(await cloneTarget(from, to, machine().seams)).toBe(true);
+		expect(
+			await cloneTarget(from, to, machine().seams),
+			"a sibling's target with nothing holding its locks is cloned",
+		).toBe(true);
 
 		expect(filesUnder(to)).toEqual([
 			".rustc_info.json",
@@ -304,7 +307,10 @@ describe("cloning a sibling's cargo target", () => {
 		const { from, to, fresh } = fixture();
 		const { seams, released } = machine([join(from, "release")]);
 
-		expect(await cloneTarget(from, to, seams)).toBe(false);
+		expect(
+			await cloneTarget(from, to, seams),
+			"a clone is refused while a build holds the release lock",
+		).toBe(false);
 
 		expect(readdirSync(fresh)).toEqual(["Cargo.lock"]);
 		expect(released).toEqual([join(from, "debug")]);
@@ -316,7 +322,10 @@ describe("cloning a sibling's cargo target", () => {
 		seams.cloneEntry = async (entry, dest) =>
 			entry.endsWith("deps") ? false : machine().seams.cloneEntry(entry, dest);
 
-		expect(await cloneTarget(from, to, seams)).toBe(false);
+		expect(
+			await cloneTarget(from, to, seams),
+			"a clone fails when the filesystem cannot clone deps",
+		).toBe(false);
 
 		expect(readdirSync(fresh)).toEqual(["Cargo.lock"]);
 	});
@@ -338,7 +347,10 @@ describe("cloning a sibling's cargo target", () => {
 			}
 		}
 
-		expect(await cloneTarget(from, to, machine().seams)).toBe(false);
+		expect(
+			await cloneTarget(from, to, machine().seams),
+			"a target with no fingerprint of this repository is refused",
+		).toBe(false);
 
 		expect(readdirSync(fresh)).toEqual(["Cargo.lock"]);
 	});
@@ -348,7 +360,10 @@ describe("cloning a sibling's cargo target", () => {
 		rmSync(join(fresh, "Cargo.lock"));
 		rmSync(join(dirname(from), "Cargo.lock"));
 
-		expect(await cloneTarget(from, to, machine().seams)).toBe(false);
+		expect(
+			await cloneTarget(from, to, machine().seams),
+			"a clone is refused when neither tree has a Cargo.lock",
+		).toBe(false);
 
 		expect(readdirSync(fresh)).toEqual([]);
 	});
@@ -379,10 +394,16 @@ describe("cloning a sibling's cargo target", () => {
 			return clone(entry, dest);
 		};
 
-		expect(await cloneTarget(from, to, seams)).toBe(false);
+		expect(
+			await cloneTarget(from, to, seams),
+			"a clone is given up when a build made the target meanwhile",
+		).toBe(false);
 
 		expect(filesUnder(to)).toEqual(["debug/.cargo-lock"]);
 		expect(readdirSync(fresh).sort()).toEqual(["Cargo.lock", "target"]);
-		expect(existsSync(join(to, "debug", ".fingerprint"))).toBe(false);
+		expect(
+			existsSync(join(to, "debug", ".fingerprint")),
+			`${join(to, "debug", ".fingerprint")} is not cloned`,
+		).toBe(false);
 	});
 });

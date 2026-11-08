@@ -222,9 +222,16 @@ describe("a gate raised by a tool", () => {
 	it("docks above the editor rather than covering it", async () => {
 		const session = await raise();
 
-		expect(overlaid(session)).toBe(false);
-		expect(await session.onScreen(TITLE)).toBe(true);
-		expect(await session.onScreen("MARK-body-0")).toBe(true);
+		expect(
+			overlaid(session),
+			"the gate docks above the editor rather than opening an overlay",
+		).toBe(false);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(TITLE),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-body-0"),
+		);
 	});
 
 	it("sits on the editor's border rather than drawing a second rule on it", async () => {
@@ -240,14 +247,18 @@ describe("a gate raised by a tool", () => {
 			(row, at) => rule(row) && rule(rows[at + 1] ?? ""),
 		);
 		expect(stacked).toEqual([]);
-		expect(await session.onScreen("Ctrl+Alt+N")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N"),
+		);
 	});
 
 	it("takes the keyboard once it is on screen", async () => {
 		const session = await raise();
 
 		await waitFor(() => !session.editorFocused(), "the gate to take focus");
-		expect(await session.onScreen(TITLE)).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(TITLE),
+		);
 	});
 
 	it("has been drawn by the time it takes the keyboard", async () => {
@@ -288,7 +299,9 @@ describe("a gate raised by a tool", () => {
 		const session = await raise();
 		await waitFor(() => !session.editorFocused(), "the gate to take focus");
 
-		expect(await session.onScreen("Ctrl+Alt+N")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N"),
+		);
 	});
 
 	it("approves on Enter and settles into the transcript without a blank row", async () => {
@@ -301,7 +314,10 @@ describe("a gate raised by a tool", () => {
 
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
 		expect(await session.inBuffer("✓ approved")).toBe(1);
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor has the keys back once the gate is approved",
+		).toBe(true);
 		await expectClean(session);
 	});
 
@@ -314,7 +330,10 @@ describe("a gate raised by a tool", () => {
 
 		expect(answers).toEqual([null]);
 		expect(await session.inBuffer("− cancelled")).toBe(1);
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor has the keys back once the gate is cancelled",
+		).toBe(true);
 		await expectClean(session);
 	});
 
@@ -347,12 +366,18 @@ describe("a gate arriving while the person types", () => {
 		for (const character of typed) {
 			await session.type(character);
 			if (await session.onScreen("MARK-title")) seenWhileTyping = true;
-			expect(session.editorFocused()).toBe(true);
+			expect(
+				session.editorFocused(),
+				`the editor keeps the keys after "${character}" is typed`,
+			).toBe(true);
 			await sleep(60);
 		}
 		const stopped = Date.now();
 
-		expect(seenWhileTyping).toBe(true);
+		expect(
+			seenWhileTyping,
+			"the gate shows on screen while the person is still typing",
+		).toBe(true);
 		expect(session.editorText()).toBe(typed);
 		await waitFor(() => !session.editorFocused(), "the gate to take focus");
 		expect(Date.now() - stopped).toBeGreaterThanOrEqual(
@@ -368,7 +393,9 @@ describe("a gate arriving while the person types", () => {
 		await sleep(100);
 
 		expect(answers).toEqual([]);
-		expect(await session.onScreen(TITLE)).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(TITLE),
+		);
 		await sleep(GATE_ARM_MS);
 		await session.key("enter");
 		await turnEnds(session);
@@ -382,13 +409,23 @@ describe("the hop chord on a gate", () => {
 		await waitFor(() => !session.editorFocused(), "the gate to take focus");
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the hop out of the gate reaches the editor",
+		).toBe(true);
 		await session.type("a steer");
-		expect(await session.onScreen("a steer")).toBe(true);
-		expect(await session.onScreen(TITLE)).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("a steer"),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(TITLE),
+		);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop from the editor takes the keys back to the gate",
+		).toBe(false);
 		await session.key("enter");
 		await waitFor(() => answers.length === 1, "the gate to answer");
 
@@ -401,14 +438,23 @@ describe("the hop chord on a gate", () => {
 		await armed(session);
 
 		// The gate is dealt its rows first, so it is whole and the board gives.
-		expect(await session.onScreen("MARK-body-3")).toBe(true);
-		expect(await session.onScreen("MARK-progress-19")).toBe(false);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-body-3"),
+		);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("MARK-progress-19"),
+		);
 
 		// Gate, then the progress widget, then the editor, then the gate.
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the first hop from the gate reaches the progress widget",
+		).toBe(false);
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(true);
+		expect(session.editorFocused(), "the second hop reaches the editor").toBe(
+			true,
+		);
 		await session.key("ctrl+alt+n");
 		await session.key("enter");
 		await waitFor(() => answers.length === 1, "the gate to answer");
@@ -423,8 +469,13 @@ describe("the hop chord on a gate", () => {
 		await session.key("ctrl+alt+n");
 		await sleep(GATE_TYPING_IDLE_MS + GATE_ARM_MS + 200);
 
-		expect(session.editorFocused()).toBe(true);
-		expect(await session.onScreen(TITLE)).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor keeps the keys the person hopped to",
+		).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining(TITLE),
+		);
 	});
 
 	it("passes Ctrl+C through to pi, which clears the draft", async () => {
@@ -433,7 +484,10 @@ describe("the hop chord on a gate", () => {
 		await session.key("ctrl+alt+n");
 		await session.type("a draft");
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the hop from the editor takes the keys back to the gate",
+		).toBe(false);
 
 		await session.key("ctrl+c");
 
@@ -457,8 +511,13 @@ describe("a gate closed from outside", () => {
 		await sleep(50);
 
 		expect(answers).toEqual([null]);
-		expect(await session.onScreen(TITLE)).toBe(false);
-		expect(session.editorFocused()).toBe(true);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining(TITLE),
+		);
+		expect(
+			session.editorFocused(),
+			"the editor keeps the keys once the stopped turn takes the gate down",
+		).toBe(true);
 		const verdict = await session.verdict();
 		expect(verdict.desync).toEqual([]);
 		expect(verdict.blankMax).toBe(0);
@@ -531,8 +590,12 @@ describe("a tabbed gate", () => {
 
 		await session.key("enter");
 		await session.key("enter");
-		expect(await session.onScreen("Ctrl+S submit")).toBe(true);
-		expect(await session.onScreen("Ctrl+Enter")).toBe(false);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+S submit"),
+		);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("Ctrl+Enter"),
+		);
 		await session.key("ctrl+s");
 		await turnEnds(session);
 
@@ -552,7 +615,9 @@ describe("a tabbed gate", () => {
 
 		await session.key("enter");
 		await session.key("enter");
-		expect(await session.onScreen("Ctrl+Enter submit")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Enter submit"),
+		);
 		await session.key("ctrl+s");
 		await turnEnds(session);
 
@@ -606,7 +671,7 @@ describe("a gate taller than a small terminal", () => {
 			await armed(session);
 
 			const shown = (await session.viewport()).map(strip);
-			expect(shown.some((row) => row.includes("Ctrl+Alt+N"))).toBe(true);
+			expect(shown).toContainEqual(expect.stringContaining("Ctrl+Alt+N"));
 			await session.key("escape");
 			await turnEnds(session);
 

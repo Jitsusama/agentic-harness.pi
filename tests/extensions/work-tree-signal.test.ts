@@ -134,7 +134,7 @@ describe("the work tool's signal reaching the tree provider", () => {
 			undefined,
 			HEADLESS,
 		)) as { details?: { ok?: boolean; key?: string } };
-		expect(cut.details?.ok).toBe(true);
+		expect(cut).toMatchObject({ details: { ok: true } });
 
 		const released = (await work.execute(
 			"call-2",
@@ -143,7 +143,7 @@ describe("the work tool's signal reaching the tree provider", () => {
 			undefined,
 			HEADLESS,
 		)) as { details?: { ok?: boolean } };
-		expect(released.details?.ok).toBe(true);
+		expect(released).toMatchObject({ details: { ok: true } });
 
 		expect(handed).toEqual([
 			{ call: "ensure", signal },
@@ -199,7 +199,10 @@ describe("stopping a cut the built-in git provider is making", () => {
 		);
 		cutting.catch(() => undefined);
 
-		expect(await appears(pidFile, 10_000)).toBe(true);
+		expect(
+			await appears(pidFile, 10_000),
+			`the hook writes its pid to ${pidFile} within 10 s`,
+		).toBe(true);
 		hookPid = Number(readFileSync(pidFile, "utf8").trim());
 		stop.abort();
 
@@ -209,6 +212,9 @@ describe("stopping a cut the built-in git provider is making", () => {
 				5_000,
 			),
 		).toBe("answered");
-		expect(await dies(hookPid, 2_000)).toBe(true);
+		expect(
+			await dies(hookPid, 2_000),
+			`the hook, pid ${hookPid}, dies within 2 s of the stop`,
+		).toBe(true);
 	}, 20_000);
 });

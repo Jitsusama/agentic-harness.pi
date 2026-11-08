@@ -322,7 +322,10 @@ describe("a reviewer somebody stopped", () => {
 		const notice = watch.cancelOne("test-skeptic");
 
 		expect(notice).toBe("cancelled test-skeptic");
-		expect(watch.signalFor("test-skeptic").aborted).toBe(true);
+		expect(
+			watch.signalFor("test-skeptic").aborted,
+			"the panel's cancel stops test-skeptic's work",
+		).toBe(true);
 		expect(watch.entries()).toContainEqual(
 			expect.objectContaining({
 				participantId: "test-skeptic",
@@ -337,8 +340,11 @@ describe("cancelling a round", () => {
 		const watch = watchRound("council", null);
 		const one = watch.signalFor("test-skeptic");
 
-		expect(one.aborted).toBe(false);
-		expect(watch.signal.aborted).toBe(false);
+		expect(
+			one.aborted,
+			"a participant's signal starts live in a live round",
+		).toBe(false);
+		expect(watch.signal.aborted, "a fresh round starts live").toBe(false);
 	});
 
 	it("reaches every participant when the whole round is cancelled", () => {
@@ -351,11 +357,20 @@ describe("cancelling a round", () => {
 		outer.abort();
 		const after = watch.signalFor("test-skeptic");
 
-		expect(before.aborted).toBe(true);
-		expect(watch.signal.aborted).toBe(true);
+		expect(
+			before.aborted,
+			"a signal handed out before the round was cancelled stops too",
+		).toBe(true);
+		expect(
+			watch.signal.aborted,
+			"the round stops when its outer signal does",
+		).toBe(true);
 		// One asked for after the fact is already cancelled rather than
 		// starting a subprocess into an abandoned round.
-		expect(after.aborted).toBe(true);
+		expect(
+			after.aborted,
+			"a signal asked for after the round was cancelled starts stopped",
+		).toBe(true);
 	});
 
 	it("keeps the others running when one is cancelled", () => {
@@ -368,9 +383,15 @@ describe("cancelling a round", () => {
 		// that took the round down with it.
 		watch.cancelOne("test-skeptic");
 
-		expect(doomed.aborted).toBe(true);
-		expect(spared.aborted).toBe(false);
-		expect(watch.signal.aborted).toBe(false);
+		expect(doomed.aborted, "the cancelled participant stops").toBe(true);
+		expect(
+			spared.aborted,
+			"cancelling test-skeptic leaves architecture-hawk running",
+		).toBe(false);
+		expect(
+			watch.signal.aborted,
+			"cancelling one participant leaves the round running",
+		).toBe(false);
 	});
 
 	it("marks every unsettled row when the whole round is stopped", () => {

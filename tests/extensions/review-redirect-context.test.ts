@@ -86,7 +86,7 @@ describe("what a redirect hands back", () => {
 	it("still sends nothing when it redirects", async () => {
 		const ctx = context(tabbed({ 0: { type: "redirect", note: "no" } }));
 		const decision = await confirmBatch(ctx, "Post 2 Things", items(2));
-		expect(decision.proceed).toBe(false);
+		expect(decision).toMatchObject({ proceed: false });
 		expect(decision.accepted).toEqual([]);
 	});
 

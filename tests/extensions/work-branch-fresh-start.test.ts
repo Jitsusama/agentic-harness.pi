@@ -176,7 +176,7 @@ describe("refreshing a start point before branching", () => {
 		expect(answer.content[0]?.text).toContain(
 			`is on jg/topic, at ${now.slice(0, 12)} from origin/main.`,
 		);
-		expect(answer.details?.fresh).toBe(true);
+		expect(answer).toMatchObject({ details: { fresh: true } });
 		expect(
 			await git(behind, "rev-parse", "--abbrev-ref", "jg/topic@{upstream}"),
 		).toBe("origin/main");
@@ -210,7 +210,7 @@ describe("refreshing a start point before branching", () => {
 
 		expect(await git(behind, "rev-parse", "jg/topic")).toBe(before);
 		expect(answer.content[0]?.text).toMatch(/Could not fetch origin\/main/);
-		expect(answer.details?.fresh).toBe(false);
+		expect(answer).toMatchObject({ details: { fresh: false } });
 	});
 
 	it("keeps the fetch's reason when there was no earlier fetch to fall back on", async () => {
@@ -223,7 +223,7 @@ describe("refreshing a start point before branching", () => {
 			from: "origin/never-fetched",
 		});
 
-		expect(answer.details?.ok).not.toBe(true);
+		expect(answer).not.toMatchObject({ details: { ok: true } });
 		expect(answer.content[0]?.text).toMatch(
 			/Could not fetch origin\/never-fetched/,
 		);

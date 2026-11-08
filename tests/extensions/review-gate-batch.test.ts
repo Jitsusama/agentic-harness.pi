@@ -58,7 +58,7 @@ describe("approving several writes at once", () => {
 	it("sends a tab that was approved", async () => {
 		const ctx = context(tabbed({ 0: { type: "action", key: SUBMIT } }));
 		const decision = await confirmBatch(ctx, "Post 2 Things", items(2));
-		expect(decision.proceed).toBe(true);
+		expect(decision).toMatchObject({ proceed: true });
 		expect(decision.accepted).toContain(0);
 	});
 
@@ -95,7 +95,7 @@ describe("approving several writes at once", () => {
 
 	it("abandons everything on escape", async () => {
 		const decision = await confirmBatch(context(null), "Post?", items(3));
-		expect(decision.proceed).toBe(false);
+		expect(decision).toMatchObject({ proceed: false });
 		expect(decision.accepted).toEqual([]);
 	});
 
@@ -107,7 +107,7 @@ describe("approving several writes at once", () => {
 			}),
 		);
 		const decision = await confirmBatch(ctx, "Post 3 Things", items(3));
-		expect(decision.proceed).toBe(false);
+		expect(decision).toMatchObject({ proceed: false });
 		expect(decision.accepted).toEqual([]);
 		expect(decision.redirect).toContain("answer binks first");
 	});
@@ -117,7 +117,7 @@ describe("approving several writes at once", () => {
 			tabbed({ 0: { type: "action", key: "r", note: "wrong thread" } }),
 		);
 		const decision = await confirmBatch(ctx, "Post 2 things?", items(2));
-		expect(decision.proceed).toBe(true);
+		expect(decision).toMatchObject({ proceed: true });
 		expect(decision.redirect).toContain("wrong thread");
 	});
 });
@@ -127,14 +127,14 @@ describe("a batch of one", () => {
 		// A single prompt answers with a PromptResult rather than a tab map.
 		const ctx = context({ type: "action", key: SUBMIT });
 		const decision = await confirmBatch(ctx, "Post This Reply", items(1));
-		expect(decision.proceed).toBe(true);
+		expect(decision).toMatchObject({ proceed: true });
 		expect(decision.accepted).toEqual([0]);
 	});
 
 	it("refuses the one item when it is rejected", async () => {
 		const ctx = context({ type: "action", key: "r" });
 		const decision = await confirmBatch(ctx, "Post This Reply", items(1));
-		expect(decision.proceed).toBe(false);
+		expect(decision).toMatchObject({ proceed: false });
 		expect(decision.rejected).toEqual([0]);
 	});
 });
@@ -186,7 +186,7 @@ describe("with nobody to ask", () => {
 	it("approves everything, as every gate in this package does headless", async () => {
 		const ctx = context(null, false);
 		const decision = await confirmBatch(ctx, "Post 3 Things", items(3));
-		expect(decision.proceed).toBe(true);
+		expect(decision).toMatchObject({ proceed: true });
 		expect(decision.accepted).toEqual([0, 1, 2]);
 	});
 });

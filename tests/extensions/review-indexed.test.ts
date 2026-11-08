@@ -107,7 +107,7 @@ describe("every action is written down somewhere", () => {
 		);
 
 		expect(invented).toEqual(["frobnicate"]);
-		expect(guide.includes("review_see frobnicate")).toBe(false);
+		expect(guide).not.toContain("review_see frobnicate");
 	});
 
 	it("has no action that repeats its own tool's name", () => {
@@ -152,6 +152,6 @@ describe("every action is written down somewhere", () => {
 		// real action and the word is everywhere in the guide, so the
 		// loose form proved nothing about whether it was documented.
 		expect(guide).toContain("diff");
-		expect(guide.includes("review_say diff")).toBe(false);
+		expect(guide).not.toContain("review_say diff");
 	});
 });

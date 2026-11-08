@@ -81,7 +81,7 @@ describe("every work verb is written down somewhere", () => {
 		);
 
 		expect(invented).toEqual(["frobnicate"]);
-		expect(guide.includes(`${TOOL} frobnicate`)).toBe(false);
+		expect(guide).not.toContain(`${TOOL} frobnicate`);
 	});
 
 	it("names the rules that only live in AGENTS.md nowhere else", () => {

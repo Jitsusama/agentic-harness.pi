@@ -31,7 +31,10 @@ describe("the personas the package ships", () => {
 		const charters = await chartersOnDisk(builtInPersonaDir());
 
 		for (const reviewer of BUILT_IN_ROSTER.reviewers) {
-			expect(charters.get(reviewer.persona ?? "")).toBeTruthy();
+			expect(
+				charters.get(reviewer.persona ?? ""),
+				`reviewer ${reviewer.id} has a charter for its persona ${reviewer.persona}`,
+			).toBeTruthy();
 		}
 	});
 });

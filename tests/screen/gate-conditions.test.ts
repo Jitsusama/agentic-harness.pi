@@ -169,7 +169,10 @@ async function expectClean(session: PiSession): Promise<void> {
 /** The editor takes typing: the keys ended up where the person can use them. */
 async function editorTakesTyping(session: PiSession): Promise<void> {
 	await session.type("z");
-	expect(session.editorFocused()).toBe(true);
+	expect(
+		session.editorFocused(),
+		"the editor holds the keys it was typed into",
+	).toBe(true);
 	expect(session.editorText()).toContain("z");
 }
 
@@ -224,7 +227,10 @@ describe("pi's selector opened over a gate", () => {
 
 		await session.key("ctrl+alt+n");
 
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the hop out of the gate reaches the editor once the selector is gone",
+		).toBe(true);
 		await session.type("q");
 		expect(session.editorText()).toBe("q");
 	});
@@ -273,7 +279,9 @@ describe("a steer sent while a gate waits", () => {
 		await sleep(300);
 
 		expect(gates).toEqual([]);
-		expect(await session.onScreen("MARK-title")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-title"),
+		);
 		expect(session.editorText()).toBe("");
 
 		await session.key("ctrl+alt+n");
@@ -299,11 +307,15 @@ describe("a gate across a resize", () => {
 		session.term.resize(60, 12);
 		await sleep(200);
 		// Folded into the smaller room, with pi's editor and footer below it.
-		expect(await session.onScreen("MARK-title")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-title"),
+		);
 		expect((await session.viewport()).at(-1)).toContain("faux-1");
 		session.term.resize(120, 40);
 		await sleep(200);
-		expect(await session.onScreen("MARK-body-3")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-body-3"),
+		);
 
 		await session.key("enter");
 		await turnEnds(session);
@@ -372,13 +384,17 @@ describe("a gate in pi's fullscreen renderer", () => {
 		const session = await boot(100, 30, "fullscreen");
 		await turn(session, [fauxToolCall("ask_gate", { delay: 0 })]);
 		await gateHasKeys(session);
-		expect(await session.onScreen("MARK-body-3")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("MARK-body-3"),
+		);
 
 		await session.key("enter");
 		await turnEnds(session);
 
 		expect(gates).toEqual([APPROVED]);
-		expect(await session.onScreen("MARK-title")).toBe(false);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("MARK-title"),
+		);
 		await editorTakesTyping(session);
 	});
 });

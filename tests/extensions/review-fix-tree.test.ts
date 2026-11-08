@@ -117,7 +117,7 @@ describe("somewhere to fix the next item", () => {
 		// A refusal rather than a throw. Somebody who knows what to fix
 		// and must find their own directory is inconvenienced; somebody
 		// shown an error instead of the item has lost what they asked for.
-		expect("refusal" in where).toBe(true);
+		expect(where).toHaveProperty("refusal");
 		expect("refusal" in where && where.refusal).toContain("working layer");
 	});
 });

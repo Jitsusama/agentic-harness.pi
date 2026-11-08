@@ -90,7 +90,10 @@ describe("reading pi's screen", () => {
 
 		expect(focused).not.toBeNull();
 		expect(focused).toBe(pi.focused());
-		expect(pi.editorFocused()).toBe(true);
+		expect(
+			pi.editorFocused(),
+			"a freshly booted pi gives its editor the keys",
+		).toBe(true);
 	});
 
 	// Every way out of a widget hands the keys back to this, so a pi that
@@ -100,7 +103,9 @@ describe("reading pi's screen", () => {
 		const editor = pi.focused();
 		pi.tui.setFocus(new Text("elsewhere", 0, 0));
 
-		expect(pi.editorFocused()).toBe(false);
+		expect(pi.editorFocused(), "the keys moved to the stand-in component").toBe(
+			false,
+		);
 		expect(findEditor(pi.tui)).not.toBeNull();
 		expect(findEditor(pi.tui)).toBe(editor);
 	});
@@ -185,7 +190,9 @@ describe("placing a gate's record in pi's transcript", () => {
 		session.tui.requestRender();
 		await waitFor(() => session.onScreen("MARK-record"), "the record");
 
-		expect(put).toBe(true);
+		expect(put, "the record is placed while a tool is still running").toBe(
+			true,
+		);
 		const shown = await session.viewport();
 		const record = shown.findIndex((row) => row.includes("MARK-record"));
 		const tool = shown.findIndex((row) => row.includes("MARK-held-0"));

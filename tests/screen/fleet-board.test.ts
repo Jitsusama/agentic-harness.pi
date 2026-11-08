@@ -158,14 +158,20 @@ describe("a running fleet", () => {
 		await session.type("a steer");
 
 		expect(session.editorText()).toBe("a steer");
-		expect(await session.onScreen("Subagent Fleet")).toBe(true);
-		expect(await session.onScreen("alpha")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Subagent Fleet"),
+		);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("alpha"),
+		);
 	});
 
 	it("says how to reach its keys", async () => {
 		const session = await startFleet(["alpha"]);
 
-		expect(await session.onScreen("Ctrl+Alt+N")).toBe(true);
+		expect(await session.viewport()).toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N"),
+		);
 	});
 
 	it("leaves Escape to pi, which stops the turn and so the fleet", async () => {
@@ -183,7 +189,9 @@ describe("a running fleet", () => {
 		);
 		// Stopped, not carried on: the model's next answer was never asked
 		// for, which is how pi's interrupt differs from cancelling the fleet.
-		expect(await session.onScreen("MARK-after-the-fleet")).toBe(false);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("MARK-after-the-fleet"),
+		);
 	});
 });
 
@@ -199,23 +207,37 @@ describe("the board, once the hop chord reaches it", () => {
 			() => held.get("beta")?.signal?.aborted === true,
 			"beta to be stopped",
 		);
-		expect(held.get("alpha")?.signal?.aborted).toBe(false);
-		expect(session.runtime.session.isStreaming).toBe(true);
+		expect(
+			held.get("alpha")?.signal?.aborted,
+			"r on beta leaves alpha running",
+		).toBe(false);
+		expect(
+			session.runtime.session.isStreaming,
+			"cancelling one subagent leaves the turn going",
+		).toBe(true);
 	});
 
 	it("cancels the fleet with Escape and hands the editor back, the turn going on", async () => {
 		const session = await startFleet(["alpha", "beta"]);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(session.editorFocused(), "the hop takes the keys to the board").toBe(
+			false,
+		);
 		await session.key("escape");
 
 		await waitFor(
 			() => held.get("alpha")?.signal?.aborted === true,
 			"alpha to be stopped",
 		);
-		expect(held.get("beta")?.signal?.aborted).toBe(true);
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			held.get("beta")?.signal?.aborted,
+			"Escape on the board stops beta too",
+		).toBe(true);
+		expect(
+			session.editorFocused(),
+			"Escape on the board hands the editor back",
+		).toBe(true);
 		await waitFor(
 			() => session.onScreen("MARK-after-the-fleet"),
 			"the turn to carry on past the fleet",
@@ -226,13 +248,22 @@ describe("the board, once the hop chord reaches it", () => {
 		const session = await startFleet(["alpha"]);
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(
+			session.editorFocused(),
+			"the first hop takes the keys to the board",
+		).toBe(false);
 		await session.key("ctrl+alt+n");
 
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the second hop gives the keys back to the editor",
+		).toBe(true);
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
-		expect(held.get("alpha")?.signal?.aborted).toBe(false);
+		expect(
+			held.get("alpha")?.signal?.aborted,
+			"hopping in and out cancels nothing",
+		).toBe(false);
 	});
 
 	it("passes Ctrl+C through to pi, which clears the draft", async () => {
@@ -241,7 +272,9 @@ describe("the board, once the hop chord reaches it", () => {
 		expect(session.editorText()).toBe("a draft");
 
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(session.editorFocused(), "the hop takes the keys to the board").toBe(
+			false,
+		);
 		await session.key("ctrl+c");
 
 		expect(session.editorText()).toBe("");
@@ -266,14 +299,21 @@ describe("when the fleet finishes", () => {
 		expect(verdict.desync).toEqual([]);
 		expect(verdict.hygiene).toEqual([]);
 		expect(verdict.blankMax).toBe(0);
-		expect(await session.onScreen("Ctrl+Alt+N")).toBe(false);
-		expect(session.editorFocused()).toBe(true);
+		expect(await session.viewport()).not.toContainEqual(
+			expect.stringContaining("Ctrl+Alt+N"),
+		);
+		expect(
+			session.editorFocused(),
+			"the editor keeps the keys once the fleet is done",
+		).toBe(true);
 	});
 
 	it("gives the editor back when the board had it", async () => {
 		const session = await startFleet(["alpha"]);
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(session.editorFocused(), "the hop takes the keys to the board").toBe(
+			false,
+		);
 
 		held.get("alpha")?.release();
 		await waitFor(
@@ -281,7 +321,10 @@ describe("when the fleet finishes", () => {
 			"the turn to finish",
 		);
 
-		expect(session.editorFocused()).toBe(true);
+		expect(
+			session.editorFocused(),
+			"the editor has the keys back once the board is gone",
+		).toBe(true);
 	});
 });
 
@@ -302,7 +345,7 @@ describe("a board taller than the room", () => {
 		expect(verdict.redrawsAt.filter((at) => at.startsWith("ticking"))).toEqual(
 			[],
 		);
-		expect(viewport.some((row) => row.includes("more"))).toBe(true);
+		expect(viewport).toContainEqual(expect.stringContaining("more"));
 		expect(verdict.desync).toEqual([]);
 	});
 });
@@ -311,7 +354,9 @@ describe("a session replaced under a running fleet", () => {
 	it("takes the board away and gives the editor back, even from the board", async () => {
 		const session = await startFleet(["alpha"]);
 		await session.key("ctrl+alt+n");
-		expect(session.editorFocused()).toBe(false);
+		expect(session.editorFocused(), "the hop takes the keys to the board").toBe(
+			false,
+		);
 
 		await session.runtime.newSession();
 		await waitFor(
@@ -319,7 +364,10 @@ describe("a session replaced under a running fleet", () => {
 			"the board to go",
 		);
 
-		expect(held.get("alpha")?.signal?.aborted).toBe(true);
+		expect(
+			held.get("alpha")?.signal?.aborted,
+			"replacing the session stops its fleet",
+		).toBe(true);
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
 	});

@@ -249,7 +249,9 @@ describe("housekeeping at session start", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(round), `${round} is swept`).toBe(false),
+		);
 	});
 
 	it("leaves a finished round alone when the ledger will not read", async () => {
@@ -272,7 +274,7 @@ describe("housekeeping at session start", () => {
 			expect(about[0]).toContain("torn.json");
 			expect(about[0]).toContain("every session");
 		});
-		expect(existsSync(round)).toBe(true);
+		expect(existsSync(round), `${round} is kept`).toBe(true);
 	});
 
 	it("prunes attachments even so", async () => {
@@ -305,7 +307,11 @@ describe("housekeeping at session start", () => {
 		const { sent } = await startSession();
 
 		await vi.waitFor(
-			async () => expect(await stillOpen("council-mine")).toBe(false),
+			async () =>
+				expect(
+					await stillOpen("council-mine"),
+					"this session's finished round is collected",
+				).toBe(false),
 			{ timeout: SETTLES_MS },
 		);
 		expect(said).toEqual([]);
@@ -323,8 +329,13 @@ describe("housekeeping at session start", () => {
 
 		const { sent } = await startSession();
 
-		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
-		expect(await stillOpen("council-theirs-0")).toBe(true);
+		await vi.waitFor(() =>
+			expect(existsSync(round), `${round} is swept`).toBe(false),
+		);
+		expect(
+			await stillOpen("council-theirs-0"),
+			"another session's round of today stays open",
+		).toBe(true);
 		expect(said).toEqual([]);
 		expect(sent).toEqual([]);
 	});
@@ -339,7 +350,11 @@ describe("housekeeping at session start", () => {
 		await startSession();
 
 		await vi.waitFor(
-			async () => expect(await stillOpen("council-abandoned")).toBe(false),
+			async () =>
+				expect(
+					await stillOpen("council-abandoned"),
+					"a finished round two days old is collected",
+				).toBe(false),
 			{ timeout: SETTLES_MS },
 		);
 		expect(said).toEqual([]);
@@ -370,7 +385,7 @@ describe("housekeeping at session start", () => {
 		const { sent } = await startSession();
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
-		expect(sent[0]?.display).toBe(false);
+		expect(sent[0]).toMatchObject({ display: false });
 		expect(String(sent[0]?.content)).toContain("council-unnamed");
 		expect(String(sent[0]?.content)).toContain("review_ask collect");
 		expect(said).toEqual([]);
@@ -385,7 +400,9 @@ describe("housekeeping at session start", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(round), `${round} is swept`).toBe(false),
+		);
 		expect(said).toEqual([]);
 	});
 });
@@ -400,9 +417,16 @@ describe("the look for orphaned reviewers", () => {
 		vi.setSystemTime(opens);
 		const early = await orphanedReviewer("round-early");
 		await startSession();
-		await vi.waitFor(() => expect(existsSync(early)).toBe(true), {
-			timeout: SETTLES_MS,
-		});
+		await vi.waitFor(
+			() =>
+				expect(
+					existsSync(early),
+					`${early} asks the orphan to stop after the first look`,
+				).toBe(true),
+			{
+				timeout: SETTLES_MS,
+			},
+		);
 
 		// Left after that look. The next start in the window is seen to
 		// be done once it has pruned an attachment, its step before.
@@ -410,18 +434,29 @@ describe("the look for orphaned reviewers", () => {
 		const attachment = staleAttachment("another-session");
 		vi.setSystemTime(opens + 60_000);
 		await startSession();
-		await vi.waitFor(() => expect(existsSync(attachment)).toBe(false), {
-			timeout: SETTLES_MS,
-		});
+		await vi.waitFor(
+			() =>
+				expect(existsSync(attachment), `${attachment} is pruned`).toBe(false),
+			{
+				timeout: SETTLES_MS,
+			},
+		);
 
 		// A request to stop is written once, so its time says which look
 		// found the run: the next window's first. A wait moves a held
 		// clock on as it polls, so the time is a day on or a little after.
 		vi.setSystemTime(opens + DAY_MS);
 		await startSession();
-		await vi.waitFor(() => expect(existsSync(later)).toBe(true), {
-			timeout: SETTLES_MS,
-		});
+		await vi.waitFor(
+			() =>
+				expect(
+					existsSync(later),
+					`${later} asks the orphan to stop after the next window's look`,
+				).toBe(true),
+			{
+				timeout: SETTLES_MS,
+			},
+		);
 		const asked = await new ReviewerArtifactsStore(
 			stateDir("transcripts"),
 		).readJson<{ requestedAt: string }>(later);
