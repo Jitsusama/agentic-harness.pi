@@ -175,7 +175,7 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 				.slice(0, OPEN_LISTED)
 				.map(
 					(one) =>
-						`${"  ".repeat(one.depth)}- [ ] ${cut(one.text, ITEM_CHARS)}`,
+						`${"  ".repeat(one.depth)}- [ ] ${one.position ? `${one.position}. ` : ""}${cut(one.text, ITEM_CHARS)}`,
 				),
 		);
 		if (open.length > OPEN_LISTED) {
@@ -183,7 +183,10 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 				`- and ${open.length - OPEN_LISTED} more; read the section that holds them with \`title\`.`,
 			);
 		}
-		if (open[0]) lines.push("", `Next: ${cut(open[0].text, ITEM_CHARS)}`);
+		if (open[0]) {
+			const at = open[0].position ? `${open[0].position}. ` : "";
+			lines.push("", `Next: ${at}${cut(open[0].text, ITEM_CHARS)}`);
+		}
 	}
 	lines.push(
 		"",
