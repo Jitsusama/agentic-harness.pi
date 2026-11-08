@@ -87,6 +87,12 @@ export interface QuestIndexEntry {
 	/** The Summary's first paragraph, as plain text. */
 	readonly summary?: string;
 	readonly kind: string;
+	/**
+	 * The kind again, under a name the node leaves alone: it serves every
+	 * record with `kind` set to its own, "quest", so a subquest or a
+	 * sidequest would reach the launcher as a quest, as runs did.
+	 */
+	readonly "quest.kind": string;
 	readonly status: string;
 	readonly priority: string;
 	readonly rank: number;
@@ -125,6 +131,8 @@ export interface EndedQuestEntry {
 	/** The Summary's first paragraph, as plain text. */
 	readonly summary?: string;
 	readonly kind: string;
+	/** The kind again, which the node leaves alone, as an open quest's. */
+	readonly "quest.kind": string;
 	readonly status: string;
 	readonly parent?: string;
 	/** The folder a new session for it opens in. */
@@ -255,6 +263,7 @@ export function questsIn(
 					title: entry.doc.title ?? id,
 					...(summary ? { summary } : {}),
 					kind: fm.kind,
+					"quest.kind": fm.kind,
 					status: fm.status,
 					priority: fm.priority,
 					rank: fm.rank,
@@ -318,6 +327,7 @@ export function endedQuestsIn(
 				title: entry.doc.title ?? id,
 				...(summary ? { summary } : {}),
 				kind: fm.kind,
+				"quest.kind": fm.kind,
 				status: fm.status,
 				...(fm.parent ? { parent: fm.parent } : {}),
 				start,
