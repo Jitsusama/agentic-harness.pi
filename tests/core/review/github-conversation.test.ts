@@ -81,6 +81,24 @@ describe("reading reviews", () => {
 });
 
 describe("reading threads", () => {
+	it("asks for GitHub's largest page of threads, as a variable beside the query", async () => {
+		const { gh, calls } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: threadPage([oneThread], {
+					hasNextPage: false,
+					endCursor: null,
+				}),
+			},
+		]);
+
+		await gh.conversation?.threads(ref);
+
+		const [asked] = calls.map((call) => call.args);
+		expect(asked).toContain("first=100");
+		expect(asked?.[asked.indexOf("first=100") - 1]).toBe("-F");
+	});
+
 	it("names who resolved a thread, which the follow-up view reports", async () => {
 		// `resolvedBy` was read by the follow-up view and selected by no query,
 		// so every resolved thread degraded to "resolved with no reply" and
