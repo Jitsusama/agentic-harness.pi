@@ -11,12 +11,9 @@ describe("this machine's name", () => {
 	});
 
 	it("takes only what can be a folder's name and a word on a command line", () => {
-		expect(isMachineName("penelope")).toBe(true);
-		expect(isMachineName("mac-mini.lan")).toBe(true);
-		expect(isMachineName("-o")).toBe(false);
-		expect(isMachineName("../penelope")).toBe(false);
-		expect(isMachineName("..")).toBe(false);
-		expect(isMachineName("")).toBe(false);
-		expect(isMachineName(7)).toBe(false);
+		const names: unknown[] = ["penelope", "mac-mini.lan"];
+		const refused: unknown[] = ["-o", "../penelope", "..", "", 7];
+		expect(names.filter((name) => !isMachineName(name))).toEqual([]);
+		expect(refused.filter((name) => isMachineName(name))).toEqual([]);
 	});
 });

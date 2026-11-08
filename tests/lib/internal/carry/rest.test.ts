@@ -98,7 +98,7 @@ describe("carrying what a quest's steered sessions left", () => {
 			}),
 		);
 
-		expect(whole).toBe(true);
+		expect(whole, "every tree went").toBe(true);
 		expect(said.at(-1)).toEqual({
 			kind: "done",
 			files: [join(into, "s-rest.done.json")],
@@ -130,7 +130,7 @@ describe("carrying what a quest's steered sessions left", () => {
 			}),
 		);
 
-		expect(whole).toBe(true);
+		expect(whole, "every tree went").toBe(true);
 		expect(said.at(-1)).toEqual({
 			kind: "done",
 			files: [join(into, `${QUEST}.done.json`)],
@@ -164,7 +164,10 @@ describe("carrying what a quest's steered sessions left", () => {
 			},
 			{ kind: "done", files: [] },
 		]);
-		expect(existsSync(join(into, `${QUEST}.done.json`))).toBe(false);
+		expect(
+			existsSync(join(into, `${QUEST}.done.json`)),
+			"no done file is written for the quest",
+		).toBe(false);
 	});
 
 	it("says which tree it refused, and that not everything went", async () => {
@@ -178,7 +181,7 @@ describe("carrying what a quest's steered sessions left", () => {
 			questHere({ trees: [trees.stuck ?? ""] }),
 		);
 
-		expect(whole).toBe(false);
+		expect(whole, "a carry with a tree refused is not whole").toBe(false);
 		expect(said[0]).toMatchObject({
 			kind: "tree",
 			did: "refused",

@@ -103,7 +103,7 @@ describe("arriving with a carried session", () => {
 
 		const { whole, said, store } = await arriveAt(home, from);
 
-		expect(whole).toBe(true);
+		expect(whole, "every tree arrived whole").toBe(true);
 		expect(said).toEqual([
 			{ kind: "tree", path: tree, branch: "topic", did: "cloned" },
 			{ kind: "sessions", sessions: [{ id: SESSION, cwd: tree }] },
@@ -133,7 +133,7 @@ describe("arriving with a carried session", () => {
 
 		const { whole, said } = await arriveAt(home, from);
 
-		expect(whole).toBe(true);
+		expect(whole, "every tree arrived whole").toBe(true);
 		expect(said[0]).toEqual({
 			kind: "tree",
 			path: tree,
@@ -150,7 +150,7 @@ describe("arriving with a carried session", () => {
 
 		const again = await arriveAt(home, from);
 
-		expect(again.whole).toBe(true);
+		expect(again.whole, "arriving a second time is whole too").toBe(true);
 		expect(again.said[0]).toMatchObject({ did: "fetched" });
 	});
 
@@ -162,7 +162,7 @@ describe("arriving with a carried session", () => {
 
 		const { whole, said } = await arriveAt(home, from);
 
-		expect(whole).toBe(false);
+		expect(whole, "an arrival with a tree refused is not whole").toBe(false);
 		expect(said[0]).toMatchObject({
 			did: "refused",
 			why: expect.stringContaining("another origin"),
@@ -178,7 +178,7 @@ describe("arriving with a carried session", () => {
 
 		const { whole, said } = await arriveAt(home, from);
 
-		expect(whole).toBe(false);
+		expect(whole, "an arrival with a tree refused is not whole").toBe(false);
 		expect(said[0]).toMatchObject({
 			did: "refused",
 			why: expect.stringContaining("changes of its own"),
@@ -196,7 +196,7 @@ describe("arriving with a carried session", () => {
 
 		const { whole, said } = await arriveAt(home, from);
 
-		expect(whole).toBe(false);
+		expect(whole, "an arrival with a tree refused is not whole").toBe(false);
 		expect(said[0]).toMatchObject({
 			did: "refused",
 			why: expect.stringContaining("commits the carried one lacks"),
@@ -217,7 +217,7 @@ describe("arriving with a carried session", () => {
 			clock,
 		);
 
-		expect(whole).toBe(true);
+		expect(whole, "every tree arrived whole").toBe(true);
 		expect(
 			said.flatMap((line) => (line.kind === "waiting" ? [line.waited] : [])),
 		).toEqual([0, 30, 60]);
@@ -240,7 +240,7 @@ describe("arriving with a carried session", () => {
 			clock,
 		);
 
-		expect(whole).toBe(true);
+		expect(whole, "every tree arrived whole").toBe(true);
 		expect(said[0]).toMatchObject({
 			kind: "waiting",
 			lacking: [join(from, bundle)],
@@ -253,12 +253,12 @@ describe("arriving with a carried session", () => {
 
 		const { whole, said } = await arriveAt(home, from);
 
-		expect(whole).toBe(false);
+		expect(whole, "an arrival with a tree refused is not whole").toBe(false);
 		expect(said.filter((line) => line.kind === "waiting")).toHaveLength(20);
 		expect(said.at(-1)).toMatchObject({
 			kind: "failed",
 			why: expect.stringContaining("10 minutes"),
 		});
-		expect(existsSync(join(home, "src"))).toBe(false);
+		expect(existsSync(join(home, "src")), "nothing was cloned").toBe(false);
 	});
 });
