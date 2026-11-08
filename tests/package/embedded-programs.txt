@@ -1,0 +1,35 @@
+# Programs of more than five lines written as strings in the package's
+# code, before programs-live-in-their-own-files.test.ts held them, per
+# file and kind. The list only shrinks: move one into a file of its own
+# language and lower its count, or remove the line at 0.
+lib/core/attribution/commit-hook.ts shell 1
+lib/core/observability/ledger/store.ts sql 1
+lib/core/review/providers/github/conversation.ts graphql 2
+lib/core/review/providers/github/queue.ts graphql 1
+lib/core/web/a11y/announcements.ts page-js 1
+lib/core/web/a11y/focus.ts page-js 1
+lib/core/web/a11y/walkprobe.ts page-js 5
+lib/core/web/article.ts page-js 1
+lib/core/web/audit/motion.ts page-js 1
+lib/core/web/audit/probe.ts page-js 2
+lib/core/web/design/probe.ts page-js 1
+lib/core/web/design/typography.ts page-js 1
+lib/core/web/element/hover.ts page-js 1
+lib/core/web/environment/probes.ts page-js 1
+lib/core/web/hydration/capture.ts page-js 1
+lib/core/web/perf/probe.ts page-js 2
+lib/core/web/screenshot.ts page-js 2
+lib/core/web/snapshot/deep.ts page-js 1
+lib/core/web/snapshot/presented.ts page-js 1
+lib/core/web/styles/capture.ts page-js 2
+lib/google/auth/server.ts page-js 1
+lib/slack/auth/server.ts page-js 1
+tests/core/browser/capture.test.ts page-js 1
+tests/core/browser/environment.test.ts page-js 1
+tests/core/browser/hydration.test.ts page-js 1
+tests/core/browser/interaction.test.ts page-js 3
+tests/core/browser/navigation.test.ts page-js 2
+tests/core/browser/occlusion.test.ts page-js 1
+tests/core/browser/telemetry.test.ts page-js 2
+tests/core/browser/tracing.test.ts page-js 1
+tests/lib/internal/priority/push-hooks.test.ts shell 1

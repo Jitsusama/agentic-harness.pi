@@ -9,6 +9,7 @@
  */
 
 import { openDb } from "../core/internal/sqlite/db.ts";
+import { sqlFile } from "../core/internal/sqlite/sql-file.ts";
 import { serializeScope } from "./scope.ts";
 import type {
 	Fact,
@@ -50,23 +51,13 @@ function rowToFact(row: FactRow): Fact {
 	};
 }
 
+/** The facts table, made when missing. */
+const SCHEMA = sqlFile(new URL("./schema.sql", import.meta.url));
+
 /** Open (and migrate) a memory store at the given path. */
 export async function openMemoryStore(dbPath: string): Promise<MemoryStore> {
 	const db = await openDb(dbPath);
-	await db.exec(`
-		CREATE TABLE IF NOT EXISTS facts (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			scope TEXT NOT NULL,
-			text TEXT NOT NULL,
-			tags TEXT NOT NULL DEFAULT '[]',
-			source TEXT,
-			status TEXT NOT NULL DEFAULT 'active',
-			created_at INTEGER NOT NULL,
-			recalled_count INTEGER NOT NULL DEFAULT 0,
-			last_recalled_at INTEGER
-		);
-		CREATE INDEX IF NOT EXISTS facts_scope_status ON facts (scope, status);
-	`);
+	await db.exec(SCHEMA);
 
 	const factById = async (id: number): Promise<Fact | null> => {
 		const rows = await db.all<FactRow>("SELECT * FROM facts WHERE id = ?", [

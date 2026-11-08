@@ -1,4 +1,5 @@
 import { type Db, openDb } from "../internal/sqlite/db.ts";
+import { sqlFile } from "../internal/sqlite/sql-file.ts";
 import type {
 	RunRecord,
 	RunRollup,
@@ -27,50 +28,15 @@ export interface RunStore {
 	close(): Promise<void>;
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS runs (
-	run_id TEXT NOT NULL,
-	subagent_id TEXT NOT NULL,
-	kind TEXT NOT NULL,
-	model TEXT NOT NULL,
-	persona TEXT NOT NULL,
-	verify_outcome TEXT NOT NULL,
-	retries_to_valid INTEGER NOT NULL,
-	warning_count INTEGER NOT NULL,
-	exit_code INTEGER NOT NULL,
-	tokens_input INTEGER NOT NULL,
-	tokens_output INTEGER NOT NULL,
-	tokens_cache_read INTEGER NOT NULL,
-	tokens_cache_write INTEGER NOT NULL,
-	tokens_total INTEGER NOT NULL,
-	cost_input REAL NOT NULL,
-	cost_output REAL NOT NULL,
-	cost_cache_read REAL NOT NULL,
-	cost_cache_write REAL NOT NULL,
-	cost_total REAL NOT NULL,
-	started_at INTEGER NOT NULL
+const SCHEMA = sqlFile(new URL("./schema.sql", import.meta.url));
+const KEEP_ONE_ROW_A_SUBAGENT = sqlFile(
+	new URL("./keep-one-row-a-subagent.sql", import.meta.url),
 );
-CREATE INDEX IF NOT EXISTS runs_run_id ON runs (run_id);
-CREATE INDEX IF NOT EXISTS runs_started_at ON runs (started_at);
-/**
- * The rollups table is legacy and is never written to again. It holds
- * the only surviving record of 2,199 runs whose raw rows an earlier
- * retention pass deleted, so it is read and never dropped.
- */
-CREATE TABLE IF NOT EXISTS rollups (
-	week_start INTEGER NOT NULL,
-	model TEXT NOT NULL,
-	persona TEXT NOT NULL,
-	run_count INTEGER NOT NULL,
-	total_retries INTEGER NOT NULL,
-	total_warnings INTEGER NOT NULL,
-	tokens_total INTEGER NOT NULL,
-	cost_total REAL NOT NULL,
-	cache_read INTEGER NOT NULL,
-	fresh_input INTEGER NOT NULL,
-	PRIMARY KEY (week_start, model, persona)
-);
-`;
+const RECORD_RUN = sqlFile(new URL("./record-run.sql", import.meta.url));
+const RUN_SUMMARY = sqlFile(new URL("./run-summary.sql", import.meta.url));
+const ROLLUPS = sqlFile(new URL("./rollups.sql", import.meta.url), {
+	week_ms: WEEK_MS,
+});
 
 interface RunRow {
 	run_id: string;
@@ -156,21 +122,9 @@ async function migrate(db: Db): Promise<void> {
 		"SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'runs_identity'",
 	);
 	if (indexes.length === 0) {
-		// A subagent of a run is one row. A store written before that rule
-		// may hold duplicates, and the index cannot be added over them.
-		// They are captured before anything is removed, keeping the latest
-		// of each pair where it was: nothing is deleted that is not first
-		// copied somewhere it can be recovered from.
-		await db.exec(
-			`CREATE TABLE IF NOT EXISTS runs_superseded AS SELECT * FROM runs WHERE 0;
-			INSERT INTO runs_superseded SELECT * FROM runs WHERE rowid NOT IN (
-				SELECT MAX(rowid) FROM runs GROUP BY run_id, subagent_id
-			);
-			DELETE FROM runs WHERE rowid NOT IN (
-				SELECT MAX(rowid) FROM runs GROUP BY run_id, subagent_id
-			);
-			CREATE UNIQUE INDEX runs_identity ON runs (run_id, subagent_id);`,
-		);
+		// A store written before one row a subagent may hold duplicates,
+		// which the file copies aside before it removes them.
+		await db.exec(KEEP_ONE_ROW_A_SUBAGENT);
 	}
 }
 
@@ -204,71 +158,40 @@ class SqliteRunStore implements RunStore {
 	}
 
 	async recordRun(record: RunRecord): Promise<void> {
-		await this.db.run(
-			`INSERT INTO runs (
-				run_id, subagent_id, kind, model, persona, verify_outcome,
-				retries_to_valid, warning_count, exit_code,
-				tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, tokens_total,
-				cost_input, cost_output, cost_cache_read, cost_cache_write, cost_total,
-				started_at, metered, session_id, cwd, repo, ended_at,
-				thinking_level, subagent_session_ids
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (run_id, subagent_id) DO UPDATE SET
-				kind = excluded.kind, model = excluded.model,
-				persona = excluded.persona, verify_outcome = excluded.verify_outcome,
-				retries_to_valid = excluded.retries_to_valid,
-				warning_count = excluded.warning_count,
-				exit_code = excluded.exit_code,
-				tokens_input = excluded.tokens_input,
-				tokens_output = excluded.tokens_output,
-				tokens_cache_read = excluded.tokens_cache_read,
-				tokens_cache_write = excluded.tokens_cache_write,
-				tokens_total = excluded.tokens_total,
-				cost_input = excluded.cost_input,
-				cost_output = excluded.cost_output,
-				cost_cache_read = excluded.cost_cache_read,
-				cost_cache_write = excluded.cost_cache_write,
-				cost_total = excluded.cost_total,
-				started_at = excluded.started_at, metered = excluded.metered,
-				session_id = excluded.session_id, cwd = excluded.cwd,
-				repo = excluded.repo, ended_at = excluded.ended_at,
-				thinking_level = excluded.thinking_level,
-				subagent_session_ids = excluded.subagent_session_ids`,
-			[
-				record.runId,
-				record.subagentId,
-				record.kind,
-				record.model,
-				record.persona,
-				record.verifyOutcome,
-				record.retriesToValid,
-				record.warningCount,
-				record.exitCode,
-				// An unmetered run stores zeros, which leave every sum exactly
-				// as excluding it would, and the flag beside them is what says
-				// the zeros are unknown rather than free.
-				record.tokens?.input ?? 0,
-				record.tokens?.output ?? 0,
-				record.tokens?.cacheRead ?? 0,
-				record.tokens?.cacheWrite ?? 0,
-				record.tokens?.total ?? 0,
-				record.cost?.input ?? 0,
-				record.cost?.output ?? 0,
-				record.cost?.cacheRead ?? 0,
-				record.cost?.cacheWrite ?? 0,
-				record.cost?.total ?? 0,
-				record.startedAt,
-				record.cost ? 1 : 0,
-				record.sessionId ?? null,
-				record.cwd ?? null,
-				record.repo ?? null,
-				record.endedAt ?? null,
-				record.thinkingLevel ?? null,
-				record.subagentSessionIds
-					? JSON.stringify(record.subagentSessionIds)
-					: null,
-			],
-		);
+		await this.db.run(RECORD_RUN, [
+			record.runId,
+			record.subagentId,
+			record.kind,
+			record.model,
+			record.persona,
+			record.verifyOutcome,
+			record.retriesToValid,
+			record.warningCount,
+			record.exitCode,
+			// An unmetered run stores zeros, which leave every sum exactly
+			// as excluding it would, and the flag beside them is what says
+			// the zeros are unknown rather than free.
+			record.tokens?.input ?? 0,
+			record.tokens?.output ?? 0,
+			record.tokens?.cacheRead ?? 0,
+			record.tokens?.cacheWrite ?? 0,
+			record.tokens?.total ?? 0,
+			record.cost?.input ?? 0,
+			record.cost?.output ?? 0,
+			record.cost?.cacheRead ?? 0,
+			record.cost?.cacheWrite ?? 0,
+			record.cost?.total ?? 0,
+			record.startedAt,
+			record.cost ? 1 : 0,
+			record.sessionId ?? null,
+			record.cwd ?? null,
+			record.repo ?? null,
+			record.endedAt ?? null,
+			record.thinkingLevel ?? null,
+			record.subagentSessionIds
+				? JSON.stringify(record.subagentSessionIds)
+				: null,
+		]);
 	}
 
 	async queryRuns(filter: RunQuery = {}): Promise<RunRecord[]> {
@@ -282,27 +205,7 @@ class SqliteRunStore implements RunStore {
 	}
 
 	async summarizeRun(runId: string): Promise<RunSummary | null> {
-		const rows = await this.db.all<SummaryRow>(
-			`SELECT
-				COUNT(*) AS subagent_count,
-				SUM(CASE WHEN verify_outcome = 'passed' THEN 1 ELSE 0 END) AS passed,
-				SUM(CASE WHEN verify_outcome = 'failed' THEN 1 ELSE 0 END) AS failed,
-				SUM(retries_to_valid) AS total_retries,
-				SUM(warning_count) AS total_warnings,
-				SUM(CASE WHEN metered = 0 THEN 1 ELSE 0 END) AS unmetered,
-				SUM(tokens_input) AS tokens_input,
-				SUM(tokens_output) AS tokens_output,
-				SUM(tokens_cache_read) AS tokens_cache_read,
-				SUM(tokens_cache_write) AS tokens_cache_write,
-				SUM(tokens_total) AS tokens_total,
-				SUM(cost_input) AS cost_input,
-				SUM(cost_output) AS cost_output,
-				SUM(cost_cache_read) AS cost_cache_read,
-				SUM(cost_cache_write) AS cost_cache_write,
-				SUM(cost_total) AS cost_total
-			FROM runs WHERE run_id = ?`,
-			[runId],
-		);
+		const rows = await this.db.all<SummaryRow>(RUN_SUMMARY, [runId]);
 		const row = rows[0];
 		if (!row || row.subagent_count === 0) return null;
 		const freshInput = row.tokens_input + row.tokens_cache_read;
@@ -344,26 +247,7 @@ class SqliteRunStore implements RunStore {
 	 * period before this changed they are all that is left.
 	 */
 	async queryRollups(): Promise<RunRollup[]> {
-		const rows = await this.db.all<RollupRow>(
-			`SELECT * FROM (
-				SELECT
-					(started_at / ${WEEK_MS}) * ${WEEK_MS} AS week_start,
-					model, persona,
-					COUNT(*) AS run_count,
-					SUM(retries_to_valid) AS total_retries,
-					SUM(warning_count) AS total_warnings,
-					SUM(tokens_total) AS tokens_total,
-					SUM(cost_total) AS cost_total,
-					SUM(tokens_cache_read) AS cache_read,
-					SUM(tokens_input + tokens_cache_read) AS fresh_input
-				FROM runs GROUP BY week_start, model, persona
-				UNION ALL
-				SELECT week_start, model, persona, run_count, total_retries,
-					total_warnings, tokens_total, cost_total, cache_read, fresh_input
-				FROM rollups
-			)
-			ORDER BY week_start ASC, model ASC, persona ASC`,
-		);
+		const rows = await this.db.all<RollupRow>(ROLLUPS);
 		return rows.map((row) => ({
 			weekStart: row.week_start,
 			model: row.model,

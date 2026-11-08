@@ -1,4 +1,5 @@
 import { type Db, openDb } from "../../internal/sqlite/db.ts";
+import { sqlFile } from "../../internal/sqlite/sql-file.ts";
 import type {
 	CallScope,
 	DroppedCallRecord,
@@ -70,77 +71,8 @@ export interface TurnStore {
 	close(): Promise<void>;
 }
 
-/**
- * `digest` is the primary key rather than the session and entry pair,
- * which is what makes recording idempotent. `sightings` keeps the fact
- * that several logs held the same turn, so nothing is hidden by
- * deduplicating it: the turn is billed once and known to have been seen
- * more than once.
- */
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS turns (
-	digest TEXT PRIMARY KEY,
-	entry_id TEXT NOT NULL,
-	session_id TEXT NOT NULL,
-	timestamp TEXT NOT NULL,
-	kind TEXT NOT NULL,
-	model TEXT NOT NULL,
-	tokens_input INTEGER NOT NULL,
-	tokens_output INTEGER NOT NULL,
-	tokens_cache_read INTEGER NOT NULL,
-	tokens_cache_write INTEGER NOT NULL,
-	tokens_total INTEGER NOT NULL,
-	cache_write_1h INTEGER NOT NULL,
-	cost_input REAL,
-	cost_output REAL,
-	cost_cache_read REAL,
-	cost_cache_write REAL,
-	cost_total REAL,
-	dropped_before INTEGER,
-	first_kept_entry_id TEXT
-);
-CREATE INDEX IF NOT EXISTS turns_timestamp ON turns (timestamp);
-CREATE INDEX IF NOT EXISTS turns_session ON turns (session_id);
-CREATE INDEX IF NOT EXISTS turns_session_time ON turns (session_id, timestamp);
-CREATE TABLE IF NOT EXISTS sightings (
-	digest TEXT NOT NULL,
-	session_id TEXT NOT NULL,
-	PRIMARY KEY (digest, session_id)
-);
-CREATE TABLE IF NOT EXISTS tool_calls (
-	digest TEXT PRIMARY KEY,
-	session_id TEXT NOT NULL,
-	entry_id TEXT NOT NULL,
-	call_id TEXT NOT NULL,
-	timestamp TEXT NOT NULL,
-	name TEXT NOT NULL,
-	args_digest TEXT NOT NULL,
-	path TEXT,
-	result_chars INTEGER,
-	result_digest TEXT,
-	is_error INTEGER,
-	verifier_kind TEXT
-);
-CREATE INDEX IF NOT EXISTS tool_calls_verifier ON tool_calls (verifier_kind);
-CREATE INDEX IF NOT EXISTS tool_calls_args ON tool_calls (session_id, args_digest);
-CREATE INDEX IF NOT EXISTS tool_calls_path ON tool_calls (path);
-CREATE INDEX IF NOT EXISTS tool_calls_session_verifier
-	ON tool_calls (session_id, timestamp) WHERE verifier_kind IS NOT NULL;
-CREATE TABLE IF NOT EXISTS dropped_calls (
-	digest TEXT PRIMARY KEY,
-	session_id TEXT NOT NULL,
-	dropped_at_entry_id TEXT NOT NULL,
-	dropped_at_timestamp TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-	session_id TEXT PRIMARY KEY,
-	cwd TEXT,
-	repo TEXT,
-	quest TEXT,
-	first_seen TEXT,
-	last_seen TEXT
-);
-`;
+/** The ledger's tables, made when missing; `migrate` adds later columns. */
+const SCHEMA = sqlFile(new URL("./schema.sql", import.meta.url));
 
 /**
  * Columns added to `turns` after its first shape, each with the record
@@ -274,147 +206,30 @@ const FIVE_MINUTES_MS = 300_000;
 /** A turn that read less than this from the cache read nothing useful. */
 const FULL_MISS_READ_TOKENS = 1000;
 
-/**
- * The views a query is written against, dropped and made again on every
- * open, so a ledger always answers with this version's definitions
- * rather than whichever version first created it. Each is defined here
- * once, so a named report and an ad hoc query cannot disagree.
- */
-const VIEWS = `
-DROP VIEW IF EXISTS compaction_moments;
-DROP VIEW IF EXISTS runs;
-DROP VIEW IF EXISTS cycles;
-DROP VIEW IF EXISTS misses;
-DROP VIEW IF EXISTS turn_facts;
+/** The views a query is written against, made again on every open. */
+const VIEWS = sqlFile(new URL("./views.sql", import.meta.url), {
+	miss_slack_tokens: MISS_SLACK_TOKENS,
+	miss_threshold_tokens: MISS_THRESHOLD_TOKENS,
+	hour_ms: HOUR_MS,
+	five_minutes_ms: FIVE_MINUTES_MS,
+	full_miss_read_tokens: FULL_MISS_READ_TOKENS,
+});
 
-CREATE VIEW turn_facts AS
-SELECT t.digest, t.entry_id, t.session_id, t.timestamp,
-	date(t.timestamp, 'localtime') AS day,
-	t.kind, t.model, t.thinking_level,
-	t.tokens_input + t.tokens_cache_read + t.tokens_cache_write AS context,
-	t.tokens_input, t.tokens_output, t.tokens_cache_read,
-	t.tokens_cache_write, t.cache_write_1h,
-	t.cost_total AS cost, t.cost_input, t.cost_output,
-	t.cost_cache_read, t.cost_cache_write,
-	t.preceded_by, t.gap_ms, t.new_tokens, t.stop_reason,
-	t.thinking_chars, t.text_chars, t.run_id, t.run_turn,
-	t.dropped_before, t.first_kept_entry_id,
-	s.repo, ${questOf("t", "s")} AS quest, s.cwd,
-	NULLIF(t.document, '') AS document
-FROM turns AS t
-LEFT JOIN sessions AS s ON s.session_id = t.session_id;
-
-CREATE VIEW misses AS
-SELECT f.*,
-	f.tokens_cache_write - f.new_tokens - ${MISS_SLACK_TOKENS} AS excess_tokens,
-	(f.tokens_cache_write - f.new_tokens - ${MISS_SLACK_TOKENS})
-		* f.cost_cache_write / f.tokens_cache_write AS excess_cost,
-	CASE
-		WHEN f.preceded_by = 'compaction' THEN 'after compaction'
-		WHEN f.preceded_by = 'model' THEN 'model change'
-		WHEN f.gap_ms > ${HOUR_MS} THEN 'idle over an hour'
-		WHEN f.gap_ms > ${FIVE_MINUTES_MS} AND f.cache_write_1h = 0
-			THEN 'idle over five minutes'
-		WHEN f.preceded_by IN ('tools', 'system') THEN 'prompt changed'
-		WHEN f.preceded_by = 'reload' THEN 'after reload'
-		WHEN f.preceded_by = 'typed' THEN 'after a typed message'
-		WHEN f.tokens_cache_read < ${FULL_MISS_READ_TOKENS}
-			THEN 'full miss, unexplained'
-		ELSE 'partial miss, unexplained'
-	END AS cause
-FROM turn_facts AS f
-WHERE f.kind = 'assistant'
-	AND f.gap_ms IS NOT NULL
-	AND f.new_tokens IS NOT NULL
-	AND f.tokens_cache_write > 0
-	AND f.tokens_cache_write - f.new_tokens - ${MISS_SLACK_TOKENS}
-		> ${MISS_THRESHOLD_TOKENS};
-
-CREATE VIEW cycles AS
-WITH numbered AS (
-	SELECT f.*,
-		SUM(CASE WHEN f.kind = 'compaction' THEN 1 ELSE 0 END) OVER (
-			PARTITION BY f.session_id ORDER BY f.timestamp, f.digest
-			ROWS UNBOUNDED PRECEDING
-		) AS cycle
-	FROM turn_facts AS f
-),
-worked AS (
-	SELECT n.*,
-		ROW_NUMBER() OVER (
-			PARTITION BY n.session_id, n.cycle ORDER BY n.timestamp, n.digest
-		) AS first_rank,
-		ROW_NUMBER() OVER (
-			PARTITION BY n.session_id, n.cycle
-			ORDER BY n.timestamp DESC, n.digest DESC
-		) AS last_rank
-	FROM numbered AS n
-	WHERE n.cycle > 0 AND n.kind = 'assistant' AND n.context > 0
-),
-opened AS (
-	SELECT session_id, cycle, digest AS compaction_digest,
-		timestamp AS compacted_at, repo, quest
-	FROM numbered WHERE kind = 'compaction'
-),
-last_cycle AS (
-	SELECT session_id, MAX(cycle) AS cycles FROM numbered GROUP BY session_id
-),
-sided AS (
-	SELECT session_id, cycle, SUM(cost) AS side_cost
-	FROM numbered WHERE cycle > 0 AND kind = 'side'
-	GROUP BY session_id, cycle
-)
-SELECT o.session_id, o.cycle, o.compaction_digest, o.compacted_at,
-	MAX(w.timestamp) AS ended_at,
-	COUNT(w.digest) AS turns,
-	COALESCE(SUM(w.cost), 0) AS cost,
-	COALESCE(MAX(sd.side_cost), 0) AS side_cost,
-	MAX(CASE WHEN w.first_rank = 1 THEN w.context END) AS context_start,
-	MAX(CASE WHEN w.last_rank = 1 THEN w.context END) AS context_end,
-	o.cycle < l.cycles AS closed,
-	o.repo, o.quest
-FROM opened AS o
-JOIN last_cycle AS l ON l.session_id = o.session_id
-LEFT JOIN worked AS w ON w.session_id = o.session_id AND w.cycle = o.cycle
-LEFT JOIN sided AS sd ON sd.session_id = o.session_id AND sd.cycle = o.cycle
-GROUP BY o.session_id, o.cycle;
-
-CREATE VIEW runs AS
-SELECT run_id, MIN(session_id) AS session_id,
-	MIN(timestamp) AS started_at, MAX(timestamp) AS ended_at,
-	SUM(CASE WHEN kind = 'assistant' THEN 1 ELSE 0 END) AS turns,
-	SUM(CASE WHEN kind = 'compaction' THEN 1 ELSE 0 END) AS compactions,
-	COALESCE(SUM(cost), 0) AS cost,
-	MAX(repo) AS repo, MAX(quest) AS quest
-FROM turn_facts
-WHERE run_id IS NOT NULL
-GROUP BY run_id;
-
-CREATE VIEW compaction_moments AS
-WITH next_turn AS (
-	SELECT c.digest, MIN(n.timestamp) AS next_at
-	FROM turns AS c
-	JOIN turns AS n
-		ON n.session_id = c.session_id
-		AND n.kind = 'assistant'
-		AND n.timestamp > c.timestamp
-	WHERE c.kind = 'compaction'
-	GROUP BY c.digest
-)
-SELECT f.digest, f.session_id, f.timestamp, f.day, f.model,
-	f.cost, f.dropped_before, f.gap_ms, f.run_id,
-	f.run_turn AS turns_into_run,
-	t.written, t.summariser, t.summary_ms, t.waited_ms, t.summary_chars,
-	t.aborted_request, t.resumed, t.since_typed_ms,
-	nx.next_at,
-	CAST(ROUND((julianday(nx.next_at) - julianday(f.timestamp)) * 86400000)
-		AS INTEGER) AS resume_ms,
-	f.repo, f.quest
-FROM turn_facts AS f
-JOIN turns AS t ON t.digest = f.digest
-LEFT JOIN next_turn AS nx ON nx.digest = f.digest
-WHERE f.kind = 'compaction';
-`;
+const TOTAL = sqlFile(new URL("./total.sql", import.meta.url));
+const VERIFIER_OUTCOMES = sqlFile(
+	new URL("./verifier-outcomes.sql", import.meta.url),
+);
+const PAYBACK = sqlFile(new URL("./payback.sql", import.meta.url));
+const RECORD_SESSION = sqlFile(
+	new URL("./record-session.sql", import.meta.url),
+);
+const REPEATED_CALLS = sqlFile(
+	new URL("./repeated-calls.sql", import.meta.url),
+);
+const DROPPED_IN_SCOPE = sqlFile(
+	new URL("./dropped-in-scope.sql", import.meta.url),
+);
+const REGRET = sqlFile(new URL("./regret.sql", import.meta.url));
 
 /**
  * The most rows one query may return. A query past it is refused rather
@@ -671,15 +486,7 @@ class SqliteTurnStore implements TurnStore {
 			unmetered: number;
 			cache_write: number | null;
 			cache_write_1h: number | null;
-		}>(
-			`SELECT
-				SUM(cost_total) AS cost,
-				COUNT(*) AS turns,
-				SUM(CASE WHEN cost_total IS NULL THEN 1 ELSE 0 END) AS unmetered,
-				SUM(tokens_cache_write) AS cache_write,
-				SUM(cache_write_1h) AS cache_write_1h
-			FROM turns`,
-		);
+		}>(TOTAL);
 		const row = rows[0];
 		return {
 			cost: row?.cost ?? 0,
@@ -767,15 +574,7 @@ class SqliteTurnStore implements TurnStore {
 			passed: number;
 			failed: number;
 			unknown: number;
-		}>(
-			`SELECT verifier_kind,
-				SUM(CASE WHEN is_error = 0 THEN 1 ELSE 0 END) AS passed,
-				SUM(CASE WHEN is_error = 1 THEN 1 ELSE 0 END) AS failed,
-				SUM(CASE WHEN is_error IS NULL THEN 1 ELSE 0 END) AS unknown
-			FROM tool_calls
-			WHERE verifier_kind IS NOT NULL
-			GROUP BY verifier_kind`,
-		);
+		}>(VERIFIER_OUTCOMES);
 		return rows.map((row) => ({
 			kind: row.verifier_kind as VerifierOutcome["kind"],
 			passed: row.passed,
@@ -800,13 +599,6 @@ class SqliteTurnStore implements TurnStore {
 	 * ever made with these arguments.
 	 */
 	async repeatedCalls(scope: CallScope = {}): Promise<RepeatedCall[]> {
-		const retrieval = inList("c.name", scope.retrieval);
-		const changed = writtenBetween(
-			"o",
-			"o.previous_at",
-			"o.timestamp",
-			scope.writers,
-		);
 		const rows = await this.db.all<{
 			args_digest: string;
 			name: string;
@@ -814,39 +606,7 @@ class SqliteTurnStore implements TurnStore {
 			repeated_chars: number | null;
 			appraisal: number;
 			appraisal_chars: number | null;
-		}>(
-			`WITH ordered AS (
-				SELECT c.session_id, c.args_digest, c.name, c.path,
-					c.timestamp, c.result_chars, c.verifier_kind,
-					LAG(c.timestamp) OVER (
-						PARTITION BY c.session_id, c.args_digest
-						ORDER BY c.timestamp, c.digest
-					) AS previous_at
-				FROM tool_calls AS c
-				WHERE ${retrieval.sql}
-			),
-			repeats AS (
-				SELECT o.session_id, o.args_digest, o.name, o.result_chars,
-					(o.verifier_kind IS NOT NULL OR EXISTS (
-						SELECT 1 FROM tool_calls AS v
-						WHERE v.session_id = o.session_id
-							AND v.verifier_kind IS NOT NULL
-							AND v.timestamp > o.previous_at
-							AND v.timestamp < o.timestamp
-					)) AS is_appraisal
-				FROM ordered AS o
-				WHERE o.previous_at IS NOT NULL AND NOT (${changed.sql})
-			)
-			SELECT args_digest, name, COUNT(*) AS repeated,
-				SUM(COALESCE(result_chars, 0)) AS repeated_chars,
-				SUM(is_appraisal) AS appraisal,
-				SUM(CASE WHEN is_appraisal THEN COALESCE(result_chars, 0) ELSE 0 END)
-					AS appraisal_chars
-			FROM repeats
-			GROUP BY session_id, args_digest
-			ORDER BY repeated_chars DESC`,
-			[...retrieval.params, ...changed.params],
-		);
+		}>(REPEATED_CALLS, scopeParams(scope));
 		return rows.map((row) => ({
 			argsDigest: row.args_digest,
 			name: row.name,
@@ -917,23 +677,12 @@ class SqliteTurnStore implements TurnStore {
 	 * changed file rather than the one the drop discarded.
 	 */
 	async regret(scope: CallScope = {}): Promise<RegretReport> {
-		const retrieval = inList("dropped.name", scope.retrieval);
+		const [retrieval, writers] = scopeParams(scope);
 		const [counted] = await this.db.all<{ in_scope: number }>(
-			`SELECT COUNT(*) AS in_scope
-			FROM dropped_calls
-			JOIN tool_calls AS dropped ON dropped.digest = dropped_calls.digest
-			WHERE ${retrieval.sql}`,
-			retrieval.params,
+			DROPPED_IN_SCOPE,
+			[retrieval],
 		);
 
-		const changed = writtenBetween(
-			"dropped",
-			"dropped.timestamp",
-			"re_ask.timestamp",
-			scope.writers,
-		);
-		// SQLite takes a bare column alongside MIN from the row MIN chose,
-		// which is what makes result_chars the first re-ask's own size.
 		const rows = await this.db.all<{
 			name: string;
 			args_digest: string;
@@ -941,25 +690,7 @@ class SqliteTurnStore implements TurnStore {
 			dropped_at_timestamp: string;
 			re_asked_at_timestamp: string;
 			result_chars: number | null;
-		}>(
-			`SELECT dropped_calls.session_id AS session_id,
-				dropped.name AS name,
-				dropped.args_digest AS args_digest,
-				dropped_calls.dropped_at_timestamp AS dropped_at_timestamp,
-				MIN(re_ask.timestamp) AS re_asked_at_timestamp,
-				re_ask.result_chars AS result_chars
-			FROM dropped_calls
-			JOIN tool_calls AS dropped
-				ON dropped.digest = dropped_calls.digest
-			JOIN tool_calls AS re_ask
-				ON re_ask.session_id = dropped_calls.session_id
-				AND re_ask.args_digest = dropped.args_digest
-				AND re_ask.timestamp > dropped_calls.dropped_at_timestamp
-			WHERE ${retrieval.sql} AND NOT (${changed.sql})
-			GROUP BY dropped_calls.digest
-			ORDER BY re_asked_at_timestamp ASC`,
-			[...retrieval.params, ...changed.params],
-		);
+		}>(REGRET, [retrieval, writers]);
 		return {
 			inScope: counted?.in_scope ?? 0,
 			reAsked: rows.map((row) => ({
@@ -991,48 +722,7 @@ class SqliteTurnStore implements TurnStore {
 			retained: number | null;
 			read_rate: number | null;
 			write_rate: number | null;
-		}>(
-			`WITH rates AS (
-				SELECT model,
-					SUM(cost_cache_read) * 1.0 / SUM(tokens_cache_read) AS read_rate,
-					SUM(cost_cache_write) * 1.0 / SUM(tokens_cache_write) AS write_rate
-				FROM turns
-				WHERE kind = 'assistant'
-					AND tokens_cache_read > 0 AND tokens_cache_write > 0
-				GROUP BY model
-			),
-			compactions AS (
-				SELECT digest, session_id, timestamp, dropped_before, model
-				FROM turns
-				WHERE kind = 'compaction' AND dropped_before IS NOT NULL
-			),
-			after_turns AS (
-				SELECT c.digest AS compaction_digest,
-					t.tokens_input + t.tokens_cache_read + t.tokens_cache_write
-						AS resident,
-					ROW_NUMBER() OVER (
-						PARTITION BY c.digest ORDER BY t.timestamp ASC
-					) AS rn
-				FROM compactions c
-				JOIN turns t
-					ON t.session_id = c.session_id AND t.timestamp > c.timestamp
-			),
-			after_agg AS (
-				SELECT compaction_digest,
-					COUNT(*) AS remaining,
-					MAX(CASE WHEN rn = 1 THEN resident END) AS retained
-				FROM after_turns
-				GROUP BY compaction_digest
-			)
-			SELECT c.dropped_before AS dropped_before,
-				a.remaining AS remaining,
-				a.retained AS retained,
-				r.read_rate AS read_rate,
-				r.write_rate AS write_rate
-			FROM compactions c
-			LEFT JOIN after_agg a ON a.compaction_digest = c.digest
-			LEFT JOIN rates r ON r.model = c.model`,
-		);
+		}>(PAYBACK);
 
 		let evaluable = 0;
 		let agreed = 0;
@@ -1059,25 +749,14 @@ class SqliteTurnStore implements TurnStore {
 	}
 
 	async recordSession(session: SessionRecord): Promise<void> {
-		await this.db.run(
-			`INSERT INTO sessions (
-				session_id, cwd, repo, quest, first_seen, last_seen
-			) VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT(session_id) DO UPDATE SET
-				cwd = excluded.cwd,
-				repo = excluded.repo,
-				quest = excluded.quest,
-				first_seen = MIN(first_seen, excluded.first_seen),
-				last_seen = MAX(last_seen, excluded.last_seen)`,
-			[
-				session.sessionId,
-				session.cwd,
-				session.repo,
-				session.quest,
-				session.firstSeen,
-				session.lastSeen,
-			],
-		);
+		await this.db.run(RECORD_SESSION, [
+			session.sessionId,
+			session.cwd,
+			session.repo,
+			session.quest,
+			session.firstSeen,
+			session.lastSeen,
+		]);
 	}
 
 	async costBy(dimension: CostDimension): Promise<CostSlice[]> {
@@ -1178,56 +857,18 @@ class SqliteTurnStore implements TurnStore {
 	}
 }
 
-/** A SQL fragment and the values its placeholders bind, in order. */
-interface Clause {
-	readonly sql: string;
-	readonly params: readonly unknown[];
-}
-
 /**
- * `column IN (...)` over a caller's list, or a clause that holds for
- * every row when there is no list. An empty list means the caller named
- * nothing in scope, which is answered with nothing rather than
+ * A call scope as the values its queries bind: the retrieval tools as a
+ * JSON array, or null for every tool, then the writer tools as one,
+ * empty when none are named. An empty retrieval list means the caller
+ * named nothing in scope, which is answered with nothing rather than
  * silently widened to everything.
  */
-function inList(column: string, values: readonly string[] | undefined): Clause {
-	if (values === undefined) return { sql: "1 = 1", params: [] };
-	if (values.length === 0) return { sql: "1 = 0", params: [] };
-	return {
-		sql: `${column} IN (${values.map(() => "?").join(",")})`,
-		params: values,
-	};
-}
-
-/**
- * Whether a writer touched the file a call declares, strictly between
- * two moments in the same session. Holds for no row when no writers are
- * named or the call declares no file, since then nothing can have
- * changed underneath it that the ledger would know about.
- *
- * Column expressions are fixed fragments from this module, never caller
- * input; only the writer names are bound.
- */
-function writtenBetween(
-	call: string,
-	after: string,
-	before: string,
-	writers: readonly string[] | undefined,
-): Clause {
-	if (writers === undefined || writers.length === 0) {
-		return { sql: "1 = 0", params: [] };
-	}
-	return {
-		sql: `${call}.path IS NOT NULL AND EXISTS (
-			SELECT 1 FROM tool_calls AS written
-			WHERE written.session_id = ${call}.session_id
-				AND written.path = ${call}.path
-				AND written.name IN (${writers.map(() => "?").join(",")})
-				AND written.timestamp > ${after}
-				AND written.timestamp < ${before}
-		)`,
-		params: writers,
-	};
+function scopeParams(scope: CallScope): [string | null, string] {
+	return [
+		scope.retrieval === undefined ? null : JSON.stringify(scope.retrieval),
+		JSON.stringify(scope.writers ?? []),
+	];
 }
 
 interface CallRow {
