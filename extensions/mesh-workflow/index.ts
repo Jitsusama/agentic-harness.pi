@@ -46,6 +46,7 @@ import {
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
+import { machineBooted } from "../../lib/internal/booted.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
@@ -126,7 +127,7 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import { census, machineBooted } from "../../lib/mesh/liveness.ts";
+import { census } from "../../lib/mesh/liveness.ts";
 import {
 	asksEach,
 	clock,

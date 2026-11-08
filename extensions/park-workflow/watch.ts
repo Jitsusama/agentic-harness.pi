@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	AGAIN_ENV,
+	clearOutlivedParks,
 	clearParked,
 	flagsLost,
 	opensOnlyItself,
@@ -173,7 +174,10 @@ function lastMessageAt(ctx: Parkable): number | undefined {
 	return undefined;
 }
 
-/** Watch this session, clearing any marker an earlier park left. */
+/**
+ * Watch this session, clearing any marker an earlier park left, and any
+ * marker on the machine that its boot outlived.
+ */
 export function watch(
 	ctx: Parkable,
 	bus: Bus,
@@ -189,6 +193,8 @@ export function watch(
 	// Started again, it is parked no more; its holder clears the wake.
 	const woke = readParked(session, folder) !== undefined;
 	clearParked(session, folder);
+	// Markers a reboot outlived name sessions no holder will wake.
+	clearOutlivedParks(folder);
 	if (woke) bus.emit(SESSION_WOKEN, { session });
 	// Idle counts from its log, not from this start: every install that
 	// moves reloads every session, and on 6 November installs moved about

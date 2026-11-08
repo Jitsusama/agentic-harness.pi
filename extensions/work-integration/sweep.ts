@@ -23,12 +23,13 @@ import {
 	type SweepOutcome,
 	sweepEndedTrees,
 } from "../../lib/core/work/sweep.ts";
+import { machineBooted } from "../../lib/internal/booted.ts";
 import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { sessionsNobodyClosed } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
-import { census, machineBooted } from "../../lib/mesh/liveness.ts";
+import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { treeRecordDir } from "./broker.ts";
 

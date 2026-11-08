@@ -16,6 +16,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { machineBooted } from "../../lib/internal/booted.ts";
 import { kindOf, whatOf } from "../../lib/internal/priority/queue.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
@@ -31,7 +32,6 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import { machineBooted } from "../../lib/mesh/liveness.ts";
 import { clock, shortId } from "../../lib/mesh/message.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { toldIn } from "../../lib/mesh/told.ts";

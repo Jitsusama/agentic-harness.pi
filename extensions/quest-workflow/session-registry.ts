@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import { machineBooted } from "../../lib/internal/booted.ts";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import { takeUpCarried } from "../../lib/internal/quest/carried.ts";
 import {
@@ -76,7 +77,6 @@ import {
 } from "../../lib/internal/quest/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { sessionLogHeader } from "../../lib/internal/session/log-header.ts";
-import { machineBooted } from "../../lib/mesh/liveness.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
