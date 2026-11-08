@@ -164,6 +164,23 @@ describe("why each job waits", () => {
 		});
 	});
 
+	it("puts a deploy's stamp first, with only the capped build beside it", () => {
+		const build = older("build", 9_000);
+		const stamp = older("stamp", 8_000, { kind: "stamp" });
+		expect(nextTurn([build, stamp], ROOMY, NOW)?.id).toBe("stamp");
+
+		const stamping = job("stamping", { kind: "stamp", started: long });
+		expect(nextTurn([stamping, build], ROOMY, NOW)).toEqual({
+			...build,
+			capped: true,
+		});
+		const beside = job("beside", { started: long, capped: true });
+		expect(nextTurn([stamping, beside, build], ROOMY, NOW)).toBeUndefined();
+		expect(
+			waitReasons([stamping, beside, build], ROOMY, NOW).get("build"),
+		).toBe("behind");
+	});
+
 	it("says order for the job given the next turn and those after it", () => {
 		const jobs = [older("a", 9_000), older("b", 8_000)];
 		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("a");
@@ -208,6 +225,33 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("pnpm checkout-thing")).toBeUndefined();
 		// npm's test is Acceluary's deploy stamp, timed work of its own.
 		expect(kindOf("npm test")).toBeUndefined();
+	});
+
+	it("reads a deploy's stamp as one, by its suite or by npm's test in Acceluary", () => {
+		// 7 November: train 8's stamp took 13 minutes beside ten builds,
+		// against 3 to 5 with few, and its owner ruled it goes first.
+		const home = "/home/joel";
+		expect(kindOf("node deploy/suite.mjs")).toBe("stamp");
+		expect(kindOf("cd $T && node estero/suite.mjs 2>&1 | tee out")).toBe(
+			"stamp",
+		);
+		expect(kindOf("npm test", { home, cwd: `${home}/src/acceluary` })).toBe(
+			"stamp",
+		);
+		expect(
+			kindOf(
+				"cd ~/.local/state/pi/work/trees/worktree-local-acceluary-estero && npm test",
+				{
+					home,
+				},
+			),
+		).toBe("stamp");
+		// Elsewhere npm's test is somebody's tests, and a look is no run.
+		expect(
+			kindOf("npm test", { home, cwd: `${home}/src/other` }),
+		).toBeUndefined();
+		expect(kindOf("cat deploy/suite.mjs")).toBeUndefined();
+		expect(kindOf("node deploy/suite.mjs.bak")).toBeUndefined();
 	});
 
 	it("reads changed-checks and an evaluation of every check as heavy", () => {
