@@ -39,6 +39,26 @@ function addTree(
 	);
 }
 
+/** Record session `id` on quest `questId`'s README, as attach writes it. */
+function addSession(
+	questId: string,
+	id: string,
+	status: "active" | "detached",
+	started = "2026-11-08T03:50:51.938Z",
+): void {
+	const readme = join(tmpRoot, "quests", questId, "README.md");
+	const parsed = parseQuestFrontMatter(readFileSync(readme, "utf8"));
+	if (!parsed) throw new Error("unreadable quest");
+	parsed.frontMatter.sessions = [
+		...parsed.frontMatter.sessions,
+		{ id, started, status, instanceId: "00dee25f-first-pi" },
+	];
+	writeFileSync(
+		readme,
+		`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+	);
+}
+
 let tmpRoot: string;
 
 function fakePi() {
@@ -83,7 +103,10 @@ function buildState(opts?: { autoloadFromCwd?: boolean }) {
 
 async function createQuest(title: string): Promise<string> {
 	const state = buildState();
-	const result = await handle(state, fakePi(), ctxWith({ cwd: tmpRoot }), {
+	// Created by a session of its own, which create lists on the quest,
+	// so the session each test starts is a stranger to it.
+	const creator = ctxWith({ cwd: tmpRoot, sessionId: "creator" });
+	const result = await handle(state, fakePi(), creator, {
 		action: "create",
 		title,
 	});
@@ -188,6 +211,37 @@ describe("resolveStartup precedence", () => {
 			ctxWith({ cwd: tmpRoot, persistedQuestId: persisted }),
 		);
 		expect(resolution.source).toBe("persisted");
+		expect(resolution.questId).toBe(persisted);
+	});
+
+	// 11-07 22:50: a spawned pi was killed before it wrote any history, and
+	// the pi resumed on its log at 23:15 loaded no quest, so its end never
+	// let go of the quest's entry and cadence started it again (80ECO2).
+	it("resumes onto the quest whose README lists the session, when its log never said", async () => {
+		const drill = await createQuest("Drill");
+		const other = await createQuest("Other");
+		addSession(drill, "01a1b947", "active");
+		addSession(other, "01a1b947", "detached", "2026-11-08T04:00:00.000Z");
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, sessionId: "01a1b947" }),
+		);
+		expect(resolution.source).toBe("record");
+		expect(resolution.questId).toBe(drill);
+	});
+
+	it("lets the log's own history win over the README's", async () => {
+		const listed = await createQuest("Listed");
+		const persisted = await createQuest("Persisted Over Listed");
+		addSession(listed, "sess-1", "active");
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, persistedQuestId: persisted }),
+		);
 		expect(resolution.questId).toBe(persisted);
 	});
 
