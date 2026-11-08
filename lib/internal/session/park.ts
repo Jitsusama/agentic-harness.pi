@@ -32,10 +32,24 @@
  * Off unless the switch, or `PI_PARK`, turns it on, and only where a
  * holder said where its wake file is, since a session that parks where
  * no holder will wake it is a session ended.
+ *
+ * A park lasts only as long as the boot it was written in. The holder
+ * and its wake file go with the machine, so a marker from before the
+ * machine booted names a session nobody will wake: after the 19:15
+ * reboot on 7 November all 11 markers still stood, and the mesh took
+ * their sessions for parked and wrote wakes no holder read. Such a
+ * marker counts as no park, and the next session to start clears it.
  */
 
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { type Booted, machineBooted } from "../booted.ts";
 import { stateDir } from "../paths.ts";
 import { writeWhole } from "../write-whole.ts";
 
@@ -254,19 +268,39 @@ export function writeParked(
 	writeWhole(parkedPath(parked.session, folder), `${JSON.stringify(parked)}\n`);
 }
 
-/** Whether a session is parked, as its marker says. */
+/**
+ * Whether the marker at this path was written in this boot; true where
+ * the machine won't say when it booted, since nothing can be judged by
+ * it there. False for a marker that isn't there.
+ */
+function writtenThisBoot(path: string, booted: Booted): boolean {
+	let written: number;
+	try {
+		written = statSync(path).mtimeMs;
+	} catch {
+		// No marker is no park.
+		return false;
+	}
+	const boot = booted();
+	return boot === undefined || written >= boot;
+}
+
+/** Whether a session is parked, as a marker from this boot says. */
 export function isParked(
 	session: string,
 	folder: string = parkFolder(),
+	booted: Booted = machineBooted,
 ): boolean {
-	return existsSync(parkedPath(session, folder));
+	return writtenThisBoot(parkedPath(session, folder), booted);
 }
 
 /** A parked session's marker, or nothing while it isn't parked. */
 export function readParked(
 	session: string,
 	folder: string = parkFolder(),
+	booted: Booted = machineBooted,
 ): Parked | undefined {
+	if (!isParked(session, folder, booted)) return undefined;
 	try {
 		const value: unknown = JSON.parse(
 			readFileSync(parkedPath(session, folder), "utf8"),
@@ -276,6 +310,35 @@ export function readParked(
 		// No marker, or one half written, is a session not parked.
 		return undefined;
 	}
+}
+
+/**
+ * Clear every marker the machine's boot outlived, answering the
+ * sessions whose markers went. Nothing goes where the machine won't
+ * say when it booted.
+ */
+export function clearOutlivedParks(
+	folder: string = parkFolder(),
+	booted: Booted = machineBooted,
+): string[] {
+	let names: string[];
+	try {
+		names = readdirSync(join(folder, "parked"));
+	} catch {
+		// No folder of markers is nothing parked.
+		return [];
+	}
+	const cleared: string[] = [];
+	for (const name of names.sort()) {
+		if (!name.endsWith(".json")) continue;
+		const session = name.slice(0, -".json".length);
+		const path = parkedPath(session, folder);
+		if (writtenThisBoot(path, booted)) continue;
+		// It may have gone between the listing and now; gone is the aim.
+		rmSync(path, { force: true });
+		cleared.push(session);
+	}
+	return cleared;
 }
 
 /** Say this session is parked no more, as it says on starting. */
@@ -298,8 +361,9 @@ export function askWake(
 	messageId: string,
 	folder: string = parkFolder(),
 	now: Date = new Date(),
+	booted: Booted = machineBooted,
 ): boolean {
-	const parked = readParked(session, folder);
+	const parked = readParked(session, folder, booted);
 	if (!parked) return false;
 	writeFileSync(
 		parked.wake,

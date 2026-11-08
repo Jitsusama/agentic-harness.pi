@@ -64,6 +64,8 @@ may import from here, and any of it may change without notice.
   one process.
 - **`automated.ts`**: the turns the harness starts itself, through
   pi's prompt path.
+- **`booted.ts`**: when the machine booted, which bounds what is
+  still under way.
 - **`cache-prices.ts`**: the cache prices a compaction is weighed
   at, from the active model's own rates.
 - **`cache-warming.ts`**: the rules for keeping an idle session's

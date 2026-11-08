@@ -35,7 +35,6 @@
  * its holder starts it again for what is sent to it.
  */
 
-import { readFileSync } from "node:fs";
 import {
 	askedOnceWithTicks,
 	processKey,
@@ -49,24 +48,6 @@ import type { Presence } from "./presence.ts";
 
 /** Whether a session's parked marker stands. */
 export type ParkedAsk = (session: string) => boolean;
-
-/**
- * When the machine booted, in milliseconds since the epoch, read from
- * the kernel's `btime`; nothing where the machine will not say. Nothing
- * a peer started before then is under way any more.
- */
-export function machineBooted(
-	read: () => string = () => readFileSync("/proc/stat", "utf8"),
-): number | undefined {
-	try {
-		const seconds = /^btime (\d+)$/m.exec(read())?.[1];
-		return seconds === undefined ? undefined : Number(seconds) * 1000;
-	} catch {
-		// No /proc, as on macOS: the boot cannot be told, so nothing is
-		// judged by it.
-		return undefined;
-	}
-}
 
 /** Whether a peer is there, gone, or cannot be told. */
 export type Liveness = "present" | "gone" | "unknown";

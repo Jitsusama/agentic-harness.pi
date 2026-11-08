@@ -2,18 +2,27 @@
  * Parking a session: the switch, the marker and the wake.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	askWake,
+	clearOutlivedParks,
 	clearParked,
 	isParked,
 	NAMED_PARK_AFTER_MS,
 	PARK_AFTER_MS,
 	type Parked,
 	parkAfterMs,
+	parkedPath,
 	parkSwitch,
 	readParked,
 	type Stillness,
@@ -92,6 +101,59 @@ describe("a parked session's marker and wake", () => {
 
 	it("wakes nothing for a session not parked", () => {
 		expect(askWake("s-1", "2-80ECO2-1-aaaa", folder)).toBe(false);
+	});
+});
+
+describe("a park the machine's boot outlived", () => {
+	// 11-07 19:15: optimus rebooted, and all 11 markers still stood, each
+	// naming a wake file whose holder the boot took.
+	const parkedAt = new Date("2026-11-07T22:37:54.000Z");
+	const booted = () => Date.parse("2026-11-08T00:15:37.000Z");
+	const marker = (session: string): Parked => ({
+		session,
+		sessionFile: `/logs/${session}.jsonl`,
+		cwd: "/src",
+		addresses: ["5L7BXF"],
+		parkedAt: parkedAt.toISOString(),
+		pid: 7532,
+		wake: join(folder, `${session}.wake`),
+	});
+	const parkBefore = (session: string) => {
+		writeParked(marker(session), folder);
+		utimesSync(parkedPath(session, folder), parkedAt, parkedAt);
+	};
+
+	it("is no park, so nothing writes to a wake no holder watches", () => {
+		parkBefore("s-old");
+
+		expect(isParked("s-old", folder, booted)).toBe(false);
+		expect(readParked("s-old", folder, booted)).toBeUndefined();
+		expect(
+			askWake("s-old", "2-80ECO2-1-aaaa", folder, new Date(), booted),
+		).toBe(false);
+		expect(existsSync(join(folder, "s-old.wake"))).toBe(false);
+	});
+
+	it("still counts a park written since the boot", () => {
+		writeParked(marker("s-new"), folder);
+
+		expect(isParked("s-new", folder, booted)).toBe(true);
+	});
+
+	it("is cleared, and only the parks the boot outlived are", () => {
+		parkBefore("s-old");
+		writeParked(marker("s-new"), folder);
+
+		expect(clearOutlivedParks(folder, booted)).toEqual(["s-old"]);
+		expect(existsSync(parkedPath("s-old", folder))).toBe(false);
+		expect(existsSync(parkedPath("s-new", folder))).toBe(true);
+	});
+
+	it("is judged by nothing where the machine won't say when it booted", () => {
+		parkBefore("s-old");
+
+		expect(isParked("s-old", folder, () => undefined)).toBe(true);
+		expect(clearOutlivedParks(folder, () => undefined)).toEqual([]);
 	});
 });
 
