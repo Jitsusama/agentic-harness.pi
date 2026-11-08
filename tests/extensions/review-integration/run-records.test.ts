@@ -46,10 +46,15 @@ const change: ChangeRef = {
 	label: "Jitsusama/core.nix#2054",
 };
 
+// Within the day records are kept: a fixed date aged out of it on
+// 8 November, and every test here failed with no record written.
+const STARTED_AT = new Date(Date.now() - 10 * 60_000).toISOString();
+const COMPLETED_AT = new Date(Date.now() - 5 * 60_000).toISOString();
+
 const council = (id: string): AskRun => ({
 	id,
 	round: "council",
-	startedAt: "2026-11-07T04:00:00.000Z",
+	startedAt: STARTED_AT,
 	participants: [
 		{
 			id: "lead",
@@ -78,7 +83,7 @@ function answered(runId: string, member: string): void {
 		path,
 		JSON.stringify({
 			state: "complete",
-			completedAt: "2026-11-07T04:05:00.000Z",
+			completedAt: COMPLETED_AT,
 		}),
 	);
 }

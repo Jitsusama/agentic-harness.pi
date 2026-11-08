@@ -22,9 +22,11 @@ import { isRecord } from "../../lib/internal/record.ts";
 
 /**
  * What a reviewer is given to read with: enough to follow the change
- * into the code around it, and nothing that can change anything.
+ * into the code around it, and nothing that can change anything. These
+ * are pi's own names: its file finder is `find`, and a `glob` it has
+ * none of left every reviewer without one (ISXEG8, 8 November).
  */
-const READ_ONLY = ["read", "grep", "glob", "ls"] as const;
+export const READ_ONLY = ["read", "grep", "find", "ls"] as const;
 
 /**
  * The roster a round asks when nobody has written one.
