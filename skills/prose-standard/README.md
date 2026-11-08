@@ -11,7 +11,11 @@ any prose it produces feels authentic and consistent.
   unless ambiguity demands it)
 - Conversational tone with contractions encouraged
 - Text written in the author's name says "I", never "we" for
-  the author and the agent
+  the author and the agent; messages to others are short, link
+  changes as repository and number, and never mention the
+  author's harness
+- Status updates for a tired reader: done, happening, left, in
+  plain words
 - Grammatical correctness required at all times (no fragments,
   no dangling modifiers, proper subject-verb agreement,
   parallel structure)

@@ -141,6 +141,8 @@ Voice and style rules for all written output.
 | No backticks in running prose | Decoration in Prose | 🚫 | Same as above. Backticks are legitimate in lists, code lead-ins and validation evidence. |
 | Tone (matter-of-fact, no praise, no apology) | Tone | ⚪ | Judgment. |
 | "I", not "we", in text written in the person's name | Writing in My Name | 🚫 | Whether a "we" means the person and the agent or a real group ("we agreed on Tuesday") is judgment; a gate would refuse correct sentences. Skill-only. |
+| Messages to others: short, links as repository and number, never naming the person's harness | Writing in My Name | 🚫 | Length, and what counts as naming the harness, are judgment; a link's form could be checked but a bare URL is sometimes right. Skill-only. |
+| Status updates: done, happening, left, in plain words | Telling Me How Things Stand | ⚪ | Judgment. |
 | Sentence structure (active voice, plain words) | Grammar and Sentence Structure | ⚪ | Judgment. |
 | List hygiene (no orphan items, parallel grammar) | Lists | ⚪ | Judgment for prose; mechanical for Slack only (see `slack-guide`). |
 | Headings | Headings | ⚪ | Owned by `markdown-standard`. |
