@@ -130,7 +130,9 @@ driving a real browser.
 `status-line-widget`, `terminal-modes-widget`
 says pi's terminal modes again to a terminal that joins a held
 session, `link-click-widget` opens the URL, path, pull request or
-quest a click lands on, while `panel-lifecycle-workflow`
+quest a click lands on, `done-chime-widget` rings with a low
+ding and a local voice when a run you typed is done, while
+`panel-lifecycle-workflow`
 closes every panel when its session ends so none is left
 waiting on a key. And `observability-workflow` records
 run telemetry for subagent and council fan-outs so you can see
