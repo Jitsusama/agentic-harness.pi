@@ -133,14 +133,23 @@ export function queueHeavyWork(queueing: Queueing): () => void {
  * work and a queue is kept here. As it was when it is not, or the queue
  * can't take the job. Without `cwd`, a walk of World's objects is read
  * only from the folders the command names.
+ *
+ * `wrap` changes how the command itself runs, as a sandbox does, once its
+ * turn has come. The queue reads the command as it was given, so wrapped
+ * work is weighed as the same work, and the lines that wait for its turn
+ * run outside the wrap, where the queue's folder is.
  */
-export function queuedCommand(command: string, cwd?: string): string {
+export function queuedCommand(
+	command: string,
+	cwd?: string,
+	wrap: (run: string) => string = (run) => run,
+): string {
 	const queueing = (globalThis as Holder)[QUEUEING];
 	const where = { ...(cwd ? { cwd } : {}), home: homedir() };
 	const read = queueing ? kindOf(command, where) : undefined;
-	if (!queueing || !read) return command;
+	if (!queueing || !read) return wrap(command);
 	const wait = waitsForTurn(queueing.folder.dir);
-	if (!wait) return command;
+	if (!wait) return wrap(command);
 	const now = queueing.now?.() ?? Date.now();
 	const what = whatOf(command);
 	const kind = queueing.folder.kindFor(read, what);
@@ -197,7 +206,7 @@ export function queuedCommand(command: string, cwd?: string): string {
 		queueing.folder.keep(queueing.room, now, queueing.cgroupFor);
 	} catch {
 		// A queue that can't be written to holds nobody's work back.
-		return command;
+		return wrap(command);
 	}
 	const fetches = walk === "main-fetch" ? worldGit() : undefined;
 	const waits = wait(job.id, plan ? planLines(plan) : [], fetches);
@@ -209,7 +218,8 @@ export function queuedCommand(command: string, cwd?: string): string {
 			: undefined;
 	// What holds a walk's slot runs where the agents' disk target holds,
 	// since every other walk waits on it (shared-slice.ts).
-	const run = kind === "world-walk" ? inSharedSlice(command) : command;
+	const run =
+		kind === "world-walk" ? inSharedSlice(wrap(command)) : wrap(command);
 	return hooks ? `${waits}\n${hooks}\n${run}` : `${waits}\n${run}`;
 }
 

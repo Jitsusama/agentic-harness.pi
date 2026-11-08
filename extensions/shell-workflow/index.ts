@@ -2,7 +2,7 @@
  * Shell Workflow Extension
  *
  * Registers `bash` as pi's own bash tool, built with the same settings,
- * with four changes. The agent's commands run with no interactive editor
+ * with five changes. The agent's commands run with no interactive editor
  * or pager, since nobody is at the keyboard to leave one. Each command is
  * kept off its shell's command line, so `pkill -f` with a pattern from it
  * kills what it names rather than the shell running it. A time limit on
@@ -11,7 +11,10 @@
  * still running after a minute is handed to job-workflow rather than
  * holding the session silently: the call returns saying so, and the job
  * says how the command ended. A model expecting a long run passes
- * `background`; a codemode script's calls are never handed off.
+ * `background`; a codemode script's calls are never handed off. A
+ * session started with `PI_SANDBOX=strict` runs each command under
+ * Landlock, with no credentials and no sockets but name lookups and
+ * Nix's untrusted door (sandbox.ts).
  *
  * Everything else, the output truncation, the saved full output, the
  * rendering and the structured result codemode reads, is pi's.
@@ -27,6 +30,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { agentBash, type ShellSettings } from "./agent-bash.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
+import { sandboxFor } from "./sandbox.ts";
 
 type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 
@@ -52,10 +56,12 @@ function shellSettings(ctx: ExtensionContext): ShellSettings {
 export default function shellWorkflow(pi: ExtensionAPI) {
 	// The shape pi's bash is drawn and described with; execution is per session.
 	const shape = createBashToolDefinition(process.cwd());
+	// Asked for when the session starts, by its environment (sandbox.ts).
+	const sandbox = sandboxFor();
 	let bash: BashDefinition | undefined;
 
 	const bashFor = (ctx: ExtensionContext): BashDefinition => {
-		bash ??= agentBash(ctx.cwd, shellSettings(ctx));
+		bash ??= agentBash(ctx.cwd, shellSettings(ctx), sandbox);
 		return bash;
 	};
 
@@ -71,6 +77,11 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			...(shape.promptGuidelines ?? []),
 			"Let a command's output through: do not pipe it into tail or head to keep it short, since bash already keeps the end and saves the full output to a file, and a pipe hides all progress until the command ends.",
 			"Do not sleep in bash to wait for something. Pass background: true for a command expected to run long, or use a tool's own watch, and carry on; the result arrives as its own message.",
+			...(sandbox.kind === "strict"
+				? [
+						"Commands run in a strict sandbox, since this session reads what strangers wrote: no credentials, no SSH or signing agent, no session or system bus, writes only to the working folder, the temporary folders and the cache, and Nix as an untrusted user. A refusal there is the sandbox, not a fault: do the work another way, or say what needs the person.",
+					]
+				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere
 			// nice still ranks a command against what the person uses.
 			...(process.env.JOBS_CGROUP

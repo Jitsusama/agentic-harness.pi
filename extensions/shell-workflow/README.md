@@ -60,6 +60,39 @@ What it adds:
   only ranks a command against other agents' work, so a niced VM test
   loses to every build beside it.
 
+## A Strict Sandbox
+
+A session that reads what a stranger wrote (reviewing an outside
+change, reading the web, running as a subagent) can be told what to
+run by that text, and every command runs as you. Start such a session
+with `PI_SANDBOX=strict` and each command runs under Landlock through
+[landrun](https://github.com/Zouuup/landrun):
+
+- **No credentials.** Nothing in your home folder is readable but
+  git's settings (`~/.gitconfig`, `~/.config/git`, `~/.config/dev`)
+  and `~/.config/nix/nix.conf`. Keys, tokens, browser profiles and
+  session logs are out of reach.
+- **No sockets but two.** Name lookups through nscd, and the Nix
+  daemon's door for sandboxes, `$XDG_RUNTIME_DIR/nix-untrusted.sock`,
+  which takes the caller as untrusted; `NIX_REMOTE` points there. No
+  session or system bus, no SSH or signing agent, no terminal remote
+  control and no abstract socket. The daemon's own socket trusts your
+  account, so passing it would hand over root.
+- **Writes only to the work.** The working folder, `/tmp`, `TMPDIR`
+  and `~/.cache`. No signal reaches a process outside the sandbox.
+- **The network** stays open.
+
+It costs 20 to 35 ms a command. The queue still reads the command as
+given, and the lines that wait for its turn run outside the sandbox. A
+session that asks for it where it can't be had, off Linux or without
+landrun on `PATH`, runs no command at all rather than run one unfenced.
+The tool tells the agent it is sandboxed, so a refusal reads as the
+sandbox rather than a fault.
+
+Code written in the working folder can still run later outside: a git
+hook or an `.envrc`. The sandbox narrows what a command reaches now,
+not what you later run from what it wrote.
+
 ## Stopping a Command
 
 Before it moves, Escape stops it as always. After it moves, `/jobs`

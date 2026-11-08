@@ -126,12 +126,17 @@ export function shellMovesItself(path: string): string | undefined {
 /**
  * `command`, run in `cwd`, moving its shell into jobs first while
  * children go there, and waiting for its turn in the machine's queue
- * when it is heavy work.
+ * when it is heavy work. `wrap` changes how the command runs once its
+ * turn comes ({@link queuedCommand}).
  */
-export function placedCommand(command: string, cwd?: string): string {
+export function placedCommand(
+	command: string,
+	cwd?: string,
+	wrap?: (run: string) => string,
+): string {
 	const target = placementTarget();
 	const move = target ? shellMovesItself(target) : undefined;
-	const queued = queuedCommand(command, cwd);
+	const queued = queuedCommand(command, cwd, wrap);
 	return move ? `${move}\n${queued}` : queued;
 }
 
