@@ -175,6 +175,35 @@ tested the same way, under `tests/extensions/`.
 [`docs/testing.md`](./docs/testing.md) has the lanes, timings and
 history.
 
+## Bindings
+
+How this repository holds the `repo-quality-standard` skill's
+rules, and where it doesn't yet.
+
+- **Gate:** `pnpm check`. It leaves out the browser lane
+  (`pnpm test:browser`, which needs a Chrome) and runs only the
+  tests a change's imports reach.
+- **Linters:** Biome at its `recommended` preset over every
+  `.ts` and `.mjs`, and `tsc` with `strict` over the `.ts`. The
+  `.mjs` files have no type check, the `skills/*/scripts/*.sh`
+  no shellcheck, and markdown no linter.
+- **Test levels:** the `unit` project, `tests/**/*.test.ts`; the
+  `process` project, the files `PROCESS_TESTS` in
+  `vitest.config.ts` names, one at a time; `tests/screen/`, real
+  pi on a terminal read back; `tests/core/browser/`, a real
+  Chrome; and `tests/package/`, rules read across every file.
+- **Exemptions:** each list names its entries with why:
+  `WAITING` in `every-folder-says-what-it-holds` and
+  `tools-say-the-glossary`, `EXEMPT` in `docs-name-what-exists`
+  and `tool-rows-reuse-their-component`, `OTHER_SENSE` in
+  `tools-say-the-glossary`, and every `biome-ignore` carries its
+  reason.
+- **Skips:** a test skips only when the machine lacks what it
+  drives: `haveChrome`, `hasServer` (a language server),
+  `NPM_RUNS`, `PI_RACE_TESTS` or a platform. Nothing yet fails a
+  skip or an uncommented sleep; the 147 fixed sleeps are the
+  standard's open item here.
+
 ## Before Trusting a Live Run
 
 - **A session runs the extension it loaded at startup.** Editing a
