@@ -104,11 +104,12 @@ function declaredAgain(
 			return name !== undefined && toolsHeld.has(name);
 		})
 		.reduce<number>((sum, tool) => sum + JSON.stringify(tool).length, 0);
-	const sections = Object.entries(message.sections ?? {})
-		.filter(
-			([name, value]) => typeof value === "string" && sectionsHeld.has(name),
-		)
-		.reduce<number>((sum, [, value]) => sum + String(value).length, 0);
+	let sections = 0;
+	for (const [name, value] of Object.entries(message.sections ?? {})) {
+		if (typeof value === "string" && sectionsHeld.has(name)) {
+			sections += value.length;
+		}
+	}
 	return tools + sections;
 }
 
@@ -162,9 +163,11 @@ export async function standingOf(
 			}
 			if (line.message?.role !== "system") continue;
 			const message = declared(line.message);
-			if (first)
+			if (first) {
 				redeclared += declaredAgain(line.message, toolsHeld, sectionsHeld);
-			else first = message;
+			} else {
+				first = message;
+			}
 			for (const tool of message.tools) {
 				const name = toolName(tool);
 				if (name) toolsHeld.add(name);
