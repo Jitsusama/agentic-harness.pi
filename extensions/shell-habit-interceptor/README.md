@@ -15,7 +15,10 @@ test output with tail or head, 13 waited with sleep, and 5 ran
   `work record`, or a copy in `$TMPDIR`. Reading or restoring a stash
   (`list`, `show`, `pop`, `apply`) goes ahead.
 - **`sleep`** refuses a sleep of ten seconds or more, pointing at
-  `background: true`. A short sleep between polls goes ahead.
+  `background: true`. A short sleep between polls goes ahead, and so
+  does any sleep in a call already sent with `background: true`,
+  which holds nothing: on 2026-11-07, 828 of the 872 sleeps agents
+  sent again past the guard were in such calls.
 - **`shell-edit`** refuses a redirect, `tee`, `sed -i` or `perl -i`
   onto a file git tracks, pointing at the edit and write tools. A shell
   rewrite skips the edit path and leaves the language server answering
