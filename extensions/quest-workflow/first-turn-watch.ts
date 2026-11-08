@@ -42,6 +42,8 @@ export interface Spawned {
 	readonly questId: string;
 	/** Its id, when the spawn knows it, as it does for the launcher's. */
 	readonly sessionId?: string;
+	/** The folder whose trust prompt its pi stops at, when the spawn said so. */
+	readonly trustWaits?: string;
 }
 
 /**
@@ -96,10 +98,12 @@ export function spawnedBy(
 	const questId = details?.autoloadQuestId;
 	if (typeof key !== "string" || typeof questId !== "string") return undefined;
 	const sessionId = details?.sessionId;
+	const trustWaits = details?.trustWaits;
 	return {
 		key,
 		questId,
 		...(typeof sessionId === "string" ? { sessionId } : {}),
+		...(typeof trustWaits === "string" ? { trustWaits } : {}),
 	};
 }
 
@@ -108,7 +112,9 @@ export function spawnedBy(
  * started, and when there is none start a turn here saying which
  * session, on which quest, and what the records show. While its words
  * still wait and its pi runs, look again each `afterMs` instead, up to
- * MOST_START_MS.
+ * MOST_START_MS, unless the spawn said its pi waits at the folder-trust
+ * prompt: a pi waiting there runs and still hasn't taken its words, and
+ * will wait as long as nobody answers.
  */
 export function watchFirstTurn(
 	pi: ExtensionAPI,
@@ -125,7 +131,12 @@ export function watchFirstTurn(
 				watches.delete(watch);
 				const turn = look(spawned, spawnedAt);
 				if (turn.started) return;
-				if (turn.waiting && waited < MOST_START_MS && runs(spawned)) {
+				if (
+					turn.waiting &&
+					!spawned.trustWaits &&
+					waited < MOST_START_MS &&
+					runs(spawned)
+				) {
 					lookAfter(Math.min(waited + afterMs, MOST_START_MS));
 					return;
 				}
@@ -161,8 +172,11 @@ function noTurnWords(
 		? `Session ${session}`
 		: "The session, an id not yet known,";
 	const seconds = Math.round(afterMs / 1000);
+	const trust = spawned.trustWaits
+		? ` Nothing had trusted ${spawned.trustWaits} when it was spawned, so its pi was to stop at pi's folder-trust prompt there until someone answers it in its window.`
+		: "";
 	return automatedText(
 		"a session this one spawned has not started",
-		`${which} that this session spawned on ${spawned.questId} has not started its first turn ${seconds} s after the spawn: ${turn.found}. Find out why and get it working: look at its window and its record under ~/.local/state/pi/agentic-harness.pi/quest-workflow/sessions/, then tell it to carry on, or spawn it again if it never started.`,
+		`${which} that this session spawned on ${spawned.questId} has not started its first turn ${seconds} s after the spawn: ${turn.found}.${trust} Find out why and get it working: look at its window and its record under ~/.local/state/pi/agentic-harness.pi/quest-workflow/sessions/, then tell it to carry on, or spawn it again if it never started.`,
 	);
 }

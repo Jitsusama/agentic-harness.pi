@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -35,6 +36,7 @@ const kept: Record<string, string | undefined> = {};
 const KEPT = [
 	"HOME",
 	"PATH",
+	"PI_CODING_AGENT_DIR",
 	"PI_LAUNCHER",
 	"XDG_CONFIG_HOME",
 	"QS_ASKED",
@@ -226,6 +228,55 @@ describe("spawn through the desktop's launcher", () => {
 		expect(wordsFor(token)).toContain("Audit what slipped.");
 		expect(result.details).toMatchObject({ firstWordsKey: token });
 		expect(result.message).toContain(`will load ${id}`);
+	});
+
+	describe("in a folder pi asks to trust", () => {
+		// 11-07 20:20: three of six spawns sat at pi's folder-trust prompt in
+		// agent-cut trees until their orchestrator answered it by hand.
+		const untrusted = () => {
+			const agentDir = join(tmpRoot, "agent");
+			mkdirSync(agentDir, { recursive: true });
+			process.env.PI_CODING_AGENT_DIR = agentDir;
+			const cwd = join(tmpRoot, "tree");
+			mkdirSync(join(cwd, ".pi"), { recursive: true });
+			writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
+			return { agentDir, cwd };
+		};
+
+		it("says the prompt will wait before the note is read", async () => {
+			const { state, id } = await quest();
+			const { cwd } = untrusted();
+			const result = await handle(
+				state,
+				fakePi(),
+				fakeCtx(tmpRoot, "spawner"),
+				{ action: "spawn", id, cwd, note: "Carry on." },
+			);
+			if (!result.ok) throw new Error(result.guidance);
+			expect(result.message).toContain(
+				`Nothing has trusted ${cwd}, so its pi stops at pi's folder-trust prompt`,
+			);
+			expect(result.details).toMatchObject({ trustWaits: cwd });
+		});
+
+		it("says nothing once the folder's trust is saved", async () => {
+			const { state, id } = await quest();
+			const { agentDir, cwd } = untrusted();
+			writeFileSync(
+				join(agentDir, "trust.json"),
+				// Saved under its canonical path, as pi saves it.
+				JSON.stringify({ [realpathSync(cwd)]: true }),
+			);
+			const result = await handle(
+				state,
+				fakePi(),
+				fakeCtx(tmpRoot, "spawner"),
+				{ action: "spawn", id, cwd },
+			);
+			if (!result.ok) throw new Error(result.guidance);
+			expect(result.message).not.toContain("folder-trust");
+			expect(result.details).not.toHaveProperty("trustWaits");
+		});
 	});
 
 	it("leaves a command that only mentions pi after its own separator alone", async () => {
