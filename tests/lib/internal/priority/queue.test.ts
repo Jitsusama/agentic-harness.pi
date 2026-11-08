@@ -25,6 +25,7 @@ import {
 	PASS_AFTER_MS,
 	QUICK_OUTRUN_MS,
 	RAMP_MS,
+	RULES,
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
@@ -108,6 +109,31 @@ describe("why each job waits", () => {
 		expect(nextTurn([vm], lent, NOW)).toBeUndefined();
 		expect(waitReasons([vm], lent, NOW).get("vm")).toBe("vms");
 		expect(nextTurn([vm, older("build", 8_000)], lent, NOW)?.id).toBe("build");
+	});
+
+	it("lets a queue-first quest's short job past the CPU and IO hold, and no other", () => {
+		// 8 November: a deploy lane's 13-second cargo test waited 1,524 s,
+		// 671 of them held here (L3V9AA, with 5FWIUS's rule).
+		const lane = (id: string, lastRanS: number) =>
+			older(id, 9_000, {
+				what: "cargo test --lib wipe",
+				quest: "QEST-DEPLOY",
+				lastRanS,
+			});
+		const first = new Set(["QEST-DEPLOY"]);
+		const stuck = { ...ROOMY, ioPressure: MOST_IO_PRESSURE_FOR_BUILDS + 10 };
+		expect(
+			nextTurn([lane("short", 13)], stuck, NOW, RULES, NOBODY, first)?.id,
+		).toBe("short");
+		expect(
+			nextTurn([lane("long", 600)], stuck, NOW, RULES, NOBODY, first),
+		).toBeUndefined();
+		expect(nextTurn([lane("other", 13)], stuck, NOW)).toBeUndefined();
+		// Joel's own programs waiting still hold it.
+		const felt = { ...stuck, floorsCpuPressure: MOST_FLOORS_CPU_PRESSURE + 1 };
+		expect(
+			nextTurn([lane("short", 13)], felt, NOW, RULES, NOBODY, first),
+		).toBeUndefined();
 	});
 
 	it("holds builds that run here while the machine is past its CPU line", () => {
@@ -234,6 +260,15 @@ describe("the kind of heavy work a command runs", () => {
 	it("reads a test suite of vitest's, and the pnpm scripts that run one, as a build", () => {
 		// 21:09 on 7 November: several 4- to 8-worker vitest runs took no
 		// turn beside cargo and clippy (80ECO2).
+		// One test file alone is the focused run left to the machine itself.
+		expect(
+			kindOf(
+				"timeout 120 pnpm exec vitest run tests/lib/mesh/looks.test.ts --testTimeout=60000 > $TMPDIR/l.log 2>&1",
+			),
+		).toBeUndefined();
+		expect(kindOf("pnpm exec vitest run tests/a.test.ts tests/b.test.ts")).toBe(
+			"build",
+		);
 		expect(kindOf("pnpm exec vitest run tests/lib --testTimeout=60000")).toBe(
 			"build",
 		);

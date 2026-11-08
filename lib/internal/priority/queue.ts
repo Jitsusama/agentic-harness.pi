@@ -611,7 +611,11 @@ const HOOK_BUILDS = new RegExp(
  * A Nix build goes while a builder elsewhere has a build slot free,
  * since it runs there, not here.
  */
-function busyWaits(job: Job, room: Room): boolean {
+function busyWaits(
+	job: Job,
+	room: Room,
+	first: ReadonlySet<string> = NOBODY,
+): boolean {
 	if (floorsBusy(room)) return true;
 	// A run that sends itself whole to a builder works the CPU there, not
 	// here: held at 70%, core's changed-checks waited 46 minutes at place
@@ -619,11 +623,34 @@ function busyWaits(job: Job, room: Room): boolean {
 	if (job.sent) return false;
 	if (job.kind !== "build" && job.kind !== "benchmark") return false;
 	if (isQuick(job) || !cpuHoldsBuilds(room)) return false;
+	if (firstAndShort(job, first)) return false;
 	const sentElsewhere =
 		job.kind === "build" &&
 		(room.offload?.builds ?? 0) > 0 &&
 		HOOK_BUILDS.test(job.what);
 	return !sentElsewhere;
+}
+
+/**
+ * Seconds a job of a quest first in the line may have run last time and
+ * still pass the machine's CPU and IO hold: outcome.ts's `QUICK_S`.
+ */
+export const FIRST_PASSES_UNDER_S = 60;
+
+/**
+ * Whether a job is a queue-first quest's, and ran short last time, so
+ * the machine's CPU and IO hold lets it by: memory and the person's own
+ * programs still hold it. On 8 November a deploy lane's 13-second cargo
+ * test waited 1,524 s, 671 of them on that hold, booked past a quick
+ * job's memory by one 5.5 GB peak (L3V9AA, with 5FWIUS's rule).
+ */
+function firstAndShort(job: Job, first: ReadonlySet<string>): boolean {
+	return (
+		job.quest !== undefined &&
+		first.has(job.quest) &&
+		job.lastRanS !== undefined &&
+		job.lastRanS < FIRST_PASSES_UNDER_S
+	);
 }
 
 /** How far apart two turns are given. */
@@ -1216,7 +1243,7 @@ export function nextTurn(
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
 		if (holds(job) || waitsForLending(job, room, now)) continue;
-		if (busyWaits(job, room)) continue;
+		if (busyWaits(job, room, first)) continue;
 		if (
 			isVm(job) &&
 			vmWaits(job, { vmsHere, vmsElsewhere, vmSettling: settling }, room, rules)
@@ -1338,7 +1365,7 @@ export function waitReasons(
 			}
 			if (waitsForLending(job, room, now)) return "lending";
 			if (holds(job) || given) return "order";
-			if (busyWaits(job, room)) return "busy";
+			if (busyWaits(job, room, first)) return "busy";
 			if (
 				isVm(job) &&
 				vmWaits(
@@ -1643,7 +1670,7 @@ export function kindOf(
 	command: string,
 	where: Where = { home: homedir() },
 ): Kind | undefined {
-	const steps = runSteps(command);
+	const steps = runSteps(command).filter((step) => !testsOneFile(step));
 	const runs = steps.join("\n");
 	if (stamps(runs, where)) return "stamp";
 	if (searchesWorldWhole(command, where)) return "build";
@@ -1653,6 +1680,26 @@ export function kindOf(
 	const kind = KINDS.find(([pattern]) => pattern.test(runs))?.[1];
 	if (kind !== undefined) return kind;
 	return worldWalks(steps, where).length > 0 ? "world-walk" : undefined;
+}
+
+/**
+ * Whether a step is vitest run over one test file alone: one worker for
+ * seconds, the focused run P9R1KI left the machine itself when every
+ * other suite went to a builder (8 November). Held as a build, one
+ * waited minutes behind a cargo build short of memory, for a turn it
+ * barely needed.
+ */
+function testsOneFile(step: string): boolean {
+	const words = step.trim().split(/\s+/);
+	const at = words.indexOf("vitest");
+	if (at < 0 || words[at + 1] !== "run") return false;
+	const files: string[] = [];
+	for (const word of words.slice(at + 2)) {
+		// A redirection ends its arguments; what follows is a file it writes.
+		if (/^(?:\d|&)?>/.test(word) || /^[|;&]/.test(word)) break;
+		if (!word.startsWith("-")) files.push(word);
+	}
+	return files.length === 1 && /\.test\.[cm]?tsx?$/.test(files[0] ?? "");
 }
 
 /** A World checkout's root: its folder, or a tree's `src`. */
