@@ -21,7 +21,8 @@ it does:
   gate. `attribution-interceptor`, `edit-escape-interceptor`,
   `git-cli-interceptor`, `github-cli-interceptor`,
   `read-after-write-interceptor`, `remote-check-interceptor`,
-  `secret-scrub-interceptor`, `shell-habit-interceptor`
+  `sandbox-file-interceptor`, `secret-scrub-interceptor`,
+  `shell-habit-interceptor`
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
