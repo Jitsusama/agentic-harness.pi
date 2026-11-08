@@ -153,6 +153,7 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 
 ```sh
 pnpm check           # lint, typecheck, the tests a change touches, load check
+pnpm check:there     # the same, for a pushed branch, on penelope (or a named host)
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing

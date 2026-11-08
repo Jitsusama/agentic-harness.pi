@@ -38,6 +38,7 @@
 	},
 	"scripts": {
 		"check": "pnpm lint && pnpm typecheck && vitest run --changed origin/main && pnpm load-check",
+		"check:there": "bash scripts/check-there.sh",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"typecheck": "tsc --noEmit",
