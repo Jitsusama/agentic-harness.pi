@@ -60,12 +60,22 @@ describe("an answer", () => {
 		const answer = message("2-WCJQSG-7-bbbbbbbb", { re: asked.id });
 		const read = holding(asked, answer);
 
-		expect(answers(answer, read, { addresses: ["LUQ49E"], pid: 1 })).toBe(true);
-		expect(answers(answer, read, { addresses: ["P9R1KI"], pid: 8 })).toBe(true);
-		expect(answers(answer, read, { addresses: ["P9R1KI"], pid: 1 })).toBe(
-			false,
-		);
-		expect(answers(asked, read, { addresses: ["LUQ49E"], pid: 8 })).toBe(false);
+		expect(
+			answers(answer, read, { addresses: ["LUQ49E"], pid: 1 }),
+			"it answers the peer by the address that asked",
+		).toBe(true);
+		expect(
+			answers(answer, read, { addresses: ["P9R1KI"], pid: 8 }),
+			"it answers the peer by the process that asked",
+		).toBe(true);
+		expect(
+			answers(answer, read, { addresses: ["P9R1KI"], pid: 1 }),
+			"it does not answer a peer that did not ask",
+		).toBe(false);
+		expect(
+			answers(asked, read, { addresses: ["LUQ49E"], pid: 8 }),
+			"a message answering nothing answers no one",
+		).toBe(false);
 	});
 
 	it("answers this peer's question only when what it answers asked one", () => {
@@ -83,29 +93,47 @@ describe("an answer", () => {
 		const thanks = message("4-WCJQSG-7-dddddddd", { re: told.id });
 		const read = holding(asked, told, answer, thanks);
 
-		expect(answersQuestion(answer, read, self)).toBe(true);
-		expect(answersQuestion(thanks, read, self)).toBe(false);
+		expect(
+			answersQuestion(answer, read, self),
+			"an answer to the peer's question answers it",
+		).toBe(true);
+		expect(
+			answersQuestion(thanks, read, self),
+			"a reply to the peer's finding answers no question",
+		).toBe(false);
 		expect(
 			answersQuestion(answer, read, { addresses: ["P9R1KI"], pid: 1 }),
+			"an answer to another peer's question does not answer this one's",
 		).toBe(false);
-		expect(answersQuestion(asked, read, self)).toBe(false);
+		expect(
+			answersQuestion(asked, read, self),
+			"the question itself answers nothing",
+		).toBe(false);
 	});
 });
 
 describe("a replacement", () => {
 	it("may replace only what its own sender said before it", () => {
 		const said = message("1-WCJQSG-7-aaaaaaaa");
-		expect(mayReplace(message("2-WCJQSG-9-bbbbbbbb"), said)).toBe(true);
-		expect(mayReplace(message("2-X-7-bbbbbbbb", { from: "X" }), said)).toBe(
-			true,
-		);
+		expect(
+			mayReplace(message("2-WCJQSG-9-bbbbbbbb"), said),
+			"a later message from the same address may replace it",
+		).toBe(true);
+		expect(
+			mayReplace(message("2-X-7-bbbbbbbb", { from: "X" }), said),
+			"a later message from the same process may replace it",
+		).toBe(true);
 		expect(
 			mayReplace(
 				message("2-P9R1KI-3-bbbbbbbb", { from: "P9R1KI", pid: 3 }),
 				said,
 			),
+			"another sender's message may not replace it",
 		).toBe(false);
-		expect(mayReplace(message("0-WCJQSG-7-bbbbbbbb"), said)).toBe(false);
+		expect(
+			mayReplace(message("0-WCJQSG-7-bbbbbbbb"), said),
+			"an earlier message may not replace it",
+		).toBe(false);
 	});
 });
 

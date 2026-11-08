@@ -137,6 +137,9 @@ describe("a session's usage", () => {
 			carriedUsage(today, new Date("2026-11-07T00:00:01")),
 		).toBeUndefined();
 		expect(carriedUsage({ day: "2026-11-06" }, evening)).toBeUndefined();
-		expect(isUsage(JSON.parse(JSON.stringify(today)))).toBe(true);
+		expect(
+			isUsage(JSON.parse(JSON.stringify(today))),
+			"the carried usage reads back from JSON",
+		).toBe(true);
 	});
 });

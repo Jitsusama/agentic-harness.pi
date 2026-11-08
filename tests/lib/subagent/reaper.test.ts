@@ -219,7 +219,13 @@ describe("asking the machine for real", () => {
 	});
 
 	it("knows this process is alive and that one is not", () => {
-		expect(systemFacts.alive(process.pid)).toBe(true);
-		expect(systemFacts.alive(DEAD_SUPERVISOR)).toBe(false);
+		expect(
+			systemFacts.alive(process.pid),
+			`this process, ${process.pid}, is alive`,
+		).toBe(true);
+		expect(
+			systemFacts.alive(DEAD_SUPERVISOR),
+			`process ${DEAD_SUPERVISOR} is gone`,
+		).toBe(false);
 	});
 });

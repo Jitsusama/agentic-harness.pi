@@ -69,7 +69,7 @@ describe("starting a reviewer that outlives the session", () => {
 
 		await startPi({ args: [], cwd: stateDir, runId: "run", reviewerId: "one" });
 
-		expect(noted.calls[0]?.options.detached).toBe(true);
+		expect(noted.calls[0]?.options).toMatchObject({ detached: true });
 		expect(noted.calls[0]?.options.stdio).toEqual([
 			"ignore",
 			"ignore",

@@ -13,8 +13,14 @@ describe("a peer's scopes", () => {
 		});
 
 		expect(quest).toBe("#quest/5gv2ah/luq49e");
-		expect(hears([quest], "#quest/5gv2ah")).toBe(true);
-		expect(hears([quest], "#quest/7m6jkg")).toBe(false);
+		expect(
+			hears([quest], "#quest/5gv2ah"),
+			"the root quest's group reaches it",
+		).toBe(true);
+		expect(
+			hears([quest], "#quest/7m6jkg"),
+			"another quest's group does not reach it",
+		).toBe(false);
 	});
 
 	it("give each repository its group, named as a group can be", () => {

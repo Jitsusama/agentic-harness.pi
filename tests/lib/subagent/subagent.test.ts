@@ -236,9 +236,9 @@ describe("runReviewer: reviewer error surfacing", () => {
 		});
 		expect(result.error?.stopReason).toBe("error");
 		expect(result.error?.message).toContain("stream ended");
-		expect(
-			result.warnings.some((w) => /stream/i.test(w) && /transient/i.test(w)),
-		).toBe(true);
+		expect(result.warnings).toContainEqual(
+			expect.stringMatching(/stream.*transient|transient.*stream/is),
+		);
 	});
 });
 
@@ -455,7 +455,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			expect(JSON.parse(result.finalAssistantText)).toEqual({
 				findings: [{ subject: "what I had" }],
 			});
-			expect(result.wrappedUp).toBe(true);
+			expect(result).toMatchObject({ wrappedUp: true });
 		});
 	});
 
@@ -807,9 +807,9 @@ describe("runReviewer: auto-resume", () => {
 			"/r/rev/session/s.jsonl",
 		);
 		expect(resumeArgs).not.toContain("--no-session");
-		expect(result.verification?.ok).toBe(true);
+		expect(result.verification).toMatchObject({ ok: true });
 		expect(result.error).toBeUndefined();
-		expect(result.warnings.some((w) => /resum/i.test(w))).toBe(true);
+		expect(result.warnings).toContainEqual(expect.stringMatching(/resum/i));
 	});
 
 	it("resumes with the run's own variables, as the run had them", async () => {
@@ -1001,7 +1001,7 @@ describe("runReviewer: auto-resume", () => {
 			expectedVerificationStage: "council",
 		});
 		expect(calls).toHaveLength(1);
-		expect(result.verification?.ok).toBe(true);
+		expect(result.verification).toMatchObject({ ok: true });
 	});
 
 	it("does not resume when the abort signal has fired", async () => {
@@ -1037,7 +1037,7 @@ describe("runReviewer: auto-resume", () => {
 			cwd: "/tmp/wt",
 			runPi: onRunPi,
 		});
-		expect(onCalls[0].persistSession).toBe(true);
+		expect(onCalls[0]).toMatchObject({ persistSession: true });
 
 		const { runPi: offRunPi, calls: offCalls } = scriptedRun([
 			{ exitCode: 0, finalAssistantText: "" },
@@ -1049,7 +1049,7 @@ describe("runReviewer: auto-resume", () => {
 			runPi: offRunPi,
 			autoResume: false,
 		});
-		expect(offCalls[0].persistSession).toBe(false);
+		expect(offCalls[0]).toMatchObject({ persistSession: false });
 	});
 });
 
@@ -1196,11 +1196,12 @@ describe("runReviewer: argument composition", () => {
 		// The final positional is an @<path> reference, not
 		// the raw prompt, and the referenced file holds the
 		// prompt verbatim.
-		expect(promptArg?.startsWith("@")).toBe(true);
+		expect(promptArg).toMatch(/^@/);
 		expect(promptArg).not.toBe(prompt);
 		expect(fileContent).toBe(prompt);
 		// The temp file is cleaned up once the run resolves.
-		expect(existsSync(promptArg?.slice(1) ?? "")).toBe(false);
+		const promptFile = promptArg?.slice(1) ?? "";
+		expect(existsSync(promptFile), `${promptFile} is gone`).toBe(false);
 	});
 
 	it("passes each extra extension path via --extension", async () => {
@@ -1575,7 +1576,7 @@ describe("runReviewer: result extraction", () => {
 		});
 
 		expect(result.finalAssistantText).toContain("Stream verified");
-		expect(result.verification?.ok).toBe(true);
+		expect(result.verification).toMatchObject({ ok: true });
 	});
 
 	it("passes a large out-of-band verified payload through without truncation", async () => {
@@ -1616,7 +1617,7 @@ describe("runReviewer: result extraction", () => {
 		});
 
 		expect(result.finalAssistantText).toContain(bigDiscussion);
-		expect(result.verification?.ok).toBe(true);
+		expect(result.verification).toMatchObject({ ok: true });
 	});
 
 	it("uses successful verify_output payload as the canonical final text", async () => {
@@ -1652,7 +1653,7 @@ describe("runReviewer: result extraction", () => {
 		expect(result.finalAssistantText).toContain("Verified subject");
 		expect(result.finalAssistantText).not.toContain("not parseable");
 		expect(result.finalAssistantText).not.toContain("```json");
-		expect(result.verification?.ok).toBe(true);
+		expect(result.verification).toMatchObject({ ok: true });
 	});
 
 	it("rejects verified payloads from the wrong stage", async () => {
@@ -1679,7 +1680,7 @@ describe("runReviewer: result extraction", () => {
 		});
 
 		expect(result.finalAssistantText).toBe("");
-		expect(result.verification?.ok).toBe(false);
+		expect(result.verification).toMatchObject({ ok: false });
 		expect(result.warnings.join("\n")).toContain("wrong stage (judge)");
 	});
 
@@ -1792,7 +1793,7 @@ describe("runReviewer: result extraction", () => {
 		});
 
 		expect(result.finalAssistantText).toBe("");
-		expect(result.warnings.some((w) => w.includes("ignored"))).toBe(true);
+		expect(result.warnings).toContainEqual(expect.stringContaining("ignored"));
 	});
 
 	it("returns the final assistant message text as finalAssistantText", async () => {
@@ -1958,7 +1959,9 @@ describe("runReviewer: result extraction", () => {
 		});
 
 		expect(result.finalAssistantText).toContain("Verified despite exit");
-		expect(result.warnings.some((w) => /exit 1|non-zero/i.test(w))).toBe(true);
+		expect(result.warnings).toContainEqual(
+			expect.stringMatching(/exit 1|non-zero/i),
+		);
 	});
 
 	it("surfaces a non-zero exitCode as a warning while still returning the captured text", async () => {
@@ -1978,7 +1981,9 @@ describe("runReviewer: result extraction", () => {
 		});
 		expect(result.exitCode).toBe(1);
 		expect(result.finalAssistantText).toBe("partial");
-		expect(result.warnings.some((w) => /exit 1|non-zero/i.test(w))).toBe(true);
+		expect(result.warnings).toContainEqual(
+			expect.stringMatching(/exit 1|non-zero/i),
+		);
 		expect(result.stderr).toContain("timeout");
 	});
 
@@ -2027,7 +2032,9 @@ describe("runReviewer: result extraction", () => {
 			cwd: "/tmp/wt",
 			runPi,
 		});
-		expect(result.warnings.some((w) => w.startsWith("Pi stderr:"))).toBe(false);
+		expect(result.warnings).not.toContainEqual(
+			expect.stringMatching(/^Pi stderr:/),
+		);
 	});
 
 	it("does not surface stderr in warnings when exit code is 0", async () => {
@@ -2045,7 +2052,9 @@ describe("runReviewer: result extraction", () => {
 			cwd: "/tmp/wt",
 			runPi,
 		});
-		expect(result.warnings.some((w) => w.startsWith("Pi stderr:"))).toBe(false);
+		expect(result.warnings).not.toContainEqual(
+			expect.stringMatching(/^Pi stderr:/),
+		);
 		expect(result.stderr).toContain("deprecation notice");
 	});
 
@@ -2090,8 +2099,8 @@ describe("runReviewer: stale runtime detection", () => {
 		expect(calls).toHaveLength(0);
 		expect(result.exitCode).toBe(127);
 		expect(result.finalAssistantText).toBe("");
-		expect(result.warnings.some((w) => w.startsWith("Pi runtime stale:"))).toBe(
-			true,
+		expect(result.warnings).toContainEqual(
+			expect.stringMatching(/^Pi runtime stale:/),
 		);
 		expect(result.stderr).toContain("/nix/store/old-pi/bin/pi");
 	});
@@ -2137,8 +2146,8 @@ describe("runReviewer: stale runtime detection", () => {
 			cwd: "/tmp/wt",
 			runPi,
 		});
-		expect(result.warnings.some((w) => w.startsWith("Pi runtime stale:"))).toBe(
-			false,
+		expect(result.warnings).not.toContainEqual(
+			expect.stringMatching(/^Pi runtime stale:/),
 		);
 	});
 });

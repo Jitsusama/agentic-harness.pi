@@ -94,7 +94,7 @@ describe("saying what could not be carried", () => {
 		expect(said).toHaveLength(3);
 		// Every one carries the marker the round selects these by, and
 		// two of the three name where the findings still are.
-		expect(said.every((one) => one.startsWith(JOURNAL_SAYS))).toBe(true);
+		expect(said.filter((one) => !one.startsWith(JOURNAL_SAYS))).toEqual([]);
 		expect(said.filter((one) => one.includes("journal.ndjson"))).toHaveLength(
 			2,
 		);

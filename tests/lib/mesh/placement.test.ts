@@ -123,7 +123,7 @@ describe("the node's placement read", () => {
 			ok: false,
 			reason: "not a request",
 		});
-		expect(placedFrom("not json").ok).toBe(false);
-		expect(placedFrom(placement({ placed: {} })).ok).toBe(false);
+		expect(placedFrom("not json")).toMatchObject({ ok: false });
+		expect(placedFrom(placement({ placed: {} }))).toMatchObject({ ok: false });
 	});
 });

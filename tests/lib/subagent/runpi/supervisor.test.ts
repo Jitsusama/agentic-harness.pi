@@ -588,7 +588,9 @@ describe("createSupervisorRunPi", () => {
 		expect(result.artifacts?.sessionPath).toContain(".jsonl");
 		const sessionPath = result.artifacts?.sessionPath;
 		if (!sessionPath) throw new Error("missing session path");
-		expect((await stat(sessionPath)).isFile()).toBe(true);
+		expect((await stat(sessionPath)).isFile(), `${sessionPath} is a file`).toBe(
+			true,
+		);
 	});
 
 	it("stays ephemeral when persistSession is not requested", async () => {
@@ -785,7 +787,7 @@ describe("createSupervisorRunPi", () => {
 			count: 1,
 		});
 		expect(result.verification).not.toHaveProperty("output");
-		expect(result.verification?.canonicalText).toBe(true);
+		expect(result.verification).toMatchObject({ canonicalText: true });
 		expect(result.finalAssistantText).toContain("Verified");
 		expect(result.finalAssistantText).not.toBe("not json");
 	});
@@ -940,7 +942,7 @@ describe("createSupervisorRunPi", () => {
 		});
 
 		expect(result.verification).not.toHaveProperty("output");
-		expect(result.verification?.canonicalText).toBe(true);
+		expect(result.verification).toMatchObject({ canonicalText: true });
 		expect(result.finalAssistantText).toContain("Unkeyed");
 	});
 
@@ -1209,11 +1211,9 @@ describe("createSupervisorRunPi", () => {
 			onEvent: (event) => events.push(event),
 		});
 
-		expect(
-			events.some(
-				(event) => event.type === "activity" && event.activity === "reading x",
-			),
-		).toBe(true);
+		expect(events).toContainEqual(
+			expect.objectContaining({ type: "activity", activity: "reading x" }),
+		);
 	});
 
 	it("keeps what a stopped reviewer had written", async () => {
@@ -1546,9 +1546,12 @@ describe("createSupervisorRunPi", () => {
 		]);
 		if (!groupStopped) process.kill(-groupId, "SIGKILL");
 
-		expect(outcome.settled).toBe(true);
+		expect(outcome).toMatchObject({ settled: true });
 		expect(fake.kills).toEqual(["SIGTERM", "SIGKILL"]);
-		expect(groupStopped).toBe(true);
+		expect(
+			groupStopped,
+			"the child's process group is gone within a second",
+		).toBe(true);
 		if (outcome.settled) {
 			expect(outcome.result.exitCode).toBe(130);
 			expect(outcome.result.warnings?.join(" ")).toMatch(
@@ -2094,7 +2097,7 @@ describe("a supervisor that is signalled", () => {
 	it("stops its child when the terminal hangs up", async () => {
 		const { outlived, state } = await signalled(["SIGHUP"], { deaf: false });
 
-		expect(outlived).toBe(false);
+		expect(outlived, "the child is gone once the run ends").toBe(false);
 		expect(state).toBe("cancelled");
 	});
 
@@ -2106,7 +2109,7 @@ describe("a supervisor that is signalled", () => {
 			deaf: true,
 		});
 
-		expect(outlived).toBe(false);
+		expect(outlived, "the child is gone once the run ends").toBe(false);
 		expect(state).toBe("cancelled");
 	});
 
@@ -2224,7 +2227,7 @@ describe("a supervisor that is signalled", () => {
 			deaf: true,
 		});
 
-		expect(outlived).toBe(false);
+		expect(outlived, "the child is gone once the run ends").toBe(false);
 		expect(state).toBe("cancelled");
 	});
 });

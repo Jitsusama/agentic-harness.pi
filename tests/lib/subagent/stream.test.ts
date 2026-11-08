@@ -222,7 +222,7 @@ describe("ReviewerStreamParser", () => {
 		parser.ingestChunk(end(true));
 		const result = parser.finish();
 
-		expect(result.verification?.ok).toBe(true);
+		expect(result.verification).toMatchObject({ ok: true });
 		expect(result.verification?.attempts).toBe(2);
 	});
 
@@ -330,7 +330,7 @@ describe("ReviewerStreamParser", () => {
 		const result = parser.finish();
 
 		expect(result.finalAssistantText).toBe("ok");
-		expect(result.warnings.some((w) => w.includes("exceeded"))).toBe(true);
+		expect(result.warnings).toContainEqual(expect.stringContaining("exceeded"));
 	});
 
 	it("truncates oversized assistant text", () => {
@@ -340,9 +340,9 @@ describe("ReviewerStreamParser", () => {
 		const result = parser.finish();
 
 		expect(result.finalAssistantText).toBe("abcde");
-		expect(result.truncated).toBe(true);
-		expect(result.warnings.some((w) => w.includes("assistant text"))).toBe(
-			true,
+		expect(result).toMatchObject({ truncated: true });
+		expect(result.warnings).toContainEqual(
+			expect.stringContaining("assistant text"),
 		);
 	});
 

@@ -86,7 +86,8 @@ describe("what waits on the person", () => {
 
 		expect(settleWaiting(folder, QUEST, "eero-login", at)).toHaveLength(1);
 		expect(settleWaiting(folder, QUEST, "look", at)).toEqual([]);
-		expect(existsSync(join(folder, "QCXZEB.json"))).toBe(false);
+		const file = join(folder, "QCXZEB.json");
+		expect(existsSync(file), `${file} is gone`).toBe(false);
 	});
 
 	it("is nothing for a quest with no file", () => {
@@ -108,7 +109,8 @@ describe("what waits on the person", () => {
 	it("goes with its quest", () => {
 		addWaiting(folder, item(), at);
 		clearWaiting(folder, QUEST);
-		expect(existsSync(waitingFile(folder, QUEST))).toBe(false);
+		const file = waitingFile(folder, QUEST);
+		expect(existsSync(file), `${file} is gone`).toBe(false);
 	});
 
 	it("is kept under the state home, or its default when that is empty", () => {
@@ -177,7 +179,9 @@ describe("the desktop's verdicts", () => {
 			at,
 		);
 
-		expect(changed).toBe(true);
+		expect(changed, "applying the verdicts says it changed the items").toBe(
+			true,
+		);
 		expect(items.map((one) => [one.id, one.ready])).toEqual([
 			["look", true],
 			["sign", false],
@@ -188,7 +192,9 @@ describe("the desktop's verdicts", () => {
 	it("are none while the daemon has written none", () => {
 		expect(verdictsIn(join(folder, "verdicts.json")).size).toBe(0);
 		addWaiting(folder, item(), at);
-		expect(applyVerdicts(folder, QUEST, new Map(), at).changed).toBe(false);
+		expect(applyVerdicts(folder, QUEST, new Map(), at)).toMatchObject({
+			changed: false,
+		});
 	});
 
 	it("sit beside the folder of quests' files", () => {

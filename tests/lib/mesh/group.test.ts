@@ -70,22 +70,34 @@ describe("a group's name", () => {
 
 describe("who hears a group", () => {
 	it("is whoever is in it or in one of its parts", () => {
-		expect(hears(["#optimus/power"], "#optimus")).toBe(true);
-		expect(hears(["#optimus/power"], "#optimus/power")).toBe(true);
-		expect(hears(["#optimus"], "#optimus/power")).toBe(false);
+		expect(
+			hears(["#optimus/power"], "#optimus"),
+			"a member of #optimus/power hears #optimus",
+		).toBe(true);
+		expect(
+			hears(["#optimus/power"], "#optimus/power"),
+			"a member of #optimus/power hears it",
+		).toBe(true);
+		expect(
+			hears(["#optimus"], "#optimus/power"),
+			"a member of #optimus does not hear #optimus/power",
+		).toBe(false);
 		// A prefix that is not a parent is not one.
-		expect(hears(["#optimusprime"], "#optimus")).toBe(false);
+		expect(
+			hears(["#optimusprime"], "#optimus"),
+			"a member of #optimusprime does not hear #optimus",
+		).toBe(false);
 	});
 
 	it("is everyone, for the machine's", () => {
-		expect(hears([], ALL)).toBe(true);
+		expect(hears([], ALL), "a peer in no group hears the machine's").toBe(true);
 	});
 });
 
 describe("joining", () => {
 	it("is for named groups and other peers' home groups, not the machine's", () => {
-		expect(isJoinable("#harness")).toBe(true);
-		expect(isJoinable("@P9R1KI")).toBe(true);
-		expect(isJoinable(ALL)).toBe(false);
+		expect(isJoinable("#harness"), "#harness is joinable").toBe(true);
+		expect(isJoinable("@P9R1KI"), "@P9R1KI is joinable").toBe(true);
+		expect(isJoinable(ALL), "the machine's group is not joinable").toBe(false);
 	});
 });

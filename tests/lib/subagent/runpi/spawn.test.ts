@@ -110,7 +110,7 @@ describe("createSpawnRunPi", () => {
 			"prompt",
 		]);
 		expect(calls[0].cwd).toBe("/tmp/wt");
-		expect(calls[0].detached).toBe(true);
+		expect(calls[0]).toMatchObject({ detached: true });
 	});
 
 	it("overrides the child's PI_PACKAGE_DIR with the pinned package dir", async () => {
@@ -191,7 +191,7 @@ describe("createSpawnRunPi", () => {
 		await runPi({ args: [], cwd: "/tmp" });
 		// No env override object is passed, so the child inherits
 		// the parent environment unchanged.
-		expect(sawEnvKey).toBe(false);
+		expect(sawEnvKey, "no env override is passed to the child").toBe(false);
 	});
 
 	it("collects stdout, stderr and exit code into the RunPiResult", async () => {
@@ -400,7 +400,7 @@ describe("createSpawnRunPi", () => {
 		const promise = runPi({ args: [], cwd: "/tmp", signal: ac.signal });
 		ac.abort();
 		const result = await promise;
-		expect(killed).toBe(true);
+		expect(killed, "aborting the run kills the child").toBe(true);
 		expect(result.exitCode).toBe(143);
 		expect(result.stderr).toContain("cancelled");
 	});

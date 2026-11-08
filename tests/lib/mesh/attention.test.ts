@@ -335,12 +335,19 @@ describe("attention", () => {
 			intent: "question",
 			text: "is that refusal from the Harness?",
 		});
-		expect(mentions(asked, standing.receiver)).toBe(true);
+		expect(
+			mentions(asked, standing.receiver),
+			"a question naming the harness mentions the peer that owns it",
+		).toBe(true);
 		expect(attend(asked, { ...standing, idle: true }).attention).toBe("act");
 		expect(
 			mentions(message({ text: "a 5gv2ah-ish word" }), standing.receiver),
+			"a word holding the peer's address mentions it",
 		).toBe(true);
-		expect(mentions(message(), standing.receiver)).toBe(false);
+		expect(
+			mentions(message(), standing.receiver),
+			"a message naming nothing of the peer's does not mention it",
+		).toBe(false);
 	});
 });
 
@@ -383,13 +390,18 @@ describe("a classifier's concern", () => {
 			changing: ["widget:src/queue.ts", "widget:flake.nix"],
 		};
 
-		expect(mentions(message({ text: "src/queue.ts is wrong" }), changing)).toBe(
-			true,
-		);
+		expect(
+			mentions(message({ text: "src/queue.ts is wrong" }), changing),
+			"naming a file the peer changes mentions it",
+		).toBe(true);
 		// A file every checkout has does not say which work it is.
-		expect(mentions(message({ text: "bumped flake.nix" }), changing)).toBe(
-			false,
-		);
-		expect(mentions(message(), changing)).toBe(false);
+		expect(
+			mentions(message({ text: "bumped flake.nix" }), changing),
+			"naming a file every checkout has does not mention the peer",
+		).toBe(false);
+		expect(
+			mentions(message(), changing),
+			"a message naming none of the peer's files does not mention it",
+		).toBe(false);
 	});
 });

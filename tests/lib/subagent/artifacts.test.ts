@@ -31,8 +31,14 @@ describe("ReviewerArtifactsStore", () => {
 
 		const paths = store.paths("..", "..");
 
-		expect(paths.runDir.startsWith(store.runsDir)).toBe(true);
-		expect(paths.reviewerDir.startsWith(paths.runDir)).toBe(true);
+		expect(
+			paths.runDir.startsWith(store.runsDir),
+			`${paths.runDir} is under ${store.runsDir}`,
+		).toBe(true);
+		expect(
+			paths.reviewerDir.startsWith(paths.runDir),
+			`${paths.reviewerDir} is under ${paths.runDir}`,
+		).toBe(true);
 		expect(paths.runDir).not.toContain("..");
 	});
 
@@ -78,7 +84,10 @@ describe("ReviewerArtifactsStore", () => {
 
 		const paths = await store.ensureReviewerDir("run", "one");
 
-		expect(existsSync(paths.cancelPath)).toBe(false);
+		expect(
+			existsSync(paths.cancelPath),
+			`${paths.cancelPath} does not exist`,
+		).toBe(false);
 	});
 
 	it("clears a run-wide cancellation when the run begins again", async () => {
@@ -93,7 +102,8 @@ describe("ReviewerArtifactsStore", () => {
 
 		await store.beginRun("run");
 
-		expect(existsSync(store.rootPaths("run").cancelPath)).toBe(false);
+		const { cancelPath } = store.rootPaths("run");
+		expect(existsSync(cancelPath), `${cancelPath} does not exist`).toBe(false);
 	});
 
 	it("writes JSON atomically and reads it back", async () => {
@@ -141,7 +151,10 @@ describe("ReviewerArtifactsStore", () => {
 		await expect(stat(terminal.runDir)).rejects.toMatchObject({
 			code: "ENOENT",
 		});
-		expect((await stat(active.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(active.runDir)).isDirectory(),
+			`${active.runDir} is kept`,
+		).toBe(true);
 	});
 
 	it("takes a finished run that is too old, however few there are", async () => {
@@ -182,7 +195,10 @@ describe("ReviewerArtifactsStore", () => {
 		});
 
 		expect(result.removed).toBe(1);
-		expect((await stat(newer.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(newer.runDir)).isDirectory(),
+			`${newer.runDir} is kept`,
+		).toBe(true);
 		await expect(stat(older.runDir)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
@@ -214,7 +230,10 @@ describe("ReviewerArtifactsStore", () => {
 			// Held rather than taken, since a run that cannot be asked
 			// whether it finished gets the careful answer, and said rather
 			// than decided quietly.
-			expect((await stat(shut.runDir)).isDirectory()).toBe(true);
+			expect(
+				(await stat(shut.runDir)).isDirectory(),
+				`${shut.runDir} is kept`,
+			).toBe(true);
 			expect(result.warnings.join(" ")).toContain(shut.runDir);
 		} finally {
 			await chmod(shut.runDir, 0o700);
@@ -313,8 +332,14 @@ describe("ReviewerArtifactsStore", () => {
 		});
 
 		expect(result.removed).toBe(0);
-		expect((await stat(unfinished.runDir)).isDirectory()).toBe(true);
-		expect((await stat(finished.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(unfinished.runDir)).isDirectory(),
+			`${unfinished.runDir} is kept`,
+		).toBe(true);
+		expect(
+			(await stat(finished.runDir)).isDirectory(),
+			`${finished.runDir} is kept`,
+		).toBe(true);
 	});
 
 	it("protects a run whose id is not its directory name", async () => {
@@ -336,7 +361,10 @@ describe("ReviewerArtifactsStore", () => {
 		});
 
 		expect(result.removed).toBe(0);
-		expect((await stat(awkward.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(awkward.runDir)).isDirectory(),
+			`${awkward.runDir} is kept`,
+		).toBe(true);
 	});
 
 	it("does not let kept runs spend the count on behalf of finished ones", async () => {
@@ -365,7 +393,10 @@ describe("ReviewerArtifactsStore", () => {
 		});
 
 		expect(result.removed).toBe(0);
-		expect((await stat(done.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(done.runDir)).isDirectory(),
+			`${done.runDir} is kept`,
+		).toBe(true);
 	});
 
 	it("keeps a protected run the ordinary windows would take", async () => {
@@ -387,7 +418,10 @@ describe("ReviewerArtifactsStore", () => {
 		});
 
 		expect(result.removed).toBe(1);
-		expect((await stat(waiting.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(waiting.runDir)).isDirectory(),
+			`${waiting.runDir} is kept`,
+		).toBe(true);
 		await expect(stat(finished.runDir)).rejects.toMatchObject({
 			code: "ENOENT",
 		});
@@ -431,7 +465,10 @@ describe("ReviewerArtifactsStore", () => {
 		});
 
 		expect(result.removed).toBe(0);
-		expect((await stat(active.runDir)).isDirectory()).toBe(true);
+		expect(
+			(await stat(active.runDir)).isDirectory(),
+			`${active.runDir} is kept`,
+		).toBe(true);
 	});
 
 	it("leaves unfinished runs alone when no abandoned window is set", async () => {

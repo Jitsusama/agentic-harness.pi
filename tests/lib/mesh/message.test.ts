@@ -73,59 +73,108 @@ describe("who a message reaches", () => {
 	const listener = { addresses: ["7M6JKG", "24B025FE"], groups: ["#harness"] };
 
 	it("is every peer, for the machine's group", () => {
-		expect(reaches(message(), listener, 2)).toBe(true);
+		expect(
+			reaches(message(), listener, 2),
+			"the machine's group reaches every peer",
+		).toBe(true);
 	});
 
 	// A mycelium node carries another machine's sessions here; a hold
 	// before this machine restarts is none of theirs.
 	it("is never a session on another machine, for the machine's group", () => {
 		const elsewhere = { ...listener, machine: "equilibrius" };
-		expect(reaches(message(), elsewhere, 2)).toBe(false);
-		expect(reaches(message({ to: [ALL, "@7M6JKG"] }), elsewhere, 2)).toBe(true);
-		expect(reaches(message({ to: ["#harness"] }), elsewhere, 2)).toBe(true);
+		expect(
+			reaches(message(), elsewhere, 2),
+			"the machine's group does not reach another machine's session",
+		).toBe(false);
+		expect(
+			reaches(message({ to: [ALL, "@7M6JKG"] }), elsewhere, 2),
+			"its home group reaches a session on another machine",
+		).toBe(true);
+		expect(
+			reaches(message({ to: ["#harness"] }), elsewhere, 2),
+			"a named group reaches a member on another machine",
+		).toBe(true);
 	});
 
 	it("is a peer, through any of its home groups", () => {
-		expect(reaches(message({ to: ["@24B025FE"] }), listener, 2)).toBe(true);
-		expect(reaches(message({ to: ["@OVAE1I"] }), listener, 2)).toBe(false);
-		expect(isHomeTo(message({ to: ["@7M6JKG"] }), listener.addresses)).toBe(
-			true,
-		);
+		expect(
+			reaches(message({ to: ["@24B025FE"] }), listener, 2),
+			"@24B025FE, a home group of the peer's, reaches it",
+		).toBe(true);
+		expect(
+			reaches(message({ to: ["@OVAE1I"] }), listener, 2),
+			"another peer's home group does not reach it",
+		).toBe(false);
+		expect(
+			isHomeTo(message({ to: ["@7M6JKG"] }), listener.addresses),
+			"@7M6JKG is the peer's home group",
+		).toBe(true);
 	});
 
 	it("is the members of a group it went to", () => {
-		expect(reaches(message({ to: ["#harness"] }), listener, 2)).toBe(true);
-		expect(reaches(message({ to: ["#skynet"] }), listener, 2)).toBe(false);
+		expect(
+			reaches(message({ to: ["#harness"] }), listener, 2),
+			"#harness reaches its member",
+		).toBe(true);
+		expect(
+			reaches(message({ to: ["#skynet"] }), listener, 2),
+			"#skynet does not reach a peer outside it",
+		).toBe(false);
 	});
 
 	// On 2026-10-25 a question to a group gave each member its own part,
 	// and the first member's answer silenced the rest.
 	it("asks each peer it was sent to, or each member of a named group", () => {
 		const question = (to: string[]) => message({ intent: "question", to });
-		expect(asksEach(question(["@7M6JKG", "@OVAE1I"]), listener)).toBe(true);
-		expect(asksEach(question(["#harness"]), listener)).toBe(true);
-		expect(asksEach(question(["#harness/mesh"]), listener)).toBe(false);
+		expect(
+			asksEach(question(["@7M6JKG", "@OVAE1I"]), listener),
+			"a question to the peer's home group asks it",
+		).toBe(true);
+		expect(
+			asksEach(question(["#harness"]), listener),
+			"a question to #harness asks each member",
+		).toBe(true);
+		expect(
+			asksEach(question(["#harness/mesh"]), listener),
+			"a question to #harness/mesh does not ask a member of #harness only",
+		).toBe(false);
 		expect(
 			asksEach(question(["#quest"]), { ...listener, groups: ["#quest/x"] }),
+			"a question to #quest asks a member of #quest/x",
 		).toBe(true);
 	});
 
 	it("asks nobody in particular on the machine's group, or past a followed peer", () => {
 		const question = (to: string[]) => message({ intent: "question", to });
-		expect(asksEach(question([ALL]), listener)).toBe(false);
-		expect(asksEach(question([ALL, "@7M6JKG"]), listener)).toBe(false);
+		expect(
+			asksEach(question([ALL]), listener),
+			"a question to the machine's group asks nobody in particular",
+		).toBe(false);
+		expect(
+			asksEach(question([ALL, "@7M6JKG"]), listener),
+			"a question to the machine's group and the peer asks nobody in particular",
+		).toBe(false);
 		// Following another peer's home group hears its questions, not asked them.
 		expect(
 			asksEach(question(["@OVAE1I"]), { ...listener, groups: ["@OVAE1I"] }),
+			"a question to a followed peer's home group does not ask the follower",
 		).toBe(false);
-		expect(asksEach(message({ to: ["#harness"] }), listener)).toBe(false);
+		expect(
+			asksEach(message({ to: ["#harness"] }), listener),
+			"a hold is no question, so it asks nobody",
+		).toBe(false);
 	});
 
 	it("is never its own sender, by address or by process", () => {
-		expect(reaches(message({ from: "7M6JKG" }), listener, 2)).toBe(false);
-		expect(reaches(message({ from: "CA6H2X", pid: 2 }), listener, 2)).toBe(
-			false,
-		);
+		expect(
+			reaches(message({ from: "7M6JKG" }), listener, 2),
+			"a message from the peer's own address does not reach it",
+		).toBe(false);
+		expect(
+			reaches(message({ from: "CA6H2X", pid: 2 }), listener, 2),
+			"a message from the peer's own process does not reach it",
+		).toBe(false);
 	});
 });
 

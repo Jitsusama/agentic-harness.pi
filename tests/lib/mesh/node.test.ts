@@ -232,7 +232,7 @@ describe("asking the node to start a session held", () => {
 
 	it("takes an answer it can't read as not started", () => {
 		const answer = startedFrom('{"Ok":{"Started":{"machine":"x"}}}');
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 	});
 });
 
@@ -258,7 +258,7 @@ describe("asking the node where work goes", () => {
 			ok: false,
 			reason: `no mycelium node answered at ${none}`,
 		});
-		expect((await placeAt(undefined, [])).ok).toBe(false);
+		expect(await placeAt(undefined, [])).toMatchObject({ ok: false });
 	});
 });
 

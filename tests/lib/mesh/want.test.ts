@@ -26,7 +26,7 @@ describe("a want", () => {
 			said: "x".repeat(SAID_CHARS + 1),
 		});
 		expect(long?.said).toHaveLength(SAID_CHARS);
-		expect(long?.said.endsWith("\u2026")).toBe(true);
+		expect(long?.said).toMatch(/\u2026$/);
 	});
 
 	it("keeps its id as what it says changes", () => {

@@ -111,7 +111,8 @@ describe("a brief several reviewers share", () => {
 		expect(packs(calls[0] ?? [])).toEqual([
 			expect.stringMatching(/packs\/shared-brief\/index\.ts$/),
 		]);
-		expect(existsSync(packs(calls[0] ?? [])[0] ?? "")).toBe(true);
+		const pack = packs(calls[0] ?? [])[0] ?? "";
+		expect(existsSync(pack), `${pack} exists`).toBe(true);
 		expect(calls[1]).not.toContain("--extension");
 	});
 
@@ -141,11 +142,11 @@ describe("a brief several reviewers share", () => {
 		});
 		await runReviewer({ reviewer: { id: "a" }, prompt, cwd: "/t", runPi });
 
-		expect(existsSync(path)).toBe(true);
+		expect(existsSync(path), `${path} is kept while b reads it`).toBe(true);
 		letSecondFinish();
 		await second;
 		expect(seen).toEqual({ a: true, b: true });
-		expect(existsSync(path)).toBe(false);
+		expect(existsSync(path), `${path} is gone once both are done`).toBe(false);
 	});
 
 	it("holds the brief whole, which the reviewer reads as its prompt", async () => {
@@ -204,11 +205,10 @@ describe("a brief a detached round's reviewers share", () => {
 		const [one = [], two = []] = calls;
 		const path = brief(one)?.slice(1) ?? "";
 		expect(brief(two)).toBe(`@${path}`);
-		expect(
-			path.startsWith(
-				new ReviewerArtifactsStore(stateDir).rootPaths("run").briefsDir,
-			),
-		).toBe(true);
+		const { briefsDir } = new ReviewerArtifactsStore(stateDir).rootPaths("run");
+		expect(path.startsWith(briefsDir), `${path} is under ${briefsDir}`).toBe(
+			true,
+		);
 		expect(await readFile(path, "utf8")).toBe("the brief");
 		expect(one.at(-1)).toBe("lens a");
 	});

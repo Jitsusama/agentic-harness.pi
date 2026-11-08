@@ -51,21 +51,31 @@ describe("isStopped", () => {
 	const stops: Stop[] = [{ address: "P9R1KI", session: "s-p", at }];
 
 	it("is true of the address the stop names", () => {
-		expect(isStopped({ from: "P9R1KI" }, stops, [])).toBe(true);
+		expect(
+			isStopped({ from: "P9R1KI" }, stops, []),
+			"P9R1KI, the stopped address, is stopped",
+		).toBe(true);
 	});
 
 	it("follows the stopped session to an address it took up since", () => {
 		const everyone = [presence("s-p", ["ZZ9PLZ", "P9R1KI"])];
 
-		expect(isStopped({ from: "ZZ9PLZ" }, stops, everyone)).toBe(true);
+		expect(
+			isStopped({ from: "ZZ9PLZ" }, stops, everyone),
+			"ZZ9PLZ, taken up by the stopped session, is stopped",
+		).toBe(true);
 	});
 
 	it("is false of anyone else, even under an address others wear", () => {
 		const everyone = [presence("s-w", ["WCJQSG"])];
 
-		expect(isStopped({ from: "WCJQSG" }, stops, everyone)).toBe(false);
+		expect(
+			isStopped({ from: "WCJQSG" }, stops, everyone),
+			"WCJQSG, another session's address, is not stopped",
+		).toBe(false);
 		expect(
 			isStopped({ from: "WCJQSG" }, [{ address: "P9R1KI", at }], everyone),
+			"WCJQSG is not stopped by a stop naming no session",
 		).toBe(false);
 	});
 });
