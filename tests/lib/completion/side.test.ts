@@ -24,7 +24,7 @@ describe("runSideCompletion error paths", () => {
 			{ systemPrompt: "s", prompt: "hi" },
 			unreachable,
 		);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("no model");
 	});
 
@@ -39,7 +39,7 @@ describe("runSideCompletion error paths", () => {
 			{ systemPrompt: "s" },
 			unreachable,
 		);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.provider).toBe("fireworks");
 		expect(result.model).toBe("glm-5.2");
 		expect(result.error).toContain("auth not configured");
@@ -58,7 +58,7 @@ describe("runSideCompletion error paths", () => {
 			{ systemPrompt: "s" },
 			unreachable,
 		);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("auth resolution threw");
 		expect(result.error).toContain("boom");
 	});
@@ -113,7 +113,7 @@ describe("runSideCompletion when a listed model cannot be reached", () => {
 		);
 
 		expect(tried).toEqual(["glm-5.2", "glm-5p3-flash"]);
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.text).toBe("drafted");
 		expect(result.model).toBe("glm-5p3-flash");
 	});
@@ -144,7 +144,7 @@ describe("runSideCompletion when a listed model cannot be reached", () => {
 		);
 
 		expect(tried).toEqual(["glm-5p3-flash"]);
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 	});
 
 	it("falls back to the current model last and names every model tried", async () => {
@@ -166,7 +166,7 @@ describe("runSideCompletion when a listed model cannot be reached", () => {
 		);
 
 		expect(tried).toEqual(["glm-5.2", "glm-5p3-flash", "claude-opus"]);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("fireworks/glm-5.2: 404");
 		expect(result.error).toContain("fireworks/glm-5p3-flash: 404");
 		expect(result.error).toContain("anthropic/claude-opus: 404");
@@ -204,7 +204,7 @@ describe("runSideCompletion against a fake completion backend", () => {
 			complete,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.text).toBe("hello");
 		expect(result.usage?.totalTokens).toBe(2);
 	});
@@ -265,7 +265,7 @@ describe("runSideCompletion against a fake completion backend", () => {
 			complete,
 		);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toBe("backend refused");
 	});
 
@@ -288,7 +288,7 @@ describe("runSideCompletion against a fake completion backend", () => {
 		);
 
 		expect(tried).toEqual(["glm-5.2"]);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toBe("rate limited");
 	});
 
@@ -303,7 +303,7 @@ describe("runSideCompletion against a fake completion backend", () => {
 			complete,
 		);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("completion threw");
 		expect(result.error).toContain("network down");
 	});

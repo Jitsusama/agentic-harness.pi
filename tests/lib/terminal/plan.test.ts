@@ -241,7 +241,7 @@ describe("planning with nothing chosen", () => {
 		const result = plan(landscape({}, { found: ["kitty"] }), {
 			layout: "pane",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok)
 			expect(result.refusal).toContain(
 				"a pane splits a terminal the session is in",
@@ -266,7 +266,7 @@ describe("planning with a terminal named", () => {
 		const result = plan(landscape({}, { found: ["foot"] }), {
 			driver: "kitty",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok) {
 			expect(result.refusal).toContain("program was not found");
 			expect(result.refusal).toContain("foot");
@@ -275,7 +275,7 @@ describe("planning with a terminal named", () => {
 
 	it("refuses a terminal it does not know", () => {
 		const result = plan(landscape({}), { driver: "hyper" });
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok)
 			expect(result.refusal).toContain("no terminal this library knows");
 	});
@@ -285,7 +285,7 @@ describe("planning with a terminal named", () => {
 			driver: "tmux",
 			layout: "window",
 		});
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		if (!result.ok)
 			expect(result.refusal).toContain("tmux cannot open a window");
 	});

@@ -70,7 +70,7 @@ describe("a scrolled row", () => {
 		);
 
 		for (const line of lines) {
-			expect(line.endsWith("█") || line.endsWith("░")).toBe(true);
+			expect(line).toMatch(/[█░]$/);
 		}
 	});
 });

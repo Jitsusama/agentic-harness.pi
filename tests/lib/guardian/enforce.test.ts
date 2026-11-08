@@ -10,7 +10,7 @@ describe("blockIfUnsupported", () => {
 		const result = blockIfUnsupported("x=$(git commit -m x)");
 
 		expect(result).toBeDefined();
-		expect(result && "block" in result && result.block).toBe(true);
+		expect(result).toMatchObject({ block: true });
 		expect(result && "reason" in result && result.reason).toMatch(
 			/substitution|simple form|shape/i,
 		);

@@ -110,7 +110,7 @@ describe("opening several shells", () => {
 			],
 			{ ...here, settings, env: {}, drivers: [kitty] },
 		);
-		expect(outcomes.every((each) => each.ok)).toBe(true);
+		expect(outcomes.filter((each) => !each.ok)).toEqual([]);
 		expect(kitty.calls.launched).toHaveLength(1);
 		const window = outcomes[0]?.ok ? outcomes[0].handle : undefined;
 		expect(
@@ -146,7 +146,7 @@ describe("opening several shells", () => {
 			{ ...here, settings, env: {}, drivers: [kitty], paceMs: pace },
 		);
 
-		expect(outcomes.every((each) => each.ok)).toBe(true);
+		expect(outcomes.filter((each) => !each.ok)).toEqual([]);
 		expect(kitty.calls.typed.map((each) => each.text)).toEqual([
 			"one\n",
 			"two\n",
@@ -200,7 +200,7 @@ describe("opening several shells", () => {
 				settings: { ...settings, launchers: {} },
 			},
 		);
-		expect(outcomes[0]?.ok).toBe(false);
+		expect(outcomes[0]).toMatchObject({ ok: false });
 		if (outcomes[0] && !outcomes[0].ok) {
 			expect(outcomes[0].error).toContain(
 				"kitty (launched) failed: kitty would not launch",

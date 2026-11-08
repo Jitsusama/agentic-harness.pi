@@ -103,7 +103,7 @@ describe("dropped calls", () => {
 		const byDigest = new Map(scan.dropped.map((d) => [d.callDigest, d]));
 		expect(byDigest.get(scan.calls[0].digest)?.droppedAtEntryId).toBe("c1");
 		expect(byDigest.get(scan.calls[1].digest)?.droppedAtEntryId).toBe("c2");
-		expect(byDigest.has(scan.calls[2].digest)).toBe(false);
+		expect([...byDigest.keys()]).not.toContain(scan.calls[2].digest);
 	});
 
 	it("drops nothing when a session never compacts", () => {

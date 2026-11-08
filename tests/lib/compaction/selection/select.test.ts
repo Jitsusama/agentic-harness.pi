@@ -213,7 +213,8 @@ describe("renderExcerpts", () => {
 			candidate("rule", 2, "Sign commits."),
 			candidate("rule", 1, "Never force push."),
 		]);
-		expect(text.startsWith(`\n\n${EXCERPTS_HEADING}\n`)).toBe(true);
+		const opening = `\n\n${EXCERPTS_HEADING}\n`;
+		expect(text.slice(0, opening.length)).toBe(opening);
 		expect(text).toContain("the summary is right");
 		expect(text.indexOf("### Standing instructions")).toBeLessThan(
 			text.indexOf("### Findings"),

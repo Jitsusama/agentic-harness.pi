@@ -23,7 +23,8 @@ describe("memoryDbPath", () => {
 		const path = await memoryDbPath();
 
 		expect(path).toBe(join(dir, "agentic-harness", "memory", "memory.db"));
-		expect(existsSync(join(dir, "agentic-harness", "memory"))).toBe(true);
+		const parent = join(dir, "agentic-harness", "memory");
+		expect(existsSync(parent), `${parent} exists`).toBe(true);
 	});
 
 	it("is stable across calls, not scoped to any one adapter", async () => {

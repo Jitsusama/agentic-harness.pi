@@ -37,20 +37,27 @@ describe("summary contributions", () => {
 			appendix: [],
 			handled: false,
 		};
-		expect(isSummaryContributions(older)).toBe(true);
+		expect(
+			isSummaryContributions(older),
+			"a request from before records is still one",
+		).toBe(true);
 		if (!isSummaryContributions(older)) return;
 		recordContribution(older, "selection", { chosen: 3 });
 		expect(older).not.toHaveProperty("records");
 	});
 
 	it("recognises a request and nothing else", () => {
-		expect(isSummaryContributions(newContributions({}, "e1"))).toBe(true);
+		expect(
+			isSummaryContributions(newContributions({}, "e1")),
+			"a fresh request is one",
+		).toBe(true);
 		expect(
 			isSummaryContributions({
 				instructions: [],
 				appendix: [],
 				handled: false,
 			}),
+			"one without a preparation is not a request",
 		).toBe(false);
 		expect(
 			isSummaryContributions({
@@ -59,13 +66,15 @@ describe("summary contributions", () => {
 				appendix: [],
 				handled: false,
 			}),
+			"one whose instructions are not a list is not a request",
 		).toBe(false);
 		expect(
 			isSummaryContributions({
 				...newContributions({}),
 				firstKeptEntryId: 3,
 			}),
+			"one whose first kept entry is not a string is not a request",
 		).toBe(false);
-		expect(isSummaryContributions(null)).toBe(false);
+		expect(isSummaryContributions(null), "null is not a request").toBe(false);
 	});
 });

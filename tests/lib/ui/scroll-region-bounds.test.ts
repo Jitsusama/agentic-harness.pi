@@ -33,7 +33,7 @@ describe("a body longer than the panel", () => {
 		);
 
 		expect(shown.lines).toHaveLength(BUDGET);
-		expect(shown.needsVScroll).toBe(true);
+		expect(shown).toMatchObject({ needsVScroll: true });
 	});
 
 	it("says it scrolls, which is what draws the scrollbar", () => {
@@ -45,7 +45,7 @@ describe("a body longer than the panel", () => {
 			fakeTheme(),
 		);
 
-		expect(short.needsVScroll).toBe(false);
+		expect(short).toMatchObject({ needsVScroll: false });
 	});
 
 	it("reaches the end of the body, so nothing is unreachable", () => {

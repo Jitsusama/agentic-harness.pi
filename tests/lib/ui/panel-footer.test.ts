@@ -93,7 +93,7 @@ describe("a docked panel without the keys", () => {
 	it("draws only how to come back, in the accent, keeping its height", () => {
 		const away = drawn(false);
 		expect(away).toHaveLength(drawn(true).length);
-		expect(away.slice(0, -1).every((row) => row === "")).toBe(true);
+		expect(away.slice(0, -1).filter((row) => row !== "")).toEqual([]);
 		const accents = away.join("\n").match(/<accent>[^<]*<\/accent>/g);
 		expect(accents).toEqual(["<accent>Ctrl+Alt+N</accent>"]);
 		expect(away.at(-1)).toContain("back to this");

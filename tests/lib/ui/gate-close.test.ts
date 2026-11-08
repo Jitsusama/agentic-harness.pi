@@ -54,13 +54,15 @@ describe("what pi's screen says about its overlays", () => {
 	// called, which is safe, but every closed panel then leaks.
 	it("counts every overlay on the stack, hidden ones too", () => {
 		const tui = new TuiMainScreen(new VirtualTerminal(40, 10));
-		expect(overlaysLeft(tui)).toBe(false);
+		expect(overlaysLeft(tui), "a fresh screen holds no overlay").toBe(false);
 		const handle = tui.showOverlay(new Lines(["x"]));
-		expect(overlaysLeft(tui)).toBe(true);
+		expect(overlaysLeft(tui), "a shown overlay is counted").toBe(true);
 		handle.setHidden(true);
-		expect(overlaysLeft(tui)).toBe(true);
+		expect(overlaysLeft(tui), "a hidden overlay is still counted").toBe(true);
 		handle.hide();
-		expect(overlaysLeft(tui)).toBe(false);
+		expect(overlaysLeft(tui), "a closed overlay is no longer counted").toBe(
+			false,
+		);
 	});
 });
 
@@ -84,7 +86,10 @@ describe("a panel coming off the screen", () => {
 		s.terminal.press(ESCAPE);
 		expect(await answer).toBeNull();
 		expect(await s.settled()).not.toContain("GATE ONE body");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack after Escape",
+		).toBe(false);
 	});
 
 	it("closes when its turn is stopped, answering as Escape does", async () => {
@@ -95,7 +100,10 @@ describe("a panel coming off the screen", () => {
 		turn.abort();
 		expect(await answer).toBeNull();
 		expect(await s.settled()).not.toContain("GATE ONE body");
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack after the turn stops",
+		).toBe(false);
 	});
 
 	it("takes only itself down when stopped under another overlay", async () => {
@@ -159,7 +167,10 @@ describe("a panel coming off the screen", () => {
 
 		s.terminal.press(ESCAPE);
 		expect(await second).toBeNull();
-		expect(s.tui.hasOverlayEntries).toBe(false);
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack once both gates close",
+		).toBe(false);
 	});
 
 	it("clears a tabbed gate's count when its turn is stopped", async () => {

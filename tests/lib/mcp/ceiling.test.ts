@@ -108,7 +108,7 @@ describe("enforceResultCeiling", () => {
 			storageDir: dir,
 		});
 		expect(contentByteSize(out)).toBeLessThanOrEqual(500);
-		expect(out.some((b) => b.type === "image")).toBe(false);
+		expect(out.map((b) => b.type)).not.toContain("image");
 		expect(textOf(out)).toContain("image");
 	});
 
@@ -173,8 +173,8 @@ describe("enforceResultCeiling", () => {
 		// And the notice survives entire, closing bracket included, so
 		// whatever it names can be followed.
 		const notice = textOf(out);
-		expect(notice.startsWith("[Result capped at 40 bytes.")).toBe(true);
-		expect(notice.endsWith("]")).toBe(true);
+		expect(notice).toMatch(/^\[Result capped at 40 bytes\./);
+		expect(notice).toMatch(/\]$/);
 		expect(notice).toContain("5000");
 	});
 
@@ -236,6 +236,9 @@ describe("what counts as citing a handle", () => {
 		// because looking it up reports an expiry that never occurred.
 		const shown = textOf(out);
 		const partial = shown.includes("handle result-") && !shown.includes(handle);
-		expect(partial).toBe(false);
+		expect(
+			partial,
+			`the handle is cited whole or not at all, never cut short: ${shown}`,
+		).toBe(false);
 	});
 });

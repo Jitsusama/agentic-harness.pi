@@ -112,7 +112,7 @@ describe("tool calls in a scan", () => {
 			result("t1", "exit 1", true),
 		]);
 
-		expect(scan.calls[0].isError).toBe(true);
+		expect(scan.calls[0]).toMatchObject({ isError: true });
 	});
 
 	it("keeps a call whose result never arrived, saying the result is unknown", () => {

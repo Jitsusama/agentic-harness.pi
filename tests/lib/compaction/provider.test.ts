@@ -53,10 +53,18 @@ describe("registering a compaction provider", () => {
 	});
 
 	it("recognises a provider on the bus and nothing short of one", () => {
-		expect(isCompactionProvider(provider)).toBe(true);
-		expect(isCompactionProvider({ ...provider, id: "" })).toBe(false);
-		expect(isCompactionProvider({ ...provider, write: "later" })).toBe(false);
-		expect(isCompactionProvider(null)).toBe(false);
+		expect(isCompactionProvider(provider), "a whole provider is one").toBe(
+			true,
+		);
+		expect(
+			isCompactionProvider({ ...provider, id: "" }),
+			"a provider with an empty id is not one",
+		).toBe(false);
+		expect(
+			isCompactionProvider({ ...provider, write: "later" }),
+			"a provider whose write is not a function is not one",
+		).toBe(false);
+		expect(isCompactionProvider(null), "null is not a provider").toBe(false);
 	});
 });
 

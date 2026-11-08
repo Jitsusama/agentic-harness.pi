@@ -133,6 +133,6 @@ describe("verifier classification", () => {
 		]);
 
 		expect(scan.calls[0].verifierKind).toBe("test");
-		expect(scan.calls[0].isError).toBe(true);
+		expect(scan.calls[0]).toMatchObject({ isError: true });
 	});
 });

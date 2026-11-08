@@ -65,7 +65,7 @@ describe("reading the terminal section", () => {
 			},
 			wrap: ["direnv", "exec", "{cwd}"],
 		});
-		expect(parsed.ok).toBe(true);
+		expect(parsed).toMatchObject({ ok: true });
 	});
 
 	it.each([
@@ -80,7 +80,7 @@ describe("reading the terminal section", () => {
 		[{ wrap: "direnv exec" }, "terminal.wrap must be a list"],
 	])("refuses %j naming the field", (section, named) => {
 		const parsed = parseTerminalSettings(section);
-		expect(parsed.ok).toBe(false);
+		expect(parsed).toMatchObject({ ok: false });
 		if (!parsed.ok) expect(parsed.error).toContain(named);
 	});
 });

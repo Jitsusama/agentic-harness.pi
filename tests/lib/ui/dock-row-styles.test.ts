@@ -50,7 +50,11 @@ describe("a styled row wider than the terminal", () => {
 
 	it("does not leave its colour switched on after the cut", () => {
 		const row = `${ESC}[31m${"x".repeat(60)}${ESC}[39m after`;
-		expect(leftOpen(clean(row, WIDTH))).toBe(false);
+		const cut = clean(row, WIDTH);
+		expect(
+			leftOpen(cut),
+			`the cut row closes its colour: ${JSON.stringify(cut)}`,
+		).toBe(false);
 	});
 
 	it("is never cut through the middle of an escape", () => {

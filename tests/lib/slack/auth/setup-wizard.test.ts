@@ -152,7 +152,10 @@ describe("Slack's setup wizard", () => {
 		s.terminal.press(ESCAPE);
 
 		expect(await outcome(wizard)).toEqual({ value: null });
-		expect(extraction.signal?.aborted).toBe(true);
+		expect(
+			extraction.signal?.aborted,
+			"Escape aborts the credential extraction",
+		).toBe(true);
 		expect(notes.join("\n")).toContain("cancelled");
 		expect(await s.settled()).not.toContain("Browser Credential Extraction");
 	});

@@ -38,7 +38,7 @@ describe("runInvestigation error paths", () => {
 
 		const result = await runInvestigation(registry, request, unreachable);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("no model");
 	});
 
@@ -51,7 +51,7 @@ describe("runInvestigation error paths", () => {
 
 		const result = await runInvestigation(registry, request, unreachable);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.provider).toBe("fireworks");
 		expect(result.model).toBe("glm-5.2");
 		expect(result.error).toContain("auth not configured");
@@ -68,7 +68,7 @@ describe("runInvestigation error paths", () => {
 
 		const result = await runInvestigation(registry, request, unreachable);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("auth resolution threw");
 		expect(result.error).toContain("boom");
 	});
@@ -111,7 +111,7 @@ describe("runInvestigation when a listed model cannot be reached", () => {
 		);
 
 		expect(tried).toEqual(["glm-5.2", "glm-5p3-flash"]);
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.model).toBe("glm-5p3-flash");
 		expect(result.steps).toBe(1);
 		expect(result.messages).toHaveLength(2);
@@ -124,7 +124,7 @@ describe("runInvestigation when a listed model cannot be reached", () => {
 
 		const result = await runInvestigation(registry, request, complete);
 
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toContain("fireworks/glm-5.2: completion threw: 404");
 		expect(result.error).toContain(
 			"fireworks/glm-5p3-flash: completion threw: 404",
@@ -146,7 +146,7 @@ describe("runInvestigation when a listed model cannot be reached", () => {
 		const result = await runInvestigation(registry, request, complete);
 
 		expect(tried).toEqual(["glm-5.2"]);
-		expect(result.ok).toBe(false);
+		expect(result).toMatchObject({ ok: false });
 		expect(result.error).toBe("rate limited");
 	});
 });
@@ -171,7 +171,7 @@ describe("runInvestigation against a fake completion backend", () => {
 			complete,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.text).toBe("no suspicion found");
 		expect(result.steps).toBe(1);
 	});
@@ -225,10 +225,10 @@ describe("runInvestigation against a fake completion backend", () => {
 					stopReason: "tool_calls",
 				};
 			}
-			const seenToolResult = (
+			const seenRoles = (
 				context as unknown as { messages: Array<{ role?: string }> }
-			).messages.some((m) => m.role === "toolResult");
-			expect(seenToolResult).toBe(true);
+			).messages.map((m) => m.role);
+			expect(seenRoles).toContain("toolResult");
 			return {
 				content: [{ type: "text", text: "found one TODO" }],
 				usage: ZERO_USAGE,
@@ -254,7 +254,7 @@ describe("runInvestigation against a fake completion backend", () => {
 			complete,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.text).toBe("found one TODO");
 		expect(result.steps).toBe(2);
 	});
@@ -286,7 +286,7 @@ describe("runInvestigation against a fake completion backend", () => {
 			complete,
 		);
 
-		expect(result.ok).toBe(true);
+		expect(result).toMatchObject({ ok: true });
 		expect(result.error).toBe("step budget exhausted");
 		expect(result.steps).toBe(2);
 	});

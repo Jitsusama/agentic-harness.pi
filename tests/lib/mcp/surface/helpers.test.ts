@@ -124,7 +124,7 @@ describe("createProgressiveHelpers", () => {
 	it("run_tool rejects an unknown tool and does not dispatch", async () => {
 		const { list, runTool } = helpers();
 		const out = await list[2].run({ name: "nope" }, ctx);
-		expect(out.isError).toBe(true);
+		expect(out).toMatchObject({ isError: true });
 		expect(runTool).not.toHaveBeenCalled();
 	});
 

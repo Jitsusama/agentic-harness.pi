@@ -55,6 +55,6 @@ describe("effectiveCwd", () => {
 	it("reports unresolvable for a variable expansion target", () => {
 		const result = effectiveCwd(tokenize("cd $HOME && git status"), "/repo");
 
-		expect("unresolvable" in result && result.unresolvable).toBe(true);
+		expect(result).toMatchObject({ unresolvable: true });
 	});
 });

@@ -8,7 +8,7 @@ describe("tokenize", () => {
 		expect(line.source).toBe("");
 		expect(line.commands).toEqual([]);
 		expect(line.connectors).toEqual([]);
-		expect(line.supported).toBe(true);
+		expect(line).toMatchObject({ supported: true });
 	});
 
 	it("captures the argv words of a single simple command", () => {
@@ -179,7 +179,7 @@ describe("tokenize", () => {
 		expect(line.connectors).toEqual([]);
 		expect(command.argv.map((w) => w.text)).toEqual(["git", "commit", "-F-"]);
 		expect(command.heredoc?.delimiter).toBe("EOF");
-		expect(command.heredoc?.quoted).toBe(true);
+		expect(command.heredoc).toMatchObject({ quoted: true });
 		const body = command.heredoc?.bodySpan;
 		expect(body && source.slice(body.start, body.end)).toBe("feat: x\n\nbody");
 	});
@@ -189,7 +189,7 @@ describe("tokenize", () => {
 		const command = tokenize(source).commands[0];
 
 		expect(command.heredoc?.delimiter).toBe("EOF");
-		expect(command.heredoc?.quoted).toBe(false);
+		expect(command.heredoc).toMatchObject({ quoted: false });
 	});
 
 	it("joins across a backslash-newline continuation", () => {
@@ -210,28 +210,33 @@ describe("tokenize", () => {
 		const dollar = tokenize("echo $(date)");
 		const backtick = tokenize("echo `date`");
 
-		expect(dollar.supported).toBe(false);
-		expect(dollar.unsupportedReason).toBeTruthy();
-		expect(backtick.supported).toBe(false);
+		expect(dollar).toMatchObject({ supported: false });
+		expect(
+			dollar.unsupportedReason,
+			"an unsupported line says why it is unsupported",
+		).toBeTruthy();
+		expect(backtick).toMatchObject({ supported: false });
 	});
 
 	it("does not flag substitution that is quoted or in a heredoc body", () => {
-		expect(tokenize("echo '$(date)'").supported).toBe(true);
-		expect(tokenize("git commit -F- <<'EOF'\nsee $(date)\nEOF").supported).toBe(
-			true,
-		);
+		expect(tokenize("echo '$(date)'")).toMatchObject({ supported: true });
+		expect(tokenize("git commit -F- <<'EOF'\nsee $(date)\nEOF")).toMatchObject({
+			supported: true,
+		});
 	});
 
 	it("flags subshells, brace groups and control flow as unsupported", () => {
-		expect(tokenize("(cd x && y)").supported).toBe(false);
-		expect(tokenize("{ a ; }").supported).toBe(false);
-		expect(tokenize("if true; then x; fi").supported).toBe(false);
-		expect(tokenize("for f in a; do x; done").supported).toBe(false);
+		expect(tokenize("(cd x && y)")).toMatchObject({ supported: false });
+		expect(tokenize("{ a ; }")).toMatchObject({ supported: false });
+		expect(tokenize("if true; then x; fi")).toMatchObject({ supported: false });
+		expect(tokenize("for f in a; do x; done")).toMatchObject({
+			supported: false,
+		});
 	});
 
 	it("does not flag brace expansion or quoted parens", () => {
-		expect(tokenize("echo '(ok)'").supported).toBe(true);
-		expect(tokenize("echo {a,b}").supported).toBe(true);
+		expect(tokenize("echo '(ok)'")).toMatchObject({ supported: true });
+		expect(tokenize("echo {a,b}")).toMatchObject({ supported: true });
 	});
 
 	it("splits on a background & so the next command is its own command", () => {

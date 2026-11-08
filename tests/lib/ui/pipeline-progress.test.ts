@@ -63,7 +63,10 @@ describe("renderPipelineProgress", () => {
 			theme,
 			{ vertical: true },
 		);
-		expect(Array.isArray(out)).toBe(true);
+		expect(
+			Array.isArray(out),
+			"vertical mode hands back a list of lines, not one string",
+		).toBe(true);
 		expect(out).toHaveLength(3);
 	});
 
@@ -115,7 +118,10 @@ describe("renderPipelineProgressLines", () => {
 			),
 			theme,
 		);
-		expect(Array.isArray(lines)).toBe(true);
+		expect(
+			Array.isArray(lines),
+			"horizontal mode hands back its one line in a list",
+		).toBe(true);
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain("<dim>─▸</dim>");
 	});
