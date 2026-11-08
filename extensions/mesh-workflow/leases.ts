@@ -126,12 +126,21 @@ export interface LeaseSurroundings {
 	readonly told?: Told;
 }
 
+/**
+ * What an edit meets when another peer is changing the same file: a
+ * stop, once, when that peer works in this checkout, or a note for the
+ * edit's result when it works in another worktree of the repository,
+ * where its copy of the file is its own and only a later merge can
+ * clash.
+ */
+export type Reached = { readonly stop: string } | { readonly note: string };
+
 export interface Leasing {
 	/**
-	 * Before this peer changes a file: nothing when it may, or why not
-	 * yet, once, when another peer is changing it.
+	 * Before this peer changes a file: nothing when it may, or what it
+	 * meets when another peer is changing it.
 	 */
-	reach(path: string, cwd: string): Promise<string | undefined>;
+	reach(path: string, cwd: string): Promise<Reached | undefined>;
 	/**
 	 * Before this peer runs a shell command: nothing when it may, or why
 	 * not yet, once, when it rewrites the files of a checkout another
@@ -238,8 +247,20 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							)
 						: []),
 				]);
-				if (overlapping.length > 0) {
-					for (const one of overlapping) {
+				const here = overlapping.filter(
+					(one) => !inAnotherCheckout(one.lease, checkout),
+				);
+				if (here.length === 0 && overlapping.length > 0) {
+					// Its holder is not told: what it changes is its own copy, and
+					// a peer in another worktree is nothing it can act on.
+					for (const one of overlapping) told.add(key(one));
+					own.take("change", subject, RUN_LEASE_MS, undefined, now, checkout);
+					return {
+						note: `${holders(overlapping)} changing ${subject} in another worktree too, so merging the two may clash; ${asking} if the change is the same.`,
+					};
+				}
+				if (here.length > 0) {
+					for (const one of here) {
 						told.add(key(one));
 						tell(
 							one.holder,
@@ -249,12 +270,8 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 								: `${peer.signature} reached for ${subject}, which this peer is changing. It was told who is, and may go ahead beside this peer.`,
 						);
 					}
-					const rewrote = overlapping.filter(({ lease }) =>
-						claimsCheckout(lease),
-					);
-					const changing = overlapping.filter(
-						({ lease }) => !claimsCheckout(lease),
-					);
+					const rewrote = here.filter(({ lease }) => claimsCheckout(lease));
+					const changing = here.filter(({ lease }) => !claimsCheckout(lease));
 					const said = [
 						changing.length > 0
 							? `${holders(changing)} changing ${subject}. Two peers changing one file risk a conflict, so look at what is there first, or ${asking}.`
@@ -264,7 +281,9 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 								`${holders([one])} ${changingText([one.lease])} in ${one.lease.subject}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
 						),
 					].filter(Boolean);
-					return `Not changed yet: ${said.join(" ")} Reaching for it again goes ahead beside them; they have been told.`;
+					return {
+						stop: `Not changed yet: ${said.join(" ")} Reaching for it again goes ahead beside them; they have been told.`,
+					};
 				}
 			}
 			own.take("change", subject, RUN_LEASE_MS, undefined, now, checkout);
@@ -522,6 +541,19 @@ function heldByGone(
 	);
 }
 
+/**
+ * Whether a change lease is held in another checkout than this one: a
+ * lease that names none, from an older harness, counts as this one, so
+ * it still stops the edit.
+ */
+function inAnotherCheckout(lease: Lease, checkout: string | undefined) {
+	return (
+		checkout !== undefined &&
+		lease.checkout !== undefined &&
+		lease.checkout !== checkout
+	);
+}
+
 /** Who holds these, for the peer reaching: "5GV2AH (since 00:31, working on x) is". */
 function holders(held: readonly (Held & { holder: Presence })[]): string {
 	const each = held.map(
@@ -668,6 +700,43 @@ export interface HeavyCalls {
 	clear(): void;
 	/** The calls still running, each with the heavy work it claimed. */
 	held(): readonly HeavyCall[];
+}
+
+/** What an edit meets, said to pi: a stop before it runs, or a note after. */
+export interface EditNotes {
+	/** What the edit's tool_call answers: a block, or nothing, keeping a note. */
+	met(
+		toolCallId: string,
+		reached: Reached | undefined,
+	): { block: true; reason: string } | undefined;
+	/** The edit's result content with its note added, when one was kept. */
+	noted<T>(
+		toolCallId: string,
+		content: readonly T[],
+	): (T | { type: "text"; text: string })[] | undefined;
+}
+
+/**
+ * The notes edits' results carry, kept by call from when the edit is let
+ * through until its result comes back, so an edit that overlaps a peer
+ * in another worktree runs at once and is told of it in the same turn.
+ */
+export function createEditNotes(): EditNotes {
+	const notes = new Map<string, string>();
+	return {
+		met(toolCallId, reached) {
+			if (reached === undefined) return undefined;
+			if ("stop" in reached) return { block: true, reason: reached.stop };
+			notes.set(toolCallId, reached.note);
+			return undefined;
+		},
+		noted(toolCallId, content) {
+			const note = notes.get(toolCallId);
+			if (note === undefined) return undefined;
+			notes.delete(toolCallId);
+			return [...content, { type: "text", text: note }];
+		},
+	};
 }
 
 /** A call still running, and the heavy work it claimed. */
