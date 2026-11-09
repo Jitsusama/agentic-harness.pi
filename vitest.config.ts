@@ -11,12 +11,14 @@ import { defineConfig } from "vitest/config";
  * sits under `~/.local/state`. There a dependency bump matched nothing
  * and `pnpm test:changed` ran no tests at all. The setup folder is here
  * too, since no test imports a setup file, so the import graph never
- * reaches one.
+ * reaches one. The browser lane's config reads it too, so the gate's
+ * browser run follows the same files.
  */
-const RERUN_EVERYTHING = [
+export const RERUN_EVERYTHING = [
 	"package.json",
 	"pnpm-lock.yaml",
 	"vitest.config.ts",
+	"vitest.browser.config.ts",
 	"tests/setup/**",
 ].map((file) => join(import.meta.dirname, file));
 

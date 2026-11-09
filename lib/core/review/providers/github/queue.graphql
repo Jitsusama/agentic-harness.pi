@@ -1,0 +1,20 @@
+# Where a change stands with landing: the merge queue, auto-merge,
+# review and mergeability.
+query PullRequestLanding($owner: String!, $name: String!, $number: Int!) {
+	repository(owner: $owner, name: $name) {
+		pullRequest(number: $number) {
+			isInMergeQueue
+			autoMergeRequest {
+				enabledAt
+			}
+			mergeQueueEntry {
+				state
+				position
+				solo
+			}
+			reviewDecision
+			mergeStateStatus
+			mergeable
+		}
+	}
+}

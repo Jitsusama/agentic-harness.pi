@@ -17,7 +17,7 @@ import { readPage } from "../../../lib/core/web/reader.ts";
 import { webSearch } from "../../../lib/core/web/search.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { SETTLE_BUDGET_MS } from "../../../lib/core/web/wait/index.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -58,7 +58,7 @@ async function within<T>(
 
 let fixture: Fixture;
 
-describe.skipIf(!haveChrome)("reading a page always lets go", () => {
+describe("reading a page always lets go", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{

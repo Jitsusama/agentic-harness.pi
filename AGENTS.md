@@ -152,7 +152,7 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 ## Commands
 
 ```sh
-pnpm check           # lint, typecheck, the tests a change touches, load check
+pnpm check           # lint, typecheck, the tests a change touches (browser too), load check
 pnpm check:there     # the same, for a pushed branch, on penelope (or a named host)
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
@@ -160,6 +160,7 @@ pnpm typecheck       # tsc over the whole project, which reports nothing
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
 pnpm test:changed    # the tests this branch's changes reach, before a merge
+pnpm test:browser    # the browser lane, which needs a Chrome
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
@@ -183,13 +184,13 @@ history.
 How this repository holds the `repo-quality-standard` skill's
 rules, and where it doesn't yet.
 
-- **Gate:** `pnpm check`. It leaves out the browser lane
-  (`pnpm test:browser`, which needs a Chrome) and runs only the
-  tests a change's imports reach.
+- **Gate:** `pnpm check`. It runs only the tests a change's
+  imports reach, the browser lane's among them, which need a
+  Chrome.
 - **Linters:** Biome at its `recommended` preset over every
-  `.ts` and `.mjs`, and `tsc` with `strict` over the `.ts`. The
-  `.mjs` files have no type check, the `skills/*/scripts/*.sh`
-  no shellcheck, and markdown no linter.
+  `.ts` and `.mjs`, and `tsc` with `strict` over both. The
+  `skills/*/scripts/*.sh` have no shellcheck, and markdown no
+  linter.
 - **Test levels:** the `unit` project, `tests/**/*.test.ts`; the
   `process` project, the files `PROCESS_TESTS` in
   `vitest.config.ts` names, one at a time; `tests/screen/`, real
@@ -202,10 +203,18 @@ rules, and where it doesn't yet.
   `tools-say-the-glossary`, and every `biome-ignore` carries its
   reason.
 - **Skips:** a test skips only when the machine lacks what it
-  drives: `haveChrome`, `hasServer` (a language server),
-  `NPM_RUNS`, `PI_RACE_TESTS` or a platform. Nothing yet fails a
-  skip or an uncommented sleep; the 147 fixed sleeps are the
-  standard's open item here.
+  drives: `hasServer` (a language server), `NPM_RUNS`,
+  `PI_RACE_TESTS` or a platform. The browser lane fails without
+  a Chrome rather than skipping.
+- **Sleeps:** a fixed sleep in a test says why in a comment. The
+  129 that didn't on 8 November are listed in
+  `tests/package/uncommented-sleeps.txt`, which only shrinks.
+- **Embedded programs:** SQL and GraphQL live in `.sql` and
+  `.graphql` files beside the code that runs them, read in with
+  `sqlFile` (`lib/core/internal/sqlite/sql-file.ts`) and
+  `graphqlFile`. The page scripts, shell and one generated
+  insert still written as strings are listed in
+  `tests/package/embedded-programs.txt`, which only shrinks.
 
 ## Before Trusting a Live Run
 

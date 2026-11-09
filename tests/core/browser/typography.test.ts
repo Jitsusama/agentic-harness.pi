@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyseTypography } from "../../../lib/core/web/design/typography.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -39,7 +39,7 @@ const PAGE = page(
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("typography capture, in a real browser", () => {
+describe("typography capture, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([{ path: "/type", body: PAGE }]);
 		session = await BrowserSession.open("typography-contract");

@@ -24,7 +24,7 @@ import {
 } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { describeRefusal } from "../../../lib/core/web/target/index.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -99,7 +99,7 @@ const logged = async (): Promise<unknown> => {
 	return answer.ok ? answer.result.value : answer;
 };
 
-describe.skipIf(!haveChrome)("acting on a page, in a real browser", () => {
+describe("acting on a page, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/form", body: FORM },

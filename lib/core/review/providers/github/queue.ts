@@ -18,20 +18,12 @@
 
 import type { Landability } from "../../landing.ts";
 import type { QueueState } from "../../queue.ts";
+import { graphqlFile } from "./graphql-file.ts";
 
 /** The GraphQL selection this module reads. */
-export const QUEUE_QUERY = `query($owner:String!,$name:String!,$number:Int!){
-  repository(owner:$owner,name:$name){
-    pullRequest(number:$number){
-      isInMergeQueue
-      autoMergeRequest{enabledAt}
-      mergeQueueEntry{state position solo}
-      reviewDecision
-      mergeStateStatus
-      mergeable
-    }
-  }
-}`;
+export const QUEUE_QUERY = graphqlFile(
+	new URL("./queue.graphql", import.meta.url),
+);
 
 function record(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null

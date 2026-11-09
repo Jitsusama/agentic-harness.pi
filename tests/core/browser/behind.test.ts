@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, serve } from "./_harness.ts";
+import { type Fixture, serve } from "./_harness.ts";
 
 // Text over a gradient is the case axe hands back as needing a
 // person, and the only way to know the subtraction works is to run it
@@ -48,7 +48,7 @@ color:#bbbbbb">Faint body text</p>
 let fixture: Fixture | undefined;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("contrast behind text, in a real browser", () => {
+describe("contrast behind text, in a real browser", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/gradient", body: GRADIENT },

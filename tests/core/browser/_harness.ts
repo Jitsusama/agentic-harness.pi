@@ -16,25 +16,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
-import { resolveChromePath } from "../../../lib/core/web/chrome.ts";
-
-/**
- * Whether there is a browser to drive.
- *
- * Skipped rather than failed where there is none, so a checkout
- * on a machine without Chrome still runs the rest of the suite.
- * CI asserts Chrome is present before running these, so a skip
- * there is a real signal rather than a quiet pass.
- */
-export const haveChrome = ((): boolean => {
-	try {
-		resolveChromePath(process.env.CHROME_PATH);
-		return true;
-	} catch {
-		// The only failure mode is "no Chrome", which is the answer.
-		return false;
-	}
-})();
 
 /** A page the fixture server knows how to serve. */
 export interface Route {

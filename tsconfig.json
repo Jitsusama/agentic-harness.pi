@@ -11,6 +11,8 @@
 		"isolatedModules": true,
 		"erasableSyntaxOnly": true,
 		"resolveJsonModule": true,
+		"allowJs": true,
+		"checkJs": true,
 		"types": ["node"],
 		"paths": {
 			"@sinclair/typebox": ["./node_modules/typebox"],
@@ -26,8 +28,10 @@
 	"include": [
 		"extensions/**/*.ts",
 		"lib/**/*.ts",
+		"lib/**/*.mjs",
 		"packs/**/*.ts",
 		"tests/**/*.ts",
+		"tests/**/*.mjs",
 		"scripts/**/*.ts",
 		"*.ts"
 	],

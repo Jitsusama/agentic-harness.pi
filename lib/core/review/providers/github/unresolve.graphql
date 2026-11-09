@@ -1,0 +1,9 @@
+# Mark a resolved review thread unresolved again.
+mutation UnresolveThread($threadId: ID!) {
+	unresolveReviewThread(input: { threadId: $threadId }) {
+		thread {
+			id
+			isResolved
+		}
+	}
+}

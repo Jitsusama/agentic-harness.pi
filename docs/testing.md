@@ -145,8 +145,11 @@ The snapshot needs a global key precisely because a reload
 does re-evaluate this module, the same re-evaluation the
 previous note is about.
 
-`pnpm test` runs everything in about 94 seconds. The browser tests
-moved to agentic-harness.core with the code they prove.
+`pnpm test` runs everything in about 94 seconds but the browser
+tests, which drive a real Chrome in a lane of their own,
+`pnpm test:browser`. That lane fails before any test runs where
+there is no Chrome, rather than skipping every suite and reporting
+a pass that tested nothing.
 
 It was not always this fast, and the reason is worth knowing because
 it was not a slow test anywhere. The browser lane ran twice, once in
@@ -181,8 +184,10 @@ the load check's, not every test that shells out. It costs about 45 seconds, and
 project, this one included.
 
 There is no CI. `pnpm check` runs `pnpm lint`, `pnpm typecheck`,
-the tests the change touches beside origin's main, and
-`pnpm load-check`, before merging. The load check installs a copy with production dependencies only, the way pi
+the tests the change touches beside origin's main, the browser
+tests it touches (`pnpm test:browser:changed`), and
+`pnpm load-check`, before merging. A change that reaches no
+browser test runs none, so only one that does needs a Chrome. The load check installs a copy with production dependencies only, the way pi
 installs from git, and loads it through pi with nothing else
 loaded; it is the only check that sees a runtime dependency the
 install does not hold.

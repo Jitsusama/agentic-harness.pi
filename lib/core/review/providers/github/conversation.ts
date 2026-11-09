@@ -32,6 +32,7 @@ import type {
 } from "../../conversation.ts";
 import type { ConversationFacet } from "../../provider.ts";
 import { GHOST, ownerRepoFromKey } from "./claims.ts";
+import { graphqlFile } from "./graphql-file.ts";
 
 /** Message id prefixes, naming which REST route owns the id. */
 const REVIEW_COMMENT = "rc:";
@@ -40,57 +41,19 @@ const ISSUE_COMMENT = "ic:";
 /** How many threads to ask for per page. GitHub's own cap. */
 const THREAD_PAGE_SIZE = 100;
 
-const THREADS_QUERY = `query PrReviewThreads($owner: String!, $repo: String!, $number: Int!, $after: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviewThreads(first: ${THREAD_PAGE_SIZE}, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          isResolved
-          resolvedBy { login name }
-          isOutdated
-          subjectType
-          path
-          line
-          startLine
-          diffSide
-          comments(first: 50) {
-            nodes {
-              id
-              databaseId
-              author { login }
-              body
-              createdAt
-              url
-            }
-          }
-        }
-      }
-    }
-  }
-}`;
+const THREADS_QUERY = graphqlFile(
+	new URL("./threads.graphql", import.meta.url),
+);
 
-const REPLY_MUTATION = `mutation AddThreadReply($threadId: ID!, $body: String!) {
-  addPullRequestReviewThreadReply(input: {
-    pullRequestReviewThreadId: $threadId
-    body: $body
-  }) {
-    comment { id url }
-  }
-}`;
+const REPLY_MUTATION = graphqlFile(new URL("./reply.graphql", import.meta.url));
 
-const RESOLVE_MUTATION = `mutation ResolveThread($threadId: ID!) {
-  resolveReviewThread(input: { threadId: $threadId }) {
-    thread { id isResolved }
-  }
-}`;
+const RESOLVE_MUTATION = graphqlFile(
+	new URL("./resolve.graphql", import.meta.url),
+);
 
-const UNRESOLVE_MUTATION = `mutation UnresolveThread($threadId: ID!) {
-  unresolveReviewThread(input: { threadId: $threadId }) {
-    thread { id isResolved }
-  }
-}`;
+const UNRESOLVE_MUTATION = graphqlFile(
+	new URL("./unresolve.graphql", import.meta.url),
+);
 
 /** GitHub's review event for each neutral verdict. */
 const REVIEW_EVENT: Record<Verdict, string> = {
@@ -423,6 +386,7 @@ export function githubConversation(exec: Exec): ConversationFacet {
 						owner: owned.owner,
 						repo: owned.repo,
 						number: Number.parseInt(ref.id, 10),
+						first: THREAD_PAGE_SIZE,
 						...(after ? { after } : {}),
 					},
 					`reading threads on pull request ${ref.id}`,

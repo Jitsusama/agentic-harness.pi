@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { isPidAlive } from "../../../lib/core/web/browser.ts";
 import { extractFromBrowser } from "../../../lib/slack/auth/browser-extract.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -49,7 +49,7 @@ async function gone(pids: number[]): Promise<boolean> {
 
 let fixture: Fixture;
 
-describe.skipIf(!haveChrome)("a Slack credential extraction", () => {
+describe("a Slack credential extraction", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/signin", body: page("Sign in", "<main>Sign in</main>") },

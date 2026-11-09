@@ -1,0 +1,46 @@
+# A change's review threads, a page at a time, each with its comments.
+# $first is THREAD_PAGE_SIZE in conversation.ts, GitHub's own cap.
+query PrReviewThreads(
+	$owner: String!
+	$repo: String!
+	$number: Int!
+	$first: Int!
+	$after: String
+) {
+	repository(owner: $owner, name: $repo) {
+		pullRequest(number: $number) {
+			reviewThreads(first: $first, after: $after) {
+				pageInfo {
+					hasNextPage
+					endCursor
+				}
+				nodes {
+					id
+					isResolved
+					resolvedBy {
+						login
+						name
+					}
+					isOutdated
+					subjectType
+					path
+					line
+					startLine
+					diffSide
+					comments(first: 50) {
+						nodes {
+							id
+							databaseId
+							author {
+								login
+							}
+							body
+							createdAt
+							url
+						}
+					}
+				}
+			}
+		}
+	}
+}

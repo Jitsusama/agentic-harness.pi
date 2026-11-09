@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
+import { type Fixture, page, serve } from "./_harness.ts";
 
 /**
  * Four deliberately different hover treatments.
@@ -42,7 +42,7 @@ const FLAT = page("Flat", "<main><p>No hover anywhere.</p></main>");
 let fixture: Fixture;
 let session: BrowserSession;
 
-describe.skipIf(!haveChrome)("what the page does on hover, for real", () => {
+describe("what the page does on hover, for real", () => {
 	beforeAll(async () => {
 		fixture = await serve([
 			{ path: "/hovers", body: HOVERS },
