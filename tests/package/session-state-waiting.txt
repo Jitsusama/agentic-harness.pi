@@ -3,13 +3,7 @@
 # until its owner documents an explicit exemption, which moves it to
 # session-state-exempt.txt with its reason. Counts only shrink.
 extensions/mesh-workflow/steer.ts:pid 1
-extensions/park-workflow/watch.ts:pid 2
 extensions/quest-workflow/scratch.ts:pid 1
 extensions/quest-workflow/session-registry.ts:pid 1
 extensions/quest-workflow/weights.ts:pid 1
-extensions/reload-workflow/follow.ts:global 1
-extensions/reload-workflow/follow.ts:pid 1
-extensions/reload-workflow/lifecycle.ts:global 1
-extensions/reload-workflow/mcp.ts:global 1
-extensions/review-integration/engine.ts:pid 1
 extensions/spend-workflow/resources.ts:global 3

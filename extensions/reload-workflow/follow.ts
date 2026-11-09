@@ -132,15 +132,12 @@ export async function follow(
 		spreadMs = SPREAD_MS,
 	}: { env?: NodeJS.ProcessEnv; quietMs?: number; spreadMs?: number } = {},
 ): Promise<Follower | undefined> {
+	// The follower is the process's; a host's conversations never touch it.
+	if (hosted()) return undefined;
 	const global = globalThis as FollowerGlobal;
 	global[FOLLOWER_KEY]?.();
 	global[FOLLOWER_KEY] = undefined;
-	if (
-		hosted() ||
-		!ctx.hasUI ||
-		isSubagent(env) ||
-		env[FOLLOW_ENV]?.trim() === "off"
-	) {
+	if (!ctx.hasUI || isSubagent(env) || env[FOLLOW_ENV]?.trim() === "off") {
 		return undefined;
 	}
 
