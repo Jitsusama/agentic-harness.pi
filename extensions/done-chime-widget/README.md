@@ -1,8 +1,8 @@
 # Done Chime Widget
 
-Rings when a run you typed is done: a loud, low ding, then a voice on
-your machine saying which session is ready, such as "Agentic loop is
-ready."
+Rings when a run you typed is done: a loud, low ding. A machine can add
+a voice saying which session is ready, such as "Agentic loop is
+ready.", by naming one; none does by default.
 
 ## Why It Exists
 
@@ -10,7 +10,9 @@ A run you hand over takes minutes, and you look away. Joel, 16 October
 2026: "give me that loud ding and spoken voice shit when you are done
 thinking and have something to propose". Two days later he asked for it
 lower, for his dog. A Mac played a sound only with a critical
-notification, and Linux played nothing.
+notification, and Linux played nothing. On 9 November, asking why a
+voice said a session was ready, he kept only the bell, so the voice is
+off unless a machine names one.
 
 ## When It Rings
 
@@ -36,9 +38,9 @@ to rings.
 
 ## What It Sounds Like
 
-The session is named by its name, which quest-workflow sets to the
-quest's short title, or by its folder when that's a few words long, or
-as "pi".
+Where a machine names a voice, the session is named by its name, which
+quest-workflow sets to the quest's short title, or by its folder when
+that's a few words long, or as "pi".
 
 | Platform | Ding          | Voice                                     |
 | -------- | ------------- | ----------------------------------------- |

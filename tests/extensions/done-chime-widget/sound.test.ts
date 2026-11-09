@@ -67,11 +67,17 @@ describe("the machine's sound", () => {
 		expect(sound.voice).toBeUndefined();
 	});
 
-	it("rings with the Mac's own low sound and voice when nothing is named", () => {
-		expect(readSound("darwin", described("not json"))).toMatchObject({
+	it("rings with the Mac's own low sound when nothing is named, and says nothing", () => {
+		// 9 November: Joel kept only the bell.
+		const sound = readSound("darwin", described("not json"));
+
+		expect(sound).toMatchObject({
 			ding: "/System/Library/Sounds/Submarine.aiff",
 			player: "afplay",
-			voice: "Ralph",
 		});
+		expect(
+			sound.voice,
+			"no voice unless the machine names one",
+		).toBeUndefined();
 	});
 });

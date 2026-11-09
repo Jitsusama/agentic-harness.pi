@@ -2,10 +2,11 @@
  * Done Chime Widget Extension
  *
  * Rings when a run the person typed is done, so they hear it from across
- * the room: a loud, low ding, then a voice on the machine saying which
- * session is ready. Joel, 16 October: "give me that loud ding and spoken
- * voice shit when you are done thinking and have something to propose",
- * and on the 18th, lower, for his dog.
+ * the room: a loud, low ding. Joel, 16 October: "give me that loud ding
+ * and spoken voice shit when you are done thinking and have something to
+ * propose", and on the 18th, lower, for his dog. On 9 November he kept
+ * only the bell, so a voice saying which session is ready speaks only
+ * where a machine names one.
  *
  * Only the run the person typed into rings (`when.ts`), and only once it
  * has outlasted their glance, since dozens of sessions on the machine
@@ -13,9 +14,9 @@
  * nobody can be at never rings: a subagent, print or JSON mode. Neither
  * does one whose person stopped it, or said they are away.
  *
- * The ring (`ring.ts`) plays the machine's ding and speaks with its local
- * voice, as `sound.json` describes them (`sound.ts`): pw-play and piper,
- * lowered by sox, on Linux; afplay and say on macOS. A missing tool is
+ * The ring (`ring.ts`) plays the machine's ding, and speaks with its local
+ * voice where it names one, as `sound.json` describes them (`sound.ts`):
+ * pw-play and piper, lowered by sox, on Linux; afplay and say on macOS. A missing tool is
  * silence, and `PI_NOTIFY=off` silences it whole.
  */
 
