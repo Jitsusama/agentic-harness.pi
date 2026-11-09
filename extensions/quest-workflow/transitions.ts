@@ -330,6 +330,11 @@ async function dispatch(
 					"reopen-sessions reopens sessions on this machine, where pi saved their history, so it can't take a machine or needs. To start a quest's session on another machine, use spawn with machine or needs.",
 				);
 			}
+			if (params.host !== undefined) {
+				return refuse(
+					"reopen-sessions reopens sessions in terminals, so it can't take host. To bring a quest's session back in the shared host, use spawn with host.",
+				);
+			}
 			// Listing is the default and acting needs force: reopening a
 			// dozen tabs is too large a side effect to fire from a verb
 			// the user may have run to look. Naming sessions with id picks

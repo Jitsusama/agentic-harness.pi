@@ -37,6 +37,8 @@ export interface QuestToolParams {
 	layout?: string;
 	/** spawn and reopen-sessions: the terminal to open in, by driver or launcher id. */
 	terminal?: string;
+	/** spawn: attended or background, to open the session in the realm's shared host. */
+	host?: string;
 	/** spawn and reopen-sessions: innermost or outermost, for a nested session. */
 	nesting?: string;
 	/** spawn: the machine to start the session on, held by its mycelium node. */

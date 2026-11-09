@@ -6,6 +6,7 @@
 
 import { homedir, hostname } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { sessionEnv } from "../../../lib/core/session/index.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
 	FIRST_WORDS_VARIABLE,
@@ -73,6 +74,7 @@ import {
 	spawnHeld,
 	startsPi,
 } from "./spawn-held.ts";
+import { hostTargetOf, spawnInHost } from "./spawn-host.ts";
 import {
 	launcherOpens,
 	launcherSession,
@@ -362,6 +364,10 @@ export async function spawn(
 		? params.action.slice("spawn-".length)
 		: undefined;
 	const asked = params.layout ?? suffix;
+	// A host target is explicit and goes alone, so a clash is refused
+	// before anything else is read.
+	const target = hostTargetOf(params);
+	if (!target.ok) return refuse(target.refusal);
 	// An explicit `id:` lets the agent open a tab for
 	// another quest without touching its own loaded state.
 	// We resolve through discovery so a typo fails fast.
@@ -428,6 +434,33 @@ export async function spawn(
 		machine === undefined || isThisMachine(machine)
 			? pickResumeSession(sessions.filter((s) => s.id !== currentId))
 			: undefined;
+	if (target.kind) {
+		// The host is this machine's, so a quest its needs place elsewhere
+		// can't be hosted here.
+		if (machine !== undefined && !isThisMachine(machine)) {
+			return refuse(
+				`${questIdForSpawn}'s needs place it on ${machine}, and a host spawn opens here only; spawn it without host to start it there.`,
+			);
+		}
+		const picked =
+			resume && "id" in resume
+				? sessions.find((s) => s.id === resume.id)
+				: undefined;
+		return spawnInHost({
+			kind: target.kind,
+			questId: questIdForSpawn,
+			cwd,
+			chosenBy,
+			...(params.note !== undefined ? { note: params.note } : {}),
+			...(picked ? { resume: picked } : {}),
+			...(ctx.model
+				? { model: { provider: ctx.model.provider, id: ctx.model.id } }
+				: {}),
+			...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
+			env: sessionEnv(ctx).snapshot(),
+			...(params.dryRun ? { dryRun: true } : {}),
+		});
+	}
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
 	// A realm whose node declares another command for its agent sessions,

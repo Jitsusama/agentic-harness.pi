@@ -245,6 +245,12 @@ export const QUEST_PARAMETERS = Type.Object({
 				"spawn and reopen-sessions: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
 		}),
 	),
+	host: Type.Optional(
+		Type.String({
+			description:
+				"spawn: attended or background, to open the session in this realm's shared pi host rather than a terminal: attended keeps its screen for a viewer, background has none. A fresh session is told its note; a resumed one is adopted from its log and told nothing. It goes alone, without terminal, layout, nesting, machine, needs or command, and a host that refuses or never answers opens nothing else.",
+		}),
+	),
 	nesting: Type.Optional(
 		Type.String({
 			description:
