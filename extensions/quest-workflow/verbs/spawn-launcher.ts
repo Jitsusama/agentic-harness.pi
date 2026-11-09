@@ -48,6 +48,9 @@ export interface LauncherSpawn {
  */
 const RESUMING = /^pi --session (\S+)(?: --model (\S+))?$/;
 
+/** A new pi, alone or with the model to start it on. */
+const STARTING = /^pi(?: --model (\S+))?$/;
+
 /** The session a command resumes and the model it names, if it only resumes. */
 export function resumedBy(
 	command: string,
@@ -72,6 +75,7 @@ export function launcherSession(
 	if (spawn.named || realmSegments().length > 0) return undefined;
 	if (process.env.PI_LAUNCHER === "off") return undefined;
 	const resumed = resumedBy(spawn.command);
+	const [starting, model] = STARTING.exec(spawn.command.trim()) ?? [];
 	// Its quest, its orchestrator and title, and the session asking say
 	// where its window goes.
 	const placed = {
@@ -87,8 +91,8 @@ export function launcherSession(
 				...(resumed.model ? { model: resumed.model } : {}),
 				...placed,
 			}
-		: spawn.command === "pi"
-			? { id: uuidv7(), fresh: true, ...placed }
+		: starting !== undefined
+			? { id: uuidv7(), fresh: true, ...(model ? { model } : {}), ...placed }
 			: undefined;
 	return session && launcherTakes(session) ? session : undefined;
 }

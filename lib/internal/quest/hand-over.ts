@@ -75,8 +75,9 @@ export interface HandedSession {
 	 */
 	readonly replaces?: string;
 	/**
-	 * The model a resumed session runs on, as `pi --model` names it, for a
-	 * restart that names one. Absent, it runs on what its log says.
+	 * The model the session runs on, as `pi --model` names it: a new one's,
+	 * or a resumed one's for a restart that names one. Absent, a new session
+	 * starts on pi's default and a resumed one on what its log says.
 	 */
 	readonly model?: string;
 }

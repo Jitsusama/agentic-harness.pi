@@ -146,7 +146,13 @@ shipped and tested.
   resumed session by its id, a new one marked fresh with an id
   minted for it and its quest, which the launcher starts with
   `pi --session-id`. A restart's `command`, `pi --session <id>`
-  alone or with `--model <model>`, goes too, with that model.
+  alone or with `--model <model>`, goes too, with that model, and
+  so does a new `pi --model <model>`.
+- **On the spawner's model**: a spawn that starts pi by itself,
+  new or resumed, starts it with `--model` set to the asking
+  session's model and thinking level, so it never falls to
+  whatever pi's default says. A `command` the call gives, or an
+  agent a realm starts in pi's place, keeps its own.
   The same cases as reopen-sessions' leave it out, and so do
   another terminal or layout, any other command and another
   machine; a launcher that doesn't take it leaves the window to

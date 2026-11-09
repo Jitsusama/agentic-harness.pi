@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	carryingModel,
+	modelOf,
 	resolveSpawnCommand,
 	resumeMessage,
 } from "../../../extensions/quest-workflow/verbs/session";
@@ -42,6 +44,48 @@ describe("resolveSpawnCommand", () => {
 		expect(resolveSpawnCommand("pi --model x", { id: "019abc" })).toEqual({
 			command: "pi --model x",
 		});
+	});
+});
+
+describe("modelOf", () => {
+	const opus = { provider: "anthropic", id: "claude-opus-5-5" };
+	type Asking = Parameters<typeof modelOf>[0];
+
+	it("names the provider, the model and the thinking level", () => {
+		const ctx = { model: opus, thinkingLevel: "high" } as unknown as Asking;
+		expect(modelOf(ctx)).toBe("anthropic/claude-opus-5-5:high");
+	});
+
+	it("leaves the thinking level off when the session says none", () => {
+		const ctx = { model: opus } as unknown as Asking;
+		expect(modelOf(ctx)).toBe("anthropic/claude-opus-5-5");
+	});
+
+	it("names nothing for a session with no model yet", () => {
+		expect(modelOf({ model: undefined })).toBeUndefined();
+	});
+});
+
+describe("carryingModel", () => {
+	const opus = "anthropic/claude-opus-5-5:high";
+
+	it("starts a new pi on the given model", () => {
+		expect(carryingModel("pi", opus)).toBe(`pi --model ${opus}`);
+	});
+
+	it("resumes a session on the given model", () => {
+		expect(carryingModel("pi --session 019abc", opus)).toBe(
+			`pi --session 019abc --model ${opus}`,
+		);
+	});
+
+	it("keeps a model the command already names", () => {
+		expect(carryingModel("pi --model x", opus)).toBe("pi --model x");
+		expect(carryingModel("pi --model=x", opus)).toBe("pi --model=x");
+	});
+
+	it("changes nothing without a model to carry", () => {
+		expect(carryingModel("pi", undefined)).toBe("pi");
 	});
 });
 
