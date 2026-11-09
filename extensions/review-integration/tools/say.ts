@@ -35,9 +35,12 @@ import {
 	threadsOf,
 } from "./shared.ts";
 
+/** The action a `/merge` comment is said through. */
+const COMMENTING = "comment";
+
 /** Whether an item comments the command that queues a change to merge. */
 function asksToMerge(item: SayItem): boolean {
-	return item.action === "comment" && MERGE_COMMAND.test(item.body ?? "");
+	return item.action === COMMENTING && MERGE_COMMAND.test(item.body ?? "");
 }
 
 /** Register the `review_say` tool. */

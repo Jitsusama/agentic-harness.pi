@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { LayerReport } from "../../../lib/core/web/perf/layers.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { type Fixture, page, serve } from "./_harness.ts";
 
@@ -18,6 +19,23 @@ const LAYERED = page(
   <div class="plain">plain</div>
 </main>`,
 );
+
+/**
+ * What each layer was, for a failure to say. Twice, on 11-07 and 11-09,
+ * a run found every layer unnamed and didn't reproduce, so a failure
+ * says whether Chrome gave the layers no element (`forElement` false) or
+ * gave elements that couldn't be described (true, and still unnamed).
+ */
+const layersSaid = (report: LayerReport): string =>
+	JSON.stringify(
+		report.layers.map(({ id, forElement, width, height, element }) => ({
+			id,
+			forElement,
+			width,
+			height,
+			element,
+		})),
+	);
 
 /** Nothing here asks the compositor for anything. */
 const FLAT = page("Flat", "<main><p>Just text.</p></main>");
@@ -60,7 +78,7 @@ describe("reading the layer tree, in a real browser", () => {
 			.map((layer) => layer.element)
 			.filter((name): name is string => name !== undefined);
 
-		expect(named).toContain("div#hinted");
+		expect(named, layersSaid(report)).toContain("div#hinted");
 	});
 
 	it("attributes the will-change hint to the layers that carry it", async () => {
@@ -88,8 +106,8 @@ describe("reading the layer tree, in a real browser", () => {
 		// deliberately promoted.
 		// Named by id, since that is what a reader would search for and
 		// what nameNode prefers when an element carries one.
-		expect(order).toContain("div#hinted");
-		expect(order).toContain("div.fixed");
+		expect(order, layersSaid(report)).toContain("div#hinted");
+		expect(order, layersSaid(report)).toContain("div.fixed");
 		expect(order.indexOf("div.huge")).toBeLessThan(order.indexOf("div#hinted"));
 		expect(order.indexOf("div.huge")).toBeLessThan(order.indexOf("div.fixed"));
 	});

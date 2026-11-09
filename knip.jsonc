@@ -1,0 +1,52 @@
+// knip finds code nothing reads: files no entry reaches, dependencies
+// nothing uses or nothing lists, and exports nobody imports. The package's
+// own exports, in package.json, are entries knip reads by itself.
+{
+	"$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+	"entry": [
+		// What pi loads: every extension, and the packs a subagent loads.
+		"extensions/*/index.ts",
+		"packs/*/index.ts",
+		// Programs run by hand, by pnpm or by node directly.
+		"scripts/*.ts",
+		"lib/**/*.mjs",
+		// The tests and their configs.
+		"tests/**/*.test.ts",
+		"vitest*.config.ts"
+	],
+	"project": [
+		"extensions/**/*.ts",
+		"lib/**/*.{ts,mjs}",
+		"packs/**/*.ts",
+		"scripts/**/*.ts",
+		"tests/**/*.ts"
+	],
+	// pi maps @sinclair/typebox onto the typebox it bundles at runtime, and
+	// vitest.config.ts and tsconfig.json copy that mapping onto ours, so
+	// the name is imported but never installed.
+	"ignoreDependencies": ["@sinclair/typebox"],
+	// Programs the machine provides, never an npm package's binaries.
+	"ignoreBinaries": [
+		"btrfs",
+		"kitty",
+		"mycelium",
+		"perl",
+		"pgrep",
+		"pkill",
+		"qs",
+		"session-backup",
+		"xdg-open"
+	],
+	// An export a file also uses itself is no dead code.
+	"ignoreExportsUsedInFile": true,
+	// Unused exports and types are said, not refused, until they are
+	// pruned folder by folder (85PKB2's plan, item 52); then these go.
+	"rules": {
+		"exports": "warn",
+		"types": "warn",
+		"nsExports": "warn",
+		"nsTypes": "warn",
+		"enumMembers": "warn",
+		"duplicates": "warn"
+	}
+}

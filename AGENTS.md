@@ -152,11 +152,12 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 ## Commands
 
 ```sh
-pnpm check           # lint, typecheck, the tests a change touches (browser too), load check
+pnpm check           # lint, typecheck, knip, the tests a change touches (browser too), load check
 pnpm check:there     # the same, for a pushed branch, on penelope (or a named host)
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing
+pnpm knip            # refuses unused files and dependencies; says unused exports
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
 pnpm test:changed    # the tests this branch's changes reach, before a merge
