@@ -371,6 +371,51 @@ describe("a target the command names through a variable", () => {
 		).toEqual(["/tmp/two/f.txt"]);
 	});
 
+	it("keeps a prefix assignment to the command it prefixes", () => {
+		// `NAME=value cmd` sets NAME in cmd's environment alone, and bash
+		// expands cmd's own redirects before assigning it, so the write lands
+		// where NAME already pointed. Reading it as set for the whole line
+		// refused writes to a quest's own tmp as though they went elsewhere.
+		expect(
+			resolveBashWrites(
+				"TMPDIR=/run/q nix eval .#checks > $TMPDIR/names.json; jq length $TMPDIR/names.json",
+				{ cwd: "/session", home: "/home/me" },
+			),
+		).toEqual({
+			paths: [],
+			touched: [],
+			removed: [],
+			unresolved: ["$TMPDIR/names.json"],
+		});
+		expect(bashWriteTargets("P=/tmp/one; P=/tmp/two make > $P/f.txt")).toEqual([
+			"/tmp/one/f.txt",
+		]);
+		expect(bashWriteTargets("A=/x run; echo hi > $A/f.txt")).toEqual([]);
+	});
+
+	it("keeps a quoted value, which the data-stripped pass sees blanked", () => {
+		expect(bashWriteTargets('Q="/tmp/q"; echo hi > "$Q/f.txt"')).toEqual([
+			"/tmp/q/f.txt",
+		]);
+		expect(
+			bashWriteTargets("export Q='/tmp/a b'; echo hi > \"$Q/f.txt\""),
+		).toEqual(["/tmp/a b/f.txt"]);
+	});
+
+	it("reads an export, or several assignments alone, as set from there on", () => {
+		expect(bashWriteTargets("export Q=/tmp/q N=1; echo hi > $Q/f.txt")).toEqual(
+			["/tmp/q/f.txt"],
+		);
+		expect(bashWriteTargets("A=/tmp/a B=/tmp/b; echo hi > $B/f.txt")).toEqual([
+			"/tmp/b/f.txt",
+		]);
+		expect(
+			bashWriteTargets(
+				"mkdir -p /run/q && export TMPDIR=/run/q; echo > $TMPDIR/x",
+			),
+		).toContain("/run/q/x");
+	});
+
 	it("declines to judge a target it cannot expand", () => {
 		// Guessing is worse than declining: resolving an unexpanded sigil
 		// against the cwd invents a path nobody wrote to, and blocking the

@@ -9,7 +9,7 @@
 
 import { isAbsolute, join, resolve } from "node:path";
 import { tokenize } from "../../../command/tokenize.ts";
-import type { SimpleCommand } from "../../../command/types.ts";
+import type { SimpleCommand, Word } from "../../../command/types.ts";
 import { stripShellData, unquote } from "../../../shell/index.ts";
 import { matchHeredocs } from "../../../shell/parse.ts";
 import { createdBy, removedBy, unwrap } from "./bash-effects.ts";
@@ -512,6 +512,12 @@ function skipQuoted(word: string, at: number): number {
  * Only the literal `NAME=value` form, which is what a command writing to
  * a long path actually uses. A value built from an earlier variable is
  * expanded against what is known so far, so `A=/tmp; B=$A/x` resolves.
+ *
+ * An assignment counts only where the shell keeps it: standing alone, or
+ * after `export` and its kin. A prefix, as in `NAME=value cmd`, sets NAME
+ * in that command's environment and nowhere else, and bash expands the
+ * command's own redirects before assigning it; reading one as set for the
+ * line judged a path nobody wrote to.
  */
 function assignmentsIn(skeleton: string, command: string): Map<string, string> {
 	const known = new Map<string, string>();
@@ -525,20 +531,49 @@ function assignmentsIn(skeleton: string, command: string): Map<string, string> {
 	// the skeleton as `Q=""`, so reading only that lost exactly the paths
 	// long enough to be worth a variable.
 	for (const simple of tokenize(command).commands) {
-		for (const word of simple.assignments) {
+		for (const word of keptAssignments(simple)) {
 			const at = word.text.indexOf("=");
 			if (at < 0) continue;
 			record(word.text.slice(0, at), word.text.slice(at + 1));
 		}
 	}
 
-	for (const match of skeleton.matchAll(
-		/(?:^|[;&|]|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|<>]*)/g,
-	)) {
+	for (const match of skeleton.matchAll(STANDING_ASSIGNMENT)) {
+		// A quoted value reaches the skeleton blanked, as `""` or `''`; the
+		// model has read it, and taking the blank would overwrite what it read.
+		if (match[2] === '""' || match[2] === "''") continue;
 		record(match[1], match[2] ?? "");
 	}
 
 	return known;
+}
+
+/** The builtins whose `NAME=value` arguments set NAME from there on. */
+const DECLARERS = new Set([
+	"export",
+	"declare",
+	"typeset",
+	"local",
+	"readonly",
+]);
+
+/**
+ * A `NAME=value` in a skeleton that nothing but more assignments follows
+ * before the command ends, so it is no prefix of a command.
+ */
+const STANDING_ASSIGNMENT =
+	/(?:^|[;&|]|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|<>]*)(?=(?:[ \t]+[A-Za-z_][A-Za-z0-9_]*=[^\s;&|<>]*)*[ \t]*(?:$|[;&|\n)]))/g;
+
+/**
+ * The assignments of a simple command that outlast it: all of them when
+ * it runs nothing, a declarer's `NAME=value` arguments, and none when
+ * they only prefix a command.
+ */
+function keptAssignments(simple: SimpleCommand): Word[] {
+	const [name, ...rest] = simple.argv;
+	if (!name) return simple.assignments;
+	if (DECLARERS.has(name.text)) return rest.filter((w) => w.text.includes("="));
+	return [];
 }
 
 /**
