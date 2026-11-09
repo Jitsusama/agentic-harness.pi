@@ -84,6 +84,7 @@ import {
 	type ThreadAudit,
 	touchedBy,
 } from "../../../lib/core/review/index.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import {
 	type ConfigLoadResult,
 	loadPackageConfig,
@@ -204,6 +205,7 @@ interface AskParams extends TargetParams {
  * round kind chooses the same way.
  */
 interface RoundSeat {
+	readonly cwd: string;
 	readonly place: RosterPlace;
 	/** The session's model as `provider/id`, when the session has one. */
 	readonly sessionModel?: string;
@@ -219,6 +221,7 @@ async function seatFor(
 ): Promise<RoundSeat> {
 	const quest = await questLoadedIn(ctx.sessionManager.getSessionId());
 	return {
+		cwd: sessionCwd(ctx),
 		said: person.said,
 		place: {
 			...(params.set === undefined ? {} : { set: params.set }),
@@ -443,7 +446,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await reportRoster(await seatFor(ctx, params));
 					}
 
-					const bound = await boundFor(pi, params, process.cwd());
+					const bound = await boundFor(pi, params, sessionCwd(ctx));
 					const change = reviewedChange(bound);
 					if (change === undefined) {
 						return refuse(
@@ -793,7 +796,7 @@ async function askCouncil(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// After the tree, because a lens can come from the repo under review
@@ -880,7 +883,7 @@ async function startRound(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
@@ -1051,7 +1054,7 @@ async function askJudge(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "judge", diff);
@@ -1251,7 +1254,7 @@ async function askCritique(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
@@ -1357,7 +1360,7 @@ async function askStack(
 	const tree = await treeForRound(
 		bound.repo,
 		tip.proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// Every change in the stack, since a lens the stack edits anywhere
@@ -1486,7 +1489,7 @@ async function askAudit(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 
@@ -1667,7 +1670,7 @@ async function retryOne(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		params.repo ?? process.cwd(),
+		params.repo ?? seat.cwd,
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// The one participant this retry re-asks, not the whole roster. It
@@ -1878,7 +1881,7 @@ export async function refusedWhoModel(
 	loaded: ConfigLoadResult,
 	path: string,
 	asks: RoundAsks,
-	seat: RoundSeat,
+	seat: Pick<RoundSeat, "place" | "sessionModel" | "said">,
 ): Promise<string | undefined> {
 	const named = Object.entries(who ?? {}).filter(
 		([, one]) => one.model !== undefined,
@@ -2024,7 +2027,7 @@ async function reportRoster(seat: RoundSeat): Promise<Answer> {
 	// which is the honest scope for a question asked before any change
 	// is bound: nothing here knows yet what repo a round would read, so
 	// the listing says where it looked rather than implying otherwise.
-	const here = process.cwd();
+	const here = seat.cwd;
 	// Nothing is under review here, so nothing is disqualified by a diff
 	// that does not exist. Said out loud in the listing, because the
 	// round applies a filter this does not.

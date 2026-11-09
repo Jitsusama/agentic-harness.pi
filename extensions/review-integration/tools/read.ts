@@ -20,6 +20,7 @@ import {
 	stackStep,
 	unbackedDeclarations,
 } from "../../../lib/core/review/index.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import { GLYPH } from "../render.ts";
@@ -133,15 +134,17 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 			return renderAnswer(result, theme, options, context?.lastComponent);
 		},
 
-		async execute(_id, params): Promise<Answer> {
+		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
 			// Held outside the try so a failure can say which provider was asked.
 			let bound: BoundTarget | undefined;
 			try {
 				if (params.action === undefined) return reportAttached();
-				if (params.action === "attach") return attachChange(pi, params);
-				if (params.action === "detach") return detachChange(pi, params);
+				if (params.action === "attach")
+					return attachChange(pi, params, sessionCwd(ctx));
+				if (params.action === "detach")
+					return detachChange(pi, params, sessionCwd(ctx));
 				if (params.action === "next" || params.action === "prev") {
-					return stepAttachment(pi, params, params.action);
+					return stepAttachment(pi, params, params.action, sessionCwd(ctx));
 				}
 
 				// A checkout on its own is a fair thing to ask about, and it is
@@ -152,12 +155,12 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 					const { engine } = await reviewEngine(pi);
 					return say(
 						describeCapabilities(
-							await engine.serving(params.repo ?? process.cwd()),
+							await engine.serving(params.repo ?? sessionCwd(ctx)),
 						),
 					);
 				}
 
-				bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, sessionCwd(ctx));
 				return say(describeCapabilities(bound));
 			} catch (error) {
 				return refuseFailure(error, bound);
@@ -194,11 +197,12 @@ async function detachable(
 	pi: ExtensionAPI,
 	asked: string | undefined,
 	attached: readonly string[],
+	cwd: string,
 ): Promise<string | undefined> {
 	if (asked === undefined || attached.includes(asked)) return asked;
 
 	try {
-		const bound = await boundFor(pi, { change: asked }, process.cwd());
+		const bound = await boundFor(pi, { change: asked }, cwd);
 		const change = hostedChange(bound);
 		if (change && attached.includes(change.label)) return change.label;
 	} catch {
@@ -215,8 +219,9 @@ async function detachable(
 async function attachChange(
 	pi: ExtensionAPI,
 	params: TargetParams,
+	cwd: string,
 ): Promise<Answer> {
-	const bound = await boundFor(pi, params, process.cwd());
+	const bound = await boundFor(pi, params, cwd);
 	const change = hostedChange(bound);
 	if (!change) {
 		return refuse(
@@ -249,12 +254,13 @@ async function attachChange(
 async function detachChange(
 	pi: ExtensionAPI,
 	params: TargetParams,
+	cwd: string,
 ): Promise<Answer> {
 	const store = attachments();
 	const attached = await store.list();
 	const labels = attached.map((a) => a.change.label);
 	const chosen = changeInPlay(
-		await detachable(pi, params.change, labels),
+		await detachable(pi, params.change, labels, cwd),
 		undefined,
 		labels,
 	);
@@ -284,8 +290,9 @@ async function stepAttachment(
 	pi: ExtensionAPI,
 	params: TargetParams,
 	direction: "next" | "prev",
+	cwd: string,
 ): Promise<Answer> {
-	const bound = await boundFor(pi, params, process.cwd());
+	const bound = await boundFor(pi, params, cwd);
 	const change = hostedChange(bound);
 	if (!change) {
 		return refuse(

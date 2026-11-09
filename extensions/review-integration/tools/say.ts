@@ -21,6 +21,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { MERGE_COMMAND, noteQueued } from "../queued.ts";
 import { batchRefusal, runBatch, type SayItem } from "./batch.ts";
 import {
@@ -184,7 +185,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 			// Held outside the try so a failure can say which provider was asked.
 			let bound: BoundTarget | undefined;
 			try {
-				bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, sessionCwd(ctx));
 				const conversation = bound.conversation;
 				const change = hostedChange(bound);
 				if (!conversation || !change) {

@@ -36,6 +36,7 @@ import {
 	targetKey,
 	type Verdict,
 } from "../../../lib/core/review/index.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import {
 	type AsyncMutex,
 	createMutex,
@@ -316,7 +317,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					// the conversation refused a draft id, and naming the change as
 					// well, as the refusal said, was ignored and refused again.
 					if (namesTarget(params)) {
-						bound = await boundFor(pi, params, process.cwd());
+						bound = await boundFor(pi, params, sessionCwd(ctx));
 						if (targetKey(bound.target) !== targetKey(target)) {
 							return refuse(
 								`Draft ${params.draft} is for ${targetLabel(target)}, not ${targetLabel(bound.target)}. Name one or the other.`,
@@ -326,7 +327,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						bound = await boundForTarget(pi, target).catch(() => undefined);
 					}
 				} else {
-					bound = await boundFor(pi, params, process.cwd());
+					bound = await boundFor(pi, params, sessionCwd(ctx));
 					target = bound.target;
 				}
 				const keys = await turnsFor(params.action, target, bound);

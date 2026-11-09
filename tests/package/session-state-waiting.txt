@@ -31,11 +31,6 @@ extensions/reload-workflow/follow.ts:pid 1
 extensions/reload-workflow/lifecycle.ts:global 1
 extensions/reload-workflow/mcp.ts:global 1
 extensions/review-integration/engine.ts:pid 1
-extensions/review-integration/tools/ask.ts:cwd 9
-extensions/review-integration/tools/draft.ts:cwd 2
-extensions/review-integration/tools/offer.ts:cwd 7
-extensions/review-integration/tools/read.ts:cwd 5
-extensions/review-integration/tools/say.ts:cwd 1
 extensions/rollover-workflow/index.ts:env-write 1
 extensions/shell-workflow/hand-off.ts:pid 1
 extensions/shell-workflow/index.ts:cwd 1

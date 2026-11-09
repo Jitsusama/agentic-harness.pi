@@ -40,6 +40,7 @@ import {
 	type ChangeSize,
 	usesDepth,
 } from "../../../lib/core/sections/shape.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import {
 	detectTitleViolations,
 	toTitleCase,
@@ -493,7 +494,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					deferredBody = deep && params.action === "edit";
 					const size =
 						deep && params.action === "propose"
-							? await proposalSize(params)
+							? await proposalSize(params, sessionCwd(ctx))
 							: undefined;
 					const complaint = proposalComplaint(
 						params.title,
@@ -518,8 +519,10 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 
 				bound = await boundFor(
 					pi,
-					params.action === "propose" ? await withCheckoutEnds(params) : params,
-					process.cwd(),
+					params.action === "propose"
+						? await withCheckoutEnds(params, sessionCwd(ctx))
+						: params,
+					sessionCwd(ctx),
 				);
 				const authoring = bound.provider.authoring;
 
@@ -549,7 +552,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				if (params.action === "propose" || params.action === "propose-stack") {
 					const elsewhere = await proposingElsewhere(
 						REVIEW_COMMANDS,
-						params.repo ?? process.cwd(),
+						params.repo ?? sessionCwd(ctx),
 						bound,
 					);
 					if (elsewhere) return refuse(elsewhere);
@@ -780,7 +783,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "merge":
 						return merge(ctx, bound, change, authoring, params, pi.events, {
 							review: await reviewSection(),
-							cwd: params.repo ?? change.repo.localPath ?? process.cwd(),
+							cwd: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
 							run: (line, cwd) =>
 								pi.exec("bash", ["-c", line], {
 									cwd,
@@ -893,15 +896,15 @@ async function checkoutFacts(
  * An attachment still wins when no repo is named, since naming neither is
  * how a caller proposes to the change already in play.
  */
-async function withCheckoutEnds(params: OfferParams): Promise<OfferParams> {
+async function withCheckoutEnds(
+	params: OfferParams,
+	cwd: string,
+): Promise<OfferParams> {
 	if (params.change !== undefined) return params;
 	if (params.base !== undefined && params.head !== undefined) return params;
 	if (params.repo === undefined && (await attachments().list()).length > 0)
 		return params;
-	const facts = await checkoutFacts(
-		REVIEW_COMMANDS,
-		params.repo ?? process.cwd(),
-	);
+	const facts = await checkoutFacts(REVIEW_COMMANDS, params.repo ?? cwd);
 	const head = params.head ?? facts.branch;
 	const base = params.base ?? facts.parent ?? facts.trunk;
 	if (head === undefined || base === undefined) return params;
@@ -913,8 +916,11 @@ async function withCheckoutEnds(params: OfferParams): Promise<OfferParams> {
  * parts with its base, the base read from its remote first. Unknown, with
  * the reason, when the checkout names no ends to compare.
  */
-async function proposalSize(params: OfferParams): Promise<ChangeSize> {
-	const ends = await withCheckoutEnds(params);
+async function proposalSize(
+	params: OfferParams,
+	cwd: string,
+): Promise<ChangeSize> {
+	const ends = await withCheckoutEnds(params, cwd);
 	if (ends.base === undefined || ends.head === undefined) {
 		return {
 			unknown: "this checkout names no base and head to compare, so name both",
@@ -922,7 +928,7 @@ async function proposalSize(params: OfferParams): Promise<ChangeSize> {
 	}
 	return checkoutSize(
 		REVIEW_COMMANDS,
-		params.repo ?? process.cwd(),
+		params.repo ?? cwd,
 		[`origin/${ends.base}`, ends.base],
 		ends.head,
 	);
@@ -1047,7 +1053,7 @@ async function proposeStack(
 		);
 	}
 
-	const cwd = params.repo ?? process.cwd();
+	const cwd = params.repo ?? sessionCwd(ctx);
 	const facts = await checkoutFacts(REVIEW_COMMANDS, cwd);
 	const base = params.base ?? facts.trunk;
 	if (base === undefined) {
@@ -1372,7 +1378,7 @@ async function propose(
 			...(params.title === undefined ? {} : { title: params.title }),
 			...(params.body === undefined ? {} : { body: params.body }),
 		},
-		await checkoutFacts(REVIEW_COMMANDS, params.repo ?? process.cwd()),
+		await checkoutFacts(REVIEW_COMMANDS, params.repo ?? sessionCwd(ctx)),
 	);
 	if ("refusal" in filled) return refuse(filled.refusal);
 	const { base, head, title, body, guessed, warnings } = filled.fill;
