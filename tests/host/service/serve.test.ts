@@ -14,6 +14,13 @@ import {
 import { serveHost } from "../../../host/service/serve.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 
+// The net is process-wide, so the worker running these tests keeps its
+// own handling; what is checked is that a host sets it, and where.
+const { spared } = vi.hoisted(() => ({ spared: vi.fn() }));
+vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
+	spareStaleRejections: spared,
+}));
+
 let dir: string;
 let report: ReturnType<typeof vi.fn<(error: unknown) => void>>;
 beforeEach(async () => {
@@ -31,6 +38,7 @@ function places() {
 		runtimeDir: join(dir, "run"),
 		rosterDir: join(dir, "rosters"),
 		registryDir: join(dir, "hosts"),
+		rejectionLog: join(dir, "stale-rejections.jsonl"),
 		report,
 	};
 }
@@ -112,6 +120,21 @@ describe("serveHost", () => {
 			engine: async (h) => engine(h),
 		});
 		await next.stop();
+	});
+
+	it("spares the host stale-context rejections before any conversation", async () => {
+		spared.mockClear();
+		const host = await serveHost({
+			...places(),
+			engine: async (h) => {
+				expect(spared).toHaveBeenCalledWith(
+					join(dir, "stale-rejections.jsonl"),
+				);
+				return engine(h);
+			},
+		});
+		await host.stop();
+		expect(spared).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps every hold across stop and resumes them at the next start", async () => {

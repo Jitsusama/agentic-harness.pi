@@ -4,13 +4,20 @@
  * before the next starts, so a second host, an unreadable roster or an
  * unpatched pi never gets as far as a socket. Stopping parks every
  * conversation as signalled and keeps every hold for the next start.
+ *
+ * A host is one process for many conversations, so a stale-context
+ * rejection left by one conversation's reload must not end the rest:
+ * start sets the package's net for those before any conversation exists.
  */
 
+import { join } from "node:path";
+import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	type Standing,
 	type TickedOwner,
 	tickedOwnerNow,
 } from "../../lib/internal/process-ticks.ts";
+import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
 import { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
 import {
@@ -45,8 +52,14 @@ export async function serveHost(options: {
 	registryDir?: string;
 	owner?: TickedOwner;
 	standing?: (owner: TickedOwner) => Promise<Standing>;
+	/** Where dropped stale-context rejections are written. */
+	rejectionLog?: string;
 }): Promise<ServingHost> {
 	const key = hostKey(options.realm, options.kind);
+	spareStaleRejections(
+		options.rejectionLog ??
+			join(stateDir("host-service"), key, "stale-rejections.jsonl"),
+	);
 	const path = hostSocketPath(options.realm, options.kind, options.runtimeDir);
 	const owner = options.owner ?? (await tickedOwnerNow());
 	if (!owner) throw new Error("Host cannot name its own process");
