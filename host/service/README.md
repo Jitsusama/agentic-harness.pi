@@ -40,7 +40,9 @@ input pipeline or screen. No unit or running host is installed yet.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.
 - server.ts: private Unix listener, bounded writes, scoped viewer input
-  and disconnect cleanup. It never unlinks an existing socket or file.
+  and disconnect cleanup. It takes over only this user's socket that
+  nothing answers, as a killed host leaves, once the caller holds the
+  roster lock; a live socket, a file or another user's socket is refused.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 
