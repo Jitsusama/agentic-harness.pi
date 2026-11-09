@@ -312,7 +312,6 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 		undo = queueHeavyWork({
 			folder,
 			session: ctx.sessionManager.getSessionId(),
-			pid: process.pid,
 			room,
 			cgroupFor,
 			sendsWholeRun: (command, cwd) =>

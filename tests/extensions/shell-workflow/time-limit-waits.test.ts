@@ -42,7 +42,6 @@ beforeEach(() => {
 			cgroupOf: () => undefined,
 		}),
 		session: "session-a",
-		pid: process.pid,
 		room: () => FULL,
 		cgroupFor: () => undefined,
 	});

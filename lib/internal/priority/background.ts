@@ -13,10 +13,14 @@
  * reached it for a minute, and its editor holds nothing. A key removes it
  * before anything else happens. A pi that never writes it, on an older
  * install, in RPC or print mode, or gone, stays at the full weight.
+ *
+ * The file is the process's, so where several sessions share one, as
+ * conversations in a host do, it is there only while every one of them
+ * may yield (pid-mark.ts).
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { followPidMark } from "./pid-mark.ts";
 
 /** How long since a key reached a pi before it may yield. */
 export const QUIET_MS = 60_000;
@@ -51,30 +55,14 @@ export function backgroundTurns(
 	dir: string | undefined,
 	signs: BackgroundSigns,
 ) {
-	const file = dir ? join(dir, String(signs.pid ?? process.pid)) : undefined;
+	const file = dir
+		? followPidMark(dir, join(dir, String(signs.pid ?? process.pid)), "every")
+		: undefined;
 	const quietMs = signs.quietMs ?? QUIET_MS;
 	let keyAt = signs.now ?? Date.now();
 	let inTurn = false;
-	let marked = false;
-	const mark = () => {
-		if (marked || !file || !dir) return;
-		try {
-			mkdirSync(dir, { recursive: true });
-			writeFileSync(file, `${new Date().toISOString()}\n`);
-			marked = true;
-		} catch {
-			// With no file the sorter leaves this pi at its full weight.
-		}
-	};
-	const unmark = () => {
-		if (!marked || !file) return;
-		marked = false;
-		try {
-			rmSync(file, { force: true });
-		} catch {
-			// One left behind is the sorter's to ignore once its pid goes.
-		}
-	};
+	const mark = () => file?.hold(true);
+	const unmark = () => file?.hold(false);
 	const editorEmpty = () => {
 		try {
 			return signs.editorText().trim() === "";
@@ -110,7 +98,7 @@ export function backgroundTurns(
 		/** The session ends. */
 		stop() {
 			inTurn = false;
-			unmark();
+			file?.leave();
 		},
 	};
 }

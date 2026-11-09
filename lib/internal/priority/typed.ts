@@ -10,10 +10,14 @@
  * bulk class, and leaves one with a file at best effort, ahead of them.
  * A pid can't set its own socket marks from Node, so the file is the
  * whole contract; one whose pid has gone is ignored by the shaper.
+ *
+ * A host follows each conversation's turns apart, and the file, being the
+ * process's, stays while a turn a person typed holds any of them
+ * (pid-mark.ts).
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { followPidMark } from "./pid-mark.ts";
 
 /** The folder the files are in, or nothing with no runtime folder. */
 export function typedDir(
@@ -31,28 +35,19 @@ export function typedDir(
  * as bulk, which is how it was before.
  */
 export function typedTurns(dir: string | undefined, pid = process.pid) {
-	const file = dir ? join(dir, String(pid)) : undefined;
+	const file = dir
+		? followPidMark(dir, join(dir, String(pid)), "any")
+		: undefined;
 	let typedAt = 0;
 	let turnAt = 0;
 	let held = false;
 	const mark = () => {
 		held = true;
-		if (!file || !dir) return;
-		try {
-			mkdirSync(dir, { recursive: true });
-			writeFileSync(file, `${new Date().toISOString()}\n`);
-		} catch {
-			// A shaper that can't see the file sends this turn as bulk.
-		}
+		file?.hold(true);
 	};
 	const unmark = () => {
 		held = false;
-		if (!file) return;
-		try {
-			rmSync(file, { force: true });
-		} catch {
-			// One left behind is the shaper's to ignore once its pid goes.
-		}
+		file?.hold(false);
 	};
 	return {
 		/** A person's input arrived. */
@@ -71,6 +66,9 @@ export function typedTurns(dir: string | undefined, pid = process.pid) {
 		/** Whether a turn a person typed holds this pi now. */
 		held: () => held,
 		/** The session ends. */
-		stop: unmark,
+		stop() {
+			held = false;
+			file?.leave();
+		},
 	};
 }
