@@ -34,7 +34,7 @@ export interface ConversationRegistration {
 
 /** Why a host reloads no conversation onto another tree. */
 export const HOST_RELOAD_ONTO =
-	"A host loads one harness for every conversation it runs, so a conversation can't reload onto another tree";
+	"A host's conversations load the harness from the one install it runs, so a conversation can't reload onto another tree";
 
 /** The live identity a transport can list without reading pi internals. */
 export interface ConversationIdentity {

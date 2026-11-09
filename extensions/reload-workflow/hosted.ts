@@ -3,8 +3,11 @@
  * reloads that conversation alone and keeps its slots, so the request
  * and the landing wait in the conversation's own slot rather than the
  * process's reload slot, which every conversation shares. Nothing here
- * touches pi's settings: every conversation runs the one harness the
- * host loaded, so a hosted reload never swaps a tree in.
+ * touches pi's settings: a host's conversations load the harness from
+ * the one install it runs, so a hosted reload never swaps a tree in.
+ * A reload reads that install from disk again, so once pi-packages
+ * moves it, a reloaded conversation runs the new version while the
+ * others keep the old one until each reloads.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -31,7 +34,7 @@ const SLOT = "agentic-harness.reload.hosted.v1";
 
 /** Why a hosted conversation is refused a reload onto a tree. */
 export const HOSTED_RELOAD_ONTO =
-	"Nothing was reloaded: in a host every conversation runs the one harness the host loaded, so a conversation can't reload onto another tree or the install. Reload with no onto, or run the tree in a pi of its own.";
+	"Nothing was reloaded: in a host every conversation loads the harness from the install the host runs, so a conversation can't reload onto another tree or name the install. Reload with no onto, or run the tree in a pi of its own.";
 
 /** Whether this process is a host that can reload a conversation. */
 export function hostReloads(): boolean {
@@ -88,7 +91,8 @@ export function settleHostedReload(
  * waits for this conversation to be idle, which the hook or command
  * asking is holding it from. The reloaded runtime says the landing; a
  * reload that fails is said here, since this runtime is still the one
- * running.
+ * running. A request the agent left waiting goes with it, so the next
+ * settle doesn't reload a second time.
  */
 export function reloadThroughHost(
 	ctx: ExtensionContext,
@@ -97,6 +101,7 @@ export function reloadThroughHost(
 	const host = hosted();
 	if (!host?.reload) return;
 	const slot = state(ctx);
+	slot.request = undefined;
 	slot.landing = request;
 	host
 		.reload(sessionKeyOf(ctx), { reason: request.reason })

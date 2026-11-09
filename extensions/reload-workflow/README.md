@@ -160,10 +160,15 @@ it asks its host to reload it instead (`hosted.ts`). The `reload`
 tool queues the request in the conversation's own slot; the end of
 that conversation's run hands it to the host's `reload`, which reloads
 that conversation alone and keeps its slots; and its new runtime says
-the landing, as on plain pi. `/harness reload` asks the host at once.
-A tree is refused, since every conversation runs the one harness the
-host loaded, and a host that can't reload a conversation has both
-refuse, saying why. Each conversation's load still writes
+the landing, as on plain pi. `/harness reload` asks the host at once,
+and takes any request the agent left waiting with it. A tree is
+refused, since every conversation loads the harness from the install
+the host runs, and a host that can't reload a conversation has both
+refuse, saying why. A reload reads that install from disk again, so
+once pi-packages moves it a reloaded conversation runs the new
+version while the others keep the old one until each reloads: an
+install swap reaches a host one conversation at a time. Each
+conversation's load still writes
 `loaded/<pid>`, so pi-packages keeps the version the host runs, but
 none takes it back and no exit listener is added: one conversation
 ending must not take it back for the others, and pi-packages removes

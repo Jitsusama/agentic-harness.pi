@@ -259,6 +259,28 @@ it(
 );
 
 it(
+	"takes the agent's waiting request with the person's reload, so it reloads once",
+	async () => {
+		host();
+		const a = runtime("a");
+		await a.start("startup");
+
+		await a.ask({ reason: "try it" });
+		await a.command("reload");
+		await until("A's new runtime says it landed", () =>
+			Boolean(runtimes.get("a")?.hidden.length),
+		);
+		await a.settle();
+		await runtimes.get("a")?.settle();
+
+		expect(asked).toEqual([
+			["a", { reason: "you asked with /harness reload" }],
+		]);
+	},
+	LANDS,
+);
+
+it(
 	"refuses as before in a host that can't reload a conversation",
 	async () => {
 		host(false);
