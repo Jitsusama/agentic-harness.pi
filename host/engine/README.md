@@ -19,5 +19,9 @@ dispose timers, subscriptions and runner resources. The optional stamp
 callback emits on the conversation's pi event bus: close sends closed;
 stop sends signalled for host restart, without marking a deliberate quit.
 Stamps do not recursively close. Reload keeps ownership and slots, not
-calling close or stop. The durable AgentSession adapter and process-child
+calling close or stop: `reload(id, { reason })` runs the registration's
+optional reload callback under withSession, joins a reload already
+under way, refuses an unknown or closing conversation, a tree (`onto`)
+and a runner with no callback, and leaves a conversation whose reload
+failed held and usable. The durable AgentSession adapter and process-child
 reconciliation are subsequent work, not implemented by this first seam.
