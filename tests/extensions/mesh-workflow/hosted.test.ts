@@ -1,8 +1,8 @@
 /** Two mesh runtimes in one host exchange messages and close independently. */
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -17,14 +17,18 @@ import {
 	takeHeavyCalls,
 } from "../../../extensions/mesh-workflow/leases.ts";
 import { registerTools } from "../../../extensions/mesh-workflow/tools.ts";
+import { hostSocketPath } from "../../../host/service/address.ts";
+import { listenControl } from "../../../host/service/server.ts";
 import {
 	type Host,
+	hostRegistryPath,
 	installHost,
 	releaseSession,
 	type SessionEnvironment,
 	sessionEnv,
 	withSession,
 } from "../../../lib/core/session/index.ts";
+import { stateDir } from "../../../lib/internal/paths.ts";
 import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
 import { handIn } from "../../../lib/mesh/hand.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
@@ -308,5 +312,99 @@ it("ends only the addressed conversation and refuses a foreign host without sign
 	presences.publish({ ...bravo, orchestratedBy: "ORCHST", owner: host.owner });
 	expect(await end()).toContain("close only that conversation");
 	expect([...open]).toEqual(["alpha-AAAAAAAA"]);
+	self.dispose();
+});
+
+it("ends a conversation another host holds through that host's socket, never a signal", async () => {
+	const { host } = await inHost();
+	const a = await peer("alpha-AAAAAAAA");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const runtime = join(root, "run");
+	vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+	vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
+	const far = "c0000000-0000-4000-8000-000000000003";
+	const near = "d0000000-0000-4000-8000-000000000004";
+	const open = new Set([far, near]);
+	const identity = { key: "work-attended", owner: host.owner };
+	const publishList = () => {
+		const path = hostRegistryPath(host.owner, stateDir("hosts"));
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(
+			path,
+			JSON.stringify({
+				...identity,
+				sessions: [...open].map((id) => ({
+					id,
+					state: "idle",
+					since: new Date().toISOString(),
+				})),
+			}),
+		);
+	};
+	publishList();
+	const kill = vi.spyOn(process, "kill");
+	const listener = await listenControl({
+		path: hostSocketPath("work", "attended", runtime),
+		backend: {
+			identity,
+			execute: async (request) => {
+				if (request.op !== "close") throw new Error(request.op);
+				open.delete(request.sessionId);
+				publishList();
+				return { sessionId: request.sessionId };
+			},
+		},
+		report() {},
+	});
+	let listening = true;
+	const stopListening = async () => {
+		if (listening) await listener.close();
+		listening = false;
+	};
+	stops.push(stopListening);
+	const self = localPeer({
+		session: "alpha-AAAAAAAA",
+		cwd: a.ctx.cwd,
+		records: paths,
+		presences,
+	});
+	const tools = new Map<string, Tool>();
+	registerTools(
+		{
+			registerTool: (tool: Tool) => tools.set(tool.name, tool),
+		} as unknown as ExtensionAPI,
+		() => ({
+			peer: { ...self, orchestrates: "ORCHST" },
+			presences,
+			transport: folderTransport(join(paths.mesh, "messages")),
+			board: createBoard(join(paths.mesh, "leases")),
+			sent() {},
+		}),
+	);
+	const alpha = presences.of("alpha-AAAAAAAA");
+	if (!alpha) throw new Error("alpha did not publish");
+	for (const [session, address] of [
+		[far, "far-FFFFFFFF"],
+		[near, "near-EEEEEEEE"],
+	] as const)
+		presences.publish({
+			...alpha,
+			session: address,
+			addresses: [address.slice(-8)],
+			orchestratedBy: "ORCHST",
+			owner: host.owner,
+			hosted: { host: "work-attended", conversation: session },
+		});
+	const end = async (peer: string) =>
+		(await tools.get("mesh_end")?.execute("end", { peer }))?.content[0]?.text;
+	expect(await end("FFFFFFFF")).toContain("close only that conversation");
+	expect([...open]).toEqual([near]);
+	expect(await end("FFFFFFFF")).toContain("already ended");
+	await stopListening();
+	expect(await end("EEEEEEEE")).toContain("did not confirm");
+	expect([...open]).toEqual([near]);
+	expect(kill).not.toHaveBeenCalled();
+	kill.mockRestore();
+	vi.unstubAllEnvs();
 	self.dispose();
 });

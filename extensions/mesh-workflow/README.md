@@ -981,8 +981,13 @@ hint and heavy-call carry in its own environment and slot; command paths
 come from the calling conversation rather than the host directory.
 
 mesh_end closes just the addressed conversation when it belongs to the
-installed host. A hosted owner in another process is refused with the
-host control-socket remedy; the shared pid is never signalled. Plain pi
+installed host. A hosted owner in another process, once its host's list
+still holds the conversation, is closed through that host's control
+socket, `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, named by the host
+key `<realm>-<kind>`. The request carries the host's whole process
+identity as expectedHost, so a successor on the same socket refuses it.
+An unreachable socket, a refusal or a lost reply leaves the conversation
+alone and is never retried; the shared pid is never signalled. Plain pi
 still receives SIGTERM after its process identity is checked. The steer
 inbox taker remains a process id: each peer has its own address directory,
 so it identifies a process taking one inbox, not a conversation.
