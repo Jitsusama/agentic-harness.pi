@@ -30,6 +30,7 @@
 	// Programs the machine provides, never an npm package's binaries.
 	"ignoreBinaries": [
 		"btrfs",
+		"devx",
 		"kitty",
 		"mycelium",
 		"perl",

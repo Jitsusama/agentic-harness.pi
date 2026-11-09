@@ -10,7 +10,12 @@ unregistered start, holds kept through stop and failed closes, resume
 at start, and two sessions each in its own environment.
 serve.test.ts starts and stops whole hosts in a private folder: a second
 host of one key and a refused engine never listen, and holds survive
-stop and resume at the next start.
+stop and resume at the next start. The stale-rejection net is mocked,
+so the test worker keeps its own handling; the test checks a host sets
+it before its engine loads.
+gateway-key.test.ts checks the launcher's key order and when a personal
+key is resolved again, with a fake resolver and a stamp file in a
+private folder; the dev tool itself is never run.
 roster.test.ts checks durable holds across stop and a host that died
 without closing, lock refusal and takeover races, and refusal to start
 over an unreadable roster, in a private temporary folder. They do not
