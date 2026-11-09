@@ -21,17 +21,24 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
+import { MERGE_COMMAND, noteQueued } from "../queued.ts";
 import { batchRefusal, runBatch, type SayItem } from "./batch.ts";
 import {
 	type Answer,
 	boundFor,
 	hostedChange,
+	isRefusal,
 	refuse,
 	refuseFailure,
 	renderAnswer,
 	renderInvocation,
 	threadsOf,
 } from "./shared.ts";
+
+/** Whether an item comments the command that queues a change to merge. */
+function asksToMerge(item: SayItem): boolean {
+	return item.action === "comment" && MERGE_COMMAND.test(item.body ?? "");
+}
 
 /** Register the `review_say` tool. */
 export function registerSayTool(pi: ExtensionAPI): void {
@@ -202,7 +209,20 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					? await threadsOf(bound)
 					: [];
 
-				return await runBatch(ctx, bound, conversation, change, threads, items);
+				const answer = await runBatch(
+					ctx,
+					bound,
+					conversation,
+					change,
+					threads,
+					items,
+				);
+				// A `/merge` comment sends the change to World's queue, which
+				// merges it later, so it is watched until it lands (queued.ts).
+				if (!isRefusal(answer.details) && items.some(asksToMerge)) {
+					noteQueued(change);
+				}
+				return answer;
 			} catch (error) {
 				return refuseFailure(error, bound);
 			}

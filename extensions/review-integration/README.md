@@ -185,6 +185,18 @@ five minutes, since a gate skipped whenever it breaks guards
 nothing. It came of four checks going red on core.nix's main on 8
 November, each from a branch that built before rebasing.
 
+### When a Queued Change Lands
+
+A merge that lands at once is said landed then, so the mesh keeps
+it in the session's presence and its landings record. A change sent
+to a queue lands later: a `review_offer merge` the backend answers
+as enqueued, or a `review_say` comment of `/merge`, which is how
+World's changes merge. Each is noted for the session that sent it,
+looked at every five minutes, and said landed once it shows merged,
+or closed once it shows closed; one still queued after a week is
+let go. On 8 November the record held 320 landings and none of
+World's.
+
 ### Who a Round Asks
 
 A round works with no `ask` subsection at all. It then asks the

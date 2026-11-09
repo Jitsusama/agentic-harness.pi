@@ -12,7 +12,11 @@
  * the state in which it is still yours to watch.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { queuedHere } from "../../extensions/review-integration/queued.ts";
 import {
 	type AuthoringCapabilities,
 	type Change,
@@ -200,9 +204,25 @@ describe("what merging says it landed", () => {
 		]);
 	});
 
-	it("lands nothing the queue has only accepted", async () => {
-		const { landed } = await attachThenMerge({ kind: "enqueued" });
+	it("lands nothing the queue has only accepted, and watches it until it merges", async () => {
+		const root = mkdtempSync(join(tmpdir(), "enqueued-"));
+		vi.stubEnv("XDG_STATE_HOME", root);
+		try {
+			const { landed } = await attachThenMerge(
+				{ kind: "enqueued" },
+				{ person: "Nothing to try." },
+			);
 
-		expect(landed).toEqual([]);
+			expect(landed).toEqual([]);
+			expect(queuedHere()).toEqual([
+				expect.objectContaining({
+					change: expect.objectContaining({ label: "shop/world#438" }),
+					person: "Nothing to try.",
+				}),
+			]);
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
