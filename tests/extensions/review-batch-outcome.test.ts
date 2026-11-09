@@ -10,12 +10,24 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runBatch } from "../../extensions/review-integration/tools/batch.ts";
 import type { BoundTarget, Thread } from "../../lib/core/review/index.ts";
+import {
+	restoreSessionModes,
+	setSessionMode,
+} from "../../lib/guardian/policy.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 
-/** A ctx whose gate approves everything, as it does with nobody to ask. */
+/**
+ * A ctx with nobody to ask, whose remarks go out because the person
+ * turned the review-say guard off ahead of time (beforeEach); with the
+ * guard on, nothing goes out without a screen to ask on.
+ */
 const HEADLESS = { hasUI: false, ui: {} } as unknown as ExtensionContext;
+
+beforeEach(() => setSessionMode(GUARDS.reviewSay.name, "off"));
+afterEach(() => restoreSessionModes({}));
 
 /** A ctx whose gate rejects the tab with this label. */
 function rejecting(label: string): ExtensionContext {
@@ -114,7 +126,27 @@ describe("what a batch reports", () => {
 		expect(text).toContain("upstream said no");
 	});
 
+	it("posts nothing with no screen to ask on while the guard asks", async () => {
+		// 9 November: Slack's and Google's gates approved every send with no
+		// screen (OSPHT4); a remark in the person's name is held the same way.
+		setSessionMode(GUARDS.reviewSay.name, "block");
+		const { facet, replied } = conversation();
+
+		const answer = await runBatch(
+			HEADLESS,
+			BOUND,
+			facet,
+			CHANGE,
+			THREADS,
+			REPLIES,
+		);
+
+		expect(replied).toEqual([]);
+		expect(said(answer as never)).toContain("no one is at this session");
+	});
+
 	it("says a rejected item was dropped rather than silently skipping it", async () => {
+		restoreSessionModes({});
 		const { facet, replied } = conversation();
 		const answer = await runBatch(
 			rejecting("T2"),

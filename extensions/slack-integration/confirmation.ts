@@ -15,7 +15,11 @@ import type {
 	ExtensionContext,
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { approvalUnder, fenced } from "../../lib/guardian/apply.ts";
+import {
+	approvalUnder,
+	fenced,
+	unattendedRefusal,
+} from "../../lib/guardian/apply.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
 import { frameTitle } from "../../lib/ui/frame.ts";
@@ -47,9 +51,9 @@ export type ConfirmResult<T> =
 
 /**
  * The gate's answer when it needs no panel, or undefined when it should
- * ask. Without a UI it approves, as it always has. Otherwise the slack
- * guard decides: approved without asking (reported when the guard
- * reports), held while the person is away, or asked.
+ * ask. The slack guard decides: approved without asking (reported when
+ * the guard reports), held while the person is away, or asked, which
+ * with no screen to ask on is refused (`unattendedRefusal`).
  */
 function unasked<T>(
 	ctx: ExtensionContext,
@@ -57,7 +61,6 @@ function unasked<T>(
 	title: string,
 	text?: string,
 ): ConfirmResult<T> | undefined {
-	if (!ctx.hasUI) return { approved: true, data };
 	const approval = approvalUnder(
 		GUARDS.slack.name,
 		title,
@@ -66,6 +69,9 @@ function unasked<T>(
 	if (approval.kind === "go") return { approved: true, data };
 	if (approval.kind === "held")
 		return { approved: false, redirect: approval.reason };
+	if (!ctx.hasUI) {
+		return { approved: false, redirect: unattendedRefusal(`Slack: ${title}`) };
+	}
 	return undefined;
 }
 

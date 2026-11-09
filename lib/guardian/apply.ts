@@ -136,6 +136,19 @@ const ASK: Approval = { kind: "ask" };
 const GO: Approval = { kind: "go" };
 
 /**
+ * Why a write that waits on the person's yes was not made: nobody is at
+ * the session to give it. A gate with no screen, in a subagent, print or
+ * RPC mode, or a host running pi with no terminal, once approved every
+ * Slack message and email it was handed (OSPHT4 [70f3e526], 9 November),
+ * against the rule that nothing is sent without the person saying so. It
+ * refuses instead, unless its guard was turned off, which is the person
+ * saying so ahead of time.
+ */
+export function unattendedRefusal(what: string): string {
+	return `Not done: ${what} waits on the person's yes, and no one is at this session to give it, since it has no screen. Hand what you would have sent to the session's person, or to your orchestrator, for them to send.`;
+}
+
+/**
  * What an approval gate should do under its guard's mode and the
  * person's presence. Off and redirect behave as `asksUnder` does. A
  * blocking guard asks when the person is here; while they are away it

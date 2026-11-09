@@ -183,10 +183,16 @@ describe("knowing where you are in a batch", () => {
 });
 
 describe("with nobody to ask", () => {
-	it("approves everything, as every gate in this package does headless", async () => {
+	it("posts none of it, and says why, since nobody can approve it", async () => {
+		// Until 9 November this approved everything, as the Slack and Google
+		// gates did, and a session with no screen spoke in the person's name.
 		const ctx = context(null, false);
 		const decision = await confirmBatch(ctx, "Post 3 Things", items(3));
-		expect(decision).toMatchObject({ proceed: true });
-		expect(decision.accepted).toEqual([0, 1, 2]);
+		expect(decision).toMatchObject({
+			proceed: false,
+			accepted: [],
+			rejected: [0, 1, 2],
+			redirect: expect.stringContaining("no one is at this session"),
+		});
 	});
 });
