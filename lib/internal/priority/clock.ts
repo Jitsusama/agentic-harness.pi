@@ -10,12 +10,19 @@
  * taken over here and started when the shell marks its turn begun. A
  * call the queue does not hold keeps pi's own clock, untouched.
  *
+ * Nor does the limit count a stretch its cgroup spends frozen. The jobs
+ * door freezes a scope through a call Joel is on, and a check frozen for
+ * 26 minutes behind a 15-minute limit was killed the moment it thawed,
+ * before any test ran. So the clock is counted a poll at a time, adding
+ * only the polls its shell's cgroup ran through; it runs out within a
+ * poll of its limit.
+ *
  * Running out reads exactly as pi's own does, `Command timed out after N
  * seconds`, and the shell has already said how long it waited when the
  * wait was long enough to notice.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
@@ -40,8 +47,45 @@ export function queuedJobOf(
 }
 
 /**
+ * Whether the cgroup process `pid` runs in is frozen now, read from that
+ * cgroup's `cgroup.events`. A process gone, or a machine without cgroup
+ * v2, reads as running, so the clock counts as it always did.
+ */
+function frozenNow(pid: number): boolean {
+	try {
+		const group = /^0::(.*)$/m.exec(
+			readFileSync(`/proc/${pid}/cgroup`, "utf8"),
+		)?.[1];
+		if (group === undefined) return false;
+		const events = readFileSync(
+			join("/sys/fs/cgroup", group, "cgroup.events"),
+			"utf8",
+		);
+		return /^frozen 1$/m.test(events);
+	} catch {
+		// Nothing to read is nothing frozen: the limit counts, as it did.
+		return false;
+	}
+}
+
+/** The pid the queued shell wrote for itself (turn.ts), or nothing yet. */
+function shellPidOf(dir: string, id: string): number | undefined {
+	try {
+		const pid = Number.parseInt(
+			readFileSync(join(dir, `${id}.pid`), "utf8"),
+			10,
+		);
+		return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+	} catch {
+		// Not written, or already cleared: nothing to look at.
+		return undefined;
+	}
+}
+
+/**
  * `ops`, starting the time limit of a call the queue holds when its turn
- * begins rather than when its shell starts.
+ * begins rather than when its shell starts, and pausing it while the
+ * shell's cgroup is frozen.
  */
 export function timedFromTurn(
 	ops: BashOperations,
@@ -52,9 +96,12 @@ export function timedFromTurn(
 		 * that carries it somewhere other than the command line.
 		 */
 		commandOf?: (command: string, env: NodeJS.ProcessEnv | undefined) => string;
+		/** Whether a pid's cgroup is frozen now; tests stand in for /proc. */
+		frozen?: (pid: number) => boolean;
 	} = {},
 ): BashOperations {
 	const pollMs = options.pollMs ?? POLL_MS;
+	const frozen = options.frozen ?? frozenNow;
 	const commandOf = options.commandOf ?? ((command: string) => command);
 	return {
 		async exec(command, cwd, call) {
@@ -76,14 +123,21 @@ export function timedFromTurn(
 			else signal?.addEventListener("abort", stopped, { once: true });
 			const mark = join(job.dir, `${job.id}.began`);
 			let timedOut = false;
-			let limit: ReturnType<typeof setTimeout> | undefined;
+			let ranMs = 0;
+			let last: number | undefined;
 			const watch = setInterval(() => {
-				if (!existsSync(mark)) return;
+				const now = Date.now();
+				if (last === undefined) {
+					if (existsSync(mark)) last = now;
+					return;
+				}
+				const pid = shellPidOf(job.dir, job.id);
+				if (pid === undefined || !frozen(pid)) ranMs += now - last;
+				last = now;
+				if (ranMs < timeout * 1000) return;
 				clearInterval(watch);
-				limit = setTimeout(() => {
-					timedOut = true;
-					stop.abort();
-				}, timeout * 1000);
+				timedOut = true;
+				stop.abort();
 			}, pollMs);
 			try {
 				const { timeout: _counted, ...rest } = call;
@@ -102,7 +156,6 @@ export function timedFromTurn(
 				throw error;
 			} finally {
 				clearInterval(watch);
-				if (limit) clearTimeout(limit);
 				signal?.removeEventListener("abort", stopped);
 			}
 		},
