@@ -61,6 +61,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/reload/load-check.test.ts",
 	"tests/lib/internal/reload/stale-rejections.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
+	"tests/package/hosted-loads-add-no-process-listeners.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
 	"tests/lib/internal/priority/push-hooks.test.ts",
 	"tests/scripts/pi-carry.test.ts",
