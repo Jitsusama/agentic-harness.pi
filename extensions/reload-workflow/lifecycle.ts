@@ -76,11 +76,14 @@ const SAID_FILE = Symbol.for("agentic-harness.reload.said-file");
  * process ends. Each load says it again; the process's one file is taken
  * back once, whichever load wrote it last.
  *
- * Not in a host: the host says once what its process runs, and one
- * conversation ending must not take that back for the others.
+ * In a host each conversation's load says it, so the version its
+ * conversations run is never swept under them, but none takes it back:
+ * one conversation ending must not do so for the others, and the host's
+ * process adds no exit listener for it. pi-packages counts a file only
+ * while its pid runs and removes it once the process has ended
+ * (core.nix's pi-packages, src/loaded.rs).
  */
 export function tellPiPackages(settings: PackageSettings): void {
-	if (hosted()) return;
 	let install: string | undefined;
 	try {
 		install = installRoot(settings, PACKAGE_NAME);
@@ -91,7 +94,7 @@ export function tellPiPackages(settings: PackageSettings): void {
 	const file = sayLoaded(PACKAGE_ROOT, install);
 	if (file === undefined || Reflect.get(globalThis, SAID_FILE) === file) return;
 	Reflect.set(globalThis, SAID_FILE, file);
-	process.once("exit", () => unsayLoaded(file));
+	if (!hosted()) process.once("exit", () => unsayLoaded(file));
 }
 
 /** Show the mark while the session runs something other than the install. */

@@ -1,7 +1,8 @@
 /**
  * A hosted conversation leaves the process's reload machinery alone: it
- * says nothing in `loaded/`, follows nothing, and reloads nothing itself,
- * since each of those is one per process and shared by every conversation.
+ * follows nothing and reloads nothing itself, since each of those is one
+ * per process and shared by every conversation. It still says what the
+ * process loaded, so the version is kept, but never takes that back.
  */
 
 import {
@@ -28,6 +29,9 @@ import {
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import { installTestHost } from "../../support/session-host.ts";
+
+/** Where the process keeps the file it said, as lifecycle.ts names it. */
+const SAID_FILE = Symbol.for("agentic-harness.reload.said-file");
 
 let root: string;
 let host: ReturnType<typeof installTestHost>;
@@ -57,23 +61,30 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-it("says nothing of what it loaded, and leaves the process's exit alone", () => {
+it("says what the host loaded, so it is kept, and adds no exit listener", () => {
 	const said = join(root, "package", "loaded", String(process.pid));
 	const settings = installed();
-	host.dispose();
-	tellPiPackages(settings);
-	expect(existsSync(said), "plain pi says what it loaded").toBe(true);
-	rmSync(said);
-
-	host = installTestHost();
+	Reflect.deleteProperty(globalThis, SAID_FILE);
 	const exits = process.listenerCount("exit");
+
+	tellPiPackages(settings);
+	host.host.close("a", "its person closed it");
 	tellPiPackages(settings);
 
 	expect(
 		existsSync(said),
-		"the host says what its process loaded, not a conversation",
-	).toBe(false);
+		"the version the host's conversations run is said, and A's close keeps it",
+	).toBe(true);
 	expect(process.listenerCount("exit")).toBe(exits);
+
+	host.dispose();
+	Reflect.deleteProperty(globalThis, SAID_FILE);
+	tellPiPackages(settings);
+	expect(
+		process.listenerCount("exit"),
+		"plain pi takes its file back as it exits",
+	).toBe(exits + 1);
+	host = installTestHost();
 });
 
 it("follows no install, even with a screen", async () => {

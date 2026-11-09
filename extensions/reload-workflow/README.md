@@ -155,10 +155,13 @@ hidden custom message.
 The request slot, the follower and `loaded/<pid>` are one per process,
 and a tree is swapped in through pi's shared settings. In a
 multi-session host each would act for every conversation at once, so
-a hosted conversation uses none of them: it writes no `loaded/` file
-and adds no exit listener (the host says what its process runs),
-follows no install, and the `reload` tool and `/harness reload`
-refuse, saying the reload is the host's to do.
+a hosted conversation uses none of them: it follows no install, and
+the `reload` tool and `/harness reload` refuse, saying the reload is
+the host's to do. Each conversation's load still writes
+`loaded/<pid>`, so pi-packages keeps the version the host runs, but
+none takes it back and no exit listener is added: one conversation
+ending must not take it back for the others, and pi-packages removes
+a file once its pid has ended.
 
 ## Load Check
 
