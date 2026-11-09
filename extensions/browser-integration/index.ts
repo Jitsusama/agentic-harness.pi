@@ -19,14 +19,30 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	ambientSession,
+	hosted,
+	sessionKeyOf,
+} from "../../lib/core/session/index.ts";
 import { registerCheck } from "./check-tool.ts";
 import { registerDo } from "./do-tool.ts";
 import { registerGo } from "./go-tool.ts";
+import type { RegistryOptions } from "./registry.ts";
 import { registerSee } from "./see-tool.ts";
 import { lazySessions } from "./sessions.ts";
 
+/** Register browser tools with a registry owned by this extension instance. */
 export default function browserIntegration(pi: ExtensionAPI) {
-	const { sessions, disposeAll } = lazySessions();
+	// Capture ownership at load, not in browser mechanics or a later callback.
+	// A hosted runner owns its contexts, never the Chrome its peers share.
+	const options: Pick<RegistryOptions, "ownsBrowser" | "artifactRef"> = {
+		ownsBrowser: hosted() === undefined,
+		artifactRef: ambientSession(),
+	};
+	const { sessions, disposeAll } = lazySessions(options);
+	pi.on("session_start", async (_event, ctx) => {
+		options.artifactRef = sessionKeyOf(ctx);
+	});
 
 	pi.on("session_shutdown", async () => {
 		await disposeAll();

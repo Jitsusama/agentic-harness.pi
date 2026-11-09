@@ -16,13 +16,19 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import {
+	claimArtifactDirectory,
+	prepareArtifactOwnership,
+} from "../../lib/core/internal/artifacts/ownership.ts";
 import { offerQueryTool } from "../../lib/core/result/follow.ts";
 import {
 	cleanupSessionResults,
 	isPidAlive,
+	LEGACY_RESULT_ROOT,
 	openSessionStore,
 	RESULT_ROOT,
 	reapAbandonedResults,
+	sessionResultDir,
 } from "../../lib/core/result/location.ts";
 import { adoptLegacyResults } from "../../lib/core/result/migrate.ts";
 import {
@@ -121,16 +127,21 @@ export default function resultStore(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		await prepareArtifactOwnership(ctx);
+		claimArtifactDirectory(sessionResultDir(ctx), ctx);
 		adoptLegacyResults(ctx);
-		// A session that was killed cannot clean up after itself, and a
-		// pid-named directory whose process is gone is unambiguously
-		// abandoned, so this is where those get collected.
-		reapAbandonedResults({ root: RESULT_ROOT, isPidAlive });
+		// Stable directories require ownership proof; old pid layouts are
+		// swept separately after cited payloads have been adopted.
+		await reapAbandonedResults({
+			root: RESULT_ROOT,
+			isPidAlive,
+			legacyRoots: [LEGACY_RESULT_ROOT],
+		});
 	});
 
 	pi.on("session_shutdown", async (event, ctx) => {
-		// Reload and session switches retain handles. A quit removes only
-		// this caller; another runner in the process still owns its results.
+		// Reload and session switches retain handles. Cleanup removes only
+		// a plain-pi caller; hosted quit may be a resumable host stop.
 		if (event.reason !== "quit") return;
 		cleanupSessionResults(ctx);
 	});

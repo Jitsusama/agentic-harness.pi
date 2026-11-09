@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	isPidAlive,
 	openSessionStore,
+	RESULT_ROOT,
 	reapAbandonedResults,
 	sessionResultDir,
 } from "../../../lib/core/result/location.ts";
@@ -31,41 +32,53 @@ describe("reapAbandonedResults", () => {
 		return dir;
 	}
 
-	it("removes a directory whose process is gone", () => {
+	it("removes a legacy directory whose process is gone", async () => {
 		const dead = payloadDir(4242);
 		fs.mkdirSync(path.join(dead, "session-a"));
 		fs.writeFileSync(path.join(dead, "session-a", "payload.json"), "{}");
 		fs.mkdirSync(path.join(dead, "session-b"));
 
-		reapAbandonedResults({ root, isPidAlive: () => false });
+		await reapAbandonedResults({
+			root,
+			legacyRoots: [root],
+			isPidAlive: () => false,
+		});
 
 		expect(fs.existsSync(dead), `${dead} is removed`).toBe(false);
 	});
 
-	it("leaves a live session's payloads alone", () => {
+	it("leaves a live session's legacy payloads alone", async () => {
 		const live = payloadDir(process.pid);
 
-		reapAbandonedResults({ root, isPidAlive: (pid) => pid === process.pid });
+		await reapAbandonedResults({
+			root,
+			legacyRoots: [root],
+			isPidAlive: (pid) => pid === process.pid,
+		});
 
 		expect(fs.existsSync(live), `${live} is kept`).toBe(true);
 	});
 
-	it("does not touch directories it did not name", () => {
+	it("does not touch directories it did not name", async () => {
 		const notOurs = path.join(root, "someone-elses-cache");
 		fs.mkdirSync(notOurs);
 
-		reapAbandonedResults({ root, isPidAlive: () => false });
+		await reapAbandonedResults({
+			root,
+			legacyRoots: [root],
+			isPidAlive: () => false,
+		});
 
 		expect(fs.existsSync(notOurs), `${notOurs} is kept`).toBe(true);
 	});
 
-	it("is quiet about a root that does not exist", () => {
-		expect(() =>
+	it("is quiet about a root that does not exist", async () => {
+		await expect(
 			reapAbandonedResults({
 				root: path.join(root, "never-created"),
 				isPidAlive: () => false,
 			}),
-		).not.toThrow();
+		).resolves.toBeUndefined();
 	});
 });
 
@@ -88,19 +101,14 @@ describe("isPidAlive", () => {
 });
 
 describe("opening the session store", () => {
-	it("names each session below its process", () => {
+	it("names each session independently of its process", () => {
 		expect(sessionResultDir(ctx)).toBe(
-			path.join(
-				os.tmpdir(),
-				"pi-tool-results",
-				String(process.pid),
-				ctx.sessionManager.getSessionId(),
-			),
+			path.join(RESULT_ROOT, ctx.sessionManager.getSessionId()),
 		);
 		expect(sessionResultDir(resultSession())).not.toBe(sessionResultDir(ctx));
 	});
 
-	it("encodes separators rather than traversing outside the process folder", () => {
+	it("encodes separators rather than traversing outside the session root", () => {
 		const sessionManager = ctx.sessionManager;
 		const original = sessionManager.getSessionId;
 		sessionManager.getSessionId = () => "../a/b";

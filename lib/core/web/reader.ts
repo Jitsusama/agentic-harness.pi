@@ -18,6 +18,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Page } from "puppeteer-core";
 import {
+	type ArtifactReaping,
+	reapSessionArtifacts,
+} from "../internal/artifacts/ownership.ts";
+import { hosted, type SessionRef } from "../session/index.ts";
+import {
 	type Article,
 	type ExtractOptions,
 	extractArticle,
@@ -30,6 +35,7 @@ import {
 	type BundleSink,
 	diskSink,
 	LEGACY_BUNDLE_ROOTS,
+	LEGACY_PID_BUNDLE_ROOT,
 	sessionDir,
 } from "./envelope/sink.ts";
 import { captureTiles, preparePage, type TiledCapture } from "./screenshot.ts";
@@ -325,9 +331,22 @@ export function reapBundles(opts: {
  * running. Safe to call at session start; it never touches a live
  * session's directory.
  */
-export function reapAbandonedBundles(): void {
+export async function reapAbandonedBundles(
+	options: Pick<ArtifactReaping, "standing" | "heldSessionStatus"> = {},
+): Promise<void> {
+	await reapSessionArtifacts({ root: BUNDLE_ROOT, ...options });
+	// Adapter-neutral library callers without session identity still use pid directories.
+	reapDir(BUNDLE_ROOT, (dir, name) => {
+		const pid = Number(name);
+		return (
+			Number.isInteger(pid) &&
+			pid > 0 &&
+			!fs.existsSync(path.join(dir, "owner.json")) &&
+			!isPidAlive(pid)
+		);
+	});
 	reapBundles({
-		root: BUNDLE_ROOT,
+		root: LEGACY_PID_BUNDLE_ROOT,
 		legacyRoots: LEGACY_BUNDLE_ROOTS,
 		isPidAlive,
 		now: Date.now(),
@@ -336,9 +355,10 @@ export function reapAbandonedBundles(): void {
 }
 
 /** Remove this session's bundle directory. Call at session shutdown. */
-export function cleanupSessionBundles(): void {
+export function cleanupSessionBundles(ref?: SessionRef): void {
+	if (hosted()) return;
 	try {
-		fs.rmSync(sessionDir(), { recursive: true, force: true });
+		fs.rmSync(sessionDir(ref), { recursive: true, force: true });
 	} catch {
 		// Best-effort cleanup; the reaper reclaims it later if this fails.
 	}
@@ -437,6 +457,7 @@ export async function capturePage(
 export async function readPage(
 	url: string,
 	signal?: AbortSignal,
+	ref?: SessionRef,
 ): Promise<PageBundle> {
 	const captured = await withTab(
 		{ signal, wallMs: READ_WALL_MS, what: `reading ${url}` },
@@ -445,7 +466,7 @@ export async function readPage(
 			return capturePage(page, url, signal);
 		},
 	);
-	const sink = diskSink();
+	const sink = diskSink(undefined, ref);
 	try {
 		return assembleBundle(captured, sink);
 	} catch (err) {

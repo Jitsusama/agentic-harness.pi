@@ -12,9 +12,18 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { stateDir } from "../../../internal/paths.ts";
+import {
+	artifactSessionKey,
+	claimArtifactDirectory,
+} from "../../internal/artifacts/ownership.ts";
+import type { SessionRef } from "../../session/index.ts";
 
 /** Where every session's bundle directory is rooted. */
-export const BUNDLE_ROOT = path.join(os.tmpdir(), "pi-web");
+export const BUNDLE_ROOT = stateDir("web-bundles");
+
+/** The last pid-owned temp layout, still swept separately from durable session bundles. */
+export const LEGACY_PID_BUNDLE_ROOT = path.join(os.tmpdir(), "pi-web");
 
 /**
  * Where bundles used to be written, still swept so nothing is
@@ -50,14 +59,17 @@ export interface BundleSink {
 	writeBinary(name: string, base64: string): string;
 }
 
-/** This process's private bundle directory. */
-export function sessionDir(): string {
-	return path.join(BUNDLE_ROOT, String(process.pid));
+/** The caller's stable bundle directory; plain library calls without identity retain their pid. */
+export function sessionDir(ref?: SessionRef): string {
+	return path.join(BUNDLE_ROOT, encodeURIComponent(artifactSessionKey(ref)));
 }
 
 /** A filesystem sink that creates a private bundle dir. */
-export function diskSink(root: string = sessionDir()): BundleSink {
+export function diskSink(root?: string, ref?: SessionRef): BundleSink {
+	const owned = root === undefined || ref !== undefined;
+	root ??= sessionDir(ref);
 	fs.mkdirSync(root, { recursive: true, mode: DIR_MODE });
+	if (owned) claimArtifactDirectory(root, ref);
 	// The "r-" prefix keeps the temp dir inside root, where the
 	// reaper looks, rather than creating a sibling of it.
 	const dir = fs.mkdtempSync(path.join(root, "r-"));

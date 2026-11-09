@@ -102,12 +102,19 @@ export interface SessionRegistry {
 	): Promise<T>;
 	/** Close one session; false when none was open. */
 	close(name: string): Promise<boolean>;
-	/** Close every session and the shared browser. */
+	/** Close every local session, and the shared browser only when owned. */
 	disposeAll(): Promise<void>;
 }
 
 /** What a registry is built over; the defaults are the real browser. */
 export interface RegistryOptions {
+	/** Caller identity bound to every browser session opened by this registry. */
+	artifactRef?: SessionOptions["artifactRef"];
+	/**
+	 * Whether disposal also closes process-global Chrome. Defaults to true
+	 * for plain pi; hosted registries own only their sessions' contexts.
+	 */
+	ownsBrowser?: boolean;
 	/** Open a session under a name. */
 	open?: (name: string, options?: SessionOptions) => Promise<BrowserSession>;
 	/** How long a session may sit unused before it is closed. */
@@ -121,8 +128,13 @@ export function createSessionRegistry(
 	const openSession =
 		config.open ??
 		((name: string, options?: SessionOptions) =>
-			BrowserSession.open(name, { dataRoot: DATA_ROOT, ...options }));
+			BrowserSession.open(name, {
+				dataRoot: DATA_ROOT,
+				artifactRef: config.artifactRef,
+				...options,
+			}));
 	const idleTimeoutMs = config.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
+	const ownsBrowser = config.ownsBrowser ?? true;
 	// Kept per name for the registry's life, closes included, so a call
 	// still finishing on a closed session is waited for by the first call
 	// on the session that replaces it.
@@ -147,6 +159,7 @@ export function createSessionRegistry(
 
 	const touch = (name: string, held: Held): void => {
 		clearTimeout(held.idle);
+		if (sessions.get(name) !== held) return;
 		held.idle = setTimeout(() => {
 			// Idle means the session has done nothing, not that a call
 			// started a while ago. The timer used to be set only when a
@@ -157,6 +170,9 @@ export function createSessionRegistry(
 			// masked whichever error actually happened.
 			void held.opening
 				.then(async (session) => {
+					// A queued reaper must not revive a disposed timer or
+					// close a replacement opened under the same name.
+					if (sessions.get(name) !== held) return;
 					if ((running.get(name) ?? 0) > 0) {
 						touch(name, held);
 						return;
@@ -173,7 +189,7 @@ export function createSessionRegistry(
 				.catch(() => {
 					// A session that never opened, or one already closed:
 					// either way there is nothing left to reap.
-					sessions.delete(name);
+					if (sessions.get(name) === held) sessions.delete(name);
 				});
 		}, idleTimeoutMs);
 		held.idle.unref?.();
@@ -209,7 +225,7 @@ export function createSessionRegistry(
 			} catch (err) {
 				// A session that never opened must not linger in the map.
 				clearTimeout(held.idle);
-				sessions.delete(name);
+				if (sessions.get(name) === held) sessions.delete(name);
 				throw err;
 			}
 		},
@@ -246,18 +262,29 @@ export function createSessionRegistry(
 			clearTimeout(held.idle);
 			sessions.delete(name);
 			remember(name, "closed");
-			await held.opening.then((session) => session.close()).catch(() => {});
+			await held.opening
+				.then((session) => session.close())
+				.catch(() => {
+					// Best-effort cleanup: a failed open has no context, and
+					// a crashed/disconnected context may already be gone.
+				});
 			return true;
 		},
 
 		async disposeAll() {
 			const held = [...sessions.values()];
 			sessions.clear();
+			// Cancel all local timers before waiting on any context teardown.
+			for (const one of held) clearTimeout(one.idle);
 			for (const one of held) {
-				clearTimeout(one.idle);
-				await one.opening.then((session) => session.close()).catch(() => {});
+				await one.opening
+					.then((session) => session.close())
+					.catch(() => {
+						// A failed open or disconnected context must not prevent
+						// cleanup of the remaining sessions.
+					});
 			}
-			await closeBrowser();
+			if (ownsBrowser) await closeBrowser();
 		},
 	};
 }

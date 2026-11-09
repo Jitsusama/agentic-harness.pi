@@ -27,25 +27,30 @@ language and collides with names that already mean something else:
 
 ## Lifetime
 
-Each session has its own directory below the process directory,
-with its own 256 MiB quota. Writers and result_query pass the caller's
-context when opening it. Quitting removes only that session's results;
-another runner in the same process keeps its handles. The next start
-reaps entire directories whose process is gone.
+Each session has a stable directory under the XDG state tree, independent
+of its process id, with its own 256 MiB quota. Writers and result_query
+pass caller context when opening it. Opening a store names the directory
+without creating it; a successful payload write records ownership.
 
-Only a quit deletes it. pi also says shutdown for a reload, a new
-session, a resume and a fork, and none of those end the process; a
-reload leaves the conversation on screen citing the handles it was
-given, which would otherwise all answer as missing.
+Plain-pi quit removes only the caller's results. Reload, new session,
+resume and fork keep them. A hosted quit retains results too, because a
+host stop emits quit before those same conversations resume. Hosted
+handles remain readable through a new host owner and boot.
 
-When a live process upgrades from the old process-only layout, startup
-copies only the legacy handles already cited in that conversation's
-branch. Uncited legacy payloads stay outside the new store. Originals
-remain for other pre-upgrade conversations until dead-process reaping.
+Owner records carry the process start time, boot and kernel start ticks
+when available, plus the hosted conversation. Proven dead plain-pi owners
+are reaped; missing or corrupt ownership is preserved. Hosted reaping
+requires a definitive unheld answer from the durable catalogue. Until that
+catalogue is connected, hosted artifacts are conservatively retained.
 
-A handle lasts until its session quits, its process dies or its quota
-evicts the payload. `result_query` says so plainly when a handle has expired
-rather than returning an empty answer that reads like "no data".
+Startup copies only branch-cited handles from the old pid-only and
+pid/session layouts. Originals remain for other pre-upgrade conversations
+and dead-pid reaping. Adoption markers prevent an upgrade from resurrecting
+legacy payloads already evicted under quota.
+
+A handle can expire after plain-pi quit, proven abandonment or quota
+eviction. The query reports expiration rather than an empty answer that
+reads like "no data".
 
 ## Why `-workflow`
 

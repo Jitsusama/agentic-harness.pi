@@ -2,10 +2,10 @@
  * Where a session's stored payloads live, and when they stop
  * living there.
  *
- * Each process contains one directory per session. A clean quit removes
- * only that session's payloads, so another runner can keep querying its
- * handles. A dead process's whole directory is abandoned and reaped at
- * the next start; no bookkeeping has to survive the crash.
+ * Stable session directories survive a hosted restart. Ownership records
+ * distinguish a dead plain-pi process from a conversation held for resume.
+ * A plain quit removes only its caller's payloads; a hosted quit retains
+ * them until the durable catalogue confirms that conversation is unheld.
  *
  * The alternative, reaping by age, cannot tell a dead session's
  * payloads from a live session's, so it either deletes payloads
@@ -15,11 +15,20 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { type SessionContext, sessionKeyOf } from "../session/index.ts";
+import { stateDir } from "../../internal/paths.ts";
+import {
+	type ArtifactReaping,
+	claimArtifactDirectory,
+	reapSessionArtifacts,
+} from "../internal/artifacts/ownership.ts";
+import { hosted, type SessionContext, sessionKeyOf } from "../session/index.ts";
 import { createResultStore, type ResultStore } from "./store.ts";
 
 /** Where every session's stored payloads are rooted. */
-export const RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
+export const RESULT_ROOT = stateDir("tool-results");
+
+/** Previous process-owned payload root, retained for citation adoption and crash reaping. */
+export const LEGACY_RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
 
 // The directory's mode lives with the code that creates it, in
 // spill.ts. Nothing here makes a directory any more.
@@ -34,12 +43,12 @@ export const RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
  */
 export const SESSION_QUOTA_BYTES = 256 * 1024 * 1024;
 
-/** The caller's payload directory, below its process for crash reaping. */
+/** The caller's stable payload directory, independent of the current process. */
 export function sessionResultDir(ctx: SessionContext): string {
 	const id = sessionKeyOf(ctx);
 	if (!id || id === "." || id === "..")
 		throw new Error("A result store needs a session id.");
-	return path.join(RESULT_ROOT, String(process.pid), encodeURIComponent(id));
+	return path.join(RESULT_ROOT, encodeURIComponent(id));
 }
 
 /**
@@ -65,10 +74,17 @@ export function sessionResultDir(ctx: SessionContext): string {
  * The write itself still creates what it needs.
  */
 export function openSessionStore(ctx: SessionContext): ResultStore {
-	return createResultStore({
-		dir: sessionResultDir(ctx),
-		maxBytes: SESSION_QUOTA_BYTES,
-	});
+	const dir = sessionResultDir(ctx);
+	const store = createResultStore({ dir, maxBytes: SESSION_QUOTA_BYTES });
+	return {
+		put(text) {
+			const result = store.put(text);
+			claimArtifactDirectory(dir, ctx);
+			return result;
+		},
+		read: (handle) => store.read(handle),
+		has: (handle) => store.has(handle),
+	};
 }
 
 /** Whether a process is still running. */
@@ -90,7 +106,7 @@ export function isPidAlive(pid: number): boolean {
  * The collaborators are parameters so a destructive sweep can be
  * tested against a throwaway root rather than the real one.
  */
-export function reapAbandonedResults(opts: {
+function reapLegacyResults(opts: {
 	root: string;
 	isPidAlive: (pid: number) => boolean;
 }): void {
@@ -120,13 +136,25 @@ export function reapAbandonedResults(opts: {
 	}
 }
 
-/** Remove this session's payload directory. */
+/** Reap proven abandoned session owners and explicitly supplied legacy pid roots. */
+export async function reapAbandonedResults(
+	opts: ArtifactReaping & {
+		isPidAlive: (pid: number) => boolean;
+		legacyRoots?: readonly string[];
+	},
+): Promise<void> {
+	await reapSessionArtifacts(opts);
+	for (const root of opts.legacyRoots ?? [])
+		reapLegacyResults({ ...opts, root });
+}
+
+/** Remove plain-pi payloads on quit; hosted quit can mean a resumable host stop. */
 export function cleanupSessionResults(ctx: SessionContext): void {
+	if (hosted()) return;
 	const dir = sessionResultDir(ctx);
 	try {
 		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
-		// Nothing more can be done at shutdown, and the pid-keyed name
-		// means the next session's reaper will collect it.
+		// A later start retries cleanup using the recorded process identity.
 	}
 }
