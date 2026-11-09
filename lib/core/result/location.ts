@@ -15,7 +15,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type SessionContext, sessionKeyOf } from "../session/index.ts";
 import { createResultStore, type ResultStore } from "./store.ts";
 
 /** Where every session's stored payloads are rooted. */
@@ -35,10 +35,8 @@ export const RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
 export const SESSION_QUOTA_BYTES = 256 * 1024 * 1024;
 
 /** The caller's payload directory, below its process for crash reaping. */
-export function sessionResultDir(
-	ctx: Pick<ExtensionContext, "sessionManager">,
-): string {
-	const id = ctx.sessionManager.getSessionId();
+export function sessionResultDir(ctx: SessionContext): string {
+	const id = sessionKeyOf(ctx);
 	if (!id || id === "." || id === "..")
 		throw new Error("A result store needs a session id.");
 	return path.join(RESULT_ROOT, String(process.pid), encodeURIComponent(id));
@@ -66,9 +64,7 @@ export function sessionResultDir(
  * the one place that catches exactly this and answers anyway.
  * The write itself still creates what it needs.
  */
-export function openSessionStore(
-	ctx: Pick<ExtensionContext, "sessionManager">,
-): ResultStore {
+export function openSessionStore(ctx: SessionContext): ResultStore {
 	return createResultStore({
 		dir: sessionResultDir(ctx),
 		maxBytes: SESSION_QUOTA_BYTES,
@@ -125,9 +121,7 @@ export function reapAbandonedResults(opts: {
 }
 
 /** Remove this session's payload directory. */
-export function cleanupSessionResults(
-	ctx: Pick<ExtensionContext, "sessionManager">,
-): void {
+export function cleanupSessionResults(ctx: SessionContext): void {
 	const dir = sessionResultDir(ctx);
 	try {
 		fs.rmSync(dir, { recursive: true, force: true });

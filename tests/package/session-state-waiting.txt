@@ -1,13 +1,11 @@
 # Existing direct process sites, recorded 2026-11-09 for wave 2 migration.
 # Each extension domain owns its sites; process infrastructure remains here
 # until its owner documents an explicit exemption. Counts only shrink.
-extensions/attribution-interceptor/index.ts:cwd 3
 extensions/attribution-interceptor/index.ts:env-write 1
 extensions/away-workflow/index.ts:pid 1
 extensions/commit-guardian/parse.ts:cwd 1
 extensions/compaction-workflow/conversation.ts:global 1
 extensions/job-workflow/carry.ts:global 1
-extensions/lsp-integration/index.ts:cwd 2
 extensions/mesh-workflow/hand.ts:cwd 3
 extensions/mesh-workflow/index.ts:cwd 3
 extensions/mesh-workflow/index.ts:pid 7
@@ -38,14 +36,11 @@ extensions/review-integration/tools/draft.ts:cwd 2
 extensions/review-integration/tools/offer.ts:cwd 7
 extensions/review-integration/tools/read.ts:cwd 5
 extensions/review-integration/tools/say.ts:cwd 1
-extensions/review-integration/tools/see.ts:cwd 2
 extensions/rollover-workflow/index.ts:env-write 1
 extensions/shell-workflow/hand-off.ts:pid 1
 extensions/shell-workflow/index.ts:cwd 1
 extensions/shell-workflow/reap.ts:pid 1
 extensions/spend-workflow/resources.ts:global 3
-extensions/status-line-widget/index.ts:cwd 2
-extensions/verification-workflow/index.ts:cwd 3
 extensions/verification-workflow/render.ts:cwd 1
 extensions/work-integration/sweep.ts:pid 1
 extensions/work-integration/tools/tree.ts:cwd 2
