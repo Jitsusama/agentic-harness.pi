@@ -34,6 +34,7 @@ import {
 	reloadSlot,
 } from "../../lib/internal/reload/slot.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
+import { hostReloads, reloadThroughHost } from "./hosted.ts";
 import { canonical, PACKAGE_NAME } from "./lifecycle.ts";
 
 /** What `onto` says to mean the install pi's settings name. */
@@ -178,13 +179,13 @@ export function callOff(): ReloadRequest | undefined {
 }
 
 /**
- * Why a hosted conversation does not reload itself. The request slot is
- * one per process and a tree is swapped in through pi's shared
- * settings, so a reload here would change what every conversation in
- * the host runs.
+ * Why a hosted conversation whose host can't reload it is not reloaded.
+ * The request slot is one per process and a tree is swapped in through
+ * pi's shared settings, so a reload of its own would change what every
+ * conversation in the host runs (hosted.ts asks a host that can).
  */
 export const HOSTED_RELOAD =
-	"Nothing was reloaded: in a host, reloading is the host's to do, since this process's settings and reload state are shared by every conversation it runs.";
+	"Nothing was reloaded: in a host, reloading is the host's to do, and this host can't reload a conversation; this process's settings and reload state are shared by every conversation it runs.";
 
 /**
  * Reload, from a command's context. Runs the agent's request when one
@@ -202,6 +203,13 @@ export async function performReload(
 	} = { underWay: () => false, overruled: () => {} },
 ): Promise<void> {
 	if (hosted()) {
+		if (hostReloads()) {
+			reloadThroughHost(ctx, {
+				reason: "you asked with /harness reload",
+				by: "person",
+			});
+			return;
+		}
 		try {
 			ctx.ui.notify(HOSTED_RELOAD, "info");
 		} catch {

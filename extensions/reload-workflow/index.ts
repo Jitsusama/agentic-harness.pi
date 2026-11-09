@@ -30,6 +30,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { hosted } from "../../lib/core/session/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	describeLoaded,
@@ -43,6 +44,11 @@ import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 import { type Follower, follow } from "./follow.ts";
 import {
+	hostReloads,
+	requestHostedReload,
+	settleHostedReload,
+} from "./hosted.ts";
+import {
 	PACKAGE_NAME,
 	PACKAGE_ROOT,
 	startRuntime,
@@ -53,6 +59,7 @@ import { keepMcpServersAcrossReloads } from "./mcp.ts";
 import {
 	COMMAND,
 	callOff,
+	HOSTED_RELOAD,
 	INSTALLED,
 	performReload,
 	RELOAD_ARG,
@@ -119,6 +126,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	// through pi's prompt path, which is what gives it `reload()`.
 	pi.on("agent_settled", async (event, ctx: ExtensionContext) => {
 		underWay = false;
+		// A hosted conversation's request waits in its own slot, for its host.
+		if (hosted()) {
+			settleHostedReload(ctx, settledAborted(event));
+			return;
+		}
 		// The session's own reload waits for a settle, whoever stopped the
 		// run, and for anything else it is waiting on.
 		if (reloadSlot().request === undefined) {
@@ -174,6 +186,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			if (hosted()) {
+				if (!hostReloads()) throw new Error(HOSTED_RELOAD);
+				const text = requestHostedReload(ctx, params.reason, params.onto);
+				return { content: [{ type: "text", text }], details: { tree: null } };
+			}
 			running = await whatRuns(settings);
 			const tree = treeToLoad(params.onto, running, ctx.cwd, homedir());
 			const text = await requestReload(
