@@ -7,7 +7,6 @@ import commitGuardian from "../../../extensions/commit-guardian/index.ts";
 import guardPolicyWorkflow from "../../../extensions/guard-policy-workflow/index.ts";
 import verificationWorkflow from "../../../extensions/verification-workflow/index.ts";
 import {
-	clearLspBackends,
 	type LspBackend,
 	registerLspBackend,
 } from "../../../lib/core/lsp/index.ts";
@@ -101,7 +100,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	clearLspBackends();
 	for (const id of ["a", "b"]) releaseSession(id);
 	removeHost();
 	setConfiguredModes({});
@@ -210,12 +208,15 @@ describe("guards in two conversations sharing a host", () => {
 			codeActions: async () => [],
 			dispose: async () => {},
 		};
-		registerLspBackend({
-			name: "test",
-			priority: 1,
-			isAvailable: () => true,
-			backend,
-		});
+		registerLspBackend(
+			{
+				name: "test",
+				priority: 1,
+				isAvailable: () => true,
+				backend,
+			},
+			context("b"),
+		);
 		const file = join(root, "b", "broken.ts");
 		writeFileSync(file, "broken");
 		await dispatch(b, "tool_result", "b", {
@@ -229,6 +230,12 @@ describe("guards in two conversations sharing a host", () => {
 		});
 		expect(b.recorded.sent).toHaveLength(1);
 		expect(a.recorded.sent).toHaveLength(0);
+		// A's ambient identity cannot select its backend for B's check.
+		expect(
+			await withSession("a", () =>
+				currentVerificationFailure({ dir: join(root, "b") }, context("b")),
+			),
+		).toMatchObject({ problems: [expect.stringContaining("Broken B")] });
 		await dispatch(a, "session_shutdown", "a");
 		expect(
 			await withSession("a", () => currentVerificationFailure({})),
