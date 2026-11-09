@@ -40,7 +40,7 @@ import {
 	takeParked,
 } from "./carry.ts";
 import { createJobs, type Jobs } from "./jobs.ts";
-import { createOutbox, type Outbox } from "./outbox.ts";
+import { createOutbox, type Outbox, STEERED_RESULTS } from "./outbox.ts";
 
 /**
  * What a starting runtime asks on `JOBS_YIELD` with, and hears back on.
@@ -159,6 +159,15 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 	const holdForReload = createReloadHold();
 	const outbox = createOutbox({
 		send: (text) => runtime.pi.sendUserMessage(text),
+		// Into the run under way, after its tool calls. A session gone idle
+		// since is refused, as a custom message would start a run of its own.
+		steer: (text) => {
+			if (runtime.ctx.isIdle()) throw new Error("no run to put it in");
+			runtime.pi.sendMessage(
+				{ customType: STEERED_RESULTS, content: text, display: true },
+				{ triggerTurn: true, deliverAs: "steer" },
+			);
+		},
 		idle: () => {
 			try {
 				return runtime.ctx.isIdle() && !holdForReload();

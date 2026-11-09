@@ -406,8 +406,9 @@ describe("this session's peer", () => {
 
 		expect(localPeer(at).usage).toEqual(usage);
 
+		// Past midnight today's counts start afresh, keeping only a last call.
 		clock = Date.parse("2026-11-07T00:01:00");
-		expect(localPeer(at).usage).toBeUndefined();
+		expect(localPeer(at).usage).toEqual(noUsage("2026-11-07"));
 	});
 
 	it("is paused over all else, and still paused after a reload", () => {

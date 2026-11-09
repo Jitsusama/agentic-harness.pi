@@ -9,15 +9,26 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { mayPark, type Watch, watch } from "./watch.ts";
+import { clearAwake } from "../../lib/internal/session/park.ts";
+import { mayPark, noteNeverParks, type Watch, watch } from "./watch.ts";
 
 export default function parkWorkflow(pi: ExtensionAPI) {
 	let watching: Watch | undefined;
+	// A session that may never park, which said why, to clear as it ends.
+	let neverParks: string | undefined;
 	const stirred = () => watching?.stirred();
+	const unnote = () => {
+		if (neverParks) clearAwake(neverParks);
+		neverParks = undefined;
+	};
 
 	pi.on("session_start", async (_event, ctx) => {
 		watching?.stop();
+		unnote();
 		watching = mayPark(ctx) ? watch(ctx, pi.events) : undefined;
+		if (!watching && noteNeverParks(ctx)) {
+			neverParks = ctx.sessionManager.getSessionId();
+		}
 	});
 	pi.on("input", async () => {
 		stirred();
@@ -30,5 +41,6 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		watching?.stop();
 		watching = undefined;
+		unnote();
 	});
 }

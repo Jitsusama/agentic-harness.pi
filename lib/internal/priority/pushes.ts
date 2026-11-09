@@ -9,6 +9,7 @@
  * for over 90 minutes (see push-hooks.mjs).
  */
 
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,9 @@ import {
 	SKIP_STALE_VARIABLE,
 } from "./push-hooks.mjs";
 import { skipsWorldPushHooks, type Where } from "./queue.ts";
+
+/** This harness's own push-hooks.mjs, which its wrappers run. */
+const OWN_SCRIPT = fileURLToPath(new URL("./push-hooks.mjs", import.meta.url));
 
 /**
  * Why a push of World with `--no-verify` is refused, saying the form to
@@ -39,6 +43,23 @@ export function skippedHooksRefusal(
 export const PUSHES_FOLDER = "pushes";
 
 /**
+ * The folder of wrappers that run `script`: one for each harness version
+ * on the machine, named by its script's path, under the queue's
+ * {@link PUSHES_FOLDER}. One folder shared by every version was rewritten
+ * by whichever session pushed last: at 03:00 on 9 November a session on
+ * a harness from before the stale-cutoff opt-out pointed every wrapper at
+ * its own script, and newer sessions' opted-out pushes ran World's hooks
+ * whole (91DWO8 [1f3c08c4]).
+ */
+export function pushesFolder(dir: string, script: string = OWN_SCRIPT): string {
+	const version = createHash("sha256")
+		.update(script)
+		.digest("hex")
+		.slice(0, 12);
+	return join(dir, PUSHES_FOLDER, version);
+}
+
+/**
  * The hook a pushing shell's git runs as `name`: this node running
  * push-hooks.mjs, told the name, when the repository has a hook of that
  * name. It reads that in sh first, with our setting hidden, so an event
@@ -51,7 +72,7 @@ export const PUSHES_FOLDER = "pushes";
 export function pushHook(
 	name: string,
 	node: string = process.execPath,
-	script: string = fileURLToPath(new URL("./push-hooks.mjs", import.meta.url)),
+	script: string = OWN_SCRIPT,
 ): string | undefined {
 	if ([node, script].some((path) => path.includes("'"))) return undefined;
 	return [
@@ -65,13 +86,16 @@ export function pushHook(
 }
 
 /**
- * Puts a {@link pushHook} for every hook name in the queue's folder as
- * `pushes/<name>`, runnable, leaving those there as they are. Whether
- * they are all there to run: a shell given the folder with one missing
- * would skip that hook of its repository's.
+ * Puts a {@link pushHook} running `script` for every hook name in its
+ * {@link pushesFolder}, runnable, leaving those there as they are.
+ * Whether they are all there to run: a shell given the folder with one
+ * missing would skip that hook of its repository's.
  */
-export function placePushHooks(dir: string): boolean {
-	const folder = join(dir, PUSHES_FOLDER);
+export function placePushHooks(
+	dir: string,
+	script: string = OWN_SCRIPT,
+): boolean {
+	const folder = pushesFolder(dir, script);
 	try {
 		mkdirSync(folder, { recursive: true });
 	} catch {
@@ -79,7 +103,7 @@ export function placePushHooks(dir: string): boolean {
 		return false;
 	}
 	for (const name of HOOK_NAMES) {
-		const wrapper = pushHook(name);
+		const wrapper = pushHook(name, process.execPath, script);
 		if (wrapper === undefined) return false;
 		const file = join(folder, name);
 		try {
@@ -99,13 +123,16 @@ export function placePushHooks(dir: string): boolean {
 
 /**
  * The line a pushing shell runs before its command: `core.hooksPath`
- * set to the queue's hooks after any git settings it already holds, and
- * how many those were, so the hooks can take it off again. Nothing for
- * a folder that can't be quoted plainly.
+ * set to the hooks that run `script` after any git settings it already
+ * holds, and how many those were, so the hooks can take it off again.
+ * Nothing for a folder that can't be quoted plainly.
  */
-export function pushesLine(dir: string): string | undefined {
+export function pushesLine(
+	dir: string,
+	script: string = OWN_SCRIPT,
+): string | undefined {
 	if (dir.includes("'")) return undefined;
-	const folder = join(dir, PUSHES_FOLDER);
+	const folder = pushesFolder(dir, script);
 	return [
 		`if [ -x '${folder}/pre-push' ]; then`,
 		`export ${PRIOR_VARIABLE}="\${GIT_CONFIG_COUNT:-0}";`,

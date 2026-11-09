@@ -34,7 +34,9 @@ import { registerJobsTool } from "./tool.ts";
 /** The text of a user message, however pi carried it. */
 function textOf(message: unknown): string | undefined {
 	if (typeof message !== "object" || message === null) return undefined;
-	if (!("role" in message) || message.role !== "user") return undefined;
+	if (!("role" in message)) return undefined;
+	// A user message, or a result steered into a run as a custom one.
+	if (message.role !== "user" && message.role !== "custom") return undefined;
 	if (!("content" in message)) return undefined;
 	const { content } = message;
 	if (typeof content === "string") return content;
