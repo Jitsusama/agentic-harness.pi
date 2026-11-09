@@ -94,14 +94,19 @@ $XDG_STATE_HOME/pi/agentic-harness.pi/hosts/<pid>-<startTicks>.json
 
 Without startTicks the filename uses startedAt instead, supporting
 macOS. XDG_STATE_HOME falls back to ~/.local/state. Rewrite the whole
-list atomically on every open, close and state change. Publish it
+list atomically on every open, close and state change. Serialize publication
+in state-change order so an older snapshot cannot overwrite a newer open.
+Publish it
 before a session publishes any lease or presence. An absent session
 in a valid list is gone; missing, malformed or mismatched lists are
-unknown, never proof that reclaiming work is safe.
+unknown, never proof that reclaiming work is safe. askedOnce and
+askedOnceWithTicks share each host list snapshot within that census or sweep;
+start a fresh fact operation for the next sweep rather than caching verdicts.
 
 endSession(owner, why?) invokes Host.close only for an owner matching
 the installed host's full process identity. Plain owners get today's
-SIGTERM. Closing a hosted owner in another process refuses and names
+SIGTERM only after its recorded process identity is confirmed running;
+gone, unknown or malformed owners are refused. Closing a hosted owner in another process refuses and names
 the host control socket: the transport belongs to the host/mesh piece,
 not this module. It never sends SIGTERM to a shared host.
 

@@ -106,7 +106,7 @@ export async function tickedStanding(
 	const standing = await standingByTicks(owner, facts);
 	if (standing === undefined) return ownerStanding(owner, facts);
 	return standing === "running" && owner.session !== undefined
-		? hostedStanding(owner)
+		? (facts.sessionStanding?.(owner) ?? hostedStanding(owner))
 		: standing;
 }
 

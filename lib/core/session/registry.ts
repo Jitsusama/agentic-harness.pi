@@ -25,24 +25,41 @@ function sameOwner(a: TickedOwner, b: TickedOwner): boolean {
 }
 
 /** Consult the local host or its list after the kernel has confirmed its owner. */
-export function hostedStanding(owner: TickedOwner): Standing {
+export function hostedStanding(
+	owner: TickedOwner,
+	readRegistry: (path: string) => HostRegistry | undefined = registryAt,
+): Standing {
 	const host = hosted();
 	if (host && host.key === owner.host && sameOwner(host.owner, owner)) {
 		return host.holds(owner.session ?? "") === undefined ? "gone" : "running";
 	}
-	let read: unknown;
-	try {
-		read = JSON.parse(readFileSync(hostRegistryPath(owner), "utf8"));
-	} catch {
-		// An unreadable or missing registry cannot prove the session closed.
-		return "unknown";
-	}
-	if (!isRegistry(read)) return "unknown";
+	const read = readRegistry(hostRegistryPath(owner));
+	if (!read) return "unknown";
 	if (read.key !== owner.host || !sameOwner(read.owner, owner))
 		return "unknown";
 	return read.sessions.some((session) => session.id === owner.session)
 		? "running"
 		: "gone";
+}
+
+/** Hold each host list once within one census or sweep, never across operations. */
+export function askedHostOnce(): (owner: TickedOwner) => Standing {
+	const lists = new Map<string, HostRegistry | undefined>();
+	return (owner) =>
+		hostedStanding(owner, (path) => {
+			if (!lists.has(path)) lists.set(path, registryAt(path));
+			return lists.get(path);
+		});
+}
+
+function registryAt(path: string): HostRegistry | undefined {
+	try {
+		const read: unknown = JSON.parse(readFileSync(path, "utf8"));
+		return isRegistry(read) ? read : undefined;
+	} catch {
+		// An unreadable or malformed list cannot prove a session closed.
+		return undefined;
+	}
 }
 
 function isRegistry(value: unknown): value is HostRegistry {
@@ -51,6 +68,7 @@ function isRegistry(value: unknown): value is HostRegistry {
 		typeof value !== "object" ||
 		!("key" in value) ||
 		typeof value.key !== "string" ||
+		value.key.length === 0 ||
 		!("owner" in value) ||
 		!value.owner ||
 		typeof value.owner !== "object" ||
@@ -63,7 +81,15 @@ function isRegistry(value: unknown): value is HostRegistry {
 		!("pid" in owner) ||
 		typeof owner.pid !== "number" ||
 		!("startedAt" in owner) ||
-		typeof owner.startedAt !== "number"
+		typeof owner.startedAt !== "number" ||
+		!Number.isSafeInteger(owner.pid) ||
+		owner.pid <= 0 ||
+		!Number.isFinite(owner.startedAt) ||
+		("bootId" in owner && typeof owner.bootId !== "string") ||
+		("startTicks" in owner &&
+			(typeof owner.startTicks !== "number" ||
+				!Number.isSafeInteger(owner.startTicks) ||
+				owner.startTicks < 0))
 	)
 		return false;
 	return value.sessions.every(
@@ -72,9 +98,12 @@ function isRegistry(value: unknown): value is HostRegistry {
 			typeof session === "object" &&
 			"id" in session &&
 			typeof session.id === "string" &&
+			session.id.length > 0 &&
 			"state" in session &&
-			["busy", "idle", "parked"].includes(String(session.state)) &&
+			typeof session.state === "string" &&
+			["busy", "idle", "parked"].includes(session.state) &&
 			"since" in session &&
-			typeof session.since === "string",
+			typeof session.since === "string" &&
+			Number.isFinite(Date.parse(session.since)),
 	);
 }

@@ -26,7 +26,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { hostedStanding } from "../session/registry.ts";
+import { askedHostOnce, hostedStanding } from "../session/registry.ts";
 
 /**
  * How far apart two readings of one process's start time may be.
@@ -64,6 +64,8 @@ export interface ProcessFacts {
 	 * exactly as before rather than wrongly.
 	 */
 	bootId?(): string | undefined;
+	/** Optional list snapshot shared by one census or sweep, not a cached verdict. */
+	sessionStanding?(owner: Owner): "running" | "gone" | "unknown";
 }
 
 /**
@@ -173,7 +175,9 @@ export async function ownerStanding(
 		return facts.alive(owner.pid) ? "unknown" : "gone";
 	}
 	if (!sameProcess(startedAt, owner.startedAt)) return "gone";
-	return owner.session === undefined ? "running" : hostedStanding(owner);
+	return owner.session === undefined
+		? "running"
+		: (facts.sessionStanding?.(owner) ?? hostedStanding(owner));
 }
 
 /**
@@ -191,6 +195,7 @@ export function askedOnce(facts: ProcessFacts): ProcessFacts {
 	const startedAt = new Map<number, Promise<number | undefined>>();
 	const bootId = facts.bootId?.bind(facts);
 	return {
+		sessionStanding: facts.sessionStanding ?? askedHostOnce(),
 		alive: (pid) => facts.alive(pid),
 		...(bootId === undefined ? {} : { bootId }),
 		startedAt: (pid) => {

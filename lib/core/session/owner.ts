@@ -2,7 +2,9 @@
 import {
 	type TickedOwner,
 	tickedOwnerNow,
+	tickedStanding,
 } from "../../internal/process-ticks.ts";
+import { isOwner } from "../process/index.ts";
 import { hosted } from "./host.ts";
 import { requireSession, type SessionRef } from "./identity.ts";
 
@@ -20,6 +22,8 @@ export async function endSession(
 	owner: TickedOwner,
 	why = "ended",
 ): Promise<void> {
+	if (!isOwner(owner))
+		throw new Error("Cannot end a session with an invalid owner");
 	if (owner.session !== undefined) {
 		const host = hosted();
 		if (
@@ -36,6 +40,12 @@ export async function endSession(
 		}
 		await host.close(owner.session, why);
 		return;
+	}
+	const standing = await tickedStanding(owner);
+	if (standing !== "running") {
+		throw new Error(
+			`Cannot end session: recorded process owner is ${standing}`,
+		);
 	}
 	process.kill(owner.pid, "SIGTERM");
 }

@@ -29,6 +29,7 @@ import {
 } from "../../../lib/core/session/index.ts";
 import { processGlobal } from "../../../lib/internal/process-global.ts";
 import {
+	askedOnceWithTicks,
 	processKey,
 	type TickFacts,
 	tickedOwnerNow,
@@ -199,11 +200,39 @@ describe("plain pi", () => {
 
 	it("ends an ordinary owner with today's SIGTERM", async () => {
 		const kill = vi.spyOn(process, "kill").mockReturnValue(true);
-		await endSession(OWNER);
+		const owner = await sessionOwner();
+		if (!owner) throw new Error("machine gave no process owner");
+		await endSession(owner);
 		expect(kill, "plain owner gets SIGTERM").toHaveBeenCalledWith(
-			OWNER.pid,
+			owner.pid,
 			"SIGTERM",
 		);
+	});
+});
+
+describe("safe process ending", () => {
+	it("refuses a reused pid or malformed hosted owner before SIGTERM", async () => {
+		const owner = await sessionOwner();
+		if (!owner) throw new Error("machine gave no process owner");
+		const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+		const stale = {
+			...owner,
+			startedAt: owner.startedAt + 100000,
+			startTicks:
+				owner.startTicks === undefined ? undefined : owner.startTicks + 1,
+		};
+		await expect(
+			endSession(stale),
+			"stale recorded owner is refused",
+		).rejects.toThrow("gone");
+		await expect(
+			endSession({ ...owner, host: "host" }),
+			"half hosted identity is refused",
+		).rejects.toThrow("invalid owner");
+		expect(
+			kill.mock.calls.some(([, signal]) => signal === "SIGTERM"),
+			"no termination signal reaches a reused pid",
+		).toBe(false);
 	});
 });
 
@@ -349,10 +378,59 @@ describe("hosted sessions", () => {
 });
 
 describe("host lists read outside the host", () => {
+	it("uses one registry snapshot per operation, and supports owners with no ticks", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "session-host-snapshot-"));
+		cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+		vi.stubEnv("XDG_STATE_HOME", dir);
+		const processOwner = {
+			pid: OWNER.pid,
+			startedAt: OWNER.startedAt,
+			bootId: OWNER.bootId,
+		};
+		const a = { ...processOwner, host: "host", session: "a" };
+		const b = { ...a, session: "b" };
+		const path = hostRegistryPath(a);
+		mkdirSync(dirname(path), { recursive: true });
+		const registry: HostRegistry = {
+			key: "host",
+			owner: processOwner,
+			sessions: ["a", "b"].map((id) => ({
+				id,
+				state: "idle",
+				since: new Date(0).toISOString(),
+			})),
+		};
+		writeFileSync(path, JSON.stringify(registry));
+		const snapshot = askedOnceWithTicks(FACTS);
+		expect(
+			await tickedStanding(a, snapshot),
+			"no ticks falls back to wall-clock and list",
+		).toBe("running");
+		writeFileSync(path, JSON.stringify({ ...registry, sessions: [] }));
+		expect(
+			await tickedStanding(b, snapshot),
+			"same operation sees its first whole list",
+		).toBe("running");
+		expect(
+			await tickedStanding(b, askedOnceWithTicks(FACTS)),
+			"next operation reads the close",
+		).toBe("gone");
+		rmSync(path);
+		expect(
+			await tickedStanding(a, FACTS),
+			"no ticks and no list is unknown",
+		).toBe("unknown");
+		expect(
+			await ownerStanding(a, FACTS),
+			"wall-clock and no list is unknown",
+		).toBe("unknown");
+	});
+
 	it("reads open, closed and unknown without guessing from a living pid", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "session-host-test-"));
 		cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
 		vi.stubEnv("XDG_STATE_HOME", dir);
+		const kill = vi.spyOn(process, "kill").mockReturnValue(true);
 		const owner = { ...OWNER, session: "a", host: "host" };
 		const path = hostRegistryPath(owner);
 		mkdirSync(dirname(path), { recursive: true });
@@ -376,7 +454,15 @@ describe("host lists read outside the host", () => {
 			await tickedStanding(owner, FACTS),
 			"whole list proves A closed",
 		).toBe("gone");
+		expect(
+			await ownerStanding(owner, FACTS),
+			"wall-clock list proves A closed",
+		).toBe("gone");
 		writeFileSync(path, "{");
+		expect(
+			await ownerStanding(owner, FACTS),
+			"wall-clock malformed list is unknown",
+		).toBe("unknown");
 		expect(
 			await tickedStanding(owner, FACTS),
 			"torn list cannot end a session",
@@ -393,9 +479,24 @@ describe("host lists read outside the host", () => {
 		expect(await tickedStanding(owner, FACTS), "wrong boot ignored").toBe(
 			"unknown",
 		);
+		for (const bad of [
+			{ id: "b", state: ["idle"], since: new Date(0).toISOString() },
+			{ id: "", state: "idle", since: new Date(0).toISOString() },
+			{ id: "b", state: "idle", since: "not a date" },
+		]) {
+			writeFileSync(path, JSON.stringify({ ...registry, sessions: [bad] }));
+			expect(
+				await tickedStanding(owner, FACTS),
+				"malformed entry cannot prove A closed",
+			).toBe("unknown");
+		}
 		await expect(
 			endSession(owner),
 			"remote close never signals the host",
 		).rejects.toThrow("control socket");
+		expect(
+			kill,
+			"fake remote pid never reaches the machine",
+		).not.toHaveBeenCalled();
 	});
 });
