@@ -216,6 +216,12 @@ the turn comes once.
   its log ends where a finished run's would.
 - Closing a terminal mid-run sends SIGHUP, so that session too is given
   a turn when it is reopened.
+- In a multi-session host a signal reaches the process, so every
+  conversation it runs, and no conversation listens for one. The host
+  stamps each conversation it stops `signalled` on that conversation's
+  bus before its shutdown runs, and one the person closed `closed`
+  (`SESSION_STAMP_EVENT`, `lib/core/session`); only `signalled` leaves
+  the record.
 
 ## Limits
 
