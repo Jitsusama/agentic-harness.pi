@@ -208,7 +208,10 @@ export function createTmuxDriver(
 			const live = new Map<string, Set<string> | undefined>();
 			await Promise.all(
 				[...sockets].map(async (socket) => {
-					if (signal?.aborted) return live.set(socket, undefined);
+					if (signal?.aborted) {
+						live.set(socket, undefined);
+						return;
+					}
 					try {
 						const stdout = await run(socket, [
 							"list-panes",

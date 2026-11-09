@@ -171,6 +171,9 @@ export function createCommitGuardian(
 				}
 				return ALLOW;
 			}
+			// A panel of actions answers no option; were one to, the commit
+			// goes ahead, as no answer to stop it was given.
+			return ALLOW;
 		},
 	};
 }

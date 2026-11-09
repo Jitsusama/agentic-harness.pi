@@ -244,7 +244,10 @@ export function createZellijDriver(
 			const live = new Map<string, Set<string> | undefined>();
 			await Promise.all(
 				[...sessions].map(async (session) => {
-					if (signal?.aborted) return live.set(session, undefined);
+					if (signal?.aborted) {
+						live.set(session, undefined);
+						return;
+					}
 					try {
 						live.set(
 							session,
