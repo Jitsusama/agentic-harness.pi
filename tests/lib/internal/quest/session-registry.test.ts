@@ -291,7 +291,7 @@ describe("lastBootSessions", () => {
 	const ended = (
 		sessionId: string,
 		boot: string,
-		reason: "died" | "signalled" | "quit",
+		reason: "died" | "signalled" | "quit" | "parked",
 		at: string,
 	) =>
 		closeRecord(
@@ -334,6 +334,27 @@ describe("lastBootSessions", () => {
 			"crashed-midway",
 			"long-gone",
 			"lost-today",
+		]);
+	});
+
+	it("keeps the sessions parked in the last boot, however long before it ended", () => {
+		// On 9 November a reboot's Reopen Them All left out all eight
+		// parked sessions, whose records said they had quit hours before.
+		const found = lastBootSessions(
+			[
+				...records,
+				ended("asleep", "second", "parked", "2026-10-28T21:00:00Z"),
+				ended("dozing", "second", "parked", "2026-10-28T23:00:00Z"),
+				ended("long-asleep", "first", "parked", "2026-10-20T13:00:00Z"),
+			],
+			"third",
+		);
+
+		expect(found.boot).toBe("second");
+		expect(found.parked.map((r) => r.sessionId)).toEqual(["dozing", "asleep"]);
+		expect(found.offered.map((r) => r.sessionId)).toEqual([
+			"signalled",
+			"cut-off",
 		]);
 	});
 

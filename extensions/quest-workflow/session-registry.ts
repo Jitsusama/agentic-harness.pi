@@ -27,6 +27,7 @@ import { machineBooted } from "../../lib/internal/booted.ts";
 import { thisMachine } from "../../lib/internal/machine.ts";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import { takeUpCarried } from "../../lib/internal/quest/carried.ts";
+import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.ts";
 import {
 	type HandedSession,
 	launcherTakes,
@@ -71,6 +72,7 @@ import {
 	wasLost,
 	wronglyEnded,
 } from "../../lib/internal/quest/session-registry.ts";
+import { isLiveStatus } from "../../lib/internal/quest/status.ts";
 import {
 	readWindowsNote,
 	windowsNotePath,
@@ -633,6 +635,7 @@ export function refreshRestoreFile(
 			(lastBoot) => windowsToReopen(note, thisBoot, lastBoot),
 			carriedHome(questsRoot),
 			endedBoot(thisBoot, stateHome),
+			(questId) => questLive(questsRoot, questId),
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
 	} catch {
@@ -687,6 +690,22 @@ function questTitle(questsRoot: string, questId: string): string | undefined {
 		// A quest folder gone or unreadable: the entry falls back to its folder.
 		return undefined;
 	}
+}
+
+/**
+ * Whether a quest is still live, by its README's status: one concluded
+ * or retired is not. A quest that can't be read counts as live, since
+ * nothing says its work is done.
+ */
+function questLive(questsRoot: string, questId: string): boolean {
+	let readme: string;
+	try {
+		readme = readFileSync(join(questsRoot, questId, "README.md"), "utf8");
+	} catch {
+		// A quest folder gone or unreadable says nothing of its status.
+		return true;
+	}
+	return isLiveStatus(parseQuestFrontMatter(readme)?.frontMatter.status);
 }
 
 /**
@@ -1142,12 +1161,15 @@ export function handOverSession(
  * session running in the same process, so nothing has ended at all.
  * The rest replace the conversation inside a tab that is still on
  * screen, which ends the session but not the tab, and the successor
- * opens its own record carrying the same instance id.
+ * opens its own record carrying the same instance id. A quit the
+ * session took to park (`parking`) is a park, since its holder keeps
+ * its window and starts it again when something needs it.
  */
 export function endReasonForShutdown(
 	reason: string | undefined,
+	parking = false,
 ): SessionEndReason | undefined {
 	if (reason === "reload") return undefined;
-	if (reason === "quit") return "quit";
+	if (reason === "quit") return parking ? "parked" : "quit";
 	return "swapped";
 }

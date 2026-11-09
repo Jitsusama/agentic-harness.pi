@@ -87,7 +87,11 @@ const MAX_ENDINGS = 10;
  * tab that is still on screen, which is what a reload, a session
  * switch and a fork all do. `signalled` means a SIGHUP or SIGTERM took
  * the process away: its terminal closed, the terminal program died or
- * the machine shut down.
+ * the machine shut down. `parked` means the session ended itself while
+ * idle to give back its memory, for its holder to start it again when
+ * something needs it (park-workflow): it is still at work, only asleep,
+ * so a boot that ends while it sleeps takes it away as much as a
+ * running one.
  *
  * `died` and `vanished` are written by a later reader that found the
  * process gone, and the difference between them is whether anyone was
@@ -101,7 +105,8 @@ export type SessionEndReason =
 	| "swapped"
 	| "died"
 	| "vanished"
-	| "signalled";
+	| "signalled"
+	| "parked";
 
 /** What a caller knows when a session first loads a quest. */
 export interface OpenInput {
@@ -142,6 +147,7 @@ const END_REASONS: readonly string[] = [
 	"died",
 	"vanished",
 	"signalled",
+	"parked",
 ];
 
 /**
@@ -455,6 +461,11 @@ export interface LastBootSessions {
 	readonly offered: SessionRecord[];
 	/** Every other lost session, kept to be named, never offered. */
 	readonly older: SessionRecord[];
+	/**
+	 * Sessions parked in that boot and never started again, most
+	 * recently parked first: asleep when it ended, however long before.
+	 */
+	readonly parked: SessionRecord[];
 }
 
 /**
@@ -466,7 +477,11 @@ export interface LastBootSessions {
  * its end the latest moment any of its records was seen. A session
  * counts when it last ran in that boot, ended `died` or `signalled`
  * rather than by a quit or a swap, and was seen within
- * {@link SHUTDOWN_SPREAD_MS} of that end. Without this boot's token
+ * {@link SHUTDOWN_SPREAD_MS} of that end. A session parked in that boot
+ * counts apart, as `parked`, whenever it parked, since it was asleep
+ * rather than gone when the boot ended: on 9 November a reboot's
+ * Reopen Them All left out all eight parked sessions, whose records
+ * said they had quit hours before. Without this boot's token
  * nothing can be told apart, and nothing is offered: restore's whole
  * trouble was offering what should not come back.
  *
@@ -482,7 +497,7 @@ export function lastBootSessions(
 	ended?: string,
 ): LastBootSessions {
 	const lost = restorable(records);
-	if (thisBoot === undefined) return { offered: [], older: lost };
+	if (thisBoot === undefined) return { offered: [], older: lost, parked: [] };
 	const named = ended !== undefined && ended !== thisBoot ? ended : undefined;
 	let boot: string | undefined = named;
 	let end = Number.NEGATIVE_INFINITY;
@@ -498,7 +513,7 @@ export function lastBootSessions(
 			boot = token;
 		}
 	}
-	if (boot === undefined) return { offered: [], older: lost };
+	if (boot === undefined) return { offered: [], older: lost, parked: [] };
 	const lastBoot = boot;
 	const ranToTheEnd = (record: SessionRecord) =>
 		record.process?.bootToken === lastBoot &&
@@ -507,6 +522,13 @@ export function lastBootSessions(
 		boot: lastBoot,
 		offered: lost.filter(ranToTheEnd),
 		older: lost.filter((record) => !ranToTheEnd(record)),
+		parked: records
+			.filter(
+				(record) =>
+					record.endReason === "parked" &&
+					record.process?.bootToken === lastBoot,
+			)
+			.sort(newestClosedFirst),
 	};
 }
 
