@@ -10,7 +10,6 @@
  */
 
 import {
-	buildPrepareCommitMsgHook,
 	type CommitHookOptions,
 	ensureCommitHook as ensureCommitHookWith,
 	type HookInstall,
@@ -18,7 +17,6 @@ import {
 } from "../../core/attribution/index.ts";
 
 export type { HookInstall } from "../../core/attribution/index.ts";
-export { repoRootOf } from "../../core/attribution/index.ts";
 
 /** Pi's own commit-hook options: gated on the PI_CO_AUTHOR env var. */
 const PI_OPTIONS: CommitHookOptions = {
@@ -27,9 +25,6 @@ const PI_OPTIONS: CommitHookOptions = {
 	gateTest: '[ -n "$PI_CO_AUTHOR" ]',
 	trailerExpr: '"$PI_CO_AUTHOR"',
 };
-
-/** The prepare-commit-msg script pi installs. */
-export const PREPARE_COMMIT_MSG_HOOK = buildPrepareCommitMsgHook(PI_OPTIONS);
 
 /**
  * Install the prepare-commit-msg hook into a repo's hooks

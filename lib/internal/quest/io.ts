@@ -282,19 +282,6 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 	}
 }
 
-/**
- * Convenience helper: lock the quest, write the README
- * atomically, release. Most call sites use this directly.
- */
-export function writeQuestReadmeAtomic(
-	questDir: string,
-	contents: string,
-): void {
-	withQuestLock(questDir, () => {
-		atomicWriteFile(join(questDir, "README.md"), contents);
-	});
-}
-
 /** Fallback when we have a path but no enclosing quest dir. */
 export function atomicWriteUnderLock(
 	questDir: string,
@@ -305,9 +292,3 @@ export function atomicWriteUnderLock(
 		atomicWriteFile(path, contents);
 	});
 }
-
-/** Synchronous sleep used in tests when emulating contention. */
-export const __testing = {
-	LOCK_TIMEOUT_MS,
-	STALE_LOCK_MS,
-};

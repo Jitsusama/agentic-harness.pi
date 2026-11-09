@@ -6,8 +6,11 @@ import type { StoredToken } from "../types.ts";
 import { readFile, writeFile } from "./store.ts";
 
 // Re-export OAuth app types and functions for consumers.
-export type { OAuthApp } from "../types.ts";
-export { getOAuthApp, hasOAuthApp, storeOAuthApp } from "./oauth-app.ts";
+export {
+	getOAuthApp,
+	hasOAuthApp,
+	storeOAuthApp,
+} from "./oauth-app.ts";
 
 /** Store a Slack token after successful authentication. */
 export function storeToken(token: StoredToken): void {

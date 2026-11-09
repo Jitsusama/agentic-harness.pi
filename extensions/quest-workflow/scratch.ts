@@ -129,7 +129,7 @@ function linkTo(link: string, target: string): string | undefined {
 }
 
 /** The variable that names the quest a command's work is for. */
-export const QUEST_ENV = "PI_QUEST";
+const QUEST_ENV = "PI_QUEST";
 
 /**
  * What the loaded quest's commands carry: the quest's id, which the

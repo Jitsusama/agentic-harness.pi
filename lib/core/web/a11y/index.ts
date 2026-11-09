@@ -18,8 +18,6 @@ export {
 export {
 	ACTION_VIEW_BUDGET_BYTES,
 	type BudgetedOutline,
-	MAX_OUTLINE_BUDGET_BYTES,
-	OUTLINE_BUDGET_BYTES,
 	outlineBudget,
 	withinOutlineBudget,
 } from "./budget.ts";
@@ -28,7 +26,11 @@ export {
 	type FocusHolder,
 	renderFocus,
 } from "./focus.ts";
-export { isWeakName, type NameSource, nameSource } from "./naming.ts";
+export {
+	isWeakName,
+	type NameSource,
+	nameSource,
+} from "./naming.ts";
 export { renderAxOutline } from "./outline.ts";
 export { renderReading } from "./reading.ts";
 export {
@@ -40,30 +42,23 @@ export {
 // Exported because a stored page has to carry the same states the
 // rendered outline shows. Two vocabularies for one set of facts
 // would make a payload that disagrees with the view it came from.
-export { describeStates, type StateOptions } from "./states.ts";
+export { describeStates } from "./states.ts";
 export {
 	type AxNode,
 	type AxProperties,
 	type FrameAxTree,
-	isMeaningful,
 	normalizeAxTree,
 	type RawAxNameSource,
 	type RawAxNode,
-	type RawAxProperty,
 	spliceFrames,
 } from "./tree.ts";
 export {
 	analyseWalk,
-	type FocusStyle,
-	type Indicator,
-	indicatorOf,
 	MAX_LISTED_FINDINGS,
 	renderWalk,
-	type Trap,
 	type Unreachable,
 	type WalkCandidate,
 	type WalkCapture,
-	type WalkFindings,
 	type WalkStop,
 } from "./walk.ts";
 // The page-side halves of the keyboard walk, in the order they

@@ -10,17 +10,8 @@
 export {
 	HYDRATION_CAPTURE,
 	type HydrationCapture,
-	MAX_TEXT_CHARS,
-	MAX_TEXTS,
-	MIN_TEXT_CHARS,
 } from "./capture.ts";
 export {
-	type ConsoleLine,
-	type HydrationReport,
 	judgeHydration,
 	renderHydration,
-	SHELL_FLOOR_TEXTS,
-	SHELL_MIN_CLIENT_TEXTS,
-	TAG_DRIFT_MIN,
-	type TagDrift,
 } from "./judge.ts";

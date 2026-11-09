@@ -74,31 +74,6 @@ export async function promptTabbed(
 }
 
 /**
- * Show an interactive prompt, dispatching to single or tabbed
- * based on the config shape. Prefer `promptSingle` or
- * `promptTabbed` for unambiguous types.
- *
- * @deprecated Use `promptSingle` or `promptTabbed` directly.
- */
-export async function prompt(
-	ctx: ExtensionContext,
-	config: SinglePromptConfig,
-): Promise<PromptResult | null>;
-export async function prompt(
-	ctx: ExtensionContext,
-	config: TabbedPromptConfig,
-): Promise<TabbedResult | null>;
-export async function prompt(
-	ctx: ExtensionContext,
-	config: SinglePromptConfig | TabbedPromptConfig,
-): Promise<PromptResult | TabbedResult | null> {
-	if ("items" in config) {
-		return promptTabbed(ctx, config as TabbedPromptConfig);
-	}
-	return promptSingle(ctx, config as SinglePromptConfig);
-}
-
-/**
  * Show a workspace prompt: stateful tabbed interaction where
  * tabs are workspaces with per-view actions and input handlers.
  * Returns the workspace result or null on cancel (Escape).

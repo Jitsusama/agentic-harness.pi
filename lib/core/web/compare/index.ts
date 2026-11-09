@@ -13,21 +13,6 @@
  */
 
 export {
-	type BaselineProvenance,
-	describeDrift,
-	parse,
-	sidecarFor,
-	stringify,
-} from "./provenance.ts";
-export {
-	type AttributedRegion,
-	attributeRegions,
-	CELL_SIZE,
 	type Comparison,
-	clusterRegions,
-	IGNORABLE_FRACTION,
-	MIN_REGION_PIXELS,
-	type Placed,
-	type Region,
 	renderComparison,
 } from "./regions.ts";

@@ -13,7 +13,7 @@
  * alone.
  */
 
-import type { Standing, Verdict } from "./verdict.ts";
+import type { Standing } from "./verdict.ts";
 import { renderVerdict } from "./verdict.ts";
 
 /** One condition a check was run under. */
@@ -173,5 +173,3 @@ export function conditionFrom(label: string, report: string): Condition {
 		detail: report,
 	};
 }
-
-export type { Verdict };

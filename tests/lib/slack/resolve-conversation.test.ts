@@ -17,7 +17,6 @@ const cached = new Map<string, string>();
 vi.mock("../../../lib/slack/resolvers/cache.ts", () => ({
 	lookupId: (_file: string, name: string) => cached.get(name),
 	lookupName: () => undefined,
-	listCached: () => [],
 	cacheMapping: (_file: string, name: string, id: string) => {
 		cached.set(name, id);
 	},

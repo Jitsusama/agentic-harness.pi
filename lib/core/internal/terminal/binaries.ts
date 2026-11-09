@@ -29,11 +29,6 @@ export function setBinaryOverrides(
 	cache = new Map();
 }
 
-/** The configured path for an id, if the person gave one. */
-export function binaryOverride(id: string): string | undefined {
-	return overrides.get(id);
-}
-
 /**
  * The absolute path a terminal's binary resolves to, or undefined when
  * it cannot be found. `id` is the driver or launcher asking, so a

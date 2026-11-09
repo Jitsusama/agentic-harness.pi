@@ -8,19 +8,5 @@
  * library stays testable data-in, data-out.
  */
 
-export {
-	type CheckCommandSources,
-	type ResolvedCheck,
-	resolveCheckCommand,
-} from "../core/verify/index.ts";
-export {
-	type CheckRun,
-	type CheckRunVerdict,
-	checkRunVerdict,
-} from "./check-run.ts";
-export {
-	type FastLayerInput,
-	type FastLayerVerdict,
-	type FileError,
-	fastLayerVerdict,
-} from "./verdict.ts";
+export { checkRunVerdict } from "./check-run.ts";
+export type { FileError } from "./verdict.ts";

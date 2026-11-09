@@ -393,5 +393,3 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 
 /** Kept so the stub compiles against its imports. */
 void [openDraft, parseUnifiedDiff, resolveReference, resolveTarget, run];
-
-export type { DraftDeps };

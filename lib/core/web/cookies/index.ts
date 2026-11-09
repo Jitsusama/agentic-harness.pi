@@ -3,8 +3,6 @@
  * and puppeteer injection.
  */
 
-export type { PuppeteerCookie } from "./extract.ts";
-export { getCookiesForUrl } from "./extract.ts";
 export { injectCookies } from "./inject.ts";
 export {
 	hasCachedKey,

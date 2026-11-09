@@ -247,10 +247,3 @@ export async function refreshTokenIfNeeded(
 
 	return null;
 }
-
-/**
- * Extract the current token credentials from an OAuth2 client.
- */
-export function extractTokens(client: OAuth2Client): Credentials {
-	return client.credentials;
-}

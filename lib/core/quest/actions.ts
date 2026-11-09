@@ -72,9 +72,6 @@ export const QUEST_ACTIONS = [
 	"session-audit",
 ] as const;
 
-/** Static type of any canonical action. */
-export type QuestAction = (typeof QUEST_ACTIONS)[number];
-
 /**
  * Suggest the nearest canonical action to a user's typo
  * using Levenshtein distance. Returns `undefined` when no

@@ -98,11 +98,3 @@ export function buildMentionIndex(index: QuestIndex): MentionIndex {
 
 	return { byId, byRef };
 }
-
-/** Convenience: lookup inbound mentions for one target quest id. */
-export function mentionsOf(
-	index: MentionIndex,
-	targetId: string,
-): MentionEdge[] {
-	return index.byId.get(targetId) ?? [];
-}

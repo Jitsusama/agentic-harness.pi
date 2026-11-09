@@ -31,20 +31,3 @@ export function runTitleGate(
 	// title and can reject it. On allow we also fall through.
 	return undefined;
 }
-
-/**
- * The relent message, when the title gate is letting this exact
- * title through after already blocking it once, else null. See
- * prose-gate.ts's `proseGateNote` for why this exists: a caller
- * whose "ask" is a synthesized summary, not a full render of the
- * title, needs to say a relent happened rather than staying silent.
- */
-export function titleGateNote(
-	deps: GateDeps,
-	title: string | null,
-	config: TitleGateConfig,
-): string | null {
-	if (!title) return null;
-	const decision = titleGateDecision(title, deps.readSignatures(), config);
-	return decision.action === "relent" ? decision.message : null;
-}

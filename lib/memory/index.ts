@@ -8,13 +8,10 @@
  */
 
 export { memoryDbPath } from "./paths.ts";
-export { resolveScope, serializeScope } from "./scope.ts";
+export { resolveScope } from "./scope.ts";
 export { openMemoryStore } from "./store.ts";
 export type {
 	Fact,
-	FactStatus,
 	MemoryStore,
-	RecallQuery,
-	RetainInput,
 	Scope,
 } from "./types.ts";

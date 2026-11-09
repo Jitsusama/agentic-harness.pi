@@ -61,9 +61,6 @@ export function hopOnward(place: HopPlace | undefined): string {
 		: `${DOCK_HOP_LABEL} to the ${next}`;
 }
 
-/** The rows beyond participants and notes a board can take: title and keys. */
-export const BOARD_CHROME_ROWS = 2;
-
 /**
  * The title rule: `── title ────── aside ──`, filled to `width`.
  *

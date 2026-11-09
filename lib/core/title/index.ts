@@ -6,6 +6,5 @@ export {
 } from "./detect.ts";
 export {
 	type TitleGateConfig,
-	type TitleGateDecision,
 	titleGateDecision,
 } from "./gate.ts";

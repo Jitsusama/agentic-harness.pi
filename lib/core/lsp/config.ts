@@ -115,12 +115,6 @@ function resolveTypescriptServer(
 	return has(classic.command) ? classic : null;
 }
 
-/** A server matched to a file, with the root it should run at. */
-export interface ResolvedServer {
-	readonly server: ServerConfig;
-	readonly root: string;
-}
-
 /**
  * Candidate servers for a file: every non-disabled server
  * whose fileTypes include the file's extension. A file can

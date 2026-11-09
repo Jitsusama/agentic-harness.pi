@@ -49,13 +49,3 @@ export function extractFromCurl(curlCommand: string): BrowserCredentials {
 
 	return { token: tokens[0], cookie: cookies[0] };
 }
-
-/** Validate that a token looks like a Slack token. */
-export function isValidToken(token: string): boolean {
-	return /^xox[cpb]-/.test(token);
-}
-
-/** Validate that a cookie looks like a Slack sign-in cookie. */
-export function isValidCookie(cookie: string): boolean {
-	return cookie.startsWith("xoxd-");
-}

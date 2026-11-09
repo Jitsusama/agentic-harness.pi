@@ -79,15 +79,3 @@ export function cacheMapping(filename: string, name: string, id: string): void {
 	data[name.toLowerCase()] = { id, name, updatedAt: Date.now() };
 	writeCache(filename, data);
 }
-
-/**
- * List all cached entries, sorted by name.
- */
-export function listCached(
-	filename: string,
-): Array<{ name: string; id: string }> {
-	const data = readCache(filename);
-	return Object.values(data)
-		.map((e) => ({ name: e.name, id: e.id }))
-		.sort((a, b) => a.name.localeCompare(b.name));
-}

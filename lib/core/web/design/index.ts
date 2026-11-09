@@ -7,31 +7,14 @@
  */
 
 export {
-	type Cluster,
-	COLOUR_SAMENESS,
-	canonicalLengths,
-	clusterUsage,
-	coloursAreNear,
-	DIMENSIONS,
-	type Dimension,
-	exactlyEqual,
-	LENGTH_SAMENESS,
-	lengthsAreNear,
-	type Nearness,
 	renderInventory,
 	type StyleSample,
 	takeInventory,
-	tallyUsage,
-	type Usage,
 } from "./inventory.ts";
-export { inventorySource, SAMPLED_PROPERTIES } from "./probe.ts";
+export { inventorySource } from "./probe.ts";
 export {
 	analyseTypography,
-	BODY_FLOOR_CHARS,
-	RUNT_MAX_WORDS,
-	RUNT_WIDTH_SHARE,
 	renderTypography,
 	type TextBlock,
 	TYPOGRAPHY_CAPTURE,
-	type TypographyFinding,
 } from "./typography.ts";

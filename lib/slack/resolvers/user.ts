@@ -18,7 +18,7 @@
  */
 
 import type { SlackClient } from "../api/client.ts";
-import { cacheMapping, listCached, lookupId, lookupName } from "./cache.ts";
+import { cacheMapping, lookupId, lookupName } from "./cache.ts";
 
 const CACHE_FILE = "users.json";
 
@@ -168,21 +168,6 @@ export function displayNameForId(id: string): string {
 }
 
 /**
- * Resolve a batch of user IDs to display names using the local cache.
- * Returns a map of userId → displayName (handle if cached, raw ID if not).
- * Local-only: no API calls.
- */
-export function resolveUserIdsFromCache(
-	userIds: string[],
-): Map<string, string> {
-	const result = new Map<string, string>();
-	for (const id of userIds) {
-		result.set(id, lookupName(CACHE_FILE, id) ?? id);
-	}
-	return result;
-}
-
-/**
  * Record a user handle → ID mapping.
  * Called opportunistically when user data appears in API responses.
  */
@@ -190,9 +175,4 @@ export function cacheUser(name: string, id: string): void {
 	if (name && id) {
 		cacheMapping(CACHE_FILE, name, id);
 	}
-}
-
-/** List all cached user mappings. */
-export function listCachedUsers(): Array<{ name: string; id: string }> {
-	return listCached(CACHE_FILE);
 }

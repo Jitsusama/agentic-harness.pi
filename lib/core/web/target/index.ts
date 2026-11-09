@@ -9,7 +9,6 @@ export {
 	describeRefusal,
 	describeTarget,
 	notFoundRefusal,
-	type TargetCandidate,
 	type TargetRefusal,
 } from "./refusals.ts";
 export {
@@ -17,5 +16,4 @@ export {
 	parseTarget,
 	resolveTarget,
 	type Target,
-	type TargetResolution,
 } from "./target.ts";

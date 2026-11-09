@@ -10,12 +10,7 @@
 export {
 	type AuthoredPosition,
 	authoredPosition,
-	decodeMappings,
-	decodeVlq,
 	parseSourceMap,
-	type RawSourceMap,
-	readSourceMap,
 	resolveMapUrl,
-	type Segment,
 	type SourceMap,
 } from "./mappings.ts";

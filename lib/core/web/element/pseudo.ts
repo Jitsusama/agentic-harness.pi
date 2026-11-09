@@ -8,7 +8,7 @@
  * state, which is the only way to read one without a mouse.
  */
 
-import type { StyleEntry, StyleGroup } from "../styles/index.ts";
+import type { StyleGroup } from "../styles/index.ts";
 
 /** A state the browser can be asked to hold. */
 export type PseudoState = "hover" | "focus" | "active" | "focus-visible";
@@ -82,14 +82,6 @@ export function renderVariants(variants: readonly PseudoVariant[]): string {
 			].join("\n");
 		})
 		.join("\n");
-}
-
-/** An entry list as a group, for callers holding a flat read. */
-export function asGroup(
-	name: string,
-	entries: readonly StyleEntry[],
-): StyleGroup {
-	return { name, entries };
 }
 
 /**
