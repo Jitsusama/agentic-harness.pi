@@ -13,6 +13,8 @@ import {
 	type BuildSlice,
 	buildsShouldYield,
 	keepYield,
+	systemBuildSlice,
+	TIMED_RUN_YIELD_MS,
 	vmRunsUnder,
 	YIELD_FILE,
 	YIELD_WEIGHT,
@@ -28,7 +30,10 @@ afterEach(() => {
 });
 
 /** A build.slice held in memory, recording every weight set on it. */
-function slice(start: number, opts: { vm?: boolean; refuses?: boolean } = {}) {
+function slice(
+	start: number,
+	opts: { vm?: boolean; refuses?: boolean; updating?: boolean } = {},
+) {
 	let weight = start;
 	const set: number[] = [];
 	const it: BuildSlice & { readonly set: number[] } = {
@@ -40,6 +45,7 @@ function slice(start: number, opts: { vm?: boolean; refuses?: boolean } = {}) {
 			return true;
 		},
 		hasVm: () => opts.vm ?? false,
+		updatesToMain: () => opts.updating ?? false,
 		set,
 	};
 	return it;
@@ -114,6 +120,71 @@ describe("builds giving way to a stamp", () => {
 	});
 });
 
+describe("builds giving way to a timed run", () => {
+	const NOW = Date.parse("2026-11-08T22:40:00Z");
+	const FIRST = new Set(["QEST-DEPLOY"]);
+	const at = (ms: number) => new Date(NOW - ms).toISOString();
+	const record = (...jobs: Record<string, unknown>[]) => ({
+		jobs: jobs.map((job, n) => ({ id: `j${n}`, state: "running", ...job })),
+	});
+	const timed = { kind: "timed-run", started: at(60_000) };
+	const yields = (
+		queue: unknown,
+		opts: Parameters<typeof slice>[1] = {},
+	): boolean =>
+		buildsShouldYield(queue, slice(10, opts), { first: FIRST, now: NOW });
+
+	it("yield while it runs, for its first sixteen minutes only", () => {
+		const cases = {
+			started: yields(record(timed, { kind: "build" })),
+			atTheEnd: yields(
+				record({ kind: "timed-run", started: at(TIMED_RUN_YIELD_MS) }),
+			),
+			unstarted: yields(record({ kind: "timed-run" })),
+		};
+
+		expect(cases).toEqual({ started: true, atTheEnd: false, unstarted: false });
+	});
+
+	it("don't yield while the machine updates to main, as a stamp still does", () => {
+		const cases = {
+			timed: yields(record(timed), { updating: true }),
+			stamp: yields(record({ kind: "stamp" }), { updating: true }),
+		};
+
+		expect(cases).toEqual({ timed: false, stamp: true });
+	});
+
+	it("don't yield while a job of a quest that goes first runs here", () => {
+		const theirs = { kind: "build", quest: "QEST-DEPLOY" };
+		const cases = {
+			theirs: yields(record(timed, theirs)),
+			sentElsewhere: yields(record(timed, { ...theirs, sent: true })),
+			waiting: yields(record(timed, { ...theirs, state: "waiting" })),
+			// The run's own quest going first is the run, not a build.
+			itsOwn: yields(record({ ...timed, quest: "QEST-DEPLOY" })),
+			stamp: yields(record({ kind: "stamp" }, theirs)),
+		};
+
+		expect(cases).toEqual({
+			theirs: false,
+			sentElsewhere: true,
+			waiting: true,
+			itsOwn: true,
+			stamp: true,
+		});
+	});
+
+	it("don't yield while a VM runs", () => {
+		const cases = {
+			queued: yields(record(timed, { kind: "vm-check" })),
+			found: yields(record(timed), { vm: true }),
+		};
+
+		expect(cases).toEqual({ queued: false, found: false });
+	});
+});
+
 describe("a VM in the system's slices", () => {
 	const process = (cgroup: string, pid: string, comm: string) => {
 		mkdirSync(join(dir, "cg", cgroup), { recursive: true });
@@ -146,5 +217,30 @@ describe("a VM in the system's slices", () => {
 			),
 			"a compiler is no VM, and a missing slice holds none",
 		).toBe(false);
+	});
+});
+
+describe("the machine updating itself to main", () => {
+	const unit = "system.slice/update-to-main.service";
+	const process = (pid: string, comm: string) => {
+		mkdirSync(join(dir, "cg", unit), { recursive: true });
+		writeFileSync(join(dir, "cg", unit, "cgroup.procs"), `${pid}\n`, {
+			flag: "a",
+		});
+		mkdirSync(join(dir, "proc", pid), { recursive: true });
+		writeFileSync(join(dir, "proc", pid, "comm"), `${comm}\n`);
+	};
+
+	it("is its Nix client or a switch in its service, not its server or a fetch", () => {
+		const system = systemBuildSlice(join(dir, "cg"), join(dir, "proc"));
+		process("1", "update-to-main");
+		process("2", "git");
+		const idle = system.updatesToMain();
+		process("3", "nix");
+
+		expect({ idle, building: system.updatesToMain() }).toEqual({
+			idle: false,
+			building: true,
+		});
 	});
 });

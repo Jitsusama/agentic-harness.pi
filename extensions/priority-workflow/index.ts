@@ -38,6 +38,7 @@ import {
 } from "../../lib/internal/priority/background.ts";
 import {
 	machineQueueDir,
+	questsFirstIn,
 	queueFolder,
 } from "../../lib/internal/priority/folder.ts";
 import { jobsProcs, placeChildren } from "../../lib/internal/priority/place.ts";
@@ -240,7 +241,10 @@ function linuxMachine(own: string | undefined): Machine {
 		rules: () => ({ buildsWaitForVmChecks: !hasTimed() }),
 		yieldBuilds: (dir) => {
 			const slice = systemBuildSlice(KERNEL.cgroups);
-			keepYield(dir, buildsShouldYield(queueIn(dir), slice), slice);
+			const yielding = buildsShouldYield(queueIn(dir), slice, {
+				first: questsFirstIn(dir),
+			});
+			keepYield(dir, yielding, slice);
 		},
 	};
 }

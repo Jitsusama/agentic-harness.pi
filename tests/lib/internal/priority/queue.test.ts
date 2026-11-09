@@ -312,6 +312,37 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("node deploy/suite.mjs.bak")).toBeUndefined();
 	});
 
+	it("reads Acceluary's timed run as one, whatever it times", () => {
+		// 8 November: its paired timings were given back while builds held
+		// the load at 25 to 55 (E2ZIAQ), so builds yield to them.
+		const home = "/home/joel";
+		const acceluary = { home, cwd: `${home}/src/acceluary` };
+		const cases = {
+			here: kindOf("node tools/timed.mjs cold -- node bench.mjs", acceluary),
+			// Its own suite timed is the timed run, not a stamp.
+			suite: kindOf("node tools/timed.mjs suite -- npm test", acceluary),
+			cd: kindOf(
+				"cd ~/.local/state/pi/work/trees/worktree-local-acceluary-x && node tools/timed.mjs a -- true",
+				{ home },
+			),
+			path: kindOf("node ~/src/acceluary/tools/timed.mjs a -- true", { home }),
+			elsewhere: kindOf("node tools/timed.mjs a -- true", {
+				home,
+				cwd: `${home}/src/other`,
+			}),
+			look: kindOf("cat tools/timed.mjs", acceluary),
+		};
+
+		expect(cases).toEqual({
+			here: "timed-run",
+			suite: "timed-run",
+			cd: "timed-run",
+			path: "timed-run",
+			elsewhere: undefined,
+			look: undefined,
+		});
+	});
+
 	it("reads an evaluation of a whole machine as a build, and one attribute's not", () => {
 		// 01:15 on 8 November: a nixosSystem evaluated through --expr ran
 		// beside two of every check, with a deploy's tests failing (P9R1KI).
