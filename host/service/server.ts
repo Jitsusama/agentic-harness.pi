@@ -104,6 +104,22 @@ export async function listenControl(options: {
 				send(await dispatchControl(value, options.backend, options.report));
 				return;
 			}
+			if (
+				["close", "release", "abort"].includes(request.op) &&
+				!request.expectedHost
+			) {
+				send({
+					v: 1,
+					id: request.id,
+					ok: false,
+					error: {
+						code: "missing_host_identity",
+						message:
+							"Session-ending requests require expectedHost discovery identity",
+					},
+				});
+				return;
+			}
 			if (request.op === "attach" && !options.viewer) {
 				send({
 					v: 1,

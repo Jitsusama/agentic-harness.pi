@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHost } from "../../../host/engine/index.ts";
+import { hostSocketPath } from "../../../host/service/address.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type { ControlBackend } from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
@@ -13,7 +14,9 @@ import {
 	listenControl,
 	type ViewerBridge,
 } from "../../../host/service/server.ts";
+import { terminalBridge } from "../../../host/service/viewer.ts";
 import { ambientSession } from "../../../lib/core/session/index.ts";
+import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
 const b = "b0000000-0000-4000-8000-000000000002";
@@ -76,6 +79,18 @@ async function start(viewer?: ViewerBridge) {
 }
 
 describe("private control listener", () => {
+	it("selects safe realm-kind addresses without silent path truncation", () => {
+		expect(hostSocketPath("work", "attended", dir)).toBe(
+			join(dir, "pi-host/work-attended.sock"),
+		);
+		expect(() => hostSocketPath("../work", "attended", dir)).toThrow("realm");
+		expect(() => hostSocketPath("work", "background", "relative")).toThrow(
+			"absolute",
+		);
+		expect(() =>
+			hostSocketPath("work", "background", `/${"x".repeat(104)}`),
+		).toThrow("limit");
+	});
 	it("creates a private socket and correlates concurrent sessions through H1", async () => {
 		await start();
 		expect((await lstat(path)).mode & 0o777).toBe(0o600);
@@ -111,6 +126,25 @@ describe("private control listener", () => {
 		await chmod(dir, 0o755);
 		await expect(start()).rejects.toThrow("0700");
 	});
+	it("refuses session-ending wire requests without a discovered owner", async () => {
+		await start();
+		const request: ControlRequest = {
+			v: 1,
+			id: "quit",
+			op: "close",
+			sessionId: a,
+		};
+		await expect(controlRequest(path, request)).rejects.toThrow("expectedHost");
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(`${JSON.stringify(request)}\n`);
+		expect((await messages.next()).value).toMatchObject({
+			ok: false,
+			error: { code: "missing_host_identity" },
+		});
+		socket.destroy();
+		expect(backend.execute).not.toHaveBeenCalled();
+	});
 	it("refuses stale ownership before running the engine", async () => {
 		await start();
 		expect(
@@ -120,6 +154,19 @@ describe("private control listener", () => {
 			}),
 		).toMatchObject({ ok: false, error: { code: "stale_host" } });
 		expect(backend.execute).not.toHaveBeenCalled();
+	});
+	it("journals engine errors without returning secrets to the client", async () => {
+		backend.execute = vi.fn(async () => {
+			throw new Error("API_KEY=secret");
+		});
+		await start();
+		const reply = await controlRequest(path, list);
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "operation_failed" },
+		});
+		expect(JSON.stringify(reply)).not.toContain("secret");
+		expect(report).toHaveBeenCalledOnce();
 	});
 	it("rejects malformed frames and reports them only in the host", async () => {
 		await start();
@@ -133,6 +180,67 @@ describe("private control listener", () => {
 });
 
 describe("viewer connection lifecycle", () => {
+	it("routes two sockets to V Terminals and repaint survives reconnect without closing either session", async () => {
+		const inputs: unknown[] = [];
+		const terminals = new Map<string, ViewerTerminal>();
+		for (const id of [a, b]) {
+			const terminal = new ViewerTerminal(id, () => {
+				terminals.get(id)?.write(`screen-${id}`);
+			});
+			terminal.start(
+				(data) => {
+					inputs.push([ambientSession(), data]);
+				},
+				() => {},
+			);
+			terminals.set(id, terminal);
+		}
+		await start(
+			terminalBridge((id) => {
+				const terminal = terminals.get(id);
+				if (!terminal) throw new Error("Missing terminal");
+				return terminal;
+			}),
+		);
+		async function connect(id: string) {
+			const socket = createConnection(path);
+			const messages = readMessages(socket);
+			socket.write(
+				`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: id, rows: 20, columns: 80 })}\n`,
+			);
+			expect((await messages.next()).value).toMatchObject({
+				ok: true,
+				id: "view",
+			});
+			expect((await messages.next()).value).toEqual({
+				type: "output",
+				data: `screen-${id}`,
+			});
+			return { socket, messages };
+		}
+		const first = await connect(a);
+		const second = await connect(b);
+		first.socket.end();
+		await first.messages.next();
+		const again = await connect(a);
+		second.socket.write(`${JSON.stringify({ type: "input", data: "z" })}\n`);
+		second.socket.write(
+			`${JSON.stringify({ type: "resize", rows: 22, columns: 100 })}\n`,
+		);
+		expect((await second.messages.next()).value).toEqual({
+			type: "output",
+			data: `screen-${b}`,
+		});
+		expect(inputs).toEqual([[b, "z"]]);
+		expect(host.list()).toHaveLength(2);
+		expect(cleanup).not.toHaveBeenCalled();
+		again.socket.end();
+		second.socket.end();
+		await again.messages.next();
+		await second.messages.next();
+		for (const terminal of terminals.values()) terminal.dispose();
+	});
+
 	it("acknowledges attach before output, scopes input/resize, and EOF detaches only the viewer", async () => {
 		const seen: unknown[] = [];
 		const detach = vi.fn(() => {

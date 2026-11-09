@@ -4,6 +4,8 @@ The service owns versioned JSON-lines control framing and dispatch beside
 H1's engine and V's Terminal. It does not implement pi's session loop,
 input pipeline or screen. No unit or running host is installed yet.
 
+- address.ts: validates stable realm-kind addresses in XDG_RUNTIME_DIR.
+- viewer.ts: adapts V's persistent Terminal without reproducing its parser.
 - protocol.ts: strict v1 control requests, replies and viewer input.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
@@ -19,6 +21,8 @@ abort and attach. Attached viewer events are input and resize. The listener
 owns a mode-0600 socket inside a user-owned mode-0700 directory. Viewer
 output is bounded at 4 MiB pending writes; EOF detaches only the viewer.
 Attach replies precede initial screen output on the same connection.
+Close, release and abort over a socket require expectedHost discovery
+identity. Direct internal dispatch still permits an unguarded request.
 
 Unknown fields and operations fail closed. Credentials and arbitrary
 environment maps are not accepted through this protocol. Engine failures

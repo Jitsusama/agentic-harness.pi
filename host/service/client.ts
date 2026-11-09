@@ -12,6 +12,13 @@ export async function controlRequest(
 	timeoutMs = REQUEST_TIMEOUT_MS,
 ) {
 	const request = parseControl(value);
+	if (
+		["close", "release", "abort"].includes(request.op) &&
+		!request.expectedHost
+	)
+		throw new Error(
+			"Session-ending requests require expectedHost discovery identity",
+		);
 	if (request.op === "attach")
 		throw new Error("Attach requires a streaming viewer client");
 	if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
