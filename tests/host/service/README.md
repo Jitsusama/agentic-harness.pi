@@ -4,6 +4,10 @@ Protocol validation, byte framing and session-scoped engine dispatch.
 socket.test.ts checks real private sockets, strict replies and bounded
 transport with H1 ownership and V Terminals, including reconnect. These
 tests use an injected engine with two sessions in one process.
+backend.test.ts drives the backend over the real SessionHost, roster
+and socket with a fake engine: hold before registration, undo of an
+unregistered start, holds kept through stop and failed closes, resume
+at start, and two sessions each in its own environment.
 roster.test.ts checks durable holds across stop and a host that died
 without closing, lock refusal and takeover races, and refusal to start
 over an unreadable roster, in a private temporary folder. They do not
