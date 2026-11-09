@@ -67,7 +67,7 @@ export function withRepoRules(
 	if (typeof path !== "string") return result;
 	const note = repoRulesNote({
 		tree: path,
-		cwd: ctx.cwd ?? process.cwd(),
+		cwd: ctx.cwd,
 		session: currentSessionId(ctx, undefined) ?? "",
 	});
 	return note ? { ...result, message: `${result.message}\n\n${note}` } : result;
@@ -75,7 +75,7 @@ export function withRepoRules(
 
 function defaultRepoRoot(_state: QuestState, params: QuestToolParams): string {
 	if (params.cwd) return params.cwd;
-	return process.cwd();
+	return "";
 }
 
 function readSessionsFromQuest(state: QuestState): QuestSession[] {
@@ -441,6 +441,7 @@ export async function treeRelease(
 	state: QuestState,
 	params: QuestToolParams,
 	signal?: AbortSignal,
+	cwd?: string,
 ): Promise<QuestResult> {
 	if (!state.questDir || !state.questId) {
 		return refuse("Load a quest first.");
@@ -503,7 +504,7 @@ export async function treeRelease(
 	const provider =
 		(target.providerId ? getTreeProvider(target.providerId) : undefined) ??
 		resolveTreeProvider(target.repoRoot ?? target.path) ??
-		resolveTreeProvider(process.cwd());
+		(cwd ? resolveTreeProvider(cwd) : undefined);
 	if (!provider) {
 		if (gone) return forgetTree(state, target.path);
 		return refuse(

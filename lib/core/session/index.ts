@@ -9,8 +9,11 @@ export {
 	type HostRegistry,
 	hosted,
 	installHost,
+	isSessionStamp,
 	type LaunchHints,
+	SESSION_STAMP_EVENT,
 	type SessionEnvironment,
+	type SessionStamp,
 } from "./host.ts";
 export {
 	ambientSession,

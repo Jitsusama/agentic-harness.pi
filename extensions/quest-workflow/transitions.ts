@@ -292,7 +292,7 @@ async function dispatch(
 		case "tree-list":
 			return treeList(state);
 		case "tree-release":
-			return treeRelease(state, params, signal);
+			return treeRelease(state, params, signal, ctx.cwd);
 		case "tree-expand":
 			return treeExpand(state, params);
 		case "expand":

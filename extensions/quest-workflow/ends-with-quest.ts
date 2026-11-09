@@ -18,6 +18,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { refreshLoadedSlice } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";
 
@@ -76,14 +77,14 @@ export function lookAt(
  * The running watch, at most one per process, kept on the process so a
  * reloaded copy of this module stops the one an older copy started.
  */
-const WATCH_SLOT = Symbol.for("agentic-harness.quest-workflow.ends-with-quest");
+const WATCH_SLOT = "agentic-harness.quest-workflow.ends-with-quest";
 
 function watchSlot(): { timer?: ReturnType<typeof setInterval> } {
-	const holder = globalThis as {
-		[WATCH_SLOT]?: { timer?: ReturnType<typeof setInterval> };
-	};
-	holder[WATCH_SLOT] ??= {};
-	return holder[WATCH_SLOT];
+	return sessionSlot<{ timer?: ReturnType<typeof setInterval> }>(
+		WATCH_SLOT,
+		undefined,
+		() => ({}),
+	);
 }
 
 /**

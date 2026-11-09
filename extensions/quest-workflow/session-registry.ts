@@ -23,6 +23,12 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	hosted,
+	isSessionStamp,
+	SESSION_STAMP_EVENT,
+} from "../../lib/core/session/host.ts";
+import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { machineBooted } from "../../lib/internal/booted.ts";
 import { thisMachine } from "../../lib/internal/machine.ts";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
@@ -35,7 +41,7 @@ import {
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
-	currentProcessIdentity,
+	currentBootToken,
 	localProcessDeps,
 	probeProcess,
 } from "../../lib/internal/quest/process-liveness.ts";
@@ -216,14 +222,14 @@ const HEARTBEAT_INTERVAL_MS = 60_000;
  * afresh, and a timer the old copy started would then beat on after
  * the new copy stopped its own, re-dating a session that had ended.
  */
-const HEARTBEAT_SLOT = Symbol.for("agentic-harness.quest-workflow.heartbeat");
+const HEARTBEAT_SLOT = "agentic-harness.quest-workflow.heartbeat";
 
 function heartbeatSlot(): { timer?: ReturnType<typeof setInterval> } {
-	const holder = globalThis as {
-		[HEARTBEAT_SLOT]?: { timer?: ReturnType<typeof setInterval> };
-	};
-	holder[HEARTBEAT_SLOT] ??= {};
-	return holder[HEARTBEAT_SLOT];
+	return sessionSlot<{ timer?: ReturnType<typeof setInterval> }>(
+		HEARTBEAT_SLOT,
+		undefined,
+		() => ({}),
+	);
 }
 
 /**
@@ -239,6 +245,7 @@ export function startHeartbeat(
 	intervalMs: number = HEARTBEAT_INTERVAL_MS,
 	check?: () => void,
 ): void {
+	if (hosted()) return;
 	stopHeartbeat();
 	const timer = setInterval(() => {
 		touchHeartbeat(sessionId);
@@ -441,14 +448,10 @@ interface SignalStampSlot {
 	listeners?: Map<NodeJS.Signals, () => void>;
 }
 
-const SIGNAL_STAMP_SLOT = Symbol.for(
-	"agentic-harness.quest-workflow.signal-stamp",
-);
+const SIGNAL_STAMP_SLOT = "agentic-harness.quest-workflow.signal-stamp";
 
 function signalStampSlot(): SignalStampSlot {
-	const holder = globalThis as { [SIGNAL_STAMP_SLOT]?: SignalStampSlot };
-	holder[SIGNAL_STAMP_SLOT] ??= {};
-	return holder[SIGNAL_STAMP_SLOT];
+	return sessionSlot<SignalStampSlot>(SIGNAL_STAMP_SLOT, undefined, () => ({}));
 }
 
 /**
@@ -495,6 +498,7 @@ const liveSignalStampDeps: SignalStampDeps = {
 export function installSignalStamp(
 	deps: SignalStampDeps = liveSignalStampDeps,
 ): void {
+	if (hosted()) return;
 	const slot = signalStampSlot();
 	if (slot.listeners) return;
 	const listeners = new Map<NodeJS.Signals, () => void>();
@@ -557,6 +561,20 @@ function stampSignalled(sessionId: string, now: Date): void {
 	if (stamped !== record) saveRecord(stamped);
 }
 
+/** Follow only this conversation's host endings, disposing the hook on reload. */
+export function followHostStamps(
+	bus: { on(channel: string, listener: (data: unknown) => void): () => void },
+	session: string,
+	release: () => void,
+): () => void {
+	return bus.on(SESSION_STAMP_EVENT, (data) => {
+		if (!isSessionStamp(data) || data.session !== session) return;
+		if (data.how === "signalled") stampSignalled(session, new Date());
+		else recordSessionEnd(session, "quit");
+		release();
+	});
+}
+
 /** Apply an end reason to a session's record, if it has one. */
 export function recordSessionEnd(
 	sessionId: string,
@@ -601,7 +619,7 @@ export function restorableSessions(
  */
 export function lastBootRestorable(
 	saved: (sessionId: string) => boolean = savedSessions(),
-	thisBoot: string | undefined = currentProcessIdentity()?.bootToken,
+	thisBoot: string | undefined = currentBootToken(),
 ): LastBootSessions {
 	const lost = new Set(
 		restorableSessions(saved).map((record) => record.sessionId),
@@ -625,7 +643,7 @@ export function refreshRestoreFile(
 	stateHome: string = defaultStateHome(),
 ): void {
 	try {
-		const thisBoot = currentProcessIdentity()?.bootToken;
+		const thisBoot = currentBootToken();
 		const note = readWindowsNote(windowsNotePath(stateDir("quest-workflow")));
 		const file = restoreFileOf(
 			loadRecords(),

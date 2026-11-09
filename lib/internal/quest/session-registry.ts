@@ -638,6 +638,8 @@ export function namesAnotherProcess(
 	return (
 		recorded.hostId !== running.hostId ||
 		recorded.pid !== running.pid ||
+		recorded.hosted?.host !== running.hosted?.host ||
+		recorded.hosted?.session !== running.hosted?.session ||
 		recorded.startToken !== running.startToken ||
 		(recorded.bootToken !== undefined &&
 			running.bootToken !== undefined &&

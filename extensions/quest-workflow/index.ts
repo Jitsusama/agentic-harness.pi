@@ -25,6 +25,7 @@ import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { boundedByDetails } from "../../lib/core/result/details.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
+import { hosted } from "../../lib/core/session/host.ts";
 import { registerBuiltinTreeProviders } from "../../lib/core/tree/register.ts";
 import { setProgressSource } from "../../lib/internal/away/state.ts";
 import {
@@ -99,6 +100,7 @@ import {
 import { questCommandEnvironment } from "./scratch.ts";
 import {
 	endReasonForShutdown,
+	followHostStamps,
 	handOverSession,
 	lostSessionCount,
 	recordSessionEnd,
@@ -720,10 +722,19 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	/** What a spawn left this session to say, sent once start is done. */
 	let firstWords: (() => void) | undefined;
+	let stopHostStamp: (() => void) | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
 		// What this session journals is its own, for its own undo.
 		setJournalSession(currentSessionId(ctx, undefined));
+		stopHostStamp?.();
+		if (hosted()) {
+			const session = currentSessionId(ctx, undefined);
+			if (session)
+				stopHostStamp = followHostStamps(pi.events, session, () =>
+					releaseSessionOnShutdown(state, session),
+				);
+		}
 		// Surface any layout-drift errors the discovery walk
 		// found. After the canonical-layout tightening, a
 		// nested QEST dir or a misplaced doc file gets recorded
@@ -801,7 +812,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// re-dated on a heartbeat and stamped by the signal that takes the
 		// tab away, since pi reports a closed tab as a quit. Best-effort.
 		const sid = currentSessionId(ctx, undefined);
-		if (sid && isPersistedSession(ctx) && ctx.hasUI) {
+		if (sid && isPersistedSession(ctx) && (ctx.hasUI || hosted())) {
 			trackSession(
 				{
 					sessionId: sid,
@@ -818,7 +829,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		updateScoreboard(state, ctx);
 		// A session on screen ends itself once its quest has ended and
 		// nothing is left in it, so its window closes with it.
-		if (ctx.hasUI) watchForQuestEnd(state, ctx);
+		if (ctx.hasUI || hosted()) watchForQuestEnd(state, ctx);
 		// A passive pointer, nothing more: list the few most recently
 		// active sessions so a fresh shell can see where work was without
 		// probing history or loading anything. The authoritative, probed
@@ -849,6 +860,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (event, ctx) => {
 		budgets.forget();
+		stopHostStamp?.();
+		stopHostStamp = undefined;
 		const sid = currentSessionId(ctx, undefined);
 		// Stop beating before stamping: a tick that landed afterwards
 		// would touch the file again and re-date a session that has
@@ -874,7 +887,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		if (ended === "swapped") {
 			const sessionFile = ctx.sessionManager.getSessionFile();
 			const successor =
-				sid && isPersistedSession(ctx) && ctx.hasUI
+				sid && isPersistedSession(ctx) && ctx.hasUI && !hosted()
 					? handOverSession(
 							{
 								sessionId: sid,

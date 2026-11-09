@@ -17,7 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { processGlobal } from "../process-global.ts";
+import { sessionSlot } from "../../core/session/slot.ts";
 import { atomicWriteFile, withQuestLock } from "./io.ts";
 
 /**
@@ -57,23 +57,24 @@ function journalPath(questsRoot: string): string {
 	return join(questsRoot, ".structural-journal.jsonl");
 }
 
-// Which session this process's journal writes belong to. Process-wide
-// because journal writes come from many verbs and from the README
-// writer under them, all in the one session the process runs; the
-// quest workflow says which as the session starts and on every call.
-const author = processGlobal<{ session?: string }>(
-	"agentic-harness:quest-journal-author",
-	() => ({}),
-);
-
-/** Say which session this process's journal writes belong to. */
-export function setJournalSession(session: string | undefined): void {
-	author.session = session;
+// Verbs and README writers find the same author across library copies.
+// Hosted conversations keep separate authors even when their calls overlap.
+function author(): { session?: string } {
+	return sessionSlot(
+		"agentic-harness:quest-journal-author",
+		undefined,
+		() => ({}),
+	);
 }
 
-/** The session this process's journal writes belong to, when known. */
+/** Say which conversation the current journal writes belong to. */
+export function setJournalSession(session: string | undefined): void {
+	author().session = session;
+}
+
+/** The conversation these journal writes belong to, when known. */
 export function journalSession(): string | undefined {
-	return author.session;
+	return author().session;
 }
 
 /**
@@ -91,7 +92,7 @@ export function recordStructuralOp(
 		op,
 		changes,
 		entry: randomUUID(),
-		...(author.session ? { session: author.session } : {}),
+		...(journalSession() ? { session: journalSession() } : {}),
 	};
 	withQuestLock(questsRoot, () => {
 		appendFileSync(

@@ -13,7 +13,15 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { startTicksFromProcSync } from "../process-ticks.ts";
+import { isOwner } from "../../core/process/index.ts";
+import { hosted } from "../../core/session/host.ts";
+import {
+	requireSession,
+	type SessionRef,
+} from "../../core/session/identity.ts";
+import { hostedStanding } from "../../core/session/registry.ts";
+import { sessionSlot } from "../../core/session/slot.ts";
+import { startTicksFromProcSync, type TickedOwner } from "../process-ticks.ts";
 
 /** Stable identity of a recorded pi process. */
 export interface ProcessIdentity {
@@ -43,6 +51,8 @@ export interface ProcessIdentity {
 	 * captured, or on a host without them, is judged by its token.
 	 */
 	startTicks?: number;
+	/** The conversation, distinct from the process that hosts it. */
+	hosted?: { host: string; session: string; owner: TickedOwner };
 }
 
 /** What an OS inspection of a pid found. */
@@ -194,9 +204,16 @@ let processIdentityCache: ProcessIdentity | undefined;
  * than once and each reading is a synchronous `ps`. A failed reading
  * is not remembered, so a transient failure is retried next time.
  */
-export function currentProcessIdentity(): ProcessIdentity | undefined {
+export function currentProcessIdentity(
+	ref?: SessionRef,
+): ProcessIdentity | undefined {
 	processIdentityCache ??= readProcessIdentity();
-	return processIdentityCache;
+	const host = hosted();
+	if (!host || !processIdentityCache) return processIdentityCache;
+	return {
+		...processIdentityCache,
+		hosted: { host: host.key, session: requireSession(ref), owner: host.owner },
+	};
 }
 
 /** Read this process's identity from the OS. */
@@ -293,16 +310,15 @@ export function currentBootToken(): string | undefined {
 	return bootTokenCache.token;
 }
 
-/** Id minted once per pi process, identifying which process holds a session lease. */
-const INSTANCE_ID = randomUUID();
+/** Slot retaining the instance lease across extension copies and reloads. */
+const INSTANCE_ID = "agentic-harness.quest-workflow.instance";
 
 /**
- * The current pi process's instance id, stable for the life of the
- * process. Stored on a session at attach so a later shutdown detaches
- * only when the same instance still owns it.
+ * The instance lease: process-wide on pi, per conversation in a host.
+ * Stored at attach so a delayed shutdown detaches only its own lease.
  */
-export function currentInstanceId(): string {
-	return INSTANCE_ID;
+export function currentInstanceId(ref?: SessionRef): string {
+	return sessionSlot(INSTANCE_ID, ref, () => ({ id: randomUUID() })).id;
 }
 
 /** The always-on local floor: this host plus the OS start-token reader. */
@@ -356,6 +372,28 @@ export function probeProcess(
 	// earlier boot is dead without asking the OS: whatever holds that
 	// pid now is a reuse, even when its start token happens to match.
 	if (fromAnotherBoot(id, deps)) return "gone";
+	const verdict = probeOwnerProcess(id, deps);
+	if (verdict !== "matching" || !id.hosted) return verdict;
+	if (
+		!isOwner(id.hosted.owner) ||
+		id.hosted.owner.pid !== id.pid ||
+		(id.bootToken !== undefined && id.hosted.owner.bootId !== id.bootToken) ||
+		(id.startTicks !== undefined &&
+			id.hosted.owner.startTicks !== id.startTicks)
+	)
+		return "unknown";
+	const standing = hostedStanding({
+		...id.hosted.owner,
+		host: id.hosted.host,
+		session: id.hosted.session,
+	});
+	return standing === "running" ? "matching" : standing;
+}
+
+function probeOwnerProcess(
+	id: ProcessIdentity,
+	deps: ProbeProcessDeps,
+): ProcessProbe {
 	const byTicks = probeByTicks(id, deps);
 	if (byTicks) return byTicks;
 	const found = deps.inspect(id.pid);

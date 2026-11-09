@@ -34,6 +34,28 @@ export interface Host {
 	stamp(sessionId: string, how: "signalled" | "closed"): void | Promise<void>;
 }
 
+/** Host.stamp emits this on the conversation bus within withSession. */
+export const SESSION_STAMP_EVENT = "agentic-harness:session-stamp";
+
+/** A host ending, never a runner reload or a viewer detachment. */
+export interface SessionStamp {
+	session: string;
+	how: "signalled" | "closed";
+}
+
+/** Narrow an event from the shared bus before changing a session record. */
+export function isSessionStamp(value: unknown): value is SessionStamp {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		"session" in value &&
+		typeof value.session === "string" &&
+		value.session.length > 0 &&
+		"how" in value &&
+		(value.how === "signalled" || value.how === "closed")
+	);
+}
+
 /** An entry in the host's list of currently open conversations. */
 export interface HostedSession {
 	readonly id: string;

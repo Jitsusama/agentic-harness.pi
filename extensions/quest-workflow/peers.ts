@@ -18,7 +18,10 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/host.ts";
+import { ambientSession } from "../../lib/core/session/identity.ts";
 import {
+	currentProcessIdentity,
 	localProcessDeps,
 	type ProbeProcessDeps,
 	probeProcess,
@@ -43,7 +46,10 @@ export function sayPeersOnStartup(
 	if (!state.questId) return;
 	const sessions =
 		findQuestEntry(state, state.questId)?.doc.frontMatter.sessions ?? [];
-	const said = peersSaid(state.questId, livePeers(sessions));
+	const said = peersSaid(
+		state.questId,
+		livePeers(sessions, selfIdentity(ctx.sessionManager.getSessionId())),
+	);
 	if (!said) return;
 	const already = ctx.sessionManager
 		.getEntries()
@@ -73,17 +79,19 @@ export interface Peer {
  */
 export function livePeers(
 	sessions: readonly QuestSession[],
-	self: { pid: number; hostId: string } = {
-		pid: process.pid,
-		hostId: hostname(),
-	},
+	self: { pid: number; hostId: string; session?: string } = selfIdentity(),
 	deps: ProbeProcessDeps = localProcessDeps(),
 ): Peer[] {
 	const peers: Peer[] = [];
 	for (const session of sessions) {
 		const proc = session.process;
 		if (session.status === "detached" || !proc) continue;
-		if (proc.pid === self.pid && proc.hostId === self.hostId) continue;
+		if (
+			proc.pid === self.pid &&
+			proc.hostId === self.hostId &&
+			(!proc.hosted || proc.hosted.session === self.session)
+		)
+			continue;
 		if (probeProcess(proc, deps) !== "matching") continue;
 		peers.push({
 			id: session.id,
@@ -92,6 +100,19 @@ export function livePeers(
 		});
 	}
 	return peers;
+}
+
+function selfIdentity(session = ambientSession()): {
+	pid: number;
+	hostId: string;
+	session?: string;
+} {
+	const identity = currentProcessIdentity(session);
+	return {
+		pid: identity?.pid ?? 0,
+		hostId: identity?.hostId ?? hostname(),
+		...(hosted() && session ? { session } : {}),
+	};
 }
 
 /** One sentence naming the peers on a quest, or nothing when there are none. */

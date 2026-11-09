@@ -28,13 +28,12 @@ import {
 	stampQuestUpdated,
 	unfocusDocument,
 } from "../../lib/core/quest/lifecycle.ts";
+import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
+import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
-import {
-	FIRST_WORDS_VARIABLE,
-	takeFirstWords,
-} from "../../lib/internal/quest/first-words.ts";
+import { takeFirstWords } from "../../lib/internal/quest/first-words.ts";
 import { appendHarnessLog } from "../../lib/internal/quest/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.ts";
 import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.ts";
@@ -47,14 +46,6 @@ import { getLastEntry } from "../../lib/internal/state.ts";
 import { sessionNameFor } from "./render.ts";
 import type { QuestState } from "./state.ts";
 import { orchestrate } from "./verbs/orchestrate.ts";
-
-/**
- * Set to `1` beside the autoload id, it makes the session mark the quest
- * it loads as orchestrating, so the launcher can start an orchestrator
- * for a quest that never had one: the shell never writes a quest's
- * front matter itself.
- */
-export const ORCHESTRATE_VARIABLE = "QUEST_WORKFLOW_ORCHESTRATE";
 
 export {
 	attachCurrentSession,
@@ -125,7 +116,7 @@ export function releaseSessionOnShutdown(
 	sessionId: string,
 ): void {
 	if (!state.questDir) return;
-	const { instanceId } = captureSessionIdentity();
+	const { instanceId } = captureSessionIdentity(sessionId);
 	detachSessionIfOwner(state.questDir, sessionId, instanceId);
 }
 
@@ -431,11 +422,11 @@ export function resolveStartup(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): StartupResolution {
-	const autoloadId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
-	const orchestrating = process.env[ORCHESTRATE_VARIABLE] === "1";
-	delete process.env[ORCHESTRATE_VARIABLE];
+	const hints = launchHints(ctx);
+	pendingWords(ctx).hints = hints;
+	const autoloadId = hints.questId;
+	const orchestrating = hints.orchestrate;
 	if (autoloadId) {
-		delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
 		if (loadQuest(state, pi, autoloadId).ok) {
 			autoFocusPlan(state);
 			if (orchestrating) orchestrate(state, { action: "orchestrate" }, true);
@@ -461,6 +452,14 @@ export function resolveStartup(
 		source: state.questId ? "cwd" : "none",
 		questId: state.questId,
 	};
+}
+
+function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
+	return sessionSlot(
+		"agentic-harness.quest-workflow.launch-words",
+		ctx,
+		() => ({}),
+	);
 }
 
 /**
@@ -489,13 +488,17 @@ export function sayFirstWords(
 	pending: () => boolean = firstPromptPending,
 	dir?: string,
 ): (() => void) | undefined {
-	const token = process.env[FIRST_WORDS_VARIABLE];
-	delete process.env[FIRST_WORDS_VARIABLE];
+	const slot = pendingWords(ctx);
+	const hints = slot.hints ?? launchHints(ctx);
+	delete slot.hints;
+	const token = hints.firstWordsToken;
 	const putOff = pending();
-	const words = takeFirstWords([token, sessionId], dir, Date.now(), {
-		...(sessionId ? { sessionId } : {}),
-		said: !putOff,
-	});
+	const words =
+		hints.firstWords ??
+		takeFirstWords([token, sessionId], dir, Date.now(), {
+			...(sessionId ? { sessionId } : {}),
+			said: !putOff,
+		});
 	if (!words || putOff) return undefined;
 	return () => {
 		const idle = ctx.isIdle?.() ?? true;
