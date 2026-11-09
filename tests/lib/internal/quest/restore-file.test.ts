@@ -12,6 +12,7 @@ import {
 	writeRestoreFile,
 } from "../../../../lib/internal/quest/restore-file.ts";
 import {
+	closeRecord,
 	openRecord,
 	reopenRecord,
 } from "../../../../lib/internal/quest/session-registry.ts";
@@ -73,6 +74,55 @@ describe("the restore file", () => {
 				},
 			],
 		});
+	});
+
+	it("offers a session parked when the boot ended, marked parked, unless its quest is done", () => {
+		const parked = (sessionId: string, questId: string, at: string) =>
+			closeRecord(ranIn(sessionId, "last", questId), "parked", new Date(at));
+		const file = restoreFileOf(
+			[
+				{
+					record: ranIn("running", "last"),
+					heartbeatAt: "2026-10-29T05:00:00Z",
+				},
+				{
+					record: parked(
+						"asleep",
+						"QEST-20261106-AAAAAA",
+						"2026-10-29T01:00:00Z",
+					),
+					heartbeatAt: "2026-10-29T01:00:00Z",
+				},
+				{
+					record: parked(
+						"done",
+						"QEST-20261106-BBBBBB",
+						"2026-10-29T02:00:00Z",
+					),
+					heartbeatAt: "2026-10-29T02:00:00Z",
+				},
+			],
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			(quest) => quest !== "QEST-20261106-BBBBBB",
+		);
+
+		expect(file.sessions).toEqual([
+			expect.objectContaining({ id: "running" }),
+			{
+				id: "asleep",
+				address: "AAAAAA",
+				title: "asleep",
+				quest: "QEST-20261106-AAAAAA",
+				cwd: "/home/me/src/asleep",
+				lostAt: "2026-10-29T01:00:00.000Z",
+				parked: true,
+			},
+		]);
 	});
 
 	it("drops a session once it runs again in this boot", () => {

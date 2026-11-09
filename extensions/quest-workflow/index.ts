@@ -40,6 +40,7 @@ import {
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
+import { isParking, PARKING } from "../../lib/internal/session/park.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
 import { registerBuiltinPersonResolvers } from "../../lib/people/resolve.ts";
@@ -838,6 +839,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		if (say) setImmediate(say);
 	});
 
+	// A session parking quits to give back its memory, and its record
+	// says it parked, so a boot that ends while it sleeps offers it back.
+	let parking: string | undefined;
+	pi.events?.on(PARKING, (data: unknown) => {
+		if (isParking(data)) parking = data.session;
+	});
+
 	pi.on("session_shutdown", async (event, ctx) => {
 		budgets.forget();
 		const sid = currentSessionId(ctx, undefined);
@@ -851,7 +859,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// that actually end something. A reload keeps the same session
 		// running in the same process, so stamping it would date a tab
 		// as closed while it is still on screen.
-		const ended = endReasonForShutdown(event.reason);
+		const ended = endReasonForShutdown(
+			event.reason,
+			sid !== undefined && parking === sid,
+		);
 		if (sid && ended) recordSessionEnd(sid, ended);
 		// A swap hands the process to another conversation, so a later
 		// signal is no longer this session's to take: it is the

@@ -289,6 +289,10 @@ describe("endReasonForShutdown", () => {
 		expect(endReasonForShutdown("quit")).toBe("quit");
 	});
 
+	it("says a quit the session took to park is a park", () => {
+		expect(endReasonForShutdown("quit", true)).toBe("parked");
+	});
+
 	it("leaves the record alone on a reload", () => {
 		// A reload rebuilds the extensions around the same session in the
 		// same process. Nothing ended, so nothing should be stamped.

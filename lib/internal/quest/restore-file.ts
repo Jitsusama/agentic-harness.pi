@@ -11,7 +11,12 @@
  * an entry marked `carried` (Y2YBTS, 30 October): a session another
  * machine carried home before it went away, offered whatever the boot
  * until it runs here (carried.ts). An entry marked `fresh` is a session
- * pi never saved, which the launcher starts afresh under its id.
+ * pi never saved, which the launcher starts afresh under its id. One
+ * marked `parked` was asleep when the boot ended, parked while idle,
+ * and reopens as any other: idle by its log, it parks again within its
+ * first minute, so it comes back as it was.
+ * A parked session of a quest since concluded or retired isn't offered,
+ * since its work is done and it parked for having nothing left to do.
  *
  * Worked out without probing any process, since it is written as each
  * pi starts, and starting a session never shells out: a record from
@@ -66,6 +71,11 @@ export interface RestoreEntry {
 	 * (Y2YBTS, 1 November).
 	 */
 	readonly fresh?: true;
+	/**
+	 * For a session parked while idle when the boot ended: asleep rather
+	 * than lost, and `lostAt` is when it parked.
+	 */
+	readonly parked?: true;
 }
 
 /** The whole file. */
@@ -113,6 +123,8 @@ export function restoreFileOf(
 	carried: readonly RestoreEntry[] = [],
 	/** The boot this boot already named as the last, by `bootEndedBefore`. */
 	ended?: string,
+	/** Whether a quest is still live, so a session parked on it returns. */
+	live: (questId: string) => boolean = () => true,
 ): RestoreFile {
 	// A record exists only once a pi has run the session on this machine.
 	const ranHere = new Set(stored.map(({ record }) => record.sessionId));
@@ -139,6 +151,12 @@ export function restoreFileOf(
 					? entryOf(record, titleOf)
 					: { ...entryOf(record, titleOf), fresh: true as const },
 			),
+			...found.parked
+				.filter((record) => record.quest === undefined || live(record.quest))
+				.map((record) => ({
+					...entryOf(record, titleOf),
+					parked: true as const,
+				})),
 			...(joins?.windows ?? []).map(
 				(window): RestoreEntry => ({
 					id: window.id,
