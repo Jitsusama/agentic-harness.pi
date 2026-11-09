@@ -21,6 +21,8 @@ interface Tool {
 		id: string,
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
+		onUpdate?: unknown,
+		ctx?: unknown,
 	): Promise<{ content: { type: string; text: string }[] }>;
 }
 
@@ -58,7 +60,11 @@ function lspTool(): Tool {
 	};
 	lspIntegration(pi as never);
 	if (!found) throw new Error("the lsp tool was not registered");
-	return found;
+	const tool = found;
+	return {
+		execute: (id, params, signal) =>
+			tool.execute(id, params, signal, undefined, { cwd: "/work" }),
+	};
 }
 
 /** A backend that never answers, keeping each signal it was handed. */

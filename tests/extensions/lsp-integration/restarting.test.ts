@@ -18,12 +18,16 @@ interface Tool {
 	execute(
 		id: string,
 		params: Record<string, unknown>,
+		signal?: AbortSignal,
+		onUpdate?: unknown,
+		ctx?: unknown,
 	): Promise<{ content: { type: string; text: string }[] }>;
 }
 
 /** How each standalone backend the extension starts will answer. */
 const scripts: Array<() => Promise<unknown[]>> = [];
 const started: Array<{ disposed: boolean }> = [];
+const shutdowns: Array<() => Promise<unknown>> = [];
 
 function backendAnswering(answer: () => Promise<unknown[]>): LspBackend {
 	const record = { disposed: false };
@@ -61,12 +65,18 @@ function lspTool(): Tool {
 		registerTool(definition: Tool) {
 			found = definition;
 		},
-		on() {},
+		on(name: string, handler: () => Promise<unknown>) {
+			if (name === "session_shutdown") shutdowns.push(handler);
+		},
 		events: { on() {}, emit() {} },
 	};
 	lspIntegration(pi as never);
 	if (!found) throw new Error("the lsp tool was not registered");
-	return found;
+	const tool = found;
+	return {
+		execute: (id, params, signal) =>
+			tool.execute(id, params, signal, undefined, { cwd: "/work" }),
+	};
 }
 
 const closed = () => Promise.reject(new Error("Connection is closed."));
@@ -77,7 +87,8 @@ beforeEach(() => {
 	started.length = 0;
 });
 
-afterEach(() => {
+afterEach(async () => {
+	for (const shutdown of shutdowns.splice(0)) await shutdown();
 	clearLspBackends();
 });
 

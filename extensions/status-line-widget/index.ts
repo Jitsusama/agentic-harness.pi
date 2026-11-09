@@ -110,7 +110,7 @@ export default function statusLine(pi: ExtensionAPI) {
 				surface?.requestRender();
 			})
 		: null;
-	const ask = () => engine?.ask(process.cwd());
+	const ask = (ctx: ExtensionContext) => engine?.ask(ctx.cwd);
 
 	// Telling a folder looks at the disk, so it's kept until pi moves.
 	let toldFor: string | null = null;
@@ -137,19 +137,19 @@ export default function statusLine(pi: ExtensionAPI) {
 	pi.on("session_tree", changed);
 	pi.on("model_select", changed);
 
-	pi.on("tool_result", async () => ask());
-	pi.on("user_bash", async () => ask());
-	pi.on("agent_end", async () => ask());
+	pi.on("tool_result", async (_event, ctx) => ask(ctx));
+	pi.on("user_bash", async (_event, ctx) => ask(ctx));
+	pi.on("agent_end", async (_event, ctx) => ask(ctx));
 	pi.on("session_shutdown", async () => engine?.stop());
 
 	pi.on("session_start", async (_event, ctx) => {
-		ask();
+		ask(ctx);
 		usage = usageReader(() => ctx.getContextUsage());
 		const reader = usage;
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			surface = tui;
 			const unsub = footerData.onBranchChange(() => {
-				ask();
+				ask(ctx);
 				tui.requestRender();
 			});
 
@@ -180,7 +180,7 @@ export default function statusLine(pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(columns: number): string[] {
-					const cwd = process.cwd();
+					const cwd = ctx.cwd;
 					if (toldFor !== cwd) {
 						toldFor = cwd;
 						place = told(cwd, where.roots, process.env.HOME ?? "");

@@ -117,12 +117,12 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	});
 
 	// Collect the files pi changed this turn.
-	pi.on("tool_result", async (event) => {
+	pi.on("tool_result", async (event, ctx) => {
 		if (event.isError) return;
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 		const path = event.input.path;
 		if (typeof path !== "string") return;
-		const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path);
+		const absolute = isAbsolute(path) ? path : resolve(ctx.cwd, path);
 		state.touched.add(absolute);
 		state.lastEdited = absolute;
 		// An edit under a failed run's project means the run judged a
@@ -260,13 +260,14 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			_toolCallId,
 			params,
 			signal,
+			_onUpdate,
+			ctx,
 		): Promise<AgentToolResult<VerifyDetails>> {
-			const dir = verifyDirectory(params.path, state.lastEdited);
+			const dir = verifyDirectory(params.path, state.lastEdited, ctx.cwd);
 			const root = findProject(dir)?.dir ?? dir;
-			const questVerify = ctxRef
-				? (getLastEntry<{ verify?: string | null }>(ctxRef, "quest-workflow")
-						?.verify ?? undefined)
-				: undefined;
+			const questVerify =
+				getLastEntry<{ verify?: string | null }>(ctx, "quest-workflow")
+					?.verify ?? undefined;
 			const result = await runVerify({
 				cwd: dir,
 				...(questVerify ? { questVerify } : {}),
@@ -329,6 +330,7 @@ interface VerifyDetails {
 function verifyDirectory(
 	given: string | undefined,
 	lastEdited: string | undefined,
+	cwd: string,
 ): string {
 	if (given) {
 		const expanded =
@@ -337,10 +339,10 @@ function verifyDirectory(
 				: given.startsWith("~/")
 					? join(homedir(), given.slice(2))
 					: given;
-		return directoryOf(resolve(process.cwd(), expanded));
+		return directoryOf(resolve(cwd, expanded));
 	}
 	if (lastEdited) return directoryOf(lastEdited);
-	return process.cwd();
+	return cwd;
 }
 
 /**

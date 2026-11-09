@@ -25,6 +25,7 @@
  * session registry) -- not something this module does itself.
  */
 
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { bounded } from "../../../clock/bound.ts";
 import {
 	DEFAULT_SERVERS,
@@ -92,6 +93,13 @@ export interface StandaloneBackend extends LspBackend {
 	syncDocument(path: string, text: string): void;
 }
 
+function inside(root: string, path: string): boolean {
+	const suffix = relative(resolve(root), resolve(path));
+	return (
+		suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix)
+	);
+}
+
 /** Construct a standalone backend over the given (or default) server map. */
 export function createStandaloneBackend(
 	options: StandaloneBackendOptions = {},
@@ -101,6 +109,7 @@ export function createStandaloneBackend(
 	const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
 	const requestMs = options.requestMs ?? DEFAULT_REQUEST_MS;
 	const pool = new Map<string, Promise<StandaloneServer>>();
+	const roots = new Map<string, string>();
 	// Calls in flight per pool key, and the stop timer armed when a
 	// key's last call finishes.
 	const inFlight = new Map<string, number>();
@@ -132,6 +141,7 @@ export function createStandaloneBackend(
 		if (inFlight.has(key)) return;
 		const started = pool.get(key);
 		pool.delete(key);
+		roots.delete(key);
 		void started?.then(
 			(server) => server.dispose(),
 			() => {},
@@ -148,12 +158,16 @@ export function createStandaloneBackend(
 		if (existing) return { key, started: existing };
 		const started = StandaloneServer.start(server, root, binary);
 		pool.set(key, started);
+		roots.set(key, root);
 		// A server that died stays dead, and its connection answers every
 		// later call with "Connection is closed." Drop it from the pool, so
 		// the next call for this root starts one afresh. Only this entry:
 		// a replacement may already be in its place.
 		const evict = () => {
-			if (pool.get(key) === started) pool.delete(key);
+			if (pool.get(key) === started) {
+				pool.delete(key);
+				roots.delete(key);
+			}
 		};
 		// A start that failed goes too, rather than failing every later
 		// call the same way; the caller awaiting it still sees why.
@@ -243,22 +257,33 @@ export function createStandaloneBackend(
 
 	/**
 	 * Workspace symbols carry no file, so they search every server
-	 * already running; nothing is spawned on demand, and a server
+	 * already running within the supplied root (or across the pool when
+	 * no root is supplied); nothing is spawned on demand, and a server
 	 * stopped for idleness is not searched until something file-bound
 	 * starts it again.
 	 */
 	const searchWorkspace = async (
 		query: string,
 		signal: AbortSignal,
+		root?: string,
 	): Promise<SymbolInfo[]> => {
-		const keys = [...pool.keys()];
+		const keys = [...pool.keys()].filter((key) => {
+			const serverRoot = roots.get(key);
+			return (
+				!root ||
+				(serverRoot !== undefined &&
+					(inside(root, serverRoot) || inside(serverRoot, root)))
+			);
+		});
 		for (const key of keys) claim(key);
 		try {
 			const live = await Promise.all(keys.map((key) => pool.get(key)));
 			const results = await Promise.all(
 				live.map((server) => server?.workspaceSymbols(query, signal) ?? []),
 			);
-			return results.flat();
+			return results
+				.flat()
+				.filter((symbol) => !root || inside(root, symbol.location.path));
 		} finally {
 			for (const key of keys) release(key);
 		}
@@ -355,7 +380,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<SymbolInfo[]> {
 			return call(`workspace symbols for ${query}`, options, (signal) =>
-				searchWorkspace(query, signal),
+				searchWorkspace(query, signal, options?.root),
 			);
 		},
 
@@ -386,7 +411,7 @@ export function createStandaloneBackend(
 		syncDocument(path: string, text: string): void {
 			for (const started of pool.values()) {
 				void started.then((server) => {
-					if (path.startsWith(server.root)) server.syncDocument(path, text);
+					if (inside(server.root, path)) server.syncDocument(path, text);
 				});
 			}
 		},
@@ -400,6 +425,7 @@ export function createStandaloneBackend(
 			idleTimers.clear();
 			const started = [...pool.values()];
 			pool.clear();
+			roots.clear();
 			await Promise.all(
 				started.map((s) => s.then((server) => server.dispose())),
 			);

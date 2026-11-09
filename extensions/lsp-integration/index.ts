@@ -5,7 +5,8 @@
  * domain logic lives in agentic-harness.core's lsp module; this
  * extension is the thin wiring: it registers the standalone
  * backend, exposes the tool, keeps the servers in step with
- * pi's own edits, and disposes everything at shutdown.
+ * pi's own edits, and releases the shared servers after the last
+ * runner shuts down.
  *
  * The tool resolves whichever backend is active, so when
  * neovim.pi registers a higher-priority backend for a paired
@@ -19,15 +20,15 @@
  */
 
 import { readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { bounded, WallClockExceeded } from "../../lib/clock/index.ts";
+import { standaloneLease } from "../../lib/core/internal/lsp/standalone.ts";
 import {
-	createStandaloneBackend,
 	formatCodeActions,
 	formatDiagnostics,
 	formatHover,
@@ -37,17 +38,12 @@ import {
 	MissingServerError,
 	registerLspBackend,
 	resolveLspBackend,
-	type StandaloneBackend,
 	toBackendEntry,
 	unregisterLspBackend,
 } from "../../lib/core/lsp/index.ts";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 import { LSP_CALL_WALL_MS } from "./limits.ts";
-
-const STANDALONE = "standalone";
-/** The standalone backend registers here; a paired editor sits below it. */
-const STANDALONE_PRIORITY = 100;
 
 /**
  * What vscode-jsonrpc says when its server has gone:
@@ -75,35 +71,10 @@ interface LspToolDetails {
 const POSITION_OPS = new Set(["definition", "references", "hover", "rename"]);
 
 export default function lspIntegration(pi: ExtensionAPI) {
-	let backend: StandaloneBackend | null = null;
-
-	const ensureBackend = (): StandaloneBackend => {
-		if (!backend) {
-			backend = createStandaloneBackend();
-			registerLspBackend({
-				name: STANDALONE,
-				priority: STANDALONE_PRIORITY,
-				isAvailable: () => true,
-				backend,
-			});
-		}
-		return backend;
-	};
-
-	/** Throw the standalone servers away and start a backend afresh. */
-	const restartStandalone = async (): Promise<StandaloneBackend> => {
-		unregisterLspBackend(STANDALONE);
-		const dead = backend;
-		backend = null;
-		await dead?.dispose().catch(() => {
-			// Servers whose connections are gone may not shut down cleanly;
-			// their processes are killed either way.
-		});
-		return ensureBackend();
-	};
+	const lease = standaloneLease();
 
 	pi.on("session_start", async () => {
-		ensureBackend();
+		lease.ensure();
 	});
 
 	// A paired editor (neovim.pi) cannot import this registry across
@@ -127,14 +98,14 @@ export default function lspIntegration(pi: ExtensionAPI) {
 
 	// Keep the servers current with pi's own edits so diagnostics
 	// track the bytes on disk rather than the bytes at open.
-	pi.on("tool_result", async (event) => {
+	pi.on("tool_result", async (event, ctx) => {
 		if (event.isError) return;
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 		const path = event.input.path;
 		if (typeof path !== "string" || !SYNCABLE.test(path)) return;
-		const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path);
+		const absolute = isAbsolute(path) ? path : resolve(ctx.cwd, path);
 		try {
-			backend?.syncDocument(absolute, readFileSync(absolute, "utf8"));
+			lease.current()?.syncDocument(absolute, readFileSync(absolute, "utf8"));
 		} catch {
 			// The file may have been deleted or moved; a stale sync
 			// is not worth disturbing the edit over.
@@ -142,10 +113,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
-		unregisterLspBackend(STANDALONE);
-		const closing = backend;
-		backend = null;
-		await closing?.dispose();
+		await lease.release();
 	});
 
 	pi.registerTool({
@@ -211,8 +179,11 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			_toolCallId,
 			params,
 			signal,
+			_onUpdate,
+			ctx,
 		): Promise<AgentToolResult<LspToolDetails>> {
-			let active = resolveLspBackend() ?? ensureBackend();
+			let active = resolveLspBackend() ?? lease.ensure();
+			const standalone = active === lease.current();
 			const op = params.operation;
 			// A `records` argument rather than a details heuristic: these
 			// details carry a count, not the findings, and the count is
@@ -251,12 +222,12 @@ export default function lspIntegration(pi: ExtensionAPI) {
 				details: { ok: false, operation: op },
 			});
 			const absolute = (p: string): string =>
-				isAbsolute(p) ? p : resolve(process.cwd(), p);
+				isAbsolute(p) ? p : resolve(ctx.cwd, p);
 			// The backend gets a signal that fires on either the caller
 			// stopping or the clock running out, so a backend that can tell
 			// its server to cancel does so on both.
 			const stop = new AbortController();
-			const options = { signal: stop.signal };
+			const options = { signal: stop.signal, root: ctx.cwd };
 			const ask = <T>(work: Promise<T>): Promise<T> =>
 				bounded(
 					work,
@@ -271,9 +242,15 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			const answer = async (): Promise<AgentToolResult<LspToolDetails>> => {
 				if (op === "workspace_symbols") {
 					if (!params.query) return bad("workspace_symbols needs a query.");
-					const symbols = await ask(
+					const found = await ask(
 						active.workspaceSymbols(params.query, options),
 					);
+					const symbols = found.filter((symbol) => {
+						const path = relative(ctx.cwd, symbol.location.path);
+						return (
+							path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+						);
+					});
 					return text(formatSymbols(symbols), symbols.length, symbols);
 				}
 				if (!params.path) return bad(`${op} needs a path.`);
@@ -339,8 +316,8 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					// calls failed that way. Start the standalone servers afresh
 					// and ask once more. An editor's backend is the editor's to
 					// restart, so its failure is reported as it came.
-					if (!closedConnection(err) || active !== backend) throw err;
-					active = await restartStandalone();
+					if (!closedConnection(err) || !standalone) throw err;
+					active = await lease.restart(active);
 					return await answer();
 				}
 			} catch (err) {
