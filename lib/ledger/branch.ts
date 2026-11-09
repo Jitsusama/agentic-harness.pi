@@ -6,6 +6,11 @@ import type {
 } from "../core/observability/index.ts";
 import { isAutomatedText } from "../internal/automated.ts";
 import { LOADED_MESSAGE } from "../internal/reload/loaded.ts";
+import {
+	SERVED_ENTRY,
+	type Served,
+	servedFrom,
+} from "../internal/session/served.ts";
 
 /**
  * The same rough ratio pi's own compaction estimates with. Good enough
@@ -64,6 +69,10 @@ interface BranchState {
 	readonly lastAborted: boolean;
 	/** A compaction still waiting to learn whether its run resumed. */
 	readonly awaiting: OpenCompaction | null;
+	/** Who the session last said served it, kept across turns. */
+	readonly served: Served | null;
+	/** The account that served the last billed turn, when known. */
+	readonly lastAccount: string | null;
 }
 
 const ROOT: BranchState = {
@@ -76,6 +85,8 @@ const ROOT: BranchState = {
 	lastTypedAt: null,
 	lastAborted: false,
 	awaiting: null,
+	served: null,
+	lastAccount: null,
 };
 
 /** What one entry contributed to the turn it is, if it is one. */
@@ -115,6 +126,10 @@ function advance(
 		// under another one yet.
 		if (before.lastTurnAt === null) return { after: before, step: {} };
 		return { after: noting(before, "model"), step: {} };
+	}
+	if (entry.type === "custom" && entry.customType === SERVED_ENTRY) {
+		const served = servedFrom(entry.data);
+		return { after: served ? { ...before, served } : before, step: {} };
 	}
 	if (entry.type === "custom_message") {
 		const seen =
@@ -197,10 +212,12 @@ function turned(
 		textChars,
 		runId: before.runId,
 		runTurn: before.runId === null ? null : runTurn,
+		...servedFacts(before, follows),
 	};
 	const after: BranchState = billed
 		? {
 				...before,
+				lastAccount: before.served?.account ?? null,
 				lastTurnAt: at,
 				lastOutput: numberOf(usage?.output),
 				addedChars: 0,
@@ -293,6 +310,7 @@ function compacted(
 		textChars: null,
 		runId: before.runId,
 		runTurn: before.runId === null ? null : before.runTurns,
+		...servedFacts(before, false),
 	};
 	return {
 		after: { ...noting(before, "compaction"), awaiting: compaction },
@@ -303,6 +321,29 @@ function compacted(
 function noting(before: BranchState, precedent: TurnPrecedent): BranchState {
 	if (before.seen.has(precedent)) return before;
 	return { ...before, seen: new Set([...before.seen, precedent]) };
+}
+
+/**
+ * Who served a turn, and whether another account did than the billed turn
+ * before, when it `follows` one and both accounts are known.
+ */
+function servedFacts(
+	before: BranchState,
+	follows: boolean,
+): Pick<
+	TurnFacts,
+	"servedBackend" | "servedAccount" | "servedEdge" | "accountChanged"
+> {
+	const account = before.served?.account ?? null;
+	return {
+		servedBackend: before.served?.backend ?? null,
+		servedAccount: account,
+		servedEdge: before.served?.edge ?? null,
+		accountChanged:
+			follows && account !== null && before.lastAccount !== null
+				? account !== before.lastAccount
+				: null,
+	};
 }
 
 function precedentOf(seen: ReadonlySet<TurnPrecedent>): TurnPrecedent {

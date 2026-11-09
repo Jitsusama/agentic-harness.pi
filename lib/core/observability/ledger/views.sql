@@ -25,6 +25,7 @@ SELECT t.digest, t.entry_id, t.session_id, t.timestamp,
 	t.cost_cache_read, t.cost_cache_write,
 	t.preceded_by, t.reloaded, t.gap_ms, t.new_tokens, t.stop_reason,
 	t.thinking_chars, t.text_chars, t.run_id, t.run_turn,
+	t.served_backend, t.served_account, t.served_edge, t.account_changed,
 	t.dropped_before, t.first_kept_entry_id,
 	s.repo, CASE WHEN t.quest IS NULL THEN s.quest ELSE NULLIF(t.quest, '') END AS quest, s.cwd,
 	NULLIF(t.document, '') AS document
@@ -39,6 +40,7 @@ SELECT f.*,
 	CASE
 		WHEN f.preceded_by = 'compaction' THEN 'after compaction'
 		WHEN f.preceded_by = 'model' THEN 'model change'
+		WHEN f.account_changed = 1 THEN 'served by another account'
 		WHEN f.gap_ms > :hour_ms THEN 'idle over an hour'
 		WHEN f.gap_ms > :five_minutes_ms AND f.cache_write_1h = 0
 			THEN 'idle over five minutes'
