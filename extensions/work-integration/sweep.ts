@@ -13,6 +13,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readlinkSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { sessionSlot, withSession } from "../../lib/core/session/index.ts";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
@@ -39,27 +40,49 @@ const FIRST_SWEEP_MS = 3 * 60 * 1000;
 /** How often a session sweeps after its first. */
 const SWEEP_EVERY_MS = 60 * 60 * 1000;
 
-let first: ReturnType<typeof setTimeout> | undefined;
-let every: ReturnType<typeof setInterval> | undefined;
+/**
+ * One conversation's sweep timers. In a session slot rather than module
+ * state, since a host runs several conversations in one process: B's
+ * start must not stop A's sweeps, nor B's close leave A sweeping never.
+ * On plain pi the slot is one process symbol, as the module's were.
+ */
+interface Sweeps {
+	first?: ReturnType<typeof setTimeout>;
+	every?: ReturnType<typeof setInterval>;
+}
+
+const SWEEPS = "agentic-harness.work.sweeps.v1";
+
+function sweeps(id: string | undefined): Sweeps {
+	return sessionSlot<Sweeps>(SWEEPS, id, () => ({}));
+}
 
 /** Sweep a while after each session starts and hourly, until it ends. */
 export function registerTreeSweeps(pi: ExtensionAPI): void {
-	pi.on("session_start", () => {
-		stopSweeps();
-		first = setTimeout(() => void sweepOnce(pi), FIRST_SWEEP_MS);
-		every = setInterval(() => void sweepOnce(pi), SWEEP_EVERY_MS);
+	pi.on("session_start", (_event, ctx) => {
+		const id = ctx.sessionManager.getSessionId();
+		const own = sweeps(id);
+		stopSweeps(own);
+		// A timer fires outside any hook, so each sweep enters its own
+		// conversation again: what it runs reads that conversation's state,
+		// as the queue does, and a host refuses a call that names none.
+		const sweep = () => void withSession(id, () => sweepOnce(pi));
+		own.first = setTimeout(sweep, FIRST_SWEEP_MS);
+		own.every = setInterval(sweep, SWEEP_EVERY_MS);
 		// Neither keeps a pi that is otherwise done from exiting.
-		first.unref();
-		every.unref();
+		own.first.unref();
+		own.every.unref();
 	});
-	pi.on("session_shutdown", () => stopSweeps());
+	pi.on("session_shutdown", (_event, ctx) =>
+		stopSweeps(sweeps(ctx.sessionManager.getSessionId())),
+	);
 }
 
-function stopSweeps(): void {
-	if (first !== undefined) clearTimeout(first);
-	if (every !== undefined) clearInterval(every);
-	first = undefined;
-	every = undefined;
+function stopSweeps(own: Sweeps): void {
+	if (own.first !== undefined) clearTimeout(own.first);
+	if (own.every !== undefined) clearInterval(own.every);
+	own.first = undefined;
+	own.every = undefined;
 }
 
 /** One sweep, logged, which never throws into a timer. */
