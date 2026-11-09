@@ -95,6 +95,13 @@ after its session log, under `observability/resources/`. It records
 no quest: the report asks the ledger which quest that session's turns
 were booked to at the time, so money and machine time follow one rule.
 
+In a shared host, counters belong to the process rather than a
+conversation. Each hosted turn end advances one shared baseline and
+writes a sample to a host log, named by host key and process identity.
+The report gives each host its own row, never distributing its CPU or
+memory over quests. Its load count includes conversation starts and
+reloads. Plain pi keeps its existing session files and format.
+
 On Linux the counters include every child pi waited for, wherever it
 ran, so a build run through bash counts in full once it exits. They
 miss work a daemon does for pi (a `nix build` runs in nix-daemon), a

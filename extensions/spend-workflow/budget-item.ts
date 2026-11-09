@@ -21,6 +21,7 @@ import {
 	budgetDrawnOn,
 } from "../../lib/budget/record.ts";
 import type { Exec } from "../../lib/core/exec/index.ts";
+import { sessionEnv } from "../../lib/core/session/index.ts";
 import {
 	lastPlanUse,
 	type PlanUse,
@@ -138,7 +139,7 @@ export function registerBudgetItem(
 		said = null;
 		if (!ctx.hasUI) return;
 		provider = ctx.model?.provider;
-		drawn = budgetDrawnOn(process.env);
+		drawn = budgetDrawnOn(sessionEnv(ctx).snapshot());
 		plan = lastPlanUse(ctx.sessionManager.getBranch());
 		render();
 		void ask(true);
