@@ -18,11 +18,9 @@
 import { readdirSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { installHost, withSession } from "../../lib/core/session/index.ts";
+import { type FakePi, fakePi } from "./fake-pi.ts";
 import { sessionHost } from "./session-host.ts";
-
-type Handler = (event: unknown, ctx: unknown) => unknown;
 
 /** What loading every extension did, for the parent to judge. */
 export interface Loaded {
@@ -80,26 +78,25 @@ function nothing(): unknown {
 	return answer;
 }
 
-/** A fake pi for one runtime: registrations kept, the rest no-ops. */
-function fakePi() {
-	const handlers = new Map<string, Handler[]>();
-	const known: Record<string, unknown> = {
-		events: createEventBus(),
-		on: (name: string, handler: Handler) => {
-			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
-		},
+/**
+ * The package's fake pi for one runtime, where a member it leaves out
+ * answers nothing rather than throwing: sixty extensions reach for more
+ * of pi than any one test does, and only what they add to the process
+ * is asked here.
+ */
+function lenientPi(): FakePi {
+	const pi = fakePi({
 		getFlag: () => undefined,
 		getActiveTools: () => [],
 		getAllTools: () => [],
 		getCommands: () => [],
 		getMcpServers: () => [],
 		getThinkingLevel: () => "off",
-	};
-	const pi = new Proxy(known, {
-		get: (target, key) =>
-			typeof key === "string" && key in target ? target[key] : () => undefined,
 	});
-	return { pi, handlers };
+	return new Proxy(pi, {
+		get: (target, key, receiver) =>
+			key in target ? Reflect.get(target, key, receiver) : () => undefined,
+	});
 }
 
 /** The context a conversation's hooks get, for conversation `id`. */
@@ -150,10 +147,15 @@ async function loadEveryExtension(hosted: boolean): Promise<Loaded> {
 		};
 		installHost(sessionHost({ pid: process.pid, startedAt: Date.now() }).host);
 	}
+	// A host has pi loaded before any extension, and pi's own lockfile
+	// library hooks every signal once per process as it loads: that is
+	// pi's, so it is counted before the extensions are.
+	await import("@earendil-works/pi-coding-agent");
 	const before = listeners();
 	const failed: string[] = [];
 	for (const id of conversations) {
-		const { pi, handlers } = fakePi();
+		const pi = lenientPi();
+		const { handlers } = pi.recorded;
 		for (const entry of entries) {
 			const name = entry.split("/").at(-2) ?? entry;
 			try {
