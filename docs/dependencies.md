@@ -52,6 +52,12 @@ for its own reason, and all three are enforced by
   NixOS won't run without nix-ld: penelope never
   installed the harness while the pin said 9.15.0.
 
+The development-only @babel/parser dependency parses TypeScript for the
+session-state package gate. TypeScript 7's command-line package no longer
+provides the old compiler parser API. Consumers do not install this test
+parser; the runtime session seam uses only Node built-ins and shared
+library code.
+
 Pi's loader also aliases the older `@mariozechner/*`
 spelling, which this repo imported until every site was
 migrated. Do not reintroduce it: those packages are

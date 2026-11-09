@@ -26,6 +26,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { hostedStanding } from "../session/registry.ts";
 
 /**
  * How far apart two readings of one process's start time may be.
@@ -80,6 +81,9 @@ export interface Owner {
 	pid: number;
 	startedAt: number;
 	bootId?: string;
+	/** Present together only when one conversation is owned by a shared host. */
+	session?: string;
+	host?: string;
 }
 
 /**
@@ -103,7 +107,12 @@ export function isOwner(said: unknown): said is Owner {
 		typeof owner.pid === "number" &&
 		owner.pid > 0 &&
 		typeof owner.startedAt === "number" &&
-		(owner.bootId === undefined || typeof owner.bootId === "string")
+		(owner.bootId === undefined || typeof owner.bootId === "string") &&
+		((owner.session === undefined && owner.host === undefined) ||
+			(typeof owner.session === "string" &&
+				owner.session.length > 0 &&
+				typeof owner.host === "string" &&
+				owner.host.length > 0))
 	);
 }
 
@@ -163,7 +172,8 @@ export async function ownerStanding(
 		// the confident one.
 		return facts.alive(owner.pid) ? "unknown" : "gone";
 	}
-	return sameProcess(startedAt, owner.startedAt) ? "running" : "gone";
+	if (!sameProcess(startedAt, owner.startedAt)) return "gone";
+	return owner.session === undefined ? "running" : hostedStanding(owner);
 }
 
 /**

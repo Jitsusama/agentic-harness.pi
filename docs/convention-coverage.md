@@ -41,6 +41,16 @@ under the guard policy (see
 switch one to report or off; the matrix records what ships, and
 a row whose gate reports by default says so.
 
+## Session Identity Gate
+
+The session seam's README defines the new host contract. The package test
+in tests/package/session-state-is-keyed.test.ts blocks new direct process
+identity, cwd, global slots and environment writes in extensions. Existing
+sites are listed by file and kind in session-state-waiting.txt, which only
+shrinks. This is syntax coverage, not alias or data-flow analysis, and does
+not cover library code. Genuine process-wide infrastructure still waits
+for its domain owner's classification.
+
 ## Open Gaps
 
 One closed by measurement rather than by a new gate. The tool path's
