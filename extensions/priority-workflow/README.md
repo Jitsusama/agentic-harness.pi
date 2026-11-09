@@ -131,21 +131,28 @@ A push of World runs with `core.hooksPath` set, through
 `GIT_CONFIG_COUNT` after any settings already there, to the queue's
 `pushes/` folder, where every hook name runs `push-hooks.mjs`. It runs
 the repository's own hooks as git would have found them, with the
-setting taken off. The one difference is in pre-push. World's LFS hook
+setting taken off. The differences are in pre-push. World's LFS hook
 asks `git lfs ls-files OLD NEW`, which walks a whole World tree; on
 5 November that held a push of 4 commits touching 5 paths for over 90
 minutes. So a push that updates one existing branch, and whose new
 commits add no LFS pointer, touch no path LFS filters and change no
 `.gitattributes`, runs every `pre-push.d` hook but those that run `git
-lfs pre-push`, and says so on stderr. Any other push, and any doubt,
-runs the repository's own pre-push whole.
+lfs pre-push`, and says so on stderr. World's stale-cutoff hook
+measures every branch against main, so it refuses one stacked on a
+parent feature branch, and says to push past it with `--no-verify`. A
+push run as `PI_PUSH_SKIPS_STALE_CUTOFF=1 git push ...` leaves out that
+one hook instead, and says so; the LFS and ancestry hooks run as
+always (Joel, 8 November). An old branch is rebased onto main instead.
+Any other push, and any doubt, runs the repository's own pre-push
+whole.
 
 Since that spares the scan by itself, a push of World with
 `--no-verify` is refused by the `world-push-hooks` guard, in block
 mode, on every platform: the flag skips
 every pre-push hook dev runs, its ancestry and stale-cutoff checks
-with the LFS scan, and the refusal says to run the same push without
-it. On 6 November 5 sessions had pushed World that way 20 times.
+with the LFS scan. The refusal says to run the same push without it,
+to rebase a branch the stale-cutoff check finds old, and names the
+form above for a stacked one. On 6 November 5 sessions had pushed World that way 20 times.
 `-n`, a dry run for a push, is left alone.
 
 Watchers such as `cargo watch` and `bacon` are left out, since they

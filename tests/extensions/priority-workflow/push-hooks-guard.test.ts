@@ -51,6 +51,27 @@ describe("a push of World past its pre-push hooks", () => {
 		expect(verdict?.reason).toContain("without --no-verify");
 	});
 
+	it("says to rebase an old branch first, and how a stacked one leaves out the stale-cutoff check alone", async () => {
+		const reason =
+			(await guard()(bash("git push --no-verify origin x"), WORLD_TREE))
+				?.reason ?? "";
+
+		expect(reason).toContain("rebase it onto main first");
+		expect(reason).toContain("PI_PUSH_SKIPS_STALE_CUTOFF=1 git push");
+		expect(reason.indexOf("rebase"), "rebasing is said first").toBeLessThan(
+			reason.indexOf("PI_PUSH_SKIPS_STALE_CUTOFF"),
+		);
+	});
+
+	it("lets a push that leaves out the stale-cutoff check alone go ahead", async () => {
+		expect(
+			await guard()(
+				bash("PI_PUSH_SKIPS_STALE_CUTOFF=1 git push origin x"),
+				WORLD_TREE,
+			),
+		).toBeUndefined();
+	});
+
 	it("goes ahead as a plain push, or anywhere but World", async () => {
 		expect(
 			await guard()(bash("git push origin HEAD:refs/heads/x"), WORLD_TREE),

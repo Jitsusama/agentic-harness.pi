@@ -1443,6 +1443,11 @@ describe("walks of World's objects among themselves", () => {
 
 	it("reads a push, alone or after a fetch of main, as a push", () => {
 		expect(walkOf("git push origin x", inWorld)).toBe("push");
+		// One that leaves out the stale-cutoff hook runs through the queue's
+		// hooks too, which is where it is left out (push-hooks.mjs).
+		expect(
+			walkOf("PI_PUSH_SKIPS_STALE_CUTOFF=1 git push origin x", inWorld),
+		).toBe("push");
 		expect(
 			walkOf("git fetch origin main && git push origin HEAD:x", inWorld),
 		).toBe("push");

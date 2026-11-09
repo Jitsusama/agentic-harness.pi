@@ -164,6 +164,71 @@ describe("a push of one existing branch", () => {
 	});
 });
 
+describe("a push stacked on a parent feature branch", () => {
+	// World's stale-cutoff hook measures every branch against main, and
+	// says to push past it with --no-verify, which skips the rest too.
+	const staleCutoff = () =>
+		hookFile(
+			join(
+				work,
+				".git",
+				"hooks",
+				"pre-push.d",
+				"012-dev-world-hook-stale-cutoff",
+			),
+			'cat > /dev/null; echo stale >> "$MARK"; exit 1',
+		);
+	const skipping = { PI_PUSH_SKIPS_STALE_CUTOFF: "1" };
+
+	it("passes when the stale-cutoff check alone refuses and the push asks to leave it out", () => {
+		staleCutoff();
+		commit("weights.bin", "binary\n");
+
+		const push = pushing("git push -q origin main", skipping);
+
+		expect(push.status, push.stderr).toBe(0);
+		expect(ran()).toEqual(["lfs", "other unset refs/heads/main"]);
+		expect(push.stderr).toContain(
+			"left out the stale-cutoff check, as PI_PUSH_SKIPS_STALE_CUTOFF asked",
+		);
+	});
+
+	it("is refused by the stale-cutoff check when the push doesn't ask", () => {
+		staleCutoff();
+		commit("notes.txt", "plain\n");
+
+		const push = pushing("git push -q origin main");
+
+		expect(push.status, "the stale-cutoff check refuses").not.toBe(0);
+		expect(ran()).toContain("stale");
+	});
+
+	it("stays refused when the LFS hook or the ancestry hook refuses", () => {
+		staleCutoff();
+		const hooks = join(work, ".git", "hooks", "pre-push.d");
+		commit("weights.bin", "binary\n");
+		hookFile(
+			join(hooks, "001-lfs"),
+			"cat > /dev/null; exit 2 # git lfs pre-push",
+		);
+		const lfs = pushing("git push -q origin main", skipping).status !== 0;
+		hookFile(
+			join(hooks, "001-lfs"),
+			"cat > /dev/null; exit 0 # git lfs pre-push",
+		);
+		hookFile(join(hooks, "011-other"), "cat > /dev/null; exit 3");
+		const ancestry = pushing("git push -q origin main", skipping).status !== 0;
+
+		expect({ lfs, ancestry }, "each refusal stands").toEqual({
+			lfs: true,
+			ancestry: true,
+		});
+		expect(git("ls-remote", "origin", "main")).not.toContain(
+			git("rev-parse", "HEAD"),
+		);
+	});
+});
+
 describe("a push of a new branch", () => {
 	it("leaves out the LFS hook when what the remote lacks holds no LFS file", () => {
 		commit("notes.txt", "plain\n");
