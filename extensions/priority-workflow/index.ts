@@ -133,7 +133,9 @@ const SETTLE_MS = 5_000;
  * traffic shaper sends its request ahead of autonomous sessions'
  * (lib/internal/priority/typed.ts). A subagent never has one.
  */
-function sayTypedTurns(pi: ExtensionAPI): ReturnType<typeof typedTurns> {
+export function sayTypedTurns(
+	pi: Pick<ExtensionAPI, "on">,
+): ReturnType<typeof typedTurns> {
 	const turns = typedTurns(
 		process.env.SUBAGENT_RUN_ID ? undefined : typedDir(),
 	);
@@ -142,6 +144,7 @@ function sayTypedTurns(pi: ExtensionAPI): ReturnType<typeof typedTurns> {
 	});
 	pi.on("agent_start", async () => turns.began());
 	pi.on("agent_end", async () => turns.ended());
+	// Every shutdown, a reload's included: its follower outlives the runtime.
 	pi.on("session_shutdown", async () => turns.stop());
 	return turns;
 }
