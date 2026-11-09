@@ -168,8 +168,17 @@ describe("persistent viewer terminal", () => {
 		for (const bad of [0, -1, 1.5, Number.NaN, 1001]) {
 			expect(() => terminal.attach(viewer(bad, 80))).toThrow("dimensions");
 		}
-		const one = terminal.attach(viewer());
-		expect(() => one.resize(24, 0)).toThrow("dimensions");
+		const bad = viewer();
+		const good = viewer();
+		const one = terminal.attach(bad);
+		terminal.attach(good);
+		expect(() => one.resize(24, 0)).not.toThrow();
+		expect(bad.disconnect).toHaveBeenCalledExactlyOnceWith(
+			"Viewer dimensions must be integers from 1 to 1000",
+		);
+		terminal.write("sibling");
+		expect(bad.write).not.toHaveBeenCalled();
+		expect(good.write).toHaveBeenCalledWith("sibling");
 		expect([terminal.rows, terminal.columns]).toEqual([40, 120]);
 		terminal.dispose();
 	});

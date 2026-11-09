@@ -118,8 +118,14 @@ export class ViewerTerminal implements Terminal {
 			},
 			resize: (rows, columns) => {
 				if (!this.viewers.has(viewer)) return;
-				if (!validSize(rows, columns))
-					throw new Error("Viewer dimensions must be integers from 1 to 1000");
+				if (!validSize(rows, columns)) {
+					this.remove(viewer);
+					this.disconnect(
+						viewer,
+						"Viewer dimensions must be integers from 1 to 1000",
+					);
+					return;
+				}
 				viewer.rows = rows;
 				viewer.columns = columns;
 				this.redraw();

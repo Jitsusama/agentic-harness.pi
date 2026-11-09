@@ -14,7 +14,10 @@ The repaint callback must request a full pi render, including on a
 same-size join. It and pi's input and resize callbacks run inside
 withSession. One StdinBuffer per viewer prevents split escape sequences and
 bracketed pastes from crossing connections. Incomplete input is bounded to
-1 MiB per viewer. With no viewers, geometry retains its last value.
+1 MiB per viewer. Invalid resize disconnects that viewer rather than
+throwing into a shared socket handler. Pi renders at the minimum row count
+and minimum column count across joined viewers, so a larger viewer sees
+the same smaller canvas. With no viewers, geometry retains its last value.
 
 This terminal assumes kitty keyboard protocol is already enabled by the
 client. The host's one theme, keymap and terminal capability profile belong
