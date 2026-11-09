@@ -7,6 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { sessionSlot } from "../core/session/index.ts";
 import { hold, isAway } from "../internal/away/state.ts";
 import { guardMode } from "./policy.ts";
 import { OVERRIDE_HINT, reportGuard } from "./report.ts";
@@ -19,19 +20,9 @@ import type { GuardianResult } from "./types.ts";
  */
 const REMEMBERED = 64;
 
-const REDIRECTS_KEY = Symbol.for("pi:guard-redirects");
-
-type GlobalRedirects = Record<symbol, Set<string> | undefined>;
-
-/** The refusals said under redirect and not yet overridden. */
+/** The refusals said in this conversation and not yet overridden. */
 function redirects(): Set<string> {
-	const global = globalThis as GlobalRedirects;
-	let said = global[REDIRECTS_KEY];
-	if (!said) {
-		said = new Set();
-		global[REDIRECTS_KEY] = said;
-	}
-	return said;
+	return sessionSlot("pi:guard-redirects", undefined, () => new Set<string>());
 }
 
 /** Forget every refusal waiting for an override, as a new session does. */

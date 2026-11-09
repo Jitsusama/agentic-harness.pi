@@ -87,7 +87,13 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			const report = message.details;
 			if (!isVerificationReport(report)) return undefined;
 			return expandable(message, options.expanded, (width, expanded) =>
-				verificationLines(report, theme, width, expanded),
+				verificationLines(
+					report,
+					theme,
+					width,
+					expanded,
+					report.cwd ?? ctxRef?.cwd ?? "",
+				),
 			);
 		},
 	);
@@ -103,14 +109,14 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctxRef = ctx;
-		provideVerificationCheck(check);
+		provideVerificationCheck(check, ctx);
 		refreshStatus(ctx, state);
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
 		// The next session offers its own; a stale one would answer for
 		// state nobody is keeping any more.
-		provideVerificationCheck(undefined);
+		provideVerificationCheck(undefined, ctx);
 		// A check still in flight then finds no context to write its status
 		// to, rather than one pi has made stale (see mesh-workflow's
 		// session_shutdown for what a stale read cost on 29 October).
@@ -192,7 +198,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			state.lastSaid = key;
 			refreshStatus(ctx, state);
 			// Continue the run so the agent fixes this before yielding.
-			const report: VerificationReport = { errors };
+			const report: VerificationReport = { errors, cwd: ctx.cwd };
 			pi.sendMessage(
 				{
 					customType: VERIFICATION_MESSAGE,

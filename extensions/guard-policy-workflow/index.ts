@@ -34,7 +34,6 @@ import { loadModes, saveModes } from "./lifecycle.ts";
 import { guardReportLines, guardTableLines } from "./render.ts";
 
 export default function guardPolicyWorkflow(pi: ExtensionAPI) {
-	setGuardReportSink((report) => pi.appendEntry(GUARD_REPORT_ENTRY, report));
 	// A report is shown where it was written and never read back.
 	leaveInParentLog(GUARD_REPORT_ENTRY);
 
@@ -47,7 +46,15 @@ export default function guardPolicyWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		setGuardReportSink(
+			(report) => pi.appendEntry(GUARD_REPORT_ENTRY, report),
+			ctx,
+		);
 		await loadModes(ctx);
+	});
+
+	pi.on("session_shutdown", async (_event, ctx) => {
+		setGuardReportSink(undefined, ctx);
 	});
 
 	pi.registerCommand("guards", {
@@ -65,12 +72,12 @@ export default function guardPolicyWorkflow(pi: ExtensionAPI) {
 					ctx.ui.notify(command.message, "warning");
 					return;
 				case "reset":
-					restoreSessionModes({});
+					restoreSessionModes({}, ctx);
 					saveModes(pi, ctx);
 					ctx.ui.notify("Guards are back to config and defaults.", "info");
 					return;
 				case "set":
-					setSessionMode(command.key, command.mode);
+					setSessionMode(command.key, command.mode, ctx);
 					saveModes(pi, ctx);
 					ctx.ui.notify(
 						`${command.key}: ${command.mode} for this session.`,
@@ -79,12 +86,12 @@ export default function guardPolicyWorkflow(pi: ExtensionAPI) {
 					return;
 				case "list": {
 					const outcomes = new Map(
-						list().map((entry) => [entry.name, entry.lastOutcome]),
+						list(ctx).map((entry) => [entry.name, entry.lastOutcome]),
 					);
 					await view(ctx, {
 						title: "Guards",
 						content: (theme, width) =>
-							guardTableLines(listGuards(), outcomes, theme, width),
+							guardTableLines(listGuards(ctx), outcomes, theme, width),
 					});
 					return;
 				}

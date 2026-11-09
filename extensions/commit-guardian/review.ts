@@ -14,6 +14,7 @@ import {
 	type CommitValidation,
 	validate,
 } from "../../lib/core/internal/guardian/commit-format.ts";
+import { commitCwd } from "../../lib/core/internal/guardian/commit-shell.ts";
 import { runProseGate } from "../../lib/core/internal/guardian/prose-gate.ts";
 import { approvalUnder, refusalUnder } from "../../lib/guardian/apply.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
@@ -57,14 +58,19 @@ export function createCommitGuardian(
 			return isCommitCommand(command);
 		},
 
-		parse(command) {
+		parse(command, ctx) {
 			// Resolve a `git commit -F <file>` too, so the gate still
 			// sees the message even when the message lives in a file.
-			const message = extractMessage(command, readCommitFile);
+			const base = commitCwd(ctx);
+			const dir = commitDirectory(command, base);
+			const message = extractMessage(
+				command,
+				(path, shellBase) => readCommitFile(path, dir ?? shellBase),
+				base,
+			);
 			if (!message) return null;
 
 			const isAmend = /--amend\b/.test(command);
-			const dir = commitDirectory(command);
 			return { message, isAmend, ...(dir ? { dir } : {}) };
 		},
 

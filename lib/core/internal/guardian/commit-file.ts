@@ -7,18 +7,21 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { hosted } from "../../session/index.ts";
+import { commitCwd } from "./commit-shell.ts";
 
 /**
  * Resolve a raw `-F` path against the home directory (for `~`),
  * an absolute path directly, or the command's `cd` base
- * directory (falling back to the process cwd) for a relative
- * path.
+ * directory for a relative path. Plain pi keeps its process cwd
+ * fallback; a host never guesses when the command directory is unknown.
  */
-function resolvePath(rawPath: string, baseDir: string | null): string {
+function resolvePath(rawPath: string, baseDir: string | null): string | null {
 	if (rawPath === "~") return homedir();
 	if (rawPath.startsWith("~/")) return join(homedir(), rawPath.slice(2));
 	if (isAbsolute(rawPath)) return rawPath;
-	return resolve(baseDir ?? process.cwd(), rawPath);
+	if (baseDir === null && hosted()) return null;
+	return resolve(baseDir ?? commitCwd(), rawPath);
 }
 
 /** Read a commit message file, or null when it cannot be read. */
@@ -27,7 +30,8 @@ export function readCommitFile(
 	baseDir: string | null,
 ): string | null {
 	try {
-		return readFileSync(resolvePath(rawPath, baseDir), "utf8");
+		const path = resolvePath(rawPath, baseDir);
+		return path === null ? null : readFileSync(path, "utf8");
 	} catch {
 		// Fail open: an unreadable file (missing, permissions, a path
 		// with unexpanded shell variables) means no attribution and no

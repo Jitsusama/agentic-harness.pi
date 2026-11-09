@@ -13,11 +13,12 @@
  * review one command at a time, so while none of the panels they serve
  * asks a person they have nothing to protect and only report.
  *
- * State lives on `globalThis` under a `Symbol.for` key, so
- * independently loaded extensions (and downstream packages loading
- * their own copy of this module) all read the same policy.
+ * Declarations and config are shared across separately loaded copies.
+ * Session overrides belong to the conversation in a host; plain pi
+ * keeps the original process-global policy, including its session layer.
  */
 
+import { hosted, type SessionRef, sessionSlot } from "../core/session/index.ts";
 import { isRecord } from "../internal/record.ts";
 
 /**
@@ -109,6 +110,13 @@ function policy(): PolicyState {
 	return state;
 }
 
+/** Overrides belong to the conversation; declarations and config do not. */
+function sessionPolicy(ref?: SessionRef): Pick<PolicyState, "session"> {
+	return hosted()
+		? sessionSlot("pi:guard-session-modes", ref, () => ({ session: {} }))
+		: policy();
+}
+
 /** Whether a value is one of the guard modes. */
 export function isGuardMode(value: unknown): value is GuardMode {
 	return GUARD_MODES.includes(value as GuardMode);
@@ -133,10 +141,10 @@ export function declareGuard(declaration: GuardDeclaration): void {
 }
 
 /** Every declared guard with its mode, in name order. */
-export function listGuards(): ResolvedGuard[] {
+export function listGuards(ref?: SessionRef): ResolvedGuard[] {
 	return [...policy().guards.values()]
 		.sort((a, b) => a.name.localeCompare(b.name))
-		.map((declaration) => resolve(declaration, new Set()));
+		.map((declaration) => resolve(declaration, new Set(), ref));
 }
 
 /**
@@ -145,8 +153,8 @@ export function listGuards(): ResolvedGuard[] {
  * declared is one whose owner predates the policy, and it should go on
  * doing what it did.
  */
-export function guardMode(name: string): GuardMode {
-	return resolveName(name, new Set()).mode;
+export function guardMode(name: string, ref?: SessionRef): GuardMode {
+	return resolveName(name, new Set(), ref).mode;
 }
 
 /** Every key a setting may use: names, groups, classes and `all`. */
@@ -160,18 +168,25 @@ export function selectorKeys(): string[] {
 }
 
 /** Set a session override for a guard, group, class or `all`. */
-export function setSessionMode(key: string, mode: GuardMode): void {
-	policy().session[key] = mode;
+export function setSessionMode(
+	key: string,
+	mode: GuardMode,
+	ref?: SessionRef,
+): void {
+	sessionPolicy(ref).session[key] = mode;
 }
 
 /** The session's overrides, for saving. */
-export function sessionModes(): ModeSettings {
-	return { ...policy().session };
+export function sessionModes(ref?: SessionRef): ModeSettings {
+	return { ...sessionPolicy(ref).session };
 }
 
 /** Replace the session's overrides, as when restoring a saved session. */
-export function restoreSessionModes(modes: ModeSettings): void {
-	policy().session = readModes(modes);
+export function restoreSessionModes(
+	modes: ModeSettings,
+	ref?: SessionRef,
+): void {
+	sessionPolicy(ref).session = readModes(modes);
 }
 
 /** Settings with every mode read as today's, dropping any that name none. */
@@ -191,24 +206,29 @@ export function setConfiguredModes(modes: ModeSettings): void {
 	policy().config = { ...modes };
 }
 
-function resolveName(name: string, seen: Set<string>): ResolvedGuard {
+function resolveName(
+	name: string,
+	seen: Set<string>,
+	ref?: SessionRef,
+): ResolvedGuard {
 	const declaration = policy().guards.get(name) ?? {
 		name,
 		class: "form",
 		description: "",
 		defaultMode: "block",
 	};
-	return resolve(declaration, seen);
+	return resolve(declaration, seen, ref);
 }
 
 function resolve(
 	declaration: GuardDeclaration,
 	seen: Set<string>,
+	ref?: SessionRef,
 ): ResolvedGuard {
 	const keys = keysOf(declaration);
 	const state = policy();
 	for (const [source, layer] of [
-		["session", state.session],
+		["session", sessionPolicy(ref).session],
 		["config", state.config],
 	] as const) {
 		for (const key of keys) {
@@ -220,7 +240,7 @@ function resolve(
 	if (followed.length > 0) {
 		const next = new Set([...seen, declaration.name]);
 		const blocks = followed.some(
-			(name) => resolveName(name, next).mode === "block",
+			(name) => resolveName(name, next, ref).mode === "block",
 		);
 		return {
 			declaration,

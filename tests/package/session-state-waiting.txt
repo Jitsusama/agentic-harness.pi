@@ -2,7 +2,6 @@
 # Each extension domain owns its sites; process infrastructure remains here
 # until its owner documents an explicit exemption. Counts only shrink.
 extensions/away-workflow/index.ts:pid 1
-extensions/commit-guardian/parse.ts:cwd 1
 extensions/compaction-workflow/conversation.ts:global 1
 extensions/job-workflow/carry.ts:global 1
 extensions/mesh-workflow/hand.ts:cwd 3
@@ -35,6 +34,5 @@ extensions/shell-workflow/hand-off.ts:pid 1
 extensions/shell-workflow/index.ts:cwd 1
 extensions/shell-workflow/reap.ts:pid 1
 extensions/spend-workflow/resources.ts:global 3
-extensions/verification-workflow/render.ts:cwd 1
 extensions/work-integration/sweep.ts:pid 1
 extensions/work-integration/tools/tree.ts:cwd 2

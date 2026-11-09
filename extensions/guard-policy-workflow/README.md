@@ -65,6 +65,11 @@ lands in, which is all its refusal ever asked for.
 `/guards` lists every guard with its class, mode, where the mode
 came from and what it last did.
 
+In a shared host, overrides, redirect memory, reports and last outcomes
+belong to the conversation. Turning guards off in one does not change
+another. Declarations and package config remain shared; plain pi keeps
+its existing process-local policy.
+
 ## Setting Modes
 
 A mode can be set for a guard by name, for a group (`git`,

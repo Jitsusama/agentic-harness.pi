@@ -21,6 +21,8 @@ export const VERIFICATION_MESSAGE = "verification";
 /** What a fix request carries for drawing it, beside the text the model reads. */
 export interface VerificationReport {
 	readonly errors: readonly FileError[];
+	/** The producing conversation's directory, retained for later rendering. */
+	readonly cwd?: string;
 }
 
 const INDENT = "  ";
@@ -31,7 +33,10 @@ export function isVerificationReport(
 ): details is VerificationReport {
 	if (typeof details !== "object" || details === null) return false;
 	const errors = (details as { errors?: unknown }).errors;
-	return Array.isArray(errors);
+	return (
+		Array.isArray(errors) &&
+		(!("cwd" in details) || typeof details.cwd === "string")
+	);
 }
 
 /** The lines a fix request draws: one, or the errors too when expanded. */
@@ -40,7 +45,7 @@ export function verificationLines(
 	theme: Theme,
 	width: number,
 	expanded: boolean,
-	cwd: string = process.cwd(),
+	cwd: string,
 ): string[] {
 	const files = new Set(report.errors.map((error) => error.path)).size;
 	const header = renderNarrationLine(
@@ -65,6 +70,7 @@ export function verificationLines(
 
 /** A path as short as it can be said: from the session's directory when under it. */
 function shown(path: string, cwd: string): string {
+	if (!cwd) return path;
 	const near = relative(cwd, path);
 	return near && !near.startsWith("..") ? near : path;
 }

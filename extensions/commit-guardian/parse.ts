@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { effectiveCwd } from "../../lib/command/cwd.ts";
 import { tokenize } from "../../lib/command/tokenize.ts";
 import {
+	commitCwd,
 	findGitCommand,
 	isGitCommitCommand,
 } from "../../lib/core/internal/guardian/commit-shell.ts";
@@ -32,7 +33,7 @@ export function isCommitCommand(command: string): boolean {
  */
 export function commitDirectory(
 	command: string,
-	base: string = process.cwd(),
+	base: string = commitCwd(),
 ): string | undefined {
 	const line = tokenize(command);
 	const commit = findGitCommand(line, "commit");
