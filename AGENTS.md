@@ -22,6 +22,7 @@ a rule covers.
   lists every module and what it is for
 - `extensions/`: Pi extension wiring, organized by
   behavioural contract (see Extension Categories)
+- `host/`: shared pi runtime: conversation engine, service and viewers
 - `packs/`: extensions loaded into a subagent by path, never
   auto-discovered, so deliberately not under `extensions/`
 - `skills/`: package-bound markdown instructions the agent
