@@ -52,33 +52,9 @@ const MIRRORS: [string, string][] = [
  */
 const HELD =
 	"85PKB2's PLAN-20261025-LES0F4 rewrites this area and owns its shape until it lands";
-const FOLDED =
-	"folded in from agentic-harness.core (#749, #753, #767, #769, #770); notes come as the fold settles";
 
 const WAITING: Record<string, string> = {
 	"extensions/quest-workflow/verbs": HELD,
-	"lib/core/internal": FOLDED,
-	"lib/core/internal/github": FOLDED,
-	"lib/core/internal/guardian": FOLDED,
-	"lib/core/internal/lsp": FOLDED,
-	"lib/core/internal/notes": FOLDED,
-	"lib/core/internal/quest": FOLDED,
-	"lib/core/internal/review": FOLDED,
-	"lib/core/internal/sqlite": FOLDED,
-	"lib/core/internal/terminal": FOLDED,
-	"lib/core/internal/terminal/drivers": FOLDED,
-	"lib/core/internal/tree": FOLDED,
-	"lib/core/internal/tree/providers": FOLDED,
-	"lib/core/lsp/standalone": FOLDED,
-	"lib/core/notes": FOLDED,
-	"lib/core/notes/verbs": FOLDED,
-	"lib/core/quest/verbs": FOLDED,
-	"lib/core/review/ask": FOLDED,
-	"lib/core/review/draft": FOLDED,
-	"lib/core/review/providers": FOLDED,
-	"lib/core/sections": FOLDED,
-	"lib/core/title": FOLDED,
-	"lib/core/work/providers": FOLDED,
 };
 
 function foldersUnder(dir: string): string[] {
