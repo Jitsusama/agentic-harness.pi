@@ -8,13 +8,15 @@
  * cut-off notice (Y2YBTS [6508f771]). Whatever would start a turn on
  * its own asks this first, and waits or says its piece without a turn.
  *
- * Told from the command line by pi's own parser, and marked over once a
- * run starts, in a slot kept on the process so a reload doesn't forget
- * it. Bounded by how long the process has run, since a first prompt pi
- * refused, or one an extension command took, never becomes a run.
+ * Plain pi reads its command line and process uptime, keeping the slot
+ * across reloads. A host admits each conversation's initial words before
+ * extension loading and measures from that admission, not host uptime.
+ * A first prompt pi refused, or one an extension command took, never
+ * becomes a run, so the wait is bounded in both modes.
  */
 
 import { parseArgs } from "@earendil-works/pi-coding-agent";
+import { hosted, sessionSlot } from "../../core/session/index.ts";
 
 /**
  * How long after the process starts its first prompt may still be on
@@ -23,17 +25,29 @@ import { parseArgs } from "@earendil-works/pi-coding-agent";
  */
 export const FIRST_PROMPT_MS = 60_000;
 
-/** What this process has seen of its first prompt, kept across reloads. */
+/** What the conversation has seen of its first prompt, across reloads. */
 interface FirstPromptSlot {
 	ran: boolean;
+	hasInitialWords?: boolean;
+	beganAt?: number;
 }
 
-const SLOT = Symbol.for("agentic-harness.pi/first-prompt");
-
 function slot(): FirstPromptSlot {
-	const held = globalThis as { [SLOT]?: FirstPromptSlot };
-	held[SLOT] ??= { ran: false };
-	return held[SLOT];
+	return sessionSlot("agentic-harness.pi/first-prompt", undefined, () => ({
+		ran: false,
+	}));
+}
+
+/** Admit hosted initial words once, before extension loading; no-op on pi. */
+export function noteFirstPrompt(
+	words: string | undefined,
+	now: number = Date.now(),
+): void {
+	if (!hosted()) return;
+	const current = slot();
+	current.hasInitialWords = words !== undefined;
+	current.beganAt = now;
+	current.ran = false;
 }
 
 /** Whether these command-line words give pi a first prompt. */
@@ -46,13 +60,21 @@ export function givesFirstPrompt(args: readonly string[]): boolean {
 	}
 }
 
-/** Whether pi's first prompt is still to become a run in this process. */
+/** Whether the conversation's first prompt is still to become a run. */
 export function firstPromptPending(
 	args: readonly string[] = process.argv.slice(2),
 	upMs: number = process.uptime() * 1000,
 ): boolean {
-	if (slot().ran || upMs >= FIRST_PROMPT_MS) return false;
-	return givesFirstPrompt(args);
+	const current = slot();
+	if (current.ran) return false;
+	if (hosted()) {
+		return (
+			current.hasInitialWords === true &&
+			current.beganAt !== undefined &&
+			Date.now() - current.beganAt < FIRST_PROMPT_MS
+		);
+	}
+	return upMs < FIRST_PROMPT_MS && givesFirstPrompt(args);
 }
 
 /** A run started: whatever prompt was first has had its turn. */

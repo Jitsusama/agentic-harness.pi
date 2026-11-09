@@ -18,6 +18,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { hosted, sessionSlot } from "../../core/session/index.ts";
 
 /** A thinking level as pi names it. */
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
@@ -115,6 +116,14 @@ const SLOT_KEY = Symbol.for("agentic-harness.rollover.carried-model");
 
 type SlotGlobal = { [SLOT_KEY]?: CarriedModel };
 
+function hostedCarry(): { carried?: CarriedModel } {
+	return sessionSlot(
+		"agentic-harness.rollover.carried-model",
+		undefined,
+		() => ({}),
+	);
+}
+
 /**
  * Whether a session is on no model it could answer with: none, or
  * pi's placeholder.
@@ -128,6 +137,12 @@ export function hasNoModel(model: { provider: string } | undefined): boolean {
  * session on no model carries nothing, so the fresh one is left to pi.
  */
 export function carryModel(carried: CarriedModel): void {
+	if (hosted()) {
+		hostedCarry().carried = hasNoModel({ provider: carried.provider })
+			? undefined
+			: carried;
+		return;
+	}
 	const global = globalThis as SlotGlobal;
 	if (hasNoModel({ provider: carried.provider })) {
 		delete global[SLOT_KEY];
@@ -200,24 +215,35 @@ const AUTH_KEY = Symbol.for("agentic-harness.rollover.known-auth");
 type AuthGlobal = { [AUTH_KEY]?: Map<string, CarriedAuth> };
 
 /**
- * Keep how a provider authenticated while it works, for the process's
- * life, so auth lost later can be put back. On 6 November a rolled
+ * Keep how a provider authenticated while it works, for the session's
+ * life (the process on pi), so auth lost later can be put back. On 6 November a rolled
  * session came up on its model, yet its first call, 93 minutes later,
  * failed with "Provider is not configured".
  */
+function knownAuth(): Map<string, CarriedAuth> {
+	return sessionSlot(
+		"agentic-harness.rollover.known-auth",
+		undefined,
+		() => new Map(),
+	);
+}
+
+/** Keep the current conversation's provider auth across reload and rollover. */
 export function rememberAuth(provider: string, auth: CarriedAuth): void {
-	const global = globalThis as AuthGlobal;
-	global[AUTH_KEY] ??= new Map();
-	global[AUTH_KEY].set(provider, auth);
+	knownAuth().set(provider, auth);
 }
 
 /** How a provider last authenticated while it worked, if it ever did. */
 export function rememberedAuth(provider: string): CarriedAuth | undefined {
-	return (globalThis as AuthGlobal)[AUTH_KEY]?.get(provider);
+	return knownAuth().get(provider);
 }
 
 /** Forget every provider's auth, for tests. */
 export function forgetAuth(): void {
+	if (hosted()) {
+		knownAuth().clear();
+		return;
+	}
 	delete (globalThis as AuthGlobal)[AUTH_KEY];
 }
 
@@ -229,6 +255,12 @@ export function forgetAuth(): void {
 export function takeCarriedModel(
 	path: string | undefined,
 ): CarriedModel | undefined {
+	if (hosted()) {
+		const state = hostedCarry();
+		const carried = state.carried;
+		state.carried = undefined;
+		return carried && path && carried.path === path ? carried : undefined;
+	}
 	const global = globalThis as SlotGlobal;
 	const carried = global[SLOT_KEY];
 	delete global[SLOT_KEY];
