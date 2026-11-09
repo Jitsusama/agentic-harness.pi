@@ -343,6 +343,38 @@ export function clearOutlivedParks(
 	return cleared;
 }
 
+/**
+ * Where a session that may not park says why, while it stays awake. On
+ * 9 November 32 of 73 sessions sat idle and awake overnight, and nothing
+ * kept why, so nobody could count what kept them (KP0L6A [1631f567]).
+ */
+export function awakePath(
+	session: string,
+	folder: string = parkFolder(),
+): string {
+	return join(folder, "awake", `${session}.json`);
+}
+
+/** Why a session stays awake, and since when, as it last said. */
+export interface Awake {
+	readonly session: string;
+	readonly why: string;
+	readonly since: string;
+}
+
+/** Say why this session stays awake. */
+export function writeAwake(awake: Awake, folder: string = parkFolder()): void {
+	writeWhole(awakePath(awake.session, folder), `${JSON.stringify(awake)}\n`);
+}
+
+/** Say nothing keeps this session awake, as it parks or ends. */
+export function clearAwake(
+	session: string,
+	folder: string = parkFolder(),
+): void {
+	rmSync(awakePath(session, folder), { force: true });
+}
+
 /** Say this session is parked no more, as it says on starting. */
 export function clearParked(
 	session: string,

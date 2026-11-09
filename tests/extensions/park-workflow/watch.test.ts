@@ -9,10 +9,12 @@ import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	mayPark,
+	noteNeverParks,
 	type Parkable,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
 import {
+	awakePath,
 	flagsLost,
 	isParkAsk,
 	isParking,
@@ -357,5 +359,69 @@ describe("which sessions may park", () => {
 			mayPark({ hasUI: true }, { ...wake, SUBAGENT_RUN_ID: "r" }),
 			"a subagent",
 		).toBe(false);
+	});
+});
+
+describe("why a session stays awake", () => {
+	// 9 November: 32 of 73 sessions sat idle and awake overnight, and
+	// nothing kept why (KP0L6A [1631f567]).
+	const awake = () => {
+		try {
+			return JSON.parse(readFileSync(awakePath(SESSION, folder), "utf8"));
+		} catch {
+			return undefined;
+		}
+	};
+
+	it("is kept as it changes, since when, and cleared once it parks", () => {
+		const watched = watching();
+		clock = 1000;
+		watched.look();
+		const first = awake();
+		clock = 2000;
+		watched.look();
+
+		expect(first).toEqual({
+			session: SESSION,
+			why: "not idle long enough",
+			since: new Date(1000).toISOString(),
+		});
+		expect(awake(), "a reason unchanged is not written again").toEqual(first);
+
+		typed = "half a thought";
+		clock = NAMED_PARK_AFTER_MS;
+		watched.look();
+		expect(awake()?.why).toBe("text is typed and unsent");
+
+		typed = "";
+		watched.look();
+		expect(
+			awake(),
+			"a session that parked keeps nothing awake",
+		).toBeUndefined();
+	});
+
+	it("is cleared as the session ends", () => {
+		const watched = watching();
+		watched.look();
+		watched.stop();
+
+		expect(awake()).toBeUndefined();
+	});
+
+	it("says a person's session with no holder can never park, and nothing of a subagent's", () => {
+		const said = noteNeverParks(session(), {}, folder, () => 5000);
+		const subagent = noteNeverParks(
+			session(),
+			{ SUBAGENT_RUN_ID: "fleet-1" },
+			folder,
+		);
+
+		expect({ said, subagent }).toEqual({ said: true, subagent: false });
+		expect(awake()).toEqual({
+			session: SESSION,
+			why: "no holder would wake it",
+			since: new Date(5000).toISOString(),
+		});
 	});
 });

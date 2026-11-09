@@ -32,6 +32,13 @@ What must not be out:
 Idle counts from the last thing that happened in it: a prompt typed,
 a run starting or ending, a prompt opening or closing.
 
+While one stays awake, it says why in
+`park-workflow/awake/<session-id>.json` (`why` and `since`), rewritten
+only when the reason changes and removed once it parks or ends. A
+person's session with no holder to wake it says so there once, as it
+starts. A note whose session has crashed stays until a reader checks
+the session's presence, so read the two together.
+
 ## Turning It On
 
 It is off until one of these turns it on:

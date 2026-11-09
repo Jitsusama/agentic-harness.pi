@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	AGAIN_ENV,
+	clearAwake,
 	clearOutlivedParks,
 	clearParked,
 	flagsLost,
@@ -21,6 +22,7 @@ import {
 	SESSION_WOKEN,
 	WAKE_ENV,
 	whyNotPark,
+	writeAwake,
 	writeParked,
 } from "../../lib/internal/session/park.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
@@ -54,9 +56,44 @@ export function mayPark(
 	ctx: Pick<ExtensionContext, "hasUI">,
 	env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+	return isPersons(ctx, env) && Boolean(env[WAKE_ENV]);
+}
+
+/** Whether a session is one its person sees, rather than a subagent. */
+function isPersons(
+	ctx: Pick<ExtensionContext, "hasUI">,
+	env: NodeJS.ProcessEnv,
+): boolean {
 	if (!ctx.hasUI) return false;
-	if (env.SUBAGENT_SUPERVISOR === "1" || env.SUBAGENT_RUN_ID) return false;
-	return Boolean(env[WAKE_ENV]);
+	return !(env.SUBAGENT_SUPERVISOR === "1" || env.SUBAGENT_RUN_ID);
+}
+
+/**
+ * Say why a person's session that may never park stays awake: no holder
+ * said where it watches for a wake. Answers whether it said so, for the
+ * caller to clear as the session ends.
+ */
+export function noteNeverParks(
+	ctx: Pick<ExtensionContext, "hasUI" | "sessionManager">,
+	env: NodeJS.ProcessEnv = process.env,
+	folder?: string,
+	now: () => number = Date.now,
+): boolean {
+	if (!isPersons(ctx, env) || env[WAKE_ENV]) return false;
+	try {
+		writeAwake(
+			{
+				session: ctx.sessionManager.getSessionId(),
+				why: "no holder would wake it",
+				since: new Date(now()).toISOString(),
+			},
+			folder,
+		);
+		return true;
+	} catch {
+		// A park folder that can't be written says nothing; the session runs.
+		return false;
+	}
 }
 
 /** A session watched for parking. */
@@ -204,7 +241,7 @@ export function watch(
 	let last = woke ? now() : Math.min(now(), lastMessageAt(ctx) ?? now());
 	let prompts = 0;
 	let parked = false;
-	const look = (): string | undefined => {
+	const decide = (): string | undefined => {
 		if (parked) return "parking already";
 		const ask: ParkAsk = { session, refusals: [] };
 		const afterMs = parkAfterMs(session, options.env, options.switchPath);
@@ -250,6 +287,30 @@ export function watch(
 		void ctx.shutdown();
 		return undefined;
 	};
+	// Why it stays awake, kept where Agents and a count can read it, and
+	// written only when the reason changes, not every minute.
+	let said: string | undefined;
+	const note = (why: string | undefined) => {
+		if (why === said) return;
+		said = why;
+		try {
+			if (why === undefined || why === "parking already") {
+				clearAwake(session, folder);
+			} else {
+				writeAwake(
+					{ session, why, since: new Date(now()).toISOString() },
+					folder,
+				);
+			}
+		} catch {
+			// A park folder that can't be written costs the note, never the park.
+		}
+	};
+	const look = (): string | undefined => {
+		const why = decide();
+		note(why);
+		return why;
+	};
 	const clock =
 		options.clock === false
 			? undefined
@@ -273,6 +334,7 @@ export function watch(
 		look,
 		stop() {
 			clearInterval(clock);
+			note(undefined);
 		},
 	};
 }
