@@ -63,14 +63,14 @@ export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 		severity: "irrecoverable",
 		description: "Permanently discards all uncommitted changes.",
 		remedy:
-			"Run `git stash push --include-untracked` first so the changes can come back, or use `git reset --keep`, which refuses rather than discarding local changes.",
+			"Use `git reset --keep`, which refuses rather than discarding local changes, or commit them on a branch first (work's record) so they can come back.",
 	},
 	{
 		pattern: /\bgit\s+clean\s+-[a-z]*f/,
 		severity: "irrecoverable",
 		description: "Permanently deletes untracked files.",
 		remedy:
-			"Run `git clean -n` with the same flags to list what would go, then remove only those paths, or `git stash push --include-untracked` to set them aside.",
+			"Run `git clean -n` with the same flags to list what would go, then remove only those paths, or move them into $TMPDIR to set them aside.",
 	},
 	{
 		pattern: /\bgit\s+push\b[^|;]*(?:--force\b|-f\b)/,
@@ -93,7 +93,7 @@ export const DESTRUCTIVE_PATTERNS: DestructivePattern[] = [
 		severity: "irrecoverable",
 		description: "Discards all uncommitted changes to tracked files.",
 		remedy:
-			"Run `git stash push` first so the changes can come back, or restore only the paths you mean to.",
+			"Restore only the paths you mean to, or commit the changes on a branch first (work's record) so they can come back.",
 	},
 ];
 

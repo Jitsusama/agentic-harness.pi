@@ -117,11 +117,31 @@ describe("an irrecoverable command", () => {
 		);
 
 		expect(result && "reason" in result && result.reason).toMatch(
-			/git stash push --include-untracked/,
+			/git reset --keep/,
 		);
 		expect(result && "reason" in result && result.reason).toMatch(
 			/\/guards history-destructive off/,
 		);
+	});
+
+	it("never offers a stash, which the stash guard refuses", async () => {
+		for (const command of [
+			"git reset --hard",
+			"git clean -fd",
+			"git checkout -- .",
+		]) {
+			const result = await destructiveHistoryGuardian.review(
+				parsedBy(destructiveHistoryGuardian, command),
+				ctx,
+				"block",
+			);
+
+			expect(result, command).toMatchObject({ block: true });
+			expect(
+				result && "reason" in result && result.reason,
+				command,
+			).not.toMatch(/git stash/);
+		}
 	});
 
 	it("is reported and runs when its guard is off", async () => {
