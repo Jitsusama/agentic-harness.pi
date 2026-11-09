@@ -9,7 +9,11 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { approvalUnder, fenced } from "../../lib/guardian/apply.ts";
+import {
+	approvalUnder,
+	fenced,
+	unattendedRefusal,
+} from "../../lib/guardian/apply.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { frameTitle } from "../../lib/ui/frame.ts";
 import { promptSingle } from "../../lib/ui/panel.ts";
@@ -20,9 +24,11 @@ import type { PromptResult } from "../../lib/ui/types.ts";
 /**
  * The gate's answer when it needs no panel, or undefined when it should
  * ask. The google guard decides: approved without asking (reported when
- * the guard reports), held while the person is away, or asked.
+ * the guard reports), held while the person is away, or asked, which
+ * with no screen to ask on is refused (`unattendedRefusal`).
  */
 function unasked<T>(
+	ctx: ExtensionContext,
 	data: T,
 	title: string,
 	text?: string,
@@ -35,6 +41,9 @@ function unasked<T>(
 	if (approval.kind === "go") return { approved: true, data };
 	if (approval.kind === "held")
 		return { approved: false, redirect: approval.reason };
+	if (!ctx.hasUI) {
+		return { approved: false, redirect: unattendedRefusal(`Google: ${title}`) };
+	}
 	return undefined;
 }
 
@@ -104,8 +113,7 @@ export async function confirmSendEmail(
 		"",
 		email.body,
 	].join("\n");
-	if (!ctx.hasUI) return { approved: true, data: email };
-	const skip = unasked(email, isReply ? "Send reply" : "Send email", mail);
+	const skip = unasked(ctx, email, isReply ? "Send reply" : "Send email", mail);
 	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
@@ -163,8 +171,11 @@ export async function confirmDeleteEmail(
 	messageId: string,
 	subject?: string,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
-	const skip = unasked(true as const, `Delete email ${subject ?? messageId}`);
+	const skip = unasked(
+		ctx,
+		true as const,
+		`Delete email ${subject ?? messageId}`,
+	);
 	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
@@ -204,11 +215,12 @@ export async function confirmCreateEvent(
 	ctx: ExtensionContext,
 	event: EventData,
 ): Promise<ConfirmResult<EventData>> {
-	if (!ctx.hasUI) return { approved: true, data: event };
+	// An event nobody else is invited to tells nobody anything.
 	if (!event.attendees || event.attendees.length === 0) {
 		return { approved: true, data: event };
 	}
 	const skip = unasked(
+		ctx,
 		event,
 		`Create event ${event.summary}`,
 		`${event.start} to ${event.end}\nAttendees: ${event.attendees.join(", ")}`,
@@ -274,11 +286,11 @@ export async function confirmUpdateEvent(
 	existingEvent: EventData,
 	updates: Partial<EventData>,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
 	if (!existingEvent.attendees || existingEvent.attendees.length === 0) {
 		return { approved: true, data: true };
 	}
 	const skip = unasked(
+		ctx,
 		true as const,
 		`Update event ${existingEvent.summary}`,
 		JSON.stringify(updates, null, 2),
@@ -347,9 +359,12 @@ export async function confirmDeleteEvent(
 	summary: string,
 	hasAttendees: boolean,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
 	if (!hasAttendees) return { approved: true, data: true };
-	const skip = unasked(true as const, `Delete event ${summary} (${eventId})`);
+	const skip = unasked(
+		ctx,
+		true as const,
+		`Delete event ${summary} (${eventId})`,
+	);
 	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {

@@ -30,6 +30,7 @@ import {
 	type Approval,
 	approvalUnder,
 	fenced,
+	unattendedRefusal,
 } from "../../lib/guardian/apply.ts";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
@@ -216,7 +217,15 @@ export async function confirmBatch(
 	if (approval.kind === "go") return all;
 	if (approval.kind === "held")
 		return { ...abandoned(), rejected: every, redirect: approval.reason };
-	if (!ctx.hasUI) return all;
+	// A remark or a review goes out in the person's name to whoever reads
+	// the change, so with no screen to ask on it is refused, never sent.
+	if (!ctx.hasUI) {
+		return {
+			...abandoned(),
+			rejected: every,
+			redirect: unattendedRefusal(title),
+		};
+	}
 
 	if (items.length === 1) return await single(ctx, title, items[0]);
 
