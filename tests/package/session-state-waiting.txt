@@ -2,7 +2,6 @@
 # Each extension domain owns its sites; process infrastructure remains here
 # until its owner documents an explicit exemption, which moves it to
 # session-state-exempt.txt with its reason. Counts only shrink.
-extensions/compaction-workflow/conversation.ts:global 1
 extensions/mesh-workflow/steer.ts:pid 1
 extensions/park-workflow/watch.ts:pid 2
 extensions/quest-workflow/ends-with-quest.ts:global 1
