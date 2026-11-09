@@ -34,6 +34,7 @@ import {
 	type ExtensionAPI,
 	isReadToolResult,
 } from "@earendil-works/pi-coding-agent";
+import { sessionCwd } from "../../lib/core/session/index.ts";
 
 /** The tools that write a file, which pi queues per file. */
 const WRITERS = new Set(["edit", "write"]);
@@ -80,15 +81,12 @@ export default function readAfterWriteInterceptor(pi: ExtensionAPI) {
 	// Each read's writers to wait for: those still to finish when it was
 	// announced, and those announced while it ran.
 	const reads = new Map<string, { file: string; waits: Set<Writer> }>();
-	let cwd = process.cwd();
 
-	pi.on("session_start", async (_event, ctx) => {
-		cwd = ctx.cwd;
-	});
-
-	pi.on("tool_execution_start", async (event) => {
+	// A path is the conversation's, resolved from where it stands, never
+	// the folder its process started in.
+	pi.on("tool_execution_start", async (event, ctx) => {
 		const shell = event.toolName === SHELL;
-		const file = shell ? undefined : fileOf(event.args, cwd);
+		const file = shell ? undefined : fileOf(event.args, sessionCwd(ctx));
 		if (shell || (file !== undefined && WRITERS.has(event.toolName))) {
 			let finish = () => {};
 			const done = new Promise<void>((settle) => {

@@ -1,6 +1,7 @@
 # Existing direct process sites, recorded 2026-11-09 for wave 2 migration.
 # Each extension domain owns its sites; process infrastructure remains here
-# until its owner documents an explicit exemption. Counts only shrink.
+# until its owner documents an explicit exemption, which moves it to
+# session-state-exempt.txt with its reason. Counts only shrink.
 extensions/compaction-workflow/conversation.ts:global 1
 extensions/mesh-workflow/steer.ts:pid 1
 extensions/park-workflow/watch.ts:pid 2
@@ -13,15 +14,9 @@ extensions/quest-workflow/session-registry.ts:pid 1
 extensions/quest-workflow/verbs/lifecycle.ts:cwd 1
 extensions/quest-workflow/verbs/tree-ops.ts:cwd 3
 extensions/quest-workflow/weights.ts:pid 1
-extensions/read-after-write-interceptor/index.ts:cwd 1
 extensions/reload-workflow/follow.ts:global 1
 extensions/reload-workflow/follow.ts:pid 1
 extensions/reload-workflow/lifecycle.ts:global 1
 extensions/reload-workflow/mcp.ts:global 1
 extensions/review-integration/engine.ts:pid 1
-extensions/shell-workflow/hand-off.ts:pid 1
-extensions/shell-workflow/index.ts:cwd 1
-extensions/shell-workflow/reap.ts:pid 1
 extensions/spend-workflow/resources.ts:global 3
-extensions/work-integration/sweep.ts:pid 1
-extensions/work-integration/tools/tree.ts:cwd 2

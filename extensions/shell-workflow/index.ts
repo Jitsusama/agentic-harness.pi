@@ -28,6 +28,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { sandboxFor } from "../../lib/internal/sandbox.ts";
 import { agentBash, type ShellSettings } from "./agent-bash.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
@@ -37,7 +38,7 @@ type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 /** The settings pi builds its own bash with, as this project sees them. */
 function shellSettings(ctx: ExtensionContext): ShellSettings {
 	try {
-		const settings = SettingsManager.create(ctx.cwd, getAgentDir(), {
+		const settings = SettingsManager.create(sessionCwd(ctx), getAgentDir(), {
 			projectTrusted: ctx.isProjectTrusted(),
 		});
 		const commandPrefix = settings.getShellCommandPrefix();
@@ -53,15 +54,25 @@ function shellSettings(ctx: ExtensionContext): ShellSettings {
 	}
 }
 
+/** The folder pi's bash is built with when only its shape is wanted. */
+const SHAPE_ONLY = "";
+
 export default function shellWorkflow(pi: ExtensionAPI) {
-	// The shape pi's bash is drawn and described with; execution is per session.
-	const shape = createBashToolDefinition(process.cwd());
+	// The shape pi's bash is drawn and described with. Its folder is never
+	// used: execution is per session, at the folder its conversation stands
+	// in, and pi's description names none.
+	const shape = createBashToolDefinition(SHAPE_ONLY);
 	// Asked for when the session starts, by its environment (sandbox.ts).
 	const sandbox = sandboxFor();
 	let bash: BashDefinition | undefined;
 
 	const bashFor = (ctx: ExtensionContext): BashDefinition => {
-		bash ??= agentBash(ctx.cwd, shellSettings(ctx), sandbox);
+		bash ??= agentBash(
+			sessionCwd(ctx),
+			shellSettings(ctx),
+			sandbox,
+			sessionKeyOf(ctx),
+		);
 		return bash;
 	};
 
@@ -110,6 +121,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			return await runOrHandOff({
 				command: params.command,
 				toolCallId,
+				session: sessionKeyOf(ctx),
 				...(params.background !== undefined
 					? { background: params.background }
 					: {}),

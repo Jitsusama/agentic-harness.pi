@@ -3,6 +3,9 @@
  * and a short one is left exactly as it was.
  */
 
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
@@ -16,12 +19,14 @@ import {
 	runOrHandOff,
 	spoken,
 } from "../../../extensions/shell-workflow/hand-off.ts";
+import { sessionEnv } from "../../../lib/core/session/index.ts";
 import {
 	announceJobHost,
 	type JobOutcome,
 	type JobSpec,
 	jobStopReason,
 } from "../../../lib/jobs/index.ts";
+import { installTestHost } from "../../support/session-host.ts";
 import { until } from "../../support/until.ts";
 
 /**
@@ -275,6 +280,46 @@ describe("a command still running when the time comes", () => {
 		expect(kept).toHaveLength(1);
 		expect(outcomes[0]?.summary).toContain("Full output: /tmp/");
 		expect(outcomes[0]?.summary).not.toContain("line 0\n");
+	});
+
+	it("keeps long output in its conversation's TMPDIR on a host, named for the conversation", async () => {
+		const installed = installTestHost();
+		const temp = mkdtempSync(join(tmpdir(), "conversation-output-"));
+		disposers.push(() => rmSync(temp, { recursive: true, force: true }));
+		disposers.push(installed.dispose);
+		sessionEnv("a").set("TMPDIR", temp);
+		sessionEnv("b").set("TMPDIR", join(temp, "b"));
+		const { bus, outcomes } = recordingHost();
+		const command = controllable();
+		await runOrHandOff({
+			command: "build",
+			session: "a",
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus,
+			run: command.run,
+			afterMs: 10,
+		});
+		const lines = Array.from(
+			{ length: FINISHED_LINES + 10 },
+			(_, i) => `line ${i}`,
+		);
+		command.end(said(lines.join("\n")));
+		await until(
+			"the conversation's job with long output to end",
+			() => outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
+
+		const kept = /Full output: (\S+\.log)/.exec(
+			outcomes[0]?.summary ?? "",
+		)?.[1];
+		expect(dirname(kept ?? ""), "in A's TMPDIR, not the host's").toBe(temp);
+		expect(kept, "named for A").toMatch(/pi-bash-a-\d+-j1\.log$/);
+		expect(readFileSync(kept ?? "", "utf8")).toContain(
+			`line ${FINISHED_LINES + 9}`,
+		);
 	});
 
 	it("leaves pi's own saved output to pi", async () => {

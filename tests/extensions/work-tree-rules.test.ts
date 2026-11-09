@@ -78,4 +78,29 @@ describe("a tree cut in a repo the session did not start in", () => {
 		expect(text).toContain(join(root, "ruled", "AGENTS.md"));
 		expect(text).toContain("Run the test pyramid.");
 	});
+
+	it("comes without them where the conversation already read them, wherever its process stands", async () => {
+		const stub = activateWith(workIntegration);
+		registerTreeProvider(RULED);
+		const work = toolNamed(stub, "work");
+		const started = join(root, "ruled-home");
+		mkdirSync(started);
+		writeFileSync(join(started, "AGENTS.md"), "Run the test pyramid.\n");
+		const session = `work-rules-read-${process.pid}-${Date.now()}`;
+		const cut = (await work.execute(
+			"call-1",
+			{ action: "tree", repo: REPO, purpose: "ruled", branch: "main" },
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: started,
+				sessionManager: { getSessionId: () => session },
+			},
+		)) as { content: { text: string }[] };
+		expect(
+			cut.content[0]?.text ?? "",
+			"the rules the conversation's folder gave it at start",
+		).not.toContain("Run the test pyramid.");
+	});
 });
