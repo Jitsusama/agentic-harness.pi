@@ -162,7 +162,7 @@ export const UNKEPT_MS = 120_000;
 export const QUEUE_FIRST_FILE = "first.json";
 
 /** The quests whose work goes first, as the queue folder holds them. */
-function questsFirstIn(dir: string): ReadonlySet<string> {
+export function questsFirstIn(dir: string): ReadonlySet<string> {
 	const ids = parsed<unknown>(join(dir, QUEUE_FIRST_FILE));
 	return Array.isArray(ids)
 		? new Set(ids.filter((id): id is string => typeof id === "string"))

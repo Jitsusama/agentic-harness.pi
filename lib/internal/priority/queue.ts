@@ -57,7 +57,8 @@ export type Kind =
 	| "benchmark"
 	| "build"
 	| "world-walk"
-	| "stamp";
+	| "stamp"
+	| "timed-run";
 
 /** What a walk of World's objects does, as {@link walkOf} reads it. */
 export type Walk = "push" | "main-fetch" | "other";
@@ -84,6 +85,9 @@ export const CLASS_OF: Readonly<Record<Kind, Class>> = {
 	// against 3 to 5 at 10 to 40%, and load flakes its Chrome tests
 	// (N3Q98W). Its owner ruled it goes first (E2ZIAQ, 22:57).
 	stamp: "timed",
+	// One of Acceluary's paired timings, through its tools/timed.mjs: given
+	// back while builds held the load at 25 to 55 (E2ZIAQ, 8 November).
+	"timed-run": "timed",
 };
 
 /**
@@ -100,6 +104,7 @@ export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
 	build: 4,
 	"world-walk": 6,
 	stamp: 4,
+	"timed-run": 4,
 };
 
 /**
@@ -1672,6 +1677,8 @@ export function kindOf(
 ): Kind | undefined {
 	const steps = runSteps(command).filter((step) => !testsOneFile(step));
 	const runs = steps.join("\n");
+	// Before a stamp: what a timed run times may be the stamp's own suite.
+	if (timesARun(runs, where)) return "timed-run";
 	if (stamps(runs, where)) return "stamp";
 	if (searchesWorldWhole(command, where)) return "build";
 	// An evaluation's expression is quoted, which reading the steps blanks
@@ -1821,11 +1828,33 @@ const ACCELUARY = /(?:^|\/)[^/\s]*acceluary[^/\s]*(?:\/|$)/;
  */
 function stamps(runs: string, where: Where): boolean {
 	if (STAMP_SUITE.test(runs)) return true;
-	if (!NPM_TEST.test(runs)) return false;
+	return NPM_TEST.test(runs) && runsInAcceluary(runs, where);
+}
+
+/** Acceluary's wrapper every timed run goes through, by its file. */
+const TIMED_RUN = /(?<![\w.-])node\s+(?:\S*\/)?tools\/timed\.mjs(?![\w.-])/;
+
+/**
+ * Whether a command runs one of Acceluary's timed runs: its wrapper,
+ * from Acceluary's own folder. Elsewhere a `tools/timed.mjs` is
+ * somebody else's.
+ */
+function timesARun(runs: string, where: Where): boolean {
+	return TIMED_RUN.test(runs) && runsInAcceluary(runs, where);
+}
+
+/**
+ * Whether a command runs in Acceluary's folder, named by where it runs,
+ * the `cd` it makes, or the path it gives its wrapper.
+ */
+function runsInAcceluary(runs: string, where: Where): boolean {
 	const inAcceluary = (path: string | undefined) =>
 		path !== undefined && ACCELUARY.test(path);
 	const cds = [...runs.matchAll(/(?:^|\n)\s*cd\s+(\S+)/g)].map((m) => m[1]);
-	return inAcceluary(where.cwd) || cds.some(inAcceluary);
+	const wrapper = runs.match(/(\S*)\/tools\/timed\.mjs/)?.[1];
+	return (
+		inAcceluary(where.cwd) || cds.some(inAcceluary) || inAcceluary(wrapper)
+	);
 }
 
 /**
@@ -2039,6 +2068,7 @@ export const KIND_SAID: Readonly<Record<Kind, string>> = {
 	build: "a build",
 	"world-walk": "a walk of World's git objects",
 	stamp: "a deploy stamp",
+	"timed-run": "a timed run",
 };
 
 /** Where a command's steps and the parts of its pipes end. */

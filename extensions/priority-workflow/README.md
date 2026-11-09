@@ -91,6 +91,7 @@ does, so the wait never uses it up (see
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
 | stamp | a deploy's whole suite: `node deploy/suite.mjs` or `node estero/suite.mjs`, and `npm test` run in a folder of Acceluary's; only the capped build starts beside one | timed | 4 GiB |
+| timed-run | one of Acceluary's paired timings: `node tools/timed.mjs` run in a folder of Acceluary's, whatever it times | timed | 4 GiB |
 | build | Nix builds and checks, evaluations of a whole machine or home (`nix eval` or `nix-instantiate` naming nixosSystem, nixosConfigurations, system.build or toplevel), `rg` and `git grep` over a whole World checkout, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, vitest and the pnpm scripts that run it (`pnpm check`, `pnpm test`, `pnpm test:<lane>`), `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
 | world-walk | `git push`, `fetch`, `pull`, `clone`, `gc`, `repack` or `pack-objects` in or against a World checkout | bulk | 6 GiB |
 
@@ -342,6 +343,12 @@ is a build, never a VM check.
   lowered while a VM runs, by the queue or by a qemu, test driver or
   nspawn in build.slice or machine.slice, since a starved guest fails
   its timeouts. On Linux only, through core.nix's polkit grant.
+- **Builds give way to a timed run, on narrower terms:** the same
+  lowering, for at most 16 minutes from the run's start, whatever its
+  wrapper does. It doesn't happen while update-to-main builds or
+  switches (a nix or switch process in its service), or while a job of
+  a quest marked `queue: first` runs on this machine; a stamp still
+  yields through both.
 - **Giving way:** a shell runs its command anyway when its job is given
   up or nobody has kept the queue for two minutes. Nobody keeps it
   while the machine sleeps, so a shell whose clock has jumped gives the
