@@ -4,6 +4,8 @@
  * The reload is played as pi plays one (see tests/support/job-runtime.ts).
  */
 
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -278,6 +280,42 @@ describe("what a reload takes over", () => {
 		expect(second.said.join("\n")).not.toContain("exited 0");
 		expect(third.said.join("\n")).toContain("exited 0");
 		expect(findJobHost(events)?.pending?.()).toBe(0);
+	});
+});
+
+describe("a runtime a reload replaced", () => {
+	// 9 November: each reload's session held the one before it through the
+	// hand-off's rewire, and that one its own, back to the process's start,
+	// so every reload kept a whole harness: about 10 to 15 MB a reload on
+	// 70 live pi, and 40 MB in a heap snapshot of a test pi.
+	setFlagsFromString("--expose-gc");
+	const gc = runInNewContext("gc") as () => void;
+
+	/** Two reloads with a job running, keeping only weak hold of the first two. */
+	async function reloadedTwice(events: EventBus) {
+		const { first, host } = await startedOn(events);
+		const job = host.start({ kind: "shell", label: "nix build" });
+		const second = await reloadJobs(events, first);
+		const third = await reloadJobs(events, second);
+		return {
+			replaced: [new WeakRef(first.said), new WeakRef(second.said)],
+			job,
+			third,
+		};
+	}
+
+	it("is freed once the next one takes its jobs", async () => {
+		const events = createEventBus();
+		const { replaced, job, third } = await reloadedTwice(events);
+		await new Promise((resolve) => setImmediate(resolve));
+		gc();
+
+		expect(
+			replaced.map((runtime) => runtime.deref() === undefined),
+			"nothing holds a replaced runtime",
+		).toEqual([true, true]);
+		job.finish({ summary: "exited 0" });
+		expect(third.said.join("\n")).toContain("exited 0");
 	});
 });
 

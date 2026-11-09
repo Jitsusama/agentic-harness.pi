@@ -149,6 +149,40 @@ export function openSession(
 }
 
 /**
+ * Jobs reporting to `own`: those `handed` on, rewired to it, or new ones,
+ * with the way a later runtime rewires them in turn.
+ *
+ * It lives outside the session because a closure shares the scope it is
+ * made in: a rewire made in `freshSession` held that session's runtime,
+ * and the hand-off it came with the one before. On 9 November that kept
+ * every replaced harness alive back to the process's start, about 10 to
+ * 15 MB a reload across 70 live pi. Here the rewire holds only where
+ * the jobs report now.
+ */
+function jobsReportingTo(
+	own: JobWiring,
+	handed: HandOff | undefined,
+): { readonly jobs: Jobs; readonly rewire: (to: JobWiring) => void } {
+	if (handed) {
+		handed.rewire(own);
+		return { jobs: handed.jobs, rewire: handed.rewire };
+	}
+	let wiring = own;
+	const jobs = createJobs(
+		(result) => wiring.post(result),
+		() => wiring.changed(),
+		(jobId) => wiring.retract(jobId),
+		(finished) => wiring.ended(finished),
+	);
+	return {
+		jobs,
+		rewire: (to) => {
+			wiring = to;
+		},
+	};
+}
+
+/**
  * A session announced as the host: with no jobs yet, or around the jobs
  * another runtime `handed` off, its waiting results and unsaid ends
  * taken into this code's own outbox.
@@ -221,22 +255,7 @@ function freshSession(
 		retract: (jobId) => outbox.withdraw(jobId),
 		ended: (finished) => say(finished),
 	};
-	let wiring = own;
-	const jobs =
-		handed?.jobs ??
-		createJobs(
-			(result) => wiring.post(result),
-			() => wiring.changed(),
-			(jobId) => wiring.retract(jobId),
-			(finished) => wiring.ended(finished),
-		);
-	// Jobs handed on report through the runtime that first made them, so
-	// rewiring them later goes back through that one.
-	const rewire = (to: JobWiring) => {
-		if (handed) handed.rewire(to);
-		else wiring = to;
-	};
-	handed?.rewire(own);
+	const { jobs, rewire } = jobsReportingTo(own, handed);
 
 	let withdraw: (() => void) | undefined;
 	let yielding: (() => void) | undefined;
