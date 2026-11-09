@@ -29,6 +29,7 @@ import { Type } from "@sinclair/typebox";
 import { bounded, WallClockExceeded } from "../../lib/clock/index.ts";
 import { standaloneLease } from "../../lib/core/internal/lsp/standalone.ts";
 import {
+	clearLspBackends,
 	formatCodeActions,
 	formatDiagnostics,
 	formatHover,
@@ -43,6 +44,12 @@ import {
 } from "../../lib/core/lsp/index.ts";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
+import {
+	ambientSession,
+	hosted,
+	type SessionRef,
+	sessionKeyOf,
+} from "../../lib/core/session/index.ts";
 import { LSP_CALL_WALL_MS } from "./limits.ts";
 
 /**
@@ -72,9 +79,11 @@ const POSITION_OPS = new Set(["definition", "references", "hover", "rename"]);
 
 export default function lspIntegration(pi: ExtensionAPI) {
 	const lease = standaloneLease();
+	let session: SessionRef | undefined = ambientSession();
 
-	pi.on("session_start", async () => {
-		lease.ensure();
+	pi.on("session_start", async (_event, ctx) => {
+		session = sessionKeyOf(ctx);
+		lease.ensure(ctx);
 	});
 
 	// A paired editor (neovim.pi) cannot import this registry across
@@ -84,12 +93,12 @@ export default function lspIntegration(pi: ExtensionAPI) {
 	// then wins resolution while it reports itself available.
 	pi.events.on("lsp:register-backend", (data: unknown) => {
 		const entry = toBackendEntry(data);
-		if (entry) registerLspBackend(entry);
+		if (entry) registerLspBackend(entry, session);
 	});
 	pi.events.on("lsp:unregister-backend", (data: unknown) => {
 		if (typeof data === "object" && data !== null) {
 			const name = (data as Record<string, unknown>).name;
-			if (typeof name === "string") unregisterLspBackend(name);
+			if (typeof name === "string") unregisterLspBackend(name, session);
 		}
 	});
 	// Signal that the registry is listening, so a provider that loaded
@@ -112,8 +121,9 @@ export default function lspIntegration(pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_shutdown", async () => {
-		await lease.release();
+	pi.on("session_shutdown", async (event, ctx) => {
+		await lease.release(ctx);
+		if (hosted() && event.reason === "quit") clearLspBackends(ctx);
 	});
 
 	pi.registerTool({
@@ -182,7 +192,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			_onUpdate,
 			ctx,
 		): Promise<AgentToolResult<LspToolDetails>> {
-			let active = resolveLspBackend() ?? lease.ensure();
+			let active = resolveLspBackend(ctx) ?? lease.ensure(ctx);
 			const standalone = active === lease.current();
 			const op = params.operation;
 			// A `records` argument rather than a details heuristic: these
@@ -317,7 +327,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					// and ask once more. An editor's backend is the editor's to
 					// restart, so its failure is reported as it came.
 					if (!closedConnection(err) || !standalone) throw err;
-					active = await lease.restart(active);
+					active = await lease.restart(active, ctx);
 					return await answer();
 				}
 			} catch (err) {

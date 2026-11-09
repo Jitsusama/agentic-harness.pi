@@ -12,7 +12,11 @@ import {
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 
 /** Run one factory with a real pi dispatcher, without a model or a screen. */
-export function extensionRunner(factory: ExtensionFactory, cwd: string) {
+export function extensionRunner(
+	factory: ExtensionFactory,
+	cwd: string,
+	manager = SessionManager.inMemory(cwd),
+) {
 	const runtime = createExtensionRuntime();
 	const extension: Extension = {
 		path: "test",
@@ -31,8 +35,9 @@ export function extensionRunner(factory: ExtensionFactory, cwd: string) {
 		shortcuts: new Map(),
 	};
 	const tools = new Map<string, ToolDefinition>();
+	const events = createEventBus();
 	const loaded = factory({
-		events: createEventBus(),
+		events,
 		on(name: string, handler: Handler) {
 			const handlers = extension.handlers.get(name) ?? [];
 			handlers.push(handler);
@@ -47,13 +52,14 @@ export function extensionRunner(factory: ExtensionFactory, cwd: string) {
 		[extension],
 		runtime,
 		cwd,
-		SessionManager.inMemory(cwd),
+		manager,
 		{} as never,
 	);
 	const errors: string[] = [];
 	runner.onError((error) => errors.push(error.error));
 	return {
 		runner,
+		events,
 		errors,
 		async start() {
 			await loaded;

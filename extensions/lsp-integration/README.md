@@ -22,9 +22,9 @@ grep-and-hope.
   at open.
 - Shares one standalone backend across the runners in a process.
   A runner quitting releases its claim; the last runner closes the
-  servers. Relative file paths use the calling session\'s folder.
-- Limits workspace symbol searches to the calling session\'s folder,
-  so another conversation\'s project does not appear in the answer.
+  servers. Relative file paths use the calling session's folder.
+- Limits workspace symbol searches to the calling session's folder,
+  so another conversation's project does not appear in the answer.
 
 ## Backend Selection
 
@@ -34,6 +34,21 @@ priority 100; when neovim.pi registers its backend below that
 and reports itself available for a paired session, the same
 tool routes to the editor's own servers with no change to how
 it is called.
+
+In a pi-durable host, the registry belongs to each conversation. Editor
+registration and removal follow the receiving runner's event bus; they
+don't change another conversation's backend, even if the names match.
+Direct registry calls accept caller context, or use the host's ambient
+session when no caller is supplied. Missing identity is refused rather
+than consulting the plain-pi process registry. Plain pi keeps its original
+process symbol and existing no-argument calls.
+
+Each hosted runner registers the same standalone pool in its own registry.
+A dead connection's replacement is visible to the other runners without
+restarting them. Shutdown removes only the caller's standalone registration;
+quit also clears that caller's editor registrations, without disposing
+servers an external provider owns. The pool closes only after its last
+runner releases it.
 
 ### Registering an External Backend
 
