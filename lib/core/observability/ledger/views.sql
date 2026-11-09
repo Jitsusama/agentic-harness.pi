@@ -23,7 +23,7 @@ SELECT t.digest, t.entry_id, t.session_id, t.timestamp,
 	t.tokens_cache_write, t.cache_write_1h,
 	t.cost_total AS cost, t.cost_input, t.cost_output,
 	t.cost_cache_read, t.cost_cache_write,
-	t.preceded_by, t.gap_ms, t.new_tokens, t.stop_reason,
+	t.preceded_by, t.reloaded, t.gap_ms, t.new_tokens, t.stop_reason,
 	t.thinking_chars, t.text_chars, t.run_id, t.run_turn,
 	t.dropped_before, t.first_kept_entry_id,
 	s.repo, CASE WHEN t.quest IS NULL THEN s.quest ELSE NULLIF(t.quest, '') END AS quest, s.cwd,
@@ -42,6 +42,8 @@ SELECT f.*,
 		WHEN f.gap_ms > :hour_ms THEN 'idle over an hour'
 		WHEN f.gap_ms > :five_minutes_ms AND f.cache_write_1h = 0
 			THEN 'idle over five minutes'
+		WHEN f.preceded_by IN ('tools', 'system') AND f.reloaded = 1
+			THEN 'prompt changed by a reload'
 		WHEN f.preceded_by IN ('tools', 'system') THEN 'prompt changed'
 		WHEN f.preceded_by = 'reload' THEN 'after reload'
 		WHEN f.preceded_by = 'typed' THEN 'after a typed message'

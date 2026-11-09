@@ -29,8 +29,11 @@ const DIGEST_CHARS = 24;
  * what surrounded it.
  * 4: the quest and document in force at each turn, so spend is booked
  * to the work it was spent on rather than to the session's last quest.
+ * 5: whether the harness reloaded before each turn, so a miss a reload's
+ * new tool declarations caused is told from one a tool loaded mid-run
+ * caused.
  */
-export const SCAN_VERSION = 4;
+export const SCAN_VERSION = 5;
 
 interface RawUsage {
 	input?: number;

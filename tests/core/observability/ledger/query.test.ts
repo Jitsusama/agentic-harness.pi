@@ -14,6 +14,7 @@ import { toOlderShape } from "./older-shape.ts";
 
 const FACTS: TurnFacts = {
 	precededBy: "results",
+	reloaded: false,
 	gapMs: 8000,
 	newTokens: 1500,
 	stopReason: "toolUse",
@@ -167,6 +168,7 @@ describe("ledger views", () => {
 			missed({ precededBy: "nothing" }),
 			missed({ precededBy: "results" }, 40_000),
 			missed({ precededBy: "reload", gapMs: 30_000 }),
+			missed({ precededBy: "tools", reloaded: true, gapMs: 30_000 }),
 		]);
 
 		const answer = await reader.query(
@@ -182,6 +184,7 @@ describe("ledger views", () => {
 			"full miss, unexplained",
 			"partial miss, unexplained",
 			"after reload",
+			"prompt changed by a reload",
 		]);
 		// Written past the estimate of what was new, less the slack.
 		expect(answer.rows[0]?.excess_tokens).toBe(103_500 - 1500 - 2000);
