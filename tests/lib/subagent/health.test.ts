@@ -3,7 +3,7 @@ import {
 	createSubagentHealthCheck,
 	detectStaleInstallInStderr,
 	STALE_RUNTIME_WARNING_PREFIX,
-} from "../../../lib/subagent/health";
+} from "../../../lib/subagent/health.ts";
 
 // The pi binary is captured at module load. If pi gets
 // updated (or nix-gc'd) mid-session, the path the parent

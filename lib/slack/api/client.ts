@@ -354,9 +354,8 @@ function describeError(error?: string): string {
 			"Invalid credentials. Your token may have been revoked.\n" +
 			"Run /slack-auth to re-authenticate.",
 		token_revoked:
-			"Token has been revoked.\n" + "Run /slack-auth to get a new token.",
-		not_authed:
-			"No authentication provided.\n" + "Run /slack-auth to authenticate.",
+			"Token has been revoked.\nRun /slack-auth to get a new token.",
+		not_authed: "No authentication provided.\nRun /slack-auth to authenticate.",
 		account_inactive:
 			"This Slack account has been deactivated or the workspace was deleted.",
 		missing_scope:

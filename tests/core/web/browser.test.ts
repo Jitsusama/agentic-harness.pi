@@ -239,13 +239,13 @@ describe("namesProfile", () => {
 
 describe("killPidGroup", () => {
 	it("kills the negative pid (the whole group) first", () => {
-		const calls: Array<[number, string]> = [];
+		const calls: [number, string][] = [];
 		killPidGroup(4242, (pid, sig) => calls.push([pid, sig]));
 		expect(calls).toEqual([[-4242, "SIGKILL"]]);
 	});
 
 	it("falls back to the bare pid when the group kill throws", () => {
-		const calls: Array<[number, string]> = [];
+		const calls: [number, string][] = [];
 		killPidGroup(4242, (pid, sig) => {
 			if (pid < 0) throw new Error("ESRCH");
 			calls.push([pid, sig]);

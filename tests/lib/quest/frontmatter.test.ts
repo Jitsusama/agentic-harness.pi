@@ -4,11 +4,11 @@ import {
 	parseQuestFrontMatter,
 	serializeDocumentFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../lib/internal/quest/frontmatter";
+} from "../../../lib/internal/quest/frontmatter.ts";
 import type {
 	DocumentFrontMatter,
 	QuestFrontMatter,
-} from "../../../lib/quest/types";
+} from "../../../lib/quest/types.ts";
 
 const SAMPLE_QUEST_FM: QuestFrontMatter = {
 	id: "QEST-20260603-AAA111",

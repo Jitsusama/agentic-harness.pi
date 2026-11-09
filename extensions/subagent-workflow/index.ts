@@ -42,7 +42,7 @@ import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { tickFacts } from "../../lib/internal/process-ticks.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
@@ -529,7 +529,7 @@ async function sweepFleetRuns(
 }
 
 export default function subagentWorkflow(pi: ExtensionAPI) {
-	const stateDir = () => packageStateDir("subagent-workflow");
+	const stateDir = () => stateDirOf("subagent-workflow");
 	// Beside the run directories rather than inside them: this is a
 	// small file read at every session start, and those are megabytes
 	// of event stream per subagent. The run id is the key on both

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { get, list } from "../../../lib/internal/people/registry";
+import { get, list } from "../../../lib/internal/people/registry.ts";
 import {
 	clearHandleTypes,
 	type HandleType,
 	registerBuiltinHandleTypes,
 	registerHandleType,
 	unregisterHandleType,
-} from "../../../lib/people/index";
+} from "../../../lib/people/index.ts";
 
 beforeEach(() => clearHandleTypes());
 afterEach(() => clearHandleTypes());

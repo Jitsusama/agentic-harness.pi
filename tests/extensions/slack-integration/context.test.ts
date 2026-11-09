@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	IDENTITY_CONTEXT,
 	identityText,
-} from "../../../extensions/slack-integration/context";
+} from "../../../extensions/slack-integration/context.ts";
 import { standingContextTurn } from "../../../lib/prompt/index.ts";
 
 describe("telling the model who it is on Slack", () => {

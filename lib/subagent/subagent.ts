@@ -44,6 +44,7 @@ import {
 	describeReviewerError,
 	type ReviewerError,
 } from "./reviewer-error.ts";
+// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { JOURNAL_TOOL_NAME } from "./runpi/journal.mjs";
 import type { StartedPi, StartPi } from "./runpi/supervisor.ts";
 
@@ -1502,6 +1503,7 @@ export {
 	JOURNAL_PACK_PATH,
 	JOURNAL_PATH_VAR,
 	JOURNAL_TOOL_NAME,
+	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "./runpi/journal.mjs";
 
 interface ComposeArgsInput {

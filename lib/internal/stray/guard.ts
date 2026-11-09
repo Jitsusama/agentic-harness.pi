@@ -145,7 +145,7 @@ export function guardOutput(
 
 /** The frames above the guard's own: who made the write. */
 function callerStack(): string {
-	const frames = (new Error().stack ?? "").split("\n").slice(1);
+	const frames = (new Error("who wrote").stack ?? "").split("\n").slice(1);
 	const outside = frames.filter((frame) => !frame.includes(SELF));
 	return outside.slice(0, STACK_FRAMES).join("\n");
 }

@@ -287,7 +287,7 @@ function enforcePhase(
 		}
 	}
 
-	return;
+	return undefined;
 }
 
 /**
@@ -449,7 +449,7 @@ function enforceRecord(
 			};
 		}
 	}
-	return;
+	return undefined;
 }
 
 /** The folders documents live in, under a quest's directory. */

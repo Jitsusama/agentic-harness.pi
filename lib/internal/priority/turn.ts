@@ -274,7 +274,7 @@ export function waitsForTurn(
 			// queue, by queue.json's age. Nobody writes that while the machine
 			// sleeps, so a clock that jumped gives the keepers a grace to
 			// wake and write it before its age counts.
-			`__then=$(date +%s) __grace=0`,
+			"__then=$(date +%s) __grace=0",
 			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && { __now=$(date +%s); [ $(( __now - __then )) -gt ${JUMP_S} ] && __grace=$(( __now + ${GRACE_S} )); __then=$__now; [ $(( __now - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ] || [ "$__now" -lt "$__grace" ]; }; do sleep 1; done`,
 			// The mark its time limit starts from (clock.ts): the run begins
 			// here, whether its turn was given or the wait gave way.
@@ -283,7 +283,7 @@ export function waitsForTurn(
 			`__into=$(cat "$__queue/$__job.turn" 2>/dev/null)`,
 			`[ -n "$__into" ] && { printf '%s\\n' "$$" 2>/dev/null > "$__into/cgroup.procs" || :; }`,
 			CAPPING,
-			`__since=$(( SECONDS - __since ))`,
+			"__since=$(( SECONDS - __since ))",
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
 			"__ran=$SECONDS",
 			`trap "__end=\\$?; ${ended}printf '%s\\\\n' \\"\\$__end\\" 2>/dev/null > '${dir}/${id}.end'; __room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,

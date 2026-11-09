@@ -145,7 +145,8 @@ describe("the padding scan itself", () => {
 	it("is not fooled by a comma inside a string or template", () => {
 		expect(unpaddedTextCallsIn('new Text("a, b", 0, 0);', "f.ts")).toEqual([]);
 		expect(
-			unpaddedTextCallsIn(`new Text(\`a, \${b}\`, 0, 0);`, "f.ts"),
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the string is source text under test.
+			unpaddedTextCallsIn("new Text(`a, ${b}`, 0, 0);", "f.ts"),
 		).toEqual([]);
 	});
 

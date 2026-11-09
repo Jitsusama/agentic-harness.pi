@@ -2,13 +2,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { attachCurrentSession } from "../../../extensions/quest-workflow/lifecycle";
-import { livePeers, peersSaid } from "../../../extensions/quest-workflow/peers";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { localProcessDeps } from "../../../lib/internal/quest/process-liveness";
-import type { QuestSession } from "../../../lib/quest/index";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { attachCurrentSession } from "../../../extensions/quest-workflow/lifecycle.ts";
+import {
+	livePeers,
+	peersSaid,
+} from "../../../extensions/quest-workflow/peers.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { localProcessDeps } from "../../../lib/internal/quest/process-liveness.ts";
+import type { QuestSession } from "../../../lib/quest/index.ts";
+import { createEnvGuard, succeeded } from "./_helpers.ts";
 
 const HOST = "host-a";
 const SELF = { pid: 100, hostId: HOST };

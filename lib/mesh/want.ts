@@ -73,7 +73,8 @@ export function wantFrom(value: unknown): Want | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const one = value as Record<string, unknown>;
 	if (!isWantKind(one.kind) || typeof one.said !== "string") return undefined;
-	const since = typeof one.since === "string" ? Date.parse(one.since) : NaN;
+	const since =
+		typeof one.since === "string" ? Date.parse(one.since) : Number.NaN;
 	if (!Number.isFinite(since)) return undefined;
 	const began = new Date(since).toISOString();
 	return {

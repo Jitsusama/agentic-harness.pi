@@ -243,10 +243,10 @@ async function dispatch(
 		case "think":
 		case "draft":
 		case "build":
-			return stageTransition(state, params.action, params, ctx);
+			return stageTransition(state, params.action, params);
 		case "conclude":
 		case "retire":
-			return concludeOrRetire(state, params.action, params, ctx, signal);
+			return concludeOrRetire(state, params.action, params, signal);
 		case "reopen":
 			return reopenQuest(state);
 		case "top":

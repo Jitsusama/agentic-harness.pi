@@ -290,7 +290,9 @@ function holdsTurn(log: string, since?: number): boolean {
 			}
 			if (since === undefined || !Number.isFinite(since)) return true;
 			const at =
-				typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+				typeof entry.timestamp === "string"
+					? Date.parse(entry.timestamp)
+					: Number.NaN;
 			return at >= since;
 		} catch {
 			// A torn last line, still being written: not a turn yet.

@@ -2,15 +2,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inventoryWorktrees } from "../../../extensions/quest-workflow/lifecycle";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { inventoryWorktrees } from "../../../extensions/quest-workflow/lifecycle.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	type QuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 

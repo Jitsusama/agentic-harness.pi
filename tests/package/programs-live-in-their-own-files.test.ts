@@ -317,7 +317,8 @@ describe("the package's code", () => {
 		).toEqual(new Map([["sql", 1]]));
 		expect(
 			embeddedPrograms(
-				`const outer = \`\${inner(\`\nSELECT a\nFROM b\nWHERE c\nAND d\nAND e\nORDER BY f\n\`)}\`;`,
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: the string is source text under test.
+				"const outer = `${inner(`\nSELECT a\nFROM b\nWHERE c\nAND d\nAND e\nORDER BY f\n`)}`;",
 			),
 			"a query nested in another literal's placeholder is found on its own",
 		).toEqual(new Map([["sql", 1]]));

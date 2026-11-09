@@ -277,7 +277,7 @@ export interface Reply {
  * is the part with the rules in it: concurrent asking, a thrown error
  * and a reported one becoming the same thing, and the ordering that
  * makes finding numbers stable. A stack round differs in what a reply
- * *means*, not in how a roster is asked, and if the ordering rule ever
+ * means, not in how a roster is asked, and if the ordering rule ever
  * changes both rounds have to change with it.
  */
 export async function askRoster(

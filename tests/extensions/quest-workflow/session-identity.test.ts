@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	attachCurrentSession,
 	detachSessionIfOwner,
-} from "../../../extensions/quest-workflow/lifecycle";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { parseQuestFrontMatter } from "../../../lib/quest/index";
+} from "../../../extensions/quest-workflow/lifecycle.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { parseQuestFrontMatter } from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 

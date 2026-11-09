@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	lensForField,
 	reversibleFields,
-} from "../../../../lib/internal/quest/fields";
-import type { QuestFrontMatter } from "../../../../lib/quest/types";
+} from "../../../../lib/internal/quest/fields.ts";
+import type { QuestFrontMatter } from "../../../../lib/quest/types.ts";
 
 function frontMatter(): QuestFrontMatter {
 	return {

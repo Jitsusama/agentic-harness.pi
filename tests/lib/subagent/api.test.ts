@@ -5,7 +5,7 @@ import {
 	runFleet,
 	runSubagent,
 	verifyProtocolInstruction,
-} from "../../../lib/subagent/subagent";
+} from "../../../lib/subagent/subagent.ts";
 
 // The composite `runSubagent` / `runFleet` API sits on top
 // of the flat `runReviewer` engine. These tests pin the

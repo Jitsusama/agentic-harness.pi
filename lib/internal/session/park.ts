@@ -92,7 +92,7 @@ export function opensOnlyItself(
 	sessionFile: string,
 ): boolean {
 	const [first = "", second, ...rest] = args;
-	const [flag = "", inline] = first.split(/=(.*)/s, 2);
+	const [flag = "", inline] = first.split(/[=](.*)/s, 2);
 	if (!SESSION_FLAGS.has(flag)) return false;
 	const value = inline ?? second;
 	const extra = inline === undefined ? rest : args.slice(1);
@@ -110,7 +110,7 @@ export function flagsLost(args: readonly string[]): string[] {
 		const arg = args[i] ?? "";
 		if (arg === "--") break;
 		if (!arg.startsWith("-") || arg === "-") continue;
-		const [flag = "", inline] = arg.split(/=(.*)/s, 2);
+		const [flag = "", inline] = arg.split(/[=](.*)/s, 2);
 		if (!SESSION_FLAGS.has(flag)) lost.push(flag);
 		// A session flag's value is spent with it.
 		else if (inline === undefined) i += 1;

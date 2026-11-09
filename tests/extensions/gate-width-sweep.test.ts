@@ -48,7 +48,7 @@ function asDrawn(row: string): string {
 }
 
 /** Every gate that draws prose somebody wrote, named as a person would name it. */
-const GATES: Array<[string, () => Parameters<typeof gateLines>[0]]> = [
+const GATES: [string, () => Parameters<typeof gateLines>[0]][] = [
 	[
 		"propose",
 		() => ({
@@ -98,7 +98,7 @@ const GATES: Array<[string, () => Parameters<typeof gateLines>[0]]> = [
 ];
 
 /** The guardian's own gate, which is a different path drawing the same thing. */
-const GUARDIAN_GATES: Array<[string, ReviewableEntity]> = [
+const GUARDIAN_GATES: [string, ReviewableEntity][] = [
 	[
 		"New PR",
 		{

@@ -15,7 +15,7 @@ import {
 	ownNewestStructuralOp,
 	recordStructuralOp,
 	setJournalSession,
-} from "../../../../lib/internal/quest/structural-journal";
+} from "../../../../lib/internal/quest/structural-journal.ts";
 
 let root: string;
 

@@ -2,14 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
+import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 

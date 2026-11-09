@@ -61,7 +61,7 @@ async function dispatch(
 	event: unknown = {},
 ): Promise<unknown[]> {
 	return withSession(id, async () => {
-		const results = [];
+		const results: unknown[] = [];
 		for (const handler of pi.recorded.handlers.get(name) ?? [])
 			results.push(await handler(event, context(id)));
 		return results;

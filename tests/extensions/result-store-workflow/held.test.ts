@@ -87,8 +87,8 @@ async function restartHost() {
 
 describe("results a crashed host left behind", () => {
 	it("are reaped for an unheld conversation and kept for a held one", async () => {
-		const closed = conversation(),
-			held = conversation();
+		const closed = conversation();
+		const held = conversation();
 		const end = host(CRASHED);
 		const gone = openSessionStore(closed).put("closed");
 		const kept = openSessionStore(held).put("held");

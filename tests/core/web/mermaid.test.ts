@@ -45,7 +45,7 @@ describe("pngPixelSize", () => {
 	// Every case must hold both caps on the FINAL integer dimensions, not
 	// just the unrounded ones: rounding each axis independently can push a
 	// diagram over the area cap, which is the bug this guards against.
-	const cases: Array<[string, { width: number; height: number }]> = [
+	const cases: [string, { width: number; height: number }][] = [
 		["tiny square", { width: 100, height: 80 }],
 		["wide banner", { width: 5000, height: 1000 }],
 		["large square", { width: 3000, height: 3000 }],

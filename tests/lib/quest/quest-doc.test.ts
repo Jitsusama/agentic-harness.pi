@@ -8,11 +8,11 @@ import {
 	extractTitle,
 	milestoneProgress,
 	parseQuestDoc,
-} from "../../../lib/internal/quest/quest-doc";
+} from "../../../lib/internal/quest/quest-doc.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 
 const SAMPLE_README = [
 	"---",

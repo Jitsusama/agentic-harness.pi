@@ -11,15 +11,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	loadQuest,
 	resolveStartup,
-} from "../../../extensions/quest-workflow/lifecycle";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+} from "../../../extensions/quest-workflow/lifecycle.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 function addTree(
 	id: string,

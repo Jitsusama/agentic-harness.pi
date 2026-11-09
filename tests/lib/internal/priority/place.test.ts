@@ -56,7 +56,7 @@ describe("placeChildren", () => {
 	});
 
 	it("writes each spawned child's pid into the jobs cgroup", async () => {
-		const written: Array<[string, number]> = [];
+		const written: [string, number][] = [];
 		undo = placeChildren("/jobs/cgroup.procs", (path, pid) => {
 			written.push([path, pid]);
 		});

@@ -7,8 +7,8 @@
 
 import { homedir, tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { cacheDir, dataDir, stateDir } from "../../lib/internal/paths";
-import { machineQueueDir } from "../../lib/internal/priority/folder";
+import { cacheDir, dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { machineQueueDir } from "../../lib/internal/priority/folder.ts";
 
 describe("the test suite's XDG sandbox", () => {
 	it("resolves every directory outside the developer's home", () => {

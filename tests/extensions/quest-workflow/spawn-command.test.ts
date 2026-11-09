@@ -4,11 +4,11 @@ import {
 	modelOf,
 	resolveSpawnCommand,
 	resumeMessage,
-} from "../../../extensions/quest-workflow/verbs/session";
+} from "../../../extensions/quest-workflow/verbs/session.ts";
 import {
 	formatRelativeAge,
 	type SessionView,
-} from "../../../lib/internal/quest/session-liveness";
+} from "../../../lib/internal/quest/session-liveness.ts";
 
 function view(
 	id: string,

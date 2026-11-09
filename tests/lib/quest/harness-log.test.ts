@@ -12,7 +12,7 @@ import {
 	appendHarnessLog,
 	HARNESS_LOG_LINES,
 	harnessLogPath,
-} from "../../../lib/internal/quest/harness-log";
+} from "../../../lib/internal/quest/harness-log.ts";
 
 let questDir: string;
 const at = (iso: string) => () => new Date(iso);

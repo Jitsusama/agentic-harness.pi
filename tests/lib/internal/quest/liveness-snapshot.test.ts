@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { ProcessIdentity } from "../../../../lib/internal/quest/process-liveness";
+import type { ProcessIdentity } from "../../../../lib/internal/quest/process-liveness.ts";
 import {
 	buildLivenessSnapshot,
 	deriveLiveness,
 	type LivenessSnapshot,
-} from "../../../../lib/internal/quest/session-liveness";
-import type { QuestSession } from "../../../../lib/quest/types";
+} from "../../../../lib/internal/quest/session-liveness.ts";
+import type { QuestSession } from "../../../../lib/quest/types.ts";
 import {
 	type TerminalProbe,
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../../../lib/terminal/index";
+} from "../../../../lib/terminal/index.ts";
 
 const NOW = new Date("2026-06-04T12:00:00.000Z");
 const RECENT = "2026-06-04T11:58:00.000Z";

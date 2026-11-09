@@ -4,7 +4,7 @@ import {
 	layBudget,
 	liftBudget,
 	withoutBudget,
-} from "../../../lib/budget/environment";
+} from "../../../lib/budget/environment.ts";
 
 const delta = { name: "delta", label: "delta", env: { KEY: "team" } };
 

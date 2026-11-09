@@ -12,8 +12,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { QuestResult } from "../../../extensions/quest-workflow/verbs/shared";
-import { questJourneyLines } from "../../../lib/internal/quest/journey";
+import type { QuestResult } from "../../../extensions/quest-workflow/verbs/shared.ts";
+import { questJourneyLines } from "../../../lib/internal/quest/journey.ts";
 
 /**
  * A quest's whole Journey as text, newest first: whatever its

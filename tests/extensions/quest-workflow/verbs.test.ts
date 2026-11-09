@@ -8,29 +8,29 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import {
 	clearPersonResolvers,
 	setResolutionFallback,
-} from "../../../lib/people/index";
+} from "../../../lib/people/index.ts";
 import {
 	clearUrlFetchers,
 	parseQuestFrontMatter,
 	registerUrlFetcher,
 	serializeQuestFrontMatter,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
-} from "../../../lib/terminal/index";
+} from "../../../lib/terminal/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 

@@ -35,7 +35,7 @@ function beaten(source: Omit<RawAxNameSource, "value">): RawAxNameSource {
 }
 
 describe("nameSource", () => {
-	const cases: ReadonlyArray<[string, RawAxNameSource[], NameSource]> = [
+	const cases: readonly [string, RawAxNameSource[], NameSource][] = [
 		[
 			"aria-labelledby",
 			[used({ type: "relatedElement", attribute: "aria-labelledby" })],

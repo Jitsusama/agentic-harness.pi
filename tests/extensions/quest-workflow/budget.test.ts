@@ -2,18 +2,21 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { keepQuestBudget } from "../../../extensions/quest-workflow/budget";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { emptyOverlay, processOverlay } from "../../../lib/budget/environment";
+import { keepQuestBudget } from "../../../extensions/quest-workflow/budget.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import {
+	emptyOverlay,
+	processOverlay,
+} from "../../../lib/budget/environment.ts";
 import {
 	type BudgetAnswer,
 	registerBudgetProvider,
-} from "../../../lib/budget/provider";
-import { BUDGET_SETTLED } from "../../../lib/budget/record";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+} from "../../../lib/budget/provider.ts";
+import { BUDGET_SETTLED } from "../../../lib/budget/record.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
+import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 const kept: Record<string, string | undefined> = {};
@@ -225,7 +228,10 @@ describe("the session's budget", () => {
 		registerBudgetProvider(events, {
 			id: "slow",
 			precedence: 0,
-			resolve: () => new Promise((resolve) => (answer = resolve)),
+			resolve: () =>
+				new Promise((resolve) => {
+					answer = resolve;
+				}),
 		});
 		await run({ action: "load", id: top });
 
@@ -281,7 +287,12 @@ describe("the session's budget", () => {
 					return read(live.sessionManager);
 				},
 			} as unknown as typeof live;
-			return { ctx, goStale: () => (stale = true) };
+			return {
+				ctx,
+				goStale: () => {
+					stale = true;
+				},
+			};
 		}
 
 		it("drops an answer that lands after the session was replaced", async () => {
@@ -296,7 +307,10 @@ describe("the session's budget", () => {
 			registerBudgetProvider(events, {
 				id: "slow",
 				precedence: 0,
-				resolve: () => new Promise((resolve) => (answer = resolve)),
+				resolve: () =>
+					new Promise((resolve) => {
+						answer = resolve;
+					}),
 			});
 			await run({ action: "load", id: top });
 			const session = replaceable();

@@ -149,7 +149,11 @@ describe("hearing when the node counts this process present", () => {
 	it("says so once present, and again after the node drops it, as a restart does", async () => {
 		const heard = await node('{"Ok":"Present"}');
 		let times = 0;
-		unhearing.push(whenPresent(() => (times += 1)));
+		unhearing.push(
+			whenPresent(() => {
+				times += 1;
+			}),
+		);
 		keepPresent(() => path, 10);
 		await until("heard the first time", () => times === 1, HEARD_WITHIN_MS);
 
@@ -166,8 +170,14 @@ describe("hearing when the node counts this process present", () => {
 		await node('{"Ok":"Present"}');
 		let old = 0;
 		let fresh = 0;
-		whenPresent(() => (old += 1))();
-		unhearing.push(whenPresent(() => (fresh += 1)));
+		whenPresent(() => {
+			old += 1;
+		})();
+		unhearing.push(
+			whenPresent(() => {
+				fresh += 1;
+			}),
+		);
 
 		keepPresent(() => path, 10);
 

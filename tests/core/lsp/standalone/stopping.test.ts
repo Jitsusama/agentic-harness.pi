@@ -83,7 +83,7 @@ type Operation = (
 const at = (path: string) => ({ path, position: { line: 1, character: 0 } });
 
 /** Each operation that waits on the server, with the method it sends. */
-const OPERATIONS: ReadonlyArray<[string, string, Operation]> = [
+const OPERATIONS: readonly [string, string, Operation][] = [
 	[
 		"definition",
 		"textDocument/definition",

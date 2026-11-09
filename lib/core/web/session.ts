@@ -2465,7 +2465,7 @@ export class BrowserSession {
 			return {
 				ok: false,
 				refused:
-					`The browser refused to run that: ` +
+					"The browser refused to run that: " +
 					`${error instanceof Error ? error.message : String(error)}`,
 			};
 		}

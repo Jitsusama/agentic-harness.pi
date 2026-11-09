@@ -53,7 +53,7 @@ const refusesToRun = async () => {
 };
 
 /** Every provider this package ships. */
-const PROVIDERS: ReadonlyArray<[string, ReviewProvider]> = [
+const PROVIDERS: readonly [string, ReviewProvider][] = [
 	["github", createGitHubProvider({ exec: refusesToRun })],
 	["git", createGitProvider({ exec: refusesToRun })],
 ];

@@ -12,8 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { atomicWriteFile, withQuestLock } from "../../../lib/internal/quest/io";
-import { WRITING } from "../../../lib/internal/write-whole";
+import {
+	atomicWriteFile,
+	withQuestLock,
+} from "../../../lib/internal/quest/io.ts";
+import { WRITING } from "../../../lib/internal/write-whole.ts";
 
 let dir: string;
 

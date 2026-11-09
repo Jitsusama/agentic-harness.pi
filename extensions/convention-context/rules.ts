@@ -56,7 +56,7 @@ export function buildBindingRules(): string {
 		"message here, these are enforced: a violation is blocked and",
 		"you are pointed at the skill. Get them right up front.",
 		"",
-		`- Prose (prose-standard): Canadian spelling; never an emdash (or the \\u2014 escape), curly quotes or the Unicode ellipsis; no markdown emphasis or backticks in running prose.`,
+		"- Prose (prose-standard): Canadian spelling; never an emdash (or the \\u2014 escape), curly quotes or the Unicode ellipsis; no markdown emphasis or backticks in running prose.",
 		`- PR body (github-pr-format): exactly these sections, verbatim, nothing else: ${PR_SECTIONS.join(", ")}.`,
 		prShapeLine(),
 		`- Issue body (github-issue-format): exactly these, verbatim, nothing else: ${ISSUE_SECTIONS.join(", ")}.`,

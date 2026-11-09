@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadPackageConfig } from "../../../../lib/internal/config/loader";
+import { loadPackageConfig } from "../../../../lib/internal/config/loader.ts";
 
 describe("loadPackageConfig", () => {
 	let dir: string;

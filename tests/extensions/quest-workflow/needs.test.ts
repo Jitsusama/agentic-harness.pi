@@ -2,15 +2,15 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
-} from "../../../lib/terminal/index";
+} from "../../../lib/terminal/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
+import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 let spawned: string | undefined;

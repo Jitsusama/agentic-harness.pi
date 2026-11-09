@@ -8,7 +8,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	auditQuestRecord,
 	isRecordSound,
@@ -308,7 +307,6 @@ export function stageTransition(
 	state: QuestState,
 	action: TransitionAction,
 	params: QuestToolParams,
-	ctx: ExtensionContext,
 ): QuestResult {
 	if (!state.questDir) {
 		return refuse(
@@ -332,7 +330,7 @@ export function stageTransition(
 			? `${state.documentKind} ${state.documentId} stays in ${state.documentStage}, put down; \`focus\` takes it up again. This ${action === "draft" ? "drafts a new document" : "starts a fresh loop"} beside it.`
 			: `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
 		unfocusDocument(state);
-		const result = stageTransition(state, action, params, ctx);
+		const result = stageTransition(state, action, params);
 		return result.ok
 			? { ...result, message: `${left} ${result.message}` }
 			: result;
@@ -672,7 +670,6 @@ function concludeDocumentById(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
-	ctx: ExtensionContext,
 	id: string,
 	subdir: string,
 ): QuestResult {
@@ -693,7 +690,7 @@ function concludeDocumentById(
 	const priorFocus = state.documentPath;
 	const focused = focusDocument(state, path);
 	if (!focused.ok) return refuse(focused.guidance);
-	const result = stageTransition(state, action, params, ctx);
+	const result = stageTransition(state, action, params);
 	// Restore the focus the user had before, unless they were already
 	// focused on the document just concluded.
 	if (priorFocus && priorFocus !== path) focusDocument(state, priorFocus);
@@ -830,7 +827,6 @@ export async function concludeOrRetire(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
-	ctx: ExtensionContext,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	// An explicit id targets that id rather than the loaded quest, so
@@ -875,7 +871,7 @@ export async function concludeOrRetire(
 			}
 			return (
 				refuseSealingDryRun(params, action, `document ${targetId}`) ??
-				concludeDocumentById(state, action, params, ctx, targetId, subdir)
+				concludeDocumentById(state, action, params, targetId, subdir)
 			);
 		}
 		if (declaredScope === "quest") {
@@ -884,7 +880,7 @@ export async function concludeOrRetire(
 		if (subdir) {
 			return (
 				refuseSealingDryRun(params, action, `document ${targetId}`) ??
-				concludeDocumentById(state, action, params, ctx, targetId, subdir)
+				concludeDocumentById(state, action, params, targetId, subdir)
 			);
 		}
 		return sweepQuests(state, action, params);
@@ -904,7 +900,7 @@ export async function concludeOrRetire(
 				params,
 				action,
 				`the focused document ${state.documentId ?? ""}`.trim(),
-			) ?? stageTransition(state, action, params, ctx)
+			) ?? stageTransition(state, action, params)
 		);
 	}
 	// Sealing a quest is final, prunes its trees and sets it to someday,

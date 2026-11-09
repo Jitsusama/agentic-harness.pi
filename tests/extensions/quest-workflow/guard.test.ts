@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type QuestVerdict,
 	questVerdicts,
-} from "../../../extensions/quest-workflow/enforce";
-import { applyQuestGuards } from "../../../extensions/quest-workflow/guard";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+} from "../../../extensions/quest-workflow/enforce.ts";
+import { applyQuestGuards } from "../../../extensions/quest-workflow/guard.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
@@ -28,7 +28,7 @@ import {
 } from "../../../lib/internal/guardian/guards.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo, git } from "../../support/git-fixture.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 let repoRoot: string;

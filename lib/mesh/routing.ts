@@ -213,7 +213,7 @@ export function routeFrom(
 		why:
 			group === ALL
 				? "it was judged to touch the whole machine"
-				: `it was judged to be about the work there`,
+				: "it was judged to be about the work there",
 	};
 }
 

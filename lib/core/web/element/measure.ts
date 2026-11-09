@@ -88,15 +88,19 @@ export function measureBetween(a: Rect, b: Rect): Measurement {
 	// A centre line only earns a mention when no edge on that axis
 	// already explains the alignment, or every centred pair would
 	// be reported three times.
-	if (!aligned.includes("left") && !aligned.includes("right")) {
-		if (near(a.x + a.width / 2, b.x + b.width / 2)) {
-			aligned.push("horizontal centre");
-		}
+	if (
+		!aligned.includes("left") &&
+		!aligned.includes("right") &&
+		near(a.x + a.width / 2, b.x + b.width / 2)
+	) {
+		aligned.push("horizontal centre");
 	}
-	if (!aligned.includes("top") && !aligned.includes("bottom")) {
-		if (near(a.y + a.height / 2, b.y + b.height / 2)) {
-			aligned.push("vertical centre");
-		}
+	if (
+		!aligned.includes("top") &&
+		!aligned.includes("bottom") &&
+		near(a.y + a.height / 2, b.y + b.height / 2)
+	) {
+		aligned.push("vertical centre");
 	}
 
 	const widthDelta = round(Math.abs(a.width - b.width));

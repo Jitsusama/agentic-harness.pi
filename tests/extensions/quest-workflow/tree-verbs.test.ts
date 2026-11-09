@@ -11,25 +11,25 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 	registerTreeProvider,
 	type TreeProvider,
 } from "../../../lib/core/tree/index.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate";
-import { addTreeToQuest } from "../../../lib/internal/quest/trees";
-import { clearUrlFetchers } from "../../../lib/quest/index";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { addTreeToQuest } from "../../../lib/internal/quest/trees.ts";
+import { clearUrlFetchers } from "../../../lib/quest/index.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { createEnvGuard, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 let repoRoot: string;

@@ -7,7 +7,7 @@ import {
 	registerBuiltinUrlFetchers,
 	registerUrlFetcher,
 	type UrlFetcher,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 
 beforeEach(() => clearUrlFetchers());
 afterEach(() => clearUrlFetchers());

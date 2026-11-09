@@ -251,7 +251,10 @@ export function readRoom(
 	kernel: Kernel = KERNEL,
 ): Reading {
 	const swap = swapFree(kernel.proc);
-	const available = Math.min(memAvailable(kernel.proc), swap ?? Infinity);
+	const available = Math.min(
+		memAvailable(kernel.proc),
+		swap ?? Number.POSITIVE_INFINITY,
+	);
 	const kept = floors.reduce(
 		(sum, floor) =>
 			sum + Math.max(0, number(join(floor, "memory.min")) - anonIn(floor)),

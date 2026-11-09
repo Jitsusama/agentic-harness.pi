@@ -13,22 +13,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	recentSessionHints,
 	recentSessions,
-} from "../../../extensions/quest-workflow/lookup";
-import { saveRecord } from "../../../extensions/quest-workflow/session-registry";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { sessionsDir } from "../../../lib/internal/paths";
+} from "../../../extensions/quest-workflow/lookup.ts";
+import { saveRecord } from "../../../extensions/quest-workflow/session-registry.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { sessionsDir } from "../../../lib/internal/paths.ts";
 import {
 	closeRecord,
 	markSignalled,
 	openRecord,
-} from "../../../lib/internal/quest/session-registry";
+} from "../../../lib/internal/quest/session-registry.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { createEnvGuard, succeeded } from "./_helpers.ts";
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();

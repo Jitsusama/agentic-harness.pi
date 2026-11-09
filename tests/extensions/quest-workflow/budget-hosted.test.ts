@@ -110,8 +110,8 @@ function conversation(id: string) {
 it("settles interleaved budgets explicitly, preserves overlays on reload and lifts only its own", async () => {
 	vi.stubEnv("PI_BUDGET", "host-budget");
 	vi.stubEnv("MODEL_KEY", "host-key");
-	const a = conversation("a"),
-		b = conversation("b");
+	const a = conversation("a");
+	const b = conversation("b");
 	let resolveA: (answer: BudgetAnswer) => void = () => {};
 	registerBudgetProvider(a.pi.events, {
 		id: "test",
@@ -169,8 +169,8 @@ it("settles interleaved budgets explicitly, preserves overlays on reload and lif
 
 it("keeps each model's trailer for the installed commit hook, not the last bash caller's", async () => {
 	vi.stubEnv("PI_CO_AUTHOR", "host-credit");
-	const a = conversation("a"),
-		b = conversation("b");
+	const a = conversation("a");
+	const b = conversation("b");
 	const models = ["claude-opus-4-6", "gpt-5.2"];
 	for (const [index, side] of [a, b].entries()) {
 		const repo = await freshRepo();

@@ -18,6 +18,7 @@ import {
 	HOOK_NAMES,
 	PRIOR_VARIABLE,
 	SKIP_STALE_VARIABLE,
+	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "./push-hooks.mjs";
 import { skipsWorldPushHooks, type Where } from "./queue.ts";
 

@@ -144,7 +144,7 @@ function renderBody(
 	if (!fetched) {
 		return (
 			`No body is available for ${url}. Chrome discards bodies on ` +
-			`navigation, and a request that failed never had one.`
+			"navigation, and a request that failed never had one."
 		);
 	}
 
@@ -155,7 +155,7 @@ function renderBody(
 		return (
 			`Chrome kept no body for ${url}, though ` +
 			`${request.transferredBytes} bytes were transferred. It ` +
-			`releases bodies it no longer needs, images especially.`
+			"releases bodies it no longer needs, images especially."
 		);
 	}
 	if (fetched.base64Encoded) {
@@ -535,7 +535,7 @@ export async function runSee(
 					records: wanted,
 					unit: "requests",
 					narrowing:
-						"Narrow with 'filter' by type, state, status or url " + "fragment.",
+						"Narrow with 'filter' by type, state, status or url fragment.",
 				}),
 			);
 		}

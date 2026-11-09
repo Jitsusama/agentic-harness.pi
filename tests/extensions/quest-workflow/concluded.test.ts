@@ -6,16 +6,16 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
 import {
 	addWaiting,
 	waitingFile,
 	waitingFolder,
-} from "../../../lib/mesh/waiting";
+} from "../../../lib/mesh/waiting.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, refused, succeeded } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();

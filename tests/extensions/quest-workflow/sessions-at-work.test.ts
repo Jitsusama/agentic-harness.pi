@@ -8,16 +8,16 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sessionsAtWork } from "../../../extensions/quest-workflow/lookup";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { sessionsDir } from "../../../lib/internal/paths";
+import { sessionsAtWork } from "../../../extensions/quest-workflow/lookup.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { sessionsDir } from "../../../lib/internal/paths.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 

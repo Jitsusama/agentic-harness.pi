@@ -93,7 +93,7 @@ export default function attributionExtension(pi: ExtensionAPI) {
 					);
 				}
 			}
-			return;
+			return undefined;
 		},
 	);
 }

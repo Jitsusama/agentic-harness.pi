@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { resolveRefQuery } from "../../../extensions/quest-workflow/lookup";
+import { resolveRefQuery } from "../../../extensions/quest-workflow/lookup.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 
 beforeAll(() => registerBuiltinRefTypes());
 afterAll(() => clearRefTypes());

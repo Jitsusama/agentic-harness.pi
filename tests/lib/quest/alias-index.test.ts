@@ -7,10 +7,10 @@ import {
 	buildAliasIndex,
 	lookupAlias,
 	lookupAliasDetail,
-} from "../../../lib/internal/quest/alias-index";
-import { discoverQuests } from "../../../lib/internal/quest/discovery";
-import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold";
-import type { QuestAlias, QuestFrontMatter } from "../../../lib/quest/types";
+} from "../../../lib/internal/quest/alias-index.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold.ts";
+import type { QuestAlias, QuestFrontMatter } from "../../../lib/quest/types.ts";
 
 let root: string;
 

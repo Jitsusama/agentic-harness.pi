@@ -39,7 +39,7 @@ import {
 	openLedgerReader,
 	openTurnStore,
 } from "../lib/core/observability/index.ts";
-import { packageStateDir } from "../lib/internal/package-state-dir.ts";
+import { stateDir } from "../lib/internal/paths.ts";
 import { renderReport, sense } from "./learning-sensor.ts";
 
 /** How far back a day's sensor looks, so each day reads beside six more. */
@@ -53,7 +53,7 @@ export async function measure(opts: {
 	out?: string;
 	top?: number;
 }): Promise<string> {
-	const ledgerDir = packageStateDir("observability");
+	const ledgerDir = stateDir("observability");
 	mkdirSync(ledgerDir, { recursive: true });
 	const ledger = join(ledgerDir, "ledger.db");
 	const store = await openTurnStore(ledger);
@@ -103,7 +103,7 @@ export async function measure(opts: {
 		"",
 	].join("\n");
 	const name = opts.span === "week" ? `${to}-week.md` : `${to}.md`;
-	const out = opts.out ?? join(packageStateDir("measure"), name);
+	const out = opts.out ?? join(stateDir("measure"), name);
 	mkdirSync(dirname(out), { recursive: true });
 	writeFileSync(out, report);
 	return out;

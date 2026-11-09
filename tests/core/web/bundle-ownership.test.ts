@@ -57,8 +57,8 @@ const AFTER = { pid: 202, startedAt: 2000, bootId: "after", startTicks: 20 };
 
 describe("web bundle ownership", () => {
 	it("keeps two hosted callers' bundles apart and readable across a host restart", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		const stop = host(BEFORE);
 		const fileA = diskSink(undefined, a).writeText("dom.html", "a");
 		const fileB = diskSink(undefined, b).writeText("dom.html", "b");
@@ -98,8 +98,8 @@ describe("web bundle ownership", () => {
 	});
 
 	it("reaps only the hosted conversation the catalogue says is unheld", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		host(BEFORE);
 		diskSink(undefined, a).writeText("dom.html", "a");
 		const kept = diskSink(undefined, b).writeText("dom.html", "b");
@@ -116,8 +116,8 @@ describe("web bundle ownership", () => {
 	});
 
 	it("removes only the quitting plain-pi caller's bundles", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		await prepareArtifactOwnership(a);
 		diskSink(undefined, a).writeText("dom.html", "a");
 		const kept = diskSink(undefined, b).writeText("dom.html", "b");

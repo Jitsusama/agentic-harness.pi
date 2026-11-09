@@ -8,21 +8,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
-import { recordOutsideWrites } from "../../../extensions/quest-workflow/outside-writes";
-import { questTempDir } from "../../../extensions/quest-workflow/scratch";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
+import { enforceQuest } from "../../../extensions/quest-workflow/enforce.ts";
+import { recordOutsideWrites } from "../../../extensions/quest-workflow/outside-writes.ts";
+import { questTempDir } from "../../../extensions/quest-workflow/scratch.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace.ts";
 import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/core/tree/index.ts";
-import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
-import { addTreeToQuest } from "../../../lib/internal/quest/trees";
+import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
+import { addTreeToQuest } from "../../../lib/internal/quest/trees.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo } from "../../support/git-fixture.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 // The state dir is not a git repo, so paths under it read as
 // loose files; tempRoots is forced to [] so the system temp

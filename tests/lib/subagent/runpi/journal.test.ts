@@ -15,6 +15,7 @@ import {
 	MAX_JOURNAL_ENTRIES,
 	MAX_JOURNAL_ENTRY_BYTES,
 	parseJournal,
+	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "../../../../lib/subagent/runpi/journal.mjs";
 
 /** One line of a journal, as the pack writes it. */

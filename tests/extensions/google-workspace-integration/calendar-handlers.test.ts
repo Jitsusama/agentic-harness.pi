@@ -13,7 +13,7 @@ vi.mock("../../../lib/google/index.ts", async (importOriginal) => ({
 	updateEvent: vi.fn(),
 }));
 
-import { handleCreateEvent } from "../../../extensions/google-workspace-integration/router/calendar-handlers";
+import { handleCreateEvent } from "../../../extensions/google-workspace-integration/router/calendar-handlers.ts";
 import { createEvent } from "../../../lib/google/index.ts";
 
 const mockedCreateEvent = vi.mocked(createEvent);
@@ -41,9 +41,10 @@ const validEvent = {
 /** The text of a result, joined, so a claim can be made about all of it. */
 function textOf(result: { content: Array<{ type: string }> }): string {
 	return result.content
-		.filter((block): block is { type: "text"; text: string } => {
-			return block.type === "text" && "text" in block;
-		})
+		.filter(
+			(block): block is { type: "text"; text: string } =>
+				block.type === "text" && "text" in block,
+		)
 		.map((block) => block.text)
 		.join("\n");
 }

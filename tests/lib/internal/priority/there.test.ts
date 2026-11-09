@@ -139,7 +139,7 @@ describe("finding the VM check builds a command could send", () => {
 			`nix build --no-link --rebuild .#${VM}`,
 			`nix build --no-link --builders '' .#${VM}`,
 			// A check named through what the command alone can't say.
-			`for c in a b; do nix build --no-link .#checks.x86_64-linux.vm-$c; done`,
+			"for c in a b; do nix build --no-link .#checks.x86_64-linux.vm-$c; done",
 			`cd $(mktemp -d) && nix build --no-link .#${VM}`,
 			// In the background, or in a subshell.
 			`nix build --no-link .#${VM} &`,

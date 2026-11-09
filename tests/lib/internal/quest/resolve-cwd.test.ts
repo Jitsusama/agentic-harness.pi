@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type {
 	QuestEntry,
 	QuestIndex,
-} from "../../../../lib/internal/quest/discovery";
-import { questIdForCwd } from "../../../../lib/internal/quest/resolve-cwd";
-import type { QuestFrontMatter, QuestTree } from "../../../../lib/quest/types";
+} from "../../../../lib/internal/quest/discovery.ts";
+import { questIdForCwd } from "../../../../lib/internal/quest/resolve-cwd.ts";
+import type {
+	QuestFrontMatter,
+	QuestTree,
+} from "../../../../lib/quest/types.ts";
 
 function entry(
 	id: string,

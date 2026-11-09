@@ -6,7 +6,7 @@ import {
 	clearUrlFetchers,
 	fetchUrlHints,
 	registerBuiltinUrlFetchers,
-} from "../../../lib/quest/index";
+} from "../../../lib/quest/index.ts";
 
 /** Longer than a fetch given up on should take to end. */
 const STILL_RUNNING_MS = 5000;

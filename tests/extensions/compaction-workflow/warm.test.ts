@@ -285,7 +285,7 @@ describe("warming an idle session's cache", () => {
 });
 
 describe("what stops warming", () => {
-	const realEvents: Array<[string, string, unknown]> = [
+	const realEvents: [string, string, unknown][] = [
 		["a typed prompt", "input", { text: "hi", source: "interactive" }],
 		["a run starting", "before_agent_start", { prompt: "hi" }],
 		["a run started", "agent_start", {}],

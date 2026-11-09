@@ -44,6 +44,7 @@ import {
 	JOURNAL_SAYS,
 	journalWarnings,
 	parseJournal,
+	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "../../lib/subagent/runpi/journal.mjs";
 import {
 	createSupervisorRunPi,

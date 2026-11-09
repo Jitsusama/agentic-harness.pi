@@ -41,9 +41,9 @@ export function renderQueryResult(
 	// what this tool itself wrote is the sanctioned cast.
 	const details = result.details as QueryDetails | undefined;
 	const blocks = (result.content ?? [])
-		.filter((block): block is { type: "text"; text: string } => {
-			return block.type === "text";
-		})
+		.filter(
+			(block): block is { type: "text"; text: string } => block.type === "text",
+		)
 		.map((block) => block.text);
 
 	// A query that could not run says why in its only block, and that

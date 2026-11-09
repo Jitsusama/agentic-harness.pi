@@ -3,7 +3,7 @@ import {
 	handOver,
 	launcherTakes,
 	takenBy,
-} from "../../../../lib/internal/quest/hand-over";
+} from "../../../../lib/internal/quest/hand-over.ts";
 
 describe("handing sessions to the launcher", () => {
 	it("sends them as an object listing each id and folder", async () => {

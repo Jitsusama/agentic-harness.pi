@@ -104,8 +104,8 @@ export function renderTypography(
 		`Measured ${count(blocks.length, "text block")}, ` +
 		`${wrapped} of them wrapped. Single-line blocks have no last ` +
 		`line to judge; text under ${BODY_FLOOR_CHARS} characters and ` +
-		`text the author asked the browser to balance were left out ` +
-		`at capture.`;
+		"text the author asked the browser to balance were left out " +
+		"at capture.";
 
 	if (findings.length === 0) {
 		return renderVerdict(

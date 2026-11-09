@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { isPersistedSession } from "../../../extensions/quest-workflow/verbs/shared";
+import { isPersistedSession } from "../../../extensions/quest-workflow/verbs/shared.ts";
 
 const ctx = (sessionManager: unknown): ExtensionContext =>
 	({ sessionManager }) as unknown as ExtensionContext;

@@ -80,7 +80,7 @@ function toBase64Url(value: string): string {
 		.toString("base64")
 		.replace(/\+/g, "-")
 		.replace(/\//g, "_")
-		.replace(/=+$/, "");
+		.replace(/[=]+$/, "");
 }
 
 describe("extractDuckDuckGoUrl", () => {

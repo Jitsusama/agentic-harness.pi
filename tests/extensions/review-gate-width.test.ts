@@ -122,7 +122,7 @@ describe("a body's markdown constructs fit too", () => {
 		initTheme(undefined, false);
 	});
 
-	const constructs: Array<[string, string]> = [
+	const constructs: [string, string][] = [
 		[
 			"a fenced code block",
 			"### 🌐 Situation\n\n```ts\nconst x = someFunctionWithARatherLongName(argument, other);\n```\n",

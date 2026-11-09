@@ -2,13 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { refusalUnder } from "../../lib/guardian/apply";
-import { restoreSessionModes } from "../../lib/guardian/policy";
-import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { restoreSessionModes } from "../../lib/guardian/policy.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	shellEditRefusal,
 	sleepRefusal,
-} from "../../lib/internal/shell-habits";
+} from "../../lib/internal/shell-habits.ts";
 import {
 	normalise,
 	periodOf,
@@ -21,7 +21,7 @@ import {
 	signalsFromResult,
 	tally,
 	withoutHeredocs,
-} from "../../scripts/learning-sensor";
+} from "../../scripts/learning-sensor.ts";
 
 const bash = (command: string) => ({ name: "bash", arguments: { command } });
 const habits = (command: string) =>

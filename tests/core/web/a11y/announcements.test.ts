@@ -6,7 +6,7 @@ import {
 import type { Recorded } from "../../../../lib/core/web/telemetry/index.ts";
 
 function heard(
-	...items: Array<[Announcement["politeness"], string]>
+	...items: [Announcement["politeness"], string][]
 ): Recorded<Announcement>[] {
 	return items.map(([politeness, text], index) => ({
 		seq: index + 1,

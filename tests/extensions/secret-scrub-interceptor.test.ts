@@ -256,7 +256,7 @@ describe("the file an answer names as its saved output", () => {
 			`${folder}/other-a1B2c3/pi-output-0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d.log`,
 			`${folder}/tmp-a1B2c3/pi-output-not-a-uuid.log`,
 			`${folder}/tmp-a1B2c3/session.jsonl`,
-			`/home/someone/tmp-a1B2c3/pi-output-0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d.log`,
+			"/home/someone/tmp-a1B2c3/pi-output-0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d.log",
 			"/home/someone/pi-bash-0a1b2c3d4e5f6a7b.log",
 			`${folder}/../pi-bash-0a1b2c3d4e5f6a7b.log`,
 			`${folder}/deeper/pi-bash-0a1b2c3d4e5f6a7b.log`,

@@ -61,7 +61,7 @@ export function formatTotal(total: LedgerTotal): string {
 	if (total.unmetered > 0) {
 		lines.push(
 			`  ${total.unmetered.toLocaleString()} turns carried no usage, so they ` +
-				`cost an unknown amount and are counted but not priced`,
+				"cost an unknown amount and are counted but not priced",
 		);
 	}
 	if (total.cacheWriteTokens > 0) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetDrawnOn, lastRecorded } from "../../../lib/budget/record";
+import { budgetDrawnOn, lastRecorded } from "../../../lib/budget/record.ts";
 
 const said = (data: unknown) => ({
 	type: "custom",

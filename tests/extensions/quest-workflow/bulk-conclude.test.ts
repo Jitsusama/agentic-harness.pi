@@ -9,15 +9,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { QUEST_PARAMETERS } from "../../../extensions/quest-workflow/index";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
-import { harnessLogPath } from "../../../lib/internal/quest/harness-log";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate";
-import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
+import { QUEST_PARAMETERS } from "../../../extensions/quest-workflow/index.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace.ts";
+import { harnessLogPath } from "../../../lib/internal/quest/harness-log.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { journeyOf } from "./_helpers";
+import { journeyOf } from "./_helpers.ts";
 
 let root: string;
 let savedCache: string | undefined;

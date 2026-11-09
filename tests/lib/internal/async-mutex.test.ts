@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMutex } from "../../../lib/internal/async-mutex";
+import { createMutex } from "../../../lib/internal/async-mutex.ts";
 
 /** A deferred promise plus its resolver, for hand-driving task timing. */
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {

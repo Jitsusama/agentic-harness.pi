@@ -41,6 +41,7 @@ export const SERIALIZE_STRING = 2048;
  */
 function isExpression(source: string): boolean {
 	try {
+		// biome-ignore lint/correctness/noUnusedInstantiation: compiled only to see whether it parses.
 		new Function(`return (${source});`);
 		return true;
 	} catch {
@@ -135,6 +136,7 @@ function withCompletionValue(source: string): string | undefined {
 	if (tail === "") return undefined;
 	const rewritten = `${head} return (${tail});`;
 	try {
+		// biome-ignore lint/correctness/noUnusedInstantiation: compiled only to see whether it parses.
 		new Function(rewritten);
 		return rewritten;
 	} catch {

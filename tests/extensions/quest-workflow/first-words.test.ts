@@ -6,11 +6,11 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sayFirstWords } from "../../../extensions/quest-workflow/lifecycle";
+import { sayFirstWords } from "../../../extensions/quest-workflow/lifecycle.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	leaveFirstWords,
-} from "../../../lib/internal/quest/first-words";
+} from "../../../lib/internal/quest/first-words.ts";
 
 let dir: string;
 let said: { text: string; options: unknown }[];

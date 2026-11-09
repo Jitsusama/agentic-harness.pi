@@ -9,7 +9,7 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 	runReviewer,
-} from "../../../lib/subagent";
+} from "../../../lib/subagent/index.ts";
 
 // The registry is process-global on purpose so a
 // Shopify-style credentials extension can register once

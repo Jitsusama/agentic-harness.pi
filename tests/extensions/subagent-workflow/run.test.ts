@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { FleetCancellationRegistry } from "../../../extensions/subagent-workflow/cancellation";
+import { FleetCancellationRegistry } from "../../../extensions/subagent-workflow/cancellation.ts";
 import type {
 	FleetProgress,
 	FleetProgressEntry,
-} from "../../../extensions/subagent-workflow/progress";
+} from "../../../extensions/subagent-workflow/progress.ts";
 import {
 	buildAssignment,
 	dispatchFleet,
@@ -11,15 +11,15 @@ import {
 	formatFleetSummary,
 	locateArtifacts,
 	summarizeStderrTail,
-} from "../../../extensions/subagent-workflow/run";
+} from "../../../extensions/subagent-workflow/run.ts";
 import type { RunRecord } from "../../../lib/core/observability/index.ts";
 import { registerRunRecorder } from "../../../lib/core/observability/index.ts";
-import { UNFINISHED } from "../../../lib/subagent/reviewer-error";
+import { UNFINISHED } from "../../../lib/subagent/reviewer-error.ts";
 import type {
 	RunPi,
 	RunPiResult,
 	SubagentUsage,
-} from "../../../lib/subagent/subagent";
+} from "../../../lib/subagent/subagent.ts";
 
 // The orchestrator threads the engine, the cancellation
 // registry and the progress observer together. These

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wrapProse } from "../../../lib/prose/wrap";
+import { wrapProse } from "../../../lib/prose/wrap.ts";
 
 const longest = (text: string) =>
 	Math.max(...text.split("\n").map((line) => line.length));

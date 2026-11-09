@@ -81,7 +81,7 @@ describe("the harness", () => {
 			).trim();
 		} catch (error) {
 			// git grep answers 1 when it finds nothing, which is the pass.
-			if (Reflect.get(Object(error), "status") !== 1) throw error;
+			if (Reflect.get(new Object(error), "status") !== 1) throw error;
 		}
 		expect(found).toBe("");
 	});

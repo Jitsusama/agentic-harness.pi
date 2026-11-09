@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	clearHandleTypes,
 	registerBuiltinHandleTypes,
-} from "../../../lib/people/index";
-import { createPeopleStore, type PeopleStore } from "../../../lib/people/store";
+} from "../../../lib/people/index.ts";
+import {
+	createPeopleStore,
+	type PeopleStore,
+} from "../../../lib/people/store.ts";
 
 let dir: string;
 let store: PeopleStore;

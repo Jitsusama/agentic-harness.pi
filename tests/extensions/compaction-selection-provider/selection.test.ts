@@ -108,7 +108,7 @@ function session(
 			},
 		},
 	} as unknown as ExtensionContext;
-	const appended: Array<[string, unknown]> = [];
+	const appended: [string, unknown][] = [];
 	const store = sessionStore((type, data) => {
 		appended.push([type, data]);
 		branch.push({

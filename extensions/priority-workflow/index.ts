@@ -222,7 +222,7 @@ function linuxMachine(own: string | undefined): Machine {
 	const timed = timedProcs ? dirname(timedProcs) : undefined;
 	const hasTimed = () => timed !== undefined && existsSync(timed);
 	let floors: string[] = [];
-	let floorsAt = -Infinity;
+	let floorsAt = Number.NEGATIVE_INFINITY;
 	return {
 		processes: {
 			isRunning,

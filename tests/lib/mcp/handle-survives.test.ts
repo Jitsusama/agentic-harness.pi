@@ -34,9 +34,9 @@ describe("a handle in a capped notice", () => {
 	/** The text a result puts in front of the model. */
 	function textOf(content: McpContent[]): string {
 		return content
-			.filter((b): b is Extract<McpContent, { type: "text" }> => {
-				return b.type === "text";
-			})
+			.filter(
+				(b): b is Extract<McpContent, { type: "text" }> => b.type === "text",
+			)
 			.map((b) => b.text)
 			.join("\n");
 	}

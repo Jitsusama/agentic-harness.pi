@@ -13,7 +13,7 @@ const unused = {
 
 describe("a compaction's outcome on the bus", () => {
 	it("is said on its versioned channel", () => {
-		const said: Array<[string, unknown]> = [];
+		const said: [string, unknown][] = [];
 		emitOutcome(
 			{ emit: (channel, data) => said.push([channel, data]) },
 			unused,

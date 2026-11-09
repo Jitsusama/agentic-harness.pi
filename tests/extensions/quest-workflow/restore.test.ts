@@ -6,15 +6,15 @@ import {
 	readRecord,
 	reopenLostSessions,
 	saveRecord,
-} from "../../../extensions/quest-workflow/session-registry";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { restore } from "../../../extensions/quest-workflow/verbs/queries";
+} from "../../../extensions/quest-workflow/session-registry.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { restore } from "../../../extensions/quest-workflow/verbs/queries.ts";
 import {
 	closeRecord,
 	openRecord,
 	reopenRecord,
-} from "../../../lib/internal/quest/session-registry";
+} from "../../../lib/internal/quest/session-registry.ts";
 import {
 	clearTerminalDrivers,
 	registerBuiltinTerminalDrivers,
@@ -22,9 +22,9 @@ import {
 	type TerminalDriver,
 	type TerminalSessionHandle,
 	type TerminalTypeCapability,
-} from "../../../lib/terminal/index";
+} from "../../../lib/terminal/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, refused, succeeded } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 

@@ -10,15 +10,15 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { setJournalSession } from "../../../lib/internal/quest/structural-journal";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { setJournalSession } from "../../../lib/internal/quest/structural-journal.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, refused, succeeded } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 let guard: ReturnType<typeof createEnvGuard>;

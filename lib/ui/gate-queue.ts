@@ -190,6 +190,7 @@ function createQueue(): GateQueueProtocol {
 					reject(error);
 					return;
 				}
+				// biome-ignore lint/suspicious/noNestedPromises: the caller's promise settles inside its turn, after release, and an abort may settle it first, which no chain says.
 				section.then(
 					(value) => {
 						release();

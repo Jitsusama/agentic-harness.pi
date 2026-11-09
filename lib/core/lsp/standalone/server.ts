@@ -137,6 +137,7 @@ export class StandaloneServer {
 	private readonly diagWaiters = new Set<(uri: string) => void>();
 	// Whether the server answers pull diagnostics (textDocument/diagnostic).
 	// Set from the initialize response; false means it pushes instead.
+	// biome-ignore lint/style/useReadonlyClassProperties: start() sets it on the instance it builds, which Biome doesn't follow.
 	private pullSupported = false;
 	private version = 0;
 	private gone = false;

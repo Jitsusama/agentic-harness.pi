@@ -44,7 +44,7 @@ const keptDir = mkdtempSync(join(tmpdir(), "host-kept-"));
 
 function activate() {
 	const handlers = new Map<string, Handler[]>();
-	const entries: Array<[string, unknown]> = [];
+	const entries: [string, unknown][] = [];
 	const listeners = new Map<string, Array<(data: unknown) => void>>();
 	const events = {
 		on: (channel: string, h: (data: unknown) => void) =>

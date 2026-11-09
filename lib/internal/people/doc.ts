@@ -95,10 +95,8 @@ function parseFrontMatter(lines: string[]): ParsedFrontMatter {
 			if (value === "" || value === "[]") {
 				inNames = true;
 			}
-		} else if (key === "handles") {
-			if (value === "" || value === "[]") {
-				inHandles = true;
-			}
+		} else if (key === "handles" && (value === "" || value === "[]")) {
+			inHandles = true;
 		}
 	}
 	return result;

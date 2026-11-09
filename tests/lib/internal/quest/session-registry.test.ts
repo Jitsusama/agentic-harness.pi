@@ -16,7 +16,7 @@ import {
 	type SessionRecord,
 	startedAgain,
 	switchQuest,
-} from "../../../../lib/internal/quest/session-registry";
+} from "../../../../lib/internal/quest/session-registry.ts";
 
 const NOW = new Date("2026-07-28T18:00:00.000Z");
 const LATER = new Date("2026-07-28T19:00:00.000Z");
