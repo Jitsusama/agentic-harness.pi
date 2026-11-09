@@ -6,6 +6,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
@@ -30,6 +31,11 @@ import { isWithin } from "../../../lib/internal/quest/git-signals.ts";
 import { appendHarnessLog } from "../../../lib/internal/quest/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
 import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
+import {
+	machinesHoldingScratch,
+	scratchElsewhereSaid,
+	sharedScratchMachines,
+} from "../../../lib/internal/quest/scratch-elsewhere.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	type JournalChange,
@@ -173,6 +179,7 @@ async function sweepQuests(
 		};
 	}
 	const removed: string[] = [];
+	const left: string[] = [];
 	for (const { id } of changes) {
 		const entry = index.quests.get(id);
 		if (!entry) continue;
@@ -189,13 +196,26 @@ async function sweepQuests(
 			appendHarnessLog(entry.dir, said);
 			removed.push(`${id}: ${said}`);
 		}
+		const elsewhere = scratchLeftElsewhere(
+			id,
+			entry.doc.frontMatter.sessions ?? [],
+		);
+		if (elsewhere) {
+			appendHarnessLog(entry.dir, elsewhere);
+			left.push(`${id}: ${elsewhere}`);
+		}
 	}
+	const beyond =
+		left.length === 0
+			? ""
+			: `\nWhat it couldn't remove from here:\n${left.map((l) => `- ${l}`).join("\n")}`;
 	return {
 		...result,
 		message:
-			removed.length === 0
+			(removed.length === 0
 				? `${result.message} None had a scratch folder to remove; ${UNDO_KEEPS}.`
-				: `${result.message}\nWhat went with them, for good, since ${UNDO_KEEPS}:\n${removed.map((l) => `- ${l}`).join("\n")}`,
+				: `${result.message}\nWhat went with them, for good, since ${UNDO_KEEPS}:\n${removed.map((l) => `- ${l}`).join("\n")}`) +
+			beyond,
 	};
 }
 
@@ -212,6 +232,7 @@ function scratchToGo(
 	index: ReturnType<typeof discoverQuests>["index"],
 ): string {
 	const going: string[] = [];
+	const left: string[] = [];
 	for (const { id } of changes) {
 		const dir = workspaceDirOf(defaultWorkspaceRoot(), id);
 		const older = index.quests.get(id)?.doc.frontMatter.scratchDir;
@@ -220,11 +241,20 @@ function scratchToGo(
 			...(older && existsSync(older) ? [displayPath(older)] : []),
 		];
 		if (paths.length > 0) going.push(`  ${id}: ${paths.join(", ")}`);
+		const elsewhere = scratchLeftElsewhere(
+			id,
+			index.quests.get(id)?.doc.frontMatter.sessions ?? [],
+		);
+		if (elsewhere) left.push(`  ${id}: ${elsewhere}`);
 	}
+	const beyond =
+		left.length === 0
+			? ""
+			: `\nWhat it can't remove from here:\n${left.join("\n")}`;
 	if (going.length === 0) {
-		return `None has a scratch folder to remove; ${UNDO_KEEPS}.`;
+		return `None has a scratch folder to remove; ${UNDO_KEEPS}.${beyond}`;
 	}
-	return `Run for real, it also removes ${going.length === 1 ? "this scratch folder" : `these ${going.length} scratch folders`}, whole, and ${UNDO_KEEPS}; move what is worth keeping into each quest's attachments/ first:\n${going.join("\n")}`;
+	return `Run for real, it also removes ${going.length === 1 ? "this scratch folder" : `these ${going.length} scratch folders`}, whole, and ${UNDO_KEEPS}; move what is worth keeping into each quest's attachments/ first:\n${going.join("\n")}${beyond}`;
 }
 
 /**
@@ -737,6 +767,22 @@ function concludeElsewhere(
  * whole quest and auto-prunes its trees.
  */
 /**
+ * What a seal says of the quest's scratch on other machines, which it
+ * can't remove from here: each machine its sessions ran on, or a share
+ * copied its scratch to. Nothing when none other holds any.
+ */
+export function scratchLeftElsewhere(
+	questId: string,
+	sessions: readonly QuestSession[],
+	here: string = hostname(),
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	return scratchElsewhereSaid(
+		machinesHoldingScratch(sessions, here, sharedScratchMachines(questId, env)),
+	);
+}
+
+/**
  * How long a conclude may spend measuring the workspace it keeps.
  *
  * The largest workspace here, 19 GB, took a quarter of a second with
@@ -1032,6 +1078,13 @@ async function sealLoadedQuest(
 	if (removed) {
 		logHarnessEntry(state, removed);
 		message += ` ${removed}`;
+	}
+	const elsewhere = state.questId
+		? scratchLeftElsewhere(state.questId, readSessionsFromQuest(state))
+		: undefined;
+	if (elsewhere) {
+		logHarnessEntry(state, elsewhere);
+		message += ` ${elsewhere}`;
 	}
 	return ok(message, {
 		scope: "quest",
