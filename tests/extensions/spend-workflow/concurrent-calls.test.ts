@@ -13,11 +13,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import spendWorkflow from "../../../extensions/spend-workflow/index.ts";
+import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
+import { resultSession } from "../../support/result-session.ts";
+
+const ctx = resultSession();
 
 interface Tool {
 	execute(
 		id: string,
 		params: Record<string, unknown>,
+		signal: undefined,
+		onUpdate: undefined,
+		context: typeof ctx,
 	): Promise<{ content: { text: string }[] }>;
 }
 
@@ -97,6 +104,7 @@ afterEach(async () => {
 	for (const handler of handlers.get("session_shutdown") ?? []) {
 		await handler({}, {});
 	}
+	cleanupSessionResults(ctx);
 	restore("PI_CODING_AGENT_DIR", saved.agent);
 	restore("XDG_STATE_HOME", saved.state);
 	rmSync(dir, { recursive: true, force: true });
@@ -106,9 +114,9 @@ describe("cost calls made at the same moment", () => {
 	it("all answer, sharing one pass over the logs", async () => {
 		const tool = costTool();
 		const answers = await Promise.allSettled([
-			tool.execute("a", { reindex: true }),
-			tool.execute("b", { reindex: true }),
-			tool.execute("c", {}),
+			tool.execute("a", { reindex: true }, undefined, undefined, ctx),
+			tool.execute("b", { reindex: true }, undefined, undefined, ctx),
+			tool.execute("c", {}, undefined, undefined, ctx),
 		]);
 
 		expect(answers.map((answer) => answer.status)).toEqual([
@@ -121,8 +129,8 @@ describe("cost calls made at the same moment", () => {
 	it("index each log once between them", async () => {
 		const tool = costTool();
 		const [first, second] = await Promise.all([
-			tool.execute("a", { reindex: true }),
-			tool.execute("b", { reindex: true }),
+			tool.execute("a", { reindex: true }, undefined, undefined, ctx),
+			tool.execute("b", { reindex: true }, undefined, undefined, ctx),
 		]);
 		expect(first?.content[0]?.text).toBe(second?.content[0]?.text);
 	});

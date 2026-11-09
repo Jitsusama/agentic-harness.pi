@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { boundedAnswer } from "../../../extensions/slack-integration/bounded.ts";
 import {
 	cleanupSessionResults,
@@ -6,6 +6,29 @@ import {
 	recordsIn,
 	sessionResultDir,
 } from "../../../lib/core/result/index.ts";
+import { resultSession } from "../../support/result-session.ts";
+
+vi.mock("../../../lib/slack/index.ts", async (original) => ({
+	...(await original<object>()),
+	resolveTarget: async () => ({
+		conversation: { id: "C1", kind: "channel", name: "general" },
+		ts: "1700000.000100",
+	}),
+	getThread: async () =>
+		longHistory(2_000).messages.map((message) => ({
+			...message,
+			files: [{ id: "F1" }],
+		})),
+	resolveMessages: async () => undefined,
+	downloadFiles: async () => [
+		{ kind: "image", data: "image-data", mimeType: "image/png" },
+		{ kind: "text", text: "complete attachment" },
+	],
+}));
+
+const { routeAction } = await import(
+	"../../../extensions/slack-integration/router.ts"
+);
 
 /** A rendered message list long enough to need bounding. */
 function longHistory(count: number): {
@@ -55,14 +78,15 @@ describe("recordsIn", () => {
 });
 
 describe("boundedAnswer", () => {
+	const ctx = resultSession();
 	afterEach(() => {
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 
 	it("returns a short history untouched", () => {
 		const { view, messages } = longHistory(3);
 
-		expect(boundedAnswer(view, { messages })).toBe(view);
+		expect(boundedAnswer(view, { messages }, ctx)).toBe(view);
 	});
 
 	it("bounds a long history and keeps every message queryable", () => {
@@ -70,14 +94,14 @@ describe("boundedAnswer", () => {
 		// limit 0 over a date range, meaning every message in the window.
 		const { view, messages } = longHistory(2_000);
 
-		const answer = boundedAnswer(view, { messages });
+		const answer = boundedAnswer(view, { messages }, ctx);
 
 		expect(Buffer.byteLength(answer, "utf-8")).toBeLessThan(
 			Buffer.byteLength(view, "utf-8") / 5,
 		);
 		const handle = /handle (result-[0-9a-f]{16})/.exec(answer)?.[1];
 		expect(handle).toBeDefined();
-		const stored = createResultStore({ dir: sessionResultDir() });
+		const stored = createResultStore({ dir: sessionResultDir(ctx) });
 		expect(JSON.parse(stored.read(handle as string))).toHaveLength(2_000);
 		// And it names what the payload holds, so the first expression
 		// is written against messages rather than lines, without
@@ -87,10 +111,45 @@ describe("boundedAnswer", () => {
 		expect(answer).not.toContain("2,000 lines are stored");
 	});
 
+	it("bounds a thread at the caller exit and leaves attachments unchanged", async () => {
+		const other = resultSession();
+		try {
+			const result = await routeAction(
+				"get_thread",
+				{} as never,
+				{ target: "thread" },
+				{ ...ctx, hasUI: false } as never,
+				{} as never,
+			);
+			const first = result.content[0];
+			if (first.type !== "text") throw new Error("missing rendered thread");
+			const handle = /handle (result-[0-9a-f]{16})/.exec(first.text)?.[1];
+			expect(handle).toBeDefined();
+			expect(
+				JSON.parse(
+					createResultStore({ dir: sessionResultDir(ctx) }).read(
+						handle as string,
+					),
+				),
+			).toHaveLength(2_000);
+			expect(() =>
+				createResultStore({ dir: sessionResultDir(other) }).read(
+					handle as string,
+				),
+			).toThrow();
+			expect(result.content.slice(1)).toEqual([
+				{ type: "image", data: "image-data", mimeType: "image/png" },
+				{ type: "text", text: "\ncomplete attachment" },
+			]);
+		} finally {
+			cleanupSessionResults(other);
+		}
+	});
+
 	it("suggests narrowing in Slack's own vocabulary", () => {
 		const { view, messages } = longHistory(2_000);
 
-		const answer = boundedAnswer(view, { messages });
+		const answer = boundedAnswer(view, { messages }, ctx);
 
 		expect(answer).toContain("'limit'");
 		expect(answer).toContain("'oldest'");

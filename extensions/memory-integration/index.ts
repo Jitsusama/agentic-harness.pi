@@ -166,7 +166,7 @@ export default function memoryIntegration(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: citeListing(openSessionStore(), {
+						text: citeListing(openSessionStore(ctx), {
 							view: formatFacts(facts),
 							records: facts,
 							unit: "facts",

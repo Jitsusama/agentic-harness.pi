@@ -207,9 +207,9 @@ export function registerCheck(pi: ExtensionAPI, sessions: Sessions): void {
 			renderBrowserCall("check", args, theme, context?.lastComponent),
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params, signal) {
+		async execute(_id, params, signal, _onUpdate, ctx) {
 			const { runCheck } = await import("./check.ts");
-			return runCheck(await sessions(), params, signal);
+			return runCheck(ctx, await sessions(), params, signal);
 		},
 	});
 }

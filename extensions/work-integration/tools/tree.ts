@@ -15,7 +15,10 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-format.ts";
@@ -255,6 +258,7 @@ async function surveyRepo(
 	target: { key: string; path: string },
 	action: "tidy" | "reclaim",
 	trunk: string,
+	ctx: ExtensionContext,
 ): Promise<Answer> {
 	const history = createGitHistory({ exec });
 	// A held tree's key is a name; an unheld checkout's is its path, and
@@ -424,7 +428,7 @@ async function surveyRepo(
 				]),
 	].join("\n");
 	return say(
-		citeListing(openSessionStore(), {
+		citeListing(openSessionStore(ctx), {
 			view: [headline, ...lines].join("\n"),
 			records,
 			unit: "branches and trees",
@@ -651,7 +655,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						);
 					}
 					return say(
-						citeListing(openSessionStore(), {
+						citeListing(openSessionStore(ctx), {
 							view: held
 								.map((one) => treeLine(one, broker.cutHere(one.path)))
 								.join("\n"),
@@ -765,6 +769,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						target,
 						action,
 						args.trunk ?? "main",
+						ctx,
 					);
 				}
 
@@ -1058,7 +1063,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					}
 					const lines = state.changed.map((c) => `   ${c.kind} ${c.path}`);
 					return say(
-						citeListing(openSessionStore(), {
+						citeListing(openSessionStore(ctx), {
 							view: `${GLYPH.dirty} ${found.identity.key} has ${state.changed.length} changed paths, ${at}.\n${lines.join("\n")}`,
 							records: [...state.changed],
 							unit: "paths",

@@ -311,9 +311,9 @@ export function registerDo(pi: ExtensionAPI, sessions: Sessions): void {
 			renderBrowserCall("do", args, theme, context?.lastComponent),
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params, signal) {
+		async execute(_id, params, signal, _onUpdate, ctx) {
 			const { runDo } = await import("./do.ts");
-			return runDo(await sessions(), params, signal);
+			return runDo(ctx, await sessions(), params, signal);
 		},
 	});
 }

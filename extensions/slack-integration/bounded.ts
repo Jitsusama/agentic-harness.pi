@@ -13,6 +13,7 @@
  * knowing how a caller asks for less.
  */
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { boundedByDetails } from "../../lib/core/result/details.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 
@@ -29,8 +30,12 @@ const NARROWING =
  * untouched: there would be nothing to query, and a handle
  * pointing at one channel's metadata is machinery for its own sake.
  */
-export function boundedAnswer(content: string, details: unknown): string {
-	return boundedByDetails(openSessionStore(), {
+export function boundedAnswer(
+	content: string,
+	details: unknown,
+	ctx: Pick<ExtensionContext, "sessionManager">,
+): string {
+	return boundedByDetails(openSessionStore(ctx), {
 		text: content,
 		details,
 		narrowing: NARROWING,

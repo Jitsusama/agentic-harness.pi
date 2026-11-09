@@ -201,7 +201,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 						text:
 							records === undefined || records.length === 0
 								? body
-								: citeListing(openSessionStore(), {
+								: citeListing(openSessionStore(ctx), {
 										view: body,
 										records,
 										unit: `${op} results`,

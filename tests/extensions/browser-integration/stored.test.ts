@@ -16,6 +16,9 @@ import {
 import type { AxNode } from "../../../lib/core/web/a11y/index.ts";
 import { renderAxOutline } from "../../../lib/core/web/a11y/index.ts";
 import type { Observation } from "../../../lib/core/web/session.ts";
+import { resultSession } from "../../support/result-session.ts";
+
+const ctx = resultSession();
 
 /**
  * A page like the one that caused this: rows of listitems, each
@@ -64,9 +67,30 @@ function handleIn(text: string): string | undefined {
 }
 
 describe("pageAnswer", () => {
+	it("keeps citations separate for two callers in one process", () => {
+		const other = resultSession();
+		try {
+			const first = handleIn(pageAnswer(ctx, hugePage(400), 512));
+			const second = handleIn(pageAnswer(other, hugePage(500), 512));
+			expect(first).toBeDefined();
+			expect(second).toBeDefined();
+			const firstStore = createResultStore({ dir: sessionResultDir(ctx) });
+			const secondStore = createResultStore({ dir: sessionResultDir(other) });
+			expect(firstStore.has(first as string)).toBe(true);
+			expect(firstStore.has(second as string)).toBe(false);
+			expect(secondStore.has(first as string)).toBe(false);
+			cleanupSessionResults(ctx);
+			expect(
+				JSON.parse(secondStore.read(second as string)).nodes[0].children,
+			).toHaveLength(500);
+		} finally {
+			cleanupSessionResults(other);
+		}
+	});
+
 	afterEach(() => {
 		withdrawQueryTool();
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 
 	it("answers a huge page in kilobytes, not megabytes", () => {
@@ -75,7 +99,7 @@ describe("pageAnswer", () => {
 		const observed = hugePage(4_000);
 		const wholeOutline = Buffer.byteLength(observed.outline, "utf-8");
 
-		const text = pageAnswer(observed, 4_096);
+		const text = pageAnswer(ctx, observed, 4_096);
 
 		// Well under what the page renders, and near the budget it was
 		// given rather than merely smaller than the page.
@@ -86,11 +110,11 @@ describe("pageAnswer", () => {
 	it("keeps every node reachable through the handle it cites", () => {
 		const observed = hugePage(4_000);
 
-		const text = pageAnswer(observed, 4_096);
+		const text = pageAnswer(ctx, observed, 4_096);
 		const handle = handleIn(text);
 
 		expect(handle).toBeDefined();
-		const stored = createResultStore({ dir: sessionResultDir() });
+		const stored = createResultStore({ dir: sessionResultDir(ctx) });
 		const payload = JSON.parse(stored.read(handle as string)) as {
 			url: string;
 			nodes: { role: string; children?: unknown[] }[];
@@ -104,7 +128,7 @@ describe("pageAnswer", () => {
 		// The query tool comes from a different extension, so a citation
 		// only names it when that extension is loaded. Here it is.
 		offerQueryTool("result_query");
-		const text = pageAnswer(hugePage(4_000), 4_096);
+		const text = pageAnswer(ctx, hugePage(4_000), 4_096);
 
 		expect(text).toContain("'only'");
 		expect(text).toContain("'depth'");
@@ -115,7 +139,7 @@ describe("pageAnswer", () => {
 	it("leaves a page that fits completely alone", () => {
 		const small = hugePage(2);
 
-		const text = pageAnswer(small, 16_384);
+		const text = pageAnswer(ctx, small, 16_384);
 
 		// No citation, no advice, no machinery: the view is the truth.
 		expect(handleIn(text)).toBeUndefined();
@@ -126,7 +150,7 @@ describe("pageAnswer", () => {
 
 describe("listAnswer", () => {
 	afterEach(() => {
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 
 	it("cites the records rather than the lines it cut", () => {
@@ -138,7 +162,7 @@ describe("listAnswer", () => {
 			.map((r, i) => `#${i + 1}  GET  ${r.status}  ${r.url}`)
 			.join("\n");
 
-		const text = listAnswer({
+		const text = listAnswer(ctx, {
 			view,
 			records,
 			unit: "requests",
@@ -158,13 +182,13 @@ describe("listAnswer", () => {
 		expect(text).toContain("All 600 requests are stored under handle");
 		expect(text).toMatch(/renders \d+ of 600 lines/);
 		expect(text).not.toContain("600 lines are stored");
-		const stored = createResultStore({ dir: sessionResultDir() });
+		const stored = createResultStore({ dir: sessionResultDir(ctx) });
 		expect(JSON.parse(stored.read(handle as string))).toHaveLength(600);
 	});
 
 	describe("what a page read says it stored", () => {
 		it("names nodes as the payload, not the lines it rendered", () => {
-			const text = pageAnswer(hugePage(2_000), 4_096);
+			const text = pageAnswer(ctx, hugePage(2_000), 4_096);
 
 			// The same two-count rule the listings follow. A page citation
 			// counting only lines sends the first expression at a shape the
@@ -194,7 +218,7 @@ describe("listAnswer", () => {
 				tree,
 			};
 
-			const text = pageAnswer(observed, 512);
+			const text = pageAnswer(ctx, observed, 512);
 			const handle = handleIn(text);
 			expect(handle).toBeDefined();
 
@@ -203,7 +227,7 @@ describe("listAnswer", () => {
 			// them is lossier than the view it was meant to make queryable,
 			// and the query that goes looking returns nothing with no clue
 			// why.
-			const stored = createResultStore({ dir: sessionResultDir() });
+			const stored = createResultStore({ dir: sessionResultDir(ctx) });
 			const payload = stored.read(handle as string);
 			expect(payload).toContain("checked");
 			expect(payload).toContain("required");
@@ -214,7 +238,7 @@ describe("listAnswer", () => {
 describe("a storage read", () => {
 	afterEach(() => {
 		withdrawQueryTool();
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 
 	it("keeps the value it could not show", () => {
@@ -224,7 +248,7 @@ describe("a storage read", () => {
 		// rest: there is no argument that fetches one key.
 		const hoard = JSON.stringify({ items: "m".repeat(60_000) });
 
-		const text = storageAnswer({
+		const text = storageAnswer(ctx, {
 			local: [
 				["MediaWikiModuleStore:enwiki", hoard],
 				["sessionTickCount", "2"],
@@ -235,14 +259,14 @@ describe("a storage read", () => {
 
 		expect(text).toContain("MediaWikiModuleStore:enwiki");
 		expect(handle).toBeDefined();
-		const stored = createResultStore({ dir: sessionResultDir() });
+		const stored = createResultStore({ dir: sessionResultDir(ctx) });
 		const payload = JSON.parse(stored.read(handle as string));
 		expect(payload.local[0].value).toBe(hoard);
 		expect(payload.cookies[0].name).toBe("GeoIP");
 	});
 
 	it("says nothing extra when every value fits", () => {
-		const text = storageAnswer({
+		const text = storageAnswer(ctx, {
 			local: [["theme", "dark"]],
 			session: [],
 		});
@@ -253,10 +277,12 @@ describe("a storage read", () => {
 });
 
 describe("a response body", () => {
+	afterEach(() => cleanupSessionResults(ctx));
+
 	it("keeps the bytes it could not show", () => {
 		const body = "x".repeat(40_000);
 
-		const text = bodyAnswer("https://example.test/app.js", body, 1_024);
+		const text = bodyAnswer(ctx, "https://example.test/app.js", body, 1_024);
 		const handle = handleIn(text);
 
 		// The old form cut the body, said how many bytes it had thrown
@@ -265,12 +291,12 @@ describe("a response body", () => {
 		// line as long as the file.
 		expect(handle).toBeDefined();
 		expect(text).toContain("40,000 bytes are stored");
-		const stored = createResultStore({ dir: sessionResultDir() });
+		const stored = createResultStore({ dir: sessionResultDir(ctx) });
 		expect(JSON.parse(stored.read(handle as string))).toHaveLength(40_000);
 	});
 
 	it("says nothing extra about a body that fits", () => {
-		const text = bodyAnswer("https://example.test/small", "hello", 1_024);
+		const text = bodyAnswer(ctx, "https://example.test/small", "hello", 1_024);
 
 		expect(text).toContain("hello");
 		expect(text).not.toContain("handle result-");
@@ -280,14 +306,14 @@ describe("a response body", () => {
 describe("an element report", () => {
 	afterEach(() => {
 		withdrawQueryTool();
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 
 	/** An inspection whose rendering runs long. */
 	const inspection = {
 		node: { role: "button", name: "Save", properties: {}, children: [] },
 		visibility: { visible: true, because: "painted" },
-	} as unknown as Parameters<typeof elementAnswer>[0];
+	} as unknown as Parameters<typeof elementAnswer>[1];
 
 	it("keeps the whole report askable when the view is cut", () => {
 		// This was the last read in the family that could answer with
@@ -296,18 +322,18 @@ describe("an element report", () => {
 			"\n",
 		);
 
-		const text = elementAnswer(inspection, long);
+		const text = elementAnswer(ctx, inspection, long);
 		const handle = handleIn(text);
 
 		expect(handle).toBeDefined();
 		expect(text).toContain("line 0");
 		expect(text).not.toContain("line 399");
-		const stored = createResultStore({ dir: sessionResultDir() });
+		const stored = createResultStore({ dir: sessionResultDir(ctx) });
 		expect(JSON.parse(stored.read(handle as string)).node.name).toBe("Save");
 	});
 
 	it("says nothing extra about a report that fits", () => {
-		const text = elementAnswer(inspection, "button Save\nvisible");
+		const text = elementAnswer(ctx, inspection, "button Save\nvisible");
 
 		expect(text).toBe("button Save\nvisible");
 	});

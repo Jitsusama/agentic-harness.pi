@@ -10,6 +10,7 @@
  * first call.
  */
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	analyseWalk,
 	MAX_LISTED_FINDINGS,
@@ -83,13 +84,14 @@ import { listAnswer } from "./stored.ts";
  * audit run.
  */
 function auditAnswer(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	view: string,
 	findings: readonly A11yFinding[],
 	keep: Keeping = "keep",
 	named?: string,
 ): string {
 	if (keep === "discard") return view;
-	return listAnswer({
+	return listAnswer(ctx, {
 		view,
 		// The report lists a handful of elements per rule and counts the
 		// rest. That fits any budget, so nothing was cut and nothing was
@@ -112,6 +114,7 @@ function auditAnswer(
 
 /** What browser_check does with one call. */
 export async function runCheck(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	registry: SessionRegistry,
 	params: CheckParams,
 	signal: AbortSignal | undefined,
@@ -181,6 +184,7 @@ export async function runCheck(
 				kind,
 				await sweep(session, params.widths, params.at, (at, keep) =>
 					runOnce(
+						ctx,
 						session,
 						kind,
 						{ ...params, baseline: baselineAt(params, at) },
@@ -190,7 +194,7 @@ export async function runCheck(
 			);
 		}
 
-		return answer(name, kind, await runOnce(session, kind, params));
+		return answer(name, kind, await runOnce(ctx, session, kind, params));
 	});
 }
 
@@ -211,6 +215,7 @@ type Keeping = "keep" | "discard";
  * than each kind growing its own loop.
  */
 async function runOnce(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	session: BrowserSession,
 	kind: string,
 	params: CheckParams,
@@ -222,7 +227,7 @@ async function runOnce(
 	keep: Keeping = "keep",
 ): Promise<string> {
 	if (kind === "health") {
-		return digest(session, params);
+		return digest(ctx, session, params);
 	}
 
 	if (kind === "perf") {
@@ -247,6 +252,7 @@ async function runOnce(
 	if (kind === "motion") {
 		const findings = analyseMotion(await session.motionUnderReduce());
 		return auditAnswer(
+			ctx,
 			renderAudit(findings, tallyFindings(findings), {
 				...(params.rule === undefined ? {} : { rule: params.rule }),
 				measured:
@@ -265,7 +271,7 @@ async function runOnce(
 		const blocks = await session.typography();
 		const view = renderTypography(blocks, analyseTypography(blocks));
 		if (keep === "discard") return view;
-		return listAnswer({
+		return listAnswer(ctx, {
 			view,
 			records: blocks,
 			unit: "text blocks",
@@ -315,6 +321,7 @@ async function runOnce(
 			`${targets.length === 1 ? "target" : "targets"} against WCAG ` +
 			`${targetLevel === "AAA" ? "2.5.5" : "2.5.8"}.`;
 		return auditAnswer(
+			ctx,
 			renderAudit(findings, tallyFindings(findings), {
 				...(params.rule === undefined ? {} : { rule: params.rule }),
 				measured,
@@ -404,7 +411,7 @@ async function runOnce(
 			...(params.rule === undefined ? {} : { property: params.rule }),
 		});
 		if (keep === "discard") return view;
-		return listAnswer({
+		return listAnswer(ctx, {
 			view,
 			// The samples rather than the inventory: a caller asking which
 			// elements use a colour wants the elements, and the inventory
@@ -421,6 +428,7 @@ async function runOnce(
 		const { nodes, viewport } = await session.layout();
 		const findings = analyseVisual(nodes, viewport);
 		return auditAnswer(
+			ctx,
 			renderAudit(findings, tallyFindings(findings), {
 				...(params.rule === undefined ? {} : { rule: params.rule }),
 				measured:
@@ -458,7 +466,7 @@ async function runOnce(
 	// control was the fortieth or what the unvisited ones were
 	// called without walking the page a second time and getting a
 	// different answer.
-	return listAnswer({
+	return listAnswer(ctx, {
 		view: renderWalk(walked),
 		elided: [
 			walked.missed,
@@ -592,6 +600,7 @@ export const HEALTH_RUN_ORDER = [
  * Both are one call away under their own kinds.
  */
 async function digest(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	session: BrowserSession,
 	params: CheckParams,
 ): Promise<string> {
@@ -604,6 +613,7 @@ async function digest(
 			// payloads no caller is ever given, and evicting to make room
 			// told whoever held the evicted handle that it had expired.
 			const report = await runOnce(
+				ctx,
 				session,
 				kind,
 				{ ...params, rule: undefined },

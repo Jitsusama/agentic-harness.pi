@@ -24,7 +24,10 @@
  * away.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	isSummaryContributions,
@@ -63,8 +66,8 @@ interface RecallDetails {
 }
 
 /** The bounded answer, with anything left out stored and cited. */
-function answerOf(recalled: Recalled): string {
-	const store = openSessionStore();
+function answerOf(recalled: Recalled, ctx: ExtensionContext): string {
+	const store = openSessionStore(ctx);
 	switch (recalled.kind) {
 		case "none":
 			return recalled.view;
@@ -134,7 +137,7 @@ export default function sessionRecall(pi: ExtensionAPI) {
 				params,
 			);
 			return {
-				content: [{ type: "text", text: answerOf(recalled) }],
+				content: [{ type: "text", text: answerOf(recalled, ctx) }],
 				details: {
 					kind: recalled.kind,
 					...(recalled.kind === "hits" ? { hits: recalled.hits.length } : {}),

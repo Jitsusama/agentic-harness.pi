@@ -6,7 +6,10 @@
  * forgets its signal still works, right up until Escape does nothing.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { registerCheck } from "../../../extensions/browser-integration/check-tool.ts";
 import { registerDo } from "../../../extensions/browser-integration/do-tool.ts";
@@ -17,6 +20,7 @@ import {
 } from "../../../extensions/browser-integration/registry.ts";
 import { registerSee } from "../../../extensions/browser-integration/see-tool.ts";
 import type { BrowserSession } from "../../../lib/core/web/session.ts";
+import { resultSession } from "../../support/result-session.ts";
 
 /** Long enough that a call nothing held back would plainly have run. */
 const SETTLED_WITHIN_MS = 200;
@@ -25,6 +29,8 @@ type Execute = (
 	id: string,
 	params: Record<string, unknown>,
 	signal?: AbortSignal,
+	onUpdate?: undefined,
+	ctx?: Pick<ExtensionContext, "sessionManager">,
 ) => Promise<unknown>;
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -77,9 +83,12 @@ async function tools() {
 	]);
 	const sessions = async () => registry;
 	const registered = new Map<string, Execute>();
+	const ctx = resultSession();
 	const pi = {
 		registerTool(tool: { name: string; execute: Execute }) {
-			registered.set(tool.name, tool.execute);
+			registered.set(tool.name, (id, params, signal) =>
+				tool.execute(id, params, signal, undefined, ctx),
+			);
 		},
 	} as unknown as ExtensionAPI;
 	registerGo(pi, sessions);

@@ -15,7 +15,10 @@
  * do-tool.ts, which loads this on the tool's first call.
  */
 
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { renderEvaluation } from "../../lib/core/web/evaluate/index.ts";
 import {
 	composeClick,
@@ -61,6 +64,7 @@ import { settledPageView } from "./see.ts";
 
 /** What browser_do does with one call. */
 export async function runDo(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	registry: SessionRegistry,
 	params: DoParams,
 	signal: AbortSignal | undefined,
@@ -149,7 +153,7 @@ export async function runDo(
 			return answer(
 				name,
 				kind,
-				`${renderWait(outcome)}\n\n${await settledPageView(session)}`,
+				`${renderWait(outcome)}\n\n${await settledPageView(ctx, session)}`,
 			);
 		}
 
@@ -173,7 +177,7 @@ export async function runDo(
 				name,
 				kind,
 				`Pressed ${result.pressed.join(", then ")}.\n\n` +
-					`${await settledPageView(session)}`,
+					`${await settledPageView(ctx, session)}`,
 			);
 		}
 
@@ -184,7 +188,7 @@ export async function runDo(
 			return answer(
 				name,
 				kind,
-				`${done.did}\n\n${await settledPageView(session)}`,
+				`${done.did}\n\n${await settledPageView(ctx, session)}`,
 			);
 		}
 
@@ -241,7 +245,7 @@ export async function runDo(
 				describeRefusal(action.target, result.refusal),
 			);
 		}
-		const view = await settledPageView(session);
+		const view = await settledPageView(ctx, session);
 		// Say when the page kept the caller waiting, so a slow
 		// interaction is visible rather than merely felt.
 		return answer(
