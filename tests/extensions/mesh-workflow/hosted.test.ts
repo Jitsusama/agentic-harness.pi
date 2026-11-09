@@ -191,6 +191,7 @@ it("trades a question and answer, then forgets only the closed conversation", as
 	await vi.waitFor(() =>
 		expect(
 			b.messages.some((one) => one.content.includes("Are you ready?")),
+			"B hears A's question",
 		).toBe(true),
 	);
 	const transport = folderTransport(join(paths.mesh, "messages"));
@@ -198,7 +199,10 @@ it("trades a question and answer, then forgets only the closed conversation", as
 		.ids()
 		.map((id) => transport.read(id))
 		.find((one) => one?.text === "Are you ready?");
-	expect(question?.hosted).toBe(true);
+	expect(
+		question?.hosted,
+		"a question sent from a hosted conversation carries the hosted stamp",
+	).toBe(true);
 	expect(
 		await b.call("mesh_send", {
 			to: "AAAAAAAA",
@@ -208,9 +212,10 @@ it("trades a question and answer, then forgets only the closed conversation", as
 		}),
 	).toContain("Sent");
 	await vi.waitFor(() =>
-		expect(a.messages.some((one) => one.content.includes("Ready now."))).toBe(
-			true,
-		),
+		expect(
+			a.messages.some((one) => one.content.includes("Ready now.")),
+			"A hears B's answer",
+		).toBe(true),
 	);
 	const before = presences.all();
 	await b.close();

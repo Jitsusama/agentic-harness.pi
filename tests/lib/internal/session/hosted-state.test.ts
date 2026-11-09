@@ -73,14 +73,23 @@ describe("hosted wants", () => {
 
 	it("shows wants only for the showing session, with a disposer bound to it", async () => {
 		const hideA = withSession("a", showWants);
-		expect(withSession("b", wantsShown)).toBe(false);
+		expect(
+			withSession("b", wantsShown),
+			"A showing its wants does not show B's",
+		).toBe(false);
 		const hideB = withSession("b", showWants);
 		// A's disposer can be called without ambient context.
 		hideA();
 		await installed.host.close("a", "done");
-		expect(withSession("b", wantsShown)).toBe(true);
+		expect(
+			withSession("b", wantsShown),
+			"B's wants stay shown when A hides its own and closes",
+		).toBe(true);
 		hideB();
-		expect(withSession("b", wantsShown)).toBe(false);
+		expect(
+			withSession("b", wantsShown),
+			"B's own disposer hides B's wants",
+		).toBe(false);
 	});
 
 	it("forgets A without clearing B or letting stale disposers hide a new showing", () => {
@@ -91,7 +100,10 @@ describe("hosted wants", () => {
 		withSession("a", forgetWants);
 		const current = withSession("a", showWants);
 		stale();
-		expect(withSession("a", wantsShown)).toBe(true);
+		expect(
+			withSession("a", wantsShown),
+			"a stale disposer does not hide A's new showing",
+		).toBe(true);
 		current();
 		withSession("b", () => ownWants("same").settle("blocked"));
 		expect(b.map((w) => w.said)).toEqual(["B blocked", null]);
@@ -104,20 +116,31 @@ describe("hosted first prompt", () => {
 		withSession("b", () => noteFirstPrompt("B words"));
 		expect(
 			withSession("a", () => firstPromptPending([], FIRST_PROMPT_MS + 1)),
+			"A's admitted words are pending past the host's uptime",
 		).toBe(true);
 		withSession("a", runStarted);
-		expect(withSession("a", firstPromptPending)).toBe(false);
-		expect(withSession("b", firstPromptPending)).toBe(true);
+		expect(
+			withSession("a", firstPromptPending),
+			"A's words are no longer pending once A runs",
+		).toBe(false);
+		expect(
+			withSession("b", firstPromptPending),
+			"B's words stay pending when A runs",
+		).toBe(true);
 		await installed.host.close("a", "done");
-		expect(withSession("b", firstPromptPending)).toBe(true);
+		expect(
+			withSession("b", firstPromptPending),
+			"B's words stay pending when A closes",
+		).toBe(true);
 	});
 
 	it("has no pending words when admission says none, even when the host has CLI words", () => {
 		withSession("a", () => noteFirstPrompt("A words"));
 		withSession("b", () => noteFirstPrompt(undefined));
-		expect(withSession("b", () => firstPromptPending(["Host words"], 1))).toBe(
-			false,
-		);
+		expect(
+			withSession("b", () => firstPromptPending(["Host words"], 1)),
+			"B admitted with no words has none pending, whatever the host's argv",
+		).toBe(false);
 	});
 
 	it("expires from the conversation's admission time, including one opened long after boot", () => {
@@ -126,10 +149,19 @@ describe("hosted first prompt", () => {
 		withSession("a", () => noteFirstPrompt("A words"));
 		vi.setSystemTime(1_000_000 + FIRST_PROMPT_MS - 1);
 		withSession("b", () => noteFirstPrompt("B words"));
-		expect(withSession("a", firstPromptPending)).toBe(true);
+		expect(
+			withSession("a", firstPromptPending),
+			"A's words are pending until FIRST_PROMPT_MS after A's admission",
+		).toBe(true);
 		vi.advanceTimersByTime(1);
-		expect(withSession("a", firstPromptPending)).toBe(false);
-		expect(withSession("b", firstPromptPending)).toBe(true);
+		expect(
+			withSession("a", firstPromptPending),
+			"A's words expire FIRST_PROMPT_MS after A's admission",
+		).toBe(false);
+		expect(
+			withSession("b", firstPromptPending),
+			"B, admitted later, keeps its words pending",
+		).toBe(true);
 	});
 });
 
