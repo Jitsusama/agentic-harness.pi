@@ -124,6 +124,26 @@ const FACT_COLUMNS: ReadonlyArray<{
 		value: (t) => t.facts?.runTurn ?? null,
 	},
 	{
+		column: "served_backend",
+		type: "TEXT",
+		value: (t) => t.facts?.servedBackend ?? null,
+	},
+	{
+		column: "served_account",
+		type: "TEXT",
+		value: (t) => t.facts?.servedAccount ?? null,
+	},
+	{
+		column: "served_edge",
+		type: "TEXT",
+		value: (t) => t.facts?.servedEdge ?? null,
+	},
+	{
+		column: "account_changed",
+		type: "INTEGER",
+		value: (t) => flag(t.facts?.accountChanged),
+	},
+	{
 		column: "written",
 		type: "TEXT",
 		value: (t) => t.compaction?.written ?? null,

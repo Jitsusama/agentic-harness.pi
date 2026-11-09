@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RESUME_TEXT } from "../../../lib/compaction/index.ts";
 import { LOADED_MESSAGE } from "../../../lib/internal/reload/loaded.ts";
+import { SERVED_ENTRY } from "../../../lib/internal/session/served.ts";
 import { readTurns } from "../../../lib/ledger/index.ts";
 
 /**
@@ -198,6 +199,39 @@ describe("what came before a turn", () => {
 		expect(
 			["a1", "a2", "a3", "a4"].map((id) => turns.get(id)?.facts?.reloaded),
 		).toEqual([null, true, true, false]);
+	});
+
+	it("says who served each turn, and when another account did than before", () => {
+		// Five bursts on 8 and 9 November dropped every session's cache in
+		// one minute with nothing in pi changed (80ECO2).
+		const served = (backend: string, account: string) => ({
+			type: "custom",
+			customType: SERVED_ENTRY,
+			data: { backend, account, edge: "ORD" },
+		});
+		const log = new Log()
+			.typed("u1")
+			.turn("a1")
+			.add("w1", served("anthropic-dev", "org-a/ws-1"))
+			.turn("a2")
+			.turn("a3")
+			.add("w2", served("anthropic-dev", "org-b/ws-2"))
+			.turn("a4");
+
+		const turns = facts(log);
+
+		expect(
+			["a1", "a2", "a3", "a4"].map((id) => {
+				const f = turns.get(id)?.facts;
+				return [f?.servedBackend, f?.servedAccount, f?.accountChanged];
+			}),
+		).toEqual([
+			[null, null, null],
+			["anthropic-dev", "org-a/ws-1", null],
+			["anthropic-dev", "org-a/ws-1", false],
+			["anthropic-dev", "org-b/ws-2", true],
+		]);
+		expect(turns.get("a4")?.facts?.servedEdge).toBe("ORD");
 	});
 
 	it("follows the branch a turn is on, not the order of the lines", () => {

@@ -130,6 +130,22 @@ export interface TurnFacts {
 	 * how many turns the run had made before it.
 	 */
 	readonly runTurn: number | null;
+	/**
+	 * The backend Shopify's proxy last said served this branch, the
+	 * Anthropic account (`<org>/<workspace>`) and the Cloudflare edge, as
+	 * the session recorded them (lib/internal/session/served.ts). Each is
+	 * null where no response has said it yet, as in every log from before
+	 * 9 November.
+	 */
+	readonly servedBackend?: string | null;
+	readonly servedAccount?: string | null;
+	readonly servedEdge?: string | null;
+	/**
+	 * Whether another account served this turn than the billed turn before
+	 * it: the cache is kept per account, so a failover drops it whole. Null
+	 * where either account is unknown.
+	 */
+	readonly accountChanged?: boolean | null;
 }
 
 /** How a compaction's summary was written and what surrounded it. */

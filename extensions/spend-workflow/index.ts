@@ -102,6 +102,7 @@ import {
 	recordTurn,
 	useByQuest,
 } from "./resources.ts";
+import { recordWhoServed } from "./served.ts";
 
 /** Where each session's per-turn resource figures are kept. */
 const resourcesDir = () => join(packageStateDir("observability"), "resources");
@@ -320,6 +321,10 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 		observeTurn(assistantCost(event.message));
 		publish();
 	});
+
+	// Who served each request, so a cache a failover dropped can be told
+	// from one a provider evicted.
+	recordWhoServed(pi);
 
 	registerBudgetItem(pi, {
 		exec: () => spawnExec({ timeoutMs: BILL_TIMEOUT_MS }),
