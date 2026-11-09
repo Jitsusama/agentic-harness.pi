@@ -16,7 +16,9 @@ let dir: string;
 let host: SessionHost;
 let closed: ReturnType<typeof vi.fn<(why: string) => void>>;
 let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
+let answer: (sessionId: string) => unknown;
 beforeEach(async () => {
+	answer = (sessionId) => ({ sessionId });
 	dir = await mkdtemp(join(tmpdir(), "mesh-host-close-"));
 	host = new SessionHost({
 		key: "work-attended",
@@ -39,7 +41,7 @@ beforeEach(async () => {
 			execute: async (request) => {
 				if (request.op !== "close") throw new Error(request.op);
 				await host.close(request.sessionId);
-				return { sessionId: request.sessionId };
+				return answer(request.sessionId);
 			},
 		},
 		report() {},
@@ -72,6 +74,15 @@ it("leaves a conversation alone when the socket answers for another process", as
 	).toBe("unsure");
 	expect(host.list()).toHaveLength(2);
 	expect(closed).not.toHaveBeenCalled();
+});
+
+it("is unsure when the host's yes does not name the conversation", async () => {
+	answer = () => undefined;
+	expect(await closeThroughHost(ownerOf(a), dir)).toBe("unsure");
+	answer = () => ({ sessionId: b });
+	expect(await closeThroughHost(ownerOf(b), dir)).toBe("ended");
+	answer = () => ({ sessionId: a });
+	expect(await closeThroughHost(ownerOf(b), dir)).toBe("unsure");
 });
 
 it("is unsure, never closing anything, when no socket can be named or reached", async () => {

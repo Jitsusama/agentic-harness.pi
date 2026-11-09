@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { hostSocketPath } from "../../host/service/address.ts";
 import { controlRequest } from "../../host/service/client.ts";
+import { parseSessionResult } from "../../host/service/protocol.ts";
 import { hosted } from "../core/session/index.ts";
 import type { TickedOwner } from "../internal/process-ticks.ts";
 
@@ -66,7 +67,10 @@ export async function closeThroughHost(
 			},
 			timeoutMs,
 		);
-		return reply.ok ? "ended" : "unsure";
+		return reply.ok &&
+			parseSessionResult(reply.result).sessionId === owner.session
+			? "ended"
+			: "unsure";
 	} catch {
 		// No socket, a refused request or a lost reply all leave the
 		// outcome unknown, and an unknown close is never retried or
