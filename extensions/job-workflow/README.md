@@ -41,10 +41,13 @@ running after a minute into a job of kind `shell`.
 A result goes out as a prompt, through `pi.sendUserMessage`, and only
 when nothing else is under way:
 
-- **Not during a run.** A user message queued behind a run is what
-  Escape puts back into your editor, so a result there would land in
-  your draft. The outbox holds it until the run settles, which is when
-  a queued message would have been said anyway.
+- **Into a run, not behind it.** A user message queued behind a run is
+  what Escape puts back into your editor, so a result there would land
+  in your draft. So during a run a result is steered in as a custom
+  message instead, read after the tool calls in flight: no draft gets
+  it, and it starts no run of its own. On 9 November a council's end
+  waited 17 minutes behind one long run. One the run didn't read is
+  said again once it settles.
 - **Not during a compaction.** pi refuses a prompt then. Idle is pi's
   own `isIdle()`, asked each time rather than tracked from events, so
   no missed event can leave the outbox waiting forever.

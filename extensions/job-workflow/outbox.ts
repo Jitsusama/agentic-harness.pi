@@ -18,6 +18,16 @@
  * so no missed event can leave the outbox thinking something is under
  * way. The third pi cannot say, so the outbox marks it from `input`.
  *
+ * A session busy for a long run never had a moment like that: on 9
+ * November a council's end reached its session 17 minutes late, behind
+ * back-to-back tool calls, and a deploy waited on it (E2ZIAQ [1f2b4c5d];
+ * N3Q98W measured a median of about 6.5 minutes [ea765cc0]). So while a
+ * run is under way, a result is steered into it instead, as a custom
+ * message pi reads after the tool calls in flight. That is no user
+ * message, so Escape never puts it in the person's editor, and it starts
+ * no run of its own, so the cache isn't rewritten. One the run never
+ * read is said again once it settles.
+ *
  * Everything ready goes in one message, since pi says queued messages
  * one at a time. A result leaves only once its message is seen in the
  * session, so a send that went nowhere (a stale `pi`, a refused prompt,
@@ -37,6 +47,12 @@ export interface JobResult {
 export interface OutboxOptions {
 	/** Start a run with this as the prompt. May throw. */
 	send(message: string): void;
+	/**
+	 * Put this into the run under way, read after its tool calls; throws
+	 * when there is no run to put it in. Without it, results wait for the
+	 * run to settle.
+	 */
+	steer?(message: string): void;
 	/** No run active and no compaction, by pi's own account. */
 	idle(): boolean;
 	now(): number;
@@ -68,6 +84,9 @@ export interface Outbox {
  * something has to bound it.
  */
 export const PROMPT_WAIT_MS = 30_000;
+
+/** The custom message a result steered into a run goes as. */
+export const STEERED_RESULTS = "job-results";
 
 /** How the message opens, so the model and the person know nobody typed it. */
 export const OUTBOX_HEADER = automatedHeader("background work is reporting");
@@ -107,13 +126,33 @@ export function createOutbox(options: OutboxOptions): Outbox {
 	// When a prompt, ours or the person's, was submitted and has not yet
 	// become a run.
 	let promptSince: number | undefined;
+	// Whether a run is under way, from its start until it settles.
+	let running = false;
 
 	const giveBack = () => {
 		queued.unshift(...out);
 		out = [];
 	};
 
+	const trySteer = () => {
+		if (!running || !options.steer) return;
+		if (out.length > 0 || queued.length === 0) return;
+		const sending = queued.splice(0);
+		try {
+			options.steer(compose(sending));
+		} catch {
+			// No run to put it in after all: it waits for the next moment.
+			queued.unshift(...sending);
+			return;
+		}
+		out = sending;
+	};
+
 	const trySend = () => {
+		if (running) {
+			trySteer();
+			return;
+		}
 		if (out.length > 0 || queued.length === 0) return;
 		if (promptSince !== undefined || !options.idle()) return;
 		const sending = queued.splice(0);
@@ -139,9 +178,12 @@ export function createOutbox(options: OutboxOptions): Outbox {
 		},
 		runStarted() {
 			promptSince = undefined;
+			running = true;
+			trySteer();
 		},
 		runSettled() {
 			promptSince = undefined;
+			running = false;
 			giveBack();
 			trySend();
 		},

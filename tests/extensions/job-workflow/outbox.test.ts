@@ -6,9 +6,9 @@
  * is between `input` and `agent_start` takes that prompt's place, loses
  * it, and leaves a run Escape cannot stop. A user message queued while
  * a run streams is put into the person's editor by Escape. A prompt
- * during a compaction is refused. So the outbox sends only from idle,
- * holds while anything else is under way, and keeps a result until its
- * message is seen in the session.
+ * during a compaction is refused. So the outbox prompts only from idle,
+ * steers into a run under way as a custom message where it can, and
+ * keeps a result until its message is seen in the session.
  */
 
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,91 @@ function outbox(options: { failSends?: number } = {}) {
 		},
 	};
 }
+
+/** An outbox that can steer a result into the run under way. */
+function steering() {
+	const sent: string[] = [];
+	const steered: string[] = [];
+	const session = { busy: false };
+	const box = createOutbox({
+		idle: () => !session.busy,
+		send: (message) => sent.push(message),
+		steer: (message) => {
+			if (!session.busy) throw new Error("no run to put it in");
+			steered.push(message);
+		},
+		now: () => 0,
+	});
+	const run = () => {
+		session.busy = true;
+		box.runStarted();
+	};
+	const settle = () => {
+		session.busy = false;
+		box.runSettled();
+	};
+	return { box, sent, steered, session, run, settle };
+}
+
+describe("a result that finishes during a run", () => {
+	// 9 November: a council's end reached a session busy with back-to-back
+	// tool calls 17 minutes late, and a deploy waited on it (E2ZIAQ).
+	it("is put into the run under way, not held until it settles", () => {
+		const { box, sent, steered, run } = steering();
+		run();
+
+		box.post(result("j28", "no reviewer left running"));
+
+		expect(steered).toHaveLength(1);
+		expect(steered[0]).toContain("no reviewer left running");
+		expect(sent).toEqual([]);
+	});
+
+	it("goes once its message is seen in the run, and isn't said again", () => {
+		const { box, sent, steered, run, settle } = steering();
+		run();
+		box.post(result("j28"));
+
+		box.seen(steered[0] ?? "");
+		settle();
+
+		expect(box.waiting()).toEqual([]);
+		expect(sent).toEqual([]);
+	});
+
+	it("is said again as a prompt when the run settled without reading it", () => {
+		const { box, sent, steered, run, settle } = steering();
+		run();
+		box.post(result("j28"));
+
+		settle();
+
+		expect(steered).toHaveLength(1);
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toContain("[j28]");
+	});
+
+	it("waits when the run ended before it could be put in", () => {
+		const { box, sent, steered, session, run } = steering();
+		run();
+		session.busy = false;
+
+		box.post(result("j28"));
+
+		expect({ steered, sent }).toEqual({ steered: [], sent: [] });
+		expect(box.waiting().map((one) => one.jobId)).toEqual(["j28"]);
+	});
+
+	it("is held, as before, by an outbox that can't steer", () => {
+		const { box, sent, session } = outbox();
+		session.busy = true;
+		box.runStarted();
+
+		box.post(result("j28"));
+
+		expect(sent).toEqual([]);
+	});
+});
 
 describe("when a result is posted", () => {
 	it("sends it at once from idle, labelled as automated", () => {
