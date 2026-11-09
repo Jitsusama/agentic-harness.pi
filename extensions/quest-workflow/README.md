@@ -88,7 +88,11 @@ shipped and tested.
   to adopt. `tree-release` and `tree-expand` take `cwd` the same way,
   as a path inside the tree to act on; with several trees on the
   quest they refuse rather than pick one, and a path that names
-  none of them is refused with the list.
+  none of them is refused with the list. `tree-expand` pointed at
+  a git tree the quest has no record of adopts it first, as
+  `tree-adopt` would, refusing one another quest holds or a
+  repository's main checkout, since adding a zone changes nothing
+  already checked out.
 - **Terminal spawn**: `spawn`, `spawn-tab`, `spawn-pane`,
   `spawn-window`, and `reopen-sessions` with `force`. Each takes
   `terminal`, `layout` and `nesting` for the call and

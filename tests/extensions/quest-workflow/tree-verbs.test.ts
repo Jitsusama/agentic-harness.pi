@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	writeFileSync,
@@ -15,16 +16,19 @@ import { handle } from "../../../extensions/quest-workflow/transitions";
 import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
+	registerTreeProvider,
+	type TreeProvider,
 } from "../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate";
+import { addTreeToQuest } from "../../../lib/internal/quest/trees";
 import { clearUrlFetchers } from "../../../lib/quest/index";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
 import { fakePi } from "../../support/fake-pi.ts";
-import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -585,6 +589,126 @@ describe("retire auto-prunes trees", () => {
 		expect(pending.find((e) => e.path === treePath)?.reason).toMatch(
 			/attached session/,
 		);
+	});
+});
+
+describe("tree-expand of a tree the quest has not recorded", () => {
+	/** A provider that expands by recording what it was asked. */
+	function recordingExpands(): Array<{ path: string; zone: string }> {
+		const seen: Array<{ path: string; zone: string }> = [];
+		registerTreeProvider({
+			id: "recording",
+			// Ahead of the built-in git-worktree's 100: the lowest wins.
+			priority: 1,
+			appliesTo: () => true,
+			create: async () => ({ path: "", providerId: "recording" }),
+			release: async () => {},
+			expand: async (input: { path: string; zone: string }) => {
+				seen.push(input);
+			},
+		} as TreeProvider);
+		return seen;
+	}
+
+	/** A linked worktree of the fixture repo, which only this test made. */
+	async function linkedTree(): Promise<string> {
+		const path = join(tmpRoot, "linked");
+		await git(repoRoot, "worktree", "add", "-q", "-b", "linked", path);
+		return realpathSync(path);
+	}
+
+	function treesOf(questPath: string): string[] {
+		return (
+			parseQuestFrontMatter(readFileSync(questPath, "utf8"))?.frontMatter
+				.trees ?? []
+		).map((t) => t.path);
+	}
+
+	it("adopts it, then expands it, in one call", async () => {
+		const seen = recordingExpands();
+		const linked = await linkedTree();
+		const state = buildState();
+		const q = await createQuest(state, "Expand Adopts");
+
+		const result = succeeded(
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "tree-expand",
+				cwd: linked,
+				ref: "system/gitstream",
+			}),
+		);
+
+		expect(result.message).toContain("Adopted");
+		expect(seen).toEqual([{ path: linked, zone: "system/gitstream" }]);
+		expect(treesOf(q.path)).toEqual([linked]);
+	});
+
+	it("adopts it beside the trees the quest already holds", async () => {
+		const seen = recordingExpands();
+		const linked = await linkedTree();
+		const state = buildState();
+		const q = await createQuest(state, "Expand Beside");
+		const other = join(tmpRoot, "other");
+		addTreeToQuest(dirname(q.path), {
+			path: other,
+			providerId: "recording",
+			repoRoot: other,
+			origin: "scaffolded",
+		});
+
+		succeeded(
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "tree-expand",
+				cwd: linked,
+				ref: "system/gitstream",
+			}),
+		);
+
+		expect(seen).toEqual([{ path: linked, zone: "system/gitstream" }]);
+		expect(treesOf(q.path)).toEqual([other, linked]);
+	});
+
+	it("refuses one another quest holds, expanding nothing", async () => {
+		const seen = recordingExpands();
+		const linked = await linkedTree();
+		const holder = buildState();
+		const held = await createQuest(holder, "Holds It");
+		addTreeToQuest(dirname(held.path), {
+			path: linked,
+			providerId: "recording",
+			repoRoot: linked,
+			origin: "adopted",
+		});
+		const state = buildState();
+		const q = await createQuest(state, "Wants It");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-expand",
+			cwd: linked,
+			ref: "system/gitstream",
+		});
+
+		expect(result).toMatchObject({ ok: false });
+		if (!result.ok) expect(result.guidance).toContain(held.id);
+		expect(seen).toEqual([]);
+		expect(treesOf(q.path)).toEqual([]);
+	});
+
+	it("refuses a repository's main working tree, expanding nothing", async () => {
+		const seen = recordingExpands();
+		const state = buildState();
+		const q = await createQuest(state, "Main Tree");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-expand",
+			cwd: repoRoot,
+			ref: "system/gitstream",
+		});
+
+		expect(result).toMatchObject({ ok: false });
+		if (!result.ok) expect(result.guidance).toMatch(/main working tree/);
+		expect(seen).toEqual([]);
+		expect(treesOf(q.path)).toEqual([]);
 	});
 });
 
