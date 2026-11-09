@@ -24,6 +24,7 @@ import type { Loaded } from "../support/every-extension.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const SUPPORT = join(ROOT, "tests", "support", "every-extension.ts");
+/** What every-extension.ts prints before its report. */
 const MARK = "LOADED ";
 
 /** The pi whose jiti the child loads through: its real folder, where pnpm keeps jiti. */
@@ -44,7 +45,7 @@ const home = mkdtempSync(join(tmpdir(), "every-extension-"));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 /** An environment of the child's own, holding none of this session's. */
-function sealed(): NodeJS.ProcessEnv {
+function sealed(hosted: boolean): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {};
 	for (const [name, value] of Object.entries(process.env)) {
 		if (name.startsWith("PI_") || name.startsWith("MYCELIUM_")) continue;
@@ -66,6 +67,7 @@ function sealed(): NodeJS.ProcessEnv {
 		PI_NOTIFY: "off",
 		PI_LAUNCHER: "off",
 		PI_SETTLE: "off",
+		EVERY_EXTENSION: hosted ? "hosted" : "plain",
 	};
 }
 
@@ -75,16 +77,17 @@ function loadInAChild(hosted: boolean): Loaded {
 		import { createRequire } from "node:module";
 		const { createJiti } = createRequire(${JSON.stringify(PI)})("jiti");
 		const jiti = createJiti(${JSON.stringify(`file://${ROOT}/`)});
-		const { loadEveryExtension } = await jiti.import(${JSON.stringify(SUPPORT)});
-		const loaded = await loadEveryExtension(${hosted});
-		console.log(${JSON.stringify(MARK)} + JSON.stringify(loaded));
-		// Extensions leave timers running; what they added is already said.
-		process.exit(0);
+		await jiti.import(${JSON.stringify(SUPPORT)});
 	`;
 	const output = execFileSync(
 		process.execPath,
 		["--input-type=module", "-e", script],
-		{ cwd: ROOT, encoding: "utf8", env: sealed(), maxBuffer: 64 * 1024 * 1024 },
+		{
+			cwd: ROOT,
+			encoding: "utf8",
+			env: sealed(hosted),
+			maxBuffer: 64 * 1024 * 1024,
+		},
 	);
 	const line = output
 		.split("\n")

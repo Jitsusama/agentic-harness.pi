@@ -2,10 +2,12 @@
  * Load every extension of the package as pi does, into one process,
  * and say what that did to the process's listeners.
  *
- * Run in a child node of its own (see
+ * The entry script of a child node of its own (see
  * tests/package/hosted-loads-add-no-process-listeners.test.ts), since a
  * listener once added stays for the life of the process and a
- * once-per-process marker another test set would hide one. Each
+ * once-per-process marker another test set would hide one. Importing
+ * it runs it: hosted when EVERY_EXTENSION is `hosted`, and its report
+ * is the last line it prints, after `LOADED `. Each
  * extension is loaded through jiti with its module cache off, as pi's
  * loader does, so each conversation gets its own module instances; its
  * factory runs and its `session_start` handlers fire inside that
@@ -129,12 +131,12 @@ function contextFor(id: string, cwd: string): unknown {
  * Load and start every extension for conversations a and b under an
  * installed host when `hosted`, or for one conversation on plain pi.
  */
-export async function loadEveryExtension(hosted: boolean): Promise<Loaded> {
+async function loadEveryExtension(hosted: boolean): Promise<Loaded> {
 	// pi's real folder, where pnpm keeps the jiti it loads extensions with.
-	const pi = realpathSync(
+	const piDir = realpathSync(
 		join(ROOT, "node_modules", "@earendil-works", "pi-coding-agent"),
 	);
-	const { createJiti } = createRequire(join(pi, "package.json"))("jiti");
+	const { createJiti } = createRequire(join(piDir, "package.json"))("jiti");
 	const jiti = createJiti(import.meta.url, {
 		moduleCache: false,
 		alias: ALIAS,
@@ -144,7 +146,7 @@ export async function loadEveryExtension(hosted: boolean): Promise<Loaded> {
 	if (hosted) {
 		(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = {
 			node: process.execPath,
-			entry: join(pi, "dist", "bundle", "cli.js"),
+			entry: join(piDir, "dist", "bundle", "cli.js"),
 		};
 		installHost(sessionHost({ pid: process.pid, startedAt: Date.now() }).host);
 	}
@@ -183,3 +185,10 @@ export async function loadEveryExtension(hosted: boolean): Promise<Loaded> {
 	}
 	return { extensions: entries.length, added, failed };
 }
+
+const loaded = await loadEveryExtension(
+	process.env.EVERY_EXTENSION === "hosted",
+);
+console.log(`LOADED ${JSON.stringify(loaded)}`);
+// Extensions leave timers running; what they added is already said.
+process.exit(0);
