@@ -12,8 +12,9 @@
  * the bill; these are the session's own reading.
  *
  * Today is the local day. It carries across a reload, a restart and a
- * rollover in the presence the peer takes over, and a session that has
- * none for today counts its own log since midnight.
+ * rollover in the presence the peer takes over; one from an earlier day
+ * gives only its last call, and a session that takes over none counts
+ * its own log since midnight.
  */
 
 /** Tokens, in gen_ai's names. */
@@ -81,13 +82,35 @@ export function noUsage(day: string): SessionUsage {
 	return { day, today: NONE, turns: { today: 0 }, "pi.cost.usd": { today: 0 } };
 }
 
-/** Usage carried in from an earlier presence, when it counts today. */
+/**
+ * Usage carried in from an earlier presence. One that counted another
+ * day starts today's counts afresh but keeps the last call, which is no
+ * less the last for the day having turned: on 9 November a session
+ * reloaded at 02:36 said no last turn at all, so a reader took it as
+ * never having made one, and idle since it began (80ECO2 [800fe3db]).
+ */
 export function carriedUsage(
 	value: unknown,
 	now: Date,
 ): SessionUsage | undefined {
-	if (!isUsage(value) || value.day !== localDay(now)) return undefined;
-	return value;
+	if (!isUsage(value)) return undefined;
+	const day = localDay(now);
+	if (value.day === day) return value;
+	const fresh = noUsage(day);
+	const last = value.turns.last;
+	return {
+		...fresh,
+		...(value["gen_ai.request.model"]
+			? { "gen_ai.request.model": value["gen_ai.request.model"] }
+			: {}),
+		...(value["gen_ai.response.model"]
+			? { "gen_ai.response.model": value["gen_ai.response.model"] }
+			: {}),
+		...(value["gen_ai.provider.name"]
+			? { "gen_ai.provider.name": value["gen_ai.provider.name"] }
+			: {}),
+		turns: { today: 0, ...(last ? { last } : {}) },
+	};
 }
 
 /** How a call went, beside what its message says. */

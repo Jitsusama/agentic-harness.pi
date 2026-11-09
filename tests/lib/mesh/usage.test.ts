@@ -127,19 +127,38 @@ describe("a session's usage", () => {
 		});
 	});
 
-	it("is carried in only when it counts today, and only when it reads", () => {
+	it("is carried in whole for today, and only when it reads", () => {
 		const today = withCall(noUsage(localDay(evening)), call(), {
 			at: evening,
 		});
 
 		expect(carriedUsage(today, evening)).toEqual(today);
-		expect(
-			carriedUsage(today, new Date("2026-11-07T00:00:01")),
-		).toBeUndefined();
 		expect(carriedUsage({ day: "2026-11-06" }, evening)).toBeUndefined();
 		expect(
 			isUsage(JSON.parse(JSON.stringify(today))),
 			"the carried usage reads back from JSON",
 		).toBe(true);
+	});
+
+	it("keeps its last call past midnight, with today's counts started afresh", () => {
+		// 02:36 on 9 November: a session reloaded after midnight said no last
+		// turn, and was read as idle since it began (80ECO2 [800fe3db]).
+		const yesterday = withCall(noUsage(localDay(evening)), call(), {
+			at: evening,
+			startedAt: evening.getTime() - 4000,
+		});
+
+		const carried = carriedUsage(yesterday, new Date("2026-11-07T02:36:00"));
+
+		expect(carried).toEqual({
+			...noUsage("2026-11-07"),
+			"gen_ai.request.model": "claude-opus-5-5",
+			"gen_ai.response.model": "claude-opus-5-5",
+			"gen_ai.provider.name": "anthropic",
+			turns: {
+				today: 0,
+				last: { at: evening.toISOString(), duration_ms: 4000 },
+			},
+		});
 	});
 });
