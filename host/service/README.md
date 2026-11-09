@@ -18,11 +18,18 @@ input pipeline or screen. No unit or running host is installed yet.
   then listens, so a second host, an unreadable roster or a pi the
   engine refuses never reaches a socket. Stop closes the socket, parks
   every conversation as signalled and releases the lock, keeping holds.
+  Start first sets the package's stale-rejection net, logging under
+  the host's state folder, so one conversation's reload leftovers never
+  end the host and its other conversations.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
   or release commits; stop and kill -9 keep them. A live or unjudgeable
   lock holder, a malformed lock or an unreadable roster refuses start.
   A dead holder's lock is moved aside and checked, never just unlinked.
+- gateway-key.ts: the work host's one gateway key. An inherited key
+  stays fixed, as the launcher treats it; otherwise the personal key is
+  resolved through the dev tool and resolved again when the dev cache's
+  expiry stamp moves, nears, or the gateway refuses the key.
 - viewer.ts: adapts V's persistent Terminal without reproducing its parser.
 - protocol.ts: strict v1 control requests, replies and viewer input.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
