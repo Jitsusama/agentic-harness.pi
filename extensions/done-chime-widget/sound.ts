@@ -16,10 +16,11 @@
  * - `pitch`: how far the spoken line is moved, in cents; negative is
  *   lower, and zero leaves the voice as it is.
  *
- * Without the file a Mac still rings, with its own low Submarine sound
- * and the deep Ralph voice, since both come with macOS. Linux has no
- * sound or voice every machine is sure to have, so it rings only once
- * the machine names them. The file is read at each ring, so a change to
+ * Without the file a Mac still rings, with its own low Submarine sound,
+ * which comes with macOS. Linux has no sound every machine is sure to
+ * have, so it rings only once the machine names one. Neither speaks
+ * unless its file names a voice: on 9 November Joel, hearing a voice
+ * say a session was ready after the bell, kept only the bell. The file is read at each ring, so a change to
  * it reaches every session without a restart.
  */
 
@@ -58,8 +59,6 @@ const DARWIN: Sound = {
 	// The lowest of the system's alert sounds, a single sonar ping.
 	ding: "/System/Library/Sounds/Submarine.aiff",
 	player: "afplay",
-	// The deepest of the voices macOS ships with.
-	voice: "Ralph",
 };
 
 /** Where the machine describes its sound. */
