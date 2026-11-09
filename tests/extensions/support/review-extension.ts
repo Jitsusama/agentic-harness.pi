@@ -9,9 +9,11 @@
  * normally. That is what makes a tool answerable here at all.
  */
 
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 import { runCommandsWith } from "../../../extensions/review-integration/commands.ts";
 import reviewIntegration from "../../../extensions/review-integration/index.ts";
+import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
+import { resultSession } from "../../support/result-session.ts";
 
 /** A tool as the extension registered it, execute included. */
 export type RegisteredTool = {
@@ -171,4 +173,10 @@ export function toolNamed(
 }
 
 /** A headless tool context: no UI, so every gate approves itself. */
-export const HEADLESS = { hasUI: false };
+export const HEADLESS = {
+	...resultSession(),
+	cwd: process.cwd(),
+	hasUI: false,
+};
+
+afterEach(() => cleanupSessionResults(HEADLESS));
