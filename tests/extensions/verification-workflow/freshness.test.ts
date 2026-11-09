@@ -32,6 +32,8 @@ interface VerifyTool {
 		id: string,
 		params: { path?: string },
 		signal: AbortSignal | undefined,
+		onUpdate?: unknown,
+		ctx?: unknown,
 	) => Promise<{
 		content: { text: string }[];
 		details: { outcome: string; dir: string };
@@ -67,7 +69,10 @@ async function harness(): Promise<Harness> {
 	verificationWorkflow({
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		registerTool: (tool: VerifyTool) => {
-			verify = tool;
+			verify = {
+				execute: (id, params, signal) =>
+					tool.execute(id, params, signal, undefined, h.ctx),
+			};
 		},
 		registerMessageRenderer() {},
 		sendMessage: h.sendMessage,
@@ -80,6 +85,7 @@ async function harness(): Promise<Harness> {
 function context(h: Harness): unknown {
 	return {
 		signal: undefined,
+		cwd: process.cwd(),
 		sessionManager: {
 			getEntries: () =>
 				h.questVerify

@@ -50,7 +50,9 @@ export default function attributionExtension(pi: ExtensionAPI) {
 	// touches, so coverage follows the agent as it cds between repos
 	// rather than only the repo pi started in.
 	const hookedRepos = new Set<string>();
-	ensureCommitHook(process.cwd(), hookedRepos);
+	pi.on("session_start", async (_event, ctx) => {
+		ensureCommitHook(ctx.cwd, hookedRepos);
+	});
 
 	pi.on(
 		"tool_call",
@@ -62,8 +64,8 @@ export default function attributionExtension(pi: ExtensionAPI) {
 
 			// Make sure the hook covers the repo this command runs in,
 			// which may be one the agent cd'd into after startup.
-			const cwd = effectiveCwd(tokenize(command), process.cwd());
-			ensureCommitHook("dir" in cwd ? cwd.dir : process.cwd(), hookedRepos);
+			const cwd = effectiveCwd(tokenize(command), ctx.cwd);
+			ensureCommitHook("dir" in cwd ? cwd.dir : ctx.cwd, hookedRepos);
 
 			// Carry the trailer to child git processes so the
 			// prepare-commit-msg hook attributes every commit path,

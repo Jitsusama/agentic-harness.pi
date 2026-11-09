@@ -5,7 +5,7 @@ touches through the `lsp` tool: diagnostics, go-to-definition
 and find-references from a real language server, rather than
 grep-and-hope.
 
-## What it does
+## What It Does
 
 - Registers the standalone backend from core's `lsp`, which
   spawns and supervises language servers itself, keyed one
@@ -20,10 +20,13 @@ grep-and-hope.
   or write tool result it re-syncs the document, so
   diagnostics reflect the bytes on disk rather than the bytes
   at open.
-- Disposes every server at session shutdown, so nothing
-  leaks.
+- Shares one standalone backend across the runners in a process.
+  A runner quitting releases its claim; the last runner closes the
+  servers. Relative file paths use the calling session\'s folder.
+- Limits workspace symbol searches to the calling session\'s folder,
+  so another conversation\'s project does not appear in the answer.
 
-## Backend selection
+## Backend Selection
 
 The tool resolves whichever backend is active rather than the
 standalone one directly. The standalone backend registers at
@@ -32,7 +35,7 @@ and reports itself available for a paired session, the same
 tool routes to the editor's own servers with no change to how
 it is called.
 
-### Registering an external backend
+### Registering an External Backend
 
 Pi loads packages with isolated module roots, so a paired
 editor integration cannot import this registry. It registers

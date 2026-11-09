@@ -90,6 +90,8 @@ export interface CodeAction {
 export interface LspCallOptions {
 	/** The caller giving up. The call ends, and the server is told. */
 	readonly signal?: AbortSignal;
+	/** Limit workspace symbols to this folder, when supplied. */
+	readonly root?: string;
 }
 
 /**
