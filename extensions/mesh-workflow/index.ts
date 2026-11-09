@@ -61,6 +61,7 @@ import {
 	oweTurnToReload,
 	takeOwedTurn,
 } from "../../lib/internal/reload/hold.ts";
+import { SANDBOX_VARIABLE, STRICT } from "../../lib/internal/sandbox.ts";
 import {
 	firstPromptPending,
 	runStarted,
@@ -661,7 +662,14 @@ export function meshWorkflow(
 					window: () => (peer ? presences.of(peer.session)?.title : undefined),
 					owner: () =>
 						peer
-							? { session: peer.session, address: peer.signature }
+							? {
+									session: peer.session,
+									address: peer.signature,
+									sandbox:
+										process.env[SANDBOX_VARIABLE] === STRICT
+											? "strict"
+											: "none",
+								}
 							: undefined,
 					locked: <T>(quest: string, change: () => T): T => {
 						const dir = join(paths.quests, quest);

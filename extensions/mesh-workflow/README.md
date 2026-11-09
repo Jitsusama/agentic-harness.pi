@@ -201,8 +201,12 @@ and can answer a question or a gate left open on screen.
   It is no want in presence, since the session carries on and is
   still free to answer its peers. Every item
   says how it will be known done (`doneWhen`: a check, a signal
-  such as `boot` or `signin:google`, or `by: person`), and may say
-  what it waits for first (`readyWhen`). The desktop's daemon
+  such as `boot` or `switch`, or `by: person`), and may say
+  what it waits for first (`readyWhen`). The daemon stops a check
+  after 90 seconds, and runs none for an owner whose `sandbox` is
+  `strict`, since it runs checks as the person. A sign-in signal is
+  refused until something writes
+  `~/.local/state/mission/signins/<service>`. The desktop's daemon
   writes what it found in `~/.local/state/mission/verdicts.json`;
   a session applies those as it starts and as each run ends, so an
   item clears itself. Sealing a quest removes its file. An item

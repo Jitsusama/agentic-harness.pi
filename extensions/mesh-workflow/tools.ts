@@ -336,7 +336,7 @@ export function registerTools(
 					},
 					{
 						description:
-							'How it will be known done, required for a new item: exactly one of check (a command that succeeds once it is done), signal ("boot", "switch", "switch:<core commit>" for a switch to it or past it, "signin:<service>", "device:<name>" or "file:<absolute path>"), or by: "person" where nothing else can tell',
+							'How it will be known done, required for a new item: exactly one of check (a command that succeeds once it is done, stopped after 90 seconds, so bound its own network calls under that), signal ("boot", "switch", "switch:<core commit>" for a switch to it or past it, "device:<name>" or "file:<absolute path>"), or by: "person" where nothing else can tell',
 					},
 				),
 			),
