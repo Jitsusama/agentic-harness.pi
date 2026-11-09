@@ -38,6 +38,7 @@
 		"packs/**/*.ts",
 		"tests/**/*.ts",
 		"tests/**/*.mjs",
+		"tests/**/*.mts",
 		"scripts/**/*.ts",
 		"*.ts"
 	],

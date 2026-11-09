@@ -30,5 +30,31 @@ calling close or stop: `reload(id, { reason })` runs the registration's
 optional reload callback under withSession, joins a reload already
 under way, refuses an unknown or closing conversation, a tree (`onto`)
 and a runner with no callback, and leaves a conversation whose reload
-failed held and usable. The durable AgentSession adapter and process-child
-reconciliation are subsequent work, not implemented by this first seam.
+failed held and usable.
+
+## The Hosted Agent
+
+Each conversation runs pi's own AgentSession. Only the agent under it
+changes: pi's createAgentSession builds it through the agent-interface
+patch's createAgent option. The agent is HostedAgent (hosted-agent.ts),
+shaped as pi's Agent and run by the conversation's own durable harness,
+which openHostedConversation (hosted-conversation.ts) opens on a SQLite
+store of its own. pi keeps its state, queues, listeners, hooks, retry and
+compaction, and every request is built from pi's projection of the
+session. Durable admits inputs, makes each request through pi's stream
+with the conversation's environment, and runs each tool, never rerunning
+one a restart cut off. Nothing reaches pi before durable has committed
+it, so the session file never holds a step twice, and ordinary pi opens
+the file.
+
+ToolRound (tool-round.ts) keeps pi's tool-call steps in pi's order:
+start, then preparation, hooks and validation, then execution. A
+parallel round prepares every call before any runs, as pi does. pi-types.ts
+and durable-types.ts declare the narrow shapes the engine uses of pi's
+JavaScript, and pi-library.ts picks pi's functions from the loaded
+install. tests/host/engine/hosted-agent.test.ts holds the agent to pi's
+own: ten scripted scenarios give pi's listeners identical events, and a
+SIGKILL mid-tool resumes without a second run of the tool.
+
+Process-child reconciliation and createEngine, the service's factory, are
+subsequent work.

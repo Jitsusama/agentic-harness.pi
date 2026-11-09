@@ -13,6 +13,8 @@
 		"lib/**/*.mjs",
 		// The tests and their configs.
 		"tests/**/*.test.ts",
+		// Programs a test runs in a node of its own.
+		"tests/**/fixtures/*.mts",
 		"vitest*.config.ts"
 	],
 	"project": [
@@ -21,7 +23,8 @@
 		"lib/**/*.{ts,mjs}",
 		"packs/**/*.ts",
 		"scripts/**/*.ts",
-		"tests/**/*.ts"
+		"tests/**/*.ts",
+		"tests/**/*.mts"
 	],
 	// pi maps @sinclair/typebox onto the typebox it bundles at runtime, and
 	// vitest.config.ts and tsconfig.json copy that mapping onto ours, so
