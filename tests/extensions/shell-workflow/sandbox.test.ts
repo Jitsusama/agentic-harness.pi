@@ -45,11 +45,16 @@ function worktreeLayout(base: string, tree: string, back: string): string {
 	return repository;
 }
 
-/** Run a command as a session with `sandbox` would; its text and exit. */
+/**
+ * Run a command as a session with `sandbox` would; its text and exit. It
+ * runs in the temporary folder unless told otherwise, not the folder the
+ * tests started in: the strict sandbox refuses a plain clone's, which holds
+ * its git folder, so the tests would fail wherever they're checked out so.
+ */
 async function run(
 	sandbox: Sandbox,
 	command: string,
-	cwd = process.cwd(),
+	cwd = tmpdir(),
 ): Promise<string> {
 	const bash = agentBash(cwd, {}, sandbox);
 	try {

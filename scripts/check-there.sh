@@ -33,8 +33,7 @@ exec ssh -o BatchMode=yes "$host" bash -s -- "$branch" <<'THERE'
 set -euo pipefail
 branch="$1"
 # The check runs in a worktree of a bare clone, as the harness's own trees
-# are: the strict sandbox's tests refuse a plain clone's folder, whose git
-# folder commands could write.
+# are, so it reads the code as a session working on it does.
 repo=~/.cache/harness-check.git
 dir=~/.cache/harness-check-tree
 # Every check checks its branch out into the one worktree, so a second

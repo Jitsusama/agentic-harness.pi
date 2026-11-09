@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	describePlan,
 	type OpenRequest,
@@ -137,14 +137,27 @@ describe("opening several shells", () => {
 		};
 		const pace = 80;
 
-		const outcomes = await openTerminals(
-			[
-				{ layout: "window", command: "one" },
-				{ layout: "window", command: "two" },
-				{ layout: "window", command: "three" },
-			],
-			{ ...here, settings, env: {}, drivers: [kitty], paceMs: pace },
-		);
+		// On the real clock a loaded machine stretches or shrinks the time
+		// between a shell's begun and its launch, and a timer may wake a
+		// millisecond or two early, so the gaps would say how busy it was
+		// rather than how the shells were paced.
+		vi.useFakeTimers();
+		const outcomes = await (async () => {
+			try {
+				const opening = openTerminals(
+					[
+						{ layout: "window", command: "one" },
+						{ layout: "window", command: "two" },
+						{ layout: "window", command: "three" },
+					],
+					{ ...here, settings, env: {}, drivers: [kitty], paceMs: pace },
+				);
+				await vi.runAllTimersAsync();
+				return await opening;
+			} finally {
+				vi.useRealTimers();
+			}
+		})();
 
 		expect(outcomes.filter((each) => !each.ok)).toEqual([]);
 		expect(kitty.calls.typed.map((each) => each.text)).toEqual([
@@ -153,11 +166,10 @@ describe("opening several shells", () => {
 			"three\n",
 		]);
 		const gaps = began.slice(1).map((at, index) => at - (began[index] ?? at));
-		// A timer may fire a millisecond early by the clock it is read on.
-		expect(
-			gaps.every((gap) => gap >= pace - 1),
-			`gaps ${gaps}`,
-		).toBe(true);
+		expect(gaps, "each shell begins a pace after the last").toEqual([
+			pace,
+			pace,
+		]);
 	});
 
 	it("plans several without waiting, however paced", async () => {
