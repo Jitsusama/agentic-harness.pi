@@ -159,9 +159,10 @@ it("records headless hosted turn hooks in the host log, not either conversation 
 	const samples = readSamples(dir);
 	expect(samples.size).toBe(1);
 	expect([...samples.values()][0]).toHaveLength(2);
-	expect(
-		[...samples.values()][0].every((sample) => sample.host === "test/spend"),
-	).toBe(true);
+	expect([...samples.values()][0].map((sample) => sample.host)).toEqual([
+		"test/spend",
+		"test/spend",
+	]);
 });
 
 it("keeps provider history per conversation and retries an entry that failed to append", async () => {
