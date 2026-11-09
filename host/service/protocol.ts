@@ -60,6 +60,28 @@ const viewer = z.discriminatedUnion("type", [
 	z.strictObject({ type: z.literal("resize"), ...geometry }),
 ]);
 
+const reply = z.discriminatedUnion("ok", [
+	z.strictObject({
+		v: z.literal(1),
+		id: text,
+		ok: z.literal(true),
+		result: z.unknown(),
+	}),
+	z.strictObject({
+		v: z.literal(1),
+		id: text.nullable(),
+		ok: z.literal(false),
+		error: z.strictObject({ code: text, message: text }),
+	}),
+]);
+
+/** Validate the engine's reply without trusting the connected socket's identity. */
+export function parseReply(value: unknown) {
+	const parsed = reply.safeParse(value);
+	if (!parsed.success) throw new Error("Invalid host control reply");
+	return parsed.data;
+}
+
 /** A validated request; sessionId always names pi's stable UUID. */
 export type ControlRequest = z.infer<typeof request>;
 /** A validated event from one attached viewer. */

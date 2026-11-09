@@ -22,6 +22,7 @@ export type ControlReply =
 export async function dispatchControl(
 	value: unknown,
 	backend: ControlBackend,
+	report?: (error: unknown) => void,
 ): Promise<ControlReply> {
 	let request: ControlRequest;
 	try {
@@ -64,7 +65,8 @@ export async function dispatchControl(
 				? await withSession(request.sessionId, () => backend.execute(request))
 				: await backend.execute(request);
 		return { v: 1, id: request.id, ok: true, result };
-	} catch {
+	} catch (error) {
+		report?.(error);
 		return {
 			v: 1,
 			id: request.id,
