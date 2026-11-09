@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
+import { recordOutsideWrites } from "../../../extensions/quest-workflow/outside-writes";
 import { questTempDir } from "../../../extensions/quest-workflow/scratch";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
@@ -253,6 +254,49 @@ describe("build home gate", () => {
 		);
 		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toMatch(/tree-add/);
+	});
+
+	it("lets a write through to a path the quest already noted outside its trees", async () => {
+		// The refusal's override is for one call, so a session writing the same
+		// live file again was refused every time: 135 of 293 noted writes in
+		// a fortnight were paths the quest had already noted. Once noted, the
+		// path is accounted for, and conclude names it either way.
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const workspaceRoot = join(tmpRoot, "workspaces");
+		const noted = join(tmpRoot, "live.json");
+		recordOutsideWrites(workspaceRoot, state.questId, [noted]);
+		const options = { ...noScratch, workspaceRoot };
+
+		const again = enforceQuest(
+			state,
+			"write",
+			{ path: noted },
+			tmpRoot,
+			options,
+		);
+		const redirect = enforceQuest(
+			state,
+			"bash",
+			{ command: `echo {} > ${noted}` },
+			tmpRoot,
+			options,
+		);
+		const fresh = enforceQuest(
+			state,
+			"bash",
+			{ command: `echo {} > ${noted}; echo {} > ${join(tmpRoot, "new.json")}` },
+			tmpRoot,
+			options,
+		);
+
+		expect(again).toBeUndefined();
+		expect(redirect).toBeUndefined();
+		expect(fresh).toMatchObject({
+			block: true,
+			outside: [join(tmpRoot, "new.json")],
+		});
 	});
 
 	it("blocks a homeless bash redirect, like the write tool", async () => {

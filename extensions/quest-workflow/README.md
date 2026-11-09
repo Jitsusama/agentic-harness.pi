@@ -369,7 +369,9 @@ while it waits its turn leaves without running.
   through, outside every tree, is noted in the quest's
   scratch folder (`outside-writes.jsonl`), and `conclude` names
   them in its message and Journey, so a quest accounts for
-  everything it touched. `quest-untracked-tree`
+  everything it touched. A path already noted there flows
+  from then on, since the quest has accounted for it.
+  `quest-untracked-tree`
   redirects by adopting the tree. A
   main checkout cannot be adopted without force, so a write
   into one goes ahead untracked, said once per session.

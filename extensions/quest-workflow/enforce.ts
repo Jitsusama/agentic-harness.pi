@@ -63,6 +63,7 @@ import {
 } from "../../lib/internal/quest/owned-fields.ts";
 import { treesHere } from "../../lib/internal/quest/tree-place.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
+import { readOutsideWrites } from "./outside-writes.ts";
 import type { QuestState } from "./state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";
 
@@ -298,7 +299,10 @@ function enforcePhase(
  * and in block mode the agent is told to. A write into any quest's
  * record is the record gate's business, not this one's. A genuinely
  * homeless write -- outside every git tree, and not a device,
- * scratch or quest-internal -- is blocked with tree-add guidance.
+ * scratch or quest-internal -- is blocked with tree-add guidance,
+ * unless the quest already noted that path when an earlier write to
+ * it went ahead: it is accounted for, and refusing it again only cost
+ * a second call (135 of 293 noted writes were such repeats).
  *
  * This is advisory and it fails open: if a write lands in a tracked
  * tree, or once the agent adopts the tree it is in, the block never
@@ -344,13 +348,23 @@ function enforceHome(
 	// tree gets adoption guidance; a homeless one gets tree-add, and
 	// every homeless target is named so it can be noted.
 	const loose: string[] = [];
+	let noted: ReadonlySet<string> | undefined;
+	const notedAlready = (target: string): boolean => {
+		noted ??= new Set(
+			readOutsideWrites(
+				options.workspaceRoot ?? defaultWorkspaceRoot(),
+				state.questId,
+			).map((write) => write.path),
+		);
+		return noted.has(target);
+	};
 	const verdict = (target: string): QuestVerdict | undefined => {
 		// Every quest's folder holds its record, whichever quest is loaded,
 		// and the record gate has already judged the write.
 		if (isWithin(target, state.questsRoot)) return;
 		const classification = classifyTarget(state, target, options);
 		if (classification.category === "loose-file") {
-			loose.push(target);
+			if (!notedAlready(target)) loose.push(target);
 			return;
 		}
 		const root = classification.treeRoot;
