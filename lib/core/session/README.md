@@ -147,5 +147,8 @@ Today's sites wait in tests/package/session-state-waiting.txt, by
 extension file and kind. Lower the count in the same change that
 migrates a site, removing zero entries. New shortcuts fail. A genuine
 process-wide service needs a reviewed exemption rather than a session
-slot; the initial list also contains such services until classified.
+slot: its owner moves it to tests/package/session-state-exempt.txt as
+`path:kind count reason`, and a line without a reason, or a count the
+file outgrows, fails. The waiting list still holds such services until
+their owners classify them.
 The gate does not scan library code: wave 2 owns its library migrations.

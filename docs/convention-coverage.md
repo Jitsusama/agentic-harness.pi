@@ -48,8 +48,9 @@ in tests/package/session-state-is-keyed.test.ts blocks new direct process
 identity, cwd, global slots and environment writes in extensions. Existing
 sites are listed by file and kind in session-state-waiting.txt, which only
 shrinks. This is syntax coverage, not alias or data-flow analysis, and does
-not cover library code. Genuine process-wide infrastructure still waits
-for its domain owner's classification.
+not cover library code. Genuine process-wide infrastructure, once its
+domain owner reviews it, moves to session-state-exempt.txt with a reason
+per line; a line without one, or a count the file outgrows, fails.
 
 ## Open Gaps
 
