@@ -63,6 +63,7 @@ import {
 	gateRefusal,
 	type RunGate,
 } from "../merge-gate.ts";
+import { noteQueued } from "../queued.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
 import { checkoutSize, hostedSize } from "./change-size.ts";
 import {
@@ -1722,6 +1723,8 @@ async function merge(
 	// change has been accepted for a batch that may still fail CI. The reader
 	// of that sentence goes on to prune the branch and call the work done.
 	if (outcome.kind === "enqueued") {
+		// It lands when the queue reaches it, which is when it is said landed.
+		noteQueued(change, params.person);
 		return say(
 			`${GLYPH.queued} ${change.label} enqueued${outcome.detail ? `: ${outcome.detail}` : ""}. It lands when the queue reaches it, and not at all if its checks fail, so do not prune the branch on the strength of this.`,
 			{ ok: true, merged: false, enqueued: true },

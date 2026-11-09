@@ -51,6 +51,7 @@ import {
 	sessionKey,
 } from "./engine.ts";
 import { guardPublishes } from "./guard-publish.ts";
+import { watchQueued } from "./queued.ts";
 import { collectSettled } from "./tools/ask.ts";
 import {
 	registerAskTool,
@@ -413,6 +414,10 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// holds. Registered unconditionally: either something asks and this
 	// answers, or nothing asks and it costs nothing.
 	guardPublishes(pi);
+
+	// A change sent to a merge queue is said landed once it merges, which
+	// is after the call that sent it has answered (queued.ts).
+	watchQueued(pi);
 
 	// On pi's own lifecycle API rather than the event bus, because the
 	// bus hands a handler the event and nothing else, and which session
