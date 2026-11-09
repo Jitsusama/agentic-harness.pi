@@ -45,9 +45,11 @@ What it adds:
   for a turn in the machine's queue before it runs, and pi's own clock
   counted that wait: hour-long jobs died at their hour having never
   started. For a command the queue holds, the clock starts when its
-  turn does, read from a mark the shell leaves as the work begins, and
-  running out reads as pi's own does: `Command timed out after N
-  seconds`. Every other command keeps pi's clock.
+  turn does, read from a mark the shell leaves as the work begins. It
+  stops while the shell's cgroup is frozen, as the jobs door freezes
+  work through a call, so a thawed command isn't killed for time it
+  never ran. Running out reads as pi's own does: `Command timed out
+  after N seconds`. Every other command keeps pi's clock.
 - **What other extensions offer.** An extension can offer variables
   for the agent's commands through `offerShellEnvironment` in
   `lib/internal/shell/environment.ts`, read as each command starts.

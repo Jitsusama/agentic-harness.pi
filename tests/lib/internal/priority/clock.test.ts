@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
@@ -70,6 +76,27 @@ describe("a time limit on work that waits for its turn", () => {
 		const said = await run(bash(), queued("j2", "echo began; sleep 30"), 1);
 		expect(said).toEqual({ out: "began\n", threw: "timeout:1" });
 		expect(Date.now() - started).toBeLessThan(10_000);
+	});
+
+	it("does not count a stretch its shell's cgroup spends frozen", async () => {
+		writeFileSync(join(dir, "j4.job"), "{}\n");
+		writeFileSync(join(dir, "j4.turn"), "");
+		const thaws = Date.now() + 2_000;
+		const asked = new Set<number>();
+		const ops = timedFromTurn(createLocalBashOperations(), {
+			pollMs: 50,
+			frozen: (pid) => {
+				asked.add(pid);
+				return Date.now() < thaws;
+			},
+		});
+		const said = await run(ops, queued("j4", "sleep 2.5; echo ran"), 1);
+		expect(said, "a run frozen for 2 of its 2.5 s ran only 0.5 s").toEqual({
+			out: "ran\n",
+			code: 0,
+		});
+		const shell = Number(readFileSync(join(dir, "j4.pid"), "utf8"));
+		expect([...asked], "it asks of the shell the queue holds").toEqual([shell]);
 	});
 
 	it("leaves work the queue does not hold to pi's own clock", async () => {
