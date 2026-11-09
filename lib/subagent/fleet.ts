@@ -26,6 +26,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { hosted, sessionOwner } from "../core/session/index.ts";
 import {
 	askedOnceWithTicks,
 	type TickedOwner,
@@ -55,9 +56,9 @@ export interface FleetRun {
 	/**
 	 * The conversation that dispatched this fleet, by pi session id.
 	 *
-	 * Not the same thing as the owner below. The owner is a process,
-	 * and dies with it; the conversation is what wanted the answers,
-	 * and a restored session brings it back under another pid. This is
+	 * Not the same thing as the owner below. The owner names a process
+	 * or one open conversation within a host; the session id is what
+	 * wanted the answers and survives a restart under another pid. This is
 	 * how a fleet cut off by the end of one process is told to the same
 	 * conversation when it comes back, rather than to whoever happens
 	 * to start first.
@@ -188,7 +189,7 @@ export async function abandonedFleets(
 }
 
 /**
- * This process, as something a later session can check.
+ * The waiter, as a process or hosted conversation a later session can check.
  *
  * The counterpart of {@link abandonedFleets} and here beside it, so
  * the two spellings of an owner cannot drift: one writes the pair, the
@@ -207,7 +208,7 @@ export async function whoIsWaiting(
 	// here is asking a question in this module's vocabulary, and
 	// because the two spellings of an owner cannot be allowed to drift
 	// whatever they are called.
-	return await tickedOwnerNow(facts, pid);
+	return hosted() ? sessionOwner() : tickedOwnerNow(facts, pid);
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
@@ -608,6 +609,11 @@ function ownerIsWellFormed(value: unknown): boolean {
 		owner.pid > 0 &&
 		typeof owner.startedAt === "number" &&
 		(owner.bootId === undefined || typeof owner.bootId === "string") &&
+		((owner.session === undefined && owner.host === undefined) ||
+			(typeof owner.session === "string" &&
+				owner.session.length > 0 &&
+				typeof owner.host === "string" &&
+				owner.host.length > 0)) &&
 		// Ticks decide over the start time when they are there, so a
 		// malformed count is refused for the same reason a pid is.
 		(owner.startTicks === undefined ||

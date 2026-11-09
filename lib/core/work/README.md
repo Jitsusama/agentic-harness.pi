@@ -9,6 +9,15 @@ hands out trees and takes them back, choosing the provider that
 cuts one, and the commits, rebases and stacks worked on in them.
 `index.ts` is the whole surface.
 
+## Hosted Holders
+
+Tree memory records the calling conversation's session owner in a host,
+not just its pid. B sees A as another holder even when both run in one
+process, and releasing A removes only A's claim. Liveness checks consult
+the host's open-conversation list after confirming its process identity,
+using kernel ticks where available so suspend cannot retire a live hold.
+Plain pi retains its existing process holders.
+
 ## Folders
 
 - `providers/`: the providers this package ships to cut trees.

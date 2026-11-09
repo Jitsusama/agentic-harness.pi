@@ -1,19 +1,23 @@
-/** A two-conversation host for tests of reload-safe session state. */
+/** Two-conversation hosts for tests of session-keyed state. */
 import {
 	type Host,
 	installHost,
 	releaseSession,
 	type SessionEnvironment,
+	type SessionOwner,
 } from "../../lib/core/session/index.ts";
 
-/** Install an in-process host; closing a conversation releases only its slots. */
-export function installTestHost() {
+/**
+ * Make a two-conversation host, leaving installation and disposal to
+ * the test. Closing a conversation releases only its slots.
+ */
+export function sessionHost(owner: SessionOwner) {
 	const open = new Set(["a", "b"]);
 	const environments = new Map<string, SessionEnvironment>();
 	const host: Host = {
 		kind: "pi-durable",
 		key: "test-host",
-		owner: { pid: process.pid, startedAt: Date.now() },
+		owner,
 		holds: (id) => (open.has(id) ? "idle" : undefined),
 		env(id) {
 			let env = environments.get(id);
@@ -41,6 +45,12 @@ export function installTestHost() {
 		},
 		stamp: () => {},
 	};
+	return { host, open };
+}
+
+/** Install an in-process host; closing a conversation releases only its slots. */
+export function installTestHost() {
+	const { host } = sessionHost({ pid: process.pid, startedAt: Date.now() });
 	const uninstall = installHost(host);
 	return {
 		host,
