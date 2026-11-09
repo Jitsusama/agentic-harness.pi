@@ -3004,19 +3004,34 @@ describe("a message that names no group", () => {
 		);
 		expect(existsSync(file), `${file} is not written`).toBe(false);
 
+		// Nothing writes the file a sign-in would be heard from, so an item
+		// waiting on one would never clear.
+		const signin = await wait({
+			id: "eero-login",
+			title: "Log in to eero",
+			why: "Only Joel has the account",
+			minutes: 2,
+			doneWhen: { signal: "signin:eero" },
+			steps: ["Open the eero app", "Sign in"],
+		});
+		expect(signin?.content[0]?.text).toContain(
+			"Nothing was kept: nothing says signin:eero yet",
+		);
+		expect(existsSync(file), `${file} is not written`).toBe(false);
+
 		const kept = await wait({
 			id: "eero-login",
 			title: "Log in to eero",
 			why: "Only Joel has the account",
 			minutes: 2,
 			when: "now",
-			doneWhen: { signal: "signin:eero" },
+			doneWhen: { check: "eero-signed-in" },
 			steps: ["Open the eero app", "Sign in"],
 		});
 
 		expect(kept?.content[0]?.text).toContain("Kept eero-login");
 		expect(kept?.content[0]?.text).toContain(
-			"clears itself once the desktop sees signin:eero",
+			"clears itself once `eero-signed-in` succeeds",
 		);
 		// No daemon has judged anything yet, so the owner settles it itself.
 		expect(kept?.content[0]?.text).toContain(
@@ -3071,9 +3086,10 @@ describe("a message that names no group", () => {
 					when: "now",
 					quest: "QEST-20261021-7M6JKG",
 					ready: true,
-					doneWhen: { signal: "signin:eero" },
+					doneWhen: { check: "eero-signed-in" },
 					steps: ["Open the eero app", "Sign in"],
-					owner: { session },
+					// The daemon refuses a strict session's check; this one runs open.
+					owner: { session, sandbox: "none" },
 					raisedAt: expect.any(String),
 					checkedAt: expect.any(String),
 				},
@@ -3089,6 +3105,34 @@ describe("a message that names no group", () => {
 
 		expect(existsSync(file), `${file} is removed`).toBe(false);
 		expect(presence()?.wants).toBeUndefined();
+	});
+
+	it("says a fenced session's item is strict, so the daemon won't run its check", async () => {
+		// The daemon runs a check as the person; run for a fenced session, it
+		// would let the session's command out of its fence.
+		vi.stubEnv("PI_SANDBOX", "strict");
+		try {
+			paths = { ...paths, waiting: join(root, "waiting") };
+			const { tools } = await startSession();
+			await tools.get("mesh_wait")?.execute("call-w", {
+				id: "look",
+				title: "Look at the router",
+				why: "Only Joel is home",
+				minutes: 1,
+				doneWhen: { check: "router-up" },
+				steps: ["Look at its light"],
+			});
+			const kept = JSON.parse(
+				readFileSync(join(root, "waiting", "7M6JKG.json"), "utf8"),
+			);
+			expect(kept.items[0].owner).toEqual({
+				session,
+				address: expect.any(String),
+				sandbox: "strict",
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("refuses a send to an orchestrator nobody is, and drops the word beside other groups", async () => {

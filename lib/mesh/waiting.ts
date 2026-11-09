@@ -66,6 +66,13 @@ export interface Owner {
 	readonly session: string;
 	readonly address: string;
 	/**
+	 * "strict" when the session runs its commands fenced (PI_SANDBOX), so
+	 * the desktop's daemon, which runs an item's check as the person,
+	 * refuses its check rather than let it out of the fence. "none"
+	 * otherwise; left out by sessions from before it was said.
+	 */
+	readonly sandbox?: "strict" | "none";
+	/**
 	 * "ended" once the session ended with the item still waiting, so the
 	 * launcher says so rather than send the person into a session that's
 	 * gone (Joel, 8 November: "so far past what i'm being asked that i

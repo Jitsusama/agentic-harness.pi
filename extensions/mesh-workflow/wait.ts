@@ -176,6 +176,12 @@ export function waitOnPerson(
 			`Nothing was kept: readyWhen, when given, is one of ${KNOWING}; leave it out when he can do it now.`,
 		);
 	}
+	const signin = [params.doneWhen, params.readyWhen].find(awaitsSignin);
+	if (signin) {
+		return refused(
+			`Nothing was kept: nothing says ${signin.signal} yet, since the desktop's daemon hears a sign-in only once something writes ~/.local/state/mission/signins/<service>, and nothing does, so the item would never clear. Give a check that succeeds once he is signed in, or by: "person".`,
+		);
+	}
 	const badTime = (["at", "deadline"] as const).find(
 		(field) =>
 			params[field] !== undefined && Number.isNaN(Date.parse(params[field])),
@@ -245,7 +251,23 @@ export function waitOnPerson(
 
 /** The forms doneWhen and readyWhen take, as a refusal says them. */
 const KNOWING =
-	'{check: "<a command that succeeds once it is so>"}, {signal: "boot" | "switch" | "switch:<core commit, or past it>" | "signin:<service>" | "device:<name>" | "file:<absolute path>"}, or {by: "person"} where nothing else can tell';
+	'{check: "<a command that succeeds once it is so, stopped after 90 seconds>"}, {signal: "boot" | "switch" | "switch:<core commit, or past it>" | "device:<name>" | "file:<absolute path>"}, or {by: "person"} where nothing else can tell';
+
+/**
+ * Whether a doneWhen or readyWhen waits on a sign-in. The daemon hears
+ * one only from a file under ~/.local/state/mission/signins that nothing
+ * writes yet (FEH1HE, 9 November), so such an item would never clear.
+ * Items already kept with one still read, and wait for the person.
+ */
+function awaitsSignin(
+	knowing: unknown,
+): knowing is { readonly signal: string } {
+	return (
+		isKnowing(knowing) &&
+		"signal" in knowing &&
+		knowing.signal.startsWith("signin:")
+	);
+}
 
 /**
  * What the owner must do itself while no daemon judges checks and
