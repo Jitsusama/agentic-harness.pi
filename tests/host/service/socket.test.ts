@@ -357,9 +357,11 @@ describe("one-shot client", () => {
 			}
 		}
 	});
-	it("bounds silent requests and refuses attach before connecting", async () => {
+	it("bounds requests even with trickle input and refuses attach before connecting", async () => {
 		const fake = createServer((socket) => {
 			socket.on("data", () => {});
+			const trickle = setInterval(() => socket.write(" "), 5);
+			socket.on("close", () => clearInterval(trickle));
 		});
 		await new Promise<void>((resolve) => fake.listen(path, resolve));
 		try {

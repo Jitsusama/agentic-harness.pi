@@ -27,15 +27,18 @@ export async function controlRequest(
 		const socket = createConnection(path);
 		const frames = jsonLines();
 		let settled = false;
+		const deadline = setTimeout(
+			() => fail(new Error("Host control request timed out; outcome unknown")),
+			timeoutMs,
+		);
 		function fail(error: unknown) {
 			if (settled) return;
 			settled = true;
+			clearTimeout(deadline);
 			socket.destroy();
 			reject(error);
 		}
-		socket.setTimeout(timeoutMs, () =>
-			fail(new Error("Host control request timed out; outcome unknown")),
-		);
+
 		socket.on("connect", () => {
 			socket.write(`${JSON.stringify(request)}\n`);
 		});
@@ -51,6 +54,7 @@ export async function controlRequest(
 				if (reply.id !== request.id)
 					throw new Error("Host reply id does not match request");
 				settled = true;
+				clearTimeout(deadline);
 				socket.destroy();
 				resolve(reply);
 			} catch (error) {
