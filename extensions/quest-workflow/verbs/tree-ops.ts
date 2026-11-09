@@ -163,12 +163,51 @@ export function treeAdopt(
 	if (!state.questDir || !state.questId) {
 		return refuse("Load a quest first.");
 	}
-	const start = defaultRepoRoot(state, params);
+	const adopted = adoptTreeAt(
+		state,
+		defaultRepoRoot(state, params),
+		params.force === true,
+	);
+	if (!adopted.ok) return refuse(adopted.reason);
+	const { tree } = adopted;
+	if (!adopted.added) {
+		return ok(`Tree at ${tree.path} is already tracked on this quest.`, {
+			tree,
+		});
+	}
+	return ok(`Adopted tree at ${tree.path}; it will not be auto-pruned.`, {
+		tree,
+	});
+}
+
+/** A tree a quest adopted, or why it would not. */
+type Adoption =
+	| {
+			ok: true;
+			tree: QuestTree & { origin: "adopted" };
+			/** False when the quest already held it. */
+			added: boolean;
+	  }
+	| { ok: false; reason: string };
+
+/**
+ * Record the git tree holding `start` on the loaded quest as adopted,
+ * journaling it, under the guards a shared checkout needs unless
+ * `force`. `tree-adopt` is this as a verb, and `tree-expand` does it
+ * for a tree it is pointed at that the quest has no record of.
+ */
+function adoptTreeAt(
+	state: QuestState,
+	start: string,
+	force: boolean,
+): Adoption {
+	if (!state.questDir) return { ok: false, reason: "Load a quest first." };
 	const root = gitTreeRootOf(start);
 	if (!root) {
-		return refuse(
-			`${start} is not inside a git working tree. Pass cwd pointing at a path inside the tree you want to adopt; you do not need to change your session's directory.`,
-		);
+		return {
+			ok: false,
+			reason: `${start} is not inside a git working tree. Pass cwd pointing at a path inside the tree you want to adopt; you do not need to change your session's directory.`,
+		};
 	}
 	// Guard a shared checkout before binding: a path another quest
 	// already tracks, or a repository's main working tree, is the shape
@@ -178,17 +217,19 @@ export function treeAdopt(
 	// shared bind a deliberate act. A repository with no commits yet is
 	// one just made, by this quest, so nobody shares it and it is adopted
 	// as any tree is: one quest got Joel woken to run `git init`.
-	if (!params.force) {
+	if (!force) {
 		const otherQuest = pathAdoptedByAnotherQuest(state, root);
 		if (otherQuest) {
-			return refuse(
-				`${root} is already tracked by ${otherQuest}. Adopting one checkout on several quests is what makes a fresh session resolve to an arbitrary quest. Pass force:true to adopt it here as well, or scaffold a private worktree with tree-add.`,
-			);
+			return {
+				ok: false,
+				reason: `${root} is already tracked by ${otherQuest}. Adopting one checkout on several quests is what makes a fresh session resolve to an arbitrary quest. Pass force:true to adopt it here as well, or scaffold a private worktree with tree-add.`,
+			};
 		}
 		if (isMainWorkingTree(root) && !hasNoCommits(root)) {
-			return refuse(
-				`${root} is a repository's main working tree, not a scaffolded worktree. Adopting a shared main checkout binds this quest to it. Pass force:true to confirm, or scaffold a private worktree with tree-add.`,
-			);
+			return {
+				ok: false,
+				reason: `${root} is a repository's main working tree, not a scaffolded worktree. Adopting a shared main checkout binds this quest to it. Pass force:true to confirm, or scaffold a private worktree with tree-add.`,
+			};
 		}
 	}
 	const provider = resolveTreeProvider(root);
@@ -204,16 +245,14 @@ export function treeAdopt(
 		origin: "adopted" as const,
 	};
 	const result = addTreeToQuest(state.questDir, tree);
-	if (!result.ok) return refuse(result.reason);
-	if (!result.added) {
-		return ok(`Tree at ${root} is already tracked on this quest.`, { tree });
-	}
+	if (!result.ok) return { ok: false, reason: result.reason };
+	if (!result.added) return { ok: true, tree, added: false };
 	// The Journey is prose held to the column rule, and an absolute
 	// path is the one thing in it that cannot be wrapped. A tilde is a
 	// courtesy for a reader, and the Journey has no other kind of
 	// audience: nothing reads a path back out of it.
 	logHarnessEntry(state, `Adopted tree at ${displayPath(root)}.`);
-	return ok(`Adopted tree at ${root}; it will not be auto-pruned.`, { tree });
+	return { ok: true, tree, added: true };
 }
 
 /**
@@ -345,6 +384,50 @@ function namedTree(
 		ok: false,
 		reason: `No tree on the loaded quest holds ${displayPath(path)}. Its ${noun(trees.length, "tree")}:\n${listed}`,
 	};
+}
+
+/**
+ * The tree an expand acts on: the recorded one holding `named`, as the
+ * other verbs find theirs, or else the git tree holding it, adopted onto
+ * the quest first. Sessions cut trees the quest never recorded, and an
+ * expand of one was refused only to be adopted and asked again: 32 of
+ * 46 such refusals from 2026-11-04 to 2026-11-09. Adding a zone changes
+ * nothing already checked out, so adopting what was named is no guess;
+ * a tree another quest holds, or a repository's main checkout, is still
+ * refused, as `tree-adopt` refuses it.
+ */
+function treeToExpand(
+	state: QuestState,
+	trees: QuestTree[],
+	named: string | undefined,
+):
+	| { ok: true; tree: QuestTree; adopted: boolean }
+	| { ok: false; reason: string } {
+	const recorded =
+		trees.length > 0
+			? namedTree(hereFirst(trees), named, "tree-expand")
+			: undefined;
+	if (recorded?.ok) return { ...recorded, adopted: false };
+	if (!named) {
+		return {
+			ok: false,
+			reason: recorded?.reason ?? "Name the tree to expand.",
+		};
+	}
+	const path = resolve(expandHome(named));
+	const adoption = adoptTreeAt(state, path, false);
+	if (!adoption.ok) {
+		return {
+			ok: false,
+			reason: recorded
+				? `${recorded.reason}\nIt was not adopted either: ${adoption.reason}`
+				: adoption.reason,
+		};
+	}
+	const relisted = listTreesOnQuest(state.questDir ?? "");
+	if (!relisted.ok) return { ok: false, reason: relisted.reason };
+	const found = namedTree(relisted.trees, path, "tree-expand");
+	return found.ok ? { ...found, adopted: adoption.added } : found;
 }
 
 /** A path with a leading `~` read as the home directory, as a shell would. */
@@ -522,16 +605,15 @@ export async function treeExpand(
 	}
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return refuse(listing.reason);
-	if (listing.trees.length === 0) {
-		return refuse("No trees on the loaded quest. Run tree-add first.");
+	const named = (params.cwd ?? params.target)?.trim();
+	if (listing.trees.length === 0 && !named) {
+		return refuse(
+			"No trees on the loaded quest. Name the tree to expand with `cwd`, or run tree-add first.",
+		);
 	}
-	const chosen = namedTree(
-		hereFirst(listing.trees),
-		params.cwd ?? params.target,
-		"tree-expand",
-	);
+	const chosen = treeToExpand(state, listing.trees, named);
 	if (!chosen.ok) return refuse(chosen.reason);
-	const target = chosen.tree;
+	const { tree: target, adopted } = chosen;
 	const refused = notOursToChange(target, "expand", false);
 	if (refused) return refuse(refused);
 	// The provider that made the tree, as a prune finds it, so an
@@ -556,7 +638,13 @@ export async function treeExpand(
 	try {
 		await expander.call(provider, { path: target.path, zone });
 		logHarnessEntry(state, `Expanded ${target.path} with zone ${zone}.`);
-		return ok(`Zone ${zone} added to ${displayPath(target.path)}.`, { zone });
+		const first = adopted
+			? `Adopted tree at ${displayPath(target.path)} onto this quest first, since it had no record of it; it will not be auto-pruned. `
+			: "";
+		return ok(`${first}Zone ${zone} added to ${displayPath(target.path)}.`, {
+			zone,
+			...(adopted ? { adopted: target.path } : {}),
+		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return refuse(`Tree expand failed: ${message}`);
