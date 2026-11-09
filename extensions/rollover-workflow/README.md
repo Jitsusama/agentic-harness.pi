@@ -163,6 +163,19 @@ needs under its own name in the payload's `carried`. When the fresh
 log starts, `carriedBy(branch, name)` from
 `lib/internal/session/rollover.ts` hands it back.
 
+## In a Host
+
+A multi-session host runs many conversations in one process, so a
+conversation there never rolls over, by itself or with `/rollover`,
+which says why. Rolling switches the conversation onto a fresh log,
+so a fresh session id, through the process's one reload slot, and
+which log each conversation runs is the host's to change.
+
+Auth put back before a turn goes into the conversation's own
+environment (`sessionEnv`, `lib/core/session`): `process.env` on plain
+pi, and in a host the one the host gives that conversation, so a key
+put back for one conversation never reaches another.
+
 ## Files
 
 - `index.ts`: when to roll over, and the `/rollover` command.

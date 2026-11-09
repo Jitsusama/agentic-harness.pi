@@ -19,7 +19,6 @@ extensions/reload-workflow/follow.ts:pid 1
 extensions/reload-workflow/lifecycle.ts:global 1
 extensions/reload-workflow/mcp.ts:global 1
 extensions/review-integration/engine.ts:pid 1
-extensions/rollover-workflow/index.ts:env-write 1
 extensions/shell-workflow/hand-off.ts:pid 1
 extensions/shell-workflow/index.ts:cwd 1
 extensions/shell-workflow/reap.ts:pid 1
