@@ -20,6 +20,7 @@ export type Reader = (id: string) => Message | undefined;
 export interface Self {
 	readonly addresses: readonly string[];
 	readonly pid: number;
+	readonly hosted?: boolean;
 }
 
 /**
@@ -67,9 +68,12 @@ export function answersQuestion(
 	return asked?.intent === "question" && sentBy(asked, self);
 }
 
-/** Whether this peer sent the message, by address or by process. */
+/** Whether this peer sent it; pid is a fallback only for plain peers. */
 export function sentBy(message: Message, self: Self): boolean {
-	return message.pid === self.pid || self.addresses.includes(message.from);
+	return (
+		(!self.hosted && !message.hosted && message.pid === self.pid) ||
+		self.addresses.includes(message.from)
+	);
 }
 
 /**
@@ -79,7 +83,11 @@ export function sentBy(message: Message, self: Self): boolean {
 export function mayReplace(replacement: Message, original: Message): boolean {
 	return (
 		replacement.id > original.id &&
-		(replacement.from === original.from || replacement.pid === original.pid)
+		sentBy(original, {
+			addresses: [replacement.from],
+			pid: replacement.pid,
+			hosted: replacement.hosted,
+		})
 	);
 }
 

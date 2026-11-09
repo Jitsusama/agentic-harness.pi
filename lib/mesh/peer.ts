@@ -59,6 +59,8 @@ import {
 
 export interface Peer {
 	readonly session: string;
+	/** Stop trailing publication when this runtime shuts down. */
+	dispose(): void;
 	/** The addresses it answers to, the one it signs with first. */
 	readonly addresses: readonly string[];
 	/** The address it signs with. */
@@ -154,6 +156,7 @@ export interface Surroundings {
 	readonly presences: Presences;
 	/** The process holding this session, when the machine would say. */
 	readonly owner?: TickedOwner;
+	readonly hosted?: Presence["hosted"];
 	/**
 	 * The session this one carries on from, when pi rolled its log over
 	 * into a fresh one: the same peer under a new session id.
@@ -361,7 +364,9 @@ export function localPeer(at: Surroundings): Peer {
 	// What was last published, less its time, so an unchanged presence is
 	// not written again.
 	let published: string | undefined;
+	let disposed = false;
 	const publish = () => {
+		if (disposed) return;
 		const said: Omit<Presence, "at"> = {
 			session: at.session,
 			addresses,
@@ -390,6 +395,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(usage ? { usage } : {}),
 			...(landings.length > 0 ? { landings } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
+			...(at.hosted ? { hosted: at.hosted } : {}),
 			...titled(at.title?.()),
 			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
@@ -458,8 +464,16 @@ export function localPeer(at: Surroundings): Peer {
 		get stops() {
 			return stops;
 		},
+		dispose() {
+			disposed = true;
+			dropPending();
+		},
 		get listener() {
-			return { addresses, groups: groups() };
+			return {
+				addresses,
+				groups: groups(),
+				...(at.hosted ? { hosted: true } : {}),
+			};
 		},
 		get receiver() {
 			return receiver;

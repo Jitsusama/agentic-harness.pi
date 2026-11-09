@@ -22,6 +22,7 @@
  * them, so a hand knows whose it is without asking anyone.
  */
 
+import { ambientSession, sessionEnv } from "../core/session/index.ts";
 import { type Holding, isCurrent, type Lease } from "./lease.ts";
 import { type Listener, type Message, reaches } from "./message.ts";
 
@@ -50,7 +51,7 @@ export function isSubagent(env: NodeJS.ProcessEnv = process.env): boolean {
  * from outside pi) is no peer's hand.
  */
 export function handIn(
-	env: NodeJS.ProcessEnv = process.env,
+	env: NodeJS.ProcessEnv = sessionEnv().snapshot(),
 	pid: number = process.pid,
 ): Hand | undefined {
 	if (!isSubagent(env)) return undefined;
@@ -58,7 +59,10 @@ export function handIn(
 	if (!of) return undefined;
 	const run = env.SUBAGENT_RUN_ID?.trim();
 	const id = env.SUBAGENT_ID?.trim();
-	return { of, session: `${of}.hand.${run && id ? `${run}.${id}` : pid}` };
+	return {
+		of,
+		session: `${of}.hand.${run && id ? `${run}.${id}` : (ambientSession() ?? pid)}`,
+	};
 }
 
 /** A hold that stands on the board, as a hand is told of it. */

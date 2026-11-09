@@ -16,6 +16,11 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import {
+	hosted,
+	sessionCwd,
+	sessionEnv,
+} from "../../lib/core/session/index.ts";
 import { machineBooted } from "../../lib/internal/booted.ts";
 import { kindOf, whatOf } from "../../lib/internal/priority/queue.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
@@ -53,7 +58,7 @@ const ASKING = "say so in your answer, for the session that started you";
 /** The extension, as a subagent's hands on the mesh at these paths. */
 export function meshHand(
 	paths: MeshPaths = machinePaths(),
-	env: NodeJS.ProcessEnv = process.env,
+	env: NodeJS.ProcessEnv = hosted() ? sessionEnv().snapshot() : process.env,
 ) {
 	return (pi: ExtensionAPI) => {
 		const hand = handIn(env);
@@ -187,7 +192,7 @@ export function meshHand(
 								? ((await whereItRuns(
 										event.toolCallId,
 										written,
-										called?.cwd ?? process.cwd(),
+										sessionCwd(called),
 										called?.signal,
 									)) ?? written)
 								: written;
@@ -205,7 +210,7 @@ export function meshHand(
 						}
 						const why =
 							typeof command === "string"
-								? await leasing.rewrite(command, called?.cwd ?? process.cwd())
+								? await leasing.rewrite(command, sessionCwd(called))
 								: undefined;
 						if (why) return { block: true, reason: why };
 						if (own) heavyCalls.called(event.toolCallId, command);
@@ -221,7 +226,7 @@ export function meshHand(
 					if (typeof path !== "string" || path === "") return undefined;
 					return editNotes.met(
 						event.toolCallId,
-						await leasing.reach(path, called?.cwd ?? process.cwd()),
+						await leasing.reach(path, sessionCwd(called)),
 					);
 				} catch {
 					return undefined;

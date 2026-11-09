@@ -14,6 +14,7 @@ import type { ConcludedEvent } from "../../lib/internal/quest/concluded.ts";
 import type { NoModelEvent } from "../../lib/internal/session/no-model.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import type { Message } from "../../lib/mesh/message.ts";
+import { senderIdentity } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
@@ -83,7 +84,7 @@ function told(
 		to: [homeOf(orchestrator)],
 		intent,
 		text: `${peer.signature}, said by the mesh: ${said}`,
-		pid: process.pid,
+		...senderIdentity(),
 	});
 }
 

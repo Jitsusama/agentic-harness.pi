@@ -18,6 +18,7 @@
  * queue's record rather than from these leases.
  */
 
+import { sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	isKept,
 	machineQueueDir,
@@ -51,7 +52,12 @@ import {
 	rewriteIn,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
-import { clock, type Message, shortId } from "../../lib/mesh/message.ts";
+import {
+	clock,
+	type Message,
+	senderIdentity,
+	shortId,
+} from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
@@ -225,7 +231,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				to: [homeOf(address)],
 				intent: "fyi",
 				text,
-				pid: process.pid,
+				...senderIdentity(),
 			}),
 		);
 	};
@@ -336,7 +342,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			const own = at.own();
 			const peer = at.peer();
 			if (!own || !peer) return;
-			const self = { addresses: peer.addresses, pid: process.pid };
+			const self = { addresses: peer.addresses, ...senderIdentity() };
 			for (const message of messages) {
 				// One that crossed from another realm is answered nowhere here.
 				if (
@@ -395,7 +401,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			// Ending another's hold on the person's word waits on nothing.
 			if (message.re === undefined || message.endsHold) return;
 			const hold = at.transport.read(message.re);
-			const self = { addresses: peer.addresses, pid: process.pid };
+			const self = { addresses: peer.addresses, ...senderIdentity() };
 			if (hold?.intent !== "hold" || sentBy(hold, self)) return;
 			const left = standsUntil(hold) - now;
 			if (left > 0) own.take("wait", hold.id, left, cut(message.text), now);
@@ -789,23 +795,22 @@ export function createHeavyCalls(
  * starts. A reload evaluates this module again, so only a `Symbol.for`
  * key on `globalThis` outlives it; the version changes with the shape.
  */
-const CARRIED_CALLS = Symbol.for("agentic-harness.mesh.heavy-calls.v1");
-
-type CarriedGlobal = { [CARRIED_CALLS]?: readonly HeavyCall[] };
+const carriedCalls = () =>
+	sessionSlot<HeavyCall[]>(
+		"agentic-harness.mesh.heavy-calls.v1",
+		undefined,
+		() => [],
+	);
 
 /** Leave the heavy calls still running for the runtime a reload starts. */
 export function parkHeavyCalls(calls: readonly HeavyCall[]): void {
-	const global = globalThis as CarriedGlobal;
-	if (calls.length === 0) delete global[CARRIED_CALLS];
-	else global[CARRIED_CALLS] = calls;
+	const carried = carriedCalls();
+	carried.splice(0, carried.length, ...calls);
 }
 
 /** Take the heavy calls a reload left, once; none when it left none. */
 export function takeHeavyCalls(): readonly HeavyCall[] {
-	const global = globalThis as CarriedGlobal;
-	const calls = global[CARRIED_CALLS] ?? [];
-	delete global[CARRIED_CALLS];
-	return calls;
+	return carriedCalls().splice(0);
 }
 
 /** Whether a session is ending only to reload, as pi's shutdown event says. */

@@ -75,7 +75,14 @@ export async function livenessOf(
 				? "unknown"
 				: "gone";
 	}
-	const owner = presence.owner;
+	const owner =
+		presence.owner && presence.hosted
+			? {
+					...presence.owner,
+					host: presence.hosted.host,
+					session: presence.hosted.conversation,
+				}
+			: presence.owner;
 	if (!owner) return "unknown";
 	const standing = await tickedStanding(owner, facts);
 	if (standing === "running") return "present";
@@ -89,14 +96,15 @@ export async function livenessOf(
  * Every peer, sorted into those still there (including those that
  * cannot be told) and those gone, asking the machine once per process.
  *
- * One process holds one session at a time, so when a pi moves to
+ * A plain pi process holds one session at a time, so when it moves to
  * another session (a new one, a resumed one), the session it left is
  * gone even though its process runs on: of the presences one process
  * holds, only the one it published last is still there. A process is
  * told by its ticks where its presences carry them: each session start
  * works core's start time out afresh, so after a suspend the sessions
  * one pi held name it by different times. The node is asked once too,
- * and only when a session elsewhere is listed.
+ * and only when a session elsewhere is listed. Hosted presences are
+ * judged independently: one process may hold several open conversations.
  */
 export async function census(
 	everyone: readonly Presence[],
@@ -111,7 +119,7 @@ export async function census(
 		return asked;
 	};
 	const holder = (one: Presence) =>
-		one.owner ? processKey(one.owner) : undefined;
+		one.owner && !one.hosted ? processKey(one.owner) : undefined;
 	const latest = new Map<string, string>();
 	for (const one of everyone) {
 		const key = holder(one);
