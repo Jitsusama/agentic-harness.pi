@@ -29,6 +29,9 @@ import {
 import { installTestHost } from "../../support/session-host.ts";
 import { until } from "../../support/until.ts";
 
+/** The conversation calling: one per test process, as each pi has its own. */
+const SESSION = `test-${process.pid}`;
+
 /**
  * How long a handed-off job gets to end. Short of the test's own
  * timeout, so a job that never ends fails naming what was waited on.
@@ -112,6 +115,7 @@ describe("a command that ends in time", () => {
 		const { bus, specs } = recordingHost();
 		const result = await runOrHandOff({
 			command: "echo hi",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -130,6 +134,7 @@ describe("a command that ends in time", () => {
 		const shown: string[] = [];
 		const running = runOrHandOff({
 			command: "make",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: (partial) => {
@@ -153,6 +158,7 @@ describe("a command that ends in time", () => {
 		const escapeKey = new AbortController();
 		const running = runOrHandOff({
 			command: "make",
+			session: SESSION,
 			nested: false,
 			signal: escapeKey.signal,
 			onUpdate: undefined,
@@ -172,6 +178,7 @@ describe("a command still running when the time comes", () => {
 		const command = controllable();
 		const running = runOrHandOff({
 			command: "pnpm test",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -198,6 +205,7 @@ describe("a command still running when the time comes", () => {
 		const command = controllable();
 		await runOrHandOff({
 			command: "pnpm test",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -223,6 +231,7 @@ describe("a command still running when the time comes", () => {
 		const escapeKey = new AbortController();
 		await runOrHandOff({
 			command: "pnpm build",
+			session: SESSION,
 			nested: false,
 			signal: escapeKey.signal,
 			onUpdate: undefined,
@@ -255,6 +264,7 @@ describe("a command still running when the time comes", () => {
 		const kept: string[] = [];
 		await runOrHandOff({
 			command: "build",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -328,6 +338,7 @@ describe("a command still running when the time comes", () => {
 		const kept: string[] = [];
 		await runOrHandOff({
 			command: "build",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -360,6 +371,7 @@ describe("a command still running when the time comes", () => {
 		const command = controllable();
 		const result = await runOrHandOff({
 			command: "pnpm test 2>&1 | tail -5",
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -379,6 +391,7 @@ describe("a command's job", () => {
 		const { bus, specs } = recordingHost();
 		await runOrHandOff({
 			command: "nix build",
+			session: SESSION,
 			toolCallId: "call-3",
 			background: true,
 			nested: false,
@@ -398,6 +411,7 @@ describe("what decides whether a command moves", () => {
 		const command = controllable();
 		await runOrHandOff({
 			command: "dev up",
+			session: SESSION,
 			background: true,
 			nested: false,
 			signal: undefined,
@@ -414,6 +428,7 @@ describe("what decides whether a command moves", () => {
 		const command = controllable();
 		const running = runOrHandOff({
 			command: "dev up",
+			session: SESSION,
 			background: false,
 			nested: false,
 			signal: undefined,
@@ -440,6 +455,7 @@ describe("what decides whether a command moves", () => {
 		const command = controllable();
 		const running = runOrHandOff({
 			command: "ls",
+			session: SESSION,
 			background: true,
 			nested: true,
 			signal: undefined,
@@ -458,6 +474,7 @@ describe("what decides whether a command moves", () => {
 		const command = controllable();
 		const running = runOrHandOff({
 			command: "ls",
+			session: SESSION,
 			background: true,
 			nested: false,
 			signal: undefined,

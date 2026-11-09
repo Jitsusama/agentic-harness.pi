@@ -71,8 +71,11 @@ export interface Call<T> {
 	readonly now?: () => number;
 	/** Keep a finished command's output somewhere the model can read it. */
 	readonly keep?: (name: string, text: string) => string;
-	/** The conversation calling, whose output files are named for it. */
-	readonly session?: string;
+	/**
+	 * The conversation calling, whose output files are named for it. A
+	 * session's key is unique across processes, so the name needs no pid.
+	 */
+	readonly session: string;
 }
 
 /**
@@ -80,7 +83,7 @@ export interface Call<T> {
  * it in the system's. Read when the call starts, since on a host only
  * the call knows its conversation.
  */
-function keepInTemp(session: string | undefined) {
+function keepInTemp(session: string) {
 	const dir = sessionEnv(session).get("TMPDIR") || tmpdir();
 	return (name: string, text: string): string => {
 		const resultPath = join(dir, `pi-bash-${name}.log`);
@@ -213,9 +216,7 @@ export async function runOrHandOff<T>(
 	const keep = call.keep ?? keepInTemp(call.session);
 	// Job ids start again in every conversation, several of which a host
 	// runs in one process, and the file outlives them all.
-	const fileName = [call.session, startedAt, job.id]
-		.filter((part) => part !== undefined)
-		.join("-");
+	const fileName = `${call.session}-${startedAt}-${job.id}`;
 	running.then(
 		(result) => {
 			const took = spoken(now() - startedAt);
