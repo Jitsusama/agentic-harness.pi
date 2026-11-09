@@ -8,10 +8,12 @@ import {
 	handOverSession,
 	installSignalStamp,
 	keepRecordTrue,
+	lastBootRestorable,
 	loadRecords,
 	lostSessionCount,
 	observeRecords,
 	readRecord,
+	recentlyClosedSessions,
 	recordSession,
 	recordSessionEnd,
 	restorableSessions,
@@ -497,6 +499,47 @@ describe("counting what was lost, for the start-up hint", () => {
 		saveRecord(sessionFromPreviousBoot("sess-crashed"));
 		expect(lostSessionCount()).toBe(0);
 		expect(readRecord("sess-crashed")?.closedAt).toBeUndefined();
+	});
+});
+
+describe("sessions a shared host ran", () => {
+	/** A session a host ran in the boot that has since ended. */
+	function hostedIn(sessionId: string) {
+		return openRecord({
+			...base(sessionId),
+			process: {
+				hostId: hostname(),
+				pid: process.pid,
+				startToken: "t",
+				bootToken: "last",
+				hosted: {
+					host: "home-background",
+					session: sessionId,
+					owner: { pid: process.pid, startedAt: 1, startTicks: 1 },
+				},
+			},
+		});
+	}
+
+	it("are never offered to reopen in a terminal, since the host brings them back", () => {
+		// A terminal over a log the host still writes is two pi on one
+		// log, the very thing a host spawn refuses.
+		saveRecord(closeRecord(hostedIn("sess-died"), "died", NOW));
+		saveRecord(markSignalled(hostedIn("sess-hup"), NOW));
+		saveRecord(closeRecord(hostedIn("sess-quit"), "quit", NOW));
+		saveRecord(closeRecord(hostedIn("sess-parked"), "parked", NOW));
+		saveRecord(closeRecord(openRecord(base("sess-tab")), "died", NOW));
+
+		expect(restorableSessions(() => true).map((r) => r.sessionId)).toEqual([
+			"sess-tab",
+		]);
+		expect(lostSessionCount(), "only the plain tab counts as lost").toBe(1);
+		expect(recentlyClosedSessions(NOW)).toEqual([]);
+		const lastBoot = lastBootRestorable(() => true, "this");
+		expect(lastBoot.parked).toEqual([]);
+		expect(
+			[...lastBoot.offered, ...lastBoot.older].map((r) => r.sessionId),
+		).toEqual(["sess-tab"]);
 	});
 });
 

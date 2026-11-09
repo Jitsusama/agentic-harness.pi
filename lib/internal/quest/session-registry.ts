@@ -544,6 +544,16 @@ export function wasLost(record: SessionRecord): boolean {
 }
 
 /**
+ * Whether a shared pi host ran the session, and so brings it back
+ * itself: reopening it in a terminal too would put two pi on one log.
+ * Restore and reopen-sessions leave such a session out; restore.json
+ * still lists it, marked `hosted`, for the launcher to skip.
+ */
+export function hostKeeps(record: SessionRecord): boolean {
+	return record.process?.hosted !== undefined;
+}
+
+/**
  * Sessions closed on purpose within the window, most recent first.
  *
  * Restore never reopens these unasked, since a quit is an instruction.

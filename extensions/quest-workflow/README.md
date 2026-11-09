@@ -211,6 +211,25 @@ shipped and tested.
   shown in (see the terminal library's README). `reopen-sessions`
   refuses `machine` and `needs`: it reopens this machine's saved
   sessions.
+- **Spawn into a host**: `spawn` with `host` set to `attended` or
+  `background` asks this realm's shared pi host, over its control
+  socket, to hold the session rather than opening a terminal. The
+  realm and socket come from the asking conversation's environment,
+  never the host process's. A fresh session is opened with its quest,
+  the spawner's model and its first words in the one request; a
+  resumable one is adopted from its log and told nothing, so a note
+  beside it is refused, as is adopting a session still live. It goes
+  alone: `terminal`, `layout`, a `spawn-*` verb, `nesting`,
+  `machine`, `needs` and `command` are refused beside it, and so is a
+  quest whose needs place it on another machine. A host that refuses
+  names its code; one that never answers, or answers something
+  unreadable, leaves the outcome unknown, and nothing is retried or
+  opened in its place. A dry run calls nothing. `reopen-sessions`
+  refuses `host`. A session a host ran comes back through that host,
+  so `reopen-sessions`, the start-up count of lost sessions and the
+  restore at boot all leave it out, and its `restore.json` entry is
+  marked `hosted` for the launcher to skip: a terminal over its log
+  as well would be two pi on one log.
 - **Windows on another machine's sessions**: a session another
   machine holds keeps running through this machine's power-off, so
   what the boot takes away is only the window joined to it.

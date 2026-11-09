@@ -17,6 +17,9 @@
  * first minute, so it comes back as it was.
  * A parked session of a quest since concluded or retired isn't offered,
  * since its work is done and it parked for having nothing left to do.
+ * One marked `hosted` ran in a shared pi host, which brings it back
+ * itself, so the launcher's Reopen Them All leaves it out (N4S6OF and
+ * Y2YBTS, 9 November).
  *
  * Worked out without probing any process, since it is written as each
  * pi starts, and starting a session never shells out: a record from
@@ -76,6 +79,11 @@ export interface RestoreEntry {
 	 * than lost, and `lostAt` is when it parked.
 	 */
 	readonly parked?: true;
+	/**
+	 * For a session that ran in a shared pi host rather than a pi of its
+	 * own: the host keeps it, so no window reopens it.
+	 */
+	readonly hosted?: true;
 }
 
 /** The whole file. */
@@ -215,6 +223,7 @@ function entryOf(
 		...(record.quest ? { quest: record.quest } : {}),
 		cwd: record.cwd,
 		lostAt: record.closedAt ?? "",
+		...(record.process?.hosted ? { hosted: true as const } : {}),
 	};
 }
 
