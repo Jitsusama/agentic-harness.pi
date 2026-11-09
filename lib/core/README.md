@@ -25,4 +25,57 @@ What comes next, by the fold's plan (PLAN-20261025-QR647O):
 - a module that belongs beside the harness's own moves there, and
   this folder empties.
 
+## Folders
+
+- `advisor/`: the advisor's decision core: its charter, the
+  read-only tools an investigation calls, its findings and whether
+  a turn is worth reviewing. Wiring it to a live session is not
+  here.
+- `attribution/`: marking AI involvement in commits, PRs and
+  issues: the commit hook, the `gh` body footer and the model's
+  name as it is shown.
+- `exec/`: running a command as a dependency rather than an
+  import: the `Exec` type, its result and a spawning runner.
+- `git-cli/`: the git commands blocked before a guardian sees
+  them: an amend, an unquoted heredoc, a compound command.
+- `github-cli/`: the `gh pr` and `gh issue` commands that break
+  the github-cli-convention skill's form for bodies and metadata.
+- `governance/`: the store of captured rules, distilling them from
+  a transcript, and the rules block the prompt carries.
+- `internal/`: what the modules here share and no barrel exports;
+  its README says what each part is for.
+- `lsp/`: code intelligence behind one backend contract, with a
+  standalone backend that runs the language servers itself.
+- `notes/`: the notes archive: a note's types and the verbs that
+  make, change and find notes.
+- `observability/`: run telemetry for subagents and councils in
+  SQLite, and the ledger of the main loop's own turns.
+- `process/`: asking the machine about a process, and whether it
+  is still the one that was meant.
+- `quest/`: the parts of the quest workflow core kept, such as the
+  stage machine and the verbs; its README says how they sit beside
+  `lib/quest`.
+- `remote/`: naming a git remote to a person, without its
+  credentials.
+- `result/`: tool answers bounded without loss: the payload in a
+  session store, a view and a digest of it, and a query to reach
+  the rest.
+- `review/`: reviewing code changes over one neutral model, with
+  GitHub and bare git as providers.
+- `sections/`: the sanctioned headings of PR and issue bodies, what
+  each section may hold and say, a PR body composed from fields,
+  and the section gate's decision.
+- `title/`: finding conventional-commit prefixes in PR and issue
+  titles, and the title gate's decision.
+- `tree/`: the contract and registry of tree providers, and
+  choosing one for a repo. The built-in git-worktree provider is
+  in `internal/tree/`.
+- `verify/`: running the project's check command on request, and
+  saying whether it still builds and passes.
+- `web/`: driving a real Chrome and reading back what it knows, a
+  subdomain barrel a concern; its `index.ts` lists them.
+- `work/`: the working layer: branches, commits, trees and stacks,
+  with a broker that hands out trees and plain git as the provider
+  that cuts them when nothing more specific does.
+
 [core]: https://github.com/Jitsusama/agentic-harness.core
