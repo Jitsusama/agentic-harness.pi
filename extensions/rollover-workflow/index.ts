@@ -40,6 +40,7 @@ import type {
 	ExtensionContext,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import { hosted, sessionEnv } from "../../lib/core/session/index.ts";
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
@@ -74,6 +75,16 @@ import {
 
 /** The command that rolls the session over. */
 export const COMMAND = "rollover";
+
+/**
+ * Why a hosted conversation never rolls over. Rolling switches the
+ * conversation onto a fresh log, so a fresh session id, through the
+ * process's one reload slot: in a host that is the host's to do, since
+ * it owns which log each conversation runs and shares the slot among
+ * all of them.
+ */
+export const HOSTED_ROLLOVER =
+	"Not rolled over: in a host, which log a conversation runs is the host's to change, and rolling over would switch it through state every conversation here shares.";
 
 /** Whether this process is a subagent rather than a session. */
 function isSubagent(env: NodeJS.ProcessEnv): boolean {
@@ -129,7 +140,7 @@ export function rollsOver(
 	ctx: Pick<ExtensionContext, "hasUI" | "sessionManager">,
 	env: NodeJS.ProcessEnv = process.env,
 ): "off" | "large" | "now" {
-	if (!ctx.hasUI || isSubagent(env)) return "off";
+	if (hosted() || !ctx.hasUI || isSubagent(env)) return "off";
 	return rolloverAsked(ctx.sessionManager.getSessionId(), env);
 }
 
@@ -141,6 +152,7 @@ export async function rollOverNow(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 ): Promise<string> {
+	if (hosted()) return HOSTED_ROLLOVER;
 	await ctx.waitForIdle();
 	const sessions = ctx.sessionManager;
 	const parent = sessions.getSessionFile();
@@ -187,7 +199,7 @@ async function switchToRolled(
 	// An older pi has no registered config to read, and carries no auth.
 	const auth = authOf(
 		ctx.modelRegistry?.getRegisteredProviderConfig?.(provider),
-		process.env,
+		sessionEnv(ctx).snapshot(),
 	);
 	carryModel({
 		path,
@@ -280,9 +292,13 @@ function putAuthBack(
 ): string[] {
 	if (!auth) return [];
 	const put: string[] = [];
+	// The conversation's own environment: process.env on plain pi, and in
+	// a host the one the host gives this conversation, so a key put back
+	// for one never reaches another.
+	const env = sessionEnv(ctx);
 	for (const [name, value] of Object.entries(auth.variables)) {
-		if (process.env[name]) continue;
-		process.env[name] = value;
+		if (env.get(name)) continue;
+		env.set(name, value);
 		put.push(name);
 	}
 	const now = ctx.modelRegistry.getRegisteredProviderConfig?.(provider);
@@ -323,7 +339,7 @@ async function mendAuth(
 	if (await hasAuth(ctx, model.provider)) {
 		const auth = authOf(
 			ctx.modelRegistry.getRegisteredProviderConfig?.(model.provider),
-			process.env,
+			sessionEnv(ctx).snapshot(),
 		);
 		if (auth) rememberAuth(model.provider, auth);
 		return undefined;
