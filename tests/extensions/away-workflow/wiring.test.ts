@@ -626,7 +626,7 @@ describe("across the machine", () => {
 
 		expect(readMachineWord()).toEqual({
 			at: expect.any(String),
-			by: expect.stringMatching(/^typed in pi \d+ at /),
+			by: expect.stringMatching(/^typed in session live at /),
 		});
 	});
 

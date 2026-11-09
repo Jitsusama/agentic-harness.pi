@@ -165,21 +165,23 @@ export type Agreement =
  * A word saying the person is here ends an absence only when it was
  * written after that absence began: a session that went away after
  * the person last typed must not be called back by the older word. No
- * word at all leaves the session as it is.
+ * word at all leaves the session as it is. Hosted conversations share
+ * the absence only; plain pi keeps its existing machine-wide goal.
  */
 export function agree(
 	word: MachineWord | undefined,
 	local: { since?: string; goal?: string },
+	goalScope: "session" | "machine" = "machine",
 ): Agreement {
 	if (!word) return { kind: "nothing" };
 	if (word.away) {
-		const sameGoal =
-			word.away.goal === undefined || word.away.goal === local.goal;
+		const goal = goalScope === "machine" ? word.away.goal : undefined;
+		const sameGoal = goal === undefined || goal === local.goal;
 		if (local.since !== undefined && sameGoal) return { kind: "nothing" };
 		return {
 			kind: "go-away",
 			since: word.away.since,
-			...(word.away.goal !== undefined ? { goal: word.away.goal } : {}),
+			...(goal !== undefined ? { goal } : {}),
 		};
 	}
 	if (local.since !== undefined && word.at > local.since) {

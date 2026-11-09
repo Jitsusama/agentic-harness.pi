@@ -13,12 +13,14 @@
  * its own panel. So no approval can outlive the moment it was given, and
  * a call is never let through on the strength of an earlier one.
  *
- * State lives on `globalThis` under a `Symbol.for` key, like the guard
- * policy, so every extension and every loaded copy of this module reads
- * the same answer.
+ * Plain pi keeps its legacy global slot across reloads. On a host every
+ * conversation keeps its own records, listeners and progress source;
+ * the workflow follows the machine's shared absence separately.
  */
 
 import { createHash } from "node:crypto";
+import { hosted, sessionSlot } from "../../core/session/index.ts";
+import { processGlobal } from "../process-global.ts";
 
 /** A call a gate held instead of asking. */
 export interface HeldCall {
@@ -85,18 +87,14 @@ interface AwayState {
 	stoppedFromOutside?: boolean;
 }
 
-const AWAY_KEY = Symbol.for("pi:away");
-
-type GlobalAway = Record<symbol, AwayState | undefined>;
+function freshState(): AwayState {
+	return { held: [], decided: [], listeners: new Set() };
+}
 
 function state(): AwayState {
-	const global = globalThis as GlobalAway;
-	let found = global[AWAY_KEY];
-	if (!found) {
-		found = { held: [], decided: [], listeners: new Set() };
-		global[AWAY_KEY] = found;
-	}
-	return found;
+	return hosted()
+		? sessionSlot("agentic-harness.pi/away", undefined, freshState)
+		: processGlobal("pi:away", freshState);
 }
 
 function changed(): void {
