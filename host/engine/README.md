@@ -1,5 +1,12 @@
 # Conversation Engine
 
+The host's pi comes from its own install, never from this package's
+dependencies: loadHostPi imports pi, pi-agent-core, pi-ai, pi-durable and
+chord from the install's folder and refuses, naming each missing patch,
+unless it carries every host seam core.nix's modules/pi applies
+(the agent interface, the committed turn and the hosted screen). A host
+refuses this before it opens any conversation.
+
 SessionHost installs the public session seam before any hosted extension
 loads. Register each conversation's stable pi id, absolute session file,
 working folder, environment and cleanup callback before publishing leases.
