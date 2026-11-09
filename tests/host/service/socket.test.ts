@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHost } from "../../../host/engine/index.ts";
-import { hostSocketPath } from "../../../host/service/address.ts";
+import { hostRealm, hostSocketPath } from "../../../host/service/address.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type { ControlBackend } from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
@@ -79,6 +79,16 @@ async function start(viewer?: ViewerBridge) {
 }
 
 describe("private control listener", () => {
+	it("names the session's realm, else the machine's home, and never guesses", () => {
+		expect(hostRealm({ MYCELIUM_REALM: " work ", PI_HOME_REALM: "home" })).toBe(
+			"work",
+		);
+		expect(hostRealm({ MYCELIUM_REALM: "", PI_HOME_REALM: "home" })).toBe(
+			"home",
+		);
+		expect(() => hostRealm({})).toThrow("MYCELIUM_REALM");
+		expect(() => hostRealm({ MYCELIUM_REALM: "Work/../x" })).toThrow("realm");
+	});
 	it("selects safe realm-kind addresses without silent path truncation", () => {
 		expect(hostSocketPath("work", "attended", dir)).toBe(
 			join(dir, "pi-host/work-attended.sock"),
