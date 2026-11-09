@@ -102,7 +102,8 @@ loads the install and the install is `main`.
   writes it with its stack to `stale-rejections.jsonl` in this
   extension's state folder, so each is found and fixed where it
   happens. Any other rejection is thrown again, and pi crashes on it
-  as before.
+  as before. In a host the process is the host's, so its entry
+  installs the net once and no conversation's load adds it.
 - **`⇄` on the footer** while the session runs code other than the
   install pi's settings name, muted, and only then.
 - **`/harness`** says what runs, from where, at which commit, and

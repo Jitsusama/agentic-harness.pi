@@ -258,6 +258,39 @@ it(
 	LANDS,
 );
 
+it("leaves the stale-rejection net to the host, adding no process listener", () => {
+	// The net goes on once per process; clear that, so each load could add it.
+	const net = Symbol.for("pi:harness:stale-rejections:v1");
+	const saved = Reflect.get(globalThis, net);
+	const before = process.listeners("unhandledRejection");
+	try {
+		Reflect.deleteProperty(globalThis, net);
+		host();
+		runtime("a");
+		runtime("b");
+		expect(
+			process.listenerCount("unhandledRejection"),
+			"no hosted load adds one",
+		).toBe(before.length);
+
+		closeAll();
+		uninstall?.();
+		uninstall = undefined;
+		closeAll = () => {};
+		runtime("plain");
+		expect(
+			process.listenerCount("unhandledRejection"),
+			"plain pi's load still adds it",
+		).toBe(before.length + 1);
+	} finally {
+		for (const listener of process.listeners("unhandledRejection"))
+			if (!before.includes(listener))
+				process.off("unhandledRejection", listener);
+		if (saved === undefined) Reflect.deleteProperty(globalThis, net);
+		else Reflect.set(globalThis, net, saved);
+	}
+});
+
 it(
 	"refuses as before in a host that can't reload a conversation",
 	async () => {

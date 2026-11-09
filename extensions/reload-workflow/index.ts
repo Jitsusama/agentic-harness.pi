@@ -20,7 +20,9 @@
  *
  * Work left for a replaced session never ends the process: a rejection
  * nothing watched that is pi's stale-context error is dropped and
- * logged (lib/internal/reload/stale-rejections.ts).
+ * logged (lib/internal/reload/stale-rejections.ts). In a host the
+ * process is the host's, so the host installs that net and no
+ * conversation adds a process listener of its own.
  */
 
 import { homedir } from "node:os";
@@ -85,9 +87,10 @@ function settledAborted(event: unknown): boolean {
 }
 
 export default function reloadWorkflow(pi: ExtensionAPI) {
-	spareStaleRejections(
-		join(stateDir("reload-workflow"), "stale-rejections.jsonl"),
-	);
+	if (!hosted())
+		spareStaleRejections(
+			join(stateDir("reload-workflow"), "stale-rejections.jsonl"),
+		);
 	keepMcpServersAcrossReloads(pi);
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
