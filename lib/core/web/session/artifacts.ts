@@ -9,10 +9,21 @@
  * status can recite what was written, in order.
  */
 
+import type { SessionRef } from "../../session/index.ts";
 import { type BundleSink, diskSink } from "../envelope/index.ts";
+import { sessionDir } from "../envelope/sink.ts";
 
 /** The disk side of a session: sink, stamps and ledger. */
 export class ArtifactLedger {
+	private readonly root: string;
+	private readonly ref?: SessionRef;
+
+	/** Capture ownership before asynchronous page callbacks can run in another context. */
+	constructor(ref?: SessionRef) {
+		this.ref = ref;
+		this.root = sessionDir(ref);
+	}
+
 	/** Where this session's files are written, made on demand. */
 	private bundle?: BundleSink;
 
@@ -27,7 +38,7 @@ export class ArtifactLedger {
 
 	/** The sink artifacts go to, made on first use. */
 	sink(): BundleSink {
-		if (!this.bundle) this.bundle = diskSink();
+		if (!this.bundle) this.bundle = diskSink(this.root, this.ref);
 		return this.bundle;
 	}
 

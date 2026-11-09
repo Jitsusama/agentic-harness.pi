@@ -6,8 +6,9 @@ accessible name.
 
 ## What It Does
 
-Four tools share one registry of named browsers, each named for what the
-caller is doing.
+Four tools share one registry of named browsers per extension instance,
+each named for what the caller is doing. Identical names in different
+hosted runners refer to different sessions.
 
 ### `browser_go` puts a browser somewhere
 
@@ -136,6 +137,15 @@ stops; an ask beyond a bound is refused rather than shortened.
 `browser_go close` takes no turn, so it can put down a browser
 whose call is stuck. A browser is never reaped while a call on it
 runs, and its idle clock starts over when the call finishes.
+
+Shutdown cancels this registry's idle timers and closes only its own
+sessions' tabs and contexts. At extension load, `hosted()` selects explicit
+browser ownership, passed through the lazy registry: a hosted runner never
+calls process-global `closeBrowser()`, so closing runner A leaves runner B's
+Chrome and sessions intact. Plain pi retains its existing behaviour of also
+closing shared Chrome on disposal. The shared Chrome lifecycle remains
+process-owned, not implicitly keyed by the current conversation; hosted
+runner shutdown does not reclaim the process-wide browser itself.
 
 Each browser gets its own browser context. Anything context
 shaped, downloads and clipboard permissions among them, carries

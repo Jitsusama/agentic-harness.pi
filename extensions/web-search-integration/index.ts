@@ -14,6 +14,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import {
+	claimArtifactDirectory,
+	prepareArtifactOwnership,
+} from "../../lib/core/internal/artifacts/ownership.ts";
+import { hosted } from "../../lib/core/session/index.ts";
 import { closeBrowser, killBrowserSync } from "../../lib/core/web/browser.ts";
 import {
 	hasCachedKey,
@@ -21,6 +26,7 @@ import {
 	StaleKeyError,
 	setupChromeKey,
 } from "../../lib/core/web/cookies/index.ts";
+import { sessionDir } from "../../lib/core/web/envelope/sink.ts";
 import {
 	AuthSetupNeeded,
 	cleanupSessionBundles,
@@ -233,9 +239,9 @@ export default function webSearch(pi: ExtensionAPI) {
 			return drawInto(context?.lastComponent, `${summary}\n${preview}`);
 		},
 
-		async execute(_toolCallId, params, signal) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			try {
-				const bundle = await readPage(params.url, signal);
+				const bundle = await readPage(params.url, signal, ctx);
 
 				return {
 					content: [{ type: "text", text: formatManifest(bundle) }],
@@ -326,9 +332,11 @@ export default function webSearch(pi: ExtensionAPI) {
 
 	// Reclaim page bundles left in the system temp dir by sessions that are
 	// no longer running, so authenticated captures don't linger.
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
 		try {
-			reapAbandonedBundles();
+			await prepareArtifactOwnership(ctx);
+			claimArtifactDirectory(sessionDir(ctx), ctx);
+			await reapAbandonedBundles();
 		} catch {
 			// Reaping is best-effort housekeeping; never block session start.
 		}
@@ -336,13 +344,14 @@ export default function webSearch(pi: ExtensionAPI) {
 
 	// We clean up the browser and this session's page bundles when the
 	// session ends gracefully.
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (hosted()) return;
 		process.removeListener("exit", killBrowserSync);
-		cleanupSessionBundles();
+		cleanupSessionBundles(ctx);
 		await closeBrowser();
 	});
 
 	// If the process dies without a clean session_end (e.g., crash,
 	// SIGTERM), kill Chrome synchronously so it doesn't orphan.
-	process.on("exit", killBrowserSync);
+	if (!hosted()) process.on("exit", killBrowserSync);
 }

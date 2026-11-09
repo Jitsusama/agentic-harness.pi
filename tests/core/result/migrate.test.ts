@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	cleanupSessionResults,
+	LEGACY_RESULT_ROOT,
 	openSessionStore,
-	RESULT_ROOT,
 } from "../../../lib/core/result/location.ts";
 import { adoptLegacyResults } from "../../../lib/core/result/migrate.ts";
 import { createResultStore } from "../../../lib/core/result/store.ts";
@@ -27,7 +27,7 @@ describe("legacy result adoption", () => {
 		const a = session();
 		const b = session();
 		const legacy = createResultStore({
-			dir: join(RESULT_ROOT, String(process.pid)),
+			dir: join(LEGACY_RESULT_ROOT, String(process.pid)),
 		});
 		const payload = legacy.put(
 			JSON.stringify({ session: a.sessionManager.getSessionId() }),
@@ -61,7 +61,7 @@ describe("legacy result adoption", () => {
 	it("does not resurrect results later evicted by the session quota", () => {
 		const ctx = session();
 		const legacy = createResultStore({
-			dir: join(RESULT_ROOT, String(process.pid)),
+			dir: join(LEGACY_RESULT_ROOT, String(process.pid)),
 		});
 		const payload = legacy.put(ctx.sessionManager.getSessionId());
 		files.push(payload.path);

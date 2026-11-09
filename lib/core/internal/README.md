@@ -13,6 +13,8 @@ localhost for the redirect an OAuth login ends in.
 
 ## Folders
 
+- `artifacts/`: ownership records and conservative reaping shared by stored
+  tool results and captured web bundles.
 - `github/`: parsing `gh pr` and `gh issue` create and edit
   commands for their action, title, body and number. The rules a
   body must keep are in `lib/core/github-cli`.
@@ -20,8 +22,8 @@ localhost for the redirect an OAuth login ends in.
   decide with: commit message parsing and format rules, the
   destructive git commands, and the glue that runs the prose,
   section, title and redirect gates against a signature store.
-- `lsp/`: the process-global registry of LSP backends that
-  `lib/core/lsp/registry.ts` registers into and resolves from.
+- `lsp/`: the session-keyed editor registry and process-owned standalone
+  pool that `lib/core/lsp/registry.ts` registers into and resolves from.
 - `notes/`: the notes archive on disk: finding notes, their
   frontmatter, ids, atomic writes and safe file names. The verbs
   that use them are in `lib/core/notes/verbs`.

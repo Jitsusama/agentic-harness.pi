@@ -193,6 +193,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
 
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import type { SessionRef } from "../session/index.ts";
 import {
 	type A11yFinding,
 	type AxFacts,
@@ -559,6 +560,8 @@ export type ObserveResult =
 
 /** How a session should behave for its whole life. */
 export interface SessionOptions {
+	/** Caller identity for captured artifacts; defaults to ambient identity in a host. */
+	readonly artifactRef?: SessionRef;
 	/**
 	 * Carry the user's own Chrome cookies into this session, so
 	 * internal apps that expect a signed-in browser are drivable.
@@ -625,7 +628,7 @@ export class BrowserSession {
 	private readonly shaper = new NetworkShaper(this.wires);
 
 	/** The disk side of this session: sink, stamps and ledger. */
-	private readonly artifacts = new ArtifactLedger();
+	private readonly artifacts: ArtifactLedger;
 
 	/** The wait between a change and an honest reading of it. */
 	private readonly settler = new PageSettler(this.wires, () => this.requests());
@@ -661,6 +664,7 @@ export class BrowserSession {
 		this.cdp = cdp;
 		this.context = context;
 		this.options = options;
+		this.artifacts = new ArtifactLedger(options.artifactRef);
 	}
 
 	/** Wall clock time of the last operation. See ready(). */

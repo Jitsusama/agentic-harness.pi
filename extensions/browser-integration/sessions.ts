@@ -8,7 +8,7 @@
  * first call.
  */
 
-import type { SessionRegistry } from "./registry.ts";
+import type { RegistryOptions, SessionRegistry } from "./registry.ts";
 
 /** The registry, made on first use and the same one after. */
 export type Sessions = () => Promise<SessionRegistry>;
@@ -20,12 +20,14 @@ export interface LazySessions {
 }
 
 /** Sessions whose registry, and the engine under it, load on first use. */
-export function lazySessions(): LazySessions {
+export function lazySessions(
+	options: Pick<RegistryOptions, "ownsBrowser" | "artifactRef"> = {},
+): LazySessions {
 	let made: Promise<SessionRegistry> | undefined;
 	return {
 		sessions: () => {
 			made ??= import("./registry.ts").then((registry) =>
-				registry.createSessionRegistry(),
+				registry.createSessionRegistry(options),
 			);
 			return made;
 		},
