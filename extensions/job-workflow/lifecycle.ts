@@ -35,6 +35,8 @@ import {
 import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
 import {
 	CARRY_MS,
+	type HandOff,
+	type JobWiring,
 	park as parkJobs,
 	sessionIdOf,
 	takeParked,
@@ -141,13 +143,21 @@ export function openSession(
 	const yielded = askToYield(pi, id);
 	const carried =
 		(reason !== undefined && TAKES_PARKED.has(reason)) || yielded
-			? takeParked(id, pi, ctx)
+			? takeParked(id, pi, ctx, (handed) => freshSession(pi, ctx, handed))
 			: undefined;
 	return carried ?? freshSession(pi, ctx);
 }
 
-/** A session with no jobs yet, announced as the host. */
-function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
+/**
+ * A session announced as the host: with no jobs yet, or around the jobs
+ * another runtime `handed` off, its waiting results and unsaid ends
+ * taken into this code's own outbox.
+ */
+function freshSession(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	handed?: HandOff,
+): JobSession {
 	let runtime: Runtime = { pi, ctx };
 	// Ends heard while parked, said once a runtime takes the jobs over:
 	// the parked `pi` cannot say anything, and the mesh releases a lease
@@ -203,12 +213,30 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 			// reload; nobody is left listening on its bus.
 		}
 	};
-	const jobs = createJobs(
-		(result) => outbox.post(result),
-		show,
-		(jobId) => outbox.withdraw(jobId),
-		say,
-	);
+	// What the jobs report to, reached through `wiring` so a later
+	// runtime's code can take them over by rewiring it (carry.ts).
+	const own: JobWiring = {
+		post: (result) => outbox.post(result),
+		changed: () => show(),
+		retract: (jobId) => outbox.withdraw(jobId),
+		ended: (finished) => say(finished),
+	};
+	let wiring = own;
+	const jobs =
+		handed?.jobs ??
+		createJobs(
+			(result) => wiring.post(result),
+			() => wiring.changed(),
+			(jobId) => wiring.retract(jobId),
+			(finished) => wiring.ended(finished),
+		);
+	// Jobs handed on report through the runtime that first made them, so
+	// rewiring them later goes back through that one.
+	const rewire = (to: JobWiring) => {
+		if (handed) handed.rewire(to);
+		else wiring = to;
+	};
+	handed?.rewire(own);
 
 	let withdraw: (() => void) | undefined;
 	let yielding: (() => void) | undefined;
@@ -263,11 +291,26 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 						return session;
 					},
 					stop: () => jobs.close(),
+					handOff() {
+						const ends = unsaid ?? [];
+						unsaid = undefined;
+						return {
+							jobs,
+							waiting: outbox.waiting(),
+							unsaid: ends,
+							rewire,
+						};
+					},
 				},
 				carryMs,
 			);
 		},
 	};
 	listen();
+	if (handed) {
+		for (const result of handed.waiting) outbox.post(result);
+		for (const finished of handed.unsaid) say(finished);
+		show();
+	}
 	return session;
 }

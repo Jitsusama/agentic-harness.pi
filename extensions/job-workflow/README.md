@@ -132,8 +132,13 @@ reload starts takes them over on `session_start` with reason
 
 - **What is handed over is the registry itself.** A producer holds
   `Job` objects bound to it, from code the reload replaced, so the
-  same objects keep working and the new runtime only rebinds where
-  they speak.
+  same objects keep working. Everything else is the new code's: it
+  builds its own outbox, takes in the results still waiting and the
+  ends not yet said, and has the registry report to it. Before 9
+  November the old runtime's whole session was adopted, so a process
+  ran the outbox of whichever version first built it, and #1101's
+  steer reached no session started before it. A runtime from code
+  before then can't hand off, and is adopted whole as it was.
 - **A job that ends in between** has its result and its
   `jobs:finished:v1` held, and both are said once the new runtime
   has taken over, so the mesh still lets go of its lease.

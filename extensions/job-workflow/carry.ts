@@ -16,13 +16,24 @@
  * `adopt` answers, or to what it is handed, takes a new one, and the
  * jobs parked under the old key are then stopped when nobody adopts
  * them, as every reload stopped them before.
+ *
+ * Adopting keeps the old code's outbox, so a process ran the outbox of
+ * whichever version first built it through every reload: on 9 November
+ * the steer #1101 added reached no session started before it (N3Q98W
+ * [be0f9348]). So a runtime that can also hand off gives the new code
+ * its jobs, the results still waiting and the ends not yet said, and
+ * the new code builds its own session around them. Only the jobs
+ * themselves stay the old code's, since their producers hold them.
  */
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { JobFinished } from "../../lib/jobs/index.ts";
+import type { Jobs } from "./jobs.ts";
 import type { JobSession } from "./lifecycle.ts";
+import type { JobResult } from "./outbox.ts";
 
 /**
  * How long parked jobs wait to be adopted before they are stopped. A
@@ -40,6 +51,30 @@ export interface Parked {
 	adopt(pi: ExtensionAPI, ctx: ExtensionContext): JobSession;
 	/** Stop them, as a session ending does. */
 	stop(): void;
+	/**
+	 * Give the jobs to the taker's own code instead of adopting them.
+	 * Absent where the parking runtime's code predates it.
+	 */
+	handOff?(): HandOff;
+}
+
+/** What jobs a registry reports to, rewired to whoever takes them. */
+export interface JobWiring {
+	post(result: JobResult): void;
+	changed(): void;
+	retract(jobId: string): boolean;
+	ended(finished: JobFinished): void;
+}
+
+/** A parked session's jobs, handed to the code that takes them. */
+export interface HandOff {
+	readonly jobs: Jobs;
+	/** Results not yet seen in the session, in the order they finished. */
+	readonly waiting: readonly JobResult[];
+	/** Jobs' ends heard while parked, not yet said on the bus. */
+	readonly unsaid: readonly JobFinished[];
+	/** From now on, the jobs report to these. */
+	rewire(to: JobWiring): void;
 }
 
 interface Held {
@@ -90,6 +125,7 @@ export function takeParked(
 	session: string | undefined,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
+	build?: (handed: HandOff) => JobSession,
 ): JobSession | undefined {
 	const global = globalThis as ParkedGlobal;
 	const held = global[PARKED_KEY];
@@ -97,7 +133,10 @@ export function takeParked(
 	clearTimeout(held.timer);
 	delete global[PARKED_KEY];
 	try {
-		return held.parked.adopt(pi, ctx);
+		const { parked } = held;
+		return build && typeof parked.handOff === "function"
+			? build(parked.handOff())
+			: parked.adopt(pi, ctx);
 	} catch {
 		// Jobs that cannot be said through this runtime are stopped, as a
 		// reload stopped them before; the session starts with none.
