@@ -124,8 +124,11 @@ A reload is not the session ending, and nothing a job runs notices
 it. pi stops no process on a reload: it evaluates every extension
 again in the same process, on the same bus, and only the old `pi` and
 `ctx` go stale. So on `session_shutdown` with reason `reload` the
-host parks its jobs, still running, with what waits to be said, under
-a `Symbol.for` key on `globalThis` (`carry.ts`). The runtime the
+host parks its jobs, still running, with what waits to be said, in a
+session cell (`carry.ts`): on plain pi the one `Symbol.for` key on
+`globalThis` every version since v1 reads, and on a host one per
+conversation, so one conversation's reload or close leaves the others'
+jobs alone. The runtime the
 reload starts takes them over on `session_start` with reason
 `reload`, answers as the host, and says their results through its own
 `pi`. Job ids carry on from where they were.

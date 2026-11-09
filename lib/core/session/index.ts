@@ -23,4 +23,9 @@ export {
 } from "./identity.ts";
 export { endSession, sessionOwner } from "./owner.ts";
 export { hostRegistryPath } from "./registry.ts";
-export { releaseSession, sessionSlot } from "./slot.ts";
+export {
+	releaseSession,
+	type SessionCell,
+	sessionCell,
+	sessionSlot,
+} from "./slot.ts";

@@ -20,6 +20,7 @@ import {
 	releaseSession,
 	type SessionEnvironment,
 	type SessionOwner,
+	sessionCell,
 	sessionCwd,
 	sessionEnv,
 	sessionKeyOf,
@@ -150,6 +151,24 @@ describe("plain pi", () => {
 		).toHaveBeenCalledTimes(1);
 	});
 
+	it("keeps a cell as the bare value under its process symbol, absent once cleared", () => {
+		const name = `session-test/${randomUUID()}`;
+		const symbol = Symbol.for(name);
+		const store = globalThis as Record<symbol, unknown>;
+		cleanups.push(() => {
+			Reflect.deleteProperty(globalThis, symbol);
+		});
+		const left = { by: "older code" };
+		store[symbol] = left;
+		const cell = sessionCell<object>(name, context("a"));
+		expect(cell.get(), "what older code left is read as it stands").toBe(left);
+		const mine = { by: "this code" };
+		withSession("b", () => sessionCell<object>(name).set(mine));
+		expect(store[symbol], "written bare, as older code reads it").toBe(mine);
+		cell.clear();
+		expect(symbol in store, "cleared means absent, not undefined").toBe(false);
+	});
+
 	it("reads and writes process.env while snapshots remain independent", () => {
 		vi.stubEnv("SESSION_SEAM_TEST", "before");
 		const env = sessionEnv();
@@ -256,6 +275,33 @@ describe("hosted sessions", () => {
 			sessionSlot(name, "b", () => ({})),
 			"sibling untouched",
 		).toBe(b);
+	});
+
+	it("keeps a cell per conversation, freed only when that one closes", () => {
+		fakeHost();
+		const name = `cell-test/${randomUUID()}`;
+		const a = sessionCell<string>(name, "a");
+		const b = sessionCell<string>(name, context("b"));
+		a.set("A");
+		expect(b.get(), "A's value is invisible to B").toBeUndefined();
+		b.set("B");
+		expect(
+			withSession("a", () => sessionCell<string>(name).get()),
+			"the ambient conversation reads its own",
+		).toBe("A");
+		expect(
+			Symbol.for(name) in globalThis,
+			"nothing is left on the process",
+		).toBe(false);
+		releaseSession("a");
+		expect(a.get(), "A's cell goes with A").toBeUndefined();
+		expect(b.get(), "B survives A's close").toBe("B");
+		b.clear();
+		expect(b.get(), "cleared").toBeUndefined();
+		expect(
+			() => sessionCell(name),
+			"a cell outside any conversation is refused",
+		).toThrow(NoSessionInHost);
 	});
 
 	it("shares slots and ambient context across independently loaded library copies", async () => {
