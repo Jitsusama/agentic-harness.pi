@@ -92,7 +92,9 @@ loads the install and the install is `main`.
   registered as it loaded, so on 30 October every reloaded session
   lost the tool gateway. The servers pi lists as a reload begins are
   registered again once it lands, where the reload lost them, and pi
-  connects them at once. One the reload kept is left alone.
+  connects them at once. One the reload kept is left alone. In a
+  host each conversation keeps its own, so another starting or
+  reloading meanwhile neither clears nor takes them.
 - **Work left for a replaced session never ends pi.** A reload,
   rollover or switch makes the old context throw pi's stale error on
   every read, and work still on its way that reads it rejects. When
