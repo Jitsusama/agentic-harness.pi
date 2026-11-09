@@ -4,9 +4,19 @@
  * The reload is played as pi plays one (see tests/support/job-runtime.ts).
  */
 
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CARRY_MS } from "../../../extensions/job-workflow/carry.ts";
+import {
+	CARRY_MS,
+	type HandOff,
+	park,
+	takeParked,
+} from "../../../extensions/job-workflow/carry.ts";
+import type { JobSession } from "../../../extensions/job-workflow/lifecycle.ts";
 import {
 	findJobHost,
 	type JobFinished,
@@ -204,6 +214,70 @@ describe("a reload", () => {
 		expect(other.said).toEqual([]);
 		vi.advanceTimersByTime(CARRY_MS);
 		expect(jobStopOf(job.signal)).toBe("session");
+	});
+});
+
+describe("what a reload takes over", () => {
+	// 9 November: adopting kept the parking runtime's own outbox, so a
+	// process ran the outbox of whichever version first built it, and the
+	// steer #1101 added reached no session started before it (N3Q98W).
+	const pi = {} as ExtensionAPI;
+	const ctx = {} as ExtensionContext;
+	const session = (name: string) => ({ name }) as unknown as JobSession;
+
+	it("is a hand-off the taking code builds its own session around", () => {
+		const handed = { jobs: {}, waiting: [], unsaid: [] } as unknown as HandOff;
+		const adopted: string[] = [];
+		park({
+			session: "s1",
+			adopt: () => {
+				adopted.push("adopted");
+				return session("old");
+			},
+			stop: () => {},
+			handOff: () => handed,
+		});
+
+		const taken = takeParked("s1", pi, ctx, (given) =>
+			given === handed ? session("new") : session("wrong"),
+		);
+
+		expect({ taken, adopted }).toEqual({
+			taken: session("new"),
+			adopted: [],
+		});
+	});
+
+	it("is the old session adopted whole, from code that can't hand off", () => {
+		park({ session: "s1", adopt: () => session("old"), stop: () => {} });
+
+		const taken = takeParked("s1", pi, ctx, () => session("new"));
+
+		expect(taken).toEqual(session("old"));
+	});
+
+	it("says a job's result through the newest runtime after two hand-offs", async () => {
+		const events = createEventBus();
+		const { first, host } = await startedOn(events);
+		const waiting = host.start({ kind: "shell", label: "cargo test" });
+		const running = host.start({ kind: "shell", label: "nix build" });
+		first.state.busy = true;
+		waiting.finish({ summary: "finished while busy" });
+		first.state.busy = false;
+
+		const second = await reloadJobs(events, first);
+		const third = await reloadJobs(events, second);
+		running.finish({ summary: "exited 0" });
+		for (let i = 0; i < 3; i++) {
+			await third.fire("message_end", landed(third.said.at(-1) ?? ""));
+			await third.fire("agent_settled");
+		}
+
+		expect(third.said.join("\n")).toContain("finished while busy");
+		expect(first.said.join("\n")).not.toContain("exited 0");
+		expect(second.said.join("\n")).not.toContain("exited 0");
+		expect(third.said.join("\n")).toContain("exited 0");
+		expect(findJobHost(events)?.pending?.()).toBe(0);
 	});
 });
 
