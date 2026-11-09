@@ -150,6 +150,19 @@ A landing the agent asked for is said through the job host, the only
 thing that starts a turn nobody typed. One the person asked for is a
 hidden custom message.
 
+## In a Host
+
+The request slot, the follower and `loaded/<pid>` are one per process,
+and a tree is swapped in through pi's shared settings. In a
+multi-session host each would act for every conversation at once, so
+a hosted conversation uses none of them: it follows no install, and
+the `reload` tool and `/harness reload` refuse, saying the reload is
+the host's to do. Each conversation's load still writes
+`loaded/<pid>`, so pi-packages keeps the version the host runs, but
+none takes it back and no exit listener is added: one conversation
+ending must not take it back for the others, and pi-packages removes
+a file once its pid has ended.
+
 ## Load Check
 
 `lib/internal/reload/load-check.ts` starts pi in RPC mode with

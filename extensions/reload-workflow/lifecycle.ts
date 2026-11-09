@@ -10,6 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/index.ts";
 import { takeOwedTurn } from "../../lib/internal/reload/hold.ts";
 import {
 	describeLoaded,
@@ -74,6 +75,13 @@ const SAID_FILE = Symbol.for("agentic-harness.reload.said-file");
  * no pi runs it (lib/internal/reload/said.ts), and take it back as the
  * process ends. Each load says it again; the process's one file is taken
  * back once, whichever load wrote it last.
+ *
+ * In a host each conversation's load says it, so the version its
+ * conversations run is never swept under them, but none takes it back:
+ * one conversation ending must not do so for the others, and the host's
+ * process adds no exit listener for it. pi-packages counts a file only
+ * while its pid runs and removes it once the process has ended
+ * (core.nix's pi-packages, src/loaded.rs).
  */
 export function tellPiPackages(settings: PackageSettings): void {
 	let install: string | undefined;
@@ -86,7 +94,7 @@ export function tellPiPackages(settings: PackageSettings): void {
 	const file = sayLoaded(PACKAGE_ROOT, install);
 	if (file === undefined || Reflect.get(globalThis, SAID_FILE) === file) return;
 	Reflect.set(globalThis, SAID_FILE, file);
-	process.once("exit", () => unsayLoaded(file));
+	if (!hosted()) process.once("exit", () => unsayLoaded(file));
 }
 
 /** Show the mark while the session runs something other than the install. */

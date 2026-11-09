@@ -4,6 +4,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/index.ts";
 import {
 	AGAIN_ENV,
 	clearAwake,
@@ -26,6 +27,13 @@ import {
 	writeParked,
 } from "../../lib/internal/session/park.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
+
+/**
+ * Why a hosted conversation never parks itself. Parking ends the whole
+ * process, which in a host is every conversation it runs; the host
+ * decides when one sleeps.
+ */
+export const HOST_PARKS = "its host parks it";
 
 /** How often a session asks itself whether it may park. */
 export const LOOK_EVERY_MS = 60_000;
@@ -51,12 +59,13 @@ export type Parkable = Pick<
  * Whether this session may ever park: one its person sees, not a
  * subagent, and held by a holder that said where it watches for its
  * wake (`MYCELIUM_WAKE`). A pi with no holder that parked would just end.
+ * Never in a host, whatever its context says of a screen.
  */
 export function mayPark(
 	ctx: Pick<ExtensionContext, "hasUI">,
 	env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-	return isPersons(ctx, env) && Boolean(env[WAKE_ENV]);
+	return !hosted() && isPersons(ctx, env) && Boolean(env[WAKE_ENV]);
 }
 
 /** Whether a session is one its person sees, rather than a subagent. */
@@ -69,8 +78,8 @@ function isPersons(
 }
 
 /**
- * Say why a person's session that may never park stays awake: no holder
- * said where it watches for a wake. Answers whether it said so, for the
+ * Say why a person's session that may never park stays awake: its host
+ * parks it, or no holder said where it watches for a wake. Answers whether it said so, for the
  * caller to clear as the session ends.
  */
 export function noteNeverParks(
@@ -79,12 +88,14 @@ export function noteNeverParks(
 	folder?: string,
 	now: () => number = Date.now,
 ): boolean {
-	if (!isPersons(ctx, env) || env[WAKE_ENV]) return false;
+	if (!isPersons(ctx, env)) return false;
+	const inHost = hosted() !== undefined;
+	if (!inHost && env[WAKE_ENV]) return false;
 	try {
 		writeAwake(
 			{
 				session: ctx.sessionManager.getSessionId(),
-				why: "no holder would wake it",
+				why: inHost ? HOST_PARKS : "no holder would wake it",
 				since: new Date(now()).toISOString(),
 			},
 			folder,
@@ -243,6 +254,8 @@ export function watch(
 	let parked = false;
 	const decide = (): string | undefined => {
 		if (parked) return "parking already";
+		// A watch begun before a host was installed still never ends it.
+		if (hosted()) return HOST_PARKS;
 		const ask: ParkAsk = { session, refusals: [] };
 		const afterMs = parkAfterMs(session, options.env, options.switchPath);
 		// Others are asked only once it is due, since asking reads the board.
