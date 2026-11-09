@@ -14,7 +14,8 @@
 # of the person's on it is touched. It finds the pnpm that package.json
 # names in its Nix store, since corepack can't fetch one there, and runs
 # npm's prebuilt biome through glibc's own loader where the host has no
-# nix-ld. Exits with what `pnpm check` exited with.
+# nix-ld. Checks on one host take turns, since they share that worktree.
+# Exits with what `pnpm check` exited with.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -36,6 +37,15 @@ branch="$1"
 # folder commands could write.
 repo=~/.cache/harness-check.git
 dir=~/.cache/harness-check-tree
+# Every check checks its branch out into the one worktree, so a second
+# started beside the first would swap the files under it. Each holds this
+# lock from the fetch to the end of `pnpm check`, and a second waits.
+mkdir -p ~/.cache
+exec 9> ~/.cache/harness-check.lock
+if ! flock -n 9; then
+  echo "check-there: another check runs on $(hostname); waiting its turn" >&2
+  flock 9
+fi
 if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
 fi
