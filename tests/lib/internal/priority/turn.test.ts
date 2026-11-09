@@ -17,6 +17,7 @@ import {
 	keepOutcome,
 	outcomeOf,
 } from "../../../../lib/internal/priority/outcome.ts";
+import { pushesFolder } from "../../../../lib/internal/priority/pushes.ts";
 import {
 	CHANGED_CHECKS_GIB,
 	CHANGED_CHECKS_SENT_GIB,
@@ -262,7 +263,7 @@ describe("heavy work waiting for its turn", () => {
 		expect(pushing).not.toContain(".fetched");
 		expect(pushing).not.toContain("main-before");
 		expect(pushing).toContain(
-			`"GIT_CONFIG_VALUE_$PI_PUSH_HOOKS_PRIOR=${join(dir, "pushes")}"`,
+			`"GIT_CONFIG_VALUE_$PI_PUSH_HOOKS_PRIOR=${pushesFolder(dir)}"`,
 		);
 		expect(fetching).not.toContain("core.hooksPath");
 		for (const walk of [fetching, pushing]) {
