@@ -89,5 +89,5 @@ export function documentReadReason(read: DocumentRead): string {
 		read.how === "whole"
 			? `This reads all of ${read.id}`
 			: `This reads ${read.id} from the shell`;
-	return `Quest workflow: ${what}, and every turn after pays for what it brings into the context. Read it through the quest tool instead: \`quest show\` with id ${read.id} gives its outline (sections, their sizes, open items), with \`title\` one section, and with \`query\` one item and its notes.`;
+	return `Quest workflow: ${what}, and every turn after pays for what it brings into the context. Read it through the quest tool instead: \`quest show\` with id ${read.id} gives its outline (sections, their sizes, open items), with \`title\` one section, and with \`query\` one item and its notes, or, given words no item reads, the lines holding them (\`a|b\` for either), numbered for a \`read\` with an offset.`;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	itemOf,
+	linesHolding,
 	outlineOf,
 	replaceSection,
 	sectionOf,
@@ -409,5 +410,40 @@ describe("reading a document without all of it", () => {
 		const last = itemOf(NUMBERED, "70. ship");
 		if (!last.ok) throw new Error(last.reason);
 		expect(last.text).toBe("");
+	});
+});
+
+describe("the lines holding some words", () => {
+	it("finds them without case, with the section each sits under", () => {
+		expect(linesHolding(PLAN, "old PURPOSE")).toEqual([
+			{ line: 16, section: "🎯 Purpose", text: "Old purpose." },
+		]);
+	});
+
+	it("takes either of two spelled as grep spells them", () => {
+		for (const query of ["prune|recording", "prune\\|recording"]) {
+			expect(
+				linesHolding(PLAN, query).map((one) => one.line),
+				query,
+			).toEqual([5, 6]);
+		}
+	});
+
+	it("reads a pipe with nothing beside it as itself", () => {
+		const table = "## Codes\n\n| H17 | held |\n| H18 | let go |\n";
+		expect(linesHolding(table, "| H17 |")).toEqual([
+			{ line: 3, section: "Codes", text: "| H17 | held |" },
+		]);
+	});
+
+	it("finds lines above the first section with none named", () => {
+		expect(linesHolding(PLAN, "the plan")).toEqual([
+			{ line: 1, text: "# The Plan" },
+		]);
+	});
+
+	it("finds nothing for words no line holds, or for none at all", () => {
+		expect(linesHolding(PLAN, "nowhere")).toEqual([]);
+		expect(linesHolding(PLAN, "  ")).toEqual([]);
 	});
 });

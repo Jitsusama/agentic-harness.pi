@@ -352,7 +352,11 @@ while it waits its turn leaves without running.
   answers its outline (each `##` section with its size, the
   open checkbox items and the next), and with `title` one
   section, or with `query` one item and the notes nested
-  under it, matched as `section` and `tick` match them. With
+  under it, matched as `section` and `tick` match them. Words
+  in `query` that no item reads list the lines holding them
+  instead (`a|b` for either), each with its section and its
+  number in the file for a `read` with an offset; a bare
+  number is only ever an item. With
   neither an id nor either of those, `show` projects the
   quest as before. Plans grow past 400 KB, mostly as notes
   under done items, and sessions hunted them with grep and

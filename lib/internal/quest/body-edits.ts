@@ -299,6 +299,54 @@ export function itemOf(body: string, item: string): ReadFound | EditRefused {
 	return { ok: true, found: lines[at].trim(), text: notes.join("\n") };
 }
 
+/** A line a search of a document found, with where it sits. */
+export interface FoundLine {
+	/** Its number in the text searched, counted from 1. */
+	readonly line: number;
+	/** The `##` section it sits under; none above the first. */
+	readonly section?: string;
+	readonly text: string;
+}
+
+/**
+ * The lines of a document holding the words asked for, in order, with
+ * the section each sits under. The words match without case, as
+ * written, and `a|b` (or grep's `a\|b`) asks for either. A session
+ * hunting where a code or a phrase appears can't name an item or a
+ * section for it, so it searched the file from the shell: of 135 such
+ * searches the guard refused in 96 hours to 2026-11-09, 50 were simply
+ * run again.
+ */
+export function linesHolding(body: string, query: string): FoundLine[] {
+	const wanted = alternativesOf(query);
+	if (wanted.length === 0) return [];
+	const lines = body.split("\n");
+	const headings = secondLevelHeadings(lines);
+	const found: FoundLine[] = [];
+	let under = -1;
+	lines.forEach((text, index) => {
+		while ((headings[under + 1]?.index ?? Number.POSITIVE_INFINITY) <= index) {
+			under++;
+		}
+		const lower = text.toLowerCase();
+		if (!wanted.some((one) => lower.includes(one))) return;
+		const section = headings[under]?.text;
+		found.push({ line: index + 1, ...(section ? { section } : {}), text });
+	});
+	return found;
+}
+
+/**
+ * What a search asks for: the words as written, or each side of a `|`
+ * when every side holds something, so a table's `| H17 |` stays itself.
+ */
+function alternativesOf(query: string): string[] {
+	const whole = query.trim().replace(/\\\|/g, "|").toLowerCase();
+	if (!whole) return [];
+	const sides = whole.split("|").map((one) => one.trim());
+	return sides.length > 1 && sides.every(Boolean) ? sides : [whole];
+}
+
 function indentOf(line: string): number {
 	return (line.match(/^\s*/)?.[0] ?? "").replace(/\t/g, "  ").length;
 }
