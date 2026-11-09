@@ -98,6 +98,14 @@ export type TurnPrecedent =
 export interface TurnFacts {
 	/** Null for the first billed turn on its branch. */
 	readonly precededBy: TurnPrecedent | null;
+	/**
+	 * Whether the harness reloaded since the billed turn before it, even
+	 * where a change to the prompt outranks the reload as its precedent:
+	 * a reload onto an install that redeclares a tool costs every session
+	 * one full write, which reads as a changed prompt without this. Null
+	 * for the first billed turn on its branch.
+	 */
+	readonly reloaded: boolean | null;
 	/** Milliseconds since the billed turn before it on its branch. */
 	readonly gapMs: number | null;
 	/**

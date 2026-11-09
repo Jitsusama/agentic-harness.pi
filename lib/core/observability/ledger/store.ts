@@ -91,6 +91,11 @@ const FACT_COLUMNS: ReadonlyArray<{
 		type: "TEXT",
 		value: (t) => t.facts?.precededBy ?? null,
 	},
+	{
+		column: "reloaded",
+		type: "INTEGER",
+		value: (t) => flag(t.facts?.reloaded),
+	},
 	{ column: "gap_ms", type: "INTEGER", value: (t) => t.facts?.gapMs ?? null },
 	{
 		column: "new_tokens",

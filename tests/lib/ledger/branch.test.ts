@@ -192,6 +192,12 @@ describe("what came before a turn", () => {
 		expect(
 			["a2", "a3", "a4"].map((id) => turns.get(id)?.facts?.precededBy),
 		).toEqual(["reload", "system", "nothing"]);
+		// 11-08 18:47 to 20:07: 25 misses read as a changed prompt, every one
+		// the first turn after a reload onto an install that redeclared two
+		// tools, so the reload is kept beside the prompt it brought.
+		expect(
+			["a1", "a2", "a3", "a4"].map((id) => turns.get(id)?.facts?.reloaded),
+		).toEqual([null, true, true, false]);
 	});
 
 	it("follows the branch a turn is on, not the order of the lines", () => {

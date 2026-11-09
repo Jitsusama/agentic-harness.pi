@@ -22,7 +22,8 @@ const IMAGE_CHARS = 1500 * CHARS_PER_TOKEN;
  * which one a turn is said to follow. Earlier explains a miss better:
  * a compaction rewrites the context whatever else happened, and a model
  * change starts a new cache. A reload comes after the prompt changes it
- * may bring, which say more exactly what changed.
+ * may bring, which say more exactly what changed; whether one happened
+ * is kept beside the precedent, as `reloaded`.
  */
 const PRECEDENCE: readonly Exclude<TurnPrecedent, "nothing">[] = [
 	"compaction",
@@ -185,6 +186,7 @@ function turned(
 	const follows = billed && before.lastTurnAt !== null;
 	const facts: TurnFacts = {
 		precededBy: follows ? precedentOf(before.seen) : null,
+		reloaded: follows ? before.seen.has("reload") : null,
 		gapMs:
 			follows && before.lastTurnAt !== null ? at - before.lastTurnAt : null,
 		newTokens: follows
@@ -282,6 +284,7 @@ function compacted(
 	};
 	const facts: TurnFacts = {
 		precededBy: before.lastTurnAt === null ? null : precedentOf(before.seen),
+		reloaded: before.lastTurnAt === null ? null : before.seen.has("reload"),
 		gapMs:
 			at !== null && before.lastTurnAt !== null ? at - before.lastTurnAt : null,
 		newTokens: null,
