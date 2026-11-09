@@ -10,6 +10,20 @@ outcomes back to the parent. It is the substrate underneath
 the review substrate's ask rounds and the `subagent`
 fleet tool.
 
+## Hosted Conversations
+
+Fleets record the calling conversation beside the host's process identity.
+Closing A abandons A's open fleets while B keeps waiting. A supervised
+run also records that parent owner: it stops its child only when the
+host's list proves the conversation closed. A parked conversation stays
+held, and an unreadable list leaves the child running. Detached review
+rounds still have no parent watchdog.
+
+A host must pin pi.subagent.startupPiInstall on globalThis before loading
+extensions, with node, entry and optional packageDir naming real pi.
+Without that pin, hosted subagents refuse rather than launch the host
+script. Plain pi still captures its own startup install.
+
 ## Public surface
 
 Two ways to call the engine:

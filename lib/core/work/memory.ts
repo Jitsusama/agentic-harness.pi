@@ -35,17 +35,21 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+	askedOnceWithTicks,
+	tickedStanding,
+	tickFacts,
+} from "../../internal/process-ticks.ts";
 import { withFileLock } from "../internal/file-lock.ts";
 import {
-	askedOnce,
 	isOwner,
 	type Owner,
 	ownerNow,
-	ownerStanding,
 	type ProcessFacts,
 	sameProcess,
 	systemFacts,
 } from "../process/index.ts";
+import { hosted, sessionOwner } from "../session/index.ts";
 import type { HeldTree } from "./broker.ts";
 
 /** Somewhere to write down what was cut. */
@@ -168,9 +172,19 @@ function named(tree: HeldTree): readonly Owner[] {
 	return owners.filter(isOwner);
 }
 
-/** Whether two records name one process. */
+/** Whether two records name the same conversation or plain pi process. */
 function sameOwner(one: Owner, two: Owner): boolean {
-	return one.pid === two.pid && sameProcess(one.startedAt, two.startedAt);
+	return (
+		one.pid === two.pid &&
+		sameProcess(one.startedAt, two.startedAt) &&
+		one.host === two.host &&
+		one.session === two.session
+	);
+}
+
+/** Keep plain pi fact injection while a host supplies the conversation owner. */
+async function holderNow(facts: ProcessFacts): Promise<Owner | undefined> {
+	return hosted() ? sessionOwner() : ownerNow(facts);
 }
 
 /** Whether a record read back off disk says enough to be useful. */
@@ -295,9 +309,9 @@ export function createTreeMemory(
 		async rememberHeldByUs(held, facts = systemFacts) {
 			// Stamped here rather than by the caller, so a tree cannot be
 			// written down without the identity that lets it be released
-			// later. The owner is this process: whoever asks the broker for a
-			// tree is the session that will be holding it.
-			const us = await ownerNow(facts);
+			// later. The holder is the calling conversation in a host, or
+			// the calling process on plain pi.
+			const us = await holderNow(facts);
 			if (us === undefined) {
 				// The machine will not say when we started, so we cannot write
 				// an identity anybody could check later. Recording the tree
@@ -357,12 +371,14 @@ export function createTreeMemory(
 		async otherHolders(path, facts = systemFacts) {
 			const tree = this.recall().find((one) => one.path === path);
 			if (tree === undefined) return [];
-			const once = askedOnce(facts);
-			const us = await ownerNow(once);
+			const once = askedOnceWithTicks(
+				facts === systemFacts ? tickFacts : facts,
+			);
+			const us = await holderNow(once);
 			const others: Owner[] = [];
 			for (const owner of named(tree)) {
 				if (us !== undefined && sameOwner(owner, us)) continue;
-				if ((await ownerStanding(owner, once)) !== "gone") others.push(owner);
+				if ((await tickedStanding(owner, once)) !== "gone") others.push(owner);
 			}
 			return others;
 		},
@@ -370,7 +386,7 @@ export function createTreeMemory(
 		async forgetUsAsHolder(path, facts = systemFacts) {
 			const found = this.recall().find((one) => one.path === path);
 			if (found === undefined) return;
-			const us = await ownerNow(facts);
+			const us = await holderNow(facts);
 			if (us === undefined) return;
 			// Read again under the lock: what was found above may already
 			// be missing a holder that arrived since.
@@ -395,9 +411,11 @@ export function createTreeMemory(
 				if (tree === undefined) return;
 				const owners = named(tree);
 				if (owners.length === 0) return;
-				const once = askedOnce(facts);
+				const once = askedOnceWithTicks(
+					facts === systemFacts ? tickFacts : facts,
+				);
 				const stands = await Promise.all(
-					owners.map((owner) => ownerStanding(owner, once)),
+					owners.map((owner) => tickedStanding(owner, once)),
 				);
 				if (stands.some((one) => one !== "gone")) return;
 				if (!(await take())) return;
@@ -410,7 +428,7 @@ export function createTreeMemory(
 		async holdWhileUnheld(path, facts = systemFacts) {
 			const found = this.recall().find((one) => one.path === path);
 			if (found === undefined) return undefined;
-			const us = await ownerNow(facts);
+			const us = await holderNow(facts);
 			if (us === undefined) return undefined;
 			let before: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
@@ -418,9 +436,11 @@ export function createTreeMemory(
 				if (tree === undefined) return;
 				const owners = named(tree);
 				if (owners.length === 0) return;
-				const once = askedOnce(facts);
+				const once = askedOnceWithTicks(
+					facts === systemFacts ? tickFacts : facts,
+				);
 				const stands = await Promise.all(
-					owners.map((owner) => ownerStanding(owner, once)),
+					owners.map((owner) => tickedStanding(owner, once)),
 				);
 				if (stands.some((one) => one !== "gone")) return;
 				const { sessions: _, ...rest } = tree;
@@ -444,7 +464,9 @@ export function createTreeMemory(
 			// held per pid, one stale record answers for a live session
 			// wearing the same number, which is the exact confusion this
 			// module exists to prevent.
-			const once = askedOnce(facts);
+			const once = askedOnceWithTicks(
+				facts === systemFacts ? tickFacts : facts,
+			);
 
 			for (const tree of this.recall()) {
 				const owners = named(tree);
@@ -460,7 +482,7 @@ export function createTreeMemory(
 				// Any one of them is enough. A shared snapshot outlives the
 				// first holder to finish with it.
 				const stands = await Promise.all(
-					owners.map((owner) => ownerStanding(owner, once)),
+					owners.map((owner) => tickedStanding(owner, once)),
 				);
 				if (stands.some((one) => one !== "gone")) held.push(tree);
 			}

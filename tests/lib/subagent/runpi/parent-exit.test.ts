@@ -15,17 +15,31 @@
  * is emphatically alive.
  */
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+	hostRegistryPath,
+	installHost,
+	withSession,
+} from "../../../../lib/core/session/index.ts";
+import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import {
 	createSupervisorRunPi,
 	createSupervisorStartPi,
 } from "../../../../lib/subagent/runpi/supervisor.ts";
 import { gone, noSuchProcess } from "../../../support/processes.ts";
+import { sessionHost } from "../../../support/session-host.ts";
 
 // Real processes, doubly nested, on a pool that may be saturated.
 // Nothing here waits on work: the child sleeps and is meant to be
@@ -57,6 +71,119 @@ async function appears<T>(
 }
 
 describe("a supervisor whose session has gone", () => {
+	it("stops A when its host closes it, without stopping B or the host", async () => {
+		const root = await mkdtemp(join(tmpdir(), "hosted-parent-"));
+		const owner = await tickedOwnerNow();
+		if (!owner) throw new Error("test process has no identity");
+		const state = join(root, "state");
+		const runtime = join(root, "runtime");
+		await mkdir(runtime);
+		vi.stubEnv("XDG_STATE_HOME", state);
+		const { host, open } = sessionHost(owner);
+		const removeHost = installHost(host);
+		const registry = hostRegistryPath(owner);
+		const publish = async () => {
+			await mkdir(dirname(registry), { recursive: true });
+			await writeFile(
+				`${registry}.new`,
+				JSON.stringify({
+					key: host.key,
+					owner,
+					sessions: [...open].map((id) => ({
+						id,
+						state: "idle",
+						since: new Date().toISOString(),
+					})),
+				}),
+			);
+			await rename(`${registry}.new`, registry);
+		};
+		const childPath = join(root, "child.mjs");
+		await writeFile(childPath, "setInterval(() => {}, 1000);\n");
+		const sealed = {
+			PATH: process.env.PATH,
+			HOME: root,
+			TMPDIR: root,
+			XDG_STATE_HOME: state,
+			XDG_RUNTIME_DIR: runtime,
+		};
+		const run = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir: root,
+			timeoutMs: 60_000,
+			idleTimeoutMs: 60_000,
+			spawn: (binary, args, options) =>
+				spawn(binary, args, { ...options, env: sealed }),
+		});
+		const controller = new AbortController();
+		const children: number[] = [];
+		const running: Promise<unknown>[] = [];
+		try {
+			await publish();
+			for (const id of ["a", "b"]) {
+				const result = withSession(id, () =>
+					run({
+						args: [],
+						cwd: root,
+						runId: "hosted",
+						reviewerId: id,
+						signal: controller.signal,
+					}),
+				);
+				result.catch(() => {});
+				running.push(result);
+			}
+			const store = new ReviewerArtifactsStore(root);
+			for (const id of ["a", "b"]) {
+				const paths = store.paths("hosted", id);
+				const lease = await appears<{ childPid: number }>(
+					paths.leasePath,
+					(value) => typeof value.childPid === "number",
+				);
+				children.push(lease.childPid);
+				const request = await appears<{ parentOwner: unknown }>(
+					paths.requestPath,
+				);
+				expect(request.parentOwner).toEqual({
+					...owner,
+					host: host.key,
+					session: id,
+				});
+			}
+
+			await host.close("a", "test");
+			await publish();
+			const a = await appears<{ state: string }>(
+				store.paths("hosted", "a").resultPath,
+			);
+			expect(a.state).toBe("parent-exit");
+			await gone(children[0], APPEARS_WITHIN_MS);
+			expect(() => process.kill(children[1], 0)).not.toThrow();
+			expect(host.holds("b")).toBe("idle");
+
+			await host.close("b", "test");
+			await publish();
+			const b = await appears<{ state: string }>(
+				store.paths("hosted", "b").resultPath,
+			);
+			expect(b.state).toBe("parent-exit");
+			await Promise.all(running);
+		} finally {
+			controller.abort();
+			for (const pid of children) {
+				try {
+					process.kill(-pid, "SIGKILL");
+				} catch {
+					// Already stopped, which is the expected outcome.
+				}
+			}
+			await Promise.allSettled(running);
+			removeHost();
+			vi.unstubAllEnvs();
+			await rm(root, { recursive: true, force: true });
+		}
+	}, 120_000);
+
 	it("stops its child rather than running it to the backstop", async () => {
 		const stateDir = await mkdtemp(join(tmpdir(), "pr-parent-exit-"));
 		const childPath = join(stateDir, "child.mjs");

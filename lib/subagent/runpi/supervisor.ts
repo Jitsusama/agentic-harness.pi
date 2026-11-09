@@ -5,6 +5,7 @@ import {
 } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { hosted, sessionOwner } from "../../core/session/index.ts";
 import { offeredShellEnvironment } from "../../internal/shell/environment.ts";
 import {
 	ReviewerArtifactsStore,
@@ -315,7 +316,7 @@ async function told(
 	const reviewerId = options.reviewerId ?? "reviewer";
 	const paths = await store.ensureReviewerDir(runId, reviewerId);
 	const root = store.rootPaths(runId);
-	const request = buildRequest(
+	const request = await buildRequest(
 		config,
 		paths,
 		root.cancelPath,
@@ -801,7 +802,7 @@ function softDeadline(
 	return { timeoutMs: wall, softDeadlineMs: wall - reserve };
 }
 
-function buildRequest(
+async function buildRequest(
 	config: SupervisorRunPiConfig,
 	paths: ReviewerRunPaths,
 	runCancelPath: string,
@@ -820,9 +821,12 @@ function buildRequest(
 		readonly idleTimeoutMs?: number;
 		readonly wrapUpReserveMs?: number;
 	} = {},
-): unknown {
+): Promise<unknown> {
+	const parentOwner =
+		!input.orphaned && hosted() ? await sessionOwner() : undefined;
 	return {
 		schemaVersion: 1,
+		...(parentOwner ? { parentOwner } : {}),
 		...input,
 		// Only when somebody is waiting. The supervisor stops its child
 		// as soon as this pid is gone, which is right for a round the

@@ -15,6 +15,7 @@
  */
 
 import { realpathSync } from "node:fs";
+import { hosted } from "../core/session/index.ts";
 
 /** A pinned pi install: the node binary, entry script and asset dir. */
 export interface PiInstall {
@@ -145,6 +146,11 @@ export function getParentPiInstall(): PiInstall {
 	const store = globalThis as StartupInstallGlobal;
 	const existing = store[STARTUP_INSTALL_KEY];
 	if (existing !== undefined) return existing;
+	if (hosted()) {
+		throw new Error(
+			"Hosted subagents need the host to pin pi.subagent.startupPiInstall to pi's CLI before loading extensions",
+		);
+	}
 	const install = resolveParentPiInstall();
 	store[STARTUP_INSTALL_KEY] = install;
 	return install;

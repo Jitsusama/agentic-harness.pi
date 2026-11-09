@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import {
 	getParentPiInstall,
 	resolveParentPiInstall,
 } from "../../../lib/subagent/install";
+import { sessionHost } from "../../support/session-host.ts";
 
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
 function clearStartupSnapshot(): void {
@@ -102,6 +104,26 @@ describe("resolveParentPiInstall", () => {
 // post-upgrade environment.
 describe("getParentPiInstall", () => {
 	beforeEach(() => clearStartupSnapshot());
+
+	it("requires a real pi pin in a host and shares it across conversations", () => {
+		const { host } = sessionHost({ pid: 123, startedAt: 1000 });
+		const removeHost = installHost(host);
+		try {
+			expect(() => withSession("a", getParentPiInstall)).toThrow(
+				"pin pi.subagent.startupPiInstall",
+			);
+			expect(() => withSession("b", getParentPiInstall)).toThrow(
+				"pin pi.subagent.startupPiInstall",
+			);
+			const install = { node: "/node", entry: "/pi/cli.js", packageDir: "/pi" };
+			(globalThis as Record<symbol, unknown>)[STARTUP_INSTALL_KEY] = install;
+			expect(withSession("a", getParentPiInstall)).toBe(install);
+			expect(withSession("b", getParentPiInstall)).toBe(install);
+		} finally {
+			removeHost();
+			clearStartupSnapshot();
+		}
+	});
 
 	it("captures once and ignores later environment changes", () => {
 		const previous = process.env.PI_PACKAGE_DIR;
