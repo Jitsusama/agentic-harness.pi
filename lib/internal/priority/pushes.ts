@@ -13,19 +13,26 @@ import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeWhole } from "../write-whole.ts";
-import { HOOK_NAMES, PRIOR_VARIABLE } from "./push-hooks.mjs";
+import {
+	HOOK_NAMES,
+	PRIOR_VARIABLE,
+	SKIP_STALE_VARIABLE,
+} from "./push-hooks.mjs";
 import { skipsWorldPushHooks, type Where } from "./queue.ts";
 
 /**
  * Why a push of World with `--no-verify` is refused, saying the form to
- * run instead, or nothing for any other command.
+ * run instead, or nothing for any other command. A branch the
+ * stale-cutoff hook refuses is rebased first; one stacked on a parent
+ * feature branch, which that hook measures against main all the same,
+ * leaves out that hook alone (push-hooks.mjs), never the rest.
  */
 export function skippedHooksRefusal(
 	command: string,
 	where: Where,
 ): string | undefined {
 	if (!skipsWorldPushHooks(command, where)) return undefined;
-	return "This pushes to World with --no-verify, which skips every pre-push hook dev runs: its ancestry and stale-cutoff checks as well as the LFS scan. Run the same push without --no-verify. A push that holds no LFS file already leaves the LFS scan out, so it waits no longer for it.";
+	return `This pushes to World with --no-verify, which skips every pre-push hook dev runs: its ancestry and stale-cutoff checks as well as the LFS scan. Run the same push without --no-verify. A push that holds no LFS file already leaves the LFS scan out, so it waits no longer for it. If the stale-cutoff check refuses an old branch, rebase it onto main first so it isn't stale any more. Only for a branch stacked on a parent feature branch, which that check still measures against main, run the same push as ${SKIP_STALE_VARIABLE}=1 git push ...: it leaves out that one check, and the LFS and ancestry hooks still run.`;
 }
 
 /** The folder in the queue's that a pushing shell takes its hooks from. */

@@ -6,6 +6,9 @@
 /** The variable holding how many git settings came before ours. */
 export const PRIOR_VARIABLE: string;
 
+/** The variable a push sets to 1 to leave out World's stale-cutoff hook alone. */
+export const SKIP_STALE_VARIABLE: string;
+
 /** The hook names git runs from a local repository's hooks folder. */
 export const HOOK_NAMES: readonly string[];
 
@@ -38,7 +41,10 @@ export function hooksIn(folder: string): string[];
 /** Whether a hook hands the push to git-lfs. */
 export function runsLfs(hook: string): boolean;
 
-/** The repository's own pre-push, sparing its LFS hooks where the push allows. */
+/**
+ * The repository's own pre-push, sparing its LFS hooks where the push
+ * allows and its stale-cutoff hook where the push asks.
+ */
 export function prePush(
 	hooks: string,
 	args: readonly string[],
