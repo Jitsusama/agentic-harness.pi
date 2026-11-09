@@ -1,6 +1,11 @@
 /** Private Unix listener and bounded viewer transport; session work stays in the engine. */
-import { chmod, lstat, mkdir } from "node:fs/promises";
-import { createServer, type Socket } from "node:net";
+import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
+import {
+	createConnection,
+	createServer,
+	type Server,
+	type Socket,
+} from "node:net";
 import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
 import { type ControlBackend, dispatchControl } from "./dispatch.ts";
@@ -43,7 +48,45 @@ async function privateDirectory(path: string) {
 		);
 }
 
-/** Listen without taking over an existing socket; stop detaches viewers, not sessions. */
+function errorCode(error: unknown): unknown {
+	return error instanceof Error && "code" in error ? error.code : undefined;
+}
+
+function bind(server: Server, path: string) {
+	return new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(path, () => {
+			server.off("error", reject);
+			resolve();
+		});
+	});
+}
+
+/**
+ * Whether the path is this user's socket with nothing answering it: what a
+ * host killed with SIGKILL, or lost with the machine, leaves behind. A live
+ * socket, another user's, or anything that is not a socket is never stale.
+ */
+async function abandoned(path: string): Promise<boolean> {
+	const info = await lstat(path);
+	if (!info.isSocket() || info.uid !== process.getuid?.()) return false;
+	return new Promise((resolve) => {
+		const probe = createConnection(path);
+		probe.once("connect", () => {
+			probe.destroy();
+			resolve(false);
+		});
+		probe.once("error", (error) => {
+			resolve(errorCode(error) === "ECONNREFUSED");
+		});
+	});
+}
+
+/**
+ * Listen, taking over only a socket nothing answers. The caller must hold
+ * the key's roster lock first, so no other host can bind between the probe
+ * and the unlink. Stop detaches viewers, not sessions.
+ */
 export async function listenControl(options: {
 	path: string;
 	backend: ControlBackend;
@@ -186,13 +229,14 @@ export async function listenControl(options: {
 		});
 	});
 	try {
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", reject);
-			server.listen(options.path, () => {
-				server.off("error", reject);
-				resolve();
-			});
-		});
+		try {
+			await bind(server, options.path);
+		} catch (error) {
+			if (errorCode(error) !== "EADDRINUSE" || !(await abandoned(options.path)))
+				throw error;
+			await unlink(options.path);
+			await bind(server, options.path);
+		}
 		await chmod(options.path, SOCKET_MODE);
 		ready = true;
 	} catch (error) {

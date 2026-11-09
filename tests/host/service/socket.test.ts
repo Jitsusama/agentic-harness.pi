@@ -1,5 +1,5 @@
 /** Real sockets around a fake engine and H1's two-session ownership. */
-import { chmod, lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -125,6 +125,17 @@ describe("private control listener", () => {
 	it("refuses an existing live socket without unlinking it", async () => {
 		await start();
 		await expect(listenControl({ path, backend, report })).rejects.toThrow();
+		expect(await controlRequest(path, list)).toMatchObject({ ok: true });
+	});
+	it("takes over the socket a killed host left, which nothing answers", async () => {
+		// A killed process never unlinks its socket, and node always does on
+		// close, so a second name for the socket is what outlives it here.
+		const killed = createServer();
+		const original = join(dir, "killed.sock");
+		await new Promise<void>((resolve) => killed.listen(original, resolve));
+		await link(original, path);
+		await new Promise<void>((resolve) => killed.close(() => resolve()));
+		await start();
 		expect(await controlRequest(path, list)).toMatchObject({ ok: true });
 	});
 	it("refuses a regular file instead of replacing it", async () => {

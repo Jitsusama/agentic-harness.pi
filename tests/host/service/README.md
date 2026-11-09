@@ -13,6 +13,10 @@ host of one key and a refused engine never listen, and holds survive
 stop and resume at the next start. The stale-rejection net is mocked,
 so the test worker keeps its own handling; the test checks a host sets
 it before its engine loads.
+killed-host.test.ts runs a host in a node process of its own, kills it
+with SIGKILL after two opens, and starts the next host of the key here:
+it takes over the left lock and socket and resumes both holds. It is in
+the process lane, since it spawns node from node.
 run.test.ts runs a host as its process would, with a stand-in for the
 process's signals and readiness: ready only once listening, parked with
 holds kept on a stop signal, and no socket without a realm.
