@@ -13,16 +13,17 @@
  * and anything a command exports for itself are left as they were.
  */
 
-import { processGlobal } from "../process-global.ts";
+import { type SessionRef, sessionSlot } from "../../core/session/index.ts";
 
 /** Variables for the next command, or undefined to offer none now. */
 export type ShellEnvironmentOffer = () =>
 	| Readonly<Record<string, string>>
 	| undefined;
 
-const offers = () =>
-	processGlobal(
+const offers = (ref?: SessionRef) =>
+	sessionSlot(
 		"pi:shell-environment:v1",
+		ref,
 		() => new Map<string, ShellEnvironmentOffer>(),
 	);
 
@@ -30,9 +31,10 @@ const offers = () =>
 export function offerShellEnvironment(
 	name: string,
 	offer: ShellEnvironmentOffer | undefined,
+	ref?: SessionRef,
 ): void {
-	if (offer) offers().set(name, offer);
-	else offers().delete(name);
+	if (offer) offers(ref).set(name, offer);
+	else offers(ref).delete(name);
 }
 
 /**
@@ -40,9 +42,11 @@ export function offerShellEnvironment(
  * offer that throws is left out: a command runs without one variable
  * rather than not at all.
  */
-export function offeredShellEnvironment(): Record<string, string> {
+export function offeredShellEnvironment(
+	ref?: SessionRef,
+): Record<string, string> {
 	const merged: Record<string, string> = {};
-	for (const offer of offers().values()) {
+	for (const offer of offers(ref).values()) {
 		try {
 			Object.assign(merged, offer());
 		} catch {

@@ -11,7 +11,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { processGlobal } from "../internal/process-global.ts";
+import { type SessionRef, sessionSlot } from "../core/session/index.ts";
 
 /** A source of resident system-prompt text, ordered against its peers. */
 export interface PromptContributor {
@@ -31,30 +31,35 @@ export interface FrozenResidentPrompt {
 	assemble(ctx: ExtensionContext): Promise<string>;
 }
 
-// Process-global so a contributor registered in one extension
-// is seen by the coordinator assembling in another; a
-// module-level Map would give each extension its own, and the
-// resident block would assemble empty.
-const contributors = processGlobal(
-	"pi:prompt-contributors",
-	() => new Map<string, PromptContributor>(),
-);
+// Shared across extension copies, but only within their conversation.
+// Resolve on use: importing this module needs no ambient session.
+function contributors(ref?: SessionRef): Map<string, PromptContributor> {
+	return sessionSlot(
+		"pi:prompt-contributors",
+		ref,
+		() => new Map<string, PromptContributor>(),
+	);
+}
 
 /** Register or replace a contributor by id. */
 export function registerPromptContributor(
 	contributor: PromptContributor,
+	ref?: SessionRef,
 ): void {
-	contributors.set(contributor.id, contributor);
+	contributors(ref).set(contributor.id, contributor);
 }
 
 /** Remove a contributor by id. Idempotent. */
-export function unregisterPromptContributor(id: string): void {
-	contributors.delete(id);
+export function unregisterPromptContributor(
+	id: string,
+	ref?: SessionRef,
+): void {
+	contributors(ref).delete(id);
 }
 
 /** Empty the registry. Intended for tests. */
-export function clearPromptContributors(): void {
-	contributors.clear();
+export function clearPromptContributors(ref?: SessionRef): void {
+	contributors(ref).clear();
 }
 
 /**
@@ -71,7 +76,7 @@ export function createFrozenResidentPrompt(
 	return {
 		async assemble(ctx: ExtensionContext): Promise<string> {
 			if (frozen !== undefined) return frozen;
-			const ranked = [...contributors.values()].sort(
+			const ranked = [...contributors(ctx).values()].sort(
 				(a, b) => a.order - b.order || a.id.localeCompare(b.id),
 			);
 			const blocks: string[] = [];
