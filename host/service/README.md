@@ -4,7 +4,13 @@ The service owns versioned JSON-lines control framing and dispatch beside
 H1's engine and V's Terminal. It does not implement pi's session loop,
 input pipeline or screen. No unit or running host is installed yet.
 
-- address.ts: validates stable realm-kind addresses in XDG_RUNTIME_DIR.
+- address.ts: the host's realm (MYCELIUM_REALM, else PI_HOME_REALM),
+  its realm-kind key and its socket in XDG_RUNTIME_DIR.
+- roster.ts: the durable realm-kind roster behind one lock per key.
+  Holds are written before registration and dropped only after a close
+  or release commits; stop and kill -9 keep them. A live or unjudgeable
+  lock holder, a malformed lock or an unreadable roster refuses start.
+  A dead holder's lock is moved aside and checked, never just unlinked.
 - viewer.ts: adapts V's persistent Terminal without reproducing its parser.
 - protocol.ts: strict v1 control requests, replies and viewer input.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
@@ -31,6 +37,6 @@ credential-bearing exception text. The production engine must record its
 own actionable journal errors.
 
 The listener and client are tested against an injected engine and H1's
-SessionHost, not a running AgentSession. There is no durable roster,
-release lock or recovery mechanism yet. V supplies the ViewerBridge;
+SessionHost, not a running AgentSession. The roster is not yet wired
+to the engine, so nothing resumes on start yet. V supplies the ViewerBridge;
 H2 does not reproduce InteractiveMode.

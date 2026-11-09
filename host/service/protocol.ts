@@ -75,6 +75,48 @@ const reply = z.discriminatedUnion("ok", [
 	}),
 ]);
 
+const identity = z.strictObject({
+	sessionId,
+	file: path,
+	cwd: path,
+	state: z.enum(["busy", "idle", "parked"]),
+	since: z.iso.datetime({ offset: true }),
+});
+const listed = z.strictObject({
+	sessions: z.array(identity),
+	host: expectedHost,
+});
+const ended = z.strictObject({ sessionId });
+
+/** A hosted conversation as open, adopt and list report it. */
+export type SessionIdentity = z.infer<typeof identity>;
+
+function result<T>(schema: z.ZodType<T>, value: unknown): T {
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) throw new Error("Invalid host control result");
+	return parsed.data;
+}
+
+/** Open's result, sent once ownership and the first durable submit committed. */
+export function parseOpenResult(value: unknown): SessionIdentity {
+	return result(identity, value);
+}
+
+/** Adopt's result: the original pi file, now held by the host. */
+export function parseAdoptResult(value: unknown): SessionIdentity {
+	return result(identity, value);
+}
+
+/** List's result, with the full identity to guard a later request with. */
+export function parseListResult(value: unknown): z.infer<typeof listed> {
+	return result(listed, value);
+}
+
+/** Release, close, abort and attach answer with the session they acted on. */
+export function parseSessionResult(value: unknown): z.infer<typeof ended> {
+	return result(ended, value);
+}
+
 /** Validate the engine's reply without trusting the connected socket's identity. */
 export function parseReply(value: unknown) {
 	const parsed = reply.safeParse(value);

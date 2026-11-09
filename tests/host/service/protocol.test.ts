@@ -3,7 +3,15 @@ import { setImmediate } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { dispatchControl } from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
-import { parseControl, parseViewer } from "../../../host/service/protocol.ts";
+import {
+	parseAdoptResult,
+	parseControl,
+	parseListResult,
+	parseOpenResult,
+	parseReply,
+	parseSessionResult,
+	parseViewer,
+} from "../../../host/service/protocol.ts";
 import {
 	ambientSession,
 	type Host,
@@ -18,6 +26,37 @@ const identity = {
 	key: "test",
 	owner: { pid: 123, startedAt: 1, startTicks: 20, bootId: "boot" },
 };
+
+describe("result validation", () => {
+	const held = {
+		sessionId: A,
+		file: "/sessions/a.jsonl",
+		cwd: "/repo",
+		state: "idle",
+		since: "2026-11-09T15:00:00.000Z",
+	};
+	it("accepts the agreed result of each operation", () => {
+		expect(parseOpenResult(held)).toEqual(held);
+		expect(parseAdoptResult({ ...held, state: "busy" }).state).toBe("busy");
+		expect(parseListResult({ sessions: [held], host: identity })).toEqual({
+			sessions: [held],
+			host: identity,
+		});
+		expect(parseSessionResult({ sessionId: B })).toEqual({ sessionId: B });
+	});
+	it("refuses results a client could act on wrongly", () => {
+		for (const bad of [
+			{ ...held, id: A },
+			{ ...held, sessionId: "durable-conversation" },
+			{ ...held, file: "relative.jsonl" },
+			{ ...held, state: "closed" },
+			{ ...held, since: "yesterday" },
+		])
+			expect(() => parseOpenResult(bad)).toThrow("Invalid host control result");
+		expect(() => parseListResult({ sessions: [held] })).toThrow();
+		expect(() => parseSessionResult({ sessionId: A, extra: 1 })).toThrow();
+	});
+});
 
 describe("wire validation", () => {
 	it("accepts the agreed operations with one public identity", () => {
@@ -130,6 +169,19 @@ describe("co-hosted dispatch", () => {
 		expect(
 			await dispatchControl({ ...close, expectedHost: identity }, backend),
 		).toMatchObject({ ok: true, result: "ok" });
+	});
+	it("answers null for a backend that returns nothing, so the reply survives JSON", async () => {
+		const backend = { identity, execute: async () => undefined };
+		const reply = await dispatchControl(
+			{ ...close, expectedHost: identity },
+			backend,
+		);
+		expect(parseReply(JSON.parse(JSON.stringify(reply)))).toEqual({
+			v: 1,
+			id: "c",
+			ok: true,
+			result: null,
+		});
 	});
 	it("binds two interleaved requests to their own environment and never signals the host", async () => {
 		const held = new Set([A, B]);

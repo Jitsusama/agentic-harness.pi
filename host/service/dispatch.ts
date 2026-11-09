@@ -64,7 +64,9 @@ export async function dispatchControl(
 			"sessionId" in request
 				? await withSession(request.sessionId, () => backend.execute(request))
 				: await backend.execute(request);
-		return { v: 1, id: request.id, ok: true, result };
+		// JSON drops an undefined field, and a reply without result is
+		// invalid, so a backend that answers nothing still answers null.
+		return { v: 1, id: request.id, ok: true, result: result ?? null };
 	} catch (error) {
 		report?.(error);
 		return {
