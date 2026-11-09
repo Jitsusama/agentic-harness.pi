@@ -8,9 +8,17 @@
  * that replaces this one, and any the reload lost are registered again
  * once it lands, which pi connects at once. A server the reload kept is
  * left alone, so this does nothing once pi keeps them itself.
+ *
+ * What is kept is the conversation's own: in a host another conversation
+ * starting between this one's shutdown and its start must neither take
+ * nor clear them.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type SessionContext,
+	sessionCell,
+} from "../../lib/core/session/index.ts";
 
 /** What a kept server is registered with again. */
 interface Kept {
@@ -18,27 +26,31 @@ interface Kept {
 	readonly config: Parameters<ExtensionAPI["registerMcpServer"]>[1];
 }
 
-const KEPT_KEY = Symbol.for("agentic-harness.reload.mcp-servers");
+/** The name the kept servers go under; plain pi's `Symbol.for` key as before. */
+const KEPT = "agentic-harness.reload.mcp-servers";
 
-type KeptGlobal = { [KEPT_KEY]?: readonly Kept[] };
+function keptFor(ctx: SessionContext) {
+	return sessionCell<readonly Kept[]>(KEPT, ctx);
+}
 
 /** Keep pi's MCP servers across this session's reloads. */
 export function keepMcpServersAcrossReloads(pi: ExtensionAPI): void {
-	const global = globalThis as KeptGlobal;
-	pi.on("session_shutdown", async (event) => {
+	pi.on("session_shutdown", async (event, ctx) => {
 		if (event.reason !== "reload") return;
+		const cell = keptFor(ctx);
 		try {
-			global[KEPT_KEY] = pi
-				.getMcpServers()
-				.map(({ name, config }) => ({ name, config }));
+			cell.set(
+				pi.getMcpServers().map(({ name, config }) => ({ name, config })),
+			);
 		} catch {
 			// A runtime that can't list them has none to keep.
-			global[KEPT_KEY] = undefined;
+			cell.clear();
 		}
 	});
-	pi.on("session_start", async (event) => {
-		const kept = global[KEPT_KEY];
-		global[KEPT_KEY] = undefined;
+	pi.on("session_start", async (event, ctx) => {
+		const cell = keptFor(ctx);
+		const kept = cell.get();
+		cell.clear();
 		if (event.reason !== "reload" || !kept) return;
 		let here: Set<string>;
 		try {
