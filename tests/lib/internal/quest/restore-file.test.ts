@@ -76,6 +76,37 @@ describe("the restore file", () => {
 		});
 	});
 
+	it("marks a session a shared host ran as hosted, so the launcher leaves it to the host", () => {
+		const plain = ranIn("01a1cccc-dddd", "last");
+		const inHost = openRecord({
+			sessionId: "01a1eeee-ffff",
+			instanceId: "inst-host",
+			cwd: "/home/me/src/hosted",
+			process: {
+				hostId: "here",
+				pid: 1,
+				startToken: "t",
+				bootToken: "last",
+				hosted: {
+					host: "home-background",
+					session: "01a1eeee-ffff",
+					owner: { pid: 1, startedAt: 1, startTicks: 1 },
+				},
+			},
+			now: new Date("2026-10-28T20:40:00Z"),
+		});
+		const file = restoreFileOf(
+			[
+				{ record: plain, heartbeatAt: "2026-10-29T05:00:00Z" },
+				{ record: inHost, heartbeatAt: "2026-10-29T05:00:00Z" },
+			],
+			"this",
+		);
+		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
+		expect(byId.get("01a1eeee-ffff")).toMatchObject({ hosted: true });
+		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("hosted");
+	});
+
 	it("offers a session parked when the boot ended, marked parked, unless its quest is done", () => {
 		const parked = (sessionId: string, questId: string, at: string) =>
 			closeRecord(ranIn(sessionId, "last", questId), "parked", new Date(at));
