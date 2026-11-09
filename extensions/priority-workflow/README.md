@@ -129,7 +129,9 @@ into `grep` can exit 1 having fetched. Its outcome carries
 
 A push of World runs with `core.hooksPath` set, through
 `GIT_CONFIG_COUNT` after any settings already there, to the queue's
-`pushes/` folder, where every hook name runs `push-hooks.mjs`. It runs
+`pushes/<version>/` folder, where every hook name runs that harness
+version's own `push-hooks.mjs`, so sessions on different versions never
+rewrite each other's hooks. It runs
 the repository's own hooks as git would have found them, with the
 setting taken off. The differences are in pre-push. World's LFS hook
 asks `git lfs ls-files OLD NEW`, which walks a whole World tree; on

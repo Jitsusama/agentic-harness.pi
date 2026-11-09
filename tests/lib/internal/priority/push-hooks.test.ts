@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { withoutOurs } from "../../../../lib/internal/priority/push-hooks.mjs";
 import {
 	placePushHooks,
+	pushesFolder,
 	pushesLine,
 	pushHook,
 } from "../../../../lib/internal/priority/pushes.ts";
@@ -226,6 +227,26 @@ describe("a push stacked on a parent feature branch", () => {
 		expect(git("ls-remote", "origin", "main")).not.toContain(
 			git("rev-parse", "HEAD"),
 		);
+	});
+});
+
+describe("the hooks of two harness versions on one machine", () => {
+	it("are kept apart, so each session's pushes run its own version's script", () => {
+		// 03:00 on 9 November: a session on an older harness rewrote the one
+		// shared folder, and newer sessions' pushes ran its script, which
+		// knew no stale-cutoff opt-out (91DWO8 [1f3c08c4]).
+		const older = "/versions/older/lib/internal/priority/push-hooks.mjs";
+		const newer = "/versions/newer/lib/internal/priority/push-hooks.mjs";
+
+		placePushHooks(queue, newer);
+		placePushHooks(queue, older);
+
+		const prePush = (script: string) =>
+			readFileSync(join(pushesFolder(queue, script), "pre-push"), "utf8");
+		expect(prePush(newer)).toContain(newer);
+		expect(prePush(older)).toContain(older);
+		expect(pushesLine(queue, newer)).toContain(pushesFolder(queue, newer));
+		expect(pushesFolder(queue, newer)).not.toBe(pushesFolder(queue, older));
 	});
 });
 
