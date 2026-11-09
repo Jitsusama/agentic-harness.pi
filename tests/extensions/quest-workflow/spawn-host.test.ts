@@ -9,6 +9,7 @@ import { spawnInHost } from "../../../extensions/quest-workflow/verbs/spawn-host
 import { hostSocketPath } from "../../../host/service/address";
 import type { ControlRequest } from "../../../host/service/protocol";
 import { listenControl } from "../../../host/service/server";
+import { withSession } from "../../../lib/core/session/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import { createEnvGuard } from "./_helpers";
@@ -181,16 +182,21 @@ describe("spawn into a host", () => {
 			host.host.env("a").set("XDG_RUNTIME_DIR", runtime);
 			host.host.env("b").set("MYCELIUM_REALM", "beta");
 			host.host.env("b").set("XDG_RUNTIME_DIR", runtime);
-			const fromA = await handle(alpha.state, fakePi(), fakeCtx("a"), {
-				action: "spawn",
-				id: alpha.id,
-				host: "background",
-			});
-			const fromB = await handle(beta.state, fakePi(), fakeCtx("b"), {
-				action: "spawn",
-				id: beta.id,
-				host: "background",
-			});
+			// The host runs each conversation's tool calls inside its session.
+			const fromA = await withSession("a", () =>
+				handle(alpha.state, fakePi(), fakeCtx("a"), {
+					action: "spawn",
+					id: alpha.id,
+					host: "background",
+				}),
+			);
+			const fromB = await withSession("b", () =>
+				handle(beta.state, fakePi(), fakeCtx("b"), {
+					action: "spawn",
+					id: beta.id,
+					host: "background",
+				}),
+			);
 			expect(fromA).toMatchObject({
 				ok: true,
 				details: { host: "alpha-background" },
