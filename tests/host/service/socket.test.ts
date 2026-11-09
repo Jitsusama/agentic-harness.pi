@@ -115,12 +115,15 @@ describe("private control listener", () => {
 	it("refuses an existing live socket without unlinking it", async () => {
 		await start();
 		await expect(listenControl({ path, backend, report })).rejects.toThrow();
-		expect((await controlRequest(path, list)).ok).toBe(true);
+		expect(await controlRequest(path, list)).toMatchObject({ ok: true });
 	});
 	it("refuses a regular file instead of replacing it", async () => {
 		await writeFile(path, "keep");
 		await expect(start()).rejects.toThrow();
-		expect((await lstat(path)).isFile()).toBe(true);
+		expect(
+			(await lstat(path)).isFile(),
+			"existing regular file survives a refused listener",
+		).toBe(true);
 	});
 	it("refuses a directory with broad permissions", async () => {
 		await chmod(dir, 0o755);
@@ -362,6 +365,8 @@ describe("one-shot client", () => {
 			socket.on("data", () => {});
 			const trickle = setInterval(() => socket.write(" "), 5);
 			socket.on("close", () => clearInterval(trickle));
+			// The absolute deadline intentionally disconnects during the trickle.
+			socket.on("error", () => clearInterval(trickle));
 		});
 		await new Promise<void>((resolve) => fake.listen(path, resolve));
 		try {
