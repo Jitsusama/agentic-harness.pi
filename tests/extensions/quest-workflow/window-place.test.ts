@@ -7,7 +7,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { windowPlaceFor } from "../../../extensions/quest-workflow/window-place.ts";
+import {
+	handedPlaceFor,
+	windowPlaceFor,
+} from "../../../extensions/quest-workflow/window-place.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -103,5 +106,23 @@ describe("a session's window", () => {
 		expect(
 			windowPlaceFor(ALONE, "/src/x", index, [lead, alone], "s-alone"),
 		).toEqual({ beside: ["π - Alone - x"], title: "π - Alone - x" });
+	});
+});
+
+describe("what the launcher is told to place a window by", () => {
+	it("is the orchestrator its presence will say and its session's name", () => {
+		const { index } = discoverQuests(root);
+
+		expect({
+			worker: handedPlaceFor(WORK, index),
+			lead: handedPlaceFor(LEAD, index),
+			alone: handedPlaceFor(ALONE, index),
+			unknown: handedPlaceFor("QEST-20260101-NOSUCH", index),
+		}).toEqual({
+			worker: { orchestratedBy: "LEADER", title: "Work" },
+			lead: { title: "Lead" },
+			alone: { title: "Alone" },
+			unknown: {},
+		});
 	});
 });

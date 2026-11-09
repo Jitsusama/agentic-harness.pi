@@ -159,6 +159,37 @@ describe("spawn through the desktop's launcher", () => {
 		expect(result.message).toContain(`Handed a new session, ${session?.id}`);
 	});
 
+	it("says the orchestrator and the title the new session's window is placed by", async () => {
+		const quests = join(tmpRoot, "quests");
+		const readme = (id: string, fields: string) => {
+			mkdirSync(join(quests, id), { recursive: true });
+			writeFileSync(
+				join(quests, id, "README.md"),
+				`---\nid: ${id}\nkind: quest\nstatus: active\nrank: 1\npriority: active\nstarted: 2026-01-01\nupdated: 2026-01-01\n${fields}\n---\n\n# ${id}\n`,
+			);
+		};
+		readme("QEST-20260101-LEADER", "orchestrator: true\nshort: Lead");
+		readme(
+			"QEST-20260101-WORKER",
+			"parent: QEST-20260101-LEADER\nshort: Edge Checks",
+		);
+		const state = createQuestState({ questsRoot: quests });
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id: "QEST-20260101-WORKER",
+		});
+
+		if (!result.ok) throw new Error(result.guidance);
+		const given = handed() as { sessions: Record<string, unknown>[] };
+		expect(given.sessions[0]).toMatchObject({
+			quest: "QEST-20260101-WORKER",
+			from: "spawner",
+			orchestratedBy: "LEADER",
+			title: "Edge Checks",
+		});
+	});
+
 	it("tells the session it hands over to carry on with its quest, and what for", async () => {
 		// 7 of 9 builders spawned on 11-03 sat idle until pivoted.
 		const { state, id } = await quest();
@@ -305,6 +336,8 @@ describe("spawn through the desktop's launcher", () => {
 				cwd: tmpRoot,
 				quest: id,
 				from: "spawner",
+				// Nothing orchestrates Alpha, so it says only its title.
+				title: "Alpha",
 				replaces: back,
 				model: "anthropic/claude-opus-5-5:high",
 				focus: false,

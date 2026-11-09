@@ -14,6 +14,7 @@
 import { join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import type { QuestIndex } from "../../lib/internal/quest/discovery.ts";
+import type { HandedSession } from "../../lib/internal/quest/hand-over.ts";
 import { orchestrationOf } from "../../lib/internal/quest/orchestration.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import {
@@ -43,16 +44,9 @@ export function windowPlaceFor(
 	presences: readonly Presence[],
 	session?: string,
 ): WindowPlace {
-	const entry = index.quests.get(questId);
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
 	const orchestration = orchestrationOf(questId, read);
-	const name = entry
-		? sessionNameFor(
-				entry.doc.title ?? null,
-				shortNameOf(entry.doc.frontMatter),
-			)
-		: undefined;
-	const title = windowTitle(name, cwd);
+	const title = windowTitle(handedPlaceFor(questId, index).title, cwd);
 	const own = titlesOf(
 		presences.filter((one) => session !== undefined && one.session === session),
 	);
@@ -78,6 +72,30 @@ export function windowPlaceFor(
 		beside: [...orchestrator, ...own],
 		...(orchestrator[0] ? { first: orchestrator[0] } : {}),
 		title,
+	};
+}
+
+/**
+ * What the launcher is told of a session on `questId` to place its
+ * window: the orchestrator address its presence will say, and its
+ * session name as its window's title will read it.
+ */
+export function handedPlaceFor(
+	questId: string,
+	index: QuestIndex,
+): Pick<HandedSession, "orchestratedBy" | "title"> {
+	const entry = index.quests.get(questId);
+	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
+	const by = orchestrationOf(questId, read).by;
+	const title = entry
+		? sessionNameFor(
+				entry.doc.title ?? null,
+				shortNameOf(entry.doc.frontMatter),
+			)
+		: undefined;
+	return {
+		...(by ? { orchestratedBy: questAddress(by) } : {}),
+		...(title ? { title } : {}),
 	};
 }
 

@@ -27,6 +27,13 @@
  * of the launcher focuses one (P9R1KI [e7379980], agreed with Y2YBTS
  * [bb4761d5]).
  *
+ * Each says too the orchestrator its presence will name and the title
+ * its window will read, so the launcher opens a session on its
+ * orchestrator's workspace at its place by title from the first, rather
+ * than beside whoever asked and moved after: on 8 November a session
+ * spawned for 91DWO8 by WCJQSG opened on WCJQSG's workspace (Y2YBTS
+ * [75db8bd0]).
+ *
  * A session handed over while the screen is locked is started behind
  * the lock and placed once it is gone (core.nix #1632), so the hand-over
  * doesn't ask about the lock.
@@ -50,6 +57,17 @@ export interface HandedSession {
 	readonly quest?: string;
 	/** The session that asked for it, which the window goes beside. */
 	readonly from?: string;
+	/**
+	 * The address of the orchestrator its presence will say, as
+	 * `91DWO8`, whose workspace its window opens on. Absent for a
+	 * session nothing orchestrates.
+	 */
+	readonly orchestratedBy?: string;
+	/**
+	 * Its title as its window will read, without pi's "π - " before it or
+	 * " - <folder>" after it, for its place among its orchestrator's.
+	 */
+	readonly title?: string;
 	/**
 	 * The session whose window this one takes the place of: itself, for a
 	 * session restored or resumed, so the launcher opens it where that
@@ -117,12 +135,24 @@ export async function handOver(
 	if (sessions.length === 0) return undefined;
 	const argument = JSON.stringify({
 		sessions: sessions.map(
-			({ id, cwd, fresh, quest, from, replaces, model }) => ({
+			({
+				id,
+				cwd,
+				fresh,
+				quest,
+				from,
+				orchestratedBy,
+				title,
+				replaces,
+				model,
+			}) => ({
 				id,
 				cwd,
 				...(fresh ? { fresh: true } : {}),
 				...(quest ? { quest } : {}),
 				...(from ? { from } : {}),
+				...(orchestratedBy ? { orchestratedBy } : {}),
+				...(title ? { title } : {}),
 				...(replaces ? { replaces } : {}),
 				...(model ? { model } : {}),
 				focus: false,

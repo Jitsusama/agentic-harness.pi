@@ -69,7 +69,11 @@ import {
 } from "../session-registry.ts";
 import type { QuestState } from "../state.ts";
 import { type TerminalCall, terminalOptions } from "../terminal.ts";
-import { presencesHere, windowPlaceFor } from "../window-place.ts";
+import {
+	handedPlaceFor,
+	presencesHere,
+	windowPlaceFor,
+} from "../window-place.ts";
 import {
 	ok,
 	type QuestResult,
@@ -500,6 +504,8 @@ export async function restore(
 		...(launcher ? { handOver: launcher } : {}),
 		// A restart replaces the session's window rather than adding one.
 		settle: (sessions: readonly string[]) => settleHere(sessions),
+		handedPlaceOf: (record: SessionRecord) =>
+			record.quest ? handedPlaceFor(record.quest, index) : {},
 		placeOf: (record: SessionRecord) =>
 			record.quest
 				? windowPlaceFor(

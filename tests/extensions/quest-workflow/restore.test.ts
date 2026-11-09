@@ -656,11 +656,16 @@ describe("restore through the desktop's launcher", () => {
 	 * does, starts each pi, or answers `answer` and starts nothing.
 	 */
 	function launcher(answer = "taken") {
-		const handed: { id: string; cwd: string; replaces?: string }[][] = [];
+		type Handed = {
+			id: string;
+			cwd: string;
+			replaces?: string;
+			orchestratedBy?: string;
+			title?: string;
+		};
+		const handed: Handed[][] = [];
 		const call = async (argument: string) => {
-			const { sessions } = JSON.parse(argument) as {
-				sessions: { id: string; cwd: string; replaces?: string }[];
-			};
+			const { sessions } = JSON.parse(argument) as { sessions: Handed[] };
 			handed.push(sessions);
 			if (answer === "taken") {
 				for (const one of sessions) checkIn(`pi --session '${one.id}'`);
@@ -691,6 +696,35 @@ describe("restore through the desktop's launcher", () => {
 		expect(message).toContain(
 			"Reopened 2 of 2 sessions, through the launcher, each where it sat.",
 		);
+	});
+
+	it("says each one's orchestrator and title, so it opens on that workspace in its place", async () => {
+		const quests = join(tmpRoot, "quests");
+		const readme = (id: string, fields: string) => {
+			mkdirSync(join(quests, id), { recursive: true });
+			writeFileSync(
+				join(quests, id, "README.md"),
+				`---\nid: ${id}\nkind: quest\nstatus: active\nrank: 1\npriority: active\nstarted: 2026-01-01\nupdated: 2026-01-01\n${fields}\n---\n\n# ${id}\n`,
+			);
+		};
+		readme("QEST-20260101-LEADER", "orchestrator: true\nshort: Lead");
+		readme(
+			"QEST-20260101-WORKER",
+			"parent: QEST-20260101-LEADER\nshort: Edge Checks",
+		);
+		recordingDriver();
+		const shell = launcher();
+		savedSessions("sess-A");
+		saveRecord(lostSession("sess-A", "QEST-20260101-WORKER"));
+
+		succeeded(await restore(buildState(), { act: true, launcher: shell.call }));
+
+		expect(shell.handed[0]?.[0]).toMatchObject({
+			id: "sess-A",
+			replaces: "sess-A",
+			orchestratedBy: "LEADER",
+			title: "Edge Checks",
+		});
 	});
 
 	it("opens them itself, paced, when the launcher refuses them", async () => {
