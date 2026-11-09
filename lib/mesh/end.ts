@@ -35,7 +35,7 @@ export function endTarget(
 	address: string,
 	present: readonly Pick<
 		Presence,
-		"addresses" | "session" | "orchestratedBy" | "owner" | "machine"
+		"addresses" | "session" | "orchestratedBy" | "owner" | "machine" | "hosted"
 	>[],
 ): EndTarget {
 	if (orchestrates === undefined) {
@@ -71,5 +71,15 @@ export function endTarget(
 			refused: `${address}'s presence names no process, so there is nothing here to end`,
 		};
 	}
-	return { address, session: one.session, owner: one.owner };
+	return {
+		address,
+		session: one.session,
+		owner: one.hosted
+			? {
+					...one.owner,
+					host: one.hosted.host,
+					session: one.hosted.conversation,
+				}
+			: one.owner,
+	};
 }

@@ -6,14 +6,7 @@ extensions/away-workflow/index.ts:pid 1
 extensions/commit-guardian/parse.ts:cwd 1
 extensions/compaction-workflow/conversation.ts:global 1
 extensions/job-workflow/carry.ts:global 1
-extensions/mesh-workflow/hand.ts:cwd 3
-extensions/mesh-workflow/index.ts:cwd 3
-extensions/mesh-workflow/index.ts:pid 7
-extensions/mesh-workflow/leases.ts:global 1
-extensions/mesh-workflow/leases.ts:pid 3
 extensions/mesh-workflow/steer.ts:pid 1
-extensions/mesh-workflow/tells.ts:pid 1
-extensions/mesh-workflow/tools.ts:pid 9
 extensions/park-workflow/watch.ts:pid 2
 extensions/priority-workflow/index.ts:pid 1
 extensions/quest-workflow/ends-with-quest.ts:global 1

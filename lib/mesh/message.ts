@@ -10,6 +10,7 @@
  * peer never breaks on a newer message.
  */
 
+import { hosted } from "../core/session/host.ts";
 import { ALL, hears, homeOf } from "./group.ts";
 
 /**
@@ -43,8 +44,10 @@ export interface Message {
 	readonly to: readonly string[];
 	readonly intent: Intent;
 	readonly text: string;
-	/** The sending process, so a peer never hands itself its own. */
+	/** The sending process; hosted conversations share it. */
 	readonly pid: number;
+	/** The sender is a conversation in a shared host, not the whole pid. */
+	readonly hosted?: true;
 	/**
 	 * A named group the sender brings the peers it is sent to into, which
 	 * each joins on receipt and may leave. Older readers ignore it and
@@ -80,14 +83,25 @@ export type Draft = Pick<
 	| "intent"
 	| "text"
 	| "pid"
+	| "hosted"
 	| "invite"
 	| "re"
 	| "supersedes"
 	| "endsHold"
 >;
 
+/** The process sending, with a stamp when it shares ownership with siblings. */
+export function senderIdentity(): Pick<Message, "pid" | "hosted"> {
+	const host = hosted();
+	return host ? { pid: host.owner.pid, hosted: true } : { pid: process.pid };
+}
+
 /** Who a message could be for: a peer's addresses and groups. */
 export interface Listener {
+	/** A shared host owns several listeners in the same process. */
+	readonly hosted?:
+		| boolean
+		| { readonly host: string; readonly conversation: string };
 	readonly addresses: readonly string[];
 	/** The groups it joined, beside its home groups and the machine's. */
 	readonly groups: readonly string[];
@@ -128,6 +142,7 @@ export function messageFrom(value: unknown): Message | undefined {
 		intent: intentOf(one.intent),
 		text: one.text as string,
 		pid: one.pid as number,
+		...(one.hosted === true ? { hosted: true as const } : {}),
 		...(typeof one.invite === "string" ? { invite: one.invite } : {}),
 		...(typeof one.re === "string" ? { re: one.re } : {}),
 		...(typeof one.supersedes === "string"
@@ -159,8 +174,9 @@ function intentOf(written: unknown): Intent {
 
 /**
  * Whether a message reaches this listener: sent to a group it hears,
- * and never its own, by address or by process, since a peer that
- * loaded another quest still sent what it sent. The machine's group is
+ * and never its own. Plain peers also compare the process, since a pi
+ * that loaded another quest still sent what it sent; hosted peers use
+ * addresses alone because siblings share a process. The machine's group is
  * this machine's alone: a session elsewhere, whose presence another
  * machine's node carries here, never hears it, so a hold before this
  * machine restarts neither parks it nor waits on its answer.
@@ -173,7 +189,7 @@ export function reaches(
 	const groups = [...listener.groups, ...listener.addresses.map(homeOf)];
 	const elsewhere = listener.machine !== undefined;
 	return (
-		message.pid !== pid &&
+		(listener.hosted || message.hosted || message.pid !== pid) &&
 		!listener.addresses.includes(message.from) &&
 		message.to.some(
 			(group) => !(elsewhere && group === ALL) && hears(groups, group),

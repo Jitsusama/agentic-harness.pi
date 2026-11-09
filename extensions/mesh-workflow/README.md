@@ -964,6 +964,29 @@ landings, by `#number`, `PR number` or the document's id, reaches
 it as a glance unless it answers that session: the orchestrator
 can read it in presence instead.
 
+## Shared Hosts
+
+In a shared host, each conversation publishes its own presence with
+hosted.host and hosted.conversation beside the process owner. The census
+judges each conversation independently through the session seam rather
+than keeping only the newest presence from a process. A true close
+forgets that presence; a reload keeps it. Trailing step publication stops
+when its runtime shuts down, so it cannot bring a closed peer back.
+
+Hosted messages carry hosted: true. Sender checks use addresses alone
+when either side is hosted, so a sibling sharing the pid can hear a
+question but cannot replace its words or end its hold as the sender.
+Plain pi keeps its pid fallback. A hosted peer keeps its child session
+hint and heavy-call carry in its own environment and slot; command paths
+come from the calling conversation rather than the host directory.
+
+mesh_end closes just the addressed conversation when it belongs to the
+installed host. A hosted owner in another process is refused with the
+host control-socket remedy; the shared pid is never signalled. Plain pi
+still receives SIGTERM after its process identity is checked. The steer
+inbox taker remains a process id: each peer has its own address directory,
+so it identifies a process taking one inbox, not a conversation.
+
 ## Not Yet
 
 - A change lease covers files, not a pull request in progress.

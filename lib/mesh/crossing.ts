@@ -21,6 +21,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ALL } from "./group.ts";
 import type { Message } from "./message.ts";
+import { sentBy } from "./thread.ts";
 import type { Transport } from "./transport.ts";
 
 /** The address a crossing hold is sent from in the realm it reaches. */
@@ -91,7 +92,11 @@ export function cross(
 		if (hold === undefined || !isHoldForTheMachine(hold)) continue;
 		// Its holder ends it by answering or replacing it; anyone else only
 		// on the person's word.
-		const byHolder = hold.from === message.from || hold.pid === message.pid;
+		const byHolder = sentBy(hold, {
+			addresses: [message.from],
+			pid: message.pid,
+			hosted: message.hosted,
+		});
 		if (!byHolder && !message.endsHold) continue;
 		// A hold replaced by another machine hold still holds, and the new
 		// one crosses in its own right below.

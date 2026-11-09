@@ -6,6 +6,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { endSession } from "../../lib/core/session/index.ts";
 import type { QueueRecord } from "../../lib/internal/priority/folder.ts";
 import {
 	type TickedOwner,
@@ -39,6 +40,7 @@ import {
 	line,
 	type Message,
 	reaches,
+	senderIdentity,
 	shortId,
 } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
@@ -478,7 +480,7 @@ function endedOnWord(
 			why: `${re ? `[${re.slice(re.lastIndexOf("-") + 1)}]` : "what it answers"} is no other peer's hold, so endsHold was left out`,
 		};
 	}
-	if (sentBy(hold, { addresses: at.peer.addresses, pid: process.pid })) {
+	if (sentBy(hold, { addresses: at.peer.addresses, ...senderIdentity() })) {
 		return {
 			why: `[${shortId(hold)}] is this peer's own hold, which answering ends already, so endsHold was left out`,
 		};
@@ -640,7 +642,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		? idNamed(params.supersedes, ids)
 		: undefined;
 	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
-	const self = { addresses: at.peer.addresses, pid: process.pid };
+	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	// A send is never refused for how it was written: what does not hold
 	// is left out and said, and the message goes on without it.
 	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
@@ -869,7 +871,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		to,
 		intent: intent.intent,
 		text: params.text,
-		pid: process.pid,
+		...senderIdentity(),
 		...(re ? { re } : {}),
 		...(supersedes ? { supersedes } : {}),
 		...(ended.hold && re === ended.hold.id ? { endsHold: true as const } : {}),
@@ -915,7 +917,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	} else if (
 		answered?.intent === "hold" &&
-		!sentBy(answered, { addresses: at.peer.addresses, pid: process.pid })
+		!sentBy(answered, { addresses: at.peer.addresses, ...senderIdentity() })
 	) {
 		notes.push(
 			`This peer waits on [${shortId(answered)}] now, and gets a turn to carry on when it ends.`,
@@ -1062,8 +1064,7 @@ async function read(
 		const message = at.transport.read(ids[index] as string);
 		if (
 			message &&
-			(message.pid === process.pid ||
-				at.peer.addresses.includes(message.from) ||
+			(sentBy(message, { addresses: at.peer.addresses, ...senderIdentity() }) ||
 				reaches(message, at.peer.listener, -1))
 		) {
 			latest.unshift(message);
@@ -1193,7 +1194,7 @@ function questionStates(
 	present: readonly Presence[],
 	withdrawn: ReadonlyMap<string, string>,
 ): Map<string, string> {
-	const self = { addresses: at.peer.addresses, pid: process.pid };
+	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	const asked = shown.filter(
 		(message) =>
 			(message.intent === "question" || message.intent === "pivot") &&
@@ -1318,8 +1319,10 @@ function receipts(
 		return marks.get(one.session);
 	};
 	return (message) => {
-		const own =
-			message.pid === process.pid || at.peer.addresses.includes(message.from);
+		const own = sentBy(message, {
+			addresses: at.peer.addresses,
+			...senderIdentity(),
+		});
 		if (!own) return "";
 		const meant = present.filter(
 			(one) =>
@@ -1395,7 +1398,7 @@ async function join(
 		to: homes,
 		intent: "fyi",
 		text: `${at.peer.signature} brings this peer into ${group}${why ? `: ${why}` : "."} It is in ${group} from now on, hearing what is said there, until it leaves with mesh_leave.`,
-		pid: process.pid,
+		...senderIdentity(),
 		invite: group,
 	});
 	at.sent(message);
@@ -1662,34 +1665,41 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
 		at.presences.all(),
 	);
 	if ("refused" in target) return answer(`Nothing ended: ${target.refused}.`);
-	const ended = await (at.endProcess ?? endBySignal)(target.owner);
+	const ended = await (at.endProcess ?? endByOwner)(target.owner);
 	if (ended === "gone") {
 		return answer(`${address} had already ended; nothing was signalled.`);
 	}
 	if (ended === "unsure") {
+		if (target.owner.session)
+			return answer(
+				`Nothing ended: close ${address} through its host control socket; a shared host is never signalled.`,
+			);
 		return answer(
 			`Nothing ended: this machine can't tell whether pid ${target.owner.pid} is still ${address}'s pi, so it was left alone.`,
 		);
 	}
+	if (target.owner.session)
+		return answer(`Asked ${address}'s host to close only that conversation.`);
 	return answer(
 		`Asked ${address}'s pi (pid ${target.owner.pid}) to quit; its window closes with it.`,
 	);
 }
 
 /**
- * End the process with pi's own SIGTERM, which runs every extension's
- * shutdown, but only while it is still the process the presence named.
+ * Close a hosted conversation, or signal a plain pi only while its
+ * recorded process identity still matches.
  */
-const endBySignal: EndProcess = async (owner) => {
+const endByOwner: EndProcess = async (owner) => {
 	const standing = await tickedStanding(owner);
 	if (standing === "gone") return "gone";
 	if (standing === "unknown") return "unsure";
 	try {
-		process.kill(owner.pid, "SIGTERM");
+		await endSession(owner);
 		return "ended";
 	} catch {
-		// It went between the look and the signal.
-		return "gone";
+		// A hosted owner in another process needs its host control transport.
+		// It must never be mistaken for a process safe to signal.
+		return owner.session ? "unsure" : "gone";
 	}
 };
 
@@ -1700,7 +1710,7 @@ function tell(at: Local, address: string, text: string): void {
 		to: [homeOf(address)],
 		intent: "fyi",
 		text,
-		pid: process.pid,
+		...senderIdentity(),
 	});
 	at.sent(message);
 }

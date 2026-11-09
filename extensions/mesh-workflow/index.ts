@@ -45,13 +45,19 @@ import {
 	type FoundClassifier,
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
+import {
+	hosted,
+	sessionCwd,
+	sessionEnv,
+	sessionKeyOf,
+	sessionOwner,
+} from "../../lib/core/session/index.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { machineBooted } from "../../lib/internal/booted.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
-import { tickedOwnerNow } from "../../lib/internal/process-ticks.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
 import { meshRefusal, sessionRealm } from "../../lib/internal/realm.ts";
@@ -149,6 +155,7 @@ import {
 	isHomeTo,
 	type Message,
 	reaches,
+	senderIdentity,
 	shortId,
 } from "../../lib/mesh/message.ts";
 import { nodeSocket } from "../../lib/mesh/node.ts";
@@ -490,7 +497,7 @@ export function isEphemeral(
 /** The extension, on the mesh at these paths. */
 export function meshWorkflow(
 	paths: MeshPaths = machinePaths(),
-	env: NodeJS.ProcessEnv = process.env,
+	env: NodeJS.ProcessEnv = hosted() ? sessionEnv().snapshot() : process.env,
 	settling: Settling = SETTLING,
 	waitCheckMs: number = WAIT_CHECK_MS,
 	lookAgainMs: number = LOOK_AGAIN_MS,
@@ -523,7 +530,7 @@ export function meshWorkflow(
 						transport: folderTransport(join(dir, "messages")),
 					})),
 			notes: join(paths.mesh, "crossings"),
-			pid: process.pid,
+			...senderIdentity(),
 		};
 		// Lets go of what is past its time, at most hourly, off the turn.
 		const tidy = sweeper({
@@ -602,7 +609,7 @@ export function meshWorkflow(
 					to: [homeOf(quest)],
 					intent: "fyi",
 					text: `${sig} has quest ${quest} loaded too. ${quest} stays this peer's address and ${sig} signs as itself; both hear the quest's group. Say which part of the quest each is taking, so neither repeats the other's work.`,
-					pid: process.pid,
+					...senderIdentity(),
 				});
 				seen.add(message.id);
 				pi.sendMessage(
@@ -882,7 +889,7 @@ export function meshWorkflow(
 				...peer.receiver,
 				changing: changesOf(board.of(peer.session)?.leases ?? []),
 			};
-			const self: Self = { addresses: peer.addresses, pid: process.pid };
+			const self: Self = { addresses: peer.addresses, ...senderIdentity() };
 			const listener = peer.listener;
 			// Every address the orchestrator signs with, so a pivot under
 			// either its quest's or its session's is known as its own.
@@ -958,7 +965,8 @@ export function meshWorkflow(
 				// A withdrawal reaches in full everyone who heard what it
 				// withdraws, and what it withdraws is never handed over after it.
 				const heard =
-					replaced !== undefined && reaches(replaced, listener, process.pid);
+					replaced !== undefined &&
+					reaches(replaced, listener, senderIdentity().pid);
 				if (replaced) {
 					glances.drop(replaced.id);
 					acts?.drop((one) => one.message.id === replaced.id);
@@ -1191,12 +1199,12 @@ export function meshWorkflow(
 			// one peer took up is known as answered by every other.
 			if (
 				message?.re !== undefined &&
-				!sentBy(message, { addresses: peer.addresses, pid: process.pid })
+				!sentBy(message, { addresses: peer.addresses, ...senderIdentity() })
 			) {
 				answered.add(message.re);
 				awaiting.answered(message.re, addressesOf(message.from));
 			}
-			if (!message || !reaches(message, peer.listener, process.pid)) {
+			if (!message || !reaches(message, peer.listener, senderIdentity().pid)) {
 				return undefined;
 			}
 			// The marker passes it only once it is handed over (see reading.ts).
@@ -1433,10 +1441,10 @@ export function meshWorkflow(
 			// Named on its presence so others can ask the machine whether this
 			// peer is still there; a peer the machine will not name is taken
 			// as there, which only costs a sender a line.
-			const owner = await tickedOwnerNow().catch(() => undefined);
+			const owner = await sessionOwner(started).catch(() => undefined);
 			const branch = (started.sessionManager.getBranch?.() ??
 				[]) as readonly Entry[];
-			const session = started.sessionManager.getSessionId();
+			const session = sessionKeyOf(started);
 			// A log rolled over into a fresh one carries on as the same peer.
 			const previous = previousSession(carriedBy(branch, CARRY_NAME));
 			if (previous) carryLeases(board, previous, session);
@@ -1446,10 +1454,11 @@ export function meshWorkflow(
 			// Said already before a reload is not said again.
 			leftTo = leftToIn(branch);
 			signed = undefined;
+			const host = hosted();
 			peer = localPeer({
 				live: () => live,
 				session,
-				cwd: started.cwd ?? process.cwd(),
+				cwd: sessionCwd(started),
 				records: paths,
 				presences,
 				// Read at each publish, so the desktop matches this peer's
@@ -1460,6 +1469,7 @@ export function meshWorkflow(
 						started.sessionManager.getCwd(),
 					),
 				...(owner ? { owner } : {}),
+				...(host ? { hosted: { host: host.key, conversation: session } } : {}),
 				...(previous ? { previous } : {}),
 				...terminalOf(),
 				// Kept a month past the presence, for the desktop's Landed.
@@ -1480,7 +1490,8 @@ export function meshWorkflow(
 			}
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
-			env[MESH_SESSION_ENV] = peer.session;
+			if (hosted()) sessionEnv(started).set(MESH_SESSION_ENV, peer.session);
+			else env[MESH_SESSION_ENV] = peer.session;
 			glances.recover(branch);
 			damper.recover(saidIn(branch));
 			acts?.stop();
@@ -1732,6 +1743,8 @@ export function meshWorkflow(
 			// throw as an uncaught exception 146 ms into the switch, after
 			// which the session heard nothing more (and on 22 October, a
 			// reload's landing note did the same).
+			peer?.dispose();
+			if (hosted() && peer && !reloading(event)) presences.forget(peer.session);
 			peer = undefined;
 			hideWants?.();
 			hideWants = undefined;
@@ -1778,7 +1791,7 @@ export function meshWorkflow(
 			async (event, called): Promise<ToolCallEventResult | undefined> => {
 				try {
 					if (isToolCallEventType("bash", event)) {
-						const cwd = called?.cwd ?? ctx?.cwd ?? process.cwd();
+						const cwd = sessionCwd(called);
 						// The command as it will run: a VM check bound for the
 						// builder is no VM work here to lease (send.ts).
 						const written = event.input.command;
@@ -1807,7 +1820,7 @@ export function meshWorkflow(
 					if (typeof path !== "string" || path === "") return undefined;
 					return editNotes.met(
 						event.toolCallId,
-						await leasing.reach(path, called?.cwd ?? ctx?.cwd ?? process.cwd()),
+						await leasing.reach(path, sessionCwd(called)),
 					);
 				} catch {
 					return undefined;
@@ -1919,7 +1932,7 @@ export function meshWorkflow(
 					);
 				}
 			}
-			const self = { addresses: peer.addresses, pid: process.pid };
+			const self = { addresses: peer.addresses, ...senderIdentity() };
 			const held = board
 				.all()
 				.flatMap((holding) => holding.leases)

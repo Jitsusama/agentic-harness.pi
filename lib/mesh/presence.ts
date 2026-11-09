@@ -118,6 +118,8 @@ export interface Presence {
 	readonly landings?: readonly Landing[];
 	/** The process holding it, when the machine would say. */
 	readonly owner?: TickedOwner;
+	/** A hosted conversation, independently live within its owner process. */
+	readonly hosted?: { readonly host: string; readonly conversation: string };
 	/**
 	 * The terminal window title pi gives its session, exactly, so the
 	 * desktop can tell which window is this peer's without parsing it
@@ -516,6 +518,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 			? { landings: landingsFrom(one.landings) }
 			: {}),
 		...(isOwner(one.owner) ? { owner: keepTicks(one.owner) } : {}),
+		...(isHostedPresence(one.hosted) ? { hosted: one.hosted } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),
 		...(isTerminalHandle(one.terminal) ? { terminal: one.terminal } : {}),
 		...(typeof one.orchestratedBy === "string"
@@ -540,6 +543,22 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(isUsage(one.usage) ? { usage: one.usage } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
+}
+
+/** Whether a presence names a hosted conversation. */
+function isHostedPresence(
+	value: unknown,
+): value is NonNullable<Presence["hosted"]> {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"host" in value &&
+		typeof value.host === "string" &&
+		value.host !== "" &&
+		"conversation" in value &&
+		typeof value.conversation === "string" &&
+		value.conversation !== ""
+	);
 }
 
 /** The wants a presence lists, skipping any this version can't read. */
