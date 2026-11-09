@@ -35,6 +35,7 @@ import {
 	DEFAULT_MAX_MATCHES,
 	queryStored,
 } from "../../lib/core/result/query.ts";
+import { heldSessionStatus } from "../../lib/core/session/roster.ts";
 import { renderQueryCall, renderQueryResult } from "./render.ts";
 
 /** What the tool reports alongside its text, for the renderers. */
@@ -130,12 +131,15 @@ export default function resultStore(pi: ExtensionAPI) {
 		await prepareArtifactOwnership(ctx);
 		claimArtifactDirectory(sessionResultDir(ctx), ctx);
 		adoptLegacyResults(ctx);
-		// Stable directories require ownership proof; old pid layouts are
-		// swept separately after cited payloads have been adopted.
+		// Stable directories require ownership proof, and a hosted one the
+		// host rosters' definitive unheld; old pid layouts are swept
+		// separately after cited payloads have been adopted.
 		await reapAbandonedResults({
 			root: RESULT_ROOT,
 			isPidAlive,
 			legacyRoots: [LEGACY_RESULT_ROOT],
+			heldSessionStatus: (id, hostKey) =>
+				heldSessionStatus(id, hostKey === undefined ? {} : { hostKey }),
 		});
 	});
 

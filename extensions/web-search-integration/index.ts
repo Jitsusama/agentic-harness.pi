@@ -19,6 +19,7 @@ import {
 	prepareArtifactOwnership,
 } from "../../lib/core/internal/artifacts/ownership.ts";
 import { hosted } from "../../lib/core/session/index.ts";
+import { heldSessionStatus } from "../../lib/core/session/roster.ts";
 import { closeBrowser, killBrowserSync } from "../../lib/core/web/browser.ts";
 import {
 	hasCachedKey,
@@ -330,13 +331,17 @@ export default function webSearch(pi: ExtensionAPI) {
 		},
 	});
 
-	// Reclaim page bundles left in the system temp dir by sessions that are
-	// no longer running, so authenticated captures don't linger.
+	// Reclaim page bundles left by sessions that are no longer running, and
+	// by hosted conversations no host holds for resume, so authenticated
+	// captures don't linger.
 	pi.on("session_start", async (_event, ctx) => {
 		try {
 			await prepareArtifactOwnership(ctx);
 			claimArtifactDirectory(sessionDir(ctx), ctx);
-			await reapAbandonedBundles();
+			await reapAbandonedBundles({
+				heldSessionStatus: (id, hostKey) =>
+					heldSessionStatus(id, hostKey === undefined ? {} : { hostKey }),
+			});
 		} catch {
 			// Reaping is best-effort housekeeping; never block session start.
 		}
