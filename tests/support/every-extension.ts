@@ -191,6 +191,7 @@ async function loadEveryExtension(hosted: boolean): Promise<Loaded> {
 const loaded = await loadEveryExtension(
 	process.env.EVERY_EXTENSION === "hosted",
 );
+// biome-ignore lint/suspicious/noConsole: the parent test reads this child's report from its output.
 console.log(`LOADED ${JSON.stringify(loaded)}`);
 // Extensions leave timers running; what they added is already said.
 process.exit(0);

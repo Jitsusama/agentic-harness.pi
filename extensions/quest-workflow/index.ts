@@ -689,7 +689,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		if (broke) {
 			return { content: [...event.content, { type: "text", text: broke }] };
 		}
-		return;
+		return undefined;
 	});
 
 	// Where the focused plan stands, for away-workflow's nudge that keeps

@@ -5,7 +5,7 @@ import {
 	isId,
 	mintId,
 	prefixOf,
-} from "../../../lib/internal/quest/id";
+} from "../../../lib/internal/quest/id.ts";
 
 describe("mintId", () => {
 	it("produces an id of the form PREFIX-YYYYMMDD-XXXXXX", () => {

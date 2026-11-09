@@ -7,7 +7,7 @@ import {
 	sectionOf,
 	setCheckbox,
 	splitAtBody,
-} from "../../../../lib/internal/quest/body-edits";
+} from "../../../../lib/internal/quest/body-edits.ts";
 
 const PLAN = [
 	"# The Plan",

@@ -15,7 +15,7 @@ import {
 	leaveFirstWords,
 	spawnedWords,
 	takeFirstWords,
-} from "../../../../lib/internal/quest/first-words";
+} from "../../../../lib/internal/quest/first-words.ts";
 
 let dir: string;
 beforeEach(() => {

@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { authoritativeQuestFromLog } from "../../../../lib/internal/quest/session-ownership";
+import { authoritativeQuestFromLog } from "../../../../lib/internal/quest/session-ownership.ts";
 
 let dir: string;
 

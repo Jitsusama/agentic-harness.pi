@@ -75,7 +75,7 @@ const parameters = Type.Object({
 	selector: Type.Optional(
 		Type.String({
 			description:
-				"For wait selector, gone, attribute and count: the CSS " + "selector.",
+				"For wait selector, gone, attribute and count: the CSS selector.",
 		}),
 	),
 	attribute: Type.Optional(

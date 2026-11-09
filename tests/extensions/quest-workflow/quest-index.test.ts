@@ -12,19 +12,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { orchestratorsPath } from "../../../extensions/quest-workflow/orchestrators";
+import { orchestratorsPath } from "../../../extensions/quest-workflow/orchestrators.ts";
 import {
 	endedQuestsIn,
 	endedQuestsPath,
 	keepDesktopListsCurrent,
 	questIndexPath,
 	questsIn,
-} from "../../../extensions/quest-workflow/quest-index";
+} from "../../../extensions/quest-workflow/quest-index.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../lib/internal/quest/discovery";
-import type { LivenessSnapshot } from "../../../lib/internal/quest/session-liveness";
+} from "../../../lib/internal/quest/discovery.ts";
+import type { LivenessSnapshot } from "../../../lib/internal/quest/session-liveness.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";

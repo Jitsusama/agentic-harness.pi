@@ -80,6 +80,7 @@ describe("saying what the network said", () => {
 	it("says something even when the error says nothing", () => {
 		// A failure reported with a blank reason reads like a bug in
 		// the reporter rather than a fact about the network.
+		// biome-ignore lint/suspicious/useErrorMessage: a blank message is what this case is about.
 		expect(failureText(new Error(""))).toBe("the navigation failed");
 	});
 

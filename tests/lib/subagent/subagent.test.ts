@@ -1090,7 +1090,7 @@ describe("runReviewer: argument composition", () => {
 		// dispatcher must guarantee it's in the palette
 		// even when the caller forgets.
 		const { runPi, calls } = fakeRun({
-			stdout: assistantEvent(`{}`),
+			stdout: assistantEvent("{}"),
 		});
 		await runReviewer({
 			reviewer: { id: "narrow", tools: ["read"] },
@@ -1113,7 +1113,7 @@ describe("runReviewer: argument composition", () => {
 		// explicitly, the dispatcher should leave it where
 		// it sits and not append a second copy.
 		const { runPi, calls } = fakeRun({
-			stdout: assistantEvent(`{}`),
+			stdout: assistantEvent("{}"),
 		});
 		await runReviewer({
 			reviewer: {
@@ -1137,7 +1137,7 @@ describe("runReviewer: argument composition", () => {
 		// extension, so we don't need to force a --tools
 		// flag just to keep the verify path open.
 		const { runPi, calls } = fakeRun({
-			stdout: assistantEvent(`{}`),
+			stdout: assistantEvent("{}"),
 		});
 		await runReviewer({
 			reviewer: { id: "defaults" },

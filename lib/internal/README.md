@@ -90,8 +90,6 @@ may import from here, and any of it may change without notice.
 - **`notify.ts`**: reaching the person at the machine through a
   desktop notification. It decides how; the mesh decides when.
   `PI_NOTIFY=off` silences it.
-- **`package-state-dir.ts`**: one extension's state directory,
-  under `pi/agentic-harness.pi/<extension>/`.
 - **`paths.ts`**: the package's configuration, data, state and cache
   paths, by the XDG base directories.
 - **`process-global.ts`**: singletons shared across an extension's

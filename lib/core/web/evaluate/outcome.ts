@@ -151,6 +151,6 @@ export function renderEvaluation(outcome: EvalOutcome): string {
 	return (
 		`${head} ${body.slice(0, MAX_INLINE_RESULT)}\n\n` +
 		`... ${body.length - MAX_INLINE_RESULT} more characters. Narrow the ` +
-		`expression, or pick out the part you want.`
+		"expression, or pick out the part you want."
 	);
 }

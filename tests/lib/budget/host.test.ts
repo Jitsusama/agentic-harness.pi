@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostBudgets } from "../../../lib/budget/host";
+import { hostBudgets } from "../../../lib/budget/host.ts";
 import {
 	BUDGET_READY,
 	BUDGET_REGISTER_PROVIDER,
@@ -7,7 +7,7 @@ import {
 	type BudgetAnswer,
 	type BudgetProvider,
 	registerBudgetProvider,
-} from "../../../lib/budget/provider";
+} from "../../../lib/budget/provider.ts";
 
 /** A bus as pi's: handlers by channel, called in order. */
 function bus() {

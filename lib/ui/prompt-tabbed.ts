@@ -557,7 +557,6 @@ function createTabbedController(
 						key: optionValue(opt),
 					});
 				}
-				return;
 			}
 		}
 	}

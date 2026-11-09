@@ -198,8 +198,8 @@ export function renderHydration(report: HydrationReport): string {
 				measured:
 					`Fetching the page's own URL from inside it ` +
 					`${report.status === undefined ? "threw" : `answered ${report.status}`}. ` +
-					`The comparison needs the HTML the server sends before ` +
-					`any script runs.`,
+					"The comparison needs the HTML the server sends before " +
+					"any script runs.",
 			},
 			report.warnings.map((line) => `  ${line}`).join("\n"),
 		);
@@ -224,20 +224,20 @@ export function renderHydration(report: HydrationReport): string {
 	const parts: string[] = [];
 	if (report.warnings.length > 0) {
 		parts.push(
-			`The framework complained during hydration:`,
+			"The framework complained during hydration:",
 			...report.warnings.map((line) => `    ${line}`),
 		);
 	}
 	if (report.vanished.length > 0) {
 		parts.push(
-			`Server content gone after hydration ` +
+			"Server content gone after hydration " +
 				`(${count(report.vanished.length, "text")}):`,
 			...listed(report.vanished),
 		);
 	}
 	if (report.appeared.length > 0) {
 		parts.push(
-			`Content that only exists after hydration ` +
+			"Content that only exists after hydration " +
 				`(${count(report.appeared.length, "text")}):`,
 			...listed(report.appeared),
 		);
@@ -260,11 +260,11 @@ export function renderHydration(report: HydrationReport): string {
 				? report.warnings.length > 0
 					? "The framework itself reported a hydration failure."
 					: `${count(report.vanished.length, "server text")} ` +
-						`vanished during hydration.`
-				: `The renders agree on shared content, but ` +
+						"vanished during hydration."
+				: "The renders agree on shared content, but " +
 					`${count(report.appeared.length, "text")} and ` +
 					`${count(report.drift.length, "tag count", "tag counts")} ` +
-					`exist only after hydration.`;
+					"exist only after hydration.";
 
 	return renderVerdict(
 		{

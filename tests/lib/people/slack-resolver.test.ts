@@ -24,7 +24,7 @@ vi.mock("../../../lib/slack/api/client.ts", async (importOriginal) => ({
 import {
 	clearSlackClientCache,
 	slackResolver,
-} from "../../../lib/internal/people/resolvers/slack";
+} from "../../../lib/internal/people/resolvers/slack.ts";
 import { getToken, hasToken } from "../../../lib/slack/auth/credentials.ts";
 import type { StoredToken } from "../../../lib/slack/index.ts";
 import { resolveUser } from "../../../lib/slack/resolvers/user.ts";

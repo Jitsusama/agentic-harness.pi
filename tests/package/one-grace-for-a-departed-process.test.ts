@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { STDIO_GRACE_MS } from "../../lib/subagent/runpi/grace.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

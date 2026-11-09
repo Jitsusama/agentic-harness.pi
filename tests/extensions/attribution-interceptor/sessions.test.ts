@@ -14,14 +14,14 @@ afterEach(async () => {
 });
 
 it("installs each repo's hook only when its conversation starts", async () => {
-	const a = await freshRepo(),
-		b = await freshRepo();
+	const a = await freshRepo();
+	const b = await freshRepo();
 	repos.push(a, b);
 	const first = extensionRunner(attributionExtension, a);
 	const second = extensionRunner(attributionExtension, b);
 	runners.push(first, second);
-	const hookA = join(a, ".git/hooks/prepare-commit-msg"),
-		hookB = join(b, ".git/hooks/prepare-commit-msg");
+	const hookA = join(a, ".git/hooks/prepare-commit-msg");
+	const hookB = join(b, ".git/hooks/prepare-commit-msg");
 	expect(existsSync(hookA), "A has no hook before its runner starts").toBe(
 		false,
 	);

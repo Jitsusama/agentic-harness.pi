@@ -148,6 +148,7 @@ function readReferenceMappings(
 			continue;
 		}
 		try {
+			// biome-ignore lint/correctness/noUnusedInstantiation: compiled only to see whether it throws.
 			new RegExp(entry.pattern);
 		} catch (error) {
 			problems.push(

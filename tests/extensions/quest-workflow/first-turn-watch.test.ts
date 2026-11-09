@@ -11,8 +11,8 @@ import {
 	spawnedBy,
 	stopFirstTurnWatches,
 	watchFirstTurn,
-} from "../../../extensions/quest-workflow/first-turn-watch";
-import type { FirstTurn } from "../../../lib/internal/quest/first-words";
+} from "../../../extensions/quest-workflow/first-turn-watch.ts";
+import type { FirstTurn } from "../../../lib/internal/quest/first-words.ts";
 
 let said: { text: string; options: unknown }[];
 let pi: ExtensionAPI;

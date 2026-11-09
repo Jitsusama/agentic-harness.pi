@@ -39,10 +39,8 @@ export function create(notesRoot: string, params: NoteToolParams): NoteResult {
 		id = mintIdFromDateString(created);
 	} while (index.notes.has(id));
 
-	if (params.parent) {
-		if (!index.notes.has(params.parent)) {
-			return refuse(`no note matches parent "${params.parent}"`);
-		}
+	if (params.parent && !index.notes.has(params.parent)) {
+		return refuse(`no note matches parent "${params.parent}"`);
 	}
 
 	const tags = params.tags

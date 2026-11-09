@@ -8,7 +8,7 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/mutate";
+import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/mutate.ts";
 
 let root: string;
 let questDir: string;

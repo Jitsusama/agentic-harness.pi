@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	installSignalStamp,
 	readRecord,
-} from "../../../extensions/quest-workflow/session-registry";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { parseQuestFrontMatter } from "../../../lib/quest/index";
+} from "../../../extensions/quest-workflow/session-registry.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { parseQuestFrontMatter } from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { createEnvGuard, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();

@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	questsTouchedBy,
 	RecordWatch,
-} from "../../../extensions/quest-workflow/record-watch";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
+} from "../../../extensions/quest-workflow/record-watch.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 
 const QUEST = "QEST-20260924-ABC123";
 const OTHER = "QEST-20260101-OTHER1";

@@ -84,7 +84,7 @@ function reviewer(watch: RoundWatch, id: string): Promise<void> {
 }
 
 /** A tool that runs the rounds it is given, each with its reviewers. */
-function roundsFixture(rounds: ReadonlyArray<[AskRound, string[]]>) {
+function roundsFixture(rounds: readonly [AskRound, string[]][]) {
 	return (pi: ExtensionAPI): void => {
 		pi.registerTool({
 			name: "fixture_round",
@@ -134,7 +134,7 @@ afterEach(async () => {
 
 /** Boots pi with the fixture and the hop, and starts its rounds. */
 async function startRounds(
-	rounds: ReadonlyArray<[AskRound, string[]]>,
+	rounds: readonly [AskRound, string[]][],
 	options: { rows?: number; history?: number } = {},
 ): Promise<PiSession> {
 	const session = await bootPi({
@@ -168,7 +168,7 @@ async function startRounds(
 	return session;
 }
 
-const COUNCIL: ReadonlyArray<[AskRound, string[]]> = [
+const COUNCIL: readonly [AskRound, string[]][] = [
 	["council", ["alpha", "beta"]],
 ];
 
@@ -371,7 +371,7 @@ describe("a board whose clock ticks", () => {
 });
 
 describe("two rounds in one call", () => {
-	const TWO: ReadonlyArray<[AskRound, string[]]> = [
+	const TWO: readonly [AskRound, string[]][] = [
 		["council", ["alpha", "beta"]],
 		["judge", ["gamma"]],
 	];

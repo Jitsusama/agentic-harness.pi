@@ -18,10 +18,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, refused, succeeded } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers.ts";
 
 let root: string;
 let savedCache: string | undefined;

@@ -7,11 +7,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { persist, restore } from "../../../extensions/quest-workflow/lifecycle";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import {
+	persist,
+	restore,
+} from "../../../extensions/quest-workflow/lifecycle.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();

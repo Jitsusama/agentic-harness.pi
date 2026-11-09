@@ -133,7 +133,7 @@ function citation<T>(
 				// nothing: it promises the rest of the data is one call
 				// away. The shape still helps a reader decide whether it
 				// is worth following up on.
-				`No tool in this session can read a handle, so this one ` +
+				"No tool in this session can read a handle, so this one " +
 				`cannot be followed. Shape: ${digest}`
 			: hasFields(answer.payload)
 				? `Query it with ${tool}, projecting the fields you want ` +
@@ -199,6 +199,6 @@ function unstorable<T>(answer: Citable<T>, err: unknown): string {
 		`This answer shows ${count(answer.shown)} of ` +
 		`${count(answer.total)} ${answer.unit}. The remainder ` +
 		`could not be stored (${why}), so it is not retrievable: narrow the ` +
-		`call to see the rest.`
+		"call to see the rest."
 	);
 }

@@ -30,9 +30,10 @@ export function formatSlackText(text: string): string {
 				},
 			)
 			// User mentions without label: <@U123> → @username or @U123
-			.replace(/<@([UW][A-Z0-9]+)>/g, (_match, id: string) => {
-				return `@${displayNameForId(id)}`;
-			})
+			.replace(
+				/<@([UW][A-Z0-9]+)>/g,
+				(_match, id: string) => `@${displayNameForId(id)}`,
+			)
 			// Broadcast mentions: <!here>, <!channel>, <!everyone> → @here etc.
 			.replace(/<!(here|channel|everyone)>/g, "@$1")
 			// Channel links with label: <#C123|channel-name> → #channel-name
@@ -45,9 +46,10 @@ export function formatSlackText(text: string): string {
 				},
 			)
 			// Channel links without label: <#C123> → #channel-name (via cache)
-			.replace(/<#([A-Z0-9]+)>/g, (_match, id: string) => {
-				return `#${displayNameForId(id)}`;
-			})
+			.replace(
+				/<#([A-Z0-9]+)>/g,
+				(_match, id: string) => `#${displayNameForId(id)}`,
+			)
 			// URL links with label: <url|text> → [text](url)
 			.replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, "[$2]($1)")
 			// URL links without label: <url> → url

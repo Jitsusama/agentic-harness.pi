@@ -4,6 +4,7 @@ import {
 	sessionOf,
 	textOf,
 	usageOf,
+	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "./runpi/assistant.mjs";
 import type {
 	ReviewerUsage,

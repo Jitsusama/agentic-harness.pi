@@ -45,7 +45,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			// A declaration assigns the literal; a use merely mentions it.
 			// Only the former decides who owns the name.
 			for (const match of source.matchAll(
-				/=\s*"([a-z][a-z-]*:[a-z][a-z-]*:v\d+)"/g,
+				/[=]\s*"([a-z][a-z-]*:[a-z][a-z-]*:v\d+)"/g,
 			)) {
 				declared.push(`${file.slice(ROOT.length + 1)}: ${match[1]}`);
 			}
@@ -58,7 +58,7 @@ describe("bus names are declared by a library, not an extension", () => {
 		const names = new Set<string>();
 		for (const file of sourcesUnder(join(ROOT, "lib"))) {
 			for (const match of readFileSync(file, "utf8").matchAll(
-				/=\s*"([a-z][a-z-]*:[a-z][a-z-]*:v\d+)"/g,
+				/[=]\s*"([a-z][a-z-]*:[a-z][a-z-]*:v\d+)"/g,
 			)) {
 				const name = match[1];
 				if (name) names.add(name);
@@ -118,7 +118,7 @@ describe("bus names are declared by a library, not an extension", () => {
 		]);
 		for (const file of sourcesUnder(join(ROOT, "lib"))) {
 			for (const match of readFileSync(file, "utf8").matchAll(
-				/=\s*"([a-z][a-z-]*):[a-z][a-z-]*:v\d+"/g,
+				/[=]\s*"([a-z][a-z-]*):[a-z][a-z-]*:v\d+"/g,
 			)) {
 				expect(domains).toContain(match[1]);
 			}

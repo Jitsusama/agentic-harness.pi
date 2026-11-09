@@ -477,7 +477,7 @@ export async function load(
 		message += `. ${count(resumable.length, "prior session")} on file; run \`quest recent\` to pick one to resume`;
 	}
 	if (attached) {
-		message += `. Tracking this pi session on the quest.`;
+		message += ". Tracking this pi session on the quest.";
 	}
 	if (pruned > 0) {
 		message += `. Pruned ${count(pruned, "phantom session")}.`;

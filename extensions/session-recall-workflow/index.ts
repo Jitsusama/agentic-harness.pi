@@ -88,7 +88,7 @@ function answerOf(recalled: Recalled, ctx: ExtensionContext): string {
 				records: [recalled.entry],
 				unit: "entry, in full",
 				narrowing:
-					`The entry is longer than a page. Its whole text is the one ` +
+					"The entry is longer than a page. Its whole text is the one " +
 					"record's text field.",
 				budget: PAGE_BUDGET_BYTES,
 				...(recalled.cut ? { elided: true } : {}),

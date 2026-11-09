@@ -12,12 +12,12 @@ import { SPELLING_PAIRS } from "../../../lib/prose/detect.ts";
  * below fails until the constant is brought back in line (and the
  * other way round).
  */
-function skillSpellingPairs(): Array<[string, string]> {
+function skillSpellingPairs(): [string, string][] {
 	const path = fileURLToPath(
 		new URL("../../../skills/prose-standard/SKILL.md", import.meta.url),
 	);
 	const lines = readFileSync(path, "utf8").split("\n");
-	const pairs: Array<[string, string]> = [];
+	const pairs: [string, string][] = [];
 	let inTable = false;
 	for (const line of lines) {
 		if (/^### Words the Gate Flags\s*$/.test(line)) {

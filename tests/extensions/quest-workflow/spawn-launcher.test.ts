@@ -11,18 +11,18 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	firstWordsDir,
-} from "../../../lib/internal/quest/first-words";
+} from "../../../lib/internal/quest/first-words.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
-} from "../../../lib/terminal/index";
+} from "../../../lib/terminal/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 // The launcher is asked through `qs` on PATH, so a stand-in `qs` writes
 // down what it was asked and answers what the test tells it to. Asked

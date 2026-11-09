@@ -8,16 +8,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { discoverQuests } from "../../../lib/internal/quest/discovery";
-import { buildMentionIndex } from "../../../lib/internal/quest/mentions";
-import { QUEST_STATUS_MARK } from "../../../lib/internal/quest/quest-marks";
-import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold";
-import { renderToc } from "../../../lib/internal/quest/toc";
-import type { QuestFrontMatter, QuestStatus } from "../../../lib/quest/types";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { buildMentionIndex } from "../../../lib/internal/quest/mentions.ts";
+import { QUEST_STATUS_MARK } from "../../../lib/internal/quest/quest-marks.ts";
+import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold.ts";
+import { renderToc } from "../../../lib/internal/quest/toc.ts";
+import type {
+	QuestFrontMatter,
+	QuestStatus,
+} from "../../../lib/quest/types.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 
 let root: string;
 

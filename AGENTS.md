@@ -189,8 +189,10 @@ rules, and where it doesn't yet.
 - **Gate:** `pnpm check`. It runs only the tests a change's
   imports reach, the browser lane's among them, which need a
   Chrome.
-- **Linters:** Biome at its `recommended` preset over every
-  `.ts` and `.mjs`, and `tsc` with `strict` over both, plus
+- **Linters:** Biome with every rule on over every `.ts` and
+  `.mjs`; `biome.jsonc` turns off by name, each with its reason,
+  the rules that don't fit, and the framework domains. `tsc` runs
+  with `strict` over both, plus
   `noImplicitOverride`, `noImplicitReturns`,
   `noFallthroughCasesInSwitch`, `noUnusedLocals` and
   `noUnusedParameters`. Three stay off:

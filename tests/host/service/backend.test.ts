@@ -174,7 +174,7 @@ describe("hostBackend", () => {
 	it("drops a hold only after close or release commits, never after stop", async () => {
 		const { fake } = engine();
 		const backend = backendWith(fake);
-		const ids = [];
+		const ids: string[] = [];
 		for (let i = 0; i < 3; i++)
 			ids.push(parseOpenResult(await backend.execute(open)).sessionId);
 		const [closed, released, stopped] = ids as [string, string, string];
@@ -271,7 +271,7 @@ describe("hostBackend", () => {
 	});
 
 	it("serves two sessions over the real socket, each in its own environment", async () => {
-		const seenEnv: Array<[string | undefined, string | undefined]> = [];
+		const seenEnv: [string | undefined, string | undefined][] = [];
 		const { fake } = engine({
 			abort: vi.fn(async (sessionId: string) => {
 				seenEnv.push([ambientSession(), sessionEnv().get("PI_SESSION_ID")]);
@@ -282,7 +282,7 @@ describe("hostBackend", () => {
 		const path = join(dir, "sock", "host.sock");
 		const listener = await listenControl({ path, backend, report: () => {} });
 		try {
-			const ids = [];
+			const ids: string[] = [];
 			for (const id of ["o1", "o2"])
 				ids.push(parseOpenResult(await ask(path, { ...open, id })).sessionId);
 			const expectedHost = { key: host.key, owner: host.owner };

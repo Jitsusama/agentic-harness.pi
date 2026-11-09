@@ -200,11 +200,11 @@ function refuse(
 ): string {
 	return (
 		`The id "${existing.id}" already means ${describe(existing)}, ` +
-		`and findings are attributed to it. Asking it to mean ` +
+		"and findings are attributed to it. Asking it to mean " +
 		`${describe(next)} would change what those findings say about ` +
 		`who raised them. Use a different id for ${describe(next)}, or ` +
 		`release "${existing.id}" to accept that its findings become ` +
-		`ambiguous about which participant they came from.`
+		"ambiguous about which participant they came from."
 	);
 }
 

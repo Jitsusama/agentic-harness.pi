@@ -6,8 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	enforceQuest,
 	isFocusedDocWrite,
-} from "../../../extensions/quest-workflow/enforce";
-import type { QuestState } from "../../../extensions/quest-workflow/state";
+} from "../../../extensions/quest-workflow/enforce.ts";
+import type { QuestState } from "../../../extensions/quest-workflow/state.ts";
 
 // A real git repo with one tracked file and one untracked file, so
 // the gate's git predicates judge real tracking state. tempRoots

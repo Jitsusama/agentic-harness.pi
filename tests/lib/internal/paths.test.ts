@@ -7,7 +7,7 @@ import {
 	dataDir,
 	sessionsDir,
 	stateDir,
-} from "../../../lib/internal/paths";
+} from "../../../lib/internal/paths.ts";
 
 interface XdgCase {
 	name: string;

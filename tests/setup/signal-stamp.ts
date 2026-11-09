@@ -16,7 +16,7 @@ import { afterEach } from "vitest";
 import {
 	removeSignalStamp,
 	setSignalStampSession,
-} from "../../extensions/quest-workflow/session-registry";
+} from "../../extensions/quest-workflow/session-registry.ts";
 
 afterEach(() => {
 	removeSignalStamp();

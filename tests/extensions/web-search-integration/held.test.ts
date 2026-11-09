@@ -90,8 +90,8 @@ async function restartHost() {
 
 describe("page bundles a crashed host left behind", () => {
 	it("are reaped for an unheld conversation and kept for a held one", async () => {
-		const closed = conversation(),
-			held = conversation();
+		const closed = conversation();
+		const held = conversation();
 		const end = host(CRASHED);
 		diskSink(undefined, closed).writeText("dom.html", "closed");
 		const kept = diskSink(undefined, held).writeText("dom.html", "held");

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { matchesQuery } from "../../../extensions/quest-workflow/lookup";
-import type { QuestEntry } from "../../../lib/internal/quest/discovery";
-import type { QuestFrontMatter } from "../../../lib/quest/types";
+import { matchesQuery } from "../../../extensions/quest-workflow/lookup.ts";
+import type { QuestEntry } from "../../../lib/internal/quest/discovery.ts";
+import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 
 function entry(opts: {
 	title?: string;

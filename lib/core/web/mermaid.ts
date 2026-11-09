@@ -202,8 +202,8 @@ export async function renderMermaid(
 		}
 
 		const rendered: RenderedSvg = await page.evaluate(async (src) => {
-			// biome-ignore lint/suspicious/noExplicitAny: window.mermaid is injected at runtime.
-			const mermaid = (window as any).mermaid;
+			// biome-ignore lint/suspicious/noExplicitAny: the page's mermaid global is injected at runtime.
+			const mermaid = (globalThis as any).mermaid;
 			if (!mermaid) return { error: "Mermaid library did not initialize." };
 			mermaid.initialize({ startOnLoad: false, theme: "default" });
 			try {

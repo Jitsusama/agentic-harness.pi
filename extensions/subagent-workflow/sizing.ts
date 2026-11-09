@@ -162,7 +162,7 @@ export function settleJob(
 	config: FleetConfig,
 	place: FleetPlace,
 ): SettledJob {
-	const layers: ReadonlyArray<[Layer, JobSettings | undefined]> = [
+	const layers: readonly [Layer, JobSettings | undefined][] = [
 		["job", job],
 		["run", place.run],
 		[

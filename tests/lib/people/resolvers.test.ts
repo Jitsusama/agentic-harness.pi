@@ -10,7 +10,7 @@ import {
 	resolveIdentity,
 	setResolutionFallback,
 	unregisterPersonResolver,
-} from "../../../lib/people";
+} from "../../../lib/people/index.ts";
 
 beforeEach(() => {
 	clearPersonResolvers();

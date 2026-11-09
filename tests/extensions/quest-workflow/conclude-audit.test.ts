@@ -8,9 +8,9 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 
 let root: string;

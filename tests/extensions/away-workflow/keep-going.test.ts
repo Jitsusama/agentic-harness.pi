@@ -126,7 +126,7 @@ describe("after a run, while the person is away", () => {
 		);
 
 		expect(verdicts.slice(0, MAX_IDLE_RUNS - 1).map((v) => v.kind)).toEqual(
-			Array(MAX_IDLE_RUNS - 1).fill("nudge"),
+			new Array(MAX_IDLE_RUNS - 1).fill("nudge"),
 		);
 		const warned = verdicts[MAX_IDLE_RUNS - 2];
 		expect(warned?.kind === "nudge" && warned.text).toContain("one more");

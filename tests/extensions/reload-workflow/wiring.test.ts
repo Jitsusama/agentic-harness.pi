@@ -571,7 +571,7 @@ describe("running a tree in place of the install", LANDS, () => {
 		const now = runtime();
 		await now.start("startup");
 		await now.command("");
-		expect(now.notices[0]).toContain(`not its install: the install is`);
+		expect(now.notices[0]).toContain("not its install: the install is");
 		expect(now.notices[0]).toContain(install.split("/").slice(-2).join("/"));
 	});
 });

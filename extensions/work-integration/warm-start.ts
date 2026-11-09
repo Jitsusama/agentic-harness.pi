@@ -160,7 +160,7 @@ async function cloneProfiles(
 	profiles: readonly string[],
 	seams: CloneSeams,
 ): Promise<boolean> {
-	const pairs: Array<[string, string]> = [];
+	const pairs: [string, string][] = [];
 	for (const entry of readdirSync(from, { withFileTypes: true })) {
 		if (entry.isFile()) {
 			pairs.push([join(from, entry.name), join(staging, entry.name)]);

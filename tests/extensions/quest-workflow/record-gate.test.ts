@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
+import { enforceQuest } from "../../../extensions/quest-workflow/enforce.ts";
 import {
 	createQuestState,
 	type QuestState,
-} from "../../../extensions/quest-workflow/state";
+} from "../../../extensions/quest-workflow/state.ts";
 
 const QUEST = "QEST-20260924-ABC123";
 const OTHER = "QEST-20260101-OTHER1";

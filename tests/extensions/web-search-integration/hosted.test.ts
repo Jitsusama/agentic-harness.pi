@@ -76,8 +76,8 @@ describe("web-search in a host", () => {
 	it("keeps each runner's bundles, and A's quit closes nothing B uses", async () => {
 		host();
 		const exits = process.listenerCount("exit");
-		const a = runner(),
-			b = runner();
+		const a = runner();
+		const b = runner();
 		expect(
 			process.listenerCount("exit"),
 			"hosted runners add no exit listener to the host process",
@@ -107,8 +107,8 @@ describe("web-search in a host", () => {
 describe("web-search on plain pi", () => {
 	it("removes only the quitting runner's bundles and closes its Chrome", async () => {
 		const before = new Set(process.listeners("exit"));
-		const a = runner(),
-			b = runner();
+		const a = runner();
+		const b = runner();
 		cleanups.push(() => {
 			// Each plain-pi load adds the orphan guard; take back only those.
 			for (const listener of process.listeners("exit"))

@@ -56,7 +56,7 @@ export class EmulationController {
 	 * silently or, worse, left in the intent to fail again on every
 	 * navigation that replays it.
 	 */
-	private refused: string[] = [];
+	private readonly refused: string[] = [];
 
 	private readonly wires: SessionWires;
 	private readonly hooks: EmulationHooks;

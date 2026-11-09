@@ -15,11 +15,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	orchestratorsIn,
 	writeOrchestrators,
-} from "../../../extensions/quest-workflow/orchestrators";
+} from "../../../extensions/quest-workflow/orchestrators.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../lib/internal/quest/discovery";
+} from "../../../lib/internal/quest/discovery.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const NESTED = "QEST-20260101-NESTED";

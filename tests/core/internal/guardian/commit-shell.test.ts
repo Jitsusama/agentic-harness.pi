@@ -35,7 +35,7 @@ describe("extractMessage", () => {
 	});
 
 	it("resolves a -F <file> through the injected reader with the cd base", () => {
-		const calls: Array<[string, string | null]> = [];
+		const calls: [string, string | null][] = [];
 		const read = (path: string, base: string | null): string | null => {
 			calls.push([path, base]);
 			return "body from file";
@@ -49,7 +49,7 @@ describe("extractMessage", () => {
 	});
 
 	it("passes the process cwd as the base when there is no cd", () => {
-		const calls: Array<[string, string | null]> = [];
+		const calls: [string, string | null][] = [];
 		const read = (path: string, base: string | null): string | null => {
 			calls.push([path, base]);
 			return "x";

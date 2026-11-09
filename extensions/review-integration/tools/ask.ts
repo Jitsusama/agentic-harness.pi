@@ -620,7 +620,7 @@ export async function stopRound(
 	return say(
 		[
 			`Nothing was running in ${held.id} and nobody left anything behind, so it is closed unfinished rather than left open forever.`,
-			`If its transcripts turn up under another state directory, the round is gone from this ledger and would have to be read there.`,
+			"If its transcripts turn up under another state directory, the round is gone from this ledger and would have to be read there.",
 			...kept,
 		].join("\n"),
 		{ run: closed },
@@ -1005,7 +1005,7 @@ async function startRound(
 				? []
 				: watched === undefined
 					? [
-							`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
+							"Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.",
 						]
 					: [
 							`Held in the background as ${watched.id}: you will be told when no reviewer is left running, so do not poll. Collect it then. /jobs stops it.`,

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../../lib/internal/quest/discovery";
+} from "../../../../lib/internal/quest/discovery.ts";
 
 let root: string;
 

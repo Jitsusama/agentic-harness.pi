@@ -214,7 +214,7 @@ describe("drawing a write gate", () => {
 		const said = rows.filter((row) => row.includes("<text>"));
 		expect(said).toEqual([
 			expect.stringMatching(/^ <text> {3}C1 binks:<\/text><muted> /),
-			` <text>   C2 joel:</text><muted> agreed</muted>`,
+			" <text>   C2 joel:</text><muted> agreed</muted>",
 		]);
 		expect(
 			rows.filter((row) => row.includes("<muted>")).length,

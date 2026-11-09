@@ -1,0 +1,203 @@
+// Biome lints and formats every TypeScript, JavaScript and JSON file here.
+// The linter runs every rule Biome has; each rule turned off below says
+// why, so a rule that isn't running is a decision, never an oversight.
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"ignoreUnknown": false
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"linter": {
+		"enabled": true,
+		// No framework's rules apply: this is a Node program with no
+		// components, so their rules only misread plain functions.
+		"domains": {
+			"next": "none",
+			"qwik": "none",
+			"react": "none",
+			"solid": "none",
+			"vue": "none"
+		},
+		"rules": {
+			"preset": "all",
+			"complexity": {
+				// A count can't judge complexity or length: a long or
+				// branching function is split by its reasons to change.
+				"noExcessiveCognitiveComplexity": "off",
+				"noExcessiveLinesPerFunction": "off",
+				// This and style's useConsistentEnumValueType are the two
+				// rules that infer types. Biome 2.5.3 panics inferring
+				// host/service/client.ts's (an index out of bounds in its
+				// module resolver) and then lints none of that file; neither
+				// rule finds anything elsewhere.
+				"useArrayFind": "off",
+				// `!!value` narrows a type where `Boolean(value)` doesn't,
+				// and `1 * GIB` reads as a size where `Number(GIB)` doesn't.
+				"noImplicitCoercions": "off",
+				// `return undefined` and `resolve(undefined)` say on purpose
+				// what leaving it out says by accident.
+				"noUselessUndefined": "off",
+				// `void promise` is how a promise left to run says so.
+				"noVoid": "off",
+				// Parameters follow what a caller holds; an options object
+				// for each would hide the required ones.
+				"useMaxParams": "off",
+				// Its rewrites of negated conditions read worse more often
+				// than better.
+				"useSimplifiedLogicExpression": "off"
+			},
+			"correctness": {
+				// This is a Node program: it imports Node's modules and
+				// reads the process it runs in.
+				"noNodejsModules": "off",
+				"noProcessGlobal": "off",
+				// Pi supplies its own packages at run time, outside
+				// package.json; tsc and knip check every import, and tsc
+				// resolves each one, installed or not.
+				"noUndeclaredDependencies": "off",
+				"noUnresolvedImports": "off"
+			},
+			"performance": {
+				// Awaiting in a loop is how work runs one at a time here,
+				// which is often the point.
+				"noAwaitInLoops": "off",
+				// There is no bundle to shake: a domain's index re-exports
+				// its parts, whole or by name.
+				"noBarrelFile": "off",
+				"noNamespaceImport": "off",
+				"noReExportAll": "off",
+				// Removing a key is what deleting a record's entry means.
+				"noDelete": "off",
+				// A regex beside the code that uses it reads better than one
+				// hoisted away from it, and the engine caches literals.
+				"useTopLevelRegex": "off"
+			},
+			"security": {
+				// It takes long identifiers and test fixtures for secrets;
+				// the secret scrub and the guards watch for real ones.
+				"noSecrets": "off"
+			},
+			"style": {
+				// Each would rewrite thousands of lines for a preference of
+				// layout: unbraced one-line bodies, ternaries, `continue`,
+				// `i++`, method signatures and exports placed by meaning.
+				"noContinue": "off",
+				"noIncrementDecrement": "off",
+				"noNestedTernary": "off",
+				"noTernary": "off",
+				"useBlockStatements": "off",
+				"useConsistentMethodSignatures": "off",
+				"useExportsLast": "off",
+				// It infers types, as complexity's useArrayFind does; see
+				// there.
+				"useConsistentEnumValueType": "off",
+				// Pi loads an extension through its default export.
+				"noDefaultExport": "off",
+				// One file may hold a family of small classes, such as an
+				// error and its subtypes.
+				"noExcessiveClassesPerFile": "off",
+				// Biome's limit of 300 lines would flag 312 files; a long
+				// file is split by its reasons to change, not by a count.
+				"noExcessiveLinesPerFile": "off",
+				// Importing a name and exporting it beside the module's own
+				// reads as plainly as `export from`.
+				"noExportedImports": "off",
+				// Most numbers here are sizes, times and indexes whose name
+				// is the line they sit on.
+				"noMagicNumbers": "off",
+				// `if (!x) ... else ...` puts the early, short case first.
+				"noNegationElse": "off",
+				// Normalising a parameter in place keeps one name for one
+				// value.
+				"noParameterAssign": "off",
+				// The environment is read where it applies, by design.
+				"noProcessEnv": "off",
+				// `xs[xs.length - 1]` and `xs.at(-1)` type differently while
+				// noUncheckedIndexedAccess is off, so `at` would add checks
+				// of its own.
+				"useAtIndex": "off",
+				// An interface's order of parameters is fixed, so a default
+				// may come before a required one in its implementations.
+				"useDefaultParameterLast": "off",
+				// A switch over a union is held exhaustive by tsc, and a
+				// default clause would hide a missing case.
+				"useDefaultSwitchClause": "off",
+				// Destructuring one property reads no better than reading it.
+				"useDestructuring": "off",
+				// An error thrown with a new message says what failed in
+				// words; its cause is kept where it adds anything.
+				"useErrorCause": "off",
+				// `if (xs.length)` is as plain as `xs.length > 0`.
+				"useExplicitLengthCheck": "off",
+				// `type` and `interface` each have their uses here.
+				"useConsistentTypeDefinitions": "off",
+				// It also flags loops that skip ahead by changing their index.
+				"useForOf": "off",
+				// Names follow the shapes they mirror: JSON fields, CLI
+				// flags, environment variables and wire protocols.
+				"useNamingConvention": "off",
+				// Separators are kept for numbers that read as sizes.
+				"useNumericSeparators": "off"
+			},
+			"suspicious": {
+				// Bit operations are used where hashing and flags need them.
+				"noBitwiseOperators": "off",
+				// An empty block is a stub or a deliberately ignored
+				// failure, said by the code around it.
+				"noEmptyBlockStatements": "off",
+				// `x == null` is the idiom for null or undefined.
+				"noEqualsToNull": "off",
+				// Nine imports in quest-workflow and review form cycles,
+				// which wait to be untangled with those domains' owners.
+				"noImportCycles": "off",
+				// Shared assertion functions are called from inside tests.
+				"noMisplacedAssertion": "off",
+				// A closure reusing an outer name is often the clearest name.
+				"noShadow": "off",
+				// Its inference is partial, so it calls guards always true
+				// that tsc's types leave open.
+				"noUnnecessaryConditions": "off",
+				// The default order sorts strings by code unit, which is the
+				// stable order these listings want.
+				"useArraySortCompare": "off",
+				// An async function without await still returns a promise
+				// its interface requires.
+				"useAwait": "off"
+			}
+		}
+	},
+	// Scripts are run by hand and report on the console.
+	"overrides": [
+		{
+			"includes": ["scripts/**"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noConsole": "off"
+					}
+				}
+			}
+		}
+	],
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
+}

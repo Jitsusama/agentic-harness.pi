@@ -52,8 +52,8 @@ const AFTER = { pid: 202, startedAt: 2000, bootId: "after", startTicks: 20 };
 
 describe("session artifact ownership", () => {
 	it("retains two callers' handles across a hosted stop and a new host owner", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		const stop = host(BEFORE);
 		const first = openSessionStore(a).put('{"owner":"a"}');
 		const second = openSessionStore(b).put('{"owner":"b"}');
@@ -104,8 +104,8 @@ describe("session artifact ownership", () => {
 	});
 
 	it("reaps only a dead owner whose hosted conversation is definitively unheld", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		host(BEFORE);
 		openSessionStore(a).put("a");
 		const kept = openSessionStore(b).put("b");
@@ -161,8 +161,8 @@ describe("session artifact ownership", () => {
 	});
 
 	it("uses ticked plain-pi ownership for reaping and still removes plain quit results", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		await prepareArtifactOwnership(a);
 		openSessionStore(a).put("a");
 		const kept = openSessionStore(b).put("b");

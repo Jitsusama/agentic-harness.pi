@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BUSY_TRIES, strayArguments, whileBusy } from "../../scripts/measure";
+import {
+	BUSY_TRIES,
+	strayArguments,
+	whileBusy,
+} from "../../scripts/measure.ts";
 
 /** An error shaped as the sqlite driver throws one for a held lock. */
 function locked(): Error {

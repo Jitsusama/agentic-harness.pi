@@ -62,10 +62,8 @@ function declared(text: string): Map<string, string> {
 }
 
 /** The extent of each action branch, in either form the tools use. */
-function branches(
-	text: string,
-): Array<[action: string, from: number, to: number]> {
-	const found: Array<[string, number, number]> = [];
+function branches(text: string): [action: string, from: number, to: number][] {
+	const found: [string, number, number][] = [];
 	// `params.action === "x"` guarding a block.
 	for (const match of text.matchAll(/action === "([a-zA-Z-]+)"/g)) {
 		const open = text.indexOf("{", match.index + match[0].length);
@@ -96,8 +94,8 @@ function branches(
 }
 
 /** The body of each `switch`, as a brace-matched span. */
-function switchBodies(text: string): Array<[from: number, to: number]> {
-	const found: Array<[number, number]> = [];
+function switchBodies(text: string): [from: number, to: number][] {
+	const found: [number, number][] = [];
 	for (const match of text.matchAll(/switch\s*\(/g)) {
 		const open = text.indexOf("{", match.index);
 		if (open < 0) continue;

@@ -71,8 +71,8 @@ function session() {
 
 describe("LSP in a process with two runners", () => {
 	it("limits symbols to the caller's folder, not its similarly named sibling", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		await a.start();
 		await b.start();
 		const backend = started[0];
@@ -101,8 +101,8 @@ describe("LSP in a process with two runners", () => {
 		).toMatchObject({ details: { count: 1 } });
 	});
 	it("replaces a dead backend once when two callers encounter its closed connection", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		await a.start();
 		await b.start();
 		const backend = started[0];
@@ -124,8 +124,8 @@ describe("LSP in a process with two runners", () => {
 	});
 
 	it("shares edit sync, keeps A working after B quits, and closes only after A", async () => {
-		const a = session(),
-			b = session();
+		const a = session();
+		const b = session();
 		await a.start();
 		await b.start();
 		await a.start();

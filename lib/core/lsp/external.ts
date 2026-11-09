@@ -22,7 +22,7 @@ const BACKEND_METHODS: ReadonlyArray<keyof LspBackend> = [
 /** Whether every value in the object is a function under the given keys. */
 function hasFunctions(
 	value: Record<string, unknown>,
-	keys: ReadonlyArray<string>,
+	keys: readonly string[],
 ): boolean {
 	return keys.every((key) => typeof value[key] === "function");
 }

@@ -8,8 +8,8 @@ import {
 	treePlace,
 	treesHere,
 	withHostsBackfilled,
-} from "../../../../lib/internal/quest/tree-place";
-import type { QuestTree } from "../../../../lib/quest/types";
+} from "../../../../lib/internal/quest/tree-place.ts";
+import type { QuestTree } from "../../../../lib/quest/types.ts";
 
 const onOptimus = {
 	host: "optimus",

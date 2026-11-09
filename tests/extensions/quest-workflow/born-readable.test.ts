@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDocument } from "../../../extensions/quest-workflow/lifecycle";
-import type { QuestState } from "../../../extensions/quest-workflow/state";
+import { createDocument } from "../../../extensions/quest-workflow/lifecycle.ts";
+import type { QuestState } from "../../../extensions/quest-workflow/state.ts";
 
 let questDir: string;
 

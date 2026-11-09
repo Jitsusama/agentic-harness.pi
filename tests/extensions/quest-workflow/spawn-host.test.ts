@@ -3,16 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { spawnInHost } from "../../../extensions/quest-workflow/verbs/spawn-host";
-import { hostSocketPath } from "../../../host/service/address";
-import type { ControlRequest } from "../../../host/service/protocol";
-import { listenControl } from "../../../host/service/server";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { spawnInHost } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
+import { hostSocketPath } from "../../../host/service/address.ts";
+import type { ControlRequest } from "../../../host/service/protocol.ts";
+import { listenControl } from "../../../host/service/server.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 const SAVED = ["HOME", "MYCELIUM_REALM", "PI_HOME_REALM", "XDG_RUNTIME_DIR"];
 

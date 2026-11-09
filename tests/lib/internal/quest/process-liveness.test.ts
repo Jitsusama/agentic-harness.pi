@@ -6,7 +6,7 @@ import {
 	type ProcessInspection,
 	probeProcess,
 	sameStart,
-} from "../../../../lib/internal/quest/process-liveness";
+} from "../../../../lib/internal/quest/process-liveness.ts";
 
 const LOCAL = "host-a";
 

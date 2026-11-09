@@ -363,7 +363,7 @@ function headline(asked: string, refusal: TargetRefusal): string {
 	if (refusal.reason === "ambiguous") {
 		return (
 			`${refusal.candidates.length} elements match ${asked}. ` +
-			`Use one of these instead:`
+			"Use one of these instead:"
 		);
 	}
 	if (refusal.reason === "notActionable") {

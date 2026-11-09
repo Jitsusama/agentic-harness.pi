@@ -14,20 +14,20 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	PRIORITY_WEIGHT,
 	QUEST_WEIGHTS_FILE,
 	writeQuestWeights,
-} from "../../../extensions/quest-workflow/weights";
-import { QUEUE_FIRST_FILE } from "../../../lib/internal/priority/folder";
-import { discoverQuests } from "../../../lib/internal/quest/discovery";
+} from "../../../extensions/quest-workflow/weights.ts";
+import { QUEUE_FIRST_FILE } from "../../../lib/internal/priority/folder.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/refs/index";
-import { createEnvGuard } from "./_helpers";
+} from "../../../lib/refs/index.ts";
+import { createEnvGuard } from "./_helpers.ts";
 
 let tmpRoot: string;
 let questsRoot: string;

@@ -227,7 +227,6 @@ function createSingleController(
 						key: optionValue(opt),
 					});
 				}
-				return;
 			}
 		}
 	}

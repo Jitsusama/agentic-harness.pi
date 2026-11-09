@@ -3,7 +3,7 @@ import {
 	budgetOf,
 	budgetSaid,
 	isBudgetName,
-} from "../../../../lib/internal/quest/budget";
+} from "../../../../lib/internal/quest/budget.ts";
 
 type Said = { budget?: unknown; parent: string | null };
 

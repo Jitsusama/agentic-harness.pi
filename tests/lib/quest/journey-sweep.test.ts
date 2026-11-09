@@ -9,19 +9,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey";
+import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import {
 	FORMER_JOURNEY_FILE,
 	JOURNEY_FILE,
 	JOURNEY_POINTER,
 	JOURNEY_TITLE,
 	recentJourney,
-} from "../../../lib/internal/quest/journey";
+} from "../../../lib/internal/quest/journey.ts";
 import {
 	CITATIONS_OPENING,
 	planJourneySweep,
 	sweepJourney,
-} from "../../../lib/internal/quest/journey-sweep";
+} from "../../../lib/internal/quest/journey-sweep.ts";
 
 let questDir: string;
 

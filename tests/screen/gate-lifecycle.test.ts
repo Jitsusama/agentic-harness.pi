@@ -294,13 +294,13 @@ function gateLength(session: PiSession): number {
 	const width = session.term.columns;
 	const search = (parts: readonly unknown[]): number => {
 		for (const part of parts) {
-			const children = Reflect.get(Object(part), "children");
+			const children = Reflect.get(new Object(part), "children");
 			if (Array.isArray(children)) {
 				const found = search(children);
 				if (found > 0) return found;
 				continue;
 			}
-			const render = Reflect.get(Object(part), "render");
+			const render = Reflect.get(new Object(part), "render");
 			if (typeof render !== "function") continue;
 			const lines: unknown = render.call(part, width);
 			if (

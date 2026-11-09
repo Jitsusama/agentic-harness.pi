@@ -47,6 +47,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { noun } from "../../ui/count.ts";
 import { NOBODY } from "./awaited.ts";
+// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { mainFetchOf } from "./fetched-git.mjs";
 import type { Beside } from "./outcome.ts";
 
@@ -1162,7 +1163,9 @@ function endsAt(job: Job, now: number): number {
 	if (job.started === undefined) return now;
 	const started = Date.parse(job.started);
 	const byLast =
-		job.lastRanS === undefined ? -Infinity : started + job.lastRanS * 1000;
+		job.lastRanS === undefined
+			? Number.NEGATIVE_INFINITY
+			: started + job.lastRanS * 1000;
 	return byLast > now ? byLast : now + (now - started);
 }
 
@@ -1220,7 +1223,7 @@ export function nextTurn(
 	const running = jobs.filter((job) => job.started !== undefined);
 	// An answered fetch takes nothing, so it spaces out nobody's turn.
 	const last = Math.max(
-		-Infinity,
+		Number.NEGATIVE_INFINITY,
 		...running
 			.filter((job) => !job.answered)
 			.map((job) => Date.parse(job.started as string)),

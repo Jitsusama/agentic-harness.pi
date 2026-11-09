@@ -602,12 +602,12 @@ export function retryCannotResettle(
 	if (resettles.length === 0) return undefined;
 	return (
 		`A retry re-asks "${participantId}" as round ${run.id} asked it, so ` +
-		`it cannot take new settings: its answer is substituted into that ` +
-		`round, whose ledger records what it originally asked under. ` +
+		"it cannot take new settings: its answer is substituted into that " +
+		"round, whose ledger records what it originally asked under. " +
 		`${resettles.map((key) => `"${key}"`).join(", ")} would change that. ` +
-		`Run a fresh council with who, or release the id and ask again. The ` +
-		`clocks are the exception and may be raised here, since how long a ` +
-		`reviewer was allowed does not change what it found.`
+		"Run a fresh council with who, or release the id and ask again. The " +
+		"clocks are the exception and may be raised here, since how long a " +
+		"reviewer was allowed does not change what it found."
 	);
 }
 

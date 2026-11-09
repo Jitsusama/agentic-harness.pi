@@ -16,7 +16,7 @@ vi.mock("../../../lib/core/web/browser.ts", async (original) => ({
 }));
 
 const IDLE_MS = 30 * 60 * 1000;
-const pages: Array<ReturnType<typeof pageDouble>> = [];
+const pages: ReturnType<typeof pageDouble>[] = [];
 const cleanups: Array<() => void | Promise<void>> = [];
 
 function pageDouble(name: string) {

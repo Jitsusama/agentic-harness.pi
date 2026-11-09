@@ -10,17 +10,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/core/tree/index.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
-import { addTreeToQuest } from "../../../lib/internal/quest/trees";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import { addTreeToQuest } from "../../../lib/internal/quest/trees.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo } from "../../support/git-fixture.ts";
-import { createEnvGuard } from "./_helpers";
+import { createEnvGuard } from "./_helpers.ts";
 
 const execFileAsync = promisify(execFile);
 let tmpRoot: string;

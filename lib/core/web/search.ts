@@ -165,7 +165,7 @@ export async function firstProviderResults(
  */
 export async function webSearch(
 	query: string,
-	numResults: number = 10,
+	numResults = 10,
 	signal?: AbortSignal,
 ): Promise<SearchResult[]> {
 	if (signal?.aborted) throw abortError(signal);

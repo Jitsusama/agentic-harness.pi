@@ -17,7 +17,7 @@ import {
 	isTracked,
 	isWithin,
 	trackedTreeRoot,
-} from "../../../../lib/internal/quest/git-signals";
+} from "../../../../lib/internal/quest/git-signals.ts";
 
 let repo: string;
 let outside: string;

@@ -699,7 +699,7 @@ export function autocompleteTokens(
 				nodeOf(
 					node,
 					`autocomplete="${declared}" is not a token the ` +
-						`specification defines, so it does nothing. ` +
+						"specification defines, so it does nothing. " +
 						`"${wanted}" is the one that fits.`,
 				),
 			);

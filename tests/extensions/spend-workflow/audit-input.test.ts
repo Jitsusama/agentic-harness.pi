@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	AUDIT_QUERIES,
 	periods,
-} from "../../../extensions/spend-workflow/audit";
+} from "../../../extensions/spend-workflow/audit.ts";
 import {
 	type AuditQuery,
 	gatherAudit,
-} from "../../../extensions/spend-workflow/audit-input";
+} from "../../../extensions/spend-workflow/audit-input.ts";
 
 const NOW = Date.parse("2026-10-26T12:00:00Z");
 const { current, prior } = periods(NOW);

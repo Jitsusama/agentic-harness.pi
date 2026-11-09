@@ -166,7 +166,7 @@ describe("starting a reviewer that outlives the session", () => {
 		const childPath = join(stateDir, "child.mjs");
 		await writeFile(
 			childPath,
-			`await new Promise((r) => setTimeout(r, 300));\n` +
+			"await new Promise((r) => setTimeout(r, 300));\n" +
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"nobody waited"}]}})+"\\n");`,
 		);
 		const startPi = createSupervisorStartPi({
@@ -210,7 +210,7 @@ describe("starting a reviewer that outlives the session", () => {
 		const childPath = join(stateDir, "child.mjs");
 		await writeFile(
 			childPath,
-			`await new Promise((r) => setTimeout(r, 3000));\n` +
+			"await new Promise((r) => setTimeout(r, 3000));\n" +
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
 		);
 		const startPi = createSupervisorStartPi({

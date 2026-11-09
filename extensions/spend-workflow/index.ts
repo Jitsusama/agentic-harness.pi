@@ -57,8 +57,7 @@ import {
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 import { medianOf } from "../../lib/internal/cost-meter/index.ts";
-import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
-import { dataDir } from "../../lib/internal/paths.ts";
+import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { duMeasure } from "../../lib/internal/quest/footprint.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import {
@@ -106,7 +105,7 @@ import {
 import { recordWhoServed } from "./served.ts";
 
 /** Where each session's per-turn resource figures are kept. */
-const resourcesDir = () => join(packageStateDir("observability"), "resources");
+const resourcesDir = () => join(stateDir("observability"), "resources");
 
 /** Rows of a query answer shown before the rest is left to the store. */
 const QUERY_ROWS_SHOWN = 40;
@@ -273,9 +272,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	// main loop alone and does not say so.
 	let runs: RunStore | undefined;
 	const openRuns = async (): Promise<RunStore> => {
-		runs ??= await openRunStore(
-			join(packageStateDir("observability"), "runs.db"),
-		);
+		runs ??= await openRunStore(join(stateDir("observability"), "runs.db"));
 		return runs;
 	};
 
@@ -286,7 +283,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	const open = async (): Promise<TurnStore> => {
 		if (store) return store;
 		opening ??= (async () => {
-			const dir = packageStateDir("observability");
+			const dir = stateDir("observability");
 			mkdirSync(dir, { recursive: true });
 			watermarks = join(dir, "ledger-watermarks.json");
 			ledgerPath = join(dir, "ledger.db");

@@ -88,7 +88,7 @@ function parseDate(dateStr?: string): Date {
 	// We try to parse it as an ISO date.
 	try {
 		return new Date(dateStr);
-	} catch (_error) {
+	} catch {
 		// The Date constructor threw, so we re-throw with context.
 		throw new Error(`Invalid date: ${dateStr}`);
 	}

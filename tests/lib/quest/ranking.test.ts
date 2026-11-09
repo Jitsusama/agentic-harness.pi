@@ -11,7 +11,7 @@ import {
 	sink,
 	sortByRank,
 	top,
-} from "../../../lib/internal/quest/ranking";
+} from "../../../lib/internal/quest/ranking.ts";
 
 const SET: RankEntry[] = [
 	{ id: "A", rank: 1 },

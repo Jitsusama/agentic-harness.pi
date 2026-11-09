@@ -4,7 +4,7 @@ import {
 	formatFleetCancellation,
 	isSubagentCancelledError,
 	SubagentCancelledError,
-} from "../../../extensions/subagent-workflow/cancellation";
+} from "../../../extensions/subagent-workflow/cancellation.ts";
 
 // The registry mirrors pr-workflow's review-shaped one,
 // but speaks subagent vocabulary and has no review-

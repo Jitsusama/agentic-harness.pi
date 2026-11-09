@@ -75,8 +75,8 @@ export function renderVitals(
 	// median beside it: the median alone reads as settled.
 	const unstable = measures.filter((one) => one.spread?.straddles);
 	const caveat =
-		` Interaction to next paint is not among them: it needs an ` +
-		`interaction, and this measures a load.` +
+		" Interaction to next paint is not among them: it needs an " +
+		"interaction, and this measures a load." +
 		(sampled <= 1 ? "" : ` Each value is the median of ${sampled} loads.`) +
 		(unstable.length === 0
 			? ""

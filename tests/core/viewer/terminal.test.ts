@@ -42,8 +42,8 @@ describe("persistent viewer terminal", () => {
 		const close = host();
 		const repaint = vi.fn();
 		const terminal = new ViewerTerminal("a", repaint);
-		const one = viewer(),
-			two = viewer();
+		const one = viewer();
+		const two = viewer();
 		const attached = terminal.attach(one);
 		terminal.attach(two);
 		terminal.write("first");
@@ -185,8 +185,8 @@ describe("persistent viewer terminal", () => {
 
 	it("detaches a broken output sink without losing its sibling's output", () => {
 		const terminal = new ViewerTerminal("a", () => {});
-		const broken = viewer(),
-			good = viewer();
+		const broken = viewer();
+		const good = viewer();
 		broken.write.mockImplementation(() => {
 			throw new Error("closed");
 		});

@@ -45,7 +45,7 @@ import type {
 } from "../../lib/core/observability/types.ts";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
-import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import { repoOf } from "../../lib/ledger/session.ts";
 
 /** Result payload the observe_runs tool returns. */
@@ -69,7 +69,7 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 		// it lands, not the one current when the sink was registered.
 		ctxRef = ctx;
 		if (store === null) {
-			const dir = packageStateDir("observability");
+			const dir = stateDir("observability");
 			mkdirSync(dir, { recursive: true });
 			store = await openRunStore(join(dir, "runs.db"));
 			unregister = registerRunRecorder((record) => {

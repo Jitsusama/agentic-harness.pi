@@ -57,10 +57,12 @@ describe("a window's title", () => {
 	it("is composed as pi composes it, with and without a session name", () => {
 		const interactive = source("modes/interactive/interactive-mode.js");
 		expect(interactive).toContain(
-			`setTitle(\`\${APP_TITLE} - \${sessionName} - \${cwdBasename}\`)`,
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the string is source text under test.
+			"setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`)",
 		);
 		expect(interactive).toContain(
-			`setTitle(\`\${APP_TITLE} - \${cwdBasename}\`)`,
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: the string is source text under test.
+			"setTitle(`${APP_TITLE} - ${cwdBasename}`)",
 		);
 		expect(source("config.js")).toContain(
 			'APP_TITLE = piConfigName ? APP_NAME : "\u03c0"',
@@ -137,7 +139,7 @@ describe("this session's peer", () => {
 		});
 		writeFileSync(
 			join(root, "quests", "QEST-20261021-LUQ49E", "README.md"),
-			`---\nid: QEST-20261021-LUQ49E\nkind: quest\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# A Stable Substrate\n\n## 📜 Summary\n\nGrow the mesh.\n\n## 🧭 Purpose\n\nWhy.\n`,
+			"---\nid: QEST-20261021-LUQ49E\nkind: quest\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# A Stable Substrate\n\n## 📜 Summary\n\nGrow the mesh.\n\n## 🧭 Purpose\n\nWhy.\n",
 		);
 		const at = surroundings();
 

@@ -35,6 +35,7 @@ import { Type } from "@sinclair/typebox";
 import {
 	JOURNAL_PATH_VAR,
 	JOURNAL_TOOL_NAME,
+	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "../../lib/subagent/runpi/journal.mjs";
 
 /** A tool answer, in the shape pi expects. */

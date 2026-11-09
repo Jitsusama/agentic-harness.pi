@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { QUEST_ACTIONS } from "../../../extensions/quest-workflow/actions";
+import { QUEST_ACTIONS } from "../../../extensions/quest-workflow/actions.ts";
 
 /**
  * The do-not-lose set from BRIF-20260704-OUD7YZ, made executable.

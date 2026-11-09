@@ -7,10 +7,10 @@ import {
 	endingCount,
 	lookAt,
 	type SessionLook,
-} from "../../../extensions/quest-workflow/ends-with-quest";
-import { createQuestState } from "../../../extensions/quest-workflow/state";
-import { handle } from "../../../extensions/quest-workflow/transitions";
-import { createEnvGuard } from "./_helpers";
+} from "../../../extensions/quest-workflow/ends-with-quest.ts";
+import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { createEnvGuard } from "./_helpers.ts";
 
 const ended: SessionLook = { questEnded: true, busy: false };
 const busy: SessionLook = { questEnded: true, busy: true };

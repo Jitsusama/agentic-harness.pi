@@ -28,7 +28,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const EXTENSIONS = join(__dirname, "..", "..", "extensions");
+const EXTENSIONS = join(import.meta.dirname, "..", "..", "extensions");
 
 /**
  * Render slots that cannot thread a component, with the reason.

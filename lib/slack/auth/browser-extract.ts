@@ -240,9 +240,7 @@ async function extractTokenFromPage(
 				const config = JSON.parse(raw);
 				const teams = config?.teams;
 				if (!teams) return null;
-				for (const t of Object.values(teams) as Array<
-					Record<string, unknown>
-				>) {
+				for (const t of Object.values(teams) as Record<string, unknown>[]) {
 					const tok = t?.token as string | undefined;
 					if (tok?.startsWith("xoxc-")) return tok;
 				}

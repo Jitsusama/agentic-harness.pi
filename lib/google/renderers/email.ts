@@ -132,7 +132,7 @@ function formatDate(dateStr: string): string {
 			hour: "2-digit",
 			minute: "2-digit",
 		});
-	} catch (_error) {
+	} catch {
 		// Date parsing failed, so we return a truncated raw string as a fallback.
 		return dateStr.slice(0, 16);
 	}

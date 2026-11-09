@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	applyEdits,
 	ownedFieldChanges,
-} from "../../../../lib/internal/quest/owned-fields";
+} from "../../../../lib/internal/quest/owned-fields.ts";
 
 const PLAN =
 	"---\nid: PLAN-1\nkind: plan\nquest: QEST-1\nstage: build\n---\n# Plan\n\n- [ ] item\n";

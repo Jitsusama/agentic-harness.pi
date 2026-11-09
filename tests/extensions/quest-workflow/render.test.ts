@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	renderWidget,
 	sessionNameFor,
-} from "../../../extensions/quest-workflow/render";
+} from "../../../extensions/quest-workflow/render.ts";
 
 const identityTheme = {
 	fg: (_token: string, text: string) => text,

@@ -426,12 +426,10 @@ export function resolveStartup(
 	pendingWords(ctx).hints = hints;
 	const autoloadId = hints.questId;
 	const orchestrating = hints.orchestrate;
-	if (autoloadId) {
-		if (loadQuest(state, pi, autoloadId).ok) {
-			autoFocusPlan(state);
-			if (orchestrating) orchestrate(state, { action: "orchestrate" }, true);
-			return { source: "explicit", questId: state.questId };
-		}
+	if (autoloadId && loadQuest(state, pi, autoloadId).ok) {
+		autoFocusPlan(state);
+		if (orchestrating) orchestrate(state, { action: "orchestrate" }, true);
+		return { source: "explicit", questId: state.questId };
 	}
 	if (restore(state, pi, ctx)) {
 		return { source: "persisted", questId: state.questId };

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { packageConfigPath } from "../../../lib/internal/paths";
+import { packageConfigPath } from "../../../lib/internal/paths.ts";
 
 describe("packageConfigPath", () => {
 	it("places config.json under the package brand using XDG_CONFIG_HOME", () => {

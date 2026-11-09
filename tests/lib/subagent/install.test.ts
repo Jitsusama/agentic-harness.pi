@@ -3,7 +3,7 @@ import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import {
 	getParentPiInstall,
 	resolveParentPiInstall,
-} from "../../../lib/subagent/install";
+} from "../../../lib/subagent/install.ts";
 import { sessionHost } from "../../support/session-host.ts";
 
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
@@ -153,7 +153,7 @@ describe("getParentPiInstall", () => {
 			vi.resetModules();
 			process.env.PI_PACKAGE_DIR = "/tmp/pi-pkg-reload-after-upgrade";
 			const { getParentPiInstall: reloaded } = await import(
-				"../../../lib/subagent/install"
+				"../../../lib/subagent/install.ts"
 			);
 			expect(reloaded().packageDir).toBe("/tmp/pi-pkg-reload-startup");
 			expect(reloaded()).toEqual(first);

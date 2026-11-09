@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	standingRules,
 	standingRulesFor,
-} from "../../../extensions/quest-workflow/standing-rules";
+} from "../../../extensions/quest-workflow/standing-rules.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";

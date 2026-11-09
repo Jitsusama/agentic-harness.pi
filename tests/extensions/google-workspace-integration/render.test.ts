@@ -1,8 +1,8 @@
 import type { Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { renderGoogleCall } from "../../../extensions/google-workspace-integration/render-call";
-import { renderGoogleResult } from "../../../extensions/google-workspace-integration/render-result";
-import { fakeTheme } from "../../lib/ui/fake-theme";
+import { renderGoogleCall } from "../../../extensions/google-workspace-integration/render-call.ts";
+import { renderGoogleResult } from "../../../extensions/google-workspace-integration/render-result.ts";
+import { fakeTheme } from "../../lib/ui/fake-theme.ts";
 
 const theme = fakeTheme();
 

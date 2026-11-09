@@ -3,7 +3,7 @@ import {
 	getSection,
 	type PackageConfig,
 	type SectionParse,
-} from "../../../../lib/internal/config/loader";
+} from "../../../../lib/internal/config/loader.ts";
 
 interface Demo {
 	root: string;

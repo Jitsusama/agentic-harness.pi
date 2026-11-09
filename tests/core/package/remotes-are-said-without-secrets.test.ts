@@ -80,10 +80,10 @@ describe("a remote said to a person", () => {
 		expect(
 			raw.map((m) => `${m.where}:${m.line}\n    ${m.text}`),
 			`These interpolate a remote URL without ${LAUNDERED}. A remote can ` +
-				`carry a token as its user or its password, so one printed as it ` +
-				`is puts a live secret in the transcript. Wrap it, or if this ` +
-				`string is handed to git rather than to a person, keep the ` +
-				`credential and name the value so it does not read as a message.`,
+				"carry a token as its user or its password, so one printed as it " +
+				"is puts a live secret in the transcript. Wrap it, or if this " +
+				"string is handed to git rather than to a person, keep the " +
+				"credential and name the value so it does not read as a message.",
 		).toEqual([]);
 	});
 

@@ -678,7 +678,7 @@ export async function spawn(
 
 	let message = `Spawned a ${layout} in ${cwd} (${chosenBy}) through ${used}.${noted}`;
 	if (resolved.healed) {
-		message += ` A recorded path was missing; healed to this one.`;
+		message += " A recorded path was missing; healed to this one.";
 	}
 	// Only narrate resume when the spawn used pi's default command;
 	// an explicit command overrides the resume decision, so the

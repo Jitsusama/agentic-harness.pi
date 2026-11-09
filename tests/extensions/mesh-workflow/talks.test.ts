@@ -41,7 +41,7 @@ function take(following: Talks, steer: Steer): void {
 	following.heard(said(steer));
 }
 
-function stages(id: string): Array<Record<string, unknown>> {
+function stages(id: string): Record<string, unknown>[] {
 	return readFileSync(talkFile(inbox, id), "utf8")
 		.trim()
 		.split("\n")

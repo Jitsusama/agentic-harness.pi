@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
+// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
@@ -562,9 +563,9 @@ describe("createSupervisorRunPi", () => {
 			[
 				`import { mkdirSync, writeFileSync } from "node:fs";`,
 				`const i = process.argv.indexOf("--session-dir");`,
-				`if (i === -1) { process.exit(3); }`,
-				`const dir = process.argv[i + 1];`,
-				`mkdirSync(dir, { recursive: true });`,
+				"if (i === -1) { process.exit(3); }",
+				"const dir = process.argv[i + 1];",
+				"mkdirSync(dir, { recursive: true });",
 				`writeFileSync(dir + "/2026-01-01T00-00-00-000Z_abc.jsonl", "{}\\n");`,
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
 			].join("\n"),
@@ -803,7 +804,7 @@ describe("createSupervisorRunPi", () => {
 			childPath,
 			[
 				`import { appendFileSync } from "node:fs";`,
-				`const path = process.env.SUBAGENT_JOURNAL_PATH;`,
+				"const path = process.env.SUBAGENT_JOURNAL_PATH;",
 				`appendFileSync(path, JSON.stringify({ subject: "the first" }) + "\\n");`,
 				`appendFileSync(path, JSON.stringify({ subject: "the second" }) + "\\n");`,
 				// Killed partway through the third, which is what a wall
@@ -1246,7 +1247,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(${JSON.stringify(
 					`${streaming('{"findings": [{"subject": "a real finding"}')}\n`,
 				)});\n` +
-				`setInterval(() => {}, 1000);`,
+				"setInterval(() => {}, 1000);",
 		);
 
 		const runPi = createSupervisorRunPi({
@@ -1353,7 +1354,7 @@ describe("createSupervisorRunPi", () => {
 			`process.stdout.write(${JSON.stringify(`${running("one")}\n`)});\n` +
 				`process.stdout.write(${JSON.stringify(`${running("one two")}\n`)});\n` +
 				`process.stdout.write(${JSON.stringify(`${running("one two three")}\n`)});\n` +
-				`setInterval(() => {}, 1000);`,
+				"setInterval(() => {}, 1000);",
 		);
 
 		const runPi = createSupervisorRunPi({

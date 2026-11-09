@@ -18,8 +18,8 @@ vi.mock(
 	}),
 );
 it("asks about A and B independently on start and on shell completion", async () => {
-	const a = extensionRunner(statusLine, "/work/a"),
-		b = extensionRunner(statusLine, "/work/b");
+	const a = extensionRunner(statusLine, "/work/a");
+	const b = extensionRunner(statusLine, "/work/b");
 	try {
 		await a.start();
 		await b.start();

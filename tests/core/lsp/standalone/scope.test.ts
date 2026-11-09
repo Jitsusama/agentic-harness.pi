@@ -54,8 +54,8 @@ afterEach(async () => {
 
 it("does not ask another root's server and does not sync a sibling sharing its prefix", async () => {
 	dir = mkdtempSync(join(tmpdir(), "lsp-scope-"));
-	const a = join(dir, "a"),
-		b = join(dir, "a-sibling");
+	const a = join(dir, "a");
+	const b = join(dir, "a-sibling");
 	for (const root of [a, b]) {
 		mkdirSync(root);
 		writeFileSync(join(root, "marker"), "");

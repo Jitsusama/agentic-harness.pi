@@ -43,7 +43,7 @@ function assertValidId(id: string): void {
 
 /** In-memory representation of the registry directory. */
 export class PeopleStorage {
-	private cache = new Map<string, IdentityDoc>();
+	private readonly cache = new Map<string, IdentityDoc>();
 	private loaded = false;
 
 	private readonly dir: string;

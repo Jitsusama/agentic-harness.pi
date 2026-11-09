@@ -60,9 +60,9 @@ function questsRootWith(status: string, ...paths: string[]): string {
 	writeFileSync(
 		join(root, id, "README.md"),
 		`---\nid: ${id}\nkind: quest\nstatus: ${status}\npriority: active\n` +
-			`rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
 			(paths.length > 0 ? `trees:\n${trees}` : "") +
-			`---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n`,
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
 	);
 	return root;
 }

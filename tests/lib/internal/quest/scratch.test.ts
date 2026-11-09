@@ -12,12 +12,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../../lib/internal/quest/frontmatter";
+} from "../../../../lib/internal/quest/frontmatter.ts";
 import {
 	ensureQuestScratchDir,
 	reapQuestScratchDir,
-} from "../../../../lib/internal/quest/scratch";
-import type { QuestFrontMatter } from "../../../../lib/quest/types";
+} from "../../../../lib/internal/quest/scratch.ts";
+import type { QuestFrontMatter } from "../../../../lib/quest/types.ts";
 
 const QUEST_ID = "QEST-20260620-ABC123";
 

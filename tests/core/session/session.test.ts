@@ -51,12 +51,9 @@ const FACTS: TickFacts = {
 };
 const cleanups: (() => void)[] = [];
 afterEach(() => {
-	cleanups
-		.splice(0)
-		.reverse()
-		.forEach((cleanup) => {
-			cleanup();
-		});
+	for (const cleanup of cleanups.splice(0).reverse()) {
+		cleanup();
+	}
 	vi.restoreAllMocks();
 	vi.unstubAllEnvs();
 });

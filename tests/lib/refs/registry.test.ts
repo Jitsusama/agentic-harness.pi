@@ -10,7 +10,7 @@ import {
 	registerRefType,
 	unregisterRefType,
 	urlForRef,
-} from "../../../lib/refs/index";
+} from "../../../lib/refs/index.ts";
 
 beforeEach(() => clearRefTypes());
 afterEach(() => clearRefTypes());

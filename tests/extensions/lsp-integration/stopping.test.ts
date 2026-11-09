@@ -88,7 +88,7 @@ function silentBackend(handed: Array<AbortSignal | undefined>): LspBackend {
 }
 
 const at = { path: "/work/a.ts", line: 1, character: 0 };
-const OPERATIONS: ReadonlyArray<[string, Record<string, unknown>]> = [
+const OPERATIONS: readonly [string, Record<string, unknown>][] = [
 	["diagnostics", { path: at.path }],
 	["definition", at],
 	["references", at],

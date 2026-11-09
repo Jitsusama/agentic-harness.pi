@@ -217,7 +217,7 @@ export async function sendEmail(
 		.toString("base64")
 		.replace(/\+/g, "-")
 		.replace(/\//g, "_")
-		.replace(/=+$/, "");
+		.replace(/[=]+$/, "");
 
 	const result = await gmail.users.messages.send({
 		userId: "me",
@@ -261,7 +261,7 @@ export async function createDraft(
 		.toString("base64")
 		.replace(/\+/g, "-")
 		.replace(/\//g, "_")
-		.replace(/=+$/, "");
+		.replace(/[=]+$/, "");
 
 	const result = await gmail.users.drafts.create({
 		userId: "me",
@@ -493,7 +493,7 @@ function decodeBase64(data: string): string {
 		// Gmail uses URL-safe base64.
 		const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
 		return Buffer.from(base64, "base64").toString("utf-8");
-	} catch (_error) {
+	} catch {
 		// Base64 decoding failed (malformed data), so we return an empty string.
 		return "";
 	}

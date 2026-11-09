@@ -24,13 +24,13 @@ import {
 	startHeartbeat,
 	stopHeartbeat,
 	touchHeartbeat,
-} from "../../../extensions/quest-workflow/session-registry";
-import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness";
+} from "../../../extensions/quest-workflow/session-registry.ts";
+import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness.ts";
 import {
 	closeRecord,
 	markSignalled,
 	openRecord,
-} from "../../../lib/internal/quest/session-registry";
+} from "../../../lib/internal/quest/session-registry.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 let stateHome: string;

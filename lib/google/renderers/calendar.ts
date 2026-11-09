@@ -108,7 +108,7 @@ function formatDateHeader(isoDateTime: string): string {
 			month: "long",
 			day: "numeric",
 		});
-	} catch (_error) {
+	} catch {
 		// Date parsing failed, so we return the date portion of the ISO string as a fallback.
 		return isoDateTime.split("T")[0] || "";
 	}
@@ -155,7 +155,7 @@ function formatTimeRange(start: string, end: string): string {
 			minute: "2-digit",
 		});
 		return `${startStr} → ${endStr}`;
-	} catch (_error) {
+	} catch {
 		// Date parsing failed, so we return the raw ISO strings as a fallback.
 		return `${start} – ${end}`;
 	}

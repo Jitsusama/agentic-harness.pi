@@ -104,27 +104,26 @@ describe("two panels asked for at once", () => {
 	});
 
 	it("wait for each other across every kind of panel", async () => {
-		const others: Array<[string, (ctx: ExtensionContext) => Promise<unknown>]> =
+		const others: [string, (ctx: ExtensionContext) => Promise<unknown>][] = [
+			["tabbed", (ctx) => promptTabbed(ctx, TABBED(2))],
 			[
-				["tabbed", (ctx) => promptTabbed(ctx, TABBED(2))],
-				[
-					"workspace",
-					(ctx) =>
-						workspace(ctx, {
-							items: [],
-							tabStatus: () => "pending",
-							allComplete: () => false,
-						} as unknown as WorkspacePromptConfig),
-				],
-				["view", (ctx) => view(ctx, { content: () => ["x"] } as ViewConfig)],
-				[
-					"toggle",
-					(ctx) =>
-						promptToggleList(ctx, {
-							sections: [],
-						} as unknown as Parameters<typeof promptToggleList>[1]),
-				],
-			];
+				"workspace",
+				(ctx) =>
+					workspace(ctx, {
+						items: [],
+						tabStatus: () => "pending",
+						allComplete: () => false,
+					} as unknown as WorkspacePromptConfig),
+			],
+			["view", (ctx) => view(ctx, { content: () => ["x"] } as ViewConfig)],
+			[
+				"toggle",
+				(ctx) =>
+					promptToggleList(ctx, {
+						sections: [],
+					} as unknown as Parameters<typeof promptToggleList>[1]),
+			],
+		];
 		for (const [name, open] of others) {
 			const s = screen();
 			const holding = promptSingle(s.ctx("single"), SINGLE);
