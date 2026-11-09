@@ -56,10 +56,20 @@ function wordsFor(key: string): string | undefined {
 }
 const envGuard = createEnvGuard();
 
-function fakeCtx(cwd: string, sessionId: string) {
+function fakeCtx(
+	cwd: string,
+	sessionId: string,
+	model?: { provider: string; id: string; thinkingLevel: string },
+) {
 	return {
 		cwd,
 		sessionManager: { getSessionId: () => sessionId, isPersisted: () => true },
+		...(model
+			? {
+					model: { provider: model.provider, id: model.id },
+					thinkingLevel: model.thinkingLevel,
+				}
+			: {}),
 	} as unknown as Parameters<typeof handle>[2];
 }
 
@@ -159,6 +169,46 @@ describe("spawn through the desktop's launcher", () => {
 		expect(result.message).toContain(`Handed a new session, ${session?.id}`);
 	});
 
+	it("hands a new session the model of the session that asked for it", async () => {
+		// 11-09: a launcher pi is wrapped in changed pi's default model, and
+		// every session spawned after ran on another model than its spawner.
+		const { state, id } = await quest();
+		const asking = fakeCtx(tmpRoot, "spawner", {
+			provider: "anthropic",
+			id: "claude-opus-5-5",
+			thinkingLevel: "high",
+		});
+		const result = await handle(state, fakePi(), asking, {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const given = handed() as { sessions: Record<string, unknown>[] };
+		expect(given.sessions[0]).toMatchObject({
+			fresh: true,
+			model: "anthropic/claude-opus-5-5:high",
+		});
+		expect(opened).toBeUndefined();
+	});
+
+	it("leaves a command the caller gives on the model it names, or pi's default", async () => {
+		const { state, id } = await quest();
+		const asking = fakeCtx(tmpRoot, "spawner", {
+			provider: "anthropic",
+			id: "claude-opus-5-5",
+			thinkingLevel: "high",
+		});
+		const result = await handle(state, fakePi(), asking, {
+			action: "spawn",
+			id,
+			command: "pi",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const given = handed() as { sessions: Record<string, unknown>[] };
+		expect(given.sessions[0]).toMatchObject({ fresh: true });
+		expect(given.sessions[0]).not.toHaveProperty("model");
+	});
+
 	it("says the orchestrator and the title the new session's window is placed by", async () => {
 		const quests = join(tmpRoot, "quests");
 		const readme = (id: string, fields: string) => {
@@ -218,9 +268,30 @@ describe("spawn through the desktop's launcher", () => {
 		expect(wordsFor(token)).toContain(`Carry on with ${id}`);
 	});
 
-	it("tells a pi the caller names its own way to carry on too", async () => {
+	it("hands a new pi the caller names a model for to the launcher, told its quest", async () => {
 		// 11-03 22:02: CF3ZG0 was spawned as `pi --model ...` and sat
 		// untold for 44 minutes, its spec dropped.
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command: "pi --model anthropic/claude-opus-5-5:high",
+			note: "Audit the checks.",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(opened).toBeUndefined();
+		const given = handed() as { sessions: Record<string, unknown>[] };
+		expect(given.sessions[0]).toMatchObject({
+			fresh: true,
+			model: "anthropic/claude-opus-5-5:high",
+		});
+		const words = wordsFor(given.sessions[0]?.id as string);
+		expect(words).toContain(`Carry on with ${id}`);
+		expect(words).toContain("Audit the checks.");
+	});
+
+	it("tells a pi the caller names its own way to carry on too, when it opens it itself", async () => {
+		process.env.QS_SAYS = "refused: no session with an id and a folder";
 		const { state, id } = await quest();
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
 			action: "spawn",

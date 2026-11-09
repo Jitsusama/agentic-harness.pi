@@ -297,6 +297,35 @@ export function resolveSpawnCommand(
 }
 
 /**
+ * The model a session runs on, as `pi --model` takes it: provider, id
+ * and thinking level, as `anthropic/claude-opus-5-5:high`. Undefined
+ * when the session has no model yet.
+ */
+export function modelOf(
+	ctx: Pick<ExtensionContext, "model" | "thinkingLevel">,
+): string | undefined {
+	const { model, thinkingLevel } = ctx;
+	if (!model) return undefined;
+	const named = `${model.provider}/${model.id}`;
+	return thinkingLevel ? `${named}:${thinkingLevel}` : named;
+}
+
+/**
+ * The command a spawn runs with the model of the session asking for it,
+ * so the new one runs on the same model rather than on whatever pi's
+ * default says: on 9 November a launcher pi is wrapped in changed that
+ * default, and every session spawned after ran on another model. A
+ * command already naming a model keeps its own.
+ */
+export function carryingModel(
+	command: string,
+	model: string | undefined,
+): string {
+	if (!model || /(^| )--model( |=)/.test(command)) return command;
+	return `${command} --model ${model}`;
+}
+
+/**
  * The resume fragment appended to the spawn message. A live resume
  * reads plainly; an idle resume is flagged as such and carries its
  * last-active age so a day-old session is not silently presented as
@@ -404,12 +433,18 @@ export async function spawn(
 	// A realm whose node declares another command for its agent sessions,
 	// as Joel's personal one declares pi-claude, starts that instead.
 	const spawnsPi = !params.command?.trim();
-	const command = spawnsPi
+	const agents = spawnsPi
 		? await agentCommand(
 				spawned.command,
 				machine ?? hostname().split(".")[0] ?? "",
 			)
 		: spawned.command;
+	// The pi it starts runs on the asking session's model. Another agent a
+	// realm declares keeps its own, since its models aren't this one's.
+	const command =
+		spawnsPi && agents === spawned.command
+			? carryingModel(agents, modelOf(ctx))
+			: agents;
 	// A pi that will stop at the folder-trust prompt is said so at once;
 	// one held on another machine is that machine's to judge.
 	const trustWaits =
