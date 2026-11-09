@@ -1,16 +1,11 @@
 ---
 name: convention-recurrence-sensor-guide
 description: >
-  How to measure whether convention corrections keep recurring
-  in the pi session logs, by category and by week. Use to record
-  a baseline before the convention gates take effect and to
-  re-run afterwards to confirm the recurring categories bend
-  down. Also how to run the learning sensor, which counts the
-  refusals, guard blocks and broken standing rules that recur,
-  to pick harness changes and measure them. Pairs with the
-  convention gates (pr-guardian,
-  issue-guardian, commit-guardian, slack-integration) and the
-  convention-context extension.
+  Measure whether convention corrections recur in the pi
+  session logs, by category and week, before and after a gate,
+  and run the learning sensor, which counts recurring refusals,
+  guard blocks and broken standing rules. Use to pick a harness
+  change and to check it bent the count down.
 ---
 
 # Convention Recurrence Sensor

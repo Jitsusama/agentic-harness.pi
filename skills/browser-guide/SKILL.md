@@ -1,15 +1,12 @@
 ---
 name: browser-guide
 description: >
-  Drive a real browser with the browser tools: navigate, read
-  and act on a page, read its console and network, emulate
-  devices, take screenshots, and check layout, visual diffs
-  and performance. Use when asked to "open a page", "look at
-  this site", "click the button", "what does the page say",
-  "why is this element red", "check the console", "what
-  requests did it make", "test it on mobile", "did the layout
-  break", "what changed visually", or anything that looks at
-  or operates a web page.
+  Drive a real browser with the browser tools: open and act on
+  pages, read the console and network, emulate devices, take
+  screenshots, check layout, visual diffs and performance. Use
+  when asked to open a page, look at a site, click a button,
+  read what a page says, check the console or requests, test on
+  mobile, or see what changed visually.
 ---
 
 # Driving a Browser
