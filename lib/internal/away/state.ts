@@ -19,7 +19,11 @@
  */
 
 import { createHash } from "node:crypto";
-import { hosted, sessionSlot } from "../../core/session/index.ts";
+import {
+	hosted,
+	type SessionRef,
+	sessionSlot,
+} from "../../core/session/index.ts";
 import { processGlobal } from "../process-global.ts";
 
 /** A call a gate held instead of asking. */
@@ -91,9 +95,9 @@ function freshState(): AwayState {
 	return { held: [], decided: [], listeners: new Set() };
 }
 
-function state(): AwayState {
+function state(ref?: SessionRef): AwayState {
 	return hosted()
-		? sessionSlot("agentic-harness.pi/away", undefined, freshState)
+		? sessionSlot("agentic-harness.pi/away", ref, freshState)
 		: processGlobal("pi:away", freshState);
 }
 
@@ -113,10 +117,12 @@ function changed(): void {
 /**
  * Say that the run under way is being stopped from outside its window,
  * as a steer's stop or pause does, so the abort it ends with is not
- * taken for the person pressing Escape, which ends an absence.
+ * taken for the person pressing Escape, which ends an absence. A steer
+ * arrives from an inbox watch, outside any hosted dispatch, so its
+ * caller names the conversation it stops.
  */
-export function stoppingFromOutside(): void {
-	state().stoppedFromOutside = true;
+export function stoppingFromOutside(ref?: SessionRef): void {
+	state(ref).stoppedFromOutside = true;
 }
 
 /**

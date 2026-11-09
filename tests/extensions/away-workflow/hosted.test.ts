@@ -251,6 +251,20 @@ describe("hosted away lifecycle", () => {
 		expect(b.jobs[0]?.summary).toContain("b");
 	});
 
+	it("marks a steer's stop on the conversation it names, with no ambient session", () => {
+		const a = { sessionManager: { getSessionId: () => "a" } };
+		// An inbox watch fires outside any withSession, as a host leaves it.
+		stoppingFromOutside(a);
+		expect(
+			withSession("b", takeStoppedFromOutside),
+			"a steer stopping A leaves B unmarked",
+		).toBe(false);
+		expect(
+			withSession("a", takeStoppedFromOutside),
+			"a steer stopping A marks A",
+		).toBe(true);
+	});
+
 	it("isolates progress and outside-stop marks, including a captured listener disposer", async () => {
 		const heardA = vi.fn();
 		const heardB = vi.fn();
