@@ -26,21 +26,35 @@ function message(over: Partial<Message> = {}): Message {
 describe("co-hosted message ownership", () => {
 	it("delivers a sibling's message but not one's own", () => {
 		const listener = { addresses: ["BRAVO"], groups: [ALL], hosted: true };
-		expect(reaches(message(), listener, 7)).toBe(true);
-		expect(reaches(message({ from: "BRAVO" }), listener, 7)).toBe(false);
+		expect(
+			reaches(message(), listener, 7),
+			"a sibling's message reaches BRAVO in the same host",
+		).toBe(true);
+		expect(
+			reaches(message({ from: "BRAVO" }), listener, 7),
+			"BRAVO's own message does not come back to it",
+		).toBe(false);
 		expect(
 			sentBy(message(), { addresses: ["BRAVO"], pid: 7, hosted: true }),
+			"a sibling's message is not counted as BRAVO's own",
 		).toBe(false);
 	});
 
 	it("does not let a sibling replace another's words", () => {
-		expect(mayReplace(message({ id: "2", from: "BRAVO" }), message())).toBe(
-			false,
-		);
-		expect(mayReplace(message({ id: "2" }), message())).toBe(true);
+		expect(
+			mayReplace(message({ id: "2", from: "BRAVO" }), message()),
+			"BRAVO may not replace a sibling's message",
+		).toBe(false);
+		expect(
+			mayReplace(message({ id: "2" }), message()),
+			"a sender may replace its own message",
+		).toBe(true);
 	});
 
 	it("keeps the hosted stamp when reading an envelope", () => {
-		expect(messageFrom(message())?.hosted).toBe(true);
+		expect(
+			messageFrom(message())?.hosted,
+			"reading an envelope keeps its hosted stamp",
+		).toBe(true);
 	});
 });

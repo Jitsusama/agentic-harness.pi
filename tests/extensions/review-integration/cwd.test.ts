@@ -112,7 +112,10 @@ describe("review checkout resolution", () => {
 			"rev-parse",
 			"--show-toplevel",
 		]);
-		expect(probes.some((argv) => argv.includes(process.cwd()))).toBe(false);
+		expect(
+			probes.some((argv) => argv.includes(process.cwd())),
+			"no probe reads the process's own folder, only each conversation's checkout",
+		).toBe(false);
 		open.delete("a");
 		releaseSession("a");
 		stub.commands.length = 0;
@@ -126,7 +129,10 @@ describe("review checkout resolution", () => {
 			"rev-parse",
 			"--show-toplevel",
 		]);
-		expect(stub.commands.some((argv) => argv.includes(a))).toBe(false);
+		expect(
+			stub.commands.some((argv) => argv.includes(a)),
+			"once a's conversation is released, b's call reads nothing of a's checkout",
+		).toBe(false);
 	});
 
 	it("an explicitly named checkout outranks the conversation cwd", async () => {

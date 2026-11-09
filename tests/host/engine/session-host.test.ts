@@ -293,7 +293,10 @@ it("refuses host disposal while a sibling is held and allows empty disposal twic
 	host.dispose();
 
 	expect(hosted()).toBeUndefined();
-	expect(fs.existsSync(host.registryPath)).toBe(false);
+	expect(
+		fs.existsSync(host.registryPath),
+		"the registry is removed after every conversation closes and the host is disposed",
+	).toBe(false);
 	expect(() => host.register(registration("a"))).toThrow("disposed");
 });
 

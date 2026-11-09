@@ -238,7 +238,10 @@ describe("persistent viewer terminal", () => {
 			"\x1b]7501;state=blocked:app=pi:kind=question\x1b\\",
 			"\x1b[?25h",
 		]);
-		expect(terminal.kittyProtocolActive).toBe(true);
+		expect(
+			terminal.kittyProtocolActive,
+			"the kitty keyboard protocol stays on through pi's terminal controls",
+		).toBe(true);
 		terminal.dispose();
 	});
 });
