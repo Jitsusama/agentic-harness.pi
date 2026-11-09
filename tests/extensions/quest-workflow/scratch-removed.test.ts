@@ -16,8 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { scratchRemoved } from "../../../extensions/quest-workflow/verbs/stage.ts";
+import {
+	scratchLeftElsewhere,
+	scratchRemoved,
+} from "../../../extensions/quest-workflow/verbs/stage.ts";
 import type { Measure } from "../../../lib/internal/quest/footprint.ts";
+import type { QuestSession } from "../../../lib/quest/types.ts";
 
 const ID = "QEST-20261001-AAAAAA";
 
@@ -90,5 +94,69 @@ describe("scratchRemoved", () => {
 				nobody,
 			),
 		).toBe(undefined);
+	});
+});
+
+function ranOn(hostId: string, terminalHost?: string): QuestSession {
+	return {
+		id: `session-on-${hostId}`,
+		process: { hostId, pid: 1, startToken: "t" },
+		...(terminalHost
+			? { terminal: { driverId: "kitty", value: "1", hostId: terminalHost } }
+			: {}),
+	};
+}
+
+function shareRecord(files: Record<string, readonly string[]>): void {
+	const shared = join(root, "state", "mycelium", "shared");
+	mkdirSync(shared, { recursive: true });
+	const entries = Object.fromEntries(
+		Object.entries(files).map(([path, machines]) => [
+			path,
+			{
+				hash: "h",
+				version: Object.fromEntries(machines.map((m) => [m, 1])),
+			},
+		]),
+	);
+	writeFileSync(join(shared, `${ID}.json`), JSON.stringify({ files: entries }));
+}
+
+describe("scratchLeftElsewhere", () => {
+	const env = () => ({ XDG_STATE_HOME: join(root, "state") });
+
+	it("names each other machine the quest's sessions ran on", () => {
+		const said = scratchLeftElsewhere(
+			ID,
+			[ranOn("optimus"), ranOn("equilibrius"), ranOn("penelope", "penelope")],
+			"optimus",
+			env(),
+		);
+
+		expect(said).toContain("may remain on equilibrius and penelope");
+		expect(said).not.toContain("optimus");
+		expect(said).toContain("this machine removes only its own");
+	});
+
+	it("names a machine a share copied the quest's scratch to", () => {
+		shareRecord({
+			"record/README.md": ["optimus", "equilibrius", "methuselah"],
+			"notes/lab.md": ["optimus", "equilibrius"],
+		});
+
+		const said = scratchLeftElsewhere(ID, [], "optimus", env());
+
+		expect(said).toContain("may remain on equilibrius,");
+		expect(said, "a copy of the record alone is no scratch").not.toContain(
+			"methuselah",
+		);
+	});
+
+	it("says nothing when only this machine held its scratch", () => {
+		shareRecord({ "record/README.md": ["optimus", "equilibrius"] });
+
+		expect(scratchLeftElsewhere(ID, [ranOn("optimus")], "optimus", env())).toBe(
+			undefined,
+		);
 	});
 });

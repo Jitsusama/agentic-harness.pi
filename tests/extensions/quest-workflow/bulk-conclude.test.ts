@@ -14,6 +14,7 @@ import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
 import { harnessLogPath } from "../../../lib/internal/quest/harness-log";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate";
 import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
 import { fakePi } from "../../support/fake-pi.ts";
 import { journeyOf } from "./_helpers";
@@ -66,6 +67,24 @@ async function twoQuests() {
 			reason: "swept",
 		});
 	return { state, ids, workspace, sweep };
+}
+
+/** A machine no test runs on, so its sessions are always another's. */
+const FAR_MACHINE = "far-machine-of-the-test";
+
+/** Records in a quest's README a session that ran on FAR_MACHINE. */
+function ranElsewhere(questDir: string): void {
+	const written = mutateQuestFrontMatter(questDir, (fm) => ({
+		...fm,
+		sessions: [
+			...(fm.sessions ?? []),
+			{
+				id: "session-far-away",
+				process: { hostId: FAR_MACHINE, pid: 1, startToken: "t" },
+			},
+		],
+	}));
+	if (!written.ok) throw new Error("could not record the far session");
 }
 
 async function batch(size: number) {
@@ -254,6 +273,61 @@ describe("sweeping quests by id", () => {
 		});
 		expect(result).toMatchObject({ ok: false });
 		expect(status(0)).toBe("active");
+	});
+
+	it("names the other machine where a quest's sessions ran, whose scratch it can't remove", async () => {
+		const { state, ids, sweep } = await twoQuests();
+		const far = ids[0] ?? "";
+		ranElsewhere(join(state.questsRoot, far));
+
+		const result = await sweep("conclude");
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+		expect(result.message).toContain("couldn't remove from here");
+		expect(result.message).toContain(
+			`${far}: Its scratch may remain on ${FAR_MACHINE}`,
+		);
+		expect(result.message).not.toContain(`${ids[1]}: Its scratch may remain`);
+		expect(
+			readFileSync(harnessLogPath(join(state.questsRoot, far)), "utf8"),
+		).toContain(`may remain on ${FAR_MACHINE}`);
+	});
+
+	it("names in a dry run the other machine whose scratch it can't remove", async () => {
+		const { state, ids } = await twoQuests();
+		const far = ids[1] ?? "";
+		ranElsewhere(join(state.questsRoot, far));
+
+		const result = await handle(state, fakePi(), fakeCtx(root), {
+			action: "conclude",
+			id: ids.join(","),
+			dryRun: true,
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+		expect(result.message).toContain("these 2 scratch folders");
+		expect(result.message).toContain(
+			`${far}: Its scratch may remain on ${FAR_MACHINE}`,
+		);
+	});
+
+	it("names the other machine when the loaded quest concludes", async () => {
+		const { state } = await twoQuests();
+		if (!state.questDir) throw new Error("no quest was loaded");
+		ranElsewhere(state.questDir);
+
+		const result = await handle(state, fakePi(), fakeCtx(root), {
+			action: "conclude",
+			id: state.questId ?? "",
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+		expect(result.message).toContain(
+			`Its scratch may remain on ${FAR_MACHINE}`,
+		);
 	});
 
 	it("reaps the scratch each quest recorded before workspaces", async () => {
