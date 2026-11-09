@@ -225,7 +225,11 @@ shipped and tested.
   names its code; one that never answers, or answers something
   unreadable, leaves the outcome unknown, and nothing is retried or
   opened in its place. A dry run calls nothing. `reopen-sessions`
-  refuses `host`.
+  refuses `host`. A session a host ran comes back through that host,
+  so `reopen-sessions`, the start-up count of lost sessions and the
+  restore at boot all leave it out, and its `restore.json` entry is
+  marked `hosted` for the launcher to skip: a terminal over its log
+  as well would be two pi on one log.
 - **Windows on another machine's sessions**: a session another
   machine holds keeps running through this machine's power-off, so
   what the boot takes away is only the window joined to it.

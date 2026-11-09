@@ -248,7 +248,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	host: Type.Optional(
 		Type.String({
 			description:
-				"spawn: attended or background, to open the session in this realm's shared pi host rather than a terminal: attended keeps its screen for a viewer, background has none. A fresh session is told its note; a resumed one is adopted from its log and told nothing. It goes alone, without terminal, layout, nesting, machine, needs or command, and a host that refuses or never answers opens nothing else.",
+				"spawn: attended or background, to open it in this realm's shared pi host, not a terminal. It goes alone; a resumed session is adopted and takes no note.",
 		}),
 	),
 	nesting: Type.Optional(

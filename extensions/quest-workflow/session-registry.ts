@@ -60,6 +60,7 @@ import {
 import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
 import {
 	closeRecord,
+	hostKeeps,
 	type LastBootSessions,
 	lastBootSessions,
 	markSignalled,
@@ -606,6 +607,8 @@ export function restorableSessions(
 	// place, by restore or by hand from its recipe line; once that has
 	// happened there is nothing left to offer, and its record goes.
 	return restorable(records).filter((record) => {
+		// Its host brings it back; a terminal too would be a second writer.
+		if (hostKeeps(record)) return false;
 		if (saved(record.sessionId) || !startedAgain(record, records)) return true;
 		forgetRecord(record.sessionId);
 		return false;
@@ -628,7 +631,12 @@ export function lastBootRestorable(
 	const found = lastBootSessions(records, thisBoot, endedBoot(thisBoot));
 	const kept = (list: SessionRecord[]) =>
 		list.filter((record) => lost.has(record.sessionId));
-	return { ...found, offered: kept(found.offered), older: kept(found.older) };
+	return {
+		...found,
+		offered: kept(found.offered),
+		older: kept(found.older),
+		parked: found.parked.filter((record) => !hostKeeps(record)),
+	};
 }
 
 /**
@@ -755,7 +763,9 @@ const RECENTLY_CLOSED_HOURS = 24;
  */
 export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
 	return recentlyClosed(
-		loadRecords().map((entry) => entry.record),
+		loadRecords()
+			.map((entry) => entry.record)
+			.filter((record) => !hostKeeps(record)),
 		{ now, withinHours: RECENTLY_CLOSED_HOURS },
 	);
 }
@@ -771,7 +781,9 @@ export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
  * is what `quest reopen-sessions` does.
  */
 export function lostSessionCount(): number {
-	return loadRecords().filter(({ record }) => wasLost(record)).length;
+	return loadRecords().filter(
+		({ record }) => wasLost(record) && !hostKeeps(record),
+	).length;
 }
 
 /** What happened when restore tried to reopen the lost sessions. */
