@@ -22,7 +22,12 @@ import {
 	watchSignals,
 } from "../../../extensions/job-workflow/cut-off.ts";
 import jobWorkflow from "../../../extensions/job-workflow/index.ts";
+import {
+	SESSION_STAMP_EVENT,
+	withSession,
+} from "../../../lib/core/session/index.ts";
 import { findJobHost } from "../../../lib/jobs/index.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 const AT = "2026-10-24T17:54:34.617Z";
 
@@ -109,7 +114,7 @@ describe("a session cut off when it ended", () => {
 });
 
 /** Just enough of pi and a session for the end and the restore. */
-function activate(branch: unknown[], signals: EventEmitter) {
+function activate(branch: unknown[], signals: EventEmitter, id = "s1") {
 	const handlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
 	const events = createEventBus();
 	const said: string[] = [];
@@ -128,7 +133,7 @@ function activate(branch: unknown[], signals: EventEmitter) {
 	const ctx = {
 		hasUI: true,
 		isIdle: () => !session.busy,
-		sessionManager: { getBranch: () => branch, getSessionId: () => "s1" },
+		sessionManager: { getBranch: () => branch, getSessionId: () => id },
 		ui: {
 			setStatus: () => {},
 			theme: { fg: (_colour: string, text: string) => text },
@@ -137,7 +142,9 @@ function activate(branch: unknown[], signals: EventEmitter) {
 	};
 	jobWorkflow(pi as unknown as ExtensionAPI, { signals });
 	const fire = async (name: string, event: unknown = {}) => {
-		for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
+		// Inside its conversation, as a host runs every hook.
+		for (const handler of handlers.get(name) ?? [])
+			await withSession(id, () => handler(event, ctx));
 	};
 	return { events, said, appended, session, fire };
 }
@@ -242,6 +249,59 @@ describe("the job workflow, at a session's end and its return", () => {
 		} finally {
 			process.argv = argv;
 			uptime.mockRestore();
+		}
+	});
+
+	it("in a host, records a run under way when the host stamps it signalled", async () => {
+		const host = installTestHost();
+		try {
+			const sigterms = process.listenerCount("SIGTERM");
+			const sighups = process.listenerCount("SIGHUP");
+			const signals = new EventEmitter();
+			const pi = activate([], signals, "a");
+			await pi.fire("session_start", { reason: "startup" });
+			pi.session.busy = true;
+
+			expect({
+				source: signals.listenerCount("SIGTERM"),
+				sigterms: process.listenerCount("SIGTERM"),
+				sighups: process.listenerCount("SIGHUP"),
+			}).toEqual({ source: 0, sigterms, sighups });
+
+			pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
+			await pi.fire("session_shutdown", { reason: "quit" });
+
+			expect(pi.appended).toHaveLength(1);
+			expect(pi.appended[0]?.data).toMatchObject({ running: true });
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("in a host, records nothing for a close, or another conversation's stop", async () => {
+		const host = installTestHost();
+		try {
+			const closed = activate([], new EventEmitter(), "a");
+			await closed.fire("session_start", { reason: "startup" });
+			closed.session.busy = true;
+			closed.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "closed" });
+			await closed.fire("session_shutdown", { reason: "quit" });
+
+			const other = activate([], new EventEmitter(), "a");
+			await other.fire("session_start", { reason: "startup" });
+			other.session.busy = true;
+			other.events.emit(SESSION_STAMP_EVENT, {
+				session: "b",
+				how: "signalled",
+			});
+			await other.fire("session_shutdown", { reason: "quit" });
+
+			expect({
+				closed: closed.appended.length,
+				other: other.appended.length,
+			}).toEqual({ closed: 0, other: 0 });
+		} finally {
+			host.dispose();
 		}
 	});
 

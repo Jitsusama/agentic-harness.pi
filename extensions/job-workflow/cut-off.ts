@@ -18,6 +18,11 @@
  * on a tool call or its result, is read the same way.
  */
 
+import {
+	isSessionStamp,
+	SESSION_STAMP_EVENT,
+} from "../../lib/core/session/index.ts";
+
 /** The entry a session's signalled end leaves when work was under way. */
 export const CUT_OFF_ENTRY = "job-session-cut-off";
 
@@ -139,11 +144,14 @@ export interface SignalSource {
 /** The signals that end a session the person did not end. */
 const ENDING = ["SIGTERM", "SIGHUP"] as const;
 
-/** Hear whether a signal ends this session, until stopped. */
-export function watchSignals(source: SignalSource): {
+/** Whether a session's end was the machine's, heard until stopped. */
+export interface EndWatch {
 	signalled(): boolean;
 	stop(): void;
-} {
+}
+
+/** Hear whether a signal ends this session, until stopped. */
+export function watchSignals(source: SignalSource): EndWatch {
 	let heard = false;
 	const listener = () => {
 		heard = true;
@@ -155,4 +163,25 @@ export function watchSignals(source: SignalSource): {
 			for (const signal of ENDING) source.off(signal, listener);
 		},
 	};
+}
+
+/** Where a host's stamps are heard: the conversation's own bus. */
+export interface StampSource {
+	on(channel: string, listener: (data: unknown) => void): () => void;
+}
+
+/**
+ * Hear whether the host stopped this conversation, until stopped. In a
+ * host a signal reaches the process, so every conversation it runs, and
+ * the host says which ended how: it stamps each conversation it stops
+ * `signalled` on that conversation's bus before its shutdown runs, and
+ * one the person closed `closed`. A reload stamps nothing.
+ */
+export function watchStamps(bus: StampSource, session: string): EndWatch {
+	let heard = false;
+	const stop = bus.on(SESSION_STAMP_EVENT, (data) => {
+		if (isSessionStamp(data) && data.session === session)
+			heard = data.how === "signalled";
+	});
+	return { signalled: () => heard, stop };
 }

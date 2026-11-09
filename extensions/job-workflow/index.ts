@@ -16,16 +16,19 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { showJobs } from "./command.ts";
 import {
 	CUT_OFF_ENTRY,
 	cutOffIn,
+	type EndWatch,
 	endedRecord,
 	resumeText,
 	type SignalSource,
 	watchSignals,
+	watchStamps,
 } from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
@@ -153,14 +156,16 @@ export default function jobWorkflow(
 ) {
 	let session: JobSession | undefined;
 	let shown: ShownReports = shownReports([]);
-	let signals: ReturnType<typeof watchSignals> | undefined;
+	let signals: EndWatch | undefined;
 
 	pi.on("session_start", (event, ctx) => {
 		session?.close();
 		session = openSession(pi, ctx, event.reason);
 		shown = shownReports(userTexts(ctx));
 		signals?.stop();
-		signals = watchSignals(options.signals ?? process);
+		signals = hosted()
+			? watchStamps(pi.events, sessionKeyOf(ctx))
+			: watchSignals(options.signals ?? process);
 		if (RETURNS.has(event.reason)) resumeIfCutOff(session, ctx);
 	});
 
