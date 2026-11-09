@@ -125,7 +125,7 @@ export async function routeAction(
 				what: `Google's answer to ${action}`,
 			})
 		: await work;
-	return bounded(answer);
+	return bounded(answer, ctx);
 }
 
 /** How a caller asks Google Workspace for a smaller answer. */
@@ -141,10 +141,13 @@ const NARROWING =
  * listing; anything after it is attached content a caller asked
  * for by name, and half of an attachment is no use to anybody.
  */
-function bounded(result: ToolResult): ToolResult {
+function bounded(
+	result: ToolResult,
+	ctx: Pick<ExtensionContext, "sessionManager">,
+): ToolResult {
 	const [first, ...rest] = result.content;
 	if (first === undefined || first.type !== "text") return result;
-	const text = boundedByDetails(openSessionStore(), {
+	const text = boundedByDetails(openSessionStore(ctx), {
 		text: first.text,
 		details: result.details,
 		narrowing: NARROWING,

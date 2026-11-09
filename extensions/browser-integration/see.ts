@@ -8,6 +8,7 @@
  * see-tool.ts, which loads this on the tool's first call.
  */
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	ACTION_VIEW_BUDGET_BYTES,
 	outlineBudget,
@@ -81,8 +82,12 @@ import { bodyAnswer, elementAnswer, listAnswer, pageAnswer } from "./stored.ts";
  * Lay an observation out for reading: where you are, then what is
  * there, bounded, with the whole tree stored when it did not fit.
  */
-function render(observed: Observation, budget: number): string {
-	return pageAnswer(observed, budget);
+function render(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	observed: Observation,
+	budget: number,
+): string {
+	return pageAnswer(ctx, observed, budget);
 }
 
 /**
@@ -131,6 +136,7 @@ const MAX_INLINE_BODY = 16384;
 
 /** A fetched body, capped, with the cap declared. */
 function renderBody(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	request: NetworkRequest,
 	fetched: { body: string; base64Encoded: boolean } | undefined,
 ): string {
@@ -165,7 +171,7 @@ function renderBody(
 	// Bytes, not lines: a response body is content rather than a
 	// rendering, and a minified one is a single line the length of
 	// the file.
-	return bodyAnswer(url, fetched.body, MAX_INLINE_BODY);
+	return bodyAnswer(ctx, url, fetched.body, MAX_INLINE_BODY);
 }
 
 /**
@@ -243,10 +249,11 @@ function renderInspection(found: Inspection): string {
  * the accessibility outline of what is there.
  */
 export async function pageView(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	session: BrowserSession,
 	budget: number = ACTION_VIEW_BUDGET_BYTES,
 ): Promise<string> {
-	const view = render(await session.observe(), budget);
+	const view = render(ctx, await session.observe(), budget);
 	// A crash replaces the tab with a blank one and nothing sends
 	// it back where it was, so every read after it describes
 	// about:blank. Measured: crashing a tab on example.com and
@@ -278,10 +285,11 @@ export async function pageView(
  * having as long as nobody is told it was final.
  */
 export async function settledPageView(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	session: BrowserSession,
 ): Promise<string> {
 	const settled = await session.settlePage();
-	const view = await pageView(session);
+	const view = await pageView(ctx, session);
 	return settled.quiet
 		? view
 		: `${view}
@@ -293,6 +301,7 @@ Still changing after ${settled.waitedMs}ms ` +
 
 /** What browser_see does with one call. */
 export async function runSee(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	registry: SessionRegistry,
 	params: SeeParams,
 	signal: AbortSignal | undefined,
@@ -367,7 +376,7 @@ export async function runSee(
 				kind,
 				queried.matches === undefined
 					? queried.view
-					: listAnswer({
+					: listAnswer(ctx, {
 							view: queried.view,
 							records: queried.matches,
 							unit: "matching nodes",
@@ -383,7 +392,7 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				listAnswer({
+				listAnswer(ctx, {
 					view: renderDownloads(files),
 					records: files,
 					unit: "downloads",
@@ -426,7 +435,7 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				listAnswer({
+				listAnswer(ctx, {
 					view:
 						renderSockets(open) +
 						// A chatty socket outruns any buffer, and a reader
@@ -467,7 +476,7 @@ export async function runSee(
 				return answer(
 					name,
 					kind,
-					listAnswer({
+					listAnswer(ctx, {
 						view: listing,
 						elided: anyUrlShortened(wanted),
 						// Where the archive went is the whole point of the
@@ -488,7 +497,7 @@ export async function runSee(
 				return answer(
 					name,
 					kind,
-					listAnswer({
+					listAnswer(ctx, {
 						view: listing,
 						// A url too long to scan is shortened in the middle,
 						// which is a cut the line budget cannot see. Without
@@ -516,13 +525,13 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				listAnswer({
+				listAnswer(ctx, {
 					view: listing,
 					elided: anyUrlShortened(wanted),
 					// The body is what was asked for by name, so it survives
 					// the cut to the listing around it. It bounds itself,
 					// and cites its own handle when it has to.
-					trailer: renderBody(target, fetched),
+					trailer: renderBody(ctx, target, fetched),
 					records: wanted,
 					unit: "requests",
 					narrowing:
@@ -544,7 +553,7 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				listAnswer({
+				listAnswer(ctx, {
 					view: renderLogs(wanted),
 					records: wanted.entries.map(({ item }) => item),
 					unit: "log entries",
@@ -567,7 +576,7 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				listAnswer({
+				listAnswer(ctx, {
 					view: renderAnnouncements(entries, dropped),
 					// The cursor is how the next call continues, so it has
 					// to outlive the cut. Written into the view, it sat on
@@ -661,7 +670,11 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				elementAnswer(found.inspection, renderInspection(found.inspection)),
+				elementAnswer(
+					ctx,
+					found.inspection,
+					renderInspection(found.inspection),
+				),
 			);
 		}
 
@@ -683,7 +696,7 @@ export async function runSee(
 			return answer(
 				name,
 				kind,
-				render(await session.observe(scope, form), budget),
+				render(ctx, await session.observe(scope, form), budget),
 			);
 		}
 
@@ -701,7 +714,7 @@ export async function runSee(
 		if (!result.ok) {
 			return refusal(name, kind, describeRefusal(target, result.refusal));
 		}
-		return answer(name, kind, render(result.observation, budget));
+		return answer(name, kind, render(ctx, result.observation, budget));
 	});
 }
 

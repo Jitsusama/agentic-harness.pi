@@ -15,6 +15,9 @@ import {
 } from "../../../lib/compaction/index.ts";
 import { sessionResultDir } from "../../../lib/core/result/index.ts";
 import { PAGE_HITS } from "../../../lib/internal/recall/session.ts";
+import { resultSession } from "../../support/result-session.ts";
+
+const ctx = resultSession();
 
 interface Tool {
 	name: string;
@@ -58,11 +61,16 @@ function said(id: string, text: string) {
 }
 
 function ctxWith(branch: unknown[]) {
-	return { sessionManager: { getBranch: () => branch } };
+	return {
+		sessionManager: {
+			getBranch: () => branch,
+			getSessionId: () => ctx.sessionManager.getSessionId(),
+		},
+	};
 }
 
 afterEach(() => {
-	rmSync(sessionResultDir(), { recursive: true, force: true });
+	rmSync(sessionResultDir(ctx), { recursive: true, force: true });
 });
 
 describe("the session recall tool", () => {

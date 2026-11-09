@@ -2,13 +2,10 @@
  * Where a session's stored payloads live, and when they stop
  * living there.
  *
- * Keyed by process id, because that is the one identifier that is
- * both available everywhere without being passed around and
- * checkable from outside: a directory named for a process that no
- * longer exists is abandoned, and no bookkeeping had to survive
- * the crash to tell us so. Sessions that end cleanly delete their
- * own directory; sessions that are killed leave one behind, and
- * the next session to start reaps it.
+ * Each process contains one directory per session. A clean quit removes
+ * only that session's payloads, so another runner can keep querying its
+ * handles. A dead process's whole directory is abandoned and reaped at
+ * the next start; no bookkeeping has to survive the crash.
  *
  * The alternative, reaping by age, cannot tell a dead session's
  * payloads from a live session's, so it either deletes payloads
@@ -18,6 +15,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createResultStore, type ResultStore } from "./store.ts";
 
 /** Where every session's stored payloads are rooted. */
@@ -36,9 +34,14 @@ export const RESULT_ROOT = path.join(os.tmpdir(), "pi-tool-results");
  */
 export const SESSION_QUOTA_BYTES = 256 * 1024 * 1024;
 
-/** This process's own payload directory. */
-export function sessionResultDir(): string {
-	return path.join(RESULT_ROOT, String(process.pid));
+/** The caller's payload directory, below its process for crash reaping. */
+export function sessionResultDir(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+): string {
+	const id = ctx.sessionManager.getSessionId();
+	if (!id || id === "." || id === "..")
+		throw new Error("A result store needs a session id.");
+	return path.join(RESULT_ROOT, String(process.pid), encodeURIComponent(id));
 }
 
 /**
@@ -63,9 +66,11 @@ export function sessionResultDir(): string {
  * the one place that catches exactly this and answers anyway.
  * The write itself still creates what it needs.
  */
-export function openSessionStore(): ResultStore {
+export function openSessionStore(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+): ResultStore {
 	return createResultStore({
-		dir: sessionResultDir(),
+		dir: sessionResultDir(ctx),
 		maxBytes: SESSION_QUOTA_BYTES,
 	});
 }
@@ -120,9 +125,12 @@ export function reapAbandonedResults(opts: {
 }
 
 /** Remove this session's payload directory. */
-export function cleanupSessionResults(): void {
+export function cleanupSessionResults(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+): void {
+	const dir = sessionResultDir(ctx);
 	try {
-		fs.rmSync(sessionResultDir(), { recursive: true, force: true });
+		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
 		// Nothing more can be done at shutdown, and the pid-keyed name
 		// means the next session's reaper will collect it.

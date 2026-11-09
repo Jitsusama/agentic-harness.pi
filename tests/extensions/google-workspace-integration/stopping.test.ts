@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	cleanupSessionResults,
+	createResultStore,
+	sessionResultDir,
+} from "../../../lib/core/result/index.ts";
+import { resultSession } from "../../support/result-session.ts";
 
 /**
  * What the google tool does when Google will not answer.
@@ -17,6 +23,14 @@ vi.mock("../../../lib/google/index.ts", async (original) => ({
 	...(await original<object>()),
 	searchEmails: () => new Promise(() => {}),
 	archiveEmail: () => new Promise(() => {}),
+	listFiles: async () => ({
+		files: Array.from({ length: 2_000 }, (_, i) => ({
+			id: `file-${i}`,
+			name: `Document number ${i} with a long descriptive name`,
+			mimeType: "application/pdf",
+			modifiedTime: "2026-01-01T00:00:00Z",
+		})),
+	}),
 }));
 
 const { default: googleWorkspace } = await import(
@@ -74,11 +88,44 @@ function googleTool(): Tool {
 	return found;
 }
 
-const ctx = { hasUI: false };
+const ctx = { ...resultSession(), hasUI: false };
 
 describe("a google call Google never answers", () => {
 	afterEach(() => {
 		vi.useRealTimers();
+	});
+
+	it("stores a large Drive listing only in its caller's session", async () => {
+		const caller = { ...resultSession(), hasUI: false };
+		const other = resultSession();
+		try {
+			const result = await googleTool().execute(
+				"call",
+				{ action: "list_files" },
+				undefined,
+				undefined,
+				caller,
+			);
+			const handle = /handle (result-[0-9a-f]{16})/.exec(
+				result.content[0].text,
+			)?.[1];
+			expect(handle).toBeDefined();
+			expect(
+				JSON.parse(
+					createResultStore({ dir: sessionResultDir(caller) }).read(
+						handle as string,
+					),
+				),
+			).toHaveLength(2_000);
+			expect(() =>
+				createResultStore({ dir: sessionResultDir(other) }).read(
+					handle as string,
+				),
+			).toThrow();
+		} finally {
+			cleanupSessionResults(caller);
+			cleanupSessionResults(other);
+		}
 	});
 
 	it("ends a read the moment its caller stops", async () => {

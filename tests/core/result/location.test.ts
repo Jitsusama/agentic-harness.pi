@@ -8,6 +8,9 @@ import {
 	reapAbandonedResults,
 	sessionResultDir,
 } from "../../../lib/core/result/location.ts";
+import { resultSession } from "../../support/result-session.ts";
+
+const ctx = resultSession();
 
 describe("reapAbandonedResults", () => {
 	let root: string;
@@ -30,6 +33,9 @@ describe("reapAbandonedResults", () => {
 
 	it("removes a directory whose process is gone", () => {
 		const dead = payloadDir(4242);
+		fs.mkdirSync(path.join(dead, "session-a"));
+		fs.writeFileSync(path.join(dead, "session-a", "payload.json"), "{}");
+		fs.mkdirSync(path.join(dead, "session-b"));
 
 		reapAbandonedResults({ root, isPidAlive: () => false });
 
@@ -82,11 +88,46 @@ describe("isPidAlive", () => {
 });
 
 describe("opening the session store", () => {
+	it("names each session below its process", () => {
+		expect(sessionResultDir(ctx)).toBe(
+			path.join(
+				os.tmpdir(),
+				"pi-tool-results",
+				String(process.pid),
+				ctx.sessionManager.getSessionId(),
+			),
+		);
+		expect(sessionResultDir(resultSession())).not.toBe(sessionResultDir(ctx));
+	});
+
+	it("encodes separators rather than traversing outside the process folder", () => {
+		const sessionManager = ctx.sessionManager;
+		const original = sessionManager.getSessionId;
+		sessionManager.getSessionId = () => "../a/b";
+		try {
+			expect(path.basename(sessionResultDir(ctx))).toBe("..%2Fa%2Fb");
+		} finally {
+			sessionManager.getSessionId = original;
+		}
+	});
+
+	it.each(["", ".", ".."])("refuses the unsafe session identity %j", (id) => {
+		const sessionManager = ctx.sessionManager;
+		const original = sessionManager.getSessionId;
+		sessionManager.getSessionId = () => id;
+		try {
+			expect(() => sessionResultDir(ctx)).toThrow(
+				"A result store needs a session id",
+			);
+		} finally {
+			sessionManager.getSessionId = original;
+		}
+	});
 	it("names a directory without creating one", () => {
-		const dir = sessionResultDir();
+		const dir = sessionResultDir(ctx);
 		const existedBefore = fs.existsSync(dir);
 
-		openSessionStore();
+		openSessionStore(ctx);
 
 		// Opening a store used to create its directory, which made
 		// every seam's first act a disk write, performed outside the

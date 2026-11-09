@@ -13,6 +13,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import resultStore from "../../../extensions/result-store-workflow/index.ts";
 import { sessionResultDir } from "../../../lib/core/result/index.ts";
+import { resultSession } from "../../support/result-session.ts";
+
+const ctx = resultSession();
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -29,15 +32,15 @@ function activate(): Map<string, Handler> {
 	return handlers;
 }
 
-const payload = (): string => join(sessionResultDir(), "result-0000.json");
+const payload = (): string => join(sessionResultDir(ctx), "result-0000.json");
 
 beforeEach(() => {
-	mkdirSync(sessionResultDir(), { recursive: true });
+	mkdirSync(sessionResultDir(ctx), { recursive: true });
 	writeFileSync(payload(), "{}");
 });
 
 afterEach(() => {
-	rmSync(sessionResultDir(), { recursive: true, force: true });
+	rmSync(sessionResultDir(ctx), { recursive: true, force: true });
 });
 
 describe("a session's stored payloads", () => {
@@ -49,7 +52,7 @@ describe("a session's stored payloads", () => {
 	])("are kept through a %s, which leaves this process running", async (reason) => {
 		await activate().get("session_shutdown")?.(
 			{ type: "session_shutdown", reason },
-			{},
+			ctx,
 		);
 		expect(existsSync(payload()), `${payload()} is kept`).toBe(true);
 	});
@@ -57,7 +60,7 @@ describe("a session's stored payloads", () => {
 	it("are removed when pi quits", async () => {
 		await activate().get("session_shutdown")?.(
 			{ type: "session_shutdown", reason: "quit" },
-			{},
+			ctx,
 		);
 		expect(existsSync(payload()), `${payload()} is removed`).toBe(false);
 	});

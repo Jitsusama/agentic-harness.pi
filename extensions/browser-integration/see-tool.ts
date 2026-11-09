@@ -331,9 +331,9 @@ export function registerSee(pi: ExtensionAPI, sessions: Sessions): void {
 			renderBrowserCall("see", args, theme, context?.lastComponent),
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params, signal) {
+		async execute(_id, params, signal, _onUpdate, ctx) {
 			const { runSee } = await import("./see.ts");
-			return runSee(await sessions(), params, signal);
+			return runSee(ctx, await sessions(), params, signal);
 		},
 	});
 }

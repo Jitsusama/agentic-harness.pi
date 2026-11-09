@@ -431,7 +431,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 						type: "text",
 						// A tree or a listing can run long even with paging,
 						// and this is the one place every action answers from.
-						text: boundedByDetails(openSessionStore(), {
+						text: boundedByDetails(openSessionStore(ctx), {
 							text: result.message,
 							details: result.details,
 							narrowing:

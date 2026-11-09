@@ -11,7 +11,10 @@
  * Read-only, so no gate anywhere in here.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing } from "../../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
@@ -172,21 +175,22 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 			return renderAnswer(result, theme, options, context?.lastComponent);
 		},
 
-		async execute(_id, params): Promise<Answer> {
+		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
 			// Held outside the try so a failure can say which provider was asked.
 			let bound: BoundTarget | undefined;
 			try {
 				// Siblings are the one read that is about a repo rather
 				// than a change, so it resolves differently.
-				if (params.action === "changes") return seeChanges(pi, params);
+				if (params.action === "changes") return seeChanges(pi, params, ctx);
 
-				bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, ctx.cwd);
 				if (params.action === "checks" && params.watch === true)
 					return await watchFor(pi, bound);
 				return await readFrom(
 					bound,
 					params.action as Exclude<SeeAction, "changes">,
 					(params as { mine?: boolean }).mine === true,
+					ctx,
 				);
 			} catch (error) {
 				return refuseFailure(error, bound);
@@ -223,14 +227,15 @@ export function reviewLine(review: {
 async function readFrom(
 	bound: BoundTarget,
 	action: Exclude<SeeAction, "changes">,
-	mine = false,
+	mine: boolean,
+	ctx: ExtensionContext,
 ): Promise<Answer> {
 	if (action === "change") return seeChange(bound);
-	if (action === "diff") return seeDiff(bound);
+	if (action === "diff") return seeDiff(bound, ctx);
 	if (action === "checks") return seeChecks(bound);
 	if (action === "stack") return seeStack(bound);
-	if (action === "findings") return seeFindings(bound);
-	return seeConversation(bound, action, mine);
+	if (action === "findings") return seeFindings(bound, ctx);
+	return seeConversation(bound, action, mine, ctx);
 }
 
 /** The change itself, with its body. */
@@ -262,11 +267,14 @@ async function seeChange(bound: BoundTarget): Promise<Answer> {
 }
 
 /** The whole diff, stored so a big one stays reachable. */
-async function seeDiff(bound: BoundTarget): Promise<Answer> {
+async function seeDiff(
+	bound: BoundTarget,
+	ctx: ExtensionContext,
+): Promise<Answer> {
 	const diff = await bound.diff();
 	const model = await bound.diffModel();
 	return say(
-		citeListing(openSessionStore(), {
+		citeListing(openSessionStore(ctx), {
 			view: diff,
 			records: model.files,
 			unit: "files",
@@ -348,7 +356,8 @@ async function seeStack(bound: BoundTarget): Promise<Answer> {
 async function seeConversation(
 	bound: BoundTarget,
 	action: "threads" | "reviews" | "messages" | "followup",
-	mine = false,
+	mine: boolean,
+	ctx: ExtensionContext,
 ): Promise<Answer> {
 	const conversation = bound.conversation;
 	const change = hostedChange(bound);
@@ -378,7 +387,7 @@ async function seeConversation(
 		const counted = tallyReceptions(found);
 		const quiet = counted["resolved-quietly"] ?? 0;
 		return say(
-			citeListing(openSessionStore(), {
+			citeListing(openSessionStore(ctx), {
 				view: [
 					`${GLYPH.finding} ${found.length} of your ${found.length === 1 ? "thread" : "threads"} on this change, as ${viewer.name ?? viewer.id}`,
 					...(quiet > 0
@@ -417,7 +426,7 @@ async function seeConversation(
 		// of the conversation a later call happens to be holding.
 		const addresses = reactableAddresses(reactables({ threads }));
 		return say(
-			citeListing(openSessionStore(), {
+			citeListing(openSessionStore(ctx), {
 				view:
 					threads
 						.map((t, index) => threadLines(t, index, addresses))
@@ -452,7 +461,7 @@ async function seeConversation(
 			whose = ` by ${viewer.name ?? viewer.id}`;
 		}
 		return say(
-			citeListing(openSessionStore(), {
+			citeListing(openSessionStore(ctx), {
 				view:
 					reviews.map(reviewLine).join("\n") ||
 					(mine
@@ -473,7 +482,7 @@ async function seeConversation(
 	const messages = await conversation.messages(change);
 	const said = reactables({ messages });
 	return say(
-		citeListing(openSessionStore(), {
+		citeListing(openSessionStore(ctx), {
 			view:
 				said
 					.map(
@@ -500,7 +509,10 @@ async function seeConversation(
  * is why they are read here and curated in `review_draft` rather
  * than appearing in the conversation.
  */
-async function seeFindings(bound: BoundTarget): Promise<Answer> {
+async function seeFindings(
+	bound: BoundTarget,
+	ctx: ExtensionContext,
+): Promise<Answer> {
 	const change = reviewedChange(bound);
 	if (!change) {
 		return refuse(
@@ -549,7 +561,7 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
 		)
 		.join("\n\n");
 	return say(
-		citeListing(openSessionStore(), {
+		citeListing(openSessionStore(ctx), {
 			view,
 			records: newestFirst,
 			unit: "findings",
@@ -635,8 +647,9 @@ async function seeChanges(
 		state?: "open" | "merged" | "closed";
 		limit?: number;
 	},
+	ctx: ExtensionContext,
 ): Promise<Answer> {
-	const cwd = params.repo ?? process.cwd();
+	const cwd = params.repo ?? ctx.cwd;
 	// A change when there is one, and otherwise the checkout itself.
 	// The attached change counts here like it does everywhere else,
 	// which is why this goes through the shared resolution at all; but
@@ -683,7 +696,7 @@ async function seeChanges(
 		return say(`${GLYPH.target} no changes match in ${bound.repo.key}.`);
 	}
 	return say(
-		citeListing(openSessionStore(), {
+		citeListing(openSessionStore(ctx), {
 			view: [
 				`${GLYPH.target} ${bound.repo.key}`,
 				"",

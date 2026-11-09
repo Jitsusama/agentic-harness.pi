@@ -549,6 +549,8 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 			_toolCallId,
 			params,
 			signal,
+			_onUpdate,
+			ctx,
 		): Promise<AgentToolResult<CostDetails>> {
 			if (params.disk) {
 				const holdings = await measureQuests(
@@ -560,7 +562,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: citeListing(openSessionStore(), {
+							text: citeListing(openSessionStore(ctx), {
 								view: formatHoldings(holdings, params.limit ?? 12),
 								records: holdings.quests,
 								unit: "quests",
@@ -601,7 +603,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: citeListing(openSessionStore(), {
+							text: citeListing(openSessionStore(ctx), {
 								view: formatUse(uses, earliest(samples), params.limit ?? 12),
 								records: uses,
 								unit: "quests",
@@ -648,7 +650,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: citeListing(openSessionStore(), {
+							text: citeListing(openSessionStore(ctx), {
 								view: formatQueryAnswer(answer, limit),
 								records: answer.rows,
 								unit: "rows",
@@ -668,7 +670,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: citeListing(openSessionStore(), {
+							text: citeListing(openSessionStore(ctx), {
 								view: formatRepeats(repeats, params.limit ?? 12),
 								records: repeats,
 								unit: "repeats",
@@ -686,7 +688,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: citeListing(openSessionStore(), {
+							text: citeListing(openSessionStore(ctx), {
 								view: formatRegret(regret),
 								records: regret.reAsked,
 								unit: "regrets",
@@ -759,7 +761,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: citeListing(openSessionStore(), {
+						text: citeListing(openSessionStore(ctx), {
 							view,
 							records: slices,
 							unit: "slices",

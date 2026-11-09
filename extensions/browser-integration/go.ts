@@ -9,6 +9,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 // The catalogue's own module, rather than puppeteer's root, which
 // would load all of puppeteer to read one table.
 import { KnownDevices } from "puppeteer-core/internal/common/Device.js";
@@ -194,6 +195,7 @@ function shapingFrom(params: {
  * a surprise.
  */
 async function runStorage(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	session: BrowserSession,
 	params: {
 		store?: "local" | "session" | "cookies" | "clipboard" | "all";
@@ -237,7 +239,7 @@ async function runStorage(
 		return `Set ${params.key} in ${store} storage.`;
 	}
 
-	return storageAnswer(await session.storage(wanted));
+	return storageAnswer(ctx, await session.storage(wanted));
 }
 
 /**
@@ -301,6 +303,7 @@ async function loadSignedIn(
 
 /** What browser_go does with one call. */
 export async function runGo(
+	ctx: Pick<ExtensionContext, "sessionManager">,
 	registry: SessionRegistry,
 	params: GoParams,
 	signal: AbortSignal | undefined,
@@ -353,7 +356,7 @@ export async function runGo(
 			return answer(
 				name,
 				kind,
-				`Reloaded ${session.url}.\n\n${await pageView(session)}`,
+				`Reloaded ${session.url}.\n\n${await pageView(ctx, session)}`,
 			);
 		}
 
@@ -367,7 +370,7 @@ export async function runGo(
 				moved.url === "about:blank"
 					? "This is the blank page the browser started on, " +
 						"before its first navigation."
-					: await pageView(session);
+					: await pageView(ctx, session);
 			return answer(name, kind, `Went ${kind} to ${moved.url}.\n\n${landed}`);
 		}
 
@@ -379,7 +382,7 @@ export async function runGo(
 		}
 
 		if (kind === "storage") {
-			return answer(name, kind, await runStorage(session, params));
+			return answer(name, kind, await runStorage(ctx, session, params));
 		}
 
 		if (kind === "tabs") {
@@ -440,6 +443,6 @@ export async function runGo(
 				? `The server answered ${status}. What follows is that ` +
 					"response, not the page you asked for.\n\n"
 				: "";
-		return answer(name, kind, `${arrival}${await pageView(session)}`);
+		return answer(name, kind, `${arrival}${await pageView(ctx, session)}`);
 	});
 }

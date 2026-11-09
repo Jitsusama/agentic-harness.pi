@@ -10,8 +10,11 @@ import type {
 	VerifyOutcome,
 } from "../../../lib/core/observability/index.ts";
 import { cleanupSessionResults } from "../../../lib/core/result/index.ts";
+import { resultSession } from "../../support/result-session.ts";
 
 const ZERO = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+
+const ctx = resultSession();
 
 function row(runId: string, verifyOutcome: VerifyOutcome, cost = 1): RunRecord {
 	return {
@@ -90,7 +93,7 @@ describe("formatDigest", () => {
 
 describe("boundedDigest", () => {
 	afterEach(() => {
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 
 	function rollup(week: number, persona: string): RunRollup {
@@ -109,7 +112,7 @@ describe("boundedDigest", () => {
 
 	it("returns a small digest untouched", () => {
 		const rollups = [rollup(0, "correctness")];
-		expect(boundedDigest([], rollups)).toBe(formatDigest([], rollups));
+		expect(boundedDigest([], rollups, ctx)).toBe(formatDigest([], rollups));
 	});
 
 	it("bounds a digest whose weekly trends have grown past the budget, keeping every one queryable", () => {
@@ -121,7 +124,7 @@ describe("boundedDigest", () => {
 		).flat();
 		const whole = formatDigest([], rollups);
 
-		const bounded = boundedDigest([], rollups);
+		const bounded = boundedDigest([], rollups, ctx);
 
 		expect(Buffer.byteLength(bounded, "utf-8")).toBeLessThan(
 			Buffer.byteLength(whole, "utf-8") / 5,

@@ -24,6 +24,7 @@ import {
 	RESULT_ROOT,
 	reapAbandonedResults,
 } from "../../lib/core/result/location.ts";
+import { adoptLegacyResults } from "../../lib/core/result/migrate.ts";
 import {
 	DEFAULT_MAX_MATCHES,
 	queryStored,
@@ -93,12 +94,12 @@ export default function resultStore(pi: ExtensionAPI) {
 			return renderQueryResult(result, state, theme, context?.lastComponent);
 		},
 
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const answer = queryStored(
 				// Opened per call rather than held: the store is its
 				// directory, so an instance is a name and a quota rather
 				// than state worth keeping alive between answers.
-				openSessionStore(),
+				openSessionStore(ctx),
 				params.handle,
 				params.expression,
 				params.maxMatches === undefined
@@ -119,20 +120,18 @@ export default function resultStore(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
+		adoptLegacyResults(ctx);
 		// A session that was killed cannot clean up after itself, and a
 		// pid-named directory whose process is gone is unambiguously
 		// abandoned, so this is where those get collected.
 		reapAbandonedResults({ root: RESULT_ROOT, isPidAlive });
 	});
 
-	pi.on("session_shutdown", async (event) => {
-		// Only a quit ends this process. A reload, a new session, a
-		// resume and a fork all say shutdown too, and a reload leaves the
-		// conversation on screen citing handles that would otherwise
-		// answer as missing. The directory is named for this process, so
-		// whatever outlives a quit is still reaped once it has gone.
+	pi.on("session_shutdown", async (event, ctx) => {
+		// Reload and session switches retain handles. A quit removes only
+		// this caller; another runner in the process still owns its results.
 		if (event.reason !== "quit") return;
-		cleanupSessionResults();
+		cleanupSessionResults(ctx);
 	});
 }

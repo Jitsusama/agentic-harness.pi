@@ -133,6 +133,9 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 		async execute(
 			_toolCallId,
 			params,
+			_signal,
+			_onUpdate,
+			ctx,
 		): Promise<AgentToolResult<ObserveDetails>> {
 			if (!store) {
 				return {
@@ -153,7 +156,7 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 			const rows = await store.queryRuns();
 			const rollups = await store.queryRollups();
 			return {
-				content: [{ type: "text", text: boundedDigest(rows, rollups) }],
+				content: [{ type: "text", text: boundedDigest(rows, rollups, ctx) }],
 				details: { ok: true, runCount: rows.length },
 			};
 		},
@@ -196,8 +199,9 @@ function formatRunSummary(s: RunSummaryLike): string {
 export function boundedDigest(
 	rows: readonly RunRecord[],
 	rollups: readonly RunRollup[],
+	ctx: Pick<ExtensionContext, "sessionManager">,
 ): string {
-	return citeListing(openSessionStore(), {
+	return citeListing(openSessionStore(ctx), {
 		view: formatDigest(rows, rollups),
 		records: rollups,
 		unit: "weekly rollups",

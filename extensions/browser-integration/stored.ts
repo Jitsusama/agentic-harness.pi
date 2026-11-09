@@ -14,6 +14,7 @@
  * moved.
  */
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	cite,
 	citeListing,
@@ -77,13 +78,17 @@ interface StoredPage {
  * back and no clue why. The listings learned this from driving
  * Slack; this path was written before that and never got it.
  */
-export function pageAnswer(observed: Observation, budget: number): string {
+export function pageAnswer(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	observed: Observation,
+	budget: number,
+): string {
 	const bounded = withinOutlineBudget(observed.outline, budget);
 	const view = heading(observed, bounded);
 	if (bounded.elided === undefined) return view;
 
 	const payload = storedPage(observed);
-	const cited = cite(openSessionStore(), {
+	const cited = cite(openSessionStore(ctx), {
 		payload,
 		view: `${view}\n\n${bounded.elided}`,
 		shown: bounded.shown,
@@ -107,8 +112,13 @@ function heading(observed: Observation, bounded: BudgetedOutline): string {
  * one is a single line as long as the file: whole-lines-only would
  * either return all of it or none.
  */
-export function bodyAnswer(url: string, body: string, budget: number): string {
-	const cited = cite(openSessionStore(), {
+export function bodyAnswer(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	url: string,
+	body: string,
+	budget: number,
+): string {
+	const cited = cite(openSessionStore(ctx), {
 		payload: body,
 		view: `Body of ${url}:\n${body.slice(0, budget)}`,
 		shown: budget,
@@ -140,11 +150,14 @@ export function bodyAnswer(url: string, body: string, budget: number): string {
  * entries are all listed however long they are; it is only their
  * values that shorten.
  */
-export function storageAnswer(snapshot: StorageSnapshot): string {
+export function storageAnswer(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	snapshot: StorageSnapshot,
+): string {
 	const view = renderStorage(snapshot);
 	const payload = storedStorage(snapshot);
 	const total = storedCharacters(payload);
-	return cite(openSessionStore(), {
+	return cite(openSessionStore(ctx), {
 		payload,
 		view,
 		shown: Math.min(view.length, total),
@@ -183,18 +196,21 @@ function storedCharacters(stored: StoredStorage): number {
 }
 
 /** A rendered listing, bounded, with its records kept. */
-export function listAnswer<T>(args: {
-	view: string;
-	/** Lines the caller needs whatever the budget does: see Listing. */
-	trailer?: string;
-	/** Whether the view leaves records out on its own: see Listing. */
-	elided?: boolean;
-	records: readonly T[];
-	unit: string;
-	narrowing: string;
-	budget?: number;
-}): string {
-	return citeListing(openSessionStore(), args);
+export function listAnswer<T>(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	args: {
+		view: string;
+		/** Lines the caller needs whatever the budget does: see Listing. */
+		trailer?: string;
+		/** Whether the view leaves records out on its own: see Listing. */
+		elided?: boolean;
+		records: readonly T[];
+		unit: string;
+		narrowing: string;
+		budget?: number;
+	},
+): string {
+	return citeListing(openSessionStore(ctx), args);
 }
 
 /**
@@ -217,11 +233,15 @@ const ELEMENT_LINES = 120;
  * section by section until it was the largest answer here and
  * still the only one a caller could not query.
  */
-export function elementAnswer(inspection: Inspection, view: string): string {
+export function elementAnswer(
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	inspection: Inspection,
+	view: string,
+): string {
 	const lines = view.split("\n");
 	if (lines.length <= ELEMENT_LINES) return view;
 
-	const cited = cite(openSessionStore(), {
+	const cited = cite(openSessionStore(ctx), {
 		payload: inspection,
 		view: lines.slice(0, ELEMENT_LINES).join("\n"),
 		shown: ELEMENT_LINES,

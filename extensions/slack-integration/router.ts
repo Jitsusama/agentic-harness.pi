@@ -116,7 +116,16 @@ export async function routeAction(
 	}
 
 	const resolved = await resolveAllParams(client, params);
-	return handler(client, params, resolved, ctx);
+	const result = await handler(client, params, resolved, ctx);
+	const [first, ...rest] = result.content;
+	if (first === undefined || first.type !== "text") return result;
+	return {
+		...result,
+		content: [
+			{ ...first, text: boundedAnswer(first.text, result.details, ctx) },
+			...rest,
+		],
+	};
 }
 
 /**
@@ -150,9 +159,8 @@ function collectGatedText(action: string, params: ActionParams): string {
 
 /** Shorthand for a simple text result. */
 function text(content: string, details?: unknown): ToolResult {
-	// One of the family's two exits; `textWithFiles` is the other.
 	return {
-		content: [{ type: "text", text: boundedAnswer(content, details) }],
+		content: [{ type: "text", text: content }],
 		details,
 	};
 }
@@ -160,17 +168,9 @@ function text(content: string, details?: unknown): ToolResult {
 /**
  * Build a result with text and optional file content.
  *
- * Built on top of the plain text result rather than beside it, so
- * the bounding cannot be skipped here without being skipped
- * everywhere. It used to be beside it, and this is the path
- * get_thread and get_message answer on: a thread of any length
- * came back whole, while the comment on `text` claimed to be the
- * one place the family bounds its answers. A second exit is easy
- * to add and easy not to notice, so the structure now forbids one
- * instead of a comment asking for none.
- *
- * Attached files are still not bounded. A file is what the caller
- * asked for by name, and half of one is no use.
+ * The router bounds only the leading rendered text with the caller's
+ * session context. Attached blocks stay unchanged: a file is what
+ * the caller asked for by name, and half of one is no use.
  */
 function textWithFiles(
 	content: string,
