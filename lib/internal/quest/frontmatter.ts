@@ -25,6 +25,7 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { isOwner } from "../../core/process/index.ts";
 import type {
 	DocumentFrontMatter,
 	DocumentKind,
@@ -208,13 +209,33 @@ function parseSessionProcess(
 		typeof obj.startTicks === "number" && Number.isSafeInteger(obj.startTicks)
 			? obj.startTicks
 			: undefined;
+	const hosted = obj.hosted;
+	if (hosted !== undefined && !isHostedProcess(hosted)) return undefined;
 	return {
 		hostId,
 		pid,
 		startToken,
+		...(hosted ? { hosted } : {}),
 		...(bootToken ? { bootToken } : {}),
 		...(startTicks !== undefined ? { startTicks } : {}),
 	};
+}
+
+function isHostedProcess(
+	value: unknown,
+): value is NonNullable<NonNullable<QuestSession["process"]>["hosted"]> {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		"host" in value &&
+		typeof value.host === "string" &&
+		value.host.length > 0 &&
+		"session" in value &&
+		typeof value.session === "string" &&
+		value.session.length > 0 &&
+		"owner" in value &&
+		isOwner(value.owner)
+	);
 }
 
 function parseSessionTerminal(

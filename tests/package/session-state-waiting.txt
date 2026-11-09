@@ -4,14 +4,8 @@
 extensions/compaction-workflow/conversation.ts:global 1
 extensions/mesh-workflow/steer.ts:pid 1
 extensions/park-workflow/watch.ts:pid 2
-extensions/quest-workflow/ends-with-quest.ts:global 1
-extensions/quest-workflow/lifecycle.ts:env-write 3
-extensions/quest-workflow/peers.ts:pid 1
 extensions/quest-workflow/scratch.ts:pid 1
-extensions/quest-workflow/session-registry.ts:global 2
 extensions/quest-workflow/session-registry.ts:pid 1
-extensions/quest-workflow/verbs/lifecycle.ts:cwd 1
-extensions/quest-workflow/verbs/tree-ops.ts:cwd 3
 extensions/quest-workflow/weights.ts:pid 1
 extensions/read-after-write-interceptor/index.ts:cwd 1
 extensions/reload-workflow/follow.ts:global 1

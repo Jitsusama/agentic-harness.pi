@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	attachCurrentSession,
 	detachSessionIfOwner,
@@ -114,6 +114,21 @@ describe("session-attach identity capture", () => {
 });
 
 describe("detachSessionIfOwner (instance lease)", () => {
+	it("keeps the replacement attached after a prior pi load shuts down late", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		const old = await import("../../../lib/core/quest/lifecycle.ts");
+		const prior = old.captureSessionIdentity();
+		old.attachCurrentSession(state, { id: "sess-1", ...prior });
+		vi.resetModules();
+		const fresh = await import("../../../lib/core/quest/lifecycle.ts");
+		const replacement = fresh.captureSessionIdentity();
+		fresh.attachCurrentSession(state, { id: "sess-1", ...replacement });
+		old.detachSessionIfOwner(dir, "sess-1", prior.instanceId);
+		expect(sessionOf(dir, "sess-1")?.status).toBe("active");
+		expect(replacement.instanceId).not.toBe(prior.instanceId);
+	});
+
 	it("detaches when the caller's instance owns the record", async () => {
 		const state = buildState();
 		const dir = await createQuest(state);

@@ -12,6 +12,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../../lib/core/session/host.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -400,7 +401,12 @@ function trackOnQuest(
 	ctx: ExtensionContext,
 	sid: string | undefined,
 ): void {
-	if (!sid || !isPersistedSession(ctx) || !ctx.hasUI || !state.questId) {
+	if (
+		!sid ||
+		!isPersistedSession(ctx) ||
+		(!ctx.hasUI && !hosted()) ||
+		!state.questId
+	) {
 		return;
 	}
 	trackSession(
@@ -423,7 +429,7 @@ export async function load(
 ): Promise<QuestResult> {
 	let targetId = params.id;
 	if (!targetId) {
-		const cwd = params.cwd ?? ctx.cwd ?? process.cwd();
+		const cwd = params.cwd ?? ctx.cwd;
 		if (cwd) targetId = questIdFromCwd(state, cwd);
 		if (!targetId) {
 			return refuse(

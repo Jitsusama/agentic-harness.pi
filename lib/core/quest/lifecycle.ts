@@ -67,6 +67,8 @@ import {
 	serializeDocumentFrontMatter,
 } from "../../quest/index.ts";
 import { identifyCurrentTerminal } from "../../terminal/index.ts";
+import { hosted } from "../session/host.ts";
+import type { SessionRef } from "../session/identity.ts";
 import type { Stage } from "./machine.ts";
 import type { QuestState } from "./state.ts";
 
@@ -735,15 +737,15 @@ export function attachSessionInQuestDir(
  * surface it runs in (when a driver recognises one). Read once at
  * attach time; the stored handle is what a later reader probes.
  */
-export function captureSessionIdentity(): {
+export function captureSessionIdentity(ref?: SessionRef): {
 	instanceId: string;
 	process: QuestSession["process"];
 	terminal: QuestSession["terminal"];
 } {
-	const handle = identifyCurrentTerminal();
+	const handle = hosted() ? undefined : identifyCurrentTerminal();
 	return {
-		instanceId: currentInstanceId(),
-		process: currentProcessIdentity(),
+		instanceId: currentInstanceId(ref),
+		process: currentProcessIdentity(ref),
 		terminal: handle
 			? {
 					driverId: handle.driverId,

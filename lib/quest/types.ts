@@ -8,6 +8,8 @@
  * lives under a quest's directory.
  */
 
+import type { TickedOwner } from "../internal/process-ticks.ts";
+
 export type QuestKind = "quest" | "subquest" | "sidequest";
 
 export type QuestStatus =
@@ -150,6 +152,12 @@ export interface QuestSession {
 		 * process exactly.
 		 */
 		startTicks?: number;
+		/** A hosted conversation and the owner published in its host list. */
+		hosted?: {
+			host: string;
+			session: string;
+			owner: TickedOwner;
+		};
 	};
 	/**
 	 * The terminal surface the session ran in, as a probeable handle.

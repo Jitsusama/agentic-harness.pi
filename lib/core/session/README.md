@@ -74,7 +74,12 @@ Host supplies:
 - hints(id): LaunchHints, consumed once, not again on reload.
 - close(id, why): stop accepting input and emit session_shutdown for
   just that conversation.
-- stamp(id, how): record signalled or closed for that conversation.
+- stamp(id, how): emit SESSION_STAMP_EVENT on that conversation\'s
+  pi.events bus inside withSession. The payload is SessionStamp:
+  session (the pi id) and how (signalled or closed). The quest workflow
+  records the ending and releases its lease. Emit before runner shutdown;
+  reload and viewer detach emit neither ending. Remove subscriptions on
+  runner shutdown so reload does not keep an old quest state.
 
 Wrap every runner entry, tool execution, provider hook, input handler
 and host callback with withSession(id, fn). A missing wrap is visible
