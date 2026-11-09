@@ -72,8 +72,9 @@ What comes next, by the fold's plan (PLAN-20261025-QR647O):
   in `internal/tree/`.
 - `verify/`: running the project's check command on request, and
   saying whether it still builds and passes.
-- `web/`: driving a real Chrome and reading back what it knows, a
-  subdomain barrel a concern; its `index.ts` lists them.
+- `web/`: driving a real Chrome and reading back what it knows: the
+  session, the page reader and search at the top, and a subdomain
+  barrel a concern beside them, each imported by its own path.
 - `work/`: the working layer: branches, commits, trees and stacks,
   with a broker that hands out trees and plain git as the provider
   that cuts them when nothing more specific does.
