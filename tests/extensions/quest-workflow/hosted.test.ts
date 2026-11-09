@@ -131,8 +131,12 @@ it("lists co-hosted peers, detaches only the closing lease and keeps its sibling
 		identities.every(
 			(session) => session.process?.hosted?.session === session.id,
 		),
+		"each quest record names its own hosted conversation",
 	).toBe(true);
-	expect(identities.every((session) => !session.terminal)).toBe(true);
+	expect(
+		identities.every((session) => !session.terminal),
+		"hosted conversations must not inherit their host's terminal identity",
+	).toBe(true);
 	expect(
 		withSession("a", () => livePeers(sessions()).map((p) => p.id)),
 	).toEqual(["b"]);
@@ -173,7 +177,7 @@ it("takes only its own launch hints and literal first words", async () => {
 	expect(
 		withSession("b", () => resolveStartup(b, pi, contexts("b"))).source,
 	).toBe("none");
-	expect(hints.has("a")).toBe(true);
+	expect(hints.has("a"), "b must not consume a's launch hints").toBe(true);
 	const fresh = createQuestState({ questsRoot: join(root, "quests") });
 	expect(
 		withSession("a", () => resolveStartup(fresh, pi, contexts("a"))).source,
