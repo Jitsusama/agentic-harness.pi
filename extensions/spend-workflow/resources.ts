@@ -18,6 +18,7 @@
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import {
 	type Counters,
@@ -32,6 +33,20 @@ import { count } from "../../lib/ui/count.ts";
 export interface Sample extends Usage {
 	/** When the turn ended, as an ISO time the ledger's timestamps compare with. */
 	readonly at: string;
+	/**
+	 * How many times the harness has loaded in this process, its start
+	 * and every reload since, so memory can be read against reloads.
+	 * Absent in samples from before 9 November.
+	 */
+	readonly loads?: number;
+}
+
+/** How many times the harness has loaded in this process. */
+const LOADS = "agentic-harness.resources.loads";
+
+/** Count one more load of the harness in this process, as it starts. */
+export function noteLoad(): void {
+	processGlobal(LOADS, () => ({ count: 0 })).count += 1;
 }
 
 /**
@@ -61,6 +76,7 @@ export function recordTurn(sessionLog: string, deps: SampleDeps): Sample {
 	const sample: Sample = {
 		at: (deps.now?.() ?? new Date()).toISOString(),
 		...usageBetween(slot[LAST] ?? NOTHING, reading),
+		loads: processGlobal(LOADS, () => ({ count: 0 })).count,
 	};
 	slot[LAST] = reading;
 	mkdirSync(deps.dir, { recursive: true });

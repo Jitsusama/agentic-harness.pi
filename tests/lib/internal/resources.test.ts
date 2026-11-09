@@ -67,6 +67,13 @@ describe("a reading", () => {
 			systemCPUTime: 500_000,
 		}) as NodeJS.ResourceUsage;
 
+	const HEAP = {
+		usedBytes: 80e6,
+		totalBytes: 120e6,
+		externalBytes: 9e6,
+		arrayBuffersBytes: 3e6,
+	};
+
 	it("on Linux counts children and storage", () => {
 		const files: Record<string, string> = {
 			"/proc/self/stat": stat("node", 100, 50, 300, 20),
@@ -77,6 +84,7 @@ describe("a reading", () => {
 			read: (path) => files[path] ?? "",
 			usage,
 			rss: () => 900e6,
+			heap: () => HEAP,
 		});
 		expect(counters).toEqual({
 			cpuSelfMs: 1500,
@@ -84,6 +92,7 @@ describe("a reading", () => {
 			readBytes: 4096,
 			writeBytes: 52625408,
 			rssBytes: 900e6,
+			heap: HEAP,
 		});
 	});
 
@@ -95,6 +104,7 @@ describe("a reading", () => {
 			},
 			usage,
 			rss: () => 300e6,
+			heap: () => HEAP,
 		});
 		expect(counters).toEqual({
 			cpuSelfMs: 2000,
@@ -102,6 +112,7 @@ describe("a reading", () => {
 			readBytes: null,
 			writeBytes: null,
 			rssBytes: 300e6,
+			heap: HEAP,
 		});
 	});
 
@@ -122,6 +133,11 @@ describe("a reading", () => {
 		const counters = readCounters();
 		expect(counters.cpuSelfMs).toBeGreaterThan(0);
 		expect(counters.rssBytes).toBeGreaterThan(0);
+		// The heap in use is part of what is reserved, and both are real.
+		expect(counters.heap?.usedBytes).toBeGreaterThan(0);
+		expect(counters.heap?.totalBytes).toBeGreaterThanOrEqual(
+			counters.heap?.usedBytes ?? Number.POSITIVE_INFINITY,
+		);
 	});
 });
 
@@ -148,6 +164,30 @@ describe("the use between two readings", () => {
 			writeBytes: 10,
 			rssBytes: 700,
 		});
+	});
+
+	it("keeps the heap as the later reading says it", () => {
+		// 9 November: sessions held a median 500 MB and nothing said whether
+		// the JavaScript heap or what lives outside it was what grew.
+		const heap = {
+			usedBytes: 2,
+			totalBytes: 3,
+			externalBytes: 1,
+			arrayBuffersBytes: 1,
+		};
+		const reading = {
+			cpuSelfMs: 1,
+			cpuChildrenMs: 1,
+			readBytes: 1,
+			writeBytes: 1,
+			rssBytes: 1,
+		};
+
+		expect(
+			usageBetween(reading, { ...reading, heap }).heap,
+			"the later heap",
+		).toEqual(heap);
+		expect(usageBetween(reading, reading)).not.toHaveProperty("heap");
 	});
 
 	it("is unmeasured where either reading was, and never negative", () => {

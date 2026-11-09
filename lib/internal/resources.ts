@@ -33,6 +33,32 @@ export interface Counters {
 	readonly writeBytes: number | null;
 	/** What pi holds in memory now. */
 	readonly rssBytes: number;
+	/**
+	 * How the memory splits, as V8 reports it: the JavaScript heap in use
+	 * and reserved, and what lives outside it. On 9 November 70 sessions
+	 * held a median 500 MB while a fresh pi's heap used 70 MB, and nothing
+	 * said which part grew. Absent in samples from before then.
+	 */
+	readonly heap?: HeapReading;
+}
+
+/** The JavaScript heap and what lives outside it, in bytes. */
+export interface HeapReading {
+	readonly usedBytes: number;
+	readonly totalBytes: number;
+	readonly externalBytes: number;
+	readonly arrayBuffersBytes: number;
+}
+
+/** V8's account of this process's memory now. */
+function heapNow(): HeapReading {
+	const { heapUsed, heapTotal, external, arrayBuffers } = process.memoryUsage();
+	return {
+		usedBytes: heapUsed,
+		totalBytes: heapTotal,
+		externalBytes: external,
+		arrayBuffersBytes: arrayBuffers,
+	};
 }
 
 /**
@@ -83,6 +109,7 @@ export interface CounterDeps {
 	readonly read?: (path: string) => string;
 	readonly usage?: () => NodeJS.ResourceUsage;
 	readonly rss?: () => number;
+	readonly heap?: () => HeapReading;
 }
 
 /** Read nothing that fails: a file a sandbox hides gives no figure. */
@@ -100,6 +127,7 @@ export function readCounters(deps: CounterDeps = {}): Counters {
 	const read = deps.read ?? ((path) => readFileSync(path, "utf8"));
 	const usage = deps.usage ?? (() => process.resourceUsage());
 	const rssBytes = (deps.rss ?? (() => process.memoryUsage.rss()))();
+	const heap = (deps.heap ?? heapNow)();
 	const cpu =
 		platform === "linux"
 			? parseStat(tryRead(read, "/proc/self/stat"))
@@ -113,6 +141,7 @@ export function readCounters(deps: CounterDeps = {}): Counters {
 			readBytes: io?.readBytes ?? null,
 			writeBytes: io?.writeBytes ?? null,
 			rssBytes,
+			heap,
 		};
 	}
 	const own = usage();
@@ -122,6 +151,7 @@ export function readCounters(deps: CounterDeps = {}): Counters {
 		readBytes: null,
 		writeBytes: null,
 		rssBytes,
+		heap,
 	};
 }
 
@@ -138,6 +168,7 @@ export function usageBetween(before: Counters, after: Counters): Usage {
 		readBytes: less(after.readBytes, before.readBytes),
 		writeBytes: less(after.writeBytes, before.writeBytes),
 		rssBytes: after.rssBytes,
+		...(after.heap ? { heap: after.heap } : {}),
 	};
 }
 
