@@ -43,10 +43,19 @@ describe("legacy result adoption", () => {
 		expect(openSessionStore(a).read(payload.handle)).toContain(
 			a.sessionManager.getSessionId(),
 		);
-		expect(openSessionStore(b).has(payload.handle)).toBe(false);
-		expect(existsSync(payload.path)).toBe(true);
+		expect(
+			openSessionStore(b).has(payload.handle),
+			"an uncited legacy handle is not imported into B",
+		).toBe(false);
+		expect(
+			existsSync(payload.path),
+			"the legacy original remains for other pre-upgrade conversations",
+		).toBe(true);
 		cleanupSessionResults(b);
-		expect(openSessionStore(a).has(payload.handle)).toBe(true);
+		expect(
+			openSessionStore(a).has(payload.handle),
+			"B cleanup preserves A's imported handle",
+		).toBe(true);
 	});
 
 	it("does not resurrect results later evicted by the session quota", () => {
@@ -67,6 +76,9 @@ describe("legacy result adoption", () => {
 		);
 		rmSync(migrated.path);
 		adoptLegacyResults(ctx);
-		expect(openSessionStore(ctx).has(payload.handle)).toBe(false);
+		expect(
+			openSessionStore(ctx).has(payload.handle),
+			"a previously imported and evicted handle is not resurrected",
+		).toBe(false);
 	});
 });

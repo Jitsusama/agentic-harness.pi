@@ -22,13 +22,17 @@ it("installs each repo's hook only when its conversation starts", async () => {
 	runners.push(first, second);
 	const hookA = join(a, ".git/hooks/prepare-commit-msg"),
 		hookB = join(b, ".git/hooks/prepare-commit-msg");
-	expect(existsSync(hookA)).toBe(false);
-	expect(existsSync(hookB)).toBe(false);
+	expect(existsSync(hookA), "A has no hook before its runner starts").toBe(
+		false,
+	);
+	expect(existsSync(hookB), "B has no hook before its runner starts").toBe(
+		false,
+	);
 	await first.start();
-	expect(existsSync(hookA)).toBe(true);
-	expect(existsSync(hookB)).toBe(false);
+	expect(existsSync(hookA), "A startup installs A's hook").toBe(true);
+	expect(existsSync(hookB), "A startup leaves B's hook absent").toBe(false);
 	await second.start();
-	expect(existsSync(hookB)).toBe(true);
+	expect(existsSync(hookB), "B startup installs B's hook").toBe(true);
 	expect(first.errors).toEqual([]);
 	expect(second.errors).toEqual([]);
 });

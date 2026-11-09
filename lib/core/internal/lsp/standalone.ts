@@ -6,6 +6,7 @@ import {
 	type StandaloneBackend,
 	unregisterLspBackend,
 } from "../../lsp/index.ts";
+import { hosted, type SessionRef } from "../../session/index.ts";
 
 interface SharedBackend {
 	backend: StandaloneBackend | null;
@@ -25,43 +26,61 @@ function shared(): SharedBackend {
 function start(state: SharedBackend): StandaloneBackend {
 	const backend = createStandaloneBackend();
 	state.backend = backend;
-	registerLspBackend({
-		name: "standalone",
-		priority: 100,
-		isAvailable: () => true,
-		backend,
-	});
 	return backend;
+}
+
+function registerFor(state: SharedBackend, ref?: SessionRef): void {
+	registerLspBackend(
+		{
+			name: "standalone",
+			priority: 100,
+			isAvailable: () => state.backend !== null,
+			// Other conversations see a replacement without holding the old object.
+			get backend() {
+				return state.backend ?? start(state);
+			},
+		},
+		ref,
+	);
 }
 
 /** A runner's claim on the shared standalone servers, acquired lazily. */
 export function standaloneLease() {
 	const user = Symbol("lsp runner");
 	return {
-		ensure(): StandaloneBackend {
+		ensure(ref?: SessionRef): StandaloneBackend {
 			const state = shared();
+			// Validate ownership before acquiring any shared resources.
+			registerFor(state, ref);
 			state.users.add(user);
 			return state.backend ?? start(state);
 		},
 		current(): StandaloneBackend | null {
 			return shared().backend;
 		},
-		async restart(dead: LspBackend): Promise<StandaloneBackend> {
+		async restart(
+			dead: LspBackend,
+			ref?: SessionRef,
+		): Promise<StandaloneBackend> {
 			const state = shared();
 			// Another caller may already have replaced this dead backend.
-			if (state.backend !== dead) return this.ensure();
+			if (state.backend !== dead) return this.ensure(ref);
+			registerFor(state, ref);
 			const fresh = start(state);
 			await dead.dispose().catch(() => {
 				// A closed connection may reject shutdown; disposal kills its processes.
 			});
 			return fresh;
 		},
-		async release(): Promise<void> {
+		async release(ref?: SessionRef): Promise<void> {
 			const state = shared();
-			if (!state.users.delete(user) || state.users.size > 0) return;
+			if (!state.users.has(user)) return;
+			if (hosted()) unregisterLspBackend("standalone", ref);
+			state.users.delete(user);
+			if (state.users.size > 0) return;
 			const closing = state.backend;
 			state.backend = null;
-			unregisterLspBackend("standalone");
+			if (!hosted()) unregisterLspBackend("standalone", ref);
 			await closing?.dispose();
 		},
 	};

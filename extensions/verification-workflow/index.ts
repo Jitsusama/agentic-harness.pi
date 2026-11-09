@@ -94,7 +94,8 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 
 	// Answer the commit guardian's question freshly each time it asks.
 	const check: VerificationCheck = async (scope) => {
-		const failure = await currentFailure(state, scope, resolveLspBackend());
+		const backend = ctxRef ? resolveLspBackend(ctxRef) : undefined;
+		const failure = await currentFailure(state, scope, backend);
 		if (state.outcome === "failing" || failure) state.outcome = settle(state);
 		if (ctxRef) refreshStatus(ctxRef, state);
 		return failure;
@@ -158,7 +159,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		state.touched.clear();
 		const files = [...watched].filter(isTheWork);
 
-		const backend = resolveLspBackend();
+		const backend = resolveLspBackend(ctx);
 		if (!backend || files.length === 0) {
 			refreshStatus(ctx, state);
 			return;
