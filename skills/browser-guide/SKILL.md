@@ -6,7 +6,8 @@ description: >
   screenshots, check layout, visual diffs and performance. Use
   when asked to open a page, look at a site, click a button,
   read what a page says, check the console or requests, test on
-  mobile, or see what changed visually.
+  mobile, see why an element looks wrong or the layout broke,
+  or see what changed visually.
 ---
 
 # Driving a Browser

@@ -6,7 +6,8 @@ description: >
   subagents). Use when asked to review, read or comment on a
   PR, see what people said, reply to or resolve threads,
   approve, run a council, open, cut, raise or submit a PR,
-  mark it ready or merge it. Never `gh pr create`.
+  put it up for review, mark it ready or merge it. Never
+  `gh pr create`.
 ---
 
 # Review Guide
