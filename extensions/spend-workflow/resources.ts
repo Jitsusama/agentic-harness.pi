@@ -16,6 +16,8 @@
  * that session's figure when it ends. In a shared host, every turn end
  * advances one process baseline and writes to the host's file instead.
  * Host CPU and memory cannot honestly be apportioned among conversations.
+ * A host-<encoded key>-<pid>-<start>.jsonl file names no session log;
+ * readers must use its samples\' host field, not look it up in the ledger.
  */
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
