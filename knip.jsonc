@@ -7,6 +7,7 @@
 		// What pi loads: every extension, and the packs a subagent loads.
 		"extensions/*/index.ts",
 		"packs/*/index.ts",
+		"host/*/index.ts",
 		// Programs run by hand, by pnpm or by node directly.
 		"scripts/*.ts",
 		"lib/**/*.mjs",
@@ -16,6 +17,7 @@
 	],
 	"project": [
 		"extensions/**/*.ts",
+		"host/**/*.ts",
 		"lib/**/*.{ts,mjs}",
 		"packs/**/*.ts",
 		"scripts/**/*.ts",

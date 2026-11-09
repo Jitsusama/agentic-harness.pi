@@ -27,6 +27,7 @@
 	},
 	"include": [
 		"extensions/**/*.ts",
+		"host/**/*.ts",
 		"lib/**/*.ts",
 		"lib/**/*.mjs",
 		"packs/**/*.ts",
