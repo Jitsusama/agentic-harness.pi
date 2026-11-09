@@ -290,6 +290,51 @@ describe("section", () => {
 	});
 });
 
+describe("show with words no item reads", () => {
+	it("lists the lines holding them, numbered as the file counts them", async () => {
+		const { run, planPath } = await questWithPlan();
+		const result = succeeded(await run({ action: "show", query: "old notes" }));
+		const line =
+			readFileSync(planPath, "utf8").split("\n").indexOf("Old notes.") + 1;
+		expect(line).toBeGreaterThan(1);
+		expect(result.message).toContain(`- ${line}, under Notes: Old notes.`);
+		expect(result.message).toMatch(/read's offset/);
+	});
+
+	it("lists the lines holding either of two", async () => {
+		const { run } = await questWithPlan();
+		const result = succeeded(
+			await run({ action: "show", query: "second|old notes" }),
+		);
+		expect(result.message).toContain("under Work: - [ ] Second item");
+		expect(result.message).toContain("under Notes: Old notes.");
+	});
+
+	it("still reads the one item words name", async () => {
+		const { run } = await questWithPlan();
+		const result = succeeded(
+			await run({ action: "show", query: "First item" }),
+		);
+		expect(result.message).toContain("item:");
+		expect(result.message).toContain("- [ ] First item");
+	});
+
+	it("refuses words no line holds, saying so", async () => {
+		const { run } = await questWithPlan();
+		const result = refused(await run({ action: "show", query: "nowhere" }));
+		expect(result.guidance).toContain('No item reads "nowhere"');
+		expect(result.guidance).toContain("No line holds it either.");
+	});
+
+	it("refuses a number no item has, rather than searching for it", async () => {
+		const { run, planPath } = await questWithPlan();
+		const text = readFileSync(planPath, "utf8");
+		writeFileSync(planPath, `${text}\nSee 9 more.\n`);
+		const result = refused(await run({ action: "show", query: "9" }));
+		expect(result.guidance).toContain('No item reads "9"');
+	});
+});
+
 describe("a cut read of one section", () => {
 	it("points at the stored section rather than at paging", () => {
 		const advice = cutReadAdvice({ action: "show", title: "Notes" });

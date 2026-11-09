@@ -18,7 +18,9 @@ import { join } from "node:path";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import {
 	type EditRefused,
+	type FoundLine,
 	itemOf,
+	linesHolding,
 	outlineOf,
 	replaceSection,
 	sectionOf,
@@ -142,7 +144,16 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	const item = params.query?.trim();
 	if (heading || item) {
 		const found = heading ? sectionOf(body, heading) : itemOf(body, item ?? "");
-		if (!found.ok) return refuse(found.reason);
+		if (!found.ok) {
+			if (heading || !item || /^\d+$/.test(item)) return refuse(found.reason);
+			const held = linesHolding(body, item);
+			if (held.length === 0) {
+				return refuse(`${found.reason}\nNo line holds it either.`);
+			}
+			const above = head.split("\n").length - 1;
+			const lines = held.map((one) => ({ ...one, line: one.line + above }));
+			return ok(foundLines(name, item, lines), { document: name, lines });
+		}
 		const lines = heading
 			? [`${name}, section ${found.found}:`, ""]
 			: [`${name}, item:`, "", found.found];
@@ -190,13 +201,45 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	}
 	lines.push(
 		"",
-		"Read one section with `title`, or one item and its notes with `query` (its number or its first words); `tick` and `section` change them.",
+		"Read one section with `title`, or one item and its notes with `query` (its number or its first words); `query` with words no item reads lists the lines holding them. `tick` and `section` change them.",
 	);
 	return ok(lines.join("\n"), {
 		document: name,
 		sections: outline.sections,
 		open: open.map((one) => one.text),
 	});
+}
+
+/** How many found lines an answer lists inline; the rest are stored. */
+const FOUND_LISTED = 40;
+
+/** How much of a found line an answer shows. */
+const FOUND_CHARS = 200;
+
+/**
+ * The lines a search found, each with its number in the file and its
+ * section, so a `read` with that offset can take the lines around it.
+ */
+function foundLines(
+	name: string,
+	query: string,
+	lines: readonly FoundLine[],
+): string {
+	const shown = lines.slice(0, FOUND_LISTED);
+	const out = [
+		`${name}, ${lines.length === 1 ? "the line" : `${lines.length} lines`} holding "${query.trim()}" (no item reads it), numbered as the file counts them, for read's offset:`,
+		"",
+		...shown.map(
+			(one) =>
+				`- ${one.line}${one.section ? `, under ${one.section}` : ""}: ${cut(one.text.trim(), FOUND_CHARS)}`,
+		),
+	];
+	if (lines.length > FOUND_LISTED) {
+		out.push(
+			`- and ${lines.length - FOUND_LISTED} more, stored in $.lines; name more of what you look for, or read one section with \`title\`.`,
+		);
+	}
+	return out.join("\n");
 }
 
 /**
