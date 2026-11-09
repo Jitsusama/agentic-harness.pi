@@ -136,6 +136,7 @@ describe("an irrecoverable command", () => {
 				"block",
 			);
 
+			expect(result, command).toMatchObject({ block: true });
 			expect(
 				result && "reason" in result && result.reason,
 				command,
