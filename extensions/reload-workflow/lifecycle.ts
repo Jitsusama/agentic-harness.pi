@@ -32,6 +32,7 @@ import {
 } from "../../lib/internal/reload/slot.ts";
 import { findJobHost } from "../../lib/jobs/index.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
+import { takeHostedLanding } from "./hosted.ts";
 
 /** The package this extension was loaded from. */
 export const PACKAGE_ROOT = canonical(
@@ -169,6 +170,35 @@ export function sayLanded(
 }
 
 /**
+ * Start a hosted conversation's runtime. Its landing waits in its own
+ * slot (hosted.ts) rather than the process's reload slot, whose speaker
+ * and request every conversation in the host would share.
+ */
+async function startHostedRuntime(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	reason: string,
+	settings: PackageSettings,
+	onLoaded: (loaded: Loaded) => void,
+): Promise<void> {
+	const landed = reason === "reload" ? takeHostedLanding(ctx) : undefined;
+	const loaded = await whatRuns(settings);
+	onLoaded(loaded);
+	showMark(ctx, loaded);
+	if (landed) {
+		sayLanded(pi, landed, loaded);
+		return;
+	}
+	if (reason === "reload") {
+		pi.sendMessage({
+			customType: LOADED_MESSAGE,
+			content: `The harness was reloaded. ${describeLoaded(PACKAGE_NAME, loaded)}`,
+			display: false,
+		});
+	}
+}
+
+/**
  * Start this runtime: show the mark, leave the way to say a reload
  * landed, and tell the model when the code changed under it without
  * anybody asking through the harness (pi's own `/reload`).
@@ -185,6 +215,7 @@ export async function startRuntime(
 	settings: PackageSettings,
 	onLoaded: (loaded: Loaded) => void,
 ): Promise<void> {
+	if (hosted()) return startHostedRuntime(pi, ctx, reason, settings, onLoaded);
 	const slot = reloadSlot();
 	// Asked for before anything is awaited, so the request is read as it
 	// stood when this runtime started, and the way to say a reload landed

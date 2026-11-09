@@ -7,6 +7,7 @@ export {
 	type HostedSession,
 	type HostedState,
 	type HostRegistry,
+	type HostReloadRequest,
 	hosted,
 	installHost,
 	isSessionStamp,

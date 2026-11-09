@@ -21,6 +21,17 @@ export interface LaunchHints {
 	firstWordsToken?: string;
 }
 
+/** What a conversation asks of its host when its extensions should load again. */
+export interface HostReloadRequest {
+	/** Why, in the asker's words. */
+	readonly reason: string;
+	/**
+	 * A tree to load in place of what runs. A host refuses one, since its
+	 * extensions load into a process every conversation shares.
+	 */
+	readonly onto?: string;
+}
+
 /** The host supplies one of these before any extension is loaded. */
 export interface Host {
 	readonly kind: "pi-durable";
@@ -32,6 +43,12 @@ export interface Host {
 	hints(sessionId: string): LaunchHints;
 	close(sessionId: string, why: string): void | Promise<void>;
 	stamp(sessionId: string, how: "signalled" | "closed"): void | Promise<void>;
+	/**
+	 * Reload one conversation's extensions, keeping its ownership, slots
+	 * and environment, and leaving every other conversation running. A
+	 * host whose runner can't reload a conversation leaves it out.
+	 */
+	reload?(sessionId: string, request: HostReloadRequest): Promise<void>;
 }
 
 /** Host.stamp emits this on the conversation bus within withSession. */

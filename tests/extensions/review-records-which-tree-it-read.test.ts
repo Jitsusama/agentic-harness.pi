@@ -377,6 +377,8 @@ describe("what a round records about the tree it read", () => {
 		// passed the session's directory instead, so naming a checkout
 		// was refused with the same words as naming nothing. Scanned for
 		// the same reason the case above is: the join is six call sites.
+		// Its own directory is the conversation's checkout (`seat.cwd`),
+		// not the process's, which a host shares.
 		const source = readFileSync(
 			join(
 				dirname(fileURLToPath(import.meta.url)),
@@ -397,9 +399,7 @@ describe("what a round records about the tree it read", () => {
 		// Counted, so a rename that takes the calls out cannot pass on
 		// an empty list.
 		expect(fallbacks.length).toBeGreaterThan(0);
-		expect(new Set(fallbacks)).toEqual(
-			new Set(["params.repo ?? process.cwd()"]),
-		);
+		expect(new Set(fallbacks)).toEqual(new Set(["params.repo ?? seat.cwd"]));
 	});
 
 	it("says nothing about a tree that was the commit", () => {

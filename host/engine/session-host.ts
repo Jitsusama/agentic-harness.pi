@@ -7,6 +7,7 @@ import {
 	type Host,
 	type HostedState,
 	type HostRegistry,
+	type HostReloadRequest,
 	hostRegistryPath,
 	installHost,
 	type LaunchHints,
@@ -27,7 +28,13 @@ export interface ConversationRegistration {
 	readonly close: (why: string) => void | Promise<void>;
 	/** Emit the typed session stamp on this conversation\'s pi event bus. */
 	readonly stamp?: (how: "signalled" | "closed") => void | Promise<void>;
+	/** Await idle and reload this conversation's runner, as pi's own reload does. */
+	readonly reload?: (request: HostReloadRequest) => void | Promise<void>;
 }
+
+/** Why a host reloads no conversation onto another tree. */
+export const HOST_RELOAD_ONTO =
+	"A host's conversations load the harness from the one install it runs, so a conversation can't reload onto another tree";
 
 /** The live identity a transport can list without reading pi internals. */
 export interface ConversationIdentity {
@@ -43,6 +50,8 @@ interface Conversation extends ConversationIdentity {
 	launchHints: LaunchHints;
 	cleanup: ConversationRegistration["close"];
 	stampCallback: ConversationRegistration["stamp"];
+	reloadCallback: ConversationRegistration["reload"];
+	reloading?: Promise<void>;
 	ending?: "signalled" | "closed";
 	stamped?: "signalled" | "closed";
 	closing?: Promise<void>;
@@ -105,6 +114,7 @@ export class SessionHost implements Host {
 			launchHints: { ...input.hints },
 			cleanup: input.close,
 			stampCallback: input.stamp,
+			reloadCallback: input.reload,
 		});
 		try {
 			this.publish();
@@ -158,6 +168,35 @@ export class SessionHost implements Host {
 	/** Stop admission, then dispose only this session; a failed close stays held. */
 	close(id: string, why = "closed"): Promise<void> {
 		return this.finish(id, why, "closed");
+	}
+
+	/**
+	 * Reload one conversation, keeping its ownership, slots, environment
+	 * and list entry: no stamp, no park, no release. A second ask while one
+	 * is under way joins it. A failed reload leaves the conversation held
+	 * and usable, and rejects with why.
+	 */
+	reload(id: string, request: HostReloadRequest): Promise<void> {
+		const conversation = this.conversations.get(id);
+		if (!conversation)
+			return Promise.reject(new Error(`Conversation not held: ${id}`));
+		if (!conversation.accepting)
+			return Promise.reject(new Error(`Conversation is closing: ${id}`));
+		if (request.onto !== undefined)
+			return Promise.reject(new Error(HOST_RELOAD_ONTO));
+		const callback = conversation.reloadCallback;
+		if (!callback)
+			return Promise.reject(
+				new Error(`Conversation's runner can't be reloaded: ${id}`),
+			);
+		if (conversation.reloading) return conversation.reloading;
+		const reloading = Promise.resolve()
+			.then(() => withSession(id, () => callback(request)))
+			.finally(() => {
+				conversation.reloading = undefined;
+			});
+		conversation.reloading = reloading;
+		return reloading;
 	}
 
 	/** Stop for host restart without recording a deliberate conversation quit. */

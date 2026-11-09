@@ -102,7 +102,8 @@ loads the install and the install is `main`.
   writes it with its stack to `stale-rejections.jsonl` in this
   extension's state folder, so each is found and fixed where it
   happens. Any other rejection is thrown again, and pi crashes on it
-  as before.
+  as before. In a host the process is the host's, so its entry
+  installs the net once and no conversation's load adds it.
 - **`⇄` on the footer** while the session runs code other than the
   install pi's settings name, muted, and only then.
 - **`/harness`** says what runs, from where, at which commit, and
@@ -156,8 +157,19 @@ The request slot, the follower and `loaded/<pid>` are one per process,
 and a tree is swapped in through pi's shared settings. In a
 multi-session host each would act for every conversation at once, so
 a hosted conversation uses none of them: it follows no install, and
-the `reload` tool and `/harness reload` refuse, saying the reload is
-the host's to do. Each conversation's load still writes
+it asks its host to reload it instead (`hosted.ts`). The `reload`
+tool queues the request in the conversation's own slot; the end of
+that conversation's run hands it to the host's `reload`, which reloads
+that conversation alone and keeps its slots; and its new runtime says
+the landing, as on plain pi. `/harness reload` asks the host at once,
+and takes any request the agent left waiting with it. A tree is
+refused, since every conversation loads the harness from the install
+the host runs, and a host that can't reload a conversation has both
+refuse, saying why. A reload reads that install from disk again, so
+once pi-packages moves it a reloaded conversation runs the new
+version while the others keep the old one until each reloads: an
+install swap reaches a host one conversation at a time. Each
+conversation's load still writes
 `loaded/<pid>`, so pi-packages keeps the version the host runs, but
 none takes it back and no exit listener is added: one conversation
 ending must not take it back for the others, and pi-packages removes
