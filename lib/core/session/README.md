@@ -110,6 +110,26 @@ gone, unknown or malformed owners are refused. Closing a hosted owner in another
 the host control socket: the transport belongs to the host/mesh piece,
 not this module. It never sends SIGTERM to a shared host.
 
+## Held for Resume
+
+roster.ts is imported directly, not through the barrel. HostRegistry
+files name a host process and vanish with it; each realm-kind host also
+keeps a roster under the package state folder that outlives restarts:
+
+~~~text
+$XDG_STATE_HOME/pi/agentic-harness.pi/host-rosters/<realm>-<kind>.json
+~~~
+
+The host writes a hold before the engine registers a conversation and
+removes it only after a deliberate close or release commits. A host
+stopping, crashing or being killed leaves its holds in place.
+
+heldSessionStatus(id, {dir?, hostKey?}) answers held, unheld or
+unknown. Held wins over everything. Unheld needs every roster read
+whole and none holding the id. No folder, no rosters, a named hostKey
+with no roster, or any unreadable or malformed roster answer unknown.
+A reaper deletes only on unheld.
+
 ## Migration Gate
 
 tests/package/session-state-is-keyed.test.ts detects direct process.pid,
