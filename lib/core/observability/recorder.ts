@@ -1,4 +1,4 @@
-import { processGlobal } from "../../internal/process-global.ts";
+import { type SessionRef, sessionSlot } from "../session/index.ts";
 import type { RunCost, RunRecord, RunTokens } from "./types.ts";
 
 /** A sink that persists a run record. */
@@ -77,14 +77,14 @@ export function runRecordFrom(input: RunRecordInput): RunRecord {
 	};
 }
 
-// Process-global so a producer extension's recordRunEverywhere
-// reaches the sink another extension registered; a module-level
-// Set would give each extension its own, and records would never
-// reach the writer.
-const recorders = processGlobal(
-	"pi:observability-recorders",
-	() => new Set<RunRecorder>(),
-);
+// Extension copies share sinks within their conversation, not their host.
+function recorders(ref?: SessionRef): Set<RunRecorder> {
+	return sessionSlot(
+		"pi:observability-recorders",
+		ref,
+		() => new Set<RunRecorder>(),
+	);
+}
 
 /**
  * Register a sink for run records. Returns an unregister
@@ -92,20 +92,24 @@ const recorders = processGlobal(
  * to its store; when nothing is registered, producers that
  * emit records are cheap no-ops.
  */
-export function registerRunRecorder(recorder: RunRecorder): () => void {
-	recorders.add(recorder);
+export function registerRunRecorder(
+	recorder: RunRecorder,
+	ref?: SessionRef,
+): () => void {
+	const sinks = recorders(ref);
+	sinks.add(recorder);
 	return () => {
-		recorders.delete(recorder);
+		sinks.delete(recorder);
 	};
 }
 
 /**
- * Emit a record to every registered sink. Producers call
+ * Emit a record to the current conversation's sinks. Producers call
  * this unconditionally; a throwing sink never disturbs the
  * run being recorded.
  */
 export function recordRunEverywhere(record: RunRecord): void {
-	for (const recorder of recorders) {
+	for (const recorder of recorders()) {
 		try {
 			recorder(record);
 		} catch {
