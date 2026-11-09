@@ -38,6 +38,7 @@
 		"pkill",
 		"qs",
 		"session-backup",
+		"systemd-notify",
 		"xdg-open"
 	],
 	// An export a file also uses itself is no dead code.

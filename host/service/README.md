@@ -21,6 +21,10 @@ input pipeline or screen. No unit or running host is installed yet.
   Start first sets the package's stale-rejection net, logging under
   the host's state folder, so one conversation's reload leftovers never
   end the host and its other conversations.
+- run.ts: a host as systemd runs it: kind from the command line, realm
+  from the unit's environment, ready (systemd-notify, so the unit needs
+  NotifyAccess=all) only once it listens, and parked on SIGTERM or
+  SIGINT. The engine is passed in by the program that starts it.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
   or release commits; stop and kill -9 keep them. A live or unjudgeable
