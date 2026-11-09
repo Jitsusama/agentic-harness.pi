@@ -23,6 +23,7 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
+import { hosted, sessionSlot } from "../../core/session/index.ts";
 
 /** Said on the bus when a want starts, changes or ends. */
 export const SESSION_WANTS = "session:wants:v1";
@@ -160,8 +161,24 @@ const HELD = Symbol.for("agentic-harness.session-wants");
 
 type Holder = { [HELD]?: Wants };
 
+/** These records reset together when a hosted conversation forgets its wants. */
+interface HostedWants {
+	wants: Wants;
+	owners: Map<string, OwnWants>;
+	shown: { count: number };
+}
+
+function hostedWants(): HostedWants {
+	return sessionSlot("agentic-harness.session-wants", undefined, () => ({
+		wants: createWants(),
+		owners: new Map(),
+		shown: { count: 0 },
+	}));
+}
+
 /** This process's wants, made on first asking. */
 export function sessionWants(): Wants {
+	if (hosted()) return hostedWants().wants;
 	const holder = globalThis as Holder;
 	holder[HELD] ??= createWants();
 	return holder[HELD];
@@ -186,9 +203,7 @@ export interface OwnWants {
  * loaded after must be able to settle what the one before said.
  */
 export function ownWants(owner: string): OwnWants {
-	const holder = globalThis as OwnersHolder;
-	holder[OWNERS] ??= new Map();
-	const owners = holder[OWNERS];
+	const owners = hosted() ? hostedWants().owners : processOwners();
 	let own = owners.get(owner);
 	if (!own) {
 		own = createOwnWants(sessionWants());
@@ -200,6 +215,12 @@ export function ownWants(owner: string): OwnWants {
 const OWNERS = Symbol.for("agentic-harness.session-wants-owners");
 
 type OwnersHolder = { [OWNERS]?: Map<string, OwnWants> };
+
+function processOwners(): Map<string, OwnWants> {
+	const holder = globalThis as OwnersHolder;
+	holder[OWNERS] ??= new Map();
+	return holder[OWNERS];
+}
 
 const SHOWN = Symbol.for("agentic-harness.session-wants-shown");
 
@@ -215,6 +236,16 @@ type ShownHolder = { [SHOWN]?: number };
  * reload's old copy and new one count the same showing.
  */
 export function showWants(): () => void {
+	if (hosted()) {
+		const shown = hostedWants().shown;
+		shown.count += 1;
+		let hidden = false;
+		return () => {
+			if (hidden) return;
+			hidden = true;
+			shown.count = Math.max(0, shown.count - 1);
+		};
+	}
 	const holder = globalThis as ShownHolder;
 	holder[SHOWN] = (holder[SHOWN] ?? 0) + 1;
 	let hidden = false;
@@ -227,11 +258,19 @@ export function showWants(): () => void {
 
 /** Whether something shows this process's wants to the person. */
 export function wantsShown(): boolean {
+	if (hosted()) return hostedWants().shown.count > 0;
 	return ((globalThis as ShownHolder)[SHOWN] ?? 0) > 0;
 }
 
 /** Forget this process's wants, their owners and their showing. For tests. */
 export function forgetWants(): void {
+	if (hosted()) {
+		const state = hostedWants();
+		state.wants = createWants();
+		state.owners = new Map();
+		state.shown = { count: 0 };
+		return;
+	}
 	delete (globalThis as Holder)[HELD];
 	delete (globalThis as OwnersHolder)[OWNERS];
 	delete (globalThis as ShownHolder)[SHOWN];
