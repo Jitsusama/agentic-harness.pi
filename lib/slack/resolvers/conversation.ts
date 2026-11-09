@@ -22,7 +22,7 @@
 import type { SlackClient } from "../api/client.ts";
 import { getUserInfo } from "../api/users.ts";
 import type { Conversation } from "../types.ts";
-import { cacheMapping, listCached, lookupId } from "./cache.ts";
+import { cacheMapping, lookupId } from "./cache.ts";
 import {
 	cacheConversation,
 	fetchConversation,
@@ -149,11 +149,6 @@ export function cacheChannelName(name: string, id: string): void {
 	if (name && id) {
 		cacheMapping(CACHE_FILE, name, id);
 	}
-}
-
-/** List all cached channel mappings. */
-export function listCachedChannels(): Array<{ name: string; id: string }> {
-	return listCached(CACHE_FILE);
 }
 
 /**

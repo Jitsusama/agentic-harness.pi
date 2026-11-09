@@ -184,8 +184,7 @@ the load check's, not every test that shells out. It costs about 45 seconds, and
 project, this one included.
 
 There is no CI. `pnpm check` runs `pnpm lint`, `pnpm typecheck`,
-`pnpm knip` (an unused file or dependency fails it; an unused export
-is said, until they are pruned), the tests the change touches beside
+`pnpm knip` (an unused file, dependency or export fails it), the tests the change touches beside
 origin's main, the browser
 tests it touches (`pnpm test:browser:changed`), and
 `pnpm load-check`, before merging. A change that reaches no

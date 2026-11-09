@@ -359,7 +359,7 @@ export function restoreRecipe(
 }
 
 /** What a fresh pi reads to load a quest as it starts. */
-export const AUTOLOAD_VARIABLE = "QUEST_WORKFLOW_AUTOLOAD_ID";
+const AUTOLOAD_VARIABLE = "QUEST_WORKFLOW_AUTOLOAD_ID";
 
 /**
  * How to bring a session back: resume it, or, for one pi never saved,

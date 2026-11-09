@@ -615,11 +615,6 @@ export function hopIntoDock(): void {
 		?.focus();
 }
 
-/** Whether any widget that takes keys is docked, in any copy. */
-export function dockHasFocusable(): boolean {
-	return shared().entries.some((one) => one.focusable);
-}
-
 /**
  * A sequence that moves the cursor or scrolls. Built from the escape
  * character rather than written with it inline, which is how the rest of

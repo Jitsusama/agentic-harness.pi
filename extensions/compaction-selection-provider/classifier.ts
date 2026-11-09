@@ -12,8 +12,6 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findClassifier } from "../../lib/classifier/jev.ts";
 import type { Classifier } from "../../lib/compaction/selection/classify.ts";
 
-export { JEV_MODELS } from "../../lib/classifier/jev.ts";
-
 /**
  * The environment variable naming the classifier as `provider/model`,
  * or `off` for none.

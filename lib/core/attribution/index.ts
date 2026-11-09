@@ -8,12 +8,13 @@
  */
 
 export {
-	buildPrepareCommitMsgHook,
 	type CommitHookOptions,
 	ensureCommitHook,
 	type HookInstall,
 	installCommitHook,
-	repoRootOf,
 } from "./commit-hook.ts";
-export { type GhFooterInsertion, insertGhBodyFooter } from "./gh-footer.ts";
+export {
+	type GhFooterInsertion,
+	insertGhBodyFooter,
+} from "./gh-footer.ts";
 export { formatModelName } from "./model-name.ts";

@@ -34,20 +34,3 @@ export function runSectionGate(
 	// body and can reject it. On allow we also fall through.
 	return undefined;
 }
-
-/**
- * The relent message, when the section gate is letting this exact
- * body through after already blocking it once, else null. See
- * prose-gate.ts's `proseGateNote` for why this exists: a caller
- * whose "ask" is a synthesized summary, not a full render of the
- * body, needs to say a relent happened rather than staying silent.
- */
-export function sectionGateNote(
-	deps: GateDeps,
-	body: string | null,
-	config: SectionGateConfig,
-): string | null {
-	if (!body) return null;
-	const decision = sectionGateDecision(body, deps.readSignatures(), config);
-	return decision.action === "relent" ? decision.message : null;
-}

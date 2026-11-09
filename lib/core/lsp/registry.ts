@@ -10,13 +10,7 @@
  * so it takes over transparently when present.
  */
 
-import {
-	clear,
-	get,
-	list,
-	register,
-	unregister,
-} from "../internal/lsp/registry.ts";
+import { clear, list, register, unregister } from "../internal/lsp/registry.ts";
 import type { LspBackend, LspBackendEntry } from "./types.ts";
 
 /** Register or overwrite a backend entry. */
@@ -27,11 +21,6 @@ export function registerLspBackend(entry: LspBackendEntry): void {
 /** Remove a backend by name. Idempotent. */
 export function unregisterLspBackend(name: string): void {
 	unregister(name);
-}
-
-/** Look up a backend entry by name. */
-export function getLspBackend(name: string): LspBackendEntry | undefined {
-	return get(name);
 }
 
 /** Snapshot of every registered backend entry. */

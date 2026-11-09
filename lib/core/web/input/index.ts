@@ -8,21 +8,15 @@
  */
 
 export {
-	type Chord,
 	type ChordRefusal,
-	MODIFIER_BITS,
-	type ModifierName,
 	parseChords,
 } from "./keys.ts";
 export {
 	composeClick,
 	composeDrag,
-	type DragOptions,
-	interpolate,
 	type MouseButton,
 	type Point,
 	type PointerEventStep,
-	ratios,
 } from "./pointer.ts";
 export {
 	composeLongPress,
@@ -30,6 +24,5 @@ export {
 	composeSwipe,
 	composeTap,
 	LONG_PRESS_MS,
-	type TouchPoint,
 	type TouchStep,
 } from "./touch.ts";

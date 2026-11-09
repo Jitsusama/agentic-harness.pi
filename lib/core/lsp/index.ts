@@ -10,7 +10,6 @@
  * `LspBackend` operations without knowing which backend answered.
  */
 
-export { DEFAULT_SERVERS, type ServerConfig } from "./config.ts";
 export { toBackendEntry } from "./external.ts";
 export {
 	formatCodeActions,
@@ -22,8 +21,6 @@ export {
 } from "./format.ts";
 export {
 	clearLspBackends,
-	getLspBackend,
-	listLspBackends,
 	registerLspBackend,
 	resolveLspBackend,
 	unregisterLspBackend,
@@ -32,21 +29,9 @@ export {
 	createStandaloneBackend,
 	MissingServerError,
 	type StandaloneBackend,
-	type StandaloneBackendOptions,
 } from "./standalone/backend.ts";
 export type {
-	CodeAction,
 	Diagnostic,
-	DiagnosticSeverity,
-	HoverInfo,
 	LspBackend,
-	LspBackendEntry,
 	LspCallOptions,
-	LspLocation,
-	LspPosition,
-	LspRange,
-	LspTarget,
-	LspTextEdit,
-	SymbolInfo,
-	WorkspaceEdit,
 } from "./types.ts";

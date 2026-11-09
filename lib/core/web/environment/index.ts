@@ -7,23 +7,14 @@
  */
 
 export {
-	type DeviceCatalogue,
-	type DeviceProfile,
-	deviceEmulation,
-	nearestDevices,
-	noSuchDevice,
-} from "./devices.ts";
-export {
 	type Divergence,
 	divergences,
 	type EmulationState,
-	type MediaFeature,
 	mediaFeaturesOf,
 	mergeEmulation,
 	type ObservedEnvironment,
 	refusedFeature,
 	unsupportedFields,
-	type VisionDeficiency,
 	withoutFeature,
 } from "./emulation.ts";
 export { ENVIRONMENT_PROBE } from "./probes.ts";
@@ -33,13 +24,14 @@ export {
 	renderShaping,
 	resolveThrottle,
 	ruleFor,
-	type ShapeAction,
-	THROTTLE_PROFILES,
 	type ThrottleConditions,
 	throttleNames,
 	throttleProfile,
 } from "./shaping.ts";
-export { renderStatus, type SessionStatus } from "./status.ts";
+export {
+	renderStatus,
+	type SessionStatus,
+} from "./status.ts";
 export {
 	type CookieRecord,
 	captureState,
@@ -48,5 +40,9 @@ export {
 	type SavedState,
 	type StorageSnapshot,
 } from "./storage.ts";
-export { chooseTab, renderTabs, type TabRecord } from "./tabs.ts";
+export {
+	chooseTab,
+	renderTabs,
+	type TabRecord,
+} from "./tabs.ts";
 export { renderEnvironment } from "./view.ts";

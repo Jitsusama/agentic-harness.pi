@@ -72,8 +72,6 @@ import {
 import { withFileLists } from "../../lib/compaction/summary.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 
-export type { CompactionAttempt } from "../../lib/compaction/index.ts";
-
 /** Custom entry recording a compaction the chain handed back to pi. */
 export const SUMMARY_FALLBACK_ENTRY = "compaction-summary-fallback";
 

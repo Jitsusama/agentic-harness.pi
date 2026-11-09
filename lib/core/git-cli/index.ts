@@ -21,11 +21,7 @@
  * because git add is a staging prefix, not a guardable target.
  */
 
-import {
-	hasUnquotedHeredoc,
-	stripHeredocBodies,
-	stripShellData,
-} from "../../shell/parse.ts";
+import { hasUnquotedHeredoc } from "../../shell/parse.ts";
 
 /** Commands that guardians intercept and may rewrite. */
 const GUARDABLE_PATTERNS: RegExp[] = [
@@ -138,20 +134,4 @@ export function detectCompoundViolation(stripped: string): string | null {
 	}
 
 	return null;
-}
-
-/**
- * Run every git-cli check against a raw bash command. Returns the
- * first violation's block reason, or null if the command is fine.
- * The one entry point an adapter needs; the individual `detect*`
- * functions stay exported for adapters that want finer control.
- */
-export function checkGitCli(command: string): string | null {
-	const stripped = stripShellData(stripHeredocBodies(command));
-	return (
-		detectAmendViolation(stripped) ??
-		detectUnquotedCommitHeredoc(stripped, command) ??
-		detectCompoundViolation(stripped) ??
-		null
-	);
 }

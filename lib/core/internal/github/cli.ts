@@ -18,8 +18,6 @@ import type { SimpleCommand } from "../../../command/types.ts";
 import { unquote } from "../../../shell/index.ts";
 import { GH_BODY_SPEC, isGhCommand } from "../../github-cli/index.ts";
 
-export { isGhCommand } from "../../github-cli/index.ts";
-
 /** The title flag of gh pr/issue, in its long and short forms. */
 const GH_TITLE_SPEC: FlagSpec = {
 	flags: [{ name: "title", long: "title", short: "t", takesValue: true }],

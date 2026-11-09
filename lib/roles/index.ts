@@ -4,6 +4,12 @@
  * premium, primary and light.
  */
 
-export { type ArchaicFinding, findArchaic } from "./archaic.ts";
-export { deriveRoles, type RoleAssignment } from "./derive.ts";
-export type { RoleModel, RoleModelCost } from "./model.ts";
+export {
+	type ArchaicFinding,
+	findArchaic,
+} from "./archaic.ts";
+export {
+	deriveRoles,
+	type RoleAssignment,
+} from "./derive.ts";
+export type { RoleModel } from "./model.ts";

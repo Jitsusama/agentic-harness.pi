@@ -199,9 +199,3 @@ export interface SlackUser {
 	statusEmoji?: string;
 	deleted: boolean;
 }
-
-/** Search result metadata. */
-export interface SearchResult {
-	messages: SlackMessage[];
-	total: number;
-}

@@ -24,14 +24,12 @@ export {
 	centreOf,
 	cornersOf,
 	normalizeBoxModel,
-	type Quad,
 	type RawBoxModel,
 	type Rect,
 } from "./box.ts";
 export {
 	foldHover,
 	HOVER_SCAN,
-	type HoverGroup,
 	type HoverMeasurement,
 	type HoverReport,
 	type HoverScan,
@@ -47,7 +45,6 @@ export {
 	renderListeners,
 } from "./listeners.ts";
 export {
-	type AxisRelation,
 	type Measurement,
 	measureBetween,
 	renderMeasurement,
@@ -76,8 +73,6 @@ export {
 } from "./view.ts";
 export {
 	judgeVisibility,
-	type Viewport,
 	type VisibilityFacts,
 	type VisibilityVerdict,
-	type Visible,
 } from "./visibility.ts";

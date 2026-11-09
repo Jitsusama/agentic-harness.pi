@@ -14,7 +14,6 @@ export {
 	type ContextGauge,
 	contextGauge,
 	GAP,
-	type MeterToken,
 	marginalText,
 	medianOf,
 	sessionText,

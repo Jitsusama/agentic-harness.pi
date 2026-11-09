@@ -14,5 +14,8 @@ export {
 	type Turn,
 } from "./distill.ts";
 export { renderRulesBlock } from "./render.ts";
-export { type NewRule, openRuleStore, type RuleStore } from "./store.ts";
+export {
+	openRuleStore,
+	type RuleStore,
+} from "./store.ts";
 export type { GovernanceRule } from "./types.ts";

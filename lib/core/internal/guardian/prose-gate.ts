@@ -43,25 +43,3 @@ export function runProseGate(
 	// allow we also fall through. Either way we record nothing new.
 	return undefined;
 }
-
-/**
- * The relent message, when the prose gate is letting this exact
- * body through after already blocking it once, else null.
- *
- * A caller that only reads `runProseGate`'s block-or-undefined
- * result cannot tell "clean" and "relented" apart, since both fall
- * through to undefined by design (see above). pi's own review UI
- * doesn't need to tell them apart either, since it renders the body
- * in full regardless. A caller whose "ask" is a synthesized summary
- * (a Claude Code hook's permission reason) does need to, so a
- * relented violation is not silently reported as clean.
- */
-export function proseGateNote(
-	deps: GateDeps,
-	body: string | null,
-): string | null {
-	if (!body) return null;
-	const violations = detectProseViolations(body);
-	const decision = proseGateDecision(violations, deps.readSignatures(), body);
-	return decision.action === "relent" ? decision.message : null;
-}

@@ -33,22 +33,11 @@ export type {
 	InvestigationResult,
 	LoopTool,
 } from "./investigate.ts";
-export {
-	isModelUnreachable,
-	looksLikeGlm,
-	type ModelRef,
-	type ModelTarget,
-	pickModel,
-	rankModels,
-} from "./resolve.ts";
-export type { SideCompletionRequest, SideCompletionResult } from "./side.ts";
 export type {
-	CompatModule,
-	CompleteSimple,
-	CompletionHeaders,
-	CompletionMessage,
-	CompletionRegistry,
-} from "./types.ts";
+	SideCompletionRequest,
+	SideCompletionResult,
+} from "./side.ts";
+export type { CompletionRegistry } from "./types.ts";
 
 const COMPAT_SPECIFIER = "@earendil-works/pi-ai/compat";
 

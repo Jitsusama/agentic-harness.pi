@@ -38,15 +38,5 @@
 		"xdg-open"
 	],
 	// An export a file also uses itself is no dead code.
-	"ignoreExportsUsedInFile": true,
-	// Unused exports and types are said, not refused, until they are
-	// pruned folder by folder (85PKB2's plan, item 52); then these go.
-	"rules": {
-		"exports": "warn",
-		"types": "warn",
-		"nsExports": "warn",
-		"nsTypes": "warn",
-		"enumMembers": "warn",
-		"duplicates": "warn"
-	}
+	"ignoreExportsUsedInFile": true
 }

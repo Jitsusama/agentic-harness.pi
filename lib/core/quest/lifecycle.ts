@@ -21,10 +21,6 @@ import {
 	readFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import {
-	type AliasIndex,
-	buildAliasIndex,
-} from "../../internal/quest/alias-index.ts";
 import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
 import { nowYmd } from "../../internal/quest/dates.ts";
 import {
@@ -130,42 +126,6 @@ export function findQuestEntry(
 ): QuestEntry | undefined {
 	const { index } = discoverQuests(state.questsRoot);
 	return index.quests.get(id);
-}
-
-/**
- * Load a quest by id into `state`: the state-mutation half of pi's
- * own `loadQuest`. pi's version additionally calls
- * `pi.setSessionName?.()` once this succeeds -- a pi-only
- * enrichment with no equivalent host concept, so it stays out of
- * this pure version; an adapter that wants it layers it on after
- * calling this.
- */
-export function loadQuestById(
-	state: QuestState,
-	id: string,
-): { ok: true } | { ok: false; guidance: string } {
-	const entry = findQuestEntry(state, id);
-	if (!entry) {
-		return {
-			ok: false,
-			guidance: `No quest with id "${id}" under ${state.questsRoot}.`,
-		};
-	}
-	state.questDir = entry.dir;
-	state.questId = entry.doc.frontMatter.id;
-	state.questTitle = entry.doc.title ?? null;
-	state.questKind = entry.doc.frontMatter.kind;
-	state.questStatus = entry.doc.frontMatter.status;
-	state.questPriority = entry.doc.frontMatter.priority;
-	state.questVerify = entry.doc.frontMatter.verify ?? null;
-	state.scratchDir = entry.doc.frontMatter.scratchDir ?? null;
-	state.documentPath = null;
-	state.documentId = null;
-	state.documentKind = null;
-	state.documentTitle = null;
-	state.documentStage = "idle";
-	refreshProgress(state);
-	return { ok: true };
 }
 
 /**
@@ -597,12 +557,6 @@ export function setQuestFieldByDir(
 	return { ok: true };
 }
 
-/** Build a reverse alias index across every discovered quest. */
-export function buildQuestsAliasIndex(state: QuestState): AliasIndex {
-	const { index } = discoverQuests(state.questsRoot);
-	return buildAliasIndex(index);
-}
-
 function writeQuestFrontMatter(
 	questDir: string,
 	mutate: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
@@ -690,25 +644,6 @@ export function addAliasesToLoaded(
 	});
 	if (!result.ok) return result;
 	return { ok: true, added, already };
-}
-
-/** Remove an alias from the loaded quest. */
-export function removeAliasFromLoaded(
-	state: QuestState,
-	alias: QuestAlias,
-): { ok: true; removed: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	let removed = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
-		const next = fm.aliases.filter(
-			(a) => !(a.type === alias.type && a.value === alias.value),
-		);
-		if (next.length === fm.aliases.length) return undefined;
-		removed = true;
-		return { ...fm, aliases: next };
-	});
-	if (!result.ok) return result;
-	return { ok: true, removed };
 }
 
 /**
@@ -990,16 +925,6 @@ export function setLoadedStatus(
 		state.questStatus = status;
 	}
 	return { ok: true, changed };
-}
-
-/** Rename a session on the loaded quest. */
-export function renameSessionOnLoaded(
-	state: QuestState,
-	sessionId: string,
-	name: string,
-): { ok: true; renamed: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	return renameSessionInQuestDir(state.questDir, sessionId, name);
 }
 
 /** Rename a session on the quest in `questDir`, loaded or not. */

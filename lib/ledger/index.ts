@@ -12,12 +12,9 @@
  * that holds them, and the summaries computed over them.
  */
 
-export { readTurns, SCAN_VERSION } from "./scan.ts";
-export { LEDGER_SCOPE, RETRIEVAL_TOOLS, WRITER_TOOLS } from "./scope.ts";
+export {
+	readTurns,
+	SCAN_VERSION,
+} from "./scan.ts";
+export { LEDGER_SCOPE } from "./scope.ts";
 export { repoOf } from "./session.ts";
-export type {
-	DroppedCallRecord,
-	LedgerScan,
-	ScanCoverage,
-	ToolCallRecord,
-} from "./types.ts";

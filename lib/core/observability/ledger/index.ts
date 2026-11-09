@@ -19,7 +19,6 @@ export {
 	type LedgerTotal,
 	openLedgerReader,
 	openTurnStore,
-	type RecordOutcome,
 	type TurnStore,
 } from "./store.ts";
 export type {
@@ -28,7 +27,6 @@ export type {
 	DroppedCallRecord,
 	PaybackReplay,
 	QueryAnswer,
-	Regret,
 	RegretReport,
 	RepeatedCall,
 	SessionRecord,
@@ -37,6 +35,5 @@ export type {
 	TurnKind,
 	TurnPrecedent,
 	TurnRecord,
-	VerifierKind,
 	VerifierOutcome,
 } from "./types.ts";

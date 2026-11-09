@@ -5,11 +5,7 @@
  */
 
 export {
-	type DocumentLoop,
-	initialDocumentState,
 	type Stage,
 	type TransitionAction,
-	type TransitionInput,
-	type TransitionResult,
 	transition,
 } from "../../lib/core/quest/machine.ts";

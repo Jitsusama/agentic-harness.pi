@@ -14,19 +14,14 @@ export {
 } from "./capture.ts";
 export {
 	type Declaration,
-	type DeclarationOrigin,
 	normalizeCascade,
 	type PropertyTrace,
-	type RawCssProperty,
-	type RawCssRule,
 	type RawMatchedStyles,
-	type RawRuleMatch,
 	traceProperty,
 } from "./cascade.ts";
 export {
 	type ComputedStyles,
 	type CurateOptions,
 	curateStyles,
-	type StyleEntry,
 	type StyleGroup,
 } from "./curation.ts";

@@ -17,6 +17,4 @@ export const register = (entry: LspBackendEntry): void =>
 	registry.register(entry);
 export const unregister = (name: string): void => registry.unregister(name);
 export const clear = (): void => registry.clear();
-export const get = (name: string): LspBackendEntry | undefined =>
-	registry.get(name);
 export const list = (): LspBackendEntry[] => registry.list();

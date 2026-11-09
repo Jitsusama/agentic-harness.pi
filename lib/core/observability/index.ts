@@ -22,15 +22,12 @@ export {
 	type CostDimension,
 	type CostSlice,
 	type DroppedCallRecord,
-	LEDGER_QUERY_ROW_CAP,
 	type LedgerReader,
 	type LedgerTotal,
 	openLedgerReader,
 	openTurnStore,
 	type PaybackReplay,
 	type QueryAnswer,
-	type RecordOutcome,
-	type Regret,
 	type RegretReport,
 	type RepeatedCall,
 	type SessionRecord,
@@ -40,23 +37,22 @@ export {
 	type TurnPrecedent,
 	type TurnRecord,
 	type TurnStore,
-	type VerifierKind,
 	type VerifierOutcome,
 } from "./ledger/index.ts";
 
 export {
-	type RunRecorder,
 	type RunRecordInput,
-	recordRunEverywhere,
 	registerRunRecorder,
 	runRecordFrom,
 } from "./recorder.ts";
-export { openRunStore, type RunQuery, type RunStore } from "./store.ts";
+export {
+	openRunStore,
+	type RunStore,
+} from "./store.ts";
 export type {
 	RunCost,
 	RunRecord,
 	RunRollup,
-	RunSummary,
 	RunTokens,
 	VerifyOutcome,
 } from "./types.ts";

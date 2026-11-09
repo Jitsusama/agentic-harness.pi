@@ -88,6 +88,3 @@ export const DEEP_DOM = `
 		return parts.join(" >> ");
 	};
 `;
-
-/** How many frames the page would not let a probe enter. */
-export const DEEP_UNREACHABLE = "__unreachableFrames";

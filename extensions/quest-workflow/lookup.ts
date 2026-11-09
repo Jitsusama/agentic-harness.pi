@@ -34,7 +34,6 @@ import {
 } from "../../lib/internal/quest/session-registry.ts";
 import {
 	getResolutionFallback,
-	type Identity,
 	resolveIdentity,
 } from "../../lib/people/index.ts";
 import {
@@ -1087,10 +1086,6 @@ export async function showQuestById(
 		echoes: links?.incoming ?? [],
 	};
 }
-
-// `Identity` is exported for callers that want to inspect
-// the resolver chain's output directly.
-export type { Identity };
 
 function milestoneCounts(body: string): { total: number; done: number } {
 	const rx = /^\s*-\s+\[([ xX])\]/gm;
