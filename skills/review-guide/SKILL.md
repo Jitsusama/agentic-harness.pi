@@ -1,16 +1,13 @@
 ---
 name: review-guide
 description: >
-  Put up, read and review a change on any host, or none,
-  through the review tools, councils included (never build
-  one from subagents). Use when asked to "review this
-  change", "read this PR", "what did people say", "reply to
-  that thread", "resolve those comments", "approve it", "run
-  a council", "open a PR", "cut a PR", "raise a PR", "submit
-  a PR", "put it up for review", "mark it ready", "merge
-  it", or to look at, comment on, create or land a change.
-  Creating a PR is this skill's job even when review is not
-  mentioned; `gh pr create` is the mistake it prevents.
+  Put up, read and review a change on any host through the
+  review tools, councils included (never built from
+  subagents). Use when asked to review, read or comment on a
+  PR, see what people said, reply to or resolve threads,
+  approve, run a council, open, cut, raise or submit a PR,
+  put it up for review, mark it ready or merge it. Never
+  `gh pr create`.
 ---
 
 # Review Guide

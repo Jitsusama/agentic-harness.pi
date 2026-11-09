@@ -1,23 +1,12 @@
 ---
 name: repo-quality-standard
 description: >
-  The quality standard every one of my repositories is held to
-  as a whole: every folder with a reason, a name and a note
-  saying what it holds, one gate, a short and true guide, every file
-  linted at its strictest, programs in files of their own
-  language, tests at the cheapest level that proves them and
-  waiting on events, failures that say what was wrong, test
-  code at the production bar, names, no dead
-  code or half-migrations, and the sweep that keeps a
-  repository there. Use when setting up or reviewing a
-  repository, writing or checking its AGENTS.md, adding a
-  linter, a check or a test level, adding, moving or naming a
-  folder, deciding whether a sleep,
-  a suppression, an embedded script or a long file may stay,
-  or cleaning up after a wave of merges. Pairs with
-  code-style-standard (how code reads), code-tdd-guide (how
-  tests are written) and markdown-standard (how docs are laid
-  out).
+  The quality bar for a whole repository: a note for every
+  folder, one gate, a short true guide, strictest lint, tests
+  at the cheapest level, no dead code. Use when setting up or
+  reviewing a repository or its AGENTS.md, adding a linter,
+  check, test level or folder, judging a sleep, suppression,
+  embedded script or long file, or cleaning up after merges.
 ---
 
 # Repository Quality Standard
