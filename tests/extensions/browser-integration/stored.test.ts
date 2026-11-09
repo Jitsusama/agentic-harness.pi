@@ -72,16 +72,22 @@ describe("pageAnswer", () => {
 		try {
 			const first = handleIn(pageAnswer(ctx, hugePage(400), 512));
 			const second = handleIn(pageAnswer(other, hugePage(500), 512));
-			expect(first).toBeDefined();
-			expect(second).toBeDefined();
+			if (first === undefined || second === undefined)
+				throw new Error("Both oversized page answers must cite stored handles");
 			const firstStore = createResultStore({ dir: sessionResultDir(ctx) });
 			const secondStore = createResultStore({ dir: sessionResultDir(other) });
-			expect(firstStore.has(first as string)).toBe(true);
-			expect(firstStore.has(second as string)).toBe(false);
-			expect(secondStore.has(first as string)).toBe(false);
+			expect(firstStore.has(first), "A can read its own page handle").toBe(
+				true,
+			);
+			expect(firstStore.has(second), "A cannot read B's page handle").toBe(
+				false,
+			);
+			expect(secondStore.has(first), "B cannot read A's page handle").toBe(
+				false,
+			);
 			cleanupSessionResults(ctx);
 			expect(
-				JSON.parse(secondStore.read(second as string)).nodes[0].children,
+				JSON.parse(secondStore.read(second)).nodes[0].children,
 			).toHaveLength(500);
 		} finally {
 			cleanupSessionResults(other);
