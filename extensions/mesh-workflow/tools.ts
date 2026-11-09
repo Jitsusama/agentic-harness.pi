@@ -26,6 +26,7 @@ import {
 	machineTakes,
 	orchestratorNamed,
 } from "../../lib/mesh/group.ts";
+import { closeThroughHost, hostedHere } from "../../lib/mesh/host-close.ts";
 import { type Board, isCurrent, othersOn } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
 import {
@@ -1672,7 +1673,7 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
 	if (ended === "unsure") {
 		if (target.owner.session)
 			return answer(
-				`Nothing ended: close ${address} through its host control socket; a shared host is never signalled.`,
+				`Nothing ended: ${address}'s host did not confirm the close through its host control socket (unreachable, refused, or no longer the host its presence names), so it was left alone; a shared host is never signalled.`,
 			);
 		return answer(
 			`Nothing ended: this machine can't tell whether pid ${target.owner.pid} is still ${address}'s pi, so it was left alone.`,
@@ -1686,19 +1687,22 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
 }
 
 /**
- * Close a hosted conversation, or signal a plain pi only while its
- * recorded process identity still matches.
+ * Close a hosted conversation, here or through its host's control
+ * socket, or signal a plain pi only while its recorded process identity
+ * still matches.
  */
 const endByOwner: EndProcess = async (owner) => {
 	const standing = await tickedStanding(owner);
 	if (standing === "gone") return "gone";
 	if (standing === "unknown") return "unsure";
+	if (owner.session !== undefined && !hostedHere(owner))
+		return closeThroughHost(owner);
 	try {
 		await endSession(owner);
 		return "ended";
 	} catch {
-		// A hosted owner in another process needs its host control transport.
-		// It must never be mistaken for a process safe to signal.
+		// A failed local close is not known to have landed, and a hosted
+		// owner must never be mistaken for a process safe to signal.
 		return owner.session ? "unsure" : "gone";
 	}
 };
