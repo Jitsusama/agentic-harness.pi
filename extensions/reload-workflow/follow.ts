@@ -15,6 +15,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/index.ts";
 import {
 	cameIn,
 	dependenciesReady,
@@ -116,6 +117,9 @@ function installedRoots(settings: PackageSettings): string[] {
 /**
  * Follow the installs this session runs. Returns nothing when this
  * session does not follow, which the caller reads as nothing to ask.
+ * A hosted conversation never follows: the follower is one per
+ * process, so B's start would stop A's, and the host owns which
+ * install its conversations load.
  */
 export async function follow(
 	pi: ExtensionAPI,
@@ -131,7 +135,12 @@ export async function follow(
 	const global = globalThis as FollowerGlobal;
 	global[FOLLOWER_KEY]?.();
 	global[FOLLOWER_KEY] = undefined;
-	if (!ctx.hasUI || isSubagent(env) || env[FOLLOW_ENV]?.trim() === "off") {
+	if (
+		hosted() ||
+		!ctx.hasUI ||
+		isSubagent(env) ||
+		env[FOLLOW_ENV]?.trim() === "off"
+	) {
 		return undefined;
 	}
 

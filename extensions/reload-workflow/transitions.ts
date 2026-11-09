@@ -12,6 +12,7 @@
 
 import { resolve } from "node:path";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/index.ts";
 import {
 	checkLoad,
 	describeLoad,
@@ -130,6 +131,7 @@ export async function requestReload(
 	settings: PackageSettings,
 	onProgress: (text: string) => void,
 ): Promise<string> {
+	if (hosted()) throw new Error(HOSTED_RELOAD);
 	const slot = reloadSlot();
 	let checked = "";
 	if (tree !== undefined) {
@@ -176,6 +178,15 @@ export function callOff(): ReloadRequest | undefined {
 }
 
 /**
+ * Why a hosted conversation does not reload itself. The request slot is
+ * one per process and a tree is swapped in through pi's shared
+ * settings, so a reload here would change what every conversation in
+ * the host runs.
+ */
+export const HOSTED_RELOAD =
+	"Nothing was reloaded: in a host, reloading is the host's to do, since this process's settings and reload state are shared by every conversation it runs.";
+
+/**
  * Reload, from a command's context. Runs the agent's request when one
  * is waiting, and otherwise the person's: onto whatever runs now.
  */
@@ -190,6 +201,14 @@ export async function performReload(
 		overruled: (times: number) => void;
 	} = { underWay: () => false, overruled: () => {} },
 ): Promise<void> {
+	if (hosted()) {
+		try {
+			ctx.ui.notify(HOSTED_RELOAD, "info");
+		} catch {
+			// A context with no screen to say it on.
+		}
+		return;
+	}
 	const slot = reloadSlot();
 	// One at a time. On 24 October the follower's command and the agent's
 	// both ran: two reloads overlapped, and the runtime the first started

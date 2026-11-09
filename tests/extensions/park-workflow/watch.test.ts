@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	HOST_PARKS,
 	mayPark,
 	noteNeverParks,
 	type Parkable,
@@ -29,6 +30,7 @@ import {
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 const SESSION = "01a1af3c-26bc-7b80-990f-37848859ff67";
 /** The process the holder's record says it runs. */
@@ -407,6 +409,29 @@ describe("why a session stays awake", () => {
 		watched.stop();
 
 		expect(awake()).toBeUndefined();
+	});
+
+	it("refuses in a host, even with a screen and a holder, naming the host", () => {
+		const watched = watching();
+		const host = installTestHost();
+		try {
+			clock = NAMED_PARK_AFTER_MS;
+			expect(mayPark(session(), holder()), "a hosted session").toBe(false);
+			expect(watched.look()).toBe(HOST_PARKS);
+			expect(
+				{ shutdowns, exits, parked: readParked(SESSION, folder) },
+				"a hosted session never ends its process",
+			).toEqual({ shutdowns: 0, exits: [], parked: undefined });
+			expect(awake()?.why).toBe(HOST_PARKS);
+
+			expect(
+				noteNeverParks(session(), holder(), folder),
+				"a hosted session says why it never parks, holder or not",
+			).toBe(true);
+			expect(awake()?.why).toBe(HOST_PARKS);
+		} finally {
+			host.dispose();
+		}
 	});
 
 	it("says a person's session with no holder can never park, and nothing of a subagent's", () => {

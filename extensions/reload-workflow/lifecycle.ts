@@ -10,6 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/index.ts";
 import { takeOwedTurn } from "../../lib/internal/reload/hold.ts";
 import {
 	describeLoaded,
@@ -74,8 +75,12 @@ const SAID_FILE = Symbol.for("agentic-harness.reload.said-file");
  * no pi runs it (lib/internal/reload/said.ts), and take it back as the
  * process ends. Each load says it again; the process's one file is taken
  * back once, whichever load wrote it last.
+ *
+ * Not in a host: the host says once what its process runs, and one
+ * conversation ending must not take that back for the others.
  */
 export function tellPiPackages(settings: PackageSettings): void {
+	if (hosted()) return;
 	let install: string | undefined;
 	try {
 		install = installRoot(settings, PACKAGE_NAME);

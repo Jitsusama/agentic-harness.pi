@@ -64,6 +64,11 @@ no flag that restart would drop, such as `-e`. And the holder's
 record has to name this very process, since a pi run through a shell
 would exit to the shell's prompt rather than to its holder.
 
+A conversation in a multi-session host never parks itself, even with
+a screen and a holder: parking ends the process, which is every
+conversation the host runs. Its awake note says `its host parks it`,
+and the host decides when one sleeps.
+
 ## What Happens
 
 1. The mesh says `parked` in the session's presence. Senders take a
