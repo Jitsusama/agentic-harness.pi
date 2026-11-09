@@ -310,15 +310,17 @@ export function currentBootToken(): string | undefined {
 	return bootTokenCache.token;
 }
 
-/** Slot retaining the instance lease across extension copies and reloads. */
-const INSTANCE_ID = "agentic-harness.quest-workflow.instance";
+/** A pi extension load owns its own lease, including across reloads. */
+const PI_INSTANCE_ID = randomUUID();
+const INSTANCE_SLOT = "agentic-harness.quest-workflow.instance";
 
 /**
- * The instance lease: process-wide on pi, per conversation in a host.
+ * The instance lease: per load on pi, per conversation in a host.
  * Stored at attach so a delayed shutdown detaches only its own lease.
  */
 export function currentInstanceId(ref?: SessionRef): string {
-	return sessionSlot(INSTANCE_ID, ref, () => ({ id: randomUUID() })).id;
+	if (!hosted()) return PI_INSTANCE_ID;
+	return sessionSlot(INSTANCE_SLOT, ref, () => ({ id: randomUUID() })).id;
 }
 
 /** The always-on local floor: this host plus the OS start-token reader. */
