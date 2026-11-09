@@ -25,6 +25,7 @@ import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-form
 import { runProseGate } from "../../../lib/core/internal/guardian/prose-gate.ts";
 import { citeListing } from "../../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
+import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { treeRequestFrom } from "../../../lib/core/work/ask.ts";
 import {
 	createGitAuthor,
@@ -711,8 +712,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					// in another repo comes with that repo's rules, once a repo.
 					const rules = repoRulesNote({
 						tree: held.path,
-						cwd: ctx?.cwd ?? process.cwd(),
-						session: ctx?.sessionManager?.getSessionId?.() ?? "",
+						cwd: sessionCwd(ctx),
+						session: ctx.sessionManager?.getSessionId?.() ?? "",
 					});
 					// Named, as a branch's start is, so a tree cut from a stale base
 					// shows at once; a head that will not read is left out.
@@ -748,16 +749,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						held: broker
 							.held()
 							.map((one) => ({ key: one.identity.key, path: one.path })),
-						// The session's directory rather than the process's. The two
-						// hold the same value in an ordinary session, and measuring
-						// that is the only reason this comment is honest: taking the
-						// process's cwd was blamed for a refusal it had nothing to do
-						// with, which was gitTreeRootOf answering null for a
-						// repository root. Kept because they are the same value and
-						// not the same idea: pi's cwd is frozen wherever it was
-						// launched, and the question here is where the person asking
-						// is standing. The fallback makes keeping it cost nothing.
-						cwd: ctx?.cwd ?? process.cwd(),
+						// Where the person asking stands, which is the conversation's
+						// folder: on a host the process's is the host's, shared by
+						// every conversation it runs.
+						cwd: sessionCwd(ctx),
 						gitRootOf: gitTreeRootOf,
 					});
 					if (!target.ok) {

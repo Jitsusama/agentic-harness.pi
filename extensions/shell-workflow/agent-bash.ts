@@ -9,11 +9,12 @@ import {
 	createBashToolDefinition,
 	createLocalBashOperations,
 } from "@earendil-works/pi-coding-agent";
+import type { SessionRef } from "../../lib/core/session/index.ts";
 import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
-import { withoutInteraction } from "./environment.ts";
+import { fromConversation, withoutInteraction } from "./environment.ts";
 import { reapsWhatItLeft } from "./reap.ts";
 
 /** The settings of pi's own that the agent's bash is built with too. */
@@ -22,13 +23,17 @@ export type ShellSettings = Pick<
 	"commandPrefix" | "shellPath"
 >;
 
+/** pi's bash for the conversation `session`, built with its settings. */
 export function agentBash(
 	cwd: string,
 	settings: ShellSettings = {},
 	sandbox: Sandbox = { kind: "none" },
+	session?: SessionRef,
 ): ReturnType<typeof createBashToolDefinition> {
 	return createBashToolDefinition(cwd, {
 		...settings,
+		// A command starts from its conversation's environment, which on a
+		// host is not the process's (environment.ts).
 		// The shell moves itself into jobs before it runs anything, where
 		// priority-workflow is placing what pi starts there. A session that
 		// asked for the sandbox runs the command inside it once its turn
@@ -36,7 +41,7 @@ export function agentBash(
 		// move included, then leaves the shell's command line last, so
 		// `pkill -f` cannot match the shell running it.
 		spawnHook: (context) => {
-			const offered = withoutInteraction(context);
+			const offered = withoutInteraction(fromConversation(context, session));
 			const wrap = wrapFor(sandbox, offered, homedir());
 			return offCommandLine({
 				...offered,

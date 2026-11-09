@@ -6,18 +6,43 @@ import { processSessionSites } from "./session-state.ts";
 
 const ROOT = join(import.meta.dirname, "../..");
 const LIST = join(import.meta.dirname, "session-state-waiting.txt");
+const EXEMPT = join(import.meta.dirname, "session-state-exempt.txt");
 
-/** Today's sites await their domain's migration; the allowance only shrinks. */
-function waiting(): Map<string, number> {
+interface Entry {
+	readonly count: number;
+	readonly reason: string;
+}
+
+/** A list's entries: `path:kind count`, and for an exemption its reason. */
+function listed(file: string): Map<string, Entry> {
 	return new Map(
-		readFileSync(LIST, "utf8")
+		readFileSync(file, "utf8")
 			.split("\n")
 			.filter((line) => line && !line.startsWith("#"))
 			.map((line) => {
-				const [key, count] = line.split(" ");
-				return [key, Number(count)];
+				const [key = "", count = "", ...reason] = line.split(" ");
+				return [key, { count: Number(count), reason: reason.join(" ") }];
 			}),
 	);
+}
+
+/** Today's sites await their domain's migration; the allowance only shrinks. */
+function waiting(): Map<string, number> {
+	return new Map([...listed(LIST)].map(([key, { count }]) => [key, count]));
+}
+
+/** Process infrastructure its owner reviewed, each with why it stays. */
+function exempt(): Map<string, Entry> {
+	return listed(EXEMPT);
+}
+
+/** What a file may hold of a kind: what waits, and what is exempt. */
+function allowed(): Map<string, number> {
+	const all = waiting();
+	for (const [key, { count }] of exempt()) {
+		all.set(key, (all.get(key) ?? 0) + count);
+	}
+	return all;
 }
 
 function counted(): Map<string, number> {
@@ -66,7 +91,7 @@ describe("session state in extensions", () => {
 	});
 
 	it("adds no process-wide session shortcuts", () => {
-		const before = waiting();
+		const before = allowed();
 		const grown = [...counted()].filter(
 			([key, count]) => count > (before.get(key) ?? 0),
 		);
@@ -78,12 +103,28 @@ describe("session state in extensions", () => {
 
 	it("lowers each waiting count as its domain migrates", () => {
 		const now = counted();
-		const stale = [...waiting()].filter(
+		const stale = [...allowed()].filter(
 			([key, count]) => count > (now.get(key) ?? 0),
 		);
 		expect(
 			stale,
-			"lower tests/package/session-state-waiting.txt to the counts still present, removing zero entries",
+			"lower tests/package/session-state-waiting.txt, or an exemption, to the counts still present, removing zero entries",
+		).toEqual([]);
+	});
+
+	it("says why each exempt site stays process-wide", () => {
+		const unexplained = [...exempt()]
+			.filter(
+				([key, { count, reason }]) =>
+					!/^extensions\/\S+:(pid|cwd|global|env-write)$/.test(key) ||
+					!Number.isInteger(count) ||
+					count < 1 ||
+					reason.trim().length === 0,
+			)
+			.map(([key]) => key);
+		expect(
+			unexplained,
+			"each line of tests/package/session-state-exempt.txt is `path:kind count reason`, the reason saying why the site is process infrastructure",
 		).toEqual([]);
 	});
 });

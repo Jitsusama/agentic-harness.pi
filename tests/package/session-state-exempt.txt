@@ -1,0 +1,6 @@
+# Process infrastructure, reviewed by its domain's owner: sites that are
+# right to stay process-wide when one host runs many conversations.
+# Each line is `path:kind count reason`; a line without a reason, or a
+# count the file has outgrown, fails session-state-is-keyed.test.ts.
+extensions/shell-workflow/reap.ts:pid 1 The reaper spares the process running it, which on a host is the host itself: no conversation's stop may kill it (85PKB2, 2026-11-09).
+extensions/work-integration/sweep.ts:pid 1 The sweep log names the process that swept, for reading afterwards; a host's sweeps are its own whichever conversation they serve (MDRIRB, 2026-11-09).

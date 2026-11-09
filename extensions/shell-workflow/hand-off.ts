@@ -31,6 +31,7 @@ import type {
 	AgentToolUpdateCallback,
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
+import { sessionEnv } from "../../lib/core/session/index.ts";
 import { findJobHost } from "../../lib/jobs/index.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 
@@ -70,13 +71,25 @@ export interface Call<T> {
 	readonly now?: () => number;
 	/** Keep a finished command's output somewhere the model can read it. */
 	readonly keep?: (name: string, text: string) => string;
+	/**
+	 * The conversation calling, whose output files are named for it. A
+	 * session's key is unique across processes, so the name needs no pid.
+	 */
+	readonly session: string;
 }
 
-/** Write output to the system temp directory, as pi's bash does. */
-function keepInTemp(name: string, text: string): string {
-	const resultPath = join(tmpdir(), `pi-bash-${name}.log`);
-	writeFileSync(resultPath, text);
-	return resultPath;
+/**
+ * Write output to the conversation's temp directory, as pi's bash keeps
+ * it in the system's. Read when the call starts, since on a host only
+ * the call knows its conversation.
+ */
+function keepInTemp(session: string) {
+	const dir = sessionEnv(session).get("TMPDIR") || tmpdir();
+	return (name: string, text: string): string => {
+		const resultPath = join(dir, `pi-bash-${name}.log`);
+		writeFileSync(resultPath, text);
+		return resultPath;
+	};
 }
 
 /** A command, named in a line. */
@@ -200,9 +213,10 @@ export async function runOrHandOff<T>(
 		});
 	}
 
-	const keep = call.keep ?? keepInTemp;
-	// Job ids start again in every session; the file outlives the session.
-	const fileName = `${process.pid}-${startedAt}-${job.id}`;
+	const keep = call.keep ?? keepInTemp(call.session);
+	// Job ids start again in every conversation, several of which a host
+	// runs in one process, and the file outlives them all.
+	const fileName = `${call.session}-${startedAt}-${job.id}`;
 	running.then(
 		(result) => {
 			const took = spoken(now() - startedAt);

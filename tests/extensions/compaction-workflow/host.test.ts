@@ -12,7 +12,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installTestHost } from "../../support/session-host.ts";
 
 const completeSimple = vi.fn();
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
@@ -34,6 +35,9 @@ const {
 } = await import("../../../lib/compaction/index.ts");
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
+
+/** Where a reload's request waits on plain pi, as every version names it. */
+const HANDOFF = "agentic-harness.pi:compaction-summary-handoff";
 
 /** Where this file's sessions keep a request across a restart. */
 const keptDir = mkdtempSync(join(tmpdir(), "host-kept-"));
@@ -373,6 +377,102 @@ describe("the conversation summariser", () => {
 		expect(after.entries).toEqual([
 			fellBack("declined", "nothing has been sent this session"),
 		]);
+	});
+
+	it("takes the request the code before it left across a reload", async () => {
+		const ctx = context([userEntry, replyEntry]);
+		const sent = {
+			payload: sentPayload,
+			leafId: "u1",
+			modelId: model.id,
+			at: Date.now(),
+		};
+		(globalThis as Record<symbol, unknown>)[Symbol.for(HANDOFF)] = {
+			held: { sessionId: "s1", sent },
+		};
+
+		const after = activate();
+		await after.fire("session_start", { reason: "reload" }, ctx);
+		completeSimple.mockResolvedValue({
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		});
+		const result = await after.fire(
+			"session_before_compact",
+			compactEvent(),
+			ctx,
+		);
+
+		expect(result, "the old record, read as before").toHaveProperty(
+			"compaction",
+		);
+	});
+
+	describe("on a host", () => {
+		let dispose: (() => void) | undefined;
+		afterEach(() => {
+			dispose?.();
+			dispose = undefined;
+		});
+
+		/** Conversation `id`'s context, on the same branch as the others. */
+		const conversation = (id: string) => {
+			const ctx = context([userEntry, replyEntry]);
+			return {
+				...ctx,
+				sessionManager: { ...ctx.sessionManager, getSessionId: () => id },
+			};
+		};
+
+		it("keeps each conversation's request across reloads at once, and B's past A's close", async () => {
+			const installed = installTestHost();
+			dispose = installed.dispose;
+			const [a, b] = [conversation("a"), conversation("b")];
+			const [beforeA, beforeB] = [activate(), activate()];
+			await beforeA.fire(
+				"before_provider_request",
+				{ payload: sentPayload },
+				a,
+			);
+			await beforeB.fire(
+				"before_provider_request",
+				{ payload: sentPayload },
+				b,
+			);
+			await beforeA.fire("session_shutdown", { reason: "reload" }, a);
+			await beforeB.fire("session_shutdown", { reason: "reload" }, b);
+
+			const afterA = activate();
+			await afterA.fire("session_start", { reason: "reload" }, a);
+			await installed.host.close("a", "done");
+			const afterB = activate();
+			await afterB.fire("session_start", { reason: "reload" }, b);
+			completeSimple.mockResolvedValue({
+				stopReason: "stop",
+				content: [{ type: "text", text: "## Goal" }],
+				usage: {},
+			});
+			const wroteA = await afterA.fire(
+				"session_before_compact",
+				compactEvent(),
+				a,
+			);
+			const wroteB = await afterB.fire(
+				"session_before_compact",
+				compactEvent(),
+				b,
+			);
+
+			expect(wroteA, "A took its own, not B's").toHaveProperty("compaction");
+			expect(wroteB, "B's outlived A's reload and close").toHaveProperty(
+				"compaction",
+			);
+			expect(
+				(globalThis as Record<symbol, unknown>)[Symbol.for(HANDOFF)],
+				"nothing of either left where plain pi keeps it",
+			).toBeUndefined();
+		});
 	});
 
 	it("hands back to pi when the last request overflowed the window", async () => {

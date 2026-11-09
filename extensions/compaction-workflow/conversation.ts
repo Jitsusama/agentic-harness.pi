@@ -51,9 +51,12 @@ import {
 	SUMMARY_SPAN,
 	summaryInstruction,
 } from "../../lib/compaction/summary.ts";
+import {
+	type SessionContext,
+	sessionCell,
+} from "../../lib/core/session/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { isTransientFailure } from "../../lib/internal/model-failure.ts";
-import { processGlobal } from "../../lib/internal/process-global.ts";
 import {
 	keepingRequests,
 	keptRequestDir,
@@ -111,10 +114,17 @@ export interface ConversationOptions {
  * module afresh, so without it the first compaction after one finds
  * nothing sent and declines, even though the cache still holds that
  * request. It is taken by the session it came from and no other.
+ *
+ * On plain pi the box sits where the code before this kept it, under
+ * the same name and shape, so a reload between the two still hands
+ * the request over. A host keeps one per conversation, since several
+ * may reload at once.
  */
-const reloadHandoff = processGlobal<{
-	held?: { readonly sessionId: string; readonly sent: SentRequest };
-}>("agentic-harness.pi:compaction-summary-handoff", () => ({}));
+function reloadHandoff(ctx: SessionContext) {
+	return sessionCell<{
+		held?: { readonly sessionId: string; readonly sent: SentRequest };
+	}>("agentic-harness.pi:compaction-summary-handoff", ctx);
+}
 
 /** The provider, and how idle warming tells it the cache is still warm. */
 export interface ConversationProvider extends CompactionProvider {
@@ -140,8 +150,9 @@ export function conversationProvider(
 
 	pi.on("session_start", async (event, ctx) => {
 		const sessionId = ctx.sessionManager.getSessionId();
-		const held = reloadHandoff.held;
-		reloadHandoff.held = undefined;
+		const handoff = reloadHandoff(ctx);
+		const held = handoff.get()?.held;
+		handoff.clear();
 		if (event.reason === "reload") {
 			sent = held?.sessionId === sessionId ? held.sent : null;
 			return;
@@ -155,7 +166,7 @@ export function conversationProvider(
 		if (!sent) return;
 		const sessionId = ctx.sessionManager.getSessionId();
 		if (event.reason === "reload") {
-			reloadHandoff.held = { sessionId, sent };
+			reloadHandoff(ctx).set({ held: { sessionId, sent } });
 		} else if (keep) {
 			saveKeptRequest(keptDir, sessionId, sent);
 		}

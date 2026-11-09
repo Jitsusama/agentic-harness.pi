@@ -29,7 +29,7 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-const start = (toolCallId: string, toolName: string) =>
+const start = (toolCallId: string, toolName: string, at = ctx) =>
 	on.get("tool_execution_start")?.(
 		{
 			type: "tool_execution_start",
@@ -37,7 +37,7 @@ const start = (toolCallId: string, toolName: string) =>
 			toolName,
 			args: { path: "a.ts" },
 		},
-		ctx,
+		at,
 	);
 
 const result = (
@@ -122,6 +122,24 @@ describe("a read beside a shell command", () => {
 		await start("read", "read");
 
 		expect(await result("read", "read", "one", false)).toBeUndefined();
+	});
+});
+
+describe("a read in another folder", () => {
+	it("is left alone by a write of the same name where another conversation stands", async () => {
+		const elsewhere = mkdtempSync(join(tmpdir(), "read-after-write-b-"));
+		try {
+			expect(elsewhere, "the two stand apart").not.toBe(process.cwd());
+			await start("edit", "edit");
+			await start("read", "read", { cwd: elsewhere });
+
+			expect(
+				await result("read", "read", CAUGHT),
+				"its a.ts is another file than the one being edited",
+			).toBeUndefined();
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
 	});
 });
 

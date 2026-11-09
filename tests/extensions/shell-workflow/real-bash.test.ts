@@ -24,6 +24,9 @@ import {
 } from "../../support/job-runtime.ts";
 import { until } from "../../support/until.ts";
 
+/** The conversation calling: one per test process, as each pi has its own. */
+const SESSION = `test-${process.pid}`;
+
 const disposers: (() => void)[] = [];
 afterEach(() => {
 	for (const dispose of disposers.splice(0)) dispose();
@@ -101,6 +104,7 @@ describe("a real command handed off", () => {
 
 		const result = await runOrHandOff({
 			command,
+			session: SESSION,
 			nested: false,
 			signal: undefined,
 			onUpdate: undefined,
@@ -140,6 +144,7 @@ describe("a real command handed off", () => {
 
 		const result = await runOrHandOff({
 			command,
+			session: SESSION,
 			background: true,
 			nested: false,
 			signal: undefined,
@@ -176,6 +181,7 @@ describe("a real command handed off", () => {
 
 		const result = await runOrHandOff({
 			command,
+			session: SESSION,
 			background: true,
 			nested: false,
 			signal: undefined,
