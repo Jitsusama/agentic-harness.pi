@@ -99,7 +99,11 @@ export type HeldSessionStatus = "held" | "unheld" | "unknown";
 export interface ArtifactReaping {
 	root: string;
 	standing?: (owner: SessionOwner) => Promise<Standing>;
-	heldSessionStatus?: (sessionId: string) => Promise<HeldSessionStatus>;
+	/** Asked with the host key the owner record names, so a missing roster for it reads as doubt. */
+	heldSessionStatus?: (
+		sessionId: string,
+		hostKey?: string,
+	) => Promise<HeldSessionStatus>;
 }
 
 function recordOf(text: string, name: string): ArtifactOwner | undefined {
@@ -127,7 +131,7 @@ function recordOf(text: string, name: string): ArtifactOwner | undefined {
 	return { version: 1, session: read.session, owner: keepTicks(read.owner) };
 }
 
-/** Reap only proven abandoned artifacts; hosted retention is conservative until the catalogue answers. */
+/** Reap only proven abandoned artifacts; a hosted one also needs the catalogue's definitive unheld. */
 export async function reapSessionArtifacts(
 	opts: ArtifactReaping,
 ): Promise<void> {
@@ -150,7 +154,8 @@ export async function reapSessionArtifacts(
 			if (!record || (await standing(record.owner)) !== "gone") continue;
 			if (
 				record.owner.session !== undefined &&
-				(await opts.heldSessionStatus?.(record.session)) !== "unheld"
+				(await opts.heldSessionStatus?.(record.session, record.owner.host)) !==
+					"unheld"
 			)
 				continue;
 			// A resumed session may have claimed the directory while liveness was being checked.

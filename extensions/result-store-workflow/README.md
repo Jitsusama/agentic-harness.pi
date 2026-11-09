@@ -39,9 +39,10 @@ handles remain readable through a new host owner and boot.
 
 Owner records carry the process start time, boot and kernel start ticks
 when available, plus the hosted conversation. Proven dead plain-pi owners
-are reaped; missing or corrupt ownership is preserved. Hosted reaping
-requires a definitive unheld answer from the durable catalogue. Until that
-catalogue is connected, hosted artifacts are conservatively retained.
+are reaped; missing or corrupt ownership is preserved. A dead hosted owner's
+results are reaped only when every host roster reads cleanly and none
+holds the conversation; a missing, unreadable or malformed roster keeps
+them.
 
 Startup copies only branch-cited handles from the old pid-only and
 pid/session layouts. Originals remain for other pre-upgrade conversations
