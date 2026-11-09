@@ -18,7 +18,8 @@
  * details and the structured answer are each scrubbed, since pi logs all
  * three; a picture is handed on as it is. A result with nothing to hide
  * is handed on untouched. The file a long command's whole output was
- * saved to is scrubbed too (`output-file.ts`), and so is each payload the
+ * saved to, by pi or by a host's pi-durable bash, is scrubbed too
+ * (`output-file.ts`), and so is each payload the
  * result store keeps, as it is written (`lib/core/result/spill.ts`).
  */
 
@@ -52,8 +53,13 @@ export default function secretScrubInterceptor(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event) => {
 		// Before anything else, and whatever the answer holds: a credential
 		// can sit in the part of the output the answer left out.
-		const saved = savedOutputFile(event.details);
-		if (saved) scrubOutputFile(saved);
+		// pi names it in the details, pi-durable in the structured answer.
+		const saved = new Set(
+			[event.details, event.structuredContent].map((naming) =>
+				savedOutputFile(naming),
+			),
+		);
+		for (const file of saved) if (file) scrubOutputFile(file);
 		const content = scrubContent(event.content);
 		const details = scrubDeep(event.details);
 		const structured = scrubDeep(event.structuredContent);

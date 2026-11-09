@@ -35,8 +35,17 @@ The answer isn't the only copy, so two files are scrubbed too:
 - **A long command's whole output:** pi's bash saves it to a file in the
   temporary folder and names it in the answer's details. That file is
   rewritten scrubbed, whatever the answer itself held, since a
-  credential can sit in the part the answer left out. Only a file in the
-  temporary folder named as pi names them is touched.
+  credential can sit in the part the answer left out. In a shared host
+  the bash is pi-durable's, which saves to `pi-output-<uuid>.log` in a
+  `tmp-` folder of its own and names it in the structured answer; that
+  file is rewritten the same way. Only a file named as pi or pi-durable
+  names them, in the temporary folder or pi-durable's folder directly
+  in it, is touched.
+
+A host also scrubs what a tool streams while it runs, before any of it
+reaches a viewer or the durable store. It calls `scrubSecrets` on the
+whole retained text of each partial, which is pure and idempotent, so a
+scrubbed partial scrubs to itself.
 - **Stored results:** a tool that answers with a handle writes its
   payload during its own run, before this scrub sees the answer, so the
   result store scrubs each payload as it writes it
