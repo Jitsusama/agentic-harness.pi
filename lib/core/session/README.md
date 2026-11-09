@@ -22,7 +22,13 @@ pi-durable or on pi's concrete context types.
   Symbol.for(name) value on pi. In a host it keys by session and name.
   Explicit ctx or id outranks ambient context. A hosted call without
   either throws NoSessionInHost.
-- releaseSession(id) frees that hosted session's slots on close.
+- sessionCell(name, ctxOrIdOrUndefined) is a slot that can be empty,
+  with get(), set(value) and clear(). On pi the value itself sits under
+  Symbol.for(name), and clear() deletes it, exactly as code that
+  predates the cell keeps it, so a reload between versions still finds
+  what the last one left. In a host it keys by session and name, like
+  sessionSlot, and is resolved once, when the cell is made.
+- releaseSession(id) frees that hosted session's slots and cells on close.
   Never call it on reload. It does nothing on plain pi. The host owns
   disposal of timers, listeners, env and hints; deleting a slot does not
   dispose resources stored in it.

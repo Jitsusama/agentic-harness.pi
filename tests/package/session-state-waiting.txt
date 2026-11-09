@@ -2,10 +2,8 @@
 # Each extension domain owns its sites; process infrastructure remains here
 # until its owner documents an explicit exemption. Counts only shrink.
 extensions/compaction-workflow/conversation.ts:global 1
-extensions/job-workflow/carry.ts:global 1
 extensions/mesh-workflow/steer.ts:pid 1
 extensions/park-workflow/watch.ts:pid 2
-extensions/priority-workflow/index.ts:pid 1
 extensions/quest-workflow/ends-with-quest.ts:global 1
 extensions/quest-workflow/lifecycle.ts:env-write 3
 extensions/quest-workflow/peers.ts:pid 1

@@ -63,7 +63,6 @@ function queueing(room: Reading) {
 	undo = queueHeavyWork({
 		folder,
 		session: "session-a",
-		pid: process.pid,
 		room: () => room,
 		cgroupFor: () => join(root, "timed"),
 	});
@@ -124,7 +123,6 @@ describe("heavy work waiting for its turn", () => {
 				outcomes,
 			),
 			session: "session-a",
-			pid: process.pid,
 			room: () => ROOMY,
 			cgroupFor: () => undefined,
 		});
@@ -168,7 +166,6 @@ describe("heavy work waiting for its turn", () => {
 				outcomes,
 			),
 			session: "session-a",
-			pid: process.pid,
 			room: () => ROOMY,
 			cgroupFor: () => undefined,
 		});
@@ -220,7 +217,6 @@ describe("heavy work waiting for its turn", () => {
 				outcomes,
 			),
 			session: "session-a",
-			pid: process.pid,
 			room: () => ROOMY,
 			cgroupFor: () => undefined,
 		});
@@ -338,7 +334,6 @@ describe("heavy work waiting for its turn", () => {
 				outcomes,
 			),
 			session: "session-a",
-			pid: process.pid,
 			room: () => ROOMY,
 			cgroupFor: () => undefined,
 		});
@@ -374,7 +369,6 @@ describe("heavy work waiting for its turn", () => {
 				outcomes,
 			),
 			session: "session-a",
-			pid: process.pid,
 			room: () => ({ ...ROOMY, availableGib: 0 }),
 			cgroupFor: () => undefined,
 		});
@@ -432,7 +426,6 @@ describe("heavy work waiting for its turn", () => {
 				join(root, "outcomes.jsonl"),
 			),
 			session: "session-a",
-			pid: process.pid,
 			room: () => ROOMY,
 			cgroupFor: () => undefined,
 			sendsWholeRun: (command, cwd) => {

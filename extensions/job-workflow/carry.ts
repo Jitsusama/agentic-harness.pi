@@ -6,9 +6,11 @@
  * survives it, but the process does, and so does every job still
  * running in it: a bash command's shell, a fleet's subagents, a round's
  * reviewers. Their producers hold `Job` objects bound to the old
- * registry, so the registry itself is what is handed on, under a
- * `Symbol.for` key on `globalThis`, and the new runtime only rebinds it
- * to its own `pi`.
+ * registry, so the registry itself is what is handed on, in a session
+ * cell (on plain pi a `Symbol.for` key on `globalThis`, one per process;
+ * on a host one per conversation, so a conversation's reload stops no
+ * other's parked jobs), and the new runtime only rebinds it to its own
+ * `pi`.
  *
  * What is left there is a way to adopt, defined by the old code and
  * called by the new, so the new code needs to know nothing of how the
@@ -30,6 +32,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { type SessionCell, sessionCell } from "../../lib/core/session/index.ts";
 import type { JobFinished } from "../../lib/jobs/index.ts";
 import type { Jobs } from "./jobs.ts";
 import type { JobSession } from "./lifecycle.ts";
@@ -82,9 +85,16 @@ interface Held {
 	readonly timer: ReturnType<typeof setTimeout>;
 }
 
-const PARKED_KEY = Symbol.for("agentic-harness.jobs.parked.v1");
+/**
+ * Where parked jobs wait. The name and the shape of what is kept under it
+ * are what every runtime since the key was minted reads, so it stays v1.
+ */
+const PARKED = "agentic-harness.jobs.parked.v1";
 
-type ParkedGlobal = { [PARKED_KEY]?: Held };
+/** The cell parked jobs of `session` wait in, or the ambient session's. */
+function parkedFor(session: string | undefined): SessionCell<Held> {
+	return sessionCell<Held>(PARKED, session);
+}
 
 /** The session a context belongs to, or undefined when it cannot say. */
 export function sessionIdOf(ctx: ExtensionContext): string | undefined {
@@ -98,23 +108,28 @@ export function sessionIdOf(ctx: ExtensionContext): string | undefined {
 
 /**
  * Leave jobs for the next runtime, stopping them after `carryMs` if it
- * never takes them. Jobs an earlier runtime left and nobody took are
- * stopped now: two runtimes' jobs cannot both be adopted.
+ * never takes them. Jobs an earlier runtime left in the same cell and
+ * nobody took are stopped now: two runtimes' jobs cannot both be adopted.
+ * On a host the cell is the conversation they are parked for, so another
+ * conversation's parked jobs stay.
  */
 export function park(parked: Parked, carryMs: number = CARRY_MS): void {
-	const global = globalThis as ParkedGlobal;
-	const earlier = global[PARKED_KEY];
+	const cell = parkedFor(parked.session);
+	const earlier = cell.get();
 	if (earlier) {
 		clearTimeout(earlier.timer);
 		earlier.parked.stop();
 	}
+	// Taking or replacing them clears this timer. A cell found empty is a
+	// conversation its host closed while they waited, and they stop too.
 	const timer = setTimeout(() => {
-		if (global[PARKED_KEY]?.parked !== parked) return;
-		delete global[PARKED_KEY];
+		const now = cell.get();
+		if (now && now.parked !== parked) return;
+		if (now) cell.clear();
 		parked.stop();
 	}, carryMs);
 	timer.unref?.();
-	global[PARKED_KEY] = { parked, timer };
+	cell.set({ parked, timer });
 }
 
 /**
@@ -127,11 +142,11 @@ export function takeParked(
 	ctx: ExtensionContext,
 	build?: (handed: HandOff) => JobSession,
 ): JobSession | undefined {
-	const global = globalThis as ParkedGlobal;
-	const held = global[PARKED_KEY];
+	const cell = parkedFor(session);
+	const held = cell.get();
 	if (!held || held.parked.session !== session) return undefined;
 	clearTimeout(held.timer);
-	delete global[PARKED_KEY];
+	cell.clear();
 	try {
 		const { parked } = held;
 		return build && typeof parked.handOff === "function"

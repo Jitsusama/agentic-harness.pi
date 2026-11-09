@@ -68,6 +68,14 @@ core.nix's slices module makes the cgroup and sets the variable.
   typed file can't say this: a window he is writing in between turns
   has none. A pi in RPC or print mode, a subagent, or one on an older
   install never writes the file, and keeps its full weight.
+- **A host's conversations share one pid, and so one of each file.**
+  The shaper and the jobs-sorter parse the file's name as a pid, so a
+  host keeps the typed file while a typed turn holds any of its
+  conversations, and the background file only while every one may
+  yield (`lib/internal/priority/pid-mark.ts`). Each conversation
+  queues its own heavy work under its own session, owned by the host's
+  pid, and one conversation ending leaves the others' queueing in
+  place. Who is waited on is every conversation's mesh answer together.
 
 ## The Machine's Queue
 

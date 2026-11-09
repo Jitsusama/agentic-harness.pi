@@ -24,6 +24,7 @@
 
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
+import { hosted, sessionCell } from "../../core/session/index.ts";
 import { offeredShellEnvironment } from "../shell/environment.ts";
 import { FETCHED_FOLDER, readsMain, worldGit } from "./fetched.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
@@ -46,7 +47,6 @@ import { inSharedSlice } from "./shared-slice.ts";
 export interface Queueing {
 	readonly folder: QueueFolder;
 	readonly session: string;
-	readonly pid: number;
 	readonly room: () => Reading;
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly now?: () => number;
@@ -115,16 +115,31 @@ const GRACE_S = 10;
 export const ROOM_SAID =
 	"The machine has room for %s right now. Builds and tests independent of each other can run at once, each as its own bash call with background: true, and each takes its own turn.";
 
-const QUEUEING = Symbol.for("agentic-harness.priority.queueing");
+/**
+ * Where a session's queue is kept with: one per process on plain pi, one
+ * per conversation on a host, so each conversation's work is its own and
+ * one conversation ending leaves the others' queueing in place.
+ */
+const QUEUEING = "agentic-harness.priority.queueing";
 
-type Holder = { [QUEUEING]?: Queueing };
+/**
+ * The process whose end ends a job's claim on the queue: the host on a
+ * host, since a conversation's shells are the host's children, and this
+ * pi otherwise.
+ */
+function ownerPid(): number {
+	return hosted()?.owner.pid ?? process.pid;
+}
 
-/** Puts heavy work through the queue from now on; the answer undoes it. */
+/**
+ * Puts the session's heavy work through the queue from now on; the
+ * answer undoes it. Called within the session, as its start runs.
+ */
 export function queueHeavyWork(queueing: Queueing): () => void {
-	const holder = globalThis as Holder;
-	holder[QUEUEING] = queueing;
+	const cell = sessionCell<Queueing>(QUEUEING);
+	cell.set(queueing);
 	return () => {
-		if (holder[QUEUEING] === queueing) delete holder[QUEUEING];
+		if (cell.get() === queueing) cell.clear();
 	};
 }
 
@@ -144,7 +159,7 @@ export function queuedCommand(
 	cwd?: string,
 	wrap: (run: string) => string = (run) => run,
 ): string {
-	const queueing = (globalThis as Holder)[QUEUEING];
+	const queueing = sessionCell<Queueing>(QUEUEING).get();
 	const where = { ...(cwd ? { cwd } : {}), home: homedir() };
 	const read = queueing ? kindOf(command, where) : undefined;
 	if (!queueing || !read) return wrap(command);
@@ -198,7 +213,7 @@ export function queuedCommand(
 		...(sent ? { sent: true as const } : {}),
 		...(quest ? { quest } : {}),
 		...(plan ? { planning: true as const } : {}),
-		owner: { session: queueing.session, pid: queueing.pid },
+		owner: { session: queueing.session, pid: ownerPid() },
 		since: new Date(now).toISOString(),
 		cappable: true,
 	};

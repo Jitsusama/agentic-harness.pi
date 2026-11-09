@@ -36,7 +36,6 @@ function keepQueue(): void {
 			cgroupOf: () => undefined,
 		}),
 		session: "session-a",
-		pid: process.pid,
 		room: () => ({
 			availableGib: 40,
 			memoryPressure: 0,
