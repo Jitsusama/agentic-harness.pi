@@ -52,7 +52,11 @@ import {
 import type { QuestState } from "../state.ts";
 import { terminalOptions } from "../terminal.ts";
 import { trustPromptNote, trustPromptWaits } from "../trust-prompt.ts";
-import { presencesHere, windowPlaceFor } from "../window-place.ts";
+import {
+	handedPlaceFor,
+	presencesHere,
+	windowPlaceFor,
+} from "../window-place.ts";
 import { addressOf } from "./address.ts";
 import { needsOf } from "./needs.ts";
 import {
@@ -520,6 +524,7 @@ export async function spawn(
 		questId: questIdForSpawn,
 		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
 		...(asking ? { fromSessionId: asking } : {}),
+		place: handedPlaceFor(questIdForSpawn, index),
 	});
 	// The launcher carries only the session's id through, so its words are
 	// left under that; a window opened here names the same key in its

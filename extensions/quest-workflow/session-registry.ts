@@ -828,6 +828,10 @@ export async function reopenLostSessions(
 		readonly settle?: (sessions: readonly string[]) => Promise<Settled>;
 		/** Where each session's window goes under niri. */
 		readonly placeOf?: (record: SessionRecord) => WindowPlace | undefined;
+		/** The orchestrator and title the launcher places each window by. */
+		readonly handedPlaceOf?: (
+			record: SessionRecord,
+		) => Pick<HandedSession, "orchestratedBy" | "title">;
 	} = {},
 ): Promise<ReopenOutcome> {
 	const {
@@ -838,6 +842,7 @@ export async function reopenLostSessions(
 		handOver,
 		settle,
 		placeOf,
+		handedPlaceOf = () => ({}),
 		...open
 	} = options;
 	const outcome: ReopenOutcome = {
@@ -874,7 +879,7 @@ export async function reopenLostSessions(
 		: records;
 	const handed =
 		handOver && !open.dryRun
-			? await handedToLauncher(toOpen, saved, handOver)
+			? await handedToLauncher(toOpen, saved, handOver, handedPlaceOf)
 			: [];
 	const here = toOpen.filter((record) => !handed.includes(record));
 	const outcomes = await openTerminals(
@@ -956,6 +961,9 @@ async function handedToLauncher(
 	records: readonly SessionRecord[],
 	saved: (sessionId: string) => boolean,
 	handOver: (sessions: readonly HandedSession[]) => Promise<number | undefined>,
+	placeOf: (
+		record: SessionRecord,
+	) => Pick<HandedSession, "orchestratedBy" | "title">,
 ): Promise<SessionRecord[]> {
 	const going = records.filter(
 		(record) =>
@@ -968,6 +976,7 @@ async function handedToLauncher(
 			id: record.sessionId,
 			cwd: record.cwd,
 			...(record.quest ? { quest: record.quest } : {}),
+			...placeOf(record),
 			// Back where its own window was.
 			replaces: record.sessionId,
 		})),

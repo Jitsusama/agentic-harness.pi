@@ -35,6 +35,8 @@ export interface LauncherSpawn {
 	readonly named: boolean;
 	/** The session asking for it, which its window goes beside. */
 	readonly fromSessionId?: string;
+	/** The orchestrator and title its window is placed by (window-place.ts). */
+	readonly place?: Pick<HandedSession, "orchestratedBy" | "title">;
 }
 
 /**
@@ -70,11 +72,13 @@ export function launcherSession(
 	if (spawn.named || realmSegments().length > 0) return undefined;
 	if (process.env.PI_LAUNCHER === "off") return undefined;
 	const resumed = resumedBy(spawn.command);
-	// Its quest and the session asking say where its window goes.
+	// Its quest, its orchestrator and title, and the session asking say
+	// where its window goes.
 	const placed = {
 		cwd: spawn.cwd,
 		quest: spawn.questId,
 		...(spawn.fromSessionId ? { from: spawn.fromSessionId } : {}),
+		...spawn.place,
 	};
 	const session: HandedSession | undefined = resumed
 		? {

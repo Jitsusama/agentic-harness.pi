@@ -54,6 +54,39 @@ describe("handing sessions to the launcher", () => {
 		});
 	});
 
+	it("says the orchestrator and the title its window is placed by", async () => {
+		// 8 November: a session spawned for 91DWO8 by WCJQSG opened on
+		// WCJQSG's workspace, since the launcher knew only who asked.
+		const sent: string[] = [];
+		await handOver(
+			[
+				{
+					id: "01a1-one",
+					cwd: "/w",
+					quest: "QEST-1",
+					orchestratedBy: "91DWO8",
+					title: "Edge Checks",
+				},
+			],
+			async (argument) => {
+				sent.push(argument);
+				return "taken";
+			},
+		);
+		expect(JSON.parse(sent[0] ?? "")).toEqual({
+			sessions: [
+				{
+					id: "01a1-one",
+					cwd: "/w",
+					quest: "QEST-1",
+					orchestratedBy: "91DWO8",
+					title: "Edge Checks",
+					focus: false,
+				},
+			],
+		});
+	});
+
 	it("says whose place a restarted session takes, and the model it runs on", async () => {
 		const sent: string[] = [];
 		await handOver(
