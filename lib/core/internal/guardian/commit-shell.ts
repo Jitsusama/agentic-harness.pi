@@ -16,6 +16,14 @@ import type {
 	Word,
 } from "../../../command/types.ts";
 import { unquote } from "../../../shell/index.ts";
+import { hosted, NoSessionInHost, sessionCwd } from "../../session/index.ts";
+
+/** The session directory, or the legacy pi directory for context-free callers. */
+export function commitCwd(ctx?: { readonly cwd: string }): string {
+	if (ctx) return sessionCwd(ctx);
+	if (hosted()) throw new NoSessionInHost();
+	return process.cwd();
+}
 
 /**
  * Git global options that sit before the subcommand and take a
@@ -111,6 +119,7 @@ const COMMIT_MESSAGE_SPEC: FlagSpec = {
 export function extractMessage(
 	command: string,
 	readFile?: (rawPath: string, baseDir: string | null) => string | null,
+	base?: string,
 ): string | null {
 	const line = tokenize(command);
 	const commit = findGitCommand(line, "commit");
@@ -128,7 +137,7 @@ export function extractMessage(
 	);
 	if (messages.length > 0) return messages.join("\n\n");
 
-	return readFileMessage(line, commit, readFile);
+	return readFileMessage(line, commit, readFile, base);
 }
 
 /**
@@ -141,6 +150,7 @@ function readFileMessage(
 	line: CommandLine,
 	commit: SimpleCommand,
 	readFile?: (rawPath: string, baseDir: string | null) => string | null,
+	base?: string,
 ): string | null {
 	if (!readFile) return null;
 	const flag = findFlag(commit, COMMIT_MESSAGE_SPEC, "file");
@@ -149,9 +159,9 @@ function readFileMessage(
 	if (rawPath === "-") return null;
 	// Resolve the relative path against the command's effective
 	// working directory (the pi cwd composed with any leading cd
-	// segments). An unresolvable cd chain falls back to the process
-	// cwd reader-side.
-	const cwd = effectiveCwd(line, process.cwd(), commit.span.start);
+	// segments). An unresolvable cd chain is handed to the reader as
+	// unknown; only a plain pi reader may fall back to its process cwd.
+	const cwd = effectiveCwd(line, base ?? commitCwd(), commit.span.start);
 	const baseDir = "dir" in cwd ? cwd.dir : null;
 	const contents = readFile(rawPath, baseDir);
 	if (contents === null) return null;

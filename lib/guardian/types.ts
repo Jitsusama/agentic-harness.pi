@@ -45,7 +45,7 @@ export interface CommandGuardian<T> {
 	/** Return true if this guardian should handle the command. */
 	detect(command: string): boolean;
 	/** Parse the command into a structured form. Return null to skip. */
-	parse(command: string): T | null;
+	parse(command: string, ctx?: ExtensionContext): T | null;
 	/**
 	 * Review the parsed command and return the decision.
 	 *

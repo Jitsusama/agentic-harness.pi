@@ -81,19 +81,19 @@ export async function loadModes(ctx: ExtensionContext): Promise<void> {
 			);
 		}
 	}
-	restoreSessionModes(savedModesOf(ctx.sessionManager.getBranch()));
+	restoreSessionModes(savedModesOf(ctx.sessionManager.getBranch()), ctx);
 	showOverrides(ctx);
 }
 
 /** Save the session's overrides and refresh the status line. */
 export function saveModes(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	pi.appendEntry<{ modes: Record<string, string> }>(GUARD_MODES_ENTRY, {
-		modes: { ...sessionModes() },
+		modes: { ...sessionModes(ctx) },
 	});
 	showOverrides(ctx);
 }
 
 /** Mark on the status line that this session holds overrides, if any. */
 function showOverrides(ctx: ExtensionContext): void {
-	ctx.ui.setStatus(STATUS_KEY, overridesMark(sessionModes(), ctx.ui.theme));
+	ctx.ui.setStatus(STATUS_KEY, overridesMark(sessionModes(ctx), ctx.ui.theme));
 }

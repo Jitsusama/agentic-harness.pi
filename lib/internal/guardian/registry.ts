@@ -1,6 +1,6 @@
 /**
- * Guardian status registry: a process-global record of the
- * last outcome of each registered guardian.
+ * Guardian status registry: shared declarations and conversation-owned
+ * last outcomes, with the original process-global record on plain pi.
  *
  * Diagnostic aid for the `/guards` command. When a
  * user reports that gates have stopped firing, the registry
@@ -13,9 +13,16 @@
  * and from downstream packages (e.g. `joel.gerber.pi`'s
  * World guardians) all show up in one panel.
  *
- * State is per-process: lost on `/reload` or restart, which
- * is the right scope for a debug aid.
+ * Hosted outcomes are kept in session slots, so one conversation never
+ * displays another's last invocation. They survive reload and are released
+ * with the conversation, while registered names remain shared.
  */
+
+import {
+	hosted,
+	type SessionRef,
+	sessionSlot,
+} from "../../core/session/index.ts";
 
 const REGISTRY_KEY = Symbol.for("pi:guardian-registry");
 
@@ -64,6 +71,14 @@ function getRegistry(): Registry {
 	return fresh;
 }
 
+function outcomes(ref?: SessionRef): Registry {
+	return sessionSlot(
+		"pi:guardian-outcomes",
+		ref,
+		() => new Map<string, GuardianStatus>(),
+	);
+}
+
 /**
  * Seed an entry for `name` so it shows up in `/guards`
  * before any tool_call has fired. Idempotent: re-registering an
@@ -79,7 +94,8 @@ export function register(name: string): void {
  * Auto-creates the entry if `register` was never called.
  */
 export function record(name: string, outcome: GuardianOutcome): void {
-	const registry = getRegistry();
+	register(name);
+	const registry = hosted() ? outcomes() : getRegistry();
 	registry.set(name, {
 		name,
 		lastOutcome: outcome,
@@ -92,14 +108,17 @@ export function record(name: string, outcome: GuardianOutcome): void {
  * value is independent of registry state: callers may keep it
  * across calls without worrying about mutation.
  */
-export function list(): GuardianStatus[] {
+export function list(ref?: SessionRef): GuardianStatus[] {
 	const registry = getRegistry();
+	const local = hosted() ? outcomes(ref) : registry;
 	return [...registry.values()]
+		.map((entry) => local.get(entry.name) ?? { name: entry.name })
 		.map((entry) => ({ ...entry }))
 		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Reset the registry. Intended for tests and `/reload` semantics. */
 export function clear(): void {
-	getRegistry().clear();
+	if (hosted()) outcomes().clear();
+	else getRegistry().clear();
 }

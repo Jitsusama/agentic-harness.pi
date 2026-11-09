@@ -125,7 +125,7 @@ export function registerGuardian<T>(
 				return;
 			}
 
-			const parsed = guardian.parse(command);
+			const parsed = guardian.parse(command, ctx);
 			if (!parsed) {
 				if (trackedName)
 					record(trackedName, { kind: "skipped", why: "parse-null" });

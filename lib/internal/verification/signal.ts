@@ -1,5 +1,5 @@
 /**
- * Process-global verification check.
+ * Conversation-owned verification check, process-global on plain pi.
  *
  * The verification workflow offers a check here so another extension
  * can ask whether the code is failing without a shared import graph.
@@ -12,10 +12,16 @@
  * a check that ran in another directory entirely. Asking at commit
  * time means the answer describes the code as it stands.
  *
- * Stored on globalThis via Symbol.for so it is shared across
- * independently-loaded extensions without import-identity issues.
+ * Shared across independently loaded extensions through session slots
+ * in a host, and the original global symbol on plain pi.
  * When nothing offers a check the answer is that nothing is failing.
  */
+
+import {
+	hosted,
+	type SessionRef,
+	sessionSlot,
+} from "../../core/session/index.ts";
 
 /** Where a commit lands, and the run that asks on its behalf. */
 export interface VerificationScope {
@@ -40,18 +46,34 @@ const CHECK_KEY = Symbol.for("pi:verification-check:v1");
 
 type GlobalCheck = Record<symbol, VerificationCheck | undefined>;
 
-/** Offer the check commits are judged by, or withdraw it with undefined. */
+function hostedCheck(ref?: SessionRef): { check?: VerificationCheck } {
+	return sessionSlot<{ check?: VerificationCheck }>(
+		"pi:verification-check:v1",
+		ref,
+		() => ({}),
+	);
+}
+
+/** Offer this conversation's check, or withdraw only its check with undefined. */
 export function provideVerificationCheck(
 	check: VerificationCheck | undefined,
+	ref?: SessionRef,
 ): void {
-	(globalThis as GlobalCheck)[CHECK_KEY] = check;
+	if (hosted()) {
+		hostedCheck(ref).check = check;
+	} else {
+		(globalThis as GlobalCheck)[CHECK_KEY] = check;
+	}
 }
 
 /** What is failing in the scope right now, or undefined when nothing is. */
 export async function currentVerificationFailure(
 	scope: VerificationScope,
+	ref?: SessionRef,
 ): Promise<VerificationFailure | undefined> {
-	const check = (globalThis as GlobalCheck)[CHECK_KEY];
+	const check = hosted()
+		? hostedCheck(ref).check
+		: (globalThis as GlobalCheck)[CHECK_KEY];
 	if (!check) return undefined;
 	return check(scope);
 }

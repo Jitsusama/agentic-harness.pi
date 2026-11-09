@@ -66,8 +66,11 @@ rather than the whole repo's.
 
 ## Commit gate
 
-This workflow offers a check, process-global, that the commit
-guardian calls when a commit arrives, so the block lives in the
+This workflow offers a check for its conversation, process-global on
+plain pi, that the commit guardian calls when a commit arrives. Closing
+one conversation in a shared host withdraws only its check. Reports keep
+the producing conversation's directory when paths are drawn later.
+The block lives in the
 single sanctioned commit-review site rather than a competing
 interceptor here. The answer is worked out when it is asked,
 never read from an earlier pass:

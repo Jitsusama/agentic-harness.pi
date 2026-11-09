@@ -17,6 +17,8 @@
  * renderer would amount to: there is nobody to show them to.
  */
 
+import { hosted, type SessionRef, sessionSlot } from "../core/session/index.ts";
+
 /** The custom entry type a report is stored under. */
 export const GUARD_REPORT_ENTRY = "guard-report";
 
@@ -72,14 +74,32 @@ const SINK_KEY = Symbol.for("pi:guard-report-sink");
 
 type GlobalSink = Record<symbol, GuardReportSink | undefined>;
 
-/** Install the sink reports go to. Passing undefined removes it. */
-export function setGuardReportSink(sink: GuardReportSink | undefined): void {
-	(globalThis as GlobalSink)[SINK_KEY] = sink;
+function hostedSink(ref?: SessionRef): { sink?: GuardReportSink } {
+	return sessionSlot<{ sink?: GuardReportSink }>(
+		"pi:guard-report-sink",
+		ref,
+		() => ({}),
+	);
+}
+
+/** Install this conversation's sink. Passing undefined removes only that sink. */
+export function setGuardReportSink(
+	sink: GuardReportSink | undefined,
+	ref?: SessionRef,
+): void {
+	if (hosted()) {
+		hostedSink(ref).sink = sink;
+	} else {
+		(globalThis as GlobalSink)[SINK_KEY] = sink;
+	}
 }
 
 /** Hand a report to the installed sink, if there is one. */
 export function reportGuard(report: GuardReport): void {
-	(globalThis as GlobalSink)[SINK_KEY]?.(report);
+	const sink = hosted()
+		? hostedSink().sink
+		: (globalThis as GlobalSink)[SINK_KEY];
+	sink?.(report);
 }
 
 /** Whether a stored entry's data reads as a report. */
