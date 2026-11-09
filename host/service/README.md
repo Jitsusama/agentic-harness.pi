@@ -6,6 +6,18 @@ input pipeline or screen. No unit or running host is installed yet.
 
 - address.ts: the host's realm (MYCELIUM_REALM, else PI_HOME_REALM),
   its realm-kind key and its socket in XDG_RUNTIME_DIR.
+- backend.ts: the control backend over the engine's live ownership and
+  the roster. Open and adopt hold durably before the engine registers;
+  a start that never registered is undone, one that registered and
+  failed stays held. Close and release drop the hold only after the
+  engine's close commits. resumeHeld resumes each hold at start, keeping
+  one that won't resume held and listed parked for a person to close.
+  The engine it drives (prepare, start, discard, resume, abort) is H1's.
+- serve.ts: one realm-kind host's life. It takes the roster's lock,
+  installs SessionHost, loads the engine, resumes what is held and only
+  then listens, so a second host, an unreadable roster or a pi the
+  engine refuses never reaches a socket. Stop closes the socket, parks
+  every conversation as signalled and releases the lock, keeping holds.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
   or release commits; stop and kill -9 keep them. A live or unjudgeable
@@ -37,6 +49,6 @@ credential-bearing exception text. The production engine must record its
 own actionable journal errors.
 
 The listener and client are tested against an injected engine and H1's
-SessionHost, not a running AgentSession. The roster is not yet wired
-to the engine, so nothing resumes on start yet. V supplies the ViewerBridge;
+SessionHost, not a running AgentSession. backend.ts is tested with a
+fake engine; H1's real one, and the program systemd starts, follow. V supplies the ViewerBridge;
 H2 does not reproduce InteractiveMode.
