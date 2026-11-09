@@ -6,7 +6,7 @@
  * starts and after every quest action, it works out the budget the
  * loaded quest draws on (its own, or its nearest ancestor's), asks
  * the providers what that name means and lays the answer over
- * `process.env`, putting back what was there when the quest draws on
+ * the session's environment, putting back what was there when the quest draws on
  * none or the session puts it down. Model providers read their keys
  * from the environment as each request is made, so the next request
  * draws on it; commands and subagents started afterwards inherit it.
@@ -29,7 +29,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { layBudget, liftBudget } from "../../lib/budget/environment.ts";
+import {
+	layBudget,
+	liftBudget,
+	processOverlay,
+} from "../../lib/budget/environment.ts";
 import { type BudgetDrawing, hostBudgets } from "../../lib/budget/host.ts";
 import {
 	BUDGET_ENTRY,
@@ -39,6 +43,7 @@ import {
 	budgetDrawnOn,
 	lastRecorded,
 } from "../../lib/budget/record.ts";
+import { sessionEnv } from "../../lib/core/session/index.ts";
 import { budgetInRecord } from "../../lib/internal/quest/budget.ts";
 import type { QuestState } from "./state.ts";
 
@@ -95,19 +100,23 @@ export function keepQuestBudget(
 		ask: number,
 	) => {
 		if (name === null) {
-			liftBudget(process.env);
+			liftBudget(sessionEnv(ctx), processOverlay(ctx));
 			recordDrawn(pi, ctx);
 			return;
 		}
 		const drawing = await host.draw(name);
 		if (ask !== asking) return;
 		if (drawing.kind === "drawn") {
-			layBudget(process.env, { name, label: drawing.label, env: drawing.env });
+			layBudget(
+				sessionEnv(ctx),
+				{ name, label: drawing.label, env: drawing.env },
+				processOverlay(ctx),
+			);
 			told.delete(name);
 			recordDrawn(pi, ctx, drawing);
 			return;
 		}
-		liftBudget(process.env);
+		liftBudget(sessionEnv(ctx), processOverlay(ctx));
 		recordDrawn(pi, ctx);
 		if (told.has(name)) return;
 		told.add(name);
@@ -150,7 +159,7 @@ function recordDrawn(
 	ctx: ExtensionContext,
 	drawing?: { readonly provider: string; readonly label: string },
 ): void {
-	const name = budgetDrawnOn(process.env);
+	const name = budgetDrawnOn(sessionEnv(ctx).snapshot());
 	const settled: BudgetSettled = { name };
 	pi.events.emit(BUDGET_SETTLED, settled);
 	const branch = ctx.sessionManager?.getBranch?.() ?? [];

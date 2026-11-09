@@ -1,23 +1,23 @@
 /**
- * A budget's variables laid over a process's own environment, and
- * taken off again exactly.
- *
- * Model providers read their keys from the process's environment as
- * each request is made, so a session switches budget by changing its
- * own `process.env`. What it starts afterwards (commands, subagents)
- * inherits the change, which is what makes their calls draw on the
- * quest's budget too.
+ * A budget's variables laid over a session's environment and taken
+ * off again exactly. Plain pi uses process.env; a shared host keeps
+ * an environment for each conversation and passes it to commands and
+ * provider requests. This module does not resolve model-provider keys.
  *
  * Taking a budget off puts back what was there: a value that was set
  * before is set again, and a variable that was not set is removed. A
  * value something else changed while the budget was on is left as it
  * now is, since that change is newer than either. What was there is
- * kept once per process rather than per module, so a reloaded
+ * kept once per session rather than per module, so a reloaded
  * extension, which sees the budget's values as if they were the
  * person's, still knows what to put back.
  */
 
-import { processGlobal } from "../internal/process-global.ts";
+import {
+	type SessionEnvironment,
+	type SessionRef,
+	sessionSlot,
+} from "../core/session/index.ts";
 import { BUDGET_VARIABLE } from "./record.ts";
 
 /** One variable a budget set, and what it replaced. */
@@ -43,9 +43,32 @@ export function emptyOverlay(): BudgetOverlay {
 	return { name: undefined, label: undefined, laid: new Map() };
 }
 
-/** The one overlay on this process's environment, shared by every module. */
-export function processOverlay(): BudgetOverlay {
-	return processGlobal("agentic-harness.pi:budget-overlay", emptyOverlay);
+/** The conversation's overlay, or the legacy process overlay on plain pi. */
+export function processOverlay(ref?: SessionRef): BudgetOverlay {
+	return sessionSlot("agentic-harness.pi:budget-overlay", ref, emptyOverlay);
+}
+
+/** Adapt an ordinary environment without changing the existing budget API. */
+function mutableEnvironment(
+	env: NodeJS.ProcessEnv | SessionEnvironment,
+): SessionEnvironment {
+	if (isSessionEnvironment(env)) return env;
+	return {
+		get: (key) => env[key],
+		set: (key, value) => {
+			env[key] = value;
+		},
+		delete: (key) => {
+			delete env[key];
+		},
+		snapshot: () => ({ ...env }),
+	};
+}
+
+function isSessionEnvironment(
+	env: NodeJS.ProcessEnv | SessionEnvironment,
+): env is SessionEnvironment {
+	return typeof env.get === "function" && typeof env.snapshot === "function";
 }
 
 /**
@@ -55,7 +78,7 @@ export function processOverlay(): BudgetOverlay {
  * and this one does not is put back first.
  */
 export function layBudget(
-	env: NodeJS.ProcessEnv,
+	env: NodeJS.ProcessEnv | SessionEnvironment,
 	budget: {
 		readonly name: string;
 		readonly label: string;
@@ -63,18 +86,21 @@ export function layBudget(
 	},
 	overlay: BudgetOverlay = processOverlay(),
 ): void {
+	const target = mutableEnvironment(env);
 	const laying = { ...budget.env, [BUDGET_VARIABLE]: budget.name };
 	for (const key of [...overlay.laid.keys()]) {
-		if (!(key in laying)) restore(env, overlay, key);
+		if (!(key in laying)) restore(target, overlay, key);
 	}
 	for (const [key, value] of Object.entries(laying)) {
 		const earlier = overlay.laid.get(key);
 		// A value changed under the budget is newer than what it replaced,
 		// so it is what the next lift puts back.
 		const before =
-			earlier && env[key] === earlier.value ? earlier.before : env[key];
+			earlier && target.get(key) === earlier.value
+				? earlier.before
+				: target.get(key);
 		overlay.laid.set(key, { before, value });
-		env[key] = value;
+		target.set(key, value);
 	}
 	overlay.name = budget.name;
 	overlay.label = budget.label;
@@ -82,10 +108,11 @@ export function layBudget(
 
 /** Take the budget off `env`, putting back what it replaced. */
 export function liftBudget(
-	env: NodeJS.ProcessEnv,
+	env: NodeJS.ProcessEnv | SessionEnvironment,
 	overlay: BudgetOverlay = processOverlay(),
 ): void {
-	for (const key of [...overlay.laid.keys()]) restore(env, overlay, key);
+	const target = mutableEnvironment(env);
+	for (const key of [...overlay.laid.keys()]) restore(target, overlay, key);
 	overlay.name = undefined;
 	overlay.label = undefined;
 }
@@ -109,13 +136,13 @@ export function withoutBudget(
 }
 
 function restore(
-	env: NodeJS.ProcessEnv,
+	env: SessionEnvironment,
 	overlay: BudgetOverlay,
 	key: string,
 ): void {
 	const laid = overlay.laid.get(key);
 	overlay.laid.delete(key);
-	if (!laid || env[key] !== laid.value) return;
-	if (laid.before === undefined) delete env[key];
-	else env[key] = laid.before;
+	if (!laid || env.get(key) !== laid.value) return;
+	if (laid.before === undefined) env.delete(key);
+	else env.set(key, laid.before);
 }

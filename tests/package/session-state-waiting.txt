@@ -1,7 +1,6 @@
 # Existing direct process sites, recorded 2026-11-09 for wave 2 migration.
 # Each extension domain owns its sites; process infrastructure remains here
 # until its owner documents an explicit exemption. Counts only shrink.
-extensions/attribution-interceptor/index.ts:env-write 1
 extensions/away-workflow/index.ts:pid 1
 extensions/commit-guardian/parse.ts:cwd 1
 extensions/compaction-workflow/conversation.ts:global 1

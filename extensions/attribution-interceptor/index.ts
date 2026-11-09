@@ -34,6 +34,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { effectiveCwd } from "../../lib/command/cwd.ts";
 import { tokenize } from "../../lib/command/tokenize.ts";
+import { sessionEnv } from "../../lib/core/session/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.ts";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.ts";
@@ -73,7 +74,7 @@ export default function attributionExtension(pi: ExtensionAPI) {
 			// command rewrite, is the sole commit attribution path, so
 			// the full command (cd, env, flags, chained commands) is
 			// never reconstructed. PRs and issues splice their footer.
-			process.env.PI_CO_AUTHOR = coAuthorTrailer(modelId);
+			sessionEnv(ctx).set("PI_CO_AUTHOR", coAuthorTrailer(modelId));
 
 			for (const entity of GH_ENTITIES) {
 				const result = attributeGh(command, entity, modelId);
