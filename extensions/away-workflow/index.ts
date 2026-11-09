@@ -16,15 +16,16 @@
  * is approved by coming back; a call still wanted is made again and
  * asks in its own panel.
  *
- * The state is `lib/internal/away/`, shared through `globalThis`, so the
- * gates, `ask` and quest-workflow read it without importing this.
+ * The state is `lib/internal/away/`, keyed by conversation on a host,
+ * so the gates, `ask` and quest-workflow read it without importing this.
  *
  * The absence is the machine's, not the window's: leaving in one
  * interactive session puts every interactive session on the machine
  * away, and typing or pressing Escape in any of them brings them all
- * back (`lib/internal/away/machine.ts`). Sessions without a UI, such as
- * subagents and print-mode runs, neither follow nor publish it, since
- * nobody is at them to leave or come back.
+ * back (`lib/internal/away/machine.ts`). Hosted conversations follow and
+ * publish it without a viewer, keeping goals and held calls local.
+ * Plain pi without a UI, such as subagents and print-mode runs, neither
+ * follows nor publishes it, since nobody is at it to leave or come back.
  *
  * What needs the absent person reaches them through a desktop
  * notification (`reach.ts`): the first call held in an absence, and a
@@ -43,6 +44,12 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import {
+	hosted,
+	sessionEnv,
+	sessionKeyOf,
+	withSession,
+} from "../../lib/core/session/index.ts";
 import {
 	agree,
 	type MachineWord,
@@ -232,12 +239,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 
 	/** Tell every session on the machine the person is away. */
 	const publishAway = (ctx: ExtensionContext) => {
-		if (!ctx.hasUI) return;
+		if (!ctx.hasUI && !hosted()) return;
 		const now = snapshot();
 		if (now.since === undefined) return;
 		publishMachineWord({
 			since: now.since,
-			...(now.goal !== undefined ? { goal: now.goal } : {}),
+			...(!hosted() && now.goal !== undefined ? { goal: now.goal } : {}),
 		});
 	};
 
@@ -249,21 +256,21 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	 * shared, and they come back only on hearing it.
 	 */
 	const publishHere = (ctx: ExtensionContext, why: string) => {
-		if (!ctx.hasUI) return;
+		if (!ctx.hasUI && !hosted()) return;
 		const word = readMachineWord();
 		if (!word || word.away) {
 			publishMachineWord(
 				undefined,
 				new Date(),
 				machineAwayPath(),
-				`${why} in pi ${process.pid} at ${ctx.cwd}`,
+				`${why} in session ${sessionKeyOf(ctx)} at ${ctx.cwd}`,
 			);
 		}
 	};
 
 	/** Do what this session must to agree with the machine's word. */
 	const follow = (ctx: ExtensionContext, word: MachineWord | undefined) => {
-		const agreement = agree(word, snapshot());
+		const agreement = agree(word, snapshot(), hosted() ? "session" : "machine");
 		if (agreement.kind === "go-away") {
 			goAway(agreement.goal, new Date(agreement.since));
 		} else if (agreement.kind === "come-back") {
@@ -364,9 +371,17 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	/** A run settled with the person here: wait for them, then carry on. */
 	const waitForAnswer = (ctx: ExtensionContext, finished: RunSummary) => {
 		stopWaiting();
-		if (!ctx.hasUI || process.env.PI_CARRY_ON === "off") return;
+		if (
+			(!ctx.hasUI && !hosted()) ||
+			sessionEnv(ctx).get("PI_CARRY_ON") === "off"
+		)
+			return;
 		if (!shouldWait(finished, planProgress(), carrying)) return;
-		quiet = setTimeout(() => carryOn(finished), QUIET_MS);
+		const session = sessionKeyOf(ctx);
+		quiet = setTimeout(
+			() => withSession(session, () => carryOn(finished)),
+			QUIET_MS,
+		);
 		quiet.unref?.();
 	};
 
@@ -384,20 +399,23 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		} finally {
 			restoring = false;
 		}
-		if (ctx.hasUI) {
+		if (ctx.hasUI || hosted()) {
 			sessionWants().bind(pi.events);
 			sayHeld(snapshot());
 			follow(ctx, readMachineWord());
 			stopWatching();
-			stopWatching = watchMachineWord((word) => {
-				if (!latest) return;
-				try {
-					follow(latest, word);
-				} catch {
-					// A context a reload replaced throws; the live copy's own
-					// watch follows the same word.
-				}
-			});
+			const session = sessionKeyOf(ctx);
+			stopWatching = watchMachineWord((word) =>
+				withSession(session, () => {
+					if (!latest) return;
+					try {
+						follow(latest, word);
+					} catch {
+						// A context a reload replaced throws; the live copy's own
+						// watch follows the same word.
+					}
+				}),
+			);
 		}
 		showStatus(ctx);
 	});
@@ -408,7 +426,11 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		stopWatching();
 		stopWatching = () => {};
 		disposeListener();
+		pendingNudge?.withdraw();
 		pendingNudge = undefined;
+		pendingCarry?.withdraw();
+		pendingCarry = undefined;
+		latest = undefined;
 	});
 
 	// A message the person submits is the surest sign they are back.
@@ -452,7 +474,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (!isAway()) {
 			if (settledAborted(event)) return;
 			const asked = lastLine(finished.lastText);
-			if (ctx.hasUI && asked && endsAsking(asked)) {
+			if ((ctx.hasUI || hosted()) && asked && endsAsking(asked)) {
 				wanting.say("question", asked);
 			}
 			waitForAnswer(ctx, finished);
@@ -495,7 +517,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		name: "away",
 		label: "Away",
 		description:
-			"Switch on away mode when the user says they are leaving or asks you to work unattended. Until they are back, blocking approvals are held instead of waiting on them (nothing is sent), ask takes your recommendation, and a run that does not end with a `Done:` or `Blocked:` line is sent back to work. It covers every interactive session on the machine, so call it once; only the user ends it, by typing in any of them.",
+			"Switch on away mode when the user says they are leaving or asks you to work unattended. Until they are back, blocking approvals are held instead of waiting on them (nothing is sent), ask takes your recommendation, and a run that does not end with a `Done:` or `Blocked:` line is sent back to work. It covers interactive pi sessions and hosted conversations on the machine, so call it once; only the user ends it, by typing in any of them.",
 		promptSnippet:
 			"Switch on away mode when the user says they are leaving now or wants unattended work.",
 		promptGuidelines: [

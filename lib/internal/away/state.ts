@@ -13,12 +13,18 @@
  * its own panel. So no approval can outlive the moment it was given, and
  * a call is never let through on the strength of an earlier one.
  *
- * State lives on `globalThis` under a `Symbol.for` key, like the guard
- * policy, so every extension and every loaded copy of this module reads
- * the same answer.
+ * Plain pi keeps its legacy global slot across reloads. On a host every
+ * conversation keeps its own records, listeners and progress source;
+ * the workflow follows the machine's shared absence separately.
  */
 
 import { createHash } from "node:crypto";
+import {
+	hosted,
+	type SessionRef,
+	sessionSlot,
+} from "../../core/session/index.ts";
+import { processGlobal } from "../process-global.ts";
 
 /** A call a gate held instead of asking. */
 export interface HeldCall {
@@ -85,18 +91,14 @@ interface AwayState {
 	stoppedFromOutside?: boolean;
 }
 
-const AWAY_KEY = Symbol.for("pi:away");
+function freshState(): AwayState {
+	return { held: [], decided: [], listeners: new Set() };
+}
 
-type GlobalAway = Record<symbol, AwayState | undefined>;
-
-function state(): AwayState {
-	const global = globalThis as GlobalAway;
-	let found = global[AWAY_KEY];
-	if (!found) {
-		found = { held: [], decided: [], listeners: new Set() };
-		global[AWAY_KEY] = found;
-	}
-	return found;
+function state(ref?: SessionRef): AwayState {
+	return hosted()
+		? sessionSlot("agentic-harness.pi/away", ref, freshState)
+		: processGlobal("pi:away", freshState);
 }
 
 function changed(): void {
@@ -115,10 +117,12 @@ function changed(): void {
 /**
  * Say that the run under way is being stopped from outside its window,
  * as a steer's stop or pause does, so the abort it ends with is not
- * taken for the person pressing Escape, which ends an absence.
+ * taken for the person pressing Escape, which ends an absence. A steer
+ * arrives from an inbox watch, outside any hosted dispatch, so its
+ * caller names the conversation it stops.
  */
-export function stoppingFromOutside(): void {
-	state().stoppedFromOutside = true;
+export function stoppingFromOutside(ref?: SessionRef): void {
+	state(ref).stoppedFromOutside = true;
 }
 
 /**

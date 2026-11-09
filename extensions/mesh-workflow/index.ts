@@ -758,8 +758,11 @@ export function meshWorkflow(
 			idle: () => ctx?.isIdle?.() ?? true,
 			abort: () => {
 				// Stopped from outside, not by the person: away mode stays on.
-				stoppingFromOutside();
-				ctx?.abort?.();
+				// The inbox watch runs outside any hosted dispatch, so the mark
+				// names this session; with no session there is no run to stop.
+				if (!ctx) return;
+				stoppingFromOutside(ctx);
+				ctx.abort?.();
 			},
 			paused: () => peer?.paused ?? false,
 			setPaused: (paused) => peer?.setPaused(paused),

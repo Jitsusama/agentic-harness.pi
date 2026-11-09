@@ -20,8 +20,10 @@ agent decides in context. `/away` exists as a fallback.
 You are away from the machine, not from one window, so saying it
 once is enough: every interactive pi session on the machine goes
 away with the same goal, including ones started while you are gone.
-Each keeps its own held calls and decisions, since only that session
-can make them again.
+Hosted conversations follow the absence even without a viewer, but
+keep their own goals rather than taking another session's. Each keeps
+its own held calls, decisions and follow-up turns, since only that
+session can make them again.
 
 ## While You Are Away
 
@@ -105,8 +107,9 @@ so the agent is never told you are away after you returned.
 
 ## Limits
 
-- Sessions nobody sits at, such as subagents and print-mode runs,
-  neither follow the machine's absence nor start one.
+- Plain pi sessions nobody sits at, such as subagents and print-mode
+  runs, neither follow the machine's absence nor start one. Hosted
+  conversations follow it regardless of whether a viewer is attached.
 - A panel left open with nobody answering is not yet taken as a sign
   you have gone; say you are leaving. A run that simply ended is, after
   10 quiet minutes, as above.
@@ -115,7 +118,8 @@ so the agent is never told you are away after you returned.
 
 ## Where It Lives
 
-The state is in `lib/internal/away/`, shared through `globalThis`, so
+The state is in `lib/internal/away/`, keyed by conversation on a host
+and kept in the legacy global slot on plain pi, so
 the Slack, Google and review gates, the commit, PR and issue
 guardians, `ask` and quest-workflow read it without importing this
 extension. Quest-workflow registers the focused plan's progress with
