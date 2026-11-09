@@ -96,6 +96,7 @@ import {
 import {
 	earliest,
 	formatUse,
+	noteLoad,
 	type QuestChange,
 	questChangesQuery,
 	readSamples,
@@ -238,6 +239,9 @@ async function quoteBill(
 }
 
 export default function spendWorkflow(pi: ExtensionAPI) {
+	// Each reload runs this again in the same process, so the turn records
+	// can say how many loads a process's memory has been through.
+	noteLoad();
 	let store: TurnStore | null = null;
 	let reader: LedgerReader | null = null;
 	let ledgerPath = "";

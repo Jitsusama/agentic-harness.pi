@@ -19,6 +19,7 @@ import {
 	earliest,
 	forgetLastReading,
 	formatUse,
+	noteLoad,
 	type QuestUse,
 	questChangesQuery,
 	readSamples,
@@ -105,6 +106,28 @@ describe("a turn's end", () => {
 			read: () => reading(1200, 0),
 		});
 		expect(second.cpuSelfMs).toBe(200);
+	});
+
+	it("says how many times the harness has loaded in the process, across a reload's copy", async () => {
+		// 9 November: memory read against reloads had to be guessed from logs.
+		const dir = join(scratch, "resources");
+		const before = recordTurn("a.jsonl", {
+			dir,
+			read: () => reading(1, 0),
+		}).loads;
+		noteLoad();
+		vi.resetModules();
+		const copy = await import(
+			"../../../extensions/spend-workflow/resources.ts"
+		);
+		copy.noteLoad();
+
+		const after = copy.recordTurn("a.jsonl", {
+			dir,
+			read: () => reading(2, 0),
+		}).loads;
+
+		expect((after ?? 0) - (before ?? 0), "two loads since").toBe(2);
 	});
 });
 
