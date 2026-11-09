@@ -17,6 +17,7 @@
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
+import { sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	createTreeBroker,
 	type TreeBroker,
@@ -79,13 +80,26 @@ function treeExec(signal?: AbortSignal): Exec {
 	);
 }
 
-let broker: TreeBroker | undefined;
-
 /**
- * The pi sessions each tree this process takes up names: its own, and
- * in a subagent the session that ran its fleet.
+ * One conversation's broker and the pi sessions each tree it takes up
+ * names: its own, and in a subagent the session that ran its fleet.
+ *
+ * Kept in a session slot rather than module state, since a host runs
+ * several conversations in one process and a tree taken up by A must
+ * not name B because B started last. On plain pi the slot is the one
+ * process symbol it always was.
  */
-let sessions: readonly string[] = [];
+interface BrokerState {
+	sessions: readonly string[];
+	broker?: TreeBroker;
+}
+
+const BROKER_STATE = "agentic-harness.work.broker.v1";
+
+/** This conversation's state, by explicit id or the ambient session. */
+function state(id?: string): BrokerState {
+	return sessionSlot<BrokerState>(BROKER_STATE, id, () => ({ sessions: [] }));
+}
 
 /**
  * Say which pi session this process now runs, for the trees it takes up.
@@ -99,14 +113,16 @@ export async function treesHeldBySession(
 	id: string | undefined,
 	runId: string | undefined = process.env.SUBAGENT_RUN_ID,
 ): Promise<void> {
-	sessions = id === undefined ? [] : [id];
+	const ours = state(id);
+	ours.sessions = id === undefined ? [] : [id];
 	if (runId === undefined) return;
 	try {
 		const { runs } = await createFleetLedger(
 			join(stateDir("subagent-workflow"), "fleets"),
 		).everyFleet();
 		const ran = runs.find((one) => one.id === runId)?.session;
-		if (ran !== undefined && ran !== id) sessions = [...sessions, ran];
+		if (ran !== undefined && ran !== id)
+			ours.sessions = [...ours.sessions, ran];
 	} catch {
 		// A ledger that won't read leaves the trees naming this session
 		// alone, as they did before subagents' trees named their fleet's.
@@ -115,23 +131,26 @@ export async function treesHeldBySession(
 
 /** The session's broker, built on first use. */
 export function treeBroker(): TreeBroker {
-	if (!broker) {
-		broker = createTreeBroker({
+	const ours = state();
+	if (!ours.broker) {
+		ours.broker = createTreeBroker({
 			providers: () => listTreeProviders(),
 			// Given a memory here and nowhere else, because this is the one
 			// broker that outlives nothing and needs to: a session ends with its
 			// trees still on disk, and without this the next one cannot see
 			// them, cannot push what is committed in them, and cannot release
 			// them either.
-			memory: createTreeMemory(treeRecordDir(), { sessions: () => sessions }),
+			memory: createTreeMemory(treeRecordDir(), {
+				sessions: () => ours.sessions,
+			}),
 		});
 	}
-	return broker;
+	return ours.broker;
 }
 
-/** Drop the cached broker, so the next call rebuilds it. */
-export function forgetTreeBroker(): void {
-	broker = undefined;
+/** Drop this conversation's cached broker, so its next call rebuilds it. */
+export function forgetTreeBroker(id?: string): void {
+	state(id).broker = undefined;
 }
 
 /**
