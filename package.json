@@ -31,6 +31,7 @@
 		"./core/quest": "./lib/quest/index.ts",
 		"./core/quest/config": "./lib/core/quest/config.ts",
 		"./core/result": "./lib/core/result/index.ts",
+		"./core/session": "./lib/core/session/index.ts",
 		"./core/review": "./lib/core/review/index.ts",
 		"./core/tree": "./lib/core/tree/index.ts",
 		"./core/work": "./lib/core/work/index.ts",
@@ -103,6 +104,7 @@
 		}
 	},
 	"devDependencies": {
+		"@babel/parser": "^7.29.7",
 		"@biomejs/biome": "2.5.3",
 		"@earendil-works/pi-ai": "1.4.0",
 		"@earendil-works/pi-coding-agent": "1.4.0",

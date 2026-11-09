@@ -26,6 +26,7 @@ import {
 	type ProcessFacts,
 	systemFacts,
 } from "../core/process/index.ts";
+import { hostedStanding } from "../core/session/registry.ts";
 
 /** A process's start in ticks since boot; nothing when it cannot be read. */
 export type StartTicks = (pid: number) => Promise<number | undefined>;
@@ -102,7 +103,11 @@ export async function tickedStanding(
 	owner: TickedOwner,
 	facts: TickFacts = tickFacts,
 ): Promise<Standing> {
-	return (await standingByTicks(owner, facts)) ?? ownerStanding(owner, facts);
+	const standing = await standingByTicks(owner, facts);
+	if (standing === undefined) return ownerStanding(owner, facts);
+	return standing === "running" && owner.session !== undefined
+		? (facts.sessionStanding?.(owner) ?? hostedStanding(owner))
+		: standing;
 }
 
 /**
@@ -134,9 +139,13 @@ export function keepTicks(owner: Owner): TickedOwner {
  * each time it is read and moves with the boot clock.
  */
 export function processKey(owner: TickedOwner): string {
-	return owner.startTicks === undefined
-		? `${owner.pid}@${owner.startedAt}`
-		: `${owner.pid}@t${owner.startTicks}`;
+	const process =
+		owner.startTicks === undefined
+			? `${owner.pid}@${owner.startedAt}`
+			: `${owner.pid}@t${owner.startTicks}`;
+	return owner.session === undefined
+		? process
+		: `${process}/${owner.host}/${owner.session}`;
 }
 
 async function standingByTicks(

@@ -65,6 +65,8 @@ What comes next, by the fold's plan (PLAN-20261025-QR647O):
 - `sections/`: the sanctioned headings of PR and issue bodies, what
   each section may hold and say, a PR body composed from fields,
   and the section gate's decision.
+- `session/`: conversation identity, slots, environment and ownership,
+  preserving process behaviour on plain pi; its README defines the host contract.
 - `title/`: finding conventional-commit prefixes in PR and issue
   titles, and the title gate's decision.
 - `tree/`: the contract and registry of tree providers, and

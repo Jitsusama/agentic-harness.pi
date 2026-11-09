@@ -29,7 +29,7 @@ barrel, never from a file behind it.
 - **[`core/`](core/)**: the modules folded in from
   agentic-harness.core that another package builds on, each under
   `core/<module>`: `exec`, `quest` (with `quest/config`),
-  `result`, `review`, `tree` and `work`. They replace importing
+  `result`, `review`, `session`, `tree` and `work`. They replace importing
   `@jitsusama/agentic-harness.core`, so a provider runs the same
   code on each bus as the harness it registers with.
 - **[`glossary/`](glossary/)**: whether a name says core.nix's
