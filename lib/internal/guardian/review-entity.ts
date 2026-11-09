@@ -175,4 +175,7 @@ export async function reviewMarkdownEntity(
 		}
 		return ALLOW;
 	}
+	// A panel of actions answers no option; were one to, the entity goes
+	// ahead, as no answer to stop it was given.
+	return ALLOW;
 }

@@ -147,6 +147,9 @@ export const riskyHistoryGuardian: CommandGuardian<HistoryFindings> = {
 			}
 			return ALLOW;
 		}
+		// A panel of actions answers no option; were one to, the command
+		// runs, as no answer to stop it was given.
+		return ALLOW;
 	},
 };
 

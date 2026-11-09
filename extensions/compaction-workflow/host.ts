@@ -445,6 +445,7 @@ export function registerCompactionHost(
 		if (ctx.hasUI) {
 			ctx.ui.notify(`Compacting with pi's summariser: ${reason}.`, "info");
 		}
+		return;
 	});
 
 	const state = (): AheadState => {

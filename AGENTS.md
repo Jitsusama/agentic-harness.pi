@@ -190,7 +190,14 @@ rules, and where it doesn't yet.
   imports reach, the browser lane's among them, which need a
   Chrome.
 - **Linters:** Biome at its `recommended` preset over every
-  `.ts` and `.mjs`, and `tsc` with `strict` over both. The
+  `.ts` and `.mjs`, and `tsc` with `strict` over both, plus
+  `noImplicitOverride`, `noImplicitReturns`,
+  `noFallthroughCasesInSwitch`, `noUnusedLocals` and
+  `noUnusedParameters`. Three stay off:
+  `noPropertyAccessFromIndexSignature` wants the bracket access
+  Biome's `useLiteralKeys` refuses, and `noUncheckedIndexedAccess`
+  and `exactOptionalPropertyTypes` found 1,077 and 420 places on
+  9 November, too many to fix in one change. The
   `skills/*/scripts/*.sh` have no shellcheck, and markdown no
   linter.
 - **Test levels:** the `unit` project, `tests/**/*.test.ts`; the
