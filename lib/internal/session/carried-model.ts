@@ -18,7 +18,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { hosted, sessionSlot } from "../../core/session/index.ts";
+import { sessionCell, sessionSlot } from "../../core/session/index.ts";
 
 /** A thinking level as pi names it. */
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
@@ -112,16 +112,9 @@ export function authOf(
 /** pi's name for the provider of the placeholder model, which has none. */
 export const NO_PROVIDER = "unknown";
 
-const SLOT_KEY = Symbol.for("agentic-harness.rollover.carried-model");
-
-type SlotGlobal = { [SLOT_KEY]?: CarriedModel };
-
-function hostedCarry(): { carried?: CarriedModel } {
-	return sessionSlot(
-		"agentic-harness.rollover.carried-model",
-		undefined,
-		() => ({}),
-	);
+/** What the conversation carries, on plain pi under the symbol earlier copies used. */
+function carry() {
+	return sessionCell<CarriedModel>("agentic-harness.rollover.carried-model");
 }
 
 /**
@@ -137,18 +130,8 @@ export function hasNoModel(model: { provider: string } | undefined): boolean {
  * session on no model carries nothing, so the fresh one is left to pi.
  */
 export function carryModel(carried: CarriedModel): void {
-	if (hosted()) {
-		hostedCarry().carried = hasNoModel({ provider: carried.provider })
-			? undefined
-			: carried;
-		return;
-	}
-	const global = globalThis as SlotGlobal;
-	if (hasNoModel({ provider: carried.provider })) {
-		delete global[SLOT_KEY];
-		return;
-	}
-	global[SLOT_KEY] = carried;
+	if (hasNoModel({ provider: carried.provider })) carry().clear();
+	else carry().set(carried);
 }
 
 /** The model a log chose last, and the thinking level it set last. */
@@ -210,10 +193,6 @@ export function modelOfBranch(
 	return thinkingLevel ? { ...chosen, thinkingLevel } : chosen;
 }
 
-const AUTH_KEY = Symbol.for("agentic-harness.rollover.known-auth");
-
-type AuthGlobal = { [AUTH_KEY]?: Map<string, CarriedAuth> };
-
 /**
  * Keep how a provider authenticated while it works, for the session's
  * life (the process on pi), so auth lost later can be put back. On 6 November a rolled
@@ -240,11 +219,7 @@ export function rememberedAuth(provider: string): CarriedAuth | undefined {
 
 /** Forget every provider's auth, for tests. */
 export function forgetAuth(): void {
-	if (hosted()) {
-		knownAuth().clear();
-		return;
-	}
-	delete (globalThis as AuthGlobal)[AUTH_KEY];
+	knownAuth().clear();
 }
 
 /**
@@ -255,15 +230,9 @@ export function forgetAuth(): void {
 export function takeCarriedModel(
 	path: string | undefined,
 ): CarriedModel | undefined {
-	if (hosted()) {
-		const state = hostedCarry();
-		const carried = state.carried;
-		state.carried = undefined;
-		return carried && path && carried.path === path ? carried : undefined;
-	}
-	const global = globalThis as SlotGlobal;
-	const carried = global[SLOT_KEY];
-	delete global[SLOT_KEY];
+	const cell = carry();
+	const carried = cell.get();
+	cell.clear();
 	if (!carried || !path || carried.path !== path) return undefined;
 	return carried;
 }

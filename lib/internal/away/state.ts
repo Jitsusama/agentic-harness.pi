@@ -19,12 +19,7 @@
  */
 
 import { createHash } from "node:crypto";
-import {
-	hosted,
-	type SessionRef,
-	sessionSlot,
-} from "../../core/session/index.ts";
-import { processGlobal } from "../process-global.ts";
+import { type SessionRef, sessionSlot } from "../../core/session/index.ts";
 
 /** A call a gate held instead of asking. */
 export interface HeldCall {
@@ -96,9 +91,7 @@ function freshState(): AwayState {
 }
 
 function state(ref?: SessionRef): AwayState {
-	return hosted()
-		? sessionSlot("agentic-harness.pi/away", ref, freshState)
-		: processGlobal("pi:away", freshState);
+	return sessionSlot("pi:away", ref, freshState);
 }
 
 function changed(): void {

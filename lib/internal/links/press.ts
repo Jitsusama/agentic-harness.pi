@@ -35,8 +35,16 @@
  * the prototype, under a `Symbol.for` key so a reloaded copy of this
  * module finds it, keeps the method wrapped once however often this
  * runs.
+ *
+ * The wrap is the process's, since the prototype is, but who answers
+ * belongs to each conversation: its own places and its own opener, kept
+ * in its session slot. A host shows several conversations' screens from
+ * one process, and hands each viewer's input to its screen inside that
+ * conversation's session, so a press reads the answer of the screen
+ * pressed. A press with no answer for its conversation is pi's alone.
  */
 
+import { hosted, sessionSlot } from "../../core/session/index.ts";
 import type { LinkOpener } from "./through-terminal.ts";
 
 /** Reads a link from pi's last screen at a 0-based cell, or nothing. */
@@ -49,17 +57,25 @@ export type PressResolver = (
 
 const METHOD = "handleSelectionMouseEvent";
 const MARK = Symbol.for("agentic-harness.pi/links/plain-press");
+/** The session slot holding a conversation's answer for each wrapped prototype. */
+const ANSWERS = "agentic-harness.pi/links/plain-press/answers";
 
 /** The button bits of an SGR mouse report: 0 is the left button. */
 const BUTTON_BITS = 3;
 /** The bit an SGR mouse report sets for motion, as in a drag. */
 const MOTION_BIT = 32;
 
-/** What the mark on the prototype holds: the method it wrapped and who answers now. */
+/** What the mark on the prototype holds: the method it wrapped and its wrapper. */
 interface Wrap {
 	/** pi's own method, put back when the wrap comes off. */
 	original: unknown;
 	wrapper: (...args: unknown[]) => unknown;
+	/** Set by every wrap that reads its answer from the session. */
+	keyed: true;
+}
+
+/** One conversation's answer to a press pi found no link under. */
+interface Answer {
 	resolve: PressResolver;
 	/** What opens a clicked link, when not pi's own opener alone. */
 	open: LinkOpener | undefined;
@@ -67,51 +83,83 @@ interface Wrap {
 
 /**
  * Wrap pi's press on `prototype` (`TuiAltScreen.prototype`) so a press
- * pi finds no link under is answered by `resolve`. Returns what takes
- * the wrap off again; it does so only while this call's resolver is
- * the one answering, so an older copy's release leaves a newer one's
- * wrap alone.
+ * pi finds no link under, in this conversation, is answered by
+ * `resolve`. Returns what takes the answer away again, only while it is
+ * still this conversation's, so an older copy's release leaves a newer
+ * one's alone. Outside a host it takes the wrap off too; in a host the
+ * wrap stays for the other conversations.
  */
 export function answerPlainPresses(
 	prototype: object,
 	resolve: PressResolver,
 	open?: LinkOpener,
 ): () => void {
-	const existing: unknown = Reflect.get(prototype, MARK);
-	if (isWrap(existing)) {
-		existing.resolve = resolve;
-		existing.open = open;
-		return () => unwrap(prototype, existing, resolve);
+	const wrap = wrapOf(prototype);
+	if (!wrap) return () => {};
+	const mine: Answer = { resolve, open };
+	answers().set(prototype, mine);
+	return () => {
+		const held = answers();
+		if (held.get(prototype) !== mine) return;
+		held.delete(prototype);
+		if (!hosted()) unwrap(prototype, wrap);
+	};
+}
+
+/** This conversation's answers, by the prototype they answer for. */
+function answers(): WeakMap<object, Answer> {
+	return sessionSlot(ANSWERS, undefined, () => new WeakMap<object, Answer>());
+}
+
+/** The answer of the conversation a press arrives in, when it has one. */
+function answerHere(prototype: object): Answer | undefined {
+	try {
+		return answers().get(prototype);
+	} catch {
+		// A press outside any conversation in a host has nobody to answer
+		// it, so it stays pi's own.
+		return undefined;
 	}
+}
+
+/** The wrap on `prototype`, made once, or nothing when pi's press isn't there. */
+function wrapOf(prototype: object): Wrap | undefined {
+	const existing: unknown = Reflect.get(prototype, MARK);
+	if (isWrap(existing)) return existing;
+	if (isAnyWrap(existing)) unwrap(prototype, existing);
 	const original: unknown = Reflect.get(prototype, METHOD);
-	if (typeof original !== "function") return () => {};
+	if (typeof original !== "function") return undefined;
 	const wrap: Wrap = {
 		original,
 		wrapper(this: unknown, ...args: unknown[]): unknown {
-			const restore = opensThrough(this, wrap.open);
+			const answer = answerHere(prototype);
+			const restore = opensThrough(this, answer?.open);
 			let result: unknown;
 			try {
 				result = Reflect.apply(original, this, args);
 			} finally {
 				restore();
 			}
+			if (!answer) return result;
 			try {
-				answer(this, args[0], wrap.resolve);
+				answerPress(this, args[0], answer.resolve);
 			} catch {
 				// A failed answer is a press pi found no link under, as before.
 			}
 			return result;
 		},
-		resolve,
-		open,
+		keyed: true,
 	};
 	Object.defineProperty(prototype, MARK, { value: wrap, configurable: true });
 	Reflect.set(prototype, METHOD, wrap.wrapper);
-	return () => unwrap(prototype, wrap, resolve);
+	return wrap;
 }
 
-function unwrap(prototype: object, wrap: Wrap, resolve: PressResolver): void {
-	if (wrap.resolve !== resolve || Reflect.get(prototype, MARK) !== wrap) return;
+function unwrap(
+	prototype: object,
+	wrap: { original: unknown; wrapper: unknown },
+): void {
+	if (Reflect.get(prototype, MARK) !== wrap) return;
 	if (Reflect.get(prototype, METHOD) === wrap.wrapper) {
 		Reflect.set(prototype, METHOD, wrap.original);
 	}
@@ -140,7 +188,11 @@ function opensThrough(tui: unknown, open: LinkOpener | undefined): () => void {
 	return () => Reflect.set(tui, "openUrl", own);
 }
 
-function answer(tui: unknown, event: unknown, resolve: PressResolver): void {
+function answerPress(
+	tui: unknown,
+	event: unknown,
+	resolve: PressResolver,
+): void {
 	if (!isPlainLeftPress(event) || typeof tui !== "object" || tui === null)
 		return;
 	const screen: unknown = Reflect.get(tui, "previousScreen");
@@ -206,10 +258,19 @@ function clamp(cell: number, size: number): number {
 }
 
 function isWrap(value: unknown): value is Wrap {
+	return isAnyWrap(value) && Reflect.get(value, "keyed") === true;
+}
+
+/**
+ * A wrap any copy of this module made, an earlier one's included, which
+ * held one answer for the whole process.
+ */
+function isAnyWrap(
+	value: unknown,
+): value is { original: unknown; wrapper: unknown } {
 	return (
 		typeof value === "object" &&
 		value !== null &&
-		typeof Reflect.get(value, "wrapper") === "function" &&
-		typeof Reflect.get(value, "resolve") === "function"
+		typeof Reflect.get(value, "wrapper") === "function"
 	);
 }
