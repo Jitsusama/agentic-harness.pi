@@ -27,13 +27,17 @@ hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|scripts/p
 git fetch -q origin main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
 base=$(git merge-base origin/main "$sha")
-touched=$(git diff --name-only "$base" "$sha" | grep -E "$hosted" || true)
+# The diff is its own step, so a diff that fails stops the gate rather
+# than passing as a change that touches nothing.
+changed=$(git diff --name-only "$base" "$sha")
+touched=$(echo "$changed" | grep -E "$hosted" || true)
 if [[ -z $touched ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0
 fi
 
 why=""
+clear="Clear it from a harness checkout: git checkout $sha && bash scripts/host-test-there.sh"
 if [[ ! -f $record/status ]]; then
   why="nothing ran test:host at $sha"
 elif [[ -e $record/files ]]; then
@@ -42,6 +46,9 @@ elif [[ $(< "$record/runtime") != "$runtime" ]]; then
   why="test:host ran at $sha on $(< "$record/runtime"), not the proven $runtime"
 elif [[ $(< "$record/status") != 0 ]]; then
   why="test:host at $sha exited $(< "$record/status"); its log is $record/log"
+  # The store keeps a run's result, a failed one too, so the same commit
+  # reads the same failure back however often it is run.
+  clear="A run at $sha gives this same result again, from the store: fix it in a new commit, then run bash scripts/host-test-there.sh there"
 fi
 if [[ -z $why ]]; then
   echo "host-gate: test:host passed at $sha on $runtime"
@@ -50,5 +57,5 @@ fi
 
 count=$(echo "$touched" | wc -l)
 echo "host-gate: $sha changes $count path(s) pi hosts run, such as $(echo "$touched" | head -n 1), and $why." >&2
-echo "Clear it from a harness checkout: git checkout $sha && bash scripts/host-test-there.sh" >&2
+echo "$clear." >&2
 exit 1

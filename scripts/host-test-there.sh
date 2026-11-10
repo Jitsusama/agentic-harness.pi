@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs `pnpm test:host` for the commit checked out on a lent builder, on the
+# Runs `pnpm test:host` on a lent builder for the commit checked out where
+# it is run, which may be any harness checkout (the install's copy serves a
+# branch cut before this script was), on the
 # proven pi-host runtime, and keeps what it said, so the merge gate
 # (scripts/host-gate.sh) can let that commit merge. pnpm check skips the
 # host cases wherever no runtime is installed, so before this nothing made
@@ -21,7 +23,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-root=$(git -C "$here" rev-parse --show-toplevel)
+root=$(git rev-parse --show-toplevel)
 state=${XDG_STATE_HOME:-$HOME/.local/state}
 runtime=$(readlink -f "${PI_HOST_RUNTIME:-$state/pi-host/runtime}")
 records=$state/agentic-harness.pi/host-tests
@@ -29,10 +31,6 @@ rev=$(git -C "$root" rev-parse HEAD)
 
 if [[ ! -d $runtime/lib/node_modules/pi-monorepo ]]; then
   echo "host-test-there: $runtime holds no pi-monorepo; prove a runtime with scripts/host-prove.ts first" >&2
-  exit 2
-fi
-if [[ ! -d $root/node_modules ]]; then
-  echo "host-test-there: $root has no node_modules; run pnpm install --frozen-lockfile first" >&2
   exit 2
 fi
 
@@ -66,8 +64,11 @@ known=$records/deps/$lock
 deps=()
 if [[ -s $known ]] && nix-store --check-validity "$(< "$known")" 2> /dev/null; then
   deps=(--argstr deps "$(< "$known")")
-else
+elif [[ -d $root/node_modules ]]; then
   deps=(--argstr modules "$root")
+else
+  echo "host-test-there: nothing has sent node_modules for this pnpm-lock.yaml, and $root has none; run pnpm install --frozen-lockfile first" >&2
+  exit 2
 fi
 
 scope=()

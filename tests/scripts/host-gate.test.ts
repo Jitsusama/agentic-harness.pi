@@ -128,7 +128,7 @@ describe("host-gate.sh", () => {
 		});
 	});
 
-	it("refuses a run that failed", async () => {
+	it("refuses a run that failed, saying a new commit clears it", async () => {
 		const on = await harness();
 		const sha = await change(on, "lib/core/session/slot.ts");
 		kept(on, sha, { status: "1" });
@@ -137,6 +137,8 @@ describe("host-gate.sh", () => {
 
 		expect(answer.code).toBe(1);
 		expect(answer.said).toContain(`test:host at ${sha} exited 1`);
+		expect(answer.said).toContain("fix it in a new commit");
+		expect(answer.said).not.toContain(`git checkout ${sha}`);
 	});
 
 	it("refuses a run of only some files", async () => {
