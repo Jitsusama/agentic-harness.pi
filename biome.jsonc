@@ -155,9 +155,6 @@
 				"noEmptyBlockStatements": "off",
 				// `x == null` is the idiom for null or undefined.
 				"noEqualsToNull": "off",
-				// Nine imports in quest-workflow and review form cycles,
-				// which wait to be untangled with those domains' owners.
-				"noImportCycles": "off",
 				// Shared assertion functions are called from inside tests.
 				"noMisplacedAssertion": "off",
 				// A closure reusing an outer name is often the clearest name.

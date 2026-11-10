@@ -128,6 +128,19 @@ const WIDGET_INDENT_COLS = 1;
 const FALLBACK_TITLE_WORDS = 3;
 
 /**
+ * A quest's short name. Core's parser, which `findQuestEntry` uses until
+ * core folds into this package, does not know the field and keeps it
+ * among the extras; the harness's own parser reads it directly.
+ */
+export function shortNameOf(frontMatter: {
+	short?: unknown;
+	_extra?: Record<string, unknown>;
+}): string | undefined {
+	const short = frontMatter.short ?? frontMatter._extra?.short;
+	return typeof short === "string" ? short : undefined;
+}
+
+/**
  * The session name pi puts in the terminal's window title, which reads
  * "π - <name> - <folder>". It says what the quest is about and never
  * carries its id, which the status line already shows: the quest's
