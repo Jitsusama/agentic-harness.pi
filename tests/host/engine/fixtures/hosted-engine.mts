@@ -39,9 +39,19 @@ function piModule<T>(module: unknown): T {
 	return module as T;
 }
 
-const [packageDir, folder, scenarioName] = process.argv.slice(2);
-if (!packageDir || !folder || !scenarioName)
-	throw new Error("usage: hosted-engine.mts <package dir> <folder> <scenario>");
+/** The command line's argument at position, refusing the run without it. */
+function argument(position: number): string {
+	const value = process.argv[position + 2];
+	if (!value)
+		throw new Error(
+			"usage: hosted-engine.mts <package dir> <folder> <scenario>",
+		);
+	return value;
+}
+
+const packageDir = argument(0);
+const folder = argument(1);
+const scenarioName = argument(2);
 
 const compat = piModule<Compat>(
 	await import(

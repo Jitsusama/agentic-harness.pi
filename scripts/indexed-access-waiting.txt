@@ -163,7 +163,6 @@ tests/extensions/slack-integration/bounded.test.ts 3
 tests/extensions/spend-workflow/hosted.test.ts 3
 tests/extensions/subagent-workflow/run.test.ts 26
 tests/extensions/work-stack-render.test.ts 3
-tests/host/engine/fixtures/hosted-engine.mts 4
 tests/lib/command/flags.test.ts 8
 tests/lib/command/tokenize.test.ts 61
 tests/lib/glossary/glossary.test.ts 1
