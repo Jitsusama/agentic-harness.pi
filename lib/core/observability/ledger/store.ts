@@ -288,7 +288,10 @@ const GROUP_BY: Record<CostDimension, string> = {
  * point at the same file as the run store: the tables are disjoint and
  * WAL keeps readers clear of the single writer.
  */
-export async function openTurnStore(dbPath: string): Promise<TurnStore> {
+export async function openTurnStore(
+	dbPath: string,
+	options: TurnStoreOptions = {},
+): Promise<TurnStore> {
 	const db = await openDb(dbPath);
 	// NORMAL syncs the WAL at checkpoints, not at each commit, where FULL
 	// made a fresh ledger wait on about 50 flushes. The ledger is an index
@@ -300,7 +303,21 @@ export async function openTurnStore(dbPath: string): Promise<TurnStore> {
 	await db.exec(SCHEMA);
 	await migrate(db);
 	await db.exec(VIEWS);
-	return new SqliteTurnStore(db);
+	return new SqliteTurnStore(
+		db,
+		options.rowsPerTransaction ?? ROWS_PER_TRANSACTION,
+	);
+}
+
+/** How a turn store writes. */
+export interface TurnStoreOptions {
+	/**
+	 * Rows one transaction writes before it commits, {@link
+	 * ROWS_PER_TRANSACTION} unless set. A test proving a pass longer than
+	 * one transaction lands whole sets it small, rather than timing
+	 * thousands of rows on a loaded machine.
+	 */
+	readonly rowsPerTransaction?: number;
 }
 
 /** A read-only view of a ledger, for questions nobody wrote a report for. */
@@ -418,9 +435,11 @@ export const ROWS_PER_TRANSACTION = 500;
 
 class SqliteTurnStore implements TurnStore {
 	private readonly db: Db;
+	private readonly rowsPerTransaction: number;
 
-	constructor(db: Db) {
+	constructor(db: Db, rowsPerTransaction: number) {
 		this.db = db;
+		this.rowsPerTransaction = rowsPerTransaction;
 	}
 
 	async recordTurns(turns: readonly TurnRecord[]): Promise<RecordOutcome> {
@@ -442,7 +461,7 @@ class SqliteTurnStore implements TurnStore {
 	}
 
 	/**
-	 * Write `rows` in transactions of {@link ROWS_PER_TRANSACTION}, so no
+	 * Write `rows` in transactions of `rowsPerTransaction`, so no
 	 * write holds the lock long; answers how many rows `write` inserted.
 	 * A chunk that fails is rolled back and stops the rest; the chunks
 	 * before it stand, which a later pass, finding them held, keeps.
@@ -452,10 +471,11 @@ class SqliteTurnStore implements TurnStore {
 		write: (chunk: readonly T[]) => Promise<number>,
 	): Promise<number> {
 		let inserted = 0;
-		for (let at = 0; at < rows.length; at += ROWS_PER_TRANSACTION) {
+		const size = this.rowsPerTransaction;
+		for (let at = 0; at < rows.length; at += size) {
 			await this.db.exec("BEGIN");
 			try {
-				inserted += await write(rows.slice(at, at + ROWS_PER_TRANSACTION));
+				inserted += await write(rows.slice(at, at + size));
 				await this.db.exec("COMMIT");
 			} catch (error) {
 				await this.db.exec("ROLLBACK");
