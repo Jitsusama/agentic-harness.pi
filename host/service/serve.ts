@@ -22,6 +22,7 @@ import { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
 import {
 	type ConversationEngine,
+	conversationEvents,
 	hostBackend,
 	resumeHeld,
 	type Unresumed,
@@ -80,6 +81,9 @@ export async function serveHost(options: {
 	try {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		const engine = await options.engine(host);
+		// Before anything resumes, so a conversation that ends or becomes
+		// another inside pi is never missed.
+		engine.watch?.(conversationEvents({ roster, report: options.report }));
 		const { unresumed } = await resumeHeld({ roster, engine, admitAnother });
 		for (const { reason } of unresumed) options.report(reason);
 		const identity = { key: host.key, owner: host.owner };

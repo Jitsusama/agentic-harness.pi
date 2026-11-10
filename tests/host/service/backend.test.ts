@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHost } from "../../../host/engine/index.ts";
 import {
 	type ConversationEngine,
+	conversationEvents,
 	hostBackend,
 	type Prepared,
 	resumeHeld,
@@ -472,5 +473,106 @@ describe("hostBackend", () => {
 		} finally {
 			await listener.close();
 		}
+	});
+});
+
+describe("conversationEvents", () => {
+	const at = () => new Date("2026-11-10T06:00:00.000Z");
+
+	async function opened(launch?: Record<string, string>) {
+		const { fake } = engine({
+			prepare: vi.fn(async () => ({
+				sessionId: randomUUID(),
+				file: join(dir, `${randomUUID()}.jsonl`),
+				cwd: "/work",
+				...(launch ? { launch } : {}),
+			})),
+		});
+		const { sessionId } = parseOpenResult(
+			await backendWith(fake).execute({ ...open, quest: "QEST-1" }),
+		);
+		return sessionId;
+	}
+
+	it("drops a conversation that ended inside pi, so the next start doesn't bring it back", async () => {
+		const id = await opened();
+		const events = conversationEvents({ roster, report: vi.fn(), now: at });
+		await events.ended(id, "quit");
+		expect(await heldSessionStatus(id, { dir: rosters })).toBe("unheld");
+		await events.ended(id, "closed");
+		expect(roster.entries(), "a second end is a no-op").toEqual([]);
+	});
+
+	it("reports a drop that fails rather than throwing it back into pi", async () => {
+		const id = await opened();
+		await roster.close();
+		const report = vi.fn();
+		await conversationEvents({ roster, report, now: at }).ended(id, "quit");
+		expect(report).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "Roster is closed" }),
+		);
+		roster = await openRoster({
+			key: KEY,
+			dir: rosters,
+			owner: { ...owner, startTicks: 1 },
+		});
+	});
+
+	it("holds what a conversation became in its place, keeping attended, quest and launch", async () => {
+		const id = await opened({ SHOPIFY_EXP_ARM: "b" });
+		const next = randomUUID();
+		const file = join(dir, `${next}.jsonl`);
+		await conversationEvents({ roster, report: vi.fn(), now: at }).became(id, {
+			sessionId: next,
+			file,
+			cwd: "/elsewhere",
+		});
+		expect(roster.entries()).toEqual([
+			{
+				sessionId: next,
+				file,
+				cwd: "/elsewhere",
+				attended: true,
+				quest: "QEST-1",
+				since: "2026-11-10T06:00:00.000Z",
+				launch: { SHOPIFY_EXP_ARM: "b" },
+			},
+		]);
+	});
+
+	it("takes a launch environment the engine derived anew over the old one", async () => {
+		const id = await opened({ SHOPIFY_EXP_ARM: "b" });
+		const next = randomUUID();
+		await conversationEvents({ roster, report: vi.fn(), now: at }).became(id, {
+			sessionId: next,
+			file: join(dir, `${next}.jsonl`),
+			cwd: "/work",
+			launch: { SHOPIFY_EXP_ARM: "c" },
+		});
+		expect(roster.entries()[0]?.launch).toEqual({ SHOPIFY_EXP_ARM: "c" });
+	});
+
+	it("rejects becoming from a conversation not held, or into a file another holds, changing nothing", async () => {
+		const id = await opened();
+		const other = await opened();
+		const events = conversationEvents({ roster, report: vi.fn(), now: at });
+		const held = roster.entries();
+		await expect(
+			events.became(randomUUID(), {
+				sessionId: randomUUID(),
+				file: join(dir, "x.jsonl"),
+				cwd: "/work",
+			}),
+		).rejects.toThrow("not held");
+		const otherFile = held.find((entry) => entry.sessionId === other)?.file;
+		if (!otherFile) throw new Error("the other conversation is held");
+		await expect(
+			events.became(id, {
+				sessionId: randomUUID(),
+				file: otherFile,
+				cwd: "/work",
+			}),
+		).rejects.toThrow("already held");
+		expect(roster.entries()).toEqual(held);
 	});
 });

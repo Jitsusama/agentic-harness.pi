@@ -164,6 +164,44 @@ describe("openRoster", () => {
 		await roster.close();
 	});
 
+	it("replaces a hold in its place in one write, and refuses one it can't make whole", async () => {
+		const C = "c0000000-0000-4000-8000-000000000003";
+		const roster = await openRoster({ key: KEY, dir, owner: first });
+		await roster.hold(entry(A));
+		await roster.hold(entry(B));
+		await roster.replace(A, entry(C));
+		expect(roster.entries().map((held) => held.sessionId)).toEqual([C, B]);
+		const written = JSON.parse(await readFile(rosterPath(KEY, dir), "utf8"));
+		expect(
+			written.sessions.map((held: { sessionId: string }) => held.sessionId),
+		).toEqual([C, B]);
+		expect(await heldSessionStatus(A, { dir })).toBe("unheld");
+
+		await expect(roster.replace(A, entry(A))).rejects.toThrow("not held");
+		await expect(
+			roster.replace(
+				C,
+				entry("d0000000-0000-4000-8000-000000000004", `/sessions/${B}.jsonl`),
+			),
+		).rejects.toThrow("already held");
+		await expect(
+			roster.replace(C, {
+				...entry("e0000000-0000-4000-8000-000000000005"),
+				launch: { API_TOKEN: "x" },
+			}),
+		).rejects.toThrow("never holds a credential");
+		expect(roster.entries().map((held) => held.sessionId)).toEqual([C, B]);
+		await roster.close();
+	});
+
+	it("replaces a hold with one keeping its own file, as a resume of the same session would", async () => {
+		const roster = await openRoster({ key: KEY, dir, owner: first });
+		await roster.hold(entry(A));
+		await roster.replace(A, entry(B, `/sessions/${A}.jsonl`));
+		expect(roster.entries()).toEqual([entry(B, `/sessions/${A}.jsonl`)]);
+		await roster.close();
+	});
+
 	it("refuses changes after close and leaves another host's lock alone", async () => {
 		const roster = await openRoster({ key: KEY, dir, owner: first });
 		const lock = `${rosterPath(KEY, dir)}.lock`;

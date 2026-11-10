@@ -13,6 +13,11 @@ input pipeline or screen. No unit or running host is installed yet.
   engine's close commits. resumeHeld resumes each hold at start, keeping
   one that won't resume held and listed parked for a person to close.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
+  conversationEvents is what the engine, watched once before anything
+  resumes, tells the service of a change made inside pi: a conversation
+  that ended itself is dropped, and one that became another (pi's new,
+  fork or resume) is held in its place in one write, keeping attended,
+  quest and launch. Host stop never counts as an end.
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,
@@ -27,6 +32,8 @@ input pipeline or screen. No unit or running host is installed yet.
   then listens, so a second host, an unreadable roster or a pi the
   engine refuses never reaches a socket. Stop closes the socket, parks
   every conversation as signalled and releases the lock, keeping holds.
+  It watches the engine before resuming, so no end or replacement is
+  missed.
   Start first sets the package's stale-rejection net, logging under
   the host's state folder, so one conversation's reload leftovers never
   end the host and its other conversations.
@@ -36,9 +43,11 @@ input pipeline or screen. No unit or running host is installed yet.
   SIGINT. The engine is passed in by the program that starts it.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
-  or release commits; stop and kill -9 keep them. A live or unjudgeable
-  lock holder, a malformed lock or an unreadable roster refuses start.
-  A dead holder's lock is moved aside and checked, never just unlinked.
+  or release commits, or once a conversation ended itself; replace swaps
+  one hold for another in one write. Stop and kill -9 keep them. A live
+  or unjudgeable lock holder, a malformed lock or an unreadable roster
+  refuses start. A dead holder's lock is moved aside and checked, never
+  just unlinked.
   Each hold keeps the launch environment the engine derived at open,
   such as an experiment arm, for resume to replay; one naming a
   credential is refused, since keys come from the host per request.
