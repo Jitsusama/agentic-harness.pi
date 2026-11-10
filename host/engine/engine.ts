@@ -46,6 +46,10 @@ import {
 } from "./pi-session.ts";
 import type { AssistantMessage, Model } from "./pi-types.ts";
 import type { SessionHost } from "./session-host.ts";
+import {
+	hostedSubagentInstall,
+	pinSubagentInstall,
+} from "./subagent-install.ts";
 import { conversationMarker, reapToolChildren } from "./tool-children.ts";
 
 /** The gateway key every provider request carries, as the service keeps it. */
@@ -151,6 +155,8 @@ export async function createEngine(
 	options: EngineOptions,
 ): Promise<HostEngine> {
 	const pi = await loadHostPi(options.packageDir);
+	// Before any conversation's extensions load, so the first subagent finds it.
+	pinSubagentInstall(hostedSubagentInstall(pi));
 	const sessions = piSessions(pi.modules);
 	const library = piLibrary(pi.modules);
 	const { host } = options;

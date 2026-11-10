@@ -45,7 +45,7 @@ function fakeInstall(
 	const files = hostPiFiles(dir);
 	const agent = seams.agent ? "static hostAgentInterfaceVersion = 1;" : "";
 	const screen = seams.screen ? "static hostedLifecycleVersion = 1;" : "";
-	const auth = seams.auth ? "static hostAuthContextVersion = 1;" : "";
+	const auth = seams.auth ? "static hostAuthContextVersion = 2;" : "";
 	const phases = seams.turn
 		? "{ committedTurn() {}, turnBoundary() {} }"
 		: "{ request() {} }";
@@ -63,6 +63,13 @@ function fakeInstall(
 		mkdirSync(dirname(file), { recursive: true });
 		writeFileSync(file, sources[name as keyof typeof files]);
 	}
+	const command = join(dir, "dist", "bundle", "cli.js");
+	mkdirSync(dirname(command), { recursive: true });
+	writeFileSync(command, "");
+	writeFileSync(
+		join(dir, "package.json"),
+		JSON.stringify({ bin: { pi: "dist/bundle/cli.js" } }),
+	);
 	return dir;
 }
 
@@ -86,7 +93,19 @@ it("loads a pi that carries every host seam", async () => {
 	const pi = await loadHostPi(dir);
 	expect(pi.packageDir).toBe(dir);
 	expect(pi.version).toBe(FAKE_VERSION);
+	expect(pi.command).toBe(join(dir, "dist", "bundle", "cli.js"));
 	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
+});
+
+it("refuses a pi whose package names no pi command", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	writeFileSync(join(dir, "package.json"), JSON.stringify({ bin: {} }));
+	await expect(loadHostPi(dir)).rejects.toThrow("names no pi command");
 });
 
 it("takes a later auth-context patch", async () => {
@@ -100,11 +119,32 @@ it("takes a later auth-context patch", async () => {
 	writeFileSync(
 		codingAgent,
 		readFileSync(codingAgent, "utf8").replace(
-			"hostAuthContextVersion = 1",
 			"hostAuthContextVersion = 2",
+			"hostAuthContextVersion = 3",
 		),
 	);
 	await expect(loadHostPi(dir)).resolves.toMatchObject({ packageDir: dir });
+});
+
+it("refuses the first auth-context patch, which left header variables to the host", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	const { codingAgent } = hostPiFiles(dir);
+	writeFileSync(
+		codingAgent,
+		readFileSync(codingAgent, "utf8").replace(
+			"hostAuthContextVersion = 2",
+			"hostAuthContextVersion = 1",
+		),
+	);
+	const error = await refusal(dir);
+	expect(error.missing.map((seam) => seam.patch)).toEqual([
+		"pi-host-model-auth-context.patch",
+	]);
 });
 
 it("refuses a pi that names no version", async () => {
@@ -117,7 +157,7 @@ it("refuses a pi that names no version", async () => {
 	const { codingAgent } = hostPiFiles(dir);
 	writeFileSync(
 		codingAgent,
-		"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; }\nexport class ModelRuntime { static hostAuthContextVersion = 1; }\n",
+		"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; }\nexport class ModelRuntime { static hostAuthContextVersion = 2; }\n",
 	);
 	await expect(loadHostPi(dir)).rejects.toThrow("names no version");
 });

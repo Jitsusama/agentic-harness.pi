@@ -1,6 +1,6 @@
 /** The host's own pi, loaded from its install and refused unless it carries every seam the host needs. */
-import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -57,7 +57,7 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 	{
 		patch: "pi-host-model-auth-context.patch",
 		why: "a conversation's credentials would be read from the host's own environment",
-		// Version 2 also keeps header variables to the context; it is required once the work host's pin carries it.
+		// Version 1 kept keys to the context but read header variables from the host's own environment; version 2 keeps both.
 		present: ({ codingAgent }) =>
 			(staticNumber(codingAgent.ModelRuntime, "hostAuthContextVersion") ?? 0) >=
 			AUTH_CONTEXT_VERSION,
@@ -65,7 +65,7 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 ];
 
 /** The auth-context patch's version the host accepts from. */
-const AUTH_CONTEXT_VERSION = 1;
+const AUTH_CONTEXT_VERSION = 2;
 
 /** A pi install that lacks seams the host needs, with each one named. */
 export class HostPiRefused extends Error {
@@ -88,6 +88,8 @@ export interface HostPi {
 	readonly packageDir: string;
 	/** The version the install says it is, which each conversation's harness settings name. */
 	readonly version: string;
+	/** The install's pi command, the entry script its package names as bin pi, which a subagent runs. */
+	readonly command: string;
 	readonly modules: HostPiModules;
 }
 
@@ -162,7 +164,22 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	const version = modules.codingAgent.VERSION;
 	if (typeof version !== "string" || version === "")
 		throw new Error(`The pi at ${packageDir} names no version`);
-	return { packageDir, version, modules };
+	return { packageDir, version, command: piCommand(packageDir), modules };
+}
+
+/** The entry script the install's package.json names as its pi command, refusing one it lacks. */
+function piCommand(packageDir: string): string {
+	const manifest = join(packageDir, "package.json");
+	const parsed: unknown = existsSync(manifest)
+		? JSON.parse(readFileSync(manifest, "utf8"))
+		: undefined;
+	const bin = isRecord(parsed) ? parsed.bin : undefined;
+	const entry = isRecord(bin) ? bin.pi : undefined;
+	const command =
+		typeof entry === "string" ? resolve(packageDir, entry) : undefined;
+	if (command === undefined || !existsSync(command))
+		throw new Error(`The pi at ${packageDir} names no pi command`);
+	return command;
 }
 
 async function importModule(

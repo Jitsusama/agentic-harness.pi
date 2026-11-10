@@ -13,6 +13,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,6 +24,14 @@ import { afterEach, describe, expect, it } from "vitest";
 const run = promisify(execFile);
 const packageDir = process.env.PI_HOST_PACKAGE_DIR;
 const FIXTURE = join(import.meta.dirname, "fixtures", "hosted-engine.mts");
+/** The entry script a pi install's package names as its pi command. */
+function piBin(root: string): string {
+	const manifest: { bin?: { pi?: string } } = JSON.parse(
+		readFileSync(join(root, "package.json"), "utf8"),
+	);
+	return manifest.bin?.pi ?? "";
+}
+
 /** A few host starts in a row, each loading pi's whole package. */
 const HOST_LIFE_MS = 90_000;
 
@@ -37,6 +46,12 @@ interface Seen {
 	readonly ran: number;
 	readonly childrenAlive: readonly number[];
 	readonly probe: readonly Record<string, string>[];
+	/** The subagent install the probe extension found each time it loaded. */
+	readonly installs: readonly {
+		readonly node: string;
+		readonly entry: string;
+		readonly packageDir?: string;
+	}[];
 	readonly reported: readonly string[];
 	readonly piVersion: string;
 	/** The request each launch environment was derived for, in that run. */
@@ -163,6 +178,38 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				{ event: "session_shutdown", reason: "quit" },
 			]);
 			expect(seen.reported).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"has the host's own pi pinned for subagents before any extension loads",
+		async () => {
+			const seen = await step(hostFolder(), "open");
+			const root = realpathSync(packageDir ?? "");
+			expect(seen.installs).toEqual([
+				{
+					node: realpathSync(process.execPath),
+					entry: join(root, piBin(root)),
+					packageDir: root,
+				},
+			]);
+			const [install] = seen.installs;
+			const said = await run(
+				install?.node ?? "",
+				[install?.entry ?? "", "--version"],
+				{
+					env: {
+						PATH: process.env.PATH ?? "",
+						HOME: join(hostFolder(), "home"),
+						PI_PACKAGE_DIR: root,
+					},
+				},
+			);
+			expect(
+				`${said.stdout}${said.stderr}`.trim(),
+				"the pinned pi runs, and is the pi the host loaded",
+			).toContain(seen.piVersion);
 		},
 		HOST_LIFE_MS,
 	);
