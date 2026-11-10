@@ -18,6 +18,7 @@ extensions/review-integration/tools/offer.ts
 extensions/slack-integration/router.ts
 extensions/subagent-workflow/index.ts
 extensions/work-integration/tools/tree.ts
+host/engine/hosted-agent.ts
 lib/core/lsp/standalone/server.ts
 lib/core/observability/ledger/store.ts
 lib/core/quest/lifecycle.ts
