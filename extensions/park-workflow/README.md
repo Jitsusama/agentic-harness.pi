@@ -55,7 +55,9 @@ session parks only when a holder keeps it and has said where it
 watches for the wake (`MYCELIUM_WAKE`), since a pi with nobody to
 start it again has simply ended. It also has to wake into itself: a
 holder that takes a restart (`MYCELIUM_AGAIN`) is given
-`pi --session <its log>`, and under one that takes none it parks
+`pi --session <its log>`, with the `--model`, `--models`,
+`--provider` and `--thinking` flags pi was started with, and under
+one that takes none it parks
 only when pi was started on this session and nothing else, since the
 launcher starts sessions as a bare `pi` or with a first prompt, and a
 prompt given again would be sent again. Its log has to be written,

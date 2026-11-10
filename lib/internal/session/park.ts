@@ -80,13 +80,51 @@ export const WAKE_ENV = "MYCELIUM_WAKE";
  */
 export const AGAIN_ENV = "MYCELIUM_AGAIN";
 
-/** The command that starts a session again from its log. */
-export function restartCommand(sessionFile: string): string[] {
-	return ["pi", "--session", sessionFile];
+/**
+ * The command that starts a session again from its log, giving it again
+ * the flags it was started with that say which model it runs
+ * ({@link CARRIED_FLAGS}).
+ */
+export function restartCommand(
+	sessionFile: string,
+	args: readonly string[] = [],
+): string[] {
+	return ["pi", "--session", sessionFile, ...carriedFlags(args)];
 }
 
 /** The flags that name the session pi opens. */
 const SESSION_FLAGS = new Set(["--session", "--session-id"]);
+
+/**
+ * The flags, each with its value, that a restart gives pi again, since
+ * they say which model it runs, which it cycles through and how hard it
+ * thinks. On 10 November a
+ * restart of old idle sessions was refused for most of them, because
+ * their holders had started them with `--model`.
+ */
+const CARRIED_FLAGS = new Set([
+	"--model",
+	"--models",
+	"--provider",
+	"--thinking",
+]);
+
+/** The {@link CARRIED_FLAGS} in pi's arguments, as written, up to `--`. */
+function carriedFlags(args: readonly string[]): string[] {
+	const carried: string[] = [];
+	for (let i = 0; i < args.length; i += 1) {
+		const arg = args[i] ?? "";
+		if (arg === "--") break;
+		const [flag = "", inline] = arg.split(/[=](.*)/s, 2);
+		if (!CARRIED_FLAGS.has(flag)) continue;
+		if (inline !== undefined) carried.push(arg);
+		else if (args[i + 1] !== undefined) {
+			carried.push(arg, args[i + 1] ?? "");
+			i += 1;
+		}
+	}
+	return carried;
+}
 
 /**
  * Whether pi's arguments open this session, by its id or its log, as
@@ -118,8 +156,10 @@ export function flagsLost(args: readonly string[]): string[] {
 		if (arg === "--") break;
 		if (!arg.startsWith("-") || arg === "-") continue;
 		const [flag = "", inline] = arg.split(/[=](.*)/s, 2);
-		if (!SESSION_FLAGS.has(flag)) lost.push(flag);
-		// A session flag's value is spent with it.
+		const valued = SESSION_FLAGS.has(flag) || CARRIED_FLAGS.has(flag);
+		if (!valued) lost.push(flag);
+		// A session flag's value is spent with it, and a carried one's
+		// goes with it into the restart.
 		else if (inline === undefined) i += 1;
 	}
 	return lost;

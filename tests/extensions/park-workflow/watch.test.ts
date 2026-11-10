@@ -148,6 +148,32 @@ describe("parking a session", () => {
 		).toEqual(["pi", "--session", logOf()]);
 	});
 
+	// 10 November: a restart of old idle sessions was refused for most of
+	// them, since their holders had started them with --model.
+	it("gives its holder the model flags it was started with, to wake with", () => {
+		const watched = watching(session(), holder(), [
+			"--session",
+			SESSION,
+			"--model",
+			"anthropic/claude-opus-5-5:high",
+			"--thinking=high",
+			"--",
+			"hi",
+		]);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+		).toEqual([
+			"pi",
+			"--session",
+			logOf(),
+			"--model",
+			"anthropic/claude-opus-5-5:high",
+			"--thinking=high",
+		]);
+	});
+
 	it("stays while its log isn't written, which pi does at its first answer", () => {
 		rmSync(logOf());
 		const watched = watching();
@@ -520,7 +546,11 @@ describe("whether pi's arguments open a session", () => {
 	it("loses the flags a restart wouldn't give again, not a prompt or its session", () => {
 		expect(flagsLost(["--", "-e", "hi"])).toEqual([]);
 		expect(flagsLost(["--session", log, "hi"])).toEqual([]);
-		expect(flagsLost(["-e", "x.ts", "--model=m"])).toEqual(["-e", "--model"]);
+		expect(flagsLost(["-e", "x.ts", "--model=m"])).toEqual(["-e"]);
+		expect(
+			flagsLost(["--model", "m", "--provider", "p", "--thinking", "high"]),
+			"the model flags are carried, with their values",
+		).toEqual([]);
 	});
 });
 

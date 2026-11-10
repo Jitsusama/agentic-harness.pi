@@ -200,7 +200,7 @@ function restartWith(sessionFile: string, fallback: () => void): void {
 					process.execPath,
 					...process.execArgv,
 					script,
-					...restartCommand(sessionFile).slice(1),
+					...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
 				],
 				env,
 			);
@@ -317,7 +317,7 @@ function restartNamed(
 	const lost = flagsLost(args);
 	if (lost.length > 0) return `starting again would drop ${lost.join(", ")}`;
 	try {
-		writeFileSync(again, JSON.stringify(restartCommand(sessionFile)));
+		writeFileSync(again, JSON.stringify(restartCommand(sessionFile, args)));
 		return undefined;
 	} catch {
 		return "its holder couldn't be told how to start it again";
@@ -470,7 +470,7 @@ export function watch(
 		if (seen !== undefined) return seen;
 		const throughHolder = () => {
 			try {
-				writeFileSync(again, JSON.stringify(restartCommand(fresh)));
+				writeFileSync(again, JSON.stringify(restartCommand(fresh, args)));
 				writeFileSync(
 					wake,
 					`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
