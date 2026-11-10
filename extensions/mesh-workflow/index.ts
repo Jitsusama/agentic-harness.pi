@@ -238,7 +238,13 @@ import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
 import { tellOnNoModel, tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
-import { markOwnerRunning, settleFromVerdicts, type Waiting } from "./wait.ts";
+import {
+	markOwnerRunning,
+	settledText,
+	settleFromVerdicts,
+	type Waiting,
+	watchSettling,
+} from "./wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -682,8 +688,15 @@ export function meshWorkflow(
 						const dir = join(paths.quests, quest);
 						return existsSync(dir) ? withQuestLock(dir, change) : change();
 					},
+					heard: (items) => {
+						settleWatch?.heard(items);
+						watchSettled();
+					},
 				}
 			: undefined;
+		// What this session raised for the person, heard when it settles.
+		const settleWatch = waiting ? watchSettling(waiting) : undefined;
+		let settleClock: ReturnType<typeof setInterval> | undefined;
 		const wanting = new Map<WantKind, Want>();
 		const unlanded: Landing[] = [];
 		// A session on no model is said at its start, perhaps before this
@@ -1415,6 +1428,46 @@ export function meshWorkflow(
 				waitClock = undefined;
 			}
 		};
+		/**
+		 * Tell this session what it raised for the person has settled: a
+		 * turn of its own when idle, since a run that ended Blocked on him
+		 * has nothing else to wake it, and after the run under way if not.
+		 */
+		const tellSettled = () => {
+			if (!settleWatch || !ctx) return;
+			let gone: ReturnType<typeof settleWatch.settled>;
+			let idle: boolean;
+			try {
+				gone = settleWatch.settled();
+				idle = ctx.isIdle?.() ?? false;
+			} catch {
+				// A file being replaced or a stale context: the next tick looks again.
+				return;
+			}
+			if (!settleWatch.watching()) {
+				clearInterval(settleClock);
+				settleClock = undefined;
+			}
+			if (gone.length === 0) return;
+			const message = {
+				customType: NOTED,
+				content: settledText(gone),
+				display: true,
+			};
+			if (!idle) {
+				pi.sendMessage(message, { deliverAs: "followUp" });
+				return;
+			}
+			const turn = !turnAsked && !pausing.paused;
+			if (turn) turnAsked = true;
+			pi.sendMessage(message, { triggerTurn: turn });
+		};
+		const watchSettled = () => {
+			if (settleClock || !settleWatch?.watching()) return;
+			settleClock = setInterval(tellSettled, waitCheckMs);
+			settleClock.unref?.();
+		};
+
 		const watchWaits = () => {
 			if (waitClock || !own?.leases.some((lease) => lease.kind === "wait")) {
 				return;
@@ -1490,6 +1543,13 @@ export function meshWorkflow(
 			if (waiting) {
 				settleFromVerdicts(waiting);
 				markOwnerRunning(waiting, true);
+				// The first look learns what waits; what settles after is told.
+				try {
+					settleWatch?.settled();
+				} catch {
+					// A file being replaced: the next change this session makes looks again.
+				}
+				watchSettled();
 			}
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
@@ -1720,6 +1780,8 @@ export function meshWorkflow(
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;
+			clearInterval(settleClock);
+			settleClock = undefined;
 			if (reloading(event)) {
 				// Its heavy work runs on through a reload, as its jobs do, so its
 				// leases stay and the runtime the reload starts releases them.
