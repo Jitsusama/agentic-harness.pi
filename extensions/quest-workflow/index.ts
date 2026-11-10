@@ -21,7 +21,7 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
+import { keyHint } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { boundedByDetails } from "../../lib/core/result/details.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
@@ -85,7 +85,7 @@ import {
 	resolveStartup,
 	sayFirstWords,
 } from "./lifecycle.ts";
-import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { recentSessionHints } from "./lookup.ts";
 import { sayPeersOnStartup } from "./peers.ts";
 import { keepDesktopListsCurrent } from "./quest-index.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
@@ -97,6 +97,7 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.ts";
+import { resumeQuestSession } from "./resume.ts";
 import { questCommandEnvironment } from "./scratch.ts";
 import {
 	endReasonForShutdown,
@@ -552,58 +553,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	pi.registerCommand("quest-resume", {
 		description:
-			"Switch to a pi session previously attached to the loaded quest. Usage: `/quest-resume <session-id>`",
-		handler: async (args, ctx) => {
-			const sessionId = args?.trim();
-			if (!sessionId) {
-				ctx.ui.notify(
-					"Usage: /quest-resume <session-id>. Run `quest recent` to list resumable sessions with their ids and resume commands.",
-					"warning",
-				);
-				return;
-			}
-			if (!state.questId) {
-				ctx.ui.notify(
-					"No quest loaded. `quest load <id>` first, then /quest-resume.",
-					"warning",
-				);
-				return;
-			}
-			// Confirm the session id is in the loaded quest's
-			// frontmatter; we don't want to send the user to a
-			// session that isn't part of this quest's audit
-			// trail.
-			const projection = await showLoaded(state);
-			const attached = (projection?.frontMatter.sessions ?? []).some(
-				(s) => s.id === sessionId,
-			);
-			if (!attached) {
-				ctx.ui.notify(
-					`Session ${sessionId} is not attached to ${state.questId}. Use \`quest session-attach\` to attach the current session, or \`quest show\` to see attached sessions.`,
-					"warning",
-				);
-				return;
-			}
-			let sessions: { id: string; path: string; cwd: string }[];
-			try {
-				sessions = await SessionManager.list(ctx.cwd);
-			} catch (err) {
-				ctx.ui.notify(
-					`Could not list sessions: ${(err as Error).message}`,
-					"warning",
-				);
-				return;
-			}
-			const hit = sessions.find((s) => s.id === sessionId);
-			if (!hit) {
-				ctx.ui.notify(
-					`Session ${sessionId} not found on disk for ${ctx.cwd}. It may live under a different cwd; open pi in that directory and try again.`,
-					"warning",
-				);
-				return;
-			}
-			await ctx.switchSession(hit.path);
-		},
+			"Carry on a session attached to the loaded quest: switch pi to it, or in a host, have the host adopt it. Usage: `/quest-resume <session-id>`",
+		handler: (args, ctx) => resumeQuestSession(pi, state, args, ctx),
 	});
 
 	// The record, read from disk after each call that could touch a quest

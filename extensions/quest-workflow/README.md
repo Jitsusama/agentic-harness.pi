@@ -225,7 +225,18 @@ shipped and tested.
   names its code; one that never answers, or answers something
   unreadable, leaves the outcome unknown, and nothing is retried or
   opened in its place. A dry run calls nothing. `reopen-sessions`
-  refuses `host`. A session a host ran comes back through that host,
+  refuses `host`. An attended host's answer gives the words that
+  view the session: `mycelium --realm <realm> attach --host <key>
+  --session <id>`.
+- **Resume in a host**: `/quest-resume <id>` switches pi to a
+  session attached to the loaded quest. A hosted conversation can't
+  switch its log, which its host owns, so there it asks the realm's
+  attended host what it holds: a session already held is only
+  pointed at, and any other is adopted from its log with spawn's
+  refusals. The answer is a notice and a `quest-resume` message in
+  the conversation, whose details say `sessionId`, `host`, `adopted`
+  and the `attach` words, since a host with no viewer keeps no
+  notice. A session a host ran comes back through that host,
   so `reopen-sessions`, the start-up count of lost sessions and the
   restore at boot all leave it out, and its `restore.json` entry is
   marked `hosted` for the launcher to skip: a terminal over its log

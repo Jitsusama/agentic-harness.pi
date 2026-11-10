@@ -6,6 +6,9 @@
  * It is an explicit target, chosen by `host`, never a terminal driver and
  * never a fallback: a host that refuses, or whose answer never arrives,
  * opens nothing else, since a second pi on the same work would split it.
+ *
+ * /quest-resume in a hosted conversation goes this way too, through
+ * resumeInHost, since a host's conversation can't switch its own log.
  */
 
 import { isAbsolute } from "node:path";
@@ -19,6 +22,7 @@ import { controlRequest } from "../../../host/service/client.ts";
 import {
 	type ControlRequest,
 	parseAdoptResult,
+	parseListResult,
 	parseOpenResult,
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
@@ -134,11 +138,6 @@ export async function spawnInHost(
 		return refuse(`No ${spawn.kind} host to spawn into: ${messageOf(error)}.`);
 	}
 	const key = hostKey(realm, spawn.kind);
-	if (!isAbsolute(spawn.cwd)) {
-		return refuse(
-			`A host opens sessions only in an absolute folder, not "${spawn.cwd}".`,
-		);
-	}
 	const built = requestFor(spawn);
 	if (!built.ok) return refuse(built.refusal);
 	const { request } = built;
@@ -181,10 +180,13 @@ export async function spawnInHost(
 			unknownOutcome(key, "it said yes, but what it opened is unreadable"),
 		);
 	}
-	const screen =
+	const attach =
 		spawn.kind === "attended"
-			? "Its screen waits in the host until a viewer attaches."
-			: "It runs in the background, with no screen.";
+			? attachWords(realm, key, held.sessionId)
+			: undefined;
+	const screen = attach
+		? `Its screen waits in the host until a viewer attaches: ${attach.join(" ")}`
+		: "It runs in the background, with no screen.";
 	const said =
 		request.op === "adopt"
 			? `The ${key} host adopted session ${held.sessionId}, which picks up its own history in ${held.cwd}; it isn't told anything, so it waits where its log stopped. ${screen}`
@@ -199,8 +201,111 @@ export async function spawnInHost(
 		since: held.since,
 		attended: spawn.kind === "attended",
 		autoloadQuestId: spawn.questId,
+		...(attach ? { attach } : {}),
 		...(request.op === "adopt" ? { resumedSessionId: held.sessionId } : {}),
 	});
+}
+
+/** What /quest-resume in a hosted conversation needs to carry a session on. */
+export interface HostResume {
+	readonly questId: string;
+	/** The quest's record of the session, with its liveness. */
+	readonly session: SessionView;
+	/** The asking conversation's environment, never the host process's. */
+	readonly env: Readonly<Record<string, string | undefined>>;
+	/** Where pi keeps session logs; the home's by default. */
+	readonly logs?: string;
+}
+
+/**
+ * Carry a quest's session on in the realm's attended host, since a
+ * resume is for a person to look at. A session the host already holds
+ * is only pointed at; any other is adopted from its log, with spawn's
+ * refusals (live elsewhere, no log). Either way the answer says how to
+ * view it, and adopted says which happened.
+ */
+export async function resumeInHost(
+	resume: HostResume,
+	call: ControlCall = controlRequest,
+): Promise<QuestResult> {
+	const kind = "attended";
+	const { session } = resume;
+	let realm: string;
+	let socket: string;
+	try {
+		realm = hostRealm(resume.env);
+		socket = hostSocketPath(realm, kind, resume.env.XDG_RUNTIME_DIR);
+	} catch (error) {
+		return refuse(`No ${kind} host to resume into: ${messageOf(error)}.`);
+	}
+	const key = hostKey(realm, kind);
+	let reply: Awaited<ReturnType<ControlCall>>;
+	try {
+		reply = await call(socket, { v: 1, id: uuidv7(), op: "list" });
+	} catch (error) {
+		if (neverSent(error)) {
+			return refuse(
+				`No ${key} host is listening at ${socket}, so nothing was opened.`,
+			);
+		}
+		return refuse(
+			`The ${key} host didn't say what it holds (${messageOf(error)}), so nothing was adopted.`,
+		);
+	}
+	if (!reply.ok) {
+		return refuse(
+			`The ${key} host refused to list what it holds: ${reply.error.code}, ${reply.error.message}. Nothing was adopted.`,
+		);
+	}
+	let holds: boolean;
+	try {
+		holds = parseListResult(reply.result).sessions.some(
+			(held) => held.sessionId === session.id,
+		);
+	} catch {
+		return refuse(
+			`The ${key} host's list is unreadable, so nothing was adopted.`,
+		);
+	}
+	if (holds) {
+		const attach = attachWords(realm, key, session.id);
+		return ok(
+			`The ${key} host already holds session ${session.id}, so nothing was adopted. View it: ${attach.join(" ")}`,
+			{ how: "host", host: key, sessionId: session.id, adopted: false, attach },
+		);
+	}
+	const adopted = await spawnInHost(
+		{
+			kind,
+			questId: resume.questId,
+			cwd: session.cwd ?? "",
+			chosenBy: "the session's own folder",
+			resume: session,
+			env: resume.env,
+			...(resume.logs ? { logs: resume.logs } : {}),
+		},
+		call,
+	);
+	if (!adopted.ok) return adopted;
+	return { ...adopted, details: { ...adopted.details, adopted: true } };
+}
+
+/**
+ * The words that join a hosted conversation from a terminal here, as
+ * mycelium's attach_here gives them. Realm and key are checked names and
+ * the id a UUID, so they need no quoting.
+ */
+function attachWords(realm: string, key: string, sessionId: string): string[] {
+	return [
+		"mycelium",
+		"--realm",
+		realm,
+		"attach",
+		"--host",
+		key,
+		"--session",
+		sessionId,
+	];
 }
 
 /**
@@ -244,6 +349,13 @@ function requestFor(
 				attended,
 				quest: spawn.questId,
 			},
+		};
+	}
+	// Only a fresh session is opened in a folder; an adopted one keeps its own.
+	if (!isAbsolute(spawn.cwd)) {
+		return {
+			ok: false,
+			refusal: `A host opens sessions only in an absolute folder, not "${spawn.cwd}".`,
 		};
 	}
 	return {
