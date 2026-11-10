@@ -28,7 +28,15 @@ it takes over the left lock and socket and resumes both holds. It is in
 the process lane, since it spawns node from node.
 run.test.ts runs a host as its process would, with a stand-in for the
 process's signals and readiness: ready only once listening, parked with
-holds kept on a stop signal, and no socket without a realm.
+holds kept on a stop signal, the viewer bridge handed to serve, and no
+socket without a realm.
+program.test.ts checks what the host program refuses before it holds,
+pins or listens anything, the environment it gives conversations, the
+terminal it names and the theme it starts. Its run against the real patched pi is a drill, not a
+test here, since that pi is built outside this package;
+tests/scripts/pi-host.test.ts checks the exit status a unit reads.
+pi-resolution.test.ts checks the host program's resolve hook sends only
+pi imports made from outside the host's pi to that pi.
 gateway-key.test.ts checks the launcher's key order and when a personal
 key is resolved again, with a fake resolver and a stamp file in a
 private folder; the dev tool itself is never run.

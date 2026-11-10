@@ -41,6 +41,21 @@ input pipeline or screen. No unit or running host is installed yet.
   from the unit's environment, ready (systemd-notify, so the unit needs
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
   SIGINT. The engine is passed in by the program that starts it.
+- program.ts: that program, which `scripts/pi-host.ts` runs. It loads
+  the host's pi from PI_PACKAGE_DIR, refused unless every host patch is
+  there, starts pi's theme from the person's settings, and gives each
+  conversation pi's InteractiveMode as its screen, H1's engine and the
+  renewing key. It names the viewers' kitty terminal where the unit
+  names none, before the theme reads it. Conversations start from the
+  host's environment less systemd's hand-over and PI_PACKAGE_DIR; the
+  engine pins the host's pi for their subagents. A kind, realm
+  or pi install it refuses exits 78, before anything is held or
+  listens, so a unit naming that status stops restarting it.
+- pi-resolution.ts: the resolve hook `scripts/pi-host.ts` registers
+  before the host's code loads, binding every `@earendil-works/` import
+  made from outside the host's pi to that pi. The harness's install
+  carries no pi of its own, so without it the viewer's terminal would
+  find no pi-tui, or in a tree the dev copy rather than the host's.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
   or release commits, or once a conversation ended itself; replace swaps
