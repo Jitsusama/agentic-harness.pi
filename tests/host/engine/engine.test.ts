@@ -123,6 +123,24 @@ async function step(folder: string, scenario: string): Promise<Seen> {
 	return JSON.parse(stdout);
 }
 
+/** What a plain pi on the same folder, settings and environment does with `words`. */
+async function plainPi(folder: string, words: string): Promise<void> {
+	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
+	await run(
+		process.execPath,
+		[join(packageDir, "dist", "bundle", "cli.js"), "-p", words],
+		{ cwd: join(folder, "work"), env: sealedEnv(folder) },
+	);
+}
+
+/** Each tool list the probe noted, in the order it noted them. */
+function toolLists(folder: string): unknown[] {
+	return readFileSync(join(folder, "tools.jsonl"), "utf8")
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
+}
+
 /** A step that dies of a signal; answers the signal. */
 async function killedStep(
 	folder: string,
@@ -210,6 +228,28 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				`${said.stdout}${said.stderr}`.trim(),
 				"the pinned pi runs, and is the pi the host loaded",
 			).toContain(seen.piVersion);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"gives a hosted conversation every tool a plain pi on the same settings has",
+		async () => {
+			const folder = hostFolder();
+			await step(folder, "tools");
+			await plainPi(folder, "/tools-probe");
+			const [hosted, plain, ...more] = toolLists(folder);
+			expect(more).toEqual([]);
+			expect(hosted).toEqual(plain);
+			expect(hosted).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ name: "tool_search", declared: true }),
+					expect.objectContaining({ name: "codemode" }),
+					expect.objectContaining({ name: "spend", exposure: "deferred" }),
+					expect.objectContaining({ name: "subagent", declared: true }),
+					expect.objectContaining({ name: "review_see", declared: true }),
+				]),
+			);
 		},
 		HOST_LIFE_MS,
 	);
