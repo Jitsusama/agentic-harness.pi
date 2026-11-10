@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	isKeptPresent,
@@ -126,6 +128,45 @@ describe("being present on the node", () => {
 		await new Promise((next) => setTimeout(next, 50));
 		expect(isKeptPresent(), "a refusal counts nothing").toBe(false);
 		expect(heard.connections, "not asked again at the short retry").toBe(1);
+	});
+
+	it("asks the latest load where the node is", async () => {
+		const heard = await node('{"Ok":"Present"}');
+		keepPresent(() => undefined, 10);
+
+		keepPresent(() => path, 10);
+
+		await until(
+			"present at the node the reload names",
+			isKeptPresent,
+			HEARD_WITHIN_MS,
+		);
+		expect(heard.connections).toBe(1);
+	});
+
+	it("lets go of a reloaded load's way to the node", async () => {
+		// 9 November: a live pi's heap held three stale harness runtimes
+		// through the first load's way to the node, which the connection
+		// kept for the life of the process, and with it the session that
+		// load started with.
+		setFlagsFromString("--expose-gc");
+		const gc = runInNewContext("gc") as () => void;
+		await node('{"Ok":"Present"}');
+		const firstLoad = (() => {
+			const session = { path };
+			keepPresent(() => session.path);
+			return new WeakRef(session);
+		})();
+		await until("the first load is present", isKeptPresent, HEARD_WITHIN_MS);
+
+		keepPresent(() => path);
+		await new Promise((next) => setImmediate(next));
+		gc();
+
+		expect(
+			firstLoad.deref() === undefined,
+			"nothing holds the first load's session",
+		).toBe(true);
 	});
 
 	it("tries again while no node is named", async () => {

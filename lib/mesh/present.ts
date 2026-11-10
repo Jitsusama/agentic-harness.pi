@@ -36,6 +36,14 @@ export type NodeAt = () => string | undefined;
 interface Keeping {
 	socket?: Socket;
 	retry?: ReturnType<typeof setTimeout>;
+	/**
+	 * Where the latest load says the node serves. A load's closure keeps
+	 * whatever scope made it, and the connection outlives every load, so
+	 * a reload's replaces the one before rather than the first being kept
+	 * for the life of the process: on 9 November that kept three stale
+	 * harnesses in a live pi's heap.
+	 */
+	at: NodeAt;
 	/** Whether the node has said this process is counted present. */
 	present: boolean;
 	stopped: boolean;
@@ -71,7 +79,7 @@ export function whenPresent(heard: () => void): () => void {
 /**
  * Keeps this process present on the node `at` names, from now until it
  * exits. Kept already, by an earlier load in this process, it carries on
- * as it is.
+ * with the one connection, asking this load's `at` from then on.
  */
 export function keepPresent(
 	at: NodeAt = () => nodeSocket(),
@@ -79,8 +87,12 @@ export function keepPresent(
 	refusedRetryMs: number = PRESENT_REFUSED_RETRY_MS,
 ): void {
 	const held = globalThis as PresentGlobal;
-	if (held[SLOT] && !held[SLOT].stopped) return;
-	const keeping: Keeping = { present: false, stopped: false };
+	const kept = held[SLOT];
+	if (kept && !kept.stopped) {
+		kept.at = at;
+		return;
+	}
+	const keeping: Keeping = { at, present: false, stopped: false };
 	held[SLOT] = keeping;
 	const again = (after: number) => {
 		if (keeping.stopped) return;
@@ -92,7 +104,7 @@ export function keepPresent(
 	};
 	const attempt = () => {
 		if (keeping.stopped) return;
-		const path = at();
+		const path = keeping.at();
 		if (path === undefined) {
 			again(retryMs);
 			return;

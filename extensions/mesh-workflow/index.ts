@@ -1437,7 +1437,7 @@ export function meshWorkflow(
 			handedNow = 0;
 			// The node hears this process end the moment it does, crash or
 			// not; a reload keeps the one connection it already holds.
-			keepPresent(() => nodeSocket(env));
+			keepPresent(nodeAt(env));
 			askFlows();
 			unhearPresent?.();
 			unhearPresent = whenPresent(askFlows);
@@ -2023,6 +2023,15 @@ export function meshWorkflow(
 const CARRY_NAME = "mesh";
 
 /** The session a rolled-over log carried on from, as the mesh carried it. */
+/**
+ * Where the node serves, read from `env` alone. Made out here because
+ * the connection keeps it past this load, and a closure made in
+ * session_start would keep that session and its harness with it.
+ */
+function nodeAt(env: NodeJS.ProcessEnv): () => string | undefined {
+	return () => nodeSocket(env);
+}
+
 function previousSession(carried: unknown): string | undefined {
 	const session = (carried as { session?: unknown } | undefined)?.session;
 	return typeof session === "string" && session !== "" ? session : undefined;
