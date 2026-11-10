@@ -26,6 +26,7 @@ import {
 	performReload,
 	requestReload,
 } from "../../../extensions/reload-workflow/transitions.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import { installTestHost } from "../../support/session-host.ts";
@@ -103,7 +104,14 @@ it("refuses a reload the agent asks for, queuing nothing", async () => {
 	await expect(
 		requestReload("try it", undefined, installed(), () => {}),
 	).rejects.toThrow(HOSTED_RELOAD);
-	expect(reloadSlot().request).toBeUndefined();
+	expect(
+		withSession("a", () => reloadSlot().request),
+		"the conversation's slot holds no request",
+	).toBeUndefined();
+	expect(
+		Symbol.for("agentic-harness.reload.slot") in globalThis,
+		"nothing is left under the process's key",
+	).toBe(false);
 });
 
 it("reloads nothing from the command, and says why", async () => {

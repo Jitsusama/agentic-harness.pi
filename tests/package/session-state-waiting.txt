@@ -33,7 +33,6 @@ lib/core/work/memory.ts:pid 1
 lib/core/work/sweep.ts:pid 3
 lib/guardian/policy.ts:global 1
 lib/internal/away/machine.ts:pid 1
-lib/internal/carry/changes.ts:pid 1
 lib/internal/guardian/registry.ts:global 1
 lib/internal/people/resolvers.ts:global 1
 lib/internal/priority/awaited.ts:global 1
