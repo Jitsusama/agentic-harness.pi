@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	FIRST_TURN_WATCH_MS,
 	MOST_START_MS,
+	offerReopen,
 	piRunsFor,
 	spawnedBy,
 	stopFirstTurnWatches,
@@ -15,6 +16,7 @@ import {
 import type { FirstTurn } from "../../../lib/internal/quest/first-words.ts";
 
 let said: { text: string; options: unknown }[];
+let noted: { content: unknown; options: unknown }[];
 let pi: ExtensionAPI;
 let idle: boolean;
 const ctx = { isIdle: () => idle } as unknown as ExtensionContext;
@@ -22,10 +24,14 @@ const ctx = { isIdle: () => idle } as unknown as ExtensionContext;
 beforeEach(() => {
 	vi.useFakeTimers();
 	said = [];
+	noted = [];
 	idle = true;
 	pi = {
 		sendUserMessage: (text: string, options?: unknown) => {
 			said.push({ text, options });
+		},
+		sendMessage: (message: { content: unknown }, options?: unknown) => {
+			noted.push({ content: message.content, options });
 		},
 	} as unknown as ExtensionAPI;
 });
@@ -195,6 +201,108 @@ describe("a spawner watching for its session's first turn", () => {
 			).toBe(false);
 		},
 	);
+
+	describe("a session whose pi ended before it took its words", () => {
+		// 11-10 from 04:27: the launcher's holder ran pi without the PATH
+		// Shopify's wrapper fetches its key by, so each session it started
+		// exited at once ("Failed to get LLM token") and five never ran.
+		it("is opened again once from here, said without a turn, and watched afresh", async () => {
+			const opened: string[] = [];
+			offerReopen(spawned.key, async () => {
+				opened.push(spawned.key);
+				return "a window through kitty";
+			});
+			let looks = 0;
+			watchFirstTurn(
+				pi,
+				ctx,
+				{ ...spawned, sessionId: "019a-dead" },
+				() => {
+					looks += 1;
+					return looks === 1
+						? waiting
+						: { started: true, sessionId: "019a-reopened" };
+				},
+				FIRST_TURN_WATCH_MS,
+				gone,
+			);
+
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual(["token-1"]);
+			expect(said).toEqual([]);
+			expect(noted).toHaveLength(1);
+			expect(String(noted[0]?.content)).toContain(
+				"It was opened again from this session: a window through kitty.",
+			);
+			expect(noted[0]?.options).toBeUndefined();
+
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(looks).toBe(2);
+			expect(said).toEqual([]);
+		});
+
+		it("is told as before when the session opened again doesn't start either", async () => {
+			const opened: string[] = [];
+			offerReopen(spawned.key, async () => {
+				opened.push(spawned.key);
+				return "a window through kitty";
+			});
+			watchFirstTurn(
+				pi,
+				ctx,
+				spawned,
+				() => waiting,
+				FIRST_TURN_WATCH_MS,
+				gone,
+			);
+
+			await vi.advanceTimersByTimeAsync(2 * FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual(["token-1"]);
+			expect(said).toHaveLength(1);
+			expect(said[0]?.text).toContain("60 s after the spawn");
+		});
+
+		it("is told, with why, when opening it again fails", async () => {
+			offerReopen(spawned.key, async () => {
+				throw new Error("kitty is not installed");
+			});
+			watchFirstTurn(
+				pi,
+				ctx,
+				spawned,
+				() => waiting,
+				FIRST_TURN_WATCH_MS,
+				gone,
+			);
+
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(said).toHaveLength(1);
+			expect(said[0]?.text).toContain(
+				"Opening it again from here failed: kitty is not installed.",
+			);
+			expect(noted).toEqual([]);
+		});
+
+		it("is never opened twice while its pi still runs", async () => {
+			const opened: string[] = [];
+			offerReopen(spawned.key, async () => {
+				opened.push(spawned.key);
+				return "a window through kitty";
+			});
+			watchFirstTurn(
+				pi,
+				ctx,
+				spawned,
+				() => waiting,
+				FIRST_TURN_WATCH_MS,
+				running,
+			);
+
+			await vi.advanceTimersByTimeAsync(MOST_START_MS);
+			expect(opened).toEqual([]);
+			expect(said).toHaveLength(1);
+		});
+	});
 
 	it("looks no more once the session doing the watching ends", () => {
 		const asked: string[] = [];

@@ -12,6 +12,15 @@
  * never had. So while its words still wait and a process naming its
  * session runs, the look comes again each minute, telling only once
  * MOST_START_MS has passed.
+ *
+ * A session whose pi ended without taking its words is reopened once,
+ * from this session, by the terminal the spawn would have opened had
+ * the launcher not taken it ({@link offerReopen}). From 04:27 on 11-10
+ * every session the shell started died at once with "Failed to get LLM
+ * token": its holder ran pi without dev's bin folder on PATH, so
+ * Shopify's pi wrapper couldn't fetch its key, while a window opened
+ * from a running session inherits one. Only telling left five sessions
+ * unstarted until somebody acted on it.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -86,6 +95,30 @@ export const piRunsFor: PiRuns = ({ sessionId }) => {
 const watches = new Set<ReturnType<typeof setTimeout>>();
 
 /**
+ * Opens a spawned session again from this session, answering what it
+ * opened, as the words the spawner is told.
+ */
+export type Reopen = () => Promise<string>;
+
+/** How each spawn still watched can be opened again, by its words' key. */
+const reopeners = new Map<string, Reopen>();
+
+/**
+ * Say how to open the session spawned under `key` again, should its pi
+ * end without taking its words: once, and only while it is watched.
+ */
+export function offerReopen(key: string, reopen: Reopen): void {
+	reopeners.set(key, reopen);
+}
+
+/** The way to open a spawn again, taken so it is tried only once. */
+function takeReopen(key: string): Reopen | undefined {
+	const reopen = reopeners.get(key);
+	reopeners.delete(key);
+	return reopen;
+}
+
+/**
  * The spawn a tool answer describes, when it left words for a session
  * it started: a dry run, or a command that isn't pi, leaves none.
  */
@@ -114,7 +147,10 @@ export function spawnedBy(
  * still wait and its pi runs, look again each `afterMs` instead, up to
  * MOST_START_MS, unless the spawn said its pi waits at the folder-trust
  * prompt: a pi waiting there runs and still hasn't taken its words, and
- * will wait as long as nobody answers.
+ * will wait as long as nobody answers. When its words wait and no pi of
+ * it runs, it is opened again once, if the spawn offered a way, and
+ * watched afresh; only a failed reopen, or a second session that doesn't
+ * start, starts a turn here.
  */
 export function watchFirstTurn(
 	pi: ExtensionAPI,
@@ -130,21 +166,27 @@ export function watchFirstTurn(
 			() => {
 				watches.delete(watch);
 				const turn = look(spawned, spawnedAt);
-				if (turn.started) return;
-				if (
-					turn.waiting &&
-					!spawned.trustWaits &&
-					waited < MOST_START_MS &&
-					runs(spawned)
-				) {
+				if (turn.started) {
+					reopeners.delete(spawned.key);
+					return;
+				}
+				const piRuns = turn.waiting === true && runs(spawned);
+				if (piRuns && !spawned.trustWaits && waited < MOST_START_MS) {
 					lookAfter(Math.min(waited + afterMs, MOST_START_MS));
 					return;
 				}
-				const idle = ctx.isIdle?.() ?? true;
-				pi.sendUserMessage(
-					noTurnWords(spawned, turn, waited),
-					idle ? undefined : { deliverAs: "followUp" },
-				);
+				const reopen =
+					turn.waiting && !piRuns ? takeReopen(spawned.key) : undefined;
+				reopeners.delete(spawned.key);
+				if (reopen) {
+					reopenAndWatch(pi, ctx, spawned, turn, waited, reopen, {
+						look,
+						afterMs,
+						runs,
+					});
+					return;
+				}
+				tell(pi, ctx, noTurnWords(spawned, turn, waited));
 			},
 			waited - (Date.now() - spawnedAt),
 		);
@@ -159,6 +201,74 @@ export function watchFirstTurn(
 export function stopFirstTurnWatches(): void {
 	for (const watch of watches) clearTimeout(watch);
 	watches.clear();
+	reopeners.clear();
+}
+
+/** Start a turn here saying what the spawner has to act on. */
+function tell(pi: ExtensionAPI, ctx: ExtensionContext, words: string): void {
+	const idle = ctx.isIdle?.() ?? true;
+	pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
+}
+
+/**
+ * Open a spawn whose pi ended again, say so without starting a turn, and
+ * watch the session it opens as a spawn of its own, which has no second
+ * reopen. A reopen that fails is told as a session that never started.
+ */
+function reopenAndWatch(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	spawned: Spawned,
+	turn: Extract<FirstTurn, { started: false }>,
+	waited: number,
+	reopen: Reopen,
+	watching: {
+		readonly look: LookForFirstTurn;
+		readonly afterMs: number;
+		readonly runs: PiRuns;
+	},
+): void {
+	const session = turn.sessionId ?? spawned.sessionId;
+	const which = session ? `Session ${session}` : "The session";
+	reopen().then(
+		(opened) => {
+			pi.sendMessage({
+				customType: "quest-spawn-reopened",
+				content: automatedText(
+					"a session this one spawned was opened again",
+					`${which} that this session spawned on ${spawned.questId} ended without taking its first words within ${Math.round(waited / 1000)} s, and no pi of it runs. It was opened again from this session: ${opened}. Its first words still wait for it, and it is watched again.`,
+				),
+				display: true,
+			});
+			// The reopened pi starts under an id of its own, so only its
+			// words' key finds it.
+			watchFirstTurn(
+				pi,
+				ctx,
+				{
+					key: spawned.key,
+					questId: spawned.questId,
+					...(spawned.trustWaits ? { trustWaits: spawned.trustWaits } : {}),
+				},
+				watching.look,
+				watching.afterMs,
+				watching.runs,
+			);
+		},
+		(error: unknown) => {
+			const why = error instanceof Error ? error.message : String(error);
+			tell(
+				pi,
+				ctx,
+				noTurnWords(
+					spawned,
+					turn,
+					waited,
+					`Opening it again from here failed: ${why}.`,
+				),
+			);
+		},
+	);
 }
 
 /** What the spawner is told when its session took no first turn. */
@@ -166,6 +276,7 @@ function noTurnWords(
 	spawned: Spawned,
 	turn: Extract<FirstTurn, { started: false }>,
 	afterMs: number,
+	also?: string,
 ): string {
 	const session = turn.sessionId ?? spawned.sessionId;
 	const which = session
@@ -177,6 +288,6 @@ function noTurnWords(
 		: "";
 	return automatedText(
 		"a session this one spawned has not started",
-		`${which} that this session spawned on ${spawned.questId} has not started its first turn ${seconds} s after the spawn: ${turn.found}.${trust} Find out why and get it working: look at its window and its record under ~/.local/state/pi/agentic-harness.pi/quest-workflow/sessions/, then tell it to carry on, or spawn it again if it never started.`,
+		`${which} that this session spawned on ${spawned.questId} has not started its first turn ${seconds} s after the spawn: ${turn.found}.${trust}${also ? ` ${also}` : ""} Find out why and get it working: look at its window and its record under ~/.local/state/pi/agentic-harness.pi/quest-workflow/sessions/, then tell it to carry on, or spawn it again if it never started.`,
 	);
 }
