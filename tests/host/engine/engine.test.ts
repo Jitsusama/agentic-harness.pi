@@ -5,6 +5,7 @@
  * provider and a probe extension. A folder outlives a step, so the next
  * step plays the host's next start. Runs on a pi built with the host's
  * patches, named by PI_HOST_PACKAGE_DIR; without one it is skipped.
+ * tests/host/engine/README.md gives the command that runs it.
  */
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
