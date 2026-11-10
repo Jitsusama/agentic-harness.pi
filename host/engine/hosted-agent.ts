@@ -1014,16 +1014,21 @@ export class HostedAgent {
 			})();
 			return final;
 		};
-		const events = async function* (
-			agent: HostedAgent,
-		): AsyncGenerator<ProviderEvent> {
+		// pi's loop reads the stream as it arrives and tells extensions each
+		// event then; durable reads at its own pace, so the stream is read
+		// here as it opens and durable is handed what was read.
+		const read: ProviderEvent[] = [];
+		let ended = false;
+		let failure: { readonly error: unknown } | undefined;
+		let wake = () => {};
+		const reading = (async () => {
 			const stream = await opened;
 			for await (const event of stream) {
 				if (event.type === "start" && event.partial) {
 					answer.partial = event.partial;
 					run.context.messages.push(event.partial);
 					answer.started = true;
-					await agent.emit({
+					await this.emit({
 						type: "message_start",
 						message: { ...event.partial },
 					});
@@ -1032,20 +1037,48 @@ export class HostedAgent {
 				} else if (answer.started && event.partial) {
 					answer.partial = event.partial;
 					run.context.messages[run.context.messages.length - 1] = event.partial;
-					await agent.emit({
+					await this.emit({
 						type: "message_update",
 						assistantMessageEvent: event,
 						message: { ...event.partial },
 					});
 				}
-				yield event;
+				read.push(event);
+				wake();
 			}
 			await finish(stream);
+		})().then(
+			() => {
+				ended = true;
+				wake();
+			},
+			(error: unknown) => {
+				// Held for durable, which meets it when it reads this far.
+				failure = { error };
+				wake();
+			},
+		);
+		const events = async function* (): AsyncGenerator<ProviderEvent> {
+			for (;;) {
+				const event = read.shift();
+				if (event) {
+					yield event;
+					continue;
+				}
+				if (failure) throw failure.error;
+				if (ended) return;
+				await new Promise<void>((done) => {
+					wake = done;
+				});
+			}
 		};
-		const iterable = events(this);
+		const iterable = events();
 		return {
 			[Symbol.asyncIterator]: () => iterable,
-			result: async () => ({ ...(await finish(await opened)) }),
+			result: async () => {
+				await reading;
+				return { ...(await finish(await opened)) };
+			},
 		};
 	}
 
