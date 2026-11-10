@@ -5,24 +5,40 @@
  * program composes it. What its screen shows is read through a terminal
  * emulator, and its Ctrl+G and Ctrl+Z run through its own tty: a scripted
  * editor in that terminal, and bash's own job control. Only kitty itself
- * is left out. Skipped without PI_HOST_PACKAGE_DIR (a pi with the host's
- * patches), MYCELIUM_BIN (a mycelium with mycelium#112's client) and
- * script(1); tests/host/end-to-end/README.md gives the command.
+ * is left out. Runs on the host's pi as support/host-pi.ts finds it, a
+ * mycelium with mycelium#112's client (MYCELIUM_BIN, else the PATH's) and
+ * script(1): an ordinary run without one skips it saying which, and
+ * `pnpm test:host` fails instead.
  */
 
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Folders, folders } from "./support/folders.ts";
+import {
+	HOST_PI_REQUIRED,
+	hostPackageDir,
+	hostPiMissing,
+} from "./support/host-pi.ts";
 import { type ScreenHost, startScreenHost } from "./support/screen-host.ts";
-import { SEALED_REALM, type Seal, seal } from "./support/seal.ts";
+import { type Seal, seal } from "./support/seal.ts";
 import { AT_PROMPT, openTty, type Tty } from "./support/tty.ts";
 import { attach, type Viewer } from "./support/viewer.ts";
 
-const packageDir = process.env.PI_HOST_PACKAGE_DIR;
-const mycelium = process.env.MYCELIUM_BIN;
+const packageDir = hostPackageDir();
+const mycelium = process.env.MYCELIUM_BIN || onPath("mycelium");
 const hasScript = spawnSync("script", ["--version"]).status === 0;
+/** What this machine lacks to run the proof: skipped saying so, or failed under `pnpm test:host`. */
+const missing = [
+	packageDir ? undefined : hostPiMissing(),
+	mycelium
+		? undefined
+		: "No mycelium: set MYCELIUM_BIN, or put core.nix's mycelium (mycelium#112 or later) on the PATH",
+	hasScript ? undefined : "No script(1) on the PATH: put util-linux on it",
+].filter((each) => each !== undefined);
+if (missing.length > 0 && process.env[HOST_PI_REQUIRED])
+	throw new Error(missing.join("; "));
 /** A case: a turn or two, and a client joining, leaving and coming back. */
 const CASE_MS = 60_000;
 const ROWS = 30;
@@ -39,8 +55,8 @@ let editorHadTheTerminal: string;
 let work: Folders;
 const opened: { close(): Promise<void> }[] = [];
 
-describe.skipIf(!(packageDir && mycelium && hasScript))(
-	"mycelium's attach client in a terminal of its own (needs PI_HOST_PACKAGE_DIR, MYCELIUM_BIN and script(1))",
+describe.skipIf(missing.length > 0)(
+	`mycelium's attach client in a terminal of its own${missing.length > 0 ? ` (${missing.join("; ")})` : ""}`,
 	() => {
 		beforeAll(async () => {
 			if (!packageDir) return;
@@ -145,10 +161,19 @@ function folder(): string {
 	return work.trusted();
 }
 
+/** Where `program` is on this process's PATH, if anywhere. */
+function onPath(program: string): string | undefined {
+	return (process.env.PATH ?? "")
+		.split(delimiter)
+		.filter((folder) => folder !== "")
+		.map((folder) => join(folder, program))
+		.find((path) => existsSync(path));
+}
+
 /** A window with a shell, which joins `sessionId` as the launcher's Go To does. */
 async function joined(sessionId: string): Promise<Tty> {
 	if (!mycelium || !existsSync(mycelium))
-		throw new Error(`MYCELIUM_BIN names no mycelium: ${mycelium}`);
+		throw new Error(`No mycelium to run: ${mycelium}`);
 	const window = await openTty(sealed, {
 		mycelium,
 		editor,
@@ -157,7 +182,7 @@ async function joined(sessionId: string): Promise<Tty> {
 	});
 	opened.push(window);
 	window.type(
-		`mycelium --realm ${SEALED_REALM} attach --host ${SEALED_REALM}-attended --session ${sessionId}${ENTER}`,
+		`mycelium --realm ${sealed.realm} attach --host ${sealed.realm}-attended --session ${sessionId}${ENTER}`,
 	);
 	await window.shows(new RegExp(`^─{${COLUMNS}}$`, "m"));
 	return window;
