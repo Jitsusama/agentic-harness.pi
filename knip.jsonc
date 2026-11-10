@@ -19,7 +19,9 @@
 		// The engines a sealed host process imports by path, whose `engine`
 		// no static import names.
 		"tests/host/end-to-end/support/fake-engine.ts",
-		"tests/host/end-to-end/support/pi-engine.ts"
+		"tests/host/end-to-end/support/pi-engine.ts",
+		// The extension a sealed plain pi loads by path, with `-e`.
+		"tests/host/end-to-end/support/scripted-provider.ts"
 	],
 	"project": [
 		"extensions/**/*.ts",
