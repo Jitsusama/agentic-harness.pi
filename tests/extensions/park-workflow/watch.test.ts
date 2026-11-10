@@ -2,7 +2,13 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
@@ -12,6 +18,7 @@ import {
 	mayPark,
 	noteNeverParks,
 	type Parkable,
+	RESTART_LINE,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
 import {
@@ -25,6 +32,8 @@ import {
 	PARKED_EXIT,
 	PARKING,
 	parkSwitch,
+	RESTART_ASK,
+	type RestartAsk,
 	readParked,
 	SESSION_WOKEN,
 	writeParked,
@@ -299,6 +308,104 @@ describe("parking a session", () => {
 		);
 		watching();
 		expect(readParked(SESSION, folder)).toBeUndefined();
+	});
+});
+
+describe("starting again on a fresh log", () => {
+	const fresh = () => join(folder, "fresh.jsonl");
+	const asked = (): RestartAsk => {
+		const ask: RestartAsk = { session: SESSION, sessionFile: fresh() };
+		events.emit(RESTART_ASK, ask);
+		return ask;
+	};
+	let lines: string[];
+	const restarting = (env: NodeJS.ProcessEnv = holder(), args: string[] = []) =>
+		watch(session(), events, {
+			env,
+			args,
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => clock,
+			exitWith: (code, line) => {
+				exits.push(code);
+				lines.push(line);
+			},
+			clock: false,
+		});
+
+	beforeEach(() => {
+		lines = [];
+		writeFileSync(fresh(), "");
+	});
+
+	it("ends at once, not idle, naming the fresh log and waking itself for its holder", () => {
+		restarting();
+		const ask = asked();
+		expect(ask).toMatchObject({ restarting: true });
+		expect(ask.why).toBeUndefined();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+		).toEqual(["pi", "--session", fresh()]);
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
+		).toMatchObject({ session: SESSION, restart: fresh() });
+		expect(exits).toEqual([PARKED_EXIT]);
+		expect(lines).toEqual([RESTART_LINE]);
+		expect(shutdowns).toBe(1);
+		// Back in a moment, it is never marked parked.
+		expect(readParked(SESSION, folder)).toBeUndefined();
+		expect(asked().why).toBe("parking already");
+		expect(shutdowns).toBe(1);
+	});
+
+	it("stays for a background job, typed text or what another extension holds", () => {
+		const watched = restarting();
+		const stop = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => 1,
+		});
+		expect(asked()).toMatchObject({ why: "background jobs are out" });
+		stop();
+		typed = "half a thought";
+		expect(asked()).toMatchObject({ why: "text is typed and unsent" });
+		typed = "";
+		const unrefuse = events.on(PARK_ASK, (data) => {
+			if (isParkAsk(data)) data.refusals.push("peers wait on a hold it sent");
+		});
+		expect(asked()).toMatchObject({ why: "peers wait on a hold it sent" });
+		unrefuse();
+		expect(shutdowns).toBe(0);
+		expect(readdirSync(folder)).not.toContain("held.wake");
+		watched.stop();
+		expect(asked()).not.toHaveProperty("why");
+	});
+
+	it("stays while parking is off, or where its holder would start the log it left", () => {
+		rmSync(parkSwitch(folder));
+		const off = restarting();
+		expect(asked()).toMatchObject({ why: "parking is off" });
+		off.stop();
+		writeFileSync(parkSwitch(folder), "on\n");
+		const { MYCELIUM_WAKE } = holder();
+		const bare = restarting({ MYCELIUM_WAKE });
+		expect(asked()).toMatchObject({
+			why: "its holder would start it on the log it left",
+		});
+		bare.stop();
+		restarting(holder(), ["-e", "./x.ts"]);
+		expect(asked()).toMatchObject({ why: "starting again would drop -e" });
+		expect(shutdowns).toBe(0);
+	});
+
+	it("answers only for its own session", () => {
+		restarting();
+		const other: RestartAsk = { session: "another", sessionFile: fresh() };
+		events.emit(RESTART_ASK, other);
+		expect(other).not.toHaveProperty("restarting");
+		expect(shutdowns).toBe(0);
 	});
 });
 
