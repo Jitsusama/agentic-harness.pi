@@ -4,6 +4,7 @@
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { screenColumns } from "./panel-screen.ts";
 import { CONTENT_INDENT } from "./types.ts";
 
 export { CONTENT_INDENT };
@@ -18,7 +19,7 @@ const FALLBACK_CONTENT_WIDTH = 72;
  * pre-formatted content to extend beyond the viewport).
  */
 export function contentWrapWidth(renderWidth: number): number {
-	const cols = process.stdout.columns;
+	const cols = screenColumns();
 	const visible =
 		cols && cols > 0 ? cols - CONTENT_INDENT * 2 : FALLBACK_CONTENT_WIDTH;
 	const fromRender =

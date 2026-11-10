@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { getPanelHeightFraction } from "./panel-height.ts";
 import { panelRoom } from "./panel-room.ts";
+import { screenRows } from "./panel-screen.ts";
 import { GLYPH } from "./types.ts";
 
 /**
@@ -180,7 +181,7 @@ function clampVScroll(
  */
 export function contentBudget(chromeLines: number): number {
 	const room = panelRoom();
-	const termRows = room?.rows ?? (process.stdout.rows || 40);
+	const termRows = room?.rows ?? screenRows();
 	const maxHeight = Math.floor(termRows * getPanelHeightFraction());
 	if (room !== undefined && room.allot < maxHeight)
 		return Math.max(1, room.allot - chromeLines);
