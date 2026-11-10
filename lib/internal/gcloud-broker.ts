@@ -15,6 +15,11 @@
  * background and a command is handed what the last answer was, never made
  * to wait. The first command of a session starts the first ask, and one
  * that names gcloud before it's answered is told why it has no token.
+ *
+ * gcloud never renews a token it was handed, and one handed on here may
+ * have as little as five minutes left (the broker keeps it 45 of its 60,
+ * and pi up to ten more), so a copy or a job longer than that can fail
+ * partway and wants running again from a fresh command.
  */
 
 import { execFile } from "node:child_process";
