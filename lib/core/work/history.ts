@@ -59,8 +59,35 @@ export interface WorkHistory {
 	 * the dirty state together to tell an abandoned tree from the only
 	 * copy of somebody's work.
 	 */
-	worktrees(treePath: string, trunk: string): Promise<WorktreeOnDisk[]>;
+	worktrees(
+		treePath: string,
+		trunk: string,
+		options?: WorktreeAsk,
+	): Promise<WorktreeOnDisk[]>;
 }
+
+/** What a caller already knows before the trees are read. */
+interface WorktreeAsk {
+	/**
+	 * Whether the caller keeps this tree whatever it holds, given the
+	 * path as git names it. A kept tree is listed with its branch but
+	 * asked nothing more: no status, and no question about its commit.
+	 */
+	readonly kept?: (path: string) => boolean;
+	/**
+	 * What each tree's status runs through, so a caller can give it a
+	 * clock of its own: one World tree took 733 s, and every other tree
+	 * waited on it. A tree whose status fails or runs out is reported
+	 * unread, never as clean. The history's own exec when absent.
+	 */
+	readonly statusExec?: Exec;
+}
+
+/**
+ * How many trees are asked their status at once. A status in a World
+ * tree took 0.03 s to 0.8 s at load 35, and World had 253 trees.
+ */
+const STATUS_AT_ONCE = 8;
 
 /** Porcelain v1 status codes, mapped to what they mean. */
 const KIND: Record<string, ChangedPath["kind"]> = {
@@ -99,28 +126,43 @@ function parseLine(line: string): ChangedPath | undefined {
 /** Read a tree's state with plain git. */
 export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 	/**
-	 * Whether any branch, remote-tracking branch or tag holds `commit`.
+	 * Which of `commits` some branch, remote-tracking branch or tag holds.
 	 *
-	 * One ref is enough to answer, so the listing stops at the first.
+	 * One walk for all of them: it lists what the commits reach that no
+	 * ref does, so a commit it lists is one no ref holds. Asking per
+	 * commit with `for-each-ref --contains` took 14 s to 102 s a commit
+	 * against World's 4,000 refs, and World had 102 detached trees; this
+	 * walk answered all 102 in 27 s. `--all` would be wrong here, since
+	 * it counts every tree's own HEAD as a ref.
 	 */
-	const held = async (treePath: string, commit: string): Promise<boolean> =>
-		(
-			await run(
-				deps.exec,
-				"git",
-				[
-					"-C",
-					treePath,
-					"for-each-ref",
-					"--count=1",
-					`--contains=${commit}`,
-					"refs/heads",
-					"refs/remotes",
-					"refs/tags",
-				],
-				`Asking whether a branch holds ${commit.slice(0, 12)}`,
+	const held = async (
+		treePath: string,
+		commits: readonly string[],
+	): Promise<Set<string>> => {
+		if (commits.length === 0) return new Set();
+		const unheld = new Set(
+			(
+				await run(
+					deps.exec,
+					"git",
+					[
+						"-C",
+						treePath,
+						"rev-list",
+						...commits,
+						"--not",
+						"--branches",
+						"--remotes",
+						"--tags",
+					],
+					`Asking which of ${commits.length} commits a branch holds`,
+				)
 			)
-		).trim() !== "";
+				.split("\n")
+				.map((line) => line.trim()),
+		);
+		return new Set(commits.filter((commit) => !unheld.has(commit)));
+	};
 
 	return {
 		async status(treePath) {
@@ -164,6 +206,10 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			// One pass for the whole picture. Asking `--merged` separately
 			// and joining the answers means two listings taken at different
 			// moments, and the join is on a name that can move between them.
+			// The upstream's full name rather than git's track field. Track
+			// counts how far each branch is ahead of and behind its upstream,
+			// which took 476 s over World's 1,866 branches, to learn only
+			// whether the upstream is gone: an upstream no ref listing holds.
 			const listed = await run(
 				deps.exec,
 				"git",
@@ -171,10 +217,29 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 					"-C",
 					treePath,
 					"for-each-ref",
-					"--format=%(refname:short)\t%(upstream:short)\t%(upstream:track,nobracket)",
+					"--format=%(refname:short)\t%(upstream:short)\t%(upstream)",
 					"refs/heads",
 				],
 				`Listing the branches in ${displayPath(treePath)}`,
+			);
+			const refs = new Set(
+				(
+					await run(
+						deps.exec,
+						"git",
+						[
+							"-C",
+							treePath,
+							"for-each-ref",
+							"--format=%(refname)",
+							"refs/heads",
+							"refs/remotes",
+						],
+						`Listing the refs an upstream can be in ${displayPath(treePath)}`,
+					)
+				)
+					.split("\n")
+					.map((line) => line.trim()),
 			);
 			const merged = new Set(
 				(
@@ -201,17 +266,19 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				.split("\n")
 				.map((line) => line.split("\t"))
 				.filter(([name]) => name !== undefined && name !== "")
-				.map(([name, upstream, track]) => ({
+				.map(([name, upstream, upstreamRef]) => ({
 					name: name as string,
 					mergedIntoTrunk: merged.has(name as string),
 					...(upstream ? { tracking: upstream } : {}),
-					// Git spells a vanished upstream "gone" in the track field,
-					// which is the only place it says so without a fetch.
-					...(track === "gone" ? { remoteGone: true } : {}),
+					// Configured but missing, which is what git's track field calls
+					// gone: the remote dropped it and a prune took the local copy.
+					...(upstreamRef && !refs.has(upstreamRef)
+						? { remoteGone: true }
+						: {}),
 				}));
 		},
 
-		async worktrees(treePath, trunk) {
+		async worktrees(treePath, trunk, options = {}) {
 			// Porcelain, because the human-readable listing puts the branch
 			// in square brackets and a detached tree in the same column, so
 			// parsing it means telling those apart by punctuation.
@@ -246,7 +313,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			// blank one: `worktree <path>`, `HEAD <commit>`, then optionally
 			// `branch <ref>` or `detached`, and `prunable <why>` once the
 			// tree's folder has gone.
-			const trees: WorktreeOnDisk[] = [];
+			const found: { path: string; commit?: string; branch?: string }[] = [];
 			for (const record of listed.split("\n\n")) {
 				let path: string | undefined;
 				let commit: string | undefined;
@@ -273,20 +340,60 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				// tree to ask the status of and nothing checked out to reclaim.
 				// Asking failed, and refused the survey of World's 125 trees.
 				if (!path || gone || bare) continue;
-				// Asked per tree, because a dirty tree is the one refusal here
-				// that cannot be recovered from and no listing reports it.
-				const state = await this.status(path);
-				const kept =
-					!branch && commit !== undefined && (await held(treePath, commit));
-				trees.push({
+				found.push({
 					path,
+					...(commit ? { commit } : {}),
 					...(branch ? { branch } : {}),
-					...(state.clean ? {} : { dirty: true }),
-					...(branch && merged.has(branch) ? { mergedIntoTrunk: true } : {}),
-					...(kept ? { commitKept: true } : {}),
 				});
 			}
-			return trees;
+
+			// A tree the caller keeps whatever it holds is asked nothing:
+			// its status and its commit could not change the answer.
+			const asking = found.filter((tree) => !options.kept?.(tree.path));
+			// Asked per tree, because a dirty tree is the one refusal here
+			// that cannot be recovered from and no listing reports it. Only
+			// whether it is clean, so an untracked folder is one line rather
+			// than every file in it: the 733 s tree answered in 46 s so.
+			const statusExec = options.statusExec ?? deps.exec;
+			const dirty = new Set<string>();
+			const unread = new Set<string>();
+			const waiting = asking[Symbol.iterator]();
+			const ask = async (): Promise<void> => {
+				for (let next = waiting.next(); !next.done; next = waiting.next()) {
+					const { path } = next.value;
+					const state = await statusExec("git", [
+						"-C",
+						path,
+						"status",
+						"--porcelain=v1",
+						"--untracked-files=normal",
+					]);
+					if (state.code !== 0) unread.add(path);
+					else if (state.stdout.trim() !== "") dirty.add(path);
+				}
+			};
+			await Promise.all(
+				Array.from({ length: Math.min(STATUS_AT_ONCE, asking.length) }, ask),
+			);
+			const kept = await held(treePath, [
+				...new Set(
+					asking
+						.filter(
+							(tree) =>
+								!tree.branch && !dirty.has(tree.path) && !unread.has(tree.path),
+						)
+						.flatMap((tree) => (tree.commit ? [tree.commit] : [])),
+				),
+			]);
+
+			return found.map(({ path, commit, branch }) => ({
+				path,
+				...(branch ? { branch } : {}),
+				...(dirty.has(path) ? { dirty: true } : {}),
+				...(unread.has(path) ? { unread: true } : {}),
+				...(branch && merged.has(branch) ? { mergedIntoTrunk: true } : {}),
+				...(!branch && commit && kept.has(commit) ? { commitKept: true } : {}),
+			}));
 		},
 	};
 }

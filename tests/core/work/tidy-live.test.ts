@@ -13,6 +13,7 @@ import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
+import { EXIT_TIMED_OUT } from "../../../lib/core/exec/spawn.ts";
 import {
 	createGitHistory,
 	orphanedTrees,
@@ -274,6 +275,154 @@ describe("reading worktree state from a real repository", () => {
 		expect(plan.reclaimable).toEqual([]);
 		expect(plan.retained.find((t) => t.path.endsWith("spent"))?.why).toContain(
 			"give it back",
+		);
+	});
+});
+
+/** The real exec, keeping each git call's arguments as it goes. */
+function recording(): {
+	exec: typeof exec;
+	calls: (readonly string[])[];
+} {
+	const calls: (readonly string[])[] = [];
+	return {
+		calls,
+		exec: (command, args) => {
+			calls.push(args);
+			return exec(command, args);
+		},
+	};
+}
+
+// What each question costs on World, where tidy ran past 600 s on
+// 10 November: 1,866 branches, 253 trees, 102 of them detached. Asking
+// git how far each branch is from its upstream took 476 s there, and
+// asking per detached tree whether a ref holds its commit took 14 s to
+// 102 s a tree. The counts below are what keeps those from coming back.
+describe("reading a repository with many branches and trees", () => {
+	it("tells a gone upstream without counting how far each branch has moved", async () => {
+		const { local, remote } = await repoWithRemote();
+		await publishBranch(local, "squashed");
+		await git(remote, "branch", "-D", "squashed");
+		await git(local, "fetch", "-q", "--prune", "origin");
+		// An upstream that is a local branch, which no remote listing holds.
+		await git(local, "checkout", "-q", "-b", "follows", "main");
+		await git(local, "branch", "-q", "--set-upstream-to=main", "follows");
+		const { exec: counted, calls } = recording();
+
+		const branches = await createGitHistory({ exec: counted }).branches(
+			local,
+			"main",
+		);
+
+		expect(branches.find((b) => b.name === "squashed")).toMatchObject({
+			remoteGone: true,
+		});
+		expect(branches.find((b) => b.name === "follows")).toMatchObject({
+			tracking: "main",
+		});
+		expect(
+			branches.find((b) => b.name === "follows")?.remoteGone,
+		).toBeUndefined();
+		expect(calls.flat().filter((arg) => arg.includes(":track"))).toEqual([]);
+	});
+
+	it("asks once whether a ref holds the detached trees' commits, however many there are", async () => {
+		const { local } = await repoWithRemote();
+		for (const name of ["one", "two", "three"]) {
+			await git(
+				local,
+				"worktree",
+				"add",
+				"-q",
+				"--detach",
+				`${local}/.wt/${name}`,
+			);
+			await git(
+				`${local}/.wt/${name}`,
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				name,
+			);
+		}
+		await git(local, "worktree", "add", "-q", "--detach", `${local}/.wt/read`);
+		const { exec: counted, calls } = recording();
+
+		const trees = await createGitHistory({ exec: counted }).worktrees(
+			local,
+			"main",
+		);
+
+		const kept = (name: string) =>
+			trees.find((t) => t.path.endsWith(`/${name}`))?.commitKept;
+		expect(["one", "two", "three", "read"].map(kept)).toEqual([
+			undefined,
+			undefined,
+			undefined,
+			true,
+		]);
+		const asked = calls.filter((args) =>
+			args.some((arg) => arg === "rev-list" || arg.startsWith("--contains")),
+		);
+		expect(asked).toHaveLength(1);
+	});
+
+	it("asks nothing of a tree the caller already keeps", async () => {
+		const { local } = await repoWithRemote();
+		await git(local, "worktree", "add", "-q", "--detach", `${local}/.wt/held`);
+		await writeFile(`${local}/.wt/held/scratch.txt`, "not committed");
+		await git(local, "worktree", "add", "-q", "--detach", `${local}/.wt/free`);
+		const held = realpathSync(`${local}/.wt/held`);
+		const { exec: counted, calls } = recording();
+
+		const trees = await createGitHistory({ exec: counted }).worktrees(
+			local,
+			"main",
+			{ kept: (path) => realpathSync(path) === held },
+		);
+
+		expect(trees.map((t) => t.path).sort()).toEqual(
+			[realpathSync(local), held, realpathSync(`${local}/.wt/free`)].sort(),
+		);
+		const askedOf = (path: string) =>
+			calls.filter((args) => args[0] === "-C" && args[1] === path).length;
+		expect(askedOf(`${local}/.wt/held`) + askedOf(held)).toBe(0);
+		expect(trees.find((t) => t.path === held)?.dirty).toBeUndefined();
+		expect(trees.find((t) => t.path.endsWith("/free"))).toMatchObject({
+			commitKept: true,
+		});
+	});
+
+	// One World tree took 733 s to answer its status, and the survey of
+	// every other tree waited on it. Its clock stops it, as the caller's
+	// exec is told to, and that one tree is kept rather than guessed at.
+	it("keeps a tree whose status ran out of time, and reads the rest", async () => {
+		const { local } = await repoWithRemote();
+		for (const name of ["spent", "slow"]) {
+			await git(local, "branch", name, "main");
+			await git(local, "worktree", "add", "-q", `${local}/.wt/${name}`, name);
+		}
+		const slow = realpathSync(`${local}/.wt/slow`);
+		const statusExec: typeof exec = (command, args) =>
+			args[1] !== undefined && realpathSync(args[1]) === slow
+				? Promise.resolve({ code: EXIT_TIMED_OUT, stdout: "", stderr: "" })
+				: exec(command, args);
+
+		const plan = orphanedTrees({
+			mainPath: realpathSync(local),
+			worktrees: await createGitHistory({ exec }).worktrees(local, "main", {
+				statusExec,
+			}),
+			remembered: [],
+		});
+
+		expect(plan.reclaimable).toEqual([
+			{ path: realpathSync(`${local}/.wt/spent`), branch: "spent" },
+		]);
+		expect(plan.retained.find((t) => t.path === slow)?.why).toContain(
+			"didn't say",
 		);
 	});
 });
