@@ -226,6 +226,39 @@ describe("the quests the desktop lists", () => {
 			expect(listed?.resume?.at).toBe(closedThisMorning);
 		});
 
+		// 10 November: with only this moving, the list of 194 quests was
+		// written every 7 to 10 s, each costing the shell 618 ms (PT5P13).
+		// The launcher orders only closed quests by it.
+		it("is said to the hour while its session runs, so the list stands still", () => {
+			const work = join(elsewhere, "src", "karst");
+			mkdirSync(work, { recursive: true });
+			const running = (logged: string): LivenessSnapshot => ({
+				...nothingKnown,
+				activity: new Map([["s-running", logged]]),
+				observations: new Map([["s-running", { process: "matching" }]]),
+			});
+			const listedAt = (logged: string, present: string) =>
+				listedFor(
+					[ended("s-running", work, "active")],
+					running(logged),
+					undefined,
+					() => present,
+				);
+
+			const first = listedAt(
+				"2026-01-02T07:41:56.676Z",
+				"2026-01-02T07:42:11.879Z",
+			);
+			const later = listedAt(
+				"2026-01-02T07:58:02.240Z",
+				"2026-01-02T07:59:13.206Z",
+			);
+
+			expect(first?.sessions).toEqual(["s-running"]);
+			expect(first?.resume?.at).toBe("2026-01-02T07:00:00.000Z");
+			expect(later).toEqual(first);
+		});
+
 		it("is none when its newest one's folder is gone, rather than an older one", () => {
 			const gone = join(elsewhere, "a-tree-since-released");
 			const older = join(elsewhere, "src", "karst");
