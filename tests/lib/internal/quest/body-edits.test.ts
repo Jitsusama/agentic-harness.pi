@@ -486,6 +486,11 @@ describe("reading a document without all of it", () => {
 		expect(last).toMatchObject({ ok: true, text: "Fleet." });
 		const section = subsectionOf(research, "Verdict");
 		expect(section).toMatchObject({ ok: true, found: "Verdict", text: "Yes." });
+		const nested = "## Notes\n\n### Last\n\nLast.\n\n# Appendix\n\nAfter.";
+		expect(subsectionOf(nested, "Last")).toMatchObject({
+			ok: true,
+			text: "Last.",
+		});
 		const missing = subsectionOf(research, "Nowhere");
 		expect(missing).toMatchObject({ ok: false });
 		if (missing.ok) throw new Error("expected a refusal");

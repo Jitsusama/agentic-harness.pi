@@ -308,7 +308,7 @@ export function subsectionOf(
 	const lines = body.split("\n");
 	const headings = outsideFences(lines).flatMap((index) => {
 		const line = lines.at(index) ?? "";
-		const marks = /^(#{2,6})\s/.exec(line)?.at(1);
+		const marks = /^(#{1,6})\s/.exec(line)?.at(1);
 		return marks
 			? [
 					{
