@@ -94,6 +94,9 @@ describe.skipIf(!packageDir)(
 
 				await raise(first, "kept");
 				second.type(`/new${ENTER}`);
+				// Words typed while pi starts the new session were lost, so they
+				// wait for it; this case is about the gate, not typing ahead.
+				await second.shows("New session started", TURN_MS);
 				second.type(`after new${ENTER}`);
 				await second.shows("heard: after new", TURN_MS);
 

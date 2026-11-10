@@ -125,8 +125,14 @@ describe("a host's screens", () => {
 			"and not in b",
 		).toBeUndefined();
 		withSession("b", () => noteReplacing(true));
-		expect(withSession("a", () => replacing())).toBe(false);
-		expect(withSession("b", () => replacing())).toBe(true);
+		expect(
+			withSession("a", () => replacing()),
+			"a replacement in b leaves a's panels standing",
+		).toBe(false);
+		expect(
+			withSession("b", () => replacing()),
+			"b knows it is being replaced",
+		).toBe(true);
 		a.stop();
 	});
 
