@@ -11,15 +11,10 @@
  */
 
 import { spawnSync } from "node:child_process";
-import {
-	chmodSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type Folders, folders } from "./support/folders.ts";
 import { type ScreenHost, startScreenHost } from "./support/screen-host.ts";
 import { SEALED_REALM, type Seal, seal } from "./support/seal.ts";
 import { AT_PROMPT, openTty, type Tty } from "./support/tty.ts";
@@ -41,8 +36,8 @@ let sealed: Seal;
 let host: ScreenHost;
 let editor: string;
 let editorHadTheTerminal: string;
+let work: Folders;
 const opened: { close(): Promise<void> }[] = [];
-let folders = 0;
 
 describe.skipIf(!(packageDir && mycelium && hasScript))(
 	"mycelium's attach client in a terminal of its own (needs PI_HOST_PACKAGE_DIR, MYCELIUM_BIN and script(1))",
@@ -50,6 +45,7 @@ describe.skipIf(!(packageDir && mycelium && hasScript))(
 		beforeAll(async () => {
 			if (!packageDir) return;
 			sealed = await seal();
+			work = folders(sealed);
 			host = await startScreenHost(sealed, packageDir);
 			editorHadTheTerminal = join(sealed.root, "editor-had-the-terminal");
 			editor = join(sealed.root, "editor");
@@ -144,11 +140,9 @@ describe.skipIf(!(packageDir && mycelium && hasScript))(
 	},
 );
 
-/** A fresh working folder for one conversation. */
+/** A fresh working folder for one conversation, trusted so it asks nothing. */
 function folder(): string {
-	const path = join(sealed.root, `w${++folders}`);
-	mkdirSync(path);
-	return path;
+	return work.trusted();
 }
 
 /** A window with a shell, which joins `sessionId` as the launcher's Go To does. */
