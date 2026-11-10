@@ -38,7 +38,7 @@ const COLUMNS = 100;
 /** A gate's approve key, as the fixture's `/gate` offers it. */
 const APPROVE = "a";
 /** What a focused gate's footer shows, and an unfocused one's never does. */
-const FOCUSED = "Reject";
+const FOCUSED = "Esc cancel";
 /**
  * How often to press a gate's key until it answers: a gate ignores keys
  * for a moment after it takes focus, so a mistyped approval can't land.
@@ -97,10 +97,7 @@ describe.skipIf(!packageDir)(
 				second.type(`after new${ENTER}`);
 				await second.shows("heard: after new", TURN_MS);
 
-				expect(
-					gated().slice(before),
-					"nothing answered the gate",
-				).toEqual([]);
+				expect(gated().slice(before), "nothing answered the gate").toEqual([]);
 				await first.shows("Gate kept");
 				await approve(first, "kept");
 				expect(gated().slice(before)).toEqual(["kept a"]);
