@@ -14,7 +14,7 @@ import {
 	openSessionStore,
 	sessionResultDir,
 } from "../../../lib/core/result/index.ts";
-import { installHost } from "../../../lib/core/session/index.ts";
+import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import { rosterDir } from "../../../lib/core/session/roster.ts";
 import { extensionRunner } from "../../support/extension-runner.ts";
 import { resultSession } from "../../support/result-session.ts";
@@ -80,9 +80,12 @@ function rosterOf(key: string, ids: string[]) {
 }
 async function restartHost() {
 	host({ pid: process.pid, startedAt: Date.now() });
-	const started = extensionRunner(resultStore, process.cwd());
-	await started.start();
-	return started;
+	// A host builds each conversation's extensions inside that conversation.
+	return withSession("restarted", async () => {
+		const started = extensionRunner(resultStore, process.cwd());
+		await started.start();
+		return started;
+	});
 }
 
 describe("results a crashed host left behind", () => {

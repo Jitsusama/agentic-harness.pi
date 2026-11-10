@@ -150,7 +150,7 @@ describe("subagent defaults in a host of two conversations", () => {
 		await withSession("b", () =>
 			runReviewer({ reviewer: { id: "r" }, prompt: "hi", cwd: "/tmp", runPi }),
 		);
-		const args = calls[0].args.join(" ");
+		const args = calls.at(0)?.args.join(" ") ?? "";
 		expect(args).toContain("--extension /abs/b-auth.ts");
 		expect(args).not.toContain("a-auth");
 		expect(args).not.toContain("a-conv");
