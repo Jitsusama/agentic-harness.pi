@@ -1,14 +1,13 @@
 /** The shared host's conversation ownership, the host's own pi and, later, its engine adapter. */
-export {
-	type ConversationTraits,
-	createEngine,
-	type EngineKey,
-	type EngineOptions,
-	type EngineScreens,
-	type HostEngine,
-	type HostedView,
-	KEY_VARIABLES,
-} from "./engine.ts";
+export type {
+	ConversationTraits,
+	EngineKey,
+	EngineOptions,
+	EngineScreens,
+	HostEngine,
+	HostedView,
+} from "./contract.ts";
+export { createEngine, KEY_VARIABLES } from "./engine.ts";
 export {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessEngine,
@@ -25,6 +24,7 @@ export {
 	hostPiFiles,
 	loadHostPi,
 } from "./host-pi.ts";
+export type { ConversationResources } from "./resources.ts";
 export {
 	type ConversationIdentity,
 	type ConversationRegistration,

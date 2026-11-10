@@ -12,15 +12,17 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	realpathSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-	createEngine,
-	type EngineKey,
-	type HostEngine,
-} from "../../../../host/engine/engine.ts";
+import type {
+	EngineKey,
+	HostEngine,
+} from "../../../../host/engine/contract.ts";
+import { createEngine } from "../../../../host/engine/engine.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 
@@ -66,6 +68,13 @@ const HARNESS = join(import.meta.dirname, "..", "..", "..", "..");
 const PROVIDER = "hosted-faux";
 const MODEL = "faux-1";
 const work = join(folder, "work");
+/** A symlink to the work folder, which conversations are opened through. */
+const workLink = join(folder, "work-link");
+/** The folder each opened conversation was given, in this run. */
+const openedIn: string[] = [];
+/** An extension the engine is given as pi's `-e` gives one, and the file it notes each load in. */
+const flaggedExtension = join(folder, "flagged.mjs");
+const flaggedLoads = join(folder, "flagged.jsonl");
 const agentDir = join(folder, "home", ".pi", "agent");
 const entryFile = join(folder, "entry.json");
 const effects = join(folder, "effects");
@@ -74,6 +83,11 @@ const children = join(folder, "children");
 const probe = join(folder, "probe.jsonl");
 /** The subagent install the probe found each time it loaded. */
 const installs = join(folder, "installs.jsonl");
+/** Which conversation each probe load and event ran as. */
+const runsAs = join(folder, "as.jsonl");
+/** What the engine told the service of conversations becoming others and ending, in this run. */
+const became: { previousId: string; sessionId: string; held: string }[] = [];
+const ended: { sessionId: string; why: string }[] = [];
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
 /** The request each launch environment was derived for, in this run. */
@@ -192,6 +206,66 @@ const scenarios: Record<string, Scenario> = {
 			return { diagnostics };
 		},
 	},
+	/** Answer, start a new conversation from an extension's command, answer there, then stop. */
+	replace: {
+		responses: () => [say("hello there"), say("fine, thanks")],
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			await host.run(first, () => prompt(engine, first, "/probe-new"));
+			const next = became[0]?.sessionId ?? "";
+			await host.run(next, () => prompt(engine, next, "and you"));
+			await idle(engine, next);
+			const seen = {
+				firstId: first,
+				firstViewed: engine.view(first) !== undefined,
+				held: host.list().map((conversation) => conversation.id),
+				...summary(engine, next),
+				header: JSON.parse(
+					readFileSync(readEntry().file, "utf8").split("\n")[0] ?? "null",
+				),
+				env: envOf(host, next),
+			};
+			await host.stop(next);
+			return seen;
+		},
+	},
+	/** Ask one conversation to resume the file another holds, then talk on in the first. */
+	"replace-held": {
+		responses: () => [say("hello there"), say("still here")],
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			const other = await open(engine, {});
+			let refused = "";
+			try {
+				await host.run(first, () =>
+					engine.view(first)?.runtime.switchSession(readEntry().file),
+				);
+			} catch (error) {
+				refused = error instanceof Error ? error.message : String(error);
+			}
+			await host.run(first, () => prompt(engine, first, "still there"));
+			await idle(engine, first);
+			const seen = {
+				refused,
+				held: host
+					.list()
+					.map((conversation) => conversation.id)
+					.sort((a, b) => a.localeCompare(b, "en")),
+				bothIds: [first, other].sort((a, b) => a.localeCompare(b, "en")),
+				...summary(engine, first),
+			};
+			await host.close(first);
+			await host.close(other);
+			return seen;
+		},
+	},
+	/** The host's next start, resuming nothing, as when the last run's hold was dropped or its resume fails. */
+	start: {
+		responses: () => [],
+		run: async () => ({}),
+	},
 	/** The host's next start: resume what the last run held, then talk. */
 	resume: {
 		responses: () => [say("after the restart"), say("and again")],
@@ -214,6 +288,15 @@ const scenarios: Record<string, Scenario> = {
 
 if (scenarioName === "reopen") await reopen();
 else await runHost(scenarios[scenarioName]);
+
+/** How many listeners the process holds for each event it has any for. */
+function processListeners(): Record<string, number> {
+	return Object.fromEntries(
+		process
+			.eventNames()
+			.map((name) => [String(name), process.listenerCount(name)]),
+	);
+}
 
 /** The pids the crashing tool wrote down, if it ran. */
 function leftRunning(): number[] {
@@ -267,13 +350,25 @@ async function reopen(): Promise<void> {
 async function runHost(scenario: Scenario | undefined): Promise<void> {
 	if (!scenario) throw new Error(`no scenario ${scenarioName}`);
 	mkdirSync(work, { recursive: true });
+	if (!existsSync(workLink)) symlinkSync(work, workLink);
+	writeFileSync(
+		flaggedExtension,
+		[
+			'import { appendFileSync } from "node:fs";',
+			"export default function () {",
+			`\tappendFileSync(${JSON.stringify(flaggedLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded: true })}\n`)});`,
+			"}",
+			"",
+		].join("\n"),
+	);
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
 	const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
 	faux.setResponses(scenario.responses());
 	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
 
 	const host = new SessionHost({
-		key: "test-host",
+		// A key of the folder's own, as each real host has: a start reaps what a dead host under its key left.
+		key: `test-host-${basename(folder)}`,
 		owner: { pid: process.pid, startedAt: Date.now() },
 		registryDir: join(folder, "registry"),
 	});
@@ -288,12 +383,39 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			derived.push(request.op);
 			return { [OPENED_AS]: request.op };
 		},
+		resources: { extensions: [flaggedExtension] },
 		report: (error) => reported.push(String(error)),
+	});
+	// As the service's roster does: the conversation a held one became replaces it, in one write.
+	engine.watch({
+		became: async (previousId, next) => {
+			became.push({
+				previousId,
+				sessionId: next.sessionId,
+				held: host.holds(next.sessionId) ?? "not yet",
+			});
+			const entry: RosterEntry = {
+				...readEntry(),
+				sessionId: next.sessionId,
+				file: next.file,
+				cwd: next.cwd,
+				...(next.launch ? { launch: next.launch } : {}),
+			};
+			writeFileSync(entryFile, JSON.stringify(entry));
+		},
+		ended: async (sessionId, why) => {
+			ended.push({ sessionId, why });
+		},
 	});
 	const { VERSION } = piModule<{ VERSION: string }>(
 		await import(pathToFileURL(join(packageDir, "dist", "index.js")).href),
 	);
+	// Counted once pi is loaded, whose own modules add process listeners at import.
+	const listenersAtStart = processListeners();
 	const result = await scenario.run(engine, host);
+	// What the engine says of an end comes a turn after the close.
+	await new Promise((settled) => setImmediate(settled));
+	const listeners = { atStart: listenersAtStart, atEnd: processListeners() };
 	process.stdout.write(
 		`${JSON.stringify({
 			...result,
@@ -310,12 +432,14 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 						.filter(Boolean)
 						.map((line) => JSON.parse(line))
 				: [],
-			installs: existsSync(installs)
-				? readFileSync(installs, "utf8")
-						.split("\n")
-						.filter(Boolean)
-						.map((line) => JSON.parse(line))
-				: [],
+			installs: lines(installs),
+			as: lines(runsAs),
+			became,
+			ended,
+			openedIn,
+			work: realpathSync(work),
+			flagged: lines(flaggedLoads),
+			listeners,
 			reported,
 		})}\n`,
 	);
@@ -330,12 +454,13 @@ async function open(
 		v: 1 as const,
 		id: "open-1",
 		op: "open" as const,
-		cwd: work,
+		cwd: workLink,
 		attended: false,
 		model: { provider: PROVIDER, id: MODEL },
 		...words,
 	};
 	const prepared = await engine.prepare(request);
+	openedIn.push(prepared.cwd);
 	const entry: RosterEntry = {
 		sessionId: prepared.sessionId,
 		file: prepared.file,
@@ -348,6 +473,25 @@ async function open(
 	writeFileSync(entryFile, JSON.stringify(entry));
 	await engine.start(prepared, request);
 	return prepared.sessionId;
+}
+
+/** Each line of a file the probe writes, read as JSON. */
+function lines(file: string): unknown[] {
+	return existsSync(file)
+		? readFileSync(file, "utf8")
+				.split("\n")
+				.filter(Boolean)
+				.map((line) => JSON.parse(line))
+		: [];
+}
+
+/** Say something to a conversation, as its screen would. */
+async function prompt(
+	engine: HostEngine,
+	id: string,
+	text: string,
+): Promise<void> {
+	await engine.view(id)?.runtime.session.prompt(text);
 }
 
 async function idle(engine: HostEngine, id: string): Promise<void> {

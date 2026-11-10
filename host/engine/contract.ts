@@ -1,0 +1,91 @@
+/**
+ * What the engine promises the host program, its service and its screens:
+ * what it is made from, what it hands a screen, and what it answers beyond
+ * the service's ConversationEngine. It changes when what a host asks of a
+ * conversation changes, not when how the engine builds one does.
+ */
+import type {
+	AdoptRequest,
+	ConversationEngine,
+	ConversationEvents,
+	OpenRequest,
+} from "../service/backend.ts";
+import type { AgentSessionRuntime } from "./pi-session.ts";
+import type { ConversationResources } from "./resources.ts";
+import type { SessionHost } from "./session-host.ts";
+
+/** The gateway key every provider request carries, as the service keeps it. */
+export interface EngineKey {
+	current(): Promise<string>;
+	refused(): void;
+	readonly inherited: boolean;
+}
+
+/** What a conversation's own environment is chosen by. */
+export interface ConversationTraits {
+	readonly sessionId: string;
+	readonly file: string;
+	readonly cwd: string;
+	readonly attended: boolean;
+	readonly quest?: string;
+}
+
+/** One conversation as a screen drives it. */
+export interface HostedView {
+	readonly sessionId: string;
+	/** pi's own runtime, which pi's InteractiveMode takes as its host. */
+	readonly runtime: AgentSessionRuntime;
+	/** End the conversation, as its screen's exit does. */
+	close(why: string): Promise<void>;
+}
+
+/**
+ * The screens over conversations. Given one, the engine leaves binding a
+ * conversation's extensions to it, as pi's InteractiveMode does at its
+ * start; without one, the engine binds them with no interface.
+ */
+export interface EngineScreens {
+	/** A conversation is registered and built; its first words are still to come. */
+	opened(view: HostedView): void | Promise<void>;
+	/** A conversation became another (new, fork or resume) under a new id. */
+	rebound(view: HostedView, previousId: string): void | Promise<void>;
+	/**
+	 * A conversation is ending: called first in its cleanup, before its
+	 * session is disposed, so a screen stops before the session it watches
+	 * goes.
+	 */
+	closed(sessionId: string): void | Promise<void>;
+}
+
+/** What the engine is made from. */
+export interface EngineOptions {
+	/** The host's pi install, carrying every host patch. */
+	readonly packageDir: string;
+	/** Where each conversation's durable store is kept, a folder per conversation. */
+	readonly stateDir: string;
+	readonly host: SessionHost;
+	/** The realm's environment every conversation starts from. */
+	readonly env: NodeJS.ProcessEnv;
+	/** The gateway key, set in each request's environment; none leaves the environment as it is. */
+	readonly key?: EngineKey;
+	/**
+	 * A conversation's own variables, laid over the realm's. Asked once, when
+	 * it opens or is adopted; the roster holds the answer as its launch and a
+	 * resume replays it as held, so a restart never derives it again.
+	 */
+	readonly conversationEnv?: (
+		conversation: ConversationTraits,
+		request: OpenRequest | AdoptRequest,
+	) => Readonly<Record<string, string>>;
+	readonly screens?: EngineScreens;
+	/** What every conversation loads beyond what its settings and folders give it, as pi's flags say; none leaves pi to its settings. */
+	readonly resources?: ConversationResources;
+	readonly report?: (error: unknown) => void;
+}
+
+/** The service's engine, and each conversation as a screen or test drives it. */
+export interface HostEngine extends ConversationEngine {
+	view(sessionId: string): HostedView | undefined;
+	/** Say to the service each conversation ending or becoming another on its own; set once, before any start. */
+	watch(events: ConversationEvents): void;
+}

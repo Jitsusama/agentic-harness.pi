@@ -30,6 +30,14 @@ interface Session {
 	followUp(text: string): Promise<void>;
 	abort(): Promise<void>;
 	dispose(): void;
+	navigateTree(targetId: string, options: object): Promise<unknown>;
+	readonly sessionManager: {
+		getEntries(): readonly {
+			readonly id: string;
+			readonly type: string;
+			readonly message?: { readonly role: string };
+		}[];
+	};
 	readonly agent: {
 		subscribe(listener: (event: { readonly type: string }) => void): () => void;
 		waitForIdle(): Promise<void>;
@@ -46,6 +54,7 @@ interface Compat {
 	registerFauxProvider(options: object): {
 		setResponses(responses: readonly unknown[]): void;
 		getModel(): FauxModel;
+		readonly models: readonly FauxModel[];
 		unregister(): void;
 	};
 	fauxAssistantMessage(content: unknown, options?: object): unknown;
@@ -55,9 +64,7 @@ interface Compat {
 /** What the fixture uses of pi's coding agent. */
 interface Coding {
 	readonly ModelRuntime: {
-		create(
-			options: object,
-		): Promise<{ registerProvider(id: string, config: object): void }>;
+		create(options: object): Promise<ModelRuntime>;
 	};
 	readonly SessionManager: {
 		inMemory(cwd: string): unknown;
@@ -66,6 +73,21 @@ interface Coding {
 	};
 	readonly SettingsManager: { inMemory(settings: object): unknown };
 	createAgentSession(options: object): Promise<{ session: Session }>;
+}
+
+/** What the fixture uses of pi's model runtime. */
+interface ModelRuntime {
+	registerProvider(id: string, config: object): void;
+	registerVirtualModel(definition: {
+		provider: string;
+		id: string;
+		name: string;
+		route(request: { readonly reason: string }): {
+			model: unknown;
+			thinkingLevel: string;
+		};
+	}): void;
+	getModel(provider: string, id: string): FauxModel | undefined;
 }
 
 interface Auth {
@@ -105,7 +127,19 @@ interface Scenario {
 	drive: (session: Session) => Promise<void>;
 	/** Keep the session in a file under the folder, to be opened again by a later run. */
 	persist?: boolean;
+	/** Settings over the fixture's, which turn pi's retry and compaction off. */
+	settings?: object;
+	/** The scripted provider's models, when one will not do. */
+	models?: readonly object[];
+	/** The model the session selects, given the runtime and the scripted provider's id; its first model, otherwise. */
+	select?: (runtime: ModelRuntime, provider: string) => unknown;
 }
+
+/** Two models of different sizes, for a scenario that tells which answered. */
+const SMALL_AND_LARGE = [
+	{ id: "faux-small", contextWindow: 128_000, maxTokens: 16_384 },
+	{ id: "faux-large", contextWindow: 128_000, maxTokens: 16_384 },
+];
 
 /** Where a tool notes each time it really runs, so a rerun shows. */
 const effects = (): string => join(folder, "effects");
@@ -252,6 +286,75 @@ const scenarios: Record<string, Scenario> = {
 			await session.prompt("hi");
 		},
 	},
+	/** A virtual model whose router sends the user's turn to one model and the tool round's continuation to another. */
+	routed: {
+		responses: () => [call("call-1", "ping"), say("done")],
+		tools: echo(),
+		models: SMALL_AND_LARGE,
+		select: (runtime, provider) => {
+			runtime.registerVirtualModel({
+				provider: "router",
+				id: "auto",
+				name: "Auto",
+				route: (request) => ({
+					model: runtime.getModel(
+						provider,
+						request.reason === "user" ? "faux-small" : "faux-large",
+					),
+					thinkingLevel: "off",
+				}),
+			});
+			const routed = runtime.getModel("router", "auto");
+			if (!routed) throw new Error("pi lists no virtual model router/auto");
+			return routed;
+		},
+		drive: (session) => session.prompt("use the tool"),
+	},
+	/** A provider error pi retries, by continuing the run. */
+	retry: {
+		responses: () => [
+			compat.fauxAssistantMessage([], {
+				stopReason: "error",
+				errorMessage: "503 Service Unavailable: overloaded",
+			}),
+			say("recovered"),
+		],
+		settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } },
+		drive: (session) => session.prompt("hi"),
+	},
+	/** A context overflow pi recovers from by compacting, then continuing. */
+	overflow: {
+		responses: () => [
+			say("one"),
+			compat.fauxAssistantMessage([], {
+				stopReason: "error",
+				errorMessage: "prompt is too long: 200000 tokens > 128000 maximum",
+			}),
+			say("the conversation so far, summarised"),
+			// Keeping one token cuts through the turn, so pi summarises the turn's start as well.
+			say("the turn so far, summarised"),
+			say("after compacting"),
+		],
+		settings: { compaction: { enabled: true, keepRecentTokens: 1 } },
+		drive: async (session) => {
+			await session.prompt("first");
+			await session.prompt("second");
+		},
+	},
+	/** Go back to the first answer and carry on from there, leaving the second on its own branch. */
+	branch: {
+		responses: () => [say("one"), say("two"), say("three")],
+		drive: async (session) => {
+			await session.prompt("first");
+			await session.prompt("second");
+			const firstAnswer = session.sessionManager
+				.getEntries()
+				.find((entry) => entry.message?.role === "assistant");
+			if (!firstAnswer) throw new Error("no first answer to go back to");
+			await session.navigateTree(firstAnswer.id, { summarize: false });
+			await session.prompt("third");
+		},
+	},
 	truncated: {
 		responses: () => [
 			compat.fauxAssistantMessage(
@@ -278,6 +381,7 @@ const faux = compat.registerFauxProvider({
 	...(scenario.tokensPerSecond
 		? { tokensPerSecond: scenario.tokensPerSecond }
 		: {}),
+	...(scenario.models ? { models: scenario.models } : {}),
 });
 try {
 	faux.setResponses(scenario.responses());
@@ -294,20 +398,19 @@ try {
 	modelRuntime.registerProvider(model.provider, {
 		baseUrl: model.baseUrl,
 		api: model.api,
-		models: [
-			{
-				id: model.id,
-				name: model.name,
-				api: model.api,
-				reasoning: model.reasoning,
-				input: model.input,
-				cost: model.cost,
-				contextWindow: model.contextWindow,
-				maxTokens: model.maxTokens,
-				baseUrl: model.baseUrl,
-			},
-		],
+		models: faux.models.map((each) => ({
+			id: each.id,
+			name: each.name,
+			api: each.api,
+			reasoning: each.reasoning,
+			input: each.input,
+			cost: each.cost,
+			contextWindow: each.contextWindow,
+			maxTokens: each.maxTokens,
+			baseUrl: each.baseUrl,
+		})),
 	});
+	const selected = scenario.select?.(modelRuntime, model.provider) ?? model;
 	const conversation =
 		mode === "hosted"
 			? await openHostedConversation({
@@ -329,9 +432,10 @@ try {
 		settingsManager: coding.SettingsManager.inMemory({
 			retry: { enabled: false },
 			compaction: { enabled: false },
+			...scenario.settings,
 		}),
 		modelRuntime,
-		model,
+		model: selected,
 		noTools: "builtin",
 		customTools:
 			scenario.tools?.(() => {

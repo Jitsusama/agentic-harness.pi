@@ -16,6 +16,7 @@ export interface SessionManager {
 	getSessionFile(): string | undefined;
 	getCwd(): string;
 	getHeader(): object | null;
+	getEntries(): readonly object[];
 	isPersisted(): boolean;
 }
 
@@ -178,6 +179,8 @@ export interface AgentSessionRuntime {
 		options?: object,
 	): Promise<{ cancelled: boolean }>;
 	setRebindSession(rebind?: (session: AgentSession) => Promise<void>): void;
+	/** A callback run as pi invalidates the session it is replacing, just before disposing it. */
+	setBeforeSessionInvalidate(callback?: () => void): void;
 	dispose(): Promise<void>;
 }
 
@@ -197,6 +200,19 @@ export interface RuntimeResult {
 	readonly [field: string]: unknown;
 }
 
+/** What the engine sets of pi's resource loader, as pi's own main sets it from its flags. */
+export interface ResourceLoaderOptions {
+	readonly eventBus?: EventBus;
+	/** pi's own built-ins, as its CLI hands them over. */
+	readonly extensionFactories?: readonly BuiltInExtension[];
+	readonly additionalExtensionPaths?: string[];
+	readonly noExtensions?: boolean;
+	readonly disabledBuiltinExtensions?: string[];
+	readonly noSkills?: boolean;
+	readonly noPromptTemplates?: boolean;
+	readonly noContextFiles?: boolean;
+}
+
 /** The pieces of pi's session layer the engine builds a conversation from. */
 export interface PiSessions {
 	readonly SessionManager: SessionManagerStatics;
@@ -206,10 +222,7 @@ export interface PiSessions {
 		cwd: string;
 		agentDir?: string;
 		modelRuntime?: ModelRuntime;
-		resourceLoaderOptions?: {
-			eventBus?: EventBus;
-			extensionFactories?: readonly BuiltInExtension[];
-		};
+		resourceLoaderOptions?: ResourceLoaderOptions;
 	}): Promise<SessionServices>;
 	createAgentSession(options: {
 		cwd: string;

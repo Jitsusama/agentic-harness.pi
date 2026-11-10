@@ -96,7 +96,9 @@ the key has been renewed (renewing-stream.ts), since pi retries no 401.
 
 ## The Engine
 
-createEngine (engine.ts) is the service's engine. It loads the host's pi
+createEngine (engine.ts) is the service's engine, made from and answering
+what contract.ts declares; resources.ts turns the resources pi's flags
+would choose into pi's loader options. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each
@@ -122,11 +124,28 @@ when it opens or is adopted; prepare returns it, the service's roster
 holds it, and a resume replays it as held. Each start the engine sets
 SHOPIFY_HARNESS_SETTINGS (harness-settings.ts) from the host's value,
 the conversation's traits and the loaded pi's version, and the
-PI_HOST_CONVERSATION marker; neither is stored.
+markers naming the conversation, the host's key and the host process
+(PI_HOST_CONVERSATION, PI_HOST_KEY, PI_HOST_OWNER); none is stored.
 
 pi's bash tool runs each command as its own process group, and a host
-killed mid-tool leaves it running. Every command inherits the marker, so
-each start and end of a conversation ends every process carrying its
-marker, by group (tool-children.ts), wherever it went.
+killed mid-tool leaves it running. Every command inherits the markers,
+so each start and end of a conversation ends every process carrying its
+marker, by group (tool-children.ts), wherever it went. Before the
+service resumes anything, creating the engine ends every process under
+its key whose owning host, a pid and the tick it started at, no longer
+runs: the conversations it will resume, and those it won't, such as one
+the dead host was closing. A host holds its key alone, so a live host's
+children are never touched.
 
-A conversation becoming another (new, fork or switch) is subsequent work.
+A conversation can become another, by pi's /new, /fork, /resume or
+import (replacement.ts). pi disposes the old session before it builds
+the next, so a resume or import of a file the host holds is refused
+first, while nothing is torn down. The next is held under its own id
+before pi builds it: the service hears `became` and holds it in the old
+one's place, then the engine registers it with the same launch, its own
+settings and its own durable store, and writes its file as it does for
+an open. Once pi is done the next takes the runtime and its screen on,
+and the old one closes as `replaced`. If pi fails past its teardown,
+both end. Whatever closes a conversation itself (its screen, an
+extension, a replacement) is said to the service as `ended`; a host
+stopping never is.

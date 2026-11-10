@@ -59,6 +59,41 @@ interface Seen {
 	readonly env?: Readonly<Record<string, unknown>>;
 	/** What the conversation's screen was handed to show as it started. */
 	readonly diagnostics?: readonly { type: string; message: string }[];
+	/** Which conversation each probe load and event ran as, beside the one pi named. */
+	readonly as: readonly {
+		readonly at: string;
+		readonly reason?: string;
+		readonly id?: string;
+		readonly ambient: string | null;
+	}[];
+	/** What the engine told the service of conversations becoming others. */
+	readonly became: readonly {
+		readonly previousId: string;
+		readonly sessionId: string;
+		readonly held: string;
+	}[];
+	/** What the engine told the service of conversations ending themselves. */
+	readonly ended: readonly {
+		readonly sessionId: string;
+		readonly why: string;
+	}[];
+	readonly firstId?: string;
+	readonly firstViewed?: boolean;
+	readonly held?: readonly string[];
+	readonly bothIds?: readonly string[];
+	readonly header?: Readonly<Record<string, unknown>>;
+	readonly refused?: string;
+	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
+	readonly openedIn: readonly string[];
+	/** The work folder's own path, past any symlink. */
+	readonly work: string;
+	/** Each load of the extension the engine was given as pi's `-e` gives one. */
+	readonly flagged: readonly unknown[];
+	/** The process's listeners for each event, once pi loaded and once the step was done. */
+	readonly listeners: {
+		readonly atStart: Readonly<Record<string, number>>;
+		readonly atEnd: Readonly<Record<string, number>>;
+	};
 }
 
 const folders: string[] = [];
@@ -213,6 +248,116 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				{ event: "stamp", how: "closed" },
 				{ event: "session_shutdown", reason: "quit" },
 			]);
+			expect(seen.ended, "a closed conversation is said to have ended").toEqual(
+				[{ sessionId: seen.sessionId, why: "closed" }],
+			);
+			expect(
+				seen.openedIn,
+				"pi works in the folder's own path, as process.cwd() would name it",
+			).toEqual([seen.work]);
+			expect(
+				seen.flagged,
+				"an extension the engine is given loads as pi's -e loads it",
+			).toEqual([{ loaded: true }]);
+			expect(
+				seen.listeners.atEnd,
+				"a conversation opened and closed leaves the process's listeners as pi left them",
+			).toEqual(seen.listeners.atStart);
+			expect(seen.reported).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"becomes a new conversation from an extension's command, held before pi builds it, and resumes it after a restart",
+		async () => {
+			const folder = hostFolder();
+			const seen = await step(folder, "replace");
+			const first = seen.firstId ?? "";
+			const next = seen.sessionId ?? "";
+			expect(next).not.toBe(first);
+			expect(
+				seen.became,
+				"the service holds it first, before the host registers it",
+			).toEqual([{ previousId: first, sessionId: next, held: "not yet" }]);
+			expect(
+				seen.ended,
+				"the conversation it was ends as replaced; a host stopping ends nothing",
+			).toEqual([{ sessionId: first, why: "replaced" }]);
+			expect(
+				seen.firstViewed,
+				"the conversation it was has no view left once replaced",
+			).toBe(false);
+			expect(seen.held).toEqual([next]);
+			expect(seen.transcript).toEqual([
+				"system: ",
+				"user: and you",
+				"assistant: fine, thanks",
+			]);
+			expect(seen.header).toEqual(
+				expect.objectContaining({ type: "session", id: next }),
+			);
+			expect(
+				seen.derived,
+				"the launch carries over, never derived again",
+			).toEqual(["open"]);
+			expect(seen.env).toEqual({
+				openedAs: "open",
+				marker: next,
+				settings: expect.objectContaining({ launch_mode: "fresh" }),
+			});
+			expect(
+				seen.as,
+				"each load and event runs as the conversation it belongs to",
+			).toEqual([
+				{ at: "load", ambient: first },
+				{ at: "session_start", reason: "startup", id: first, ambient: first },
+				{ at: "session_shutdown", reason: "new", id: first, ambient: first },
+				{ at: "load", ambient: next },
+				{ at: "session_start", reason: "new", id: next, ambient: next },
+				{ at: "session_shutdown", reason: "quit", id: next, ambient: next },
+			]);
+			expect(seen.reported).toEqual([]);
+			const resumed = await step(folder, "resume");
+			expect(resumed.sessionId).toBe(next);
+			expect(
+				resumed.sameId,
+				"a restart resumes pi's session under the new id",
+			).toBe(true);
+			expect(resumed.transcript).toEqual([
+				"system: ",
+				"user: and you",
+				"assistant: fine, thanks",
+				"user: are you there",
+				"assistant: after the restart",
+			]);
+			expect(resumed.env).toEqual({
+				openedAs: "open",
+				marker: next,
+				settings: expect.objectContaining({ launch_mode: "restore" }),
+			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"refuses to resume a file another conversation holds, before tearing anything down",
+		async () => {
+			const seen = await step(hostFolder(), "replace-held");
+			expect(seen.refused).toMatch(/open in the host already/);
+			expect(seen.held).toEqual(seen.bothIds);
+			expect(seen.became).toEqual([]);
+			expect(
+				seen.probe.filter((line) => line.reason === "resume"),
+				"pi never began the switch",
+			).toEqual([]);
+			expect(seen.transcript).toEqual([
+				"system: ",
+				"user: hi",
+				"assistant: hello there",
+				"user: still there",
+				"assistant: still here",
+			]);
 			expect(seen.reported).toEqual([]);
 		},
 		HOST_LIFE_MS,
@@ -303,6 +448,7 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			const quiet = await step(folder, "open-quiet");
 			expect(quiet.file, "pi's file is kept before any answer").toBe(true);
 			expect(quiet.probe.at(-2)).toEqual({ event: "stamp", how: "signalled" });
+			expect(quiet.ended, "a host stopping ends nothing").toEqual([]);
 			const resumed = await step(folder, "resume");
 			expect(resumed.sameId, "the resumed session keeps its id").toBe(true);
 			expect(resumed.transcript).toEqual([
@@ -351,6 +497,29 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			const ordinary = await step(folder, "reopen");
 			expect(ordinary.sessionId).toBe(resumed.sessionId);
 			expect(ordinary.transcript).toEqual(resumed.transcript);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"ends at its start what a killed host's tools left, for a conversation it does not resume",
+		async () => {
+			const folder = hostFolder();
+			expect(await killedStep(folder, "crash")).toBe("SIGKILL");
+			expect(
+				leftRunning(folder).filter(alive),
+				"both commands outlive the killed host",
+			).toHaveLength(2);
+			const started = await step(folder, "start");
+			expect(
+				started.childrenAlive,
+				"the next start ends them before it resumes anything",
+			).toEqual([]);
+			expect(started.reported).toEqual([
+				expect.stringContaining(
+					"Ended what an earlier host's tools left running",
+				),
+			]);
 		},
 		HOST_LIFE_MS,
 	);
