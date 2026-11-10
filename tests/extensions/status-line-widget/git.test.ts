@@ -174,10 +174,12 @@ describe("the engine, kept running", () => {
 	let dir: string;
 	let program: string;
 	let asked: string;
+	let starts: string;
 
 	beforeEach(() => {
 		dir = mkdtempSync(join(tmpdir(), "status-line-engine-"));
 		asked = join(dir, "asked");
+		starts = join(dir, "starts");
 		program = join(dir, "engine");
 		// Answers each folder as a clean main a moment after it's asked, so a
 		// question asked meanwhile has to wait, and writes down each folder.
@@ -189,6 +191,7 @@ describe("the engine, kept running", () => {
 			[
 				`#!${bash}`,
 				`: > ${JSON.stringify(asked)}`,
+				`echo start >> ${JSON.stringify(starts)}`,
 				"while IFS= read -r -d $'\\x1e' request; do",
 				"  IFS=$'\\x1f' read -r id folder _ <<< \"$request\"",
 				`  echo "$folder" >> ${JSON.stringify(asked)}`,
@@ -259,6 +262,21 @@ describe("the engine, kept running", () => {
 			dir,
 			latest,
 		]);
+	});
+
+	it("starts no engine again once stopped, though an answer was still out", async () => {
+		const other = join(dir, "other");
+		mkdirSync(other);
+		const engine = new Engine(program, () => {}, none);
+		engine.ask(dir);
+		engine.ask(other);
+		engine.stop();
+		// The answer to the first question comes after the stop.
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		engine.ask(dir);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+
+		expect(readFileSync(starts, "utf8")).toBe("start\n");
 	});
 
 	it("goes quiet for a program that can't be started", async () => {
