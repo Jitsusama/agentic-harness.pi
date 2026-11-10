@@ -52,10 +52,27 @@ export interface CutoverFacts {
 	readonly self?: string;
 }
 
-/** Where each live pi goes, or why it doesn't, in the order found. */
+/**
+ * Whether `one` goes by a name in `names`, upper-cased: its session's id
+ * or any of its addresses.
+ */
+export function goesBy(
+	one: Pick<Presence, "session" | "addresses">,
+	names: ReadonlySet<string>,
+): boolean {
+	return [one.session, ...one.addresses].some((name) =>
+		names.has(name.toUpperCase()),
+	);
+}
+
+/**
+ * Where each live pi goes, or why it doesn't, in the order found; with
+ * `only`, upper-cased names, every pi going by none of them stays.
+ */
 export async function planCutover(
 	facts: CutoverFacts,
 	overrides: HostOverrides = NO_OVERRIDES,
+	only?: ReadonlySet<string>,
 ): Promise<Step[]> {
 	const present = await facts.present();
 	return Promise.all(
@@ -70,6 +87,7 @@ export async function planCutover(
 					address,
 					why,
 				});
+				if (only && !goesBy(one, only)) return leave("not named in --only");
 				if (one.machine !== undefined)
 					return leave(`on ${one.machine}, left alone`);
 				if (session === facts.self)

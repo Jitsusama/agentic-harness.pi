@@ -6,6 +6,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { refreshRestoreFile } from "../../extensions/quest-workflow/session-registry.ts";
@@ -26,14 +27,13 @@ import {
 	removeMoveNote,
 } from "../../lib/internal/session/move.ts";
 import { askWake } from "../../lib/internal/session/park.ts";
-import { uuidv7 } from "../../lib/internal/session/rollover.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { giveSteer } from "../../lib/mesh/steer.ts";
 import { type HostKind, hostKey, hostSocketPath } from "../service/address.ts";
 import { controlRequest } from "../service/client.ts";
 import { parseListResult } from "../service/protocol.ts";
-import { harnessVerdicts, rolloutFacts } from "../service/rollout.ts";
+import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
 import type { HeldConversation, ReleaseFacts } from "./release.ts";
@@ -51,10 +51,11 @@ export function rootKnowsMove(root: string): boolean {
 
 /** Where the machine's pieces are; the realm's own unless a test says. */
 export interface CutoverPlaces {
-	/** The install's `loaded` folder, saying which harness each pi runs. */
-	readonly loadedDir: string;
-	/** The install's current version, which a woken parked pi starts on. */
-	readonly current: string;
+	/**
+	 * The install's current version, which a woken parked pi starts on;
+	 * without one, a parked pi knows the move as its presence says.
+	 */
+	readonly current?: string;
 	readonly realm: string;
 	readonly runtimeDir?: string;
 	readonly presence?: string;
@@ -79,7 +80,7 @@ async function listHeld(
 		try {
 			const reply = await controlRequest(
 				hostSocketPath(realm, kind, runtimeDir),
-				{ v: 1, id: uuidv7(), op: "list" },
+				{ v: 1, id: randomUUID(), op: "list" },
 			);
 			if (!reply.ok) continue;
 			const { sessions, host } = parseListResult(reply.result);
@@ -154,32 +155,19 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 	const moves = places.moves ?? moveFolder();
 	const ticks = places.ticks ?? tickFacts;
 	let logs: Map<string, string> | undefined;
-	let roots: Promise<Map<number, string>> | undefined;
 	const socket = (kind: HostKind) =>
 		hostSocketPath(places.realm, kind, places.runtimeDir);
-	const rootsByPid = () => {
-		roots ??= harnessVerdicts({
-			loadedDir: places.loadedDir,
-			self: -1,
-			facts: { ...rolloutFacts, holds: async (root) => rootKnowsMove(root) },
-		}).then(
-			(verdicts) =>
-				new Map(
-					verdicts.flatMap((one) =>
-						one.root && one.current ? [[one.pid, one.root] as const] : [],
-					),
-				),
-		);
-		return roots;
-	};
 	return {
 		...(places.self ? { self: places.self } : {}),
 		present: async () => [...(await census(presences.all(), ticks)).present],
-		knowsMove: async (presence: Presence) => {
-			if (presence.state === "parked") return rootKnowsMove(places.current);
-			const pid = presence.owner?.pid;
-			return pid !== undefined && (await rootsByPid()).has(pid);
-		},
+		// A harness that knows the move says whether a person drives its
+		// session, either way, in every presence it publishes; a parked pi
+		// wakes on the install's current version, whatever it ran before.
+		knowsMove: async (presence: Presence) =>
+			presence.driven !== undefined ||
+			(presence.state === "parked" &&
+				places.current !== undefined &&
+				rootKnowsMove(places.current)),
 		sessionFile: (session) => {
 			logs ??= indexSessionFiles(places.logs ?? sessionsDir());
 			return logs.get(session);
@@ -233,7 +221,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			try {
 				const reply = await controlRequest(socket(to), {
 					v: 1,
-					id: uuidv7(),
+					id: randomUUID(),
 					op: "adopt",
 					sessionFile: note.sessionFile,
 					attended: to === "attended",

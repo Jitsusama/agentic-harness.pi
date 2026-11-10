@@ -120,6 +120,20 @@ in a long tool cuts that tool short and leaves it listening, a Close
 ends it, and the host drops it alone, its neighbour answering
 throughout.
 
+cutover.test.ts is E9, wave 3's cutover and its rollback as
+`scripts/host-cutover.ts` and `scripts/host-release.ts` run them: ten
+plain pis, five a person prompted and five only a peer's message woke,
+move into the attended and background hosts by who drives them, keeping
+their sessions and addresses, and each answers there. A stand-in `qs` on
+PATH answers the cutover's keepPlace, so the windows it couldn't put
+back are listed. The release hands all ten back: restore.json offers
+each as released, the first one's quest journal says what only the
+host held, and each answers again in plain pi from the same file, the
+set in less than 45 minutes. Each plain pi runs in a terminal
+of its own under script(1) (support/terminal-pi.ts), as Joel's do,
+since pi over RPC holds a session's ending for its client's next
+command.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 

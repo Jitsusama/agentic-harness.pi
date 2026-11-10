@@ -812,7 +812,9 @@ A steer may instead carry an `act`, with no text needed
   `scripts/host-cutover.ts` reads to adopt it and the restore
   file reads to offer a released one back. Resume, a talk or
   the person typing cancels it. A move with no valid `to` is no
-  act.
+  act. A pi in a terminal ends the moment it asks, as a host's
+  conversation does; one over RPC ends when its client next
+  sends it a command, as pi's RPC mode holds every shutdown for.
 
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.
