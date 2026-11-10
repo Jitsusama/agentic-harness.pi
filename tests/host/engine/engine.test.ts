@@ -273,7 +273,9 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				]),
 			);
 		},
-		HOST_LIFE_MS,
+		// A hosted step and a plain pi, one after the other, each loading the
+		// whole harness.
+		HOST_LIFE_MS * 2,
 	);
 
 	it(
