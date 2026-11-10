@@ -3,9 +3,11 @@
  * carrying the moves out as each session ends itself and is adopted.
  */
 import { describe, expect, it } from "vitest";
+import { NO_OVERRIDES } from "../../../host/cutover/attended.ts";
 import {
 	type CutoverFacts,
 	carryOut,
+	goesBy,
 	type MoveFacts,
 	type MoveStep,
 	planCutover,
@@ -99,6 +101,32 @@ describe("planCutover", () => {
 			},
 		);
 		expect(step).toMatchObject({ kind: "move", to: "background" });
+	});
+
+	it("moves only the sessions named, by address or session id, leaving the rest", async () => {
+		const steps = await planCutover(
+			planFacts([
+				presence("joel1", { driven: true, addresses: ["QUEST1", "JOEL1"] }),
+				presence("build1", { driven: false }),
+				presence("build2", { driven: false }),
+			]),
+			NO_OVERRIDES,
+			new Set(["JOEL1", "BUILD2"]),
+		);
+		expect(steps.map(stepLine)).toEqual([
+			"QUEST1    move to attended            its log holds words a person wrote",
+			"BUILD1    leave                       not named in --only",
+			"BUILD2    move to background          nobody but the harness has written in it",
+		]);
+	});
+});
+
+describe("goesBy", () => {
+	it("matches a session id or any address, in any case", () => {
+		const one = { session: "01ab-cd", addresses: ["QUEST1", "cd0001"] };
+		expect(goesBy(one, new Set(["CD0001"])), "a later address").toBe(true);
+		expect(goesBy(one, new Set(["01AB-CD"])), "its session id").toBe(true);
+		expect(goesBy(one, new Set(["OTHER1"])), "a name it lacks").toBe(false);
 	});
 });
 

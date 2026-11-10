@@ -5,16 +5,20 @@
  * itself once it is free and the host adopts its log; busy ones follow
  * as they go quiet. Node runs it as it stands, stripping the types:
  *
- *   node scripts/host-cutover.ts [--dry-run] [--attended ADDR,...]
- *     [--background ADDR,...] [--deadline MINUTES] [--install FOLDER]
+ *   node scripts/host-cutover.ts [--dry-run] [--only ADDR,...]
+ *     [--attended ADDR,...] [--background ADDR,...] [--deadline MINUTES]
+ *     [--install FOLDER]
  *
  * --dry-run prints where each session would go and why, and moves
- * nothing. --attended and --background name sessions the log's rule
+ * nothing. --only moves just the sessions it names, by address or
+ * session id, as a drill wants. --attended and --background name
+ * sessions the log's rule
  * gets wrong. --deadline is how long to wait for busy sessions, 45
  * minutes unless said; run it again for those still held. --install
  * names the harness install a parked pi wakes on, when run from a tree;
  * without one, a parked pi moves only if its presence says it knows how.
- * Exits 0 when every session told to move was adopted, 1 otherwise.
+ * Exits 0 when every session told to move was adopted and every name
+ * --only gave goes by a live pi, 1 otherwise.
  */
 
 import { realpathSync } from "node:fs";
@@ -23,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
 	carryOut,
+	goesBy,
 	type MoveStep,
 	planCutover,
 	stepLine,
@@ -37,6 +42,7 @@ const MINUTE_MS = 60_000;
 const { values } = parseArgs({
 	options: {
 		"dry-run": { type: "boolean", default: false },
+		only: { type: "string" },
 		attended: { type: "string", default: "" },
 		background: { type: "string", default: "" },
 		deadline: { type: "string", default: String(DEFAULT_DEADLINE_MINUTES) },
@@ -69,16 +75,27 @@ const places: CutoverPlaces = {
 	...(process.env.PI_SESSION_ID ? { self: process.env.PI_SESSION_ID } : {}),
 };
 const facts = machineFacts(places);
-const steps = await planCutover(facts, {
-	attended: named(values.attended),
-	background: named(values.background),
-});
+const only = values.only === undefined ? undefined : named(values.only);
+const steps = await planCutover(
+	facts,
+	{
+		attended: named(values.attended),
+		background: named(values.background),
+	},
+	only,
+);
+const present = await facts.present();
+const unknown = [...(only ?? [])].filter(
+	(name) => !present.some((one) => goesBy(one, new Set([name]))),
+);
 facts.say(
 	[
 		`${steps.length} live pi${steps.length === 1 ? "" : "s"} on this machine:`,
 		...steps.map(stepLine),
+		...unknown.map((name) => `no live pi goes by ${name}`),
 	].join("\n"),
 );
+if (unknown.length > 0) process.exitCode = 1;
 const moves = steps.filter((step): step is MoveStep => step.kind === "move");
 if (values["dry-run"]) {
 	facts.say(`Dry run: ${moves.length} would move; nothing was told.`);
@@ -104,5 +121,9 @@ if (values["dry-run"]) {
 	];
 	facts.say(lines.join("\n"));
 	process.exitCode =
-		report.waiting.length === 0 && report.refused.length === 0 ? 0 : 1;
+		report.waiting.length === 0 &&
+		report.refused.length === 0 &&
+		unknown.length === 0
+			? 0
+			: 1;
 }
