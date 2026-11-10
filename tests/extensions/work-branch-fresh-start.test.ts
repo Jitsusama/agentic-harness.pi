@@ -15,6 +15,7 @@ import { forgetTreeBroker } from "../../extensions/work-integration/broker.ts";
 import workIntegration from "../../extensions/work-integration/index.ts";
 import { spawnExec } from "../../lib/core/exec/index.ts";
 import {
+	FETCHED_LATELY_MS,
 	refreshStart,
 	remoteBranchOf,
 } from "../../lib/core/work/fresh-start.ts";
@@ -63,11 +64,11 @@ afterEach(() => {
 	rmSync(place, { recursive: true, force: true });
 });
 
-/** Push a commit to origin's main from the other clone; its hash. */
-async function moveOriginOn(): Promise<string> {
-	writeFileSync(join(ahead, "later.md"), "later\n");
-	await git(ahead, "add", "later.md");
-	await git(ahead, "commit", "-qm", "later");
+/** Push a commit adding `name` to origin's main from the other clone; its hash. */
+async function moveOriginOn(name = "later"): Promise<string> {
+	writeFileSync(join(ahead, `${name}.md`), `${name}\n`);
+	await git(ahead, "add", `${name}.md`);
+	await git(ahead, "commit", "-qm", name);
 	await git(ahead, "push", "-q", "origin", "main");
 	return git(ahead, "rev-parse", "HEAD");
 }
@@ -283,5 +284,92 @@ describe("refreshing a start point before branching", () => {
 			/^Could not fetch origin\/main just now \(.+\), so it starts where origin\/main stood at the last fetch\.$/,
 		);
 		expect(await git(behind, "rev-parse", "origin/main")).toBe(before);
+	});
+});
+
+describe("new work started soon after a fetch", () => {
+	/** Fetch origin's main into the behind clone, as another session would. */
+	async function fetchedJustNow(): Promise<string> {
+		const first = await moveOriginOn();
+		await git(
+			behind,
+			"fetch",
+			"-q",
+			"origin",
+			"+refs/heads/main:refs/remotes/origin/main",
+		);
+		return first;
+	}
+
+	it("starts where that fetch left the remote's branch, saying so", async () => {
+		const first = await fetchedJustNow();
+		await moveOriginOn("later-again");
+
+		const said = await refreshStart(
+			spawnExec(),
+			behind,
+			"origin/main",
+			undefined,
+			{ fetchedWithin: FETCHED_LATELY_MS },
+		);
+
+		expect(said.start).toBe("refs/remotes/origin/main");
+		expect(said.lately).toMatch(
+			/^origin\/main was fetched 1 min ago, so new work starts there without fetching it again/,
+		);
+		expect(await git(behind, "rev-parse", "origin/main")).toBe(first);
+	});
+
+	it("fetches again once that fetch is older than the window", async () => {
+		await fetchedJustNow();
+		const second = await moveOriginOn("later-again");
+
+		const said = await refreshStart(
+			spawnExec(),
+			behind,
+			"origin/main",
+			undefined,
+			{
+				fetchedWithin: FETCHED_LATELY_MS,
+				now: () => Date.now() + FETCHED_LATELY_MS + 60_000,
+			},
+		);
+
+		expect(said).toEqual({ start: "refs/remotes/origin/main" });
+		expect(await git(behind, "rev-parse", "origin/main")).toBe(second);
+	});
+
+	it("fetches when the remote's branch was only cloned, which says nothing of the remote now", async () => {
+		const now = await moveOriginOn();
+
+		const said = await refreshStart(
+			spawnExec(),
+			behind,
+			"origin/main",
+			undefined,
+			{ fetchedWithin: FETCHED_LATELY_MS },
+		);
+
+		expect(said).toEqual({ start: "refs/remotes/origin/main" });
+		expect(await git(behind, "rev-parse", "origin/main")).toBe(now);
+	});
+
+	it("is what work branch does, while work rebase still fetches", async () => {
+		const first = await fetchedJustNow();
+		const second = await moveOriginOn("later-again");
+		const work = workTool();
+
+		const branched = await work({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(first);
+		expect(branched.content[0]?.text).toContain("origin/main was fetched");
+		expect(branched).toMatchObject({ details: { fresh: false } });
+
+		await work({ action: "rebase", tree: behind, onto: "origin/main" });
+		expect(await git(behind, "rev-parse", "HEAD")).toBe(second);
 	});
 });

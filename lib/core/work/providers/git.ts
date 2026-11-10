@@ -22,7 +22,7 @@ import { type Exec, run } from "../../exec/index.ts";
 import { withoutCredentials } from "../../remote/index.ts";
 import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
-import { refreshStart } from "../fresh-start.ts";
+import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
 
 /**
@@ -65,9 +65,14 @@ async function branchArgs(
 	// A new branch starts where the remote has its start now, not where
 	// the checkout's last fetch left it: trees cut from a checkout that
 	// had not fetched since a merge came out a merge behind. A fetch that
-	// fails leaves the start as it was, since offline work is still work.
+	// fails leaves the start as it was, since offline work is still work,
+	// and one a fetch moved lately is taken as it stands (fresh-start.ts).
 	const fresh = async (from: string) =>
-		(await refreshStart(exec, checkout, from, signal)).start;
+		(
+			await refreshStart(exec, checkout, from, signal, {
+				fetchedWithin: FETCHED_LATELY_MS,
+			})
+		).start;
 	if (await exists(`refs/heads/${branch}`)) return [path, branch];
 	if (await exists(`refs/remotes/origin/${branch}`)) {
 		return ["--track", "-b", branch, path, await fresh(`origin/${branch}`)];
