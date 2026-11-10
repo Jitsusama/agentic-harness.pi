@@ -136,7 +136,10 @@ export interface PiSessions {
 		cwd: string;
 		agentDir?: string;
 		modelRuntime?: ModelRuntime;
-		resourceLoaderOptions?: { eventBus?: EventBus };
+		resourceLoaderOptions?: {
+			eventBus?: EventBus;
+			extensionFactories?: readonly BuiltInExtension[];
+		};
 	}): Promise<SessionServices>;
 	createAgentSession(options: {
 		cwd: string;
@@ -166,6 +169,51 @@ const NAMES = [
 	"createAgentSessionRuntime",
 	"getAgentDir",
 ] as const;
+
+/**
+ * One of pi's built-in extensions, as its CLI hands them to the resource
+ * loader: the loader keys on `builtin`, and `replaceable` lets an
+ * extension registering the same tool take over, so each is passed on
+ * whole rather than rebuilt from its factory.
+ */
+export interface BuiltInExtension {
+	readonly name: string;
+	readonly factory: (...args: never[]) => unknown;
+	readonly builtin?: boolean;
+	readonly replaceable?: boolean;
+}
+
+function isBuiltInExtension(value: unknown): value is BuiltInExtension {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"name" in value &&
+		typeof value.name === "string" &&
+		"factory" in value &&
+		typeof value.factory === "function"
+	);
+}
+
+/**
+ * pi's built-in extensions, in the order its CLI loads them before any
+ * other, refusing an install whose list is missing or unreadable: without
+ * them a hosted conversation would have no tool_search, codemode or MCP,
+ * so none of its deferred tools nor the gateway's.
+ */
+export function piBuiltInExtensions(
+	modules: Pick<HostPiModules, "builtins">,
+): readonly BuiltInExtension[] {
+	const list = modules.builtins.builtInExtensions;
+	if (
+		!Array.isArray(list) ||
+		list.length === 0 ||
+		!list.every(isBuiltInExtension)
+	)
+		throw new Error(
+			"The host's pi coding agent lists no built-in extensions it can load",
+		);
+	return list;
+}
 
 /** Pick pi's session layer from the loaded coding agent, refusing one that lacks a piece. */
 export function piSessions(modules: HostPiModules): PiSessions {

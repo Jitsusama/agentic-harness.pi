@@ -12,6 +12,11 @@ import { pathToFileURL } from "node:url";
 export interface HostPiModules {
 	/** `@earendil-works/pi-coding-agent`'s main entry. */
 	readonly codingAgent: Readonly<Record<string, unknown>>;
+	/**
+	 * The coding agent's list of built-in extensions (tool_search, codemode,
+	 * MCP and the rest), which its CLI loads and its main entry doesn't export.
+	 */
+	readonly builtins: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-agent-core`'s main entry: the agent loop's defaults. */
 	readonly agentCore: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-ai`'s main entry: tool validation and transcript helpers. */
@@ -119,6 +124,7 @@ export function hostPiFiles(
 ): Record<keyof HostPiModules, string> {
 	return {
 		codingAgent: join(packageDir, "dist", "index.js"),
+		builtins: join(packageDir, "dist", "extensions", "index.js"),
 		agentCore: libraryEntry(packageDir, "pi-agent-core", "index.js"),
 		ai: libraryEntry(packageDir, "pi-ai", "index.js"),
 		durable: libraryEntry(packageDir, "pi-durable", "index.js"),
@@ -152,6 +158,7 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	}
 	const modules: HostPiModules = {
 		codingAgent: await importModule(files.codingAgent),
+		builtins: await importModule(files.builtins),
 		agentCore: await importModule(files.agentCore),
 		ai: await importModule(files.ai),
 		durable: await importModule(files.durable),

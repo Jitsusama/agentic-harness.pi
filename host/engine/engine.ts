@@ -38,6 +38,7 @@ import {
 	type AgentSessionRuntime,
 	type EventBus,
 	type PiSessions,
+	piBuiltInExtensions,
 	piSessions,
 	type RuntimeResult,
 	type RuntimeTarget,
@@ -158,6 +159,7 @@ export async function createEngine(
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
 	const sessions = piSessions(pi.modules);
+	const builtIns = piBuiltInExtensions(pi.modules);
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
@@ -238,7 +240,12 @@ export async function createEngine(
 				cwd: target.cwd,
 				agentDir: target.agentDir,
 				modelRuntime,
-				resourceLoaderOptions: { eventBus: record.bus },
+				// pi's own built-ins, as its CLI passes them, so the conversation
+				// has the tools a plain pi on the same settings has.
+				resourceLoaderOptions: {
+					eventBus: record.bus,
+					extensionFactories: builtIns,
+				},
 			});
 			const conversation = await openHostedConversation({
 				modules: pi.modules,

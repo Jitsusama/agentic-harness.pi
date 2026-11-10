@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import {
 	HOST_SEAMS,
@@ -15,6 +16,8 @@ import {
 	hostPiFiles,
 	loadHostPi,
 } from "../../../host/engine/host-pi.ts";
+import { piBuiltInExtensions } from "../../../host/engine/pi-session.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 
 /** Loading every module of a real pi install, which a busy machine slows past vitest's default. */
 const REAL_PI_LOAD_MS = 30_000;
@@ -51,6 +54,8 @@ function fakeInstall(
 		: "{ request() {} }";
 	const sources: Record<keyof typeof files, string> = {
 		codingAgent: `export const VERSION = "${FAKE_VERSION}";\nexport class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\n`,
+		builtins:
+			'export const builtInExtensions = [{ name: "tool-search", factory: () => {}, replaceable: true, builtin: true }];\n',
 		durable: `export const GenerationTask = { definition: { version: ${seams.turn ? 3 : 2}, phases: ${phases} } };\n`,
 		agentCore: "export const DEFAULT_AGENT_IDENTITY = {};\n",
 		ai: "export const validateToolArguments = () => {};\n",
@@ -196,6 +201,26 @@ it("says which module files an incomplete install lacks", async () => {
 	);
 });
 
+it("hands on pi's built-in extensions whole, flags and all", async () => {
+	const pi = await loadHostPi(
+		fakeInstall({ agent: true, turn: true, screen: true, auth: true }),
+	);
+	const [only, ...rest] = piBuiltInExtensions(pi.modules);
+	expect(rest).toEqual([]);
+	expect(only).toMatchObject({
+		name: "tool-search",
+		replaceable: true,
+		builtin: true,
+	});
+});
+
+it("refuses an install whose built-in list it can't load", () => {
+	for (const builtInExtensions of [undefined, [], [{ name: "mcp" }]])
+		expect(() =>
+			piBuiltInExtensions({ builtins: { builtInExtensions } }),
+		).toThrow("lists no built-in extensions it can load");
+});
+
 it("refuses a relative install path", async () => {
 	await expect(loadHostPi("pi-1.5.0")).rejects.toThrow(
 		"must be an absolute path",
@@ -203,6 +228,18 @@ it("refuses a relative install path", async () => {
 });
 
 const installed = process.env.PI_PACKAGE_DIR;
+it.runIf(installed !== undefined)(
+	"reads the CLI's own built-in list from a real install, in its order",
+	async () => {
+		const file = hostPiFiles(installed ?? "").builtins;
+		const builtins: unknown = await import(pathToFileURL(file).href);
+		if (!isRecord(builtins)) throw new Error(`${file} exports nothing`);
+		const names = piBuiltInExtensions({ builtins }).map((one) => one.name);
+		expect(names).toEqual(expect.arrayContaining(["tool-search", "codemode"]));
+	},
+	REAL_PI_LOAD_MS,
+);
+
 it.runIf(installed !== undefined)(
 	"refuses the ordinary pi this session runs, naming every host patch",
 	async () => {
