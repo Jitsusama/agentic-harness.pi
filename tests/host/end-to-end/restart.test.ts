@@ -4,6 +4,10 @@
  * handle; the host is killed outright, as a crash or an OOM kill would;
  * once a new host has resumed both, a steer to the address it had before
  * reaches it, and its query of the handle cited before the kill answers.
+ * Neither is offered to reopen in a window, while the host is dead or
+ * after it is back: the launcher's Sessions to Reopen, as the next
+ * boot's restore file would give it (support/reopen.ts), leaves both
+ * out, each marked hosted, and `quest reopen-sessions` names neither.
  *
  * The steer is written into the inbox as the launcher writes one, so
  * this needs no mycelium node. Runs on the host's pi, as
@@ -23,7 +27,8 @@ import {
 	toolAnswer,
 	untilAnswered,
 } from "./support/hosted-case.ts";
-import { SCRIPTED, STORE } from "./support/scripted-model.ts";
+import { launcherOffers, nextBootRestore } from "./support/reopen.ts";
+import { REOPEN, SCRIPTED, STORE } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
@@ -78,12 +83,40 @@ it(
 			});
 			const handle = cited() ?? "";
 
+			const ids = [a.sessionId, b.sessionId].sort();
+			const noneOffered = (when: string) => {
+				const restore = nextBootRestore(sealed);
+				const ours = restore.sessions.filter((one) => ids.includes(one.id));
+				expect(
+					ours.map((one) => [one.id, one.hosted]).sort(),
+					`${when}, the next boot's restore file marks both hosted: ${JSON.stringify(restore)}`,
+				).toEqual(ids.map((id) => [id, true]));
+				expect(
+					launcherOffers(restore).map((one) => one.id),
+					`${when}, the launcher offers neither to reopen`,
+				).toEqual([]);
+			};
+
 			await first.kill();
+			noneOffered("With the host dead");
 			const second = await start();
 			await untilAnswered("the new host resumes both", async () => {
 				const held = (await second.list()).map((one) => one.sessionId);
 				return held.includes(a.sessionId) && held.includes(b.sessionId);
 			});
+			noneOffered("With the host back");
+			await steerInbox(sealed, sessionAddress(b.sessionId), REOPEN);
+			await untilAnswered(
+				"reopen-sessions answers",
+				async () => toolAnswer(b.file, "quest") !== undefined,
+			).catch((error: unknown) => {
+				throw new Error(`${String(error)}\nb: ${textOf(b.file)}`);
+			});
+			const reopen = toolAnswer(b.file, "quest") ?? "";
+			for (const id of ids)
+				expect(reopen, "reopen-sessions names no hosted session").not.toContain(
+					id,
+				);
 
 			await steerInbox(sealed, sessionAddress(a.sessionId), `query ${handle}`);
 			await untilAnswered(
@@ -96,6 +129,6 @@ it(
 			expect(toolAnswer(a.file, "result_query")).toMatch(/^50 matches\./);
 		});
 	},
-	// Two hosts' starts, a resume of both conversations, and two round trips.
-	ROUND_TRIP_MS * 4,
+	// Two hosts' starts, a resume of both conversations, and three round trips.
+	ROUND_TRIP_MS * 5,
 );
