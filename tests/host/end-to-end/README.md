@@ -40,6 +40,23 @@ TMPDIR is a link into a home that holds one. An extension that asks the
 person before the first words go on answers the open at once, so a
 viewer can attach to reply.
 
+attach-client.test.ts runs mycelium's own attach client in a real
+terminal against the same sealed host: an interactive bash under
+script(1)'s pseudo-terminal, which joins a conversation as the
+launcher's Go To does, its screen read through xterm's headless
+terminal. Ctrl+G runs a scripted editor in that terminal, and Ctrl+Z
+stops the client by bash's own job control until fg. Closing the window
+only leaves the conversation. Its folders are trusted in pi's store as
+the screen cases' are. It runs on the host's pi as E1 to E8 do (The
+Host's Pi, below), with script(1) and a mycelium whose client edits and
+suspends (mycelium#112), named by MYCELIUM_BIN or else on the PATH:
+
+```sh
+PI_HOST_PACKAGE_DIR=<root> MYCELIUM_BIN=<mycelium>/bin/mycelium \
+  pnpm exec vitest run --project process \
+  tests/host/end-to-end/attach-client.test.ts
+```
+
 mesh.test.ts is E1: two conversations in one host, on H1's engine and
 pi's own runtime with this harness loaded and a scripted model, play
 ping-pong over the mesh. One is told to ping the other's address; the
@@ -128,5 +145,6 @@ without it the check skips, or fails under `pnpm test:host`, saying so.
   the scripted model itself, the extension that gives a plain pi the
   same model, a plain pi driven over RPC, and what the launcher would
   offer to reopen from the seal's session records; the screen host's
-  process, working folders and the trust store that judges them, and a
-  viewer reading its screen.
+  process, working folders and the trust store that judges them, a
+  screen drawn and read back, a viewer reading its screen through the
+  socket, and a shell in a terminal of its own.

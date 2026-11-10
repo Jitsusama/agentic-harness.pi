@@ -46,6 +46,7 @@
 		"pgrep",
 		"pkill",
 		"qs",
+		"script",
 		"session-backup",
 		"systemd-notify",
 		"xdg-open"

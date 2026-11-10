@@ -7,10 +7,8 @@
  */
 
 import { connect, type Socket } from "node:net";
-import xterm from "@xterm/headless";
-
-/** How long a wait for the screen may take before it fails, saying what was shown. */
-const SHOWN_MS = 15_000;
+import type xterm from "@xterm/headless";
+import { drawn } from "./drawn.ts";
 
 /**
  * A frame the host sends a viewer once attached: output, why it was let go,
@@ -80,15 +78,9 @@ export async function attach(
 	columns: number,
 	abilities: Abilities = {},
 ): Promise<Viewer> {
-	const terminal = new xterm.Terminal({
-		rows,
-		cols: columns,
-		allowProposedApi: true,
-		scrollback: 1000,
-	});
+	const drawing = drawn(rows, columns);
+	const { terminal } = drawing;
 	const socket = connect(path);
-	const output: string[] = [];
-	const watchers = new Set<() => void>();
 	let detach: (reason: string) => void = () => undefined;
 	const detached = new Promise<string>((done) => {
 		detach = done;
@@ -110,10 +102,7 @@ export async function attach(
 	const reply = await attached(socket, sessionId, geometry, (frame) => {
 		const { type, data, reason, id, text } = frame;
 		if (type === "output" && data !== undefined) {
-			output.push(data);
-			terminal.write(data, () => {
-				for (const watcher of [...watchers]) watcher();
-			});
+			drawing.draw(data);
 		} else if (type === "detached" && reason !== undefined) {
 			detach(reason);
 		} else if (type === "edit" && id !== undefined && text !== undefined) {
@@ -125,54 +114,17 @@ export async function attach(
 		}
 	});
 	if (!reply.ok) throw new Error(`attach refused: ${JSON.stringify(reply)}`);
-	const screen = () => {
-		const buffer = terminal.buffer.active;
-		return Array.from(
-			{ length: terminal.rows },
-			(_, row) =>
-				buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "",
-		);
-	};
-	// Checked on each frame the viewer receives, rather than polled.
-	const onceItHolds = (holds: () => boolean, what: () => string, ms: number) =>
-		new Promise<void>((done, fail) => {
-			if (holds()) return done();
-			const timer = setTimeout(() => {
-				watchers.delete(check);
-				fail(new Error(what()));
-			}, ms);
-			const check = () => {
-				if (!holds()) return;
-				clearTimeout(timer);
-				watchers.delete(check);
-				done();
-			};
-			watchers.add(check);
-		});
-	const matches = (wanted: string | RegExp, text: string) =>
-		typeof wanted === "string" ? text.includes(wanted) : wanted.test(text);
 	return {
 		terminal,
-		output,
+		output: drawing.output,
 		type: (data) => send({ type: "input", data }),
 		resize: (newRows, newColumns) => {
 			terminal.resize(newColumns, newRows);
 			send({ type: "resize", rows: newRows, columns: newColumns });
 		},
-		screen,
-		shows: (wanted, ms = SHOWN_MS) =>
-			onceItHolds(
-				() => matches(wanted, screen().join("\n")),
-				() =>
-					`the screen never showed ${String(wanted)}; it shows:\n${screen().join("\n")}`,
-				ms,
-			),
-		sent: (wanted, ms = SHOWN_MS) =>
-			onceItHolds(
-				() => matches(wanted, output.join("")),
-				() => `the output never held ${JSON.stringify(String(wanted))}`,
-				ms,
-			),
+		screen: drawing.screen,
+		shows: drawing.shows,
+		sent: drawing.sent,
 		detached,
 		edits,
 		suspended,
