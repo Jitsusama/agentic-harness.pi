@@ -29,12 +29,6 @@
  * mesh keeps unread messages on disk until a peer's next start, so
  * nothing sent to a parked peer is lost.
  *
- * A rollover can also have a session start again at once on its fresh
- * log ({@link RESTART_ASK}): the same exit, holding to the same rules
- * but for the idle time, with the command naming the fresh log and the
- * wake written before it goes, so the holder starts it again as soon as
- * it has. It writes no marker, since it is never parked for long.
- *
  * Off unless the switch, or `PI_PARK`, turns it on, and only where a
  * holder said where its wake file is, since a session that parks where
  * no holder will wake it is a session ended.
@@ -161,34 +155,6 @@ export const PARKING = "session:parking:v1";
  * a key that wakes it brings no message of its own.
  */
 export const SESSION_WOKEN = "session:woken:v1";
-
-/**
- * Asked on the bus by a rollover that has written a session's fresh log:
- * end this pi and have its holder start it again on that log, rather
- * than switch logs in this process. A pi keeps what it gathered while
- * it ran, so on 10 November those past a day held 790 MB each against
- * 242 MB for those under two hours (80ECO2 [238e1b90]), and only a new
- * process gives that back. The park watch answers before `emit`
- * returns: `restarting` once its holder will start it again, else
- * `why` not, and the rollover switches logs in this process instead.
- */
-export const RESTART_ASK = "session:restart-ask:v1";
-
-/** What {@link RESTART_ASK} carries. */
-export interface RestartAsk {
-	readonly session: string;
-	/** The fresh log to start again on. */
-	readonly sessionFile: string;
-	restarting?: boolean;
-	why?: string;
-}
-
-/** Whether a payload is a {@link RestartAsk}. */
-export function isRestartAsk(data: unknown): data is RestartAsk {
-	if (typeof data !== "object" || data === null) return false;
-	const { session, sessionFile } = data as Record<string, unknown>;
-	return typeof session === "string" && typeof sessionFile === "string";
-}
 
 /** What {@link PARK_ASK} carries. */
 export interface ParkAsk {

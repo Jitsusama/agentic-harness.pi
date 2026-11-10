@@ -5,14 +5,12 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
-import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
 import {
 	AGAIN_ENV,
 	clearAwake,
 	clearOutlivedParks,
 	clearParked,
 	flagsLost,
-	isRestartAsk,
 	opensOnlyItself,
 	PARK_ASK,
 	PARKED_EXIT,
@@ -20,7 +18,6 @@ import {
 	type ParkAsk,
 	type Parking,
 	parkAfterMs,
-	RESTART_ASK,
 	readParked,
 	restartCommand,
 	SESSION_WOKEN,
@@ -118,12 +115,6 @@ export interface Watch {
 	prompting(open: boolean): void;
 	/** Look now whether it may park, and park it if so; answers why not. */
 	look(): string | undefined;
-	/**
-	 * End now for its holder to start it again at once on `sessionFile`,
-	 * if nothing holds it; answers why not. A rollover asks it on the bus
-	 * ({@link RESTART_ASK}), and the watch answers there too.
-	 */
-	restartInto(sessionFile: string): string | undefined;
 	/** Stop watching, as the session ends. */
 	stop(): void;
 }
@@ -136,8 +127,8 @@ export interface WatchOptions {
 	readonly now?: () => number;
 	/** pi's own arguments, which a holder naming no restart runs again. */
 	readonly args?: readonly string[];
-	/** Set the code pi exits with, and the line it leaves, once it exits. */
-	readonly exitWith?: (code: number, line: string) => void;
+	/** Set the code pi exits with, once it exits. */
+	readonly exitWith?: (code: number) => void;
 	/** Look on a clock; false for tests that look by hand. */
 	readonly clock?: boolean;
 	/** This process, which its holder's record must name to park. */
@@ -148,20 +139,13 @@ export interface WatchOptions {
 export const PARKED_LINE =
 	"Parked while idle, holding no memory. A key or a message wakes it.";
 
-/** What a window shows as its session starts again on a fresh log. */
-export const RESTART_LINE =
-	"Starting again on its fresh log, to give back what the old one held.";
-
-/**
- * Say to the process that, whatever pi exits with, it exits with this,
- * leaving `line` in its window.
- */
-function exitWith(code: number, line: string): void {
+/** Say to the process that, whatever pi exits with, it exits with this. */
+function exitWith(code: number): void {
 	// pi ends a quit with process.exit(0); an exit listener's code wins.
 	process.once("exit", () => {
 		process.exitCode = code;
 		// The window stays with its holder, so it says why it is quiet.
-		process.stdout.write(`\r\n${line}\r\n`);
+		process.stdout.write(`\r\n${PARKED_LINE}\r\n`);
 	});
 }
 
@@ -268,25 +252,6 @@ export function watch(
 	let last = woke ? now() : Math.min(now(), lastMessageAt(ctx) ?? now());
 	let prompts = 0;
 	let parked = false;
-	const holding = (): Holding => ({
-		agentIdle: ctx.isIdle(),
-		pendingMessages: ctx.hasPendingMessages(),
-		jobs: findJobHost(bus)?.pending?.() ?? 0,
-		prompting: prompts > 0,
-		typed: ctx.ui.getEditorText().trim() !== "",
-	});
-	const unheld = (): string | undefined => {
-		if (wake === "") return "no holder would wake it";
-		if (!heldDirectly(wake, options.pid ?? process.pid)) {
-			return "its holder runs it through another program";
-		}
-		return undefined;
-	};
-	const end = (line: string) => {
-		parked = true;
-		(options.exitWith ?? exitWith)(PARKED_EXIT, line);
-		void ctx.shutdown();
-	};
 	const decide = (): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
@@ -298,17 +263,24 @@ export function watch(
 			bus.emit(PARK_ASK, ask);
 		}
 		const why = whyNotPark({
-			...holding(),
 			idleMs: now() - last,
 			afterMs,
+			agentIdle: ctx.isIdle(),
+			pendingMessages: ctx.hasPendingMessages(),
+			jobs: findJobHost(bus)?.pending?.() ?? 0,
+			prompting: prompts > 0,
+			typed: ctx.ui.getEditorText().trim() !== "",
 			refusals: ask.refusals,
 		});
 		if (why !== undefined) return why;
-		const away = unheld();
-		if (away !== undefined) return away;
+		if (wake === "") return "no holder would wake it";
+		if (!heldDirectly(wake, options.pid ?? process.pid)) {
+			return "its holder runs it through another program";
+		}
 		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
 		const unnamed = restartNamed(again, args, session, sessionFile);
 		if (unnamed !== undefined) return unnamed;
+		parked = true;
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
 		writeParked(
@@ -324,45 +296,10 @@ export function watch(
 			},
 			folder,
 		);
-		end(PARKED_LINE);
+		(options.exitWith ?? exitWith)(PARKED_EXIT);
+		void ctx.shutdown();
 		return undefined;
 	};
-	// Not a park: no marker, since its holder starts it again at once, on
-	// the wake it writes itself, which the holder looks for as it exits.
-	const restartInto = (fresh: string): string | undefined => {
-		if (parked) return "parking already";
-		if (hosted()) return HOST_PARKS;
-		if (parkAfterMs(session, options.env, options.switchPath) === undefined) {
-			return "parking is off";
-		}
-		const ask: ParkAsk = { session, refusals: [] };
-		bus.emit(PARK_ASK, ask);
-		const why = whatHolds(holding()) ?? ask.refusals[0] ?? unheld();
-		if (why !== undefined) return why;
-		if (!existsSync(fresh)) return "its fresh log isn't written";
-		// A holder that takes no command would run the one that opened the
-		// log just left.
-		if (again === "") return "its holder would start it on the log it left";
-		const lost = flagsLost(args);
-		if (lost.length > 0) return `starting again would drop ${lost.join(", ")}`;
-		try {
-			writeFileSync(again, JSON.stringify(restartCommand(fresh)));
-			writeFileSync(
-				wake,
-				`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
-			);
-		} catch {
-			return "its holder couldn't be told how to start it again";
-		}
-		end(RESTART_LINE);
-		return undefined;
-	};
-	const unasked = bus.on(RESTART_ASK, (data) => {
-		if (!isRestartAsk(data) || data.session !== session) return;
-		const why = restartInto(data.sessionFile);
-		if (why === undefined) data.restarting = true;
-		else data.why = why;
-	});
 	// Why it stays awake, kept where Agents and a count can read it, and
 	// written only when the reason changes, not every minute.
 	let said: string | undefined;
@@ -408,9 +345,7 @@ export function watch(
 			last = now();
 		},
 		look,
-		restartInto,
 		stop() {
-			unasked();
 			clearInterval(clock);
 			note(undefined);
 		},

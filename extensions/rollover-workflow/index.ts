@@ -8,14 +8,9 @@
  * `ROLLOVER_BYTES` or more: the run has settled, the person has not
  * stopped it and no reload is waiting; a roll a reload went ahead of
  * waits for the first still moment after it. `/rollover` does it at once,
- * whatever the log's size. Once the fresh log is written, a session
- * nothing holds ends and its holder starts it again on that log at once
- * (`RESTART_ASK`, answered by the park watch), since only a new process
- * gives back the memory a pi gathers as it runs. One with background
- * jobs out, or that its holder can't start again, switches logs in this
- * process: the job host parks its jobs for the fresh session, which
- * carries the conversation on (see extensions/job-workflow/lifecycle.ts).
- * Only a session somebody sits at rolls over; a
+ * whatever the log's size. Background jobs run on through it: the job
+ * host parks them for the fresh session, which carries the conversation
+ * on (see extensions/job-workflow/lifecycle.ts). Only a session somebody sits at rolls over; a
  * subagent or a print run is short. It rolls over by itself only when
  * `PI_ROLLOVER=on` or the switch file asks it to, while a rolled session
  * can come up on no model (`rollsOver`).
@@ -66,10 +61,6 @@ import {
 	stayInSession,
 } from "../../lib/internal/session/left.ts";
 import { sayOnNoModel } from "../../lib/internal/session/no-model.ts";
-import {
-	RESTART_ASK,
-	type RestartAsk,
-} from "../../lib/internal/session/park.ts";
 import {
 	builtInsLostToRollover,
 	type Carry,
@@ -221,11 +212,6 @@ async function switchToRolled(
 	// again before the switch returns (see lib/internal/session/left.ts).
 	const left = sessions.getSessionId();
 	leaveSession(left);
-	// A new process gives back what this one gathered; the switch below,
-	// in this process, is what a session its holder can't restart gets.
-	const restart: RestartAsk = { session: left, sessionFile: path };
-	pi.events.emit(RESTART_ASK, restart);
-	if (restart.restarting) return `${said} ${STARTING_AGAIN}`;
 	let cancelled = true;
 	try {
 		({ cancelled } = await ctx.switchSession(path, {
@@ -238,10 +224,6 @@ async function switchToRolled(
 	}
 	return cancelled ? "Not rolled over: the switch was called off." : said;
 }
-
-/** Said once a rolled session's holder will start it again on its fresh log. */
-export const STARTING_AGAIN =
-	"It starts again on it in a new process, which gives back the memory the old one gathered.";
 
 /**
  * Give back the built-in tools a log rolled over by an earlier version
