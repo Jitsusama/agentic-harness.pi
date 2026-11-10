@@ -123,7 +123,10 @@ it(
 				throw new Error(`${String(error)}\na: ${textOf(a.file)}`);
 			});
 			const handle = cited() ?? "";
-			expect(presenceOf(a.sessionId).hosted).toBe(true);
+			expect(
+				presenceOf(a.sessionId).hosted,
+				"the conversation's presence says it is hosted",
+			).toBe(true);
 
 			await host.close(a.sessionId);
 			const opened = startPlainPi({

@@ -125,6 +125,8 @@ export function untilAnswered(
 	return until(
 		what,
 		async () => {
+			// A poll's interval: what is asked about is written by another
+			// process, a host, a node or a plain pi, which sends no event here.
 			if (!first) await pause(ASK_EVERY_MS);
 			first = false;
 			return asked();
