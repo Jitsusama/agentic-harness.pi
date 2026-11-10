@@ -21,6 +21,13 @@ export interface RosterEntry {
 	readonly attended: boolean;
 	readonly quest?: string;
 	readonly since: string;
+	/**
+	 * The environment the engine derived for it at open, such as its
+	 * experiment arm, replayed as it stands at every resume, since a
+	 * resume has no request to derive it from again. Never a credential:
+	 * keys come from the host per request. Absent reads as none.
+	 */
+	readonly launch?: Readonly<Record<string, string>>;
 }
 
 /** A host key's whole roster, rewritten atomically on every change. */
@@ -36,6 +43,8 @@ export type HeldStatus = "held" | "unheld" | "unknown";
 const ROSTER_SUFFIX = ".json";
 // A realm name, as lib/internal/realm.ts holds it, then -attended or -background.
 const KEY = /^[a-z0-9-]{1,64}-(?:attended|background)$/;
+/** An environment variable's name, as a POSIX shell takes one. */
+export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -116,7 +125,7 @@ export async function heldSessionStatus(
 
 function isEntry(value: unknown): value is RosterEntry {
 	if (!isRecord(value)) return false;
-	const { sessionId, file, cwd, attended, quest, since } = value;
+	const { sessionId, file, cwd, attended, quest, since, launch } = value;
 	return (
 		typeof sessionId === "string" &&
 		UUID.test(sessionId) &&
@@ -127,6 +136,16 @@ function isEntry(value: unknown): value is RosterEntry {
 		typeof attended === "boolean" &&
 		(quest === undefined || (typeof quest === "string" && quest.length > 0)) &&
 		typeof since === "string" &&
-		!Number.isNaN(Date.parse(since))
+		!Number.isNaN(Date.parse(since)) &&
+		(launch === undefined || isLaunch(launch))
+	);
+}
+
+function isLaunch(value: unknown): value is Record<string, string> {
+	return (
+		isRecord(value) &&
+		Object.entries(value).every(
+			([name, setting]) => ENV_NAME.test(name) && typeof setting === "string",
+		)
 	);
 }

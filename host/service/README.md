@@ -39,6 +39,9 @@ input pipeline or screen. No unit or running host is installed yet.
   or release commits; stop and kill -9 keep them. A live or unjudgeable
   lock holder, a malformed lock or an unreadable roster refuses start.
   A dead holder's lock is moved aside and checked, never just unlinked.
+  Each hold keeps the launch environment the engine derived at open,
+  such as an experiment arm, for resume to replay; one naming a
+  credential is refused, since keys come from the host per request.
 - gateway-key.ts: the work host's one gateway key. An inherited key
   stays fixed, as the launcher treats it; otherwise the personal key is
   resolved through the dev tool and resolved again when the dev cache's

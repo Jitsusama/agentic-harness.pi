@@ -165,6 +165,58 @@ describe("hostBackend", () => {
 		expect(roster.entries()).toHaveLength(1);
 	});
 
+	it("holds the launch environment prepare derived, and a restart's resume gets it back exactly", async () => {
+		const launch = { SHOPIFY_EXP_ARM: "treatment", SHOPIFY_EXP_ID: "e1" };
+		const derived = engine({
+			prepare: vi.fn(async () => ({
+				sessionId: randomUUID(),
+				file: join(dir, `${randomUUID()}.jsonl`),
+				cwd: "/work",
+				launch,
+			})),
+		});
+		const { sessionId } = parseOpenResult(
+			await backendWith(derived.fake).execute(open),
+		);
+		const plain = parseOpenResult(
+			await backendWith(engine().fake).execute(open),
+		).sessionId;
+		for (const { id } of host.list()) await host.stop(id);
+		await roster.close();
+
+		roster = await openRoster({
+			key: KEY,
+			dir: rosters,
+			owner: { ...owner, startTicks: 2 },
+		});
+		const restart = engine();
+		await resumeHeld({ roster, engine: restart.fake });
+		const resumed = vi
+			.mocked(restart.fake.resume)
+			.mock.calls.map(([entry]) => [entry.sessionId, entry.launch]);
+		expect(resumed).toEqual([
+			[sessionId, launch],
+			[plain, undefined],
+		]);
+	});
+
+	it("refuses a launch environment naming a credential, holding and keeping nothing", async () => {
+		const leaky = engine({
+			prepare: vi.fn(async () => ({
+				sessionId: randomUUID(),
+				file: join(dir, `${randomUUID()}.jsonl`),
+				cwd: "/work",
+				launch: { SHOPIFY_EXP_ARM: "a", PI_PROXY_API_KEY: "sk-live" },
+			})),
+		});
+		await expect(backendWith(leaky.fake).execute(open)).rejects.toThrow(
+			"never holds a credential, which the host gives per request: PI_PROXY_API_KEY",
+		);
+		expect(leaky.fake.discard).toHaveBeenCalledOnce();
+		expect(leaky.fake.start).not.toHaveBeenCalled();
+		expect(roster.entries()).toEqual([]);
+	});
+
 	it("refuses a second adopt of one file without starting it", async () => {
 		const { fake } = engine();
 		const adopt = {

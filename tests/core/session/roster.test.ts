@@ -85,10 +85,20 @@ describe("heldSessionStatus", () => {
 			[{ ...entry(A), file: "relative.jsonl" }],
 			[{ ...entry(A), sessionId: "not-a-uuid" }],
 			[{ ...entry(A), extra: undefined, since: "yesterday" }],
+			[{ ...entry(A), launch: { "NOT A NAME": "x" } }],
+			[{ ...entry(A), launch: { SHOPIFY_EXP_ARM: 1 } }],
+			[{ ...entry(A), launch: ["SHOPIFY_EXP_ARM=a"] }],
 		]) {
 			await roster("work-attended", sessions);
 			expect(await heldSessionStatus(B, { dir })).toBe("unknown");
 		}
+	});
+
+	it("reads an entry's launch environment of names and strings as held", async () => {
+		await roster("work-attended", [
+			{ ...entry(A), launch: { SHOPIFY_EXP_ARM: "treatment" } },
+		]);
+		expect(await heldSessionStatus(A, { dir })).toBe("held");
 	});
 
 	it("ignores the staging folder and lock files beside the rosters", async () => {

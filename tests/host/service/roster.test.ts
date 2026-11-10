@@ -62,6 +62,24 @@ describe("openRoster", () => {
 		await again.close();
 	});
 
+	it("writes a launch environment only when it holds something, and refuses a name no shell takes", async () => {
+		const roster = await openRoster({ key: KEY, dir, owner: first });
+		await roster.hold({ ...entry(A), launch: {} });
+		await roster.hold({ ...entry(B), launch: { SHOPIFY_EXP_ARM: "control" } });
+		await expect(
+			roster.hold({
+				...entry("c0000000-0000-4000-8000-000000000003"),
+				launch: { "EXP ARM": "x" },
+			}),
+		).rejects.toThrow("takes only variable names: EXP ARM");
+		await roster.close();
+		const written = JSON.parse(await readFile(rosterPath(KEY, dir), "utf8"));
+		expect(written.sessions).toEqual([
+			entry(A),
+			{ ...entry(B), launch: { SHOPIFY_EXP_ARM: "control" } },
+		]);
+	});
+
 	it("keeps every hold when the host dies without closing, and takes over a dead lock", async () => {
 		const crashed = await openRoster({ key: KEY, dir, owner: first });
 		await crashed.hold(entry(A));

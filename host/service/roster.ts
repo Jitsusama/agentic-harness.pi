@@ -20,6 +20,7 @@ import {
 import { resolve } from "node:path";
 import { isOwner } from "../../lib/core/process/index.ts";
 import {
+	ENV_NAME,
 	parseRoster,
 	type Roster,
 	type RosterEntry,
@@ -38,12 +39,29 @@ import { writeWhole } from "../../lib/internal/write-whole.ts";
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
 
+// Name parts that say a variable carries a credential, which never goes to
+// disk: keys come from the host per request.
+const CREDENTIAL_PARTS = new Set([
+	"KEY",
+	"APIKEY",
+	"TOKEN",
+	"SECRET",
+	"PASSWORD",
+	"AUTH",
+	"CREDENTIAL",
+	"CREDENTIALS",
+	"COOKIE",
+]);
+
 /** The open roster of one host key, writable only by its lock holder. */
 export interface HostRoster {
 	readonly key: string;
 	/** What was held at start or since, for the engine to resume. */
 	entries(): readonly RosterEntry[];
-	/** Persist a hold before the engine registers the conversation. */
+	/**
+	 * Persist a hold before the engine registers the conversation. A launch
+	 * environment naming a credential, or a name no shell takes, is refused.
+	 */
 	hold(entry: RosterEntry): Promise<void>;
 	/** Remove a hold once a close or release has committed. */
 	drop(sessionId: string): Promise<void>;
@@ -94,6 +112,8 @@ export async function openRoster(options: {
 		entries: () => [...sessions],
 		hold: (entry) =>
 			change((current) => {
+				const refused = launchRefusal(entry.launch ?? {});
+				if (refused) throw new Error(refused);
 				const file = resolve(entry.file);
 				if (
 					current.some(
@@ -102,7 +122,15 @@ export async function openRoster(options: {
 					)
 				)
 					throw new Error("Conversation is already held");
-				return [...current, { ...entry, file }];
+				const { launch, ...held } = entry;
+				return [
+					...current,
+					{
+						...held,
+						file,
+						...(launch && Object.keys(launch).length > 0 ? { launch } : {}),
+					},
+				];
 			}),
 		drop: (sessionId) =>
 			change((current) =>
@@ -115,6 +143,25 @@ export async function openRoster(options: {
 			await releaseLock(lock, mine);
 		},
 	};
+}
+
+/** Why a launch environment can't be written down, or nothing when it can. */
+function launchRefusal(
+	launch: Readonly<Record<string, string>>,
+): string | undefined {
+	const names = Object.keys(launch);
+	const malformed = names.filter((name) => !ENV_NAME.test(name));
+	if (malformed.length > 0)
+		return `A launch environment takes only variable names: ${malformed.join(", ")}`;
+	const credentials = names.filter((name) =>
+		name
+			.toUpperCase()
+			.split("_")
+			.some((part) => CREDENTIAL_PARTS.has(part)),
+	);
+	if (credentials.length > 0)
+		return `A launch environment never holds a credential, which the host gives per request: ${credentials.join(", ")}`;
+	return undefined;
 }
 
 async function privateDirectory(dir: string): Promise<void> {

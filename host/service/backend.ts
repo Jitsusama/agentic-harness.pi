@@ -21,15 +21,20 @@ export interface Prepared {
 	readonly sessionId: string;
 	readonly file: string;
 	readonly cwd: string;
+	/**
+	 * The environment the engine derived for the conversation from its
+	 * request, held with it so a resume replays it exactly.
+	 */
+	readonly launch?: Readonly<Record<string, string>>;
 }
 
 /**
  * What the engine does for the service. Prepare names the pi id and file
  * without registering; start registers, loads extensions and, for open with
  * first words, resolves once the first durable submit commits; discard
- * undoes only what prepare created; resume re-registers a held conversation
- * and rejects with the reason it can't; abort stops the current run and
- * keeps ownership.
+ * undoes only what prepare created; resume re-registers a held conversation,
+ * with the launch environment it was held with, and rejects with the reason
+ * it can't; abort stops the current run and keeps ownership.
  */
 export interface ConversationEngine {
 	prepare(request: OpenRequest | AdoptRequest): Promise<Prepared>;
@@ -129,6 +134,7 @@ export function hostBackend(options: {
 				attended: request.attended,
 				...(request.quest ? { quest: request.quest } : {}),
 				since: now().toISOString(),
+				...(prepared.launch ? { launch: prepared.launch } : {}),
 			});
 		} catch (error) {
 			await engine.discard(prepared);
