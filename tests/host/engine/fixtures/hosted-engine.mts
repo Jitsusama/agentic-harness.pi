@@ -507,6 +507,12 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 	const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
 	faux.setResponses(scenario.responses());
 	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
+	// pi counts any .agents/skills above a folder but HOME's as a project's own, and this folder may sit under a
+	// home holding one, so the work folder is trusted as its person would have trusted it.
+	writeFileSync(
+		join(agentDir, "trust.json"),
+		JSON.stringify({ [realpathSync(work)]: true }),
+	);
 
 	const host = new SessionHost({
 		// A key of the folder's own, as each real host has: a start reaps what a dead host under its key left.
