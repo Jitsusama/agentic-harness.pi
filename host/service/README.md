@@ -13,6 +13,15 @@ input pipeline or screen. No unit or running host is installed yet.
   engine's close commits. resumeHeld resumes each hold at start, keeping
   one that won't resume held and listed parked for a person to close.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
+- rollout.ts: the rollout gate. A host opens, adopts or resumes a
+  second conversation only once every live pi (each `loaded/<pid>`
+  in the install whose pid runs) loaded a harness holding 5b5b7260,
+  whose mesh census judges hosted presences each on its own; an older
+  one takes all but the newest as ended. A root that can't be read or
+  dated counts as stale, and the refusal names each stale pid and
+  root. One conversation per host is never gated. A host run from a
+  tree keeps to one. `node scripts/host-rollout.ts` prints the same
+  verdict for a person.
 - serve.ts: one realm-kind host's life. It takes the roster's lock,
   installs SessionHost, loads the engine, resumes what is held and only
   then listens, so a second host, an unreadable roster or a pi the

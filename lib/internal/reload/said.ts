@@ -17,7 +17,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { installOfVersion } from "./loaded.ts";
 
 /** The folder of a package's install that its pis say what they loaded in. */
@@ -57,9 +57,20 @@ export function sayLoaded(
 ): string | undefined {
 	const folder = packageFolderOf(root, install);
 	if (folder === undefined) return undefined;
-	const dir = join(folder, LOADED_FOLDER);
-	const file = join(dir, String(pid));
-	const writing = join(dir, `.${pid}.new`);
+	return sayLoadedIn(join(folder, LOADED_FOLDER, String(pid)), root);
+}
+
+/**
+ * Says this pi runs `root` in the file it said in before. A pi reloaded
+ * onto a tree has its settings pointed at the tree for the reload, so
+ * neither names the install's folder; its process's file is still the
+ * one to say it in, since the folder can't change under a process, and
+ * left alone it would go on naming the version the pi left. Answers
+ * the file, or nothing when it couldn't be written.
+ */
+export function sayLoadedIn(file: string, root: string): string | undefined {
+	const dir = dirname(file);
+	const writing = join(dir, `.${basename(file)}.new`);
 	try {
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(writing, `${JSON.stringify({ root })}\n`);
