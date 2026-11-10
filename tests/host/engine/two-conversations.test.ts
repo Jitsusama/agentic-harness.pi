@@ -66,6 +66,7 @@ async function conversation(
 				HOST_SETTINGS,
 				{ attended },
 				{ op: "open" },
+				{ version: "9.9.9-engine" },
 			),
 		},
 		hints: {},

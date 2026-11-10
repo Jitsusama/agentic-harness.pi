@@ -28,7 +28,11 @@ conversation, its surface
 (interactive when attended, else background) and launch mode (fresh
 for an open, resume for an adopt, restore when a restarted host
 carries it on). An open says whether it named the model and reasoning
-level; otherwise the host's sources stand.
+level; otherwise the host's sources stand. The engine passes the
+version of the pi it loaded, since nothing under host/ imports a pi
+package except for its types: the host runs pi from its own pinned
+install, and the harness's production install carries none
+(tests/package/host-imports-no-pi.test.ts holds it).
 
 Run dispatches through withSession. Environment snapshots are independent
 copies and PI_SESSION_ID is set to the conversation id. Launch hints are

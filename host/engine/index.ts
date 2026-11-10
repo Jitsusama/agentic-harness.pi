@@ -1,6 +1,7 @@
 /** The shared host's conversation ownership and, later, pi engine adapters. */
 export {
 	HARNESS_SETTINGS_VARIABLE,
+	type HarnessEngine,
 	type HarnessRequest,
 	type HarnessTraits,
 	harnessSettings,

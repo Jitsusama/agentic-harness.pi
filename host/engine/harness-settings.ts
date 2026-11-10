@@ -10,9 +10,11 @@
  * what differs for that conversation and keeping what the host's launch
  * checked (the router opt-out, the saved reasoning, what config was
  * read), which holds for every conversation it runs.
+ *
+ * The engine passes the version of the pi it loaded: the host runs pi
+ * from its own pinned install, and the harness's production install
+ * carries none, so nothing here may import pi.
  */
-
-import { VERSION } from "@earendil-works/pi-coding-agent";
 
 /** The variable Shopify's launcher and ai-proxy-headers share. */
 export const HARNESS_SETTINGS_VARIABLE = "SHOPIFY_HARNESS_SETTINGS";
@@ -20,6 +22,11 @@ export const HARNESS_SETTINGS_VARIABLE = "SHOPIFY_HARNESS_SETTINGS";
 /** What the host knows of a conversation, whatever opened it. */
 export interface HarnessTraits {
 	readonly attended: boolean;
+}
+
+/** What the engine knows of the pi it runs conversations on. */
+export interface HarnessEngine {
+	readonly version: string;
 }
 
 /** The request that brought a conversation into the host, as far as this reads it. */
@@ -33,14 +40,16 @@ export type HarnessRequest =
 
 /**
  * The conversation's SHOPIFY_HARNESS_SETTINGS, from the host's value
- * (if any), its traits and the request that brought it in. With no
- * request the host is carrying it on from before a restart, so the
- * model and reasoning sources stay as the host's value says them.
+ * (if any), its traits, the request that brought it in and the pi the
+ * engine runs it on. With no request the host is carrying it on from
+ * before a restart, so the model and reasoning sources stay as the
+ * host's value says them.
  */
 export function harnessSettings(
 	base: string | undefined,
 	traits: HarnessTraits,
-	request?: HarnessRequest,
+	request: HarnessRequest | undefined,
+	engine: HarnessEngine,
 ): string {
 	const host = parsed(base);
 	const settings: Record<string, unknown> = {
@@ -48,7 +57,7 @@ export function harnessSettings(
 		v: "1",
 		harness: "pi",
 		// The pi the host runs the conversation on, whatever launched the host.
-		harness_version: VERSION,
+		harness_version: engine.version,
 		surface: traits.attended ? "interactive" : "background",
 		launch_mode: launchMode(request),
 	};
