@@ -61,7 +61,7 @@ describe("reaping a conversation's tool children", () => {
 		expect(reapToolChildren("a", table)).toEqual({ groups: [10], pids: [] });
 		expect(table.killed, "one kill for the one group").toEqual(["group 10"]);
 		expect(
-			table.pids().sort(),
+			[...table.pids()].sort(),
 			"the host, b's child and a stranger live",
 		).toEqual([1, 20, 30]);
 	});
@@ -73,9 +73,10 @@ describe("reaping a conversation's tool children", () => {
 			5: { group: 1, env: conversationMarker("a") },
 		});
 		expect(reapToolChildren("a", table)).toEqual({ groups: [], pids: [5] });
-		expect(table.pids().sort(), "the host's group otherwise untouched").toEqual(
-			[1, 2],
-		);
+		expect(
+			[...table.pids()].sort(),
+			"the host's group otherwise untouched",
+		).toEqual([1, 2]);
 	});
 
 	it("answers nothing when no process carries the marker", () => {
