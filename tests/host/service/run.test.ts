@@ -111,6 +111,30 @@ describe("runHost", () => {
 		).toBe("held");
 	});
 
+	it("gives serve the viewer bridge, built once over the host it runs", async () => {
+		const signals = new EventEmitter();
+		const viewer = vi.fn((_host: SessionHost) => ({
+			attach: () => {
+				throw new Error("no screens here");
+			},
+		}));
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			viewer,
+			signals,
+			ready: async () => {},
+			report: () => {},
+			places: places(),
+		});
+		expect(viewer.mock.calls.map(([host]) => host.key)).toEqual([
+			"work-background",
+		]);
+		signals.emit("SIGTERM");
+		await run.stopped;
+	});
+
 	it("refuses to start without a realm, before any socket", async () => {
 		await expect(
 			runHost({

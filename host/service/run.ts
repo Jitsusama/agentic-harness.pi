@@ -12,6 +12,7 @@ import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostRealm } from "./address.ts";
 import type { ConversationEngine } from "./backend.ts";
 import { type ServingHost, serveHost } from "./serve.ts";
+import type { ViewerBridge } from "./server.ts";
 
 /** The signals that stop a host: systemd's stop, and Ctrl+C by hand. */
 const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -24,6 +25,8 @@ export interface HostRunOptions {
 	env: NodeJS.ProcessEnv;
 	/** Builds the engine over the host's ownership. */
 	engine: (host: SessionHost) => Promise<ConversationEngine>;
+	/** The screens viewers attach to; without one, attach is refused. */
+	viewer?: (host: SessionHost) => ViewerBridge;
 	/** Where the process hears its stop signals; the process by default. */
 	signals?: { once(signal: string, listener: () => void): unknown };
 	/** Says the host is ready; systemd's notify by default. */
@@ -70,6 +73,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		realm,
 		kind,
 		engine: options.engine,
+		...(options.viewer ? { viewer: options.viewer } : {}),
 		report,
 		runtimeDir: options.env.XDG_RUNTIME_DIR,
 	});
@@ -100,7 +104,8 @@ function notifyReady(env: NodeJS.ProcessEnv): Promise<void> {
 	});
 }
 
-function reportToJournal(error: unknown): void {
+/** Write an error to standard error, which systemd's journal keeps. */
+export function reportToJournal(error: unknown): void {
 	const said = error instanceof Error ? (error.stack ?? error.message) : error;
 	process.stderr.write(`pi-host: ${String(said)}\n`);
 }
