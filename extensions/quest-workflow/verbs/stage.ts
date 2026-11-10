@@ -190,7 +190,13 @@ async function sweepQuests(
 			);
 		}
 		if (id === state.questId) state.scratchDir = null;
-		const said = await scratchRemoved(id);
+		const said = await scratchRemoved(
+			id,
+			undefined,
+			undefined,
+			undefined,
+			state.inUse,
+		);
 		if (said) {
 			appendHarnessLog(entry.dir, said);
 			removed.push(`${id}: ${said}`);
@@ -1070,7 +1076,13 @@ async function sealLoadedQuest(
 		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-release\` with its cwd once that is settled.`;
 	}
 	if (outside) message += ` ${outside}`;
-	const removed = await scratchRemoved(state.questId, signal);
+	const removed = await scratchRemoved(
+		state.questId,
+		signal,
+		undefined,
+		undefined,
+		state.inUse,
+	);
 	if (removed) {
 		logHarnessEntry(state, removed);
 		message += ` ${removed}`;

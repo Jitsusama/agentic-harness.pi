@@ -46,7 +46,6 @@ tests/screen/dock-hop.test.ts 2
 tests/screen/fleet-board.test.ts 3
 tests/screen/gate-conditions.test.ts 9
 tests/screen/gate-lifecycle.test.ts 14
-tests/screen/gate-widget.test.ts 9
 tests/screen/harness.test.ts 1
 tests/screen/pi-session.ts 2
 tests/screen/round-board.test.ts 2

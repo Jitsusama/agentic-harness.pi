@@ -47,6 +47,13 @@ export interface QuestState {
 	 */
 	sessionRetentionDays: number;
 
+	/**
+	 * The processes working in a folder, so a seal leaves a scratch
+	 * folder one still uses. Unset, it reads this machine's `/proc`,
+	 * which takes a quarter second on a machine running 2,000 of them.
+	 */
+	readonly inUse?: (dir: string) => readonly number[];
+
 	/** Absolute path to the loaded quest's directory. */
 	questDir: string | null;
 	/** The loaded quest's id (QEST-...). */
@@ -124,9 +131,11 @@ export function createQuestState(opts: {
 	questsRoot: string;
 	autoloadFromCwd?: boolean;
 	sessionRetentionDays?: number;
+	inUse?: (dir: string) => readonly number[];
 }): QuestState {
 	return {
 		questsRoot: opts.questsRoot,
+		...(opts.inUse ? { inUse: opts.inUse } : {}),
 		autoloadFromCwd: opts.autoloadFromCwd ?? true,
 		sessionRetentionDays:
 			opts.sessionRetentionDays ?? DEFAULT_SESSION_RETENTION_DAYS,

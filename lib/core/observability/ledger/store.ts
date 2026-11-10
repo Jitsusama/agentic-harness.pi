@@ -290,7 +290,13 @@ const GROUP_BY: Record<CostDimension, string> = {
  */
 export async function openTurnStore(dbPath: string): Promise<TurnStore> {
 	const db = await openDb(dbPath);
-	await db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+	// NORMAL syncs the WAL at checkpoints, not at each commit, where FULL
+	// made a fresh ledger wait on about 50 flushes. The ledger is an index
+	// of the session logs, so a power cut costs it only its last commits,
+	// which the next scan reads again; WAL never leaves it corrupt.
+	await db.exec(
+		"PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
+	);
 	await db.exec(SCHEMA);
 	await migrate(db);
 	await db.exec(VIEWS);

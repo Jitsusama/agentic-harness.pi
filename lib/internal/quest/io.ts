@@ -37,7 +37,6 @@ import {
 	closeSync,
 	existsSync,
 	fstatSync,
-	fsyncSync,
 	linkSync,
 	mkdirSync,
 	openSync,
@@ -174,8 +173,10 @@ function acquireLock(lockPath: string): { fd: number; ino: number } {
 				pid: process.pid,
 				startedAt: Date.now(),
 			};
+			// Not flushed: other writers read the record from the page cache
+			// they share, and a lock a power cut empties is judged by its age.
+			// Flushing each lock cost every quest write a disk wait.
 			writeSync(fd, JSON.stringify(payload));
-			fsyncSync(fd);
 			return { fd, ino: fstatSync(fd).ino };
 		} catch (err) {
 			const code = (err as NodeJS.ErrnoException).code;

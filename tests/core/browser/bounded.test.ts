@@ -78,6 +78,9 @@ describe("reading a page always lets go", () => {
 			{ path: "/plain", body: PLAIN },
 			{ path: "/never", body: PLAIN, delayMs: NEVER_MS },
 		]);
+		// Started here, so each deadline below bounds a read, not Chrome's
+		// start, which alone ran past 15 s on a loaded machine.
+		await getBrowser();
 	});
 
 	afterAll(async () => {
