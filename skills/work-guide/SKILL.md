@@ -363,6 +363,11 @@ tree", and git still tracks it. Fifteen accumulated in one repo
 over four months this way, every one of them cut by an
 extension that no longer exists.
 
+It also lists the trees beside the checkout by the Nix roots
+their dev shells hold. Those keep store paths from the collector,
+so the hourly sweep drops them from a tree nobody has entered in
+three days, and direnv builds the shell again on the next entry.
+
 `work reclaim tree:… trunk:main` takes those back. It is the
 one cleanup verb here that acts, and the asymmetry with `tidy`
 is the whole point:

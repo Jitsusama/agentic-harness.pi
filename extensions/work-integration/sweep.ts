@@ -7,7 +7,8 @@
  * has ended since. A few minutes in, so a session's first turns don't
  * share the disk with a removal, and every hour, since a session can run
  * for days. Off the turn, and never waited on: what it did goes to a log
- * beside the trees' records, one JSON line a sweep.
+ * beside the trees' records, one JSON line a sweep, naming the trees
+ * taken and those whose dev-shell roots were dropped.
  */
 
 import { appendFileSync, mkdirSync, readdirSync, readlinkSync } from "node:fs";
@@ -208,5 +209,6 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		taken: outcome.taken,
 		refused: outcome.refused,
 		kept: outcome.kept.length,
+		dropped: outcome.dropped,
 	};
 }

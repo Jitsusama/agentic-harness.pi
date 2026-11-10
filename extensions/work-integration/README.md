@@ -179,6 +179,24 @@ would be lost. While it is removed, its record names the sweeping
 session, so no other session is handed it. A shareable tree, or one
 whose provider can't judge it, is kept.
 
+## Dev-Shell Roots Nobody Uses
+
+Entering a tree with direnv roots its flake's dev shell and every
+flake input under `.direnv`, and a `nix build` there leaves a
+`result` link; each keeps its store paths, and with `keep-outputs`
+what built them, from the collector for as long as the tree
+stands. On 10 November 1,364 of optimus's GC roots sat in work
+trees. So each sweep, held or not, drops a recorded tree's roots
+once none was touched in three days and no process stands in it:
+nix-direnv's flake inputs and profiles with their `.rc` files, and
+the `result` links naming a store path. nix-direnv touches its
+roots on every entry, so their age is when the tree was last
+entered, and direnv builds the shell again on the next one. The
+sweep's log line names each tree and how many went. `tidy` lists
+the trees beside a checkout by the roots they hold, saying which
+the next sweep drops, and `release` takes them with the tree, since
+git removes the ignored `.direnv` with it.
+
 ## Carrying a Quest to Another Machine
 
 Joel, 2026-11-07: "how do i take over work from one personal
