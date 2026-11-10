@@ -291,6 +291,39 @@ export function sectionOf(
 }
 
 /**
+ * One section to read, as `sectionOf` finds it, else a deeper heading
+ * of that name with what lies under it, up to the next heading at its
+ * level or above. Research documents keep their findings under `###`,
+ * which `sectionOf` never sees, so a session read them with sed or awk:
+ * 3 of the 40 document reads the guard refused in a day, 2026-11-10.
+ * Only reading goes this deep; `section` still replaces a `##` one.
+ */
+export function subsectionOf(
+	body: string,
+	heading: string,
+): ReadFound | EditRefused {
+	const section = sectionOf(body, heading);
+	if (section.ok) return section;
+	const wanted = headingWords(heading);
+	const lines = body.split("\n");
+	const headings = outsideFences(lines).flatMap((index) => {
+		const level = /^(#{2,6})\s/.exec(lines[index])?.[1].length;
+		return level
+			? [{ index, level, text: lines[index].replace(/^#+\s+/, "").trim() }]
+			: [];
+	});
+	const at = headings.findIndex(
+		(h) => h.level > 2 && headingWords(h.text) === wanted,
+	);
+	if (at === -1) return section;
+	const { index, level, text: found } = headings[at];
+	const end =
+		headings.slice(at + 1).find((h) => h.level <= level)?.index ?? lines.length;
+	const text = trimBlankEdges(lines.slice(index + 1, end));
+	return { ok: true, found, text: text.join("\n") };
+}
+
+/**
  * One checkbox item with its notes: the lines under it nested deeper,
  * up to the next line at its depth or a heading. Matched as
  * `setCheckbox` matches it.

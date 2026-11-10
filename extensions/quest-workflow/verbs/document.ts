@@ -26,6 +26,7 @@ import {
 	sectionOf,
 	setCheckbox,
 	splitAtBody,
+	subsectionOf,
 } from "../../../lib/internal/quest/body-edits.ts";
 import {
 	atomicWriteFile,
@@ -143,7 +144,9 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	const heading = params.title?.trim();
 	const item = params.query?.trim();
 	if (heading || item) {
-		const found = heading ? sectionOf(body, heading) : itemOf(body, item ?? "");
+		const found = heading
+			? subsectionOf(body, heading)
+			: itemOf(body, item ?? "");
 		if (!found.ok) {
 			if (heading || !item || /^\d+$/.test(item)) return refuse(found.reason);
 			const held = linesHolding(body, item);
