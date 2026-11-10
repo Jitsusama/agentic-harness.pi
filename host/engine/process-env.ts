@@ -14,7 +14,13 @@
  * request, and a conversation's env never serves them here: the proxy
  * keys always read from the host's environment, which holds none, and a
  * write to one inside a conversation stays in that conversation's env
- * rather than reaching its neighbours.
+ * rather than reaching its neighbours, though its reads still come from
+ * the host.
+ *
+ * Work a conversation left running after the host released it still
+ * carries that conversation's ambient id. Its reads see the host's env,
+ * but its writes and deletes are dropped, so a late write can't reach
+ * the env every other conversation falls back on.
  */
 
 import {
@@ -39,6 +45,11 @@ export function installConversationEnv(host: Host): () => void {
 			? host.env(id)
 			: undefined;
 	};
+	/** Running for a conversation the host has let go, whose writes go nowhere. */
+	const released = (): boolean => {
+		const id = ambientSession();
+		return id !== undefined && host.holds(id) === undefined;
+	};
 	const read = (name: string): string | undefined => {
 		const env = current();
 		return env && !CREDENTIALS.has(name) ? env.get(name) : own[name];
@@ -58,6 +69,7 @@ export function installConversationEnv(host: Host): () => void {
 		},
 		set: (target, name, value) => {
 			const env = current();
+			if (typeof name === "string" && !env && released()) return true;
 			if (typeof name !== "string" || !env)
 				return Reflect.set(target, name, value);
 			// process.env holds strings only, and says so by coercing.
@@ -66,6 +78,7 @@ export function installConversationEnv(host: Host): () => void {
 		},
 		defineProperty: (target, name, descriptor) => {
 			const env = current();
+			if (typeof name === "string" && !env && released()) return true;
 			if (typeof name !== "string" || !env)
 				return Reflect.defineProperty(target, name, descriptor);
 			env.set(name, String(descriptor.value));
@@ -73,6 +86,7 @@ export function installConversationEnv(host: Host): () => void {
 		},
 		deleteProperty: (target, name) => {
 			const env = current();
+			if (typeof name === "string" && !env && released()) return true;
 			if (typeof name !== "string" || !env)
 				return Reflect.deleteProperty(target, name);
 			env.delete(name);
@@ -97,6 +111,9 @@ export function installConversationEnv(host: Host): () => void {
 		enumerable: true,
 		configurable: true,
 	});
+	// Only while it is still this view: a second host in one process (in
+	// tests) wraps this one, so disposing the first before the second
+	// leaves its view under the second's until that one goes too.
 	return () => {
 		if (process.env === view)
 			Object.defineProperty(process, "env", {

@@ -188,6 +188,21 @@ it("answers with the host's env for a conversation it no longer holds", async ()
 	expect(withSession("a", () => process.env.K4_HOST_ONLY)).toBe("host");
 });
 
+it("drops what a released conversation's late work writes", async () => {
+	own.K4_HOST_ONLY = "host";
+	const started = twoConversations();
+	await started.close("a");
+	withSession("a", () => {
+		process.env.PI_WORKTRAIL_RUN = "late-a";
+		Object.defineProperty(process.env, "K4_DEFINED", { value: "late-a" });
+		delete process.env.K4_HOST_ONLY;
+	});
+	expect(own.PI_WORKTRAIL_RUN).toBeUndefined();
+	expect(own.K4_DEFINED).toBeUndefined();
+	expect(own.K4_HOST_ONLY).toBe("host");
+	expect(started.run("b", () => process.env.PI_WORKTRAIL_RUN)).toBeUndefined();
+});
+
 it("puts the host's own env back when the host is disposed", () => {
 	const started = start();
 	expect(process.env).not.toBe(own);
