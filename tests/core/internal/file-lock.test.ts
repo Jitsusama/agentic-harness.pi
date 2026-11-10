@@ -42,9 +42,11 @@ describe("withFileLock", () => {
 				said.push("second in");
 				secondIn();
 			});
-			// Long enough for the second to take a lock it judged stale.
 			await Promise.race([
 				secondEntered,
+				// A real pause is the point: nothing says the second stayed out,
+				// so the first holds long enough for it to take a lock it judged
+				// stale, and lets go at once if it does.
 				new Promise((done) => setTimeout(done, HELD_MS)),
 			]);
 			said.push("first out");
