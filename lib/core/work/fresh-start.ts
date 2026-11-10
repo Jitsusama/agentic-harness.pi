@@ -20,6 +20,15 @@
  * base asked for or the remote's default branch, and for a rebase onto a
  * remote's branch: both fetch the one branch first, here.
  *
+ * Starting new work is the exception, as a tree or a branch asks. In a
+ * monorepo each fetch of main costs minutes of disk reads, since git's
+ * check after it walks every tree of the snapshot, and on 10 November
+ * seven fetches of World's main ran at once. A base a few minutes old
+ * costs new work nothing, since it is rebased onto main before it lands,
+ * so a start whose tracking ref a fetch moved within the last ten
+ * minutes is taken as it stands, and the answer says so. A rebase still
+ * fetches every time: it exists to land on the newest main.
+ *
  * Refreshing the tracking ref does not weaken a later `push replace`: its
  * lease compares against the tracking ref of the branch being pushed, and
  * where that is the branch fetched here, the new branch starts at exactly
@@ -36,6 +45,14 @@ import { safeBranchName } from "./author.ts";
  * behind, and past it the network is not answering.
  */
 export const FETCH_MS = 3 * 60_000;
+
+/**
+ * How lately a fetch must have moved a remote's branch for new work to
+ * start from it without fetching again: short enough that the base is a
+ * few merges behind at most, long enough that sessions starting work
+ * together share one fetch.
+ */
+export const FETCHED_LATELY_MS = 10 * 60_000;
 
 /** How much of git's own reason is passed on, since a remote writes it. */
 const REASON_CHARS = 200;
@@ -78,6 +95,51 @@ export interface FreshStart {
 	start: string;
 	/** A sentence to pass on when the start could not be refreshed. */
 	stale?: string;
+	/** A sentence to pass on when a recent fetch was trusted instead. */
+	lately?: string;
+}
+
+/** How a start point may be refreshed. */
+export interface RefreshOptions {
+	/**
+	 * Take the tracking ref as it stands when a fetch moved it within this
+	 * many milliseconds; left out, it is always fetched.
+	 */
+	fetchedWithin?: number;
+	/** The clock the fetch's age is read against. */
+	now?: () => number;
+}
+
+/**
+ * How long ago, in milliseconds, a fetch last moved `tracking`, read from
+ * its reflog, or nothing when its newest entry is not a fetch's (a clone
+ * or a hand-set ref says nothing of what the remote holds) or there is
+ * none.
+ */
+async function fetchedAgo(
+	exec: Exec,
+	treePath: string,
+	tracking: string,
+	now: () => number,
+): Promise<number | undefined> {
+	const read = await exec("git", [
+		"-C",
+		treePath,
+		"log",
+		"-g",
+		"-n1",
+		"--date=unix",
+		"--format=%gs%x00%gd",
+		tracking,
+		"--",
+	]);
+	if (read.code !== 0) return undefined;
+	const [said = "", selector = ""] = read.stdout.trim().split("\0");
+	if (!/^(fetch|pull)\b/.test(said)) return undefined;
+	const seconds = /@\{(\d+)\}$/.exec(selector)?.[1];
+	if (seconds === undefined) return undefined;
+	const ago = now() - Number(seconds) * 1000;
+	return ago >= 0 ? ago : undefined;
 }
 
 /**
@@ -90,6 +152,7 @@ export async function refreshStart(
 	treePath: string,
 	from: string,
 	signal?: AbortSignal,
+	options: RefreshOptions = {},
 ): Promise<FreshStart> {
 	const listed = await exec("git", ["-C", treePath, "remote"]);
 	const named =
@@ -108,6 +171,21 @@ export async function refreshStart(
 			start: tracking,
 			stale: `${from} is the remote's default branch as recorded at the last fetch, so it was not fetched now; name the branch itself to have it fetched first.`,
 		};
+	}
+	if (options.fetchedWithin !== undefined) {
+		const ago = await fetchedAgo(
+			exec,
+			treePath,
+			tracking,
+			options.now ?? Date.now,
+		);
+		if (ago !== undefined && ago < options.fetchedWithin) {
+			const minutes = Math.max(1, Math.round(ago / 60_000));
+			return {
+				start: tracking,
+				lately: `${from} was fetched ${minutes} min ago, so new work starts there without fetching it again; fetch it first only if the work needs a newer commit.`,
+			};
+		}
 	}
 	// The refspec is spelled out, so the tracking ref is written even in a
 	// checkout whose configured fetch is narrower than this branch.

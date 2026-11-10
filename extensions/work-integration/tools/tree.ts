@@ -40,7 +40,11 @@ import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../../lib/core/work/events.ts";
-import { FETCH_MS, refreshStart } from "../../../lib/core/work/fresh-start.ts";
+import {
+	FETCH_MS,
+	FETCHED_LATELY_MS,
+	refreshStart,
+} from "../../../lib/core/work/fresh-start.ts";
 import {
 	blocksRepoint,
 	createGitHistory,
@@ -940,7 +944,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					const author = createGitAuthor({ exec });
 					// A remote's branch is wanted as the remote holds it, not as the
 					// last fetch left it; on a shorter clock than the call's, since
-					// the branch can still be made from what is here.
+					// the branch can still be made from what is here. New work takes
+					// a start a fetch moved lately as it stands (fresh-start.ts).
 					const fresh = args.from
 						? await refreshStart(
 								spawnExec({
@@ -950,9 +955,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 								found.path,
 								args.from,
 								signal,
+								{ fetchedWithin: FETCHED_LATELY_MS },
 							)
 						: undefined;
 					const stale = fresh?.stale;
+					const lately = fresh?.lately;
 					try {
 						await author.branch(
 							found.path,
@@ -986,6 +993,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						[
 							`${GLYPH.tree} ${found.identity.key} is on ${args.name}${where}.`,
 							...(stale ? [`   ${stale}`] : []),
+							...(lately ? [`   ${lately}`] : []),
 							...(naming.length === 0
 								? []
 								: [`   Against the convention: ${naming.join("; ")}.`]),
@@ -994,7 +1002,9 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							ok: true,
 							branch: args.name,
 							...(commit ? { commit } : {}),
-							...(args.from ? { fresh: stale === undefined } : {}),
+							...(args.from
+								? { fresh: stale === undefined && lately === undefined }
+								: {}),
 						},
 					);
 				}
