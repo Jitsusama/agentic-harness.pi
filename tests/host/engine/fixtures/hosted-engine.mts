@@ -327,7 +327,7 @@ function writeAgentFolder(api: string): void {
 		}),
 	);
 	copyFileSync(
-		join(import.meta.dirname, "probe-extension.ts"),
+		join(import.meta.dirname, "probe-extension.mts"),
 		join(agentDir, "extensions", "probe.ts"),
 	);
 }

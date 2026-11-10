@@ -2,7 +2,8 @@
 /**
  * Copied to `<folder>/home/.pi/agent/extensions/probe.ts`, it writes each
  * line to `<folder>/probe.jsonl`, found from where it sits rather than from
- * HOME, which a conversation's environment need not carry.
+ * HOME, which a conversation's environment need not carry. It is an .mts,
+ * like the programs beside it, because it is copied rather than imported.
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
