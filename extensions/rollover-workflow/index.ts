@@ -8,11 +8,12 @@
  * `ROLLOVER_BYTES` or more: the run has settled, the person has not
  * stopped it and no reload is waiting; a roll a reload went ahead of
  * waits for the first still moment after it. `/rollover` does it at once,
- * whatever the log's size. Once the fresh log is written, a session
- * nothing holds ends and its holder starts it again on that log at once
- * (`RESTART_ASK`, answered by the park watch), since only a new process
- * gives back the memory a pi gathers as it runs. One with background
- * jobs out, or that its holder can't start again, switches logs in this
+ * whatever the log's size. Once the fresh log is written, where
+ * `PI_RESTART_AT_ROLLOVER=on`, a session nothing holds ends and its
+ * holder starts it again on that log at once (`RESTART_ASK`, answered by
+ * the park watch), since only a new process gives back the memory a pi
+ * gathers as it runs. Anywhere else, or with background jobs out, or
+ * where its holder can't start it again, it switches logs in this
  * process: the job host parks its jobs for the fresh session, which
  * carries the conversation on (see extensions/job-workflow/lifecycle.ts).
  * Only a session somebody sits at rolls over; a

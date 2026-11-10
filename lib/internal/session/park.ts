@@ -33,7 +33,8 @@
  * log ({@link RESTART_ASK}): the same exit, holding to the same rules
  * but for the idle time, with the command naming the fresh log and the
  * wake written before it goes, so the holder starts it again as soon as
- * it has. It writes no marker, since it is never parked for long.
+ * it has. It writes no marker, since it is never parked for long. It
+ * does so only where {@link RESTART_ENV} is `on`.
  *
  * Off unless the switch, or `PI_PARK`, turns it on, and only where a
  * holder said where its wake file is, since a session that parks where
@@ -65,6 +66,15 @@ import { type Holding, whatHolds } from "./free.ts";
  * switch says (`off`), read at start.
  */
 export const PARK_ENV = "PI_PARK";
+
+/**
+ * The variable that lets a rollover start a session again in a new
+ * process ({@link RESTART_ASK}), only when `on`. It stays off until a
+ * restart is seen to keep a window as it was (no flash, no lost keys,
+ * its scrollback and editor still there), since nothing but a real
+ * terminal under its holder shows that.
+ */
+export const RESTART_ENV = "PI_RESTART_AT_ROLLOVER";
 
 /**
  * Where the holder keeping this pi watches for its wake, an absolute

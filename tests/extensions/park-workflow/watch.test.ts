@@ -33,6 +33,7 @@ import {
 	PARKING,
 	parkSwitch,
 	RESTART_ASK,
+	RESTART_ENV,
 	type RestartAsk,
 	readParked,
 	SESSION_WOKEN,
@@ -319,7 +320,11 @@ describe("starting again on a fresh log", () => {
 		return ask;
 	};
 	let lines: string[];
-	const restarting = (env: NodeJS.ProcessEnv = holder(), args: string[] = []) =>
+	const allowed = () => ({ ...holder(), [RESTART_ENV]: "on" });
+	const restarting = (
+		env: NodeJS.ProcessEnv = allowed(),
+		args: string[] = [],
+	) =>
 		watch(session(), events, {
 			env,
 			args,
@@ -390,14 +395,24 @@ describe("starting again on a fresh log", () => {
 		off.stop();
 		writeFileSync(parkSwitch(folder), "on\n");
 		const { MYCELIUM_WAKE } = holder();
-		const bare = restarting({ MYCELIUM_WAKE });
+		const bare = restarting({ MYCELIUM_WAKE, [RESTART_ENV]: "on" });
 		expect(asked()).toMatchObject({
 			why: "its holder would start it on the log it left",
 		});
 		bare.stop();
-		restarting(holder(), ["-e", "./x.ts"]);
+		restarting(allowed(), ["-e", "./x.ts"]);
 		expect(asked()).toMatchObject({ why: "starting again would drop -e" });
 		expect(shutdowns).toBe(0);
+	});
+
+	it("stays unless the environment turns restarting at rollover on", () => {
+		const unset = restarting(holder());
+		expect(asked()).toMatchObject({ why: "restarting at rollover is off" });
+		unset.stop();
+		restarting({ ...holder(), [RESTART_ENV]: "off" });
+		expect(asked()).toMatchObject({ why: "restarting at rollover is off" });
+		expect(shutdowns).toBe(0);
+		expect(readdirSync(folder)).not.toContain("held.wake");
 	});
 
 	it("answers only for its own session", () => {

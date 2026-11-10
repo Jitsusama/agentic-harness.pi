@@ -21,6 +21,7 @@ import {
 	type Parking,
 	parkAfterMs,
 	RESTART_ASK,
+	RESTART_ENV,
 	readParked,
 	restartCommand,
 	SESSION_WOKEN,
@@ -331,6 +332,7 @@ export function watch(
 	// the wake it writes itself, which the holder looks for as it exits.
 	const restartInto = (fresh: string): string | undefined => {
 		if (parked) return "parking already";
+		if (env[RESTART_ENV] !== "on") return "restarting at rollover is off";
 		if (hosted()) return HOST_PARKS;
 		if (parkAfterMs(session, options.env, options.switchPath) === undefined) {
 			return "parking is off";
