@@ -6,8 +6,9 @@
  * it shows on the mesh, in its presence and on a node of the sealed
  * realm, as one of the orchestration's; the orchestrator's `mesh_end`
  * closes it, through the host's control socket, and nothing else the
- * host holds; and a second spawn adopts it again, under the same id,
- * from its log.
+ * host holds; and `/quest-resume`, as the first words of a conversation
+ * opened on the child quest, has the host adopt it again under the same
+ * id, from its log.
  *
  * Runs on the host's pi, as support/host-pi.ts finds it, both for the
  * host and as the plain pi, and on mycelium for the node; skipped
@@ -64,6 +65,27 @@ function said(): string {
 		`The node wrote:\n${node?.errors()}`,
 		`The plain pi wrote:\n${plain?.errors()}`,
 	].join("\n");
+}
+
+/** What `/quest-resume` wrote into the conversation that asked, once it has. */
+function resumeSaid(
+	file: string | undefined,
+): Record<string, unknown> | undefined {
+	for (const line of textOf(file).split("\n").reverse()) {
+		if (!line.includes('"quest-resume"')) continue;
+		try {
+			const entry: unknown = JSON.parse(line);
+			if (
+				isRecord(entry) &&
+				entry.customType === "quest-resume" &&
+				isRecord(entry.details)
+			)
+				return entry.details;
+		} catch {
+			// A line caught mid-write: the poll reads the file again.
+		}
+	}
+	return undefined;
 }
 
 /** A session's presence, as far as E6 reads it, or nothing before one. */
@@ -199,20 +221,30 @@ it(
 				"Asked E6C000's host to close only that conversation",
 			);
 
-			await opened.prompt(`spawn ${CHILD}`);
+			const asking = await host.open(stays, {
+				model: SCRIPTED,
+				quest: CHILD,
+				first: `/quest-resume ${child}`,
+			});
 			await untilAnswered(
-				"a second spawn adopts the child under its id",
-				async () => (lastSaid("quest") ?? "").includes("adopted session"),
+				"/quest-resume has the host adopt the child under its id",
+				async () => resumeSaid(asking.file) !== undefined,
 				ROUND_TRIP_MS,
 			).catch((error: unknown) => {
-				throw new Error(`${String(error)}\n${textOf(orchestrator.file)}`);
+				throw new Error(`${String(error)}\n${textOf(asking.file)}`);
 			});
-			expect(lastSaid("quest")).toContain(`adopted session ${child}`);
+			expect(resumeSaid(asking.file)).toEqual(
+				expect.objectContaining({
+					sessionId: child,
+					host: `${sealed.realm}-attended`,
+					adopted: true,
+				}),
+			);
 			expect(await held()).toEqual(
-				expect.arrayContaining([child, other.sessionId]),
+				expect.arrayContaining([child, other.sessionId, asking.sessionId]),
 			);
 		});
 	},
-	// The host's and node's starts, an open, a plain pi, two spawns and an end.
+	// The host's and node's starts, two opens, a plain pi, a spawn, an end and a resume.
 	ROUND_TRIP_MS * 4,
 );

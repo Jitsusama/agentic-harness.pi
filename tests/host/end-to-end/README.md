@@ -71,8 +71,12 @@ spawn.test.ts is E6, a quest's session spawned into a host: a plain pi
 orchestrating a parent quest spawns its child quest's session into the
 realm's attended host. The child's first words arrive, its presence and
 the node show it as the orchestration's, the orchestrator's `mesh_end`
-closes it alone through the host's socket, and a second spawn adopts it
-under the same id.
+closes it alone through the host's socket, and `/quest-resume`, the
+first words of a conversation opened on the child quest, has the host
+adopt it again under the same id.
+
+Each seal serves a realm of its own, since a host starting reaps what a
+dead host under its key left running.
 
 Every file here is in the process lane, since each spawns node from
 node.
