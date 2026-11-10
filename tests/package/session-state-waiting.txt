@@ -16,7 +16,6 @@ lib/core/internal/notes/io.ts:pid 1
 lib/core/internal/terminal/ancestry.ts:pid 2
 lib/core/lsp/standalone/server.ts:pid 1
 lib/core/process/process.ts:pid 1
-lib/core/result/follow.ts:global 1
 lib/core/result/migrate.ts:pid 1
 lib/core/result/spill.ts:pid 1
 lib/core/review/ask/council.ts:cwd 1

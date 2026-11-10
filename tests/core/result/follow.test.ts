@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cite } from "../../../lib/core/result/cite.ts";
 import {
 	offerQueryTool,
+	queryTool,
 	withdrawQueryTool,
 } from "../../../lib/core/result/follow.ts";
 import {
 	createResultStore,
 	type ResultStore,
 } from "../../../lib/core/result/store.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 describe("what a citation tells the reader to do next", () => {
 	let dir: string;
@@ -58,6 +61,38 @@ describe("what a citation tells the reader to do next", () => {
 		withdrawQueryTool();
 
 		expect(cut()).toContain("Shape:");
+	});
+});
+
+describe("a host of two conversations", () => {
+	let installed: ReturnType<typeof installTestHost> | undefined;
+	afterEach(() => {
+		installed?.dispose();
+		installed = undefined;
+	});
+
+	it("names the query tool only where that conversation offered one", () => {
+		// Each conversation loads its own project's extensions, so one
+		// with the query tool must not promise it to one without.
+		installed = installTestHost();
+		withSession("a", () => offerQueryTool("result_query"));
+
+		expect(withSession("a", queryTool)).toBe("result_query");
+		expect(withSession("b", queryTool)).toBeUndefined();
+		expect(
+			Symbol.for("pi:agentic-harness:result-query-tool") in globalThis,
+			"nothing is offered process-wide",
+		).toBe(false);
+	});
+
+	it("lets one withdraw without the other losing its offer", () => {
+		installed = installTestHost();
+		withSession("a", () => offerQueryTool("result_query"));
+		withSession("b", () => offerQueryTool("result_query"));
+		withSession("a", withdrawQueryTool);
+
+		expect(withSession("a", queryTool)).toBeUndefined();
+		expect(withSession("b", queryTool)).toBe("result_query");
 	});
 });
 

@@ -1,5 +1,5 @@
 /**
- * Whether anything in this process can follow a handle.
+ * Whether anything in this conversation can follow a handle.
  *
  * Every citation ends by telling the reader how to query the
  * handle. That capability comes from one consumer of this library,
@@ -9,35 +9,37 @@
  * long answer: the reader is told the rest of the data is one call
  * away and the call does not exist.
  *
- * Kept on globalThis rather than in a module variable, because a
- * module variable is not process-global when a host loads each
- * consumer as its own module instance (pi loads each extension
- * separately, for one). The symbol-keyed slot is the same
- * mechanism the other registries in this package use for the same
- * reason, and it also survives a module reimport.
+ * Kept in a session cell rather than a module variable, because a
+ * module variable is not shared when a host loads each consumer as
+ * its own module instance (pi loads each extension separately, for
+ * one). On plain pi the cell is the process's own symbol-keyed
+ * slot, as it always was, so it also survives a module reimport. In
+ * a host each conversation loads its own project's extensions, so
+ * one conversation's query tool says nothing of another's: each
+ * offers its own, at activation, inside that conversation.
  */
 
-/** Where the offer lives, shared by every copy of this module. */
-const SLOT = Symbol.for("pi:agentic-harness:result-query-tool");
+import { sessionCell } from "../session/index.ts";
 
-type Host = Record<symbol, string | undefined>;
+/** Where the offer lives, shared by every copy of this module. */
+const NAME = "pi:agentic-harness:result-query-tool";
 
 /**
- * Declare that a tool in this process can follow handles.
+ * Declare that a tool in this conversation can follow handles.
  *
  * Called by whichever consumer registers the query tool, on
  * activation. Idempotent.
  */
 export function offerQueryTool(name: string): void {
-	(globalThis as Host)[SLOT] = name;
+	sessionCell<string>(NAME).set(name);
 }
 
 /** Withdraw the offer, when the consumer goes away or a test ends. */
 export function withdrawQueryTool(): void {
-	(globalThis as Host)[SLOT] = undefined;
+	sessionCell<string>(NAME).clear();
 }
 
 /** The tool a citation should name, or undefined when there is none. */
 export function queryTool(): string | undefined {
-	return (globalThis as Host)[SLOT];
+	return sessionCell<string>(NAME).get();
 }
