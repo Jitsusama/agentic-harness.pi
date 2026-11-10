@@ -7,8 +7,8 @@
  * Between them, no pi reaches a host unproven.
  *
  * It proves the pi, not the harness. The harness commit it names is only
- * a record of what ran; a harness change passes its own `pnpm test:host`
- * before it merges.
+ * a record of what ran; a harness change meets its own gate,
+ * scripts/host-gate.sh, before it merges.
  */
 
 import { readFileSync, realpathSync } from "node:fs";

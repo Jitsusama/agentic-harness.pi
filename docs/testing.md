@@ -71,8 +71,23 @@ at. A realm names the proof beside its pi. core.nix fails
 evaluation when the proof names another runtime, and the host program
 refuses to start without a proof of its own pi
 (`host/service/proof.ts`). The proof names the harness commit that ran,
-as a record only: a harness change passes its own `pnpm test:host`
-before it merges.
+as a record only: it proves the pi, not the harness.
+
+A harness change reaches the hosts through a gate of its own, since
+`pnpm check` skips the host cases wherever no runtime is installed.
+`bash scripts/host-test-there.sh` runs the whole of `pnpm test:host` for
+the commit checked out on a lent builder (`scripts/host-test.nix`), on the
+runtime the hosts are proven on, and keeps what it said under
+`$XDG_STATE_HOME/agentic-harness.pi/host-tests/<commit>/`. Given test
+files, it runs only those, which answers for a branch's own tests but
+clears no merge. `scripts/host-gate.sh` is the harness's
+`review.merge.gates` entry: a change that touches nothing a host runs
+(`host/`, `lib/ui/`, `lib/core/session/`, `lib/core/viewer/`,
+`tests/host/`, the host scripts, `package.json`, the lockfile and the
+vitest config) merges as before; one that does merges only once a whole
+run at that very commit, on that runtime, passed. A refusal names the
+command that clears it. A merge outside `review_offer`, on GitHub's page,
+skips it, as it skips core.nix's `merge-net ready`.
 
 New library modules should ship with tests that assert
 **observable behaviour through the public API**, never
