@@ -12,6 +12,21 @@
  * before `emit` returns.
  */
 
+/**
+ * The log entry away mode leaves when a blocked run has nothing to wake
+ * it, sent back or resting, for the learning sensor to count: its data
+ * is an {@link Unwoken}.
+ */
+export const UNWOKEN_ENTRY = "away-blocked-unwoken";
+
+/** What {@link UNWOKEN_ENTRY} records. */
+export interface Unwoken {
+	/** The run's `Blocked:` line. */
+	readonly line: string;
+	/** Whether it was sent back, rather than left to rest. */
+	readonly sentBack: boolean;
+}
+
 /** Asked on the bus; the payload is a {@link WakersAsk}. */
 export const WAKERS_ASK = "session:wakers-ask:v1";
 

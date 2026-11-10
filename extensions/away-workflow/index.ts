@@ -70,7 +70,11 @@ import {
 } from "../../lib/internal/away/state.ts";
 import { type Notice, notify } from "../../lib/internal/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
-import { askWakers } from "../../lib/internal/session/wakers.ts";
+import {
+	askWakers,
+	UNWOKEN_ENTRY,
+	type Unwoken,
+} from "../../lib/internal/session/wakers.ts";
 import {
 	ownWants,
 	sessionWants,
@@ -300,6 +304,13 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			},
 			memory,
 		);
+		if (wakers?.length === 0) {
+			const unwoken: Unwoken = {
+				line: lastLine(finished.lastText) ?? "",
+				sentBack: verdict.kind === "nudge",
+			};
+			pi.appendEntry(UNWOKEN_ENTRY, unwoken);
+		}
 		if (verdict.kind === "rest" && verdict.why === "blocked") {
 			wanting.say("blocked", blockedLine(finished.lastText) ?? "Blocked");
 			reachUnlessWanted(

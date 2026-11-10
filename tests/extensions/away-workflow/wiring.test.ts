@@ -24,6 +24,7 @@ import {
 	stoppingFromOutside,
 } from "../../../lib/internal/away/state.ts";
 import type { Notice } from "../../../lib/internal/notify.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	leaveSession,
 	stayInSession,
@@ -269,6 +270,23 @@ describe("while away", () => {
 
 		await pi.runEnds("Blocked: waiting on #12 merging.");
 		expect(pi.jobs, "the same line again rests").toHaveLength(1);
+		expect(
+			pi.entries.filter(
+				(entry) =>
+					isRecord(entry) && entry.customType === "away-blocked-unwoken",
+			),
+		).toEqual([
+			{
+				type: "custom",
+				customType: "away-blocked-unwoken",
+				data: { line: "Blocked: waiting on #12 merging.", sentBack: true },
+			},
+			{
+				type: "custom",
+				customType: "away-blocked-unwoken",
+				data: { line: "Blocked: waiting on #12 merging.", sentBack: false },
+			},
+		]);
 	});
 
 	it("does not nudge when the person is here", async () => {

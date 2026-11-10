@@ -127,6 +127,30 @@ describe("reading a tool's answer", () => {
 		]);
 	});
 
+	// From 8 to 10 November 20 blocked runs with nothing to wake them sat
+	// half an hour or more, 124 hours in all.
+	it("counts a blocked run with nothing to wake it, sent back or resting", () => {
+		const unwoken = (sentBack: boolean) =>
+			signalsFromEntry({
+				customType: "away-blocked-unwoken",
+				data: { line: "Blocked: waiting on #12 merging.", sentBack },
+			});
+
+		expect(unwoken(true)).toEqual([
+			{
+				kind: "waiting",
+				key: "A blocked run with nothing to wake it, sent back",
+				sample: "Blocked: waiting on #12 merging.",
+			},
+		]);
+		expect(unwoken(false)).toMatchObject([
+			{
+				kind: "waiting",
+				key: "A blocked run with nothing to wake it, left to rest",
+			},
+		]);
+	});
+
 	// On 9 November 3,599 turns in 148 sessions read 400k or more, most
 	// of them behind compactions that waited hours.
 	it("counts a turn that read 400k tokens or more, and none below", () => {
