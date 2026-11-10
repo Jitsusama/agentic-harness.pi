@@ -284,7 +284,10 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				seen.ended,
 				"the conversation it was ends as replaced; a host stopping ends nothing",
 			).toEqual([{ sessionId: first, why: "replaced" }]);
-			expect(seen.firstViewed).toBe(false);
+			expect(
+				seen.firstViewed,
+				"the conversation it was has no view left once replaced",
+			).toBe(false);
 			expect(seen.held).toEqual([next]);
 			expect(seen.transcript).toEqual([
 				"system: ",
@@ -317,7 +320,10 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			expect(seen.reported).toEqual([]);
 			const resumed = await step(folder, "resume");
 			expect(resumed.sessionId).toBe(next);
-			expect(resumed.sameId).toBe(true);
+			expect(
+				resumed.sameId,
+				"a restart resumes pi's session under the new id",
+			).toBe(true);
 			expect(resumed.transcript).toEqual([
 				"system: ",
 				"user: and you",

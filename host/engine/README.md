@@ -96,7 +96,9 @@ the key has been renewed (renewing-stream.ts), since pi retries no 401.
 
 ## The Engine
 
-createEngine (engine.ts) is the service's engine. It loads the host's pi
+createEngine (engine.ts) is the service's engine, made from and answering
+what contract.ts declares; resources.ts turns the resources pi's flags
+would choose into pi's loader options. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each

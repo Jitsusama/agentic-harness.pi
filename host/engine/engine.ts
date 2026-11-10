@@ -20,11 +20,17 @@ import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
 import type {
 	AdoptRequest,
-	ConversationEngine,
+	ConversationEvents,
 	OpenRequest,
 	Prepared,
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
+import type {
+	ConversationTraits,
+	EngineOptions,
+	HostEngine,
+	HostedView,
+} from "./contract.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessRequest,
@@ -41,10 +47,8 @@ import {
 	type AgentSessionRuntime,
 	type EventBus,
 	type PiSessions,
-	type BuiltInExtension,
 	piBuiltInExtensions,
 	piSessions,
-	type ResourceLoaderOptions,
 	type RuntimeResult,
 	type RuntimeTarget,
 	type SessionManager,
@@ -53,7 +57,7 @@ import {
 } from "./pi-session.ts";
 import type { AssistantMessage, Model } from "./pi-types.ts";
 import { holdReplacements } from "./replacement.ts";
-import type { SessionHost } from "./session-host.ts";
+import { loaderOptions } from "./resources.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
@@ -64,109 +68,6 @@ import {
 	reapLeftBehind,
 	reapToolChildren,
 } from "./tool-children.ts";
-
-/** The gateway key every provider request carries, as the service keeps it. */
-export interface EngineKey {
-	current(): Promise<string>;
-	refused(): void;
-	readonly inherited: boolean;
-}
-
-/** What a conversation's own environment is chosen by. */
-export interface ConversationTraits {
-	readonly sessionId: string;
-	readonly file: string;
-	readonly cwd: string;
-	readonly attended: boolean;
-	readonly quest?: string;
-}
-
-/** One conversation as a screen drives it. */
-export interface HostedView {
-	readonly sessionId: string;
-	/** pi's own runtime, which pi's InteractiveMode takes as its host. */
-	readonly runtime: AgentSessionRuntime;
-	/** End the conversation, as its screen's exit does. */
-	close(why: string): Promise<void>;
-}
-
-/**
- * The screens over conversations. Given one, the engine leaves binding a
- * conversation's extensions to it, as pi's InteractiveMode does at its
- * start; without one, the engine binds them with no interface.
- */
-export interface EngineScreens {
-	/** A conversation is registered and built; its first words are still to come. */
-	opened(view: HostedView): void | Promise<void>;
-	/** A conversation became another (new, fork or resume) under a new id. */
-	rebound(view: HostedView, previousId: string): void | Promise<void>;
-	/**
-	 * A conversation is ending: called first in its cleanup, before its
-	 * session is disposed, so a screen stops before the session it watches
-	 * goes.
-	 */
-	closed(sessionId: string): void | Promise<void>;
-}
-
-/** What the engine is made from. */
-export interface EngineOptions {
-	/** The host's pi install, carrying every host patch. */
-	readonly packageDir: string;
-	/** Where each conversation's durable store is kept, a folder per conversation. */
-	readonly stateDir: string;
-	readonly host: SessionHost;
-	/** The realm's environment every conversation starts from. */
-	readonly env: NodeJS.ProcessEnv;
-	/** The gateway key, set in each request's environment; none leaves the environment as it is. */
-	readonly key?: EngineKey;
-	/**
-	 * A conversation's own variables, laid over the realm's. Asked once, when
-	 * it opens or is adopted; the roster holds the answer as its launch and a
-	 * resume replays it as held, so a restart never derives it again.
-	 */
-	readonly conversationEnv?: (
-		conversation: ConversationTraits,
-		request: OpenRequest | AdoptRequest,
-	) => Readonly<Record<string, string>>;
-	readonly screens?: EngineScreens;
-	/** What every conversation loads beyond what its settings and folders give it, as pi's flags say; none leaves pi to its settings. */
-	readonly resources?: ConversationResources;
-	readonly report?: (error: unknown) => void;
-}
-
-/**
- * The resources pi's command-line flags choose, for every conversation:
- * extensions as `-e` adds them, and `--no-extensions`, `--no-skills`,
- * `--no-prompt-templates`, `--no-context-files` and `--no-mcp`.
- */
-export interface ConversationResources {
-	/** Extension paths, absolute, loaded as `-e` loads them. */
-	readonly extensions?: readonly string[];
-	readonly noExtensions?: boolean;
-	readonly noSkills?: boolean;
-	readonly noPromptTemplates?: boolean;
-	readonly noContextFiles?: boolean;
-	/** pi's own extensions not to load, by name, as `--no-mcp` leaves out `mcp`. */
-	readonly disabledBuiltinExtensions?: readonly string[];
-}
-
-/**
- * What the service hears of conversations ending or becoming others on
- * their own, rather than at its asking.
- */
-export interface ConversationWatch {
-	/**
-	 * A conversation ended itself: its screen or an extension closed it, or
-	 * it became another. Never said for a host stopping.
-	 */
-	ended(sessionId: string, why: string): Promise<void>;
-	/**
-	 * A conversation is becoming another, under the id next names, before pi
-	 * builds it; the service holds next in its place. A refusal stops the
-	 * replacement, and the conversation it was ends.
-	 */
-	became(previousId: string, next: Prepared): Promise<void>;
-}
 
 /** The variables the work provider reads its gateway key from, set from the key on each request. */
 export const KEY_VARIABLES = ["SHOPIFY_PROXY_KEY", "PI_PROXY_API_KEY"] as const;
@@ -207,13 +108,6 @@ interface Preparing {
 	readonly launch: Readonly<Record<string, string>>;
 }
 
-/** The service's engine, and each conversation as a screen or test drives it. */
-export interface HostEngine extends ConversationEngine {
-	view(sessionId: string): HostedView | undefined;
-	/** Say to the service each conversation ending or becoming another on its own; set once, before any start. */
-	watch(events: ConversationWatch): void;
-}
-
 /** Load the host's pi and make the engine over the host's ownership. */
 export async function createEngine(
 	options: EngineOptions,
@@ -237,7 +131,7 @@ export async function createEngine(
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
-	let watched: ConversationWatch | undefined;
+	let watched: ConversationEvents | undefined;
 
 	function held(sessionId: string, file: string): boolean {
 		return (
@@ -824,32 +718,6 @@ function requireModel(
 			`No model ${wanted.provider}/${wanted.id} for this conversation`,
 		);
 	return model;
-}
-
-/** pi's resource loader options for a conversation, as pi's main sets them from its flags. */
-function loaderOptions(
-	eventBus: EventBus,
-	extensionFactories: readonly BuiltInExtension[],
-	resources: ConversationResources | undefined,
-): ResourceLoaderOptions {
-	if (!resources) return { eventBus, extensionFactories };
-	const relative = resources.extensions?.find((path) => !isAbsolute(path));
-	if (relative)
-		throw new Error(`An extension path must be absolute: ${relative}`);
-	return {
-		eventBus,
-		extensionFactories,
-		...(resources.extensions
-			? { additionalExtensionPaths: [...resources.extensions] }
-			: {}),
-		...(resources.disabledBuiltinExtensions
-			? { disabledBuiltinExtensions: [...resources.disabledBuiltinExtensions] }
-			: {}),
-		...(resources.noExtensions ? { noExtensions: true } : {}),
-		...(resources.noSkills ? { noSkills: true } : {}),
-		...(resources.noPromptTemplates ? { noPromptTemplates: true } : {}),
-		...(resources.noContextFiles ? { noContextFiles: true } : {}),
-	};
 }
 
 function folder(cwd: string): string {

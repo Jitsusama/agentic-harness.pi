@@ -112,7 +112,10 @@ describe("holding a runtime's replacements", () => {
 		await expect(
 			runtime.switchSession("/sessions/../sessions/held.jsonl"),
 		).rejects.toThrow("held: /sessions/held.jsonl");
-		expect(invalidated).toBe(false);
+		expect(
+			invalidated,
+			"a held target is refused before pi tears the session down",
+		).toBe(false);
 		expect(runtime.session.sessionId).toBe("first");
 		expect(heard).toEqual([]);
 	});

@@ -18,11 +18,11 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-	createEngine,
-	type EngineKey,
-	type HostEngine,
-} from "../../../../host/engine/engine.ts";
+import type {
+	EngineKey,
+	HostEngine,
+} from "../../../../host/engine/contract.ts";
+import { createEngine } from "../../../../host/engine/engine.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 
