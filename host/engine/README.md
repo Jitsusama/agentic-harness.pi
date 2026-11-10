@@ -129,4 +129,15 @@ killed mid-tool leaves it running. Every command inherits the marker, so
 each start and end of a conversation ends every process carrying its
 marker, by group (tool-children.ts), wherever it went.
 
-A conversation becoming another (new, fork or switch) is subsequent work.
+A conversation can become another, by pi's /new, /fork, /resume or
+import (replacement.ts). pi disposes the old session before it builds
+the next, so a resume or import of a file the host holds is refused
+first, while nothing is torn down. The next is held under its own id
+before pi builds it: the service hears `became` and holds it in the old
+one's place, then the engine registers it with the same launch, its own
+settings and its own durable store, and writes its file as it does for
+an open. Once pi is done the next takes the runtime and its screen on,
+and the old one closes as `replaced`. If pi fails past its teardown,
+both end. Whatever closes a conversation itself (its screen, an
+extension, a replacement) is said to the service as `ended`; a host
+stopping never is.

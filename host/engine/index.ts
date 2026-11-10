@@ -1,6 +1,8 @@
 /** The shared host's conversation ownership, the host's own pi and, later, its engine adapter. */
 export {
+	type ConversationResources,
 	type ConversationTraits,
+	type ConversationWatch,
 	createEngine,
 	type EngineKey,
 	type EngineOptions,

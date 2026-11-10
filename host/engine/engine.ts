@@ -4,9 +4,11 @@
  * under its id, on the host's agent and a durable store of its own. The
  * service decides when a conversation is held; the engine names it, starts
  * it, carries on what a restart cut off, and ends it, through SessionHost,
- * which owns who holds what.
+ * which owns who holds what. A conversation that becomes another (pi's
+ * /new, /fork, /resume or import) is held under its new id before pi builds
+ * it, and the one it was ends with it.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import {
 	type LaunchHints,
@@ -25,6 +27,7 @@ import type {
 import { conversationAuthContext } from "./auth-context.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
+	type HarnessRequest,
 	harnessSettings,
 } from "./harness-settings.ts";
 import { loadHostPi } from "./host-pi.ts";
@@ -38,8 +41,10 @@ import {
 	type AgentSessionRuntime,
 	type EventBus,
 	type PiSessions,
+	type BuiltInExtension,
 	piBuiltInExtensions,
 	piSessions,
+	type ResourceLoaderOptions,
 	type RuntimeResult,
 	type RuntimeTarget,
 	type SessionManager,
@@ -47,6 +52,7 @@ import {
 	startupDiagnostics,
 } from "./pi-session.ts";
 import type { AssistantMessage, Model } from "./pi-types.ts";
+import { holdReplacements } from "./replacement.ts";
 import type { SessionHost } from "./session-host.ts";
 import {
 	hostedSubagentInstall,
@@ -118,7 +124,43 @@ export interface EngineOptions {
 		request: OpenRequest | AdoptRequest,
 	) => Readonly<Record<string, string>>;
 	readonly screens?: EngineScreens;
+	/** What every conversation loads beyond what its settings and folders give it, as pi's flags say; none leaves pi to its settings. */
+	readonly resources?: ConversationResources;
 	readonly report?: (error: unknown) => void;
+}
+
+/**
+ * The resources pi's command-line flags choose, for every conversation:
+ * extensions as `-e` adds them, and `--no-extensions`, `--no-skills`,
+ * `--no-prompt-templates`, `--no-context-files` and `--no-mcp`.
+ */
+export interface ConversationResources {
+	/** Extension paths, absolute, loaded as `-e` loads them. */
+	readonly extensions?: readonly string[];
+	readonly noExtensions?: boolean;
+	readonly noSkills?: boolean;
+	readonly noPromptTemplates?: boolean;
+	readonly noContextFiles?: boolean;
+	/** pi's own extensions not to load, by name, as `--no-mcp` leaves out `mcp`. */
+	readonly disabledBuiltinExtensions?: readonly string[];
+}
+
+/**
+ * What the service hears of conversations ending or becoming others on
+ * their own, rather than at its asking.
+ */
+export interface ConversationWatch {
+	/**
+	 * A conversation ended itself: its screen or an extension closed it, or
+	 * it became another. Never said for a host stopping.
+	 */
+	ended(sessionId: string, why: string): Promise<void>;
+	/**
+	 * A conversation is becoming another, under the id next names, before pi
+	 * builds it; the service holds next in its place. A refusal stops the
+	 * replacement, and the conversation it was ends.
+	 */
+	became(previousId: string, next: Prepared): Promise<void>;
 }
 
 /** The variables the work provider reads its gateway key from, set from the key on each request. */
@@ -133,11 +175,24 @@ const STORE_FILE = "durable.sqlite";
 /** One conversation the engine registered. */
 interface Live {
 	readonly traits: ConversationTraits;
+	readonly launch: Readonly<Record<string, string>>;
 	readonly bus: EventBus;
+	/** pi's runtime, while it runs this conversation; another it became takes it on. */
 	runtime?: AgentSessionRuntime;
 	conversation?: HostedConversation;
 	ending?: SessionStamp["how"];
 	unsubscribe?: () => void;
+	/** pi disposed the session itself, replacing it. */
+	disposed?: boolean;
+}
+
+/**
+ * One pi runtime and the conversation it runs: the current one, and the
+ * one it is becoming while pi builds it.
+ */
+interface Seat {
+	current: Live;
+	next?: Live;
 }
 
 /** A conversation prepare named, waiting for its start, with the launch derived for it. */
@@ -150,6 +205,8 @@ interface Preparing {
 /** The service's engine, and each conversation as a screen or test drives it. */
 export interface HostEngine extends ConversationEngine {
 	view(sessionId: string): HostedView | undefined;
+	/** Say to the service each conversation ending or becoming another on its own; set once, before any start. */
+	watch(events: ConversationWatch): void;
 }
 
 /** Load the host's pi and make the engine over the host's ownership. */
@@ -166,12 +223,20 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
+	let watched: ConversationWatch | undefined;
 
 	function held(sessionId: string, file: string): boolean {
 		return (
 			prepared.has(sessionId) ||
 			host.holds(sessionId) !== undefined ||
-			host.list().some((conversation) => conversation.file === file)
+			fileHeld(file)
+		);
+	}
+
+	function fileHeld(file: string): boolean {
+		return (
+			host.list().some((conversation) => conversation.file === file) ||
+			[...prepared.values()].some(({ traits }) => traits.file === file)
 		);
 	}
 
@@ -220,78 +285,194 @@ export async function createEngine(
 		return agent;
 	}
 
-	/** pi's runtime factory for one conversation, which never becomes another. */
+	/**
+	 * pi's runtime factory for one seat: the conversation it was started for,
+	 * then each it becomes, held under its new id before pi builds it.
+	 */
 	function factory(
-		record: Live,
+		seat: Seat,
 		request: OpenRequest | AdoptRequest | undefined,
 	): (target: RuntimeTarget) => Promise<RuntimeResult> {
-		const { sessionId } = record.traits;
 		return async (target) => {
-			if (target.sessionManager.getSessionId() !== sessionId)
-				throw new Error(
-					"A hosted conversation can't become another yet; close it and open a new one",
-				);
-			const env = () => requestEnv(sessionId);
-			const modelRuntime = await sessions.ModelRuntime.create({
-				authPath: join(target.agentDir, "auth.json"),
-				modelsPath: join(target.agentDir, "models.json"),
-				authContext: conversationAuthContext(env),
-			});
-			const services = await sessions.createAgentSessionServices({
-				cwd: target.cwd,
-				agentDir: target.agentDir,
-				modelRuntime,
-				// pi's own built-ins, as its CLI passes them, so the conversation
-				// has the tools a plain pi on the same settings has.
-				resourceLoaderOptions: {
-					eventBus: record.bus,
-					extensionFactories: builtIns,
-				},
-			});
-			// What the CLI says as it starts: the screen shows it all, and the
-			// journal, read when no screen is, keeps the errors and warnings.
-			const said = startupDiagnostics(services);
-			for (const { type, message } of said)
-				if (type !== "info")
-					report(new Error(`Conversation ${sessionId}: ${message}`));
-			const conversation = await openHostedConversation({
-				modules: pi.modules,
-				library,
-				storePath: join(options.stateDir, sessionId, STORE_FILE),
-				env,
-				renewed,
-				within: (work) => withSession(sessionId, work),
-				report,
-			});
-			record.conversation = conversation;
-			const opening = request?.op === "open" ? request : undefined;
-			const model = opening?.model
-				? requireModel(services, opening.model)
-				: undefined;
-			const created = await sessions.createAgentSession({
-				cwd: target.cwd,
-				agentDir: target.agentDir,
-				modelRuntime: services.modelRuntime,
-				settingsManager: services.settingsManager,
-				resourceLoader: services.resourceLoader,
-				sessionManager: target.sessionManager,
-				...(target.sessionStartEvent
-					? { sessionStartEvent: target.sessionStartEvent }
-					: {}),
-				...(model ? { model } : {}),
-				...(opening?.thinkingLevel
-					? { thinkingLevel: opening.thinkingLevel }
-					: {}),
-				createAgent: conversation.createAgent,
-			});
-			return { ...created, services, diagnostics: said };
+			const { current } = seat;
+			if (target.sessionManager.getSessionId() === current.traits.sessionId)
+				return await session(current, target, target.sessionManager, request);
+			const next = await becoming(current, target);
+			seat.next = next;
+			return await host.run(next.traits.sessionId, () =>
+				session(next, target, keptFile(sessions, target.sessionManager)),
+			);
 		};
 	}
 
-	/** Bind a conversation's extensions with no interface, as pi's RPC mode does. */
-	async function bindHeadless(sessionId: string, record: Live): Promise<void> {
-		const runtime = view(sessionId, record).runtime;
+	/**
+	 * Hold the conversation a seat's current one is becoming: the service
+	 * first, then the host, with the same launch, folder kind and quest, and
+	 * its settings derived afresh for a new or forked conversation or as a
+	 * resumed one.
+	 */
+	async function becoming(
+		previous: Live,
+		target: RuntimeTarget,
+	): Promise<Live> {
+		const manager = target.sessionManager;
+		const sessionId = manager.getSessionId();
+		const named = manager.getSessionFile();
+		if (!named) throw new Error("pi named no file for the conversation");
+		const file = resolve(named);
+		if (held(sessionId, file))
+			throw new Error(`Conversation already held: ${sessionId}`);
+		const { attended, quest } = previous.traits;
+		const traits: ConversationTraits = {
+			sessionId,
+			file,
+			cwd: target.cwd,
+			attended,
+			...(quest ? { quest } : {}),
+		};
+		const { launch } = previous;
+		await watched?.became(previous.traits.sessionId, {
+			sessionId,
+			file,
+			cwd: target.cwd,
+			...(Object.keys(launch).length > 0 ? { launch } : {}),
+		});
+		return register(
+			traits,
+			launch,
+			resumes(target) ? { op: "adopt" } : { op: "open" },
+			quest ? { questId: quest } : {},
+		);
+	}
+
+	/** Build pi's session for a registered conversation, on its own services, agent and store. */
+	async function session(
+		record: Live,
+		target: RuntimeTarget,
+		sessionManager: SessionManager,
+		request?: OpenRequest | AdoptRequest,
+	): Promise<RuntimeResult> {
+		const { sessionId } = record.traits;
+		const env = () => requestEnv(sessionId);
+		const modelRuntime = await sessions.ModelRuntime.create({
+			authPath: join(target.agentDir, "auth.json"),
+			modelsPath: join(target.agentDir, "models.json"),
+			authContext: conversationAuthContext(env),
+		});
+		const services = await sessions.createAgentSessionServices({
+			cwd: target.cwd,
+			agentDir: target.agentDir,
+			modelRuntime,
+			// pi's own built-ins, as its CLI passes them, so the conversation
+			// has the tools a plain pi on the same settings has.
+			resourceLoaderOptions: loaderOptions(
+				record.bus,
+				builtIns,
+				options.resources,
+			),
+		});
+		// What the CLI says as it starts: the screen shows it all, and the
+		// journal, read when no screen is, keeps the errors and warnings.
+		const said = startupDiagnostics(services);
+		for (const { type, message } of said)
+			if (type !== "info")
+				report(new Error(`Conversation ${sessionId}: ${message}`));
+		const conversation = await openHostedConversation({
+			modules: pi.modules,
+			library,
+			storePath: join(options.stateDir, sessionId, STORE_FILE),
+			env,
+			renewed,
+			within: (work) => withSession(sessionId, work),
+			report,
+		});
+		record.conversation = conversation;
+		const opening = request?.op === "open" ? request : undefined;
+		const model = opening?.model
+			? requireModel(services, opening.model)
+			: undefined;
+		const created = await sessions.createAgentSession({
+			cwd: target.cwd,
+			agentDir: target.agentDir,
+			modelRuntime: services.modelRuntime,
+			settingsManager: services.settingsManager,
+			resourceLoader: services.resourceLoader,
+			sessionManager,
+			...(target.sessionStartEvent
+				? { sessionStartEvent: target.sessionStartEvent }
+				: {}),
+			...(model ? { model } : {}),
+			...(opening?.thinkingLevel
+				? { thinkingLevel: opening.thinkingLevel }
+				: {}),
+			createAgent: conversation.createAgent,
+		});
+		return { ...created, services, diagnostics: said };
+	}
+
+	/**
+	 * Settle a replacement pi finished: the conversation it became takes the
+	 * runtime on, its screen and state follow it, what it had in flight
+	 * carries on, and the one it was ends, its session gone with pi's
+	 * teardown.
+	 */
+	async function replaced(
+		seat: Seat,
+		runtime: AgentSessionRuntime,
+		previousId: string,
+	): Promise<void> {
+		const { current: previous, next } = seat;
+		if (!next || previous.traits.sessionId !== previousId) {
+			report(
+				new Error(
+					`pi replaced ${previousId} without the host holding what it became`,
+				),
+			);
+			return;
+		}
+		seat.current = next;
+		seat.next = undefined;
+		previous.runtime = undefined;
+		previous.disposed = true;
+		previous.unsubscribe?.();
+		previous.unsubscribe = undefined;
+		next.runtime = runtime;
+		const { sessionId } = next.traits;
+		try {
+			await host.run(sessionId, async () => {
+				next.unsubscribe = runtime.session.subscribe((event) =>
+					publishState(sessionId, event.type),
+				);
+				await options.screens?.rebound(view(sessionId, next), previousId);
+				const recovery = await agentOf(next).recover();
+				recovery.settled.catch(report);
+			});
+		} catch (error) {
+			report(error);
+		} finally {
+			await host.close(previousId, "replaced").catch(report);
+		}
+	}
+
+	/**
+	 * Settle a replacement pi failed after disposing the session: the
+	 * conversation it was becoming, if held yet, and the one it was both end.
+	 */
+	async function lost(seat: Seat, previousId: string): Promise<void> {
+		const { current: previous, next } = seat;
+		seat.next = undefined;
+		previous.disposed = true;
+		if (next)
+			await host
+				.close(next.traits.sessionId, "pi failed to build it")
+				.catch(report);
+		await host.close(previousId, "pi failed to replace it").catch(report);
+	}
+
+	/** Bind a conversation's extensions with no interface, as pi's RPC mode does, again after each replacement. */
+	async function bindHeadless(runtime: AgentSessionRuntime): Promise<void> {
 		const session = runtime.session;
+		const sessionId = session.sessionId;
 		await session.bindExtensions({
 			mode: "rpc",
 			commandContextActions: {
@@ -301,7 +482,10 @@ export async function createEngine(
 				navigateTree: (targetId, next) =>
 					runtime.session.navigateTree(targetId, next),
 				switchSession: (path, next) => runtime.switchSession(path, next),
-				reload: () => host.reload(sessionId, { reason: "an extension asked" }),
+				reload: () =>
+					host.reload(runtime.session.sessionId, {
+						reason: "an extension asked",
+					}),
 			},
 			shutdownHandler: () => {
 				host
@@ -328,16 +512,30 @@ export async function createEngine(
 		noteFirstPrompt(first);
 		const sessionManager =
 			request?.op === "open" ? keptFile(sessions, manager) : manager;
-		record.runtime = await sessions.createAgentSessionRuntime(
-			factory(record, request),
+		const seat: Seat = { current: record };
+		const runtime = await sessions.createAgentSessionRuntime(
+			factory(seat, request),
 			{ cwd, agentDir: sessions.getAgentDir(), sessionManager },
 		);
+		record.runtime = runtime;
+		// Before a screen takes the runtime on, so its own rebinding runs as the conversation it binds.
+		holdReplacements(runtime, {
+			refuse: (file) => {
+				if (fileHeld(file))
+					throw new Error(`That session is open in the host already: ${file}`);
+			},
+			replaced: (previousId) => replaced(seat, runtime, previousId),
+			lost: (previousId) => lost(seat, previousId),
+		});
 		const agent = agentOf(record);
-		record.unsubscribe = record.runtime.session.subscribe((event) =>
+		record.unsubscribe = runtime.session.subscribe((event) =>
 			publishState(sessionId, event.type),
 		);
 		if (options.screens) await options.screens.opened(view(sessionId, record));
-		else await bindHeadless(sessionId, record);
+		else {
+			runtime.setRebindSession(() => bindHeadless(runtime));
+			await bindHeadless(runtime);
+		}
 		const recovery = await agent.recover();
 		if (first === undefined) {
 			recovery.settled.catch(report);
@@ -379,7 +577,32 @@ export async function createEngine(
 		request?: OpenRequest | AdoptRequest,
 	): Promise<void> {
 		const { sessionId } = traits;
-		const record: Live = { traits, bus: sessions.createEventBus() };
+		const record = register(traits, launch, request, hintsFor(request));
+		try {
+			await host.run(sessionId, () => build(record, manager, request));
+		} catch (error) {
+			try {
+				host.state(sessionId, "parked");
+			} catch (parking) {
+				// Closing already: the close parks it, and the start's error is what the caller must see.
+				report(parking);
+			}
+			throw error;
+		}
+	}
+
+	/**
+	 * Hold a conversation with the host under its id, its environment the
+	 * realm's, then its launch, then what the engine derives for this start.
+	 */
+	function register(
+		traits: ConversationTraits,
+		launch: Readonly<Record<string, string>>,
+		request: HarnessRequest | undefined,
+		hints: LaunchHints,
+	): Live {
+		const { sessionId } = traits;
+		const record: Live = { traits, launch, bus: sessions.createEventBus() };
 		host.register({
 			id: sessionId,
 			file: traits.file,
@@ -396,8 +619,8 @@ export async function createEngine(
 				),
 				...conversationMarker(sessionId),
 			},
-			hints: hintsFor(request),
-			close: () => end(sessionId, record),
+			hints,
+			close: (why) => end(sessionId, record, why),
 			stamp: (how) => {
 				record.ending = how;
 				const stamp: SessionStamp = { session: sessionId, how };
@@ -406,27 +629,24 @@ export async function createEngine(
 			reload: () => reload(record),
 		});
 		live.set(sessionId, record);
-		try {
-			await host.run(sessionId, () => build(record, manager, request));
-		} catch (error) {
-			try {
-				host.state(sessionId, "parked");
-			} catch (parking) {
-				// Closing already: the close parks it, and the start's error is what the caller must see.
-				report(parking);
-			}
-			throw error;
-		}
+		return record;
 	}
 
-	/** Release a conversation's session and store, keeping a stopped run for the next start. */
-	async function end(sessionId: string, record: Live): Promise<void> {
+	/**
+	 * Release a conversation's session and store, keeping a stopped run for
+	 * the next start, and say a conversation that ended itself has ended.
+	 */
+	async function end(
+		sessionId: string,
+		record: Live,
+		why: string,
+	): Promise<void> {
 		if (record.runtime) await options.screens?.closed(sessionId);
 		const agent = record.conversation?.agent;
 		if (record.ending !== "closed") agent?.park();
-		else await record.runtime?.session.abort();
+		else if (!record.disposed) await record.runtime?.session.abort();
 		record.unsubscribe?.();
-		await record.runtime?.dispose();
+		if (!record.disposed) await record.runtime?.dispose();
 		// Closing signals a running tool and writes no outcome, so the next start reports it cut off.
 		try {
 			await record.conversation?.close();
@@ -435,6 +655,12 @@ export async function createEngine(
 			reapToolChildren(sessionId);
 			live.delete(sessionId);
 		}
+		const events = watched;
+		if (record.ending === "closed" && events)
+			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
+			Promise.resolve()
+				.then(() => events.ended(sessionId, why))
+				.catch(report);
 	}
 
 	/** Say on the host's list whether a conversation is running, as its runs start and end. */
@@ -464,6 +690,10 @@ export async function createEngine(
 		view(sessionId) {
 			const record = live.get(sessionId);
 			return record?.runtime ? view(sessionId, record) : undefined;
+		},
+
+		watch(events) {
+			watched = events;
 		},
 
 		async prepare(request) {
@@ -540,10 +770,12 @@ export async function createEngine(
 
 /**
  * The session manager over a kept file. pi writes a session's file only
- * once it holds an answer, and pi opening a file that isn't there names a
- * new conversation, so a conversation held before its first answer would
- * come back from a restart as another. The header is written at start, as
- * pi writes it, and the file opened as pi opens any other.
+ * once it holds a message, and pi opening a file that isn't there names a
+ * new conversation, so a conversation held before its first message would
+ * come back from a restart as another. What pi holds of it so far (its
+ * header, and a fork's branch) is written at start, as pi would write it,
+ * and the file opened as pi opens any other. A file already written is
+ * pi's to keep, as it is.
  */
 function keptFile(
 	sessions: PiSessions,
@@ -551,11 +783,20 @@ function keptFile(
 ): SessionManager {
 	const file = manager.getSessionFile();
 	if (!file) throw new Error("pi named no file for the conversation");
-	if (!existsSync(file))
-		writeFileSync(file, `${JSON.stringify(manager.getHeader())}\n`, {
-			flag: "wx",
-		});
+	if (existsSync(file)) return manager;
+	const entries = [manager.getHeader(), ...manager.getEntries()];
+	writeFileSync(
+		file,
+		entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+		{ flag: "wx" },
+	);
 	return sessions.SessionManager.open(file);
+}
+
+/** Whether pi builds a session it resumed, rather than a new or forked one. */
+function resumes(target: RuntimeTarget): boolean {
+	const start = target.sessionStartEvent;
+	return start !== undefined && Reflect.get(start, "reason") === "resume";
 }
 
 /** The model an open names, refused when no provider of the conversation's has it. */
@@ -571,11 +812,38 @@ function requireModel(
 	return model;
 }
 
+/** pi's resource loader options for a conversation, as pi's main sets them from its flags. */
+function loaderOptions(
+	eventBus: EventBus,
+	extensionFactories: readonly BuiltInExtension[],
+	resources: ConversationResources | undefined,
+): ResourceLoaderOptions {
+	if (!resources) return { eventBus, extensionFactories };
+	const relative = resources.extensions?.find((path) => !isAbsolute(path));
+	if (relative)
+		throw new Error(`An extension path must be absolute: ${relative}`);
+	return {
+		eventBus,
+		extensionFactories,
+		...(resources.extensions
+			? { additionalExtensionPaths: [...resources.extensions] }
+			: {}),
+		...(resources.disabledBuiltinExtensions
+			? { disabledBuiltinExtensions: [...resources.disabledBuiltinExtensions] }
+			: {}),
+		...(resources.noExtensions ? { noExtensions: true } : {}),
+		...(resources.noSkills ? { noSkills: true } : {}),
+		...(resources.noPromptTemplates ? { noPromptTemplates: true } : {}),
+		...(resources.noContextFiles ? { noContextFiles: true } : {}),
+	};
+}
+
 function folder(cwd: string): string {
 	if (!isAbsolute(cwd))
 		throw new Error(`A conversation's folder must be absolute: ${cwd}`);
 	if (!existsSync(cwd)) throw new Error(`No such folder: ${cwd}`);
-	return resolve(cwd);
+	// pi started there would work in the folder its process.cwd() names, which is the folder's own path, past any symlink.
+	return realpathSync(cwd);
 }
 
 function adoptable(sessionFile: string): string {
