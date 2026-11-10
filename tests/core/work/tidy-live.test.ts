@@ -191,6 +191,30 @@ describe("reading worktree state from a real repository", () => {
 		expect(busy?.decide).toBeUndefined();
 	});
 
+	// 11-10: 265 fsmonitor daemons, 778 MiB, most started by one reclaim
+	// across World's trees, since dev sets core.fsmonitor=true and each
+	// status read started a daemon that never exits (2AF2DH [c9039904]).
+	it("reads each tree's status without starting git's fsmonitor daemon", async () => {
+		const { local } = await repoWithRemote();
+		await git(local, "config", "core.fsmonitor", "true");
+		await git(local, "branch", "spent", "main");
+		await git(local, "worktree", "add", "-q", `${local}/.wt/spent`, "spent");
+		const statuses: string[][] = [];
+		const watched = (command: string, args: readonly string[]) => {
+			if (args.includes("status")) statuses.push([...args]);
+			return exec(command, args);
+		};
+		const history = createGitHistory({ exec: watched });
+
+		await history.worktrees(local, "main");
+		await history.status(local);
+
+		expect(statuses.length).toBeGreaterThanOrEqual(2);
+		for (const args of statuses) {
+			expect(args.slice(2, 4)).toEqual(["-c", "core.fsmonitor=false"]);
+		}
+	});
+
 	it("offers a snapshot at a branch's commit, and keeps one at a lone commit", async () => {
 		const { local } = await repoWithRemote();
 		const history = createGitHistory({ exec });
