@@ -42,6 +42,7 @@ import {
 } from "./pi-session.ts";
 import type { AssistantMessage, Model } from "./pi-types.ts";
 import type { SessionHost } from "./session-host.ts";
+import { conversationMarker, reapToolChildren } from "./tool-children.ts";
 
 /** The gateway key every provider request carries, as the service keeps it. */
 export interface EngineKey {
@@ -290,6 +291,8 @@ export async function createEngine(
 		request: OpenRequest | AdoptRequest | undefined,
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
+		// What an earlier host's tools left running for it ends before this start reports them cut off.
+		reapToolChildren(sessionId);
 		const first = request?.op === "open" ? request.first : undefined;
 		noteFirstPrompt(first);
 		const sessionManager =
@@ -349,7 +352,11 @@ export async function createEngine(
 			id: sessionId,
 			file: traits.file,
 			cwd: traits.cwd,
-			env: { ...options.env, ...options.conversationEnv?.(traits, request) },
+			env: {
+				...options.env,
+				...options.conversationEnv?.(traits, request),
+				...conversationMarker(sessionId),
+			},
 			hints: hintsFor(request),
 			close: () => end(sessionId, record),
 			stamp: (how) => {
@@ -381,8 +388,14 @@ export async function createEngine(
 		else await record.runtime?.session.abort();
 		record.unsubscribe?.();
 		await record.runtime?.dispose();
-		await record.conversation?.close();
-		live.delete(sessionId);
+		// Closing signals a running tool and writes no outcome, so the next start reports it cut off.
+		try {
+			await record.conversation?.close();
+		} finally {
+			// The signal kills a tool's own group; a descendant that left it ends here.
+			reapToolChildren(sessionId);
+			live.delete(sessionId);
+		}
 	}
 
 	/** Say on the host's list whether a conversation is running, as its runs start and end. */
