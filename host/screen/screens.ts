@@ -7,6 +7,9 @@
  * closing only detaches its viewer. A question pi asks before the screen
  * exists (whether to trust the project folder) is shown on the same
  * terminal, which viewers can already join, and the screen takes it over.
+ * A dialog pi opens before anyone could attach tells the engine, so the
+ * open answers and a viewer can join to reply; what fails after that is
+ * shown on the screen.
  */
 
 import { withSession } from "../../lib/core/session/index.ts";
@@ -28,12 +31,23 @@ export interface HostedView {
 	close(why: string): Promise<void>;
 }
 
+/** What a screen may tell the engine of the conversation it shows. */
+export interface ScreenSignals {
+	/** Something waits on the person, so the open should answer now. */
+	asking(): void;
+}
+
 /** What the engine calls, under withSession, as conversations come and go. */
 export interface EngineScreens {
 	/** Settles once the screen has started and takes input, before the first words. */
-	opened(view: HostedView): void | Promise<void>;
+	opened(view: HostedView, signals?: ScreenSignals): void | Promise<void>;
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
 	closed(sessionId: string): void | Promise<void>;
+	/**
+	 * The build or first words failed after the open answered early: show
+	 * it as pi shows a failed first message.
+	 */
+	failed(sessionId: string, message: string): void;
 	/**
 	 * Ask whether to trust the project folder before the conversation's
 	 * screen exists, answering the label picked, or none when dismissed or
@@ -72,6 +86,8 @@ export interface HostedMode {
 	init(): Promise<void>;
 	/** Run the screen until it quits; starts it first if init has not. */
 	run(): Promise<void>;
+	/** Show an error in the chat, as pi does when its first message fails. */
+	showError?(message: string): void;
 }
 
 /** Builds one screen; production passes pi's InteractiveMode through hostedModeOf. */
@@ -186,13 +202,20 @@ export function hostScreens(options: {
 	// The engine sends a conversation's first words once this settles, so the
 	// screen starts first, as pi does before its own first prompt: otherwise
 	// the words reach a screen that can't take input or show a panel yet.
-	async function opened(view: HostedView): Promise<void> {
+	async function opened(
+		view: HostedView,
+		signals?: ScreenSignals,
+	): Promise<void> {
 		if (live.has(view.sessionId))
 			throw new Error(`Conversation already has a screen: ${view.sessionId}`);
 		let screen: Screen | undefined;
 		const held = early.get(view.sessionId) ?? earlyTerminal(view.sessionId);
 		early.delete(view.sessionId);
 		const { terminal } = held;
+		// Nobody can attach until the open answers, so a dialog opened first,
+		// even while the screen starts, would wait for good: the engine
+		// answers once told, and ignores being told again.
+		if (signals) terminal.whenBlocked(() => signals.asking());
 		held.repaint = () => {
 			if (screen) repaint(screen.mode);
 		};
@@ -234,6 +257,14 @@ export function hostScreens(options: {
 		screen.terminal.rebind(view.sessionId);
 	}
 
+	// The engine reports it too, so a conversation with no screen to show it
+	// on loses nothing.
+	function failed(sessionId: string, message: string): void {
+		const mode = live.get(sessionId)?.mode;
+		if (mode?.showError)
+			withSession(sessionId, () => mode.showError?.(message));
+	}
+
 	async function closed(sessionId: string): Promise<void> {
 		const held = early.get(sessionId);
 		if (held) {
@@ -259,6 +290,7 @@ export function hostScreens(options: {
 			opened,
 			rebound,
 			closed,
+			failed,
 			...(ask
 				? {
 						askProjectTrust: (

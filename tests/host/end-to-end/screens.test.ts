@@ -44,6 +44,9 @@ const MAX_PRESSES = 8;
 const TRUST_QUESTION = "Trust project folder?";
 /** What a folder's own extension writes in it as it loads. */
 const LOADED = "extension-loaded";
+/** First words a folder's extension asks about before they go on. */
+const ASK_ME = "ask me first";
+const GO_ON = "Go on?";
 
 /** Whether the pi under test was built without a hook, read from its own built source. */
 function lacks(file: string, hook: string): boolean {
@@ -489,6 +492,42 @@ describe.skipIf(!packageDir)(
 			},
 			CASE_MS,
 		);
+
+		it(
+			"answers an open whose extension asks before the first words go on, so a viewer can reply",
+			async () => {
+				const { sessionId } = await host.open(askingFirst(), ASK_ME);
+				const asked = await viewer(sessionId, 30, 100);
+				await asked.shows(GO_ON);
+				await asked.shows(chosen("Yes"));
+
+				asked.type(ENTER);
+
+				await asked.shows(`heard: ${ASK_ME}`, TURN_MS);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"keeps first words an extension's question turned away from the model",
+			async () => {
+				const { sessionId } = await host.open(askingFirst(), ASK_ME);
+				const asked = await viewer(sessionId, 30, 100);
+				await asked.shows(GO_ON);
+
+				await pick(asked, "No");
+				asked.type(ENTER);
+
+				// Typed into the selector, these would never reach the model.
+				asked.type(`went on${ENTER}`);
+				await asked.shows("heard: went on", TURN_MS);
+				expect(
+					asked.screen().join("\n"),
+					"the words turned away were never sent",
+				).not.toContain(`heard: ${ASK_ME}`);
+			},
+			CASE_MS,
+		);
 	},
 );
 
@@ -503,16 +542,42 @@ function folder(): string {
  */
 function extended(): string {
 	const cwd = work.untrusted();
-	const extensions = join(cwd, ".pi", "extensions");
-	mkdirSync(extensions, { recursive: true });
-	writeFileSync(
-		join(extensions, "says-it-loaded.ts"),
+	return withExtension(
+		cwd,
+		"says-it-loaded.ts",
 		`import { writeFileSync } from "node:fs";
 export default function () {
 	writeFileSync(${JSON.stringify(join(cwd, LOADED))}, "loaded\\n");
 }
 `,
 	);
+}
+
+/**
+ * A fresh trusted folder whose own extension asks the person before first
+ * words of ASK_ME go on, as an extension's input handler may, and turns
+ * them away on a no.
+ */
+function askingFirst(): string {
+	return withExtension(
+		work.trusted(),
+		"asks-first.ts",
+		`export default function (pi) {
+	pi.on("input", async (event, ctx) => {
+		if (event.text !== ${JSON.stringify(ASK_ME)}) return { action: "continue" };
+		const answer = await ctx.ui.select(${JSON.stringify(GO_ON)}, ["Yes", "No"]);
+		return { action: answer === "Yes" ? "continue" : "handled" };
+	});
+}
+`,
+	);
+}
+
+/** `cwd`, given an extension of its own named `name`. */
+function withExtension(cwd: string, name: string, source: string): string {
+	const extensions = join(cwd, ".pi", "extensions");
+	mkdirSync(extensions, { recursive: true });
+	writeFileSync(join(extensions, name), source);
 	return cwd;
 }
 

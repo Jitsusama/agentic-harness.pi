@@ -305,6 +305,21 @@ describe("persistent viewer terminal", () => {
 		terminal.dispose();
 	});
 
+	it("says when pi reports something waits on the person, until it closes", () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		const blocked = vi.fn();
+		terminal.whenBlocked(blocked);
+
+		terminal.setProgramStatus({ state: "working" });
+		terminal.setProgramStatus({ state: "blocked", kind: "question" });
+		terminal.setProgramStatus({ state: "idle" });
+		expect(blocked).toHaveBeenCalledOnce();
+
+		terminal.dispose();
+		terminal.setProgramStatus({ state: "blocked", kind: "permission" });
+		expect(blocked, "a closed terminal hears nothing").toHaveBeenCalledOnce();
+	});
+
 	it("tells pi's key reader its viewers speak kitty's protocol once it starts", () => {
 		setKittyProtocolActive(false);
 		cleanups.push(() => setKittyProtocolActive(false));

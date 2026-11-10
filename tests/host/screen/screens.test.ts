@@ -53,6 +53,12 @@ class FakeMode implements HostedMode {
 	crash(error: unknown): void {
 		this.fail?.(error);
 	}
+
+	/** What pi's screen showed as errors, and the session each was shown under. */
+	readonly errors: { message: string; in: string | undefined }[] = [];
+	showError(message: string): void {
+		this.errors.push({ message, in: ambientSession() });
+	}
 }
 
 /** A stand-in for pi's startup selector: each question waits until the test answers it. */
@@ -228,6 +234,53 @@ describe("hosted screens", () => {
 		} finally {
 			FakeMode.startup = Promise.resolve();
 		}
+	});
+
+	it("tells the engine when pi says something waits on the person, even as the screen starts", async () => {
+		const screens = host();
+		let started: () => void = () => undefined;
+		FakeMode.startup = new Promise((done) => {
+			started = done;
+		});
+		try {
+			const asking = vi.fn();
+			const a = screens.view("a");
+			const opening = screens.screens.opened(a, { asking });
+			const { terminal } = screens.mode(a.runtime).options;
+
+			terminal.setProgramStatus({ state: "working" });
+			expect(asking, "working waits on nobody").not.toHaveBeenCalled();
+			terminal.setProgramStatus({
+				state: "blocked",
+				kind: "question",
+				message: "Go on?",
+			});
+			expect(asking).toHaveBeenCalledOnce();
+
+			started();
+			await opening;
+			terminal.setProgramStatus({
+				state: "blocked",
+				kind: "auth",
+				message: "Log in",
+			});
+			expect(asking, "each dialog says so").toHaveBeenCalledTimes(2);
+		} finally {
+			FakeMode.startup = Promise.resolve();
+		}
+	});
+
+	it("shows what failed after an early answer on its screen, under its conversation", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+
+		screens.screens.failed("a", "No model selected");
+		screens.screens.failed("gone", "nobody to show");
+
+		expect(screens.mode(a.runtime).errors).toEqual([
+			{ message: "No model selected", in: "a" },
+		]);
 	});
 
 	it("a screen that fails to start fails the open and keeps no screen", async () => {
