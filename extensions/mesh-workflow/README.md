@@ -797,12 +797,28 @@ A steer may instead carry an `act`, with no text needed
   asked on 8 November. A prompt with words in it already is left
   alone, and the text is shown beside it instead. A fill with no
   text is no act.
+- `move`, with `to` naming `attended`, `background` or `pi`,
+  ends the session the first moment nothing holds it, for a host
+  to take its file up, or, from a host, for plain pi to
+  ([`moving.ts`](moving.ts)). Nothing is cut short: it waits out
+  a run, messages queued for it, background jobs, an open prompt
+  and text typed but unsent, which park weighs too
+  ([`lib/internal/session/free.ts`](../../lib/internal/session/free.ts)).
+  Until then presence says `moving`, with what holds it, and
+  runs go on as ever, so nothing is left unanswered in its log.
+  Before it ends it writes a move note
+  ([`lib/internal/session/move.ts`](../../lib/internal/session/move.ts))
+  naming its file, where it goes and its addresses, which
+  `scripts/host-cutover.ts` reads to adopt it and the restore
+  file reads to offer a released one back. Resume, a talk or
+  the person typing cancels it. A move with no valid `to` is no
+  act.
 
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.
 
-A parked session reads its inbox only as it wakes, and `close`
-and `carry` wait on it running. So each session, as it looks
+A parked session reads its inbox only as it wakes, and `close`,
+`carry` and `move` wait on it running. So each session, as it looks
 about itself every minute, asks the holder of any parked peer
 whose inbox holds one to wake it, as a sender does for a message
 that would give it a turn ([`lib/mesh/parked.ts`](../../lib/mesh/parked.ts)).
@@ -999,6 +1015,17 @@ alone and is never retried; the shared pid is never signalled. Plain pi
 still receives SIGTERM after its process identity is checked. The steer
 inbox taker remains a process id: each peer has its own address directory,
 so it identifies a process taking one inbox, not a conversation.
+
+A session moves between plain pi and a host by the steer act `move`
+(see Steer), keeping its session id, its log and so its addresses.
+`scripts/host-cutover.ts` tells every live pi to move into the realm's
+host and adopts each file as its pi ends; `scripts/host-release.ts`
+tells hosted conversations to move back, and restore.json offers each
+until plain pi opens it. Which host a session goes to rests on its
+presence's `driven`: true once a person's words reach it, typed, said
+through the launcher or sent by a client, and read at start from the log
+pi holds, so the cutover need read no log. It stays true for that session
+in any process, and a new session starts without it.
 
 ## Not Yet
 

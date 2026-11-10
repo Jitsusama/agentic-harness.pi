@@ -25,7 +25,9 @@ import {
 	type Orchestration,
 	orchestrationOf,
 } from "../internal/quest/orchestration.ts";
+import { isRecord } from "../internal/record.ts";
 import { isLanding, type Landing } from "../internal/session/landings.ts";
+import { isMoveTarget, type MoveTarget } from "../internal/session/move.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
@@ -182,8 +184,28 @@ export interface Presence {
 	readonly stepDetail?: StepDetail;
 	/** What its model calls took, today and last (see usage.ts). */
 	readonly usage?: SessionUsage;
+	/**
+	 * While a move its person asked waits for it to be free: where to,
+	 * since when, and what holds it now (lib/internal/session/move.ts).
+	 */
+	readonly moving?: Moving;
+	/**
+	 * Whether its log holds words a person wrote, so a person drives it
+	 * (lib/internal/session/driven.ts); missing from a peer whose harness
+	 * doesn't say.
+	 */
+	readonly driven?: boolean;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
+}
+
+/** A move waiting for its session to be free, as presence says it. */
+export interface Moving {
+	readonly to: MoveTarget;
+	/** When it was asked, as an ISO time. */
+	readonly since: string;
+	/** What holds the session now; missing once nothing does. */
+	readonly holds?: string;
 }
 
 /** A want standing, and whether it is the person's to answer. */
@@ -541,8 +563,18 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...(isStepDetail(one.stepDetail) ? { stepDetail: one.stepDetail } : {}),
 		...(isUsage(one.usage) ? { usage: one.usage } : {}),
+		...(movingFrom(one.moving) ? { moving: movingFrom(one.moving) } : {}),
+		...(typeof one.driven === "boolean" ? { driven: one.driven } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
+}
+
+/** A move a presence says waits, or nothing when it says none this reads. */
+function movingFrom(value: unknown): Moving | undefined {
+	if (!isRecord(value)) return undefined;
+	const { to, since, holds } = value;
+	if (!isMoveTarget(to) || typeof since !== "string") return undefined;
+	return { to, since, ...(typeof holds === "string" ? { holds } : {}) };
 }
 
 /** Whether a presence names a hosted conversation. */

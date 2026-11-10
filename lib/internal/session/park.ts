@@ -52,6 +52,7 @@ import { join } from "node:path";
 import { type Booted, machineBooted } from "../booted.ts";
 import { stateDir } from "../paths.ts";
 import { writeWhole } from "../write-whole.ts";
+import { type Holding, whatHolds } from "./free.ts";
 
 /**
  * The variable that turns parking on (`on`) or keeps it off whatever the
@@ -407,21 +408,11 @@ export function askWake(
 }
 
 /** What a session is doing, as far as parking asks. */
-export interface Stillness {
+export interface Stillness extends Holding {
 	/** How long since anything happened in it, in milliseconds. */
 	readonly idleMs: number;
 	/** How long it waits idle before parking, or nothing while off. */
 	readonly afterMs: number | undefined;
-	/** Nothing runs, retries or waits to continue (pi's `isIdle`). */
-	readonly agentIdle: boolean;
-	/** Messages wait to be delivered to it. */
-	readonly pendingMessages: boolean;
-	/** Background jobs running, or finished and not yet said. */
-	readonly jobs: number;
-	/** A prompt is open for its person. */
-	readonly prompting: boolean;
-	/** Text typed in its editor and not yet sent. */
-	readonly typed: boolean;
 	/** Why other extensions say it must stay. */
 	readonly refusals: readonly string[];
 }
@@ -430,10 +421,5 @@ export interface Stillness {
 export function whyNotPark(at: Stillness): string | undefined {
 	if (at.afterMs === undefined) return "parking is off";
 	if (at.idleMs < at.afterMs) return "not idle long enough";
-	if (!at.agentIdle) return "a run is under way";
-	if (at.pendingMessages) return "messages wait for it";
-	if (at.jobs > 0) return "background jobs are out";
-	if (at.prompting) return "a prompt is open";
-	if (at.typed) return "text is typed and unsent";
-	return at.refusals[0];
+	return whatHolds(at) ?? at.refusals[0];
 }

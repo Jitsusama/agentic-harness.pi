@@ -428,6 +428,64 @@ describe("this session's peer", () => {
 		expect(at.presences.of(session)?.state).toBe("listening");
 	});
 
+	it("says a move waiting and what holds it, kept through a reload in its own process alone", () => {
+		const at = {
+			...surroundings(),
+			owner: { pid: 4100, startedAt: 1000 },
+		};
+		const peer = localPeer(at);
+		const moving = {
+			to: "background" as const,
+			since: "2026-11-10T09:00:00.000Z",
+			holds: "background jobs are out",
+		};
+		peer.setMoving(moving);
+		expect(at.presences.of(session)?.moving).toEqual(moving);
+
+		expect(localPeer(at).moving, "a reload goes on waiting").toEqual(moving);
+		// The host that takes the file up runs it in another process.
+		const adopted = localPeer({
+			...at,
+			owner: { pid: 5200, startedAt: 2000 },
+		});
+		expect(adopted.moving, "the adopted conversation moves no more").toBe(
+			undefined,
+		);
+		expect(at.presences.of(session)?.moving).toBeUndefined();
+	});
+
+	it("says a person drives it, kept for its own session in any process and passed to no other", () => {
+		const at = { ...surroundings(), owner: { pid: 4100, startedAt: 1000 } };
+		const peer = localPeer(at);
+		expect(at.presences.of(session)?.driven, "said either way").toBe(false);
+		peer.setDriven();
+		expect(at.presences.of(session)?.driven, "said once a person wrote").toBe(
+			true,
+		);
+
+		const adopted = localPeer({ ...at, owner: { pid: 5200, startedAt: 2000 } });
+		expect(adopted.driven, "the host's conversation says so too").toBe(true);
+		const fresh = localPeer({
+			...at,
+			session: "01a19244-new",
+			previous: session,
+		});
+		expect(fresh.driven, "a new session starts undriven").toBe(false);
+	});
+
+	it("reads no move it can't make sense of", () => {
+		const presences = createPresences(join(root, "presence"));
+		mkdirSync(join(root, "presence"), { recursive: true });
+		writeFileSync(
+			join(root, "presence", "s-1.json"),
+			JSON.stringify({
+				...presence(),
+				moving: { to: "penelope", since: "2026-11-10T09:00:00.000Z" },
+			}),
+		);
+		expect(presences.of("s-1")).not.toHaveProperty("moving");
+	});
+
 	it("is waiting when idle with a want standing, and busy while it runs", () => {
 		const at = surroundings();
 		const peer = localPeer(at);

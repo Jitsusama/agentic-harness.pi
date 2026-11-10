@@ -73,16 +73,22 @@ export function wakes(
 }
 
 /**
- * Whether a steer waits on its parked peer running: a close or a carry,
- * or a fill, since the person is coming to its window to send it.
+ * Whether a steer waits on its parked peer running: a close, a carry or
+ * a move, which only a running session can make, or a fill, since the
+ * person is coming to its window to send it.
  */
 function steerWakes(steer: Steer): boolean {
-	return steer.act === "close" || steer.act === "carry" || steer.act === "fill";
+	return (
+		steer.act === "close" ||
+		steer.act === "carry" ||
+		steer.act === "move" ||
+		steer.act === "fill"
+	);
 }
 
 /**
  * Ask the holder of every parked peer whose steer inbox under `root`
- * holds a close, a carry or a fill to wake it, the steer's file named as why;
+ * holds a close, a carry, a move or a fill to wake it, the steer's file named as why;
  * answers the sessions asked for. The steer stays where it is, for the
  * peer to take as it starts.
  */

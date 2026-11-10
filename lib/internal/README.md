@@ -57,7 +57,10 @@ may import from here, and any of it may change without notice.
   may run on a model the agent named rather than the person, and
   the rules of a repo a session takes a tree in but pi loaded none
   of at its start, and what will wake a session resting blocked,
-  asked of the extensions that hold it.
+  asked of the extensions that hold it; and, for a move between
+  plain pi and a host, what holds a session from ending, the note
+  a moving session leaves for whoever takes its file up, and
+  whether a person drives it.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know.
 - **`stray/`**: catching writes that would land behind pi's screen.
