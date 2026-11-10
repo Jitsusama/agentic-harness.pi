@@ -985,9 +985,17 @@ function isQuick(job: Job): boolean {
 
 /**
  * Whether a job starts while the machine is short of memory: quick work
- * other than a build, held to no more than {@link LIGHT_GIB}.
+ * other than a build, held to no more than {@link LIGHT_GIB}, and a
+ * changed-checks run that sends itself whole, whose Nix builds are the
+ * builder's rather than this machine's daemon's. Its booking still has
+ * to fit. Held here, 30 sent runs from 14:00 on 10 November peaked at
+ * 0.4 GB at most yet waited 14,016 s on memory, a third of each one's
+ * time to its result (80ECO2). A sent `nix-offload there
+ * --here-when-idle` stays held: idle by CPU, it may build here while
+ * memory is short.
  */
 function startsPressed(job: Job): boolean {
+	if (job.sent === true && runsChangedChecks(job.what)) return true;
 	return isQuick(job) && job.kind !== "build" && needsGibOf(job) <= LIGHT_GIB;
 }
 
