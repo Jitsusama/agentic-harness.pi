@@ -1,6 +1,6 @@
 /** The host's own pi, loaded from its install and refused unless it carries every seam the host needs. */
-import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -88,6 +88,8 @@ export interface HostPi {
 	readonly packageDir: string;
 	/** The version the install says it is, which each conversation's harness settings name. */
 	readonly version: string;
+	/** The install's pi command, the entry script its package names as bin pi, which a subagent runs. */
+	readonly command: string;
 	readonly modules: HostPiModules;
 }
 
@@ -162,7 +164,22 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	const version = modules.codingAgent.VERSION;
 	if (typeof version !== "string" || version === "")
 		throw new Error(`The pi at ${packageDir} names no version`);
-	return { packageDir, version, modules };
+	return { packageDir, version, command: piCommand(packageDir), modules };
+}
+
+/** The entry script the install's package.json names as its pi command, refusing one it lacks. */
+function piCommand(packageDir: string): string {
+	const manifest = join(packageDir, "package.json");
+	const parsed: unknown = existsSync(manifest)
+		? JSON.parse(readFileSync(manifest, "utf8"))
+		: undefined;
+	const bin = isRecord(parsed) ? parsed.bin : undefined;
+	const entry = isRecord(bin) ? bin.pi : undefined;
+	const command =
+		typeof entry === "string" ? resolve(packageDir, entry) : undefined;
+	if (command === undefined || !existsSync(command))
+		throw new Error(`The pi at ${packageDir} names no pi command`);
+	return command;
 }
 
 async function importModule(

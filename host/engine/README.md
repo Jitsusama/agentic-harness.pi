@@ -97,7 +97,9 @@ the key has been renewed (renewing-stream.ts), since pi retries no 401.
 ## The Engine
 
 createEngine (engine.ts) is the service's engine. It loads the host's pi
-(host-pi.ts refuses one lacking any host patch) and builds each
+(host-pi.ts refuses one lacking any host patch), pins that pi as the
+install every conversation's subagents run (subagent-install.ts), since
+the host's own script is no pi to launch, and builds each
 conversation with pi's own runtime (pi-session.ts declares what it uses).
 A conversation is registered with SessionHost, then its extensions load,
 its session is built and its first words are sent, all under its id.

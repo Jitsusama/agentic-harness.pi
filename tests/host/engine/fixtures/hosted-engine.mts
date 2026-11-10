@@ -70,6 +70,8 @@ const effects = join(folder, "effects");
 /** The pids of what the crashing tool left running, one in its group and one that left it. */
 const children = join(folder, "children");
 const probe = join(folder, "probe.jsonl");
+/** The subagent install the probe found each time it loaded. */
+const installs = join(folder, "installs.jsonl");
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
 /** The request each launch environment was derived for, in this run. */
@@ -284,6 +286,12 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			childrenAlive: leftRunning().filter(alive),
 			probe: existsSync(probe)
 				? readFileSync(probe, "utf8")
+						.split("\n")
+						.filter(Boolean)
+						.map((line) => JSON.parse(line))
+				: [],
+			installs: existsSync(installs)
+				? readFileSync(installs, "utf8")
 						.split("\n")
 						.filter(Boolean)
 						.map((line) => JSON.parse(line))

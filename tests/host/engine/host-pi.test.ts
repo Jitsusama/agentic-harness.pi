@@ -63,6 +63,13 @@ function fakeInstall(
 		mkdirSync(dirname(file), { recursive: true });
 		writeFileSync(file, sources[name as keyof typeof files]);
 	}
+	const command = join(dir, "dist", "bundle", "cli.js");
+	mkdirSync(dirname(command), { recursive: true });
+	writeFileSync(command, "");
+	writeFileSync(
+		join(dir, "package.json"),
+		JSON.stringify({ bin: { pi: "dist/bundle/cli.js" } }),
+	);
 	return dir;
 }
 
@@ -86,7 +93,19 @@ it("loads a pi that carries every host seam", async () => {
 	const pi = await loadHostPi(dir);
 	expect(pi.packageDir).toBe(dir);
 	expect(pi.version).toBe(FAKE_VERSION);
+	expect(pi.command).toBe(join(dir, "dist", "bundle", "cli.js"));
 	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
+});
+
+it("refuses a pi whose package names no pi command", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	writeFileSync(join(dir, "package.json"), JSON.stringify({ bin: {} }));
+	await expect(loadHostPi(dir)).rejects.toThrow("names no pi command");
 });
 
 it("takes a later auth-context patch", async () => {
