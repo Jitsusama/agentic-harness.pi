@@ -1,8 +1,10 @@
 /**
- * A hosted conversation leaves the process's reload machinery alone: it
- * follows nothing and reloads nothing itself, since each of those is one
- * per process and shared by every conversation. It still says what the
- * process loaded, so the version is kept, but never takes that back.
+ * A hosted conversation leaves the process's reload machinery alone: in
+ * a host that can't reload a conversation it follows nothing and reloads
+ * nothing itself, since the process's reload is shared by every
+ * conversation. It still says what the process loaded, so the version
+ * is kept, but never takes that back. host-follow.test.ts has a host
+ * that can.
  */
 
 import {
@@ -88,7 +90,7 @@ it("says what the host loaded, so it is kept, and adds no exit listener", () => 
 	host = installTestHost();
 });
 
-it("follows no install, even with a screen", async () => {
+it("follows no install in a host that can't reload it, even with a screen", async () => {
 	const follower = await follow(
 		{ events: createEventBus() } as never,
 		{ hasUI: true, isIdle: () => true } as never,
