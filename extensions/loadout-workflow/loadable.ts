@@ -137,6 +137,19 @@ export function loadableIndex(
 }
 
 /**
+ * How a text names a tool: anywhere by whole name when the name is
+ * no word (`mesh_wait`), and only as code when it is one (`spend`).
+ * Prose saying readers "spend days on it" once loaded the spend tool
+ * in every session that read the PR format to write a PR.
+ */
+function namePattern(name: string): RegExp {
+	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return /^[A-Za-z]+$/.test(name)
+		? new RegExp(`\`${escaped}[\` (]`)
+		: new RegExp(`(^|[^A-Za-z0-9_])${escaped}($|[^A-Za-z0-9_])`);
+}
+
+/**
  * The tools a text names, by whole name, with the rest of any
  * namespace a named tool belongs to, since a skill that names one
  * tool of a set goes on to use the others.
@@ -147,9 +160,7 @@ export function namedIn(
 ): string[] {
 	const named = new Set<string>();
 	for (const tool of tools) {
-		const name = tool.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const pattern = new RegExp(`(^|[^A-Za-z0-9_])${name}($|[^A-Za-z0-9_])`);
-		if (pattern.test(text)) named.add(tool.name);
+		if (namePattern(tool.name).test(text)) named.add(tool.name);
 	}
 	const spaces = new Set(
 		tools

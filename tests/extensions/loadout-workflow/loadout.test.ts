@@ -165,6 +165,19 @@ describe("loading what a skill names", () => {
 		expect(namedIn("my_browser_gone and render_mermaids", TOOLS)).toEqual([]);
 	});
 
+	it("takes a one-word name only where it is written as code", () => {
+		// github-pr-format says "spend days on it", so every session that
+		// read it to write a PR loaded the spend tool.
+		const spend: LoadableTool[] = [
+			{ name: "spend", description: "Report spend.", exposure: "deferred" },
+		];
+		expect(
+			namedIn("Readers spend eight seconds; spend them well.", spend),
+		).toEqual([]);
+		expect(namedIn("Read it with the `spend` tool.", spend)).toEqual(["spend"]);
+		expect(namedIn("Ask `spend audit` first.", spend)).toEqual(["spend"]);
+	});
+
 	it("declares them when the skill is read, and says so", async () => {
 		const { fire, declared } = activate(["bash", "read"]);
 
