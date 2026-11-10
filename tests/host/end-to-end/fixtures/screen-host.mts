@@ -20,7 +20,9 @@
  * until the turn is stopped or the test writes the file it names in
  * HOME. Its agent folder offers a second model to pick, and gives every
  * conversation a `/pick` command that shows a select panel and writes the
- * answer to `picked` in HOME. A stand-in `wl-paste`
+ * answer to `picked` in HOME, and a `/gate` command that raises one of
+ * the harness's own gates, with this checkout's panel extensions loaded,
+ * and writes its answer to `gated`. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -267,7 +269,12 @@ function writeClipboard(): string {
 	return folder;
 }
 
-/** pi's agent folder: the scripted provider's two models, and the `/pick` extension. */
+/**
+ * pi's agent folder: the scripted provider's two models, the `/pick`
+ * extension, and the harness's own gates: a `/gate` command raising this
+ * checkout's `showSinglePrompt` and keeping its answer in `gated` in HOME,
+ * beside this checkout's panel-lifecycle and panel-zoom extensions.
+ */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
 	writeFileSync(
@@ -316,4 +323,30 @@ export default function (pi) {
 }
 `,
 	);
+	const harness = join(import.meta.dirname, "../../../..");
+	writeFileSync(
+		join(agentDir, "extensions", "gate.ts"),
+		`import { appendFileSync } from "node:fs";
+import { showSinglePrompt } from ${JSON.stringify(join(harness, "lib/ui/prompt-single.ts"))};
+export default function (pi) {
+	pi.registerCommand("gate", {
+		description: "Raise one of the harness's gates and keep its answer",
+		handler: async (name, ctx) => {
+			const result = await showSinglePrompt(ctx, {
+				title: "Gate " + name,
+				content: () => ["Gate " + name + " asks"],
+				actions: [{ key: "a", label: "Approve" }, { key: "r", label: "Reject" }],
+			});
+			const said = result?.type === "action" ? result.key : "cancelled";
+			appendFileSync(${JSON.stringify(join(home, "gated"))}, name + " " + said + "\\n");
+		},
+	});
+}
+`,
+	);
+	for (const extension of ["panel-lifecycle-workflow", "panel-zoom-widget"])
+		writeFileSync(
+			join(agentDir, "extensions", `${extension}.ts`),
+			`export { default } from ${JSON.stringify(join(harness, "extensions", extension, "index.ts"))};\n`,
+		);
 }

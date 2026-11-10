@@ -19,11 +19,12 @@
  * transcript (see `pi-layout.ts`). A widget below its natural height is
  * asked how to fit, so it can keep its header and the selected row.
  *
- * The widgets are kept on a process-global key for the gate queue's
- * reason: two packages that each carry this library still share one
- * screen, so they must share one list or each would hand out the whole
- * room. The first copy to load installs the list; every later copy joins
- * it, whatever version installed it.
+ * The widgets are kept on the screen's key for the gate queue's reason:
+ * two packages that each carry this library still share one screen, so
+ * they must share one list or each would hand out the whole room. The
+ * first copy to load installs the list; every later copy joins it,
+ * whatever version installed it. A host's conversations each have a
+ * screen, so each has a list, and the hop walks only its own.
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -38,6 +39,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
+import { screenShared } from "./screen-slot.ts";
 import { isTyped } from "./terminal-reports.ts";
 
 /**
@@ -80,7 +82,8 @@ export interface HopPlace {
 	readonly next: string | undefined;
 }
 
-const DOCK_KEY = Symbol.for("agentic-harness.dock");
+/** The name every copy looks for. The string is the contract; keep it. */
+const DOCK_NAME = "agentic-harness.dock";
 
 /** The protocol version this copy installs. */
 const PROTOCOL_VERSION = 1;
@@ -145,17 +148,12 @@ interface DockProtocol {
 }
 
 function shared(): DockProtocol {
-	const g = globalThis as Record<symbol, unknown>;
-	const found = g[DOCK_KEY];
-	if (isDock(found)) return found;
-	const made: DockProtocol = {
+	return screenShared(DOCK_NAME, isDock, () => ({
 		version: PROTOCOL_VERSION,
 		entries: [],
 		editor: undefined,
 		swallow: undefined,
-	};
-	g[DOCK_KEY] = made;
-	return made;
+	}));
 }
 
 function isDock(value: unknown): value is DockProtocol {

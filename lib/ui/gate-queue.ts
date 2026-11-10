@@ -14,14 +14,16 @@
  * The queue lives here rather than in any one integration because what it
  * protects, the screen, belongs to none of them. For the same reason it
  * does not belong to this copy of the library either: two packages that
- * each carry a `lib/ui` still share one screen. So the queue is kept on a
- * process-global key as a small protocol, a version number and a fixed
- * method set, and the first copy to load installs it. Every later copy
- * joins the one it finds, whatever version installed it, since replacing
- * a live queue would strand whoever is waiting in it.
+ * each carry a `lib/ui` still share one screen. So the queue is kept on the
+ * screen's key (`screen-slot.ts`) as a small protocol, a version number and
+ * a fixed method set, and the first copy to load installs it. Every later
+ * copy joins the one it finds, whatever version installed it, since
+ * replacing a live queue would strand whoever is waiting in it. A host's
+ * conversations each have a screen, so each has a queue.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { screenShared } from "./screen-slot.ts";
 
 /** Handed to the gate holding the screen. */
 export interface GateHold {
@@ -56,8 +58,8 @@ interface GateQueueProtocol {
 	run<T>(fn: (hold: GateHold) => Promise<T>, options?: GateOptions): Promise<T>;
 }
 
-/** The key every copy looks for. The string is the contract; keep it. */
-const QUEUE_KEY = Symbol.for("agentic-harness.gate-queue");
+/** The name every copy looks for. The string is the contract; keep it. */
+const QUEUE_NAME = "agentic-harness.gate-queue";
 
 /** The protocol version this copy installs. */
 const PROTOCOL_VERSION = 1;
@@ -104,12 +106,7 @@ export async function holdScreen<T>(
 }
 
 function sharedQueue(): GateQueueProtocol {
-	const g = globalThis as Record<symbol, unknown>;
-	const found = g[QUEUE_KEY];
-	if (isProtocol(found)) return found;
-	const installed = createQueue();
-	g[QUEUE_KEY] = installed;
-	return installed;
+	return screenShared(QUEUE_NAME, isProtocol, createQueue);
 }
 
 function isProtocol(value: unknown): value is GateQueueProtocol {
