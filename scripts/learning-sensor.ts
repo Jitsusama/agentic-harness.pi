@@ -3,7 +3,7 @@
  *
  * Counts what keeps going wrong in the pi session logs, so each
  * recurring mistake can become a proposed harness change and the
- * same count can show whether the change made it recur less. Five
+ * same count can show whether the change made it recur less. Six
  * kinds of signal, each counted as distinct sessions per ISO week, or
  * per day for a daily measure:
  *
@@ -25,6 +25,9 @@
  *   more, and a compaction a run overtook, from the entry the
  *   compaction trigger leaves. Its calls are turns and stalls, so it
  *   counts how much as well as how many sessions.
+ * - waiting: an unattended run that ended blocked with nothing set to
+ *   wake it, from the entry away mode leaves, split by whether it was
+ *   sent back or left to rest.
  *
  * Refusals, guards and overrides are exact, since the logs mark them.
  * A habit a guard catches is counted by the guard, never guessed again
@@ -64,6 +67,7 @@ import {
 } from "../lib/guardian/report.ts";
 import { sessionsDir } from "../lib/internal/paths.ts";
 import { isRecord } from "../lib/internal/record.ts";
+import { UNWOKEN_ENTRY } from "../lib/internal/session/wakers.ts";
 import {
 	backupIndexPath,
 	type FetchLog,
@@ -79,7 +83,8 @@ export type SignalKind =
 	| "guard"
 	| "override"
 	| "habit"
-	| "context";
+	| "context"
+	| "waiting";
 
 /** One thing that went wrong, as it groups with others like it. */
 export interface Signal {
@@ -193,7 +198,8 @@ export function signalsFromResult(
 
 /**
  * The signal a stored session entry carries: a redirect made again
- * unchanged, which the guard let through and reported. Every other
+ * unchanged, which the guard let through and reported; a compaction a
+ * run overtook; or a blocked run with nothing to wake it. Every other
  * entry, and every other kind of report, carries none.
  */
 export function signalsFromEntry(entry: {
@@ -206,6 +212,16 @@ export function signalsFromEntry(entry: {
 				kind: "context",
 				key: STALLED_KEY,
 				sample: JSON.stringify(entry.data ?? {}).slice(0, 300),
+			},
+		];
+	}
+	if (entry.customType === UNWOKEN_ENTRY) {
+		const data = isRecord(entry.data) ? entry.data : {};
+		return [
+			{
+				kind: "waiting",
+				key: data.sentBack === true ? UNWOKEN_SENT_KEY : UNWOKEN_RESTED_KEY,
+				sample: String(data.line ?? "").slice(0, 300),
 			},
 		];
 	}
@@ -230,6 +246,9 @@ export const LARGE_TURN_TOKENS = 400_000;
 
 const LARGE_TURN_KEY = "A turn reading 400k tokens or more";
 const STALLED_KEY = "A compaction a run overtook";
+const UNWOKEN_SENT_KEY = "A blocked run with nothing to wake it, sent back";
+const UNWOKEN_RESTED_KEY =
+	"A blocked run with nothing to wake it, left to rest";
 
 function tokens(value: unknown): number {
 	return typeof value === "number" ? value : 0;
@@ -345,6 +364,7 @@ const HEADINGS: Record<SignalKind, string> = {
 	guard: "Calls Guards Refused",
 	override: "Refusals Made Again, Which Went Through",
 	context: "Context Grown Large",
+	waiting: "Blocked With Nothing to Wake It",
 };
 
 /**
@@ -369,6 +389,7 @@ export function renderReport(
 		"guard",
 		"override",
 		"context",
+		"waiting",
 	] as const) {
 		const rows = groups.filter((g) => g.kind === kind).slice(0, options.top);
 		if (rows.length === 0) continue;

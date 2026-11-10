@@ -938,6 +938,14 @@ nothing. The mesh listens from the moment it loads and holds
 what it heard until its peer is made, since a reload with a
 panel still open says its wants again as the session starts.
 
+A session about to rest an unattended run blocked asks what will
+wake it (`session:wakers-ask:v1`, see
+`lib/internal/session/wakers.ts`), and the mesh names what of its
+own is out (`wakers.ts`): a hold it waits on, a question it asked
+in the last two hours that a peer it named has yet to answer, and
+a Needs You item it filed that is not yet settled. Away mode sends
+a blocked run with none of these, and no job of its own, back once.
+
 What a session lands is its status, so presence keeps it
 rather than leaving it to be sent. Each change merged through
 `review_offer merge` and each plan item ticked with `quest tick`

@@ -46,6 +46,16 @@ session can make them again.
   a question or an error, is sent back with your goal, the focused
   plan's progress and what is held. A `Done:` with plan items still
   open is sent back once.
+- **A blocked run rests only with something set to wake it.** Its
+  own background jobs and watched checks count, as do calls held
+  for you and, from the mesh, a hold it waits on, a question of its
+  own still unanswered and a Needs You item it filed. With none of
+  these, nothing gives it a turn when a pull request merges, main
+  goes green or a time comes: from 8 to 10 November 20 such runs sat
+  half an hour or more, 124 hours in all. So it is sent back once
+  for each `Blocked:` line, naming a background poll, a question to
+  the peer or a Needs You item, or the plan's next item. The same
+  line again rests.
 
 Two bounds keep this from spending all night on nothing: three runs
 in a row with no tool calls stop the nudging, and so do fifty nudges

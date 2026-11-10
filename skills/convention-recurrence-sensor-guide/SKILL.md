@@ -128,6 +128,10 @@ checking a group against what the logs say.
 - **Context grown large**: a turn that read 400k tokens or more,
   and a compaction a run overtook (the `compaction-stalled` entry).
   Calls count turns and stalls, not only sessions.
+- **Blocked with nothing to wake it**: an unattended run that ended
+  `Blocked:` with no job, question, hold or Needs You item of its
+  own out, sent back once or left to rest (the `away-blocked-unwoken`
+  entry).
 
 Refusals, guards and overrides are exact. Habits are patterns, so check a
 group's samples before acting on it. A group that recurs across

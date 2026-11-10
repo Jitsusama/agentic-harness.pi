@@ -52,6 +52,7 @@ import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
 } from "../../../lib/internal/session/rollover.ts";
+import { WAKERS_ASK } from "../../../lib/internal/session/wakers.ts";
 import {
 	SESSION_WANTS,
 	wantsShown,
@@ -2977,6 +2978,30 @@ describe("a message that names no group", () => {
 		const later = { session, refusals: [] as string[] };
 		emit(PARK_ASK, later);
 		expect(later.refusals).toEqual([]);
+	});
+
+	it("names, as an orchestrator, the sessions it leads at work as what will wake it", async () => {
+		leading();
+		const { emit } = await startSession();
+		const ask = { session, wakers: [] as string[] };
+
+		emit(WAKERS_ASK, ask);
+		expect(ask.wakers).toEqual(["sessions it leads are at work (85PKB2)"]);
+	});
+
+	it("names a question it asked that is still unanswered as what will wake it", async () => {
+		const { emit } = await startSession();
+		fromElsewhere({
+			to: ["@85PKB2"],
+			from: "7M6JKG",
+			intent: "question",
+			text: "may I merge?",
+		});
+		const ask = { session, wakers: [] as string[] };
+
+		emit(WAKERS_ASK, ask);
+		expect(ask.wakers).toHaveLength(1);
+		expect(ask.wakers[0]).toMatch(/^a question \[.+\] awaiting 85PKB2$/);
 	});
 
 	it("tells the orchestrator once, as a finding, when its session is on no model", async () => {

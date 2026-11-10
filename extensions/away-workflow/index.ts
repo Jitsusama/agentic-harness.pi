@@ -71,6 +71,11 @@ import {
 import { type Notice, notify } from "../../lib/internal/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
+	askWakers,
+	UNWOKEN_ENTRY,
+	type Unwoken,
+} from "../../lib/internal/session/wakers.ts";
+import {
 	ownWants,
 	sessionWants,
 	wantsShown,
@@ -90,6 +95,7 @@ import {
 import {
 	afterRun,
 	combine,
+	endingOf,
 	freshMemory,
 	type RunSummary,
 	summarize,
@@ -284,16 +290,27 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		const since = snapshot().since;
 		if (since === undefined) return;
 		const progress = planProgress();
+		const held = heldCalls().length;
+		const wakers =
+			endingOf(finished.lastText) === "blocked" ? wakersOf(held) : undefined;
 		const verdict = afterRun(
 			finished,
 			{
 				since,
 				...(snapshot().goal ? { goal: snapshot().goal } : {}),
-				held: heldCalls().length,
+				held,
 				...(progress ? { progress } : {}),
+				...(wakers ? { wakers } : {}),
 			},
 			memory,
 		);
+		if (wakers?.length === 0) {
+			const unwoken: Unwoken = {
+				line: lastLine(finished.lastText) ?? "",
+				sentBack: verdict.kind === "nudge",
+			};
+			pi.appendEntry(UNWOKEN_ENTRY, unwoken);
+		}
 		if (verdict.kind === "rest" && verdict.why === "blocked") {
 			wanting.say("blocked", blockedLine(finished.lastText) ?? "Blocked");
 			reachUnlessWanted(
@@ -317,6 +334,26 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			if (pendingNudge === job) pendingNudge = undefined;
 		});
 		job.finish({ summary: verdict.text });
+	};
+
+	/**
+	 * What will wake this session when what a blocked run waits on
+	 * happens: its own jobs and held calls, then what the mesh and the
+	 * rest say on the bus. Nothing, said as unknown, without a session.
+	 */
+	const wakersOf = (held: number): readonly string[] | undefined => {
+		const session = latest?.sessionManager.getSessionId();
+		if (!session) return undefined;
+		const jobs = findJobHost(pi.events)?.pending?.() ?? 0;
+		const known = [
+			...(jobs > 0
+				? [`${jobs} background ${jobs === 1 ? "job" : "jobs"}`]
+				: []),
+			...(held > 0
+				? [`${held} ${held === 1 ? "call" : "calls"} held for the user`]
+				: []),
+		];
+		return askWakers(pi.events, session, known);
 	};
 
 	/**

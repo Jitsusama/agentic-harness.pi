@@ -12,6 +12,17 @@
  * runs in a row stop the nudging; so do fifty nudges in one absence,
  * however busy the runs. A stop is said, not silent, so the person can
  * see in the morning why the work rested.
+ *
+ * A `Blocked:` run rests only once something will wake it when what it
+ * waits on happens: a background job or watched check of its own, a
+ * question of its own awaiting an answer, a hold it waits on, a call
+ * held for the person, or a Needs You item it filed. Nothing wakes a
+ * session for a pull request merging, main going green or a time, and
+ * from 8 to 10 November 20 runs that rested blocked with nothing of
+ * their own out sat half an hour or more, 124 hours in all. So a
+ * blocked run with nothing out is sent back once per `Blocked:` line,
+ * naming the ways to be woken; said again unchanged, the line rests,
+ * so a wait no waker fits is not sent back every run.
  */
 
 import type { PlanProgress } from "../../lib/internal/away/state.ts";
@@ -38,6 +49,11 @@ export interface Absence {
 	readonly goal?: string;
 	readonly held: number;
 	readonly progress?: PlanProgress;
+	/**
+	 * What will wake the session when what it waits on happens, each in a
+	 * phrase. Left out when nobody asked, and then a blocked run rests.
+	 */
+	readonly wakers?: readonly string[];
 }
 
 /** What the nudger remembers between runs of one absence. */
@@ -47,6 +63,8 @@ export interface KeepGoingMemory {
 	nudges: number;
 	/** The plan a premature `Done:` was already sent back for. */
 	doneChallenged?: string;
+	/** The `Blocked:` line last sent back for having nothing to wake it. */
+	blockedChallenged?: string;
 	/** Set once the nudging has stopped for this absence. */
 	stopped: boolean;
 }
@@ -66,10 +84,15 @@ export function freshMemory(): KeepGoingMemory {
 /** Markdown a model dresses a line in: a bullet, a quote, bold. */
 const DRESSING = /^(?:[-*>]\s+)*(?:\*\*|__)?/;
 
+/** A run's last non-empty line, trimmed, or empty when it said nothing. */
+function lastLineOf(text: string): string {
+	const lines = text.split("\n").map((line) => line.trim());
+	return lines.filter((line) => line.length > 0).at(-1) ?? "";
+}
+
 /** How the run said it ended, read from its last non-empty line. */
 export function endingOf(text: string): "done" | "blocked" | undefined {
-	const lines = text.split("\n").map((line) => line.trim());
-	const last = lines.filter((line) => line.length > 0).at(-1);
+	const last = lastLineOf(text);
 	if (!last) return undefined;
 	const bare = last.replace(DRESSING, "");
 	if (/^done:/i.test(bare)) return "done";
@@ -94,6 +117,22 @@ function heldLine(held: number): string {
 	return `${held} ${held === 1 ? "call is" : "calls are"} held for their return; carry on with work that does not need ${held === 1 ? "it" : "them"}.`;
 }
 
+const NOTHING_WAKES =
+	"You ended with Blocked:, but nothing is set to wake this session when what it waits on happens: no background job, watched check, question awaiting an answer, hold, held call or Needs You item of its own is out, and nothing else wakes it for a pull request merging, main going green or a time. Before resting, set one up: a background poll of what you wait on (a loop checking a PR's state, main's head or the clock, run with background: true), so its end wakes you; a question to the peer whose work you wait on, so its answer does; or a Needs You item (mesh_wait) for what only the user can do. Or take the plan's next item. If none fits, end with the same Blocked: line and the run rests.";
+
+/** What a nudge opens with: why this ending did not end the run. */
+function openingFor(
+	ending: "done" | "blocked" | undefined,
+	progress: PlanProgress | undefined,
+	open: number,
+): string {
+	if (ending === "blocked") return NOTHING_WAKES;
+	if (ending === "done" && progress) {
+		return `You ended with Done:, but ${progress.document} still has ${open} open ${open === 1 ? "item" : "items"}. Finish them, or say why they are out of scope, then end with Done: again.`;
+	}
+	return "Your last reply did not end with a `Done:` or `Blocked:` line, so the run is not over. Carry on.";
+}
+
 const RULE =
 	"If a choice is reversible, make it and say what you chose. End a run only with a last line starting `Done:` when the goal is met, or `Blocked:` naming what needs the user when nothing within your reach is left.";
 
@@ -113,7 +152,16 @@ export function afterRun(
 
 	memory.idleRuns = run.toolCalls === 0 ? memory.idleRuns + 1 : 0;
 	const ending = endingOf(run.lastText);
-	if (ending === "blocked") return { kind: "rest", why: "blocked" };
+	if (ending === "blocked") {
+		const line = lastLineOf(run.lastText);
+		if (
+			absence.wakers === undefined ||
+			absence.wakers.length > 0 ||
+			memory.blockedChallenged === line
+		)
+			return { kind: "rest", why: "blocked" };
+		memory.blockedChallenged = line;
+	}
 
 	const { progress } = absence;
 	const open = progress ? progress.total - progress.done : 0;
@@ -139,10 +187,7 @@ export function afterRun(
 	}
 	memory.nudges += 1;
 
-	const opening =
-		ending === "done" && progress
-			? `You ended with Done:, but ${progress.document} still has ${open} open ${open === 1 ? "item" : "items"}. Finish them, or say why they are out of scope, then end with Done: again.`
-			: "Your last reply did not end with a `Done:` or `Blocked:` line, so the run is not over. Carry on.";
+	const opening = openingFor(ending, progress, open);
 	const lastChance =
 		memory.idleRuns === MAX_IDLE_RUNS - 1
 			? "Your last runs made no tool calls; one more and away mode stops sending you back until the user returns."
