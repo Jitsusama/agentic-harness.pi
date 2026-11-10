@@ -4,7 +4,7 @@
  * reload in that gap pulls the tools from under the resumed run.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { untilStill } from "../../../extensions/reload-workflow/transitions.ts";
 
 const STILL_MS = 20;
@@ -42,6 +42,15 @@ function resumedAfterItEnds() {
 	return { ctx, finish: () => finishResumed(), waits: () => waits };
 }
 
+// The wait is timers alone, so a driven clock says exactly what holds
+// after each span, however busy the machine is.
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 describe("waiting for the session to be still", () => {
 	it("waits out a run resumed just after the last one ended", async () => {
 		const session = resumedAfterItEnds();
@@ -50,10 +59,13 @@ describe("waiting for the session to be still", () => {
 		const waiting = untilStill(session.ctx, STILL_MS).then(() => {
 			still = true;
 		});
-		await new Promise((done) => setTimeout(done, STILL_MS * 3));
-		expect(still, "the wait holds while the resumed run goes on").toBe(false);
+		await vi.advanceTimersByTimeAsync(STILL_MS * 3);
+		expect({ still }, "the wait holds while the resumed run goes on").toEqual({
+			still: false,
+		});
 
 		session.finish();
+		await vi.advanceTimersByTimeAsync(STILL_MS);
 		await waiting;
 		expect(session.waits()).toBe(2);
 	});
@@ -64,7 +76,9 @@ describe("waiting for the session to be still", () => {
 			hasPendingMessages: () => false,
 			waitForIdle: async () => {},
 		};
-		await expect(untilStill(ctx, STILL_MS)).resolves.toBe(0);
+		const waiting = untilStill(ctx, STILL_MS);
+		await vi.advanceTimersByTimeAsync(STILL_MS);
+		await expect(waiting).resolves.toBe(0);
 	});
 
 	it("waits for a run under way even when pi calls the session idle", async () => {
@@ -82,10 +96,13 @@ describe("waiting for the session to be still", () => {
 			still = true;
 			return n;
 		});
-		await new Promise((done) => setTimeout(done, STILL_MS * 4));
-		expect(still, "the wait holds while a run is under way").toBe(false);
+		await vi.advanceTimersByTimeAsync(STILL_MS * 4);
+		expect({ still }, "the wait holds while a run is under way").toEqual({
+			still: false,
+		});
 
 		underWay = false;
+		await vi.advanceTimersByTimeAsync(STILL_MS);
 		expect(await waiting).toBeGreaterThan(0);
 	});
 });

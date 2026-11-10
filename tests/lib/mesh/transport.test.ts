@@ -35,7 +35,6 @@ describe("the folder transport", () => {
 		const transport = folderTransport(join(dir, "messages"));
 
 		const first = transport.send(draft({ text: "one" }));
-		await new Promise((wake) => setTimeout(wake, 2));
 		const second = transport.send(draft({ text: "two" }));
 
 		expect(first).toMatchObject({ v: 1, from: "WCJQSG", text: "one" });
