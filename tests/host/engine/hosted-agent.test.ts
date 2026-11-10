@@ -6,7 +6,7 @@
  * so pi's modules load once, as pi's, and the engine loads as the host loads
  * it. Runs on a pi built with the host's patches, named by
  * PI_HOST_PACKAGE_DIR; without one it is skipped, as nothing else carries
- * the seams.
+ * the seams. tests/host/engine/README.md gives the command that runs it.
  */
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
