@@ -24,6 +24,7 @@ export {
 	hostPiFiles,
 	loadHostPi,
 } from "./host-pi.ts";
+export type { StartupDiagnostic } from "./pi-session.ts";
 export type { ConversationResources } from "./resources.ts";
 export {
 	type ConversationIdentity,

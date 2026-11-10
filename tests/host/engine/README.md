@@ -12,11 +12,12 @@ on pi's scripted provider. The second runs fixtures/hosted-engine.mts, a
 host's life one start at a time in a sealed folder: open, a refused key,
 a stop and resume, a kill mid-tool and the start after it, and ordinary
 pi reading the file. One step loads this package as a conversation's
-settings would, and its tool list, deferred tools and pi's built-ins
-included, must equal a plain pi's on the same folder. Both need a pi built with the host's patches, named
-by PI_HOST_PACKAGE_DIR, and are skipped without one, so an ordinary
-`pnpm test` never runs them. They sit in the process lane, since they
-spawn node from node. Run them before merging a change to host/engine:
+settings would: its tool list, deferred tools and pi's built-ins
+included, and what its screen is handed to show at startup must equal a
+plain pi's on the same folder. Both need a pi built with the host's
+patches, named by PI_HOST_PACKAGE_DIR, and are skipped without one, so
+an ordinary `pnpm test` never runs them. They sit in the process lane,
+since they spawn node from node. Run them before merging a change to host/engine:
 
 ```sh
 PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
