@@ -18,7 +18,10 @@
  *   resident block, whose freeze outlives a reload and would hide the
  *   index from a session that reloaded onto this code;
  * - loads the ones a skill names when the model reads that skill, since
- *   reading the skill is the moment it is about to use them.
+ *   reading the skill is the moment it is about to use them;
+ * - puts down, at a compaction, the ones loaded and then left alone
+ *   since the one before (idle.ts), so a session does not read them on
+ *   every turn for the rest of its life.
  *
  * Before a session's first run after a reload or a restart, it waits
  * for the MCP servers the session had to connect again (servers.ts), so
@@ -34,6 +37,7 @@ import {
 	getSection,
 	loadPackageConfig,
 } from "../../lib/internal/config/loader.ts";
+import { idleTools } from "./idle.ts";
 import { loadable, loadableIndex, namedIn } from "./loadable.ts";
 import {
 	serversRegistered,
@@ -89,6 +93,7 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	let places: SkillPlaces = {};
 	// Whether this runtime's first run has waited for the session's servers.
 	let waited = false;
+	const idle = idleTools();
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!waited) {
@@ -123,9 +128,20 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 		await untilServersReturn(wanted, () => serversRegistered(pi.getAllTools()));
 	}
 
+	// A compaction rebuilds the prompt's head, so what goes from it here
+	// costs no cache of its own; put down mid-run, a tool's declaration
+	// would stay in the cached head with a notice beside it.
+	pi.on("session_compact", async () => {
+		const going = new Set(idle.since(loadable(pi.getAllTools(), new Set())));
+		if (going.size > 0) {
+			pi.setActiveTools(pi.getActiveTools().filter((name) => !going.has(name)));
+		}
+	});
+
 	pi.on("session_start", async () => {
 		places = await skillPlaces();
 		const active = pi.getActiveTools();
+		idle.saw(active);
 		const registered = pi
 			.getAllTools()
 			.some((tool) => tool.name === TOOL_SEARCH);
@@ -134,7 +150,11 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 		}
 	});
 
+	// pi's own tool_search declares what it finds without saying so, so
+	// what is newly declared after any call counts as loaded.
 	pi.on("tool_result", async (event) => {
+		idle.used(event.toolName);
+		idle.saw(pi.getActiveTools());
 		if (event.isError || !isSkillRead(event)) return undefined;
 		const text = event.content
 			.map((part) => (part.type === "text" ? part.text : ""))
@@ -142,6 +162,7 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 		const names = namedIn(text, waiting());
 		if (names.length === 0) return undefined;
 		pi.setActiveTools([...pi.getActiveTools(), ...names]);
+		idle.saw(pi.getActiveTools());
 		return {
 			content: [
 				...event.content,
