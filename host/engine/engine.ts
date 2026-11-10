@@ -44,6 +44,7 @@ import {
 } from "./hosted-conversation.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
+	type AgentSession,
 	type AgentSessionRuntime,
 	type EventBus,
 	type PiSessions,
@@ -473,6 +474,10 @@ export async function createEngine(
 				if (disposition === "handled") handled();
 			},
 		});
+		// pi runs an extension command inside prompt and calls it handled only
+		// once its handler returns, which may wait on a person at a panel; the
+		// command was taken the moment it started, which prompt has done by now.
+		if (namesCommand(session, first)) handled();
 		await Promise.race([admitted, taken, prompting]);
 		prompting.catch(report);
 	}
@@ -705,6 +710,14 @@ function keptFile(
 function resumes(target: RuntimeTarget): boolean {
 	const start = target.sessionStartEvent;
 	return start !== undefined && Reflect.get(start, "reason") === "resume";
+}
+
+/** Whether the words open with a command an extension registered, named as pi's prompt parses it. */
+function namesCommand(session: AgentSession, words: string): boolean {
+	if (!words.startsWith("/")) return false;
+	const space = words.indexOf(" ");
+	const name = space === -1 ? words.slice(1) : words.slice(1, space);
+	return session.extensionRunner.getCommand(name) !== undefined;
 }
 
 /** The model an open names, refused when no provider of the conversation's has it. */

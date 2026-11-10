@@ -143,6 +143,10 @@ export interface AgentSession {
 	readonly sessionId: string;
 	readonly sessionFile: string | undefined;
 	readonly isStreaming: boolean;
+	/** The extensions' runner, asked which commands they registered. */
+	readonly extensionRunner: {
+		getCommand(name: string): object | undefined;
+	};
 	prompt(
 		text: string,
 		options?: {

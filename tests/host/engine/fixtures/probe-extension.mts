@@ -5,7 +5,9 @@
  * HOME, which a conversation's environment need not carry. Its
  * `/tools-probe` command writes every tool the session has, with its
  * exposure and whether it is declared, to `<folder>/tools.jsonl`, the same
- * from a hosted conversation as from a plain pi. It is an .mts, like the
+ * from a hosted conversation as from a plain pi. Its `/probe-wait` command
+ * waits, as a command asking a person does, until the host calls what it
+ * leaves at WAIT_RELEASE. It is an .mts, like the
  * programs beside it, because it is copied rather than imported.
  */
 import { appendFileSync } from "node:fs";
@@ -39,6 +41,9 @@ interface ProbeApi {
 
 /** The harness's ambient conversation, as withSession sets it, read without importing the harness. */
 const AMBIENT = Symbol.for("agentic-harness.session.ambient.v1");
+
+/** Where `/probe-wait` leaves what ends its wait, for the host in the same process. */
+const WAIT_RELEASE = Symbol.for("test-host.probe-wait.release");
 
 const probe = fileURLToPath(
 	new URL("../../../../probe.jsonl", import.meta.url),
@@ -101,6 +106,18 @@ export default function probeExtension(pi: ProbeApi): void {
 		description: "Start a new conversation in place of this one",
 		handler: async (_args, context) => {
 			await context.newSession();
+		},
+	});
+
+	pi.registerCommand("probe-wait", {
+		description:
+			"Wait until the host releases it, as a command asking a person does",
+		handler: async () => {
+			note({ event: "wait-started" });
+			await new Promise<void>((release) => {
+				Reflect.set(globalThis, WAIT_RELEASE, release);
+			});
+			note({ event: "wait-ended" });
 		},
 	});
 

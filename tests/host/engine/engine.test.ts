@@ -90,6 +90,8 @@ interface Seen {
 	/** Each load of the extension the engine was given as pi's `-e` gives one. */
 	readonly flagged: readonly unknown[];
 	/** The process's listeners for each event, once pi loaded and once the step was done. */
+	/** Whether an open on a waiting command answered while it still waited. */
+	readonly answeredWhileWaiting?: boolean;
 	readonly listeners: {
 		readonly atStart: Readonly<Record<string, number>>;
 		readonly atEnd: Readonly<Record<string, number>>;
@@ -437,6 +439,19 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				"user: hi",
 				"assistant: hello again",
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"answers an open whose first words are a command still waiting on a person",
+		async () => {
+			const seen = await step(hostFolder(), "open-waiting");
+			expect(
+				seen.answeredWhileWaiting,
+				"the open answers before the command's wait ends",
+			).toBe(true);
+			expect(seen.probe).toContainEqual({ event: "wait-started" });
 		},
 		HOST_LIFE_MS,
 	);

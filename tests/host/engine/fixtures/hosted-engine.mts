@@ -66,6 +66,8 @@ const compat = piModule<Compat>(
 /** This package's root, which a scenario's pi may load as a package. */
 const HARNESS = join(import.meta.dirname, "..", "..", "..", "..");
 const PROVIDER = "hosted-faux";
+/** Where the probe's `/probe-wait` leaves what ends its wait. */
+const WAIT_RELEASE = Symbol.for("test-host.probe-wait.release");
 const MODEL = "faux-1";
 const work = join(folder, "work");
 /** A symlink to the work folder, which conversations are opened through. */
@@ -152,6 +154,20 @@ const scenarios: Record<string, Scenario> = {
 			const seen = summary(engine, id);
 			await host.close(id);
 			return seen;
+		},
+	},
+	/** Open on a command that waits as one asking a person does, then end its wait. */
+	"open-waiting": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "/probe-wait" });
+			// The open has answered; the command is still waiting if its release is there to call.
+			const release: unknown = Reflect.get(globalThis, WAIT_RELEASE);
+			const answeredWhileWaiting = typeof release === "function";
+			if (typeof release === "function") release();
+			await idle(engine, id);
+			await host.close(id);
+			return { answeredWhileWaiting };
 		},
 	},
 	/** Open with no words, then stop the host, as a restart does. */
