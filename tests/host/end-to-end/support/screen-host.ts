@@ -31,6 +31,8 @@ export interface ScreenHost {
 	open(cwd: string, first?: string): Promise<SessionIdentity>;
 	/** The conversations it holds. */
 	list(): Promise<SessionIdentity[]>;
+	/** Close a conversation, as the launcher's Close does. */
+	close(sessionId: string): Promise<void>;
 	/** Wait until the conversation is idle, or until `ms` pass. */
 	idle(sessionId: string, ms: number): Promise<void>;
 	/** Wait until it no longer holds the conversation, or until `ms` pass. */
@@ -104,6 +106,13 @@ export async function startScreenHost(
 				}),
 			),
 		list,
+		close: async (sessionId) => {
+			// A request that ends a conversation names the host it was listed by.
+			const { host } = parseListResult(
+				await ask({ v: 1, id: id(), op: "list" }),
+			);
+			await ask({ v: 1, id: id(), op: "close", sessionId, expectedHost: host });
+		},
 		idle: (sessionId, ms) =>
 			settles(sessionId, ms, "idle", (held) => held?.state === "idle"),
 		gone: (sessionId, ms) =>

@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type Folders, folders } from "./support/folders.ts";
 import { type ScreenHost, startScreenHost } from "./support/screen-host.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { type Abilities, attach, type Viewer } from "./support/viewer.ts";
@@ -34,6 +35,15 @@ const CTRL_X = "\u001b[120;5u";
 const CTRL_Z = "\u001b[122;5u";
 /** What mycelium's attach client says it can do. */
 const CLIENT = ["edit", "suspend"];
+const DOWN = "\u001b[B";
+/** What pi's selector puts before the label Enter picks. */
+const MARK = "\u2192 ";
+/** More Down presses than pi's trust question has labels. */
+const MAX_PRESSES = 8;
+/** pi's question at the start of a conversation in a folder it hasn't trusted. */
+const TRUST_QUESTION = "Trust project folder?";
+/** What a folder's own extension writes in it as it loads. */
+const LOADED = "extension-loaded";
 
 /** Whether the pi under test was built without a hook, read from its own built source. */
 function lacks(file: string, hook: string): boolean {
@@ -55,7 +65,7 @@ const NO_HANDOFF = lacks(
 let sealed: Seal;
 let host: ScreenHost;
 const viewers: Viewer[] = [];
-let folders = 0;
+let work: Folders;
 
 describe.skipIf(!packageDir)(
 	"a hosted conversation on pi's own screen (needs PI_HOST_PACKAGE_DIR, a pi with the host's patches)",
@@ -63,6 +73,7 @@ describe.skipIf(!packageDir)(
 		beforeAll(async () => {
 			if (!packageDir) return;
 			sealed = await seal();
+			work = folders(sealed);
 			host = await startScreenHost(sealed, packageDir);
 		}, CASE_MS);
 		afterAll(async () => {
@@ -400,14 +411,149 @@ describe.skipIf(!packageDir)(
 			},
 			CASE_MS,
 		);
+
+		it(
+			"asks whether to trust a folder with its own extensions, and a yes loads them before the first words go in",
+			async () => {
+				const cwd = extended();
+				const { sessionId } = await host.open(cwd, "once trusted");
+				const asked = await viewer(sessionId, 30, 100);
+				await asked.shows(TRUST_QUESTION);
+				await asked.shows(chosen("Trust"));
+
+				asked.type(ENTER);
+
+				await asked.shows("heard: once trusted", TURN_MS);
+				expect(loaded(cwd), "the folder's extension loaded").toBe(true);
+				expect(trustStore()[cwd], "pi's trust store keeps the yes").toBe(true);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"leaves a folder's extensions out when the answer is not to trust it, and the conversation runs on",
+			async () => {
+				const cwd = extended();
+				const { sessionId } = await host.open(cwd);
+				const asked = await viewer(sessionId, 30, 100);
+				await asked.shows(TRUST_QUESTION);
+
+				await pick(asked, "Do not trust");
+				asked.type(ENTER);
+
+				await asked.shows("This project is not trusted");
+				asked.type(`untrusted${ENTER}`);
+				await asked.shows("heard: untrusted", TURN_MS);
+				expect(loaded(cwd), "the folder's extension stayed out").toBe(false);
+				expect(trustStore()[cwd], "pi's trust store keeps the no").toBe(false);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"keeps asking when the viewer asked leaves, for the next viewer to answer",
+			async () => {
+				const cwd = extended();
+				const { sessionId } = await host.open(cwd, "answered later");
+				const first = await viewer(sessionId, 30, 100);
+				await first.shows(TRUST_QUESTION);
+
+				await first.leave();
+				const next = await viewer(sessionId, 30, 100);
+
+				await next.shows(TRUST_QUESTION);
+				next.type(ENTER);
+				await next.shows("heard: answered later", TURN_MS);
+				expect(loaded(cwd), "the folder's extension loaded").toBe(true);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"leaves a folder untrusted and loads nothing of it when its conversation closes mid-question",
+			async () => {
+				const cwd = extended();
+				const { sessionId } = await host.open(cwd, "never said");
+				const asked = await viewer(sessionId, 30, 100);
+				await asked.shows(TRUST_QUESTION);
+
+				await host.close(sessionId);
+
+				await asked.detached;
+				await host.gone(sessionId, TURN_MS);
+				expect(loaded(cwd), "the folder's extension stayed out").toBe(false);
+				expect(
+					trustStore()[cwd],
+					"pi's trust store keeps no answer nobody gave",
+				).toBeUndefined();
+			},
+			CASE_MS,
+		);
 	},
 );
 
-/** A fresh working folder for one conversation. */
+/** A fresh working folder for one conversation, which opens without asking to be trusted. */
 function folder(): string {
-	const path = join(sealed.root, `w${++folders}`);
-	mkdirSync(path);
-	return path;
+	return work.trusted();
+}
+
+/**
+ * A fresh working folder with an extension of its own, which pi loads
+ * only from a folder it trusts, and which says it loaded in the folder.
+ */
+function extended(): string {
+	const cwd = work.untrusted();
+	const extensions = join(cwd, ".pi", "extensions");
+	mkdirSync(extensions, { recursive: true });
+	writeFileSync(
+		join(extensions, "says-it-loaded.ts"),
+		`import { writeFileSync } from "node:fs";
+export default function () {
+	writeFileSync(${JSON.stringify(join(cwd, LOADED))}, "loaded\\n");
+}
+`,
+	);
+	return cwd;
+}
+
+/** Whether the folder's own extension loaded. */
+function loaded(cwd: string): boolean {
+	return existsSync(join(cwd, LOADED));
+}
+
+/** What pi's trust store holds, by folder, as the host writes each answer. */
+function trustStore(): Record<string, unknown> {
+	return work.store();
+}
+
+/** The row pi's selector marks as the one Enter picks. */
+function chosen(label: string): RegExp {
+	return new RegExp(`${MARK}${literally(label)} *$`, "m");
+}
+
+/** Move a selector's mark down to `label`, as a person presses Down. */
+async function pick(on: Viewer, label: string): Promise<void> {
+	for (let presses = 0; presses < MAX_PRESSES; presses++) {
+		const marked = markedOn(on);
+		if (marked === label) return;
+		on.type(DOWN);
+		// Each press moves the mark before the next is judged.
+		await on.shows(
+			new RegExp(`${MARK}(?!${literally(marked ?? "")} *$)\\S`, "m"),
+		);
+	}
+	await on.shows(chosen(label));
+}
+
+/** The label pi's selector marks on a viewer's screen. */
+function markedOn(on: Viewer): string | undefined {
+	const row = on.screen().find((line) => line.includes(MARK));
+	return row?.slice(row.indexOf(MARK) + MARK.length).trimEnd();
+}
+
+/** `text` matched as it is written, in a regular expression. */
+function literally(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function viewer(

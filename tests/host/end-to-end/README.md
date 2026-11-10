@@ -31,8 +31,18 @@ The root is the pi-monorepo folder of the work host's piHostRuntime (its
 lib/node_modules/pi-monorepo), or core's hostedPi, as for the engine's
 own tests in tests/host/engine.
 
+The host asks pi's startup questions as the program does, so a
+conversation in a folder with its own .pi/extensions asks whether to
+trust it, on its screen. The trust cases answer it yes, no, from a
+second viewer, and not at all when the conversation closes, and check
+whether the folder's extension loaded. Every other case's folder is
+trusted in pi's store before it opens, so it asks nothing: pi counts any
+.agents/skills above a folder but HOME's as the project's, and a quest's
+TMPDIR is a link into a home that holds one.
+
 - `fixtures/`: programs a test runs as a process of its own: the screen
   host.
 - `support/`: the seal, a host process and its control requests, and
   the fake engine a host imports by path until H1's createEngine lands;
-  the screen host's process and a viewer reading its screen.
+  the screen host's process, working folders and the trust store that
+  judges them, and a viewer reading its screen.
