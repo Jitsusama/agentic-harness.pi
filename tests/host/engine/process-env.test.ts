@@ -16,11 +16,15 @@ const own = process.env;
 const CREDENTIALS = {
 	SHOPIFY_PROXY_KEY: "host-key",
 	PI_PROXY_API_KEY: "host-api-key",
+	PI_PROXY_AUTH_HEADER: "host-auth-header",
 } as const;
+/** Host variables the tests write or expect absent, which the runner's own env may hold. */
+const CLEARED = ["PI_WORKTRAIL_RUN", "PORT", "K4_HOST_ONLY", "K4_DEFINED"];
 const saved = Object.fromEntries(
-	Object.keys(CREDENTIALS).map((name) => [name, own[name]]),
+	[...Object.keys(CREDENTIALS), ...CLEARED].map((name) => [name, own[name]]),
 );
 beforeEach(() => {
+	for (const name of CLEARED) delete own[name];
 	Object.assign(own, CREDENTIALS);
 });
 let host: SessionHost | undefined;
@@ -33,7 +37,6 @@ afterEach(async () => {
 	}
 	if (dir) rmSync(dir, { recursive: true, force: true });
 	dir = undefined;
-	delete own.K4_HOST_ONLY;
 	for (const [name, value] of Object.entries(saved)) {
 		if (value === undefined) delete own[name];
 		else own[name] = value;
@@ -123,6 +126,7 @@ it("lists and spreads the conversation's keys", () => {
 		"DEV_INVOCATION_ID",
 		"PATH",
 		"PI_PROXY_API_KEY",
+		"PI_PROXY_AUTH_HEADER",
 		"PI_SESSION_ID",
 		"SHOPIFY_HARNESS_SETTINGS",
 		"SHOPIFY_PROXY_KEY",
