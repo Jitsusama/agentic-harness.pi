@@ -49,7 +49,12 @@ import { pivotTargets } from "../../lib/mesh/pivot.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { type Judge, type Route, routeOf } from "../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
-import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
+import {
+	idNamed,
+	mayReplace,
+	type Reader,
+	sentBy,
+} from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
 import {
 	UNANSWERED_WITHIN_MS,
@@ -891,7 +896,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		notes: reachNotes,
 		reached,
 		gone,
-	} = reach(message, standing, at.peer);
+	} = reach(message, standing, at.peer, at.transport.read);
 	notes.unshift(...reachNotes);
 	const glancing = stops
 		.filter(({ stopper }) => reaches(message, stopper, -1))
@@ -997,6 +1002,7 @@ function reach(
 	message: Message,
 	standing: Census,
 	peer: Peer,
+	read: Reader,
 ): { notes: string[]; reached: string[]; gone: string[] } {
 	const everyone = standing.present;
 	const reached = everyone
@@ -1023,7 +1029,7 @@ function reach(
 				]
 			: [],
 	);
-	const idle = idleAddressed(message, everyone, peer, addressed);
+	const idle = idleAddressed(message, everyone, peer, addressed, read);
 	const notes = [
 		reached.length > 0
 			? `It goes to ${reached.join(", ")}; mesh_read says when each has it.`
@@ -1055,15 +1061,19 @@ interface Unwoken {
  * meant them to act on, since a note waits for a turn something else
  * starts (lib/mesh/attention.ts). An idle orchestrator acts on what a
  * session it leads sends, so it is left out, as is a peer waiting on
- * its person, which the note before says already.
+ * its person, which the note before says already, and one whose own
+ * question this answers, which takes its turn however it is sent.
  */
 function idleAddressed(
 	message: Message,
 	everyone: readonly Presence[],
 	peer: Peer,
 	addressed: readonly string[],
+	read: Reader,
 ): Unwoken[] {
 	if (message.intent !== "fyi" && message.intent !== "finding") return [];
+	const asked = message.re === undefined ? undefined : read(message.re);
+	const asker = asked?.intent === "question" ? asked.from : undefined;
 	return everyone.flatMap((one) => {
 		const address = one.addresses[0];
 		if (
@@ -1071,6 +1081,7 @@ function idleAddressed(
 			one.session === peer.session ||
 			one.busy ||
 			one.wants ||
+			(asker !== undefined && one.addresses.includes(asker)) ||
 			!one.addresses.some((each) => addressed.includes(homeOf(each)))
 		) {
 			return [];
@@ -1459,7 +1470,7 @@ async function join(
 		invite: group,
 	});
 	at.sent(message);
-	const { notes } = reach(message, standing, at.peer);
+	const { notes } = reach(message, standing, at.peer, at.transport.read);
 	const skipped =
 		notHomes.length > 0
 			? ` Not invited, since they name no other peer: ${notHomes.join(", ")}.`
