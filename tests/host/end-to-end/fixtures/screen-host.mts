@@ -15,9 +15,12 @@
  *
  * Only the model and its key differ from the program, which asks the
  * gateway for a key: here pi answers from pi-ai's scripted provider,
- * registered in this process, by what the latest message asks. Its agent
- * folder gives every conversation a `/pick` command that shows a select
- * panel and writes the answer to `picked` in HOME. A stand-in `wl-paste`
+ * registered in this process, by what the latest message asks: a long
+ * answer, an answer with its thinking, a read of a long file, or one held
+ * until the turn is stopped or the test writes the file it names in
+ * HOME. Its agent folder offers a second model to pick, and gives every
+ * conversation a `/pick` command that shows a select panel and writes the
+ * answer to `picked` in HOME. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -25,7 +28,13 @@
  * It prints one JSON line naming its socket once it listens, and stops at
  * SIGTERM. Errors it is told of go to standard error.
  */
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	watch,
+	writeFileSync,
+} from "node:fs";
 import { registerHooks } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +50,13 @@ interface Compat {
 	};
 	fauxAssistantMessage(content: unknown, options?: object): unknown;
 	fauxToolCall(name: string, args: object, options: { id: string }): unknown;
+	fauxText(text: string): unknown;
+	fauxThinking(thinking: string): unknown;
+}
+
+/** What the scripted provider hands an answer of the request it answers. */
+interface Asked {
+	readonly signal?: AbortSignal;
 }
 
 /** A message as the scripted provider is handed it. */
@@ -77,6 +93,10 @@ const CLIPBOARD_PICTURE =
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const PROVIDER = "screen-faux";
 const MODEL = "faux-1";
+/** A second model, for the model selector to pick. */
+const OTHER_MODEL = "faux-2";
+/** What a held answer is held by: words naming the file in HOME that releases it. */
+const HELD = /hold until (\S+)/;
 /** More answers than any run of the proofs asks for. */
 const ANSWERS = 200;
 const home = homedir();
@@ -149,13 +169,39 @@ process.once("SIGTERM", () => {
 
 /**
  * Answer by what the latest message asks: a picture is a read of
- * `picture.png` in the conversation's folder, a tool's result is
- * acknowledged, and anything else is echoed back.
+ * `picture.png` in the conversation's folder and notes a read of
+ * `notes.txt`, a tool's result is acknowledged, a long answer is 120
+ * lines, thinking comes before its answer, a hold waits to be stopped or
+ * released, and anything else is echoed back.
  */
-function answer(context: { readonly messages: readonly Said[] }): unknown {
+async function answer(
+	context: { readonly messages: readonly Said[] },
+	asked?: Asked,
+): Promise<unknown> {
 	const last = context.messages.at(-1);
 	if (last?.role === "toolResult") return compat.fauxAssistantMessage("done");
 	const words = last ? text(last) : "";
+	const hold = HELD.exec(words)?.[1];
+	if (hold) {
+		await released(hold, asked?.signal);
+		return compat.fauxAssistantMessage(`released: ${hold}`);
+	}
+	if (words.includes("read notes"))
+		return compat.fauxAssistantMessage(
+			[
+				compat.fauxToolCall(
+					"read",
+					{ path: "notes.txt" },
+					{ id: `read-${Date.now()}` },
+				),
+			],
+			{ stopReason: "toolUse" },
+		);
+	if (words.includes("think first"))
+		return compat.fauxAssistantMessage([
+			compat.fauxThinking("weighing it up first"),
+			compat.fauxText("thought it through"),
+		]);
 	if (words.includes("picture"))
 		return compat.fauxAssistantMessage(
 			[
@@ -172,6 +218,22 @@ function answer(context: { readonly messages: readonly Said[] }): unknown {
 			Array.from({ length: 120 }, (_, n) => `line ${n + 1}`).join("\n"),
 		);
 	return compat.fauxAssistantMessage(`heard: ${words}`);
+}
+
+/** Settle once the turn is stopped, or once `name` is a file in HOME. */
+function released(name: string, signal: AbortSignal | undefined) {
+	const release = join(home, name);
+	return new Promise<void>((done) => {
+		const watcher = watch(home, () => {
+			if (existsSync(release)) settle();
+		});
+		const settle = () => {
+			watcher.close();
+			done();
+		};
+		signal?.addEventListener("abort", settle, { once: true });
+		if (signal?.aborted || existsSync(release)) settle();
+	});
 }
 
 function text(message: Said): string {
@@ -205,7 +267,7 @@ function writeClipboard(): string {
 	return folder;
 }
 
-/** pi's agent folder: the scripted provider as the only model, and the `/pick` extension. */
+/** pi's agent folder: the scripted provider's two models, and the `/pick` extension. */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
 	writeFileSync(
@@ -217,16 +279,17 @@ function writeAgentFolder(api: string): void {
 					api,
 					apiKey: "$SHOPIFY_PROXY_KEY",
 					models: [
-						{
-							id: MODEL,
-							name: "Faux",
-							reasoning: false,
-							input: ["text", "image"],
-							contextWindow: 128_000,
-							maxTokens: 16_384,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						},
-					],
+						[MODEL, "Faux"],
+						[OTHER_MODEL, "Faux Two"],
+					].map(([id, name]) => ({
+						id,
+						name,
+						reasoning: false,
+						input: ["text", "image"],
+						contextWindow: 128_000,
+						maxTokens: 16_384,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+					})),
 				},
 			},
 		}),
