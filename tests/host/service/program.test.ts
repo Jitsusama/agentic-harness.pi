@@ -9,7 +9,7 @@ import {
 	hostPackageDir,
 	nameViewerTerminal,
 	startHostProgram,
-	startupSelector,
+	startupQuestions,
 	themeStarter,
 } from "../../../host/service/program.ts";
 
@@ -109,19 +109,33 @@ describe("themeStarter", () => {
 	});
 });
 
-describe("startupSelector", () => {
-	it("takes the selector pi asks its startup questions with", () => {
-		class ExtensionSelectorComponent {}
-		expect(startupSelector({ ExtensionSelectorComponent })).toBe(
-			ExtensionSelectorComponent,
-		);
+describe("startupQuestions", () => {
+	class ExtensionSelectorComponent {}
+	class TuiMainScreen {}
+
+	it("takes the selector pi asks its startup questions with, and the TUI it draws in", () => {
+		expect(
+			startupQuestions({
+				codingAgent: { ExtensionSelectorComponent },
+				tui: { TuiMainScreen },
+			}),
+		).toEqual({
+			selector: ExtensionSelectorComponent,
+			mainScreen: TuiMainScreen,
+		});
 	});
 
-	it("refuses a pi without one", () => {
+	it("refuses a pi without either", () => {
 		for (const codingAgent of [{}, { ExtensionSelectorComponent: "no" }])
-			expect(() => startupSelector(codingAgent)).toThrow(
-				"The host's pi lacks ExtensionSelectorComponent",
-			);
+			expect(() =>
+				startupQuestions({ codingAgent, tui: { TuiMainScreen } }),
+			).toThrow("The host's pi lacks ExtensionSelectorComponent");
+		expect(() =>
+			startupQuestions({
+				codingAgent: { ExtensionSelectorComponent },
+				tui: {},
+			}),
+		).toThrow("The host's pi-tui lacks TuiMainScreen");
 	});
 });
 

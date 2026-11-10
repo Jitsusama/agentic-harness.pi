@@ -1,4 +1,5 @@
 /** pi's startup questions on a hosted conversation's terminal, drawn by pi-tui and answered through pi's selector. */
+import { TuiMainScreen } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { hostedAskerOf } from "../../../host/screen/startup-ask.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
@@ -55,10 +56,11 @@ function made(): Selector {
 describe("a startup question on a hosted terminal", () => {
 	it("is drawn for the conversation's viewers and answers the label picked", async () => {
 		const { terminal, shown } = viewing();
-		const asking = hostedAskerOf(Selector)(terminal, "Trust project folder?", [
-			"Trust",
-			"Don't trust",
-		]);
+		const asking = hostedAskerOf(Selector, TuiMainScreen)(
+			terminal,
+			"Trust project folder?",
+			["Trust", "Don't trust"],
+		);
 		await vi.waitFor(() => expect(shown()).toContain("Trust project folder?"));
 		expect(made().options).toEqual(["Trust", "Don't trust"]);
 
@@ -68,22 +70,29 @@ describe("a startup question on a hosted terminal", () => {
 	});
 
 	it("answers nothing when dismissed or cancelled, and only once", async () => {
-		const dismissed = hostedAskerOf(Selector)(viewing().terminal, "Trust?", [
-			"Trust",
-		]);
+		const dismissed = hostedAskerOf(Selector, TuiMainScreen)(
+			viewing().terminal,
+			"Trust?",
+			["Trust"],
+		);
 		made().onCancel();
 		made().onSelect("Trust");
 		await expect(dismissed.answer).resolves.toBeUndefined();
 
-		const cancelled = hostedAskerOf(Selector)(viewing().terminal, "Trust?", [
-			"Trust",
-		]);
+		const cancelled = hostedAskerOf(Selector, TuiMainScreen)(
+			viewing().terminal,
+			"Trust?",
+			["Trust"],
+		);
 		cancelled.cancel();
 		await expect(cancelled.answer).resolves.toBeUndefined();
 	});
 
-	it("refuses a pi without its selector", () => {
-		expect(() => hostedAskerOf(undefined)).toThrow(
+	it("refuses a pi without its selector or its main-screen TUI", () => {
+		expect(() => hostedAskerOf(Selector, undefined)).toThrow(
+			"The host's pi-tui exports no TuiMainScreen",
+		);
+		expect(() => hostedAskerOf(undefined, TuiMainScreen)).toThrow(
 			"The host's pi exports no ExtensionSelectorComponent",
 		);
 	});

@@ -26,4 +26,6 @@ TUI of its own, on a terminal made early for the conversation. Viewers
 can join it there, and the screen takes the same terminal once it opens.
 Questions follow one another there, never two at once. A close while one
 waits answers it with nothing, which is untrusted, and lets its viewers
-go. `hostedAskerOf` refuses a pi that exports no such selector.
+go. `hostedAskerOf` takes the selector and pi-tui's TuiMainScreen from
+the host's pi as it loaded them, since host code imports no pi of its
+own, and refuses either missing.

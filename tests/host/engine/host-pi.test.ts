@@ -60,6 +60,7 @@ function fakeInstall(
 		durable: `export const GenerationTask = { definition: { version: ${seams.turn ? 3 : 2}, phases: ${phases} } };\n`,
 		agentCore: "export const DEFAULT_AGENT_IDENTITY = {};\n",
 		ai: "export const validateToolArguments = () => {};\n",
+		tui: "export class TuiMainScreen {}\n",
 		sqlite: "export const openSqlite = () => {};\n",
 		nodeEnv: "export const nodeEnv = {};\n",
 		context: "export const BACKGROUND_CONTEXT = {};\n",
