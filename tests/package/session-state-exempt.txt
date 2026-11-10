@@ -41,10 +41,10 @@ lib/internal/session/rollover.ts:global 1 Holds the custom entry types every loa
 lib/internal/stray/guard.ts:global 1 Guards the process's own console, which every conversation in a host writes through (2QZBX9, 2026-11-10).
 lib/internal/write-whole.ts:pid 1 Names a whole write's temporary file by pid and random bytes, so two conversations in a host never share one (2QZBX9, 2026-11-10).
 lib/slack/auth/browser-extract.ts:pid 1 Re-raises a terminating signal at the process after cleaning up the browser it started (2QZBX9, 2026-11-10).
-lib/subagent/fleet.ts:pid 2 Names a fleet's owner, which is the host's owner when hosted and this pi otherwise, and a staging file whose staging id is the fleet's own (2QZBX9, 2026-11-10).
+lib/subagent/fleet.ts:pid 2 Names a fleet's owner, which is the host's owner when hosted and this pi otherwise, and a staging file that random bytes keep apart from another conversation's copy of the module (2QZBX9, 2026-11-10).
 lib/subagent/install.ts:global 1 Keeps the pi install the process started from, so every reload and every conversation spawns subagents from the install the process runs (2QZBX9, 2026-11-10).
 lib/subagent/runpi/supervisor.mjs:pid 6 The supervisor is a process of its own, one per run, naming its own start and files (2QZBX9, 2026-11-10).
 lib/subagent/runpi/supervisor.ts:pid 1 Gives the supervisor the pid whose exit stops its child: the process holding the round, which is the host for a hosted conversation (2QZBX9, 2026-11-10).
-lib/subagent/subagent.ts:pid 1 Names a reviewer's brief by pid and its content, shared on purpose through its holders map: the same brief is one file however many conversations hold it (2QZBX9, 2026-11-10).
+lib/subagent/subagent.ts:pid 1 Names a reviewer's brief by pid, a random id for this copy of the module and its content, so one conversation's reviewers share it through the copy's holders map and another conversation's never do (2QZBX9, 2026-11-10).
 lib/terminal/niri.ts:pid 1 Puts the pid in a spawned window's class, keeping two pis apart; random digits keep a host's conversations apart, since each loads its own copy of the counter (2QZBX9, 2026-11-10).
 lib/ui/pi-layout.ts:global 2 Marks a gate's record object as settling or shown, on the record itself, shared across library copies by symbol; each record belongs to one conversation (2QZBX9, 2026-11-10).

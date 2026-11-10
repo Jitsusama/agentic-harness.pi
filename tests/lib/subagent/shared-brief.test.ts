@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
 import type { StartedPi } from "../../../lib/subagent/runpi/supervisor.ts";
 import {
@@ -164,6 +164,52 @@ describe("a brief several reviewers share", () => {
 		});
 
 		expect(held).toBe("the whole brief");
+	});
+
+	it("is never taken from one conversation of a host by another sending it too", async () => {
+		// Pi loads a fresh copy of the module for each conversation in a
+		// host, and each copy counts only its own holders.
+		vi.resetModules();
+		const one = await import("../../../lib/subagent/subagent.ts");
+		vi.resetModules();
+		const other = await import("../../../lib/subagent/subagent.ts");
+		const prompt = `the brief ${Date.now()}`;
+		let started = (): void => {};
+		const waiting = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		let finish = (): void => {};
+		const finished = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		let found = "";
+		const slow: RunPi = async (opts) => {
+			started();
+			await finished;
+			found = readFileSync((brief(opts.args) ?? "").slice(1), "utf8");
+			return { stdout: ANSWER, stderr: "", exitCode: 0 };
+		};
+
+		const holding = other.runReviewer({
+			reviewer: { id: "b" },
+			prompt,
+			cwd: "/t",
+			runPi: slow,
+		});
+		await waiting;
+		await one.runReviewer({
+			reviewer: { id: "a" },
+			prompt,
+			cwd: "/t",
+			runPi: recording().runPi,
+		});
+		finish();
+		await holding;
+
+		expect(
+			found,
+			"the other conversation's reviewer still reads its brief",
+		).toBe(prompt);
 	});
 });
 
