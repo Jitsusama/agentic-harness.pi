@@ -68,7 +68,7 @@ function lacks(file: string, hook: string, since: string): string | undefined {
 	const path = join(packageDir, file);
 	if (existsSync(path) && readFileSync(path, "utf8").includes(hook))
 		return undefined;
-	return `The pi at ${packageDir} has no ${hook}: point PI_HOST_PACKAGE_DIR at a piHostRuntime built from ${since} or later`;
+	return `The pi at ${packageDir} has no "${hook}": point PI_HOST_PACKAGE_DIR at a piHostRuntime built from ${since} or later`;
 }
 /** A pi from before core.nix#2782 can't resend a late viewer its images. */
 const NO_LATE_IMAGES = lacks(
