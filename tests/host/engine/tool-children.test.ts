@@ -62,7 +62,7 @@ describe("reaping a conversation's tool children", () => {
 		expect(table.killed, "one kill for the one group").toEqual(["group 10"]);
 		expect(
 			[...table.pids()].sort(),
-			"the host, b's child and a stranger live",
+			"the host, b's child and a stranger live on",
 		).toEqual([1, 20, 30]);
 	});
 
