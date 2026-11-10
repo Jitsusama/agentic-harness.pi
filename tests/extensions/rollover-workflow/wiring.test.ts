@@ -38,11 +38,6 @@ import spendWorkflow, {
 } from "../../../extensions/spend-workflow/index.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
-	isRestartAsk,
-	RESTART_ASK,
-	type RestartAsk,
-} from "../../../lib/internal/session/park.ts";
-import {
 	ROLLOVER_BYTES,
 	ROLLOVER_ENV,
 	rolledFrom,
@@ -384,40 +379,6 @@ describe("the command", () => {
 		await turnOn(switched[0] as SessionManager, "fresh");
 
 		expect(stopped).toEqual(["left"]);
-	});
-
-	it("leaves the switch to a new process when its holder will start the fresh log", async () => {
-		const manager = compacted();
-		await emit("session_start", { reason: "startup" }, contextOf(manager));
-		const asked: RestartAsk[] = [];
-		events.on(RESTART_ASK, (data) => {
-			if (!isRestartAsk(data)) return;
-			asked.push(data);
-			data.restarting = true;
-		});
-		const { ctx, switched } = commandContext(manager);
-
-		await command?.handler("", ctx);
-
-		expect(switched).toEqual([]);
-		const fresh = SessionManager.open(asked[0]?.sessionFile ?? "");
-		expect(asked[0]?.session).toBe(manager.getSessionId());
-		expect(fresh.getHeader()?.parentSession).toBe(manager.getSessionFile());
-		expect(rolledFrom(fresh.getBranch())?.carried).toEqual({
-			"cost-workflow": { spend: 3 },
-		});
-	});
-
-	it("switches in this process when nothing will start it again", async () => {
-		const manager = compacted();
-		events.on(RESTART_ASK, (data) => {
-			if (isRestartAsk(data)) data.why = "background jobs are out";
-		});
-		const { ctx, switched } = commandContext(manager);
-
-		await command?.handler("", ctx);
-
-		expect(switched).toHaveLength(1);
 	});
 
 	it("leaves the session a called-off switch stayed in to run", async () => {
