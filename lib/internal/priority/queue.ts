@@ -724,7 +724,8 @@ export interface Job {
 	readonly walk?: Walk;
 	/**
 	 * It sends its whole run to a builder elsewhere, as a committed
-	 * changed-checks does (send.ts's `sendsWholeRun`), so this machine's
+	 * changed-checks or a `nix-offload there --here-when-idle` does
+	 * (send.ts's `sendsWholeRun`), so this machine's
 	 * CPU holds it not.
 	 */
 	readonly sent?: true;

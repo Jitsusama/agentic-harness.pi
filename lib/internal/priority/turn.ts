@@ -173,7 +173,8 @@ export function queuedCommand(
 	// kind only for work never seen. A walk of World's objects is held to
 	// its kind's at least: its scope is charged only the pack pages it
 	// read in first, and another walk's evicted pages are what it maps.
-	// A changed-checks run that sends itself to the builder holds what
+	// A run that sends itself to a builder, as a committed changed-checks
+	// or a `nix-offload there --here-when-idle` does, holds what
 	// deciding to send it takes here: what its runs held, once seen, up
 	// to what one never seen is held to, since a run the builder turned
 	// away ran here whole and says nothing of a send.
