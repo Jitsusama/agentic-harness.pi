@@ -391,7 +391,9 @@ while it waits its turn leaves without running.
 - Reads of a document's body: `show` given a document's id
   answers its outline (each `##` section with its size, the
   open checkbox items and the next), and with `title` one
-  section, or with `query` one item and the notes nested
+  section, or, where no `##` section bears the name, a
+  deeper heading up to the next at its level, or with
+  `query` one item and the notes nested
   under it, matched as `section` and `tick` match them. Words
   in `query` that no item reads list the lines holding them
   instead (`a|b` for either), each with its section and its

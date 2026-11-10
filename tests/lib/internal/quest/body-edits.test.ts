@@ -7,6 +7,7 @@ import {
 	sectionOf,
 	setCheckbox,
 	splitAtBody,
+	subsectionOf,
 } from "../../../../lib/internal/quest/body-edits.ts";
 
 const PLAN = [
@@ -451,6 +452,49 @@ describe("reading a document without all of it", () => {
 		const missing = sectionOf(PLAN, "Outcomes");
 		if (missing.ok) throw new Error("expected a refusal");
 		expect(missing.reason).toContain("Work, 🎯 Purpose, 📜 Journey");
+	});
+
+	it("reads a deeper heading when no section bears the name, up to the next at its level", () => {
+		const research = [
+			"## Findings",
+			"",
+			"### Each Kind of Session",
+			"",
+			"Kinds.",
+			"",
+			"#### A Detail",
+			"",
+			"Detail.",
+			"",
+			"### A Mixed Fleet",
+			"",
+			"Fleet.",
+			"",
+			"## Verdict",
+			"",
+			"Yes.",
+		].join("\n");
+
+		const found = subsectionOf(research, "each kind of session");
+		if (!found.ok) throw new Error(found.reason);
+		expect(found).toEqual({
+			ok: true,
+			found: "Each Kind of Session",
+			text: "Kinds.\n\n#### A Detail\n\nDetail.",
+		});
+		const last = subsectionOf(research, "A Mixed Fleet");
+		expect(last).toMatchObject({ ok: true, text: "Fleet." });
+		const section = subsectionOf(research, "Verdict");
+		expect(section).toMatchObject({ ok: true, found: "Verdict", text: "Yes." });
+		const nested = "## Notes\n\n### Last\n\nLast.\n\n# Appendix\n\nAfter.";
+		expect(subsectionOf(nested, "Last")).toMatchObject({
+			ok: true,
+			text: "Last.",
+		});
+		const missing = subsectionOf(research, "Nowhere");
+		expect(missing).toMatchObject({ ok: false });
+		if (missing.ok) throw new Error("expected a refusal");
+		expect(missing.reason).toContain("Findings, Verdict");
 	});
 
 	it("reads one item with the notes nested under it, and no further", () => {
