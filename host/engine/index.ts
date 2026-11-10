@@ -10,6 +10,13 @@ export {
 	KEY_VARIABLES,
 } from "./engine.ts";
 export {
+	HARNESS_SETTINGS_VARIABLE,
+	type HarnessEngine,
+	type HarnessRequest,
+	type HarnessTraits,
+	harnessSettings,
+} from "./harness-settings.ts";
+export {
 	HOST_SEAMS,
 	type HostPi,
 	type HostPiModules,
@@ -18,13 +25,6 @@ export {
 	hostPiFiles,
 	loadHostPi,
 } from "./host-pi.ts";
-export {
-	HARNESS_SETTINGS_VARIABLE,
-	type HarnessEngine,
-	type HarnessRequest,
-	type HarnessTraits,
-	harnessSettings,
-} from "./harness-settings.ts";
 export {
 	type ConversationIdentity,
 	type ConversationRegistration,
