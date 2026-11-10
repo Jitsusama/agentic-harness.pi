@@ -56,7 +56,17 @@ function activate(active: string[]) {
 	loadoutWorkflow(pi as unknown as ExtensionAPI);
 	const fire = (name: string, event: unknown) =>
 		handlers.get(name)?.(event, {});
-	return { fire, declared: () => declared };
+	// What pi's own tool_search does: declares what it found.
+	const search = async (names: string[]) => {
+		declared = [...new Set([...declared, ...names])];
+		await fire("tool_result", called("tool_search"));
+	};
+	return { fire, search, declared: () => declared };
+}
+
+/** A call's result, as pi hands it to `tool_result`. */
+function called(toolName: string) {
+	return { toolName, input: {}, content: [], isError: false };
 }
 
 describe("the index of tools that load on demand", () => {
@@ -206,6 +216,55 @@ describe("loading what a skill names", () => {
 
 		expect(result).toBeUndefined();
 		expect(declared()).toEqual(["bash", "read"]);
+	});
+});
+
+// 10 November: once loaded, the browser's four tools, about 29,000
+// characters, stayed declared for the rest of the session in 17 of 72
+// sessions, read on every turn after the work that needed them (QCXZEB).
+describe("putting down what a session stopped using", () => {
+	it("drops a loaded tool nothing called since the last compaction, and keeps the rest", async () => {
+		const { fire, declared } = activate(["bash", "browser_go", "browser_see"]);
+		await fire("session_start", {});
+
+		await fire("tool_result", called("browser_see"));
+		await fire("session_compact", {});
+
+		expect(declared()).toEqual(["bash", "browser_see", "tool_search"]);
+	});
+
+	it("keeps a tool loaded since the last compaction until one more passes without a call", async () => {
+		const { fire, search, declared } = activate(["bash"]);
+		await fire("session_start", {});
+
+		await search(["render_mermaid"]);
+		await fire("session_compact", {});
+		expect(declared()).toContain("render_mermaid");
+
+		await fire("tool_result", called("bash"));
+		await fire("session_compact", {});
+		expect(declared()).toEqual(["bash", "tool_search"]);
+	});
+
+	it("counts a skill's loading as a use", async () => {
+		const { fire, declared } = activate(["bash", "read"]);
+		await fire("session_start", {});
+
+		await fire("tool_result", {
+			toolName: "read",
+			input: { path: "/skills/browser-guide/SKILL.md" },
+			content: [{ type: "text", text: "Use browser_see to read a page." }],
+			isError: false,
+		});
+		await fire("session_compact", {});
+
+		expect(declared()).toEqual([
+			"bash",
+			"read",
+			"tool_search",
+			"browser_go",
+			"browser_see",
+		]);
 	});
 });
 
