@@ -14,6 +14,7 @@ import {
 	type ViewerEdit,
 	ViewerTerminal,
 } from "../../lib/core/viewer/terminal.ts";
+import type { StartupDiagnostic } from "../engine/index.ts";
 import type { ViewerBridge } from "../service/server.ts";
 import { terminalBridge } from "../service/viewer.ts";
 import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
@@ -44,12 +45,6 @@ export interface EngineScreens {
 		title: string,
 		labels: readonly string[],
 	): Promise<string | undefined>;
-}
-
-/** One thing pi said as the conversation started, as its CLI shows it. */
-export interface StartupDiagnostic {
-	readonly type: "error" | "warning" | "info";
-	readonly message: string;
 }
 
 /** The options a hosted InteractiveMode is built with. */
