@@ -89,6 +89,15 @@ interface WorktreeAsk {
  */
 const STATUS_AT_ONCE = 8;
 
+/**
+ * Every status read here goes without git's fsmonitor daemon. Where it
+ * is configured on, as dev configures it, a status starts one daemon a
+ * tree, which never exits: on 10 November 265 of them held 778 MiB and
+ * 60,846 inotify watches, 201 started by one reclaim across World's
+ * trees (2AF2DH [c9039904]). Status reads the same without it.
+ */
+const NO_FSMONITOR = ["-c", "core.fsmonitor=false"];
+
 /** Porcelain v1 status codes, mapped to what they mean. */
 const KIND: Record<string, ChangedPath["kind"]> = {
 	M: "modified",
@@ -169,7 +178,14 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			const out = await run(
 				deps.exec,
 				"git",
-				["-C", treePath, "status", "--porcelain=v1", "--untracked-files=all"],
+				[
+					"-C",
+					treePath,
+					...NO_FSMONITOR,
+					"status",
+					"--porcelain=v1",
+					"--untracked-files=all",
+				],
 				`Reading what ${displayPath(treePath)} holds`,
 			);
 			const changed = out
@@ -364,6 +380,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 					const state = await statusExec("git", [
 						"-C",
 						path,
+						...NO_FSMONITOR,
 						"status",
 						"--porcelain=v1",
 						"--untracked-files=normal",
