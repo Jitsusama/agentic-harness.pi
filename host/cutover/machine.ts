@@ -1,0 +1,254 @@
+/**
+ * The cutover's and the release's facts from this machine: the mesh's
+ * presences, which harness each pi loaded, pi's session logs, the steer
+ * inboxes, park's wake files, the move notes, the realm's two hosts,
+ * restore.json and the quests' journals.
+ */
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { refreshRestoreFile } from "../../extensions/quest-workflow/session-registry.ts";
+import { dataDir, sessionsDir, stateDir } from "../../lib/internal/paths.ts";
+import {
+	type TickFacts,
+	tickedStanding,
+	tickFacts,
+} from "../../lib/internal/process-ticks.ts";
+import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
+import {
+	type MoveNote,
+	moveFolder,
+	readMoveNote,
+	readMoveNotes,
+	removeMoveNote,
+} from "../../lib/internal/session/move.ts";
+import { askWake } from "../../lib/internal/session/park.ts";
+import { uuidv7 } from "../../lib/internal/session/rollover.ts";
+import { census } from "../../lib/mesh/liveness.ts";
+import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
+import { giveSteer } from "../../lib/mesh/steer.ts";
+import { type HostKind, hostKey, hostSocketPath } from "../service/address.ts";
+import { controlRequest } from "../service/client.ts";
+import { parseListResult } from "../service/protocol.ts";
+import { harnessVerdicts, rolloutFacts } from "../service/rollout.ts";
+import { personWrote } from "./attended.ts";
+import type { CutoverFacts, MoveFacts } from "./cutover.ts";
+import type { HeldConversation, ReleaseFacts } from "./release.ts";
+
+/** How long the shell may take to say it kept a window's place. */
+const SHELL_TIMEOUT_MS = 5_000;
+
+/** A file only a harness that knows the move has. */
+const MOVE_MARK = join("lib", "internal", "session", "move.ts");
+
+/** Whether the harness at `root` knows the move. */
+export function rootKnowsMove(root: string): boolean {
+	return existsSync(join(root, MOVE_MARK));
+}
+
+/** Where the machine's pieces are; the realm's own unless a test says. */
+export interface CutoverPlaces {
+	/** The install's `loaded` folder, saying which harness each pi runs. */
+	readonly loadedDir: string;
+	/** The install's current version, which a woken parked pi starts on. */
+	readonly current: string;
+	readonly realm: string;
+	readonly runtimeDir?: string;
+	readonly presence?: string;
+	readonly steer?: string;
+	readonly moves?: string;
+	readonly logs?: string;
+	readonly self?: string;
+	readonly ticks?: TickFacts;
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** Every conversation the realm's two hosts hold; one not listening holds none. */
+async function listHeld(
+	realm: string,
+	runtimeDir: string | undefined,
+): Promise<HeldConversation[]> {
+	const held: HeldConversation[] = [];
+	for (const kind of ["attended", "background"] as const) {
+		try {
+			const reply = await controlRequest(
+				hostSocketPath(realm, kind, runtimeDir),
+				{ v: 1, id: uuidv7(), op: "list" },
+			);
+			if (!reply.ok) continue;
+			const { sessions, host } = parseListResult(reply.result);
+			for (const one of sessions)
+				held.push({ session: one.sessionId, host: host.key, kind });
+		} catch {
+			// A host not listening holds nothing; adopting into it says so.
+		}
+	}
+	return held;
+}
+
+/** Pause for `ms`, between looks. */
+const pause = (ms: number) =>
+	new Promise<void>((settle) => setTimeout(settle, ms));
+
+/** Print a line of progress for the person running it. */
+const say = (line: string) => {
+	// biome-ignore lint/suspicious/noConsole: progress, for the person running it.
+	console.log(line);
+};
+
+/** Where the release's pieces are; the realm's own unless a test says. */
+export interface ReleasePlaces {
+	readonly realm: string;
+	readonly runtimeDir?: string;
+	readonly presence?: string;
+	readonly steer?: string;
+	readonly moves?: string;
+	readonly quests?: string;
+}
+
+/** The release's facts from this machine. */
+export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
+	const presences = createPresences(
+		places.presence ?? join(stateDir("mesh-workflow"), "presence"),
+	);
+	const steer = places.steer ?? stateDir("steer");
+	const moves = places.moves ?? moveFolder();
+	const quests = places.quests ?? join(dataDir("quest-workflow"), "quests");
+	return {
+		held: () => listHeld(places.realm, places.runtimeDir),
+		addressesOf: (session) => presences.of(session)?.addresses ?? [],
+		tell: (address) => {
+			giveSteer(steer, address, {
+				text: "",
+				act: "move",
+				to: "pi",
+				at: new Date().toISOString(),
+				from: "joel",
+			});
+		},
+		note: (session) => readMoveNote(session, moves),
+		holds: async (session) => presences.of(session)?.moving?.holds,
+		refreshRestore: () => refreshRestoreFile(quests),
+		journal: (quest, prose) => {
+			const dir = discoverQuests(quests).index.quests.get(quest)?.dir;
+			return dir !== undefined && appendJourneyByPath(dir, prose);
+		},
+		now: () => Date.now(),
+		pause,
+		say,
+	};
+}
+
+/** The cutover's facts from this machine. */
+export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
+	const presences = createPresences(
+		places.presence ?? join(stateDir("mesh-workflow"), "presence"),
+	);
+	const steer = places.steer ?? stateDir("steer");
+	const moves = places.moves ?? moveFolder();
+	const ticks = places.ticks ?? tickFacts;
+	let logs: Map<string, string> | undefined;
+	let roots: Promise<Map<number, string>> | undefined;
+	const socket = (kind: HostKind) =>
+		hostSocketPath(places.realm, kind, places.runtimeDir);
+	const rootsByPid = () => {
+		roots ??= harnessVerdicts({
+			loadedDir: places.loadedDir,
+			self: -1,
+			facts: { ...rolloutFacts, holds: async (root) => rootKnowsMove(root) },
+		}).then(
+			(verdicts) =>
+				new Map(
+					verdicts.flatMap((one) =>
+						one.root && one.current ? [[one.pid, one.root] as const] : [],
+					),
+				),
+		);
+		return roots;
+	};
+	return {
+		...(places.self ? { self: places.self } : {}),
+		present: async () => [...(await census(presences.all(), ticks)).present],
+		knowsMove: async (presence: Presence) => {
+			if (presence.state === "parked") return rootKnowsMove(places.current);
+			const pid = presence.owner?.pid;
+			return pid !== undefined && (await rootsByPid()).has(pid);
+		},
+		sessionFile: (session) => {
+			logs ??= indexSessionFiles(places.logs ?? sessionsDir());
+			return logs.get(session);
+		},
+		personWrote,
+		keepPlace: (session) =>
+			new Promise((settle) => {
+				execFile(
+					"qs",
+					["ipc", "call", "sessions", "keepPlace", session],
+					{ timeout: SHELL_TIMEOUT_MS },
+					(error, stdout, stderr) => {
+						const said = `${stdout}`.trim() || `${stderr}`.trim();
+						settle(
+							error
+								? `the shell didn't keep it (${said || messageOf(error)})`
+								: said || "kept",
+						);
+					},
+				);
+			}),
+		tell: (address, to) => {
+			giveSteer(steer, address, {
+				text: "",
+				act: "move",
+				to,
+				at: new Date().toISOString(),
+				from: "joel",
+			});
+		},
+		wake: (session) => {
+			askWake(session, `move-${Date.now()}`);
+		},
+		notes: () => readMoveNotes(moves),
+		removeNote: (session) => removeMoveNote(session, moves),
+		running: async (note: MoveNote) => {
+			const owner = presences.of(note.session)?.owner;
+			// Without its presence, the pid alone: a pid is seldom reused
+			// within the seconds between a note and its pi's end.
+			if (owner?.pid !== note.pid) return rolloutFacts.alive(note.pid);
+			return (await tickedStanding(owner, ticks)) !== "gone";
+		},
+		held: async () =>
+			new Set(
+				(await listHeld(places.realm, places.runtimeDir)).map(
+					(one) => one.session,
+				),
+			),
+		adopt: async (note, to) => {
+			const key = hostKey(places.realm, to);
+			try {
+				const reply = await controlRequest(socket(to), {
+					v: 1,
+					id: uuidv7(),
+					op: "adopt",
+					sessionFile: note.sessionFile,
+					attended: to === "attended",
+					...(note.quest ? { quest: note.quest } : {}),
+				});
+				return reply.ok
+					? undefined
+					: `the ${key} host refused: ${reply.error.code}, ${reply.error.message}`;
+			} catch (error) {
+				return `the ${key} host didn't answer: ${messageOf(error)}`;
+			}
+		},
+		holds: async (session) => presences.of(session)?.moving?.holds,
+		now: () => Date.now(),
+		pause,
+		say,
+	};
+}

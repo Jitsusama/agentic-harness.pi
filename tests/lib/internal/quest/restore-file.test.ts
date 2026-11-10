@@ -7,6 +7,7 @@ import {
 	carriedEntry,
 	RESTORE_FILE_VERSION,
 	type RestoreFile,
+	releasedEntry,
 	restoreFileOf,
 	restoreFilePath,
 	writeRestoreFile,
@@ -295,6 +296,55 @@ describe("the restore file", () => {
 			[carried],
 		);
 		expect(ran.sessions, "it ran here, so it isn't offered").toEqual([]);
+	});
+
+	it("offers a session its host let go, though it ran here, in place of its other entry", () => {
+		const released = releasedEntry(
+			{
+				session: "01a1c1e7-rel1",
+				sessionFile: "/home/me/.pi/agent/sessions/x/a.jsonl",
+				cwd: "/home/me/src/harness",
+				to: "pi",
+				at: "2026-11-24T19:00:00.000Z",
+				addresses: ["2QZBX9"],
+				quest: "QEST-20261109-2QZBX9",
+				from: "work-attended",
+				pid: 4100,
+			},
+			(quest) => (quest === "QEST-20261109-2QZBX9" ? "K7" : undefined),
+		);
+		const file = restoreFileOf(
+			[
+				{
+					record: ranIn("01a1c1e7-rel1", "last", "QEST-20261109-2QZBX9"),
+					heartbeatAt: "2026-11-24T05:00:00Z",
+				},
+				{
+					record: ranIn("01a1c1e7-rel2", "now"),
+					heartbeatAt: "2026-11-24T19:00:00Z",
+				},
+			],
+			"now",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[released],
+		);
+
+		expect(file.sessions).toEqual([
+			{
+				id: "01a1c1e7-rel1",
+				address: "2QZBX9",
+				title: "K7",
+				quest: "QEST-20261109-2QZBX9",
+				cwd: "/home/me/src/harness",
+				lostAt: "2026-11-24T19:00:00.000Z",
+				released: { from: "work-attended", at: "2026-11-24T19:00:00.000Z" },
+			},
+		]);
 	});
 
 	it("is written whole where the launcher looks, its folder made if need be", () => {

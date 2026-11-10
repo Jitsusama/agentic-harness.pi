@@ -19,7 +19,12 @@
  * since its work is done and it parked for having nothing left to do.
  * One marked `hosted` ran in a shared pi host, which brings it back
  * itself, so the launcher's Reopen Them All leaves it out (N4S6OF and
- * Y2YBTS, 9 November).
+ * Y2YBTS, 9 November). One marked `released` was let go by its host to
+ * be opened in plain pi from the same file, and is offered whatever the
+ * boot until a plain pi starts it (KP0L6A, 10 November).
+ * A released session has always run here, so it is offered while its
+ * move note stands (lib/internal/session/move.ts) rather than by the
+ * records, and stands in for any other entry for that session.
  *
  * Worked out without probing any process, since it is written as each
  * pi starts, and starting a session never shells out: a record from
@@ -31,6 +36,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
 import { realmSegments, type SessionRealm, sessionRealm } from "../realm.ts";
+import type { MoveNote } from "../session/move.ts";
 import type { CarriedHome } from "./carried.ts";
 import { atomicWriteFile } from "./io.ts";
 import {
@@ -84,6 +90,12 @@ export interface RestoreEntry {
 	 * own: the host keeps it, so no window reopens it.
 	 */
 	readonly hosted?: true;
+	/**
+	 * For a session its host let go to plain pi: that host's key, such as
+	 * `work-attended`, and when. It reopens like any session here, in
+	 * `cwd`.
+	 */
+	readonly released?: { readonly from: string; readonly at: string };
 }
 
 /** The whole file. */
@@ -133,7 +145,11 @@ export function restoreFileOf(
 	ended?: string,
 	/** Whether a quest is still live, so a session parked on it returns. */
 	live: (questId: string) => boolean = () => true,
+	/** Sessions their hosts let go, read by `releasedEntry`. */
+	released: readonly RestoreEntry[] = [],
 ): RestoreFile {
+	const letGo = new Set(released.map((entry) => entry.id));
+	const unreleased = (entry: RestoreEntry) => !letGo.has(entry.id);
 	// A record exists only once a pi has run the session on this machine.
 	const ranHere = new Set(stored.map(({ record }) => record.sessionId));
 	const records = stored.map(({ record, heartbeatAt }) => {
@@ -154,32 +170,59 @@ export function restoreFileOf(
 		v: RESTORE_FILE_VERSION,
 		...(boot !== undefined ? { boot } : {}),
 		sessions: [
-			...found.offered.map((record) =>
-				saved(record.sessionId)
-					? entryOf(record, titleOf)
-					: { ...entryOf(record, titleOf), fresh: true as const },
-			),
-			...found.parked
-				.filter((record) => record.quest === undefined || live(record.quest))
-				.map((record) => ({
-					...entryOf(record, titleOf),
-					parked: true as const,
-				})),
-			...(joins?.windows ?? []).map(
-				(window): RestoreEntry => ({
-					id: window.id,
-					address: window.address,
-					title: window.title,
-					...(window.quest ? { quest: window.quest } : {}),
-					cwd: window.cwd,
-					// Still running there: lost here only with the boot.
-					lostAt: "",
-					machine: window.machine,
-					attach: window.attach,
-				}),
-			),
-			...carried.filter((entry) => !ranHere.has(entry.id)),
+			...[
+				...found.offered.map((record) =>
+					saved(record.sessionId)
+						? entryOf(record, titleOf)
+						: { ...entryOf(record, titleOf), fresh: true as const },
+				),
+				...found.parked
+					.filter((record) => record.quest === undefined || live(record.quest))
+					.map((record) => ({
+						...entryOf(record, titleOf),
+						parked: true as const,
+					})),
+				...(joins?.windows ?? []).map(
+					(window): RestoreEntry => ({
+						id: window.id,
+						address: window.address,
+						title: window.title,
+						...(window.quest ? { quest: window.quest } : {}),
+						cwd: window.cwd,
+						// Still running there: lost here only with the boot.
+						lostAt: "",
+						machine: window.machine,
+						attach: window.attach,
+					}),
+				),
+				...carried.filter((entry) => !ranHere.has(entry.id)),
+			].filter(unreleased),
+			...released,
 		],
+	};
+}
+
+/**
+ * The entry for a session its host let go to plain pi, from the note its
+ * conversation left as it closed: its title as it left, else its
+ * quest's, else the folder's name.
+ */
+export function releasedEntry(
+	note: MoveNote,
+	titleOf: (questId: string) => string | undefined = () => undefined,
+): RestoreEntry {
+	const folder = note.cwd.split("/").filter(Boolean).pop() ?? note.cwd;
+	return {
+		id: note.session,
+		address: note.quest
+			? questAddress(note.quest)
+			: sessionAddress(note.session),
+		title:
+			note.title ?? (note.quest ? titleOf(note.quest) : undefined) ?? folder,
+		...(note.quest ? { quest: note.quest } : {}),
+		cwd: note.cwd,
+		lostAt: note.at,
+		released: { from: note.from ?? "", at: note.at },
 	};
 }
 
