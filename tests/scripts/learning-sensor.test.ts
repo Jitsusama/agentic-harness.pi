@@ -19,6 +19,7 @@ import {
 	signalsFromCall,
 	signalsFromEntry,
 	signalsFromResult,
+	signalsFromTurn,
 	tally,
 	withoutHeredocs,
 } from "../../scripts/learning-sensor.ts";
@@ -109,6 +110,38 @@ describe("reading a tool's answer", () => {
 		]);
 		expect(signalsFromEntry(report("waved"))).toEqual([]);
 		expect(signalsFromEntry({ customType: "other", data: {} })).toEqual([]);
+	});
+
+	it("counts a compaction a run overtook, from the entry the trigger left", () => {
+		const signals = signalsFromEntry({
+			customType: "compaction-stalled",
+			data: { contextTokens: 300_000, askedMsAgo: 2_000 },
+		});
+
+		expect(signals).toEqual([
+			{
+				kind: "context",
+				key: "A compaction a run overtook",
+				sample: '{"contextTokens":300000,"askedMsAgo":2000}',
+			},
+		]);
+	});
+
+	// On 9 November 3,599 turns in 148 sessions read 400k or more, most
+	// of them behind compactions that waited hours.
+	it("counts a turn that read 400k tokens or more, and none below", () => {
+		const turn = (input: number, cacheRead: number, cacheWrite: number) =>
+			signalsFromTurn({ input, cacheRead, cacheWrite });
+
+		expect(turn(1_000, 390_000, 9_000)).toEqual([
+			{
+				kind: "context",
+				key: "A turn reading 400k tokens or more",
+				sample: "400,000 tokens",
+			},
+		]);
+		expect(turn(1_000, 390_000, 8_999)).toEqual([]);
+		expect(signalsFromTurn(undefined)).toEqual([]);
 	});
 
 	it("folds paths, ids, numbers and quotes so alike refusals group", () => {
@@ -286,6 +319,55 @@ describe("counting and reporting", () => {
 					hereOnly: true,
 				}).read,
 			).toEqual({ here: 1, away: 0, unread: 2 });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("counts large turns and stalls from a log, under a heading of their own", () => {
+		const root = mkdtempSync(join(tmpdir(), "sensor-"));
+		try {
+			const turn = (at: string, cacheRead: number) =>
+				JSON.stringify({
+					type: "message",
+					timestamp: at,
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "ok" }],
+						usage: { input: 10, cacheRead, cacheWrite: 500 },
+					},
+				});
+			const stalled = JSON.stringify({
+				type: "custom",
+				customType: "compaction-stalled",
+				timestamp: "2026-11-09T03:35:18Z",
+				data: { contextTokens: 180_000, askedMsAgo: 400 },
+			});
+			const sessionsDir = join(root, "sessions");
+			mkdirSync(join(sessionsDir, "--a--"), { recursive: true });
+			writeFileSync(
+				join(sessionsDir, "--a--", "2026-11-09T03-00-00-000Z_s-a.jsonl"),
+				[
+					turn("2026-11-09T03:30:00Z", 180_000),
+					stalled,
+					turn("2026-11-09T09:00:00Z", 450_000),
+					turn("2026-11-09T10:00:00Z", 520_000),
+				].join("\n"),
+			);
+
+			const { groups, active } = sense(Date.parse("2026-11-09"), "day", {
+				sessionsDir,
+				indexPath: join(root, "index.jsonl"),
+				hereOnly: true,
+			});
+
+			expect(groups.map((g) => [g.kind, g.key, g.sessions, g.calls])).toEqual([
+				["context", "A turn reading 400k tokens or more", 1, 2],
+				["context", "A compaction a run overtook", 1, 1],
+			]);
+			expect(
+				renderReport(groups, active, { since: "2026-11-09", top: 5 }),
+			).toContain("## Context Grown Large");
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
