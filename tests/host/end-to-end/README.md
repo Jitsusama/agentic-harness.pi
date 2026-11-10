@@ -42,6 +42,16 @@ viewer can attach to reply, whether it asks through one of pi's dialogs
 or a component of its own, over the screen or in the editor's place.
 The component cases need a pi from core.nix#2853 or later.
 
+keys.test.ts holds the keys and the mouse a person uses at pi's own
+screen to that same host: scrolling a long answer with the wheel and by
+key, searching it, stopping a turn, opening the tree, clearing the
+editor, queueing a follow-up, expanding a tool's output and thinking,
+picking a model, and copying a drag. Each viewer sends what kitty sends
+under the keyboard protocol pi asks for. The host's scripted model
+holds an answer named "hold until <file>" until the turn is stopped or
+the file appears in HOME, so a case can act during a run. Run it as
+screens.test.ts is run, naming it instead.
+
 attach-client.test.ts runs mycelium's own attach client in a real
 terminal against the same sealed host: an interactive bash under
 script(1)'s pseudo-terminal, which joins a conversation as the
