@@ -119,7 +119,9 @@ node.
 ## The Host's Pi
 
 E1 to E8 run on a pi built with the host's patches, which an ordinary
-check can't build. `pnpm test:host` runs them on the pi
+check can't build. `pnpm test:host` is the host's one gate: it runs
+every file here, with the engine's own (tests/host/engine) and the
+parity test (tests/host/parity), on the pi
 `PI_HOST_PACKAGE_DIR` names (a pi-monorepo folder), else on the one under
 the link H2 keeps to the latest piHostRuntime build,
 `$XDG_STATE_HOME/pi-host/runtime`, a GC root. It fails rather than
@@ -129,7 +131,9 @@ build //home/joel-gerber/dotfiles:piHostRuntime` and link it there.
 A test run sandboxes every XDG folder, so a check can't see the link
 itself: `pnpm test:host` resolves it in its shell and passes it in as
 `PI_HOST_RUNTIME`. An ordinary run, with no pi named, skips each check
-saying how to run it.
+saying how to run it. Under `pnpm test:host` any case that skips, for
+whatever reason, fails the run: its reporter
+(support/every-case-ran.mts) lists each with its note.
 
 The rollout runs `pnpm test:host` against the re-pinned piHostRuntime
 before any machine names a realm for a host.
@@ -149,4 +153,5 @@ without it the check skips, or fails under `pnpm test:host`, saying so.
   offer to reopen from the seal's session records; the screen host's
   process, working folders and the trust store that judges them, a
   screen drawn and read back, a viewer reading its screen through the
-  socket, and a shell in a terminal of its own.
+  socket, and a shell in a terminal of its own; and the gate's reporter,
+  failing a run in which any case skipped.

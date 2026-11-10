@@ -4,19 +4,25 @@
  * and pi's listeners must see the same events with the same payloads, and
  * the agent end with the same transcript. Each run is its own node process,
  * so pi's modules load once, as pi's, and the engine loads as the host loads
- * it. Runs on a pi built with the host's patches, named by
- * PI_HOST_PACKAGE_DIR; without one it is skipped, as nothing else carries
- * the seams. tests/host/engine/README.md gives the command that runs it.
+ * it. Runs on a pi built with the host's patches, since nothing else
+ * carries the seams, found as tests/host/end-to-end/support/host-pi.ts
+ * finds it; without one each case is skipped saying how to get one, and
+ * fails under `pnpm test:host`. tests/host/engine/README.md says more.
  */
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 
 const run = promisify(execFile);
-const packageDir = process.env.PI_HOST_PACKAGE_DIR;
+/** The host's pi, found again for each case, which skips or fails without one. */
+let packageDir = "";
+beforeEach(({ skip }) => {
+	packageDir = hostPiFor(skip);
+});
 const FIXTURE = join(import.meta.dirname, "fixtures", "hosted-session.mts");
 /** Two sessions in two processes, each loading pi's whole package. */
 const SESSION_PAIR_MS = 60_000;
@@ -45,7 +51,6 @@ function fixtureArgs(
 	scenario: string,
 	folder?: string,
 ): string[] {
-	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
 	return [
 		"--no-warnings",
 		FIXTURE,
@@ -161,66 +166,60 @@ const SHOWN: Partial<
 	},
 };
 
-describe.runIf(packageDir !== undefined)(
-	"the hosted agent, beside pi's",
-	{ timeout: SESSION_PAIR_MS },
-	() => {
-		for (const [scenario, behaviour] of Object.entries(SCENARIOS)) {
-			it(behaviour, async () => {
-				const [ours, hosted] = await Promise.all([
-					observe("pi", scenario),
-					observe("hosted", scenario),
-				]);
-				expect(
-					hosted,
-					`the host's agent shows pi's listeners what pi's own does (${scenario})`,
-				).toEqual(ours);
-				const shown = Object.entries(SHOWN).find(([name]) => name === scenario);
-				if (shown)
-					expect(shown[1].what(hosted), `what ${scenario} shows`).toEqual(
-						shown[1].is,
-					);
-			});
-		}
-	},
-);
-
-describe.runIf(packageDir !== undefined)(
-	"the hosted agent after SIGKILL mid-tool",
-	{ timeout: SESSION_PAIR_MS },
-	() => {
-		it("carries the conversation on without running the tool again, in a file ordinary pi opens", async () => {
-			const folder = mkdtempSync(join(tmpdir(), "hosted-crash-"));
-			try {
-				expect(
-					await killed("crash-in-tool", folder),
-					"the host died in its tool",
-				).toBe("SIGKILL");
-				const reopened = await observe("hosted", "reopen", folder);
-				expect(
-					reopened.ran,
-					"the tool ran once, before the kill, and never again",
-				).toBe(1);
-				expect(
-					reopened.transcript.map((message) => message.role),
-					"the interrupted call has its result and the conversation its next answer",
-				).toEqual(["system", "user", "assistant", "toolResult", "assistant"]);
-				expect(
-					JSON.stringify(reopened.transcript[3]?.content),
-					"the result says what happened",
-				).toContain("was interrupted by a restart");
-				expect(
-					reopened.events.at(-1)?.type,
-					"pi saw the carried-on run end",
-				).toBe("agent_end");
-				const ordinary = await observe("pi", "inspect", folder);
-				expect(
-					ordinary.transcript,
-					"ordinary pi opens the session file to the same transcript",
-				).toEqual(reopened.transcript);
-			} finally {
-				rmSync(folder, { recursive: true, force: true });
-			}
+describe("the hosted agent, beside pi's", { timeout: SESSION_PAIR_MS }, () => {
+	for (const [scenario, behaviour] of Object.entries(SCENARIOS)) {
+		it(behaviour, async () => {
+			const [ours, hosted] = await Promise.all([
+				observe("pi", scenario),
+				observe("hosted", scenario),
+			]);
+			expect(
+				hosted,
+				`the host's agent shows pi's listeners what pi's own does (${scenario})`,
+			).toEqual(ours);
+			const shown = Object.entries(SHOWN).find(([name]) => name === scenario);
+			if (shown)
+				expect(shown[1].what(hosted), `what ${scenario} shows`).toEqual(
+					shown[1].is,
+				);
 		});
-	},
-);
+	}
+});
+
+describe("the hosted agent after SIGKILL mid-tool", {
+	timeout: SESSION_PAIR_MS,
+}, () => {
+	it("carries the conversation on without running the tool again, in a file ordinary pi opens", async () => {
+		const folder = mkdtempSync(join(tmpdir(), "hosted-crash-"));
+		try {
+			expect(
+				await killed("crash-in-tool", folder),
+				"the host died in its tool",
+			).toBe("SIGKILL");
+			const reopened = await observe("hosted", "reopen", folder);
+			expect(
+				reopened.ran,
+				"the tool ran once, before the kill, and never again",
+			).toBe(1);
+			expect(
+				reopened.transcript.map((message) => message.role),
+				"the interrupted call has its result and the conversation its next answer",
+			).toEqual(["system", "user", "assistant", "toolResult", "assistant"]);
+			expect(
+				JSON.stringify(reopened.transcript[3]?.content),
+				"the result says what happened",
+			).toContain("was interrupted by a restart");
+			expect(
+				reopened.events.at(-1)?.type,
+				"pi saw the carried-on run end",
+			).toBe("agent_end");
+			const ordinary = await observe("pi", "inspect", folder);
+			expect(
+				ordinary.transcript,
+				"ordinary pi opens the session file to the same transcript",
+			).toEqual(reopened.transcript);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+});

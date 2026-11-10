@@ -4,8 +4,9 @@
  * createEngine through SessionHost with pi's own runtime, a scripted
  * provider and a probe extension. A folder outlives a step, so the next
  * step plays the host's next start. Runs on a pi built with the host's
- * patches, named by PI_HOST_PACKAGE_DIR; without one it is skipped.
- * tests/host/engine/README.md gives the command that runs it.
+ * patches, found as tests/host/end-to-end/support/host-pi.ts finds it;
+ * without one each case is skipped saying how to get one, and fails
+ * under `pnpm test:host`. tests/host/engine/README.md says more.
  */
 import { execFile } from "node:child_process";
 import {
@@ -19,10 +20,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 
 const run = promisify(execFile);
-const packageDir = process.env.PI_HOST_PACKAGE_DIR;
+/** The host's pi, found again for each case, which skips or fails without one. */
+let packageDir = "";
 const FIXTURE = join(import.meta.dirname, "fixtures", "hosted-engine.mts");
 /** The entry script a pi install's package names as its pi command. */
 function piBin(root: string): string {
@@ -170,7 +173,6 @@ function sealedEnv(folder: string): NodeJS.ProcessEnv {
 }
 
 function args(folder: string, scenario: string): string[] {
-	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
 	return ["--no-warnings", FIXTURE, packageDir, folder, scenario];
 }
 
@@ -187,7 +189,6 @@ async function plainPi(
 	folder: string,
 	words: string,
 ): Promise<{ type: string; message: string }[]> {
-	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
 	const running = run(
 		process.execPath,
 		[join(packageDir, "dist", "bundle", "cli.js"), "-p", words],
@@ -233,7 +234,11 @@ async function killedStep(
 	}
 }
 
-describe.runIf(packageDir !== undefined)("the host's engine", () => {
+describe("the host's engine", () => {
+	beforeEach(({ skip }) => {
+		packageDir = hostPiFor(skip);
+	});
+
 	it(
 		"answers a conversation's first words with the conversation's own key, and closes it",
 		async () => {
@@ -389,7 +394,7 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 		"has the host's own pi pinned for subagents before any extension loads",
 		async () => {
 			const seen = await step(hostFolder(), "open");
-			const root = realpathSync(packageDir ?? "");
+			const root = realpathSync(packageDir);
 			expect(seen.installs).toEqual([
 				{
 					node: realpathSync(process.execPath),

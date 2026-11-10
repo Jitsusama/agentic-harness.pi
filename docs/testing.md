@@ -51,10 +51,13 @@ check to run before a merge. A new file counts only once git knows it
 lockfile, the vitest config or a setup file reaches every test, so it
 runs them all.
 
-`pnpm test:host` runs the end-to-end host checks, E1 to E5, on a pi
-built with the host's patches, which an ordinary check can't build:
+`pnpm test:host` is the host's one gate. It runs every host check that
+needs a real pi: the end-to-end ones (E1 to E8, the sealed host and the
+screens), the engine's and the parity tests (`tests/host/engine`,
+`tests/host/parity`), on a pi built with the host's patches, which an ordinary check can't build:
 elsewhere they skip, saying how to get one, and here they fail
-without one, since no CI runs them. A host's rollout runs it first;
+without one, since no CI runs them; any case that skips under it, for
+whatever reason, fails the run. A host's rollout runs it first;
 `tests/host/end-to-end/README.md` says where the pi is found.
 
 New library modules should ship with tests that assert

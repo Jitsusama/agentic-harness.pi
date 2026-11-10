@@ -11,7 +11,8 @@ host/.
 - `parity/`: records six scenarios on plain pi and on the host, from one
   install with this package's extensions, and fails on any difference beyond
   the host's durable journal. It needs a pi built with the host's patches, and
-  is skipped without one. Run it before merging a change to host/:
+  skips without one, saying how to get one. Run it before merging a change to
+  host/, with `pnpm test:host` or on one build:
 
 ```sh
 PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \

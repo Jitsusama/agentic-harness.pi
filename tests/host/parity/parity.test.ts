@@ -6,11 +6,14 @@
  * journal confirms each turn durable. Each scenario also checks, on plain
  * pi, that it did what it is for, so two sides that both skip it can't pass.
  *
- * It needs a pi built with the host's patches, named by
- * PI_HOST_PACKAGE_DIR, and is skipped without one. PI_PARITY_EXTENSIONS may
+ * It needs a pi built with the host's patches, found as
+ * tests/host/end-to-end/support/host-pi.ts finds it; without one each
+ * scenario is skipped saying how to get one, and fails under `pnpm
+ * test:host`. PI_PARITY_EXTENSIONS may
  * name a file listing more extension paths, one a line, to load on both
  * sides as well, and PI_PARITY_ROOT a folder to record under and keep, for
- * reading what differed. Run it before merging a change to host/:
+ * reading what differed. Run it before merging a change to host/, with
+ * `pnpm test:host`, or on one build:
  *
  *   PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
  *     tests/host/parity/parity.test.ts
@@ -26,11 +29,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 import { compareRecordings, expectedOfTheHost } from "./compare.ts";
 import { SCENARIOS, type Scenario } from "./mock-provider.ts";
 import { type Recording, record } from "./record.ts";
-
-const packageDir = process.env.PI_HOST_PACKAGE_DIR;
 
 /** Two recordings of a scenario, each loading every extension, on a loaded machine. */
 const SCENARIO_MS = 900_000;
@@ -124,39 +126,40 @@ function didItsPart(recording: Recording, scenario: Scenario): void {
 	}
 }
 
-describe.skipIf(packageDir === undefined)(
-	"the host beside plain pi, skipped without PI_HOST_PACKAGE_DIR",
-	() => {
-		// pi works in the folder's own path, past any symlink, and says it.
-		const kept = process.env.PI_PARITY_ROOT;
-		const root = kept
-			? realpathSync(kept)
-			: mkdtempSync(join(realpathSync(tmpdir()), "host-parity-"));
-		afterAll(() => {
-			if (!kept) rmSync(root, { recursive: true, force: true });
-		});
-		const loaded = packageDir === undefined ? [] : extensions();
+describe("the host beside plain pi", () => {
+	// pi works in the folder's own path, past any symlink, and says it.
+	const kept = process.env.PI_PARITY_ROOT;
+	const root = kept
+		? realpathSync(kept)
+		: mkdtempSync(join(realpathSync(tmpdir()), "host-parity-"));
+	afterAll(() => {
+		if (!kept) rmSync(root, { recursive: true, force: true });
+	});
 
-		for (const scenario of SCENARIOS)
-			it(
-				`${scenario}: sends the provider what pi sends and shows extensions what pi shows`,
-				async () => {
-					if (packageDir === undefined) return;
-					const options = { root, scenario, packageDir, extensions: loaded };
-					const pi = await record({ ...options, side: "pi" });
-					didItsPart(pi, scenario);
-					const hosted = await record({ ...options, side: "hosted" });
-					const unexpected = compareRecordings(
-						pi.dir,
-						hosted.dir,
-						scenario !== "command",
-					).filter((difference) => !expectedOfTheHost(difference));
-					expect(
-						unexpected,
-						`how the host differs from pi, beyond its durable journal (recorded under ${root})`,
-					).toEqual([]);
-				},
-				SCENARIO_MS,
-			);
-	},
-);
+	for (const scenario of SCENARIOS)
+		it(
+			`${scenario}: sends the provider what pi sends and shows extensions what pi shows`,
+			async ({ skip }) => {
+				const packageDir = hostPiFor(skip);
+				const options = {
+					root,
+					scenario,
+					packageDir,
+					extensions: extensions(),
+				};
+				const pi = await record({ ...options, side: "pi" });
+				didItsPart(pi, scenario);
+				const hosted = await record({ ...options, side: "hosted" });
+				const unexpected = compareRecordings(
+					pi.dir,
+					hosted.dir,
+					scenario !== "command",
+				).filter((difference) => !expectedOfTheHost(difference));
+				expect(
+					unexpected,
+					`how the host differs from pi, beyond its durable journal (recorded under ${root})`,
+				).toEqual([]);
+			},
+			SCENARIO_MS,
+		);
+});
