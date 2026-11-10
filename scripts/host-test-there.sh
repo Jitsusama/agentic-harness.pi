@@ -42,7 +42,8 @@ fi
 tools=()
 gitCore=$(git --exec-path)
 tools+=("$(echo "$gitCore" | cut -d/ -f1-4)")
-for command in node mycelium setsid systemd-notify ls grep sed find ps which diff; do
+# pi looks for fd and rg, and says so in every case's output when they're gone.
+for command in node mycelium setsid systemd-notify ls grep sed find ps which diff fd rg; do
   found=$(command -v "$command" || true)
   if [[ -z $found ]]; then
     echo "host-test-there: $command isn't on PATH, and the run needs it" >&2

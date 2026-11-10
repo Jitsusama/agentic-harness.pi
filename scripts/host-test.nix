@@ -61,6 +61,10 @@ derivation {
   deps = sent;
   source = tree;
   inherit rev scoped;
+  # The build user's own shell is /noshell, which script(1) would start, so
+  # every case that drives a terminal through it failed on a lender
+  # (5KBYD7, 10 November).
+  SHELL = "${bash}/bin/bash";
   PATH = builtins.concatStringsSep ":" (map (tool: "${store tool}/bin") tools);
   args = [
     "-c"
