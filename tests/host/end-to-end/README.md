@@ -4,7 +4,7 @@ A whole host as its own process, started as systemd starts it, under a
 sealed HOME, XDG folders and TMPDIR, driven over its control socket. It
 mirrors no source folder: what it checks spans the engine, the service
 and every conversation's harness. These are the integration checks E1
-to E5 of the keying design, and the ground they stand on.
+to E6 of the keying design, and the ground they stand on.
 
 sealed-host.test.ts proves that ground on a fake engine: two
 conversations served from the seal, one ended at close with the other
@@ -50,17 +50,36 @@ other, and once that one is closed the node no longer holds it while
 the other stays idle. A hosted conversation forgets its presence as it
 closes, since its host lives on (the keying design's 2.5).
 
+budgets.test.ts is E3: two conversations in one host, each opened on
+its own quest whose budget names its own file of variables, and each on
+its own scripted model, run one command and commit once. Each command
+sees only its own budget, variable, session and commit credit, and each
+commit credits only its own model.
+
 restart.test.ts is E4: one conversation stores a query's rows under a
 handle, the host is killed outright, and once a new host has resumed
 both, a steer to the old address reaches it and its query of the old
 handle answers.
+
+rollback.test.ts is E5, the rollback drill: one conversation is closed
+in the host and its log opened in a plain `pi --session`, which
+publishes the same session under the same address as a pi of its own,
+not a hosted one. It pings the other conversation, still in the host,
+and hears pong. The plain pi loads the scripted model as an extension.
+
+spawn.test.ts is E6, a quest's session spawned into a host: a plain pi
+orchestrating a parent quest spawns its child quest's session into the
+realm's attended host. The child's first words arrive, its presence and
+the node show it as the orchestration's, the orchestrator's `mesh_end`
+closes it alone through the host's socket, and a second spawn adopts it
+under the same id.
 
 Every file here is in the process lane, since each spawns node from
 node.
 
 ## The Host's Pi
 
-E1 to E5 run on a pi built with the host's patches, which an ordinary
+E1 to E6 run on a pi built with the host's patches, which an ordinary
 check can't build. `pnpm test:host` runs them on the pi
 `PI_HOST_PACKAGE_DIR` names (a pi-monorepo folder), else on the one under
 the link H2 keeps to the latest piHostRuntime build,
@@ -86,5 +105,7 @@ without it the check skips, or fails under `pnpm test:host`, saying so.
   session file and its tools' answers read as they grow, a steer written
   into an inbox), a sealed mycelium node, and the engines a host imports
   by path: the fake one, and H1's createEngine with the scripted model;
-  the screen host's process, working folders and the trust store that
-  judges them, and a viewer reading its screen.
+  the scripted model itself, the extension that gives a plain pi the
+  same model, and a plain pi driven over RPC; the screen host's process,
+  working folders and the trust store that judges them, and a viewer
+  reading its screen.

@@ -23,7 +23,8 @@ import {
 	toolAnswer,
 	untilAnswered,
 } from "./support/hosted-case.ts";
-import { ACCOUNT, SCRIPTED, SCRIPTED_TOO } from "./support/pi-engine.ts";
+import { harnessUnder, sealQuest } from "./support/quests.ts";
+import { ACCOUNT, SCRIPTED, SCRIPTED_TOO } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
@@ -44,48 +45,19 @@ function said(): string {
 	return `The host wrote:\n${host?.errors()}`;
 }
 
-/** The harness's folder under one of the seal's XDG folders. */
-function harnessUnder(variable: "XDG_CONFIG_HOME" | "XDG_DATA_HOME"): string {
-	return join(sealed.env[variable] ?? "", "pi", "agentic-harness.pi");
-}
-
 /**
  * Seal a budget laying `E3_KEY=key` and a quest drawing on it,
  * answering the quest's id.
  */
 async function questOnBudget(name: string, key: string): Promise<string> {
-	const budgets = join(harnessUnder("XDG_CONFIG_HOME"), "budgets");
+	const budgets = join(harnessUnder(sealed, "XDG_CONFIG_HOME"), "budgets");
 	await mkdir(budgets, { recursive: true });
 	await writeFile(
 		join(budgets, `${name}.env`),
 		`# label: ${name}\nE3_KEY=${key}\n`,
 	);
 	const quest = `QEST-20261109-E3${name.slice(-1).toUpperCase()}000`;
-	const folder = join(
-		harnessUnder("XDG_DATA_HOME"),
-		"quest-workflow",
-		"quests",
-		quest,
-	);
-	await mkdir(folder, { recursive: true });
-	await writeFile(
-		join(folder, "README.md"),
-		[
-			"---",
-			`id: ${quest}`,
-			"kind: quest",
-			"status: active",
-			"priority: active",
-			"rank: 1",
-			"parent: null",
-			"started: 2026-11-09",
-			"updated: 2026-11-09",
-			`budget: ${name}`,
-			"---",
-			`# ${name}`,
-			"",
-		].join("\n"),
-	);
+	await sealQuest(sealed, { id: quest, title: name, budget: name });
 	return quest;
 }
 
