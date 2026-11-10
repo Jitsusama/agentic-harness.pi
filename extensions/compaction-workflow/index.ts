@@ -130,6 +130,15 @@ const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);
 const KEPT_BEYOND_FLOOR = 30_000;
 
 /**
+ * How far past that estimate a compaction's keep may run and still say
+ * what the next one will keep. One that ran further kept what a late
+ * summary never covered: on 9 November two that had waited nine hours
+ * kept 510k and 616k, and counting rent only above that, the next
+ * compactions waited until 748k and 903k. Healthy ones keep about 100k.
+ */
+const OUTSIZED_KEEP_TOKENS = 100_000;
+
+/**
  * Output of a summary written from the conversation, thinking included,
  * before the session has one of its own to go by: the median of 36
  * real compactions replayed through it with the summary sized to what
@@ -283,8 +292,11 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		warming: warming.describe(),
 	}));
 
-	const retained = () =>
-		observedRetained ?? (firstTurnTokens ?? 0) + KEPT_BEYOND_FLOOR;
+	const keptEstimate = () => (firstTurnTokens ?? 0) + KEPT_BEYOND_FLOOR;
+	const retained = () => observedRetained ?? keptEstimate();
+	/** Whether a compaction kept far more than compactions keep. */
+	const outsized = (kept: number) =>
+		kept - keptEstimate() > OUTSIZED_KEEP_TOKENS;
 
 	/** What compacting a context of this size would cost now. */
 	const costAt = (
@@ -400,8 +412,12 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		idle.cancel();
 		const history = compactionHistory(ctx.sessionManager.getBranch());
 		firstTurnTokens = history.firstPromptTokens;
-		observedRetained = history.retainedTokens;
-		observedRewrite = history.rewriteTokens;
+		// The log names only the last compaction's keep; an outsized one
+		// leaves the estimate to stand in for it.
+		const usual =
+			history.retainedTokens !== null && !outsized(history.retainedTokens);
+		observedRetained = usual ? history.retainedTokens : null;
+		observedRewrite = usual ? history.rewriteTokens : null;
 		summaryOutput = history.summaryOutputTokens;
 		turnOverhead = history.turnOverhead;
 		awaitingRetained = false;
@@ -477,9 +493,13 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		if (awaitingRetained) {
 			// The first measured prompt after a compaction is what that
 			// compaction actually kept, and its cache write what keeping it
-			// cost: better estimates than any constant for the next one.
-			observedRetained = tokens;
-			observedRewrite = cacheWriteOf(event.message) ?? observedRewrite;
+			// cost: better estimates than any constant for the next one,
+			// unless it kept far more than compactions keep, when the last
+			// usual one still says it better.
+			if (!outsized(tokens)) {
+				observedRetained = tokens;
+				observedRewrite = cacheWriteOf(event.message) ?? observedRewrite;
+			}
 			awaitingRetained = false;
 		}
 		const prices = pricesOf(ctx);

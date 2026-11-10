@@ -51,6 +51,12 @@ each from measurement:
 - **$0.045** a turn beyond its reads: at 100k to 200k tokens under
   one-hour retention a turn cost $0.076, of which reading was $0.031.
 
+A compaction that kept more than 100k past the default keep (the
+session's first prompt plus 30k) says nothing about what the next will
+keep, so its keep and rewrite are not taken. On 9 November two
+compactions that had waited nine hours kept 510k and 616k; counted from
+there, the next ones waited until 748k and 903k.
+
 The cost is nearly flat around the optimum, so how well these inputs
 are measured matters more than where exactly it fires. That is why an
 earlier margin of √2 and a randomised experiment on it are gone: the
@@ -75,6 +81,11 @@ messages start at the earlier of pi's own cut and the entry after the
 covered point, so nothing is dropped that the summary did not see. A
 compaction asked for while a summary is being written waits for that
 one rather than writing a second.
+
+A summary the conversation has grown more than 100k tokens past since
+it was written is dropped and one written on the spot: everything after
+its point would stay verbatim and be read again every turn, which costs
+more than writing it again. It is logged as unused, with the sizes.
 
 Only when the summary cannot be written from the cache (see Writing the
 Summary) does the session compact on the spot, and the notice says

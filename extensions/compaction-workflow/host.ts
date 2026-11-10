@@ -52,6 +52,7 @@ import {
 import { emitOutcome } from "../../lib/compaction/outcome.ts";
 import {
 	keptBoundary,
+	outgrown,
 	pastCustomEntries,
 } from "../../lib/compaction/prepared.ts";
 import {
@@ -641,6 +642,14 @@ async function applicable(
 			reason: "the compaction asked for a focus it was written without",
 			unused: true,
 		};
+	}
+	const stale = outgrown(
+		taken.request.contextTokens,
+		event.preparation.tokensBefore,
+	);
+	if (stale) {
+		taken.controller.abort();
+		return { ok: false, reason: stale, unused: true };
 	}
 	const timed = taken.result ?? (await untilAborted(taken.done, event.signal));
 	if (!timed.written.ok) {
