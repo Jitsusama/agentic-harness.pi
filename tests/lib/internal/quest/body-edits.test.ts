@@ -260,6 +260,33 @@ describe("naming an item by its number", () => {
 	});
 });
 
+describe("naming an item in a plan whose items are not written yet", () => {
+	const DRAFTED =
+		"## Work\n\n- [ ] _first checklist item_\n\n## Open Questions\n";
+
+	it("says the only item is the template's, and where to write them", () => {
+		const result = setCheckbox(DRAFTED, "2", true);
+		expect(result).toMatchObject({ ok: false });
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain('No item reads "2"');
+		expect(result.reason).toContain("template's placeholder");
+		expect(result.reason).toContain("`section`");
+	});
+
+	it("reads the same for show as for tick", () => {
+		const result = itemOf(DRAFTED, "Write the tests");
+		expect(result).toMatchObject({ ok: false });
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("template's placeholder");
+	});
+
+	it("lists the items as before once one is written", () => {
+		const result = setCheckbox(`${DRAFTED}- [ ] 1. Real work\n`, "2", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).not.toContain("template's placeholder");
+	});
+});
+
 describe("naming an item by its position, in a document that numbers none", () => {
 	const LISTED = [
 		"- [x] Gate the tree",

@@ -158,6 +158,12 @@ function findItem(
 				)
 			: items.filter((i) => i.position === Number(wanted));
 	const matches = /^\d+$/.test(wanted) ? byNumber() : byText();
+	if (matches.length === 0 && items.every((i) => PLACEHOLDER.test(i.text))) {
+		return {
+			ok: false,
+			reason: `No item reads "${item.trim()}": the items are only the template's placeholders (${items.map((i) => `"${i.text.trim()}"`).join(", ")}), so this document's items are not written yet. Write them with \`section\` on the section that holds them (Work, in a plan), then name one.`,
+		};
+	}
 	if (matches.length === 0) {
 		return {
 			ok: false,
@@ -172,6 +178,14 @@ function findItem(
 	}
 	return { ok: true, match: matches[0] };
 }
+
+/**
+ * An item a template wrote as a hint, wholly in italics, such as a new
+ * plan's `_first checklist item_`. Four sessions from 2026-11-09 to
+ * 11-10 ticked or read item 2 of a plan still holding only that, and
+ * read the list back to find their items had never been written.
+ */
+const PLACEHOLDER = /^\s*_[^_]+_\s*$/;
 
 /** One checkbox item, as an outline lists it. */
 export interface OutlineItem {
