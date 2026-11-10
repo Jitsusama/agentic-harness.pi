@@ -16,9 +16,10 @@
 		// Programs a test runs in a node of its own.
 		"tests/**/fixtures/*.mts",
 		"vitest*.config.ts",
-		// An engine a sealed host process imports by path, which no static
-		// import names.
-		"tests/host/end-to-end/support/fake-engine.ts"
+		// The engines a sealed host process imports by path, whose `engine`
+		// no static import names.
+		"tests/host/end-to-end/support/fake-engine.ts",
+		"tests/host/end-to-end/support/pi-engine.ts"
 	],
 	"project": [
 		"extensions/**/*.ts",
