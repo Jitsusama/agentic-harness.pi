@@ -33,6 +33,7 @@ import { dockGate, type GateFactory } from "./gate-dock.ts";
 import { runGate } from "./gate-queue.ts";
 import { OVERLAID } from "./overlay.ts";
 import { trackPanel } from "./panel-registry.ts";
+import { onPanelScreen, type PanelScreen } from "./panel-screen.ts";
 
 /** A disposable panel, as pi's factories return one. */
 type Panel = Component & { dispose?(): void };
@@ -216,15 +217,18 @@ function showUntilGone<T>(
 				(t, theme, keybindings, done) => {
 					tui = t;
 					piClose = done;
-					const made = factory(t, theme, keybindings, close);
+					const screen = t.terminal;
+					const made = onPanelScreen(screen, () =>
+						factory(t, theme, keybindings, close),
+					);
 					if (made instanceof Promise) {
 						return made.then((p) => {
 							panel = p;
-							return p;
+							return drawnOn(screen, p);
 						});
 					}
 					panel = made;
-					return made;
+					return drawnOn(screen, made);
 				},
 				{
 					...OVERLAID,
@@ -243,6 +247,27 @@ function showUntilGone<T>(
 					reject(error);
 				},
 			);
+	});
+}
+
+/**
+ * The panel as pi is given it: drawn, and handed its keys, on the screen
+ * it is mounted on, so it sizes itself for that screen's rows and columns
+ * rather than the process's tty, which a host does not have. Everything
+ * else reaches the panel itself, its focus included.
+ */
+function drawnOn(screen: PanelScreen, panel: Panel): Panel {
+	return new Proxy(panel, {
+		get(target, key) {
+			const value: unknown = Reflect.get(target, key, target);
+			if (
+				(key !== "render" && key !== "handleInput") ||
+				typeof value !== "function"
+			)
+				return value;
+			return (...args: unknown[]): unknown =>
+				onPanelScreen(screen, () => Reflect.apply(value, target, args));
+		},
 	});
 }
 

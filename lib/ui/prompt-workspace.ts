@@ -29,6 +29,7 @@ import { frameRule } from "./frame.ts";
 import { mountPanel } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
+import { screenColumns } from "./panel-screen.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -78,7 +79,7 @@ function createWorkspaceController(
 	function done(result: WorkspaceDoneInput) {
 		rawDone(result ? { ...result, tabIndex: currentTab } : null);
 	}
-	let lastWidth = process.stdout.columns || 80;
+	let lastWidth = screenColumns() || 80;
 
 	const activeViewIndex = new Map<number, number>();
 	const contentCache = new Map<

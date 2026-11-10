@@ -29,6 +29,7 @@ import {
 } from "./option-list.ts";
 import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
+import { screenColumns } from "./panel-screen.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -95,7 +96,7 @@ function createTabbedController(
 	let optionIndex = 0;
 	let userOptionIndex = 0;
 	let editorMode = false;
-	let lastWidth = process.stdout.columns || 80;
+	let lastWidth = screenColumns() || 80;
 
 	const activeViewIndex = new Map<number, number>();
 	const contentCache = new Map<

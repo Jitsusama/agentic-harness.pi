@@ -52,6 +52,7 @@ import {
 import { frameRule, chord as keyed } from "./frame.ts";
 import { settleRecord } from "./gate-record.ts";
 import { type PanelRoom, withPanelRoom } from "./panel-room.ts";
+import { onPanelScreen } from "./panel-screen.ts";
 import { focusedIn, isEditor, rowsUnderGate } from "./pi-layout.ts";
 
 /** How long the editor must go untouched before a gate takes the keyboard. */
@@ -172,13 +173,17 @@ export function dockGate<T>(
 			...hop(focused),
 			focused,
 		};
-		return withPanelRoom(room, () => {
-			inner ??= factory(tui, theme, (result) => answer(result, "key"));
-			const lines = inner.render(at);
-			if (answered) return lines;
-			editing = room.editing;
-			return lines.at(-1) === frameRule(theme, at) ? lines.slice(0, -1) : lines;
-		});
+		return onPanelScreen(tui.terminal, () =>
+			withPanelRoom(room, () => {
+				inner ??= factory(tui, theme, (result) => answer(result, "key"));
+				const lines = inner.render(at);
+				if (answered) return lines;
+				editing = room.editing;
+				return lines.at(-1) === frameRule(theme, at)
+					? lines.slice(0, -1)
+					: lines;
+			}),
+		);
 	};
 
 	/** What the small form says the gate is: its title, or the note typed. */
@@ -357,14 +362,16 @@ export function dockGate<T>(
 				if (tui === undefined || inner === undefined) return true;
 				// Against the rows last shown, so a scroll is clamped to the
 				// height the person can see rather than the terminal's.
-				withPanelRoom(
-					{
-						rows: tui.terminal.rows,
-						allot: shape.ask,
-						...hop(true),
-						focused: true,
-					},
-					() => inner?.handleInput?.(data),
+				onPanelScreen(tui.terminal, () =>
+					withPanelRoom(
+						{
+							rows: tui.terminal.rows,
+							allot: shape.ask,
+							...hop(true),
+							focused: true,
+						},
+						() => inner?.handleInput?.(data),
+					),
 				);
 				return true;
 			},

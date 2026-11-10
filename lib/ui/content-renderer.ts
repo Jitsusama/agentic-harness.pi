@@ -17,6 +17,7 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth } from "@earendil-works/pi-tui";
+import { screenColumns } from "./panel-screen.ts";
 import { SCROLLBAR_GUTTER } from "./scroll-region.ts";
 
 /**
@@ -37,7 +38,7 @@ export function renderMarkdown(
 	// content functions get a huge width (10,000) so code and
 	// diffs can extend beyond the viewport, but prose still
 	// needs to wrap.
-	const cols = process.stdout.columns;
+	const cols = screenColumns();
 	const cappedWidth =
 		cols && cols > 0 ? Math.min(width, cols - SCROLLBAR_GUTTER) : width;
 
