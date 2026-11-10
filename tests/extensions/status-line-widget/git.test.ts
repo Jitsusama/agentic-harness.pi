@@ -28,6 +28,7 @@ import {
 	operation,
 	parseAnswer,
 } from "../../../extensions/status-line-widget/git.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 /** An answer in gitstatusd's fields, from the index's size on. */
 function answer(
@@ -63,6 +64,9 @@ function answer(
 }
 
 const none = () => null;
+
+/** How long the stand-in engine takes to answer, its `sleep 0.2`. */
+const ANSWER_MS = 200;
 
 describe("an engine's answer", () => {
 	it("reads a clean tree on a branch", () => {
@@ -205,16 +209,6 @@ describe("the engine, kept running", () => {
 	});
 	afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-	/** Settles once the stand-in engine has written `folder` down as asked. */
-	async function askedFor(folder: string): Promise<void> {
-		while (
-			!(existsSync(asked) && readFileSync(asked, "utf8").includes(folder))
-		) {
-			// Polls the file the engine writes, which no event announces.
-			await new Promise((resolve) => setTimeout(resolve, 10));
-		}
-	}
-
 	/** What the engine answers, settled once it has answered `count` times. */
 	function listen(count: number) {
 		const got: [string, GitState | false][] = [];
@@ -281,14 +275,16 @@ describe("the engine, kept running", () => {
 		const engine = new Engine(program, () => {}, none);
 		engine.ask(dir);
 		engine.ask(other);
-		await askedFor(dir);
+		await until(
+			"the engine to have the first question",
+			() => existsSync(asked) && readFileSync(asked, "utf8").includes(dir),
+		);
 		engine.stop();
-		// Long enough for the first answer, 0.2 s after its question, to come
-		// back and ask the held one: nothing is to happen, so only a pause shows it.
-		await new Promise((resolve) => setTimeout(resolve, 600));
+		// Three times the stand-in's 0.2 s answer, for the late answer to ask
+		// the held question, then for a new engine to write down its start.
+		await quietFor(ANSWER_MS, 3);
 		engine.ask(dir);
-		// Long enough for a new engine to start and write it down, were one started.
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await quietFor(ANSWER_MS, 3);
 
 		expect(readFileSync(starts, "utf8")).toBe("start\n");
 	});
