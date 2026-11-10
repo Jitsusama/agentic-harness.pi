@@ -37,6 +37,7 @@ import { piLibrary } from "./pi-library.ts";
 import {
 	type AgentSessionRuntime,
 	type EventBus,
+	loadProblems,
 	type PiSessions,
 	piBuiltInExtensions,
 	piSessions,
@@ -247,6 +248,9 @@ export async function createEngine(
 					extensionFactories: builtIns,
 				},
 			});
+			// What the CLI would print as it starts, with no terminal to print on.
+			for (const problem of loadProblems(services))
+				report(new Error(`Conversation ${sessionId}: ${problem}`));
 			const conversation = await openHostedConversation({
 				modules: pi.modules,
 				library,

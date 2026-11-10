@@ -5,6 +5,7 @@
  * no types the engine can import, so the shapes are declared here, as far
  * as the engine reaches, and picked from the loaded install by name.
  */
+import { isRecord } from "../../lib/internal/record.ts";
 import type { AuthContext } from "./auth-context.ts";
 import type { HostPiModules } from "./host-pi.ts";
 import type { AgentOptions, Model } from "./pi-types.ts";
@@ -51,6 +52,35 @@ export interface SessionServices {
 	readonly settingsManager: unknown;
 	readonly resourceLoader: unknown;
 	readonly diagnostics: unknown[];
+}
+
+/**
+ * What pi's CLI would print as a session's services load: each diagnostic
+ * of its services, and each extension the resource loader couldn't load,
+ * in the CLI's words. A host has no terminal to print them on, so it
+ * reports them.
+ */
+export function loadProblems(services: SessionServices): string[] {
+	const problems = services.diagnostics.flatMap((diagnostic) =>
+		isRecord(diagnostic) &&
+		diagnostic.type !== "info" &&
+		typeof diagnostic.message === "string"
+			? [diagnostic.message]
+			: [],
+	);
+	const loader = services.resourceLoader;
+	if (!isRecord(loader) || typeof loader.getExtensions !== "function")
+		return problems;
+	const extensions: unknown = loader.getExtensions();
+	const errors = isRecord(extensions) ? extensions.errors : undefined;
+	if (!Array.isArray(errors)) return problems;
+	for (const failure of errors) {
+		if (isRecord(failure) && typeof failure.path === "string")
+			problems.push(
+				`Failed to load extension "${failure.path}": ${String(failure.error)}`,
+			);
+	}
+	return problems;
 }
 
 /** What an extension may ask of the mode a session runs in. */
