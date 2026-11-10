@@ -33,7 +33,6 @@ try {
 	const run = await startHostProgram({
 		argv: process.argv.slice(2),
 		env: process.env,
-		execPath: process.execPath,
 	});
 	await run.stopped;
 	// A screen's timers or a viewer's socket can outlive the host's stop;

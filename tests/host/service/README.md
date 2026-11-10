@@ -31,8 +31,8 @@ process's signals and readiness: ready only once listening, parked with
 holds kept on a stop signal, the viewer bridge handed to serve, and no
 socket without a realm.
 program.test.ts checks what the host program refuses before it holds,
-pins or listens anything, and the environment and install it gives
-conversations. Its run against the real patched pi is a drill, not a
+pins or listens anything, the environment it gives conversations, the
+terminal it names and the theme it starts. Its run against the real patched pi is a drill, not a
 test here, since that pi is built outside this package;
 tests/scripts/pi-host.test.ts checks the exit status a unit reads.
 pi-resolution.test.ts checks the host program's resolve hook sends only

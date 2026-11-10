@@ -3,6 +3,7 @@
  * PI_PACKAGE_DIR and refused unless it carries every host patch, pi's
  * InteractiveMode as each conversation's screen, H1's engine over the
  * host's ownership, and the renewing gateway key, all run by runHost.
+ * The engine pins the host's pi for every hosted subagent.
  * What a restart can't fix (the command line, the realm, the pi install)
  * is judged before anything is held or listens, and refused as such, so
  * systemd stops restarting a host that would only be refused again.
@@ -11,7 +12,6 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
-import type { PiInstall } from "../../lib/subagent/install.ts";
 import { createEngine, loadHostPi } from "../engine/index.ts";
 import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
@@ -53,9 +53,6 @@ const VIEWER_TERMINAL = {
 	PI_HYPERLINKS: "1",
 } as const;
 
-/** The key pi's subagent library reads the parent's install from. */
-const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
-
 /** A host refused for what it was given, which no restart changes. */
 export class HostMisconfigured extends Error {
 	constructor(cause: unknown) {
@@ -73,8 +70,6 @@ export interface HostProgramOptions {
 	 * run: the viewers' terminal is named in it before the theme starts.
 	 */
 	readonly env: NodeJS.ProcessEnv;
-	/** The node running the host, which its subagents run on too. */
-	readonly execPath: string;
 	/** Where errors go; the journal by default. */
 	readonly report?: (error: unknown) => void;
 }
@@ -107,19 +102,10 @@ export function conversationBase(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	return base;
 }
 
-/** The install a hosted conversation's subagents run: the host's pi on the host's node. */
-export function hostInstall(packageDir: string, node: string): PiInstall {
-	return {
-		node,
-		entry: join(packageDir, "dist", "bundle", "cli.js"),
-		packageDir,
-	};
-}
-
 /**
  * Start the host: judge its configuration, then serve until a stop
  * signal. A configuration refused rejects with HostMisconfigured before
- * anything is held, pinned or listening.
+ * anything is held, named or listening.
  */
 export async function startHostProgram(
 	options: HostProgramOptions,
@@ -127,7 +113,6 @@ export async function startHostProgram(
 	const { argv, env } = options;
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
-	pinStartupInstall(hostInstall(configured.packageDir, options.execPath));
 	nameViewerTerminal(env);
 	configured.startTheme();
 	// The screens import pi's terminal library, which binds to the host's
@@ -221,13 +206,4 @@ export function themeStarter(
 			false,
 		]);
 	};
-}
-
-/**
- * Pin the install pi's subagent library hands every hosted subagent. A
- * hosted conversation can't read it from its own process, which is the
- * host's, so the host names it once, before any extension loads.
- */
-function pinStartupInstall(install: PiInstall): void {
-	Reflect.set(globalThis, STARTUP_INSTALL_KEY, install);
 }

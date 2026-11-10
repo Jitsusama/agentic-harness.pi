@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	conversationBase,
 	HostMisconfigured,
-	hostInstall,
 	hostPackageDir,
 	nameViewerTerminal,
 	startHostProgram,
@@ -108,21 +107,13 @@ describe("themeStarter", () => {
 	});
 });
 
-describe("hostPackageDir and hostInstall", () => {
+describe("hostPackageDir", () => {
 	it("takes only an absolute PI_PACKAGE_DIR", () => {
 		expect(hostPackageDir({ PI_PACKAGE_DIR: "/pi" })).toBe("/pi");
 		for (const env of [{}, { PI_PACKAGE_DIR: "" }, { PI_PACKAGE_DIR: "pi" }])
 			expect(() => hostPackageDir(env)).toThrow(
 				"PI_PACKAGE_DIR must name the host's pi install",
 			);
-	});
-
-	it("runs subagents on the host's node and the host's pi", () => {
-		expect(hostInstall("/pi", "/bin/node")).toEqual({
-			node: "/bin/node",
-			entry: "/pi/dist/bundle/cli.js",
-			packageDir: "/pi",
-		});
 	});
 });
 
@@ -153,7 +144,6 @@ describe("startHostProgram", () => {
 			const started = startHostProgram({
 				argv,
 				env,
-				execPath: process.execPath,
 				report: () => {},
 			});
 			await expect(started).rejects.toBeInstanceOf(HostMisconfigured);
