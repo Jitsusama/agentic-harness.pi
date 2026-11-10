@@ -72,12 +72,13 @@ describe("themeStarter", () => {
 	const pi = (theme: unknown, calls: unknown[][], created: unknown[][]) => ({
 		initTheme: (...args: unknown[]) => calls.push(args),
 		getAgentDir: () => "/agent",
-		SettingsManager: class {
-			static create(...args: unknown[]) {
+		// A function with a create member, as pi's class looks from outside.
+		SettingsManager: Object.assign(() => undefined, {
+			create: (...args: unknown[]) => {
 				created.push(args);
 				return { getTheme: () => theme };
-			}
-		},
+			},
+		}),
 	});
 
 	it("starts the theme the person's settings name, without a watcher, only when asked", () => {
