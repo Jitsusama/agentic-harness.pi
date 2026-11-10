@@ -251,6 +251,51 @@ describe("createTreeBroker", () => {
 		expect(cuts).toHaveLength(2);
 	});
 
+	it("keeps a tree named when its release is cut off or refused, so a second one takes it", async () => {
+		// A codemode script's time limit once stopped two World releases
+		// while git was still at work, after the record was gone: both
+		// trees stayed on disk with nothing able to name them (2AF2DH).
+		const forgotten: string[] = [];
+		const released: string[] = [];
+		let refusals = 1;
+		const provider: TreeProvider = {
+			id: "git-worktree",
+			specificity: 0,
+			appliesTo: () => true,
+			async ensure() {
+				return { path: "/trees/one" };
+			},
+			async release(held) {
+				if (refusals > 0) {
+					refusals -= 1;
+					throw new Error("The operation was aborted");
+				}
+				released.push(held.path);
+			},
+		};
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				forget: (path) => {
+					forgotten.push(path);
+				},
+				recall: () => (forgotten.includes(held.path) ? [] : [held]),
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(broker.release(mine)).rejects.toThrow(/aborted/);
+		expect(forgotten).toEqual([]);
+		expect(broker.held().map((tree) => tree.path)).toEqual(["/trees/one"]);
+
+		await broker.release(mine);
+		expect(released).toEqual(["/trees/one"]);
+		expect(forgotten).toEqual(["/trees/one"]);
+		expect(broker.held()).toEqual([]);
+	});
+
 	it("reports what it is holding", async () => {
 		const { provider } = fakeProvider("git-worktree");
 		const broker = createTreeBroker([provider]);
