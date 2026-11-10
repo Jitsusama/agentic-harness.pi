@@ -457,30 +457,42 @@ function sessionFolderName(env: NodeJS.ProcessEnv): string {
 const freshSettings = new Set<string>();
 
 /**
- * What a fenced command is told for gcloud, given `grant`: the token, the
- * project and the session's own settings folder, or nothing. gcloud reads
- * a token from its environment before any login, so a command acts as the
- * account the broker minted for. The folder is emptied the first time a
- * process hands it on, so a session resumed starts from no settings an
- * earlier command, or a stranger's text, left there.
+ * What a fenced command is told for gcloud, given `grant`: the session's
+ * own settings folder always, and the token and project when there is a
+ * grant. gcloud reads a token from its environment before any login, so a
+ * command acts as the account the broker minted for. Without one, the
+ * empty folder makes gcloud say it has no credentialed account, where the
+ * person's own folder, which the fence refuses, made it die calling its
+ * install corrupt. The folder is emptied the first time a process hands
+ * it on, so a session resumed starts from no settings an earlier command,
+ * or a stranger's text, left there.
  */
 export function cloudVariables(
 	grant: CloudGrant | undefined,
 	home: string,
 	env: NodeJS.ProcessEnv,
 ): Record<string, string> {
-	if (!grant || "reason" in grant) return {};
 	const settings = join(sandboxFolders(home).gcloud, sessionFolderName(env));
 	if (!freshSettings.has(settings)) {
 		rmSync(settings, { recursive: true, force: true });
 		freshSettings.add(settings);
 	}
 	mkdirSync(settings, { recursive: true, mode: 0o700 });
+	if (!grant || "reason" in grant) return { CLOUDSDK_CONFIG: settings };
 	return {
 		CLOUDSDK_AUTH_ACCESS_TOKEN: grant.token,
 		CLOUDSDK_CORE_PROJECT: grant.project,
 		CLOUDSDK_CONFIG: settings,
 	};
+}
+
+/**
+ * Starts a fenced session's broker minting its first cloud token now,
+ * rather than at its first command, so the commands a first turn runs
+ * side by side don't all meet a token still on its way.
+ */
+export function askTheCloudAhead(sandbox: Sandbox): void {
+	if (sandbox.kind === "strict") sandbox.gcloud?.();
 }
 
 /**

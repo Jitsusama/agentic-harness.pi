@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
 import {
+	askTheCloudAhead,
 	NIX_DOOR,
 	onPath,
 	type Sandbox,
@@ -385,22 +386,47 @@ describe("a command in the sandbox", () => {
 		expect(statSync(settings).mode & 0o777).toBe(0o700);
 	});
 
-	it("tells a command naming gcloud why it has no token, and hands it none", async () => {
+	it("tells a command naming gcloud why it has no token, and hands it none but its own empty settings", async () => {
 		const unbrokered = {
 			...sandbox,
 			gcloud: () => ({ reason: "gcloud-broker isn't on this machine" }),
 		};
+		const home = join(folder, "unbrokered-home");
+		const work = join(home, "work");
+		mkdirSync(work, { recursive: true });
+		const settings = join(sandboxFolders(home).gcloud, `pid-${process.pid}`);
+		const [before, session] = [process.env.HOME, process.env.PI_SESSION_ID];
+		process.env.HOME = home;
+		delete process.env.PI_SESSION_ID;
 		const named = await run(
 			unbrokered,
 			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
-			'command -v gcloud >/dev/null; echo "token:${CLOUDSDK_AUTH_ACCESS_TOKEN-unset} ${CLOUDSDK_CONFIG-unset}"',
-		);
+			'command -v gcloud >/dev/null; echo "token:${CLOUDSDK_AUTH_ACCESS_TOKEN-unset} ${CLOUDSDK_CORE_PROJECT-unset}"; echo "settings:$CLOUDSDK_CONFIG"; ls -A "$CLOUDSDK_CONFIG"; echo listed',
+			work,
+		).finally(() => {
+			process.env.HOME = before;
+			if (session === undefined) delete process.env.PI_SESSION_ID;
+			else process.env.PI_SESSION_ID = session;
+		});
 		expect(named).toContain(
 			"pi: gcloud has no token in the sandbox: gcloud-broker isn't on this machine",
 		);
 		expect(named).toContain("token:unset unset");
+		expect(named).toContain(`settings:${settings}\nlisted`);
 		const other = await run(unbrokered, "echo plain");
 		expect(other).not.toContain("pi: gcloud");
+	});
+
+	it("has a fenced session's broker start minting before its first command", () => {
+		const asked: string[] = [];
+		const gcloud = () => {
+			asked.push("asked");
+			return { reason: "still minting" };
+		};
+		askTheCloudAhead({ ...sandbox, gcloud });
+		askTheCloudAhead({ kind: "none" });
+		askTheCloudAhead({ kind: "refused", reason: "no landrun here" });
+		expect(asked).toEqual(["asked"]);
 	});
 
 	it("runs nothing when the sandbox was refused, and says why", async () => {
