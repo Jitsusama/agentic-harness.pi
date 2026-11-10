@@ -215,22 +215,43 @@ export function ownWants(owner: string): OwnWants {
  * notification of the same thing reached Joel twice, and one the
  * launcher never withdrew. Kept in a cell, like the wants, so a
  * reload's old copy and new one count the same showing. The answer
- * hides from the session that showed, wherever it is called.
+ * hides from the session that showed, wherever it is called, and only
+ * from the count it raised: once the wants are forgotten, a showing
+ * from before can't hide one made since.
  */
 export function showWants(): () => void {
-	const shown = sessionCell<number>(SHOWN);
-	shown.set((shown.get() ?? 0) + 1);
+	const shown = showing();
+	shown.count += 1;
 	let hidden = false;
 	return () => {
 		if (hidden) return;
 		hidden = true;
-		shown.set(Math.max(0, (shown.get() ?? 0) - 1));
+		shown.count = Math.max(0, shown.count - 1);
 	};
+}
+
+/** How many things show a session's wants, as one record its answers lower. */
+interface Shown {
+	count: number;
+}
+
+/**
+ * The session's showing record. A copy loaded before this one kept a bare
+ * count under the same name, which a reload across them finds and carries
+ * into the record.
+ */
+function showing(): Shown {
+	const cell = sessionCell<Shown | number>(SHOWN);
+	const there = cell.get();
+	if (typeof there === "object") return there;
+	const made = { count: typeof there === "number" ? there : 0 };
+	cell.set(made);
+	return made;
 }
 
 /** Whether something shows the session's wants to the person. */
 export function wantsShown(): boolean {
-	return (sessionCell<number>(SHOWN).get() ?? 0) > 0;
+	return showing().count > 0;
 }
 
 /** Forget the session's wants, their owners and their showing. For tests. */

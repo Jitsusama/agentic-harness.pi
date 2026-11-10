@@ -32,12 +32,9 @@ lib/core/web/procs.ts:pid 1
 lib/core/work/memory.ts:pid 1
 lib/core/work/sweep.ts:pid 3
 lib/guardian/policy.ts:global 1
-lib/guardian/report.ts:global 1
 lib/internal/away/machine.ts:pid 1
-lib/internal/away/state.ts:global 1
 lib/internal/carry/changes.ts:pid 1
 lib/internal/guardian/registry.ts:global 1
-lib/internal/links/press.ts:global 1
 lib/internal/people/resolvers.ts:global 1
 lib/internal/priority/awaited.ts:global 1
 lib/internal/priority/background.ts:pid 1
@@ -61,13 +58,10 @@ lib/internal/reload/said.ts:pid 1
 lib/internal/reload/slot.ts:global 1
 lib/internal/reload/stale-rejections.ts:global 1
 lib/internal/sandbox.ts:pid 1
-lib/internal/session/carried-model.ts:global 2
 lib/internal/session/left.ts:global 1
 lib/internal/session/repo-rules.ts:global 1
 lib/internal/session/rollover.ts:global 1
-lib/internal/session/wants.ts:global 3
 lib/internal/stray/guard.ts:global 1
-lib/internal/verification/signal.ts:global 1
 lib/internal/write-whole.ts:pid 1
 lib/mesh/hand.ts:pid 1
 lib/mesh/message.ts:pid 1
