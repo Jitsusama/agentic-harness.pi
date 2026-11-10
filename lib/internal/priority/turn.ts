@@ -37,6 +37,7 @@ import {
 	leastGibOfCommand,
 	NEEDS_GIB,
 	needsGibOfCommand,
+	PUSH_GIB,
 	walkOf,
 	whatOf,
 } from "./queue.ts";
@@ -179,12 +180,24 @@ export function queuedCommand(
 		kind !== "world-walk" &&
 		cwd !== undefined &&
 		(queueing.sendsWholeRun?.(command, cwd) ?? false);
+	const walk = kind === "world-walk" ? walkOf(command, where) : undefined;
+	// A push of World leaves out its LFS scan when it holds no LFS file
+	// (pushes.ts); without the hooks placed it runs them as it would.
+	const hooks =
+		walk === "push" && placePushHooks(queueing.folder.dir)
+			? pushesLine(queueing.folder.dir)
+			: undefined;
+	// A push that leaves out its scan walks no packs, so it is held to
+	// what it uses rather than to a walk's (queue.ts's `PUSH_GIB`).
+	const walkGib = hooks
+		? Math.max(PUSH_GIB, seen ?? 0)
+		: Math.max(NEEDS_GIB[kind], seen ?? 0);
 	// A step that runs a zone's evaluation tests holds the command to
 	// theirs at least, since earlier runs may have stopped short of them.
 	const needsGib = Math.max(
 		leastGibOfCommand(command),
 		kind === "world-walk"
-			? Math.max(NEEDS_GIB[kind], seen ?? 0)
+			? walkGib
 			: sent
 				? Math.max(NEEDS_GIB[kind], CHANGED_CHECKS_SENT_GIB)
 				: (seen ?? needsGibOfCommand(kind, command)),
@@ -192,9 +205,9 @@ export function queuedCommand(
 	// A step past the one named that needs more, as changed-checks after a
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =
-		needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what);
+		hooks !== undefined ||
+		(needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what));
 	const lastRanS = queueing.folder.ranFor(what);
-	const walk = kind === "world-walk" ? walkOf(command, where) : undefined;
 	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
 	// A build of checks is asked what it will build before its turn, since
 	// its text can't say whether a VM runs (plan.ts); quick work is cached.
@@ -226,12 +239,6 @@ export function queuedCommand(
 	}
 	const fetches = walk === "main-fetch" ? worldGit() : undefined;
 	const waits = wait(job.id, plan ? planLines(plan) : [], fetches);
-	// A push of World leaves out its LFS scan when it holds no LFS file
-	// (pushes.ts); without the hooks placed it runs them as it would.
-	const hooks =
-		walk === "push" && placePushHooks(queueing.folder.dir)
-			? pushesLine(queueing.folder.dir)
-			: undefined;
 	// What holds a walk's slot runs where the agents' disk target holds,
 	// since every other walk waits on it (shared-slice.ts).
 	const run =

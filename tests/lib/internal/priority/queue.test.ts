@@ -23,6 +23,7 @@ import {
 	needsGibOfCommand,
 	nextTurn,
 	PASS_AFTER_MS,
+	PUSH_GIB,
 	QUICK_OUTRUN_MS,
 	RAMP_MS,
 	RULES,
@@ -78,6 +79,45 @@ describe("why each job waits", () => {
 		const jobs = [older("a", 9_000)];
 		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
 		expect(waitReasons(jobs, pressed, NOW).get("a")).toBe("memory");
+	});
+
+	// 10 November: pushes of World that peaked at 3 MB and ran 3 to 14 s
+	// waited 481 to 618 s on memory, booked as 6 GiB walks (WJATIN).
+	it("gives a small push its quick turn ahead of a flake check, while memory is pressed", () => {
+		const jobs = [
+			older("check", 9_000, {
+				what: "nix flake check",
+				needsGib: EVALUATION_GIB,
+			}),
+			older("push", 8_000, {
+				kind: "world-walk",
+				walk: "push",
+				what: "git push origin x",
+				needsGib: PUSH_GIB,
+				quick: true,
+			}),
+		];
+		const pressed = {
+			...ROOMY,
+			availableGib: 8,
+			memoryPressure: MOST_MEMORY_PRESSURE,
+		};
+
+		expect(nextTurn(jobs, pressed, NOW)?.id).toBe("push");
+		expect(Object.fromEntries(waitReasons(jobs, pressed, NOW))).toEqual({
+			check: "memory",
+			push: "order",
+		});
+	});
+
+	// A build's Nix builds are the daemon's, and outside what it was seen
+	// to hold, so a quick build booked small may hold far more.
+	it("holds a quick build while memory is pressed, however small it was booked", () => {
+		const jobs = [older("quick", 9_000, { quick: true, needsGib: PUSH_GIB })];
+		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
+
+		expect(nextTurn(jobs, pressed, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, pressed, NOW).get("quick")).toBe("memory");
 	});
 
 	it("says vms when the VMs allowed at once are running", () => {
