@@ -35,6 +35,7 @@ lib/core/session/identity.ts:global 1 The seam: one AsyncLocalStorage carrying e
 lib/core/session/slot.ts:global 3 The seam: plain pi's slots stay on their own process symbols, and hosted slots are keyed by session in one process map (H1 for 85PKB2, 2026-11-10).
 lib/core/web/browser.ts:global 2 One Chrome and one profile per process, shared by every conversation in a host, whose pages each conversation opens and closes as its own (H1 for 85PKB2, 2026-11-10).
 lib/core/web/browser.ts:pid 3 The profile and owner record name the process that launched Chrome, and a terminating signal is re-raised at the process after Chrome is killed (H1 for 85PKB2, 2026-11-10).
+lib/core/web/session/recording.ts:global 1 The one trace permit for the process, as Chrome is one per process and records one trace at a time; a permit per module copy let two conversations trace it at once (H1 for 85PKB2, 2026-11-10).
 lib/core/web/procs.ts:pid 1 Skips the process itself when listing Chromes that hold the profile (H1 for 85PKB2, 2026-11-10).
 lib/core/work/memory.ts:pid 1 Names a record's staging file with a random tail, written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).
 lib/core/internal/file-lock.ts:global 1 One queue of writers per path for the whole process, so every copy of the module pi loads, one per conversation in a host, waits its turn in-process and never meets a lock file naming its own pid while that lock is live (H1 for 85PKB2, 2026-11-10).
@@ -48,6 +49,7 @@ lib/internal/quest/process-liveness.ts:pid 3 The process's own identity, its pid
 lib/mesh/hand.ts:pid 1 Names a subagent's hand only when it has no run id, no subagent id and no session; a subagent is a process of its own (H1 for 85PKB2, 2026-11-10).
 lib/mesh/message.ts:pid 1 The sender's pid on plain pi; hosted, senderIdentity names the host's owner pid and says it is hosted (H1 for 85PKB2, 2026-11-10).
 lib/mesh/present.ts:global 2 One connection to the node per process, which the kernel closes when the process ends, and the listeners each load adds and takes back itself (H1 for 85PKB2, 2026-11-10).
+lib/mesh/transport.ts:global 1 The last stamp for the process, so ids rise across every conversation's copy of the module and no reader passes a later message by (H1 for 85PKB2, 2026-11-10).
 lib/mesh/waiting.ts:pid 1 Names a waiting file's temporary copy, written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).
 extensions/work-integration/sweep.ts:pid 1 The sweep log names the process that swept, for reading afterwards; a host's sweeps are its own whichever conversation they serve (MDRIRB, 2026-11-09).
 lib/guardian/policy.ts:global 1 Holds each guard's declaration and the user's package config, one file for every conversation; a session's own overrides are already keyed apart by the pi:guard-session-modes slot (2QZBX9 with 85PKB2, 2026-11-10).

@@ -13,6 +13,17 @@ import { folderTransport } from "../../../lib/mesh/transport.ts";
 
 let dir: string;
 
+/** A wall clock that stands still, so every id falls in one millisecond. */
+const FROZEN_MS = 1_800_000_000_000;
+
+type Transport = typeof import("../../../lib/mesh/transport.ts");
+
+/** A fresh copy of the module, as pi loads one for each conversation. */
+async function loadedAgain(): Promise<Transport> {
+	vi.resetModules();
+	return import("../../../lib/mesh/transport.ts");
+}
+
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "mesh-transport-"));
 });
@@ -64,6 +75,24 @@ describe("the folder transport", () => {
 		);
 
 		expect(transport.ids()).toEqual(sent.map(({ id }) => id));
+	});
+
+	it("gives ids that rise across every copy of itself in one process", async () => {
+		// A host loads a fresh copy of this module for each conversation,
+		// all in one process, so one copy's burst within a millisecond
+		// must not leave the next copy's id sorting before it.
+		vi.spyOn(Date, "now").mockReturnValue(FROZEN_MS);
+		const first = await loadedAgain();
+		const second = await loadedAgain();
+
+		const burst = Array.from({ length: 3 }, () =>
+			first.stampId({ from: "AAAAAA", pid: 1 }),
+		);
+		const after = second.stampId({ from: "BBBBBB", pid: 1 });
+
+		const lastOfBurst = first.stampedAt(burst.at(-1) ?? "") ?? 0;
+		expect(second.stampedAt(after)).toBeGreaterThan(lastOfBurst);
+		vi.restoreAllMocks();
 	});
 
 	it("passes over a file that is not a message", () => {

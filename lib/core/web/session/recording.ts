@@ -14,6 +14,7 @@
  * a reader wondering why should be able to find out.
  */
 
+import { processGlobal } from "../../../internal/process-global.ts";
 import type { TraceProfile } from "../perf/trace.ts";
 
 /** A recording in progress, and who asked for it. */
@@ -31,7 +32,15 @@ export interface RecordingRefused {
 	readonly held: Recording;
 }
 
-let current: Recording | undefined;
+/**
+ * The permit, held once for the process like the browser it guards: a
+ * host loads a fresh copy of this module for each of its conversations,
+ * and a permit per copy would let two of them trace the one browser.
+ */
+const permit = processGlobal<{ current?: Recording }>(
+	"agentic-harness.web.recording.v1",
+	() => ({}),
+);
 
 /**
  * Claim the single recording permit.
@@ -45,6 +54,7 @@ export function claimRecording(
 	session: string,
 	profiles: readonly TraceProfile[],
 ): Recording | RecordingRefused {
+	const current = permit.current;
 	if (current !== undefined) {
 		const since = current.startedAt.toISOString().slice(11, 19);
 		return {
@@ -55,18 +65,19 @@ export function claimRecording(
 			held: current,
 		};
 	}
-	current = { session, profiles, startedAt: new Date() };
-	return current;
+	const started = { session, profiles, startedAt: new Date() };
+	permit.current = started;
+	return started;
 }
 
 /** Release the permit. Safe to call when nothing is held. */
 export function releaseRecording(): void {
-	current = undefined;
+	permit.current = undefined;
 }
 
 /** The recording in progress, for any session that wants to report it. */
 export function recordingInProgress(): Recording | undefined {
-	return current;
+	return permit.current;
 }
 
 /**

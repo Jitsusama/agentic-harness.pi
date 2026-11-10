@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	claimRecording,
 	describeRecording,
@@ -40,6 +40,18 @@ describe("claimRecording", () => {
 		const second = claimRecording("search", ["frames"]);
 
 		expect(held(second)?.session).toBe("search");
+	});
+
+	it("refuses a claim from another copy of itself in the same process", async () => {
+		// A host loads a fresh copy of this module for each conversation,
+		// and they all drive the one browser, which records one trace.
+		vi.resetModules();
+		const other = await import("../../../../lib/core/web/session/recording.ts");
+		claimRecording("checkout", ["async"]);
+
+		const second = other.claimRecording("search", ["frames"]);
+
+		expect(second).toHaveProperty("refusal");
 	});
 
 	it("has nothing in progress before anyone claims", () => {
