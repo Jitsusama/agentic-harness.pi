@@ -40,8 +40,7 @@ export function piFromHost(packageDir: string) {
 		context: Context,
 		next: NextResolve<Context, Result>,
 	): Result =>
-		specifier.startsWith(PI_SCOPE) &&
-		!context.parentURL?.startsWith(inside)
+		specifier.startsWith(PI_SCOPE) && !context.parentURL?.startsWith(inside)
 			? next(specifier, { ...context, parentURL: root })
 			: next(specifier, context);
 }

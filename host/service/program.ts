@@ -12,7 +12,6 @@ import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import type { PiInstall } from "../../lib/subagent/install.ts";
 import { createEngine, loadHostPi } from "../engine/index.ts";
-import { hostedModeOf, hostScreens } from "../screen/screens.ts";
 import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
@@ -102,6 +101,10 @@ export async function startHostProgram(
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
 	pinStartupInstall(hostInstall(configured.packageDir, options.execPath));
+	// The screens import pi's terminal library, which binds to the host's
+	// pi, so they load only once that pi is judged whole: a refused one is
+	// said as a refusal, not as a module that can't be found.
+	const { hostScreens, hostedModeOf } = await import("../screen/screens.ts");
 	const screens = hostScreens({
 		create: hostedModeOf(configured.interactiveMode),
 		report,
