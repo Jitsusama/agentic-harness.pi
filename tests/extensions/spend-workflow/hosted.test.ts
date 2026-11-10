@@ -168,8 +168,8 @@ it("records headless hosted turn hooks in the host log, not either conversation 
 it("keeps provider history per conversation and retries an entry that failed to append", async () => {
 	const pi = fakePi();
 	recordWhoServed(pi);
-	const a = context("a"),
-		b = context("b");
+	const a = context("a");
+	const b = context("b");
 	const response = { headers: { "x-shopify-proxy-provider": "bedrock" } };
 	await fire(pi, "after_provider_response", a, response);
 	await fire(pi, "after_provider_response", b, response);
@@ -192,8 +192,8 @@ it("keeps provider history per conversation and retries an entry that failed to 
 });
 
 it("registers fan-out spend with explicit ctx and disposes only its own sink", async () => {
-	const a = fakePi(),
-		b = fakePi();
+	const a = fakePi();
+	const b = fakePi();
 	withSession("a", () => spendWorkflow(a));
 	withSession("b", () => spendWorkflow(b));
 	// Ambient B must not choose the recorder for A's explicit context.
@@ -232,8 +232,8 @@ it("registers fan-out spend with explicit ctx and disposes only its own sink", a
 
 it("reads each footer's budget from its conversation, even under another ambient session", async () => {
 	for (const id of ["a", "b"]) {
-		const pi = fakePi(),
-			statuses: (string | undefined)[] = [];
+		const pi = fakePi();
+		const statuses: (string | undefined)[] = [];
 		registerBudgetItem(pi, {
 			exec: () => async () => ({ code: 127, stdout: "", stderr: "absent" }),
 			listPrice: () => 0,

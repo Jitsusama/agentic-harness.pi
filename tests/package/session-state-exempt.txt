@@ -7,5 +7,6 @@ extensions/reload-workflow/follow.ts:global 1 One follower per process watches t
 extensions/reload-workflow/follow.ts:pid 1 Places a session with no id yet in the follower's spread, which runs only on plain pi (MDRIRB, 2026-11-09).
 extensions/reload-workflow/lifecycle.ts:global 1 Marks which loaded/<pid> file this process has written, since there is one per process: in a host every conversation's load names the host's file, and none takes it back (MDRIRB, 2026-11-09).
 extensions/review-integration/engine.ts:pid 1 Names a session pi has not yet reported, with a random tail; pi loads each extension as a fresh module, so each conversation in a host has its own name (MDRIRB, 2026-11-09).
+extensions/spend-workflow/resources.ts:global 3 CPU, I/O and memory counters are process totals, so one baseline per process keeps them from being counted twice; a host writes them to its own file and row, never apportioned to a conversation or quest (85PKB2, 2026-11-09).
 extensions/shell-workflow/reap.ts:pid 1 The reaper spares the process running it, which on a host is the host itself: no conversation's stop may kill it (85PKB2, 2026-11-09).
 extensions/work-integration/sweep.ts:pid 1 The sweep log names the process that swept, for reading afterwards; a host's sweeps are its own whichever conversation they serve (MDRIRB, 2026-11-09).
