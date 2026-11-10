@@ -20,6 +20,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
 	EngineKey,
+	EngineScreens,
 	HostEngine,
 } from "../../../../host/engine/contract.ts";
 import { createEngine } from "../../../../host/engine/engine.ts";
@@ -96,6 +97,73 @@ const keysSeen: unknown[] = [];
 const derived: string[] = [];
 /** The variable the fixture's launch environment sets. */
 const OPENED_AS = "OPENED_AS";
+/** What the engine reported, in this run. */
+const reported: string[] = [];
+/** Project folders, each with an extension of its own that notes its loads in projectLoads. */
+const projects = join(folder, "projects");
+const projectLoads = join(folder, "project-loads.jsonl");
+/** The label pi's trust question offers for trusting a folder for this session alone. */
+const TRUST_THIS_SESSION = "Trust (this session only)";
+/** How long a condition the fixture waits on may take, and how often it looks. */
+const UNTIL_MS = 60_000;
+const LOOK_MS = 10;
+
+/** A question the fixture's screens were asked about a folder, and what settles it. */
+interface TrustAsked {
+	readonly sessionId: string;
+	readonly cwd: string;
+	readonly title: string;
+	readonly labels: readonly string[];
+	readonly answer: (label: string | undefined) => void;
+}
+const trustAsked: TrustAsked[] = [];
+const screensOpened = new Set<string>();
+const screensClosed: string[] = [];
+
+/** Screens that bind nothing, note what they are handed, and hold each trust question for the scenario to answer; a close settles it unanswered. */
+function trustScreens(): EngineScreens {
+	return {
+		askProjectTrust: (sessionId, cwd, title, labels) =>
+			new Promise((answer) => {
+				trustAsked.push({ sessionId, cwd, title, labels, answer });
+			}),
+		opened: (view) => {
+			screensOpened.add(view.sessionId);
+		},
+		rebound: () => {},
+		closed: (sessionId) => {
+			screensClosed.push(sessionId);
+			for (const asked of trustAsked)
+				if (asked.sessionId === sessionId) asked.answer(undefined);
+		},
+	};
+}
+
+/** A project folder holding an extension of its own, which pi loads only where the folder is trusted. */
+function project(name: string): string {
+	const dir = join(projects, name);
+	mkdirSync(join(dir, ".pi", "extensions"), { recursive: true });
+	writeFileSync(
+		join(dir, ".pi", "extensions", "project.ts"),
+		[
+			'import { appendFileSync } from "node:fs";',
+			"export default function () {",
+			`\tappendFileSync(${JSON.stringify(projectLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded: name })}\n`)});`,
+			"}",
+			"",
+		].join("\n"),
+	);
+	return realpathSync(dir);
+}
+
+/** Wait until a condition holds, refusing the run once it has waited too long. */
+async function until(what: string, condition: () => boolean): Promise<void> {
+	const deadline = Date.now() + UNTIL_MS;
+	while (!condition()) {
+		if (Date.now() > deadline) throw new Error(`Gave up waiting until ${what}`);
+		await new Promise((later) => setTimeout(later, LOOK_MS));
+	}
+}
 
 const say =
 	(text: string) => (_context: unknown, options: { apiKey?: unknown }) => {
@@ -107,6 +175,8 @@ interface Scenario {
 	responses: () => unknown[];
 	/** Whether pi loads this package, as Joel's settings have it, beside the probe. */
 	harness?: true;
+	/** The screens the engine hands conversations to; none binds them with no interface. */
+	screens?: () => EngineScreens;
 	run: (
 		engine: HostEngine,
 		host: SessionHost,
@@ -277,6 +347,62 @@ const scenarios: Record<string, Scenario> = {
 			return seen;
 		},
 	},
+	/**
+	 * Open in folders holding their own extension: one with nobody to ask,
+	 * one pi's trust store trusts, one whose screen asks and is answered, and
+	 * one closed while its screen asks.
+	 */
+	trust: {
+		responses: () => [],
+		screens: trustScreens,
+		run: async (engine, host) => {
+			const nobodyDir = project("nobody");
+			const storedDir = project("stored");
+			const askedDir = project("asked");
+			const closingDir = project("closing");
+			writeFileSync(
+				join(agentDir, "trust.json"),
+				JSON.stringify({ [storedDir]: true }),
+			);
+			const nobody = await open(engine, {}, { cwd: nobodyDir });
+			const stored = await open(engine, {}, { cwd: storedDir });
+			const asked = await open(engine, {}, { cwd: askedDir, attended: true });
+			const answeredWhileAsking =
+				engine.view(asked) === undefined && trustAsked.length === 1;
+			const question = trustAsked[0];
+			question?.answer(TRUST_THIS_SESSION);
+			await until("the answered conversation is built", () =>
+				screensOpened.has(asked),
+			);
+			const closing = await open(
+				engine,
+				{},
+				{ cwd: closingDir, attended: true },
+			);
+			await host.close(closing);
+			await until("the closed conversation's build ends", () =>
+				reported.some((said) => said.includes("closed before it was built")),
+			);
+			const seen = {
+				answeredWhileAsking,
+				question: question && {
+					asked: question.sessionId === asked,
+					cwd: question.cwd === askedDir,
+					title: question.title,
+					labels: question.labels,
+				},
+				questionsFor: trustAsked.map(({ cwd }) => basename(cwd)),
+				closingScreenClosed: screensClosed.includes(closing),
+				closingHeld: host.holds(closing) ?? "gone",
+				nobodySaid: engine.view(nobody)?.runtime.diagnostics,
+				built: [nobody, stored, asked].map(
+					(id) => engine.view(id) !== undefined,
+				),
+			};
+			for (const id of [nobody, stored, asked]) await host.close(id);
+			return { ...seen, projectLoads: lines(projectLoads) };
+		},
+	},
 	/** The host's next start, resuming nothing, as when the last run's hold was dropped or its resume fails. */
 	start: {
 		responses: () => [],
@@ -388,7 +514,6 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		owner: { pid: process.pid, startedAt: Date.now() },
 		registryDir: join(folder, "registry"),
 	});
-	const reported: string[] = [];
 	const engine = await createEngine({
 		packageDir,
 		stateDir: join(folder, "state"),
@@ -400,6 +525,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			return { [OPENED_AS]: request.op };
 		},
 		resources: { extensions: [flaggedExtension] },
+		...(scenario.screens ? { screens: scenario.screens() } : {}),
 		report: (error) => reported.push(String(error)),
 	});
 	// As the service's roster does: the conversation a held one became replaces it, in one write.
@@ -465,13 +591,15 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 async function open(
 	engine: HostEngine,
 	words: { first?: string },
+	where: { cwd?: string; attended?: boolean } = {},
 ): Promise<string> {
+	const attended = where.attended ?? false;
 	const request = {
 		v: 1 as const,
 		id: "open-1",
 		op: "open" as const,
-		cwd: workLink,
-		attended: false,
+		cwd: where.cwd ?? workLink,
+		attended,
 		model: { provider: PROVIDER, id: MODEL },
 		...words,
 	};
@@ -481,7 +609,7 @@ async function open(
 		sessionId: prepared.sessionId,
 		file: prepared.file,
 		cwd: prepared.cwd,
-		attended: false,
+		attended,
 		since: new Date().toISOString(),
 		// The roster holds the launch the engine derived, as the service's does.
 		...(prepared.launch ? { launch: prepared.launch } : {}),

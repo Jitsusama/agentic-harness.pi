@@ -559,6 +559,8 @@ export async function createEngine(
 			.then(
 				() => "built" as const,
 				(error: unknown) => {
+					// Closed while it was built: the close has let it go, so there is nothing to park.
+					if (record.closing) throw error;
 					try {
 						host.state(sessionId, "parked");
 					} catch (parking) {
