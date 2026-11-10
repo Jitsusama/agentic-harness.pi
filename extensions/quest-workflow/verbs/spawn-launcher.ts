@@ -5,14 +5,16 @@
  * know of each other. The launcher opens a kitty window held in the
  * machine's realm, so only a spawn that would open just that goes to
  * it: plain pi, here, in a kitty window the call didn't name a
- * terminal, layout or nesting for. Anything else, or a launcher that
- * doesn't answer, opens as it always has.
+ * terminal, layout or nesting for. Anything else opens as it always
+ * has. One the launcher would open but doesn't take opens in the
+ * desktop's sessions kitty instead, where the launcher's own go
+ * (sessions-kitty.ts), and one it never answered is left with it.
  */
 
 import {
+	askLauncher,
 	callLauncher,
 	type HandedSession,
-	handOver,
 	type LauncherCall,
 	launcherTakes,
 } from "../../../lib/internal/quest/hand-over.ts";
@@ -103,24 +105,34 @@ export function launcherOpens(plan: TerminalPlan): boolean {
 }
 
 /**
+ * What handing a spawn to the launcher came to: taken, or left with a
+ * shell too busy to answer, are both the launcher's to open; untaken is
+ * a kitty window it would have opened but didn't take; unasked, a spawn
+ * it doesn't open at all.
+ */
+export type LauncherSpawned = "taken" | "unanswered" | "untaken" | "unasked";
+
+/**
  * Hand the session to the launcher when the settings would open it in a
- * kitty window anyway, answering whether the launcher took it. A plan
- * that can't be made, or one for another terminal or layout, is left to
- * the caller to open, which says why as it always has.
+ * kitty window anyway, answering what that came to. A plan that can't be
+ * made, or one for another terminal or layout, is left to the caller to
+ * open, which says why as it always has.
  */
 export async function spawnedByLauncher(
 	session: HandedSession,
 	request: OpenRequest,
 	options: OpenOptions,
 	call: LauncherCall = callLauncher,
-): Promise<boolean> {
+): Promise<LauncherSpawned> {
 	let plan: TerminalPlan;
 	try {
 		plan = (await openTerminal(request, { ...options, dryRun: true })).plan;
 	} catch {
 		// No plan: the caller's own open reports what stops it.
-		return false;
+		return "unasked";
 	}
-	if (!launcherOpens(plan)) return false;
-	return (await handOver([session], call)) === 1;
+	if (!launcherOpens(plan)) return "unasked";
+	const answer = await askLauncher([session], call);
+	if (answer === "unanswered" || answer === "untaken") return answer;
+	return answer.taken === 1 ? "taken" : "untaken";
 }

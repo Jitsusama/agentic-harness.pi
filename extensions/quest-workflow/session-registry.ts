@@ -80,6 +80,10 @@ import {
 	wasLost,
 	wronglyEnded,
 } from "../../lib/internal/quest/session-registry.ts";
+import {
+	openInSessionsKitty,
+	sessionsKittyRuns,
+} from "../../lib/internal/quest/sessions-kitty.ts";
 import { isLiveStatus } from "../../lib/internal/quest/status.ts";
 import {
 	readWindowsNote,
@@ -946,7 +950,28 @@ export async function reopenLostSessions(
 		handOver && !open.dryRun
 			? await handedToLauncher(toOpen, saved, handOver, handedPlaceOf)
 			: [];
-	const here = toOpen.filter((record) => !handed.includes(record));
+	const opened: SessionRecord[] = [...handed];
+	const left = toOpen.filter((record) => !handed.includes(record));
+	// Those the launcher would have opened but didn't take go where it
+	// opens its own, the desktop's sessions kitty (sessions-kitty.ts).
+	const inSessionsKitty =
+		handOver && !open.dryRun && sessionsKittyRuns() ? left : [];
+	for (const record of inSessionsKitty) {
+		try {
+			await openInSessionsKitty({
+				cwd: record.cwd,
+				...reopenCommand(record, saved(record.sessionId)),
+			});
+			opened.push(record);
+		} catch (error) {
+			outcome.failed.push({
+				sessionId: record.sessionId,
+				reason: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+	if (inSessionsKitty.length > 0) outcome.used ??= SESSIONS_KITTY_USED;
+	const here = left.filter((record) => !inSessionsKitty.includes(record));
 	const outcomes = await openTerminals(
 		here.map((record) => {
 			const window = placeOf?.(record);
@@ -962,7 +987,6 @@ export async function reopenLostSessions(
 		}),
 		{ ...open, paceMs },
 	);
-	const opened: SessionRecord[] = [...handed];
 	outcomes.forEach((result, index) => {
 		const record = here[index];
 		if (!record) return;
@@ -1015,6 +1039,9 @@ export async function reopenLostSessions(
 
 /** How restore says it opened the sessions the launcher took. */
 const LAUNCHER_USED = "the launcher, each where it sat";
+
+/** How the sessions opened in the desktop's sessions kitty are said. */
+const SESSIONS_KITTY_USED = "the desktop's sessions kitty";
 
 /**
  * The records the launcher took: the saved ones it accepts, all or

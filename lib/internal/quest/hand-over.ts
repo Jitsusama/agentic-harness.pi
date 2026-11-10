@@ -37,6 +37,16 @@
  * A session handed over while the screen is locked is started behind
  * the lock and placed once it is gone (core.nix #1632), so the hand-over
  * doesn't ask about the lock.
+ *
+ * A launcher that doesn't answer in time is busy, not gone: at 13:28 on
+ * 10 November the shell's GUI thread was held up, the call ran out, and
+ * two spawns opened plain kitty windows of their own, outside the
+ * sessions kitty (Y2YBTS [9f93dcd0]). The call it was sent still sits
+ * with the shell, so asking again, or opening the window elsewhere,
+ * could open the session twice. An unanswered hand-over is taken as
+ * taken, said apart, and the spawn's first-turn watch looks for the
+ * session it opens. Only a launcher that isn't there or refuses leaves
+ * the session to the caller.
  */
 
 import { execFile } from "node:child_process";
@@ -87,10 +97,10 @@ export type LauncherCall = (argument: string) => Promise<string>;
 
 /**
  * How long the launcher has to answer. It answers before opening
- * anything, so a shell that takes longer is treated as absent; past it,
- * a late "taken" could open a window twice.
+ * anything, so this is how long its shell may be busy; past it, the
+ * call is left with the shell, unanswered.
  */
-const ANSWER_MS = 10_000;
+const ANSWER_MS = 30_000;
 
 /** An id the launcher accepts, as its own check has it. */
 const LAUNCHER_ID = /^[A-Za-z0-9._-]+$/;
@@ -125,15 +135,46 @@ export const callLauncher: LauncherCall = (argument) =>
 	});
 
 /**
+ * What a hand-over came to: how many the launcher took, that its call
+ * ran out of time with the shell still holding it, or that it took none
+ * (refused, or no shell or `qs` to ask).
+ */
+export type HandOverAnswer =
+	| { readonly taken: number }
+	| "unanswered"
+	| "untaken";
+
+/** Whether a call failed by running out of time, as execFile's timeout kills it. */
+function ranOut(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"killed" in error &&
+		error.killed === true
+	);
+}
+
+/**
  * Hand sessions to the launcher, answering how many it took, or
- * undefined when it took none or didn't answer, which leaves opening
- * them to the caller. Every one given must pass `launcherTakes`.
+ * undefined when it took none, which leaves opening them to the caller.
+ * One it never answered counts as taking them all (see above). Every one
+ * given must pass `launcherTakes`.
  */
 export async function handOver(
 	sessions: readonly HandedSession[],
 	call: LauncherCall = callLauncher,
 ): Promise<number | undefined> {
-	if (sessions.length === 0) return undefined;
+	const answer = await askLauncher(sessions, call);
+	if (answer === "unanswered") return sessions.length;
+	return answer === "untaken" ? undefined : answer.taken;
+}
+
+/** Hand sessions to the launcher, answering what it came to. */
+export async function askLauncher(
+	sessions: readonly HandedSession[],
+	call: LauncherCall = callLauncher,
+): Promise<HandOverAnswer> {
+	if (sessions.length === 0) return "untaken";
 	const argument = JSON.stringify({
 		sessions: sessions.map(
 			({
@@ -160,10 +201,14 @@ export async function handOver(
 			}),
 		),
 	});
+	let said: string;
 	try {
-		return takenBy(await call(argument), sessions.length);
-	} catch {
-		// No shell running, no qs, or no answer in time: the caller opens them.
-		return undefined;
+		said = await call(argument);
+	} catch (error) {
+		// No answer in time leaves the call with a busy shell; no shell
+		// running, or no qs, leaves the sessions to the caller.
+		return ranOut(error) ? "unanswered" : "untaken";
 	}
+	const taken = takenBy(said, sessions.length);
+	return taken === undefined ? "untaken" : { taken };
 }

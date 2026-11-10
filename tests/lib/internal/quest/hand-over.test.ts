@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	askLauncher,
 	handOver,
 	launcherTakes,
 	takenBy,
@@ -162,6 +163,27 @@ describe("handing sessions to the launcher", () => {
 				throw new Error('No running instances for "shell.qml"');
 			}),
 		).toBeUndefined();
+	});
+
+	// 11-10 13:28: the shell was too busy to answer in time, and the
+	// spawns that took that as a no opened windows of their own while
+	// the call still sat with it (Y2YBTS [9f93dcd0]).
+	it("leaves sessions with a launcher whose shell never answered, as taken", async () => {
+		const session = [
+			{ id: "s", cwd: "/w" },
+			{ id: "t", cwd: "/w" },
+		];
+		const busy = async (): Promise<string> => {
+			throw Object.assign(new Error("Command failed: qs"), { killed: true });
+		};
+		expect(await askLauncher(session, busy)).toBe("unanswered");
+		expect(await handOver(session, busy)).toBe(2);
+		expect(
+			await askLauncher(session, async () => "refused: no session with an id"),
+		).toBe("untaken");
+		expect(await askLauncher(session, async () => "taken")).toEqual({
+			taken: 2,
+		});
 	});
 
 	it("asks nothing when there is nothing to hand over", async () => {

@@ -28,6 +28,10 @@ import {
 	formatRelativeAge,
 	type SessionView,
 } from "../../../lib/internal/quest/session-liveness.ts";
+import {
+	openInSessionsKitty,
+	sessionsKittyRuns,
+} from "../../../lib/internal/quest/sessions-kitty.ts";
 import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
@@ -623,27 +627,37 @@ export async function spawn(
 	const resumeNote = params.command?.trim()
 		? undefined
 		: resumeMessage(resume, sessions, now);
-	if (
-		forLauncher &&
-		!params.dryRun &&
-		(await spawnedByLauncher(forLauncher, request, read.options))
-	) {
+	const handed =
+		forLauncher && !params.dryRun
+			? await spawnedByLauncher(forLauncher, request, read.options)
+			: "unasked";
+	// Where the launcher would have opened it: in the desktop's sessions
+	// kitty, where every pi window on this machine belongs, else as the
+	// settings say.
+	const openHere = async (): Promise<string> => {
+		if (handed !== "unasked" && sessionsKittyRuns()) {
+			return openInSessionsKitty({ command, cwd, env });
+		}
+		const opened = await openTerminal(request, read.options);
+		return `a ${opened.plan.layout} in ${cwd} through ${describePlan(opened.plan)}`;
+	};
+	if (forLauncher && (handed === "taken" || handed === "unanswered")) {
 		const what = forLauncher.fresh
 			? `a new session, ${forLauncher.id}, which loads ${questIdForSpawn} as it starts`
 			: `session ${forLauncher.id}, which brings back its own quest`;
 		// The launcher's window can die where one opened from here lives:
 		// from 11-10 04:27 its holder ran pi without the PATH Shopify's
 		// wrapper fetches its key by, and every session it started exited.
-		if (token) {
-			offerReopen(token, async () => {
-				const opened = await openTerminal(request, read.options);
-				return `a ${opened.plan.layout} in ${cwd} through ${describePlan(opened.plan)}`;
-			});
-		}
+		if (token) offerReopen(token, openHere);
+		const late =
+			handed === "unanswered"
+				? " Its shell was too busy to answer, but it still holds the call, so the window opens once it gets to it, and none was opened here."
+				: "";
 		return ok(
-			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are. Should its pi end without taking its first words, this session opens it again itself.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}${trustNote}`,
+			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are.${late} Should its pi start and then end without taking its first words, this session opens it again itself.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}${trustNote}`,
 			{
 				how: "launcher",
+				...(handed === "unanswered" ? { unanswered: true } : {}),
 				sessionId: forLauncher.id,
 				...(token ? { firstWordsKey: token } : {}),
 				...trusting,
@@ -655,6 +669,29 @@ export async function spawn(
 				command,
 				resumedSessionId,
 				autoloadQuestId: questIdForSpawn,
+			},
+		);
+	}
+	if (handed === "untaken" && sessionsKittyRuns()) {
+		let where: string;
+		try {
+			where = await openInSessionsKitty({ command, cwd, env });
+		} catch (err) {
+			return refuse(`Spawn failed: ${(err as Error).message}`);
+		}
+		return ok(
+			`Spawned ${where} (${chosenBy}), since the desktop's launcher didn't take it.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}${startsPi(command) ? ` The new session will load ${questIdForSpawn}.` : ""}${trustNote}`,
+			{
+				...trusting,
+				how: "sessions-kitty",
+				layout: "window",
+				cwd,
+				cwdSource,
+				healed: resolved.healed ?? false,
+				command,
+				resumedSessionId,
+				autoloadQuestId: questIdForSpawn,
+				...(token ? { firstWordsKey: token } : {}),
 			},
 		);
 	}
