@@ -16,13 +16,18 @@
  * handler calls it. A stopped panel answers the way Escape would, the
  * same as a turn being stopped, so a gate fails closed.
  *
- * Kept on a process-global key for the queue's reason: two packages that
- * each carry a `lib/ui` still share one screen, and one handler must
- * reach both copies' panels. The first copy to load installs it; every
- * later one joins what it finds, whatever version installed it.
+ * Kept on the screen's key for the queue's reason: two packages that each
+ * carry a `lib/ui` still share one screen, and one handler must reach both
+ * copies' panels. The first copy to load installs it; every later one
+ * joins what it finds, whatever version installed it. A host's
+ * conversations each have a screen, so one conversation's end closes its
+ * own panels and leaves another's waiting approval up.
  */
 
-const REGISTRY_KEY = Symbol.for("agentic-harness.open-panels");
+import { screenShared } from "./screen-slot.ts";
+
+/** The name every copy looks for. The string is the contract; keep it. */
+const REGISTRY_NAME = "agentic-harness.open-panels";
 
 /** The protocol version this copy installs. */
 const PROTOCOL_VERSION = 1;
@@ -48,20 +53,16 @@ export function trackPanel(stop: () => void): () => void {
 }
 
 /**
- * Stop every panel that is up or waiting, in every copy of this library,
- * returning how many there were. Each answers as Escape would.
+ * Stop every panel that is up or waiting on this screen, in every copy of
+ * this library, returning how many there were. Each answers as Escape
+ * would.
  */
 export function closeEveryPanel(): number {
 	return sharedRegistry().closeAll();
 }
 
 function sharedRegistry(): PanelRegistryProtocol {
-	const g = globalThis as Record<symbol, unknown>;
-	const found = g[REGISTRY_KEY];
-	if (isProtocol(found)) return found;
-	const installed = createRegistry();
-	g[REGISTRY_KEY] = installed;
-	return installed;
+	return screenShared(REGISTRY_NAME, isProtocol, createRegistry);
 }
 
 function isProtocol(value: unknown): value is PanelRegistryProtocol {

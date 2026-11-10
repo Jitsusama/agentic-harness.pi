@@ -1,4 +1,8 @@
-/** No new direct process identity, cwd or process-wide session state. */
+/**
+ * No new direct process identity, cwd or process-wide session state, in
+ * every folder a hosted conversation loads code from: its extensions, the
+ * library they import, the host and the packs a subagent loads.
+ */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,6 +11,10 @@ import { processSessionSites } from "./session-state.ts";
 const ROOT = join(import.meta.dirname, "../..");
 const LIST = join(import.meta.dirname, "session-state-waiting.txt");
 const EXEMPT = join(import.meta.dirname, "session-state-exempt.txt");
+const LOADED = ["extensions", "lib", "host", "packs"];
+const SITE_KEY = new RegExp(
+	`^(${LOADED.join("|")})/\\S+:(pid|cwd|global|env-write)$`,
+);
 
 interface Entry {
 	readonly count: number;
@@ -60,11 +68,11 @@ function counted(): Map<string, number> {
 			}
 		}
 	}
-	walk(join(ROOT, "extensions"));
+	for (const folder of LOADED) walk(join(ROOT, folder));
 	return found;
 }
 
-describe("session state in extensions", () => {
+describe("session state in the code a conversation loads", () => {
 	it("finds real sites, including bracket notation, but not prose", () => {
 		const sites = processSessionSites(`
 			// process.pid process.cwd() process.env.KEY = "no"
@@ -116,7 +124,7 @@ describe("session state in extensions", () => {
 		const unexplained = [...exempt()]
 			.filter(
 				([key, { count, reason }]) =>
-					!/^extensions\/\S+:(pid|cwd|global|env-write)$/.test(key) ||
+					!SITE_KEY.test(key) ||
 					!Number.isInteger(count) ||
 					count < 1 ||
 					reason.trim().length === 0,
