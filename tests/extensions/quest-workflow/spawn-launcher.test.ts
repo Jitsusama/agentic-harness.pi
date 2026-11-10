@@ -43,7 +43,21 @@ const KEPT = [
 	"QS_ASKED",
 	"QS_SAYS",
 	"QS_LOCKED",
+	"PI_SESSIONS_KITTY",
 ];
+
+// The sessions kitty is opened through systemd-run, so a stand-in writes
+// down what it was asked to start, one word a line.
+const FAKE_SYSTEMD_RUN = `#!/bin/sh
+printf '%s\\n' "$@" > "$HOME/started"
+`;
+
+/** What the stand-in systemd-run was asked to start, if anything. */
+function started(): string[] | undefined {
+	const path = join(tmpRoot, "started");
+	if (!existsSync(path)) return undefined;
+	return readFileSync(path, "utf8").trimEnd().split("\n");
+}
 let tmpRoot: string;
 let opened: string | undefined;
 let openedEnv: Record<string, string> | undefined;
@@ -101,6 +115,8 @@ beforeEach(() => {
 	mkdirSync(bin);
 	writeFileSync(join(bin, "qs"), FAKE_QS);
 	chmodSync(join(bin, "qs"), 0o755);
+	writeFileSync(join(bin, "systemd-run"), FAKE_SYSTEMD_RUN);
+	chmodSync(join(bin, "systemd-run"), 0o755);
 	process.env.PATH = `${bin}:${process.env.PATH}`;
 	process.env.QS_ASKED = join(tmpRoot, "asked");
 	process.env.QS_SAYS = "taken";
@@ -458,6 +474,37 @@ describe("spawn through the desktop's launcher", () => {
 		expect(handed()).toBeDefined();
 		expect(opened).toBe("pi");
 		expect(result.message).toContain("Spawned a window");
+		expect(started()).toBeUndefined();
+	});
+
+	// 11-10 13:28: two spawns the launcher didn't take opened plain kitty
+	// windows outside the desktop's sessions kitty (Y2YBTS [9f93dcd0]).
+	it("opens the window in the desktop's sessions kitty when the launcher refuses and that kitty runs", async () => {
+		process.env.QS_SAYS = "refused: no session with an id and a folder";
+		process.env.PI_SESSIONS_KITTY = "on";
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(handed()).toBeDefined();
+		expect(opened).toBeUndefined();
+		const words = started() ?? [];
+		expect(
+			words.slice(words.indexOf("kitty"), words.indexOf("kitty") + 6),
+		).toEqual([
+			"kitty",
+			"-1",
+			"--instance-group",
+			"pi-sessions",
+			"--class",
+			"pi-spawned",
+		]);
+		expect(result.message).toContain(
+			"Spawned a window in the desktop's sessions kitty",
+		);
+		expect(result.details).toMatchObject({ how: "sessions-kitty" });
 	});
 
 	it("hands the session to the launcher while the screen is locked", async () => {

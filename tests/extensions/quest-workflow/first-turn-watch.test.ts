@@ -292,6 +292,71 @@ describe("a spawner watching for its session's first turn", () => {
 			expect(noted).toEqual([]);
 		});
 
+		// 11-10 13:28: the launcher took RCTRF8's session but opened its
+		// window past the minute, and the look opened it again from here,
+		// so RCTRF8 ran as two sessions.
+		it("is left to the launcher that took it until a pi of it was seen, then told", async () => {
+			const opened: string[] = [];
+			offerReopen(spawned.key, async () => {
+				opened.push(spawned.key);
+				return "a window in the desktop's sessions kitty";
+			});
+			watchFirstTurn(
+				pi,
+				ctx,
+				{ ...spawned, sessionId: "019a-queued", handed: true },
+				() => waiting,
+				FIRST_TURN_WATCH_MS,
+				gone,
+			);
+
+			await vi.advanceTimersByTimeAsync(MOST_START_MS - 1);
+			expect(opened).toEqual([]);
+			expect(said).toEqual([]);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(opened).toEqual([]);
+			expect(said).toHaveLength(1);
+			expect(said[0]?.text).toContain(
+				"The desktop's launcher took it, but no pi of it has run since",
+			);
+		});
+
+		it("is opened again once the launcher's pi of it was seen and has gone", async () => {
+			const opened: string[] = [];
+			offerReopen(spawned.key, async () => {
+				opened.push(spawned.key);
+				return "a window in the desktop's sessions kitty";
+			});
+			let looks = 0;
+			watchFirstTurn(
+				pi,
+				ctx,
+				{ ...spawned, sessionId: "019a-died", handed: true },
+				() => waiting,
+				FIRST_TURN_WATCH_MS,
+				() => {
+					looks += 1;
+					return looks === 2;
+				},
+			);
+
+			await vi.advanceTimersByTimeAsync(2 * FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual([]);
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual(["token-1"]);
+			expect(said).toEqual([]);
+		});
+
+		it("reads a spawn the launcher took from its answer", () => {
+			expect(
+				spawnedBy("spawn", {
+					how: "launcher",
+					firstWordsKey: "token-1",
+					autoloadQuestId: "QEST-1",
+				}),
+			).toEqual({ key: "token-1", questId: "QEST-1", handed: true });
+		});
+
 		it("is never opened twice while its pi still runs", async () => {
 			const opened: string[] = [];
 			offerReopen(spawned.key, async () => {

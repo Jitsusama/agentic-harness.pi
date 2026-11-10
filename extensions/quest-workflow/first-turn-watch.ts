@@ -21,6 +21,16 @@
  * Shopify's pi wrapper couldn't fetch its key, while a window opened
  * from a running session inherits one. Only telling left five sessions
  * unstarted until somebody acted on it.
+ *
+ * A session the launcher took is opened in its own time, one window
+ * after another, so no pi of it running a minute on says nothing of
+ * whether it died: at 13:28 on 10 November the launcher opened RCTRF8's
+ * window past the minute, and the look had already opened it again
+ * from here, so RCTRF8 ran as two sessions (Y2YBTS [9f93dcd0]). So one
+ * the launcher took is opened again only once a pi of it was seen
+ * running and has gone without taking its words. Until one is seen,
+ * it is looked for each minute up to MOST_START_MS, and then its
+ * spawner is told.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -53,6 +63,8 @@ export interface Spawned {
 	readonly sessionId?: string;
 	/** The folder whose trust prompt its pi stops at, when the spawn said so. */
 	readonly trustWaits?: string;
+	/** Whether the desktop's launcher took it, to open when it gets to it. */
+	readonly handed?: boolean;
 }
 
 /**
@@ -137,6 +149,7 @@ export function spawnedBy(
 		questId,
 		...(typeof sessionId === "string" ? { sessionId } : {}),
 		...(typeof trustWaits === "string" ? { trustWaits } : {}),
+		...(details?.how === "launcher" ? { handed: true } : {}),
 	};
 }
 
@@ -150,7 +163,9 @@ export function spawnedBy(
  * will wait as long as nobody answers. When its words wait and no pi of
  * it runs, it is opened again once, if the spawn offered a way, and
  * watched afresh; only a failed reopen, or a second session that doesn't
- * start, starts a turn here.
+ * start, starts a turn here. One the launcher took is opened again only
+ * once a pi of it was seen running, and is otherwise looked for again
+ * up to MOST_START_MS, since the launcher may not have got to it yet.
  */
 export function watchFirstTurn(
 	pi: ExtensionAPI,
@@ -161,6 +176,9 @@ export function watchFirstTurn(
 	runs: PiRuns = piRunsFor,
 ): void {
 	const spawnedAt = Date.now();
+	// Whether a pi of it has run at any look, which for one the launcher
+	// took is what says it was opened at all.
+	let seenRunning = false;
 	const lookAfter = (waited: number) => {
 		const watch = setTimeout(
 			() => {
@@ -171,12 +189,18 @@ export function watchFirstTurn(
 					return;
 				}
 				const piRuns = turn.waiting === true && runs(spawned);
-				if (piRuns && !spawned.trustWaits && waited < MOST_START_MS) {
+				seenRunning ||= piRuns;
+				const notYetOpened = spawned.handed === true && !seenRunning;
+				const stillToCome =
+					(piRuns && !spawned.trustWaits) || (notYetOpened && turn.waiting);
+				if (stillToCome && waited < MOST_START_MS) {
 					lookAfter(Math.min(waited + afterMs, MOST_START_MS));
 					return;
 				}
 				const reopen =
-					turn.waiting && !piRuns ? takeReopen(spawned.key) : undefined;
+					turn.waiting && !piRuns && !notYetOpened
+						? takeReopen(spawned.key)
+						: undefined;
 				reopeners.delete(spawned.key);
 				if (reopen) {
 					reopenAndWatch(pi, ctx, spawned, turn, waited, reopen, {
@@ -186,7 +210,10 @@ export function watchFirstTurn(
 					});
 					return;
 				}
-				tell(pi, ctx, noTurnWords(spawned, turn, waited));
+				const unopened = notYetOpened
+					? "The desktop's launcher took it, but no pi of it has run since, so it wasn't opened again from here, which would make it two sessions once the launcher opens it."
+					: undefined;
+				tell(pi, ctx, noTurnWords(spawned, turn, waited, unopened));
 			},
 			waited - (Date.now() - spawnedAt),
 		);
