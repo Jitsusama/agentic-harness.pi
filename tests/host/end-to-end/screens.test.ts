@@ -4,19 +4,27 @@
  * program does, on a pi built with the host's patches and its scripted
  * provider, with viewers attached through the socket as mycelium's client
  * attaches and their screens read through a terminal emulator. Each case
- * is one a person relies on at pi's own screen. Skipped without
- * PI_HOST_PACKAGE_DIR; tests/host/end-to-end/README.md gives the command.
+ * is one a person relies on at pi's own screen. Runs on the host's pi as
+ * support/host-pi.ts finds it; an ordinary run without one skips it, and
+ * `pnpm test:host` fails instead.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Folders, folders } from "./support/folders.ts";
+import {
+	HOST_PI_REQUIRED,
+	hostPackageDir,
+	hostPiMissing,
+} from "./support/host-pi.ts";
 import { type ScreenHost, startScreenHost } from "./support/screen-host.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { type Abilities, attach, type Viewer } from "./support/viewer.ts";
 
-const packageDir = process.env.PI_HOST_PACKAGE_DIR;
+const packageDir = hostPackageDir();
+if (!packageDir && process.env[HOST_PI_REQUIRED])
+	throw new Error(hostPiMissing());
 /** A conversation's turn on the scripted provider, with pi's whole screen drawing it. */
 const TURN_MS = 20_000;
 /** A case: a few turns and viewers coming and going. */
@@ -48,22 +56,36 @@ const LOADED = "extension-loaded";
 const ASK_ME = "ask me first";
 const GO_ON = "Go on?";
 
-/** Whether the pi under test was built without a hook, read from its own built source. */
-function lacks(file: string, hook: string): boolean {
-	if (!packageDir) return true;
+/**
+ * What the pi under test lacks of a hook, read from its own built source:
+ * which build to point at instead, or nothing when it has it.
+ */
+function lacks(file: string, hook: string, since: string): string | undefined {
+	if (!packageDir) return undefined;
 	const path = join(packageDir, file);
-	return !existsSync(path) || !readFileSync(path, "utf8").includes(hook);
+	if (existsSync(path) && readFileSync(path, "utf8").includes(hook))
+		return undefined;
+	return `The pi at ${packageDir} has no ${hook}: point PI_HOST_PACKAGE_DIR at a piHostRuntime built from ${since} or later`;
 }
 /** A pi from before core.nix#2782 can't resend a late viewer its images. */
 const NO_LATE_IMAGES = lacks(
 	"node_modules/@earendil-works/pi-tui/dist/tui.js",
 	"repaintForNewTerminal",
+	"core.nix#2782",
 );
 /** Nor hand its host an edit or a suspend. */
 const NO_HANDOFF = lacks(
 	"dist/modes/interactive/interactive-mode.js",
 	"editText",
+	"core.nix#2782",
 );
+
+/** Skip a case its pi can't run, saying which can, or fail it under `pnpm test:host`. */
+function needs(lacking: string | undefined, skip: (note: string) => never) {
+	if (!lacking) return;
+	if (process.env[HOST_PI_REQUIRED]) throw new Error(lacking);
+	skip(lacking);
+}
 
 let sealed: Seal;
 let host: ScreenHost;
@@ -71,7 +93,7 @@ const viewers: Viewer[] = [];
 let work: Folders;
 
 describe.skipIf(!packageDir)(
-	"a hosted conversation on pi's own screen (needs PI_HOST_PACKAGE_DIR, a pi with the host's patches)",
+	"a hosted conversation on pi's own screen (needs a pi with the host's patches: pnpm test:host)",
 	() => {
 		beforeAll(async () => {
 			if (!packageDir) return;
@@ -279,9 +301,10 @@ describe.skipIf(!packageDir)(
 			CASE_MS,
 		);
 
-		it.skipIf(NO_LATE_IMAGES)(
+		it(
 			"gives a viewer that joins late the images already on the screen (needs core.nix#2782's pi)",
-			async () => {
+			async ({ skip }) => {
+				needs(NO_LATE_IMAGES, skip);
 				const cwd = folder();
 				writeFileSync(join(cwd, "picture.png"), Buffer.from(PICTURE, "base64"));
 				const { sessionId } = await host.open(cwd);
@@ -297,9 +320,10 @@ describe.skipIf(!packageDir)(
 			CASE_MS,
 		);
 
-		it.skipIf(NO_HANDOFF)(
+		it(
 			"edits a draft in the external editor of the viewer that pressed Ctrl+G (needs core.nix#2782's pi)",
-			async () => {
+			async ({ skip }) => {
+				needs(NO_HANDOFF, skip);
 				const { sessionId } = await host.open(folder());
 				const editing = await viewer(sessionId, 30, 100, {
 					features: CLIENT,
@@ -320,9 +344,10 @@ describe.skipIf(!packageDir)(
 			CASE_MS,
 		);
 
-		it.skipIf(NO_HANDOFF)(
+		it(
 			"suspends only the viewer that pressed Ctrl+Z, which comes back to the same screen (needs core.nix#2782's pi)",
-			async () => {
+			async ({ skip }) => {
+				needs(NO_HANDOFF, skip);
 				const { sessionId } = await host.open(folder());
 				const stopping = await viewer(sessionId, 30, 100, { features: CLIENT });
 				const other = await viewer(sessionId, 30, 100);
