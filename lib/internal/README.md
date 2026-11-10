@@ -56,7 +56,8 @@ may import from here, and any of it may change without notice.
   the bus for its presence to keep, whether a fleet or a round
   may run on a model the agent named rather than the person, and
   the rules of a repo a session takes a tree in but pi loaded none
-  of at its start.
+  of at its start, and what will wake a session resting blocked,
+  asked of the extensions that hold it.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know.
 - **`stray/`**: catching writes that would land behind pi's screen.

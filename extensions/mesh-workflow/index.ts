@@ -98,6 +98,7 @@ import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
+import { isWakersAsk, WAKERS_ASK } from "../../lib/internal/session/wakers.ts";
 import { onWants, showWants } from "../../lib/internal/session/wants.ts";
 import { onJobFinished } from "../../lib/jobs/host.ts";
 import { loadedQuest, type QuestRecords } from "../../lib/mesh/address.ts";
@@ -187,13 +188,14 @@ import {
 } from "../../lib/mesh/thread.ts";
 import { toldIn } from "../../lib/mesh/told.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
+import { UNANSWERED_WITHIN_MS } from "../../lib/mesh/unanswered.ts";
 import {
 	localDay,
 	noUsage,
 	usageFromLog,
 	withCall,
 } from "../../lib/mesh/usage.ts";
-import { waitingFolder } from "../../lib/mesh/waiting.ts";
+import { waitingFolder, waitingOf } from "../../lib/mesh/waiting.ts";
 import { type Want, type WantKind, wantFrom } from "../../lib/mesh/want.ts";
 import {
 	SUBAGENT_READY,
@@ -245,6 +247,7 @@ import {
 	type Waiting,
 	watchSettling,
 } from "./wait.ts";
+import { meshWakers, type Own } from "./wakers.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -1979,24 +1982,8 @@ export function meshWorkflow(
 			if (!isParkAsk(data) || !peer || data.session !== peer.session) return;
 			// An orchestrator with sessions at work under it has their findings
 			// coming, and passing them on is its work.
-			if (peer.orchestrates !== undefined) {
-				const session = peer.session;
-				const addresses = peer.addresses;
-				const working = presences
-					.all()
-					.filter(
-						(one) =>
-							one.session !== session &&
-							ledBy(one, addresses) &&
-							one.state !== "parked" &&
-							one.state !== "paused",
-					);
-				if (working.length > 0) {
-					data.refusals.push(
-						`sessions it leads are at work (${working.map((one) => one.addresses[0]).join(", ")})`,
-					);
-				}
-			}
+			const working = ledAtWork(peer);
+			if (working) data.refusals.push(working);
 			const self = { addresses: peer.addresses, ...senderIdentity() };
 			const held = board
 				.all()
@@ -2010,12 +1997,62 @@ export function meshWorkflow(
 				});
 			if (held) data.refusals.push("peers wait on a hold it sent");
 		});
+		// A session about to rest blocked asks what of its own will wake it.
+		pi.events?.on(WAKERS_ASK, (data: unknown) => {
+			if (!isWakersAsk(data) || !peer || data.session !== peer.session) return;
+			const working = ledAtWork(peer);
+			data.wakers.push(
+				...(working ? [working] : []),
+				...meshWakers(ownOnMesh(peer)),
+			);
+		});
 
 		// Heavy work is claimed by whatever places it, over pi's bus.
 		pi.events?.on(LEASE_EVENT, (data: unknown) => {
 			const event = leaseEventFrom(data);
 			if (event) heavy(event);
 		});
+
+		/**
+		 * The sessions an orchestrator leads that are at work, said as a
+		 * phrase, or nothing for any other peer or when none is.
+		 */
+		const ledAtWork = (one: Peer): string | undefined => {
+			if (one.orchestrates === undefined) return undefined;
+			const working = presences
+				.all()
+				.filter(
+					(other) =>
+						other.session !== one.session &&
+						ledBy(other, one.addresses) &&
+						other.state !== "parked" &&
+						other.state !== "paused",
+				);
+			if (working.length === 0) return undefined;
+			return `sessions it leads are at work (${working.map((other) => other.addresses[0]).join(", ")})`;
+		};
+
+		/** What the mesh holds of this peer's own, for what will wake it. */
+		const ownOnMesh = (one: Peer): Own => {
+			const since = Date.now() - UNANSWERED_WITHIN_MS;
+			const everyone = presences.all();
+			const quest = waiting?.quest();
+			return {
+				session: one.session,
+				addresses: one.addresses,
+				leases: own?.leases ?? [],
+				// Ids start with the time they were sent, so older ones go unread.
+				messages: transport
+					.ids()
+					.filter((id) => !(Number.parseInt(id, 10) < since))
+					.map((id) => transport.read(id))
+					.filter((message): message is Message => message !== undefined),
+				aliases: (address) =>
+					everyone.find((peer) => peer.addresses.includes(address))
+						?.addresses ?? [address],
+				items: waiting && quest ? waitingOf(waiting.folder, quest) : [],
+			};
+		};
 
 		/** Who waits on a hold, by the address each signs with. */
 		const waitingOn = (id: string): string[] => {

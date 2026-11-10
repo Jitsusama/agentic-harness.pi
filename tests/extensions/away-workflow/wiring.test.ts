@@ -29,6 +29,10 @@ import {
 	stayInSession,
 } from "../../../lib/internal/session/left.ts";
 import {
+	isWakersAsk,
+	WAKERS_ASK,
+} from "../../../lib/internal/session/wakers.ts";
+import {
 	forgetWants,
 	onWants,
 	showWants,
@@ -154,10 +158,19 @@ function activate({ hasUI = true, sessionId = "live" } = {}) {
 		});
 		await fire("agent_settled", {});
 	};
+	/** Have the bus say something will wake this session, as the mesh would. */
+	const wakeable = (waker = "a question [1] awaiting B") => {
+		events.on(WAKERS_ASK, (data: unknown) => {
+			if (isWakersAsk(data) && data.session === sessionId) {
+				data.wakers.push(waker);
+			}
+		});
+	};
 	return {
 		fire,
 		said,
 		entries,
+		wakeable,
 		jobs,
 		notices,
 		session,
@@ -231,8 +244,9 @@ describe("while away", () => {
 		);
 	});
 
-	it("lets a run that says Blocked rest", async () => {
+	it("lets a run that says Blocked rest while something will wake it", async () => {
 		const pi = activate();
+		pi.wakeable();
 		await pi.fire("session_start");
 		await pi.goAway();
 
@@ -240,6 +254,21 @@ describe("while away", () => {
 
 		expect(pi.jobs).toHaveLength(0);
 		expect(isAway(), "a Blocked run leaves away mode on").toBe(true);
+	});
+
+	it("sends a Blocked run with nothing to wake it back once, then lets it rest", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		await pi.runEnds("Blocked: waiting on #12 merging.");
+		expect(pi.jobs).toHaveLength(1);
+		expect(pi.jobs[0]?.summary).toContain(
+			"nothing is set to wake this session",
+		);
+
+		await pi.runEnds("Blocked: waiting on #12 merging.");
+		expect(pi.jobs, "the same line again rests").toHaveLength(1);
 	});
 
 	it("does not nudge when the person is here", async () => {
@@ -362,6 +391,7 @@ describe("saying what it wants of the person", () => {
 
 	it("says what a Blocked run needs until the person types", async () => {
 		const pi = activate();
+		pi.wakeable("a Needs You item, npm-otp, not yet settled");
 		await pi.fire("session_start");
 		await pi.goAway();
 

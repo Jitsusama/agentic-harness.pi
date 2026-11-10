@@ -92,6 +92,51 @@ describe("after a run, while the person is away", () => {
 		});
 	});
 
+	it("lets a blocked run rest while something it started will wake it", () => {
+		const absence = { ...ABSENCE, wakers: ["1 background job"] };
+
+		expect(
+			afterRun(ran("Blocked: waiting on #12 merging"), absence, freshMemory()),
+		).toEqual({ kind: "rest", why: "blocked" });
+	});
+
+	it("sends a blocked run with nothing to wake it back once, naming the ways", () => {
+		const memory = freshMemory();
+		const absence = { ...ABSENCE, wakers: [] };
+
+		const first = afterRun(
+			ran("Blocked: waiting on #12 merging"),
+			absence,
+			memory,
+		);
+		const again = afterRun(
+			ran("Blocked: waiting on #12 merging"),
+			absence,
+			memory,
+		);
+
+		expect(first).toMatchObject({ kind: "nudge" });
+		const text = first.kind === "nudge" ? first.text : "";
+		expect(text).toContain("nothing is set to wake this session");
+		expect(text).toContain("background: true");
+		expect(text).toContain("mesh_wait");
+		expect(again).toEqual({ kind: "rest", why: "blocked" });
+	});
+
+	it("sends a new Blocked line with nothing to wake it back again", () => {
+		const memory = freshMemory();
+		const absence = { ...ABSENCE, wakers: [] };
+
+		afterRun(ran("Blocked: waiting on #12 merging"), absence, memory);
+		const other = afterRun(
+			ran("Blocked: waiting on the 06:00 measure"),
+			absence,
+			memory,
+		);
+
+		expect(other).toMatchObject({ kind: "nudge" });
+	});
+
 	it("lets a done run rest when nothing says otherwise", () => {
 		expect(afterRun(ran("Done: merged"), ABSENCE, freshMemory())).toEqual({
 			kind: "rest",
