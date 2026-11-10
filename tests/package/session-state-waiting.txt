@@ -65,12 +65,10 @@ lib/mesh/message.ts:pid 1
 lib/mesh/present.ts:global 2
 lib/mesh/waiting.ts:pid 1
 lib/slack/auth/browser-extract.ts:pid 1
-lib/subagent/artifacts.ts:pid 1
 lib/subagent/fleet.ts:pid 2
 lib/subagent/install.ts:global 1
 lib/subagent/runpi/supervisor.mjs:pid 6
 lib/subagent/runpi/supervisor.ts:pid 1
-lib/subagent/run-record.ts:pid 1
 lib/subagent/subagent.ts:pid 1
 lib/terminal/niri.ts:pid 1
 lib/ui/pi-layout.ts:global 2
