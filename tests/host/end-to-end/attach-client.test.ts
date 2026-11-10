@@ -8,7 +8,9 @@
  * is left out. Runs on the host's pi as support/host-pi.ts finds it, a
  * mycelium with mycelium#112's client (MYCELIUM_BIN, else the PATH's) and
  * script(1): an ordinary run without one skips it saying which, and
- * `pnpm test:host` fails instead.
+ * `pnpm test:host` fails instead. A mycelium is judged by its own binary,
+ * since an older one attaches all the same and only says, on the screen,
+ * that it has no editor.
  */
 
 import { spawnSync } from "node:child_process";
@@ -29,16 +31,25 @@ import { attach, type Viewer } from "./support/viewer.ts";
 const packageDir = hostPackageDir();
 const mycelium = process.env.MYCELIUM_BIN || onPath("mycelium");
 const hasScript = spawnSync("script", ["--version"]).status === 0;
+/** A string only mycelium#112's client and later hold: the name of the file it hands the editor. */
+const HANDOFF_MARK = "mycelium-edit-";
 /** What this machine lacks to run the proof: skipped saying so, or failed under `pnpm test:host`. */
 const missing = [
 	packageDir ? undefined : hostPiMissing(),
 	mycelium
-		? undefined
+		? handsOff(mycelium)
 		: "No mycelium: set MYCELIUM_BIN, or put core.nix's mycelium (mycelium#112 or later) on the PATH",
 	hasScript ? undefined : "No script(1) on the PATH: put util-linux on it",
 ].filter((each) => each !== undefined);
 if (missing.length > 0 && process.env[HOST_PI_REQUIRED])
 	throw new Error(missing.join("; "));
+/** Why `program` can't run the proof, or nothing when its client edits and suspends. */
+function handsOff(program: string): string | undefined {
+	if (!existsSync(program)) return `No mycelium to run: ${program}`;
+	if (readFileSync(program).includes(HANDOFF_MARK)) return undefined;
+	return `The mycelium at ${program} predates mycelium#112, so its client neither edits nor suspends: set MYCELIUM_BIN to one built from mycelium 509febc or later, as core.nix#2843 pins`;
+}
+
 /** A case: a turn or two, and a client joining, leaving and coming back. */
 const CASE_MS = 60_000;
 const ROWS = 30;
