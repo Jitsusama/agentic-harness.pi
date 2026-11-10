@@ -71,7 +71,7 @@ describe.skipIf(!packageDir)(
 		it(
 			"keeps a view's footer on a short viewer",
 			async () => {
-				const [short] = await conversation(SHORT);
+				const short = await viewer(await conversation(), SHORT);
 				short.type(`/view${ENTER}`);
 				await short.shows(FOOTER, SHOW_MS);
 
@@ -89,7 +89,7 @@ describe.skipIf(!packageDir)(
 		it(
 			"grows a view into a tall viewer",
 			async () => {
-				const [tall] = await conversation(TALL);
+				const tall = await viewer(await conversation(), TALL);
 				tall.type(`/view${ENTER}`);
 				await tall.shows(FOOTER, SHOW_MS);
 
@@ -110,7 +110,9 @@ describe.skipIf(!packageDir)(
 		it(
 			"sizes a view for the smaller of two viewers",
 			async () => {
-				const [tall, short] = await conversation(TALL, SHORT);
+				const both = await conversation();
+				const tall = await viewer(both, TALL);
+				const short = await viewer(both, SHORT);
 				tall.type(`/view${ENTER}`);
 				await short.shows(FOOTER, SHOW_MS);
 				await tall.shows(FOOTER, SHOW_MS);
@@ -136,12 +138,15 @@ describe.skipIf(!packageDir)(
 	},
 );
 
-/** Viewers of these heights on one fresh conversation, in that order. */
-async function conversation(...heights: number[]): Promise<Viewer[]> {
+/** A fresh conversation on the host, by its session id. */
+async function conversation(): Promise<string> {
 	const { sessionId } = await host.open(work.trusted());
-	const attached: Viewer[] = [];
-	for (const rows of heights)
-		attached.push(await attach(host.path, sessionId, rows, COLUMNS));
-	viewers.push(...attached);
+	return sessionId;
+}
+
+/** A viewer `rows` high on the conversation `sessionId`. */
+async function viewer(sessionId: string, rows: number): Promise<Viewer> {
+	const attached = await attach(host.path, sessionId, rows, COLUMNS);
+	viewers.push(attached);
 	return attached;
 }
