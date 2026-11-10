@@ -597,6 +597,33 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf('pgrep -f "nix-build;cargo"')).toBeUndefined();
 	});
 
+	it("finds none in a step that only finds a tool or asks how to call it", () => {
+		// On 10 November commands like these waited 964 s, 104 s and 754 s
+		// for a turn as runs of changed-checks, while memory was short.
+		for (const looking of [
+			"direnv exec . which nix-offload changed-checks 2>/dev/null",
+			"direnv exec . changed-checks --help 2>&1 | head -30",
+			"timeout 60 direnv exec . changed-checks --help 2>&1 | grep -i -n 'system'",
+			"changed-checks --help 2>&1",
+			"changed-checks --version",
+			"command -v merge-net run-subtests changed-checks",
+			"type changed-checks merge-net 2>&1",
+			"for p in $(pgrep -u $USER -f 'changed-checks|run-subtests|nix-offload|vm-desktop' ); do echo $p; done",
+			"env -u SSH_AUTH_SOCK direnv exec ~/src/core.nix which changed-checks",
+		]) {
+			expect(kindOf(looking), looking).toBeUndefined();
+		}
+		// What runs under the same words still runs.
+		for (const running of [
+			"env -u SSH_AUTH_SOCK direnv exec . changed-checks > $G/changed.log 2>&1",
+			"timeout 3000 direnv exec . changed-checks --no-vm > x.log 2>&1",
+			"(direnv exec . changed-checks > $S/changed.log 2>&1",
+			"changed-checks --help --no-vm",
+		]) {
+			expect(kindOf(running), running).toBe("build");
+		}
+	});
+
 	it("finds none in a git command that only reads the history", () => {
 		// On 24 October this waited 51 s for a turn, read as changed-checks
 		// and held to the 24 GiB an evaluation of every check needs.
