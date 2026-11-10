@@ -12,5 +12,5 @@ kept, both back under their ids after a kill, and both parked at a stop
 signal and resumed at the next start. It is in the process lane, since
 it spawns node from node.
 
-- support/: the seal, a host process and its control requests, and
+- `support/`: the seal, a host process and its control requests, and
   the fake engine a host imports by path until H1's createEngine lands.
