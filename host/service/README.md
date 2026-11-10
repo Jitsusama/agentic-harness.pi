@@ -49,6 +49,11 @@ input pipeline or screen. No unit or running host is installed yet.
   their subagents run the host's pi on the host's node. A kind, realm
   or pi install it refuses exits 78, before anything is held or
   listens, so a unit naming that status stops restarting it.
+- pi-resolution.ts: the resolve hook `scripts/pi-host.ts` registers
+  before the host's code loads, binding every `@earendil-works/` import
+  made from outside the host's pi to that pi. The harness's install
+  carries no pi of its own, so without it the viewer's terminal would
+  find no pi-tui, or in a tree the dev copy rather than the host's.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
   or release commits, or once a conversation ended itself; replace swaps

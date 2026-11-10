@@ -35,6 +35,8 @@ pins or listens anything, and the environment and install it gives
 conversations. Its run against the real patched pi is a drill, not a
 test here, since that pi is built outside this package;
 tests/scripts/pi-host.test.ts checks the exit status a unit reads.
+pi-resolution.test.ts checks the host program's resolve hook sends only
+pi imports made from outside the host's pi to that pi.
 gateway-key.test.ts checks the launcher's key order and when a personal
 key is resolved again, with a fake resolver and a stamp file in a
 private folder; the dev tool itself is never run.
