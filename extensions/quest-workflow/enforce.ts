@@ -185,6 +185,12 @@ export interface EnforceOptions {
 	workspaceRoot?: string;
 	/** The home directory a bare `cd` or `~` means. */
 	home?: string;
+	/**
+	 * True when another tool made the call, as a codemode script does.
+	 * What such a call reads goes to the script, and only what the
+	 * script returns reaches the context.
+	 */
+	byScript?: boolean;
 }
 
 /** Classify a write target against the loaded quest and git signals. */
@@ -563,6 +569,10 @@ function enforceDocumentReads(
 	cwd: string,
 	options: EnforceOptions,
 ): QuestVerdict | undefined {
+	// A script that reads a whole plan to append to a section keeps the
+	// plan in its sandbox; 13 of 40 refusals in a day were such scripts,
+	// one session's the same refusal five times in 19 hours.
+	if (options.byScript) return;
 	const read = documentRead(
 		toolName,
 		input,
