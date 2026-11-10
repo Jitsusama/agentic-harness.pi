@@ -8,8 +8,8 @@
  * /new, /fork, /resume or import) is held under its new id before pi builds
  * it, and the one it was ends with it.
  */
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
 	type LaunchHints,
 	SESSION_STAMP_EVENT,
@@ -44,7 +44,6 @@ import {
 } from "./hosted-conversation.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
-	type AgentSession,
 	type AgentSessionRuntime,
 	type EventBus,
 	type PiSessions,
@@ -53,11 +52,19 @@ import {
 	type RuntimeResult,
 	type RuntimeTarget,
 	type SessionManager,
-	type SessionServices,
+	type StartupDiagnostic,
 	startupDiagnostics,
 } from "./pi-session.ts";
-import type { AssistantMessage, Model } from "./pi-types.ts";
+import type { AssistantMessage } from "./pi-types.ts";
+import { projectTrust, type StartupQuestion } from "./project-trust.ts";
 import { holdReplacements } from "./replacement.ts";
+import {
+	adoptable,
+	folder,
+	hintsFor,
+	namesCommand,
+	requireModel,
+} from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
 import {
 	hostedSubagentInstall,
@@ -91,6 +98,12 @@ interface Live {
 	unsubscribe?: () => void;
 	/** pi disposed the session itself, replacing it. */
 	disposed?: boolean;
+	/** Its screen was asked about its folder, so the screen holds something of it however its build ends. */
+	questioned?: boolean;
+	/** Said once its screen first asks the person something before its session exists. */
+	asked?: () => void;
+	/** Its close has begun, so a build still under way stops short of a session. */
+	closing?: boolean;
 }
 
 /**
@@ -118,6 +131,7 @@ export async function createEngine(
 	pinSubagentInstall(hostedSubagentInstall(pi));
 	const sessions = piSessions(pi.modules);
 	const builtIns = piBuiltInExtensions(pi.modules);
+	const trust = projectTrust(pi.modules);
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
@@ -205,11 +219,16 @@ export async function createEngine(
 		return async (target) => {
 			const { current } = seat;
 			if (target.sessionManager.getSessionId() === current.traits.sessionId)
-				return await session(current, target, target.sessionManager, request);
+				return await session(current, target, target.sessionManager, {
+					starting: true,
+					...(request ? { request } : {}),
+				});
 			const next = await becoming(current, target);
 			seat.next = next;
 			return await host.run(next.traits.sessionId, () =>
-				session(next, target, keptFile(sessions, target.sessionManager)),
+				session(next, target, keptFile(sessions, target.sessionManager), {
+					starting: false,
+				}),
 			);
 		};
 	}
@@ -254,24 +273,45 @@ export async function createEngine(
 		);
 	}
 
-	/** Build pi's session for a registered conversation, on its own services, agent and store. */
+	/**
+	 * Build pi's session for a registered conversation, on its own services,
+	 * agent and store, its folder trusted as pi's CLI would trust it.
+	 */
 	async function session(
 		record: Live,
 		target: RuntimeTarget,
 		sessionManager: SessionManager,
-		request?: OpenRequest | AdoptRequest,
+		building: {
+			/** The conversation's own start, rather than one it became. */
+			readonly starting: boolean;
+			readonly request?: OpenRequest | AdoptRequest;
+		},
 	): Promise<RuntimeResult> {
 		const { sessionId } = record.traits;
+		const { request } = building;
 		const env = () => requestEnv(sessionId);
 		const modelRuntime = await sessions.ModelRuntime.create({
 			authPath: join(target.agentDir, "auth.json"),
 			modelsPath: join(target.agentDir, "models.json"),
 			authContext: conversationAuthContext(env),
 		});
+		const trustSaid: StartupDiagnostic[] = [];
+		const ask = building.starting ? trustQuestion(record) : undefined;
+		const trusted = trust.services(target.cwd, target.agentDir, {
+			...(ask ? { ask } : {}),
+			...(target.projectTrustContext
+				? { context: target.projectTrustContext }
+				: {}),
+			warn: (message) => trustSaid.push({ type: "warning", message }),
+		});
 		const services = await sessions.createAgentSessionServices({
 			cwd: target.cwd,
 			agentDir: target.agentDir,
 			modelRuntime,
+			settingsManager: trusted.settingsManager,
+			...(trusted.resourceLoaderReloadOptions
+				? { resourceLoaderReloadOptions: trusted.resourceLoaderReloadOptions }
+				: {}),
 			// pi's own built-ins, as its CLI passes them, so the conversation
 			// has the tools a plain pi on the same settings has.
 			resourceLoaderOptions: loaderOptions(
@@ -282,7 +322,10 @@ export async function createEngine(
 		});
 		// What the CLI says as it starts: the screen shows it all, and the
 		// journal, read when no screen is, keeps the errors and warnings.
-		const said = startupDiagnostics(services);
+		// Closed while its screen asked the person: nothing more is built for it.
+		if (record.closing)
+			throw new Error(`Conversation ${sessionId} closed before it was built`);
+		const said = [...trustSaid, ...startupDiagnostics(services)];
 		for (const { type, message } of said)
 			if (type !== "info")
 				report(new Error(`Conversation ${sessionId}: ${message}`));
@@ -317,6 +360,23 @@ export async function createEngine(
 			createAgent: conversation.createAgent,
 		});
 		return { ...created, services, diagnostics: said };
+	}
+
+	/**
+	 * How a conversation's start asks its person whether to trust its folder:
+	 * through its screen, only when it is attended and the screen can ask,
+	 * saying it asked so its start can answer while the person decides.
+	 */
+	function trustQuestion(record: Live): StartupQuestion | undefined {
+		const screens = options.screens;
+		const askProjectTrust = screens?.askProjectTrust;
+		if (!record.traits.attended || !screens || !askProjectTrust) return;
+		const { sessionId, cwd } = record.traits;
+		return (title, labels) => {
+			record.questioned = true;
+			record.asked?.();
+			return askProjectTrust.call(screens, sessionId, cwd, title, labels);
+		};
 	}
 
 	/**
@@ -491,17 +551,26 @@ export async function createEngine(
 	): Promise<void> {
 		const { sessionId } = traits;
 		const record = register(traits, launch, request, hintsFor(request));
-		try {
-			await host.run(sessionId, () => build(record, manager, request));
-		} catch (error) {
-			try {
-				host.state(sessionId, "parked");
-			} catch (parking) {
-				// Closing already: the close parks it, and the start's error is what the caller must see.
-				report(parking);
-			}
-			throw error;
-		}
+		const asking = new Promise<"asking">((done) => {
+			record.asked = () => done("asking");
+		});
+		const building = host
+			.run(sessionId, () => build(record, manager, request))
+			.then(
+				() => "built" as const,
+				(error: unknown) => {
+					try {
+						host.state(sessionId, "parked");
+					} catch (parking) {
+						// Closing already: the close parks it, and the start's error is what the caller must see.
+						report(parking);
+					}
+					throw error;
+				},
+			);
+		// A start whose screen is asking the person answers now, so a viewer can attach to answer; the build carries on, and says what fails.
+		if ((await Promise.race([building, asking])) === "asking")
+			building.catch(report);
 	}
 
 	/**
@@ -554,7 +623,10 @@ export async function createEngine(
 		record: Live,
 		why: string,
 	): Promise<void> {
-		if (record.runtime) await options.screens?.closed(sessionId);
+		record.closing = true;
+		// A screen asked about the folder holds a terminal for it, and settles any question still open, whether or not a session came of it.
+		if (record.runtime || record.questioned)
+			await options.screens?.closed(sessionId);
 		const agent = record.conversation?.agent;
 		if (record.ending !== "closed") agent?.park();
 		else if (!record.disposed) await record.runtime?.session.abort();
@@ -710,54 +782,4 @@ function keptFile(
 function resumes(target: RuntimeTarget): boolean {
 	const start = target.sessionStartEvent;
 	return start !== undefined && Reflect.get(start, "reason") === "resume";
-}
-
-/** Whether the words open with a command an extension registered, named as pi's prompt parses it. */
-function namesCommand(session: AgentSession, words: string): boolean {
-	if (!words.startsWith("/")) return false;
-	const space = words.indexOf(" ");
-	const name = space === -1 ? words.slice(1) : words.slice(1, space);
-	return session.extensionRunner.getCommand(name) !== undefined;
-}
-
-/** The model an open names, refused when no provider of the conversation's has it. */
-function requireModel(
-	services: SessionServices,
-	wanted: { readonly provider: string; readonly id: string },
-): Model {
-	const model = services.modelRuntime.getModel(wanted.provider, wanted.id);
-	if (!model)
-		throw new Error(
-			`No model ${wanted.provider}/${wanted.id} for this conversation`,
-		);
-	return model;
-}
-
-function folder(cwd: string): string {
-	if (!isAbsolute(cwd))
-		throw new Error(`A conversation's folder must be absolute: ${cwd}`);
-	if (!existsSync(cwd)) throw new Error(`No such folder: ${cwd}`);
-	// pi started there would work in the folder its process.cwd() names, which is the folder's own path, past any symlink.
-	return realpathSync(cwd);
-}
-
-function adoptable(sessionFile: string): string {
-	if (!isAbsolute(sessionFile))
-		throw new Error(`A session file to adopt must be absolute: ${sessionFile}`);
-	if (!existsSync(sessionFile))
-		throw new Error(`No session file to adopt: ${sessionFile}`);
-	return resolve(sessionFile);
-}
-
-/** What a conversation's extensions are told once, at its start. */
-function hintsFor(
-	request: OpenRequest | AdoptRequest | undefined,
-): LaunchHints {
-	if (!request) return {};
-	return {
-		...(request.quest ? { questId: request.quest } : {}),
-		...(request.op === "open" && request.first !== undefined
-			? { firstWords: request.first }
-			: {}),
-	};
 }

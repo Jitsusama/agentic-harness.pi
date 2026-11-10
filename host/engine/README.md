@@ -98,7 +98,8 @@ the key has been renewed (renewing-stream.ts), since pi retries no 401.
 
 createEngine (engine.ts) is the service's engine, made from and answering
 what contract.ts declares; resources.ts turns the resources pi's flags
-would choose into pi's loader options. It loads the host's pi
+would choose into pi's loader options, and requests.ts reads what an open
+or adopt names. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each
@@ -110,6 +111,17 @@ conversation's own environment (auth-context.ts, and the auth-context
 patch), never the host's. The engine writes a new conversation's session
 header itself, since pi writes a file only once it holds an answer, so a
 conversation stopped before one keeps its id when resumed.
+
+A conversation's folder is trusted as pi's CLI trusts it
+(project-trust.ts, on pi's own project-trust module): an answer the host
+already gave that folder, then, where the folder holds what needs trust,
+its extensions' project_trust handlers, pi's trust store and the default,
+which is to ask. An attended conversation's start asks its screen
+(askProjectTrust) and answers once it has asked, so a viewer can attach
+to answer; its first words go in once the person has. With no screen to
+ask, or unattended, a folder pi would ask about stays untrusted, and its
+start warns that its own settings and extensions were not loaded. A close
+while asking settles the question and builds nothing more.
 
 A close aborts what runs and stamps `closed`. A stop parks the agent and
 stamps `signalled`, leaving what durable had in flight for the next

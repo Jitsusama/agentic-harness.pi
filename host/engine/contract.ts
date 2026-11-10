@@ -45,6 +45,20 @@ export interface HostedView {
  * start; without one, the engine binds them with no interface.
  */
 export interface EngineScreens {
+	/**
+	 * Ask the person at a conversation's screen what pi asks at its start,
+	 * whether to trust the folder it works in, before its session exists:
+	 * answer with a label, or undefined when dismissed or closed, which
+	 * leaves the folder untrusted. Asked only of an attended conversation
+	 * where pi would ask, once it is listed; its start answers once this is
+	 * asked. None leaves such a folder untrusted, as pi without a screen does.
+	 */
+	askProjectTrust?(
+		sessionId: string,
+		cwd: string,
+		title: string,
+		labels: readonly string[],
+	): Promise<string | undefined>;
 	/** A conversation is registered and built; its first words are still to come. */
 	opened(view: HostedView): void | Promise<void>;
 	/** A conversation became another (new, fork or resume) under a new id. */
