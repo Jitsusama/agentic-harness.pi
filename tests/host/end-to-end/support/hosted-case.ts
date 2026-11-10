@@ -12,7 +12,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { isRecord } from "../../../../lib/internal/record.ts";
-import { inboxOf } from "../../../../lib/mesh/steer.ts";
+import { inboxOf, type SteerAct } from "../../../../lib/mesh/steer.ts";
 import { until } from "../../../support/until.ts";
 import { hostPiFor } from "./host-pi.ts";
 import type { Seal } from "./seal.ts";
@@ -75,6 +75,13 @@ export function toolAnswer(
 	return answer;
 }
 
+/** How many answers the model has given in a session file. */
+export function repliesIn(file: string | undefined): number {
+	return textOf(file)
+		.split("\n")
+		.filter((line) => entryMessage(line)?.role === "assistant").length;
+}
+
 /** The message a session file's line records, if it records one. */
 function entryMessage(line: string): Record<string, unknown> | undefined {
 	try {
@@ -91,12 +98,15 @@ function entryMessage(line: string): Record<string, unknown> | undefined {
 /**
  * Steer `text` to the session going by `address` under `seal`, as the
  * launcher does: written under a temporary name, then renamed into the
- * inbox, so the session never reads half a steer.
+ * inbox, so the session never reads half a steer. With `act`, it is
+ * the launcher's button of that name, as its Stop and Close on a hosted
+ * row are (core #2827).
  */
 export async function steerInbox(
 	seal: Seal,
 	address: string,
 	text: string,
+	act?: SteerAct,
 ): Promise<void> {
 	const root = join(
 		seal.env.XDG_STATE_HOME ?? "",
@@ -110,7 +120,12 @@ export async function steerInbox(
 	const writing = join(inbox, `${name}.tmp`);
 	await writeFile(
 		writing,
-		JSON.stringify({ text, at: new Date().toISOString(), from: "joel" }),
+		JSON.stringify({
+			text,
+			...(act ? { act } : {}),
+			at: new Date().toISOString(),
+			from: "joel",
+		}),
 	);
 	await rename(writing, join(inbox, `${name}.json`));
 }

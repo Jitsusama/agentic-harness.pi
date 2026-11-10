@@ -4,7 +4,7 @@ A whole host as its own process, started as systemd starts it, under a
 sealed HOME, XDG folders and TMPDIR, driven over its control socket. It
 mirrors no source folder: what it checks spans the engine, the service
 and every conversation's harness. These are the integration checks E1
-to E7 of the keying design, and the ground they stand on.
+to E8 of the keying design, and the ground they stand on.
 
 sealed-host.test.ts proves that ground on a fake engine: two
 conversations served from the seal, one ended at close with the other
@@ -59,7 +59,10 @@ commit credits only its own model.
 restart.test.ts is E4: one conversation stores a query's rows under a
 handle, the host is killed outright, and once a new host has resumed
 both, a steer to the old address reaches it and its query of the old
-handle answers.
+handle answers. Neither is offered to reopen in a window, with the host
+dead or back: the next boot's restore file marks both hosted, so the
+launcher's Sessions to Reopen leaves them out, and `quest
+reopen-sessions` names neither.
 
 rollback.test.ts is E5, the rollback drill: one conversation is closed
 in the host and its log opened in a plain `pi --session`, which
@@ -81,6 +84,12 @@ arguments of the `pi --mode json` it runs in, read inside the child,
 since pi titles itself `pi` and so hides them from ps. Both are the
 host's node running the host runtime's own `dist/bundle/cli.js`.
 
+pausing.test.ts is E8, the launcher's Stop and Close on a hosted row,
+which reach the conversation as steers: a Stop sent while it is busy
+in a long tool cuts that tool short and leaves it listening, a Close
+ends it, and the host drops it alone, its neighbour answering
+throughout.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
@@ -89,7 +98,7 @@ node.
 
 ## The Host's Pi
 
-E1 to E7 run on a pi built with the host's patches, which an ordinary
+E1 to E8 run on a pi built with the host's patches, which an ordinary
 check can't build. `pnpm test:host` runs them on the pi
 `PI_HOST_PACKAGE_DIR` names (a pi-monorepo folder), else on the one under
 the link H2 keeps to the latest piHostRuntime build,
@@ -116,6 +125,7 @@ without it the check skips, or fails under `pnpm test:host`, saying so.
   into an inbox), a sealed mycelium node, and the engines a host imports
   by path: the fake one, and H1's createEngine with the scripted model;
   the scripted model itself, the extension that gives a plain pi the
-  same model, and a plain pi driven over RPC; the screen host's process,
-  working folders and the trust store that judges them, and a viewer
-  reading its screen.
+  same model, a plain pi driven over RPC, and what the launcher would
+  offer to reopen from the seal's session records; the screen host's
+  process, working folders and the trust store that judges them, and a
+  viewer reading its screen.

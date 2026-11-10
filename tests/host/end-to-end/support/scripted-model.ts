@@ -28,6 +28,9 @@
  *   each with that extension loaded and told `whoami`;
  * - told `whoami`, it says the pid, node and arguments of the pi it
  *   answers in, which for a subagent is the subagent's own;
+ * - told `dawdle`, it has bash run a command that never ends by
+ *   itself, so only a Stop ends it;
+ * - told `reopen`, it asks quest which lost sessions it would reopen;
  * - after any other tool's result, it says `sent`.
  *
  * A host process and a plain pi import this by path, under node's own
@@ -72,6 +75,18 @@ export const STORE = "store";
 
 /** What a conversation is told to say what it is billed and credited as. */
 export const ACCOUNT = "account";
+
+/** What a conversation is told to start a tool only a Stop ends. */
+export const DAWDLE = "dawdle";
+
+/**
+ * What bash runs for `dawdle`: a follow of a file nothing writes, which
+ * never ends by itself. Not a long sleep, which the harness refuses.
+ */
+export const DAWDLING = "tail -f /dev/null";
+
+/** What a conversation is told to list the sessions it would reopen. */
+export const REOPEN = "reopen";
 
 /** How many answers the scripted model has in it, more than any check asks. */
 const ANSWERS = 200;
@@ -240,6 +255,10 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	if (toldTo(words, ACCOUNT))
 		return toolCall(faux, "bash", { command: ACCOUNTING });
 	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
+	if (toldTo(words, DAWDLE))
+		return toolCall(faux, "bash", { command: DAWDLING });
+	if (toldTo(words, REOPEN))
+		return toolCall(faux, "quest", { action: "reopen-sessions" });
 	const fleet = /^fleet (\S+) (\S+)$/m.exec(words);
 	if (fleet?.[1] && fleet[2])
 		return toolCall(faux, "subagent", {
