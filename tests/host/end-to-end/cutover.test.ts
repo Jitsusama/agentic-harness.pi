@@ -204,8 +204,8 @@ it(
 				sessions.map((one) => presences().of(one.sessionId)?.driven),
 				"each says whether a person drives it",
 			).toEqual([
-				...Array(DRIVEN).fill(true),
-				...Array(SESSIONS - DRIVEN).fill(false),
+				...new Array(DRIVEN).fill(true),
+				...new Array(SESSIONS - DRIVEN).fill(false),
 			]);
 
 			// The shell kept a window for the driven five alone.
@@ -278,7 +278,18 @@ it(
 			);
 			expect(release.code, release.out).toBe(0);
 			expect(release.out).toContain(`${SESSIONS} released`);
-			expect(release.out).not.toContain("not journaled");
+			expect(
+				release.out
+					.split("\n")
+					.filter((line) => line.startsWith("not journaled"))
+					.sort(),
+				"only those with no quest go unjournaled, and each says so",
+			).toEqual(
+				address
+					.slice(1)
+					.map((one) => `not journaled: ${one}, no quest`)
+					.sort(),
+			);
 			expect(
 				await readFile(
 					join(
