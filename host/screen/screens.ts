@@ -4,7 +4,9 @@
  * opening builds pi's own InteractiveMode over a ViewerTerminal, so the
  * screen keeps running with nobody watching and any number of viewers can
  * join it later. A screen that quits closes only its conversation; a window
- * closing only detaches its viewer.
+ * closing only detaches its viewer. A question pi asks before the screen
+ * exists (whether to trust the project folder) is shown on the same
+ * terminal, which viewers can already join, and the screen takes it over.
  */
 
 import { withSession } from "../../lib/core/session/index.ts";
@@ -14,6 +16,7 @@ import {
 } from "../../lib/core/viewer/terminal.ts";
 import type { ViewerBridge } from "../service/server.ts";
 import { terminalBridge } from "../service/viewer.ts";
+import type { StartupAsk, StartupAsker } from "./startup-ask.ts";
 
 /** A conversation as the engine hands it to its screen. */
 export interface HostedView {
@@ -30,6 +33,17 @@ export interface EngineScreens {
 	opened(view: HostedView): void | Promise<void>;
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
 	closed(sessionId: string): void | Promise<void>;
+	/**
+	 * Ask whether to trust the project folder before the conversation's
+	 * screen exists, answering the label picked, or none when dismissed or
+	 * closed first. Only screens given an asker have it.
+	 */
+	askProjectTrust?(
+		sessionId: string,
+		cwd: string,
+		title: string,
+		labels: readonly string[],
+	): Promise<string | undefined>;
 }
 
 /** One thing pi said as the conversation started, as its CLI shows it. */
@@ -88,17 +102,81 @@ interface Screen {
 	closing: boolean;
 }
 
+/** A conversation's terminal, made before its screen when pi asks something first. */
+interface Early {
+	readonly terminal: ViewerTerminal;
+	/** What a viewer joining is drawn by: the question, then the screen. */
+	repaint: () => void;
+	/** The question being asked, until it is answered. */
+	asking: StartupAsk | undefined;
+}
+
 /** Keep a screen for every conversation the engine opens. */
 export function hostScreens(options: {
 	create: HostedModeFactory;
 	report: (error: unknown) => void;
+	/** Shows pi's startup questions; without it the screens offer none. */
+	ask?: StartupAsker;
 }): HostScreens {
 	const live = new Map<string, Screen>();
+	const early = new Map<string, Early>();
 
 	function find(sessionId: string): Screen {
 		const screen = live.get(sessionId);
 		if (!screen) throw new Error(`Conversation has no screen: ${sessionId}`);
 		return screen;
+	}
+
+	function terminalOf(sessionId: string): ViewerTerminal {
+		const held = live.get(sessionId) ?? early.get(sessionId);
+		if (!held) throw new Error(`Conversation has no screen: ${sessionId}`);
+		return held.terminal;
+	}
+
+	// A terminal whose repaint follows whatever draws on it now.
+	function earlyTerminal(sessionId: string): Early {
+		const made: Early = {
+			terminal: new ViewerTerminal(sessionId, () => made.repaint()),
+			repaint: () => undefined,
+			asking: undefined,
+		};
+		return made;
+	}
+
+	async function askProjectTrust(
+		asker: StartupAsker,
+		sessionId: string,
+		title: string,
+		labels: readonly string[],
+	): Promise<string | undefined> {
+		if (live.has(sessionId))
+			throw new Error(`Conversation already has a screen: ${sessionId}`);
+		// pi, or an extension deciding trust, may ask several in turn: each
+		// after the last on the same terminal, never two at once.
+		const before = early.get(sessionId);
+		if (before?.asking)
+			throw new Error(`Conversation is already asking: ${sessionId}`);
+		const held = before ?? earlyTerminal(sessionId);
+		early.set(sessionId, held);
+		let asking: StartupAsk;
+		try {
+			asking = withSession(sessionId, () =>
+				asker(held.terminal, title, labels),
+			);
+		} catch (error) {
+			early.delete(sessionId);
+			held.terminal.dispose();
+			throw error;
+		}
+		held.asking = asking;
+		held.repaint = () => asking.repaint();
+		// Answered or cancelled, the terminal waits for its screen, or a close.
+		const answer = await asking.answer;
+		if (held.asking === asking) {
+			held.asking = undefined;
+			held.repaint = () => undefined;
+		}
+		return answer;
 	}
 
 	// The screen quit: close its conversation unless it is already closing.
@@ -117,9 +195,12 @@ export function hostScreens(options: {
 		if (live.has(view.sessionId))
 			throw new Error(`Conversation already has a screen: ${view.sessionId}`);
 		let screen: Screen | undefined;
-		const terminal = new ViewerTerminal(view.sessionId, () => {
+		const held = early.get(view.sessionId) ?? earlyTerminal(view.sessionId);
+		early.delete(view.sessionId);
+		const { terminal } = held;
+		held.repaint = () => {
 			if (screen) repaint(screen.mode);
-		});
+		};
 		const mode = options.create(view.runtime, {
 			terminal,
 			startupDiagnostics: diagnosticsOf(view.runtime),
@@ -159,6 +240,12 @@ export function hostScreens(options: {
 	}
 
 	async function closed(sessionId: string): Promise<void> {
+		const held = early.get(sessionId);
+		if (held) {
+			early.delete(sessionId);
+			held.asking?.cancel();
+			held.terminal.dispose();
+		}
 		const screen = live.get(sessionId);
 		if (!screen) return;
 		live.delete(sessionId);
@@ -171,9 +258,24 @@ export function hostScreens(options: {
 		}
 	}
 
+	const { ask } = options;
 	return {
-		screens: { opened, rebound, closed },
-		viewer: terminalBridge((sessionId) => find(sessionId).terminal),
+		screens: {
+			opened,
+			rebound,
+			closed,
+			...(ask
+				? {
+						askProjectTrust: (
+							sessionId: string,
+							_cwd: string,
+							title: string,
+							labels: readonly string[],
+						) => askProjectTrust(ask, sessionId, title, labels),
+					}
+				: {}),
+		},
+		viewer: terminalBridge(terminalOf),
 		ids: () => [...live.keys()],
 	};
 }

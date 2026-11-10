@@ -27,6 +27,8 @@ export interface HostPiModules {
 	readonly agentCore: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-ai`'s main entry: tool validation and transcript helpers. */
 	readonly ai: Readonly<Record<string, unknown>>;
+	/** `@earendil-works/pi-tui`'s main entry: the main-screen TUI a startup question is drawn in. */
+	readonly tui: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-durable`'s main entry. */
 	readonly durable: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-durable/storage/sqlite/node`. */
@@ -134,6 +136,7 @@ export function hostPiFiles(
 		projectTrust: join(packageDir, "dist", "core", "project-trust.js"),
 		agentCore: libraryEntry(packageDir, "pi-agent-core", "index.js"),
 		ai: libraryEntry(packageDir, "pi-ai", "index.js"),
+		tui: libraryEntry(packageDir, "pi-tui", "index.js"),
 		durable: libraryEntry(packageDir, "pi-durable", "index.js"),
 		sqlite: libraryEntry(
 			packageDir,
@@ -169,6 +172,7 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 		projectTrust: await importModule(files.projectTrust),
 		agentCore: await importModule(files.agentCore),
 		ai: await importModule(files.ai),
+		tui: await importModule(files.tui),
 		durable: await importModule(files.durable),
 		sqlite: await importModule(files.sqlite),
 		nodeEnv: await importModule(files.nodeEnv),

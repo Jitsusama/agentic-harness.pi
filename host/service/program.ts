@@ -12,7 +12,11 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { createEngine, loadHostPi } from "../engine/index.ts";
+import {
+	createEngine,
+	type HostPiModules,
+	loadHostPi,
+} from "../engine/index.ts";
 import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
@@ -119,8 +123,13 @@ export async function startHostProgram(
 	// pi, so they load only once that pi is judged whole: a refused one is
 	// said as a refusal, not as a module that can't be found.
 	const { hostScreens, hostedModeOf } = await import("../screen/screens.ts");
+	const { hostedAskerOf } = await import("../screen/startup-ask.ts");
 	const screens = hostScreens({
 		create: hostedModeOf(configured.interactiveMode),
+		ask: hostedAskerOf(
+			configured.startupQuestions.selector,
+			configured.startupQuestions.mainScreen,
+		),
 		report,
 	});
 	return runHost({
@@ -145,6 +154,7 @@ export async function startHostProgram(
 async function configuration(options: HostProgramOptions): Promise<{
 	packageDir: string;
 	interactiveMode: unknown;
+	startupQuestions: StartupQuestions;
 	startTheme: () => void;
 }> {
 	try {
@@ -155,11 +165,37 @@ async function configuration(options: HostProgramOptions): Promise<{
 		return {
 			packageDir,
 			interactiveMode: pi.modules.codingAgent.InteractiveMode,
+			startupQuestions: startupQuestions(pi.modules),
 			startTheme: themeStarter(pi.modules.codingAgent, homedir()),
 		};
 	} catch (error) {
 		throw new HostMisconfigured(error);
 	}
+}
+
+/** What pi's CLI draws its startup questions with, as the host's pi exports them. */
+export interface StartupQuestions {
+	/** pi's ExtensionSelectorComponent. */
+	readonly selector: unknown;
+	/** pi-tui's TuiMainScreen, which the selector is drawn in. */
+	readonly mainScreen: unknown;
+}
+
+/**
+ * The selector pi's CLI asks its startup questions with (whether to trust
+ * a project folder) and the main-screen TUI it draws in, which a hosted
+ * screen shows the same way. A pi lacking either is refused.
+ */
+export function startupQuestions(
+	modules: Pick<HostPiModules, "codingAgent" | "tui">,
+): StartupQuestions {
+	const selector = modules.codingAgent.ExtensionSelectorComponent;
+	if (typeof selector !== "function")
+		throw new Error("The host's pi lacks ExtensionSelectorComponent");
+	const mainScreen = modules.tui.TuiMainScreen;
+	if (typeof mainScreen !== "function")
+		throw new Error("The host's pi-tui lacks TuiMainScreen");
+	return { selector, mainScreen };
 }
 
 /**
