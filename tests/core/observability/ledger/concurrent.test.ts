@@ -8,7 +8,6 @@ import {
 	type ToolCallRecord,
 	type TurnRecord,
 } from "../../../../lib/core/observability/ledger/index.ts";
-import { ROWS_PER_TRANSACTION } from "../../../../lib/core/observability/ledger/store.ts";
 
 function turn(digest: string): TurnRecord {
 	return {
@@ -78,9 +77,13 @@ function digests(prefix: string): string[] {
  * rows already there and carry on, not fail the pass.
  */
 describe("two stores indexing one ledger at once", () => {
-	async function twoStores() {
+	async function twoStores(rowsPerTransaction?: number) {
 		const path = join(mkdtempSync(join(tmpdir(), "ledger-")), "ledger.db");
-		return [await openTurnStore(path), await openTurnStore(path)] as const;
+		const options = rowsPerTransaction ? { rowsPerTransaction } : {};
+		return [
+			await openTurnStore(path, options),
+			await openTurnStore(path, options),
+		] as const;
 	}
 
 	it("records each tool call once and fails neither pass", async () => {
@@ -113,11 +116,14 @@ describe("two stores indexing one ledger at once", () => {
 		await b.close();
 	});
 
-	// Written in transactions of ROWS_PER_TRANSACTION, so a pass longer
-	// than one lets go of the lock between them (16V6F4, 8 November).
+	// Written in transactions of a few rows, so a pass longer than one
+	// lets go of the lock between them (16V6F4, 8 November). Small, since
+	// the 500 a real store writes made 6,000 round trips that ran past
+	// 4.6 s of a 5 s limit on a loaded machine.
 	it("records a pass longer than one transaction whole, from both at once", async () => {
-		const [a, b] = await twoStores();
-		const many = ROWS_PER_TRANSACTION * 2 + 1;
+		const perTransaction = 5;
+		const [a, b] = await twoStores(perTransaction);
+		const many = perTransaction * 2 + 1;
 		const names = Array.from({ length: many }, (_, i) => `x${i}`);
 
 		const [turnsA, turnsB] = await Promise.all([

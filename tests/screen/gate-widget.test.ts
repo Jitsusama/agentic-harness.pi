@@ -128,6 +128,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+	vi.useRealTimers();
 	await pi?.stop();
 	pi = undefined;
 	vi.restoreAllMocks();
@@ -361,6 +362,10 @@ describe("a gate arriving while the person types", () => {
 		]);
 		await session.prompt("raise it");
 
+		// The gate times the pause by the clock alone, so keys 60 ms apart on
+		// it stay 60 ms apart however long a busy machine takes to send them,
+		// while its real ticks keep asking whether the typing has stopped.
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const typed = "a steer typed through the gate";
 		let seenWhileTyping = false;
 		for (const character of typed) {
@@ -370,19 +375,24 @@ describe("a gate arriving while the person types", () => {
 				session.editorFocused(),
 				`the editor keeps the keys after "${character}" is typed`,
 			).toBe(true);
-			await sleep(60);
+			vi.advanceTimersByTime(60);
 		}
-		const stopped = Date.now();
 
 		expect(
 			seenWhileTyping,
 			"the gate shows on screen while the person is still typing",
 		).toBe(true);
 		expect(session.editorText()).toBe(typed);
+		vi.advanceTimersByTime(GATE_TYPING_IDLE_MS - 60 - 1);
+		// Real time for the gate's 100 ms ticks to look, a millisecond short.
+		await sleep(300);
+		expect(
+			session.editorFocused(),
+			"the editor keeps the keys until the pause is whole",
+		).toBe(true);
+		vi.advanceTimersByTime(1);
+		vi.useRealTimers();
 		await waitFor(() => !session.editorFocused(), "the gate to take focus");
-		expect(Date.now() - stopped).toBeGreaterThanOrEqual(
-			GATE_TYPING_IDLE_MS - 100,
-		);
 	});
 
 	it("ignores an Enter that lands the moment it takes the keyboard", async () => {

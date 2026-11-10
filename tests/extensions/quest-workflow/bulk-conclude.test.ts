@@ -41,8 +41,17 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
+/**
+ * No process works in any scratch folder: workspace.test.ts reads the
+ * real `/proc`, and here it would only time this machine's process count.
+ */
+const nobody = () => [];
+
 async function twoQuests() {
-	const state = createQuestState({ questsRoot: join(root, "quests") });
+	const state = createQuestState({
+		questsRoot: join(root, "quests"),
+		inUse: nobody,
+	});
 	const ids: string[] = [];
 	for (const title of ["First Sweep", "Second Sweep"]) {
 		const created = await handle(state, fakePi(), fakeCtx(root), {
@@ -88,7 +97,10 @@ function ranElsewhere(questDir: string): void {
 }
 
 async function batch(size: number) {
-	const state = createQuestState({ questsRoot: join(root, "quests") });
+	const state = createQuestState({
+		questsRoot: join(root, "quests"),
+		inUse: nobody,
+	});
 	const ids: string[] = [];
 	for (let n = 0; n < size; n++) {
 		const created = await handle(state, fakePi(), fakeCtx(root), {
