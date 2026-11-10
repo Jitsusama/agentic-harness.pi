@@ -143,6 +143,48 @@ describe("a quest document read from the shell", () => {
 		expect(again).toBeUndefined();
 		expect(reports.map((r) => r.kind)).toEqual(["overridden"]);
 	});
+
+	it("goes through when a script makes it, since only what the script returns reaches the context", async () => {
+		const state = await questInBuild();
+		const plan = join(
+			state.questsRoot,
+			"QEST-20261025-2AF2DH",
+			"plans",
+			"PLAN-20261025-8JCJRJ.md",
+		);
+		const byScript = { ...noScratch, byScript: true };
+
+		const whole = questVerdicts(
+			state,
+			"read",
+			{ path: plan },
+			tmpRoot,
+			byScript,
+		);
+		const shell = questVerdicts(
+			state,
+			"bash",
+			{ command: `grep -c "^- " ${plan}` },
+			tmpRoot,
+			byScript,
+		);
+
+		expect(whole.map((v) => v.guard)).not.toContain("quest-document-read");
+		expect(shell.map((v) => v.guard)).not.toContain("quest-document-read");
+	});
+
+	it("still has a script's write judged by the gates that judge writes", async () => {
+		const state = await questInBuild();
+		const verdicts = questVerdicts(
+			state,
+			"bash",
+			{ command: "mkdir -p ~/src && echo hi > ~/src/foo.ts" },
+			tmpRoot,
+			{ ...noScratch, home: repoRoot, byScript: true },
+		);
+
+		expect(verdicts.map((v) => v.guard)).toEqual(["quest-untracked-tree"]);
+	});
 });
 
 describe("the quest gates under the policy", () => {

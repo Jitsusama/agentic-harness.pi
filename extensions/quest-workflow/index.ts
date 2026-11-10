@@ -570,7 +570,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			const input = event.input as Record<string, unknown>;
 			const refusal = applyQuestGuards(
 				state,
-				questVerdicts(state, event.toolName, input, ctx.cwd),
+				questVerdicts(state, event.toolName, input, ctx.cwd, {
+					byScript: event.parentToolCallId !== undefined,
+				}),
 				adoptTree,
 				() => `${event.toolName} ${JSON.stringify(input)}`,
 			);

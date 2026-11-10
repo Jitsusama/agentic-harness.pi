@@ -403,7 +403,9 @@ while it waits its turn leaves without running.
   sed instead. A shell command that searches or prints a
   document, or a `read` of a whole one, is refused with the
   `show` call that answers it (`quest-document-read`, in
-  redirect: asked again, it goes through).
+  redirect: asked again, it goes through). A codemode
+  script's read goes through at once, since only what the
+  script returns reaches the context.
 - The gates are guards under the guard policy:
   `quest-record`, `quest-owned-fields` and
   `quest-plan-stage` block. `quest-document-read`,
