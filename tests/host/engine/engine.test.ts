@@ -38,6 +38,10 @@ interface Seen {
 	readonly childrenAlive: readonly number[];
 	readonly probe: readonly Record<string, string>[];
 	readonly reported: readonly string[];
+	readonly piVersion: string;
+	/** The request each launch environment was derived for, in that run. */
+	readonly derived: readonly string[];
+	readonly env?: Readonly<Record<string, unknown>>;
 }
 
 const folders: string[] = [];
@@ -138,6 +142,21 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			expect(seen.keysSeen).toEqual(["first-key"]);
 			expect(seen.state).toBe("idle");
 			expect(seen.after).toBe("gone");
+			expect(seen.derived, "the launch is derived once, at open").toEqual([
+				"open",
+			]);
+			expect(seen.env).toEqual({
+				openedAs: "open",
+				marker: seen.sessionId,
+				settings: expect.objectContaining({
+					harness: "pi",
+					harness_version: seen.piVersion,
+					surface: "background",
+					launch_mode: "fresh",
+					model_source: "cli",
+					reasoning_source: "default",
+				}),
+			});
 			expect(seen.probe).toEqual([
 				{ event: "session_start", reason: "startup" },
 				{ event: "stamp", how: "closed" },
@@ -176,6 +195,15 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				"user: are you there",
 				"assistant: after the restart",
 			]);
+			expect(resumed.derived, "a resume replays the held launch").toEqual([]);
+			expect(resumed.env).toEqual({
+				openedAs: "open",
+				marker: resumed.sessionId,
+				settings: expect.objectContaining({
+					harness_version: resumed.piVersion,
+					launch_mode: "restore",
+				}),
+			});
 		},
 		HOST_LIFE_MS,
 	);

@@ -23,6 +23,10 @@ import type {
 	Prepared,
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
+import {
+	HARNESS_SETTINGS_VARIABLE,
+	harnessSettings,
+} from "./harness-settings.ts";
 import { loadHostPi } from "./host-pi.ts";
 import type { HostedAgent } from "./hosted-agent.ts";
 import {
@@ -98,10 +102,14 @@ export interface EngineOptions {
 	readonly env: NodeJS.ProcessEnv;
 	/** The gateway key, set in each request's environment; none leaves the environment as it is. */
 	readonly key?: EngineKey;
-	/** A conversation's own variables, laid over the realm's; a resume passes no request. */
+	/**
+	 * A conversation's own variables, laid over the realm's. Asked once, when
+	 * it opens or is adopted; the roster holds the answer as its launch and a
+	 * resume replays it as held, so a restart never derives it again.
+	 */
 	readonly conversationEnv?: (
 		conversation: ConversationTraits,
-		request?: OpenRequest | AdoptRequest,
+		request: OpenRequest | AdoptRequest,
 	) => Readonly<Record<string, string>>;
 	readonly screens?: EngineScreens;
 	readonly report?: (error: unknown) => void;
@@ -126,6 +134,13 @@ interface Live {
 	unsubscribe?: () => void;
 }
 
+/** A conversation prepare named, waiting for its start, with the launch derived for it. */
+interface Preparing {
+	readonly manager: SessionManager;
+	readonly traits: ConversationTraits;
+	readonly launch: Readonly<Record<string, string>>;
+}
+
 /** The service's engine, and each conversation as a screen or test drives it. */
 export interface HostEngine extends ConversationEngine {
 	view(sessionId: string): HostedView | undefined;
@@ -140,7 +155,7 @@ export async function createEngine(
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
-	const prepared = new Map<string, SessionManager>();
+	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
 
 	function held(sessionId: string, file: string): boolean {
@@ -344,6 +359,7 @@ export async function createEngine(
 	async function begin(
 		traits: ConversationTraits,
 		manager: SessionManager,
+		launch: Readonly<Record<string, string>>,
 		request?: OpenRequest | AdoptRequest,
 	): Promise<void> {
 		const { sessionId } = traits;
@@ -352,9 +368,16 @@ export async function createEngine(
 			id: sessionId,
 			file: traits.file,
 			cwd: traits.cwd,
+			// What the engine derives comes after the launch, every start, so a held launch never overrides it.
 			env: {
 				...options.env,
-				...options.conversationEnv?.(traits, request),
+				...launch,
+				[HARNESS_SETTINGS_VARIABLE]: harnessSettings(
+					options.env[HARNESS_SETTINGS_VARIABLE],
+					{ attended: traits.attended },
+					request,
+					{ version: pi.version },
+				),
 				...conversationMarker(sessionId),
 			},
 			hints: hintsFor(request),
@@ -437,26 +460,33 @@ export async function createEngine(
 			if (!file) throw new Error("pi named no file for the conversation");
 			if (held(sessionId, file))
 				throw new Error(`Conversation already held: ${sessionId}`);
-			prepared.set(sessionId, manager);
-			return { sessionId, file, cwd: manager.getCwd() };
+			const cwd = manager.getCwd();
+			const traits: ConversationTraits = {
+				sessionId,
+				file,
+				cwd,
+				attended: request.attended,
+				...(request.quest ? { quest: request.quest } : {}),
+			};
+			const launch = { ...options.conversationEnv?.(traits, request) };
+			prepared.set(sessionId, { manager, traits, launch });
+			return {
+				sessionId,
+				file,
+				cwd,
+				...(Object.keys(launch).length > 0 ? { launch } : {}),
+			};
 		},
 
 		async start(conversation: Prepared, request) {
-			const manager = prepared.get(conversation.sessionId);
-			if (!manager)
+			const preparing = prepared.get(conversation.sessionId);
+			if (!preparing)
 				throw new Error(
 					`Conversation was not prepared: ${conversation.sessionId}`,
 				);
 			prepared.delete(conversation.sessionId);
-			await begin(
-				{
-					...conversation,
-					attended: request.attended,
-					...(request.quest ? { quest: request.quest } : {}),
-				},
-				manager,
-				request,
-			);
+			const { manager, traits, launch } = preparing;
+			await begin(traits, manager, launch, request);
 		},
 
 		async discard(conversation) {
@@ -475,10 +505,11 @@ export async function createEngine(
 				throw new Error(
 					`${entry.file} now holds conversation ${manager.getSessionId()}, not ${entry.sessionId}`,
 				);
-			const { sessionId, file, cwd, attended, quest } = entry;
+			const { sessionId, file, cwd, attended, quest, launch } = entry;
 			await begin(
 				{ sessionId, file, cwd, attended, ...(quest ? { quest } : {}) },
 				manager,
+				launch ?? {},
 			);
 		},
 

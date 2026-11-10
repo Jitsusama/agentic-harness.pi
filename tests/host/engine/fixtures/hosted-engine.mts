@@ -62,6 +62,10 @@ const children = join(folder, "children");
 const probe = join(folder, "probe.jsonl");
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
+/** The request each launch environment was derived for, in this run. */
+const derived: string[] = [];
+/** The variable the fixture's launch environment sets. */
+const OPENED_AS = "OPENED_AS";
 
 const say =
 	(text: string) => (_context: unknown, options: { apiKey?: unknown }) => {
@@ -94,7 +98,11 @@ const scenarios: Record<string, Scenario> = {
 		run: async (engine, host) => {
 			const id = await open(engine, { first: "hi" });
 			await idle(engine, id);
-			const seen = { ...summary(engine, id), state: host.holds(id) };
+			const seen = {
+				...summary(engine, id),
+				env: envOf(host, id),
+				state: host.holds(id),
+			};
 			await host.close(id);
 			return { ...seen, after: host.holds(id) ?? "gone" };
 		},
@@ -162,7 +170,10 @@ const scenarios: Record<string, Scenario> = {
 			const view = engine.view(entry.sessionId);
 			await view?.runtime.session.prompt("are you there");
 			await idle(engine, entry.sessionId);
-			const seen = summary(engine, entry.sessionId);
+			const seen = {
+				...summary(engine, entry.sessionId),
+				env: envOf(host, entry.sessionId),
+			};
 			await host.close(entry.sessionId);
 			return seen;
 		},
@@ -187,6 +198,17 @@ function alive(pid: number): boolean {
 		// No such process.
 		return false;
 	}
+}
+
+/** What of a conversation's environment the engine set: its launch, its harness settings and its marker. */
+function envOf(host: SessionHost, id: string): Record<string, unknown> {
+	const env = host.env(id).snapshot();
+	const settings = env.SHOPIFY_HARNESS_SETTINGS;
+	return {
+		openedAs: env[OPENED_AS],
+		marker: env.PI_HOST_CONVERSATION,
+		settings: settings === undefined ? undefined : JSON.parse(settings),
+	};
 }
 
 /** Read the last run's file with ordinary pi's session manager and no host. */
@@ -230,12 +252,21 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		host,
 		env: { PATH: process.env.PATH ?? "" },
 		key,
+		conversationEnv: (_traits, request) => {
+			derived.push(request.op);
+			return { [OPENED_AS]: request.op };
+		},
 		report: (error) => reported.push(String(error)),
 	});
+	const { VERSION } = piModule<{ VERSION: string }>(
+		await import(pathToFileURL(join(packageDir, "dist", "index.js")).href),
+	);
 	const result = await scenario.run(engine, host);
 	process.stdout.write(
 		`${JSON.stringify({
 			...result,
+			piVersion: VERSION,
+			derived,
 			keysSeen,
 			ran: existsSync(effects)
 				? readFileSync(effects, "utf8").split("\n").filter(Boolean).length
@@ -273,6 +304,8 @@ async function open(
 		cwd: prepared.cwd,
 		attended: false,
 		since: new Date().toISOString(),
+		// The roster holds the launch the engine derived, as the service's does.
+		...(prepared.launch ? { launch: prepared.launch } : {}),
 	};
 	writeFileSync(entryFile, JSON.stringify(entry));
 	await engine.start(prepared, request);
