@@ -41,15 +41,17 @@ The answer isn't the only copy, so two files are scrubbed too:
   file is rewritten the same way. Only a file named as pi or pi-durable
   names them, in the temporary folder or pi-durable's folder directly
   in it, is touched.
-
-A host also scrubs what a tool streams while it runs, before any of it
-reaches a viewer or the durable store. It calls `scrubSecrets` on the
-whole retained text of each partial, which is pure and idempotent, so a
-scrubbed partial scrubs to itself.
 - **Stored results:** a tool that answers with a handle writes its
   payload during its own run, before this scrub sees the answer, so the
   result store scrubs each payload as it writes it
   (`lib/core/result/spill.ts`).
+
+A shared host also scrubs what a tool streams while it runs, and the
+result it commits, in its tool round (`host/engine/tool-round.ts`),
+before any of it reaches a viewer or the durable store, whether or not
+the conversation loads this extension. The scrub is pure and
+idempotent, so a result this extension already scrubbed is handed on
+as it is.
 
 A file read through a scrubbed span can't be edited through that span,
 since the mark in the agent's copy doesn't match what the file holds.
