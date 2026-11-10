@@ -15,6 +15,7 @@ import {
 	LOADED_FOLDER,
 	packageFolderOf,
 	sayLoaded,
+	sayLoadedIn,
 	unsayLoaded,
 } from "../../../../lib/internal/reload/said.ts";
 
@@ -82,6 +83,18 @@ describe("what a pi says it loaded", () => {
 			existsSync(loaded),
 			`${loaded} is not made for a package pi-packages does not keep`,
 		).toBe(false);
+	});
+
+	it("says a new root in the file it said in before, where no install can be found", () => {
+		const tree = join(root, "trees", "harness");
+		mkdirSync(tree, { recursive: true });
+		const file = written(sayLoaded(version, undefined, 4242));
+
+		expect(sayLoaded(tree, tree, 4242)).toBeUndefined();
+		expect(sayLoadedIn(file, tree)).toBe(file);
+
+		expect(said(file)).toEqual({ root: tree });
+		expect(readdirSync(join(install, LOADED_FOLDER))).toEqual(["4242"]);
 	});
 
 	it("takes it back as the pi ends", () => {

@@ -20,7 +20,11 @@ import {
 	type Loaded,
 	readLoaded,
 } from "../../lib/internal/reload/loaded.ts";
-import { sayLoaded, unsayLoaded } from "../../lib/internal/reload/said.ts";
+import {
+	sayLoaded,
+	sayLoadedIn,
+	unsayLoaded,
+} from "../../lib/internal/reload/said.ts";
 import {
 	installRoot,
 	type PackageSettings,
@@ -92,8 +96,13 @@ export function tellPiPackages(settings: PackageSettings): void {
 		// Settings pi cannot read name no install; a version still says so.
 		install = undefined;
 	}
-	const file = sayLoaded(PACKAGE_ROOT, install);
-	if (file === undefined || Reflect.get(globalThis, SAID_FILE) === file) return;
+	const said: unknown = Reflect.get(globalThis, SAID_FILE);
+	// Onto a tree, the settings name the tree too, so no install folder can
+	// be found: the file this process said in before is still the one.
+	const file =
+		sayLoaded(PACKAGE_ROOT, install) ??
+		(typeof said === "string" ? sayLoadedIn(said, PACKAGE_ROOT) : undefined);
+	if (file === undefined || said === file) return;
 	Reflect.set(globalThis, SAID_FILE, file);
 	if (!hosted()) process.once("exit", () => unsayLoaded(file));
 }
