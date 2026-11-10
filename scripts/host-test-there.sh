@@ -79,9 +79,12 @@ fi
 
 toolList="["
 for tool in "${tools[@]}"; do toolList+=" \"$tool\""; done
-drv=$(nix-instantiate "$here/host-test.nix" --add-root "$scratch/drv" \
+# With a root, nix-instantiate prints the root rather than the derivation,
+# which nix-offload doesn't take, so the derivation is read through it.
+root_link=$(nix-instantiate "$here/host-test.nix" --add-root "$scratch/drv" \
   --argstr runtime "$runtime" --argstr source "$scratch/source" --argstr rev "$rev" \
   --arg tools "$toolList ]" "${deps[@]}" "${scope[@]}")
+drv=$(readlink -f "$root_link")
 
 mkdir -p "$records/deps"
 nix derivation show "$drv" \
