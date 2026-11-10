@@ -57,10 +57,15 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 	{
 		patch: "pi-host-model-auth-context.patch",
 		why: "a conversation's credentials would be read from the host's own environment",
+		// Version 2 also keeps header variables to the context; it is required once the work host's pin carries it.
 		present: ({ codingAgent }) =>
-			staticNumber(codingAgent.ModelRuntime, "hostAuthContextVersion") === 1,
+			(staticNumber(codingAgent.ModelRuntime, "hostAuthContextVersion") ?? 0) >=
+			AUTH_CONTEXT_VERSION,
 	},
 ];
+
+/** The auth-context patch's version the host accepts from. */
+const AUTH_CONTEXT_VERSION = 1;
 
 /** A pi install that lacks seams the host needs, with each one named. */
 export class HostPiRefused extends Error {
@@ -81,6 +86,8 @@ export class HostPiRefused extends Error {
 /** The host's pi, loaded and checked. */
 export interface HostPi {
 	readonly packageDir: string;
+	/** The version the install says it is, which each conversation's harness settings name. */
+	readonly version: string;
 	readonly modules: HostPiModules;
 }
 
@@ -152,7 +159,10 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	};
 	const missing = HOST_SEAMS.filter((seam) => !seam.present(modules));
 	if (missing.length > 0) throw new HostPiRefused(packageDir, missing);
-	return { packageDir, modules };
+	const version = modules.codingAgent.VERSION;
+	if (typeof version !== "string" || version === "")
+		throw new Error(`The pi at ${packageDir} names no version`);
+	return { packageDir, version, modules };
 }
 
 async function importModule(

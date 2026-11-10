@@ -114,5 +114,17 @@ built conversation to them; without, it binds extensions with no
 interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.
 
-A conversation becoming another (new, fork or switch) and tool-child
-reconciliation are subsequent work.
+A conversation's environment is the realm's, then its launch, then what
+the engine derives each start. The launch is what conversationEnv says
+when it opens or is adopted; prepare returns it, the service's roster
+holds it, and a resume replays it as held. Each start the engine sets
+SHOPIFY_HARNESS_SETTINGS (harness-settings.ts) from the host's value,
+the conversation's traits and the loaded pi's version, and the
+PI_HOST_CONVERSATION marker; neither is stored.
+
+pi's bash tool runs each command as its own process group, and a host
+killed mid-tool leaves it running. Every command inherits the marker, so
+each start and end of a conversation ends every process carrying its
+marker, by group (tool-children.ts), wherever it went.
+
+A conversation becoming another (new, fork or switch) is subsequent work.

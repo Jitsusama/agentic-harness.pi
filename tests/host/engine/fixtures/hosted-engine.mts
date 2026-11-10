@@ -39,9 +39,19 @@ function piModule<T>(module: unknown): T {
 	return module as T;
 }
 
-const [packageDir, folder, scenarioName] = process.argv.slice(2);
-if (!packageDir || !folder || !scenarioName)
-	throw new Error("usage: hosted-engine.mts <package dir> <folder> <scenario>");
+/** The command line's argument at position, refusing the run without it. */
+function argument(position: number): string {
+	const value = process.argv[position + 2];
+	if (!value)
+		throw new Error(
+			"usage: hosted-engine.mts <package dir> <folder> <scenario>",
+		);
+	return value;
+}
+
+const packageDir = argument(0);
+const folder = argument(1);
+const scenarioName = argument(2);
 
 const compat = piModule<Compat>(
 	await import(
@@ -57,9 +67,15 @@ const work = join(folder, "work");
 const agentDir = join(folder, "home", ".pi", "agent");
 const entryFile = join(folder, "entry.json");
 const effects = join(folder, "effects");
+/** The pids of what the crashing tool left running, one in its group and one that left it. */
+const children = join(folder, "children");
 const probe = join(folder, "probe.jsonl");
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
+/** The request each launch environment was derived for, in this run. */
+const derived: string[] = [];
+/** The variable the fixture's launch environment sets. */
+const OPENED_AS = "OPENED_AS";
 
 const say =
 	(text: string) => (_context: unknown, options: { apiKey?: unknown }) => {
@@ -92,7 +108,11 @@ const scenarios: Record<string, Scenario> = {
 		run: async (engine, host) => {
 			const id = await open(engine, { first: "hi" });
 			await idle(engine, id);
-			const seen = { ...summary(engine, id), state: host.holds(id) };
+			const seen = {
+				...summary(engine, id),
+				env: envOf(host, id),
+				state: host.holds(id),
+			};
 			await host.close(id);
 			return { ...seen, after: host.holds(id) ?? "gone" };
 		},
@@ -123,14 +143,21 @@ const scenarios: Record<string, Scenario> = {
 			return { file: existsSync(readEntry().file) };
 		},
 	},
-	/** A tool that notes it ran and then kills the host. */
+	/** A tool that notes it ran, leaves two commands running, and then kills the host. */
 	crash: {
 		responses: () => [
 			compat.fauxAssistantMessage(
 				[
 					compat.fauxToolCall(
 						"bash",
-						{ command: `echo ran >> ${effects} && kill -9 ${process.pid}` },
+						{
+							command: [
+								`echo ran >> ${effects}`,
+								`sleep 300 & echo $! > ${children}`,
+								`setsid sleep 301 & echo $! >> ${children}`,
+								`kill -9 ${process.pid}`,
+							].join("\n"),
+						},
 						{ id: "call-1" },
 					),
 				],
@@ -153,7 +180,10 @@ const scenarios: Record<string, Scenario> = {
 			const view = engine.view(entry.sessionId);
 			await view?.runtime.session.prompt("are you there");
 			await idle(engine, entry.sessionId);
-			const seen = summary(engine, entry.sessionId);
+			const seen = {
+				...summary(engine, entry.sessionId),
+				env: envOf(host, entry.sessionId),
+			};
 			await host.close(entry.sessionId);
 			return seen;
 		},
@@ -162,6 +192,34 @@ const scenarios: Record<string, Scenario> = {
 
 if (scenarioName === "reopen") await reopen();
 else await runHost(scenarios[scenarioName]);
+
+/** The pids the crashing tool wrote down, if it ran. */
+function leftRunning(): number[] {
+	return existsSync(children)
+		? readFileSync(children, "utf8").split("\n").filter(Boolean).map(Number)
+		: [];
+}
+
+/** Whether a process still runs, a zombie counting as ended. */
+function alive(pid: number): boolean {
+	try {
+		return !/^\S+ \(.*\) Z /.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+	} catch {
+		// No such process.
+		return false;
+	}
+}
+
+/** What of a conversation's environment the engine set: its launch, its harness settings and its marker. */
+function envOf(host: SessionHost, id: string): Record<string, unknown> {
+	const env = host.env(id).snapshot();
+	const settings = env.SHOPIFY_HARNESS_SETTINGS;
+	return {
+		openedAs: env[OPENED_AS],
+		marker: env.PI_HOST_CONVERSATION,
+		settings: settings === undefined ? undefined : JSON.parse(settings),
+	};
+}
 
 /** Read the last run's file with ordinary pi's session manager and no host. */
 async function reopen(): Promise<void> {
@@ -204,16 +262,26 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		host,
 		env: { PATH: process.env.PATH ?? "" },
 		key,
+		conversationEnv: (_traits, request) => {
+			derived.push(request.op);
+			return { [OPENED_AS]: request.op };
+		},
 		report: (error) => reported.push(String(error)),
 	});
+	const { VERSION } = piModule<{ VERSION: string }>(
+		await import(pathToFileURL(join(packageDir, "dist", "index.js")).href),
+	);
 	const result = await scenario.run(engine, host);
 	process.stdout.write(
 		`${JSON.stringify({
 			...result,
+			piVersion: VERSION,
+			derived,
 			keysSeen,
 			ran: existsSync(effects)
 				? readFileSync(effects, "utf8").split("\n").filter(Boolean).length
 				: 0,
+			childrenAlive: leftRunning().filter(alive),
 			probe: existsSync(probe)
 				? readFileSync(probe, "utf8")
 						.split("\n")
@@ -246,6 +314,8 @@ async function open(
 		cwd: prepared.cwd,
 		attended: false,
 		since: new Date().toISOString(),
+		// The roster holds the launch the engine derived, as the service's does.
+		...(prepared.launch ? { launch: prepared.launch } : {}),
 	};
 	writeFileSync(entryFile, JSON.stringify(entry));
 	await engine.start(prepared, request);
