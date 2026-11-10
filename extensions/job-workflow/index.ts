@@ -204,7 +204,7 @@ export default function jobWorkflow(
 		session?.outbox.runStarted();
 	});
 
-	pi.on("agent_settled", () => session?.outbox.runSettled());
+	pi.on("agent_settled", (event) => session?.outbox.runSettled(event.aborted));
 
 	pi.on("message_end", (event) => {
 		const text = textOf(event.message);

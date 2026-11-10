@@ -87,6 +87,7 @@ import type {
 import {
 	FAILURE_ENTRY,
 	failureRecord,
+	STALLED_ENTRY,
 	wasCancelled,
 } from "../../lib/compaction/failure.ts";
 import { compactionHistory } from "../../lib/compaction/history.ts";
@@ -243,6 +244,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let awaitingRetained = false;
 	let rentPaid = 0;
 	let compacting = false;
+	// The compaction asked of pi and not yet landed or failed, until a
+	// run that overtook it has been logged.
+	let asked: { at: number; tokens: number } | null = null;
 	let failures = 0;
 	let holdTurns = 0;
 
@@ -308,6 +312,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		resume: boolean,
 	) => {
 		compacting = true;
+		asked = { at: Date.now(), tokens };
 		// A compaction that cannot start (a context the session replaced
 		// throws on first use) ends here, or the flag would stay set and
 		// keep every later compaction off for the session.
@@ -315,6 +320,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			startCompaction(ctx, tokens, resume);
 		} catch (error) {
 			compacting = false;
+			asked = null;
 			throw error;
 		}
 	};
@@ -334,6 +340,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			}),
 			onError: whileCurrent((error: Error) => {
 				compacting = false;
+				asked = null;
 				failures += 1;
 				const failure = failureRecord(tokens, error, failures);
 				holdTurns = failure.retryAfterTurns;
@@ -399,6 +406,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		turnOverhead = history.turnOverhead;
 		awaitingRetained = false;
 		compacting = false;
+		asked = null;
 		failures = 0;
 		holdTurns = 0;
 		const prices = pricesOf(ctx);
@@ -418,6 +426,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	pi.on("session_compact", async (event) => {
 		rentPaid = 0;
 		compacting = false;
+		asked = null;
 		awaitingRetained = true;
 		failures = 0;
 		holdTurns = 0;
@@ -435,6 +444,17 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 
 	pi.on("agent_start", async () => {
 		idle.cancel();
+		// pi refuses a prompt while it compacts, so a run starting while a
+		// compaction is asked for means pi has not begun it: a prompt sent
+		// as the stopped run settled went first, and the compaction waits
+		// for the next idle moment. Said once, so the logs can count it.
+		if (compacting && asked) {
+			pi.appendEntry(STALLED_ENTRY, {
+				contextTokens: asked.tokens,
+				askedMsAgo: Date.now() - asked.at,
+			});
+			asked = null;
+		}
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {

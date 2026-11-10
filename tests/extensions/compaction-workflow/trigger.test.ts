@@ -22,6 +22,7 @@ function activate() {
 	const handlers = new Map<string, Handler[]>();
 	const listeners = new Map<string, Array<(data: unknown) => void>>();
 	const resumed: unknown[] = [];
+	const entries: Array<{ type: string; data: unknown }> = [];
 	const pi = {
 		events: {
 			on: (channel: string, h: (data: unknown) => void) =>
@@ -32,7 +33,7 @@ function activate() {
 		},
 		on: (name: string, handler: Handler) =>
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-		appendEntry: () => {},
+		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 		registerCommand: () => {},
 		sendMessage: () => {},
 		sendUserMessage: (text: unknown) => resumed.push(text),
@@ -43,7 +44,7 @@ function activate() {
 		for (const h of handlers.get(name) ?? []) result = await h(event, ctx);
 		return result;
 	};
-	return { fire, resumed, handlers };
+	return { fire, resumed, handlers, entries };
 }
 
 const userEntry = {
@@ -123,7 +124,7 @@ const ranTools = { message: {}, toolResults: [{}] };
  * is $1.20 + $0.252 and the whole $2.073, so it is the fiftieth.
  */
 async function toTheEdge(withSentRequest: boolean) {
-	const { fire, resumed } = activate();
+	const { fire, resumed, entries } = activate();
 	const { state, ctx } = session();
 	await fire("session_start", { reason: "startup" }, ctx);
 	if (withSentRequest) await fire("before_provider_request", { payload }, ctx);
@@ -134,7 +135,7 @@ async function toTheEdge(withSentRequest: boolean) {
 	const short = withSentRequest ? 22 : 49;
 	for (let turn = 0; turn < short; turn++)
 		await fire("turn_end", ranTools, ctx);
-	return { fire, resumed, state, ctx };
+	return { fire, resumed, entries, state, ctx };
 }
 
 beforeEach(() => {
@@ -215,6 +216,44 @@ describe("the compaction trigger", () => {
 		await vi.waitFor(() => expect(state.compactions).toHaveLength(1));
 		state.compactions[0]?.onComplete?.();
 		expect(resumed).toHaveLength(0);
+	});
+});
+
+/**
+ * pi's compact() stops the run and waits for the session to go idle,
+ * but a prompt sent as the stopped run settles starts the next run
+ * first. On 9 November two sessions waited about nine hours that way,
+ * with nothing in their logs to say so.
+ */
+describe("a compaction overtaken by a run", () => {
+	const stalls = (entries: ReadonlyArray<{ type: string }>) =>
+		entries.filter((entry) => entry.type === "compaction-stalled");
+
+	it("is logged when a run starts before the compaction it asked for begins", async () => {
+		const { fire, entries, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", ranTools, ctx);
+		expect(state.compactions, "the trigger asked pi to compact").toHaveLength(
+			1,
+		);
+
+		await fire("agent_start", {}, ctx);
+		await fire("agent_start", {}, ctx);
+
+		expect(stalls(entries)).toHaveLength(1);
+		expect(stalls(entries)[0]).toMatchObject({
+			data: { contextTokens: 300_000 },
+		});
+	});
+
+	it("is not logged for the run a landed compaction resumes", async () => {
+		const { fire, entries, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", ranTools, ctx);
+		await fire("session_compact", { compactionEntry: {} }, ctx);
+		state.compactions[0]?.onComplete?.();
+
+		await fire("agent_start", {}, ctx);
+
+		expect(stalls(entries)).toEqual([]);
 	});
 });
 

@@ -51,6 +51,12 @@ when nothing else is under way:
 - **Not during a compaction.** pi refuses a prompt then. Idle is pi's
   own `isIdle()`, asked each time rather than tracked from events, so
   no missed event can leave the outbox waiting forever.
+- **Not as a stopped run settles.** A compaction stops the run it
+  interrupts and waits for the session to go idle, and pi starts a
+  prompt sent as that run settles first. So a result a stopped run
+  didn't read waits for the next tick, a second later, by when the
+  compaction is under way. On 9 November two sessions said one there
+  and waited about nine hours to compact, from 180k to 740k.
 - **Not while a prompt is on its way.** Between `input` and
   `agent_start` pi is still running `before_agent_start` handlers, and
   a second prompt then leaves a run Escape cannot stop. The outbox

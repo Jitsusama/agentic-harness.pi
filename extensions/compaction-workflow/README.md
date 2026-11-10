@@ -208,6 +208,20 @@ characters shorter, every captured rule missing.
 Only interactive and RPC sessions are touched. A subagent runs pi in
 `--mode json` and ends when its run does.
 
+## When a Run Overtakes a Compaction
+
+pi's `compact()` stops the run and then waits for the session to go
+idle, but a prompt sent as the stopped run settles starts the next run
+first, and the compaction waits for the next idle moment. Meanwhile
+the trigger sees a compaction under way and fires nothing. On 9
+November two sessions waited about nine hours that way, each behind a
+background report and then whatever every later run's end brought,
+while their context climbed from 180k to 740k. The job outbox no
+longer sends as a stopped run settles, and a run that starts while a
+compaction is asked for is written to the session log once, as a
+`compaction-stalled` entry with the context's size and how long ago
+the compaction was asked for.
+
 ## When a Compaction Fails
 
 A failed compaction resumes the run it interrupted the same way, so the
