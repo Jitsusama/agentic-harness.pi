@@ -12,5 +12,27 @@ kept, both back under their ids after a kill, and both parked at a stop
 signal and resumed at the next start. It is in the process lane, since
 it spawns node from node.
 
+screens.test.ts holds hosted conversations to pi's own screen. A sealed
+host process composes hostScreens, createEngine and serveHost as the
+host program does, on a pi built with the host's patches answering from
+pi's scripted provider. Viewers attach through its socket as mycelium's
+client does, and each one's screen is read through xterm's headless
+terminal. Each case is something a person relies on at pi's own screen.
+It needs that pi, named by PI_HOST_PACKAGE_DIR, and is skipped without
+one. Run it before merging a change to host/screen, lib/core/viewer or
+the host's composition:
+
+```sh
+PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
+  tests/host/end-to-end/screens.test.ts
+```
+
+The root is the pi-monorepo folder of the work host's piHostRuntime (its
+lib/node_modules/pi-monorepo), or core's hostedPi, as for the engine's
+own tests in tests/host/engine.
+
+- `fixtures/`: programs a test runs as a process of its own: the screen
+  host.
 - `support/`: the seal, a host process and its control requests, and
-  the fake engine a host imports by path until H1's createEngine lands.
+  the fake engine a host imports by path until H1's createEngine lands;
+  the screen host's process and a viewer reading its screen.

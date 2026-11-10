@@ -1,4 +1,8 @@
 /** Viewer lifetime, geometry and input dispatch through the session seam. */
+import {
+	isKittyProtocolActive,
+	setKittyProtocolActive,
+} from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	ambientSession,
@@ -16,6 +20,37 @@ afterEach(() => {
 function viewer(rows = 40, columns = 120) {
 	return { rows, columns, write: vi.fn(), disconnect: vi.fn() };
 }
+/** A viewer whose client can run an editor and suspend itself. */
+function able(rows = 40, columns = 120) {
+	return {
+		...viewer(rows, columns),
+		features: ["edit", "suspend"],
+		edit: vi.fn<(id: string, text: string) => void>(),
+		suspend: vi.fn(),
+	};
+}
+/** A screen whose Ctrl+G edits "draft" and whose Ctrl+Z suspends, as pi's does. */
+function screen() {
+	const terminal = new ViewerTerminal("a", () => terminal.write("painted"));
+	const edits: Promise<unknown>[] = [];
+	const suspended: boolean[] = [];
+	terminal.start(
+		(data) => {
+			if (data === "\x07") edits.push(terminal.editInViewer("draft"));
+			if (data === "\x1a") suspended.push(terminal.suspendViewer());
+		},
+		() => {},
+	);
+	// pi's own modes, which a viewer leaving for its editor must be let out of.
+	terminal.write("\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h");
+	cleanups.push(() => terminal.dispose());
+	return { terminal, edits, suspended };
+}
+const RELEASED = "\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1000l\x1b[?1006l\x1b[?1049l";
+const RESTORED =
+	"\x1b[?25l\x1b[?1000h\x1b[?1006h\x1b[?1049h\x1b[>7u\x1b[?2004h";
+const writes = (sink: { write: { mock: { calls: unknown[][] } } }) =>
+	sink.write.mock.calls.map(([data]) => data);
 function host() {
 	const close = vi.fn();
 	const fake: Host = {
@@ -270,6 +305,29 @@ describe("persistent viewer terminal", () => {
 		terminal.dispose();
 	});
 
+	it("tells pi's key reader its viewers speak kitty's protocol once it starts", () => {
+		setKittyProtocolActive(false);
+		cleanups.push(() => setKittyProtocolActive(false));
+		const terminal = new ViewerTerminal("a", () => {});
+		expect(isKittyProtocolActive(), "nothing is claimed before it starts").toBe(
+			false,
+		);
+		terminal.start(
+			() => {},
+			() => {},
+		);
+		expect(
+			isKittyProtocolActive(),
+			"as pi's own terminal does once kitty answers",
+		).toBe(true);
+		terminal.stop();
+		expect(
+			isKittyProtocolActive(),
+			"one screen stopping leaves it on for the host's other screens",
+		).toBe(true);
+		terminal.dispose();
+	});
+
 	it("gives a late viewer pi's modes before its repaint, the screen last", () => {
 		const terminal = new ViewerTerminal("a", () => terminal.write("painted"));
 		terminal.write(
@@ -301,6 +359,114 @@ describe("persistent viewer terminal", () => {
 		terminal.write("still here");
 		expect(good.write).toHaveBeenLastCalledWith("still here");
 		terminal.dispose();
+	});
+
+	it("edits in the viewer that pressed the key, which sees nothing else until it answers", async () => {
+		const { terminal, edits } = screen();
+		const editing = able();
+		const other = able();
+		const attached = terminal.attach(editing);
+		terminal.attach(other);
+		attached.input("\x07");
+		expect(
+			other.edit,
+			"only the viewer that pressed the key edits",
+		).not.toHaveBeenCalled();
+		const [[id, text] = []] = editing.edit.mock.calls;
+		expect(text).toBe("draft");
+		expect(
+			writes(editing).at(-1),
+			"its terminal is let out of pi's modes first",
+		).toBe(RELEASED);
+		editing.write.mockClear();
+		terminal.write("frame");
+		attached.input("\x1a");
+		expect(writes(editing), "the editor has its terminal to itself").toEqual(
+			[],
+		);
+		expect(other.write).toHaveBeenLastCalledWith("frame");
+
+		attached.edited(String(id), "edited");
+
+		await expect(edits[0]).resolves.toEqual({
+			status: "complete",
+			content: "edited",
+		});
+		expect(writes(editing), "back in pi's modes, then the screen").toEqual([
+			RESTORED,
+			"painted",
+		]);
+	});
+
+	it("keeps the draft when an edit gives nothing back or its viewer leaves", async () => {
+		const { terminal, edits } = screen();
+		const first = able();
+		const cancelling = terminal.attach(first);
+		cancelling.input("\x07");
+		cancelling.edited(String(first.edit.mock.calls[0]?.[0]));
+		const second = able();
+		const leaving = terminal.attach(second);
+		leaving.input("\x07");
+		leaving.detach();
+		leaving.edited(String(second.edit.mock.calls[0]?.[0]), "too late");
+
+		await expect(Promise.all(edits)).resolves.toEqual([
+			{
+				status: "failed",
+				message: "The external editor gave nothing back; the draft is kept",
+			},
+			{
+				status: "failed",
+				message: "The viewer left before its edit came back",
+			},
+		]);
+	});
+
+	it("drops an answer to an edit it never asked, without leaving", () => {
+		const { terminal } = screen();
+		const sink = able();
+		const attached = terminal.attach(sink);
+		sink.write.mockClear();
+		attached.edited("made-up", "text");
+		terminal.write("still watching");
+		expect(writes(sink)).toEqual(["still watching"]);
+		expect(sink.disconnect).not.toHaveBeenCalled();
+	});
+
+	it("refuses an edit or a suspend for a viewer that can't, as pi's screen does", async () => {
+		const { terminal, edits, suspended } = screen();
+		const older = viewer();
+		const attached = terminal.attach(older);
+		older.write.mockClear();
+		attached.input("\x07");
+		attached.input("\x1a");
+		await expect(edits[0]).resolves.toEqual({
+			status: "failed",
+			message: "The external editor is unavailable in this viewer",
+		});
+		expect(suspended).toEqual([false]);
+		expect(
+			writes(older),
+			"an older client is sent nothing it can't read",
+		).toEqual([]);
+		expect(older.disconnect).not.toHaveBeenCalled();
+	});
+
+	it("suspends only the viewer that pressed the key, letting it out of pi's modes", () => {
+		const { terminal, suspended } = screen();
+		const stopping = able();
+		const other = able();
+		const attached = terminal.attach(stopping);
+		terminal.attach(other);
+		attached.input("\x1a");
+		expect(suspended).toEqual([true]);
+		expect(stopping.suspend).toHaveBeenCalledOnce();
+		expect(writes(stopping).at(-1)).toBe(RELEASED);
+		expect(other.suspend).not.toHaveBeenCalled();
+		stopping.write.mockClear();
+		terminal.write("frame");
+		expect(writes(stopping), "a suspended viewer has left").toEqual([]);
+		expect(other.write).toHaveBeenLastCalledWith("frame");
 	});
 
 	it("keeps no stray unfinished sequence as a mode", () => {

@@ -21,6 +21,9 @@ const LARGEST_MODE = 65_535;
 /** Kitty keyboard flags pi asks for: disambiguate, events, alternates. */
 const KITTY_KEYBOARD_FLAGS = 7;
 
+/** Private modes a fresh terminal has set: autowrap and a shown cursor. */
+const SET_WHEN_FRESH = new Set([7, 25]);
+
 // biome-ignore lint/suspicious/noControlCharactersInRegex: escape sequences are what this reads.
 const PRIVATE_MODE = /^\x1b\[\?([0-9;]*)([hl])/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: escape sequences are what this reads.
@@ -68,6 +71,27 @@ export class TerminalModes {
 			...screens.map(([mode, on]) => set(mode, on)),
 			`\x1b[>${KITTY_KEYBOARD_FLAGS}u`,
 			"\x1b[?2004h",
+		].join("");
+	}
+
+	/**
+	 * What lets a viewer out of pi's modes, for another program to have its
+	 * terminal as a fresh one: kitty's keyboard flags popped and bracketed
+	 * paste off while still on pi's screen, then every mode pi set back to
+	 * how a fresh terminal has it, the screen last.
+	 */
+	released(): string {
+		const set = (mode: number, on: boolean) => `\x1b[?${mode}${on ? "h" : "l"}`;
+		const changed = [...this.modes].filter(
+			([mode, on]) => on !== SET_WHEN_FRESH.has(mode),
+		);
+		const others = changed.filter(([mode]) => !SCREENS.has(mode));
+		const screens = changed.filter(([mode]) => SCREENS.has(mode));
+		return [
+			"\x1b[<u",
+			"\x1b[?2004l",
+			...others.map(([mode]) => set(mode, SET_WHEN_FRESH.has(mode))),
+			...screens.map(([mode]) => set(mode, false)),
 		].join("");
 	}
 

@@ -82,6 +82,14 @@ describe("wire validation", () => {
 			},
 			...["release", "close", "abort"].map((op) => ({ ...close, op })),
 			{ ...close, op: "attach", rows: 24, columns: 80 },
+			// A newer client may say it can do what this host doesn't know yet.
+			{
+				...close,
+				op: "attach",
+				rows: 24,
+				columns: 80,
+				features: ["edit", "suspend", "later"],
+			},
 		])
 			expect(parseControl(value)).toEqual(value);
 	});
@@ -97,6 +105,14 @@ describe("wire validation", () => {
 			{ ...close, op: "attach", rows: 0, columns: 80 },
 			{ ...close, op: "attach", rows: 24.5, columns: 80 },
 			{ ...close, op: "attach", rows: 24, columns: 1001 },
+			{ ...close, op: "attach", rows: 24, columns: 80, features: "edit" },
+			{
+				...close,
+				op: "attach",
+				rows: 24,
+				columns: 80,
+				features: Array.from({ length: 17 }, (_, at) => `f${at}`),
+			},
 		])
 			expect(() => parseControl(value)).toThrow("Invalid host");
 	});
@@ -110,10 +126,18 @@ describe("wire validation", () => {
 			rows: 24,
 			columns: 80,
 		});
+		// An edit's answer, and an edit given up on, which keeps the draft.
+		for (const value of [
+			{ type: "edited", id: "1", text: "new words" },
+			{ type: "edited", id: "1" },
+		])
+			expect(parseViewer(value)).toEqual(value);
 		for (const value of [
 			close,
 			{ type: "input", data: "x", sessionId: B },
 			{ type: "resize", rows: -1, columns: 80 },
+			{ type: "edited", text: "no id" },
+			{ type: "edited", id: "1", text: "x", file: "/tmp/draft" },
 		])
 			expect(() => parseViewer(value)).toThrow("Invalid host viewer");
 	});

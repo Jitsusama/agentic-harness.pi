@@ -53,11 +53,20 @@ const request = z.discriminatedUnion("op", [
 		...geometry,
 		op: z.literal("attach"),
 		window: text.max(256).optional(),
+		// What the client can do, such as edit and suspend; a host passes over
+		// what it doesn't know, so a newer client still attaches.
+		features: z.array(text.max(64)).max(16).optional(),
 	}),
 ]);
 const viewer = z.discriminatedUnion("type", [
 	z.strictObject({ type: z.literal("input"), data: z.string() }),
 	z.strictObject({ type: z.literal("resize"), ...geometry }),
+	// An edit's answer: the draft as it became, or no text to keep it.
+	z.strictObject({
+		type: z.literal("edited"),
+		id: text.max(128),
+		text: z.string().optional(),
+	}),
 ]);
 
 const reply = z.discriminatedUnion("ok", [

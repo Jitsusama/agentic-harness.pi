@@ -14,6 +14,7 @@ export function terminalBridge(
 			return terminal.attach({
 				rows: request.rows,
 				columns: request.columns,
+				features: request.features ?? [],
 				...sink,
 			});
 		},

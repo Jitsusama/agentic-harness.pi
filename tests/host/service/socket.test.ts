@@ -319,6 +319,57 @@ describe("viewer connection lifecycle", () => {
 		expect(host.list()).toHaveLength(2);
 		expect(cleanup).not.toHaveBeenCalled();
 	});
+	it("hands a viewer that can its edit and takes the answer, then suspends only it", async () => {
+		const seen: unknown[] = [];
+		const edited = vi.fn((_id: string, _text?: string) => {
+			seen.push(["edited", ambientSession()]);
+		});
+		const detach = vi.fn();
+		let asked: { features?: readonly string[] } = {};
+		let suspend: () => void = () => undefined;
+		await start({
+			attach: (request, sink) => {
+				asked = request;
+				suspend = sink.suspend;
+				sink.edit("e1", "draft");
+				return { input: vi.fn(), resize: vi.fn(), edited, detach };
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80, features: ["edit", "suspend"] })}\n`,
+		);
+		expect((await messages.next()).value).toMatchObject({ ok: true });
+		expect(asked.features).toEqual(["edit", "suspend"]);
+		expect((await messages.next()).value).toEqual({
+			type: "edit",
+			id: "e1",
+			text: "draft",
+		});
+		socket.write(
+			`${JSON.stringify({ type: "edited", id: "e1", text: "new words" })}\n${JSON.stringify({ type: "edited", id: "e1" })}\n`,
+		);
+		await vi.waitFor(() => expect(edited).toHaveBeenCalledTimes(2));
+		expect(edited.mock.calls).toEqual([
+			["e1", "new words"],
+			["e1", undefined],
+		]);
+		expect(seen).toEqual([
+			["edited", a],
+			["edited", a],
+		]);
+
+		suspend();
+
+		expect((await messages.next()).value).toEqual({ type: "suspend" });
+		expect((await messages.next()).done, "a suspended viewer is let go").toBe(
+			true,
+		);
+		await vi.waitFor(() => expect(detach).toHaveBeenCalledOnce());
+		expect(host.list()).toHaveLength(2);
+		expect(cleanup).not.toHaveBeenCalled();
+	});
 	it("refuses unsupported attach without calling the engine", async () => {
 		await start();
 		const socket = createConnection(path);
