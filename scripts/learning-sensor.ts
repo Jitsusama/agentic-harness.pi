@@ -3,7 +3,7 @@
  *
  * Counts what keeps going wrong in the pi session logs, so each
  * recurring mistake can become a proposed harness change and the
- * same count can show whether the change made it recur less. Four
+ * same count can show whether the change made it recur less. Five
  * kinds of signal, each counted as distinct sessions per ISO week, or
  * per day for a daily measure:
  *
@@ -21,6 +21,10 @@
  *   such as adding nice or reading a whole plan. Shell commands are
  *   read with their heredoc bodies cut, so a script inside one is not
  *   read as the command itself.
+ * - context: a context grown large: a turn that read 400k tokens or
+ *   more, and a compaction a run overtook, from the entry the
+ *   compaction trigger leaves. Its calls are turns and stalls, so it
+ *   counts how much as well as how many sessions.
  *
  * Refusals, guards and overrides are exact, since the logs mark them.
  * A habit a guard catches is counted by the guard, never guessed again
@@ -52,12 +56,14 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Span } from "../extensions/spend-workflow/audit.ts";
+import { STALLED_ENTRY } from "../lib/compaction/failure.ts";
 import {
 	GUARD_REPORT_ENTRY,
 	isGuardReport,
 	OVERRIDE_HINT,
 } from "../lib/guardian/report.ts";
 import { sessionsDir } from "../lib/internal/paths.ts";
+import { isRecord } from "../lib/internal/record.ts";
 import {
 	backupIndexPath,
 	type FetchLog,
@@ -67,7 +73,13 @@ import {
 import { isoWeek } from "./convention-recurrence.ts";
 
 /** What kind of thing went wrong. */
-export type SignalKind = "refusal" | "reason" | "guard" | "override" | "habit";
+export type SignalKind =
+	| "refusal"
+	| "reason"
+	| "guard"
+	| "override"
+	| "habit"
+	| "context";
 
 /** One thing that went wrong, as it groups with others like it. */
 export interface Signal {
@@ -188,6 +200,15 @@ export function signalsFromEntry(entry: {
 	readonly customType?: unknown;
 	readonly data?: unknown;
 }): Signal[] {
+	if (entry.customType === STALLED_ENTRY) {
+		return [
+			{
+				kind: "context",
+				key: STALLED_KEY,
+				sample: JSON.stringify(entry.data ?? {}).slice(0, 300),
+			},
+		];
+	}
 	if (entry.customType !== GUARD_REPORT_ENTRY) return [];
 	const report = entry.data;
 	if (!isGuardReport(report) || report.kind !== "overridden") return [];
@@ -196,6 +217,35 @@ export function signalsFromEntry(entry: {
 			kind: "override",
 			key: `${report.guard}: ${report.title}`,
 			sample: (report.body ?? "").slice(0, 300),
+		},
+	];
+}
+
+/**
+ * A turn this large reads a context compaction should have cut: on 9
+ * November 3,599 turns in 148 sessions read 400k or more, most behind
+ * compactions that waited hours, against 170k to 260k a turn as usual.
+ */
+export const LARGE_TURN_TOKENS = 400_000;
+
+const LARGE_TURN_KEY = "A turn reading 400k tokens or more";
+const STALLED_KEY = "A compaction a run overtook";
+
+function tokens(value: unknown): number {
+	return typeof value === "number" ? value : 0;
+}
+
+/** The signal an assistant turn's usage carries: a context grown large. */
+export function signalsFromTurn(usage: unknown): Signal[] {
+	if (!isRecord(usage)) return [];
+	const read =
+		tokens(usage.input) + tokens(usage.cacheRead) + tokens(usage.cacheWrite);
+	if (read < LARGE_TURN_TOKENS) return [];
+	return [
+		{
+			kind: "context",
+			key: LARGE_TURN_KEY,
+			sample: `${read.toLocaleString("en-CA")} tokens`,
 		},
 	];
 }
@@ -294,6 +344,7 @@ const HEADINGS: Record<SignalKind, string> = {
 	reason: "Reasons Given in Refusals",
 	guard: "Calls Guards Refused",
 	override: "Refusals Made Again, Which Went Through",
+	context: "Context Grown Large",
 };
 
 /**
@@ -317,6 +368,7 @@ export function renderReport(
 		"reason",
 		"guard",
 		"override",
+		"context",
 	] as const) {
 		const rows = groups.filter((g) => g.kind === kind).slice(0, options.top);
 		if (rows.length === 0) continue;
@@ -350,6 +402,7 @@ interface LogEntry {
 		toolName?: unknown;
 		isError?: unknown;
 		content?: unknown;
+		usage?: unknown;
 	};
 }
 
@@ -425,7 +478,10 @@ function scanSession(
 						m.isError === true,
 					)
 				: m.role === "assistant"
-					? callsOf(m.content).flatMap(signalsFromCall)
+					? [
+							...signalsFromTurn(m.usage),
+							...callsOf(m.content).flatMap(signalsFromCall),
+						]
 					: [];
 		for (const s of signals) sightings.push({ ...s, period, session });
 	}

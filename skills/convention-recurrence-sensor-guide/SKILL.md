@@ -125,6 +125,9 @@ checking a group against what the logs say.
 - **Habits**: a tool call that breaks a standing rule no guard
   catches, such as `nice` added or a plan read whole. Heredoc
   bodies are cut before matching.
+- **Context grown large**: a turn that read 400k tokens or more,
+  and a compaction a run overtook (the `compaction-stalled` entry).
+  Calls count turns and stalls, not only sessions.
 
 Refusals, guards and overrides are exact. Habits are patterns, so check a
 group's samples before acting on it. A group that recurs across
