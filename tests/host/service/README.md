@@ -7,7 +7,8 @@ tests use an injected engine with two sessions in one process.
 backend.test.ts drives the backend over the real SessionHost, roster
 and socket with a fake engine: hold before registration, undo of an
 unregistered start, holds kept through stop and failed closes, resume
-at start, and two sessions each in its own environment. Its rollout
+at start with the launch environment held at open, refusal of one
+naming a credential, and two sessions each in its own environment. Its rollout
 gate tests check a second open, an adopt and a resume past the first
 are refused before anything is held, and that two opens at once can't
 both go first.
@@ -32,6 +33,7 @@ gateway-key.test.ts checks the launcher's key order and when a personal
 key is resolved again, with a fake resolver and a stamp file in a
 private folder; the dev tool itself is never run.
 roster.test.ts checks durable holds across stop and a host that died
-without closing, lock refusal and takeover races, and refusal to start
-over an unreadable roster, in a private temporary folder. They do not
+without closing, lock refusal and takeover races, launch environments
+written only when they hold something, and refusal to start over an
+unreadable roster, in a private temporary folder. They do not
 start a production host, copy credential files or use Joel's screen.
