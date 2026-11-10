@@ -356,7 +356,7 @@ export function createTreeBroker(
 			}
 
 			const at = trees.findIndex((tree) => tree.path === held.path);
-			if (at >= 0) trees.splice(at, 1);
+			const ours = at >= 0 ? trees.splice(at, 1) : [];
 
 			// Giving up our share of a shared tree is not taking it away.
 			// A snapshot can be held by two sessions, and once this change
@@ -370,12 +370,21 @@ export function createTreeBroker(
 				return { kind: "released", kept: others.length };
 			}
 
-			// Forgotten before the provider acts, so a provider that throws
-			// halfway does not leave a record claiming a tree that is now
-			// half-gone. A record for a tree still on disk is recoverable on the
-			// next cut; a record for a broken one is a trap.
+			// Forgotten only once the provider has taken the tree. A release
+			// refused, failed or cut off leaves the tree on disk and in git,
+			// and the record is all that names it: forgetting first left two
+			// clean World trees no release could reach, after a script's time
+			// limit stopped git part-way (2AF2DH, 10 November). A tree left
+			// half-removed stays named too, so a second release finishes it,
+			// and a cut that finds its record asks the provider whether it
+			// still stands.
+			try {
+				await owner.release(held, options);
+			} catch (error) {
+				trees.push(...ours);
+				throw error;
+			}
 			memory?.forget(held.path);
-			await owner.release(held, options);
 			return { kind: "released" };
 		},
 
