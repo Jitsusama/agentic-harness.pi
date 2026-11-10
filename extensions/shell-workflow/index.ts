@@ -90,7 +90,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			"Do not sleep in bash to wait for something. Pass background: true for a command expected to run long, or use a tool's own watch, and carry on; the result arrives as its own message.",
 			...(sandbox.kind === "strict"
 				? [
-						"Commands run in a strict sandbox, since this session reads what strangers wrote: no credentials, no SSH or signing agent, no session or system bus, writes only to the working folder and the sandbox's own TMPDIR and cache (not /tmp or ~/.cache), and Nix as an untrusted user. A refusal there is the sandbox, not a fault: do the work another way, or say what needs the person.",
+						"Commands run in a strict sandbox, since this session reads what strangers wrote: no credentials, no SSH or signing agent, no session or system bus, writes only to the working folder and the sandbox's own TMPDIR and cache (not /tmp or ~/.cache), and Nix as an untrusted user. gcloud, where the machine gives a token, acts as the agents' own cloud account in its one project, never the person's login. A refusal there is the sandbox, not a fault: do the work another way, or say what needs the person.",
 					]
 				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere
