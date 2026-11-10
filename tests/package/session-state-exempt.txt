@@ -14,4 +14,37 @@ extensions/review-integration/engine.ts:pid 1 Names a session pi has not yet rep
 extensions/spend-workflow/resources.ts:global 3 CPU, I/O and memory counters are process totals, so one baseline per process keeps them from being counted twice; a host writes them to its own file and row, never apportioned to a conversation or quest (85PKB2, 2026-11-09).
 extensions/shell-workflow/reap.ts:pid 1 The reaper spares the process running it, which on a host is the host itself: no conversation's stop may kill it (85PKB2, 2026-11-09).
 extensions/work-integration/sweep.ts:pid 1 The sweep log names the process that swept, for reading afterwards; a host's sweeps are its own whichever conversation they serve (MDRIRB, 2026-11-09).
+lib/guardian/policy.ts:global 1 Holds each guard's declaration and the user's package config, one file for every conversation; a session's own overrides are already keyed apart by the pi:guard-session-modes slot (2QZBX9, 2026-11-10).
+lib/internal/away/machine.ts:pid 1 Names the temporary file a machine's away state is written to, with a random tail after the pid, so two conversations in a host never share one (2QZBX9, 2026-11-10).
+lib/internal/guardian/registry.ts:global 1 Holds which guards exist, by name, the same for every conversation; each conversation's outcomes are keyed apart by the pi:guardian-outcomes slot (2QZBX9, 2026-11-10).
 lib/internal/links/press.ts:global 1 Marks pi's alt-screen prototype as wrapped, which one process has one of; the wrap reads the pressing conversation's own answer from a session slot synchronously in pi's input handler, which a viewer runs under that conversation (2QZBX9 with 6YZSML, 2026-11-10).
+lib/internal/people/resolvers.ts:global 1 Holds the ways a handle is turned into a person, registered by id at activation: quest-workflow's Slack resolver reads the user's own token, the same for every conversation, and a second registration replaces the first (2QZBX9, 2026-11-10).
+lib/internal/priority/awaited.ts:global 1 Holds the tellers of every peer this process waits on, which are the process's rather than any one conversation's: a peer's word reaches whichever conversation asked through its own waiter (2QZBX9, 2026-11-10).
+lib/internal/priority/background.ts:pid 1 Follows the pid-named mark file a process keeps while it runs in the background, one per process; a host's followers agree on it by quorum (2QZBX9, 2026-11-10).
+lib/internal/priority/fetched-git.mjs:pid 1 Re-raises the signal that ended git at this process, a program of its own run once per fetch (2QZBX9, 2026-11-10).
+lib/internal/priority/outcome.ts:pid 1 Names the temporary file an outcome is written to before its rename; the write and rename run in one synchronous tick, so conversations sharing the pid can't interleave (2QZBX9, 2026-11-10).
+lib/internal/priority/pid-mark.ts:global 1 Holds the followers of each pid-named mark file, by path, so every conversation following one mark shares one watch and the any or every quorum decides for the process, as designed (2QZBX9, 2026-11-10).
+lib/internal/priority/place.ts:global 3 Wraps ChildProcess's prototype once per process to place each child in its cgroup; the wrap reads the spawning conversation's own placement when it runs (2QZBX9, 2026-11-10).
+lib/internal/priority/send.ts:global 1 Keeps the remote builder's answers by tool-call id, which no two conversations share, and the builder's capacity, which is the machine's (2QZBX9, 2026-11-10).
+lib/internal/priority/turn.ts:pid 1 Names the process whose end ends a job's claim on the queue: the host's pid on a host, since a conversation's shells are the host's children, and plain pi's otherwise (2QZBX9, 2026-11-10).
+lib/internal/priority/typed.ts:pid 1 Defaults to the pid-named mark file of the process's typed turns, one per process, which a host's conversations mark by quorum (2QZBX9, 2026-11-10).
+lib/internal/priority/yield.ts:pid 1 Names the file a yield is taken into; the rename, read and restore run synchronously, so of two conversations in a host the first takes it whole and the second finds it gone (2QZBX9, 2026-11-10).
+lib/internal/process-global.ts:global 1 The seam itself: the one place the process's global slots are made, which sessionSlot builds on (2QZBX9, 2026-11-10).
+lib/internal/process-ticks.ts:pid 1 Defaults to the process's own start in ticks, which names the process, not a conversation; fleet passes the host's owner when hosted (2QZBX9, 2026-11-10).
+lib/internal/registry/global-symbol-registry.ts:global 1 The seam for registries kept across module copies by symbol, whose entries are keyed by name; keyed state goes through sessionSlot above it (2QZBX9, 2026-11-10).
+lib/internal/reload/said.ts:pid 1 Names the loaded file that says which harness this process runs, one per process: a host's conversations all run the host's install (2QZBX9, 2026-11-10).
+lib/internal/reload/stale-rejections.ts:global 1 Installs one net for unhandled rejections per process, which is where node raises them (2QZBX9, 2026-11-10).
+lib/internal/sandbox.ts:pid 1 Names a sandbox by pid only when PI_SESSION_ID is missing; a hosted conversation's environment always carries its own id (2QZBX9, 2026-11-10).
+lib/internal/session/left.ts:global 1 Holds the ids of the sessions this process has left, keyed by session id, so one conversation's leaving is never another's (2QZBX9, 2026-11-10).
+lib/internal/session/repo-rules.ts:global 1 Caches each session's repo rules in a map keyed by its session id (2QZBX9, 2026-11-10).
+lib/internal/session/rollover.ts:global 1 Holds the custom entry types every load declares, the same for every conversation (2QZBX9, 2026-11-10).
+lib/internal/stray/guard.ts:global 1 Guards the process's own console, which every conversation in a host writes through (2QZBX9, 2026-11-10).
+lib/internal/write-whole.ts:pid 1 Names a whole write's temporary file by pid and random bytes, so two conversations in a host never share one (2QZBX9, 2026-11-10).
+lib/slack/auth/browser-extract.ts:pid 1 Re-raises a terminating signal at the process after cleaning up the browser it started (2QZBX9, 2026-11-10).
+lib/subagent/fleet.ts:pid 2 Names a fleet's owner, which is the host's owner when hosted and this pi otherwise, and a staging file whose staging id is the fleet's own (2QZBX9, 2026-11-10).
+lib/subagent/install.ts:global 1 Keeps the pi install the process started from, so every reload and every conversation spawns subagents from the install the process runs (2QZBX9, 2026-11-10).
+lib/subagent/runpi/supervisor.mjs:pid 6 The supervisor is a process of its own, one per run, naming its own start and files (2QZBX9, 2026-11-10).
+lib/subagent/runpi/supervisor.ts:pid 1 Gives the supervisor the pid whose exit stops its child: the process holding the round, which is the host for a hosted conversation (2QZBX9, 2026-11-10).
+lib/subagent/subagent.ts:pid 1 Names a reviewer's brief by pid and its content, shared on purpose through its holders map: the same brief is one file however many conversations hold it (2QZBX9, 2026-11-10).
+lib/terminal/niri.ts:pid 1 Puts the pid in a spawned window's class, keeping two pis apart; random digits keep a host's conversations apart, since each loads its own copy of the counter (2QZBX9, 2026-11-10).
+lib/ui/pi-layout.ts:global 2 Marks a gate's record object as settling or shown, on the record itself, shared across library copies by symbol; each record belongs to one conversation (2QZBX9, 2026-11-10).
