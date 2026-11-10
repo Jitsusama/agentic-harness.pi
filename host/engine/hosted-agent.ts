@@ -228,20 +228,20 @@ export class HostedAgent {
 		return () => this.listeners.delete(listener);
 	}
 
-	set steeringMode(mode: QueueMode) {
-		this.steeringQueue.mode = mode;
-	}
-
 	get steeringMode(): QueueMode {
 		return this.steeringQueue.mode;
 	}
 
-	set followUpMode(mode: QueueMode) {
-		this.followUpQueue.mode = mode;
+	set steeringMode(mode: QueueMode) {
+		this.steeringQueue.mode = mode;
 	}
 
 	get followUpMode(): QueueMode {
 		return this.followUpQueue.mode;
+	}
+
+	set followUpMode(mode: QueueMode) {
+		this.followUpQueue.mode = mode;
 	}
 
 	steer(message: AgentMessage): void {
