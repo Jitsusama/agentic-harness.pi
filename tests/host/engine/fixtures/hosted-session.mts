@@ -314,7 +314,7 @@ try {
 					modules: pi.modules,
 					library: piLibrary(pi.modules),
 					storePath: join(folder, "durable", "store.sqlite"),
-					env: () => ({}),
+					env: async () => ({}),
 					report: (error) =>
 						process.stderr.write(`durable reported: ${String(error)}\n`),
 				})
@@ -345,7 +345,8 @@ try {
 	session.agent.subscribe((event: unknown) => {
 		events.push(comparable(event));
 	});
-	if (conversation) await conversation.agent?.recover();
+	const recovery = await conversation?.agent?.recover();
+	await recovery?.settled;
 	await scenario.drive(session);
 	await session.agent.waitForIdle();
 	const transcript = session.agent.state.messages.map(comparable);

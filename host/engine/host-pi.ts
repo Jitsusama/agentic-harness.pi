@@ -54,6 +54,12 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 		present: ({ codingAgent }) =>
 			staticNumber(codingAgent.InteractiveMode, "hostedLifecycleVersion") === 1,
 	},
+	{
+		patch: "pi-host-model-auth-context.patch",
+		why: "a conversation's credentials would be read from the host's own environment",
+		present: ({ codingAgent }) =>
+			staticNumber(codingAgent.ModelRuntime, "hostAuthContextVersion") === 1,
+	},
 ];
 
 /** A pi install that lacks seams the host needs, with each one named. */

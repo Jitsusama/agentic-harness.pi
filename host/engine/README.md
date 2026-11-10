@@ -80,5 +80,31 @@ install. tests/host/engine/hosted-agent.test.ts holds the agent to pi's
 own: ten scripted scenarios give pi's listeners identical events, and a
 SIGKILL mid-tool resumes without a second run of the tool.
 
-Process-child reconciliation and createEngine, the service's factory, are
-subsequent work.
+Every run, durable hook, request, tool call and listener of pi's runs as
+the conversation's own (withSession), whoever scheduled it, so what reads
+the ambient conversation, the process environment's view among them, sees
+this one. A request the gateway refuses with a 401 goes once more when
+the key has been renewed (renewing-stream.ts), since pi retries no 401.
+
+## The Engine
+
+createEngine (engine.ts) is the service's engine. It loads the host's pi
+(host-pi.ts refuses one lacking any host patch) and builds each
+conversation with pi's own runtime (pi-session.ts declares what it uses).
+A conversation is registered with SessionHost, then its extensions load,
+its session is built and its first words are sent, all under its id.
+Its model runtime reads keys through an auth context over the
+conversation's own environment (auth-context.ts, and the auth-context
+patch), never the host's. The engine writes a new conversation's session
+header itself, since pi writes a file only once it holds an answer, so a
+conversation stopped before one keeps its id when resumed.
+
+A close aborts what runs and stamps `closed`. A stop parks the agent and
+stamps `signalled`, leaving what durable had in flight for the next
+start, whose resume carries it on. Given screens, the engine hands each
+built conversation to them; without, it binds extensions with no
+interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
+host's life a start at a time.
+
+A conversation becoming another (new, fork or switch) and tool-child
+reconciliation are subsequent work.

@@ -19,7 +19,7 @@ import type {
 import type { HostPiModules } from "./host-pi.ts";
 import { HostedAgent } from "./hosted-agent.ts";
 import type { PiLibrary } from "./pi-library.ts";
-import type { AgentOptions } from "./pi-types.ts";
+import type { AgentOptions, AssistantMessage } from "./pi-types.ts";
 
 /** The durable extension's name; one per conversation's registry. */
 export const HOSTED_EXTENSION = "pi-host";
@@ -54,7 +54,11 @@ export async function openHostedConversation(options: {
 	readonly library: PiLibrary;
 	readonly storePath: string;
 	/** The conversation's complete environment, read at each request. */
-	readonly env: () => Readonly<Record<string, string>>;
+	readonly env: () => Promise<Readonly<Record<string, string>>>;
+	/** Whether a refused request's credential was since renewed, so it is sent once more. */
+	readonly renewed?: (error: AssistantMessage) => Promise<boolean>;
+	/** Run work as this conversation's own, whoever scheduled it. */
+	readonly within?: <T>(work: () => T) => T;
 	readonly report?: (error: unknown) => void;
 }): Promise<HostedConversation> {
 	const durable = durableModule(options.modules);
@@ -104,6 +108,8 @@ export async function openHostedConversation(options: {
 						hooks: [durable.hook(durable.GenerationTask, hooks)],
 					}),
 				env: options.env,
+				...(options.renewed ? { renewed: options.renewed } : {}),
+				...(options.within ? { within: options.within } : {}),
 			});
 			// Durable resumes from the agent's recover, once pi's session holds the agent and can show what it does.
 			return agent;
