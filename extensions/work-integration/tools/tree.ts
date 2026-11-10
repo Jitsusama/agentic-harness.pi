@@ -46,6 +46,7 @@ import {
 	createGitHistory,
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
+import { treesToKeep } from "../../../lib/core/work/in-use.ts";
 import { chooseTree, treeInPlay } from "../../../lib/core/work/inplay.ts";
 import { cautionsFrom, refusalFrom } from "../../../lib/core/work/objection.ts";
 import { createGitPublisher } from "../../../lib/core/work/publish.ts";
@@ -76,6 +77,7 @@ import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
 import { GLYPH, treeLine } from "../render.ts";
+import { useSigns } from "../sweep.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
 import { carryHome } from "./carry.ts";
 import { recordMessage } from "./message.ts";
@@ -228,10 +230,11 @@ async function treesLeftBehind(
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
 
 	const unattributed = new Set(broker.unattributed().map((one) => one.path));
+	// A record's owners name processes, and a session resumed in a new one
+	// still works in its trees: on 10 November reclaim would have taken 59
+	// snapshots two running sessions named, so it asks what the sweep asks.
 	const remembered = [
-		...(await broker.stillHeld())
-			.filter((one) => !unattributed.has(one.path))
-			.map((one) => one.path),
+		...(await treesToKeep(broker, useSigns())),
 		...claims.paths,
 	].map(resolved);
 	// The checkout and every held tree are kept whatever they hold, so

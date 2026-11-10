@@ -19,6 +19,7 @@ import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../lib/core/work/events.ts";
+import type { UseSigns } from "../../lib/core/work/in-use.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
 import { listTreeProviders } from "../../lib/core/work/register.ts";
 import {
@@ -103,9 +104,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			lockPath: join(dir, "sweep.lock"),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
-			liveSessions,
-			standingIn,
-			...bootedAt(),
+			...useSigns(),
 		});
 		line = said(outcome);
 	} catch (error) {
@@ -147,6 +146,14 @@ function inFinishedQuest(gitDir: string): boolean {
 		if (status !== undefined) return FINISHED.has(status);
 	}
 	return false;
+}
+
+/**
+ * What tells a tree is in use on this machine beyond its record's
+ * owners, for whatever takes trees whose owners have ended.
+ */
+export function useSigns(): UseSigns {
+	return { liveSessions, standingIn, ...bootedAt() };
 }
 
 /**
