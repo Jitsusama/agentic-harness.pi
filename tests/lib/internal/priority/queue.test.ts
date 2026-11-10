@@ -120,6 +120,35 @@ describe("why each job waits", () => {
 		expect(waitReasons(jobs, pressed, NOW).get("quick")).toBe("memory");
 	});
 
+	// 10 November: 30 sent changed-checks runs from 14:00 peaked at 0.4 GB
+	// at most yet waited 14,016 s on memory (80ECO2, 5FWIUS).
+	it("gives a sent changed-checks its turn while memory is pressed, when its booking fits", () => {
+		const sent = older("sent", 9_000, {
+			what: "direnv exec . changed-checks",
+			needsGib: 6,
+			sent: true,
+		});
+		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
+
+		expect(nextTurn([sent], pressed, NOW)?.id).toBe("sent");
+		expect(waitReasons([sent], pressed, NOW).get("sent")).toBe("order");
+		const tight = { ...pressed, availableGib: 2 };
+		expect(nextTurn([sent], tight, NOW)).toBeUndefined();
+		expect(waitReasons([sent], tight, NOW).get("sent")).toBe("memory");
+	});
+
+	it("holds a sent nix-offload there that may build here while idle, while memory is pressed", () => {
+		const idle = older("idle", 9_000, {
+			what: "nix-offload there --here-when-idle . checks.x86_64-linux.x",
+			needsGib: 6,
+			sent: true,
+		});
+		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
+
+		expect(nextTurn([idle], pressed, NOW)).toBeUndefined();
+		expect(waitReasons([idle], pressed, NOW).get("idle")).toBe("memory");
+	});
+
 	it("says vms when the VMs allowed at once are running", () => {
 		const running = Array.from({ length: MOST_VMS }, (_, at) =>
 			job(`vm${at}`, { kind: "vm-test", started: long }),
