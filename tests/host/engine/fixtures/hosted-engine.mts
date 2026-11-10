@@ -57,6 +57,8 @@ const work = join(folder, "work");
 const agentDir = join(folder, "home", ".pi", "agent");
 const entryFile = join(folder, "entry.json");
 const effects = join(folder, "effects");
+/** The pids of what the crashing tool left running, one in its group and one that left it. */
+const children = join(folder, "children");
 const probe = join(folder, "probe.jsonl");
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
@@ -123,14 +125,21 @@ const scenarios: Record<string, Scenario> = {
 			return { file: existsSync(readEntry().file) };
 		},
 	},
-	/** A tool that notes it ran and then kills the host. */
+	/** A tool that notes it ran, leaves two commands running, and then kills the host. */
 	crash: {
 		responses: () => [
 			compat.fauxAssistantMessage(
 				[
 					compat.fauxToolCall(
 						"bash",
-						{ command: `echo ran >> ${effects} && kill -9 ${process.pid}` },
+						{
+							command: [
+								`echo ran >> ${effects}`,
+								`sleep 300 & echo $! > ${children}`,
+								`setsid sleep 301 & echo $! >> ${children}`,
+								`kill -9 ${process.pid}`,
+							].join("\n"),
+						},
 						{ id: "call-1" },
 					),
 				],
@@ -162,6 +171,23 @@ const scenarios: Record<string, Scenario> = {
 
 if (scenarioName === "reopen") await reopen();
 else await runHost(scenarios[scenarioName]);
+
+/** The pids the crashing tool wrote down, if it ran. */
+function leftRunning(): number[] {
+	return existsSync(children)
+		? readFileSync(children, "utf8").split("\n").filter(Boolean).map(Number)
+		: [];
+}
+
+/** Whether a process still runs, a zombie counting as ended. */
+function alive(pid: number): boolean {
+	try {
+		return !/^\S+ \(.*\) Z /.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+	} catch {
+		// No such process.
+		return false;
+	}
+}
 
 /** Read the last run's file with ordinary pi's session manager and no host. */
 async function reopen(): Promise<void> {
@@ -214,6 +240,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			ran: existsSync(effects)
 				? readFileSync(effects, "utf8").split("\n").filter(Boolean).length
 				: 0,
+			childrenAlive: leftRunning().filter(alive),
 			probe: existsSync(probe)
 				? readFileSync(probe, "utf8")
 						.split("\n")

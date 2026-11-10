@@ -8,7 +8,13 @@
  * tests/host/engine/README.md gives the command that runs it.
  */
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -29,15 +35,42 @@ interface Seen {
 	readonly after?: string;
 	readonly keysSeen: readonly string[];
 	readonly ran: number;
+	readonly childrenAlive: readonly number[];
 	readonly probe: readonly Record<string, string>[];
 	readonly reported: readonly string[];
 }
 
 const folders: string[] = [];
 afterEach(() => {
-	for (const folder of folders.splice(0))
+	for (const folder of folders.splice(0)) {
+		for (const pid of leftRunning(folder).filter(alive)) {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {
+				// It ended between the look and the kill.
+			}
+		}
 		rmSync(folder, { recursive: true, force: true });
+	}
 });
+
+/** The pids a step's crashing tool left running, as it wrote them down. */
+function leftRunning(folder: string): number[] {
+	const file = join(folder, "children");
+	return existsSync(file)
+		? readFileSync(file, "utf8").split("\n").filter(Boolean).map(Number)
+		: [];
+}
+
+/** Whether a process still runs, a zombie counting as ended. */
+function alive(pid: number): boolean {
+	try {
+		return !/^\S+ \(.*\) Z /.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+	} catch {
+		// No such process.
+		return false;
+	}
+}
 
 /** A host's folder, with a home, runtime folder and temp folder of its own. */
 function hostFolder(): string {
@@ -152,8 +185,17 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 		async () => {
 			const folder = hostFolder();
 			expect(await killedStep(folder, "crash")).toBe("SIGKILL");
+			const left = leftRunning(folder);
+			expect(
+				left.filter(alive),
+				"both commands outlive the killed host",
+			).toHaveLength(2);
 			const resumed = await step(folder, "resume");
 			expect(resumed.ran).toBe(1);
+			expect(
+				resumed.childrenAlive,
+				"the next start ends what the cut-off tool left, in its group or out",
+			).toEqual([]);
 			expect(resumed.transcript).toEqual([
 				"system: ",
 				"user: run it",
