@@ -222,7 +222,7 @@ describe.skipIf(!packageDir)(
 
 				watching.type(`/quit${ENTER}`);
 
-				expect(await watching.detached).toBeTruthy();
+				expect(await watching.detached).toBe("Conversation closed");
 				await host.gone(quitting.sessionId, TURN_MS);
 				const held = (await host.list()).map((s) => s.sessionId);
 				expect(held).toContain(sibling.sessionId);

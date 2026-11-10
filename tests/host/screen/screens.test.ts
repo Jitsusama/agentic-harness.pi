@@ -175,7 +175,10 @@ describe("hosted screens", () => {
 		});
 		attached.input("z");
 
-		expect(options.hosted.suspend()).toBe(true);
+		expect(
+			options.hosted.suspend(),
+			"a viewer that can suspend takes pi's Ctrl+Z",
+		).toBe(true);
 		expect(pressing.suspend).toHaveBeenCalledOnce();
 	});
 

@@ -85,6 +85,8 @@ export async function startScreenHost(
 				throw new Error(
 					`${sessionId} is ${held?.state ?? "gone"}, not ${wanted}, after ${ms} ms: ${errors}`,
 				);
+			// The host says how a conversation stands only when asked, so this
+			// waits between asks rather than flooding its socket.
 			await new Promise((done) => setTimeout(done, ASK_EVERY_MS));
 		}
 	};

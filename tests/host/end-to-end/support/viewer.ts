@@ -133,7 +133,8 @@ export async function attach(
 				buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "",
 		);
 	};
-	const until = (holds: () => boolean, what: () => string, ms: number) =>
+	// Checked on each frame the viewer receives, rather than polled.
+	const onceItHolds = (holds: () => boolean, what: () => string, ms: number) =>
 		new Promise<void>((done, fail) => {
 			if (holds()) return done();
 			const timer = setTimeout(() => {
@@ -160,14 +161,14 @@ export async function attach(
 		},
 		screen,
 		shows: (wanted, ms = SHOWN_MS) =>
-			until(
+			onceItHolds(
 				() => matches(wanted, screen().join("\n")),
 				() =>
 					`the screen never showed ${String(wanted)}; it shows:\n${screen().join("\n")}`,
 				ms,
 			),
 		sent: (wanted, ms = SHOWN_MS) =>
-			until(
+			onceItHolds(
 				() => matches(wanted, output.join("")),
 				() => `the output never held ${JSON.stringify(String(wanted))}`,
 				ms,
