@@ -204,11 +204,24 @@ export function stopFirstTurnWatches(): void {
 	reopeners.clear();
 }
 
-/** Start a turn here saying what the spawner has to act on. */
+/**
+ * Start a turn here saying what the spawner has to act on. A run under
+ * way hears it once its tool calls finish: as a follow-up it waited for
+ * the whole run, and on 10 November a warning raised at 06:54 reached
+ * its spawner at 08:18.
+ */
 function tell(pi: ExtensionAPI, ctx: ExtensionContext, words: string): void {
 	const idle = ctx.isIdle?.() ?? true;
-	pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
+	pi.sendUserMessage(words, idle ? undefined : { deliverAs: "steer" });
 }
+
+/** The local clock time now, as HH:MM. */
+function clockNow(): string {
+	return new Date().toTimeString().slice(0, CLOCK_CHARS);
+}
+
+/** How much of `toTimeString` is the hours and minutes. */
+const CLOCK_CHARS = 5;
 
 /**
  * Open a spawn whose pi ended again, say so without starting a turn, and
@@ -288,6 +301,6 @@ function noTurnWords(
 		: "";
 	return automatedText(
 		"a session this one spawned has not started",
-		`${which} that this session spawned on ${spawned.questId} has not started its first turn ${seconds} s after the spawn: ${turn.found}.${trust}${also ? ` ${also}` : ""} Find out why and get it working: look at its window and its record under ~/.local/state/pi/agentic-harness.pi/quest-workflow/sessions/, then tell it to carry on, or spawn it again if it never started.`,
+		`${which} that this session spawned on ${spawned.questId} has not started its first turn ${seconds} s after the spawn, when looked at ${clockNow()}: ${turn.found}.${trust}${also ? ` ${also}` : ""} Find out why and get it working: look at its window and its record under ~/.local/state/pi/agentic-harness.pi/quest-workflow/sessions/, then tell it to carry on, or spawn it again if it never started.`,
 	);
 }

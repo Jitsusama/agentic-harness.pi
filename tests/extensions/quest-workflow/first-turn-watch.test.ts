@@ -95,15 +95,24 @@ describe("a spawner watching for its session's first turn", () => {
 		);
 	});
 
-	it("says it after a run already under way rather than cutting into it", () => {
+	it("says it inside a run under way, once its tool calls finish, not when the run ends", () => {
+		// 2026-11-10: a warning raised at 06:54 waited as a follow-up for
+		// the spawner's run to end, and reached it at 08:18.
 		idle = false;
 		watchFirstTurn(pi, ctx, spawned, () => ({
 			started: false,
 			found: "no session has taken the first words",
 		}));
 		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
-		expect(said[0]?.options).toEqual({ deliverAs: "followUp" });
+		expect(said[0]?.options).toEqual({ deliverAs: "steer" });
 		expect(said[0]?.text).toContain("an id not yet known");
+	});
+
+	it("says the time it looked, so a warning read later reads as late", () => {
+		vi.setSystemTime(new Date(2026, 10, 10, 6, 53, 0));
+		watchFirstTurn(pi, ctx, spawned, () => waiting, FIRST_TURN_WATCH_MS, gone);
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said[0]?.text).toContain("when looked at 06:54");
 	});
 
 	it("looks again while its words wait and its pi runs, saying nothing once it starts", () => {
