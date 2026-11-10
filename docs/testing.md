@@ -60,6 +60,17 @@ without one, since no CI runs them; any case that skips under it, for
 whatever reason, fails the run. A host's rollout runs it first;
 `tests/host/end-to-end/README.md` says where the pi is found.
 
+A new pi reaches the hosts only through that gate.
+`node scripts/host-prove.ts RUNTIME --proof FILE` runs `pnpm test:host`
+on a piHostRuntime build, as it stands, from a clean checkout. Only once
+every case has passed does it write the runtime's proof and move the
+runtime link to it. A realm names the proof beside its pi. core.nix fails
+evaluation when the proof names another runtime, and the host program
+refuses to start without a proof of its own pi
+(`host/service/proof.ts`). The proof names the harness commit that ran,
+as a record only: a harness change passes its own `pnpm test:host`
+before it merges.
+
 New library modules should ship with tests that assert
 **observable behaviour through the public API**, never
 internals. A test that would still pass after a legitimate

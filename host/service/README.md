@@ -48,9 +48,14 @@ input pipeline or screen. No unit or running host is installed yet.
   renewing key. It names the viewers' kitty terminal where the unit
   names none, before the theme reads it. Conversations start from the
   host's environment less systemd's hand-over and PI_PACKAGE_DIR; the
-  engine pins the host's pi for their subagents. A kind, realm
-  or pi install it refuses exits 78, before anything is held or
+  engine pins the host's pi for their subagents. A kind, realm,
+  pi install or proof it refuses exits 78, before anything is held or
   listens, so a unit naming that status stops restarting it.
+- proof.ts: a runtime's proof, which `scripts/host-prove.ts` writes
+  once `pnpm test:host` has passed on that runtime with no case
+  skipped. The program refuses a pi that PI_HOST_PROOF doesn't prove,
+  so a pi no gate passed never runs a conversation, however its unit
+  came to name it.
 - pi-resolution.ts: the resolve hook `scripts/pi-host.ts` registers
   before the host's code loads, binding every `@earendil-works/` import
   made from outside the host's pi to that pi. The harness's install
