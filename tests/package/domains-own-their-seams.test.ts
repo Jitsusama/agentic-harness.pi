@@ -93,6 +93,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"session:parking:v1",
 			"session:rollover-carry:v1",
 			"session:unlanded:v1",
+			"session:wakers-ask:v1",
 			"session:wants:v1",
 			"session:woken:v1",
 			"subagent:ready:v1",
