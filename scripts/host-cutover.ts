@@ -12,8 +12,9 @@
  * nothing. --attended and --background name sessions the log's rule
  * gets wrong. --deadline is how long to wait for busy sessions, 45
  * minutes unless said; run it again for those still held. --install
- * names the harness install when run from a tree. Exits 0 when every
- * session told to move was adopted, 1 otherwise.
+ * names the harness install a parked pi wakes on, when run from a tree;
+ * without one, a parked pi moves only if its presence says it knows how.
+ * Exits 0 when every session told to move was adopted, 1 otherwise.
  */
 
 import { realpathSync } from "node:fs";
@@ -29,7 +30,6 @@ import {
 import { type CutoverPlaces, machineFacts } from "../host/cutover/machine.ts";
 import { hostRealm } from "../host/service/address.ts";
 import { installOfVersion } from "../lib/internal/reload/loaded.ts";
-import { LOADED_FOLDER } from "../lib/internal/reload/said.ts";
 
 const DEFAULT_DEADLINE_MINUTES = 45;
 const MINUTE_MS = 60_000;
@@ -52,20 +52,19 @@ const named = (list: string) =>
 			.filter((one) => one !== ""),
 	);
 
-function install(): string {
-	if (values.install) return values.install;
-	const root = realpathSync(fileURLToPath(new URL("..", import.meta.url)));
-	const own = installOfVersion(root);
-	if (own) return own;
-	throw new Error(
-		`${root} is not an installed version; name the install, as in: node scripts/host-cutover.ts --install ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi`,
-	);
+/** The install's current version, when this runs from one or is told it. */
+function current(): string | undefined {
+	const folder =
+		values.install ??
+		installOfVersion(
+			realpathSync(fileURLToPath(new URL("..", import.meta.url))),
+		);
+	return folder ? realpathSync(join(folder, "current")) : undefined;
 }
 
-const folder = install();
+const version = current();
 const places: CutoverPlaces = {
-	loadedDir: join(folder, LOADED_FOLDER),
-	current: realpathSync(join(folder, "current")),
+	...(version ? { current: version } : {}),
 	realm: hostRealm(process.env),
 	...(process.env.PI_SESSION_ID ? { self: process.env.PI_SESSION_ID } : {}),
 };
