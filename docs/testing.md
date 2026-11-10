@@ -64,7 +64,10 @@ A new pi reaches the hosts only through that gate.
 `node scripts/host-prove.ts RUNTIME --proof FILE` runs `pnpm test:host`
 on a piHostRuntime build, as it stands, from a clean checkout. Only once
 every case has passed does it write the runtime's proof and move the
-runtime link to it. A realm names the proof beside its pi. core.nix fails
+runtime link to it. Where the run goes to a lent builder, as a
+derivation with no git, `--report REPORT --harness COMMIT` judges that
+run's JSON report the same way and records the commit its source was cut
+at. A realm names the proof beside its pi. core.nix fails
 evaluation when the proof names another runtime, and the host program
 refuses to start without a proof of its own pi
 (`host/service/proof.ts`). The proof names the harness commit that ran,
