@@ -29,7 +29,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
-import { sandboxFor } from "../../lib/internal/sandbox.ts";
+import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { agentBash, type ShellSettings } from "./agent-bash.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
 
@@ -79,6 +79,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		bash = undefined;
 		bashFor(ctx);
+		askTheCloudAhead(sandbox);
 	});
 
 	pi.registerTool({
