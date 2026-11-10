@@ -139,7 +139,12 @@ describe.skipIf(!packageDir)(
 
 				stopping.type(KEY.escape);
 
-				await stopping.shows("Operation aborted", TURN_MS);
+				// pi says the abort's own words when the stop lands while the
+				// answer is still being asked for, and its own otherwise.
+				await stopping.shows(
+					/Operation aborted|This operation was aborted/,
+					TURN_MS,
+				);
 				await host.idle(sessionId, TURN_MS);
 			},
 			CASE_MS,
