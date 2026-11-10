@@ -2013,9 +2013,43 @@ function answersFetch(walk: RegExpExecArray): boolean {
  * blanked, and the steps that only look left out.
  */
 function runSteps(command: string): string[] {
-	return shellSteps(command).filter(
-		(step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")),
-	);
+	return shellSteps(command).filter((step) => !onlyLooks(step));
+}
+
+/**
+ * Whether a step only looks, past what it runs under: a step finding a
+ * tool, as `direnv exec . which changed-checks` does, or asking it how
+ * it is called, as `changed-checks --help` does, runs none of its work.
+ * On 10 November those three waited 964 s, 104 s and 754 s for a turn
+ * as a run of changed-checks, while memory was short.
+ */
+function onlyLooks(step: string): boolean {
+	let bare = step.replace(ASSIGNMENTS, "");
+	for (let under = UNDER.exec(bare); under; under = UNDER.exec(bare)) {
+		bare = bare.slice(under[0].length);
+	}
+	return LOOKS.test(bare) || asksHowToCall(bare);
+}
+
+/**
+ * What a step runs under, as its first words: a subshell or a
+ * substitution it opens, a loop over what one finds, a time limit, a
+ * changed environment, or direnv's environment for a folder.
+ */
+const UNDER =
+	/^\s*(?:\(\s*|\$\(\s*|for\s+\w+\s+in\s+\$\(\s*|timeout(?:\s+-[sk]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+\S+\s+|env(?:\s+-u\s+\S+|\s+-i|\s+[A-Za-z_]\w*=\S*)*\s+|direnv\s+exec\s+\S+\s+)/;
+
+/** The flags that ask a tool how it is called or which version it is. */
+const ASKS = new Set(["--help", "-h", "--version"]);
+
+/** Whether a step's arguments, up to what it writes to, only ask {@link ASKS}. */
+function asksHowToCall(step: string): boolean {
+	const args: string[] = [];
+	for (const word of step.trim().split(/\s+/).slice(1)) {
+		if (/^(?:\d|&)?>|^[|;&)]/.test(word)) break;
+		args.push(word);
+	}
+	return args.length > 0 && args.every((arg) => ASKS.has(arg));
 }
 
 /** A command's steps as the shell runs them, quoted prose and heredocs blanked. */
@@ -2154,7 +2188,7 @@ const GIT_READS = String.raw`git(?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*
  * `readlink -f $d/bin/nixos-test-driver` does without running the driver.
  */
 const LOOKS = new RegExp(
-	String.raw`^\s*(?:sudo\s+)?(?:(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which|readlink|realpath|ls|stat|file|cat|head|tail|wc|test)\b|\[\s|${GIT_READS})`,
+	String.raw`^\s*(?:sudo\s+)?(?:(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which|whereis|type|readlink|realpath|ls|stat|file|cat|head|tail|wc|test)\b|command\s+-[vV]\b|\[\s|${GIT_READS})`,
 );
 
 /**
