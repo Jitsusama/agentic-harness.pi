@@ -1,31 +1,35 @@
 // A host with pi's own screens, as the host program composes it, run by node under a seal: it prints its socket and serves until stopped.
 /**
  * Run as `node screen-host.mts <package dir>`, with the seal's environment.
- * It composes what the host program does: one theme for the host, a
- * screen per conversation through hostScreens over pi's InteractiveMode,
- * createEngine handing its conversations to those screens, and serveHost
- * with the screens' viewer bridge. Its pi answers from pi-ai's scripted
- * provider, by what the latest message asks; its agent folder gives every
- * conversation a `/pick` command that shows a select panel and writes the
- * answer to `picked` in HOME. A stand-in `wl-paste` holds a picture on a
- * sealed Wayland clipboard, handing it only to a reader that has the
- * session's Wayland display and runtime folder, as the host unit passes
- * them to every conversation.
+ * It composes what the host program does, with the program's own pieces:
+ * its resolve hook, registered before any host code is imported, so the
+ * screens' terminal and pi's screen share one pi-tui; the viewers'
+ * terminal named in the host's environment before the theme reads it,
+ * since pi-tui keeps its first answer for the whole process; the theme
+ * the agent folder's settings name; a screen per conversation through
+ * hostScreens over pi's InteractiveMode; and createEngine, starting each
+ * conversation from the host's environment less what only the host sees,
+ * handing its conversations to those screens under serveHost.
  *
- * Host code binds the host's pi, as the host program's resolve hook has
- * it: an `@earendil-works/*` import from outside that pi resolves from its
- * root, so the screens' terminal and pi's screen share one pi-tui. The
- * hook is registered before any host code is imported.
+ * Only the model and its key differ from the program, which asks the
+ * gateway for a key: here pi answers from pi-ai's scripted provider,
+ * registered in this process, by what the latest message asks. Its agent
+ * folder gives every conversation a `/pick` command that shows a select
+ * panel and writes the answer to `picked` in HOME. A stand-in `wl-paste`
+ * holds a picture on a sealed Wayland clipboard, handing it only to a
+ * reader that has the session's Wayland display and runtime folder,
+ * which the host's environment holds as the host unit sets it.
  *
  * It prints one JSON line naming its socket once it listens, and stops at
  * SIGTERM. Errors it is told of go to standard error.
  */
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { register } from "node:module";
+import { registerHooks } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { EngineKey } from "../../../../host/engine/index.ts";
+import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
 interface Compat {
@@ -51,30 +55,18 @@ function piModule<T>(module: unknown): T {
 const [packageDir] = process.argv.slice(2);
 if (!packageDir) throw new Error("usage: screen-host.mts <package dir>");
 
-/** Resolve pi's packages from the host's pi for code outside it. */
-const HOST_PI_RESOLUTION = `
-let root, inside;
-export function initialize(data) { root = data.root; inside = data.inside; }
-export function resolve(specifier, context, next) {
-	const outside = !context.parentURL?.startsWith(inside);
-	if (outside && specifier.startsWith("@earendil-works/"))
-		return next(specifier, { ...context, parentURL: root });
-	return next(specifier, context);
-}`;
-register(`data:text/javascript,${encodeURIComponent(HOST_PI_RESOLUTION)}`, {
-	data: {
-		root: pathToFileURL(join(packageDir, "package.json")).href,
-		inside: `${pathToFileURL(packageDir).href}/`,
-	},
-});
+registerHooks({ resolve: piFromHost(packageDir) });
 const { createEngine } = await import("../../../../host/engine/index.ts");
 const { loadHostPi } = await import("../../../../host/engine/host-pi.ts");
 const { hostedModeOf, hostScreens } = await import(
 	"../../../../host/screen/screens.ts"
 );
 const { serveHost } = await import("../../../../host/service/serve.ts");
+const { conversationBase, nameViewerTerminal, themeStarter } = await import(
+	"../../../../host/service/program.ts"
+);
 
-/** The sealed session's Wayland display, which only its conversations are told of. */
+/** The sealed session's Wayland display, as the host unit is given it. */
 const WAYLAND_DISPLAY = "wayland-sealed";
 /** The picture on the sealed clipboard: a one-pixel PNG. */
 const CLIPBOARD_PICTURE =
@@ -101,12 +93,15 @@ const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
 faux.setResponses(Array.from({ length: ANSWERS }, () => answer));
 writeAgentFolder(faux.api);
 const clipboard = writeClipboard();
+// What the host unit gives the host: the session's Wayland display beside
+// its runtime folder, and the clipboard reader on its PATH. Offline comes
+// from the seal, or pi's startup tries to fetch fd, rg and its version.
+process.env.WAYLAND_DISPLAY = WAYLAND_DISPLAY;
+process.env.PATH = `${clipboard}:${process.env.PATH ?? ""}`;
 
 const pi = await loadHostPi(packageDir);
-const initTheme = pi.modules.codingAgent.initTheme;
-if (typeof initTheme !== "function") throw new Error("pi exports no initTheme");
-// The host's one theme, as pi's own main sets it before its screen.
-initTheme("dark", false);
+nameViewerTerminal(process.env);
+themeStarter(pi.modules.codingAgent, home)();
 
 const screens = hostScreens({
 	create: hostedModeOf(pi.modules.codingAgent.InteractiveMode),
@@ -125,20 +120,7 @@ const serving = await serveHost({
 			packageDir,
 			stateDir: join(home, "engine"),
 			host,
-			// Each conversation reads only this environment. Offline, or pi's
-			// startup tries to fetch fd, rg and its version; and the terminal
-			// every viewer is, kitty, which pi can't see from a host's own. The
-			// session's Wayland display and runtime folder reach only them.
-			env: {
-				PATH: `${clipboard}:${process.env.PATH ?? ""}`,
-				HOME: home,
-				TMPDIR: process.env.TMPDIR ?? "",
-				WAYLAND_DISPLAY,
-				XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? "",
-				PI_OFFLINE: "1",
-				PI_IMAGE_PROTOCOL: "kitty",
-				PI_TRUE_COLOR: "1",
-			},
+			env: conversationBase(process.env),
 			key,
 			report,
 			screens: screens.screens,

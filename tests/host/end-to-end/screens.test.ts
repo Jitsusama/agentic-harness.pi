@@ -186,7 +186,14 @@ describe.skipIf(!packageDir)(
 			"keeps a panel waiting with nobody watching, for a viewer to answer later",
 			async () => {
 				const picked = join(sealed.home, "picked");
-				const { sessionId } = await host.open(folder(), "/pick");
+				const { sessionId } = await host.open(folder());
+				const asking = await viewer(sessionId, 30, 100);
+				asking.type(`/pick${ENTER}`);
+				await asking.shows("Pick one");
+
+				await asking.leave();
+				const held = (await host.list()).find((s) => s.sessionId === sessionId);
+				expect(held, "the panel outlives its viewer").toBeDefined();
 				const late = await viewer(sessionId, 30, 100);
 				await late.shows("Pick one");
 				expect(
