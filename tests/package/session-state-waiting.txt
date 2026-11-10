@@ -3,7 +3,7 @@
 # until its owner documents an explicit exemption, which moves it to
 # session-state-exempt.txt with its reason. Counts only shrink.
 # Widened 2026-11-10 to lib/, host/ and packs/, the rest of what a hosted
-# conversation loads; H2 keys or exempts each of these with a reason.
+# conversation loads; K7 keys or exempts each of these with a reason.
 host/engine/subagent-install.ts:global 1
 host/engine/tool-children.ts:pid 1
 host/service/rollout.ts:pid 1
