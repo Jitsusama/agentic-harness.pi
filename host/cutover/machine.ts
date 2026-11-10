@@ -6,6 +6,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { refreshRestoreFile } from "../../extensions/quest-workflow/session-registry.ts";
@@ -26,7 +27,6 @@ import {
 	removeMoveNote,
 } from "../../lib/internal/session/move.ts";
 import { askWake } from "../../lib/internal/session/park.ts";
-import { uuidv7 } from "../../lib/internal/session/rollover.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { giveSteer } from "../../lib/mesh/steer.ts";
@@ -80,7 +80,7 @@ async function listHeld(
 		try {
 			const reply = await controlRequest(
 				hostSocketPath(realm, kind, runtimeDir),
-				{ v: 1, id: uuidv7(), op: "list" },
+				{ v: 1, id: randomUUID(), op: "list" },
 			);
 			if (!reply.ok) continue;
 			const { sessions, host } = parseListResult(reply.result);
@@ -221,7 +221,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			try {
 				const reply = await controlRequest(socket(to), {
 					v: 1,
-					id: uuidv7(),
+					id: randomUUID(),
 					op: "adopt",
 					sessionFile: note.sessionFile,
 					attended: to === "attended",
