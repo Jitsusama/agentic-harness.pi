@@ -6,4 +6,3 @@ extensions/mesh-workflow/steer.ts:pid 1
 extensions/quest-workflow/scratch.ts:pid 1
 extensions/quest-workflow/session-registry.ts:pid 1
 extensions/quest-workflow/weights.ts:pid 1
-extensions/spend-workflow/resources.ts:global 3

@@ -56,6 +56,7 @@ import {
 } from "../../lib/core/observability/index.ts";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
+import { hosted } from "../../lib/core/session/index.ts";
 import { medianOf } from "../../lib/internal/cost-meter/index.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { duMeasure } from "../../lib/internal/quest/footprint.ts";
@@ -238,8 +239,8 @@ async function quoteBill(
 }
 
 export default function spendWorkflow(pi: ExtensionAPI) {
-	// Each reload runs this again in the same process, so the turn records
-	// can say how many loads a process's memory has been through.
+	// Each conversation load or reload runs this again in the same process,
+	// so resource samples can say how many loads its memory has been through.
 	noteLoad();
 	let store: TurnStore | null = null;
 	let reader: LedgerReader | null = null;
@@ -333,10 +334,10 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	});
 
 	// What the machine did for each turn, which no log records. Only a
-	// session with a person at it, since a subagent's use already lands
-	// in the session that started it; never one pi keeps no log for.
+	// session with a person at it on plain pi, since a subagent's use
+	// already lands in its parent. A host records once for the process.
 	pi.on("turn_end", (_event, ctx) => {
-		if (!ctx.hasUI) return;
+		if (!ctx.hasUI && !hosted()) return;
 		const log = ctx.sessionManager.getSessionFile();
 		if (!log) return;
 		try {
@@ -380,7 +381,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				// is the honest reading of a figure missing a term.
 				sessionSpend += record.cost?.total ?? 0;
 				publish();
-			});
+			}, ctx);
 		}
 		publish();
 	});
@@ -520,7 +521,8 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 						"Report the CPU time, disk reads and writes and peak memory " +
 						"each quest's sessions used, heaviest CPU first, instead of a " +
 						"spend report. Counted from the kernel at the end of every " +
-						"turn, including the commands and subagents a session ran.",
+						"turn, including the commands and subagents a session ran. " +
+						"Shared hosts have separate rows, not per-conversation figures.",
 				}),
 			),
 			audit: Type.Optional(

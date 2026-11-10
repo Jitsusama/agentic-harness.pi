@@ -13,11 +13,16 @@
  *
  * Only sessions with a person at them record, because a subagent is a
  * child of the session that started it, and its CPU already lands in
- * that session's figure when it ends.
+ * that session's figure when it ends. In a shared host, every turn end
+ * advances one process baseline and writes to the host's file instead.
+ * Host CPU and memory cannot honestly be apportioned among conversations.
+ * A host-<encoded key>-<pid>-<start>.jsonl file names no session log;
+ * readers must use its samples\' host field, not look it up in the ledger.
  */
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { hosted } from "../../lib/core/session/index.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import {
@@ -34,11 +39,13 @@ export interface Sample extends Usage {
 	/** When the turn ended, as an ISO time the ledger's timestamps compare with. */
 	readonly at: string;
 	/**
-	 * How many times the harness has loaded in this process, its start
-	 * and every reload since, so memory can be read against reloads.
+	 * How many extension loads this process has seen, including hosted
+	 * conversation starts and reloads, so memory can be read against loads.
 	 * Absent in samples from before 9 November.
 	 */
 	readonly loads?: number;
+	/** Shared-host counters belong to this host, never to a quest. */
+	readonly host?: string;
 }
 
 /** How many times the harness has loaded in this process. */
@@ -69,21 +76,25 @@ export interface SampleDeps {
  * Record what the process used since the last turn's end, in the file
  * for `sessionLog`. The first reading in a process is measured from
  * nothing, which books pi's start to the session it started for.
+ * Hosted calls use one host file and the same process baseline, never a
+ * session slot: each session sampling from zero would double-count CPU.
  */
 export function recordTurn(sessionLog: string, deps: SampleDeps): Sample {
 	const slot = globalThis as Slot;
+	const host = hosted();
 	const reading = (deps.read ?? readCounters)();
 	const sample: Sample = {
 		at: (deps.now?.() ?? new Date()).toISOString(),
 		...usageBetween(slot[LAST] ?? NOTHING, reading),
 		loads: processGlobal(LOADS, () => ({ count: 0 })).count,
+		...(host ? { host: host.key } : {}),
 	};
 	slot[LAST] = reading;
 	mkdirSync(deps.dir, { recursive: true });
-	appendFileSync(
-		join(deps.dir, basename(sessionLog)),
-		`${JSON.stringify(sample)}\n`,
-	);
+	const name = host
+		? `host-${encodeURIComponent(host.key)}-${host.owner.pid}-${encodeURIComponent(String(host.owner.startTicks ?? host.owner.startedAt))}.jsonl`
+		: basename(sessionLog);
+	appendFileSync(join(deps.dir, name), `${JSON.stringify(sample)}\n`);
 	return sample;
 }
 
@@ -98,6 +109,7 @@ function isSample(data: unknown): data is Sample {
 	const s = data as Record<string, unknown>;
 	const figure = (v: unknown) => v === null || typeof v === "number";
 	return (
+		(s.host === undefined || typeof s.host === "string") &&
 		typeof s.at === "string" &&
 		typeof s.cpuSelfMs === "number" &&
 		typeof s.rssBytes === "number" &&
@@ -166,6 +178,8 @@ export function questChangesQuery(sessions: readonly string[]): string {
 /** What one quest's sessions used. */
 export interface QuestUse {
 	readonly quest: string | null;
+	/** A process-level row, deliberately not apportioned among quests. */
+	readonly host?: string;
 	turns: number;
 	cpuSelfMs: number;
 	cpuChildrenMs: number;
@@ -197,15 +211,20 @@ export function useByQuest(
 		list.push(change);
 		bySession.set(change.session, list);
 	}
-	const uses = new Map<string | null, QuestUse>();
+	const uses = new Map<string, QuestUse>();
 	for (const [session, list] of samples) {
 		const sessionChanges = bySession.get(session) ?? [];
 		for (const sample of list) {
-			const quest = questAt(sessionChanges, sample.at);
-			let use = uses.get(quest);
+			const quest =
+				sample.host !== undefined ? null : questAt(sessionChanges, sample.at);
+			const key = JSON.stringify(
+				sample.host !== undefined ? ["host", sample.host] : ["quest", quest],
+			);
+			let use = uses.get(key);
 			if (!use) {
 				use = {
 					quest,
+					...(sample.host !== undefined ? { host: sample.host } : {}),
 					turns: 0,
 					cpuSelfMs: 0,
 					cpuChildrenMs: 0,
@@ -214,7 +233,7 @@ export function useByQuest(
 					peakRssBytes: 0,
 					partial: false,
 				};
-				uses.set(quest, use);
+				uses.set(key, use);
 			}
 			use.turns += 1;
 			use.cpuSelfMs += sample.cpuSelfMs;
@@ -240,14 +259,15 @@ const bytes = (n: number) => formatSize({ bytes: n, complete: true });
 
 /** One quest's line. */
 function useLine(use: QuestUse): string {
-	const name = use.quest ?? "No quest";
+	const name =
+		use.host !== undefined ? `Host ${use.host}` : (use.quest ?? "No quest");
 	const own = formatCpu(use.cpuSelfMs).replace(/ CPU /, " ");
 	const ran = formatCpu(use.cpuChildrenMs).replace(/ CPU /, " ");
 	return (
 		`- ${name}: ${formatCpu(use.cpuSelfMs + use.cpuChildrenMs)} ` +
 		`(pi ${own}, what it ran ${ran}), read ${bytes(use.readBytes)}, ` +
 		`wrote ${bytes(use.writeBytes)}, pi held up to ${bytes(use.peakRssBytes)}, ` +
-		`over ${count(use.turns, "turn")}` +
+		`over ${count(use.turns, use.host !== undefined ? "sample" : "turn")}` +
 		(use.partial ? "; pi alone on some, where children are not counted" : "")
 	);
 }
@@ -268,13 +288,16 @@ export function formatUse(
 		uses.reduce((sum, u) => sum + pick(u), 0);
 	const own = total((u) => u.cpuSelfMs);
 	const ran = total((u) => u.cpuChildrenMs);
+	const hasHosts = uses.some((use) => use.host !== undefined);
 	const lines = [
-		`Since ${since.slice(0, 10)}, sessions used ${formatCpu(own + ran)}: ` +
+		`Since ${since.slice(0, 10)}, ${hasHosts ? "sessions and hosts" : "sessions"} used ${formatCpu(own + ran)}: ` +
 			`${formatCpu(own)} in pi itself and ${formatCpu(ran)} in the commands ` +
 			`and subagents it ran. They read ${bytes(total((u) => u.readBytes))} ` +
 			`from disk and wrote ${bytes(total((u) => u.writeBytes))}.`,
 		"",
-		"By quest, heaviest CPU first:",
+		hasHosts
+			? "By quest and host, heaviest CPU first:"
+			: "By quest, heaviest CPU first:",
 		...uses.slice(0, limit).map(useLine),
 	];
 	if (uses.length > limit) {
@@ -286,6 +309,10 @@ export function formatUse(
 			"nix-daemon), and a command still running, which counts when it " +
 			"ends. A quest is the one the ledger booked the session's turns to.",
 	);
+	if (hasHosts)
+		lines.push(
+			"Shared-host counters are process totals, not per-conversation use; each host has one baseline. Loads include conversation starts and reloads.",
+		);
 	return lines.join("\n");
 }
 
