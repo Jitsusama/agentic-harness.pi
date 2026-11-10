@@ -8,6 +8,7 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
 
 /** An open request as the wire validated it. */
@@ -57,16 +58,25 @@ export interface Unresumed {
 	readonly reason: unknown;
 }
 
-/** Answer every control operation in the order that keeps holds durable. */
+/**
+ * Answer every control operation in the order that keeps holds durable.
+ * With `admitAnother`, an open or adopt while the host already holds a
+ * conversation, or is starting one, must pass it first (the rollout gate,
+ * rollout.ts); a refusal prepares and holds nothing.
+ */
 export function hostBackend(options: {
 	identity: ControlBackend["identity"];
 	host: LiveHost;
 	roster: HostRoster;
 	engine: ConversationEngine;
+	admitAnother?: AdmitAnother;
 	now?: () => Date;
 }): ControlBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
+	// Begins still in progress, so two opens at once on an empty host can't
+	// both count themselves first.
+	let beginning = 0;
 
 	function live(sessionId: string): SessionIdentity {
 		const found = host.list().find((held) => held.id === sessionId);
@@ -95,6 +105,19 @@ export function hostBackend(options: {
 	}
 
 	async function begin(
+		request: OpenRequest | AdoptRequest,
+	): Promise<SessionIdentity> {
+		const another = roster.entries().length + beginning > 0;
+		beginning += 1;
+		try {
+			if (another) await options.admitAnother?.();
+			return await started(request);
+		} finally {
+			beginning -= 1;
+		}
+	}
+
+	async function started(
 		request: OpenRequest | AdoptRequest,
 	): Promise<SessionIdentity> {
 		const prepared = await engine.prepare(request);
@@ -166,18 +189,23 @@ export function hostBackend(options: {
 }
 
 /**
- * Resume every held conversation at start, one at a time. One that can't
- * resume stays held, since only a deliberate close or release may drop a
- * hold, and is reported for a person to close or repair.
+ * Resume every held conversation at start, one at a time in the order
+ * they were held. One that can't resume stays held, since only a
+ * deliberate close or release may drop a hold, and is reported for a
+ * person to close or repair. With `admitAnother`, each after the first
+ * that resumed must pass it, so the same one runs alone after every
+ * restart and a refused one is parked with the open path's reason.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
 	engine: ConversationEngine;
+	admitAnother?: AdmitAnother;
 }): Promise<{ resumed: string[]; unresumed: Unresumed[] }> {
 	const resumed: string[] = [];
 	const unresumed: Unresumed[] = [];
 	for (const entry of options.roster.entries()) {
 		try {
+			if (resumed.length > 0) await options.admitAnother?.();
 			await options.engine.resume(entry);
 			resumed.push(entry.sessionId);
 		} catch (reason) {

@@ -90,14 +90,24 @@ function register(conversation: {
 	});
 }
 
-function backendWith(fake: ConversationEngine) {
+function backendWith(
+	fake: ConversationEngine,
+	admitAnother?: () => Promise<void>,
+) {
 	return hostBackend({
 		identity: { key: host.key, owner: host.owner },
 		host,
 		roster,
 		engine: fake,
+		...(admitAnother ? { admitAnother } : {}),
 		now: () => new Date("2026-11-09T16:00:00.000Z"),
 	});
+}
+
+/** A gate that refuses as the rollout gate does, counting each ask. */
+function refusing() {
+	const stale = new Error("pid 41 runs a harness before the census change");
+	return { stale, gate: vi.fn(() => Promise.reject(stale)) };
 }
 
 const open = {
@@ -249,6 +259,105 @@ describe("hostBackend", () => {
 			sessionId: b,
 		});
 		expect(await heldSessionStatus(b, { dir: rosters })).toBe("unheld");
+	});
+
+	describe("with the rollout gate", () => {
+		it("opens the first conversation without asking, and refuses a second before preparing or holding it", async () => {
+			const { fake } = engine();
+			const { stale, gate } = refusing();
+			const backend = backendWith(fake, gate);
+			const first = parseOpenResult(await backend.execute(open)).sessionId;
+			expect(gate).not.toHaveBeenCalled();
+
+			await expect(backend.execute(open)).rejects.toBe(stale);
+			await expect(
+				backend.execute({
+					v: 1,
+					id: "a",
+					op: "adopt",
+					sessionFile: join(dir, "other.jsonl"),
+					attended: true,
+				}),
+			).rejects.toBe(stale);
+			expect(gate).toHaveBeenCalledTimes(2);
+			expect(fake.prepare).toHaveBeenCalledTimes(1);
+			expect(roster.entries().map(({ sessionId }) => sessionId)).toEqual([
+				first,
+			]);
+		});
+
+		it("opens a second once the gate passes", async () => {
+			const gate = vi.fn(() => Promise.resolve());
+			const backend = backendWith(engine().fake, gate);
+			await backend.execute(open);
+			await backend.execute(open);
+			expect(gate).toHaveBeenCalledTimes(1);
+			expect(roster.entries()).toHaveLength(2);
+		});
+
+		it("counts an open still starting, so two at once on an empty host can't both go first", async () => {
+			const { stale, gate } = refusing();
+			const backend = backendWith(engine().fake, gate);
+			const results = await Promise.allSettled([
+				backend.execute(open),
+				backend.execute(open),
+			]);
+			expect(results.map(({ status }) => status)).toEqual([
+				"fulfilled",
+				"rejected",
+			]);
+			expect(results[1]).toMatchObject({ reason: stale });
+			expect(roster.entries()).toHaveLength(1);
+		});
+
+		it("counts a stranded hold as a conversation the host already has", async () => {
+			const { fake } = engine();
+			const a = parseOpenResult(
+				await backendWith(fake).execute(open),
+			).sessionId;
+			await host.stop(a);
+			const { stale, gate } = refusing();
+			await expect(backendWith(fake, gate).execute(open)).rejects.toBe(stale);
+		});
+
+		it("resumes the first hold that resumes and parks each after it with the gate's reason, in the order they were held", async () => {
+			const { fake } = engine();
+			const opening = backendWith(fake);
+			const held: string[] = [];
+			for (let n = 0; n < 3; n++)
+				held.push(parseOpenResult(await opening.execute(open)).sessionId);
+			for (const id of held) await host.stop(id);
+			const [a, b, c] = held;
+
+			const gone = new Error("session file is gone");
+			const restart = engine({
+				resume: vi.fn(async (entry) => {
+					if (entry.sessionId === a) throw gone;
+					register(entry);
+				}),
+			});
+			const { stale, gate } = refusing();
+			expect(
+				await resumeHeld({ roster, engine: restart.fake, admitAnother: gate }),
+			).toEqual({
+				resumed: [b],
+				unresumed: [
+					{ sessionId: a, reason: gone },
+					{ sessionId: c, reason: stale },
+				],
+			});
+			expect(restart.fake.resume).toHaveBeenCalledTimes(2);
+			const listed = parseListResult(
+				await backendWith(restart.fake).execute({ v: 1, id: "l", op: "list" }),
+			);
+			expect(
+				listed.sessions.map(({ sessionId, state }) => [sessionId, state]),
+			).toEqual([
+				[b, "idle"],
+				[a, "parked"],
+				[c, "parked"],
+			]);
+		});
 	});
 
 	it("refuses to end, abort or attach a conversation it never held", async () => {

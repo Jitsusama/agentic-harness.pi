@@ -27,6 +27,7 @@ import {
 	type Unresumed,
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
+import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
 
@@ -54,7 +55,13 @@ export async function serveHost(options: {
 	standing?: (owner: TickedOwner) => Promise<Standing>;
 	/** Where dropped stale-context rejections are written. */
 	rejectionLog?: string;
+	/**
+	 * What a second conversation must pass, at open, adopt and resume: by
+	 * default the rollout gate over the install this host runs from.
+	 */
+	rollout?: AdmitAnother;
 }): Promise<ServingHost> {
+	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
 	spareStaleRejections(
 		options.rejectionLog ??
@@ -73,12 +80,12 @@ export async function serveHost(options: {
 	try {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		const engine = await options.engine(host);
-		const { unresumed } = await resumeHeld({ roster, engine });
+		const { unresumed } = await resumeHeld({ roster, engine, admitAnother });
 		for (const { reason } of unresumed) options.report(reason);
 		const identity = { key: host.key, owner: host.owner };
 		const listener = await listenControl({
 			path,
-			backend: hostBackend({ identity, host, roster, engine }),
+			backend: hostBackend({ identity, host, roster, engine, admitAnother }),
 			viewer: options.viewer?.(host),
 			report: options.report,
 		});

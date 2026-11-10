@@ -40,7 +40,19 @@ function places() {
 		registryDir: join(dir, "hosts"),
 		rejectionLog: join(dir, "stale-rejections.jsonl"),
 		report,
+		// These hosts run from a tree, so open the rollout gate for them.
+		rollout: () => Promise.resolve(),
 	};
+}
+
+async function opened(path: string, id: string) {
+	return controlRequest(path, {
+		v: 1,
+		id,
+		op: "open",
+		cwd: "/work",
+		attended: true,
+	});
 }
 
 /** A fake engine over the real SessionHost, as H1's registers. */
@@ -137,6 +149,26 @@ describe("serveHost", () => {
 		expect(spared).toHaveBeenCalledTimes(1);
 	});
 
+	it("keeps to one conversation when run from a tree, by its own rollout gate", async () => {
+		const host = await serveHost({
+			...places(),
+			rollout: undefined,
+			engine: async (h) => engine(h),
+		});
+		try {
+			expect(
+				(await opened(host.path, "a")).ok,
+				"its first conversation is never gated",
+			).toBe(true);
+			const second = await opened(host.path, "b");
+			if (second.ok) throw new Error("a host from a tree opened a second");
+			expect(second.error.message).toContain("outside an installed version");
+			expect((await listed(host.path)).sessions).toHaveLength(1);
+		} finally {
+			await host.stop();
+		}
+	});
+
 	it("keeps every hold across stop and resumes them at the next start", async () => {
 		const first = await serveHost({
 			...places(),
@@ -144,13 +176,7 @@ describe("serveHost", () => {
 		});
 		const ids: string[] = [];
 		for (const id of ["a", "b"]) {
-			const reply = await controlRequest(first.path, {
-				v: 1,
-				id,
-				op: "open",
-				cwd: "/work",
-				attended: true,
-			});
+			const reply = await opened(first.path, id);
 			if (!reply.ok) throw new Error(reply.error.message);
 			ids.push(parseOpenResult(reply.result).sessionId);
 		}

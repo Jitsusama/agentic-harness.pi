@@ -96,6 +96,7 @@ const { serveHost } = await import(${JSON.stringify(serve)});
 const places = JSON.parse(process.env.PLACES);
 const host = await serveHost({
 	...places,
+	rollout: () => Promise.resolve(),
 	report: (error) => console.error(error),
 	engine: async (h) => engine(h, places.runtimeDir),
 });
@@ -155,6 +156,8 @@ describe("a host killed with SIGKILL", () => {
 		const report = vi.fn<(error: unknown) => void>();
 		const next = await serveHost({
 			...places(),
+			// Run from a tree, so the rollout gate is opened for it.
+			rollout: () => Promise.resolve(),
 			report,
 			engine: async (h) => engine(h, dir),
 		});
