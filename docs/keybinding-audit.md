@@ -693,6 +693,7 @@ is reached through slash commands.
 | `Ctrl+Alt+N` | panel-lifecycle-workflow | Move from the editor through the widgets above it |
 | `Ctrl+Alt+F` | panel-zoom-widget | Toggle fullscreen panel height |
 | `Ctrl+Alt+M` | panel-zoom-widget | Toggle minimised panel height |
+| `Ctrl+V` | clipboard-widget | pi's paste, in the editor under Wayland, read without the session forking |
 
 ### 6.2 Shared UI Infrastructure
 

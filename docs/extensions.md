@@ -151,7 +151,7 @@ it does:
   `content-viewer-widget`, `status-line-widget`,
   `panel-zoom-widget`, `terminal-modes-widget`,
   `link-click-widget`, `done-chime-widget`,
-  `working-spinner-widget`
+  `working-spinner-widget`, `clipboard-widget`
 
   `done-chime-widget` is the one a person hears rather than sees:
   a run they typed into rings once it outlasts their glance, with

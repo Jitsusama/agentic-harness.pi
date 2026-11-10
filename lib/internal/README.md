@@ -14,6 +14,9 @@ may import from here, and any of it may change without notice.
   put in the quest's handover with a done file saying so, what
   `pi-carry` carries of the rest, and arriving with it on the other
   machine.
+- **`clipboard/`**: Ctrl+V under Wayland without the session
+  forking: the shell it forks once for its clipboard reads, and what
+  a paste reads and puts in the editor, in pi's own order.
 - **`config/`**: the loader for the package's one configuration
   file.
 - **`cost-meter/`**: what the status line says about money and
