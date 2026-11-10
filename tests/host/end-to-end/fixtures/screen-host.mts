@@ -7,7 +7,9 @@
  * terminal named in the host's environment before the theme reads it,
  * since pi-tui keeps its first answer for the whole process; the theme
  * the agent folder's settings name; a screen per conversation through
- * hostScreens over pi's InteractiveMode; and createEngine, starting each
+ * hostScreens over pi's InteractiveMode, which asks pi's startup questions,
+ * such as whether to trust a folder, with the selector and main-screen TUI
+ * of the host's own pi; and createEngine, starting each
  * conversation from the host's environment less what only the host sees,
  * handing its conversations to those screens under serveHost.
  *
@@ -62,8 +64,10 @@ const { hostedModeOf, hostScreens } = await import(
 	"../../../../host/screen/screens.ts"
 );
 const { serveHost } = await import("../../../../host/service/serve.ts");
-const { conversationBase, nameViewerTerminal, themeStarter } = await import(
-	"../../../../host/service/program.ts"
+const { conversationBase, nameViewerTerminal, startupQuestions, themeStarter } =
+	await import("../../../../host/service/program.ts");
+const { hostedAskerOf } = await import(
+	"../../../../host/screen/startup-ask.ts"
 );
 
 /** The sealed session's Wayland display, as the host unit is given it. */
@@ -102,9 +106,11 @@ process.env.PATH = `${clipboard}:${process.env.PATH ?? ""}`;
 const pi = await loadHostPi(packageDir);
 nameViewerTerminal(process.env);
 themeStarter(pi.modules.codingAgent, home)();
+const questions = startupQuestions(pi.modules);
 
 const screens = hostScreens({
 	create: hostedModeOf(pi.modules.codingAgent.InteractiveMode),
+	ask: hostedAskerOf(questions.selector, questions.mainScreen),
 	report,
 });
 const key: EngineKey = {
