@@ -227,6 +227,37 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 		).toBe(false);
 	});
 
+	it("does for a nix-offload there that builds here only while idle", () => {
+		const check =
+			"env -u SSH_AUTH_SOCK nix-offload there --here-when-idle . checks.x86_64-linux.every-long-file-says-why";
+		expect(
+			sendsWholeRun(check, "/tree", undefined, () => false),
+			"it is sent whatever nix-offload takes and however the tree stands",
+		).toBe(true);
+		expect(
+			sendsWholeRun(
+				"nix-offload there --here-when-idle . checks.x86_64-linux.vm-boot && changed-checks",
+				"/tree",
+				TAKES,
+				committed,
+			),
+			"beside a changed-checks that sends itself, the whole run is sent",
+		).toBe(true);
+	});
+
+	it("doesn't for a nix-offload there that may build here when unsent", () => {
+		for (const check of [
+			"nix-offload there --here . checks.x86_64-linux.boot",
+			"nix-offload there --here-when-idle --here . checks.x86_64-linux.boot",
+			"nix-offload there --here-when-idle . checks.x86_64-linux.boot && nix build .#x",
+		]) {
+			expect(
+				sendsWholeRun(check, "/tree", TAKES, committed),
+				`${check} may build here`,
+			).toBe(false);
+		}
+	});
+
 	it("reads a tree with a change git tracks as uncommitted, as changed-checks does", () => {
 		const tree = mkdtempSync(join(tmpdir(), "send-committed-"));
 		try {

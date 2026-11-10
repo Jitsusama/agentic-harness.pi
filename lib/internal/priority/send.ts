@@ -180,14 +180,11 @@ export function takesKnown(now = Date.now()): Takes | undefined {
 const STATUS_MS = 2_000;
 
 /**
- * Whether every heavy step of `command`, run from `cwd`, is a
- * changed-checks run that sends its whole run to the builder, by the
- * tests changed-checks makes itself (core.nix's tools/changed-checks,
- * `elsewhere`). nix-offload takes `changed`; nothing asks for it here
- * (`--here`, `CHANGED_CHECKS_HERE`); no `--base` names a commit origin's
- * main may not hold; and its tree has no uncommitted change. Only the
- * builder turning it away at that moment keeps one of these here, which
- * nothing can tell beforehand.
+ * Whether every heavy step of `command`, run from `cwd`, sends its whole
+ * run to a builder: a changed-checks run that sends itself, or a
+ * `nix-offload there --here-when-idle` that builds here only while this
+ * machine is idle. Held as a build here, one such run waited 36 minutes
+ * on memory on 10 November, and changed-checks runs waited behind it.
  */
 export function sendsWholeRun(
 	command: string,
@@ -196,9 +193,6 @@ export function sendsWholeRun(
 	isCommitted: (folder: string) => boolean = committedAt,
 	home: string = homedir(),
 ): boolean {
-	if (!takes?.changed || process.env[CHANGED_CHECKS_HERE] !== undefined) {
-		return false;
-	}
 	const heavy = (stepsOf(command, cwd, home) ?? []).filter(
 		(step) => kindOf(step.text) !== undefined,
 	);
@@ -206,11 +200,43 @@ export function sendsWholeRun(
 		heavy.length > 0 &&
 		heavy.every(
 			(step) =>
-				runsChangedChecks(step.text) &&
-				!asksForHere(step) &&
-				step.cwd !== undefined &&
-				isCommitted(step.cwd),
+				SENT_UNLESS_IDLE.test(step.text) ||
+				changedChecksSent(step, takes, isCommitted),
 		)
+	);
+}
+
+/**
+ * `nix-offload there --here-when-idle` with no `--here`: it builds here
+ * only while this machine's CPU pressure has stayed under 10%, and never
+ * a VM test, and otherwise sends the build as ever (core.nix's
+ * nix-offload `there`). On a machine busy enough for the queue to hold
+ * it back, it is sent.
+ */
+const SENT_UNLESS_IDLE =
+	/\bnix-offload\s+there\b(?=[^\n]*\s--here-when-idle(?:\s|$))(?![^\n]*\s--here(?:\s|$))/;
+
+/**
+ * Whether a step is a changed-checks run that sends its whole run to the
+ * builder, by the tests changed-checks makes itself (core.nix's
+ * tools/changed-checks, `elsewhere`). nix-offload takes `changed`;
+ * nothing asks for it here (`--here`, `CHANGED_CHECKS_HERE`); no
+ * `--base` names a commit origin's main may not hold; and its tree has no
+ * uncommitted change. Only the builder turning it away at that moment
+ * keeps one of these here, which nothing can tell beforehand.
+ */
+function changedChecksSent(
+	step: Step,
+	takes: Takes | undefined,
+	isCommitted: (folder: string) => boolean,
+): boolean {
+	return (
+		takes?.changed === true &&
+		process.env[CHANGED_CHECKS_HERE] === undefined &&
+		runsChangedChecks(step.text) &&
+		!asksForHere(step) &&
+		step.cwd !== undefined &&
+		isCommitted(step.cwd)
 	);
 }
 
