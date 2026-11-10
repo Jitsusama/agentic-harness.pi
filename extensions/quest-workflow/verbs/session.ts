@@ -36,6 +36,7 @@ import {
 	openTerminal,
 } from "../../../lib/terminal/index.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { offerReopen } from "../first-turn-watch.ts";
 import {
 	attachSessionInQuestDir,
 	captureSessionIdentity,
@@ -630,8 +631,17 @@ export async function spawn(
 		const what = forLauncher.fresh
 			? `a new session, ${forLauncher.id}, which loads ${questIdForSpawn} as it starts`
 			: `session ${forLauncher.id}, which brings back its own quest`;
+		// The launcher's window can die where one opened from here lives:
+		// from 11-10 04:27 its holder ran pi without the PATH Shopify's
+		// wrapper fetches its key by, and every session it started exited.
+		if (token) {
+			offerReopen(token, async () => {
+				const opened = await openTerminal(request, read.options);
+				return `a ${opened.plan.layout} in ${cwd} through ${describePlan(opened.plan)}`;
+			});
+		}
 		return ok(
-			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}${trustNote}`,
+			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are. Should its pi end without taking its first words, this session opens it again itself.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}${trustNote}`,
 			{
 				how: "launcher",
 				sessionId: forLauncher.id,
