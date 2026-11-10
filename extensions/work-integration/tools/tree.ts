@@ -33,6 +33,10 @@ import {
 } from "../../../lib/core/work/author.ts";
 import type { HeldTree, TreeBroker } from "../../../lib/core/work/broker.ts";
 import {
+	devShellRoots,
+	rootsReport,
+} from "../../../lib/core/work/dev-shell-roots.ts";
+import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../../lib/core/work/events.ts";
@@ -425,6 +429,27 @@ async function surveyRepo(
 			`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 		);
 	}
+
+	// The Nix roots each tree's dev shell holds, since those keep store
+	// paths from the collector for as long as the tree stands, and which
+	// trees lose theirs at the next sweep. Links read, nothing followed,
+	// so it costs a directory listing a tree.
+	const roots = rootsReport(
+		[...orphans.reclaimable, ...orphans.retained]
+			.filter((tree) => tree.path !== resolved(target.path))
+			.map((tree) => {
+				const held = devShellRoots(tree.path);
+				return {
+					path: displayPath(tree.path),
+					roots: held.roots.length,
+					...(held.lastTouched === undefined
+						? {}
+						: { lastTouched: held.lastTouched }),
+				};
+			}),
+		Date.now(),
+	);
+	if (roots.length > 0) lines.push("", ...roots);
 
 	const spent = plan.removable.length + orphans.reclaimable.length;
 	const headline =

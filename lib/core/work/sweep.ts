@@ -24,6 +24,12 @@
  *
  * A tree another provider cut, such as a World dev tree, goes through
  * that provider, and only once it says nothing would be lost.
+ *
+ * Every tree it keeps, held or not, gives up its dev shell's Nix roots
+ * once nobody has entered it for a while (`dev-shell-roots.ts`): they
+ * are a cache direnv rebuilds on the next entry, and left alone they
+ * keep their store paths from the collector for as long as the tree
+ * stands.
  */
 
 import { randomBytes } from "node:crypto";
@@ -42,6 +48,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
+import { dropIdleDevShellRoots } from "./dev-shell-roots.ts";
 import { createGitHistory } from "./history.ts";
 import type { TreeMemory } from "./memory.ts";
 import { orphanedTrees } from "./tidy.ts";
@@ -89,6 +96,8 @@ export interface SweepDeps {
 	 * since a session that resumed in a new process may be working in it.
 	 */
 	bootedAt?: number;
+	/** The time now, in milliseconds since the epoch; the clock's own by default. */
+	now?: () => number;
 }
 
 /** A tree the sweep took back, with the branch it leaves behind. */
@@ -112,6 +121,14 @@ export interface SweepOutcome {
 	refused: LeftTree[];
 	/** Reclaim's rules keep it, or it couldn't be judged. */
 	kept: LeftTree[];
+	/** Trees whose dev-shell roots went, nobody having entered them. */
+	dropped: DroppedRoots[];
+}
+
+/** A tree whose dev shell's Nix roots the sweep dropped, and how many. */
+export interface DroppedRoots {
+	path: string;
+	roots: number;
 }
 
 /**
@@ -123,7 +140,12 @@ export interface SweepOutcome {
  * tree by tree.
  */
 export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
-	const outcome: SweepOutcome = { taken: [], refused: [], kept: [] };
+	const outcome: SweepOutcome = {
+		taken: [],
+		refused: [],
+		kept: [],
+		dropped: [],
+	};
 	const release = sweepLock(deps.lockPath);
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
@@ -164,10 +186,29 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		for (const tree of others) {
 			await releaseThroughProvider(deps, facts, tree, remembered, outcome);
 		}
+		dropIdleRoots(deps, outcome);
 	} finally {
 		release();
 	}
 	return outcome;
+}
+
+/**
+ * Drop the dev-shell roots of every recorded tree still standing that
+ * nobody has entered within the idle window and no process stands in.
+ * A process standing in one may hold the shell direnv loaded there.
+ */
+function dropIdleRoots(deps: SweepDeps, outcome: SweepOutcome): void {
+	const now = deps.now?.() ?? Date.now();
+	const standing = (deps.standingIn?.() ?? []).map(resolved);
+	for (const tree of deps.memory.recall()) {
+		const path = resolved(tree.path);
+		if (standing.some((one) => one === path || one.startsWith(`${path}/`))) {
+			continue;
+		}
+		const roots = dropIdleDevShellRoots(tree.path, now);
+		if (roots > 0) outcome.dropped.push({ path: tree.path, roots });
+	}
 }
 
 /**

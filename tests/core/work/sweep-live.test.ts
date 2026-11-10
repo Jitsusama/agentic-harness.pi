@@ -10,10 +10,13 @@
 import { execFile } from "node:child_process";
 import {
 	existsSync,
+	lstatSync,
+	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +24,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Owner, ProcessFacts } from "../../../lib/core/process/index.ts";
 import type { HeldTree, TreeProvider } from "../../../lib/core/work/broker.ts";
+import { DEV_SHELL_IDLE_MS } from "../../../lib/core/work/dev-shell-roots.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
 import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
@@ -507,6 +511,52 @@ describe("trees another provider cut", () => {
 		expect(memory.recall().find((one) => one.path === tree)?.owners).toEqual([
 			ENDED,
 		]);
+	});
+});
+
+describe("the dev-shell roots of trees nobody entered", () => {
+	/** A flake input root nix-direnv left in `tree`, touched `age` ago. */
+	function enteredAgo(tree: string, age: number): string {
+		const inputs = join(tree, ".direnv", "flake-inputs");
+		mkdirSync(inputs, { recursive: true });
+		const root = join(inputs, "nixpkgs-source");
+		symlinkSync(`/nix/store/${"a".repeat(32)}-source`, root);
+		const when = new Date(Date.now() - age);
+		lutimesSync(root, when, when);
+		return root;
+	}
+
+	it("drops them from a held tree once nobody entered it in the window", async () => {
+		const { cut, sweep } = await setUp();
+		const tree = await cut("live", ["-b", "live", "@", "main"], [RUNNING]);
+		const root = enteredAgo(tree, DEV_SHELL_IDLE_MS + 60_000);
+
+		const outcome = await sweep();
+
+		expect(outcome.dropped).toEqual([{ path: tree, roots: 1 }]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		expect(lstatSync(root, { throwIfNoEntry: false })).toBeUndefined();
+	});
+
+	it("keeps them in a tree entered inside the window", async () => {
+		const { cut, sweep } = await setUp();
+		const tree = await cut("live", ["-b", "live", "@", "main"], [RUNNING]);
+		const root = enteredAgo(tree, 60_000);
+
+		expect((await sweep()).dropped).toEqual([]);
+		expect(lstatSync(root).isSymbolicLink()).toBe(true);
+	});
+
+	it("keeps them in a tree a running process stands in", async () => {
+		// Its shell may be the one direnv loaded, whatever the roots' age.
+		const { cut, sweepKnowing } = await setUp();
+		const tree = await cut("live", ["-b", "live", "@", "main"], [RUNNING]);
+		const root = enteredAgo(tree, DEV_SHELL_IDLE_MS + 60_000);
+
+		const outcome = await sweepKnowing({ standingIn: () => [tree] });
+
+		expect(outcome.dropped).toEqual([]);
+		expect(lstatSync(root).isSymbolicLink()).toBe(true);
 	});
 });
 
