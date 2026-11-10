@@ -23,7 +23,8 @@ import { type Seal, seal } from "./support/seal.ts";
 import { attach, type Viewer } from "./support/viewer.ts";
 
 const packageDir = hostPackageDir();
-if (HOST_PI_REQUIRED && !packageDir) throw hostPiMissing();
+if (!packageDir && process.env[HOST_PI_REQUIRED])
+	throw new Error(hostPiMissing());
 
 /** How long a turn of the scripted model may take on a loaded machine. */
 const TURN_MS = 20_000;
