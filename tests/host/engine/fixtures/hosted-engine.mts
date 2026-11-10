@@ -186,8 +186,10 @@ const scenarios: Record<string, Scenario> = {
 		run: async (engine, host) => {
 			const id = await open(engine, { first: "/tools-probe" });
 			await idle(engine, id);
+			// What the conversation's screen is handed to show as it starts.
+			const diagnostics = engine.view(id)?.runtime.diagnostics;
 			await host.close(id);
-			return {};
+			return { diagnostics };
 		},
 	},
 	/** The host's next start: resume what the last run held, then talk. */

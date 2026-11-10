@@ -54,33 +54,71 @@ export interface SessionServices {
 	readonly diagnostics: unknown[];
 }
 
+/** One thing pi says as a session starts, as its CLI shows it. */
+export interface StartupDiagnostic {
+	readonly type: "error" | "warning" | "info";
+	readonly message: string;
+}
+
 /**
- * What pi's CLI would print as a session's services load: each diagnostic
- * of its services, and each extension the resource loader couldn't load,
- * in the CLI's words. A host has no terminal to print them on, so it
- * reports them.
+ * What pi's CLI says as a session's services load, in its words and its
+ * order: each diagnostic of the services, each invalid settings file, each
+ * extension the resource loader couldn't load and each warning about an
+ * extension package. Its InteractiveMode shows them on the session's
+ * screen as it starts; a host shows them on the conversation's screen and
+ * reports the errors and warnings to its journal.
  */
-export function loadProblems(services: SessionServices): string[] {
-	const problems = services.diagnostics.flatMap((diagnostic) =>
-		isRecord(diagnostic) &&
-		diagnostic.type !== "info" &&
-		typeof diagnostic.message === "string"
-			? [diagnostic.message]
-			: [],
-	);
+export function startupDiagnostics(
+	services: SessionServices,
+): StartupDiagnostic[] {
+	const said = services.diagnostics.filter(isStartupDiagnostic);
+	const settings = services.settingsManager;
+	if (isRecord(settings) && typeof settings.drainErrors === "function") {
+		const drained: unknown = settings.drainErrors();
+		for (const failure of Array.isArray(drained) ? drained : []) {
+			if (!isRecord(failure)) continue;
+			const reason = isRecord(failure.error)
+				? String(failure.error.message)
+				: String(failure.error);
+			said.push({
+				type: "warning",
+				message: failure.path
+					? `Invalid settings file ${String(failure.path)}: ${reason}`
+					: `Invalid ${String(failure.scope)} settings: ${reason}`,
+			});
+		}
+	}
 	const loader = services.resourceLoader;
 	if (!isRecord(loader) || typeof loader.getExtensions !== "function")
-		return problems;
+		return said;
 	const extensions: unknown = loader.getExtensions();
-	const errors = isRecord(extensions) ? extensions.errors : undefined;
-	if (!Array.isArray(errors)) return problems;
-	for (const failure of errors) {
-		if (isRecord(failure) && typeof failure.path === "string")
-			problems.push(
-				`Failed to load extension "${failure.path}": ${String(failure.error)}`,
-			);
+	if (!isRecord(extensions)) return said;
+	const { errors, warnings } = extensions;
+	for (const failure of Array.isArray(errors) ? errors : []) {
+		if (isRecord(failure))
+			said.push({
+				type: "error",
+				message: `Failed to load extension "${String(failure.path)}": ${String(failure.error)}`,
+			});
 	}
-	return problems;
+	for (const warning of Array.isArray(warnings) ? warnings : []) {
+		if (isRecord(warning))
+			said.push({
+				type: "warning",
+				message: `Extension package "${String(warning.path)}": ${String(warning.warning)}`,
+			});
+	}
+	return said;
+}
+
+function isStartupDiagnostic(value: unknown): value is StartupDiagnostic {
+	return (
+		isRecord(value) &&
+		(value.type === "error" ||
+			value.type === "warning" ||
+			value.type === "info") &&
+		typeof value.message === "string"
+	);
 }
 
 /** What an extension may ask of the mode a session runs in. */
@@ -131,6 +169,8 @@ export interface AgentSession {
 export interface AgentSessionRuntime {
 	readonly session: AgentSession;
 	readonly services: SessionServices;
+	/** What its factory said as the session started, which a screen shows. */
+	readonly diagnostics: readonly StartupDiagnostic[];
 	newSession(options?: object): Promise<{ cancelled: boolean }>;
 	fork(entryId: string, options?: object): Promise<{ cancelled: boolean }>;
 	switchSession(
@@ -153,7 +193,7 @@ export interface RuntimeTarget {
 export interface RuntimeResult {
 	readonly session: AgentSession;
 	readonly services: SessionServices;
-	readonly diagnostics: unknown[];
+	readonly diagnostics: readonly StartupDiagnostic[];
 	readonly [field: string]: unknown;
 }
 

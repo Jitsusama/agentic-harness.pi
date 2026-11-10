@@ -57,6 +57,8 @@ interface Seen {
 	/** The request each launch environment was derived for, in that run. */
 	readonly derived: readonly string[];
 	readonly env?: Readonly<Record<string, unknown>>;
+	/** What the conversation's screen was handed to show as it started. */
+	readonly diagnostics?: readonly { type: string; message: string }[];
 }
 
 const folders: string[] = [];
@@ -124,12 +126,24 @@ async function step(folder: string, scenario: string): Promise<Seen> {
 }
 
 /** What a plain pi on the same folder, settings and environment does with `words`. */
-async function plainPi(folder: string, words: string): Promise<void> {
+async function plainPi(
+	folder: string,
+	words: string,
+): Promise<{ type: string; message: string }[]> {
 	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
-	await run(
+	const { stderr } = await run(
 		process.execPath,
 		[join(packageDir, "dist", "bundle", "cli.js"), "-p", words],
 		{ cwd: join(folder, "work"), env: sealedEnv(folder) },
+	).catch((error: { stderr?: string }) => {
+		// pi's print mode exits 1 when an extension fails to load, after saying which.
+		return { stderr: error.stderr ?? String(error) };
+	});
+	return [...stderr.matchAll(/^(Error|Warning): (.*)$/gm)].map(
+		([, prefix, message]) => ({
+			type: prefix === "Error" ? "error" : "warning",
+			message: message ?? "",
+		}),
 	);
 }
 
@@ -236,8 +250,16 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 		"gives a hosted conversation every tool a plain pi on the same settings has",
 		async () => {
 			const folder = hostFolder();
-			await step(folder, "tools");
-			await plainPi(folder, "/tools-probe");
+			const seen = await step(folder, "tools");
+			const plainSaid = await plainPi(folder, "/tools-probe");
+			const hostedSaid = (seen.diagnostics ?? []).filter(
+				({ type }) => type !== "info",
+			);
+			expect(hostedSaid, "what the hosted screen shows as it starts").toEqual(
+				plainSaid,
+			);
+			expect(plainSaid, "what plain pi says as it starts").toEqual([]);
+			expect(seen.diagnostics, "the screen is handed a list").toBeDefined();
 			const [hosted, plain, ...more] = toolLists(folder);
 			expect(more).toEqual([]);
 			expect(hosted).toEqual(plain);

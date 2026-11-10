@@ -37,7 +37,6 @@ import { piLibrary } from "./pi-library.ts";
 import {
 	type AgentSessionRuntime,
 	type EventBus,
-	loadProblems,
 	type PiSessions,
 	piBuiltInExtensions,
 	piSessions,
@@ -45,6 +44,7 @@ import {
 	type RuntimeTarget,
 	type SessionManager,
 	type SessionServices,
+	startupDiagnostics,
 } from "./pi-session.ts";
 import type { AssistantMessage, Model } from "./pi-types.ts";
 import type { SessionHost } from "./session-host.ts";
@@ -248,9 +248,12 @@ export async function createEngine(
 					extensionFactories: builtIns,
 				},
 			});
-			// What the CLI would print as it starts, with no terminal to print on.
-			for (const problem of loadProblems(services))
-				report(new Error(`Conversation ${sessionId}: ${problem}`));
+			// What the CLI says as it starts: the screen shows it all, and the
+			// journal, read when no screen is, keeps the errors and warnings.
+			const said = startupDiagnostics(services);
+			for (const { type, message } of said)
+				if (type !== "info")
+					report(new Error(`Conversation ${sessionId}: ${message}`));
 			const conversation = await openHostedConversation({
 				modules: pi.modules,
 				library,
@@ -281,11 +284,7 @@ export async function createEngine(
 					: {}),
 				createAgent: conversation.createAgent,
 			});
-			return {
-				...created,
-				services,
-				diagnostics: services.diagnostics,
-			};
+			return { ...created, services, diagnostics: said };
 		};
 	}
 
