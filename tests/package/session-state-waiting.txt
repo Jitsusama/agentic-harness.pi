@@ -4,38 +4,3 @@
 # session-state-exempt.txt with its reason. Counts only shrink.
 # Widened 2026-11-10 to lib/, host/ and packs/, the rest of what a hosted
 # conversation loads; K7 keys or exempts each of these with a reason.
-host/engine/subagent-install.ts:global 1
-host/engine/tool-children.ts:pid 1
-host/service/rollout.ts:pid 1
-lib/core/exec/call-signal.ts:global 1
-lib/core/internal/artifacts/ownership.ts:pid 2
-lib/core/internal/file-lock.ts:pid 3
-lib/core/internal/guardian/commit-shell.ts:cwd 1
-lib/core/internal/lsp/standalone.ts:global 1
-lib/core/internal/notes/io.ts:pid 1
-lib/core/internal/terminal/ancestry.ts:pid 2
-lib/core/lsp/standalone/server.ts:pid 1
-lib/core/process/process.ts:pid 1
-lib/core/result/migrate.ts:pid 1
-lib/core/result/spill.ts:pid 1
-lib/core/review/ask/council.ts:cwd 1
-lib/core/review/ask/store.ts:pid 1
-lib/core/review/draft/store.ts:pid 1
-lib/core/session/env.ts:env-write 5
-lib/core/session/host.ts:global 1
-lib/core/session/identity.ts:global 1
-lib/core/session/slot.ts:global 3
-lib/core/web/browser.ts:global 2
-lib/core/web/browser.ts:pid 3
-lib/core/web/procs.ts:pid 1
-lib/core/work/memory.ts:pid 1
-lib/core/work/sweep.ts:pid 3
-lib/internal/quest/discovery.ts:global 1
-lib/internal/quest/discovery.ts:pid 1
-lib/internal/quest/first-words.ts:pid 1
-lib/internal/quest/io.ts:pid 3
-lib/internal/quest/process-liveness.ts:pid 3
-lib/mesh/hand.ts:pid 1
-lib/mesh/message.ts:pid 1
-lib/mesh/present.ts:global 2
-lib/mesh/waiting.ts:pid 1

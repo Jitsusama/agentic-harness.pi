@@ -24,6 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { processGlobal } from "../../internal/process-global.ts";
 
 /** How long a writer waits for a live holder before saying so. */
 const WAIT_MS = 10_000;
@@ -36,7 +37,17 @@ const RETRY_MS = 20;
  */
 const STALE_MS = 30_000;
 
-const queues = new Map<string, Promise<unknown>>();
+/**
+ * The writers waiting on each path, one queue for the whole process. Pi
+ * loads a fresh copy of this module for each extension, and a host for
+ * each conversation, all under one pid: with a queue per copy, a second
+ * copy would find a lock naming this pid and, as {@link isAlive} must,
+ * judge it left by a process gone, and take it from its live holder.
+ */
+const queues = processGlobal(
+	"agentic-harness.file-lock.queues.v1",
+	() => new Map<string, Promise<unknown>>(),
+);
 
 /**
  * Run `fn` while holding the lock for `path`, queued behind any other
@@ -164,9 +175,9 @@ async function holderOf(lockPath: string): Promise<number | undefined> {
 }
 
 function isAlive(pid: number): boolean {
-	// This process never waits on its own lock, since its writers queue
-	// first, so a lock naming it is one a previous process with the same
-	// pid left behind.
+	// This process never waits on its own lock, since all its writers, in
+	// every copy of this module, queue first, so a lock naming it is one a
+	// previous process with the same pid left behind.
 	if (pid === process.pid) return false;
 	try {
 		process.kill(pid, 0);

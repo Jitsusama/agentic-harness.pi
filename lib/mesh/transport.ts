@@ -21,6 +21,7 @@ import {
 	watch,
 } from "node:fs";
 import { join } from "node:path";
+import { processGlobal } from "../internal/process-global.ts";
 import { clearWriting, writeWhole } from "../internal/write-whole.ts";
 import { type Draft, ENVELOPE, type Message, messageFrom } from "./message.ts";
 
@@ -53,8 +54,8 @@ export function stampId(draft: Pick<Draft, "from" | "pid">): string {
 	// One process's ids always rise, even within a millisecond, since a
 	// later id is how a reply or a replacement is known to come after
 	// what it names. A random tail keeps two processes' ids apart.
-	lastStamp = Math.max(Date.now(), lastStamp + 1);
-	return `${lastStamp}-${draft.from}-${draft.pid}-${randomBytes(4).toString("hex")}`;
+	stamps.last = Math.max(Date.now(), stamps.last + 1);
+	return `${stamps.last}-${draft.from}-${draft.pid}-${randomBytes(4).toString("hex")}`;
 }
 
 /** The address a stamped id was sent from, or nothing for another id. */
@@ -63,8 +64,16 @@ export function senderOf(id: string): string | undefined {
 	return stamp && /^\d+$/.test(stamp) && from ? from : undefined;
 }
 
-/** The time the last id this process stamped carries. */
-let lastStamp = 0;
+/**
+ * The time the last id this process stamped carries, kept once for the
+ * process: a host loads a fresh copy of this module for each of its
+ * conversations, and a count per copy would let one copy's burst within
+ * a millisecond leave the next copy's id sorting before it, so a reader
+ * who had read that far would pass the later message by.
+ */
+const stamps = processGlobal("agentic-harness.mesh.stamps.v1", () => ({
+	last: 0,
+}));
 
 /**
  * The time an id was stamped at, from the number it begins with, or
