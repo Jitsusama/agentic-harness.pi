@@ -76,12 +76,19 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   session logs are out of reach. Of your variables, a command keeps only
   those known to be harmless (where things are, how to show them, what
   the queue sets), never one whose name holds a word like TOKEN, KEY or
-  AUTH, since your environment holds tokens too. The one exception is
-  GitHub: where your machine runs `github-broker`, a command gets an
+  AUTH, since your environment holds tokens too. There are two
+  exceptions. GitHub: where your machine runs `github-broker`, a command gets an
   hour-long token from its GitHub App, as `GH_TOKEN` and git's helper
   for github.com. It reads code and writes pull requests and issues,
   and can't push, merge or change a setting. The broker's socket stays
-  out of reach, so a command can't ask for one itself.
+  out of reach, so a command can't ask for one itself. Google Cloud:
+  where your machine names an account for its agents and so runs
+  `gcloud-broker`, gcloud gets that account's hour-long token, its one
+  project and a settings folder of the session's own, as
+  `CLOUDSDK_AUTH_ACCESS_TOKEN`, `CLOUDSDK_CORE_PROJECT` and
+  `CLOUDSDK_CONFIG`, never your own login. A token takes gcloud up to
+  15 s to mint, so pi asks in the background from the session's first
+  command, and a command naming gcloud with none to hand is told why.
 - **No sockets but two.** Name lookups through nscd, and the Nix
   daemon's door for sandboxes, `$XDG_RUNTIME_DIR/nix-untrusted.sock`,
   which takes the caller as untrusted; `NIX_REMOTE` points there. No
@@ -90,7 +97,7 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   account, so passing it would hand over root.
 - **Writes only to the work.** The working folder, and a temporary
   folder and a cache of its own under `~/.cache/pi-sandbox`, which
-  `TMPDIR` and `XDG_CACHE_HOME` name. Your own `~/.cache` and `/tmp`
+  `TMPDIR` and `XDG_CACHE_HOME` name, and gcloud's settings there. Your own `~/.cache` and `/tmp`
   are out of reach both ways, since they hold tokens, code your shell
   runs at every start, and scripts other sessions run unfenced. No
   signal reaches a process outside the sandbox.

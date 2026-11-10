@@ -17,7 +17,10 @@
  *   a command gets a token, an hour long, that can read code and write
  *   pull requests and issues, and nothing more, as `GH_TOKEN` and git's
  *   helper for github.com. The broker's socket stays out of reach, so a
- *   command can't mint one of its own.
+ *   command can't mint one of its own. Where the machine names a cloud
+ *   account for its agents, gcloud is handed that account's hour token
+ *   and its one project, from gcloud-broker, and a settings folder of
+ *   its own for the session, never the person's cloud login.
  * - **No sockets but one:** no session or system bus (the way into the
  *   keyring and to root), no SSH or signing agent, no terminal's remote
  *   control, and no abstract socket. Nix answers through its door for
@@ -62,6 +65,7 @@ import {
 	readFileSync,
 	readlinkSync,
 	realpathSync,
+	rmSync,
 	statSync,
 } from "node:fs";
 import {
@@ -74,6 +78,12 @@ import {
 	resolve,
 } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	type CloudGrant,
+	type CloudGrantSource,
+	cloudGrants,
+	namesTheCloud,
+} from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { isRecord } from "./record.ts";
 
@@ -171,14 +181,20 @@ const NEVER = [
  */
 export const SANDBOX_FOLDER = ".cache/pi-sandbox";
 
-/** The sandbox's cache and temporary folder, for the home folder `home`. */
+/**
+ * The sandbox's cache, temporary folder and gcloud's settings, for the
+ * home folder `home`. gcloud writes its logs and settings where it's
+ * pointed, so each session gets a folder of its own within `gcloud`.
+ */
 export function sandboxFolders(home: string): {
 	cache: string;
 	temporary: string;
+	gcloud: string;
 } {
 	return {
 		cache: join(home, SANDBOX_FOLDER, "cache"),
 		temporary: join(home, SANDBOX_FOLDER, "tmp"),
+		gcloud: join(home, SANDBOX_FOLDER, "gcloud"),
 	};
 }
 
@@ -238,6 +254,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		place.cwd,
 		own.temporary,
 		own.cache,
+		own.gcloud,
 		"/dev/null",
 		"/dev/full",
 		"/dev/zero",
@@ -411,7 +428,8 @@ export function worktreeRepository(
 
 /**
  * How a session's commands run: as they are, fenced, or not at all. A
- * fenced command is handed a GitHub token from `github`, when it gives one.
+ * fenced command is handed a GitHub token from `github`, and a cloud
+ * token and project from `gcloud`, when they give them.
  */
 export type Sandbox =
 	| { readonly kind: "none" }
@@ -419,11 +437,64 @@ export type Sandbox =
 			readonly kind: "strict";
 			readonly landrun: string;
 			readonly github?: GitHubTokenSource;
+			readonly gcloud?: CloudGrantSource;
 	  }
 	| { readonly kind: "refused"; readonly reason: string };
 
 /** The broker's tokens, asked for once every few minutes for the session. */
 const sessionTokens = brokerTokens();
+
+/** The cloud broker's tokens, asked for in the background from the first fenced command. */
+const sessionGrants = cloudGrants();
+
+/** A session's name as a folder may take it, or the process's where there is none. */
+function sessionFolderName(env: NodeJS.ProcessEnv): string {
+	const session = env.PI_SESSION_ID ?? "";
+	return /^[A-Za-z0-9-]{1,64}$/.test(session) ? session : `pid-${process.pid}`;
+}
+
+/** The settings folders this process has made fresh, so each is emptied once. */
+const freshSettings = new Set<string>();
+
+/**
+ * What a fenced command is told for gcloud, given `grant`: the token, the
+ * project and the session's own settings folder, or nothing. gcloud reads
+ * a token from its environment before any login, so a command acts as the
+ * account the broker minted for. The folder is emptied the first time a
+ * process hands it on, so a session resumed starts from no settings an
+ * earlier command, or a stranger's text, left there.
+ */
+export function cloudVariables(
+	grant: CloudGrant | undefined,
+	home: string,
+	env: NodeJS.ProcessEnv,
+): Record<string, string> {
+	if (!grant || "reason" in grant) return {};
+	const settings = join(sandboxFolders(home).gcloud, sessionFolderName(env));
+	if (!freshSettings.has(settings)) {
+		rmSync(settings, { recursive: true, force: true });
+		freshSettings.add(settings);
+	}
+	mkdirSync(settings, { recursive: true, mode: 0o700 });
+	return {
+		CLOUDSDK_AUTH_ACCESS_TOKEN: grant.token,
+		CLOUDSDK_CORE_PROJECT: grant.project,
+		CLOUDSDK_CONFIG: settings,
+	};
+}
+
+/**
+ * `command`, preceded by a note on stderr saying why gcloud has no token
+ * when it names the cloud's programs and `grant` gives none, so the agent
+ * reads the reason beside gcloud's own complaint.
+ */
+export function withCloudNote(
+	command: string,
+	grant: CloudGrant | undefined,
+): string {
+	if (!grant || !("reason" in grant) || !namesTheCloud(command)) return command;
+	return `printf 'pi: gcloud has no token in the sandbox: %s\\n' ${quoted(grant.reason)} >&2\n${command}`;
+}
 
 /**
  * What git is told in a command handed a GitHub token: for github.com, no
@@ -457,6 +528,7 @@ export function sandboxFor(
 	platform: NodeJS.Platform = process.platform,
 	find: (program: string) => string | undefined = onPath,
 	github: GitHubTokenSource = sessionTokens,
+	gcloud: CloudGrantSource = sessionGrants,
 ): Sandbox {
 	const asked = env[SANDBOX_VARIABLE]?.trim();
 	if (!asked) return { kind: "none" };
@@ -476,7 +548,7 @@ export function sandboxFor(
 			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but landrun isn't on PATH, so no command runs unfenced.`,
 		};
 	}
-	return { kind: "strict", landrun, github };
+	return { kind: "strict", landrun, github, gcloud };
 }
 
 /**
@@ -510,9 +582,19 @@ export function wrapFor(
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
 			const given = token ? [...rules, ...githubRules()] : rules;
-			const passed: Record<string, string> = token ? { GH_TOKEN: token } : {};
+			// gcloud reads its token, project and settings folder from these.
+			const grant = sandbox.gcloud?.();
+			const passed: Record<string, string> = {
+				...(token ? { GH_TOKEN: token } : {}),
+				...cloudVariables(grant, home, place.env),
+			};
 			return (command) =>
-				sandboxedCommand(command, given, sandbox.landrun, passed);
+				sandboxedCommand(
+					withCloudNote(command, grant),
+					given,
+					sandbox.landrun,
+					passed,
+				);
 		}
 	}
 }

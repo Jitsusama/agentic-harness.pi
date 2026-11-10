@@ -16,6 +16,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -80,9 +81,10 @@ describe("what a session asks for", () => {
 
 	it("is the strict sandbox on Linux with landrun", () => {
 		const github = () => undefined;
+		const gcloud = () => ({ reason: "none here" });
 		expect(
-			sandboxFor({ PI_SANDBOX: "strict" }, "linux", found, github),
-		).toEqual({ kind: "strict", landrun: "/bin/landrun", github });
+			sandboxFor({ PI_SANDBOX: "strict" }, "linux", found, github, gcloud),
+		).toEqual({ kind: "strict", landrun: "/bin/landrun", github, gcloud });
 	});
 
 	it("runs nothing where the sandbox can't be had", () => {
@@ -347,6 +349,56 @@ describe("a command in the sandbox", () => {
 		);
 		expect(answer).toContain("host=example.com\nusername=me\npassword=persons");
 		expect(answer.match(/password=persons/g)).toHaveLength(1);
+	});
+
+	it("hands gcloud the broker's token, its project and the session's own settings, on no command line", async () => {
+		const token = `ya29.${"a0B1-c2_D3".repeat(20)}`;
+		const home = join(folder, "cloud-home");
+		const work = join(home, "work");
+		mkdirSync(work, { recursive: true });
+		const settings = join(sandboxFolders(home).gcloud, "a-session");
+		// Left by an earlier run of the same session, which starts over.
+		mkdirSync(settings, { recursive: true });
+		writeFileSync(join(settings, "left"), "");
+		const [before, session] = [process.env.HOME, process.env.PI_SESSION_ID];
+		process.env.HOME = home;
+		process.env.PI_SESSION_ID = "a-session";
+		const answer = await run(
+			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
+			[
+				'echo "$CLOUDSDK_AUTH_ACCESS_TOKEN $CLOUDSDK_CORE_PROJECT $CLOUDSDK_CONFIG"',
+				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				'ls -A "$CLOUDSDK_CONFIG"; echo listed',
+			].join("; "),
+			work,
+		).finally(() => {
+			process.env.HOME = before;
+			if (session === undefined) delete process.env.PI_SESSION_ID;
+			else process.env.PI_SESSION_ID = session;
+		});
+		const lines = answer.split("\n");
+		expect(lines[0]).toBe(`${token} a-lab-project ${settings}`);
+		expect(lines[1]).not.toContain(token);
+		expect(lines[2]).toBe("listed");
+		expect(statSync(settings).mode & 0o777).toBe(0o700);
+	});
+
+	it("tells a command naming gcloud why it has no token, and hands it none", async () => {
+		const unbrokered = {
+			...sandbox,
+			gcloud: () => ({ reason: "gcloud-broker isn't on this machine" }),
+		};
+		const named = await run(
+			unbrokered,
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+			'command -v gcloud >/dev/null; echo "token:${CLOUDSDK_AUTH_ACCESS_TOKEN-unset} ${CLOUDSDK_CONFIG-unset}"',
+		);
+		expect(named).toContain(
+			"pi: gcloud has no token in the sandbox: gcloud-broker isn't on this machine",
+		);
+		expect(named).toContain("token:unset unset");
+		const other = await run(unbrokered, "echo plain");
+		expect(other).not.toContain("pi: gcloud");
 	});
 
 	it("runs nothing when the sandbox was refused, and says why", async () => {
