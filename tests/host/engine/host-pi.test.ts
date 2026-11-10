@@ -10,6 +10,9 @@ import {
 	loadHostPi,
 } from "../../../host/engine/host-pi.ts";
 
+/** Loading every module of a real pi install, which a busy machine slows past vitest's default. */
+const REAL_PI_LOAD_MS = 30_000;
+
 const directories: string[] = [];
 afterEach(() => {
 	for (const dir of directories.splice(0))
@@ -20,6 +23,7 @@ interface FakeSeams {
 	readonly agent?: boolean;
 	readonly turn?: boolean;
 	readonly screen?: boolean;
+	readonly auth?: boolean;
 }
 
 /** A pi install laid out as World's and nixpkgs' are, with the markers each patch adds. */
@@ -32,11 +36,12 @@ function fakeInstall(
 	const files = hostPiFiles(dir);
 	const agent = seams.agent ? "static hostAgentInterfaceVersion = 1;" : "";
 	const screen = seams.screen ? "static hostedLifecycleVersion = 1;" : "";
+	const auth = seams.auth ? "static hostAuthContextVersion = 1;" : "";
 	const phases = seams.turn
 		? "{ committedTurn() {}, turnBoundary() {} }"
 		: "{ request() {} }";
 	const sources: Record<keyof typeof files, string> = {
-		codingAgent: `export class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\n`,
+		codingAgent: `export class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\n`,
 		durable: `export const GenerationTask = { definition: { version: ${seams.turn ? 3 : 2}, phases: ${phases} } };\n`,
 		agentCore: "export const DEFAULT_AGENT_IDENTITY = {};\n",
 		ai: "export const validateToolArguments = () => {};\n",
@@ -63,14 +68,21 @@ async function refusal(packageDir: string): Promise<HostPiRefused> {
 }
 
 it("loads a pi that carries every host seam", async () => {
-	const dir = fakeInstall({ agent: true, turn: true, screen: true });
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
 	const pi = await loadHostPi(dir);
 	expect(pi.packageDir).toBe(dir);
 	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
 });
 
 it("names only the patch a pi is missing", async () => {
-	const error = await refusal(fakeInstall({ agent: true, screen: true }));
+	const error = await refusal(
+		fakeInstall({ agent: true, screen: true, auth: true }),
+	);
 	expect(error.missing.map((seam) => seam.patch)).toEqual([
 		"pi-host-committed-turn.patch",
 	]);
@@ -80,7 +92,7 @@ it("names only the patch a pi is missing", async () => {
 });
 
 it("refuses a generation at the committed-turn version without its phases", async () => {
-	const dir = fakeInstall({ agent: true, screen: true });
+	const dir = fakeInstall({ agent: true, screen: true, auth: true });
 	writeFileSync(
 		hostPiFiles(dir).durable,
 		"export const GenerationTask = { definition: { version: 3, phases: {} } };\n",
@@ -92,7 +104,10 @@ it("refuses a generation at the committed-turn version without its phases", asyn
 });
 
 it("says which module files an incomplete install lacks", async () => {
-	const dir = fakeInstall({ agent: true, turn: true, screen: true }, "sqlite");
+	const dir = fakeInstall(
+		{ agent: true, turn: true, screen: true, auth: true },
+		"sqlite",
+	);
 	await expect(loadHostPi(dir)).rejects.toThrow(
 		`is incomplete; it has no ${hostPiFiles(dir).sqlite}`,
 	);
@@ -113,4 +128,5 @@ it.runIf(installed !== undefined)(
 			HOST_SEAMS.map((seam) => seam.patch),
 		);
 	},
+	REAL_PI_LOAD_MS,
 );

@@ -40,6 +40,7 @@ import type {
 	TurnUpdate,
 } from "./pi-types.ts";
 import { MessageQueue, type QueuedMessage } from "./queue.ts";
+import { openRenewing } from "./renewing-stream.ts";
 import {
 	errorResult,
 	resultMessage,
@@ -76,7 +77,18 @@ export interface DurableBinding {
 		hooks: GenerationHooks,
 	): Parameters<Registry["install"]>[0];
 	/** The conversation's environment, complete, for each request's credentials. */
-	env(): Readonly<Record<string, string>>;
+	env(): Promise<Readonly<Record<string, string>>>;
+	/**
+	 * Whether a request's refusal came from a credential since renewed, so
+	 * the request is worth sending once more.
+	 */
+	renewed?(error: AssistantMessage): Promise<boolean>;
+	/**
+	 * Run work as the conversation's own, so what reads the ambient
+	 * conversation sees this one whoever scheduled the work: a run, each
+	 * of durable's hooks, each request, each tool call and each listener.
+	 */
+	within?<T>(work: () => T): T;
 }
 
 interface Request {
@@ -280,9 +292,22 @@ export class HostedAgent {
 		return this.active?.run.controller.signal;
 	}
 
+	/**
+	 * Leave durable's run as it stands, for a host that is stopping. pi's
+	 * session aborts its agent as it is disposed, and an abort now would be
+	 * committed, where the next start should carry the run on. From here on
+	 * abort does nothing and pi is shown nothing more; durable's close then
+	 * stops the run without recording an outcome.
+	 */
+	park(): void {
+		this.parked = true;
+	}
+
+	private parked = false;
+
 	abort(): void {
 		const active = this.active;
-		if (!active) return;
+		if (!active || this.parked) return;
 		active.run.controller.abort();
 		// The run settles once durable's abort lands; its failure is reported there.
 		void this.durable.conversation
@@ -356,16 +381,25 @@ export class HostedAgent {
 	 * Open the conversation, once pi's session holds the agent: let durable
 	 * carry on whatever a restart cut off, as a run of pi's that starts only
 	 * if there is something to show, beginning with what durable committed
-	 * and the session file lacks. Resolves once durable is idle. A fresh
-	 * conversation has nothing to carry on and shows nothing.
+	 * and the session file lacks. Resolves once durable resumed, so a host
+	 * starting many conversations waits on none of their runs; settled
+	 * resolves once the carried-on run ends. A fresh conversation has
+	 * nothing to carry on and shows nothing.
 	 */
-	async recover(): Promise<void> {
+	async recover(): Promise<{ readonly settled: Promise<void> }> {
 		this.cursor = await this.lastShown();
-		await this.runWithLifecycle(async (run) => {
+		let resumed = () => {};
+		const started = new Promise<void>((done) => {
+			resumed = done;
+		});
+		const settled = this.runWithLifecycle(async (run) => {
 			const cut = this.cutOffAnswer();
 			if (cut) this.startRound(run, cut, { recovered: true });
 			this.durable.resume();
+			resumed();
 		});
+		await Promise.race([started, settled]);
+		return { settled };
 	}
 
 	/** The session's last answer when it called tools whose results the session file lacks. */
@@ -433,21 +467,50 @@ export class HostedAgent {
 
 	// Runs.
 
+	/**
+	 * Settle once the next prompt is committed to durable, or reject with
+	 * why it was not. The host's start waits on it to say a conversation's
+	 * first words are safe.
+	 */
+	whenAdmitted(): Promise<void> {
+		return new Promise((resolve, reject) => {
+			this.admissionWaiters.push({ resolve, reject });
+		});
+	}
+
+	private readonly admissionWaiters: {
+		resolve: () => void;
+		reject: (error: unknown) => void;
+	}[] = [];
+
+	private settleAdmission(error?: unknown): void {
+		for (const waiter of this.admissionWaiters.splice(0)) {
+			if (error === undefined) waiter.resolve();
+			else waiter.reject(error);
+		}
+	}
+
 	private async runPromptMessages(prompts: AgentMessage[]): Promise<void> {
 		await this.runWithLifecycle(async (run) => {
 			const messages = this.declareToolChanges(run.context, prompts);
-			await this.emit({ type: "agent_start" });
-			await this.emit({ type: "turn_start" });
-			const hostId = randomUUID();
-			const data: InputData = { hostId, messages };
-			// Marked before admission: durable may place it before pi is shown it here.
-			this.shownInputs.add(hostId);
-			await this.admit(run, {
-				type: "input",
-				content: userContent(messages),
-				whenBusy: "reject",
-				entry: { kind: INPUT_KINDS.prompt, data },
-			});
+			try {
+				await this.emit({ type: "agent_start" });
+				await this.emit({ type: "turn_start" });
+				const hostId = randomUUID();
+				const data: InputData = { hostId, messages };
+				// Marked before admission: durable may place it before pi is shown it here.
+				this.shownInputs.add(hostId);
+				await this.admit(run, {
+					type: "input",
+					content: userContent(messages),
+					whenBusy: "reject",
+					entry: { kind: INPUT_KINDS.prompt, data },
+				});
+			} catch (error) {
+				this.settleAdmission(error);
+				throw error;
+			}
+			this.settleAdmission();
 			for (const message of messages) {
 				await this.emit({ type: "message_start", message });
 				await this.emit({ type: "message_end", message });
@@ -459,9 +522,15 @@ export class HostedAgent {
 
 	private readonly shownInputs = new Set<string>();
 
-	private async runWithLifecycle(
-		start: (run: Run) => Promise<void>,
-	): Promise<void> {
+	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<void> {
+		return this.within(() => this.lifecycle(start));
+	}
+
+	private within<T>(work: () => T): T {
+		return this.durable.within ? this.durable.within(work) : work();
+	}
+
+	private async lifecycle(start: (run: Run) => Promise<void>): Promise<void> {
 		if (this.active) throw new Error("Agent is already processing.");
 		let resolve = () => {};
 		const promise = new Promise<void>((done) => {
@@ -673,8 +742,8 @@ export class HostedAgent {
 	// Durable's hooks.
 
 	private readonly hooks: GenerationHooks = {
-		beforeRequest: async () => this.beforeRequest(),
-		onCommittedTurn: async () => this.committedTurn(),
+		beforeRequest: async () => this.within(() => this.beforeRequest()),
+		onCommittedTurn: async () => this.within(() => this.committedTurn()),
 	};
 
 	/** The run a hook belongs to, once pi saw its input. */
@@ -871,43 +940,55 @@ export class HostedAgent {
 			options.signal instanceof AbortSignal
 				? options.signal
 				: run.controller.signal;
-		const durablePayload =
-			typeof options.onPayload === "function" ? options.onPayload : undefined;
-		const opened = (async () => {
-			const apiKey = this.getApiKey
-				? await this.getApiKey(request.model.provider)
-				: undefined;
-			return this.streamFunction(
-				request.model,
-				{ messages: request.messages },
-				{
-					model: request.model,
-					reasoning: request.reasoning,
-					sessionId: this.sessionId,
-					onPayload: async (payload: unknown, model: Model) => {
-						const ours = this.onPayload
-							? await this.onPayload(payload, model)
-							: undefined;
-						const next = ours === undefined ? payload : ours;
-						return durablePayload ? durablePayload(next, model) : next;
-					},
-					onResponse: this.onResponse,
-					onProviderStreamEvent: this.onProviderStreamEvent,
-					transport: this.transport,
-					thinkingBudgets: this.thinkingBudgets,
-					maxRetryDelayMs: this.maxRetryDelayMs,
-					toolExecution: this.toolExecution,
-					...(apiKey ? { apiKey } : {}),
-					identity: this.library.mergeClientIdentity(
-						this.library.defaultAgentIdentity,
-						this.identity,
-					),
-					signal,
-					env: { ...this.durable.env() },
-				},
-			);
-		})();
+		const durablePayload = isPayloadHook(options.onPayload)
+			? options.onPayload
+			: undefined;
+		const renewed = this.durable.renewed?.bind(this.durable);
+		const open = (): Promise<ProviderStream> =>
+			this.within(() => this.open(request, signal, durablePayload));
+		const opened = renewed ? openRenewing(open, renewed) : open();
 		return this.tee(run, request, opened);
+	}
+
+	/** Send one request through pi's stream function, with the conversation's credentials. */
+	private async open(
+		request: Request,
+		signal: AbortSignal,
+		durablePayload: PayloadHook | undefined,
+	): Promise<ProviderStream> {
+		const apiKey = this.getApiKey
+			? await this.getApiKey(request.model.provider)
+			: undefined;
+		const env = await this.durable.env();
+		return this.streamFunction(
+			request.model,
+			{ messages: request.messages },
+			{
+				model: request.model,
+				reasoning: request.reasoning,
+				sessionId: this.sessionId,
+				onPayload: async (payload: unknown, model: Model) => {
+					const ours = this.onPayload
+						? await this.onPayload(payload, model)
+						: undefined;
+					const next = ours === undefined ? payload : ours;
+					return durablePayload ? durablePayload(next, model) : next;
+				},
+				onResponse: this.onResponse,
+				onProviderStreamEvent: this.onProviderStreamEvent,
+				transport: this.transport,
+				thinkingBudgets: this.thinkingBudgets,
+				maxRetryDelayMs: this.maxRetryDelayMs,
+				toolExecution: this.toolExecution,
+				...(apiKey ? { apiKey } : {}),
+				identity: this.library.mergeClientIdentity(
+					this.library.defaultAgentIdentity,
+					this.identity,
+				),
+				signal,
+				env: { ...env },
+			},
+		);
 	}
 
 	/** Show pi the stream's events as its loop does, and hand durable the same stream. */
@@ -982,20 +1063,27 @@ export class HostedAgent {
 			parameters: ANY_ARGUMENTS,
 			replay: "unsafe",
 			...(tool.executionMode ? { executionMode: tool.executionMode } : {}),
-			execute: async (_args, api, context) => {
-				const run = await this.runForHook();
-				const round = await this.roundFor(run);
-				if (round.sequential) await this.mirror(run, { showResults: true });
-				const outcome = await round.run(api.callId, context.abortSignal);
-				return {
-					output: outcome.result.content ?? [],
-					isError: outcome.isError,
-					details: jsonCopy(outcome.result.details),
-					...(outcome.result.usage === undefined
-						? {}
-						: { usage: outcome.result.usage }),
-				};
-			},
+			execute: (_args, api, context) =>
+				this.within(() => this.executeTool(api.callId, context.abortSignal)),
+		};
+	}
+
+	/** Run one of a round's calls as pi's loop would, once durable asks for it. */
+	private async executeTool(
+		callId: string,
+		abortSignal: AbortSignal | undefined,
+	): Promise<Awaited<ReturnType<ToolRegistration["execute"]>>> {
+		const run = await this.runForHook();
+		const round = await this.roundFor(run);
+		if (round.sequential) await this.mirror(run, { showResults: true });
+		const outcome = await round.run(callId, abortSignal);
+		return {
+			output: outcome.result.content ?? [],
+			isError: outcome.isError,
+			details: jsonCopy(outcome.result.details),
+			...(outcome.result.usage === undefined
+				? {}
+				: { usage: outcome.result.usage }),
 		};
 	}
 
@@ -1259,6 +1347,7 @@ export class HostedAgent {
 
 	/** Reduce state for an event, as pi's Agent does, then await every listener in order. */
 	private async emit(event: AgentEvent): Promise<void> {
+		if (this.parked) return;
 		const run = this.active?.run;
 		if (run && !run.opened) {
 			run.opened = true;
@@ -1301,8 +1390,17 @@ export class HostedAgent {
 		}
 		const signal = this.active?.run.controller.signal;
 		if (!signal) throw new Error("Agent listener invoked outside active run");
-		for (const listener of this.listeners) await listener(event, signal);
+		for (const listener of this.listeners)
+			await this.within(() => listener(event, signal));
 	}
+}
+
+/** A hook that may replace a request's payload, as pi's and durable's onPayload do. */
+type PayloadHook = (payload: unknown, model: Model) => unknown;
+
+/** Durable's payload hook, which its options carry untyped. */
+function isPayloadHook(value: unknown): value is PayloadHook {
+	return typeof value === "function";
 }
 
 function createState(
