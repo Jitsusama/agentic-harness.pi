@@ -9,6 +9,7 @@ import {
 	type Host,
 	installHost,
 	sessionEnv,
+	withSession,
 } from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
 
@@ -184,6 +185,19 @@ describe("persistent viewer terminal", () => {
 		expect(seen).toEqual(["paint:b", "b:x"]);
 		expect(one.write).toHaveBeenLastCalledWith("after");
 		expect(one.disconnect).not.toHaveBeenCalled();
+		terminal.dispose();
+	});
+
+	it("draws pi's frames as the conversation it shows, whoever asked, across a rebind", () => {
+		host();
+		const terminal = new ViewerTerminal("a", () => {});
+		const drawn: (string | undefined)[] = [];
+		const draw = () => drawn.push(ambientSession());
+		terminal.renderScope(draw);
+		withSession("b", () => terminal.renderScope(draw));
+		terminal.rebind("b");
+		withSession("a", () => terminal.renderScope(draw));
+		expect(drawn).toEqual(["a", "a", "b"]);
 		terminal.dispose();
 	});
 

@@ -327,6 +327,17 @@ export class ViewerTerminal implements Terminal {
 	}
 
 	/**
+	 * Draw one of pi's frames as the conversation this screen shows. A frame
+	 * is asked for from wherever its cause ran, such as another conversation
+	 * that changed the theme every screen listens to, so what a component
+	 * reads from its conversation while drawing would otherwise be that one's.
+	 * A pi without the host's render scope never calls this.
+	 */
+	renderScope(draw: () => void): void {
+		withSession(this.currentSession, draw);
+	}
+
+	/**
 	 * Call `listener` each time pi says something waits on the person, such
 	 * as an extension's dialog or a login, as it tells any terminal through
 	 * its program status; undefined stops it. A custom overlay an extension
