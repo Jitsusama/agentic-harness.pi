@@ -164,7 +164,7 @@ pnpm knip            # refuses unused files, dependencies and exports
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
 pnpm test:changed    # the tests this branch's changes reach, before a merge
-pnpm test:host       # a real host end to end, on the host's built pi
+pnpm test:host       # the host end to end and its engine, on the host's built pi
 pnpm test:browser    # the browser lane, which needs a Chrome
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
