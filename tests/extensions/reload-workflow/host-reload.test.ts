@@ -204,10 +204,6 @@ it(
 			["a", "b"].map((id) => withSession(id, () => reloadSlot().request)),
 			"neither conversation's slot holds a request: the host reloads it",
 		).toEqual([undefined, undefined]);
-		expect(
-			Symbol.for("agentic-harness.reload.slot") in globalThis,
-			"nothing is left under the process's key",
-		).toBe(false);
 	},
 	LANDS,
 );

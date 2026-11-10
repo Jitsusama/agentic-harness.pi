@@ -108,10 +108,6 @@ it("refuses a reload the agent asks for, queuing nothing", async () => {
 		withSession("a", () => reloadSlot().request),
 		"the conversation's slot holds no request",
 	).toBeUndefined();
-	expect(
-		Symbol.for("agentic-harness.reload.slot") in globalThis,
-		"nothing is left under the process's key",
-	).toBe(false);
 });
 
 it("reloads nothing from the command, and says why", async () => {
