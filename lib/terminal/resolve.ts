@@ -10,6 +10,7 @@
 
 import { linuxAncestry } from "../core/internal/terminal/ancestry.ts";
 import { get, list } from "../core/internal/terminal/registry.ts";
+import { hosted } from "../core/session/index.ts";
 import { sightChain } from "./discover.ts";
 import { currentPlatform, openTerminal } from "./open.ts";
 import type {
@@ -89,8 +90,13 @@ export function getLivenessProvider(
  * and, on Linux, the process ancestry under `/proc`, which is a few
  * file reads and catches a terminal's variables inherited from
  * somewhere the session is not. Nothing is run.
+ *
+ * A conversation in a host sits in no terminal: its window is a viewer
+ * the launcher opens, and the environment and ancestry here are the
+ * host's, so whatever they named would be somebody else's surface.
  */
 export function identifyCurrentTerminal(): TerminalSessionHandle | undefined {
+	if (hosted()) return undefined;
 	const drivers = list();
 	const ancestry = currentPlatform() === "linux" ? linuxAncestry() : undefined;
 	for (const sighting of sightChain(drivers, process.env, ancestry)) {

@@ -23,7 +23,7 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
-import { hosted, sessionSlot } from "../../core/session/index.ts";
+import { sessionCell } from "../../core/session/index.ts";
 
 /** Said on the bus when a want starts, changes or ends. */
 export const SESSION_WANTS = "session:wants:v1";
@@ -152,36 +152,31 @@ export function createWants(): Wants {
 }
 
 /**
- * This process's wants. Kept on `globalThis` because a reload loads this
- * module afresh while a panel raised by the old copy may still be open:
- * the one holder outlives the copies, so what it holds is said again on
- * the bus the reloaded session binds.
+ * The session's wants. Kept in a session cell, which on plain pi is the
+ * global symbol itself, because a reload loads this module afresh while
+ * a panel raised by the old copy may still be open: the one holder
+ * outlives the copies, so what it holds is said again on the bus the
+ * reloaded session binds. On a host each conversation has its own.
  */
-const HELD = Symbol.for("agentic-harness.session-wants");
+const HELD = "agentic-harness.session-wants";
+/** Each owner's standing wants, kept the same way. */
+const OWNERS = "agentic-harness.session-wants-owners";
+/** How many things show the wants, kept the same way. */
+const SHOWN = "agentic-harness.session-wants-shown";
 
-type Holder = { [HELD]?: Wants };
-
-/** These records reset together when a hosted conversation forgets its wants. */
-interface HostedWants {
-	wants: Wants;
-	owners: Map<string, OwnWants>;
-	shown: { count: number };
+/** What the session's cell `name` holds, made on first asking. */
+function held<T>(name: string, create: () => T): T {
+	const cell = sessionCell<T>(name);
+	const there = cell.get();
+	if (there !== undefined) return there;
+	const made = create();
+	cell.set(made);
+	return made;
 }
 
-function hostedWants(): HostedWants {
-	return sessionSlot("agentic-harness.session-wants", undefined, () => ({
-		wants: createWants(),
-		owners: new Map(),
-		shown: { count: 0 },
-	}));
-}
-
-/** This process's wants, made on first asking. */
+/** The session's wants, made on first asking. */
 export function sessionWants(): Wants {
-	if (hosted()) return hostedWants().wants;
-	const holder = globalThis as Holder;
-	holder[HELD] ??= createWants();
-	return holder[HELD];
+	return held(HELD, createWants);
 }
 
 /**
@@ -203,7 +198,7 @@ export interface OwnWants {
  * loaded after must be able to settle what the one before said.
  */
 export function ownWants(owner: string): OwnWants {
-	const owners = hosted() ? hostedWants().owners : processOwners();
+	const owners = held(OWNERS, () => new Map<string, OwnWants>());
 	let own = owners.get(owner);
 	if (!own) {
 		own = createOwnWants(sessionWants());
@@ -212,68 +207,56 @@ export function ownWants(owner: string): OwnWants {
 	return own;
 }
 
-const OWNERS = Symbol.for("agentic-harness.session-wants-owners");
-
-type OwnersHolder = { [OWNERS]?: Map<string, OwnWants> };
-
-function processOwners(): Map<string, OwnWants> {
-	const holder = globalThis as OwnersHolder;
-	holder[OWNERS] ??= new Map();
-	return holder[OWNERS];
-}
-
-const SHOWN = Symbol.for("agentic-harness.session-wants-shown");
-
-type ShownHolder = { [SHOWN]?: number };
-
 /**
  * Say that this process's wants are shown to the person, as the mesh
  * shows them in the session's presence for the launcher, until the
  * answer is called. While they are, a want is the one voice for what it
  * waits on: the launcher already posts a notice for each, so a desktop
  * notification of the same thing reached Joel twice, and one the
- * launcher never withdrew. Kept on `globalThis`, like the wants, so a
- * reload's old copy and new one count the same showing.
+ * launcher never withdrew. Kept in a cell, like the wants, so a
+ * reload's old copy and new one count the same showing. The answer
+ * hides from the session that showed, wherever it is called, and only
+ * from the count it raised: once the wants are forgotten, a showing
+ * from before can't hide one made since.
  */
 export function showWants(): () => void {
-	if (hosted()) {
-		const shown = hostedWants().shown;
-		shown.count += 1;
-		let hidden = false;
-		return () => {
-			if (hidden) return;
-			hidden = true;
-			shown.count = Math.max(0, shown.count - 1);
-		};
-	}
-	const holder = globalThis as ShownHolder;
-	holder[SHOWN] = (holder[SHOWN] ?? 0) + 1;
+	const shown = showing();
+	shown.count += 1;
 	let hidden = false;
 	return () => {
 		if (hidden) return;
 		hidden = true;
-		holder[SHOWN] = Math.max(0, (holder[SHOWN] ?? 0) - 1);
+		shown.count = Math.max(0, shown.count - 1);
 	};
 }
 
-/** Whether something shows this process's wants to the person. */
-export function wantsShown(): boolean {
-	if (hosted()) return hostedWants().shown.count > 0;
-	return ((globalThis as ShownHolder)[SHOWN] ?? 0) > 0;
+/** How many things show a session's wants, as one record its answers lower. */
+interface Shown {
+	count: number;
 }
 
-/** Forget this process's wants, their owners and their showing. For tests. */
+/**
+ * The session's showing record. A copy loaded before this one kept a bare
+ * count under the same name, which a reload across them finds and carries
+ * into the record.
+ */
+function showing(): Shown {
+	const cell = sessionCell<Shown | number>(SHOWN);
+	const there = cell.get();
+	if (typeof there === "object") return there;
+	const made = { count: typeof there === "number" ? there : 0 };
+	cell.set(made);
+	return made;
+}
+
+/** Whether something shows the session's wants to the person. */
+export function wantsShown(): boolean {
+	return showing().count > 0;
+}
+
+/** Forget the session's wants, their owners and their showing. For tests. */
 export function forgetWants(): void {
-	if (hosted()) {
-		const state = hostedWants();
-		state.wants = createWants();
-		state.owners = new Map();
-		state.shown = { count: 0 };
-		return;
-	}
-	delete (globalThis as Holder)[HELD];
-	delete (globalThis as OwnersHolder)[OWNERS];
-	delete (globalThis as ShownHolder)[SHOWN];
+	for (const name of [HELD, OWNERS, SHOWN]) sessionCell(name).clear();
 }
 
 /** One raising per kind on these wants, replaced as what it says changes. */

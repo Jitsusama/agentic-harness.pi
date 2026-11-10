@@ -12,9 +12,11 @@ import {
 } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { withSession } from "../../../../lib/core/session/index.ts";
 import { answerPlainPresses } from "../../../../lib/internal/links/press.ts";
 import { linkAtClick } from "../../../../lib/internal/links/resolve.ts";
 import type { PlaceWorld } from "../../../../lib/internal/links/targets.ts";
+import { installTestHost } from "../../../support/session-host.ts";
 import { until } from "../../../support/until.ts";
 
 const COLUMNS = 60;
@@ -304,5 +306,101 @@ describe("the wrap of pi's press", () => {
 		terminal.click(link.x, link.y);
 		await until("the link opened", () => opened.length === 1);
 		expect(opened).toEqual(["https://example.com/docs"]);
+	});
+});
+
+describe("presses in a host of two conversations", () => {
+	/** pi's press as the wrap sees it: a release opens what pi found. */
+	function piPress() {
+		return {
+			handleSelectionMouseEvent(
+				this: { openUrl(url: string): void },
+				event: {
+					release: boolean;
+				},
+			) {
+				if (event.release) this.openUrl("https://example.com/pi");
+			},
+		};
+	}
+
+	/** A screen on `prototype` as pi leaves it after a plain press on its transcript. */
+	function screenOf(prototype: object) {
+		return Object.assign(Object.create(prototype), {
+			previousScreen: ["see here"],
+			terminal: { columns: 10, rows: 1 },
+			selectionPressActive: true,
+			selectionGranularity: "character",
+			selectionAnchor: { scrollView: {} },
+			pressedUrl: undefined,
+			openUrl: () => {},
+		});
+	}
+
+	function pressIn(session: string, prototype: object): unknown {
+		const screen = screenOf(prototype);
+		withSession(session, () =>
+			screen.handleSelectionMouseEvent({
+				button: 0,
+				x: 1,
+				y: 0,
+				release: false,
+			}),
+		);
+		return screen.pressedUrl;
+	}
+
+	it("answers each press with the places of the screen's own conversation", () => {
+		const host = installTestHost();
+		try {
+			const prototype = piPress();
+			const offA = withSession("a", () =>
+				answerPlainPresses(prototype, () => "https://example.com/a"),
+			);
+			const offB = withSession("b", () =>
+				answerPlainPresses(prototype, () => "https://example.com/b"),
+			);
+			expect(pressIn("a", prototype)).toBe("https://example.com/a");
+			expect(pressIn("b", prototype)).toBe("https://example.com/b");
+
+			withSession("a", offA);
+			expect(pressIn("a", prototype)).toBeUndefined();
+			expect(pressIn("b", prototype)).toBe("https://example.com/b");
+			withSession("b", offB);
+			expect(pressIn("b", prototype)).toBeUndefined();
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("opens each conversation's links through its own opener", () => {
+		const host = installTestHost();
+		try {
+			const prototype = piPress();
+			const through: Record<string, string[]> = { a: [], b: [] };
+			for (const session of ["a", "b"]) {
+				withSession(session, () =>
+					answerPlainPresses(
+						prototype,
+						() => undefined,
+						async (url) => {
+							through[session]?.push(url);
+						},
+					),
+				);
+			}
+			const screen = screenOf(prototype);
+			withSession("b", () =>
+				screen.handleSelectionMouseEvent({
+					button: 0,
+					x: 1,
+					y: 0,
+					release: true,
+				}),
+			);
+			expect(through).toEqual({ a: [], b: ["https://example.com/pi"] });
+		} finally {
+			host.dispose();
+		}
 	});
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { withSession } from "../../../lib/core/session/index.ts";
 import {
 	clearTerminalDrivers,
 	identifyCurrentTerminal,
@@ -7,6 +8,7 @@ import {
 	type TerminalLivenessCapability,
 	type TerminalSessionHandle,
 } from "../../../lib/terminal/index.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 const HANDLE: TerminalSessionHandle = {
 	driverId: "fake",
@@ -42,5 +44,17 @@ describe("identifyCurrentTerminal", () => {
 	it("returns undefined when no driver identifies a surface", () => {
 		registerTerminalDriver(driver("blind", undefined));
 		expect(identifyCurrentTerminal()).toBeUndefined();
+	});
+
+	it("names no terminal for a conversation in a host, whose surroundings are the host's", () => {
+		registerTerminalDriver(driver("fake", HANDLE));
+		const host = installTestHost();
+		try {
+			expect(withSession("a", identifyCurrentTerminal)).toBeUndefined();
+			expect(withSession("b", identifyCurrentTerminal)).toBeUndefined();
+		} finally {
+			host.dispose();
+		}
+		expect(identifyCurrentTerminal()).toEqual(HANDLE);
 	});
 });

@@ -10,15 +10,21 @@
  * `--extension` / `--skill` injections even when ambient
  * inheritance is disabled.
  *
- * The registry must be genuinely process-global. Pi loads
- * each extension as its own module instance, so a plain
- * module-level Set would give each extension a separate
- * registry: an extension registering a default (e.g. a
- * credentials helper) would land it in its own copy, while
- * a reviewer spawned from a different extension would read
- * an empty one. Holding it on globalThis via processGlobal
- * makes registration in any instance visible to every
- * runReviewer.
+ * The registry must outlive any one module instance. Pi
+ * loads each extension as its own module instance, so a
+ * plain module-level Set would give each extension a
+ * separate registry: an extension registering a default
+ * (e.g. a credentials helper) would land it in its own
+ * copy, while a reviewer spawned from a different extension
+ * would read an empty one. A session slot makes
+ * registration in any instance visible to every
+ * runReviewer of the same conversation: on plain pi it is
+ * the process's own, and in a host each conversation has
+ * its own, since each loads its own project's extensions
+ * and one's defaults are no business of another's
+ * subagents. A host builds a conversation, and runs its
+ * tools, inside that conversation, so both registering and
+ * reading find it.
  *
  * An outside pi extension adds a default over the bus,
  * both ways at once, since it cannot know whether it
@@ -46,17 +52,26 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { processGlobal } from "../internal/process-global.ts";
+import { sessionSlot } from "../core/session/index.ts";
 import { isRecord } from "../internal/record.ts";
 
-const defaultExtensions = processGlobal(
-	"pi:subagent-default-extensions:v2",
-	() => new Map<string, string>(),
-);
-const defaultSkills = processGlobal(
-	"pi:subagent-default-skills:v2",
-	() => new Map<string, string>(),
-);
+/** This conversation's default extensions, by what each is. */
+function defaultExtensions(): Map<string, string> {
+	return sessionSlot(
+		"pi:subagent-default-extensions:v2",
+		undefined,
+		() => new Map<string, string>(),
+	);
+}
+
+/** This conversation's default skills, by what each is. */
+function defaultSkills(): Map<string, string> {
+	return sessionSlot(
+		"pi:subagent-default-skills:v2",
+		undefined,
+		() => new Map<string, string>(),
+	);
+}
 
 /**
  * What a path is, whichever root it was loaded from: its package's
@@ -96,7 +111,7 @@ function packageName(manifest: string): string | undefined {
  * same file again, from this root or another, replaces it.
  */
 export function registerSubagentDefaultExtension(path: string): void {
-	defaultExtensions.set(defaultKey(path), path);
+	defaultExtensions().set(defaultKey(path), path);
 }
 
 /**
@@ -108,7 +123,7 @@ export function registerSubagentDefaultExtension(path: string): void {
  * same file again, from this root or another, replaces it.
  */
 export function registerSubagentDefaultSkill(path: string): void {
-	defaultSkills.set(defaultKey(path), path);
+	defaultSkills().set(defaultKey(path), path);
 }
 
 /**
@@ -121,8 +136,8 @@ export function getSubagentDefaults(): {
 	readonly skills: readonly string[];
 } {
 	return {
-		extensions: Array.from(defaultExtensions.values()),
-		skills: Array.from(defaultSkills.values()),
+		extensions: Array.from(defaultExtensions().values()),
+		skills: Array.from(defaultSkills().values()),
 	};
 }
 
@@ -132,6 +147,6 @@ export function getSubagentDefaults(): {
  * production code should not call this.
  */
 export function clearSubagentDefaults(): void {
-	defaultExtensions.clear();
-	defaultSkills.clear();
+	defaultExtensions().clear();
+	defaultSkills().clear();
 }

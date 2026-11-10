@@ -15,6 +15,7 @@
  * `.writing` and renamed into place, so it is there whole or not at all.
  */
 
+import { randomBytes } from "node:crypto";
 import {
 	copyFileSync,
 	mkdirSync,
@@ -45,7 +46,13 @@ export async function patchChanges(
 	name: string,
 ): Promise<Patched> {
 	const scratch = mkdtempSync(join(tmpdir(), "pi-carry-index-"));
-	const staged = join(into, WRITING, `${name}.patch.${process.pid}`);
+	// Named by chance rather than by pid: a host runs every conversation
+	// in one process, and two taking over at once must not share a file.
+	const staged = join(
+		into,
+		WRITING,
+		`${name}.patch.${randomBytes(4).toString("hex")}`,
+	);
 	try {
 		const index = join(scratch, "index");
 		await copyIndex(exec, treePath, index);

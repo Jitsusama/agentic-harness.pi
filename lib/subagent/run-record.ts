@@ -16,6 +16,7 @@
  * Bookkeeping must not cost a run: nothing here throws at its caller.
  */
 
+import { randomBytes } from "node:crypto";
 import {
 	mkdir,
 	readdir,
@@ -271,7 +272,9 @@ export async function writeRunRecord(
 ): Promise<void> {
 	await mkdir(dir, { recursive: true });
 	const file = join(dir, `${safeSegment(record.id)}.json`);
-	const partial = `${file}.${process.pid}.part`;
+	// Named by chance rather than by pid: the write runs across awaits,
+	// and a host's conversations share one pid.
+	const partial = `${file}.${randomBytes(4).toString("hex")}.part`;
 	await writeFile(partial, `${JSON.stringify({ v: 1, runs: [record] })}\n`);
 	await rename(partial, file);
 	await letGoOfEnded(dir, now);

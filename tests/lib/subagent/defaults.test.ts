@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { withSession } from "../../../lib/core/session/index.ts";
 import {
 	clearSubagentDefaults,
 	getSubagentDefaults,
@@ -10,6 +11,7 @@ import {
 	registerSubagentDefaultSkill,
 	runReviewer,
 } from "../../../lib/subagent/index.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 // The registry is process-global on purpose so a
 // Shopify-style credentials extension can register once
@@ -124,6 +126,49 @@ describe("subagent defaults registry", () => {
 		registerSubagentDefaultSkill("/abs/x.md");
 		clearSubagentDefaults();
 		expect(getSubagentDefaults()).toEqual({ extensions: [], skills: [] });
+	});
+});
+
+describe("subagent defaults in a host of two conversations", () => {
+	let installed: ReturnType<typeof installTestHost> | undefined;
+	afterEach(() => {
+		installed?.dispose();
+		installed = undefined;
+	});
+
+	it("gives each conversation's subagents only its own defaults", async () => {
+		// Each conversation loads its own project's extensions, so a
+		// default one registers must not ride into the other's subagents.
+		installed = installTestHost();
+		withSession("a", () => {
+			registerSubagentDefaultExtension("/abs/a-auth.ts");
+			registerSubagentDefaultSkill("/abs/a-conv.md");
+		});
+		withSession("b", () => registerSubagentDefaultExtension("/abs/b-auth.ts"));
+
+		const { runPi, calls } = recordingRunPi();
+		await withSession("b", () =>
+			runReviewer({ reviewer: { id: "r" }, prompt: "hi", cwd: "/tmp", runPi }),
+		);
+		const args = calls.at(0)?.args.join(" ") ?? "";
+		expect(args).toContain("--extension /abs/b-auth.ts");
+		expect(args).not.toContain("a-auth");
+		expect(args).not.toContain("a-conv");
+		expect(withSession("a", getSubagentDefaults)).toEqual({
+			extensions: ["/abs/a-auth.ts"],
+			skills: ["/abs/a-conv.md"],
+		});
+	});
+
+	it("clears one conversation's defaults without touching the other's", () => {
+		installed = installTestHost();
+		withSession("a", () => registerSubagentDefaultExtension("/abs/a.ts"));
+		withSession("b", () => registerSubagentDefaultExtension("/abs/b.ts"));
+		withSession("a", clearSubagentDefaults);
+		expect(withSession("a", getSubagentDefaults).extensions).toEqual([]);
+		expect(withSession("b", getSubagentDefaults).extensions).toEqual([
+			"/abs/b.ts",
+		]);
 	});
 });
 

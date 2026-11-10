@@ -17,11 +17,7 @@
  * When nothing offers a check the answer is that nothing is failing.
  */
 
-import {
-	hosted,
-	type SessionRef,
-	sessionSlot,
-} from "../../core/session/index.ts";
+import { type SessionRef, sessionCell } from "../../core/session/index.ts";
 
 /** Where a commit lands, and the run that asks on its behalf. */
 export interface VerificationScope {
@@ -42,16 +38,8 @@ export type VerificationCheck = (
 	scope: VerificationScope,
 ) => Promise<VerificationFailure | undefined>;
 
-const CHECK_KEY = Symbol.for("pi:verification-check:v1");
-
-type GlobalCheck = Record<symbol, VerificationCheck | undefined>;
-
-function hostedCheck(ref?: SessionRef): { check?: VerificationCheck } {
-	return sessionSlot<{ check?: VerificationCheck }>(
-		"pi:verification-check:v1",
-		ref,
-		() => ({}),
-	);
+function checkOf(ref?: SessionRef) {
+	return sessionCell<VerificationCheck>("pi:verification-check:v1", ref);
 }
 
 /** Offer this conversation's check, or withdraw only its check with undefined. */
@@ -59,11 +47,8 @@ export function provideVerificationCheck(
 	check: VerificationCheck | undefined,
 	ref?: SessionRef,
 ): void {
-	if (hosted()) {
-		hostedCheck(ref).check = check;
-	} else {
-		(globalThis as GlobalCheck)[CHECK_KEY] = check;
-	}
+	if (check) checkOf(ref).set(check);
+	else checkOf(ref).clear();
 }
 
 /** What is failing in the scope right now, or undefined when nothing is. */
@@ -71,9 +56,7 @@ export async function currentVerificationFailure(
 	scope: VerificationScope,
 	ref?: SessionRef,
 ): Promise<VerificationFailure | undefined> {
-	const check = hosted()
-		? hostedCheck(ref).check
-		: (globalThis as GlobalCheck)[CHECK_KEY];
+	const check = checkOf(ref).get();
 	if (!check) return undefined;
 	return check(scope);
 }

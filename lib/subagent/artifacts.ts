@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
 	mkdir,
 	readdir,
@@ -271,7 +272,9 @@ export class ReviewerArtifactsStore {
 	/** Write JSON by temp-file + rename so readers never see a partial object. */
 	async writeJsonAtomic(path: string, value: unknown): Promise<void> {
 		await mkdir(dirname(path), { recursive: true });
-		const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+		// Named by chance rather than by pid and time: the write runs
+		// across awaits, and a host's conversations share one pid.
+		const tmp = `${path}.${randomBytes(4).toString("hex")}.tmp`;
 		await writeFile(tmp, `${JSON.stringify(value, null, "\t")}\n`, "utf-8");
 		await rename(tmp, path);
 	}

@@ -16,6 +16,8 @@
  * fleets, and two sessions dispatching at once is ordinary, so a
  * read-modify-write over a shared file would lose one of them.
  */
+
+import { randomBytes } from "node:crypto";
 import {
 	mkdir,
 	readdir,
@@ -305,8 +307,13 @@ export function createFleetLedger(root: string): FleetLedger {
 		// A timestamp as well as the counter, because the counter starts
 		// again at zero every time this module is loaded and a reload is
 		// an ordinary event in a long session.
+		//
+		// Random bytes as well, because each conversation in a host loads
+		// its own copy of this module, sharing the pid and counting from
+		// zero, so two can match in pid, millisecond and counter.
 		staging += 1;
-		const pending = `${path}.${process.pid}.${Date.now()}.${staging}${STAGING_SUFFIX}`;
+		const chance = randomBytes(4).toString("hex");
+		const pending = `${path}.${process.pid}.${Date.now()}.${staging}.${chance}${STAGING_SUFFIX}`;
 		await writeFile(pending, JSON.stringify(run, null, 2), "utf8");
 		await rename(pending, path);
 	}

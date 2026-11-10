@@ -22,7 +22,7 @@
  * for durable runs).
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1609,20 +1609,28 @@ const briefHolders = new Map<
 >();
 
 /**
+ * What tells this copy's briefs from another's in the same process. Pi
+ * loads a fresh copy of this module for each conversation in a host,
+ * and each copy counts only its own holders, so two conversations
+ * sending one brief must never name the same file.
+ */
+const BRIEF_COPY = randomBytes(4).toString("hex");
+
+/**
  * Write a brief to a temp file named by its content, and hold it until
  * released; the last release removes it.
  *
- * Named for this process as well as the content, so another session
- * sending the same brief at the same moment can never remove the file
- * from under this one. The `.md` extension makes pi read the file as
- * prompt text.
+ * Named for this process and this copy of the module as well as the
+ * content, so another session or conversation sending the same brief
+ * at the same moment can never remove the file from under this one.
+ * The `.md` extension makes pi read the file as prompt text.
  */
 async function holdBrief(
 	prompt: string,
 ): Promise<{ path: string; release: () => Promise<void> }> {
 	const path = join(
 		tmpdir(),
-		`pi-reviewer-prompt-${process.pid}-${briefName(prompt)}.md`,
+		`pi-reviewer-prompt-${process.pid}-${BRIEF_COPY}-${briefName(prompt)}.md`,
 	);
 	// The write is shared as well as the file: a second holder arriving
 	// while the first is still writing waits for that write rather than
