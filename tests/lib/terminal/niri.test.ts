@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	classOfItsOwn,
 	columnFor,
@@ -166,6 +166,19 @@ describe("a class of its own", () => {
 
 		expect(first).toMatch(/^pi-spawned(\.[0-9]+)?$/);
 		expect(second).not.toBe(first);
+	});
+
+	it("is never the same in two conversations of one host, each with its own copy", async () => {
+		vi.resetModules();
+		const one = await import("../../../lib/terminal/niri.ts");
+		vi.resetModules();
+		const other = await import("../../../lib/terminal/niri.ts");
+
+		expect(
+			one.classOfItsOwn,
+			"each conversation loads a copy of its own",
+		).not.toBe(other.classOfItsOwn);
+		expect(one.classOfItsOwn(4242)).not.toBe(other.classOfItsOwn(4242));
 	});
 });
 

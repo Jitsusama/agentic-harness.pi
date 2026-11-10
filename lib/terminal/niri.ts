@@ -28,6 +28,7 @@
  * and the window stays where niri put it, as before.
  */
 
+import { randomInt } from "node:crypto";
 import { connect } from "node:net";
 import { isRecord } from "../internal/record.ts";
 import { SPAWNED_CLASS } from "./types.ts";
@@ -167,11 +168,15 @@ let opened = 0;
 /**
  * A class no other window carries: `SPAWNED_CLASS` and a number, the
  * form the compositor's rule opens without focus. The pid keeps two
- * sessions' numbers apart, and apart from the launcher's small ones.
+ * pis' numbers apart, and apart from the launcher's small ones. The
+ * conversations of one host share its pid and each load its own copy
+ * of this module, so each counts from one; random digits keep theirs
+ * apart too.
  */
 export function classOfItsOwn(pid = process.pid): string {
 	opened += 1;
-	return `${SPAWNED_CLASS}.${pid}${String(opened).padStart(4, "0")}`;
+	const chance = String(randomInt(1_000_000)).padStart(6, "0");
+	return `${SPAWNED_CLASS}.${pid}${String(opened).padStart(4, "0")}${chance}`;
 }
 
 /** Where a new window goes, as its caller knows it. */
