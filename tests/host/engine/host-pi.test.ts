@@ -1,5 +1,11 @@
 /** The host refuses a pi that lacks any seam it needs, naming each missing patch. */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -26,6 +32,9 @@ interface FakeSeams {
 	readonly auth?: boolean;
 }
 
+/** The version every fake install says it is. */
+const FAKE_VERSION = "1.5.0-fake";
+
 /** A pi install laid out as World's and nixpkgs' are, with the markers each patch adds. */
 function fakeInstall(
 	seams: FakeSeams,
@@ -41,7 +50,7 @@ function fakeInstall(
 		? "{ committedTurn() {}, turnBoundary() {} }"
 		: "{ request() {} }";
 	const sources: Record<keyof typeof files, string> = {
-		codingAgent: `export class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\n`,
+		codingAgent: `export const VERSION = "${FAKE_VERSION}";\nexport class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\n`,
 		durable: `export const GenerationTask = { definition: { version: ${seams.turn ? 3 : 2}, phases: ${phases} } };\n`,
 		agentCore: "export const DEFAULT_AGENT_IDENTITY = {};\n",
 		ai: "export const validateToolArguments = () => {};\n",
@@ -76,7 +85,41 @@ it("loads a pi that carries every host seam", async () => {
 	});
 	const pi = await loadHostPi(dir);
 	expect(pi.packageDir).toBe(dir);
+	expect(pi.version).toBe(FAKE_VERSION);
 	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
+});
+
+it("takes a later auth-context patch", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	const { codingAgent } = hostPiFiles(dir);
+	writeFileSync(
+		codingAgent,
+		readFileSync(codingAgent, "utf8").replace(
+			"hostAuthContextVersion = 1",
+			"hostAuthContextVersion = 2",
+		),
+	);
+	await expect(loadHostPi(dir)).resolves.toMatchObject({ packageDir: dir });
+});
+
+it("refuses a pi that names no version", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	const { codingAgent } = hostPiFiles(dir);
+	writeFileSync(
+		codingAgent,
+		"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; }\nexport class ModelRuntime { static hostAuthContextVersion = 1; }\n",
+	);
+	await expect(loadHostPi(dir)).rejects.toThrow("names no version");
 });
 
 it("names only the patch a pi is missing", async () => {
