@@ -84,14 +84,25 @@ export function formatHoldings(holdings: Holdings, limit: number): string {
 	const lines = [
 		`Quests hold ${formatSize(own)} of their own on disk, and ${formatSize(free)} of it could go now: the scratch folders of finished quests.`,
 	];
+	const folders = quests.filter((quest) => quest.workspace);
+	const short = folders.filter((quest) => !quest.workspace?.complete).length;
+	if (short > 0) {
+		lines.push(
+			`${short} of ${folders.length} scratch folders weren't measured in full within ${MEASURE_DEADLINE_MS / 1000} s, so the true figure is higher; ask again to measure them while the disk's cache is warm.`,
+		);
+	}
 	if (left.bytes > 0 || !left.complete) {
 		lines.push(
 			`Finished quests also left ${formatSize(left)} in trees whose release was refused when they ended. Load the quest and run quest tree-release to take each, once its work is merged or saved.`,
 		);
 	}
 	if (holdings.adopted.length > 0) {
+		const held =
+			adopted.bytes === 0 && !adopted.complete
+				? `weren't measured within ${MEASURE_DEADLINE_MS / 1000} s.`
+				: `hold ${formatSize(adopted)} more, counted once each.`;
 		lines.push(
-			`The ${holdings.adopted.length} trees quests adopted hold ${formatSize(adopted)} more, counted once each. Those are your own checkouts, never any quest's to free; work tidy says when one is spent.`,
+			`The ${holdings.adopted.length} trees quests adopted ${held} Those are your own checkouts, never any quest's to free; work tidy says when one is spent.`,
 		);
 	}
 	if (quests.length > 0) {
