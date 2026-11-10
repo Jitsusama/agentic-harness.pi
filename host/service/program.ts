@@ -8,6 +8,7 @@
  * systemd stops restarting a host that would only be refused again.
  */
 
+import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import type { PiInstall } from "../../lib/subagent/install.ts";
@@ -38,6 +39,19 @@ const HOST_ONLY = [
 	"LISTEN_FDNAMES",
 	"PI_PACKAGE_DIR",
 ] as const;
+
+/**
+ * What pi's terminal library should take every hosted screen's terminal
+ * to be. A viewer is admitted only as kitty, but pi-tui judges the
+ * terminal from the environment, where a host has no KITTY_WINDOW_ID, and
+ * keeps its first answer for the whole process. A unit that sets one of
+ * these keeps its own value.
+ */
+const VIEWER_TERMINAL = {
+	PI_IMAGE_PROTOCOL: "kitty",
+	PI_TRUE_COLOR: "1",
+	PI_HYPERLINKS: "1",
+} as const;
 
 /** The key pi's subagent library reads the parent's install from. */
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
@@ -73,9 +87,13 @@ export function hostPackageDir(env: NodeJS.ProcessEnv): string {
 	return dir;
 }
 
-/** The environment every conversation starts from: the host's, less what only the host may see. */
+/**
+ * The environment every conversation starts from: the host's, less what
+ * only the host may see, with its viewers' kitty terminal where the unit
+ * names none.
+ */
 export function conversationBase(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const base = { ...env };
+	const base: NodeJS.ProcessEnv = { ...VIEWER_TERMINAL, ...env };
 	for (const name of HOST_ONLY) delete base[name];
 	return base;
 }
@@ -101,6 +119,7 @@ export async function startHostProgram(
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
 	pinStartupInstall(hostInstall(configured.packageDir, options.execPath));
+	configured.startTheme();
 	// The screens import pi's terminal library, which binds to the host's
 	// pi, so they load only once that pi is judged whole: a refused one is
 	// said as a refusal, not as a module that can't be found.
@@ -128,9 +147,11 @@ export async function startHostProgram(
 }
 
 /** Everything a restart can't change, judged before the host starts. */
-async function configuration(
-	options: HostProgramOptions,
-): Promise<{ packageDir: string; interactiveMode: unknown }> {
+async function configuration(options: HostProgramOptions): Promise<{
+	packageDir: string;
+	interactiveMode: unknown;
+	startTheme: () => void;
+}> {
 	try {
 		hostKind(options.argv);
 		hostRealm(options.env);
@@ -139,10 +160,57 @@ async function configuration(
 		return {
 			packageDir,
 			interactiveMode: pi.modules.codingAgent.InteractiveMode,
+			startTheme: themeStarter(pi.modules.codingAgent, homedir()),
 		};
 	} catch (error) {
 		throw new HostMisconfigured(error);
 	}
+}
+
+/**
+ * What starts pi's theme as pi's own main does before any screen: the
+ * one the person's settings name, read from pi's agent folder, without
+ * the watcher. Every hosted screen draws with it, and InteractiveMode
+ * fails without one. A pi lacking what this needs is refused.
+ */
+export function themeStarter(
+	codingAgent: Readonly<Record<string, unknown>>,
+	cwd: string,
+): () => void {
+	const { initTheme, SettingsManager, getAgentDir } = codingAgent;
+	const create =
+		typeof SettingsManager === "function"
+			? Reflect.get(SettingsManager, "create")
+			: undefined;
+	if (
+		!(
+			typeof initTheme === "function" &&
+			typeof create === "function" &&
+			typeof getAgentDir === "function"
+		)
+	) {
+		throw new Error(
+			"The host's pi lacks initTheme, SettingsManager or getAgentDir",
+		);
+	}
+	return () => {
+		const settings: unknown = Reflect.apply(create, SettingsManager, [
+			cwd,
+			Reflect.apply(getAgentDir, undefined, []),
+		]);
+		const getTheme =
+			typeof settings === "object" && settings !== null
+				? Reflect.get(settings, "getTheme")
+				: undefined;
+		const theme: unknown =
+			typeof getTheme === "function"
+				? Reflect.apply(getTheme, settings, [])
+				: undefined;
+		Reflect.apply(initTheme, undefined, [
+			typeof theme === "string" ? theme : undefined,
+			false,
+		]);
+	};
 }
 
 /**

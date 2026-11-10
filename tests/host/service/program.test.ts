@@ -9,6 +9,7 @@ import {
 	hostInstall,
 	hostPackageDir,
 	startHostProgram,
+	themeStarter,
 } from "../../../host/service/program.ts";
 
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
@@ -36,9 +37,61 @@ describe("conversationBase", () => {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
 			SHOPIFY_PROXY_ORIGIN: "https://proxy.example",
+			PI_IMAGE_PROTOCOL: "kitty",
+			PI_TRUE_COLOR: "1",
+			PI_HYPERLINKS: "1",
 		});
 		expect(host.NOTIFY_SOCKET, "the host keeps its own").toBe(
 			"/run/user/1000/systemd/notify",
+		);
+	});
+
+	it("takes the viewers' terminal to be kitty unless the unit says otherwise", () => {
+		expect(
+			conversationBase({ PI_IMAGE_PROTOCOL: "none", PI_TRUE_COLOR: "0" }),
+		).toEqual({
+			PI_IMAGE_PROTOCOL: "none",
+			PI_TRUE_COLOR: "0",
+			PI_HYPERLINKS: "1",
+		});
+	});
+});
+
+describe("themeStarter", () => {
+	const pi = (theme: unknown, calls: unknown[][], created: unknown[][]) => ({
+		initTheme: (...args: unknown[]) => calls.push(args),
+		getAgentDir: () => "/agent",
+		SettingsManager: class {
+			static create(...args: unknown[]) {
+				created.push(args);
+				return { getTheme: () => theme };
+			}
+		},
+	});
+
+	it("starts the theme the person's settings name, without a watcher, only when asked", () => {
+		const calls: unknown[][] = [];
+		const created: unknown[][] = [];
+		const start = themeStarter(
+			pi("jitsusama", calls, created),
+			"/home/someone",
+		);
+		expect(calls, "nothing starts before the host asks").toEqual([]);
+		start();
+		expect(created).toEqual([["/home/someone", "/agent"]]);
+		expect(calls).toEqual([["jitsusama", false]]);
+	});
+
+	it("leaves the theme to pi when the settings name none", () => {
+		const calls: unknown[][] = [];
+		themeStarter(pi(undefined, calls, []), "/home/someone")();
+		expect(calls).toEqual([[undefined, false]]);
+	});
+
+	it("refuses a pi lacking what starting a theme needs", () => {
+		const { initTheme: _, ...lacking } = pi("x", [], []);
+		expect(() => themeStarter(lacking, "/")).toThrow(
+			"The host's pi lacks initTheme, SettingsManager or getAgentDir",
 		);
 	});
 });
