@@ -40,7 +40,7 @@ import type {
 	TurnUpdate,
 } from "./pi-types.ts";
 import { MessageQueue, type QueuedMessage } from "./queue.ts";
-import { openRenewing } from "./renewing-stream.ts";
+import { type Renewed, refusedOldKey } from "./renewing-stream.ts";
 import {
 	errorResult,
 	resultMessage,
@@ -946,8 +946,7 @@ export class HostedAgent {
 		const renewed = this.durable.renewed?.bind(this.durable);
 		const open = (): Promise<ProviderStream> =>
 			this.within(() => this.open(request, signal, durablePayload));
-		const opened = renewed ? openRenewing(open, renewed) : open();
-		return this.tee(run, request, opened);
+		return this.tee(run, request, open, renewed);
 	}
 
 	/** Send one request through pi's stream function, with the conversation's credentials. */
@@ -995,7 +994,8 @@ export class HostedAgent {
 	private tee(
 		run: Run,
 		request: Request,
-		opened: Promise<ProviderStream>,
+		open: () => Promise<ProviderStream>,
+		renewed: Renewed | undefined,
 	): ProviderStream {
 		const answer = run.answer ?? { started: false };
 		run.answer = answer;
@@ -1014,37 +1014,58 @@ export class HostedAgent {
 			})();
 			return final;
 		};
-		// pi's loop reads the stream as it arrives and tells extensions each
-		// event then; durable reads at its own pace, so the stream is read
-		// here as it opens and durable is handed what was read.
+		// pi's loop reads the provider's own stream as it arrives and tells
+		// extensions each event then; durable reads at its own pace, so the
+		// stream is read here, unwrapped, and durable is handed what was read.
 		const read: ProviderEvent[] = [];
 		let ended = false;
 		let failure: { readonly error: unknown } | undefined;
 		let wake = () => {};
+		let opened = open();
 		const reading = (async () => {
-			const stream = await opened;
-			for await (const event of stream) {
-				if (event.type === "start" && event.partial) {
-					answer.partial = event.partial;
-					run.context.messages.push(event.partial);
-					answer.started = true;
-					await this.emit({
-						type: "message_start",
-						message: { ...event.partial },
-					});
-				} else if (event.type === "done" || event.type === "error") {
-					await finish(stream);
-				} else if (answer.started && event.partial) {
-					answer.partial = event.partial;
-					run.context.messages[run.context.messages.length - 1] = event.partial;
-					await this.emit({
-						type: "message_update",
-						assistantMessageEvent: event,
-						message: { ...event.partial },
-					});
+			let stream = await opened;
+			// Only the first event of the first stream can be a refused key.
+			let renewable = renewed;
+			for (;;) {
+				let reopen = false;
+				for await (const event of stream) {
+					const asked = renewable;
+					renewable = undefined;
+					// Only an error is awaited, so a start reaches pi when its loop's would.
+					if (
+						asked &&
+						event.type === "error" &&
+						(await refusedOldKey(event, asked))
+					) {
+						reopen = true;
+						break;
+					}
+					if (event.type === "start" && event.partial) {
+						answer.partial = event.partial;
+						run.context.messages.push(event.partial);
+						answer.started = true;
+						await this.emit({
+							type: "message_start",
+							message: { ...event.partial },
+						});
+					} else if (event.type === "done" || event.type === "error") {
+						await finish(stream);
+					} else if (answer.started && event.partial) {
+						answer.partial = event.partial;
+						run.context.messages[run.context.messages.length - 1] =
+							event.partial;
+						await this.emit({
+							type: "message_update",
+							assistantMessageEvent: event,
+							message: { ...event.partial },
+						});
+					}
+					read.push(event);
+					wake();
 				}
-				read.push(event);
-				wake();
+				if (!reopen) break;
+				opened = open();
+				stream = await opened;
 			}
 			await finish(stream);
 		})().then(
