@@ -38,6 +38,7 @@ Run the suite with:
 pnpm test            # everything, about 94s
 pnpm test:unit       # only the unit project, about 26s
 pnpm test:changed    # the tests this branch's changes reach
+pnpm test:host       # a real host end to end, on the host's built pi
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
 ```
@@ -49,6 +50,12 @@ check to run before a merge. A new file counts only once git knows it
 (`git add -N` is enough), and a change to `package.json`, the
 lockfile, the vitest config or a setup file reaches every test, so it
 runs them all.
+
+`pnpm test:host` runs the end-to-end host checks, E1 to E5, on a pi
+built with the host's patches, which an ordinary check can't build:
+elsewhere they skip, saying how to get one, and here they fail
+without one, since no CI runs them. A host's rollout runs it first;
+`tests/host/end-to-end/README.md` says where the pi is found.
 
 New library modules should ship with tests that assert
 **observable behaviour through the public API**, never

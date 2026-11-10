@@ -25,16 +25,28 @@ import type { Seal } from "./seal.ts";
 
 const RUN = resolve(import.meta.dirname, "../../../../host/service/run.ts");
 
-/** How long a host may take to listen, or to go once told to. */
+/** How long a host may take to go once told to. */
 const HOST_WAIT_MS = 20_000;
+
+/**
+ * How long a host may take to listen: a real engine loads pi first, and a
+ * restarted host resumes every conversation it held before it listens.
+ */
+const LISTEN_WAIT_MS = 120_000;
+
+/**
+ * How long an open may take to answer: a real engine loads pi and every
+ * extension of the harness for the conversation before it commits.
+ */
+const OPEN_WAIT_MS = 120_000;
 
 /** A running host process and the control requests a test makes of it. */
 export interface HostProcess {
 	readonly pid: number;
 	/** Its control socket. */
 	readonly path: string;
-	/** Open a conversation in `cwd`. */
-	open(cwd: string): Promise<SessionIdentity>;
+	/** Open a conversation in `cwd`, on a model and with first words when given. */
+	open(cwd: string, opening?: Opening): Promise<SessionIdentity>;
 	/** The conversations it holds, as list reports them. */
 	list(): Promise<SessionIdentity[]>;
 	/** Close one conversation, ending it. */
@@ -47,11 +59,24 @@ export interface HostProcess {
 	errors(): string;
 }
 
-/** Start a host process under `seal`, running the engine module given. */
+/** What an open may carry beyond its folder. */
+export interface Opening {
+	readonly model?: { readonly provider: string; readonly id: string };
+	readonly first?: string;
+	/** The quest it opens on, by id. */
+	readonly quest?: string;
+}
+
+/**
+ * Start a host process under `seal`, running the engine module given,
+ * with `env` laid over the seal's: what the engine is told of, never the
+ * person's own.
+ */
 export async function startHost(options: {
 	seal: Seal;
 	engine: string;
 	kind?: HostKind;
+	env?: Readonly<Record<string, string>>;
 }): Promise<HostProcess> {
 	const source = `
 const { runHost } = await import(${JSON.stringify(RUN)});
@@ -69,7 +94,10 @@ process.exit(0);`;
 	const child = spawn(
 		process.execPath,
 		["--no-warnings", "--input-type=module", "-e", source],
-		{ env: options.seal.env, stdio: ["ignore", "pipe", "pipe"] },
+		{
+			env: { ...options.seal.env, ...options.env },
+			stdio: ["ignore", "pipe", "pipe"],
+		},
 	);
 	let errors = "";
 	child.stderr?.on("data", (chunk) => {
@@ -81,8 +109,8 @@ process.exit(0);`;
 	const path = await listening(child, exited, () => errors);
 	const pid = child.pid;
 	if (pid === undefined) throw new Error("the host never got a pid");
-	const ask = async (request: ControlRequest) => {
-		const reply = await controlRequest(path, request);
+	const ask = async (request: ControlRequest, timeoutMs?: number) => {
+		const reply = await controlRequest(path, request, timeoutMs);
 		if (!reply.ok) throw new Error(reply.error.message);
 		return reply.result;
 	};
@@ -91,9 +119,19 @@ process.exit(0);`;
 	return {
 		pid,
 		path,
-		open: async (cwd) =>
+		open: async (cwd, opening = {}) =>
 			parseOpenResult(
-				await ask({ v: 1, id: id(), op: "open", cwd, attended: true }),
+				await ask(
+					{
+						v: 1,
+						id: id(),
+						op: "open",
+						cwd,
+						attended: true,
+						...opening,
+					},
+					OPEN_WAIT_MS,
+				),
 			),
 		list: async () =>
 			parseListResult(await ask({ v: 1, id: id(), op: "list" })).sessions,
@@ -130,9 +168,11 @@ function listening(
 		const timer = setTimeout(() => {
 			child.kill("SIGKILL");
 			fail(
-				new Error(`the host didn't listen in ${HOST_WAIT_MS} ms: ${errors()}`),
+				new Error(
+					`the host didn't listen in ${LISTEN_WAIT_MS} ms: ${errors()}`,
+				),
 			);
-		}, HOST_WAIT_MS);
+		}, LISTEN_WAIT_MS);
 		child.stdout?.on("data", (chunk) => {
 			out += String(chunk);
 			const line = out.split("\n")[0];
