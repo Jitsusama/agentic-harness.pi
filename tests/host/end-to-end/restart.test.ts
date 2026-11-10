@@ -23,7 +23,7 @@ import {
 	toolAnswer,
 	untilAnswered,
 } from "./support/hosted-case.ts";
-import { SCRIPTED, STORE } from "./support/pi-engine.ts";
+import { SCRIPTED, STORE } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");

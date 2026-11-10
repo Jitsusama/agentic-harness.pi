@@ -22,7 +22,7 @@ import {
 	textOf,
 	untilAnswered,
 } from "./support/hosted-case.ts";
-import { SCRIPTED } from "./support/pi-engine.ts";
+import { SCRIPTED } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
