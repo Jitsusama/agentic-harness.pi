@@ -5,6 +5,7 @@ an auto-discovered extension. Hosts install the session seam before loading
 extensions and dispatch every callback within its conversation.
 
 - engine/: conversation ownership and pi's durable agent adapter.
+- screen/: one persistent pi screen per conversation, which viewers join.
 - service/: socket protocol, transport and the persistent restart roster.
 
 Service transport and persistent screens are separate pieces built beside

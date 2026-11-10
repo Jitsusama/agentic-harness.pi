@@ -6,6 +6,7 @@ import {
 	type Terminal,
 } from "@earendil-works/pi-tui";
 import { withSession } from "../session/index.ts";
+import { TerminalModes } from "./modes.ts";
 
 const DEFAULT_COLUMNS = 120;
 const DEFAULT_ROWS = 40;
@@ -50,16 +51,31 @@ export class ViewerTerminal implements Terminal {
 	rows = DEFAULT_ROWS;
 	readonly kittyProtocolActive = true;
 	private readonly viewers = new Set<JoinedViewer>();
+	private readonly modes = new TerminalModes();
 	private closed = false;
 	private onInput: ((data: string) => void) | undefined;
 	private onResize: (() => void) | undefined;
 
-	readonly sessionId: string;
+	private currentSession: string;
 	private readonly repaint: () => void;
 
 	constructor(sessionId: string, repaint: () => void) {
-		this.sessionId = sessionId;
+		this.currentSession = sessionId;
 		this.repaint = repaint;
+	}
+
+	/** The conversation every callback runs in. */
+	get sessionId(): string {
+		return this.currentSession;
+	}
+
+	/**
+	 * Follow the conversation to its new id after pi replaced its session (a new
+	 * session, a fork, a resume), keeping every viewer and repainting for them.
+	 */
+	rebind(sessionId: string): void {
+		this.currentSession = sessionId;
+		withSession(sessionId, () => this.repaint());
 	}
 
 	/** Bind pi's callbacks, always dispatching in this conversation. */
@@ -100,6 +116,12 @@ export class ViewerTerminal implements Terminal {
 		viewer.stdin.on("paste", (data) =>
 			deliver(`${PASTE_START}${data}${PASTE_END}`),
 		);
+		try {
+			sink.write(this.modes.restored());
+		} catch (error) {
+			viewer.stdin.destroy();
+			throw new Error("Viewer output failed", { cause: error });
+		}
 		this.viewers.add(viewer);
 		this.redraw();
 		return {
@@ -136,6 +158,7 @@ export class ViewerTerminal implements Terminal {
 
 	/** H2 bounds queued output; one broken sink never blocks the other viewers. */
 	write(data: string): void {
+		this.modes.saw(data);
 		for (const viewer of [...this.viewers]) {
 			try {
 				viewer.sink.write(data);
