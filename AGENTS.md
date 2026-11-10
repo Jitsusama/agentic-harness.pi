@@ -158,6 +158,7 @@ pnpm check:there     # the same, for a pushed branch, on penelope (or a named ho
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing
+pnpm typecheck:indexed  # unchecked index reads, held per file to a shrinking list
 pnpm knip            # refuses unused files, dependencies and exports
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s

@@ -35,6 +35,9 @@ owner="$1"
 repo="$2"
 number="$3"
 
+# The $names in the query are GraphQL's variables, filled from the -f
+# and -F fields after it, so the shell must leave them alone.
+# shellcheck disable=SC2016
 gh api graphql \
   -H "GraphQL-Features: sub_issues" \
   -f query='

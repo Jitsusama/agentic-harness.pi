@@ -1,0 +1,56 @@
+# The code files past 800 lines and the folders of more than 40 entries
+# that were over before every-long-file-says-why.test.ts, each waiting to
+# be split by what changes for one reason, or to say why it stays whole.
+# The test fails on one that's split, says why or is gone, so the list
+# only shrinks.
+extensions
+extensions/mesh-workflow/index.ts
+extensions/mesh-workflow/leases.ts
+extensions/mesh-workflow/tools.ts
+extensions/quest-workflow/index.ts
+extensions/quest-workflow/lookup.ts
+extensions/quest-workflow/session-registry.ts
+extensions/quest-workflow/verbs/stage.ts
+extensions/review-integration/reviewer.ts
+extensions/review-integration/tools/ask.ts
+extensions/review-integration/tools/draft.ts
+extensions/review-integration/tools/offer.ts
+extensions/slack-integration/router.ts
+extensions/subagent-workflow/index.ts
+extensions/work-integration/tools/tree.ts
+host/engine/hosted-agent.ts
+lib/core/lsp/standalone/server.ts
+lib/core/observability/ledger/store.ts
+lib/core/quest/lifecycle.ts
+lib/core/web/a11y/walk.ts
+lib/core/web/browser.ts
+lib/core/web/session.ts
+lib/internal
+lib/internal/priority/folder.ts
+lib/internal/priority/queue.ts
+lib/internal/quest
+lib/internal/quest/discovery.ts
+lib/slack/blocks.ts
+lib/subagent/runpi/supervisor.mjs
+lib/subagent/runpi/supervisor.ts
+lib/subagent/subagent.ts
+lib/ui
+tests/core/review
+tests/core/web/a11y/walk.test.ts
+tests/core/web/audit/axe.test.ts
+tests/extensions
+tests/extensions/compaction-workflow/host.test.ts
+tests/extensions/mesh-workflow/mesh.test.ts
+tests/extensions/quest-workflow
+tests/extensions/quest-workflow/restore.test.ts
+tests/extensions/quest-workflow/verbs.test.ts
+tests/extensions/review-collects-an-interrupted-round.test.ts
+tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts
+tests/extensions/subagent-workflow/run.test.ts
+tests/lib/internal
+tests/lib/internal/priority/folder.test.ts
+tests/lib/internal/priority/queue.test.ts
+tests/lib/mesh/presence.test.ts
+tests/lib/subagent/runpi/supervisor.test.ts
+tests/lib/subagent/subagent.test.ts
+tests/package
