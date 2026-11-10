@@ -131,11 +131,15 @@ async function plainPi(
 	words: string,
 ): Promise<{ type: string; message: string }[]> {
 	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
-	const { stderr } = await run(
+	const running = run(
 		process.execPath,
 		[join(packageDir, "dist", "bundle", "cli.js"), "-p", words],
 		{ cwd: join(folder, "work"), env: sealedEnv(folder) },
-	).catch((error: { stderr?: string }) => {
+	);
+	// pi reads piped stdin into its prompt, waiting for its end, so it gets
+	// an empty one at once.
+	running.child.stdin?.end();
+	const { stderr } = await running.catch((error: { stderr?: string }) => {
 		// pi's print mode exits 1 when an extension fails to load, after saying which.
 		return { stderr: error.stderr ?? String(error) };
 	});
