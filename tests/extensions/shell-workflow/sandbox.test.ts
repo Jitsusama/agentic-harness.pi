@@ -114,6 +114,7 @@ describe("the strict profile", () => {
 		expect(home).toEqual(
 			[
 				"/home/someone/.cache/pi-sandbox/cache",
+				"/home/someone/.cache/pi-sandbox/gcloud",
 				"/home/someone/.cache/pi-sandbox/tmp",
 				"/home/someone/.config/dev",
 				"/home/someone/.config/git",
@@ -356,13 +357,14 @@ describe("a command in the sandbox", () => {
 		const home = join(folder, "cloud-home");
 		const work = join(home, "work");
 		mkdirSync(work, { recursive: true });
-		const settings = join(sandboxFolders(home).gcloud, "a-session");
+		// pi names no session here, so the folder is the process's own.
+		const settings = join(sandboxFolders(home).gcloud, `pid-${process.pid}`);
 		// Left by an earlier run of the same session, which starts over.
 		mkdirSync(settings, { recursive: true });
 		writeFileSync(join(settings, "left"), "");
 		const [before, session] = [process.env.HOME, process.env.PI_SESSION_ID];
 		process.env.HOME = home;
-		process.env.PI_SESSION_ID = "a-session";
+		delete process.env.PI_SESSION_ID;
 		const answer = await run(
 			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
 			[

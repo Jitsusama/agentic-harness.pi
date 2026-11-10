@@ -87,6 +87,8 @@ describe("the cloud broker's grants", () => {
 		await settled();
 		now = ASK_EVERY_MS;
 		expect(grants()).toEqual({ token: TOKEN, project: PROJECT });
+		// The project is answered, and the token asked for, but not given.
+		await settled();
 		now = USED_FOR_MS;
 		expect(grants()).toEqual({
 			reason: expect.stringContaining("still minting a fresh token"),
