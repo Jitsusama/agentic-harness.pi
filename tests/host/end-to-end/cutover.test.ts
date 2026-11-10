@@ -10,7 +10,8 @@
  * conversation then answers in its host. The release hands all ten
  * back: the hosts drop them, restore.json offers each as released, and
  * each, opened in plain pi from the same file, answers again under the
- * same address, its quest's journal saying what only the host held.
+ * same address; the first works on a quest, whose journal the release
+ * tells what only the host held.
  * The set takes less than 45 minutes, as wave 3's done means asks.
  *
  * Each plain pi runs in a terminal of its own, as Joel's do, since only
@@ -30,7 +31,7 @@ import { hostKey } from "../../../host/service/address.ts";
 import { restoreFilePath } from "../../../lib/internal/quest/restore-file.ts";
 import { sessionRealm } from "../../../lib/internal/realm.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
-import { sessionAddress } from "../../../lib/mesh/address.ts";
+import { questAddress, sessionAddress } from "../../../lib/mesh/address.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
@@ -41,6 +42,7 @@ import {
 	textOf,
 	untilAnswered,
 } from "./support/hosted-case.ts";
+import { harnessUnder, sealQuest } from "./support/quests.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { startTerminalPi, type TerminalPi } from "./support/terminal-pi.ts";
 
@@ -51,6 +53,9 @@ const run = promisify(execFile);
 /** How many conversations wave 3's drill moves, and how many a person drives. */
 const SESSIONS = 10;
 const DRIVEN = 5;
+
+/** The quest the first conversation works on, whose journal the release writes. */
+const QUEST = "QEST-20261110-E9CUTS";
 
 /** Wave 3's bound on the whole set, there and back. */
 const SET_MS = 45 * 60_000;
@@ -155,12 +160,22 @@ it(
 				join(sealed.home, ".pi", "agent", "trust.json"),
 				JSON.stringify({ [await realpath(sealed.home)]: true }),
 			);
+			await sealQuest(sealed, { id: QUEST, title: "Cut Over and Back" });
 			plains = await Promise.all(
 				folders.map((cwd) =>
 					startTerminalPi({ seal: sealed, packageDir: pi, cwd }),
 				),
 			);
-			const address = plains.map((one) => sessionAddress(one.sessionId));
+			// The first works on a quest, as most of Joel's sessions do, and
+			// goes by its quest's address.
+			await plains[0]?.prompt(`load ${QUEST}`);
+			await untilAnswered(
+				"the first conversation works on its quest",
+				async () => presences().of(plains[0]?.sessionId ?? "")?.quest === QUEST,
+			);
+			const address = plains.map((one, i) =>
+				i === 0 ? questAddress(QUEST) : sessionAddress(one.sessionId),
+			);
 
 			// A person prompts the first five, each pinging one of the rest,
 			// whom only that peer's message wakes.
@@ -263,6 +278,24 @@ it(
 			);
 			expect(release.code, release.out).toBe(0);
 			expect(release.out).toContain(`${SESSIONS} released`);
+			expect(release.out).not.toContain("not journaled");
+			expect(
+				await readFile(
+					join(
+						harnessUnder(sealed, "XDG_DATA_HOME"),
+						"quest-workflow",
+						"quests",
+						QUEST,
+						"JOURNEY.md",
+					),
+					"utf8",
+				),
+				"the quest's journal says what only the host held",
+			).toMatch(
+				new RegExp(
+					`${address[0]} was released from the ${hostKey(sealed.realm, "attended")} host back to plain pi[^]*Only the host held its screen`,
+				),
+			);
 			for (const host of hosts) expect(await host.list()).toEqual([]);
 			const restore = JSON.parse(
 				await readFile(
