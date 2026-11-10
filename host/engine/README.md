@@ -6,6 +6,18 @@ working folder, environment and cleanup callback before publishing leases.
 The service keeps the durable restart roster; this module publishes only
 live ownership at hostRegistryPath.
 
+SessionHost also puts a view in process.env's place, for code that reads
+or writes it directly, such as Shopify's proxy extension, which builds
+each request's attribution from it. Inside withSession, for a
+conversation the host holds, every read, write, delete, key listing
+and spread is that conversation's environment, and so is a child
+started with no env of its own. Outside, or once the conversation is
+released, it is the host's own. The proxy keys (SHOPIFY_PROXY_KEY,
+PI_PROXY_API_KEY, PI_PROXY_AUTH_HEADER) always read from the host's
+environment, since the engine resolves credentials per request. A
+conversation that writes one keeps it in its own environment. Dispose
+puts process.env back.
+
 Run dispatches through withSession. Environment snapshots are independent
 copies and PI_SESSION_ID is set to the conversation id. Launch hints are
 consumed once. Closing stops new dispatch, parks the owner, waits for its
