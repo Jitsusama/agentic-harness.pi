@@ -23,6 +23,7 @@ import {
 	CHANGED_CHECKS_SENT_GIB,
 	EVAL_TESTS_GIB,
 	EVERY_CHECK_GIB,
+	PUSH_GIB,
 } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 import {
@@ -141,6 +142,7 @@ describe("heavy work waiting for its turn", () => {
 	it("asks a walk of World's objects from the folder it runs in, held to 6 GiB", () => {
 		// A walk's own scope is charged only the pages it read in first, so
 		// what it was seen to hold says little of the packs it maps.
+		const fetch = "git fetch origin someone/branch";
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
 		keepOutcome(outcomes, {
@@ -148,7 +150,7 @@ describe("heavy work waiting for its turn", () => {
 				{
 					id: "before",
 					kind: "world-walk",
-					what: "git push origin x",
+					what: fetch,
 					owner: { session: "session-a", pid: 1 },
 					since: ran,
 					started: ran,
@@ -170,20 +172,64 @@ describe("heavy work waiting for its turn", () => {
 			cgroupFor: () => undefined,
 		});
 		const world = join(homedir(), "world", "trees", "w-main", "src");
-		expect(queuedCommand("git push origin x", join(homedir(), "src"))).toBe(
-			"git push origin x",
-		);
+		expect(queuedCommand(fetch, join(homedir(), "src"))).toBe(fetch);
 		expect(jobIds()).toEqual([]);
-		queuedCommand("git push origin x", world);
+		queuedCommand(fetch, world);
 		const [id] = jobIds();
 		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
 		expect(job).toMatchObject({
 			kind: "world-walk",
-			what: "git push origin x",
+			what: fetch,
 			needsGib: 6,
 		});
 		expect(job.planning).toBeUndefined();
 		expect(job.quick).toBeUndefined();
+	});
+
+	// 10 November: four pushes of World peaked at 2.9 to 3.2 MB and ran 3
+	// to 14 s, and each waited 481 to 618 s booked as a 6 GiB walk. With
+	// the LFS scan left out a push reads a few commits, not the packs.
+	it("asks a push of World that leaves out its LFS scan for what it holds, as quick work", () => {
+		const outcomes = join(root, "outcomes.jsonl");
+		const ran = new Date().toISOString();
+		keepOutcome(outcomes, {
+			...outcomeOf(
+				{
+					id: "before",
+					kind: "world-walk",
+					what: "git push origin seen",
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+					ownPeakBytes: 1.5 * 1024 ** 3,
+				},
+				Date.now() + 7_000,
+				0,
+			),
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				outcomes,
+			),
+			session: "session-a",
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+		});
+		const world = join(homedir(), "world", "trees", "w-main", "src");
+		queuedCommand("git push origin seen", world);
+		queuedCommand("git push origin new", world);
+
+		const booked = jobIds()
+			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+			.map((job) => [job.what, job.needsGib, job.quick, job.walk])
+			.sort();
+		expect(booked).toEqual([
+			["git push origin new", PUSH_GIB, true, "push"],
+			["git push origin seen", Math.ceil(1.5 * HEADROOM), true, "push"],
+		]);
 	});
 
 	it("asks a chain ending in a zone's evaluation tests for theirs, whatever its earlier runs held", () => {

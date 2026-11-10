@@ -15,7 +15,9 @@
  *   build only takes what nobody else wants, but memory past what the
  *   machine has is what systemd-oomd ends work for. A job starts when
  *   the memory left past the floors core.nix keeps for Joel's programs
- *   covers what its kind needs, and pressure is under a set point.
+ *   covers what its kind needs, and pressure is under a set point,
+ *   which only quick work too small to feel waits past (see
+ *   {@link LIGHT_GIB}).
  * - **Kinds held to a number at once**: VMs, whose tests time out when
  *   they share the CPU with too much else. The VMs running are counted
  *   on the machine as well as in the queue, since a command can pick
@@ -107,6 +109,27 @@ export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
 	stamp: 4,
 	"timed-run": 4,
 };
+
+/**
+ * The memory a push of World is held to need, in GiB, when it leaves out
+ * its LFS scan (pushes.ts) and has never been seen to run. With the scan
+ * left out a push sends a few commits rather than walking the packs: on
+ * 10 November four peaked at 2.9 to 3.2 MB and ran 3 to 14 s, yet each
+ * waited 481 to 618 s booked as a 6 GiB walk (WJATIN). The hooks decide
+ * at push time, so a push that does add an LFS file runs its scan under
+ * this booking too.
+ */
+export const PUSH_GIB = 0.25;
+
+/**
+ * The most memory quick work other than a build may be held to need, in
+ * GiB, and still start while the machine is short of memory: what the
+ * queue's smallest seen peak rounds up to (outcome.ts's `peakGibAfter`).
+ * Such work adds nothing a pressed machine would feel, so holding it
+ * frees nothing. A build is never let through, since the Nix builds it
+ * asks for are the daemon's, outside what it was seen to hold.
+ */
+export const LIGHT_GIB = 1;
 
 /**
  * How many walks of World's git objects run at once, whatever memory
@@ -938,10 +961,24 @@ const rank = (job: Job) =>
 
 /**
  * Whether a job takes the quick turn: a build marked quick whose shell
- * reads its own cap, which a shell an older harness started can't.
+ * reads its own cap, which a shell an older harness started can't, or a
+ * push of World marked quick, which it is when it leaves out its LFS
+ * scan (see {@link PUSH_GIB}). A quick push still counts as a walk while
+ * it runs, but waits for no other walk to end.
  */
 function isQuick(job: Job): boolean {
-	return job.quick === true && job.kind === "build" && job.cappable === true;
+	if (job.quick !== true || job.cappable !== true) return false;
+	return (
+		job.kind === "build" || (job.kind === "world-walk" && job.walk === "push")
+	);
+}
+
+/**
+ * Whether a job starts while the machine is short of memory: quick work
+ * other than a build, held to no more than {@link LIGHT_GIB}.
+ */
+function startsPressed(job: Job): boolean {
+	return isQuick(job) && job.kind !== "build" && needsGibOf(job) <= LIGHT_GIB;
 }
 
 /**
@@ -1203,9 +1240,12 @@ function memoryWaitedMs(job: Job, now: number): number {
  * the pnpm scripts that run it are builds. 10: a deploy's stamp, a kind
  * older code can't read, goes first with only the capped build beside.
  * 11: builds held on the minute's CPU and on IO too, capped from 40%,
- * and a changed-checks sent whole to a builder spared the holds.
+ * and a changed-checks sent whole to a builder spared the holds. 12: a
+ * push of World that leaves out its LFS scan is quick work, held to
+ * {@link PUSH_GIB} or what it was seen to hold, and quick work held to
+ * {@link LIGHT_GIB} or less, builds aside, starts while memory is short.
  */
-export const RULES_VERSION = 11;
+export const RULES_VERSION = 12;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -1229,7 +1269,8 @@ export function nextTurn(
 			.map((job) => Date.parse(job.started as string)),
 	);
 	if (now - last < SPREAD_MS) return undefined;
-	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
+	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
+	if (pressed && !jobs.some(startsPressed)) return undefined;
 	if (floorsBusy(room)) return undefined;
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
@@ -1245,6 +1286,7 @@ export function nextTurn(
 		);
 	let holds = HOLDS_NONE;
 	for (const job of waiting) {
+		if (pressed && !startsPressed(job)) continue;
 		if (isQuick(job)) {
 			const queuedPast = passes(job) && quick.running >= QUICK_AT_ONCE;
 			if (quick.left < 1 || queuedPast || !fits(job)) continue;
@@ -1343,12 +1385,15 @@ export function waitReasons(
 		}
 	}
 	const waiting = waitingInOrder(jobs, awaited, first);
-	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) {
-		for (const job of waiting) reasons.set(job.id, "memory");
-		return reasons;
+	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
+	const heldPressed = (job: Job) => pressed && !startsPressed(job);
+	for (const job of waiting) {
+		if (heldPressed(job)) reasons.set(job.id, "memory");
 	}
 	if (floorsBusy(room)) {
-		for (const job of waiting) reasons.set(job.id, "busy");
+		for (const job of waiting) {
+			if (!heldPressed(job)) reasons.set(job.id, "busy");
+		}
 		return reasons;
 	}
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
@@ -1363,6 +1408,7 @@ export function waitReasons(
 	let holds = HOLDS_NONE;
 	let given = false;
 	for (const job of waiting) {
+		if (heldPressed(job)) continue;
 		const reason = ((): WaitReason => {
 			if (isQuick(job)) {
 				if (quick.left < 1) return "behind";
