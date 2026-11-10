@@ -306,6 +306,9 @@ export function registerTools(
 
 	pi.registerTool({
 		name: "mesh_wait",
+		// Declared in 72 sessions from 9 November and called in 3: loaded
+		// on demand, its 2,900 characters read only by a session that asks.
+		exposure: "deferred",
 		label: "Mesh",
 		description:
 			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Needs You and outlives this session. Every item says how it will be known done (doneWhen), so it can clear itself: a check the desktop's daemon runs, a signal it hears, or the person saying so where nothing else can tell. An item is ready at once unless readyWhen says what it waits for; ready raises a notice. The answer says when no daemon judges checks and signals yet, and then the item moves on only when you say it again. A switch signal with a commit means a switch to that commit or past it. Say it again with the same id to change it, and with done: true to settle it sooner.",
