@@ -22,7 +22,8 @@
  * conversation a `/pick` command that shows a select panel and writes the
  * answer to `picked` in HOME, and a `/gate` command that raises one of
  * the harness's own gates, with this checkout's panel extensions loaded,
- * and writes its answer to `gated`. A stand-in `wl-paste`
+ * and writes its answer to `gated`, and a `/view` command that shows
+ * one of the harness's views over more rows than any screen. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -273,7 +274,8 @@ function writeClipboard(): string {
  * pi's agent folder: the scripted provider's two models, the `/pick`
  * extension, and the harness's own gates: a `/gate` command raising this
  * checkout's `showSinglePrompt` and keeping its answer in `gated` in HOME,
- * beside this checkout's panel-lifecycle and panel-zoom extensions.
+ * a `/view` command showing this checkout's `view` over 200 numbered
+ * rows, and this checkout's panel-lifecycle and panel-zoom extensions.
  */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -339,6 +341,21 @@ export default function (pi) {
 			});
 			const said = result?.type === "action" ? result.key : "cancelled";
 			appendFileSync(${JSON.stringify(join(home, "gated"))}, name + " " + said + "\\n");
+		},
+	});
+}
+`,
+	);
+	writeFileSync(
+		join(agentDir, "extensions", "view.ts"),
+		`import { view } from ${JSON.stringify(join(harness, "lib/ui/panel.ts"))};
+export default function (pi) {
+	pi.registerCommand("view", {
+		description: "Show one of the harness's views, longer than any screen",
+		handler: async (_args, ctx) => {
+			await view(ctx, {
+				content: () => Array.from({ length: 200 }, (_, at) => "row " + (at + 1)),
+			});
 		},
 	});
 }
