@@ -110,7 +110,8 @@ export interface QuestIndexEntry {
 	 * when it was last live (ISO): its newest saved session, absent when
 	 * that one's folder is gone. Last live is the later of its log's
 	 * newest entry and its presence on the mesh, which an idle session
-	 * keeps writing while its log stands still.
+	 * keeps writing while its log stands still. While that session runs
+	 * it is said only to the hour (see {@link toTheHour}).
 	 */
 	readonly resume?: {
 		readonly id: string;
@@ -249,12 +250,19 @@ export function questsIn(
 					// A session the registry never knew is judged by the README.
 					stillOn: (session) => (lastQuestOf(session) ?? id) === id,
 				});
-				const at =
+				const running = sessions
+					.filter((s) => s.liveness !== "detached" && s.liveness !== "dead")
+					.map((s) => s.id);
+				const lastLive =
 					reopened &&
 					latest(
 						sessions.find((s) => s.id === reopened.id)?.lastActivity,
 						presentAt(reopened.id),
 					);
+				const at =
+					lastLive && reopened && running.includes(reopened.id)
+						? toTheHour(lastLive)
+						: lastLive;
 				const resume = reopened && { ...reopened, ...(at ? { at } : {}) };
 				found.push({
 					id,
@@ -275,9 +283,7 @@ export function questsIn(
 						title: doc.title ?? doc.frontMatter.id,
 						stage: doc.frontMatter.stage,
 					})),
-					sessions: sessions
-						.filter((s) => s.liveness !== "detached" && s.liveness !== "dead")
-						.map((s) => s.id),
+					sessions: running,
 					...(resume ? { resume } : {}),
 					start,
 					updated: fm.updated,
@@ -344,6 +350,21 @@ function latest(...times: readonly (string | undefined)[]): string | undefined {
 	return read.length > 0
 		? new Date(Math.max(...read)).toISOString()
 		: undefined;
+}
+
+/**
+ * An ISO time cut back to its hour. A running session's presence moves
+ * every few seconds, and the launcher reads when a quest was last live
+ * only to order those closed (core's `Orchestrators.qml`), so said
+ * exactly it rewrote the whole list each pass for nothing a reader
+ * shows: on 10 November every 7 to 10 s, at 618 ms of the shell's main
+ * thread each (PT5P13). From the first pass after the session ends it
+ * is said exactly, and stands still.
+ */
+function toTheHour(iso: string): string {
+	const at = new Date(iso);
+	at.setUTCMinutes(0, 0, 0);
+	return at.toISOString();
 }
 
 /** Each recorded session's last quest, read once per pass. */
