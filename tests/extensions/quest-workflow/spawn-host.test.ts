@@ -163,6 +163,19 @@ describe("spawn into a host", () => {
 			{ action: "spawn", id, host: "attended" },
 		);
 		expect(result).toMatchObject({ ok: true, details: { attended: true } });
+		if (!result.ok) throw new Error("expected it to open");
+		const attach = [
+			"mycelium",
+			"--realm",
+			"home",
+			"attach",
+			"--host",
+			"home-attended",
+			"--session",
+			result.details?.sessionId,
+		];
+		expect(result.details?.attach, "how to view it").toEqual(attach);
+		expect(result.message).toContain(attach.join(" "));
 		expect(received[0]).toMatchObject({
 			op: "open",
 			attended: true,
