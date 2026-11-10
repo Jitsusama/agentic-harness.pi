@@ -20,17 +20,26 @@ const DIRECTORY_MODE = 0o700;
 export interface ViewerConnection {
 	input(data: string): void;
 	resize(rows: number, columns: number): void;
+	/** The client's answer to an edit it was sent; one it wasn't is dropped. */
+	edited?(id: string, text?: string): void;
 	detach(): void;
+}
+
+/** What the host sends one attached viewer, framed. */
+export interface ViewerSink {
+	write(data: string): void;
+	disconnect(reason: string): void;
+	/** Ask a client that said it can edit to edit `text` in its own terminal. */
+	edit(id: string, text: string): void;
+	/** Tell a client that said it can suspend to stop itself, and let it go. */
+	suspend(): void;
 }
 
 /** V supplies a Terminal attachment; H2 supplies framed output and EOF handling. */
 export interface ViewerBridge {
 	attach(
 		request: Extract<ControlRequest, { op: "attach" }>,
-		sink: {
-			write(data: string): void;
-			disconnect(reason: string): void;
-		},
+		sink: ViewerSink,
 	): ViewerConnection;
 }
 
@@ -136,7 +145,9 @@ export async function listenControl(options: {
 				const attached = viewer;
 				withSession(sessionId, () => {
 					if (input.type === "input") attached.input(input.data);
-					else attached.resize(input.rows, input.columns);
+					else if (input.type === "resize")
+						attached.resize(input.rows, input.columns);
+					else attached.edited?.(input.id, input.text);
 				});
 				return;
 			}
@@ -194,6 +205,12 @@ export async function listenControl(options: {
 						write: (data) => send({ type: "output", data }),
 						disconnect: (reason) => {
 							send({ type: "detached", reason });
+							socket.end();
+						},
+						edit: (id, text) => send({ type: "edit", id, text }),
+						// The client stops itself and attaches again once it resumes.
+						suspend: () => {
+							send({ type: "suspend" });
 							socket.end();
 						},
 					}),

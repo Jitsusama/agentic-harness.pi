@@ -11,10 +11,13 @@ import {
 import { ambientSession } from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
 
-/** A stand-in for pi's hosted InteractiveMode: it runs until it quits. */
+/** A stand-in for pi's hosted InteractiveMode: it starts, then runs until it quits. */
 class FakeMode implements HostedMode {
 	static readonly hostedLifecycleVersion = 1;
 	readonly ui = { requestRender: vi.fn() };
+	/** Set to hold startup until a test lets it finish, or fail it. */
+	static startup: Promise<void> = Promise.resolve();
+	startedIn: string | undefined;
 	ranIn: string | undefined;
 	private finish: (() => void) | undefined;
 	private fail: ((error: unknown) => void) | undefined;
@@ -25,6 +28,11 @@ class FakeMode implements HostedMode {
 	constructor(runtime: unknown, options: HostedModeOptions) {
 		this.runtime = runtime;
 		this.options = options;
+	}
+
+	init(): Promise<void> {
+		this.startedIn = ambientSession();
+		return FakeMode.startup;
 	}
 
 	run(): Promise<void> {
@@ -80,7 +88,12 @@ function host() {
 }
 
 function sink() {
-	return { write: vi.fn(), disconnect: vi.fn() };
+	return {
+		write: vi.fn(),
+		disconnect: vi.fn(),
+		edit: vi.fn(),
+		suspend: vi.fn(),
+	};
 }
 
 function attach(sessionId: string, rows = 40, columns = 120) {
@@ -93,6 +106,7 @@ describe("hosted screens", () => {
 		const a = screens.view("a");
 		await screens.screens.opened(a);
 		const mode = screens.mode(a.runtime);
+		expect(mode.startedIn, "the screen starts under its own session").toBe("a");
 		expect(mode.ranIn, "the screen runs under its own session").toBe("a");
 		const one = sink();
 		screens.viewer.attach(attach("a"), one);
@@ -117,6 +131,90 @@ describe("hosted screens", () => {
 			failed,
 		]);
 		expect(screens.mode(quiet.runtime).options.startupDiagnostics).toEqual([]);
+	});
+
+	it("sends a viewer that joins the screen's images, where pi's renderer can", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+		const mode = screens.mode(a.runtime);
+		const repaintForNewTerminal = vi.fn();
+		Object.assign(mode.ui, { repaintForNewTerminal });
+
+		screens.viewer.attach(attach("a"), sink());
+
+		expect(repaintForNewTerminal).toHaveBeenCalledOnce();
+		expect(
+			mode.ui.requestRender,
+			"a forced render alone would place images the viewer never got",
+		).not.toHaveBeenCalled();
+	});
+
+	it("hands pi's Ctrl+G and Ctrl+Z to the viewer that pressed them", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+		const { options } = screens.mode(a.runtime);
+		options.terminal.start(
+			() => {},
+			() => {},
+		);
+		const pressing = sink();
+		const attached = screens.viewer.attach(
+			{ ...attach("a"), features: ["edit", "suspend"] },
+			pressing,
+		);
+		attached.input("g");
+
+		const edit = options.hosted.editText("draft");
+		expect(pressing.edit).toHaveBeenCalledWith("1", "draft");
+		attached.edited?.("1", "edited\n");
+		await expect(edit).resolves.toEqual({
+			status: "complete",
+			content: "edited",
+		});
+		attached.input("z");
+
+		expect(options.hosted.suspend()).toBe(true);
+		expect(pressing.suspend).toHaveBeenCalledOnce();
+	});
+
+	it("has started its screen before the engine sends the first words", async () => {
+		const screens = host();
+		let started: () => void = () => undefined;
+		FakeMode.startup = new Promise((done) => {
+			started = done;
+		});
+		try {
+			let opened = false;
+			const opening = Promise.resolve(
+				screens.screens.opened(screens.view("a")),
+			).then(() => {
+				opened = true;
+			});
+			await Promise.resolve();
+			expect(opened, "opened waits for the screen's startup").toBe(false);
+			started();
+			await opening;
+			expect(opened, "opened settles once the screen has started").toBe(true);
+		} finally {
+			FakeMode.startup = Promise.resolve();
+		}
+	});
+
+	it("a screen that fails to start fails the open and keeps no screen", async () => {
+		const screens = host();
+		const failure = new Error("no theme");
+		FakeMode.startup = Promise.reject(failure);
+		try {
+			await expect(
+				Promise.resolve(screens.screens.opened(screens.view("a"))),
+			).rejects.toBe(failure);
+			expect(screens.ids()).toEqual([]);
+			expect(screens.closes, "the engine fails the open itself").toEqual([]);
+		} finally {
+			FakeMode.startup = Promise.resolve();
+		}
 	});
 
 	it("quitting one screen closes only its conversation and lets its viewers go", async () => {
@@ -184,9 +282,9 @@ describe("hosted screens", () => {
 		expect(() => screens.screens.rebound(screens.view("c"), "a")).toThrow(
 			"Conversation a was rebound onto another runtime",
 		);
-		expect(() => screens.screens.opened(screens.view("a"))).toThrow(
-			"Conversation already has a screen: a",
-		);
+		await expect(
+			Promise.resolve(screens.screens.opened(screens.view("a"))),
+		).rejects.toThrow("Conversation already has a screen: a");
 		expect(screens.ids()).toEqual(["a"]);
 	});
 });
@@ -204,7 +302,11 @@ describe("the host's pi screen", () => {
 	it("builds pi's hosted screen over the conversation's runtime", () => {
 		const runtime = {};
 		const create = hostedModeOf(FakeMode);
-		const hosted = { onExit: async () => undefined };
+		const hosted = {
+			onExit: async () => undefined,
+			editText: async () => ({ status: "failed", message: "none" }) as const,
+			suspend: () => false,
+		};
 		const terminal = new ViewerTerminal("a", () => {});
 		const mode = create(runtime, {
 			terminal,
