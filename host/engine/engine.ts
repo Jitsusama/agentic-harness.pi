@@ -38,11 +38,13 @@ import {
 	type AgentSessionRuntime,
 	type EventBus,
 	type PiSessions,
+	piBuiltInExtensions,
 	piSessions,
 	type RuntimeResult,
 	type RuntimeTarget,
 	type SessionManager,
 	type SessionServices,
+	startupDiagnostics,
 } from "./pi-session.ts";
 import type { AssistantMessage, Model } from "./pi-types.ts";
 import type { SessionHost } from "./session-host.ts";
@@ -158,6 +160,7 @@ export async function createEngine(
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
 	const sessions = piSessions(pi.modules);
+	const builtIns = piBuiltInExtensions(pi.modules);
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
@@ -238,8 +241,19 @@ export async function createEngine(
 				cwd: target.cwd,
 				agentDir: target.agentDir,
 				modelRuntime,
-				resourceLoaderOptions: { eventBus: record.bus },
+				// pi's own built-ins, as its CLI passes them, so the conversation
+				// has the tools a plain pi on the same settings has.
+				resourceLoaderOptions: {
+					eventBus: record.bus,
+					extensionFactories: builtIns,
+				},
 			});
+			// What the CLI says as it starts: the screen shows it all, and the
+			// journal, read when no screen is, keeps the errors and warnings.
+			const said = startupDiagnostics(services);
+			for (const { type, message } of said)
+				if (type !== "info")
+					report(new Error(`Conversation ${sessionId}: ${message}`));
 			const conversation = await openHostedConversation({
 				modules: pi.modules,
 				library,
@@ -270,11 +284,7 @@ export async function createEngine(
 					: {}),
 				createAgent: conversation.createAgent,
 			});
-			return {
-				...created,
-				services,
-				diagnostics: services.diagnostics,
-			};
+			return { ...created, services, diagnostics: said };
 		};
 	}
 

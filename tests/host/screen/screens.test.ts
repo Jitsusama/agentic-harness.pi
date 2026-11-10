@@ -101,6 +101,24 @@ describe("hosted screens", () => {
 		expect(one.write).toHaveBeenCalledWith("hello");
 	});
 
+	it("hands the screen what pi said as the conversation started, as pi's CLI does", async () => {
+		const screens = host();
+		const failed = {
+			type: "error",
+			message: 'Failed to load extension "/x/index.ts": boom',
+		} as const;
+		const said = screens.view("a", {
+			diagnostics: [failed, { type: "loud" }, "noise"],
+		});
+		const quiet = screens.view("b");
+		await screens.screens.opened(said);
+		await screens.screens.opened(quiet);
+		expect(screens.mode(said.runtime).options.startupDiagnostics).toEqual([
+			failed,
+		]);
+		expect(screens.mode(quiet.runtime).options.startupDiagnostics).toEqual([]);
+	});
+
 	it("quitting one screen closes only its conversation and lets its viewers go", async () => {
 		const screens = host();
 		const a = screens.view("a");
@@ -188,7 +206,11 @@ describe("the host's pi screen", () => {
 		const create = hostedModeOf(FakeMode);
 		const hosted = { onExit: async () => undefined };
 		const terminal = new ViewerTerminal("a", () => {});
-		const mode = create(runtime, { terminal, hosted });
+		const mode = create(runtime, {
+			terminal,
+			hosted,
+			startupDiagnostics: [],
+		});
 		expect(mode).toBeInstanceOf(FakeMode);
 		expect(mode instanceof FakeMode && mode.runtime).toBe(runtime);
 	});

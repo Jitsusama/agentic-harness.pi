@@ -28,9 +28,22 @@ export interface EngineScreens {
 	closed(sessionId: string): void | Promise<void>;
 }
 
+/** One thing pi said as the conversation started, as its CLI shows it. */
+export interface StartupDiagnostic {
+	readonly type: "error" | "warning" | "info";
+	readonly message: string;
+}
+
 /** The options a hosted InteractiveMode is built with. */
 export interface HostedModeOptions {
 	readonly terminal: ViewerTerminal;
+	/**
+	 * What pi said as the conversation started (extensions it couldn't
+	 * load, invalid settings), which InteractiveMode shows as it starts, as
+	 * pi's CLI hands it over; the screen keeps it for a viewer who joins
+	 * later.
+	 */
+	readonly startupDiagnostics: readonly StartupDiagnostic[];
 	readonly hosted: {
 		onExit(exitCode: number, error?: unknown): Promise<void>;
 	};
@@ -95,6 +108,7 @@ export function hostScreens(options: {
 		});
 		const mode = options.create(view.runtime, {
 			terminal,
+			startupDiagnostics: diagnosticsOf(view.runtime),
 			hosted: {
 				onExit: (code, error) =>
 					screen ? exited(screen, code, error) : Promise.resolve(),
@@ -162,6 +176,28 @@ function isHostedModeClass(value: unknown): value is HostedModeClass {
 		typeof value === "function" &&
 		"hostedLifecycleVersion" in value &&
 		value.hostedLifecycleVersion === 1
+	);
+}
+
+// The engine's runtime carries what its factory said; anything else said nothing.
+function diagnosticsOf(runtime: unknown): StartupDiagnostic[] {
+	const said =
+		typeof runtime === "object" && runtime !== null && "diagnostics" in runtime
+			? runtime.diagnostics
+			: undefined;
+	return Array.isArray(said) ? said.filter(isStartupDiagnostic) : [];
+}
+
+function isStartupDiagnostic(value: unknown): value is StartupDiagnostic {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"type" in value &&
+		(value.type === "error" ||
+			value.type === "warning" ||
+			value.type === "info") &&
+		"message" in value &&
+		typeof value.message === "string"
 	);
 }
 

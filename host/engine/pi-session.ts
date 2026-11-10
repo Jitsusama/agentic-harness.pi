@@ -5,6 +5,7 @@
  * no types the engine can import, so the shapes are declared here, as far
  * as the engine reaches, and picked from the loaded install by name.
  */
+import { isRecord } from "../../lib/internal/record.ts";
 import type { AuthContext } from "./auth-context.ts";
 import type { HostPiModules } from "./host-pi.ts";
 import type { AgentOptions, Model } from "./pi-types.ts";
@@ -51,6 +52,73 @@ export interface SessionServices {
 	readonly settingsManager: unknown;
 	readonly resourceLoader: unknown;
 	readonly diagnostics: unknown[];
+}
+
+/** One thing pi says as a session starts, as its CLI shows it. */
+export interface StartupDiagnostic {
+	readonly type: "error" | "warning" | "info";
+	readonly message: string;
+}
+
+/**
+ * What pi's CLI says as a session's services load, in its words and its
+ * order: each diagnostic of the services, each invalid settings file, each
+ * extension the resource loader couldn't load and each warning about an
+ * extension package. Its InteractiveMode shows them on the session's
+ * screen as it starts; a host shows them on the conversation's screen and
+ * reports the errors and warnings to its journal.
+ */
+export function startupDiagnostics(
+	services: SessionServices,
+): StartupDiagnostic[] {
+	const said = services.diagnostics.filter(isStartupDiagnostic);
+	const settings = services.settingsManager;
+	if (isRecord(settings) && typeof settings.drainErrors === "function") {
+		const drained: unknown = settings.drainErrors();
+		for (const failure of Array.isArray(drained) ? drained : []) {
+			if (!isRecord(failure)) continue;
+			const reason = isRecord(failure.error)
+				? String(failure.error.message)
+				: String(failure.error);
+			said.push({
+				type: "warning",
+				message: failure.path
+					? `Invalid settings file ${String(failure.path)}: ${reason}`
+					: `Invalid ${String(failure.scope)} settings: ${reason}`,
+			});
+		}
+	}
+	const loader = services.resourceLoader;
+	if (!isRecord(loader) || typeof loader.getExtensions !== "function")
+		return said;
+	const extensions: unknown = loader.getExtensions();
+	if (!isRecord(extensions)) return said;
+	const { errors, warnings } = extensions;
+	for (const failure of Array.isArray(errors) ? errors : []) {
+		if (isRecord(failure))
+			said.push({
+				type: "error",
+				message: `Failed to load extension "${String(failure.path)}": ${String(failure.error)}`,
+			});
+	}
+	for (const warning of Array.isArray(warnings) ? warnings : []) {
+		if (isRecord(warning))
+			said.push({
+				type: "warning",
+				message: `Extension package "${String(warning.path)}": ${String(warning.warning)}`,
+			});
+	}
+	return said;
+}
+
+function isStartupDiagnostic(value: unknown): value is StartupDiagnostic {
+	return (
+		isRecord(value) &&
+		(value.type === "error" ||
+			value.type === "warning" ||
+			value.type === "info") &&
+		typeof value.message === "string"
+	);
 }
 
 /** What an extension may ask of the mode a session runs in. */
@@ -101,6 +169,8 @@ export interface AgentSession {
 export interface AgentSessionRuntime {
 	readonly session: AgentSession;
 	readonly services: SessionServices;
+	/** What its factory said as the session started, which a screen shows. */
+	readonly diagnostics: readonly StartupDiagnostic[];
 	newSession(options?: object): Promise<{ cancelled: boolean }>;
 	fork(entryId: string, options?: object): Promise<{ cancelled: boolean }>;
 	switchSession(
@@ -123,7 +193,7 @@ export interface RuntimeTarget {
 export interface RuntimeResult {
 	readonly session: AgentSession;
 	readonly services: SessionServices;
-	readonly diagnostics: unknown[];
+	readonly diagnostics: readonly StartupDiagnostic[];
 	readonly [field: string]: unknown;
 }
 
@@ -136,7 +206,10 @@ export interface PiSessions {
 		cwd: string;
 		agentDir?: string;
 		modelRuntime?: ModelRuntime;
-		resourceLoaderOptions?: { eventBus?: EventBus };
+		resourceLoaderOptions?: {
+			eventBus?: EventBus;
+			extensionFactories?: readonly BuiltInExtension[];
+		};
 	}): Promise<SessionServices>;
 	createAgentSession(options: {
 		cwd: string;
@@ -166,6 +239,51 @@ const NAMES = [
 	"createAgentSessionRuntime",
 	"getAgentDir",
 ] as const;
+
+/**
+ * One of pi's built-in extensions, as its CLI hands them to the resource
+ * loader: the loader keys on `builtin`, and `replaceable` lets an
+ * extension registering the same tool take over, so each is passed on
+ * whole rather than rebuilt from its factory.
+ */
+export interface BuiltInExtension {
+	readonly name: string;
+	readonly factory: (...args: never[]) => unknown;
+	readonly builtin?: boolean;
+	readonly replaceable?: boolean;
+}
+
+function isBuiltInExtension(value: unknown): value is BuiltInExtension {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"name" in value &&
+		typeof value.name === "string" &&
+		"factory" in value &&
+		typeof value.factory === "function"
+	);
+}
+
+/**
+ * pi's built-in extensions, in the order its CLI loads them before any
+ * other, refusing an install whose list is missing or unreadable: without
+ * them a hosted conversation would have no tool_search, codemode or MCP,
+ * so none of its deferred tools nor the gateway's.
+ */
+export function piBuiltInExtensions(
+	modules: Pick<HostPiModules, "builtins">,
+): readonly BuiltInExtension[] {
+	const list = modules.builtins.builtInExtensions;
+	if (
+		!Array.isArray(list) ||
+		list.length === 0 ||
+		!list.every(isBuiltInExtension)
+	)
+		throw new Error(
+			"The host's pi coding agent lists no built-in extensions it can load",
+		);
+	return list;
+}
 
 /** Pick pi's session layer from the loaded coding agent, refusing one that lacks a piece. */
 export function piSessions(modules: HostPiModules): PiSessions {

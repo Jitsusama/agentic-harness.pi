@@ -57,6 +57,8 @@ interface Seen {
 	/** The request each launch environment was derived for, in that run. */
 	readonly derived: readonly string[];
 	readonly env?: Readonly<Record<string, unknown>>;
+	/** What the conversation's screen was handed to show as it started. */
+	readonly diagnostics?: readonly { type: string; message: string }[];
 }
 
 const folders: string[] = [];
@@ -121,6 +123,40 @@ async function step(folder: string, scenario: string): Promise<Seen> {
 		env: sealedEnv(folder),
 	});
 	return JSON.parse(stdout);
+}
+
+/** What a plain pi on the same folder, settings and environment does with `words`. */
+async function plainPi(
+	folder: string,
+	words: string,
+): Promise<{ type: string; message: string }[]> {
+	if (!packageDir) throw new Error("PI_HOST_PACKAGE_DIR names no package");
+	const running = run(
+		process.execPath,
+		[join(packageDir, "dist", "bundle", "cli.js"), "-p", words],
+		{ cwd: join(folder, "work"), env: sealedEnv(folder) },
+	);
+	// pi reads piped stdin into its prompt, waiting for its end, so it gets
+	// an empty one at once.
+	running.child.stdin?.end();
+	const { stderr } = await running.catch((error: { stderr?: string }) => {
+		// pi's print mode exits 1 when an extension fails to load, after saying which.
+		return { stderr: error.stderr ?? String(error) };
+	});
+	return [...stderr.matchAll(/^(Error|Warning): (.*)$/gm)].map(
+		([, prefix, message]) => ({
+			type: prefix === "Error" ? "error" : "warning",
+			message: message ?? "",
+		}),
+	);
+}
+
+/** Each tool list the probe noted, in the order it noted them. */
+function toolLists(folder: string): unknown[] {
+	return readFileSync(join(folder, "tools.jsonl"), "utf8")
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
 }
 
 /** A step that dies of a signal; answers the signal. */
@@ -212,6 +248,38 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			).toContain(seen.piVersion);
 		},
 		HOST_LIFE_MS,
+	);
+
+	it(
+		"gives a hosted conversation every tool a plain pi on the same settings has",
+		async () => {
+			const folder = hostFolder();
+			const seen = await step(folder, "tools");
+			const plainSaid = await plainPi(folder, "/tools-probe");
+			const hostedSaid = (seen.diagnostics ?? []).filter(
+				({ type }) => type !== "info",
+			);
+			expect(hostedSaid, "what the hosted screen shows as it starts").toEqual(
+				plainSaid,
+			);
+			expect(plainSaid, "what plain pi says as it starts").toEqual([]);
+			expect(seen.diagnostics, "the screen is handed a list").toBeDefined();
+			const [hosted, plain, ...more] = toolLists(folder);
+			expect(more).toEqual([]);
+			expect(hosted).toEqual(plain);
+			expect(hosted).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ name: "tool_search", declared: true }),
+					expect.objectContaining({ name: "codemode" }),
+					expect.objectContaining({ name: "spend", exposure: "deferred" }),
+					expect.objectContaining({ name: "subagent", declared: true }),
+					expect.objectContaining({ name: "review_see", declared: true }),
+				]),
+			);
+		},
+		// A hosted step and a plain pi, one after the other, each loading the
+		// whole harness.
+		HOST_LIFE_MS * 2,
 	);
 
 	it(

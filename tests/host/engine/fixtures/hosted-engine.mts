@@ -61,6 +61,8 @@ const compat = piModule<Compat>(
 	),
 );
 
+/** This package's root, which a scenario's pi may load as a package. */
+const HARNESS = join(import.meta.dirname, "..", "..", "..", "..");
 const PROVIDER = "hosted-faux";
 const MODEL = "faux-1";
 const work = join(folder, "work");
@@ -87,6 +89,8 @@ const say =
 
 interface Scenario {
 	responses: () => unknown[];
+	/** Whether pi loads this package, as Joel's settings have it, beside the probe. */
+	harness?: true;
 	run: (
 		engine: HostEngine,
 		host: SessionHost,
@@ -172,6 +176,22 @@ const scenarios: Record<string, Scenario> = {
 			return { survived: true };
 		},
 	},
+	/**
+	 * Open on the harness and have the probe note every tool the
+	 * conversation has, for the test to hold against a plain pi's.
+	 */
+	tools: {
+		responses: () => [],
+		harness: true,
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "/tools-probe" });
+			await idle(engine, id);
+			// What the conversation's screen is handed to show as it starts.
+			const diagnostics = engine.view(id)?.runtime.diagnostics;
+			await host.close(id);
+			return { diagnostics };
+		},
+	},
 	/** The host's next start: resume what the last run held, then talk. */
 	resume: {
 		responses: () => [say("after the restart"), say("and again")],
@@ -250,7 +270,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
 	const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
 	faux.setResponses(scenario.responses());
-	writeAgentFolder(faux.api);
+	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
 
 	const host = new SessionHost({
 		key: "test-host",
@@ -371,7 +391,7 @@ function text(message: Message): string {
 }
 
 /** pi's agent folder: the scripted provider with the gateway key's variable, settings, and the probe. */
-function writeAgentFolder(api: string): void {
+function writeAgentFolder(api: string, packages: readonly string[]): void {
 	writeFileSync(
 		join(agentDir, "models.json"),
 		JSON.stringify({
@@ -400,6 +420,7 @@ function writeAgentFolder(api: string): void {
 		JSON.stringify({
 			defaultProvider: PROVIDER,
 			defaultModel: MODEL,
+			packages,
 			retry: { enabled: false },
 			compaction: { enabled: false },
 		}),
