@@ -10,8 +10,12 @@
 # The branch defaults to the one checked out, which must be pushed as it
 # stands; the host defaults to penelope. The host keeps a clone of its own
 # under ~/.cache/harness-check.git, fetched from GitHub each time and
-# checked out in a worktree of it at ~/.cache/harness-check-tree, so nothing
-# of the person's on it is touched. It finds the pnpm that package.json
+# checked out in a worktree of it at ~/.local/state/harness-check-tree, so
+# nothing of the person's on it is touched. The tree is kept out of any
+# folder named .cache: Biome 2.5.3 skips its project scan there, so its
+# project and type rules silently don't run (Y9XISP, 10 November).
+# After `pnpm check` it runs tests/package, which the merge gate also
+# holds a change to. It finds the pnpm that package.json
 # names in its Nix store, since corepack can't fetch one there, and runs
 # npm's prebuilt biome through glibc's own loader where the host has no
 # nix-ld. Checks on one host take turns, since they share that worktree.
@@ -35,7 +39,8 @@ branch="$1"
 # The check runs in a worktree of a bare clone, as the harness's own trees
 # are, so it reads the code as a session working on it does.
 repo=~/.cache/harness-check.git
-dir=~/.cache/harness-check-tree
+dir=~/.local/state/harness-check-tree
+mkdir -p ~/.local/state
 # Every check checks its branch out into the one worktree, so a second
 # started beside the first would swap the files under it. Each holds this
 # lock from the fetch to the end of `pnpm check`, and a second waits.
@@ -49,6 +54,10 @@ if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
 fi
 git -C "$repo" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" "+refs/heads/main:refs/remotes/origin/main"
+# The tree once sat under ~/.cache, where Biome skipped its project rules.
+if [ -e ~/.cache/harness-check-tree/.git ]; then
+  git -C "$repo" worktree remove --force ~/.cache/harness-check-tree
+fi
 if [ ! -e "$dir/.git" ]; then
   git -C "$repo" worktree prune
   git -C "$repo" worktree add -q --detach "$dir" "origin/$branch"
@@ -75,4 +84,5 @@ if [ -e /etc/NIXOS ]; then
   export BIOME_BINARY=~/.cache/harness-check-bin/biome
 fi
 pnpm check
+pnpm exec vitest run tests/package --testTimeout=60000
 THERE
