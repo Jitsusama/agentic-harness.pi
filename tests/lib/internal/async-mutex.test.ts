@@ -113,16 +113,22 @@ describe("createMutex", () => {
 		const mutex = createMutex();
 		const controller = new AbortController();
 		let release: () => void = () => {};
+		let begin: () => void = () => {};
+		const begun = new Promise<void>((resolve) => {
+			begin = resolve;
+		});
 		const running = mutex.runExclusive(
 			() =>
 				new Promise<string>((resolve) => {
 					release = () => resolve("finished");
+					begin();
 				}),
 			{ signal: controller.signal },
 		);
-		await new Promise((resolve) => setTimeout(resolve, 5));
+		await begun;
 		controller.abort();
-		await new Promise((resolve) => setTimeout(resolve, 5));
+		// Whatever the stop sets going settles before the section ends.
+		await new Promise((resolve) => setImmediate(resolve));
 		release();
 		expect(await running).toBe("finished");
 	});

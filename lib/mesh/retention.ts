@@ -81,19 +81,22 @@ export async function sweep(
 
 /**
  * A sweep to call as often as is handy: it runs at most once an hour in
- * this process, never waits and never throws, since nothing a peer is
- * doing should hang on tidying.
+ * this process and never throws, since nothing a peer is doing should
+ * hang on tidying. It hands back the sweep, which never rejects, for a
+ * caller that wants to know it is done; a peer leaves it unawaited.
  */
 export function sweeper(
 	kept: Kept,
 	every: number = SWEEP_EVERY_MS,
 	clock: () => number = Date.now,
-): () => void {
+): () => Promise<void> {
 	let last = Number.NEGATIVE_INFINITY;
 	return () => {
 		const now = clock();
-		if (now - last < every) return;
+		if (now - last < every) return Promise.resolve();
 		last = now;
-		void sweep(kept, now).catch(() => {});
+		return sweep(kept, now).catch(() => {
+			// A sweep that fails leaves what it could not tidy for the next.
+		});
 	};
 }

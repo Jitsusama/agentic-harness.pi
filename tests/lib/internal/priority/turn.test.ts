@@ -574,6 +574,7 @@ describe("heavy work waiting for its turn", () => {
 		writeFileSync(join(dir, "j1.job"), "{}\n");
 		const started = Date.now();
 		const ran = run(`${wait?.("j1")}\necho "ran $__job"`);
+		// The turn is held back past the 1 s after which the wait is said.
 		await new Promise((resolve) => setTimeout(resolve, 1_500));
 		writeFileSync(join(dir, "j1.turn"), "");
 		const { out } = await ran;
@@ -587,6 +588,8 @@ describe("heavy work waiting for its turn", () => {
 		const wait = waitsForTurn(dir, 60);
 		writeFileSync(join(dir, "j1.job"), "{}\n");
 		const ran = run(`${wait?.("j1")}\ntrue`);
+		// Proving no mark comes before the turn: nothing to wait on, so the
+		// shell gets a span of its polls first.
 		await new Promise((resolve) => setTimeout(resolve, 1_200));
 		expect(readdirSync(dir)).not.toContain("j1.began");
 		writeFileSync(join(dir, "j1.turn"), "");
@@ -715,6 +718,8 @@ describe("heavy work waiting for its turn", () => {
 			shell.on("exit", () => resolve()),
 		);
 		try {
+			// Proving the work waits out the grace: nothing to wait on, so a
+			// span of the shell's polls goes by first.
 			await new Promise((resolve) => setTimeout(resolve, 2_500));
 			expect(out).toBe("");
 

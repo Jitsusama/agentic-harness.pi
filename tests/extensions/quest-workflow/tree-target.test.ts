@@ -12,6 +12,7 @@ import {
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees.ts";
 import { fakePi } from "../../support/fake-pi.ts";
+import { until } from "../../support/until.ts";
 import { createEnvGuard } from "./_helpers.ts";
 
 // Which tree a verb acts on. A prune deletes a working tree, so a verb
@@ -302,6 +303,9 @@ describe("quest calls in one parallel batch", () => {
 			action: "tree-release",
 			cwd: only,
 		});
+		await until("the first prune is in the provider", () => pruned.length > 0);
+		// Proving the second waits its turn: a prune let past the lock would
+		// reach the provider within these few ticks.
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		release();
 		const [first, second] = await Promise.all([a, b]);

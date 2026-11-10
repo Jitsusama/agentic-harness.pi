@@ -1642,7 +1642,7 @@ export function meshWorkflow(
 			});
 			steer(paths.steer);
 			identity();
-			tidy();
+			void tidy();
 			if (started.hasUI) {
 				const groups =
 					peer.groups.length > 0 ? `, in ${peer.groups.join(", ")}` : "";
@@ -1760,7 +1760,7 @@ export function meshWorkflow(
 		});
 		pi.on("agent_end", async () => {
 			lookAgain();
-			tidy();
+			void tidy();
 			peer?.setBusy(false);
 			// What the desktop's daemon found done or ready since (wait.ts).
 			if (waiting) settleFromVerdicts(waiting);

@@ -11,7 +11,7 @@ import {
 	stopPresent,
 	whenPresent,
 } from "../../../lib/mesh/present.ts";
-import { until } from "../../support/until.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 let dir: string;
 let path: string;
@@ -125,7 +125,8 @@ describe("being present on the node", () => {
 			() => heard.open.length === 0,
 			HEARD_WITHIN_MS,
 		);
-		await new Promise((next) => setTimeout(next, 50));
+		// Five of its 10 ms retries go by, none of which may ask again.
+		await quietFor(10);
 		expect(isKeptPresent(), "a refusal counts nothing").toBe(false);
 		expect(heard.connections, "not asked again at the short retry").toBe(1);
 	});

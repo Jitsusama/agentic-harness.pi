@@ -209,19 +209,16 @@ describe("the sweep", () => {
 		let clock = now;
 		const tidy = sweeper(at, 60 * 60 * 1000, () => clock);
 		const first = stamped(messages, KEEP_MS + 1000);
-		tidy();
-		await new Promise((done) => setTimeout(done, 20));
+		await tidy();
 		expect(at.transport.ids()).not.toContain(first);
 
 		const second = stamped(messages, KEEP_MS + 2000, "WCJQSG-2-cccc");
 		clock += 59 * 60 * 1000;
-		tidy();
-		await new Promise((done) => setTimeout(done, 20));
+		await tidy();
 		expect(at.transport.ids()).toContain(second);
 
 		clock += 2 * 60 * 1000;
-		tidy();
-		await new Promise((done) => setTimeout(done, 20));
+		await tidy();
 		expect(at.transport.ids()).not.toContain(second);
 	});
 });

@@ -26,6 +26,7 @@ import {
 	PACKAGE_ROOT,
 	STATUS_KEY,
 } from "../../../extensions/reload-workflow/lifecycle.ts";
+import { STILL_MS } from "../../../extensions/reload-workflow/transitions.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	leaveSession,
@@ -33,7 +34,7 @@ import {
 } from "../../../lib/internal/session/left.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
-import { until } from "../../support/until.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -291,7 +292,8 @@ describe("the agent asking for a reload", LANDS, () => {
 		};
 
 		const command = now.command("reload", next);
-		await new Promise((done) => setTimeout(done, 1_500));
+		// A still window and a half, in which the reload must not go.
+		await quietFor(STILL_MS, 1.5);
 		expect(reloaded, "the reload waits out the resumed run").toBe(false);
 
 		await now.fire("agent_settled");
@@ -364,10 +366,13 @@ describe("the agent asking for a reload", LANDS, () => {
 		const first = now.command("reload", slow);
 		await until("the first reload is under way", () => reloads === 1);
 		const second = now.command("reload", slow);
-		await new Promise((done) => setTimeout(done, 1_500));
+		// A still window and a half, in which the second must not start.
+		await quietFor(STILL_MS, 1.5);
 		loaded();
 		await Promise.all([first, second]);
 		await untilSaid("the reload is said", () => reported.length > 0);
+		// Proving no second landing is said: nothing to wait on, so a span
+		// as long as the first took to be said goes by.
 		await new Promise((done) => setTimeout(done, 200));
 
 		expect(reloads).toBe(1);

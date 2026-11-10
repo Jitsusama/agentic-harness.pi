@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -64,6 +65,7 @@ describe("a time limit on work that waits for its turn", () => {
 	it("does not count the wait for its turn against the limit", async () => {
 		writeFileSync(join(dir, "j1.job"), "{}\n");
 		const ran = run(bash(), queued("j1", "echo ran"), 1);
+		// The turn is held back past the 1 s limit the wait must not count.
 		await new Promise((resolve) => setTimeout(resolve, 1_500));
 		writeFileSync(join(dir, "j1.turn"), "");
 		expect(await ran).toEqual({ out: "ran\n", code: 0 });
@@ -81,17 +83,23 @@ describe("a time limit on work that waits for its turn", () => {
 	it("does not count a stretch its shell's cgroup spends frozen", async () => {
 		writeFileSync(join(dir, "j4.job"), "{}\n");
 		writeFileSync(join(dir, "j4.turn"), "");
-		const thaws = Date.now() + 2_000;
+		// The cgroup thaws when the work says its sleep is over, not at a
+		// time, so a shell slow to start under load can't use up the freeze.
+		const thawed = join(root, "thawed");
 		const asked = new Set<number>();
 		const ops = timedFromTurn(createLocalBashOperations(), {
 			pollMs: 50,
 			frozen: (pid) => {
 				asked.add(pid);
-				return Date.now() < thaws;
+				return !existsSync(thawed);
 			},
 		});
-		const said = await run(ops, queued("j4", "sleep 2.5; echo ran"), 1);
-		expect(said, "a run frozen for 2 of its 2.5 s ran only 0.5 s").toEqual({
+		const work = `sleep 2; : > '${thawed}'; echo ran`;
+		const said = await run(ops, queued("j4", work), 1);
+		expect(
+			said,
+			"a run frozen through its 2 s sleep is not stopped at 1 s",
+		).toEqual({
 			out: "ran\n",
 			code: 0,
 		});

@@ -100,6 +100,8 @@ describe("a session a spawn started", () => {
 		leaveFirstWords("019a-early", "carry on", dir);
 		const send = sayFirstWords(pi, ctx, "019a-early", () => false, dir);
 		await settled();
+		// Proving nothing is sent by itself: a send put off to a later tick
+		// would have gone by now.
 		await new Promise((done) => setTimeout(done, 5));
 		expect(said).toEqual([]);
 		send?.();

@@ -19,10 +19,6 @@ tests/extensions/browser-integration/registry-turns.test.ts 8
 tests/extensions/browser-integration/tools-take-turns.test.ts 2
 tests/extensions/job-workflow/host.test.ts 2
 tests/extensions/mesh-workflow/hand.test.ts 1
-tests/extensions/quest-workflow/first-words.test.ts 1
-tests/extensions/quest-workflow/tree-target.test.ts 1
-tests/extensions/reload-workflow/still.test.ts 2
-tests/extensions/reload-workflow/wiring.test.ts 3
 tests/extensions/review-checks-job.test.ts 1
 tests/extensions/review-round-job.test.ts 4
 tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts 3
@@ -30,12 +26,6 @@ tests/extensions/shell-workflow/hand-off.test.ts 2
 tests/extensions/shell-workflow/reap.test.ts 1
 tests/extensions/status-line-widget/git.test.ts 2
 tests/extensions/work-tree-signal.test.ts 2
-tests/lib/internal/async-mutex.test.ts 2
-tests/lib/internal/priority/clock.test.ts 1
-tests/lib/internal/priority/turn.test.ts 3
-tests/lib/mesh/present.test.ts 1
-tests/lib/mesh/retention.test.ts 3
-tests/lib/mesh/transport.test.ts 1
 tests/lib/subagent/fleet-ledger.test.ts 1
 tests/lib/subagent/runpi/detached.test.ts 3
 tests/lib/subagent/runpi/parent-exit.test.ts 1
