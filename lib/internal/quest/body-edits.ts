@@ -165,9 +165,13 @@ function findItem(
 		};
 	}
 	if (matches.length === 0) {
+		const reach =
+			numbered && /^\d+$/.test(wanted)
+				? `: its items are numbered up to ${highestNumber(items)}.`
+				: ".";
 		return {
 			ok: false,
-			reason: `No item reads "${item.trim()}". The items are:\n${listItems(items, !numbered)}`,
+			reason: `No item reads "${item.trim()}"${reach} The items are:\n${listItems(items, !numbered)}`,
 		};
 	}
 	if (matches.length > 1) {
@@ -530,9 +534,18 @@ function headingWords(heading: string): string {
 	);
 }
 
+/** The highest number a document's items carry. */
+function highestNumber(items: readonly Located[]): number {
+	return Math.max(
+		...items.map((i) => Number.parseInt(normalise(i.text), 10) || 0),
+	);
+}
+
 interface Located {
 	index: number;
 	text: string;
+	/** Whether a checkbox item is ticked; a heading is never done. */
+	done?: boolean;
 	/** A checkbox item's place among them all, counted from 1. */
 	position?: number;
 }
@@ -542,7 +555,7 @@ function checkboxLines(lines: readonly string[]): Located[] {
 	return outsideFences(lines)
 		.flatMap((index) => {
 			const parts = CHECKBOX.exec(lines[index]);
-			return parts ? [{ index, text: parts[4] }] : [];
+			return parts ? [{ index, text: parts[4], done: parts[2] !== " " }] : [];
 		})
 		.map((item, at) => ({ ...item, position: at + 1 }));
 }
@@ -578,15 +591,24 @@ const LISTED_ITEMS = 20;
  * document names its items that way.
  */
 function listItems(items: readonly Located[], positioned: boolean): string {
-	const listed = items
+	// A long plan's first items are mostly long done: a session that
+	// misnamed one of 113 items, 100 ticked, was shown items 1 to 20.
+	const shown =
+		items.length > LISTED_ITEMS
+			? [...items.filter((i) => !i.done), ...items.filter((i) => i.done)]
+			: items;
+	const listed = shown
 		.slice(0, LISTED_ITEMS)
 		.map((i) =>
 			positioned && i.position ? `- ${i.position}. ${i.text}` : `- ${i.text}`,
 		);
 	const more = items.length - listed.length;
 	if (more > 0) {
+		const done = shown.slice(LISTED_ITEMS).filter((i) => i.done).length;
+		const which =
+			done === 0 ? "" : done === more ? ", all done" : `, ${done} of them done`;
 		listed.push(
-			`- and ${more} more; \`show\` with the document's id lists the open ones.`,
+			`- and ${more} more${which}; \`show\` with the document's id lists the open ones.`,
 		);
 	}
 	return listed.join("\n");

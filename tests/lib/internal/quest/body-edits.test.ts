@@ -383,6 +383,37 @@ describe("naming an item by words inside it", () => {
 		expect(result.reason).toContain("- 20. Step 19\n- and 10 more");
 		expect(result.reason).not.toContain("Step 20");
 	});
+
+	it("names the open items first when it can't name them all", () => {
+		const body = Array.from(
+			{ length: 30 },
+			(_, n) => `- [${n < 25 ? "x" : " "}] ${n + 1}. Step ${n + 1}`,
+		).join("\n");
+		const result = setCheckbox(body, "nothing like it", true);
+		expect(result).toMatchObject({ ok: false });
+		if (result.ok) throw new Error("expected a refusal");
+		const listed = result.reason.split("\n").slice(1);
+		expect(listed.slice(0, 5)).toEqual([
+			"- 26. Step 26",
+			"- 27. Step 27",
+			"- 28. Step 28",
+			"- 29. Step 29",
+			"- 30. Step 30",
+		]);
+		expect(result.reason).toContain("- and 10 more, all done;");
+	});
+});
+
+describe("naming a number no item carries, in a document that numbers them", () => {
+	it("says how far its numbers go", () => {
+		const body = "- [x] 1. Ship it\n- [ ] 2. Watch it\n- [ ] 3. Measure it\n";
+		const result = setCheckbox(body, "9", true);
+		expect(result).toMatchObject({ ok: false });
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain(
+			'No item reads "9": its items are numbered up to 3.',
+		);
+	});
 });
 
 describe("reading a document without all of it", () => {
