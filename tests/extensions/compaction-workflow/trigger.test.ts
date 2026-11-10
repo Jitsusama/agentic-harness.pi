@@ -22,6 +22,7 @@ function activate() {
 	const handlers = new Map<string, Handler[]>();
 	const listeners = new Map<string, Array<(data: unknown) => void>>();
 	const resumed: unknown[] = [];
+	const entries: Array<{ type: string; data: unknown }> = [];
 	const pi = {
 		events: {
 			on: (channel: string, h: (data: unknown) => void) =>
@@ -32,7 +33,7 @@ function activate() {
 		},
 		on: (name: string, handler: Handler) =>
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-		appendEntry: () => {},
+		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 		registerCommand: () => {},
 		sendMessage: () => {},
 		sendUserMessage: (text: unknown) => resumed.push(text),
@@ -43,7 +44,7 @@ function activate() {
 		for (const h of handlers.get(name) ?? []) result = await h(event, ctx);
 		return result;
 	};
-	return { fire, resumed, handlers };
+	return { fire, resumed, handlers, entries };
 }
 
 const userEntry = {
@@ -123,7 +124,7 @@ const ranTools = { message: {}, toolResults: [{}] };
  * is $1.20 + $0.252 and the whole $2.073, so it is the fiftieth.
  */
 async function toTheEdge(withSentRequest: boolean) {
-	const { fire, resumed } = activate();
+	const { fire, resumed, entries } = activate();
 	const { state, ctx } = session();
 	await fire("session_start", { reason: "startup" }, ctx);
 	if (withSentRequest) await fire("before_provider_request", { payload }, ctx);
@@ -134,7 +135,7 @@ async function toTheEdge(withSentRequest: boolean) {
 	const short = withSentRequest ? 22 : 49;
 	for (let turn = 0; turn < short; turn++)
 		await fire("turn_end", ranTools, ctx);
-	return { fire, resumed, state, ctx };
+	return { fire, resumed, entries, state, ctx };
 }
 
 beforeEach(() => {
@@ -215,6 +216,131 @@ describe("the compaction trigger", () => {
 		await vi.waitFor(() => expect(state.compactions).toHaveLength(1));
 		state.compactions[0]?.onComplete?.();
 		expect(resumed).toHaveLength(0);
+	});
+});
+
+/**
+ * pi's compact() stops the run and waits for the session to go idle,
+ * but a prompt sent as the stopped run settles starts the next run
+ * first. On 9 November two sessions waited about nine hours that way,
+ * with nothing in their logs to say so.
+ */
+describe("a compaction overtaken by a run", () => {
+	const stalls = (entries: ReadonlyArray<{ type: string }>) =>
+		entries.filter((entry) => entry.type === "compaction-stalled");
+
+	it("is logged when a run starts before the compaction it asked for begins", async () => {
+		const { fire, entries, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", ranTools, ctx);
+		expect(state.compactions, "the trigger asked pi to compact").toHaveLength(
+			1,
+		);
+
+		await fire("agent_start", {}, ctx);
+		await fire("agent_start", {}, ctx);
+
+		expect(stalls(entries)).toHaveLength(1);
+		expect(stalls(entries)[0]).toMatchObject({
+			data: { contextTokens: 300_000 },
+		});
+	});
+
+	it("is not logged for the run a landed compaction resumes", async () => {
+		const { fire, entries, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", ranTools, ctx);
+		await fire("session_compact", { compactionEntry: {} }, ctx);
+		state.compactions[0]?.onComplete?.();
+
+		await fire("agent_start", {}, ctx);
+
+		expect(stalls(entries)).toEqual([]);
+	});
+});
+
+/**
+ * What the first turn after a compaction reads is what the next one is
+ * expected to keep, and only the rest pays rent. On 9 November two
+ * compactions that had waited nine hours kept 510k and 616k; counted
+ * from there, the next waited until 748k and 903k.
+ */
+describe("a compaction that kept an outsized amount", () => {
+	const LIMIT = 400;
+
+	/** Turns at `tokens` until the trigger asks pi to compact again. */
+	async function turnsUntilCompacting(
+		fire: (name: string, event: unknown, ctx: unknown) => Promise<unknown>,
+		state: ReturnType<typeof session>["state"],
+		ctx: unknown,
+		tokens: number,
+	) {
+		const before = state.compactions.length;
+		state.tokens = tokens;
+		for (let turn = 1; turn <= LIMIT; turn++) {
+			await fire("turn_end", ranTools, ctx);
+			if (state.compactions.length > before) return turn;
+		}
+		return LIMIT;
+	}
+
+	async function fresh() {
+		const { fire } = activate();
+		const { state, ctx } = session();
+		await fire("session_start", { reason: "startup" }, ctx);
+		state.branch = [userEntry, replyEntry];
+		state.leaf = "a1";
+		await fire("turn_end", ranTools, ctx);
+		return turnsUntilCompacting(fire, state, ctx, 600_000);
+	}
+
+	it("does not set what the next compaction is expected to keep", async () => {
+		const { fire, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", ranTools, ctx);
+		await fire("session_compact", { compactionEntry: {} }, ctx);
+		state.tokens = 510_000;
+		await fire("turn_end", ranTools, ctx);
+
+		const after = await turnsUntilCompacting(fire, state, ctx, 600_000);
+		const usual = await fresh();
+
+		expect(usual, "a fresh session compacts at 600k").toBeLessThan(LIMIT);
+		// The 510k turn paid rent of its own, so it may come a turn sooner.
+		expect(after).toBeLessThanOrEqual(usual);
+	});
+
+	it("is not taken from the log of a resumed session either", async () => {
+		const prompt = (id: string, input: number) => ({
+			...replyEntry,
+			id,
+			message: { ...replyEntry.message, usage: { input } },
+		});
+		const { fire } = activate();
+		const { state, ctx } = session();
+		state.branch = [
+			userEntry,
+			prompt("a1", 60_000),
+			{ type: "compaction", id: "c1" },
+			prompt("a2", 510_000),
+		];
+		state.leaf = "a2";
+		await fire("session_start", { reason: "resume" }, ctx);
+
+		const after = await turnsUntilCompacting(fire, state, ctx, 600_000);
+
+		expect(after).toBeLessThanOrEqual(await fresh());
+	});
+
+	it("still sets it when the keep is near what compactions keep", async () => {
+		const { fire, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", ranTools, ctx);
+		await fire("session_compact", { compactionEntry: {} }, ctx);
+		state.tokens = 150_000;
+		await fire("turn_end", ranTools, ctx);
+
+		const after = await turnsUntilCompacting(fire, state, ctx, 600_000);
+
+		expect(after, "less rent a turn above a 150k keep").toBeGreaterThan(
+			await fresh(),
+		);
 	});
 });
 

@@ -87,6 +87,7 @@ import type {
 import {
 	FAILURE_ENTRY,
 	failureRecord,
+	STALLED_ENTRY,
 	wasCancelled,
 } from "../../lib/compaction/failure.ts";
 import { compactionHistory } from "../../lib/compaction/history.ts";
@@ -127,6 +128,15 @@ const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);
  * 20k, plus room for the summary it writes.
  */
 const KEPT_BEYOND_FLOOR = 30_000;
+
+/**
+ * How far past that estimate a compaction's keep may run and still say
+ * what the next one will keep. One that ran further kept what a late
+ * summary never covered: on 9 November two that had waited nine hours
+ * kept 510k and 616k, and counting rent only above that, the next
+ * compactions waited until 748k and 903k. Healthy ones keep about 100k.
+ */
+const OUTSIZED_KEEP_TOKENS = 100_000;
 
 /**
  * Output of a summary written from the conversation, thinking included,
@@ -243,6 +253,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let awaitingRetained = false;
 	let rentPaid = 0;
 	let compacting = false;
+	// The compaction asked of pi and not yet landed or failed, until a
+	// run that overtook it has been logged.
+	let asked: { at: number; tokens: number } | null = null;
 	let failures = 0;
 	let holdTurns = 0;
 
@@ -279,8 +292,11 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		warming: warming.describe(),
 	}));
 
-	const retained = () =>
-		observedRetained ?? (firstTurnTokens ?? 0) + KEPT_BEYOND_FLOOR;
+	const keptEstimate = () => (firstTurnTokens ?? 0) + KEPT_BEYOND_FLOOR;
+	const retained = () => observedRetained ?? keptEstimate();
+	/** Whether a compaction kept far more than compactions keep. */
+	const outsized = (kept: number) =>
+		kept - keptEstimate() > OUTSIZED_KEEP_TOKENS;
 
 	/** What compacting a context of this size would cost now. */
 	const costAt = (
@@ -308,6 +324,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		resume: boolean,
 	) => {
 		compacting = true;
+		asked = { at: Date.now(), tokens };
 		// A compaction that cannot start (a context the session replaced
 		// throws on first use) ends here, or the flag would stay set and
 		// keep every later compaction off for the session.
@@ -315,6 +332,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			startCompaction(ctx, tokens, resume);
 		} catch (error) {
 			compacting = false;
+			asked = null;
 			throw error;
 		}
 	};
@@ -334,6 +352,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			}),
 			onError: whileCurrent((error: Error) => {
 				compacting = false;
+				asked = null;
 				failures += 1;
 				const failure = failureRecord(tokens, error, failures);
 				holdTurns = failure.retryAfterTurns;
@@ -393,12 +412,17 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		idle.cancel();
 		const history = compactionHistory(ctx.sessionManager.getBranch());
 		firstTurnTokens = history.firstPromptTokens;
-		observedRetained = history.retainedTokens;
-		observedRewrite = history.rewriteTokens;
+		// The log names only the last compaction's keep; an outsized one
+		// leaves the estimate to stand in for it.
+		const usual =
+			history.retainedTokens !== null && !outsized(history.retainedTokens);
+		observedRetained = usual ? history.retainedTokens : null;
+		observedRewrite = usual ? history.rewriteTokens : null;
 		summaryOutput = history.summaryOutputTokens;
 		turnOverhead = history.turnOverhead;
 		awaitingRetained = false;
 		compacting = false;
+		asked = null;
 		failures = 0;
 		holdTurns = 0;
 		const prices = pricesOf(ctx);
@@ -418,6 +442,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	pi.on("session_compact", async (event) => {
 		rentPaid = 0;
 		compacting = false;
+		asked = null;
 		awaitingRetained = true;
 		failures = 0;
 		holdTurns = 0;
@@ -435,6 +460,17 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 
 	pi.on("agent_start", async () => {
 		idle.cancel();
+		// pi refuses a prompt while it compacts, so a run starting while a
+		// compaction is asked for means pi has not begun it: a prompt sent
+		// as the stopped run settled went first, and the compaction waits
+		// for the next idle moment. Said once, so the logs can count it.
+		if (compacting && asked) {
+			pi.appendEntry(STALLED_ENTRY, {
+				contextTokens: asked.tokens,
+				askedMsAgo: Date.now() - asked.at,
+			});
+			asked = null;
+		}
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
@@ -457,9 +493,13 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		if (awaitingRetained) {
 			// The first measured prompt after a compaction is what that
 			// compaction actually kept, and its cache write what keeping it
-			// cost: better estimates than any constant for the next one.
-			observedRetained = tokens;
-			observedRewrite = cacheWriteOf(event.message) ?? observedRewrite;
+			// cost: better estimates than any constant for the next one,
+			// unless it kept far more than compactions keep, when the last
+			// usual one still says it better.
+			if (!outsized(tokens)) {
+				observedRetained = tokens;
+				observedRewrite = cacheWriteOf(event.message) ?? observedRewrite;
+			}
 			awaitingRetained = false;
 		}
 		const prices = pricesOf(ctx);

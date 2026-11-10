@@ -993,6 +993,54 @@ describe("the conversation summariser", () => {
 			expect(seen.map((c) => c.handled)).toEqual([false, true]);
 		});
 
+		// 9 November: two summaries written ahead at about 180k were applied
+		// nine hours later at 725k and 740k, and kept everything since,
+		// 510k and 616k, which every turn after read again.
+		it("discards a summary the conversation has far outgrown, and writes one on the spot", async () => {
+			const { fire, summary, entries } = await writtenAhead();
+			completeSimple.mockResolvedValue(reply("## Goal"));
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await settle();
+
+			const event = compactEvent();
+			event.preparation.tokensBefore = 700_000;
+			const result = (await fire(
+				"session_before_compact",
+				event,
+				context([userEntry, replyEntry], "a1"),
+			)) as { compaction: { details: Record<string, unknown> } };
+
+			expect(entries[0]).toEqual([
+				AHEAD_UNUSED_ENTRY,
+				{
+					reason:
+						"the conversation grew from 300,000 to 700,000 tokens since it was written",
+				},
+			]);
+			expect(result.compaction.details).toMatchObject({
+				written: "on the spot",
+			});
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+		});
+
+		it("still applies a summary the conversation grew a little past", async () => {
+			const { fire, summary, entries } = await writtenAhead();
+			completeSimple.mockResolvedValue(reply("## Goal"));
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await settle();
+
+			const event = compactEvent();
+			event.preparation.tokensBefore = 330_000;
+			const result = (await fire(
+				"session_before_compact",
+				event,
+				context([userEntry, replyEntry], "a1"),
+			)) as { compaction: { details: Record<string, unknown> } };
+
+			expect(result.compaction.details).toMatchObject({ written: "ahead" });
+			expect(entries).toEqual([]);
+		});
+
 		it("discards a summary of a point the branch has left, and writes one on the spot", async () => {
 			const { fire, summary, entries } = await writtenAhead();
 			completeSimple.mockResolvedValue(reply("## Goal"));

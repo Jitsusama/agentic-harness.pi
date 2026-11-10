@@ -19,6 +19,14 @@
 /** Custom entry type a failed compaction is recorded under. */
 export const FAILURE_ENTRY = "compaction-failed";
 
+/**
+ * Custom entry type for a compaction a run overtook: pi's compact()
+ * waits for the session to go idle, and a prompt sent as the stopped
+ * run settled started another run first. It is written once, when that
+ * run starts, since nothing else in the log says the compaction waits.
+ */
+export const STALLED_ENTRY = "compaction-stalled";
+
 /** Turns to wait after the first failure in a row. */
 const FIRST_RETRY_TURNS = 8;
 

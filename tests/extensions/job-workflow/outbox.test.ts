@@ -136,6 +136,42 @@ describe("a result that finishes during a run", () => {
 	});
 });
 
+describe("a result the stopped run never read", () => {
+	// 9 November: a compaction stopped a run in two sessions, and the result
+	// steered into it was said again as it settled. pi starts a prompt sent
+	// there before the compaction waiting on that settle, so each waited
+	// about nine hours while the context climbed from 180k to 740k.
+	it("is said on the next tick, not as the stopped run settles", () => {
+		const { box, sent, session, run } = steering();
+		run();
+		box.post(result("j17"));
+
+		session.busy = false;
+		box.runSettled(true);
+		expect(sent).toEqual([]);
+
+		box.tick();
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toContain("[j17]");
+	});
+
+	it("waits on that tick for the compaction that stopped the run", () => {
+		const { box, sent, session, run } = steering();
+		run();
+		box.post(result("j17"));
+		session.busy = false;
+		box.runSettled(true);
+
+		session.busy = true;
+		box.tick();
+		expect(sent).toEqual([]);
+
+		session.busy = false;
+		box.tick();
+		expect(sent).toHaveLength(1);
+	});
+});
+
 describe("when a result is posted", () => {
 	it("sends it at once from idle, labelled as automated", () => {
 		const { box, sent } = outbox();

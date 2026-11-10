@@ -51,6 +51,12 @@ each from measurement:
 - **$0.045** a turn beyond its reads: at 100k to 200k tokens under
   one-hour retention a turn cost $0.076, of which reading was $0.031.
 
+A compaction that kept more than 100k past the default keep (the
+session's first prompt plus 30k) says nothing about what the next will
+keep, so its keep and rewrite are not taken. On 9 November two
+compactions that had waited nine hours kept 510k and 616k; counted from
+there, the next ones waited until 748k and 903k.
+
 The cost is nearly flat around the optimum, so how well these inputs
 are measured matters more than where exactly it fires. That is why an
 earlier margin of √2 and a randomised experiment on it are gone: the
@@ -75,6 +81,11 @@ messages start at the earlier of pi's own cut and the entry after the
 covered point, so nothing is dropped that the summary did not see. A
 compaction asked for while a summary is being written waits for that
 one rather than writing a second.
+
+A summary the conversation has grown more than 100k tokens past since
+it was written is dropped and one written on the spot: everything after
+its point would stay verbatim and be read again every turn, which costs
+more than writing it again. It is logged as unused, with the sizes.
 
 Only when the summary cannot be written from the cache (see Writing the
 Summary) does the session compact on the spot, and the notice says
@@ -207,6 +218,20 @@ characters shorter, every captured rule missing.
 
 Only interactive and RPC sessions are touched. A subagent runs pi in
 `--mode json` and ends when its run does.
+
+## When a Run Overtakes a Compaction
+
+pi's `compact()` stops the run and then waits for the session to go
+idle, but a prompt sent as the stopped run settles starts the next run
+first, and the compaction waits for the next idle moment. Meanwhile
+the trigger sees a compaction under way and fires nothing. On 9
+November two sessions waited about nine hours that way, each behind a
+background report and then whatever every later run's end brought,
+while their context climbed from 180k to 740k. The job outbox no
+longer sends as a stopped run settles, and a run that starts while a
+compaction is asked for is written to the session log once, as a
+`compaction-stalled` entry with the context's size and how long ago
+the compaction was asked for.
 
 ## When a Compaction Fails
 

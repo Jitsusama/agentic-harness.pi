@@ -28,6 +28,15 @@
  * no run of its own, so the cache isn't rewritten. One the run never
  * read is said again once it settles.
  *
+ * Except a run that was stopped: then it waits for the next tick. A
+ * compaction stops the run it interrupts and waits for the session to
+ * go idle, and pi starts a prompt sent as the run settles before it
+ * lets that compaction in. On 9 November two sessions each said a
+ * result there, then waited about nine hours to compact, since every
+ * run's end brought another, while their context climbed from 180k to
+ * 740k. A tick later the compaction is under way, and pi is not idle
+ * until it ends.
+ *
  * Everything ready goes in one message, since pi says queued messages
  * one at a time. A result leaves only once its message is seen in the
  * session, so a send that went nowhere (a stale `pi`, a refused prompt,
@@ -65,8 +74,11 @@ export interface Outbox {
 	/** A prompt was submitted and has not become a run yet. */
 	promptSubmitted(): void;
 	runStarted(): void;
-	/** A run ended: whatever of ours it did not carry is sent again. */
-	runSettled(): void;
+	/**
+	 * A run ended: whatever of ours it did not carry is sent again, at
+	 * once, or on the next tick when the run was stopped.
+	 */
+	runSettled(stopped?: boolean): void;
 	/** A user message reached the session; any result it carries is said. */
 	seen(text: string): void;
 	/** Drop a result still queued. False once it has been sent. */
@@ -181,11 +193,11 @@ export function createOutbox(options: OutboxOptions): Outbox {
 			running = true;
 			trySteer();
 		},
-		runSettled() {
+		runSettled(stopped = false) {
 			promptSince = undefined;
 			running = false;
 			giveBack();
-			trySend();
+			if (!stopped) trySend();
 		},
 		seen(text) {
 			if (!isOutboxMessage(text)) return;

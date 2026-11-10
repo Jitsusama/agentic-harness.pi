@@ -48,6 +48,27 @@ export function pastCustomEntries(
 	return id;
 }
 
+/**
+ * How far the conversation may grow past a summary written ahead before
+ * a fresh one is cheaper. Everything since the summarised point stays
+ * verbatim and is read again on every turn until the next compaction:
+ * 100k tokens over the 30 to 60 turns a compaction cycle runs is more
+ * than writing the summary again costs. On 9 November two summaries
+ * written at about 180k were applied at 725k and 740k, nine hours late,
+ * and kept 510k and 616k.
+ */
+export const OUTGROWN_TOKENS = 100_000;
+
+/**
+ * Why a summary written ahead at `writtenAt` tokens is no longer worth
+ * applying to a context of `now` tokens, or undefined while it is.
+ */
+export function outgrown(writtenAt: number, now: number): string | undefined {
+	if (now - writtenAt <= OUTGROWN_TOKENS) return undefined;
+	const figure = (tokens: number) => tokens.toLocaleString("en-CA");
+	return `the conversation grew from ${figure(writtenAt)} to ${figure(now)} tokens since it was written`;
+}
+
 export type KeptBoundary =
 	| { ok: true; firstKeptEntryId: string }
 	| { ok: false; reason: string };
