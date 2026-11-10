@@ -2331,6 +2331,20 @@ describe("groups", () => {
 		expect(await send(tools, "Q2BUSY", "fyi", "Merged.")).not.toContain(idle);
 		// The orchestrator above this peer acts on what it sends, idle or not.
 		expect(await send(tools, "5GV2AH", "fyi", "Landed.")).not.toContain(idle);
+		// An answer to the peer's own question starts its turn, however sent.
+		const asked = fromElsewhere({
+			from: "Q1IDLE",
+			to: ["@85PKB2"],
+			intent: "question",
+			text: "Does it read right?",
+		});
+		const answered = await tools.get("mesh_send")?.execute("call-1", {
+			to: "Q1IDLE",
+			intent: "fyi",
+			text: "Yes.",
+			re: asked.id,
+		});
+		expect(answered?.content[0]?.text ?? "").not.toContain(idle);
 	});
 
 	it("lists each other peer still there, whether it is in a run, and its work", async () => {
