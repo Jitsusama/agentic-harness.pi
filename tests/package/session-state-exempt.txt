@@ -13,6 +13,42 @@ extensions/reload-workflow/lifecycle.ts:global 1 Marks which loaded/<pid> file t
 extensions/review-integration/engine.ts:pid 1 Names a session pi has not yet reported, with a random tail; pi loads each extension as a fresh module, so each conversation in a host has its own name (MDRIRB, 2026-11-09).
 extensions/spend-workflow/resources.ts:global 3 CPU, I/O and memory counters are process totals, so one baseline per process keeps them from being counted twice; a host writes them to its own file and row, never apportioned to a conversation or quest (85PKB2, 2026-11-09).
 extensions/shell-workflow/reap.ts:pid 1 The reaper spares the process running it, which on a host is the host itself: no conversation's stop may kill it (85PKB2, 2026-11-09).
+host/engine/subagent-install.ts:global 1 Pins the install every subagent of the host runs, the host's node and pi, which is one per process; the library reads it where the entry script isn't pi's (H1 for 85PKB2, 2026-11-10).
+host/engine/tool-children.ts:pid 1 The host's own pid, which the child census skips so no conversation's stop kills the host (H1 for 85PKB2, 2026-11-10).
+host/service/rollout.ts:pid 1 The host's own pid, which the rollout's census of live pis leaves out, so a host never counts itself among the older harnesses it waits on (H1 for 85PKB2, 2026-11-10).
+lib/core/exec/call-signal.ts:global 1 One AsyncLocalStorage for the process, shared by every copy of the module; the signal it carries belongs to each call, so conversations never see each other's (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/artifacts/ownership.ts:pid 2 The pid names a plain library call's artifacts only off a host, since hosted callers must name a session; the owner file's temporary name has a random part and is written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/guardian/commit-shell.ts:cwd 1 Only plain pi reaches process.cwd(): with no context a hosted call throws NoSessionInHost (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/lsp/standalone.ts:global 1 One standalone language server for the process, reference-counted by its users, each of which takes back only its own claim (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/notes/io.ts:pid 1 Names an atomic write's temporary file with a random tail, written, flushed and renamed synchronously (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/terminal/ancestry.ts:pid 2 Defaults to the process's own ancestry, a fact of the process: in a host it is the host's, which sits in no terminal (H1 for 85PKB2, 2026-11-10).
+lib/core/lsp/standalone/server.ts:pid 1 Tells a language server which process is its client, so it ends when that process does (H1 for 85PKB2, 2026-11-10).
+lib/core/process/process.ts:pid 1 Defaults to the process's own owner record; hosted callers such as work memory ask sessionOwner instead (H1 for 85PKB2, 2026-11-10).
+lib/core/result/migrate.ts:pid 1 Reads the legacy result layout, one folder per old plain pi process, and adopts only payloads the conversation's own branch cites (H1 for 85PKB2, 2026-11-10).
+lib/core/result/spill.ts:pid 1 Names a spill's staging file, written and renamed in one synchronous tick, so conversations sharing the pid and its counter can't interleave (H1 for 85PKB2, 2026-11-10).
+lib/core/review/ask/council.ts:cwd 1 Shortens stack frames' paths, which name the process's own code, not a conversation's folder (H1 for 85PKB2, 2026-11-10).
+lib/core/review/ask/store.ts:pid 1 Names each ledger write's pending file with a random UUID, so writes across awaits never share a name (H1 for 85PKB2, 2026-11-10).
+lib/core/review/draft/store.ts:pid 1 Names each draft write's staging file with a random tail, so writes across awaits never share a name (H1 for 85PKB2, 2026-11-10).
+lib/core/session/env.ts:env-write 5 The session seam: plain pi's environment is the process's, and launch hints are taken from it once; hosted calls go to the host's environment per conversation (H1 for 85PKB2, 2026-11-10).
+lib/core/session/host.ts:global 1 The seam: the one host installed in the process (H1 for 85PKB2, 2026-11-10).
+lib/core/session/identity.ts:global 1 The seam: one AsyncLocalStorage carrying each call's ambient session (H1 for 85PKB2, 2026-11-10).
+lib/core/session/slot.ts:global 3 The seam: plain pi's slots stay on their own process symbols, and hosted slots are keyed by session in one process map (H1 for 85PKB2, 2026-11-10).
+lib/core/web/browser.ts:global 2 One Chrome and one profile per process, shared by every conversation in a host, whose pages each conversation opens and closes as its own (H1 for 85PKB2, 2026-11-10).
+lib/core/web/browser.ts:pid 3 The profile and owner record name the process that launched Chrome, and a terminating signal is re-raised at the process after Chrome is killed (H1 for 85PKB2, 2026-11-10).
+lib/core/web/procs.ts:pid 1 Skips the process itself when listing Chromes that hold the profile (H1 for 85PKB2, 2026-11-10).
+lib/core/work/memory.ts:pid 1 Names a record's staging file with a random tail, written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/file-lock.ts:global 1 One queue of writers per path for the whole process, so every copy of the module pi loads, one per conversation in a host, waits its turn in-process and never meets a lock file naming its own pid while that lock is live (H1 for 85PKB2, 2026-11-10).
+lib/core/internal/file-lock.ts:pid 3 The lock file names the holding process and a stale lock's aside names the taker; since the process-wide queue lets only one writer of a path reach the file at a time, a lock naming this pid is one an earlier process left (H1 for 85PKB2, 2026-11-10).
+lib/core/work/sweep.ts:pid 3 The sweep lock names the sweeping process, and a lock naming this pid counts as alive, so a second conversation in a host is told another sweep runs; the aside's name is random-tailed (H1 for 85PKB2, 2026-11-10).
+lib/internal/quest/discovery.ts:global 1 One quest index for the process, shared by every conversation in a host, since quests are machine-wide records and a copy per module once held 505 MB in one session (H1 for 85PKB2, 2026-11-10).
+lib/internal/quest/discovery.ts:pid 1 Names the seed file's draft, written and renamed in one synchronous tick, so conversations sharing the pid can't interleave (H1 for 85PKB2, 2026-11-10).
+lib/internal/quest/first-words.ts:pid 1 Names the file being taken, renamed, read and removed in one synchronous tick, so of two conversations in a host the first takes the words whole and the second finds them gone (H1 for 85PKB2, 2026-11-10).
+lib/internal/quest/io.ts:pid 3 The quest lock names the holding process; withQuestLock takes, runs its synchronous fn and frees it in one tick, so no other conversation in the host can run while it is held, and a lock naming this pid is one an earlier process left (H1 for 85PKB2, 2026-11-10).
+lib/internal/quest/process-liveness.ts:pid 3 The process's own identity, its pid and start ticks; hosted, the record adds the host and the conversation's session, so liveness is judged per conversation (H1 for 85PKB2, 2026-11-10).
+lib/mesh/hand.ts:pid 1 Names a subagent's hand only when it has no run id, no subagent id and no session; a subagent is a process of its own (H1 for 85PKB2, 2026-11-10).
+lib/mesh/message.ts:pid 1 The sender's pid on plain pi; hosted, senderIdentity names the host's owner pid and says it is hosted (H1 for 85PKB2, 2026-11-10).
+lib/mesh/present.ts:global 2 One connection to the node per process, which the kernel closes when the process ends, and the listeners each load adds and takes back itself (H1 for 85PKB2, 2026-11-10).
+lib/mesh/waiting.ts:pid 1 Names a waiting file's temporary copy, written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).
 extensions/work-integration/sweep.ts:pid 1 The sweep log names the process that swept, for reading afterwards; a host's sweeps are its own whichever conversation they serve (MDRIRB, 2026-11-09).
 lib/guardian/policy.ts:global 1 Holds each guard's declaration and the user's package config, one file for every conversation; a session's own overrides are already keyed apart by the pi:guard-session-modes slot (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/away/machine.ts:pid 1 Names the temporary file a machine's away state is written to, with a random tail after the pid, so two conversations in a host never share one (2QZBX9 with 85PKB2, 2026-11-10).
