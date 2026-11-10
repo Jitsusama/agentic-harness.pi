@@ -154,7 +154,7 @@ describe("heavy work waiting for its turn", () => {
 					owner: { session: "session-a", pid: 1 },
 					since: ran,
 					started: ran,
-					ownPeakBytes: 0.5 * 1024 ** 3,
+					ownedPeakBytes: 0.5 * 1024 ** 3,
 				},
 				Date.now() + 300_000,
 				0,
@@ -201,7 +201,7 @@ describe("heavy work waiting for its turn", () => {
 					owner: { session: "session-a", pid: 1 },
 					since: ran,
 					started: ran,
-					ownPeakBytes: 1.5 * 1024 ** 3,
+					ownedPeakBytes: 1.5 * 1024 ** 3,
 				},
 				Date.now() + 7_000,
 				0,
@@ -249,7 +249,7 @@ describe("heavy work waiting for its turn", () => {
 					owner: { session: "session-a", pid: 1 },
 					since: ran,
 					started: ran,
-					ownPeakBytes: 1024 ** 3,
+					ownedPeakBytes: 1024 ** 3,
 				},
 				Date.now() + 300_000,
 				101,
@@ -366,7 +366,7 @@ describe("heavy work waiting for its turn", () => {
 					owner: { session: "session-a", pid: 1 },
 					since: ran,
 					started: ran,
-					ownPeakBytes: 10.9 * 1024 ** 3,
+					ownedPeakBytes: 10.9 * 1024 ** 3,
 				},
 				Date.now() + 300_000,
 				0,
@@ -460,7 +460,7 @@ describe("heavy work waiting for its turn", () => {
 				Date.now(),
 				0,
 			),
-			ownPeakBytes: 13 * 1024 ** 3,
+			ownedPeakBytes: 13 * 1024 ** 3,
 			ranS: 1_200,
 		});
 		const asked: [string, string][] = [];
@@ -505,6 +505,47 @@ describe("heavy work waiting for its turn", () => {
 			]),
 		);
 		expect(asked[0]).toEqual([cc, "/tree"]);
+	});
+
+	it("asks for what a sent changed-checks run was seen to hold, when that is less", () => {
+		// 10 November: changed-checks runs held 0.17 GiB at the median and
+		// 0.37 at the 90th percentile, each booked 6 (80ECO2).
+		const cc = "direnv exec . changed-checks > $TMPDIR/sent.log 2>&1";
+		const ran = new Date().toISOString();
+		keepOutcome(join(root, "outcomes.jsonl"), {
+			...outcomeOf(
+				{
+					id: "sent-before",
+					kind: "build",
+					what: cc,
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+				},
+				Date.now(),
+				0,
+			),
+			ownedPeakBytes: 0.2 * 1024 ** 3,
+			ranS: 300,
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				join(root, "outcomes.jsonl"),
+			),
+			session: "session-a",
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+			sendsWholeRun: () => true,
+		});
+		queuedCommand(cc, "/tree");
+		const [id] = jobIds();
+
+		expect(
+			JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
+		).toMatchObject({ sent: true, needsGib: 1 });
 	});
 
 	it("asks for a turn, and runs at once when the room is there", async () => {

@@ -272,10 +272,11 @@ export interface Processes {
 	isRunning(pid: number): boolean;
 	cgroupOf(pid: number): string | undefined;
 	/**
-	 * The most memory a cgroup has held, in bytes, or nothing when it
+	 * The most memory a cgroup has held, in bytes, while it holds only
+	 * `shell` and what `shell` started, or nothing when it holds more or
 	 * can't be read. A reader that never can leaves it out.
 	 */
-	memoryPeakOf?(cgroup: string): number | undefined;
+	ownedPeakOf?(cgroup: string, shell: number): number | undefined;
 	/**
 	 * The command line of each process in a cgroup, for naming what a job
 	 * runs now. A reader that can't leaves it out, and the name then comes
@@ -524,11 +525,17 @@ export function queueFolder(
 		return (reading.builds ?? []).filter((build) => build.asker === own);
 	};
 
-	/** The most memory a running job's own scope has held, if readable. */
+	/**
+	 * The most memory a running job's own scope has held, if readable and
+	 * its own: a shell still in the cgroup every job is born in reads as
+	 * nothing, rather than as every job's peak.
+	 */
 	const ownPeakOf = (job: Job): number | undefined => {
 		const shell = shellOf(job.id);
 		const own = shell !== undefined ? processes.cgroupOf(shell) : undefined;
-		return own !== undefined ? processes.memoryPeakOf?.(own) : undefined;
+		return own !== undefined && shell !== undefined
+			? processes.ownedPeakOf?.(own, shell)
+			: undefined;
 	};
 
 	/**
@@ -573,8 +580,8 @@ export function queueFolder(
 			const ownNow = ownPeakOf(job);
 			const own =
 				ownNow === undefined
-					? job.ownPeakBytes
-					: Math.max(job.ownPeakBytes ?? 0, ownNow);
+					? job.ownedPeakBytes
+					: Math.max(job.ownedPeakBytes ?? 0, ownNow);
 			// Memory still growing holds the next VM back (queue.ts's
 			// vmSettling); a creep under a step is no growth.
 			const total = peak + (own ?? 0);
@@ -586,7 +593,7 @@ export function queueFolder(
 				...(ranTimed ? { ranTimed: true } : {}),
 				...(vmSince !== undefined ? { vmSince } : {}),
 				...(peak > 0 ? { buildsPeakBytes: peak } : {}),
-				...(own !== undefined ? { ownPeakBytes: own } : {}),
+				...(own !== undefined ? { ownedPeakBytes: own } : {}),
 			};
 			if (JSON.stringify(noted) === JSON.stringify(job)) return job;
 			replace(path(job.id, "job"), `${JSON.stringify(noted)}\n`);

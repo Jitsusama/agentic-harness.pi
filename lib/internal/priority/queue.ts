@@ -211,8 +211,14 @@ export const EVERY_CHECK_GIB = 24;
 export const CHANGED_CHECKS_GIB = 16;
 
 /**
- * What a changed-checks run that sends itself to the builder holds here,
- * in GiB. Of the 149 runs given no flags in the 29 hours to midnight on
+ * What a changed-checks run that sends itself to the builder and has
+ * never been seen to run is held to here, in GiB; once seen it is held
+ * to what it held (outcome.ts's `peakGibAfter`) up to this, since a run
+ * the builder turned away ran here whole. Of the 546 changed-checks
+ * runs recorded with a peak from 8 to 10 November, 523 were held to
+ * this, and the 289 whose peak was not a shared cgroup's held 0.17 GiB at
+ * the median and 0.37 at the 90th percentile; 80ECO2 counted 91 sent runs
+ * at 0.16 and 0.21 at the 75th. Of the 149 runs given no flags in the 29 hours to midnight on
  * 5 November, 141 peaked at 5.8 GiB or under and 8 at 8.9 to 16.2, while
  * each waited for 16 free: changed-checks runs waited 4.1 hours on
  * memory in that time.
@@ -750,9 +756,12 @@ export interface Job {
 	/**
 	 * The most memory its own commands held, in bytes, from its shell's
 	 * scope: the `nix` client's evaluation, cargo, or a VM test run from
-	 * its driver, none of which is a Nix build's.
+	 * its driver, none of which is a Nix build's. Read only while that
+	 * scope holds nothing but its shell's work (room.ts's
+	 * `ownedMemoryPeakOf`); `ownPeakBytes`, which an older harness wrote,
+	 * could hold a scope every job shared, so nothing reads it.
 	 */
-	readonly ownPeakBytes?: number;
+	readonly ownedPeakBytes?: number;
 	/**
 	 * A build its last run, or failing one what it builds, says takes
 	 * seconds (outcome.ts's `quickAfter`): it goes ahead of other bulk
