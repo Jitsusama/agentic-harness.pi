@@ -8,6 +8,7 @@ import {
 	HostMisconfigured,
 	hostInstall,
 	hostPackageDir,
+	nameViewerTerminal,
 	startHostProgram,
 	themeStarter,
 } from "../../../host/service/program.ts";
@@ -37,21 +38,32 @@ describe("conversationBase", () => {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
 			SHOPIFY_PROXY_ORIGIN: "https://proxy.example",
-			PI_IMAGE_PROTOCOL: "kitty",
-			PI_TRUE_COLOR: "1",
-			PI_HYPERLINKS: "1",
 		});
 		expect(host.NOTIFY_SOCKET, "the host keeps its own").toBe(
 			"/run/user/1000/systemd/notify",
 		);
 	});
+});
 
+describe("nameViewerTerminal", () => {
 	it("takes the viewers' terminal to be kitty unless the unit says otherwise", () => {
-		expect(
-			conversationBase({ PI_IMAGE_PROTOCOL: "none", PI_TRUE_COLOR: "0" }),
-		).toEqual({
+		const env: NodeJS.ProcessEnv = {
+			HOME: "/home/someone",
 			PI_IMAGE_PROTOCOL: "none",
 			PI_TRUE_COLOR: "0",
+		};
+		nameViewerTerminal(env);
+		expect(env).toEqual({
+			HOME: "/home/someone",
+			PI_IMAGE_PROTOCOL: "none",
+			PI_TRUE_COLOR: "0",
+			PI_HYPERLINKS: "1",
+		});
+		const bare: NodeJS.ProcessEnv = {};
+		nameViewerTerminal(bare);
+		expect(bare).toEqual({
+			PI_IMAGE_PROTOCOL: "kitty",
+			PI_TRUE_COLOR: "1",
 			PI_HYPERLINKS: "1",
 		});
 	});
@@ -148,6 +160,10 @@ describe("startHostProgram", () => {
 			await expect(started).rejects.toThrow(said);
 		}
 		expect(await readdir(dir), "nothing made a socket folder").toEqual([]);
+		expect(
+			cases.some(([, env]) => env.PI_TRUE_COLOR !== undefined),
+			"a refused host names no terminal",
+		).toBe(false);
 		expect(
 			Reflect.get(globalThis, STARTUP_INSTALL_KEY),
 			"a refused host pins no install",

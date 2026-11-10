@@ -43,9 +43,9 @@ const HOST_ONLY = [
 /**
  * What pi's terminal library should take every hosted screen's terminal
  * to be. A viewer is admitted only as kitty, but pi-tui judges the
- * terminal from the environment, where a host has no KITTY_WINDOW_ID, and
- * keeps its first answer for the whole process. A unit that sets one of
- * these keeps its own value.
+ * terminal from process.env, where a host has no KITTY_WINDOW_ID, and
+ * keeps its first answer for the whole process: the theme asks first, as
+ * it starts. A unit that sets one of these keeps its own value.
  */
 const VIEWER_TERMINAL = {
 	PI_IMAGE_PROTOCOL: "kitty",
@@ -68,7 +68,10 @@ export class HostMisconfigured extends Error {
 export interface HostProgramOptions {
 	/** The command line after the program: the host's kind. */
 	readonly argv: readonly string[];
-	/** The environment the unit gave the process. */
+	/**
+	 * The environment the unit gave the process, process.env itself when
+	 * run: the viewers' terminal is named in it before the theme starts.
+	 */
 	readonly env: NodeJS.ProcessEnv;
 	/** The node running the host, which its subagents run on too. */
 	readonly execPath: string;
@@ -88,12 +91,18 @@ export function hostPackageDir(env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * The environment every conversation starts from: the host's, less what
- * only the host may see, with its viewers' kitty terminal where the unit
- * names none.
+ * Name the viewers' kitty terminal in the host's environment where the
+ * unit names none, so the theme and every conversation after it draw
+ * for the terminal a viewer is.
  */
+export function nameViewerTerminal(env: NodeJS.ProcessEnv): void {
+	for (const [name, value] of Object.entries(VIEWER_TERMINAL))
+		env[name] ??= value;
+}
+
+/** The environment every conversation starts from: the host's, less what only the host may see. */
 export function conversationBase(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const base: NodeJS.ProcessEnv = { ...VIEWER_TERMINAL, ...env };
+	const base = { ...env };
 	for (const name of HOST_ONLY) delete base[name];
 	return base;
 }
@@ -119,6 +128,7 @@ export async function startHostProgram(
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
 	pinStartupInstall(hostInstall(configured.packageDir, options.execPath));
+	nameViewerTerminal(env);
 	configured.startTheme();
 	// The screens import pi's terminal library, which binds to the host's
 	// pi, so they load only once that pi is judged whole: a refused one is
