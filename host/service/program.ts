@@ -4,7 +4,10 @@
  * InteractiveMode as each conversation's screen, H1's engine over the
  * host's ownership, and the renewing gateway key, all run by runHost.
  * The engine pins the host's pi for every hosted subagent.
- * What a restart can't fix (the command line, the realm, the pi install)
+ * A pi runs only with PI_HOST_PROOF naming the proof that `pnpm
+ * test:host` passed on its runtime, as scripts/host-prove.ts writes it.
+ * What a restart can't fix (the command line, the realm, the proof, the
+ * pi install)
  * is judged before anything is held or listens, and refused as such, so
  * systemd stops restarting a host that would only be refused again.
  */
@@ -19,6 +22,7 @@ import {
 } from "../engine/index.ts";
 import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
+import { hostProof } from "./proof.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 
 /**
@@ -42,6 +46,7 @@ const HOST_ONLY = [
 	"LISTEN_PID",
 	"LISTEN_FDNAMES",
 	"PI_PACKAGE_DIR",
+	"PI_HOST_PROOF",
 ] as const;
 
 /**
@@ -161,6 +166,7 @@ async function configuration(options: HostProgramOptions): Promise<{
 		hostKind(options.argv);
 		hostRealm(options.env);
 		const packageDir = hostPackageDir(options.env);
+		hostProof(options.env, packageDir);
 		const pi = await loadHostPi(packageDir);
 		return {
 			packageDir,

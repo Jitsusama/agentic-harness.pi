@@ -1,5 +1,5 @@
 /** The host program judges what it was given before it holds, pins or listens anything. */
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,19 +12,42 @@ import {
 	startupQuestions,
 	themeStarter,
 } from "../../../host/service/program.ts";
+import { PROOF_KIND, PROOF_VERSION } from "../../../host/service/proof.ts";
 
 const STARTUP_INSTALL_KEY = Symbol.for("pi.subagent.startupPiInstall");
 
 let dir: string;
+/** Where the proofs are written, apart from dir, which a refusal leaves empty. */
+let proofs: string;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-program-"));
+	proofs = await mkdtemp(join(tmpdir(), "h2-program-proofs-"));
 });
 afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
+	await rm(proofs, { recursive: true, force: true });
 });
 
+/** A proof that pnpm test:host passed on the runtime at `runtime`. */
+async function proofOf(runtime: string): Promise<string> {
+	const file = join(proofs, `${runtime.replaceAll("/", "_")}.json`);
+	await writeFile(
+		file,
+		JSON.stringify({
+			kind: PROOF_KIND,
+			version: PROOF_VERSION,
+			runtime,
+			harness: "8bd554ed03f8",
+			files: 14,
+			cases: 71,
+			provenAt: "2026-11-10T11:00:00.000Z",
+		}),
+	);
+	return file;
+}
+
 describe("conversationBase", () => {
-	it("keeps the realm's environment but not systemd's hand-over or the host's pi", () => {
+	it("keeps the realm's environment but not systemd's hand-over, the host's pi or its proof", () => {
 		const host = {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
@@ -33,6 +56,7 @@ describe("conversationBase", () => {
 			WATCHDOG_USEC: "1000",
 			LISTEN_FDS: "1",
 			PI_PACKAGE_DIR: "/nix/store/host-pi",
+			PI_HOST_PROOF: "/nix/store/host-pi-proof.json",
 		};
 		expect(conversationBase(host)).toEqual({
 			HOME: "/home/someone",
@@ -150,15 +174,26 @@ describe("hostPackageDir", () => {
 });
 
 describe("startHostProgram", () => {
-	const good = () => ({
-		MYCELIUM_REALM: "work",
-		XDG_RUNTIME_DIR: join(dir, "run"),
-		PI_PACKAGE_DIR: join(dir, "pi"),
-	});
-
-	it("refuses a bad kind, realm or pi install as misconfigured, before anything listens or is pinned", async () => {
+	it("refuses a bad kind, realm, proof or pi install as misconfigured, before anything listens or is pinned", async () => {
+		const proven = await proofOf(dir);
+		const good = (): NodeJS.ProcessEnv => ({
+			MYCELIUM_REALM: "work",
+			XDG_RUNTIME_DIR: join(dir, "run"),
+			PI_PACKAGE_DIR: join(dir, "pi"),
+			PI_HOST_PROOF: proven,
+		});
 		const pinned = Reflect.get(globalThis, STARTUP_INSTALL_KEY);
 		const cases: [string[], NodeJS.ProcessEnv, string][] = [
+			[
+				["attended"],
+				{ ...good(), PI_HOST_PROOF: undefined },
+				"PI_HOST_PROOF must name the proof that pnpm test:host passed",
+			],
+			[
+				["attended"],
+				{ ...good(), PI_HOST_PROOF: await proofOf(join(proofs, "other")) },
+				"The runtime's proof is for",
+			],
 			[["sideways"], good(), "Usage: pi-host attended|background"],
 			[
 				["attended"],

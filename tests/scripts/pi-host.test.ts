@@ -5,7 +5,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -36,10 +36,11 @@ async function piHost(env: NodeJS.ProcessEnv, ...args: string[]) {
 }
 
 describe("pi-host", () => {
-	it("exits 78 with only the reason when its pi install is refused, leaving no socket", async () => {
+	it("exits 78 with only the reason when its proof or pi install is refused, leaving no socket", async () => {
 		const home = mkdtempSync(join(tmpdir(), "h2-pi-host-"));
-		made.push(home);
-		const env = {
+		const proofs = mkdtempSync(join(tmpdir(), "h2-pi-host-proofs-"));
+		made.push(home, proofs);
+		const unproven = {
 			PATH: process.env.PATH,
 			HOME: home,
 			TMPDIR: home,
@@ -48,6 +49,24 @@ describe("pi-host", () => {
 			MYCELIUM_REALM: "work",
 			PI_PACKAGE_DIR: join(home, "no-pi"),
 		};
+		const bare = await piHost(unproven, "attended");
+		expect(bare.code).toBe(78);
+		expect(bare.stderr).toMatch(/^pi-host: PI_HOST_PROOF must name the proof/);
+
+		const proof = join(proofs, "proof.json");
+		writeFileSync(
+			proof,
+			JSON.stringify({
+				kind: "pi-host-runtime-proof",
+				version: 1,
+				runtime: home,
+				harness: "8bd554ed03f8",
+				files: 14,
+				cases: 71,
+				provenAt: "2026-11-10T11:00:00.000Z",
+			}),
+		);
+		const env = { ...unproven, PI_HOST_PROOF: proof };
 		const refused = await piHost(env, "attended");
 		expect(refused.code).toBe(78);
 		expect(refused.stderr).toMatch(/^pi-host: The pi at .*no-pi is incomplete/);
