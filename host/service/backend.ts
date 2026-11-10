@@ -34,7 +34,9 @@ export interface Prepared {
  * first words, resolves once the first durable submit commits; discard
  * undoes only what prepare created; resume re-registers a held conversation,
  * with the launch environment it was held with, and rejects with the reason
- * it can't; abort stops the current run and keeps ownership.
+ * it can't; abort stops the current run and keeps ownership. watch, called
+ * once before anything resumes or opens, hands the engine what to tell the
+ * service when a conversation changes inside pi rather than over the wire.
  */
 export interface ConversationEngine {
 	prepare(request: OpenRequest | AdoptRequest): Promise<Prepared>;
@@ -42,6 +44,21 @@ export interface ConversationEngine {
 	discard(prepared: Prepared): Promise<void>;
 	resume(entry: RosterEntry): Promise<void>;
 	abort(sessionId: string): Promise<void>;
+	watch?(events: ConversationEvents): void;
+}
+
+/**
+ * What the engine tells the service about a conversation pi changed
+ * itself. ended: the conversation itself ended (pi's quit, an extension's
+ * shutdown, a replacement), after its close committed; never for the
+ * host stopping, which parks conversations and keeps them held. became:
+ * a held conversation is becoming another under a new id (pi's new, fork
+ * or resume), awaited before the engine registers the new id, which it
+ * must not register when this rejects.
+ */
+export interface ConversationEvents {
+	ended(sessionId: string, why: string): Promise<void>;
+	became(previousId: string, next: Prepared): Promise<void>;
 }
 
 /** The engine's live ownership, as SessionHost keeps it. */
@@ -190,6 +207,49 @@ export function hostBackend(options: {
 					live(request.sessionId);
 					return { sessionId: request.sessionId };
 			}
+		},
+	};
+}
+
+/**
+ * Keep the roster true to what pi did inside a conversation. A conversation
+ * that becomes another is held in its place in one write, keeping whether
+ * it is attended, its quest and, unless the engine derived a new one, its
+ * launch environment; one that ended is dropped. A drop that fails is
+ * reported rather than thrown back into pi, whose conversation has already
+ * ended; a replacement that fails rejects, so the engine never runs a
+ * conversation nothing holds.
+ */
+export function conversationEvents(options: {
+	roster: HostRoster;
+	report: (error: unknown) => void;
+	now?: () => Date;
+}): ConversationEvents {
+	const { roster, report } = options;
+	const now = options.now ?? (() => new Date());
+	return {
+		async ended(sessionId) {
+			try {
+				await roster.drop(sessionId);
+			} catch (error) {
+				report(error);
+			}
+		},
+		async became(previousId, next) {
+			const previous = roster
+				.entries()
+				.find((held) => held.sessionId === previousId);
+			if (!previous) throw new Error(`Conversation is not held: ${previousId}`);
+			const launch = next.launch ?? previous.launch;
+			await roster.replace(previousId, {
+				sessionId: next.sessionId,
+				file: next.file,
+				cwd: next.cwd,
+				attended: previous.attended,
+				...(previous.quest ? { quest: previous.quest } : {}),
+				since: now().toISOString(),
+				...(launch ? { launch } : {}),
+			});
 		},
 	};
 }

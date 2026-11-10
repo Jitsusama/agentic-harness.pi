@@ -63,6 +63,14 @@ export interface HostRoster {
 	 * environment naming a credential, or a name no shell takes, is refused.
 	 */
 	hold(entry: RosterEntry): Promise<void>;
+	/**
+	 * Hold `entry` in place of `previousId`, in one write, as when a held
+	 * conversation becomes another inside pi (a new, forked or resumed
+	 * session), so a crash leaves either the old hold or the new one and
+	 * never both or neither. Refused, changing nothing, when `previousId`
+	 * isn't held or another conversation holds the new id or file.
+	 */
+	replace(previousId: string, entry: RosterEntry): Promise<void>;
 	/** Remove a hold once a close or release has committed. */
 	drop(sessionId: string): Promise<void>;
 	/** Release the lock, keeping every hold for the next start. */
@@ -111,25 +119,17 @@ export async function openRoster(options: {
 		key: options.key,
 		entries: () => [...sessions],
 		hold: (entry) =>
+			change((current) => [...current, writable(entry, current)]),
+		replace: (previousId, entry) =>
 			change((current) => {
-				const refused = launchRefusal(entry.launch ?? {});
-				if (refused) throw new Error(refused);
-				const file = resolve(entry.file);
-				if (
-					current.some(
-						(held) =>
-							held.sessionId === entry.sessionId || resolve(held.file) === file,
-					)
-				)
-					throw new Error("Conversation is already held");
-				const { launch, ...held } = entry;
+				const at = current.findIndex((held) => held.sessionId === previousId);
+				if (at < 0) throw new Error(`Conversation is not held: ${previousId}`);
+				const others = current.filter((_, index) => index !== at);
+				// In the old one's place, so a restart resumes in the same order.
 				return [
-					...current,
-					{
-						...held,
-						file,
-						...(launch && Object.keys(launch).length > 0 ? { launch } : {}),
-					},
+					...others.slice(0, at),
+					writable(entry, others),
+					...others.slice(at),
 				];
 			}),
 		drop: (sessionId) =>
@@ -142,6 +142,33 @@ export async function openRoster(options: {
 			closed = true;
 			await releaseLock(lock, mine);
 		},
+	};
+}
+
+/**
+ * The entry as the roster writes it, its file resolved and an empty launch
+ * left off, or a refusal when its launch can't be written down or `held`
+ * already has its id or file.
+ */
+function writable(
+	entry: RosterEntry,
+	held: readonly RosterEntry[],
+): RosterEntry {
+	const refused = launchRefusal(entry.launch ?? {});
+	if (refused) throw new Error(refused);
+	const file = resolve(entry.file);
+	if (
+		held.some(
+			(other) =>
+				other.sessionId === entry.sessionId || resolve(other.file) === file,
+		)
+	)
+		throw new Error("Conversation is already held");
+	const { launch, ...rest } = entry;
+	return {
+		...rest,
+		file,
+		...(launch && Object.keys(launch).length > 0 ? { launch } : {}),
 	};
 }
 

@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionHost } from "../../../host/engine/index.ts";
-import type { ConversationEngine } from "../../../host/service/backend.ts";
+import type {
+	ConversationEngine,
+	ConversationEvents,
+} from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import {
 	parseListResult,
@@ -206,6 +209,46 @@ describe("serveHost", () => {
 				[kept, "idle"],
 				[gone, "parked"],
 			]);
+		} finally {
+			await second.stop();
+		}
+	});
+
+	it("watches the engine before it resumes, so a conversation that ends inside pi is dropped", async () => {
+		const first = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+		});
+		const reply = await opened(first.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await first.stop();
+
+		const order: string[] = [];
+		let events: ConversationEvents | undefined;
+		const second = await serveHost({
+			...places(),
+			engine: async (h) => {
+				const plain = engine(h);
+				return {
+					...plain,
+					watch: (given) => {
+						order.push("watch");
+						events = given;
+					},
+					resume: async (entry) => {
+						order.push("resume");
+						await plain.resume(entry);
+					},
+				};
+			},
+		});
+		try {
+			expect(order).toEqual(["watch", "resume"]);
+			await events?.ended(sessionId, "quit");
+			expect(
+				await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
+			).toBe("unheld");
 		} finally {
 			await second.stop();
 		}
