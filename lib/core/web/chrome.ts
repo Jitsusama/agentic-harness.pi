@@ -81,6 +81,30 @@ export function findChrome(
 }
 
 /**
+ * A session bus address no bus listens on, for a Chrome that must not
+ * reach the person's own.
+ */
+export const NO_SESSION_BUS = "unix:path=/nonexistent/pi-agent-chrome";
+
+/**
+ * The environment a headless Chrome the agent drives starts with: the
+ * caller's, kept off the session bus.
+ *
+ * On Linux, Chrome asks systemd over the session bus to move it into a
+ * scope of its own, app-com.google.Chrome-<pid>.scope, in the person's
+ * app.slice. An agent's Chrome then ran at the person's priority,
+ * competing with what they use, as one did for six minutes on 10
+ * November. With no bus to ask, it stays in the slice of the session
+ * that started it. A headless Chrome needs nothing else from that bus,
+ * since its profile keeps passwords in plain storage.
+ */
+export function headlessEnvironment(
+	env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+	return { ...env, DBUS_SESSION_BUS_ADDRESS: NO_SESSION_BUS };
+}
+
+/**
  * Settle on the binary to launch, refusing a configured path that is
  * not there.
  *

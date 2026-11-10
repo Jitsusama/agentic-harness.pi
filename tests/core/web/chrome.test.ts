@@ -1,6 +1,11 @@
 import * as os from "node:os";
 import { describe, expect, it } from "vitest";
-import { findChrome, resolveChromePath } from "../../../lib/core/web/chrome.ts";
+import {
+	findChrome,
+	headlessEnvironment,
+	NO_SESSION_BUS,
+	resolveChromePath,
+} from "../../../lib/core/web/chrome.ts";
 
 describe("findChrome", () => {
 	it("finds Chrome on the search path when it isn't installed in a fixed place", () => {
@@ -81,5 +86,30 @@ describe("resolveChromePath", () => {
 			expect(String(error)).toMatch(/Chrome not found/);
 			expect(String(error)).not.toMatch(/CHROME_PATH is set to/);
 		}
+	});
+});
+
+// 10 November: an agent's headless Chrome asked systemd over the
+// session bus for a scope in the person's app.slice, and ran at their
+// priority for six minutes and more.
+describe("headlessEnvironment", () => {
+	it("keeps the caller's environment but no session bus", () => {
+		const env = headlessEnvironment({
+			PATH: "/bin",
+			DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+		});
+		expect(env).toEqual({
+			PATH: "/bin",
+			DBUS_SESSION_BUS_ADDRESS: NO_SESSION_BUS,
+		});
+	});
+
+	it("names a bus no socket answers on, even where none was set", () => {
+		// An unset address would let the bus library fall back to
+		// $XDG_RUNTIME_DIR/bus, which is the person's own.
+		expect(headlessEnvironment({}).DBUS_SESSION_BUS_ADDRESS).toBe(
+			NO_SESSION_BUS,
+		);
+		expect(NO_SESSION_BUS).toMatch(/^unix:path=\/nonexistent\//);
 	});
 });
