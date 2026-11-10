@@ -42,6 +42,7 @@
 		"devx",
 		"kitty",
 		"mycelium",
+		"nix-store",
 		"perl",
 		"pgrep",
 		"pkill",
@@ -50,6 +51,14 @@
 		"session-backup",
 		"systemd-notify",
 		"xdg-open"
+	],
+	// knip 6.44.1 resolves the paths of a package script a source file
+	// runs from that file's folder, not the package's (expandScript, in
+	// dist/binaries/util.js), so test:host's reporter, which
+	// scripts/host-prove.ts runs, looks missing. Try dropping this when
+	// knip moves.
+	"ignoreUnresolved": [
+		"^\\./tests/host/end-to-end/support/every-case-ran\\.mts$"
 	],
 	// An export a file also uses itself is no dead code.
 	"ignoreExportsUsedInFile": true
