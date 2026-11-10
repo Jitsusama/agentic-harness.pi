@@ -141,14 +141,17 @@ it("fails a missing recording rather than comparing two empty ones", () => {
 it("sets aside only the durable journal's confirmation", () => {
 	expect(
 		expectedOfTheHost({ path: "events[3:turn_end].journal.last.status" }),
+		"the journal's confirmation is the host's own",
 	).toBe(true);
-	expect(expectedOfTheHost({ path: "events[3:turn_end].journal.size" })).toBe(
-		false,
-	);
+	expect(
+		expectedOfTheHost({ path: "events[3:turn_end].journal.size" }),
+		"any other journal field still counts as a difference",
+	).toBe(false);
 	expect(
 		expectedOfTheHost({
 			path: "events[3].journal.last.status",
 			kind: "missing-event",
 		}),
+		"a missing event is never set aside",
 	).toBe(false);
 });
