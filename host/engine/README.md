@@ -77,7 +77,11 @@ the file.
 
 ToolRound (tool-round.ts) keeps pi's tool-call steps in pi's order:
 start, then preparation, hooks and validation, then execution. A
-parallel round prepares every call before any runs, as pi does. pi-types.ts
+parallel round prepares every call before any runs, as pi does. It also
+scrubs credentials from each streamed update and from the result it
+ends a call with, so viewers and the durable store never hold one; pi's
+afterToolCall still sees the raw result, and a result with nothing to
+hide passes as the same object. pi-types.ts
 and durable-types.ts declare the narrow shapes the engine uses of pi's
 JavaScript, and pi-library.ts picks pi's functions from the loaded
 install. tests/host/engine/hosted-agent.test.ts holds the agent to pi's
