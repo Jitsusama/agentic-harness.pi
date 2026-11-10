@@ -105,7 +105,9 @@ install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each
 conversation with pi's own runtime (pi-session.ts declares what it uses).
 A conversation is registered with SessionHost, then its extensions load,
-its session is built and its first words are sent, all under its id.
+bound by its screen or, with none, as pi's RPC mode binds them
+(headless.ts), its session is built and its first words are sent, all
+under its id.
 Its model runtime reads keys through an auth context over the
 conversation's own environment (auth-context.ts, and the auth-context
 patch), never the host's. The engine writes a new conversation's session
@@ -122,6 +124,14 @@ to answer; its first words go in once the person has. With no screen to
 ask, or unattended, a folder pi would ask about stays untrusted, and its
 start warns that its own settings and extensions were not loaded. A close
 while asking settles the question and builds nothing more.
+
+An open answers once its first words are durable, so a failed prompt
+fails the open, except while something waits on the person no viewer can
+yet reach: the trust question, an extension command, or a dialog its
+screen says is open (the asking signal handed to opened), such as an
+extension's input handler asking before the words go on. Then it answers
+at once, and what fails after is reported and handed to the screen
+(failed), which shows it as pi shows an initial message's error.
 
 A close aborts what runs and stamps `closed`. A stop parks the agent and
 stamps `signalled`, leaving what durable had in flight for the next

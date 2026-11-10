@@ -163,6 +163,8 @@ export interface AgentSession {
 		options?: object,
 	): Promise<{ cancelled: boolean }>;
 	bindExtensions(bindings: {
+		/** What extensions' ctx.ui reaches, as a screen binds it; none keeps what was bound. */
+		uiContext?: object;
 		mode?: "tui" | "rpc" | "json" | "print";
 		commandContextActions?: CommandContextActions;
 		shutdownHandler?: () => void;

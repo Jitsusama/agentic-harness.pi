@@ -36,6 +36,7 @@ import {
 	type HarnessRequest,
 	harnessSettings,
 } from "./harness-settings.ts";
+import { bindHeadless } from "./headless.ts";
 import { loadHostPi } from "./host-pi.ts";
 import type { HostedAgent } from "./hosted-agent.ts";
 import {
@@ -438,36 +439,6 @@ export async function createEngine(
 		await host.close(previousId, "pi failed to replace it").catch(report);
 	}
 
-	/** Bind a conversation's extensions with no interface, as pi's RPC mode does, again after each replacement. */
-	async function bindHeadless(runtime: AgentSessionRuntime): Promise<void> {
-		const session = runtime.session;
-		const sessionId = session.sessionId;
-		await session.bindExtensions({
-			mode: "rpc",
-			commandContextActions: {
-				waitForIdle: () => runtime.session.waitForIdle(),
-				newSession: (next) => runtime.newSession(next),
-				fork: (entryId, next) => runtime.fork(entryId, next),
-				navigateTree: (targetId, next) =>
-					runtime.session.navigateTree(targetId, next),
-				switchSession: (path, next) => runtime.switchSession(path, next),
-				reload: () =>
-					host.reload(runtime.session.sessionId, {
-						reason: "an extension asked",
-					}),
-			},
-			shutdownHandler: () => {
-				host
-					.close(sessionId, "an extension ended the conversation")
-					.catch(report);
-			},
-			onError: (error) =>
-				report(
-					new Error(`Extension error (${error.extensionPath}): ${error.error}`),
-				),
-		});
-	}
-
 	/** Build a registered conversation, under its id, and carry on what it had in flight. */
 	async function build(
 		record: Live,
@@ -500,10 +471,13 @@ export async function createEngine(
 		record.unsubscribe = runtime.session.subscribe((event) =>
 			publishState(sessionId, event.type),
 		);
-		if (options.screens) await options.screens.opened(view(sessionId, record));
+		if (options.screens)
+			await options.screens.opened(view(sessionId, record), {
+				asking: () => record.asked?.(),
+			});
 		else {
-			runtime.setRebindSession(() => bindHeadless(runtime));
-			await bindHeadless(runtime);
+			runtime.setRebindSession(() => bindHeadless(runtime, host, report));
+			await bindHeadless(runtime, host, report);
 		}
 		const recovery = await agent.recover();
 		if (first === undefined) {
@@ -539,7 +513,19 @@ export async function createEngine(
 		// command was taken the moment it started, which prompt has done by now.
 		if (namesCommand(session, first)) handled();
 		await Promise.race([admitted, taken, prompting]);
-		prompting.catch(report);
+		prompting.catch((error: unknown) => failedAfterStart(record, error));
+	}
+
+	/** Something failed once its conversation's start had answered, so no open fails with it: report it, and show it on the screen if it has one. */
+	function failedAfterStart(record: Live, error: unknown): void {
+		report(error);
+		if (record.closing || !record.runtime) return;
+		const message = error instanceof Error ? error.message : String(error);
+		try {
+			options.screens?.failed?.(record.traits.sessionId, message);
+		} catch (showing) {
+			report(showing);
+		}
 	}
 
 	/** Register a conversation, then build it under its id; one that fails once registered stays held, parked. */
@@ -572,7 +558,7 @@ export async function createEngine(
 			);
 		// A start whose screen is asking the person answers now, so a viewer can attach to answer; the build carries on, and says what fails.
 		if ((await Promise.race([building, asking])) === "asking")
-			building.catch(report);
+			building.catch((error: unknown) => failedAfterStart(record, error));
 	}
 
 	/**
