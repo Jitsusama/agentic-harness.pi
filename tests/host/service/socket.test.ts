@@ -236,6 +236,10 @@ describe("viewer connection lifecycle", () => {
 				ok: true,
 				id: "view",
 			});
+			expect(
+				(await messages.next()).value,
+				"a joining viewer is first given the modes pi's screen expects",
+			).toEqual({ type: "output", data: "\x1b[>7u\x1b[?2004h" });
 			expect((await messages.next()).value).toEqual({
 				type: "output",
 				data: `screen-${id}`,

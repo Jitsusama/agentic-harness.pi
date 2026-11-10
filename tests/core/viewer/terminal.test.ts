@@ -129,6 +129,29 @@ describe("persistent viewer terminal", () => {
 		b.dispose();
 	});
 
+	it("keeps its viewers across a rebind and dispatches under the new session", () => {
+		host();
+		const seen: string[] = [];
+		const terminal = new ViewerTerminal("a", () =>
+			seen.push(`paint:${ambientSession()}`),
+		);
+		terminal.start(
+			(data) => seen.push(`${ambientSession()}:${data}`),
+			() => {},
+		);
+		const one = viewer();
+		const attached = terminal.attach(one);
+		seen.length = 0;
+		terminal.rebind("b");
+		attached.input("x");
+		terminal.write("after");
+		expect(terminal.sessionId).toBe("b");
+		expect(seen).toEqual(["paint:b", "b:x"]);
+		expect(one.write).toHaveBeenLastCalledWith("after");
+		expect(one.disconnect).not.toHaveBeenCalled();
+		terminal.dispose();
+	});
+
 	it("discards a detached viewer's pending input and accepts a later viewer", () => {
 		vi.useFakeTimers();
 		const close = host();
@@ -172,6 +195,7 @@ describe("persistent viewer terminal", () => {
 		const good = viewer();
 		const one = terminal.attach(bad);
 		terminal.attach(good);
+		bad.write.mockClear();
 		expect(() => one.resize(24, 0)).not.toThrow();
 		expect(bad.disconnect).toHaveBeenCalledExactlyOnceWith(
 			"Viewer dimensions must be integers from 1 to 1000",
@@ -187,13 +211,13 @@ describe("persistent viewer terminal", () => {
 		const terminal = new ViewerTerminal("a", () => {});
 		const broken = viewer();
 		const good = viewer();
+		terminal.attach(broken);
 		broken.write.mockImplementation(() => {
 			throw new Error("closed");
 		});
 		broken.disconnect.mockImplementation(() => {
 			throw new Error("already closed");
 		});
-		terminal.attach(broken);
 		terminal.attach(good);
 		terminal.write("still here");
 		expect(good.write).toHaveBeenCalledWith("still here");
@@ -228,6 +252,7 @@ describe("persistent viewer terminal", () => {
 		await terminal.drainInput();
 		terminal.stop();
 		expect(sink.write.mock.calls.map(([data]) => data)).toEqual([
+			"\x1b[>7u\x1b[?2004h",
 			"\x1b[2A",
 			"\x1b[?25l",
 			"\x1b[2K",
@@ -242,6 +267,49 @@ describe("persistent viewer terminal", () => {
 			terminal.kittyProtocolActive,
 			"the kitty keyboard protocol stays on through pi's terminal controls",
 		).toBe(true);
+		terminal.dispose();
+	});
+
+	it("gives a late viewer pi's modes before its repaint, the screen last", () => {
+		const terminal = new ViewerTerminal("a", () => terminal.write("painted"));
+		terminal.write(
+			"\x1b[?1049h\x1b[?7l\x1b[?1000h\x1b[?1006h\x1b[2J\x1b[H\x1b[?25l",
+		);
+		terminal.write("\x1b[?2026hframe\x1b[?2026l\x1b[?10");
+		terminal.write("04h\x1b[?1000l");
+		terminal.write(`\x1b[?${"1".repeat(100)}`);
+		terminal.write("h");
+		const late = viewer();
+		terminal.attach(late);
+		expect(late.write.mock.calls.map(([data]) => data)).toEqual([
+			"\x1b[?7l\x1b[?1006h\x1b[?25l\x1b[?1004h\x1b[?1000l\x1b[?1049h\x1b[>7u\x1b[?2004h",
+			"painted",
+		]);
+		terminal.dispose();
+	});
+
+	it("refuses a viewer whose first output fails, leaving the others watching", () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		const good = viewer();
+		terminal.attach(good);
+		const broken = viewer(10, 10);
+		broken.write.mockImplementation(() => {
+			throw new Error("closed");
+		});
+		expect(() => terminal.attach(broken)).toThrow("Viewer output failed");
+		expect([terminal.rows, terminal.columns]).toEqual([40, 120]);
+		terminal.write("still here");
+		expect(good.write).toHaveBeenLastCalledWith("still here");
+		terminal.dispose();
+	});
+
+	it("keeps no stray unfinished sequence as a mode", () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		terminal.write("\x1b[?25");
+		terminal.write("x\x1b[?25l");
+		const late = viewer();
+		terminal.attach(late);
+		expect(late.write).toHaveBeenCalledWith("\x1b[?25l\x1b[>7u\x1b[?2004h");
 		terminal.dispose();
 	});
 });

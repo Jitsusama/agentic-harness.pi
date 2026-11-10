@@ -1,0 +1,193 @@
+/** Persistent screens: one per conversation, quitting closes only its own, viewers come and go. */
+import { describe, expect, it, vi } from "vitest";
+import {
+	type HostedMode,
+	type HostedModeOptions,
+	type HostedView,
+	hostedModeOf,
+	hostScreens,
+} from "../../../host/screen/screens.ts";
+import { ambientSession } from "../../../lib/core/session/index.ts";
+import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+
+/** A stand-in for pi's hosted InteractiveMode: it runs until it quits. */
+class FakeMode implements HostedMode {
+	static readonly hostedLifecycleVersion = 1;
+	readonly ui = { requestRender: vi.fn() };
+	ranIn: string | undefined;
+	private finish: (() => void) | undefined;
+	private fail: ((error: unknown) => void) | undefined;
+
+	readonly runtime: unknown;
+	readonly options: HostedModeOptions;
+
+	constructor(runtime: unknown, options: HostedModeOptions) {
+		this.runtime = runtime;
+		this.options = options;
+	}
+
+	run(): Promise<void> {
+		this.ranIn = ambientSession();
+		return new Promise((resolve, reject) => {
+			this.finish = resolve;
+			this.fail = reject;
+		});
+	}
+
+	/** What pi's quit does in a hosted screen: stop, tell the host, end run. */
+	readonly shutdown = vi.fn(async () => {
+		await this.options.hosted.onExit(0);
+		this.finish?.();
+	});
+
+	crash(error: unknown): void {
+		this.fail?.(error);
+	}
+}
+
+function host() {
+	const modes = new Map<unknown, FakeMode>();
+	const report = vi.fn();
+	const screens = hostScreens({
+		create: (runtime, options) => {
+			const mode = new FakeMode(runtime, options);
+			modes.set(runtime, mode);
+			return mode;
+		},
+		report,
+	});
+	const closes: [string, string][] = [];
+	function view(
+		sessionId: string,
+		runtime: unknown = { sessionId },
+	): HostedView {
+		return {
+			sessionId,
+			runtime,
+			close: async (why) => {
+				closes.push([sessionId, why]);
+				await screens.screens.closed(sessionId);
+			},
+		};
+	}
+	function mode(runtime: unknown): FakeMode {
+		const found = modes.get(runtime);
+		if (!found) throw new Error("no screen was built over that runtime");
+		return found;
+	}
+	return { ...screens, report, closes, view, mode };
+}
+
+function sink() {
+	return { write: vi.fn(), disconnect: vi.fn() };
+}
+
+function attach(sessionId: string, rows = 40, columns = 120) {
+	return { v: 1, id: "r1", op: "attach", sessionId, rows, columns } as const;
+}
+
+describe("hosted screens", () => {
+	it("runs a screen in its conversation before anyone watches, and viewers join it", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+		const mode = screens.mode(a.runtime);
+		expect(mode.ranIn, "the screen runs under its own session").toBe("a");
+		const one = sink();
+		screens.viewer.attach(attach("a"), one);
+		expect(mode.ui.requestRender).toHaveBeenCalledWith(true);
+		mode.options.terminal.write("hello");
+		expect(one.write).toHaveBeenCalledWith("hello");
+	});
+
+	it("quitting one screen closes only its conversation and lets its viewers go", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		const b = screens.view("b");
+		await screens.screens.opened(a);
+		await screens.screens.opened(b);
+		const watching = sink();
+		const sibling = sink();
+		screens.viewer.attach(attach("a"), watching);
+		screens.viewer.attach(attach("b"), sibling);
+		await screens.mode(a.runtime).shutdown();
+		expect(screens.closes).toEqual([["a", "quit"]]);
+		expect(screens.ids()).toEqual(["b"]);
+		expect(watching.disconnect).toHaveBeenCalledWith("Conversation closed");
+		expect(sibling.disconnect).not.toHaveBeenCalled();
+		expect(screens.mode(a.runtime).shutdown).toHaveBeenCalledTimes(1);
+	});
+
+	it("a conversation closed from elsewhere stops its screen without closing it again", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+		await screens.screens.closed("a");
+		expect(screens.mode(a.runtime).shutdown).toHaveBeenCalledTimes(1);
+		expect(screens.closes).toEqual([]);
+		expect(() => screens.viewer.attach(attach("a"), sink())).toThrow(
+			"Conversation has no screen: a",
+		);
+	});
+
+	it("a screen that fails closes its conversation and says why", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+		const failure = new Error("renderer broke");
+		screens.mode(a.runtime).crash(failure);
+		await vi.waitFor(() => expect(screens.closes).toHaveLength(1));
+		expect(screens.closes).toEqual([["a", "screen ended with 1"]]);
+		expect(screens.report).toHaveBeenCalledWith(failure);
+	});
+
+	it("follows a rebound conversation to its new id, keeping its viewers", async () => {
+		const screens = host();
+		const runtime = { shared: true };
+		await screens.screens.opened(screens.view("a", runtime));
+		const watching = sink();
+		screens.viewer.attach(attach("a"), watching);
+		await screens.screens.rebound(screens.view("c", runtime), "a");
+		expect(screens.ids()).toEqual(["c"]);
+		expect(screens.mode(runtime).options.terminal.sessionId).toBe("c");
+		expect(() => screens.viewer.attach(attach("a"), sink())).toThrow(
+			"Conversation has no screen: a",
+		);
+		screens.viewer.attach(attach("c"), sink());
+		expect(watching.disconnect).not.toHaveBeenCalled();
+		await screens.mode(runtime).shutdown();
+		expect(screens.closes).toEqual([["c", "quit"]]);
+	});
+
+	it("refuses a rebind onto another runtime and a second screen for one id", async () => {
+		const screens = host();
+		await screens.screens.opened(screens.view("a"));
+		expect(() => screens.screens.rebound(screens.view("c"), "a")).toThrow(
+			"Conversation a was rebound onto another runtime",
+		);
+		expect(() => screens.screens.opened(screens.view("a"))).toThrow(
+			"Conversation already has a screen: a",
+		);
+		expect(screens.ids()).toEqual(["a"]);
+	});
+});
+
+describe("the host's pi screen", () => {
+	it("builds pi's hosted screen over the conversation's runtime", () => {
+		const runtime = {};
+		const create = hostedModeOf(FakeMode);
+		const hosted = { onExit: async () => undefined };
+		const terminal = new ViewerTerminal("a", () => {});
+		const mode = create(runtime, { terminal, hosted });
+		expect(mode).toBeInstanceOf(FakeMode);
+		expect(mode instanceof FakeMode && mode.runtime).toBe(runtime);
+	});
+
+	it("refuses a pi whose screen would own the host's process", () => {
+		class Ordinary {}
+		expect(() => hostedModeOf(Ordinary)).toThrow(
+			"pi's InteractiveMode lacks the hosted lifecycle (pi-host-interactive-lifecycle.patch)",
+		);
+		expect(() => hostedModeOf(undefined)).toThrow("lacks the hosted lifecycle");
+	});
+});

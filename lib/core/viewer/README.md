@@ -3,7 +3,7 @@
 A pi-tui Terminal for one hosted conversation, not a second screen
 implementation. H2's socket service owns framing, validation, output queue
 bounds and disconnects. This module owns viewer input parsing, minimum
-geometry and session-scoped callbacks. No socket or process tty is opened.
+geometry, mode replay and session-scoped callbacks. No socket or process tty is opened.
 
 Attach a sink with rows, columns, write and disconnect. Its attachment
 accepts input, resize and detach. The sink's write must enqueue without
@@ -19,11 +19,21 @@ throwing into a shared socket handler. Pi renders at the minimum row count
 and minimum column count across joined viewers, so a larger viewer sees
 the same smaller canvas. With no viewers, geometry retains its last value.
 
-This terminal assumes kitty keyboard protocol is already enabled by the
-client. The host's one theme, keymap and terminal capability profile belong
-to Joel; H2 must refuse clients that do not match that profile. Negotiation,
-image-path admission and client tty restoration are not implemented here.
+Pi asks its terminal for its private modes once, as it starts: the
+alternate screen, autowrap, mouse reports, a hidden cursor. `modes.ts`
+reads them from pi's output, so a viewer joining later is first given
+every mode but the screen, then the screen, then kitty's keyboard flags
+(7) and bracketed paste, which pi's own terminal would have pushed and
+which follow the screen because kitty keeps flags per screen. Only then is
+it repainted. A viewer whose first output fails is refused. Synchronized
+output (2026) is a frame bracket, not a mode, and is not replayed. Each
+client stays a byte pipe that resets its own tty as it leaves.
 
-InteractiveMode lifetime and its process-global exit, signal, suspend and
-fatal paths still require host-only pi adaptation. Unit transport tests
-are not evidence of screen isolation or an actual panel being answered.
+The host's one theme, keymap and terminal capability profile belong to
+Joel; H2 must refuse clients that do not match that profile. Image-path
+admission is not implemented here.
+
+The screen layer (`host/screen/`) runs pi's InteractiveMode on this
+terminal, with core.nix's host-only pi patch for its exit, signal,
+suspend and fatal paths. Unit transport tests are not evidence of an
+actual panel being answered.

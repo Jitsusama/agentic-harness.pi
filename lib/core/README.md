@@ -74,6 +74,8 @@ What comes next, by the fold's plan (PLAN-20261025-QR647O):
   in `internal/tree/`.
 - `verify/`: running the project's check command on request, and
   saying whether it still builds and passes.
+- `viewer/`: the persistent pi terminal a hosted conversation draws
+  on, which viewers join and leave without owning it.
 - `web/`: driving a real Chrome and reading back what it knows: the
   session, the page reader and search at the top, and a subdomain
   barrel a concern beside them, each imported by its own path.
