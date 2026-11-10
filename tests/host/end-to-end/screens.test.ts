@@ -55,6 +55,9 @@ const LOADED = "extension-loaded";
 /** First words a folder's extension asks about before they go on. */
 const ASK_ME = "ask me first";
 const GO_ON = "Go on?";
+/** First words a folder's extension shows its own component about, and what it shows. */
+const SHOW_ME = "show me a panel";
+const PANEL = "A panel of its own: press any key";
 
 /**
  * What the pi under test lacks of a hook, read from its own built source:
@@ -65,7 +68,7 @@ function lacks(file: string, hook: string, since: string): string | undefined {
 	const path = join(packageDir, file);
 	if (existsSync(path) && readFileSync(path, "utf8").includes(hook))
 		return undefined;
-	return `The pi at ${packageDir} has no ${hook}: point PI_HOST_PACKAGE_DIR at a piHostRuntime built from ${since} or later`;
+	return `The pi at ${packageDir} has no "${hook}": point PI_HOST_PACKAGE_DIR at a piHostRuntime built from ${since} or later`;
 }
 /** A pi from before core.nix#2782 can't resend a late viewer its images. */
 const NO_LATE_IMAGES = lacks(
@@ -78,6 +81,13 @@ const NO_HANDOFF = lacks(
 	"dist/modes/interactive/interactive-mode.js",
 	"editText",
 	"core.nix#2782",
+);
+
+/** Nor say an extension's own component waits on the person. */
+const NO_PANEL_STATUS = lacks(
+	"dist/modes/interactive/interactive-mode.js",
+	"An extension is asking",
+	"core.nix#2853",
 );
 
 /** Skip a case its pi can't run, saying which can, or fail it under `pnpm test:host`. */
@@ -553,6 +563,22 @@ describe.skipIf(!packageDir)(
 			},
 			CASE_MS,
 		);
+
+		for (const overlay of [true, false])
+			it(
+				`answers an open whose extension shows its own component${overlay ? " over the screen" : " in the editor's place"} before the first words go on (needs core.nix#2853's pi)`,
+				async ({ skip }) => {
+					needs(NO_PANEL_STATUS, skip);
+					const { sessionId } = await host.open(panelFirst(overlay), SHOW_ME);
+					const shown = await viewer(sessionId, 30, 100);
+					await shown.shows(PANEL);
+
+					shown.type(ENTER);
+
+					await shown.shows(`heard: ${SHOW_ME}`, TURN_MS);
+				},
+				CASE_MS,
+			);
 	},
 );
 
@@ -592,6 +618,34 @@ function askingFirst(): string {
 		if (event.text !== ${JSON.stringify(ASK_ME)}) return { action: "continue" };
 		const answer = await ctx.ui.select(${JSON.stringify(GO_ON)}, ["Yes", "No"]);
 		return { action: answer === "Yes" ? "continue" : "handled" };
+	});
+}
+`,
+	);
+}
+
+/**
+ * A fresh trusted folder whose own extension shows a component of its
+ * own before first words of SHOW_ME go on, over the screen as every
+ * harness panel is or in the editor's place, and lets them on once any
+ * key answers it.
+ */
+function panelFirst(overlay: boolean): string {
+	return withExtension(
+		work.trusted(),
+		"panel-first.ts",
+		`export default function (pi) {
+	pi.on("input", async (event, ctx) => {
+		if (event.text !== ${JSON.stringify(SHOW_ME)}) return { action: "continue" };
+		await ctx.ui.custom(
+			(_tui, _theme, _keys, done) => ({
+				render: () => [${JSON.stringify(PANEL)}],
+				invalidate: () => undefined,
+				handleInput: () => done("seen"),
+			}),
+			{ overlay: ${overlay} },
+		);
+		return { action: "continue" };
 	});
 }
 `,

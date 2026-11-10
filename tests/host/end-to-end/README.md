@@ -38,7 +38,9 @@ trusted in pi's store before it opens, so it asks nothing: pi counts any
 .agents/skills above a folder but HOME's as the project's, and a quest's
 TMPDIR is a link into a home that holds one. An extension that asks the
 person before the first words go on answers the open at once, so a
-viewer can attach to reply.
+viewer can attach to reply, whether it asks through one of pi's dialogs
+or a component of its own, over the screen or in the editor's place.
+The component cases need a pi from core.nix#2853 or later.
 
 attach-client.test.ts runs mycelium's own attach client in a real
 terminal against the same sealed host: an interactive bash under
