@@ -1,6 +1,6 @@
 /** The rollout gate: a second conversation waits until every live pi tells hosted conversations apart. */
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,18 +37,46 @@ async function says(pid: number | string, body: unknown): Promise<void> {
 	);
 }
 
-/** Facts over a fixed set of live pids and roots' verdicts, counting git's asks. */
+/**
+ * Facts over a fixed set of live pids and roots' verdicts, counting git's
+ * asks. A pid's process started at the time `starts` gives, or at none.
+ */
 function facts(
 	live: readonly number[],
 	verdicts: Record<string, boolean | undefined>,
+	starts: Record<number, number> = {},
 ): RolloutFacts & { holds: ReturnType<typeof vi.fn> } {
 	return {
 		alive: (pid) => live.includes(pid),
+		startedAt: async (pid) => starts[pid],
 		holds: vi.fn(async (root: string) => verdicts[root]),
 	};
 }
 
 describe("staleHarnesses", () => {
+	it("leaves out a file whose pid a process started after it wears, past the boot clock's drift", async () => {
+		const written = new Date("2026-11-09T12:00:00Z");
+		for (const pid of [8, 9, 10]) {
+			await says(pid, { root: OLD });
+			await utimes(join(loaded, String(pid)), written, written);
+		}
+		const at = written.getTime();
+		const machine = facts(
+			[8, 9, 10],
+			{ [OLD]: false },
+			{
+				8: at + 120_000,
+				9: at + 10_000,
+			},
+		);
+
+		expect(
+			(await staleHarnesses({ loadedDir: loaded, facts: machine })).map(
+				({ pid }) => pid,
+			),
+		).toEqual([9, 10]);
+	});
+
 	it("names each live pi whose harness predates the census change or can't be dated, and only those", async () => {
 		await says(SELF, { root: OLD });
 		await says(1, { root: NEW });

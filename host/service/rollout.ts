@@ -13,12 +13,15 @@
  * gated: it is what every older pi already understands.
  *
  * A pi too old to say what it loaded (before 29 October) is not seen;
- * none runs today, and reload-workflow's follower moves pis along.
+ * none runs today, and reload-workflow's follower moves pis along. A file
+ * a pi killed outright left behind is judged by its pid's process only
+ * while that process started before the file was written, as every pi
+ * writes its file after it starts: a later one wears a reused pid.
  */
 
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { systemFacts } from "../../lib/core/process/process.ts";
@@ -30,6 +33,15 @@ export const CENSUS_COMMIT = "5b5b7260c7b99f2aa7043826c27557a126b0c3ca";
 
 /** How long one git call may take before the root counts as undated. */
 const GIT_TIMEOUT_MS = 5_000;
+
+/**
+ * How much later than its file a pid's process may seem to have started
+ * and still be the pi that wrote it. A start is worked out from the boot
+ * clock, which suspends and clock corrections move by seconds
+ * (lib/internal/process-ticks.ts saw four after 100 suspends); a reused
+ * pid comes far later than that.
+ */
+const REUSED_AFTER_MS = 60_000;
 
 /** A pid file's name: the pid alone, never a `.<pid>.new` being written. */
 const PID_NAME = /^\d+$/;
@@ -56,6 +68,8 @@ const HAS_CHANGE = "has the census change";
 export interface RolloutFacts {
 	/** Whether a process with this pid runs. */
 	alive(pid: number): boolean;
+	/** When the process wearing this pid started, or undefined when unknown. */
+	startedAt(pid: number): Promise<number | undefined>;
 	/**
 	 * Whether `root`'s HEAD holds `commit`: true or false, or undefined
 	 * when it can't be told (not a checkout, gone, or no such commit).
@@ -66,6 +80,7 @@ export interface RolloutFacts {
 /** The machine's answers: signal 0 for a pid, git for a root. */
 export const rolloutFacts: RolloutFacts = {
 	alive: (pid) => systemFacts.alive(pid),
+	startedAt: (pid) => systemFacts.startedAt(pid),
 	holds: (root, commit) =>
 		new Promise((resolve) => {
 			execFile(
@@ -142,7 +157,8 @@ export async function staleHarnesses(
 
 /**
  * Every live pi other than `self` in `loadedDir`, each with whether its
- * harness holds the census change and why, by pid. A folder that isn't
+ * harness holds the census change and why, by pid. A file whose pid a
+ * later process wears is a dead pi's, and left out. A folder that isn't
  * there says nothing about anyone, so it is refused rather than read as
  * nobody. Roots in `current` are taken as holding the change without
  * asking git, and each root found to hold it is added there: a root only
@@ -169,8 +185,10 @@ export async function harnessVerdicts(
 			.filter((name) => PID_NAME.test(name))
 			.map(Number)
 			.filter((pid) => pid !== self && facts.alive(pid))
-			.map(async (pid): Promise<HarnessVerdict> => {
-				const root = await saidRoot(join(options.loadedDir, String(pid)));
+			.map(async (pid): Promise<HarnessVerdict | undefined> => {
+				const file = join(options.loadedDir, String(pid));
+				if (await wornByLater(file, pid, facts)) return undefined;
+				const root = await saidRoot(file);
 				if (root === undefined)
 					return { pid, current: false, why: "its file names no root" };
 				if (current.has(root))
@@ -196,7 +214,33 @@ export async function harnessVerdicts(
 				};
 			}),
 	);
-	return judged.sort((a, b) => a.pid - b.pid);
+	return judged
+		.filter((one) => one !== undefined)
+		.sort((a, b) => a.pid - b.pid);
+}
+
+/**
+ * Whether the process wearing `pid` started after `file` was written, so
+ * another pi wrote it. When either time can't be read, it is judged as
+ * the pi's, which only refuses more.
+ */
+async function wornByLater(
+	file: string,
+	pid: number,
+	facts: RolloutFacts,
+): Promise<boolean> {
+	const [written, started] = await Promise.all([
+		stat(file).then(
+			(info) => info.mtimeMs,
+			() => undefined,
+		),
+		facts.startedAt(pid),
+	]);
+	return (
+		written !== undefined &&
+		started !== undefined &&
+		started > written + REUSED_AFTER_MS
+	);
 }
 
 async function saidRoot(file: string): Promise<string | undefined> {
