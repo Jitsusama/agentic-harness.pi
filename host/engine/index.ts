@@ -19,6 +19,13 @@ export {
 	loadHostPi,
 } from "./host-pi.ts";
 export {
+	HARNESS_SETTINGS_VARIABLE,
+	type HarnessEngine,
+	type HarnessRequest,
+	type HarnessTraits,
+	harnessSettings,
+} from "./harness-settings.ts";
+export {
 	type ConversationIdentity,
 	type ConversationRegistration,
 	HOST_RELOAD_ONTO,
