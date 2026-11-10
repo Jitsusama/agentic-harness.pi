@@ -3,8 +3,8 @@
  */
 
 import {
-	existsSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -347,7 +347,9 @@ describe("starting again on a fresh log", () => {
 		expect(
 			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
 		).toEqual(["pi", "--session", fresh()]);
-		expect(existsSync(join(folder, "held.wake"))).toBe(true);
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
+		).toMatchObject({ session: SESSION, restart: fresh() });
 		expect(exits).toEqual([PARKED_EXIT]);
 		expect(lines).toEqual([RESTART_LINE]);
 		expect(shutdowns).toBe(1);
@@ -376,7 +378,7 @@ describe("starting again on a fresh log", () => {
 		expect(asked()).toMatchObject({ why: "peers wait on a hold it sent" });
 		unrefuse();
 		expect(shutdowns).toBe(0);
-		expect(existsSync(join(folder, "held.wake"))).toBe(false);
+		expect(readdirSync(folder)).not.toContain("held.wake");
 		watched.stop();
 		expect(asked()).not.toHaveProperty("why");
 	});
