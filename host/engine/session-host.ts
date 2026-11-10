@@ -16,6 +16,7 @@ import {
 	type SessionOwner,
 	withSession,
 } from "../../lib/core/session/index.ts";
+import { installConversationEnv } from "./process-env.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
 export interface ConversationRegistration {
@@ -83,7 +84,13 @@ export class SessionHost implements Host {
 		this.key = options.key;
 		this.owner = Object.freeze({ ...options.owner });
 		this.registryPath = hostRegistryPath(this.owner, options.registryDir);
-		this.uninstall = installHost(this);
+		const unhost = installHost(this);
+		// Code that reads process.env directly sees its own conversation's.
+		const unview = installConversationEnv(this);
+		this.uninstall = () => {
+			unview();
+			unhost();
+		};
 		try {
 			this.publish();
 		} catch (error) {
