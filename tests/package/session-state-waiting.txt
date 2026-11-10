@@ -67,7 +67,6 @@ lib/mesh/present.ts:global 2
 lib/mesh/waiting.ts:pid 1
 lib/slack/auth/browser-extract.ts:pid 1
 lib/subagent/artifacts.ts:pid 1
-lib/subagent/defaults.ts:global 2
 lib/subagent/fleet.ts:pid 2
 lib/subagent/install.ts:global 1
 lib/subagent/runpi/supervisor.mjs:pid 6
