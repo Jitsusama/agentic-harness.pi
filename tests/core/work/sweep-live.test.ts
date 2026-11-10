@@ -544,7 +544,8 @@ describe("the dev-shell roots of trees nobody entered", () => {
 		const root = enteredAgo(tree, 60_000);
 
 		expect((await sweep()).dropped).toEqual([]);
-		expect(lstatSync(root).isSymbolicLink()).toBe(true);
+		const kept = { symlink: lstatSync(root).isSymbolicLink() };
+		expect(kept).toEqual({ symlink: true });
 	});
 
 	it("keeps them in a tree a running process stands in", async () => {
@@ -556,7 +557,8 @@ describe("the dev-shell roots of trees nobody entered", () => {
 		const outcome = await sweepKnowing({ standingIn: () => [tree] });
 
 		expect(outcome.dropped).toEqual([]);
-		expect(lstatSync(root).isSymbolicLink()).toBe(true);
+		const kept = { symlink: lstatSync(root).isSymbolicLink() };
+		expect(kept).toEqual({ symlink: true });
 	});
 });
 
