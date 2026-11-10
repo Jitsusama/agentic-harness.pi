@@ -18,22 +18,15 @@
 
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import type {
-	AgentDiscovery,
-	AgentFile,
-	DiffModel,
-	PersonaBinding,
-	RepoGuidance,
-	Roster,
-	RoundGiven,
-} from "./index.ts";
-import {
-	bindPersonas,
-	discoverAgents,
-	NAMESPACE,
-	parsePersona,
-	quotable,
-} from "./index.ts";
+import type { AgentDiscovery, AgentFile } from "./ask/agents.ts";
+import { discoverAgents, NAMESPACE } from "./ask/agents.ts";
+import type { PersonaBinding } from "./ask/persona.ts";
+import { bindPersonas, parsePersona } from "./ask/persona.ts";
+import type { RepoGuidance } from "./ask/prompt.ts";
+import { quotable } from "./ask/prompt.ts";
+import type { Roster } from "./ask/roster.ts";
+import type { RoundGiven } from "./ask/run.ts";
+import type { DiffModel } from "./diff.ts";
 
 /** How much repo-written text a refusal may repeat, and how often. */
 const MOST_CHARACTERS = 200;

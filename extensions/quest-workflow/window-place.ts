@@ -23,8 +23,7 @@ import {
 	windowTitle,
 } from "../../lib/mesh/presence.ts";
 import type { WindowPlace } from "../../lib/terminal/index.ts";
-import { shortNameOf } from "./lifecycle.ts";
-import { sessionNameFor } from "./render.ts";
+import { sessionNameFor, shortNameOf } from "./render.ts";
 
 /** The window titles presence last gave, newest first. */
 function titlesOf(presences: readonly Presence[]): string[] {

@@ -43,7 +43,7 @@ import {
 } from "../../lib/internal/quest/session-liveness.ts";
 import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
-import { sessionNameFor } from "./render.ts";
+import { sessionNameFor, shortNameOf } from "./render.ts";
 import type { QuestState } from "./state.ts";
 import { orchestrate } from "./verbs/orchestrate.ts";
 
@@ -118,19 +118,6 @@ export function releaseSessionOnShutdown(
 	if (!state.questDir) return;
 	const { instanceId } = captureSessionIdentity(sessionId);
 	detachSessionIfOwner(state.questDir, sessionId, instanceId);
-}
-
-/**
- * A quest's short name. Core's parser, which `findQuestEntry` uses until
- * core folds into this package, does not know the field and keeps it
- * among the extras; the harness's own parser reads it directly.
- */
-export function shortNameOf(frontMatter: {
-	short?: unknown;
-	_extra?: Record<string, unknown>;
-}): string | undefined {
-	const short = frontMatter.short ?? frontMatter._extra?.short;
-	return typeof short === "string" ? short : undefined;
 }
 
 /** Load a quest into state by id. */
