@@ -307,16 +307,24 @@ export function subsectionOf(
 	const wanted = headingWords(heading);
 	const lines = body.split("\n");
 	const headings = outsideFences(lines).flatMap((index) => {
-		const level = /^(#{2,6})\s/.exec(lines[index])?.[1].length;
-		return level
-			? [{ index, level, text: lines[index].replace(/^#+\s+/, "").trim() }]
+		const line = lines.at(index) ?? "";
+		const marks = /^(#{2,6})\s/.exec(line)?.at(1);
+		return marks
+			? [
+					{
+						index,
+						level: marks.length,
+						text: line.replace(/^#+\s+/, "").trim(),
+					},
+				]
 			: [];
 	});
 	const at = headings.findIndex(
 		(h) => h.level > 2 && headingWords(h.text) === wanted,
 	);
-	if (at === -1) return section;
-	const { index, level, text: found } = headings[at];
+	const match = headings.at(at);
+	if (at === -1 || !match) return section;
+	const { index, level, text: found } = match;
 	const end =
 		headings.slice(at + 1).find((h) => h.level <= level)?.index ?? lines.length;
 	const text = trimBlankEdges(lines.slice(index + 1, end));
