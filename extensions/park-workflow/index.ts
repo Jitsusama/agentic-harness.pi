@@ -10,12 +10,14 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clearAwake } from "../../lib/internal/session/park.ts";
+import { meansPresence } from "../../lib/ui/terminal-reports.ts";
 import { mayPark, noteNeverParks, type Watch, watch } from "./watch.ts";
 
 export default function parkWorkflow(pi: ExtensionAPI) {
 	let watching: Watch | undefined;
 	// A session that may never park, which said why, to clear as it ends.
 	let neverParks: string | undefined;
+	let unlisten: (() => void) | undefined;
 	const stirred = () => watching?.stirred();
 	const unnote = () => {
 		if (neverParks) clearAwake(neverParks);
@@ -29,6 +31,13 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 		if (!watching && noteNeverParks(ctx)) {
 			neverParks = ctx.sessionManager.getSessionId();
 		}
+		// A key, a click or focus arriving says its person is at the window,
+		// which a restart then leaves alone (UNWATCHED_MS).
+		unlisten?.();
+		unlisten = ctx.ui.onTerminalInput?.((data) => {
+			if (meansPresence(data)) watching?.present();
+			return undefined;
+		});
 	});
 	pi.on("input", async () => {
 		stirred();
@@ -39,6 +48,8 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 	pi.on("ui_prompt_start", async () => watching?.prompting(true));
 	pi.on("ui_prompt_end", async () => watching?.prompting(false));
 	pi.on("session_shutdown", async () => {
+		unlisten?.();
+		unlisten = undefined;
 		watching?.stop();
 		watching = undefined;
 		unnote();
