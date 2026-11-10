@@ -49,6 +49,67 @@ export interface Waiting {
 	 * the change runs as it is.
 	 */
 	locked?<T>(quest: string, change: () => T): T;
+	/**
+	 * Told what waits after this session changed it itself, so its own
+	 * settling is never told back to it as news (see watchSettling).
+	 */
+	heard?(items: readonly WaitingItem[]): void;
+}
+
+/** What this session raised, watched for something else settling it. */
+export interface SettleWatch {
+	/** Take what waits now as known, since this session wrote it. */
+	heard(items: readonly WaitingItem[]): void;
+	/**
+	 * What it raised that settled since it last looked, applying the
+	 * daemon's verdicts first. The first look only learns what waits.
+	 */
+	settled(): WaitingItem[];
+	/** Whether anything it raised still waits. */
+	watching(): boolean;
+}
+
+/**
+ * Watch this session's own items for the daemon or the person settling
+ * them. Verdicts were applied only as a session started or a run ended,
+ * so a session that ended its run Blocked on the person never heard he
+ * had done it: since 8 November two sat 32.6 and 14.8 hours so (QCXZEB,
+ * 9 November). Items another session raised are its own to hear.
+ */
+export function watchSettling(waiting: Waiting): SettleWatch {
+	let known: { quest: string; items: Map<string, WaitingItem> } | undefined;
+	const take = (quest: string, items: readonly WaitingItem[]) => {
+		const owner = waiting.owner?.();
+		const mine = owner
+			? items.filter((one) => one.owner?.session === owner.session)
+			: [];
+		known = { quest, items: new Map(mine.map((one) => [one.id, one])) };
+	};
+	return {
+		heard(items) {
+			const quest = waiting.quest();
+			if (quest) take(quest, items);
+		},
+		settled() {
+			const quest = waiting.quest();
+			if (!quest) return [];
+			settleFromVerdicts(waiting);
+			const before = known;
+			take(quest, waitingOf(waiting.folder, quest));
+			// Another quest's items left with the quest, not with the person.
+			if (!before || before.quest !== quest) return [];
+			return [...before.items.values()].filter(
+				(one) => !known?.items.has(one.id),
+			);
+		},
+		watching: () => (known?.items.size ?? 0) > 0,
+	};
+}
+
+/** What a session is told when what it raised for the person settles. */
+export function settledText(items: readonly WaitingItem[]): string {
+	const named = items.map((one) => `${one.id} (${one.title})`).join(", ");
+	return `No longer waiting on the person: ${named}. The desktop found ${items.length === 1 ? "it" : "them"} done, or the person cleared ${items.length === 1 ? "it" : "them"}. Carry on with what waited on ${items.length === 1 ? "it" : "them"}.`;
 }
 
 /**
@@ -143,6 +204,7 @@ export function waitOnPerson(
 			};
 		}
 		const items = settled.items;
+		waiting.heard?.(items);
 		return {
 			text: `${id} no longer waits on the person. ${remaining(items)}`,
 			items,
@@ -238,6 +300,7 @@ export function waitOnPerson(
 		};
 		return { before, item, items: addWaiting(waiting.folder, item, now) };
 	});
+	waiting.heard?.(items);
 	const replaced = before.some((one) => one.id === id);
 	const unjudged = existsSync(verdictsFile(waiting.folder))
 		? ""

@@ -2285,6 +2285,53 @@ describe("groups", () => {
 		expect(await sentTo("#optimus")).not.toContain("waiting on");
 	});
 
+	it("says an fyi or finding to an idle peer starts no turn, and what would", async () => {
+		onQuest();
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		const presences = createPresences(join(paths.mesh, "presence"));
+		const publish = (
+			session: string,
+			address: string,
+			busy: boolean,
+			orchestratedBy?: string,
+		) =>
+			presences.publish({
+				session,
+				addresses: [address],
+				groups: [],
+				worksOn: "",
+				owns: [],
+				busy,
+				...(orchestratedBy ? { orchestratedBy } : {}),
+				at: new Date().toISOString(),
+			});
+		publish("session-i", "Q1IDLE", false);
+		publish("session-b", "Q2BUSY", true);
+		publish("session-o", "5GV2AH", false);
+		publish("session-l", "Q3LED", false, "7M6JKG");
+		const { tools } = await startSession();
+		const idle = "is idle, and an fyi starts no turn";
+
+		expect(await send(tools, "Q1IDLE", "fyi", "Merged.")).toContain(
+			"Q1IDLE is idle, and an fyi starts no turn, so it reads this only when something else starts its next. Send a question if it should act on it now.",
+		);
+		expect(await send(tools, "Q1IDLE", "finding", "Broken.")).toContain(
+			"Q1IDLE is idle, and a finding starts no turn",
+		);
+		expect(await send(tools, "Q3LED", "fyi", "Go on.")).toContain(
+			"Send a question or a pivot if it should act on it now.",
+		);
+		expect(await send(tools, "Q1IDLE", "question", "Which?")).not.toContain(
+			"starts no turn",
+		);
+		expect(await send(tools, "Q2BUSY", "fyi", "Merged.")).not.toContain(idle);
+		// The orchestrator above this peer acts on what it sends, idle or not.
+		expect(await send(tools, "5GV2AH", "fyi", "Landed.")).not.toContain(idle);
+	});
+
 	it("lists each other peer still there, whether it is in a run, and its work", async () => {
 		const presences = createPresences(join(paths.mesh, "presence"));
 		const publish = (
@@ -3105,6 +3152,62 @@ describe("a message that names no group", () => {
 
 		expect(existsSync(file), `${file} is removed`).toBe(false);
 		expect(presence()?.wants).toBeUndefined();
+	});
+
+	it("wakes an idle session once the person does what it raised, and not for its own settling", async () => {
+		// A session that ended its run Blocked on the person had nothing to
+		// wake it once he acted: verdicts were read only as a run began or ended.
+		paths = { ...paths, waiting: join(root, "waiting") };
+		const { sent, tools } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			20,
+		);
+		const wait = (params: Record<string, unknown>) =>
+			tools.get("mesh_wait")?.execute("call-w", params);
+		const raise = (id: string, title: string) =>
+			wait({
+				id,
+				title,
+				why: "Only Joel has the account",
+				minutes: 2,
+				doneWhen: { by: "person" },
+				steps: ["Open the app", "Sign in"],
+			});
+		const told = () =>
+			sent.filter((one) =>
+				String(one.message.content).startsWith("No longer waiting"),
+			);
+
+		await raise("eero-login", "Log in to eero");
+		await raise("router-look", "Look at the router");
+		// Settled by this session itself: nothing to tell it.
+		await wait({ id: "router-look", done: true });
+		writeFileSync(
+			join(root, "verdicts.json"),
+			JSON.stringify({
+				v: 1,
+				updated: new Date().toISOString(),
+				items: {
+					"QEST-20261021-7M6JKG:eero-login": {
+						state: "done",
+						at: new Date().toISOString(),
+					},
+				},
+			}),
+		);
+
+		// Had its own settling been told, it would come first, alone.
+		await vi.waitFor(() => expect(told()).toHaveLength(1));
+		expect(told()[0]).toEqual({
+			message: expect.objectContaining({
+				content:
+					"No longer waiting on the person: eero-login (Log in to eero). The desktop found it done, or the person cleared it. Carry on with what waited on it.",
+			}),
+			options: { triggerTurn: true },
+		});
 	});
 
 	it("says a fenced session's item is strict, so the daemon won't run its check", async () => {

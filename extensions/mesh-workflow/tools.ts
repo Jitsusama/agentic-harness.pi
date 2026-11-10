@@ -1023,6 +1023,7 @@ function reach(
 				]
 			: [],
 	);
+	const idle = idleAddressed(message, everyone, peer, addressed);
 	const notes = [
 		reached.length > 0
 			? `It goes to ${reached.join(", ")}; mesh_read says when each has it.`
@@ -1036,8 +1037,63 @@ function reach(
 		waiting.length > 0
 			? `${waiting.join(" and ")} ${waiting.length === 1 ? "is waiting on its person, so it" : "are waiting on their people, so they"} may be slow to take this up.`
 			: "",
+		idle.length > 0 ? idleText(idle, message.intent) : "",
 	].filter(Boolean);
 	return { notes, reached, gone };
+}
+
+/** A peer an fyi or finding was put to that no run will read it in. */
+interface Unwoken {
+	readonly address: string;
+	/** Whether this peer orchestrates it, so a pivot would start its turn. */
+	readonly led: boolean;
+}
+
+/**
+ * The idle peers an fyi or finding is addressed to that it starts no
+ * turn for. On 9 November builders sat idle on fyis their orchestrator
+ * meant them to act on, since a note waits for a turn something else
+ * starts (lib/mesh/attention.ts). An idle orchestrator acts on what a
+ * session it leads sends, so it is left out, as is a peer waiting on
+ * its person, which the note before says already.
+ */
+function idleAddressed(
+	message: Message,
+	everyone: readonly Presence[],
+	peer: Peer,
+	addressed: readonly string[],
+): Unwoken[] {
+	if (message.intent !== "fyi" && message.intent !== "finding") return [];
+	return everyone.flatMap((one) => {
+		const address = one.addresses[0];
+		if (
+			address === undefined ||
+			one.session === peer.session ||
+			one.busy ||
+			one.wants ||
+			!one.addresses.some((each) => addressed.includes(homeOf(each)))
+		) {
+			return [];
+		}
+		const leadsThis =
+			peer.orchestratedBy !== undefined &&
+			one.addresses.includes(peer.orchestratedBy);
+		if (leadsThis) return [];
+		const led =
+			one.orchestratedBy !== undefined &&
+			peer.addresses.includes(one.orchestratedBy);
+		return [{ address, led }];
+	});
+}
+
+/** Why an fyi or finding to idle peers waits, and what would wake them. */
+function idleText(idle: readonly Unwoken[], intent: string): string {
+	const one = idle.length === 1;
+	const names = idle.map((each) => each.address).join(" and ");
+	const wake = idle.every((each) => each.led)
+		? "a question or a pivot"
+		: "a question";
+	return `${names} ${one ? "is" : "are"} idle, and ${intent === "fyi" ? "an fyi" : "a finding"} starts no turn, so ${one ? "it reads" : "they read"} this only when something else starts ${one ? "its" : "their"} next. Send ${wake} if ${one ? "it" : "they"} should act on it now.`;
 }
 
 async function read(
