@@ -45,17 +45,18 @@ const { values, positionals } = parseArgs({
 
 const [named, ...extra] = positionals;
 if (!named || extra.length > 0)
-	throw new Error(
+	refuse(
 		"Name one runtime to prove: node scripts/host-prove.ts RUNTIME [--proof FILE]",
 	);
+if (!existsSync(named)) refuse(`${named} doesn't exist`);
 
 const runtime = realpathSync(named);
 if (!existsSync(join(runtime, "lib", "node_modules", "pi-monorepo")))
-	throw new Error(`${runtime} holds no pi-monorepo, so it isn't a pi runtime`);
+	refuse(`${runtime} holds no pi-monorepo, so it isn't a pi runtime`);
 
 const changed = git("status", "--porcelain", "--untracked-files=no");
 if (changed)
-	throw new Error(
+	refuse(
 		`The harness at ${HARNESS} has uncommitted changes, so no commit would say what proved it:\n${changed}`,
 	);
 const harness = git("rev-parse", "HEAD");
@@ -106,6 +107,12 @@ if (typeof verdict === "string") {
 	process.stderr.write(
 		`host-prove: ${runtime} passed ${proof.cases} cases in ${proof.files} files; ${link} names it now\n`,
 	);
+}
+
+/** Say why nothing was proven, before anything ran or changed, and exit 1. */
+function refuse(reason: string): never {
+	process.stderr.write(`host-prove: ${reason}\n`);
+	process.exit(1);
 }
 
 /** What the run's JSON report proves, or why it proves nothing. */
