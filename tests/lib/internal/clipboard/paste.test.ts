@@ -5,6 +5,7 @@
 
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Read } from "../../../../lib/internal/clipboard/helper.ts";
 import {
@@ -156,11 +157,12 @@ describe("putting a paste in the editor", () => {
 		});
 		const [path = ""] = target.inserted;
 		try {
-			expect(path.startsWith(tmpdir())).toBe(true);
 			expect({
+				folder: dirname(path),
 				ending: path.slice(-4),
 				bytes: [...readFileSync(path)],
 			}).toEqual({
+				folder: tmpdir(),
 				ending: ".jpg",
 				bytes: [255, 216, 255],
 			});
