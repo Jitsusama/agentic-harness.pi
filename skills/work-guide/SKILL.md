@@ -125,10 +125,17 @@ is usually what you want and occasionally not: check `status`
 first if you are not sure where that is.
 
 A remote's branch as `from` is fetched first, that one branch
-only, so it starts where the remote has it now. Don't fetch in
-the same batch as the branch: the two race, and the branch can
-land on the old commit. The answer names the commit the branch
-starts at, and says so when the fetch could not be made.
+only, unless it was fetched in the last ten minutes: then the
+branch starts where that fetch left it, and the answer says how
+old it is. A tree cut from a remote branch works the same way.
+Starting a few merges behind is fine, since a rebase before
+merging brings the branch level, and it spares a busy machine
+several sessions fetching the same main at once. Fetch first
+only when you need a commit newer than that. Don't fetch in the
+same batch as the branch: the two race, and the branch can land
+on the old commit. The answer names the commit the branch starts
+at, and says so when the fetch could not be made. `rebase`
+always fetches.
 
 ## Recording and Publishing
 
