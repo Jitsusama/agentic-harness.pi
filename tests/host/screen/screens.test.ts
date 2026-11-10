@@ -1,5 +1,6 @@
 /** Persistent screens: one per conversation, quitting closes only its own, viewers come and go. */
 import { describe, expect, it, vi } from "vitest";
+import type { EngineScreens } from "../../../host/engine/index.ts";
 import {
 	type HostedMode,
 	type HostedModeOptions,
@@ -173,6 +174,15 @@ describe("hosted screens", () => {
 });
 
 describe("the host's pi screen", () => {
+	it("is what the engine takes as its screens", () => {
+		// Typechecked: the engine's own contract, so the two can't drift apart
+		// before the host wires one into the other.
+		const screens: EngineScreens = host().screens;
+		expect(screens.opened, "the screens answer the engine's opened").toBeTypeOf(
+			"function",
+		);
+	});
+
 	it("builds pi's hosted screen over the conversation's runtime", () => {
 		const runtime = {};
 		const create = hostedModeOf(FakeMode);
