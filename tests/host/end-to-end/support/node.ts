@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { HOST_PI_REQUIRED } from "./host-pi.ts";
 import { untilAnswered } from "./hosted-case.ts";
-import { SEALED_REALM, type Seal } from "./seal.ts";
+import type { Seal } from "./seal.ts";
 
 const run = promisify(execFile);
 
@@ -67,7 +67,7 @@ export async function nodeFor(
 export async function startNode(seal: Seal): Promise<SealedNode> {
 	const child: ChildProcess = spawn(
 		"mycelium",
-		["--realm", SEALED_REALM, "node", "--machine", "sealed"],
+		["--realm", seal.realm, "node", "--machine", "sealed"],
 		{ env: seal.env, stdio: ["ignore", "ignore", "pipe"] },
 	);
 	let errors = "";
@@ -76,7 +76,7 @@ export async function startNode(seal: Seal): Promise<SealedNode> {
 	});
 	const exited = new Promise<void>((done) => child.once("exit", () => done()));
 	const ask = async (args: readonly string[], input?: string) => {
-		const asking = run("mycelium", ["--realm", SEALED_REALM, ...args], {
+		const asking = run("mycelium", ["--realm", seal.realm, ...args], {
 			env: seal.env,
 			timeout: ASK_MS,
 		});
@@ -90,7 +90,7 @@ export async function startNode(seal: Seal): Promise<SealedNode> {
 	const socket = join(
 		seal.env.XDG_RUNTIME_DIR ?? "",
 		"mycelium",
-		`${SEALED_REALM}.sock`,
+		`${seal.realm}.sock`,
 	);
 	await untilAnswered(
 		"the sealed node answers",
