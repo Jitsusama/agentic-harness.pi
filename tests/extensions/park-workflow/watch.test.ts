@@ -2,7 +2,13 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
@@ -12,6 +18,7 @@ import {
 	mayPark,
 	noteNeverParks,
 	type Parkable,
+	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
 import {
@@ -25,6 +32,8 @@ import {
 	PARKED_EXIT,
 	PARKING,
 	parkSwitch,
+	RESTART_ASK,
+	type RestartAsk,
 	readParked,
 	SESSION_WOKEN,
 	writeParked,
@@ -299,6 +308,175 @@ describe("parking a session", () => {
 		);
 		watching();
 		expect(readParked(SESSION, folder)).toBeUndefined();
+	});
+});
+
+describe("starting again on a fresh log", () => {
+	const fresh = () => join(folder, "fresh.jsonl");
+	const asked = (): RestartAsk => {
+		const ask: RestartAsk = { session: SESSION, sessionFile: fresh() };
+		events.emit(RESTART_ASK, ask);
+		return ask;
+	};
+	let restarts: string[];
+	let fallbacks: (() => void)[];
+	let focused: string | null;
+	const restarting = (env: NodeJS.ProcessEnv = holder(), args: string[] = []) =>
+		watch(session(), events, {
+			env,
+			args,
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => clock,
+			exitWith: (code) => exits.push(code),
+			restartWith: (sessionFile, fallback) => {
+				restarts.push(sessionFile);
+				fallbacks.push(fallback);
+			},
+			setExitCode: (code) => exits.push(code),
+			focusedWindow: () => focused,
+			clock: false,
+		});
+	/** The holder's record, showing the session in windows of these app ids. */
+	const shownIn = (...appIds: string[]) =>
+		writeFileSync(
+			join(folder, "held.json"),
+			JSON.stringify({
+				pid: HELD_PID,
+				windows: appIds.map((app_id, at) => ({
+					terminal: "kitty",
+					id: String(at + 1),
+					within: "unix:@kitty-2684",
+					app_id,
+				})),
+			}),
+		);
+
+	beforeEach(() => {
+		restarts = [];
+		fallbacks = [];
+		focused = "pi-session.3";
+		writeFileSync(fresh(), "");
+	});
+
+	// 10 November, krc-5: started again through its holder, the window
+	// said "Parked, its memory given back" while it came back, which it
+	// never was. In place, the holder sees no exit at all.
+	it("ends at once, not idle, to start again in place on the fresh log, telling its holder nothing", () => {
+		restarting();
+		const ask = asked();
+		expect(ask).toMatchObject({ restarting: true });
+		expect(ask.why).toBeUndefined();
+		expect(restarts).toEqual([fresh()]);
+		expect(readdirSync(folder)).not.toContain("held.again");
+		expect(readdirSync(folder)).not.toContain("held.wake");
+		expect(exits).toEqual([]);
+		expect(shutdowns).toBe(1);
+		// Back in a moment, it is never marked parked.
+		expect(readParked(SESSION, folder)).toBeUndefined();
+		expect(asked().why).toBe("parking already");
+		expect(shutdowns).toBe(1);
+	});
+
+	it("has its holder start it again on the fresh log when it can't be replaced in place", () => {
+		restarting();
+		asked();
+		fallbacks[0]?.();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+		).toEqual(["pi", "--session", fresh()]);
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
+		).toMatchObject({ session: SESSION, restart: fresh() });
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	// WCJQSG, 10 November [e7c3cbbf]: never in the window Joel has
+	// focused, or one he was in within the last ten minutes.
+	it("stays in the window its person has focused, or can't be told isn't", () => {
+		shownIn("pi-session.3");
+		const watched = restarting();
+		expect(asked()).toMatchObject({
+			why: "its window may be the one focused",
+		});
+		focused = null;
+		expect(asked()).toMatchObject({
+			why: "the desktop can't say which window is focused",
+		});
+		shownIn("");
+		focused = "pi-session.9";
+		expect(asked()).toMatchObject({
+			why: "its window may be the one focused",
+		});
+		expect(restarts).toEqual([]);
+		watched.stop();
+		shownIn("pi-session.3", "pi-session.4");
+		restarting();
+		focused = "pi-session.9";
+		expect(asked()).toMatchObject({ restarting: true });
+		expect(restarts).toEqual([fresh()]);
+	});
+
+	it("stays for ten minutes after its person was last at its window", () => {
+		const watched = restarting();
+		clock = 1_000;
+		watched.present();
+		clock += UNWATCHED_MS - 1;
+		expect(asked()).toMatchObject({
+			why: "its person was at its window in the last ten minutes",
+		});
+		clock += 1;
+		expect(asked()).toMatchObject({ restarting: true });
+	});
+
+	it("stays for a background job, typed text or what another extension holds", () => {
+		const watched = restarting();
+		const stop = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => 1,
+		});
+		expect(asked()).toMatchObject({ why: "background jobs are out" });
+		stop();
+		typed = "half a thought";
+		expect(asked()).toMatchObject({ why: "text is typed and unsent" });
+		typed = "";
+		const unrefuse = events.on(PARK_ASK, (data) => {
+			if (isParkAsk(data)) data.refusals.push("peers wait on a hold it sent");
+		});
+		expect(asked()).toMatchObject({ why: "peers wait on a hold it sent" });
+		unrefuse();
+		expect(shutdowns).toBe(0);
+		expect(readdirSync(folder)).not.toContain("held.wake");
+		watched.stop();
+		expect(asked()).not.toHaveProperty("why");
+	});
+
+	it("stays while parking is off, or where its holder would start the log it left", () => {
+		rmSync(parkSwitch(folder));
+		const off = restarting();
+		expect(asked()).toMatchObject({ why: "parking is off" });
+		off.stop();
+		writeFileSync(parkSwitch(folder), "on\n");
+		const { MYCELIUM_WAKE } = holder();
+		const bare = restarting({ MYCELIUM_WAKE });
+		expect(asked()).toMatchObject({
+			why: "its holder would start it on the log it left",
+		});
+		bare.stop();
+		restarting(holder(), ["-e", "./x.ts"]);
+		expect(asked()).toMatchObject({ why: "starting again would drop -e" });
+		expect(shutdowns).toBe(0);
+	});
+
+	it("answers only for its own session", () => {
+		restarting();
+		const other: RestartAsk = { session: "another", sessionFile: fresh() };
+		events.emit(RESTART_ASK, other);
+		expect(other).not.toHaveProperty("restarting");
+		expect(shutdowns).toBe(0);
 	});
 });
 
