@@ -174,11 +174,10 @@ describe("rolloutGate", () => {
 			refusalText([{ pid: 2, root: OLD, why: "before the census change" }]),
 		);
 		await expect(gate()).rejects.toThrow(`pid 2 (${OLD})`);
-		expect(machine.holds.mock.calls.map(([root]) => root)).toEqual([
-			NEW,
-			OLD,
-			OLD,
-		]);
+		// Pis are judged at once, so git's asks come in no set order.
+		expect(machine.holds.mock.calls.map(([root]) => root).sort()).toEqual(
+			[NEW, OLD, OLD].sort(),
+		);
 	});
 });
 

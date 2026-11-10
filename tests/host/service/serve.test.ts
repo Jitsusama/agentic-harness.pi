@@ -162,6 +162,7 @@ describe("serveHost", () => {
 			).toBe(true);
 			const second = await opened(host.path, "b");
 			if (second.ok) throw new Error("a host from a tree opened a second");
+			expect(second.error.code).toBe("rollout_refused");
 			expect(second.error.message).toContain("outside an installed version");
 			expect((await listed(host.path)).sessions).toHaveLength(1);
 		} finally {

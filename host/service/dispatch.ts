@@ -18,6 +18,28 @@ export type ControlReply =
 			error: { code: string; message: string };
 	  };
 
+/** Marks an error whose message was written for the requester, by code. */
+const SAID_TO_REQUESTER = Symbol("host refusal said to the requester");
+
+/**
+ * A refusal the host means its requester to read, such as the rollout
+ * gate's, which names the pis to reload: its message is said as it
+ * stands, under `code`. Anything else thrown stays in the journal, since
+ * an exception can carry what no requester should see.
+ */
+export function hostRefusal(code: string, message: string): Error {
+	const error = new Error(message);
+	Object.defineProperty(error, SAID_TO_REQUESTER, { value: code });
+	return error;
+}
+
+/** The code of a refusal meant for the requester, or nothing. */
+function refusalCode(error: unknown): string | undefined {
+	if (!(error instanceof Error)) return undefined;
+	const code: unknown = Reflect.get(error, SAID_TO_REQUESTER);
+	return typeof code === "string" ? code : undefined;
+}
+
 /** Validate before invoking the engine and bind targeted calls to their session. */
 export async function dispatchControl(
 	value: unknown,
@@ -69,6 +91,14 @@ export async function dispatchControl(
 		return { v: 1, id: request.id, ok: true, result: result ?? null };
 	} catch (error) {
 		report?.(error);
+		const code = refusalCode(error);
+		if (code !== undefined && error instanceof Error)
+			return {
+				v: 1,
+				id: request.id,
+				ok: false,
+				error: { code, message: error.message },
+			};
 		return {
 			v: 1,
 			id: request.id,

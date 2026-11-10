@@ -1,7 +1,10 @@
 /** Strict wire boundaries, byte framing and co-hosted control dispatch. */
 import { setImmediate } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
-import { dispatchControl } from "../../../host/service/dispatch.ts";
+import {
+	dispatchControl,
+	hostRefusal,
+} from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
 import {
 	parseAdoptResult,
@@ -261,5 +264,26 @@ describe("co-hosted dispatch", () => {
 			error: { code: "operation_failed" },
 		});
 		expect(JSON.stringify(reply)).not.toContain("secret");
+	});
+	it("says a refusal written for the requester in its own words, and journals it too", async () => {
+		const refused = hostRefusal(
+			"rollout_refused",
+			"pid 41 runs an old harness",
+		);
+		const report = vi.fn();
+		const backend = {
+			identity,
+			execute: vi.fn(async () => {
+				throw refused;
+			}),
+		};
+
+		expect(await dispatchControl(close, backend, report)).toEqual({
+			v: 1,
+			id: "c",
+			ok: false,
+			error: { code: "rollout_refused", message: "pid 41 runs an old harness" },
+		});
+		expect(report).toHaveBeenCalledWith(refused);
 	});
 });

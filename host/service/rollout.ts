@@ -27,6 +27,10 @@ import { fileURLToPath } from "node:url";
 import { systemFacts } from "../../lib/core/process/process.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import { LOADED_FOLDER } from "../../lib/internal/reload/said.ts";
+import { hostRefusal } from "./dispatch.ts";
+
+/** The code a requester is refused under, with the gate's own words. */
+export const ROLLOUT_REFUSED = "rollout_refused";
 
 /** The commit whose census judges each hosted presence on its own (#1129). */
 export const CENSUS_COMMIT = "5b5b7260c7b99f2aa7043826c27557a126b0c3ca";
@@ -128,7 +132,8 @@ export function hostRolloutGate(root: string = hostRoot()): AdmitAnother {
 	if (loadedDir !== undefined) return rolloutGate({ loadedDir });
 	return () =>
 		Promise.reject(
-			new Error(
+			hostRefusal(
+				ROLLOUT_REFUSED,
 				`This host keeps to one conversation: it runs from ${root}, outside an installed version, so it can't read which harness other pis run. Give serveHost a rollout gate over the install's ${LOADED_FOLDER} folder.`,
 			),
 		);
@@ -175,7 +180,8 @@ export async function harnessVerdicts(
 	try {
 		names = await readdir(options.loadedDir);
 	} catch (error) {
-		throw new Error(
+		throw hostRefusal(
+			ROLLOUT_REFUSED,
 			`Cannot tell which harness each pi runs: ${options.loadedDir} is unreadable (${String(error)})`,
 		);
 	}
@@ -288,6 +294,7 @@ export function rolloutGate(options: {
 	const current = new Set<string>();
 	return async () => {
 		const stale = await staleHarnesses({ ...options, current });
-		if (stale.length > 0) throw new Error(refusalText(stale));
+		if (stale.length > 0)
+			throw hostRefusal(ROLLOUT_REFUSED, refusalText(stale));
 	};
 }
