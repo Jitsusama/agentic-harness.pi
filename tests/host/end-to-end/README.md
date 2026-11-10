@@ -17,9 +17,9 @@ host program does, on a pi built with the host's patches answering from
 pi's scripted provider. Viewers attach through its socket as mycelium's
 client does, and each one's screen is read through xterm's headless
 terminal. Each case is something a person relies on at pi's own screen.
-It needs that pi, named by PI_HOST_PACKAGE_DIR, and is skipped without
-one. Run it before merging a change to host/screen, lib/core/viewer or
-the host's composition:
+It runs on the host's pi as E1 to E8 do (The Host's Pi, below), so
+`pnpm test:host` runs it with them. Run it alone before merging a change
+to host/screen, lib/core/viewer or the host's composition:
 
 ```sh
 PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
@@ -27,8 +27,7 @@ PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
 ```
 
 The root is the pi-monorepo folder of the work host's piHostRuntime (its
-lib/node_modules/pi-monorepo), or core's hostedPi, as for the engine's
-own tests in tests/host/engine.
+lib/node_modules/pi-monorepo), or core's hostedPi.
 
 The host asks pi's startup questions as the program does, so a
 conversation in a folder with its own .pi/extensions asks whether to
@@ -37,7 +36,9 @@ second viewer, and not at all when the conversation closes, and check
 whether the folder's extension loaded. Every other case's folder is
 trusted in pi's store before it opens, so it asks nothing: pi counts any
 .agents/skills above a folder but HOME's as the project's, and a quest's
-TMPDIR is a link into a home that holds one.
+TMPDIR is a link into a home that holds one. An extension that asks the
+person before the first words go on answers the open at once, so a
+viewer can attach to reply.
 
 mesh.test.ts is E1: two conversations in one host, on H1's engine and
 pi's own runtime with this harness loaded and a scripted model, play

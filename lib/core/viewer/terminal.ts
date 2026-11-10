@@ -105,6 +105,8 @@ export class ViewerTerminal implements Terminal {
 	/** The viewer whose keys came last: the one that pressed what pi acts on. */
 	private lastTyped: JoinedViewer | undefined;
 	private edits = 0;
+	/** Told each time pi says something waits on the person. */
+	private blocked: (() => void) | undefined;
 
 	private currentSession: string;
 	private readonly repaint: () => void;
@@ -321,6 +323,17 @@ export class ViewerTerminal implements Terminal {
 	}
 	setProgramStatus(status: ProgramStatus): void {
 		this.write(formatProgramStatus(status));
+		if (status.state === "blocked") this.blocked?.();
+	}
+
+	/**
+	 * Call `listener` each time pi says something waits on the person, such
+	 * as an extension's dialog or a login, as it tells any terminal through
+	 * its program status; undefined stops it. A custom overlay an extension
+	 * shows says nothing, so it is never heard.
+	 */
+	whenBlocked(listener: (() => void) | undefined): void {
+		this.blocked = listener;
 	}
 
 	/** Free connection buffers when the conversation itself closes. */
@@ -328,6 +341,7 @@ export class ViewerTerminal implements Terminal {
 		this.closed = true;
 		this.onInput = undefined;
 		this.onResize = undefined;
+		this.blocked = undefined;
 		const viewers = [...this.viewers];
 		this.viewers.clear();
 		for (const viewer of viewers) {
