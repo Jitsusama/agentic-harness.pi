@@ -188,6 +188,32 @@ describe("the steer inbox", () => {
 		).toMatchObject({ act: "carry", to: "penelope" });
 	});
 
+	it("reads a move with where it goes, and no move that names nowhere a session goes", () => {
+		for (const to of ["attended", "background", "pi"]) {
+			expect(steerFrom(`{"act":"move","to":"${to}"}`, "f")).toEqual({
+				text: "",
+				act: "move",
+				to,
+				file: "f",
+			});
+		}
+		expect(steerFrom('{"act":"move"}', "f")).toBeUndefined();
+		expect(steerFrom('{"act":"move","to":"penelope"}', "f")).toBeUndefined();
+		// A carry's machine is no move's host, nor a host a carry's machine.
+		expect(steerFrom('{"act":"carry","to":"pi"}', "f")).toMatchObject({
+			act: "carry",
+			to: "pi",
+		});
+		// Words beside a move would start a run it waits out.
+		expect(
+			steerFrom('{"act":"move","to":"background","text":"hi"}', "f"),
+		).toMatchObject({ text: "", act: "move" });
+		// Only the person moves a session.
+		expect(
+			steerFrom('{"from":"machine","act":"move","to":"pi"}', "f"),
+		).toBeUndefined();
+	});
+
 	it("reads what waits without taking it", () => {
 		const inbox = inboxOf(root, "P9R1KI");
 		takeSteers(inbox, "1");

@@ -3,6 +3,7 @@
 Observable ownership, lifecycle and pi parity of the shared runtime under
 host/.
 
+- `cutover/`: mirrors host/cutover/, on fakes of the machine.
 - `engine/`: mirrors host/engine/.
 - `screen/`: mirrors host/screen/.
 - `service/`: socket contract tests.

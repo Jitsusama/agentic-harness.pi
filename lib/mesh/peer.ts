@@ -41,6 +41,7 @@ import type { Receiver } from "./attention.ts";
 import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
 import {
+	type Moving,
 	type PeerState,
 	type Presence,
 	type Presences,
@@ -81,6 +82,10 @@ export interface Peer {
 	readonly busy: boolean;
 	/** Whether its person paused it, until they resume it or talk to it. */
 	readonly paused: boolean;
+	/** The move its person asked, while it waits for the session to be free. */
+	readonly moving: Moving | undefined;
+	/** Whether a person has written in its session (driven.ts). */
+	readonly driven: boolean;
 	/**
 	 * The address of the orchestrator its quest answers to, when one is
 	 * above it.
@@ -114,6 +119,10 @@ export interface Peer {
 	setBusy(busy: boolean): void;
 	/** Say whether its person paused it. */
 	setPaused(paused: boolean): void;
+	/** Say the move it waits to make and what holds it, or that none waits. */
+	setMoving(moving: Moving | undefined): void;
+	/** Say a person has written in its session; it stays said. */
+	setDriven(): void;
 	/**
 	 * Say it is parking: ending idle to hold no memory until it is woken
 	 * (parked.ts). It says so to the end, and its next start, a new peer,
@@ -297,6 +306,17 @@ export function localPeer(at: Surroundings): Peer {
 	let landings: Landing[] = standing(before?.landings ?? [], now());
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
+	// A move outlasts a reload, in the same process; the conversation that
+	// takes the moved file up runs in another, and must not move again.
+	let moving =
+		before?.moving !== undefined &&
+		before.owner !== undefined &&
+		before.owner.pid === at.owner?.pid
+			? before.moving
+			: undefined;
+	// Words a person wrote stay in its log, whichever process holds it,
+	// but never pass to another session, as a carried presence would.
+	let driven = at.presences.of(at.session)?.driven === true;
 	let parked = false;
 	// The file its holder wakes it on, while it's parked.
 	let wakeFile: string | undefined;
@@ -402,6 +422,8 @@ export function localPeer(at: Surroundings): Peer {
 			...(questInfo ? { questInfo } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
+			...(moving ? { moving } : {}),
+			driven,
 		};
 		const text = JSON.stringify(said);
 		if (text === published) return;
@@ -484,6 +506,12 @@ export function localPeer(at: Surroundings): Peer {
 		get paused() {
 			return paused;
 		},
+		get moving() {
+			return moving;
+		},
+		get driven() {
+			return driven;
+		},
 		get orchestratedBy() {
 			return roles.orchestratedBy;
 		},
@@ -541,6 +569,15 @@ export function localPeer(at: Surroundings): Peer {
 		setPaused(now) {
 			if (paused === now) return;
 			paused = now;
+			publish();
+		},
+		setMoving(now) {
+			moving = now;
+			publish();
+		},
+		setDriven() {
+			if (driven) return;
+			driven = true;
 			publish();
 		},
 		park(wake) {

@@ -12,9 +12,10 @@
  * file there under a temporary name and renames it to end in `.json`,
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
- * talk.ts). An `act` of `pause`, `resume`, `stop`, `close` or `carry`
- * needs no text, a `carry` names the machine it goes to as `to`, and a
- * `fill` puts its `text` in the prompt without sending it. A
+ * talk.ts). An `act` of `pause`, `resume`, `stop`, `close`, `carry` or
+ * `move` needs no text, a `carry` names the machine it goes to as `to`,
+ * a `move` names where it goes as `to` (`attended`, `background` or
+ * `pi`), and a `fill` puts its `text` in the prompt without sending it. A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. The
  * session going by that address takes it by renaming it again, so two
@@ -22,6 +23,7 @@
  * A file that is not a steer is set aside as `.bad`, never retried.
  */
 
+import { randomBytes } from "node:crypto";
 import {
 	type Dirent,
 	mkdirSync,
@@ -34,13 +36,17 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { isMachineName } from "../internal/machine.ts";
+import { isMoveTarget } from "../internal/session/move.ts";
+import { writeWhole } from "../internal/write-whole.ts";
 import { isTalkId } from "./talk.ts";
 
 /**
  * What the person may do to a session besides talk: pause it after its
  * current step, resume it, stop the run in progress, close the session
  * for good, as /exit does, carry its work to another machine and then
- * close it, or fill its prompt with words left for the person to send.
+ * close it, move it into a host or back out of one once nothing of its
+ * own is out (lib/internal/session/move.ts), or fill its prompt with
+ * words left for the person to send.
  * Joel, 8 November, of a to-do that sends him to a session: "it should
  * give me a prompt that gets filled into it stating i'm reayd to deal
  * with it if it is still valid".
@@ -52,6 +58,7 @@ export const STEER_ACTS = [
 	"stop",
 	"close",
 	"carry",
+	"move",
 ] as const;
 
 /** One of STEER_ACTS. */
@@ -96,7 +103,10 @@ export interface Steer {
 	readonly text: string;
 	/** What they did besides talk, when they did. */
 	readonly act?: SteerAct;
-	/** The machine a carry goes to, as it names itself; only beside `carry`. */
+	/**
+	 * The machine a carry goes to, as it names itself, beside `carry`; or
+	 * where a move goes, beside `move`.
+	 */
 	readonly to?: string;
 	/** When it was written, as an ISO time, if the writer said. */
 	readonly at?: string;
@@ -129,6 +139,21 @@ export function inboxOf(root: string, address: string): string {
 	return join(root, address.toUpperCase());
 }
 
+/**
+ * Write a steer into an address's inbox whole, as the launcher does,
+ * named by when it was written so it sorts after those before it;
+ * answers the file's name.
+ */
+export function giveSteer(
+	root: string,
+	address: string,
+	steer: Omit<Steer, "file">,
+): string {
+	const name = `${Date.now()}-${randomBytes(4).toString("hex")}${READY}`;
+	writeWhole(join(inboxOf(root, address), name), JSON.stringify(steer));
+	return name;
+}
+
 /** A steer read from a file's text, or nothing when it is not one. */
 export function steerFrom(raw: string, file: string): Steer | undefined {
 	let parsed: unknown;
@@ -141,22 +166,25 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (typeof parsed !== "object" || parsed === null) return undefined;
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
-	// Only the person may pause, resume, stop, close or carry a session.
+	// Only the person may pause, resume, stop, close, carry or move a session.
 	const asked =
 		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)
 			? parsed.act
 			: undefined;
+	const goes = "to" in parsed ? parsed.to : undefined;
 	const to =
-		asked === "carry" && "to" in parsed && isMachineName(parsed.to)
-			? parsed.to
+		(asked === "carry" && isMachineName(goes)) ||
+		(asked === "move" && isMoveTarget(goes))
+			? goes
 			: undefined;
 	const said =
 		"text" in parsed && typeof parsed.text === "string"
 			? parsed.text.trim()
 			: "";
-	// A carry goes nowhere without a machine, nor a fill without words.
+	// A carry or move goes nowhere without a to, nor a fill without words.
 	const act =
-		(asked === "carry" && to === undefined) || (asked === "fill" && said === "")
+		((asked === "carry" || asked === "move") && to === undefined) ||
+		(asked === "fill" && said === "")
 			? undefined
 			: asked;
 	// Words would start the run a pause, stop or close is ending.

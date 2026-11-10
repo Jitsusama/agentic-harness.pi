@@ -53,6 +53,7 @@ import {
 import {
 	bootEndedBefore,
 	type RestoreEntry,
+	releasedEntry,
 	restoreFileOf,
 	restoreFilePath,
 	writeRestoreFile,
@@ -87,6 +88,7 @@ import {
 } from "../../lib/internal/quest/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { sessionLogHeader } from "../../lib/internal/session/log-header.ts";
+import { moveFolder, readMoveNotes } from "../../lib/internal/session/move.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -662,6 +664,7 @@ export function refreshRestoreFile(
 			carriedHome(questsRoot),
 			endedBoot(thisBoot, stateHome),
 			(questId) => questLive(questsRoot, questId),
+			releasedHome(questsRoot),
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
 	} catch {
@@ -704,6 +707,19 @@ export function carriedHome(questsRoot: string): RestoreEntry[] {
 		quests: questsRoot,
 		titleOf: (questId) => questTitle(questsRoot, questId),
 	}).filter((entry) => !ranHere.has(entry.id));
+}
+
+/**
+ * The sessions their hosts let go to plain pi, from the notes their
+ * conversations left as they closed (lib/internal/session/move.ts).
+ */
+export function releasedHome(
+	questsRoot: string,
+	folder: string = moveFolder(),
+): RestoreEntry[] {
+	return readMoveNotes(folder)
+		.filter((note) => note.to === "pi")
+		.map((note) => releasedEntry(note, (id) => questTitle(questsRoot, id)));
 }
 
 /** A quest's title from its README, or nothing when it can't be read. */

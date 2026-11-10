@@ -35,6 +35,7 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
+import { automatedText } from "../../../lib/internal/automated.ts";
 import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
@@ -4409,6 +4410,35 @@ describe("presence", () => {
 		await fire("agent_start");
 		expect(aborted).toBe(1);
 		expect(presences.of(session)?.state).toBe("busy");
+	});
+
+	it("says a person drives it once a person's words reach it, and not before", async () => {
+		const presences = createPresences(join(paths.mesh, "presence"));
+		const { fire } = await startSession();
+		expect(presences.of(session)?.driven, "undriven at first").toBe(false);
+
+		await fire("input", {
+			source: "extension",
+			text: automatedText("background work is reporting", "j1 exited 0"),
+		});
+		expect(presences.of(session)?.driven, "the harness is no person").toBe(
+			false,
+		);
+		await fire("input", { source: "rpc", text: "ship it" });
+		expect(presences.of(session)?.driven, "a client's prompt is").toBe(true);
+	});
+
+	it("says a person drives it from the log it starts on", async () => {
+		const presences = createPresences(join(paths.mesh, "presence"));
+		await startSession({}, {}, [
+			{
+				type: "message",
+				message: { role: "user", content: [{ type: "text", text: "." }] },
+			},
+		]);
+		expect(presences.of(session)?.driven, "a lone dot is a person's").toBe(
+			true,
+		);
 	});
 });
 

@@ -69,6 +69,10 @@ import {
 } from "../../lib/internal/reload/hold.ts";
 import { SANDBOX_VARIABLE, STRICT } from "../../lib/internal/sandbox.ts";
 import {
+	isPersonText,
+	isPersonWords,
+} from "../../lib/internal/session/driven.ts";
+import {
 	firstPromptPending,
 	runStarted,
 } from "../../lib/internal/session/first-prompt.ts";
@@ -81,6 +85,10 @@ import {
 	withoutLanding,
 } from "../../lib/internal/session/landings.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
+import {
+	isMoveTarget,
+	writeMoveNote,
+} from "../../lib/internal/session/move.ts";
 import {
 	type NoModelEvent,
 	onNoModel,
@@ -234,6 +242,7 @@ import {
 	reloading,
 	takeHeavyCalls,
 } from "./leases.ts";
+import { createMoving, holdsOf, moveNoteOf } from "./moving.ts";
 import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
@@ -793,6 +802,45 @@ export function meshWorkflow(
 				await carryThisSession(ctx, to);
 			},
 		});
+		// Prompts open for the person, which a move waits out.
+		let prompts = 0;
+		// The host this conversation runs in, by key, read where hosted() knows.
+		let hostKey: string | undefined;
+		// Move into a host or out of one, from outside the window (moving.ts).
+		const moving = createMoving({
+			holds: () => holdsOf(ctx, pi.events, prompts),
+			hosted: () => hostKey !== undefined,
+			moving: () => peer?.moving,
+			setMoving: (one) => peer?.setMoving(one),
+			note: (to) => {
+				if (!ctx || !peer) throw new Error("the session isn't there to move.");
+				const said = presences.of(peer.session);
+				const quest = said?.quest;
+				const pid = said?.owner?.pid;
+				if (pid === undefined)
+					throw new Error("its presence names no owner to watch end.");
+				const title = ctx.sessionManager.getSessionName();
+				writeMoveNote(
+					moveNoteOf(
+						ctx,
+						{
+							session: peer.session,
+							cwd: sessionCwd(ctx),
+							addresses: peer.addresses,
+							...(quest ? { quest } : {}),
+							...(title ? { title } : {}),
+							...(hostKey ? { from: hostKey } : {}),
+							pid,
+						},
+						to,
+					),
+				);
+			},
+			tell: (text) => {
+				if (ctx?.hasUI) ctx.ui.notify(text, "info");
+			},
+			close: () => ctx?.shutdown(),
+		});
 
 		/**
 		 * The person's words from outside the window, as their own message:
@@ -820,6 +868,12 @@ export function meshWorkflow(
 						fillPrompt(ctx, one.text);
 						return;
 					}
+					if (one.act === "move") {
+						if (isMoveTarget(one.to)) moving.move(one.to);
+						return;
+					}
+					// A resume, a talk or typing says the person is at the desk.
+					if (one.act === "resume" || !one.act) moving.cancel();
 					// Resume with words is a talk; any other act is only the act.
 					if (one.act && !(one.act === "resume" && one.text)) {
 						pausing.act(one.act);
@@ -1514,6 +1568,7 @@ export function meshWorkflow(
 			leftTo = leftToIn(branch);
 			signed = undefined;
 			const host = hosted();
+			hostKey = host?.key;
 			peer = localPeer({
 				live: () => live,
 				session,
@@ -1535,6 +1590,10 @@ export function meshWorkflow(
 				history: landingKeeper(paths.mesh),
 			});
 			for (const want of wanting.values()) peer.want(want);
+			// A move asked before a reload goes on waiting for the session.
+			if (peer.moving) moving.look();
+			// Read from the log pi holds, so the cutover need read no log.
+			if (branch.some(isPersonWords)) peer.setDriven();
 			// Today's usage, carried in its last presence or counted from its log.
 			if (!peer.usage) {
 				peer.setUsage(usageFromLog(branch, new Date()));
@@ -1703,7 +1762,13 @@ export function meshWorkflow(
 		// The person typing in the window is at the desk: a pause ends, and
 		// what they typed is the run, never ended as it starts.
 		pi.on("input", async (event) => {
-			if (event.source === "interactive") pausing.talked();
+			// As the log is read at start: a launcher talk or an RPC client's
+			// prompt is a person's too.
+			if (isPersonText(event.text)) peer?.setDriven();
+			if (event.source === "interactive") {
+				pausing.talked();
+				moving.cancel();
+			}
 			return { action: "continue" };
 		});
 		// Whether a peer is mid-run is part of what others see of it.
@@ -1766,9 +1831,20 @@ export function meshWorkflow(
 			if (waiting) settleFromVerdicts(waiting);
 			// What a run claimed is claimed only while it runs.
 			own?.releaseAll(RUN_KINDS);
+			// A move waiting may find the session free now.
+			moving.look();
+		});
+		// A prompt open for the person holds a move until it closes.
+		pi.on("ui_prompt_start", async () => {
+			prompts += 1;
+		});
+		pi.on("ui_prompt_end", async () => {
+			prompts = Math.max(0, prompts - 1);
+			moving.look();
 		});
 
 		pi.on("session_shutdown", async (event) => {
+			moving.stop();
 			// What still waits is not marked read, so the next start has it.
 			acts?.stop();
 			clearInterval(lookClock);

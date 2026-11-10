@@ -77,6 +77,7 @@ const REALM_SLUGS: ReadonlySet<string> = new Set([
 	"quest-workflow",
 	"mesh-workflow",
 	"steer",
+	"moves",
 ]);
 
 function xdgRoot(kind: XdgKind): string {
