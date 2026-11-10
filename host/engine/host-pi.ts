@@ -57,7 +57,7 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 	{
 		patch: "pi-host-model-auth-context.patch",
 		why: "a conversation's credentials would be read from the host's own environment",
-		// Version 2 also keeps header variables to the context; it is required once the work host's pin carries it.
+		// Version 1 kept keys to the context but read header variables from the host's own environment; version 2 keeps both.
 		present: ({ codingAgent }) =>
 			(staticNumber(codingAgent.ModelRuntime, "hostAuthContextVersion") ?? 0) >=
 			AUTH_CONTEXT_VERSION,
@@ -65,7 +65,7 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 ];
 
 /** The auth-context patch's version the host accepts from. */
-const AUTH_CONTEXT_VERSION = 1;
+const AUTH_CONTEXT_VERSION = 2;
 
 /** A pi install that lacks seams the host needs, with each one named. */
 export class HostPiRefused extends Error {
