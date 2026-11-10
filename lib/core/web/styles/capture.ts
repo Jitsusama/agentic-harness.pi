@@ -12,6 +12,8 @@
  * would drift from the engine it claims to describe.
  */
 
+import { pageScript } from "../page-script.ts";
+
 /**
  * Shorthands worth reading in place of the sides they cover.
  *
@@ -35,18 +37,9 @@ export const SHORTHAND_PROPERTIES: readonly string[] = [
  * A function declaration, to be invoked with the element as its
  * receiver: Runtime.callFunctionOn with the element's objectId.
  */
-export const COMPUTED_STYLE_PROBE = `function (shorthands) {
-  var styles = getComputedStyle(this);
-  var out = {};
-  for (var i = 0; i < styles.length; i++) {
-    var name = styles[i];
-    out[name] = styles.getPropertyValue(name);
-  }
-  for (var j = 0; j < shorthands.length; j++) {
-    out[shorthands[j]] = styles.getPropertyValue(shorthands[j]);
-  }
-  return out;
-}`;
+export const COMPUTED_STYLE_PROBE = pageScript(
+	new URL("./computed-style-probe.page.js", import.meta.url),
+);
 
 /**
  * Read what every property computes to when nobody has set it.
@@ -61,22 +54,9 @@ export const COMPUTED_STYLE_PROBE = `function (shorthands) {
  *
  * A function expression, to be invoked through asCall.
  */
-export const INITIALS_PROBE = `(function (shorthands) {
-  var host = document.createElement("div");
-  host.style.setProperty("all", "initial");
-  document.documentElement.appendChild(host);
-  var styles = getComputedStyle(host);
-  var out = {};
-  for (var i = 0; i < styles.length; i++) {
-    var name = styles[i];
-    out[name] = styles.getPropertyValue(name);
-  }
-  for (var j = 0; j < shorthands.length; j++) {
-    out[shorthands[j]] = styles.getPropertyValue(shorthands[j]);
-  }
-  host.remove();
-  return out;
-})`;
+export const INITIALS_PROBE = pageScript(
+	new URL("./initials-probe.page.js", import.meta.url),
+);
 
 /**
  * Turn a function-expression source into an expression that

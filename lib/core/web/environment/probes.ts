@@ -8,6 +8,8 @@
  * on arrival.
  */
 
+import { pageScript } from "../page-script.ts";
+
 /**
  * Read the environment as the page sees it.
  *
@@ -16,26 +18,6 @@
  * often enough that reporting the request would be reporting a
  * guess.
  */
-export const ENVIRONMENT_PROBE = `(() => {
-  const on = (query) => window.matchMedia(query).matches;
-  const pick = (name, values, fallback) => {
-    for (const value of values) {
-      if (on("(" + name + ": " + value + ")")) return value;
-    }
-    return fallback;
-  };
-  return {
-    colorScheme: pick("prefers-color-scheme", ["dark", "light"], "light"),
-    reducedMotion: on("(prefers-reduced-motion: reduce)"),
-    contrast: pick("prefers-contrast", ["more", "less", "custom"], "no-preference"),
-    forcedColors: on("(forced-colors: active)"),
-    print: on("print"),
-    width: window.innerWidth,
-    height: window.innerHeight,
-    devicePixelRatio: window.devicePixelRatio,
-    maxTouchPoints: navigator.maxTouchPoints,
-    touchEvents: "ontouchstart" in window,
-    language: navigator.language,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  };
-})()`;
+export const ENVIRONMENT_PROBE = pageScript(
+	new URL("./environment-probe.page.js", import.meta.url),
+);
