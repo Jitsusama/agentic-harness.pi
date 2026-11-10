@@ -78,6 +78,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/rollback.test.ts",
 	"tests/host/end-to-end/spawn.test.ts",
 	"tests/host/end-to-end/steer.test.ts",
+	"tests/host/end-to-end/subagents.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its

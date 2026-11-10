@@ -24,6 +24,10 @@
  *   realm's attended host;
  * - told `end <address>`, it loads mesh_end, which is deferred, through
  *   tool_search, then ends that peer;
+ * - told `fleet <cwd> <extension>`, it runs two subagents in that folder,
+ *   each with that extension loaded and told `whoami`;
+ * - told `whoami`, it says the pid, node and arguments of the pi it
+ *   answers in, which for a subagent is the subagent's own;
  * - after any other tool's result, it says `sent`.
  *
  * A host process and a plain pi import this by path, under node's own
@@ -162,6 +166,18 @@ function wordsOf(message: Said | undefined): string {
 		.join("");
 }
 
+/** What a subagent is told, to say which pi it runs in. */
+export const WHOAMI = "whoami";
+
+/**
+ * The pi this model answers in, as `<pid> <node> <entry> <arguments>`.
+ * Read from the process itself: pi sets its title to `pi`, which
+ * overwrites what /proc and ps show of its command line.
+ */
+function ownPi(): string {
+	return [process.pid, process.execPath, ...process.argv.slice(1)].join(" ");
+}
+
 /** What `end <address>` says, naming the peer to end. */
 const ENDING = /^end ([0-9A-Z]+)$/m;
 
@@ -170,13 +186,30 @@ function toldTo(words: string, told: string): boolean {
 	return new RegExp(`^${told}$`, "m").test(words);
 }
 
-/** The scripted model's answer to a transcript. */
+/**
+ * The words of the latest turn's user messages, joined: the harness puts
+ * its own notes, such as the quest context, beside what was said, so the
+ * words to act on needn't be the last of them.
+ */
+function latestWords(heard: readonly Said[]): string {
+	const said: string[] = [];
+	for (const one of [...heard].reverse()) {
+		if (one.role === "user") said.unshift(wordsOf(one));
+		else if (said.length > 0) break;
+	}
+	return said.join("\n");
+}
+
+/**
+ * The scripted model's answer to a transcript. System messages are passed
+ * over: the harness appends one when the tool list changes, after
+ * tool_search, and a model answers what was said, not that.
+ */
 function answer(faux: Faux, messages: readonly Said[]): unknown {
-	const last = messages.at(-1);
+	const heard = messages.filter((one) => one.role !== "system");
+	const last = heard.at(-1);
 	if (last?.role === "toolResult") {
-		const told = wordsOf(
-			[...messages].reverse().find((one) => one.role === "user"),
-		);
+		const told = latestWords(heard);
 		const ending = ENDING.exec(told)?.[1];
 		if (last.toolName === "tool_search" && toldTo(told, STORE))
 			return toolCall(faux, "spend", { query: FIFTY_ROWS, limit: 2 });
@@ -184,7 +217,7 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 			return toolCall(faux, "mesh_end", { peer: ending });
 		return faux.fauxAssistantMessage("sent");
 	}
-	const words = wordsOf(last);
+	const words = latestWords(heard);
 	const delivered =
 		/Mesh message \[([0-9a-f]+)\] \(question\)[^\n]*:\n\nping/.exec(words);
 	if (delivered?.[1])
@@ -206,6 +239,17 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		return toolCall(faux, "tool_search", { query: "spend" });
 	if (toldTo(words, ACCOUNT))
 		return toolCall(faux, "bash", { command: ACCOUNTING });
+	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
+	const fleet = /^fleet (\S+) (\S+)$/m.exec(words);
+	if (fleet?.[1] && fleet[2])
+		return toolCall(faux, "subagent", {
+			jobs: ["one", "two"].map((id) => ({
+				id,
+				cwd: fleet[1],
+				userPrompt: WHOAMI,
+				extraExtensions: [fleet[2]],
+			})),
+		});
 	const quest = /^(load|spawn) (QEST-[0-9]{8}-[0-9A-Z]{6})$/m.exec(words);
 	if (quest?.[1] === "load")
 		return toolCall(faux, "quest", { action: "load", id: quest[2] });

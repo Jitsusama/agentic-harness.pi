@@ -4,7 +4,7 @@ A whole host as its own process, started as systemd starts it, under a
 sealed HOME, XDG folders and TMPDIR, driven over its control socket. It
 mirrors no source folder: what it checks spans the engine, the service
 and every conversation's harness. These are the integration checks E1
-to E6 of the keying design, and the ground they stand on.
+to E7 of the keying design, and the ground they stand on.
 
 sealed-host.test.ts proves that ground on a fake engine: two
 conversations served from the seal, one ended at close with the other
@@ -75,6 +75,12 @@ closes it alone through the host's socket, and `/quest-resume`, the
 first words of a conversation opened on the child quest, has the host
 adopt it again under the same id.
 
+subagents.test.ts is E7: a hosted conversation runs two subagents, each
+with the scripted model loaded, and each answers with the pid, node and
+arguments of the `pi --mode json` it runs in, read inside the child,
+since pi titles itself `pi` and so hides them from ps. Both are the
+host's node running the host runtime's own `dist/bundle/cli.js`.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
@@ -83,7 +89,7 @@ node.
 
 ## The Host's Pi
 
-E1 to E6 run on a pi built with the host's patches, which an ordinary
+E1 to E7 run on a pi built with the host's patches, which an ordinary
 check can't build. `pnpm test:host` runs them on the pi
 `PI_HOST_PACKAGE_DIR` names (a pi-monorepo folder), else on the one under
 the link H2 keeps to the latest piHostRuntime build,

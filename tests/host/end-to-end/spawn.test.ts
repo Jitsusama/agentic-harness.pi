@@ -127,7 +127,7 @@ function presenceOf(session: string):
 }
 
 it(
-	"E6: a quest spawns a session into a host, which mesh_end closes alone and a spawn adopts",
+	"E6: a quest spawns a session into a host, which mesh_end closes alone and /quest-resume reopens",
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
 			await nodeFor(sealed, skip);
