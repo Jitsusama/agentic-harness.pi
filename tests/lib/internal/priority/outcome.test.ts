@@ -242,9 +242,20 @@ describe("the memory work needs, by its latest runs", () => {
 			what,
 			ranS: 300,
 			exit: 0,
-			ownPeakBytes: gib * GIB,
+			ownedPeakBytes: gib * GIB,
 			...over,
 		});
+
+	it("reads nothing from the peak an older harness wrote, which could be every job's", () => {
+		const check = "direnv exec . changed-checks > $TMPDIR/cc.log";
+		const older = {
+			...outcome({ kind: "build", what: check, ranS: 300, exit: 0 }),
+			ownPeakBytes: 10_804_027_392,
+		};
+
+		expect(peakGibAfter(check, [older])).toBeUndefined();
+		expect(peakGibAfter(check, [older, ran(check, 0.2)])).toBe(1);
+	});
 
 	it("knows work again whatever log it sends its output to", () => {
 		expect(
@@ -370,13 +381,13 @@ describe("how heavy work ended", () => {
 			kind: "build",
 			what: "changed-checks",
 			needsGib: 6,
-			ownPeakBytes: 17 * 2 ** 30,
+			ownedPeakBytes: 17 * 2 ** 30,
 			started,
 		});
 
 		expect(outcomeOf(booked, NOW, 0)).toMatchObject({
 			bookedGib: 6,
-			ownPeakBytes: 17 * 2 ** 30,
+			ownedPeakBytes: 17 * 2 ** 30,
 		});
 	});
 

@@ -343,6 +343,55 @@ export function memoryPeakOf(
 }
 
 /**
+ * The most memory a cgroup has held as a job's own, from its
+ * memory.peak, only while every process in it is `shell` or something
+ * `shell` started: nothing for a cgroup others share, or one gone.
+ *
+ * A job whose shell is still where it was born sits in the cgroup every
+ * job is born in, so that cgroup's peak is every job's: by 10 November
+ * 1,028 of the 2,494 outcomes with a peak held one of the work
+ * service's, 397 of them exactly the 10,804,027,392 bytes its
+ * memory.peak read that morning (80ECO2's 10.06 GiB).
+ */
+export function ownedMemoryPeakOf(
+	cgroup: string,
+	shell: number,
+	kernel: Pick<Kernel, "proc" | "cgroups"> = KERNEL,
+): number | undefined {
+	const members = text(join(kernel.cgroups, cgroup, "cgroup.procs"))
+		.split("\n")
+		.map((line) => Number(line.trim()))
+		.filter((pid) => Number.isInteger(pid) && pid > 0);
+	if (
+		members.length === 0 ||
+		!members.every((pid) => startedBy(pid, shell, kernel.proc))
+	) {
+		return undefined;
+	}
+	return memoryPeakOf(cgroup, kernel.cgroups);
+}
+
+/** Whether `pid` is `shell` or a process `shell` started, as /proc says. */
+function startedBy(pid: number, shell: number, proc: string): boolean {
+	let at = pid;
+	for (let step = 0; step < MOST_ANCESTORS; step += 1) {
+		if (at === shell) return true;
+		const parent = parentOf(at, proc);
+		if (parent === undefined || parent <= 1) return false;
+		at = parent;
+	}
+	return false;
+}
+
+/** A process's parent, from /proc's status; nothing for a process gone. */
+function parentOf(pid: number, proc: string): number | undefined {
+	const parent = /^PPid:\s*(\d+)$/m.exec(
+		text(join(proc, String(pid), "status")),
+	)?.[1];
+	return parent === undefined ? undefined : Number(parent);
+}
+
+/**
  * The command line of every process in a cgroup and those under it,
  * each with its arguments joined by spaces, so what a job runs now can
  * be read with its shell's variables already expanded.
@@ -544,7 +593,10 @@ function buildsIn(kernel: Kernel): (BuildSeen & { qemu: boolean })[] {
 		});
 }
 
-/** How far up from a build's process its worker is looked for. */
+/**
+ * How far up a process's parents are followed: to a build's worker, or
+ * to a job's shell.
+ */
 const MOST_ANCESTORS = 32;
 
 /**
@@ -554,13 +606,13 @@ const MOST_ANCESTORS = 32;
  */
 function askerOf(pids: readonly string[], proc: string): string | undefined {
 	for (const pid of pids) {
-		let at = pid;
-		for (let step = 0; step < MOST_ANCESTORS && /^\d+$/.test(at); step += 1) {
-			const argv = text(join(proc, at, "cmdline")).split("\0");
+		let at: number | undefined = Number(pid);
+		for (let step = 0; step < MOST_ANCESTORS && at !== undefined; step += 1) {
+			const argv = text(join(proc, String(at), "cmdline")).split("\0");
 			if (argv[0] === "nix-daemon" && /^\d+$/.test(argv[1] ?? ""))
 				return cgroupOf(Number(argv[1]), proc);
-			at = /^PPid:\s*(\d+)$/m.exec(text(join(proc, at, "status")))?.[1] ?? "";
-			if (at === "0" || at === "1") break;
+			at = parentOf(at, proc);
+			if (at === 0 || at === 1) break;
 		}
 	}
 	return undefined;

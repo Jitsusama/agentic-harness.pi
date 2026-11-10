@@ -55,7 +55,7 @@ import {
 	floorsIn,
 	isRunning,
 	KERNEL,
-	memoryPeakOf,
+	ownedMemoryPeakOf,
 	type Reading,
 	readRoom,
 } from "../../lib/internal/priority/room.ts";
@@ -227,7 +227,7 @@ function linuxMachine(own: string | undefined): Machine {
 		processes: {
 			isRunning,
 			cgroupOf,
-			memoryPeakOf: (cgroup) => memoryPeakOf(cgroup),
+			ownedPeakOf: (cgroup, shell) => ownedMemoryPeakOf(cgroup, shell),
 			commandsIn: (cgroup) => commandsIn(cgroup),
 		},
 		room: () => {

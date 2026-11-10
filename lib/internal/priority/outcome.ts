@@ -74,11 +74,16 @@ export interface Outcome {
 	readonly ranTimed?: true;
 	/** Up to how much memory its Nix builds held at once, in bytes. */
 	readonly buildsPeakBytes?: number;
-	/** The most memory its own commands held, in bytes, from its scope. */
-	readonly ownPeakBytes?: number;
+	/**
+	 * The most memory its own commands held, in bytes, from a scope that
+	 * held nothing else (queue.ts's Job). Outcomes an older harness wrote
+	 * say `ownPeakBytes` instead, which could be every job's at once, so
+	 * nothing reads it.
+	 */
+	readonly ownedPeakBytes?: number;
 	/**
 	 * The memory the queue held room for, in GiB, so a run that held more
-	 * than it was booked shows beside {@link ownPeakBytes}. Nothing in
+	 * than it was booked shows beside {@link ownedPeakBytes}. Nothing in
 	 * outcomes an older harness wrote.
 	 */
 	readonly bookedGib?: number;
@@ -244,8 +249,8 @@ export function outcomeOf(
 		...(job.buildsPeakBytes !== undefined
 			? { buildsPeakBytes: job.buildsPeakBytes }
 			: {}),
-		...(job.ownPeakBytes !== undefined
-			? { ownPeakBytes: job.ownPeakBytes }
+		...(job.ownedPeakBytes !== undefined
+			? { ownedPeakBytes: job.ownedPeakBytes }
 			: {}),
 		bookedGib: needsGibOf(job),
 		...(job.planned !== undefined ? { planned: job.planned } : {}),
@@ -395,7 +400,7 @@ export function peakGibAfter(
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
 		if (
-			outcome.ownPeakBytes === undefined ||
+			outcome.ownedPeakBytes === undefined ||
 			outcome.ranS === undefined ||
 			outcome.answered
 		) {
@@ -403,7 +408,7 @@ export function peakGibAfter(
 		}
 		if (failed(outcome.exit) && outcome.ranS < TELLING_S) continue;
 		if (workKey(outcome.what) !== key) continue;
-		peaks.push(outcome.ownPeakBytes);
+		peaks.push(outcome.ownedPeakBytes);
 		if (peaks.length === RUNS_READ) break;
 	}
 	if (peaks.length === 0) return undefined;

@@ -6,6 +6,7 @@ import {
 	floorsIn,
 	memoryPeakOf,
 	offloadIn,
+	ownedMemoryPeakOf,
 	readRoom,
 } from "../../../../lib/internal/priority/room.ts";
 
@@ -376,5 +377,60 @@ describe("memoryPeakOf", () => {
 		expect(memoryPeakOf("/jobs.slice/work-71.scope", cgroups)).toBe(3 * GIB);
 		expect(memoryPeakOf("/no-peak.scope", cgroups)).toBeUndefined();
 		expect(memoryPeakOf("/gone.scope", cgroups)).toBeUndefined();
+	});
+});
+
+describe("ownedMemoryPeakOf", () => {
+	/** A cgroup holding `pids`, with a peak, under a fake /proc of parents. */
+	function holding(path: string, pids: readonly number[]) {
+		const dir = join(root, "cgroups", path);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "cgroup.procs"),
+			pids.map((pid) => `${pid}\n`).join(""),
+		);
+		writeFileSync(join(dir, "memory.peak"), `${10 * GIB}\n`);
+	}
+	function parents(of: Readonly<Record<number, number>>) {
+		for (const [pid, parent] of Object.entries(of)) {
+			const dir = join(root, "procs", pid);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "status"),
+				`Name:\tsh\nPid:\t${pid}\nPPid:\t${parent}\n`,
+			);
+		}
+	}
+	const kernel = () => ({
+		proc: join(root, "procs"),
+		cgroups: join(root, "cgroups"),
+	});
+
+	it("reads a cgroup holding only the shell and what it started", () => {
+		parents({ 100: 50, 101: 100, 102: 101 });
+		holding("jobs.slice/work-100.scope", [100, 102]);
+
+		expect(ownedMemoryPeakOf("/jobs.slice/work-100.scope", 100, kernel())).toBe(
+			10 * GIB,
+		);
+	});
+
+	it("reads nothing from a cgroup the shell shares with other work", () => {
+		// 10 November: 397 outcomes held exactly the work service's peak.
+		parents({ 100: 50, 200: 1 });
+		holding("jobs.slice/jobs.service", [100, 200]);
+
+		expect(
+			ownedMemoryPeakOf("/jobs.slice/jobs.service", 100, kernel()),
+		).toBeUndefined();
+	});
+
+	it("reads nothing from a cgroup the shell has left, or one gone", () => {
+		holding("jobs.slice/work-left.scope", []);
+
+		expect(
+			ownedMemoryPeakOf("/jobs.slice/work-left.scope", 100, kernel()),
+		).toBeUndefined();
+		expect(ownedMemoryPeakOf("/gone.scope", 100, kernel())).toBeUndefined();
 	});
 });

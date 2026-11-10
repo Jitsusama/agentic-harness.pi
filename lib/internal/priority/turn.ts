@@ -174,7 +174,9 @@ export function queuedCommand(
 	// its kind's at least: its scope is charged only the pack pages it
 	// read in first, and another walk's evicted pages are what it maps.
 	// A changed-checks run that sends itself to the builder holds what
-	// deciding to send it takes here, whatever its runs here held.
+	// deciding to send it takes here: what its runs held, once seen, up
+	// to what one never seen is held to, since a run the builder turned
+	// away ran here whole and says nothing of a send.
 	const seen = queueing.folder.peakFor(what);
 	const sent =
 		kind !== "world-walk" &&
@@ -199,7 +201,7 @@ export function queuedCommand(
 		kind === "world-walk"
 			? walkGib
 			: sent
-				? Math.max(NEEDS_GIB[kind], CHANGED_CHECKS_SENT_GIB)
+				? Math.min(seen ?? CHANGED_CHECKS_SENT_GIB, CHANGED_CHECKS_SENT_GIB)
 				: (seen ?? needsGibOfCommand(kind, command)),
 	);
 	// A step past the one named that needs more, as changed-checks after a

@@ -914,7 +914,8 @@ describe("the machine's queue folder", () => {
 			{
 				isRunning: (pid) => running.has(pid),
 				cgroupOf: (pid) => `/work-${pid}.scope`,
-				memoryPeakOf: (cgroup) => peaks.get(cgroup),
+				ownedPeakOf: (cgroup, shell) =>
+					cgroup === `/work-${shell}.scope` ? peaks.get(cgroup) : undefined,
 			},
 			undefined,
 			file,
@@ -944,10 +945,40 @@ describe("the machine's queue folder", () => {
 			.map((line) => JSON.parse(line));
 		const driver = kept.find((outcome) => outcome.id === "driver");
 		const unread = kept.find((outcome) => outcome.id === "unread");
-		expect(driver).toMatchObject({ ownPeakBytes: 5 * GIB });
+		expect(driver).toMatchObject({ ownedPeakBytes: 5 * GIB });
 		expect(driver).not.toHaveProperty("buildsPeakBytes");
 		// A scope whose peak can't be read says nothing, rather than nought.
-		expect(unread).not.toHaveProperty("ownPeakBytes");
+		expect(unread).not.toHaveProperty("ownedPeakBytes");
+	});
+
+	it("records no peak from a scope its shell shares with other work", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		// 10 November: 397 outcomes held exactly the work service's own
+		// memory.peak, 10,804,027,392 bytes, read while each job's shell
+		// still sat there with every other job's.
+		const queue = queueFolder(
+			dir,
+			{
+				isRunning: (pid) => running.has(pid),
+				cgroupOf: () => "/jobs.slice/jobs.service",
+				ownedPeakOf: () => undefined,
+			},
+			undefined,
+			file,
+		);
+		const ran = new Date(NOW - 60_000).toISOString();
+		queue.ask(job("shared", { what: "cargo build", started: ran }));
+		shellSays("shared", 803);
+		queue.keep(ROOMY, NOW, () => undefined);
+		running.delete(803);
+		queue.keep(ROOMY, NOW + 3_000, () => undefined);
+		const kept = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(kept.find((outcome) => outcome.id === "shared")).not.toHaveProperty(
+			"ownedPeakBytes",
+		);
 	});
 
 	it("says how long a VM job held its slot before a VM of its own ran", () => {
