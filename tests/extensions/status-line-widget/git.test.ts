@@ -11,6 +11,7 @@
 import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -204,6 +205,16 @@ describe("the engine, kept running", () => {
 	});
 	afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+	/** Settles once the stand-in engine has written `folder` down as asked. */
+	async function askedFor(folder: string): Promise<void> {
+		while (
+			!(existsSync(asked) && readFileSync(asked, "utf8").includes(folder))
+		) {
+			// Polls the file the engine writes, which no event announces.
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	}
+
 	/** What the engine answers, settled once it has answered `count` times. */
 	function listen(count: number) {
 		const got: [string, GitState | false][] = [];
@@ -270,10 +281,13 @@ describe("the engine, kept running", () => {
 		const engine = new Engine(program, () => {}, none);
 		engine.ask(dir);
 		engine.ask(other);
+		await askedFor(dir);
 		engine.stop();
-		// The answer to the first question comes after the stop.
+		// Long enough for the first answer, 0.2 s after its question, to come
+		// back and ask the held one: nothing is to happen, so only a pause shows it.
 		await new Promise((resolve) => setTimeout(resolve, 600));
 		engine.ask(dir);
+		// Long enough for a new engine to start and write it down, were one started.
 		await new Promise((resolve) => setTimeout(resolve, 300));
 
 		expect(readFileSync(starts, "utf8")).toBe("start\n");
