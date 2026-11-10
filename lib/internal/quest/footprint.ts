@@ -23,7 +23,10 @@
  *
  * Measuring walks directories, which on a machine like this takes tens
  * of seconds, so it is never on a hot path: it runs only when asked, at
- * the lowest CPU priority, sharing one deadline across every path.
+ * the lowest CPU priority, sharing one deadline across every path. It
+ * walks several paths at once, since a cold walk waits on the disk far
+ * more than it reads, and one at a time 150 scratch folders outran the
+ * deadline by minutes.
  * `du -d 1` prints each subfolder as it finishes, so a measurement the
  * deadline cuts short still says at least how much it found, and the
  * report says which figures are only lower bounds.
@@ -163,16 +166,34 @@ export function formatSize(size: Size): string {
 }
 
 /**
- * Each path's size, one after another so only one walk runs at a
- * time. A path that is not there is left out rather than sized at 0.
+ * How many walks run at once. Measuring 150 scratch folders holding
+ * 193 GiB took 48 s eight at a time and 286 s one at a time, on a
+ * warmer cache, so eight fit the deadline where one could not.
+ */
+export const MEASURE_AT_ONCE = 8;
+
+/**
+ * Each path's size, walking up to `atOnce` paths at a time and
+ * starting them in the order given. A path that is not there is left
+ * out rather than sized at 0.
  */
 export async function measureEach(
 	paths: readonly string[],
 	measure: Measure,
+	atOnce: number = MEASURE_AT_ONCE,
 ): Promise<Map<string, Size>> {
+	const found = new Map<string, Size | undefined>();
+	const waiting = paths[Symbol.iterator]();
+	const walk = async (): Promise<void> => {
+		for (let next = waiting.next(); !next.done; next = waiting.next()) {
+			found.set(next.value, await measure(next.value));
+		}
+	};
+	const walkers = Math.max(1, Math.min(atOnce, paths.length));
+	await Promise.all(Array.from({ length: walkers }, walk));
 	const sizes = new Map<string, Size>();
 	for (const path of paths) {
-		const size = await measure(path);
+		const size = found.get(path);
 		if (size) sizes.set(path, size);
 	}
 	return sizes;
@@ -209,35 +230,60 @@ export function leftBehindOf(holding: QuestHolding): Size {
 		: { bytes: 0, complete: true };
 }
 
+/** The trees of a quest worth measuring: on disk, and outside every workspace. */
+function treesOf(
+	quest: QuestOnDisk,
+	workspaceRoot: string,
+): { made: string[]; adopted: string[] } {
+	const made: string[] = [];
+	const adopted: string[] = [];
+	for (const tree of quest.trees) {
+		if (!existsSync(tree.path)) continue;
+		// A tree cut inside a workspace is already in its figure.
+		if (under(tree.path, workspaceRoot)) continue;
+		(tree.origin === "adopted" ? adopted : made).push(tree.path);
+	}
+	return { made, adopted };
+}
+
 /**
- * Measure what every quest holds, one path at a time so the walk never
- * competes with itself for the disk. Quests holding nothing on disk are
- * left out.
+ * Measure what every quest holds, every path in one `measureEach` so
+ * the walks share the deadline several at a time. Quests holding
+ * nothing on disk are left out.
  */
 export async function measureHoldings(
 	quests: readonly QuestOnDisk[],
 	workspaceRoot: string,
 	measure: Measure,
 ): Promise<Holdings> {
-	const holdings: QuestHolding[] = [];
+	const trees = new Map(
+		quests.map((quest) => [quest.id, treesOf(quest, workspaceRoot)]),
+	);
 	const adopters = new Map<string, string[]>();
 	for (const quest of quests) {
-		const workspaceDir = join(workspaceRoot, quest.id);
-		const workspace = await measure(workspaceDir);
-		const made: { path: string; size: Size }[] = [];
-		const adopted: string[] = [];
-		for (const tree of quest.trees) {
-			if (!existsSync(tree.path)) continue;
-			// A tree cut inside a workspace is already in its figure.
-			if (under(tree.path, workspaceRoot)) continue;
-			if (tree.origin === "adopted") {
-				adopted.push(tree.path);
-				adopters.set(tree.path, [...(adopters.get(tree.path) ?? []), quest.id]);
-				continue;
-			}
-			const size = await measure(tree.path);
-			if (size) made.push({ path: tree.path, size });
+		for (const path of trees.get(quest.id)?.adopted ?? []) {
+			adopters.set(path, [...(adopters.get(path) ?? []), quest.id]);
 		}
+	}
+	const sizes = await measureEach(
+		[
+			...quests.flatMap((quest) => [
+				join(workspaceRoot, quest.id),
+				...(trees.get(quest.id)?.made ?? []),
+			]),
+			...adopters.keys(),
+		],
+		measure,
+	);
+	const holdings: QuestHolding[] = [];
+	for (const quest of quests) {
+		const workspace = sizes.get(join(workspaceRoot, quest.id));
+		const made: { path: string; size: Size }[] = [];
+		for (const path of trees.get(quest.id)?.made ?? []) {
+			const size = sizes.get(path);
+			if (size) made.push({ path, size });
+		}
+		const adopted = trees.get(quest.id)?.adopted ?? [];
 		if (!workspace && made.length === 0 && adopted.length === 0) continue;
 		holdings.push({
 			id: quest.id,
@@ -251,7 +297,7 @@ export async function measureHoldings(
 	}
 	const adopted: Holdings["adopted"][number][] = [];
 	for (const [path, owners] of adopters) {
-		const size = await measure(path);
+		const size = sizes.get(path);
 		if (size) adopted.push({ path, size, quests: owners });
 	}
 	return { quests: holdings, adopted };

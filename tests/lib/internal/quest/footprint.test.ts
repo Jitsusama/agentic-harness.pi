@@ -6,6 +6,7 @@ import type { Exec } from "../../../../lib/core/exec/index.ts";
 import {
 	duMeasure,
 	leftBehindOf,
+	MEASURE_AT_ONCE,
 	type Measure,
 	measureEach,
 	measureHoldings,
@@ -105,7 +106,31 @@ describe("duMeasure", () => {
 });
 
 describe("measureEach", () => {
-	it("sizes each path one at a time and leaves out the missing", async () => {
+	it("walks up to eight paths at once, and never more", async () => {
+		const paths = Array.from({ length: 12 }, (_, n) => dir(`p${n}`));
+		const going: (() => void)[] = [];
+		let walking = 0;
+		let most = 0;
+		const measure: Measure = (path) =>
+			new Promise((done) => {
+				walking += 1;
+				most = Math.max(most, walking);
+				going.push(() => {
+					walking -= 1;
+					done({ bytes: path.length, complete: true });
+				});
+			});
+		const sizing = measureEach(paths, measure);
+		while (going.length > 0 || walking > 0) {
+			going.shift()?.();
+			await Promise.resolve();
+		}
+		const sizes = await sizing;
+		expect(most).toBe(MEASURE_AT_ONCE);
+		expect([...sizes.keys()].sort()).toEqual([...paths].sort());
+	});
+
+	it("sizes each path in turn and leaves out the missing", async () => {
 		const here = dir("here");
 		const { measure, asked } = fixed({ [here]: 4 });
 		const gone = join(root, "gone");

@@ -16,6 +16,7 @@ import { clearDiscoveryCache } from "../../../lib/internal/quest/discovery.ts";
 import {
 	formatSize,
 	type Holdings,
+	type Size,
 } from "../../../lib/internal/quest/footprint.ts";
 
 let root: string;
@@ -135,6 +136,43 @@ describe("the disk report", () => {
 		const listed = lines.filter((l) => l.startsWith("- "));
 		expect(listed.map((l) => l.split(" ")[1])).toEqual(["HEAVY", "MID"]);
 		expect(lines).toContain("And 1 more; ask for a larger limit.");
+	});
+
+	it("says in its first lines how many scratch folders the deadline cut short", () => {
+		const holding = (id: string, workspace: Size) => ({
+			id,
+			status: "active",
+			finished: false,
+			workspace,
+			made: [],
+			adopted: [],
+		});
+		const holdings: Holdings = {
+			quests: [
+				holding("WHOLE", { bytes: 5e9, complete: true }),
+				holding("PART", { bytes: 2e9, complete: false }),
+				holding("NONE", { bytes: 0, complete: false }),
+			],
+			adopted: [],
+		};
+		const [first, second] = formatHoldings(holdings, 12).split("\n");
+		expect(first).toContain("Quests hold at least 7.0 GB");
+		expect(second).toBe(
+			"2 of 3 scratch folders weren't measured in full within 60 s, so the true figure is higher; ask again to measure them while the disk's cache is warm.",
+		);
+	});
+
+	it("says plainly when the deadline reached no adopted tree", () => {
+		const holdings: Holdings = {
+			quests: [],
+			adopted: [
+				{ path: "/a", size: { bytes: 0, complete: false }, quests: ["Q"] },
+				{ path: "/b", size: { bytes: 0, complete: false }, quests: ["Q"] },
+			],
+		};
+		expect(formatHoldings(holdings, 12)).toContain(
+			"The 2 trees quests adopted weren't measured within 60 s. Those are your own checkouts",
+		);
 	});
 
 	it("says when a figure is only a lower bound", () => {
