@@ -89,6 +89,11 @@ interface Seen {
 	readonly work: string;
 	/** Each load of the extension the engine was given as pi's `-e` gives one. */
 	readonly flagged: readonly unknown[];
+	/** The process's listeners for each event, once pi loaded and once the step was done. */
+	readonly listeners: {
+		readonly atStart: Readonly<Record<string, number>>;
+		readonly atEnd: Readonly<Record<string, number>>;
+	};
 }
 
 const folders: string[] = [];
@@ -254,6 +259,10 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				seen.flagged,
 				"an extension the engine is given loads as pi's -e loads it",
 			).toEqual([{ loaded: true }]);
+			expect(
+				seen.listeners.atEnd,
+				"a conversation opened and closed leaves the process's listeners as pi left them",
+			).toEqual(seen.listeners.atStart);
 			expect(seen.reported).toEqual([]);
 		},
 		HOST_LIFE_MS,
@@ -482,6 +491,29 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			const ordinary = await step(folder, "reopen");
 			expect(ordinary.sessionId).toBe(resumed.sessionId);
 			expect(ordinary.transcript).toEqual(resumed.transcript);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"ends at its start what a killed host's tools left, for a conversation it does not resume",
+		async () => {
+			const folder = hostFolder();
+			expect(await killedStep(folder, "crash")).toBe("SIGKILL");
+			expect(
+				leftRunning(folder).filter(alive),
+				"both commands outlive the killed host",
+			).toHaveLength(2);
+			const started = await step(folder, "start");
+			expect(
+				started.childrenAlive,
+				"the next start ends them before it resumes anything",
+			).toEqual([]);
+			expect(started.reported).toEqual([
+				expect.stringContaining(
+					"Ended what an earlier host's tools left running",
+				),
+			]);
 		},
 		HOST_LIFE_MS,
 	);

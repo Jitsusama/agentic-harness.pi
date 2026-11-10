@@ -5,21 +5,35 @@
  * conversation's environment, and kills that group only when the command is
  * aborted or times out. A stop, or a host killed outright, leaves it running,
  * so the next start would report a tool cut off while it carried on. Each
- * conversation's environment carries a marker naming it, which every child
- * and descendant inherits; reaping finds every process carrying this
- * conversation's marker and kills its group. A reused pid carries no marker,
- * so it is never mistaken for a child. Linux's /proc is the process table.
+ * conversation's environment carries markers naming it, its host's key and
+ * the host process that owns it, which every child and descendant inherits.
+ * Reaping one conversation finds every process carrying its marker and kills
+ * its group; reaping what a host left behind, at the next start under its
+ * key, finds every process under that key whose owning host no longer runs,
+ * whatever conversation it was for, held or not. A host holds its key alone,
+ * so another live host's children are never touched. A reused pid carries no marker, so it is never mistaken for a
+ * child, and an owner is its pid and the tick it started at, which no later
+ * process with that pid shares. Linux's /proc is the process table.
  */
 import { readdirSync, readFileSync } from "node:fs";
 
 /** The variable naming the conversation a process was started for. */
 export const CONVERSATION_MARKER = "PI_HOST_CONVERSATION";
 
+/** The variable naming the key of the host whose conversation started a process. */
+export const KEY_MARKER = "PI_HOST_KEY";
+
+/** The variable naming the host process whose conversation started a process. */
+export const OWNER_MARKER = "PI_HOST_OWNER";
+
 /** How many times reaping looks again, for a child forked while it killed. */
 const MOST_PASSES = 3;
 
 /** Where the group sits after a stat line's command: state, parent, group. */
 const GROUP_FIELD = 2;
+
+/** Where the start time sits after a stat line's command, in clock ticks since boot. */
+const START_FIELD = 19;
 
 /** The process table reaping reads and the kill it sends. */
 export interface ProcessTable {
@@ -31,13 +45,42 @@ export interface ProcessTable {
 	environ(pid: number): Readonly<Record<string, string>> | undefined;
 	/** A process's group, or undefined once it is gone. */
 	group(pid: number): number | undefined;
+	/** When a process started, in ticks since boot, or undefined once it is gone. */
+	started(pid: number): number | undefined;
 	/** Kill a whole group, or one process when the group is this one's own. */
 	kill(target: { group: number } | { pid: number }): void;
 }
 
-/** The environment entries that mark a process as one conversation's. */
-export function conversationMarker(sessionId: string): Record<string, string> {
-	return { [CONVERSATION_MARKER]: sessionId };
+/** What was killed: whole groups, and lone processes in the host's own group. */
+export interface Reaped {
+	readonly groups: number[];
+	readonly pids: number[];
+}
+
+/** The host a conversation runs under: its key, and its process's owner mark. */
+export interface HostMark {
+	readonly key: string;
+	readonly mark: string;
+}
+
+/** The environment entries that mark a process as one conversation's, under the host that owns it. */
+export function conversationMarker(
+	sessionId: string,
+	owner: HostMark,
+): Record<string, string> {
+	return {
+		[CONVERSATION_MARKER]: sessionId,
+		[KEY_MARKER]: owner.key,
+		[OWNER_MARKER]: owner.mark,
+	};
+}
+
+/** This process's mark as an owner: its pid and the tick it started at. */
+export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
+	const started = table.started(table.self);
+	if (started === undefined)
+		throw new Error("The host cannot read when its own process started");
+	return `${table.self}:${started}`;
 }
 
 /**
@@ -47,12 +90,55 @@ export function conversationMarker(sessionId: string): Record<string, string> {
 export function reapToolChildren(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
-): { groups: number[]; pids: number[] } {
+): Reaped {
+	return reapWhere(
+		(environ) => environ[CONVERSATION_MARKER] === sessionId,
+		table,
+	);
+}
+
+/**
+ * Kill every process group holding a process a host under this key started
+ * and no longer runs, answering what it killed. Nothing else would end them:
+ * a host that does not resume their conversation never reaps it by name.
+ */
+export function reapLeftBehind(
+	key: string,
+	table: ProcessTable = linuxProcessTable(),
+): Reaped {
+	return reapWhere((environ) => {
+		const owner = environ[OWNER_MARKER];
+		return (
+			environ[KEY_MARKER] === key && owner !== undefined && !runs(owner, table)
+		);
+	}, table);
+}
+
+/** Every process other than this one carrying the conversation's marker. */
+export function marked(sessionId: string, table: ProcessTable): number[] {
+	return markedWhere(
+		(environ) => environ[CONVERSATION_MARKER] === sessionId,
+		table,
+	);
+}
+
+/** Whether the host an owner mark names still runs as the same process. */
+function runs(owner: string, table: ProcessTable): boolean {
+	const colon = owner.indexOf(":");
+	const pid = Number(owner.slice(0, colon));
+	const started = Number(owner.slice(colon + 1));
+	return colon > 0 && Number.isInteger(pid) && table.started(pid) === started;
+}
+
+function reapWhere(
+	chosen: (environ: Readonly<Record<string, string>>) => boolean,
+	table: ProcessTable,
+): Reaped {
 	const own = table.group(table.self);
 	const groups = new Set<number>();
 	const pids = new Set<number>();
 	for (let pass = 0; pass < MOST_PASSES; pass += 1) {
-		const found = marked(sessionId, table);
+		const found = markedWhere(chosen, table);
 		if (found.length === 0) break;
 		for (const pid of found) {
 			const group = table.group(pid);
@@ -69,19 +155,27 @@ export function reapToolChildren(
 	return { groups: [...groups], pids: [...pids] };
 }
 
-/** Every process other than this one carrying the conversation's marker. */
-export function marked(sessionId: string, table: ProcessTable): number[] {
-	return table
-		.pids()
-		.filter(
-			(pid) =>
-				pid !== table.self &&
-				table.environ(pid)?.[CONVERSATION_MARKER] === sessionId,
-		);
+function markedWhere(
+	chosen: (environ: Readonly<Record<string, string>>) => boolean,
+	table: ProcessTable,
+): number[] {
+	return table.pids().filter((pid) => {
+		if (pid === table.self) return false;
+		const environ = table.environ(pid);
+		return environ !== undefined && chosen(environ);
+	});
 }
 
 /** The process table Linux keeps under /proc. */
 export function linuxProcessTable(root = "/proc"): ProcessTable {
+	const stat = (pid: number): string | undefined => {
+		try {
+			return readFileSync(`${root}/${pid}/stat`, "utf8");
+		} catch {
+			// The process ended between listing and reading.
+			return undefined;
+		}
+	};
 	return {
 		self: process.pid,
 		pids: () =>
@@ -97,12 +191,12 @@ export function linuxProcessTable(root = "/proc"): ProcessTable {
 			}
 		},
 		group: (pid) => {
-			try {
-				return parseGroup(readFileSync(`${root}/${pid}/stat`, "utf8"));
-			} catch {
-				// The process ended between listing and reading.
-				return undefined;
-			}
+			const line = stat(pid);
+			return line === undefined ? undefined : parseGroup(line);
+		},
+		started: (pid) => {
+			const line = stat(pid);
+			return line === undefined ? undefined : parseStarted(line);
 		},
 		kill: (target) => {
 			try {
@@ -126,10 +220,21 @@ export function parseEnviron(text: string): Record<string, string> {
 
 /** The process group from a /proc stat line, read after the command's parenthesis. */
 export function parseGroup(stat: string): number | undefined {
+	const group = statField(stat, GROUP_FIELD);
+	return group !== undefined && group > 0 ? group : undefined;
+}
+
+/** When a process started, in ticks since boot, from a /proc stat line. */
+export function parseStarted(stat: string): number | undefined {
+	return statField(stat, START_FIELD);
+}
+
+/** A whole-number field of a /proc stat line, counted from the field after the command. */
+function statField(stat: string, field: number): number | undefined {
 	const fields = stat
 		.slice(stat.lastIndexOf(")") + 1)
 		.trim()
 		.split(/\s+/);
-	const group = Number(fields[GROUP_FIELD]);
-	return Number.isInteger(group) && group > 0 ? group : undefined;
+	const value = Number(fields.at(field));
+	return Number.isInteger(value) && value >= 0 ? value : undefined;
 }

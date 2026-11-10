@@ -1,8 +1,9 @@
 /**
  * Reaping a conversation's tool children: only processes carrying its marker
  * die, each by its whole group, never the host or a process in the host's
- * own group beyond the marked one; and on Linux, a real detached shell and
- * its descendant are gone after one reap.
+ * own group beyond the marked one; what a dead host under the key left dies
+ * at the next start, and a live host's never does; and on Linux, a real
+ * detached shell and its descendant are gone after one reap.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,16 +12,24 @@ import {
 	conversationMarker,
 	linuxProcessTable,
 	marked,
+	ownerMark,
 	type ProcessTable,
 	parseEnviron,
 	parseGroup,
+	parseStarted,
+	reapLeftBehind,
 	reapToolChildren,
 } from "../../../host/engine/tool-children.ts";
 
 interface FakeProcess {
 	group: number;
 	env: Record<string, string>;
+	/** When it started, in ticks; 0 unless a case says. */
+	started?: number;
 }
+
+/** The host the fake table's processes ran under: pid 1, started at tick 0. */
+const HOST = { key: "test-host", mark: "1:0" };
 
 function fakeTable(
 	processes: Record<number, FakeProcess>,
@@ -36,6 +45,10 @@ function fakeTable(
 		pids: () => [...live.keys()],
 		environ: (pid) => live.get(pid)?.env,
 		group: (pid) => live.get(pid)?.group,
+		started: (pid) => {
+			const found = live.get(pid);
+			return found === undefined ? undefined : (found.started ?? 0);
+		},
 		kill: (target) => {
 			if ("group" in target) {
 				killed.push(`group ${target.group}`);
@@ -52,10 +65,10 @@ function fakeTable(
 describe("reaping a conversation's tool children", () => {
 	it("kills the group of each process carrying its marker, once a group", () => {
 		const table = fakeTable({
-			1: { group: 1, env: conversationMarker("a") },
-			10: { group: 10, env: conversationMarker("a") },
-			11: { group: 10, env: conversationMarker("a") },
-			20: { group: 20, env: conversationMarker("b") },
+			1: { group: 1, env: conversationMarker("a", HOST) },
+			10: { group: 10, env: conversationMarker("a", HOST) },
+			11: { group: 10, env: conversationMarker("a", HOST) },
+			20: { group: 20, env: conversationMarker("b", HOST) },
 			30: { group: 30, env: {} },
 		});
 		expect(reapToolChildren("a", table)).toEqual({ groups: [10], pids: [] });
@@ -70,7 +83,7 @@ describe("reaping a conversation's tool children", () => {
 		const table = fakeTable({
 			1: { group: 1, env: {} },
 			2: { group: 1, env: {} },
-			5: { group: 1, env: conversationMarker("a") },
+			5: { group: 1, env: conversationMarker("a", HOST) },
 		});
 		expect(reapToolChildren("a", table)).toEqual({ groups: [], pids: [5] });
 		expect(
@@ -92,6 +105,61 @@ describe("reaping a conversation's tool children", () => {
 		});
 		expect(parseGroup("4242 (a (weird) cmd) S 1 4240 4240 0 -1")).toBe(4240);
 		expect(parseGroup("garbage")).toBeUndefined();
+		expect(
+			parseStarted(
+				"4242 (a (weird) cmd) S 1 4240 4240 0 -1 4194560 1 0 0 0 5 2 0 0 20 0 1 0 987654 1000",
+			),
+		).toBe(987654);
+		expect(parseStarted("4242 (cmd) S 1")).toBeUndefined();
+	});
+});
+
+describe("reaping what a dead host left behind", () => {
+	/** An earlier host's mark: pid 7, started at tick 100. */
+	const EARLIER = { key: "test-host", mark: "7:100" };
+
+	it("kills what a host under the key that no longer runs left, whichever conversation it was for", () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: { group: 10, env: conversationMarker("held", EARLIER) },
+			20: { group: 20, env: conversationMarker("closing", EARLIER) },
+		});
+		expect(reapLeftBehind("test-host", table)).toEqual({
+			groups: [10, 20],
+			pids: [],
+		});
+	});
+
+	it("takes a reused pid for a host that no longer runs", () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			7: { group: 7, env: {}, started: 555 },
+			10: { group: 10, env: conversationMarker("a", EARLIER) },
+		});
+		expect(reapLeftBehind("test-host", table).groups).toEqual([10]);
+	});
+
+	it("leaves what a live host started, and what another key's host started", () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			7: { group: 7, env: {}, started: 100 },
+			10: { group: 10, env: conversationMarker("a", EARLIER) },
+			20: {
+				group: 20,
+				env: conversationMarker("b", { key: "other", mark: "9:1" }),
+			},
+			30: { group: 30, env: { PI_HOST_CONVERSATION: "before owners" } },
+		});
+		expect(reapLeftBehind("test-host", table)).toEqual({
+			groups: [],
+			pids: [],
+		});
+		expect(table.killed).toEqual([]);
+	});
+
+	it("marks this process as an owner by its pid and start", () => {
+		const table = fakeTable({ 1: { group: 1, env: {}, started: 42 } });
+		expect(ownerMark(table)).toBe("1:42");
 	});
 });
 
@@ -112,12 +180,35 @@ describe.runIf(process.platform === "linux")("reaping real processes", () => {
 		child = spawn("sh", ["-c", "sleep 60 & exec sleep 60"], {
 			detached: true,
 			stdio: "ignore",
-			env: { PATH: process.env.PATH, ...conversationMarker(id) },
+			env: {
+				PATH: process.env.PATH,
+				...conversationMarker(id, { key: id, mark: ownerMark() }),
+			},
 		});
 		const exited = new Promise((resolve) => child?.once("exit", resolve));
 		await waitForMarked(id, 2);
 		const reaped = reapToolChildren(id);
 		expect(reaped.groups, "the shell's own group").toEqual([child.pid]);
+		await exited;
+		await waitForMarked(id, 0);
+	});
+
+	it("ends what a host under the key that no longer runs left, by its group", async () => {
+		const id = `left-${process.pid}-${Date.now()}`;
+		// This pid, but a start no running process has: a host gone, its pid since reused.
+		const gone = { key: id, mark: `${process.pid}:0` };
+		child = spawn("sh", ["-c", "sleep 60 & exec sleep 60"], {
+			detached: true,
+			stdio: "ignore",
+			env: { PATH: process.env.PATH, ...conversationMarker(id, gone) },
+		});
+		const exited = new Promise((resolve) => child?.once("exit", resolve));
+		await waitForMarked(id, 2);
+		expect(
+			reapLeftBehind(`${id}-other`).groups,
+			"another key's start leaves it",
+		).toEqual([]);
+		expect(reapLeftBehind(id).groups).toEqual([child.pid]);
 		await exited;
 		await waitForMarked(id, 0);
 	});

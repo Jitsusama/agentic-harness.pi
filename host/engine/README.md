@@ -122,12 +122,18 @@ when it opens or is adopted; prepare returns it, the service's roster
 holds it, and a resume replays it as held. Each start the engine sets
 SHOPIFY_HARNESS_SETTINGS (harness-settings.ts) from the host's value,
 the conversation's traits and the loaded pi's version, and the
-PI_HOST_CONVERSATION marker; neither is stored.
+markers naming the conversation, the host's key and the host process
+(PI_HOST_CONVERSATION, PI_HOST_KEY, PI_HOST_OWNER); none is stored.
 
 pi's bash tool runs each command as its own process group, and a host
-killed mid-tool leaves it running. Every command inherits the marker, so
-each start and end of a conversation ends every process carrying its
-marker, by group (tool-children.ts), wherever it went.
+killed mid-tool leaves it running. Every command inherits the markers,
+so each start and end of a conversation ends every process carrying its
+marker, by group (tool-children.ts), wherever it went. Before the
+service resumes anything, creating the engine ends every process under
+its key whose owning host, a pid and the tick it started at, no longer
+runs: the conversations it will resume, and those it won't, such as one
+the dead host was closing. A host holds its key alone, so a live host's
+children are never touched.
 
 A conversation can become another, by pi's /new, /fork, /resume or
 import (replacement.ts). pi disposes the old session before it builds

@@ -58,7 +58,12 @@ import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
 } from "./subagent-install.ts";
-import { conversationMarker, reapToolChildren } from "./tool-children.ts";
+import {
+	conversationMarker,
+	ownerMark,
+	reapLeftBehind,
+	reapToolChildren,
+} from "./tool-children.ts";
 
 /** The gateway key every provider request carries, as the service keeps it. */
 export interface EngineKey {
@@ -221,6 +226,15 @@ export async function createEngine(
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
+	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
+	const owner = ownerMark();
+	const reaped = reapLeftBehind(host.key);
+	if (reaped.groups.length > 0 || reaped.pids.length > 0)
+		report(
+			new Error(
+				`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
+			),
+		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
 	let watched: ConversationWatch | undefined;
@@ -617,7 +631,7 @@ export async function createEngine(
 					request,
 					{ version: pi.version },
 				),
-				...conversationMarker(sessionId),
+				...conversationMarker(sessionId, { key: host.key, mark: owner }),
 			},
 			hints,
 			close: (why) => end(sessionId, record, why),

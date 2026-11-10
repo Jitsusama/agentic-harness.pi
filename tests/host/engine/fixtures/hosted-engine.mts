@@ -16,7 +16,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	createEngine,
@@ -261,6 +261,11 @@ const scenarios: Record<string, Scenario> = {
 			return seen;
 		},
 	},
+	/** The host's next start, resuming nothing, as when the last run's hold was dropped or its resume fails. */
+	start: {
+		responses: () => [],
+		run: async () => ({}),
+	},
 	/** The host's next start: resume what the last run held, then talk. */
 	resume: {
 		responses: () => [say("after the restart"), say("and again")],
@@ -283,6 +288,15 @@ const scenarios: Record<string, Scenario> = {
 
 if (scenarioName === "reopen") await reopen();
 else await runHost(scenarios[scenarioName]);
+
+/** How many listeners the process holds for each event it has any for. */
+function processListeners(): Record<string, number> {
+	return Object.fromEntries(
+		process
+			.eventNames()
+			.map((name) => [String(name), process.listenerCount(name)]),
+	);
+}
 
 /** The pids the crashing tool wrote down, if it ran. */
 function leftRunning(): number[] {
@@ -353,7 +367,8 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
 
 	const host = new SessionHost({
-		key: "test-host",
+		// A key of the folder's own, as each real host has: a start reaps what a dead host under its key left.
+		key: `test-host-${basename(folder)}`,
 		owner: { pid: process.pid, startedAt: Date.now() },
 		registryDir: join(folder, "registry"),
 	});
@@ -395,9 +410,12 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 	const { VERSION } = piModule<{ VERSION: string }>(
 		await import(pathToFileURL(join(packageDir, "dist", "index.js")).href),
 	);
+	// Counted once pi is loaded, whose own modules add process listeners at import.
+	const listenersAtStart = processListeners();
 	const result = await scenario.run(engine, host);
 	// What the engine says of an end comes a turn after the close.
 	await new Promise((settled) => setImmediate(settled));
+	const listeners = { atStart: listenersAtStart, atEnd: processListeners() };
 	process.stdout.write(
 		`${JSON.stringify({
 			...result,
@@ -421,6 +439,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			openedIn,
 			work: realpathSync(work),
 			flagged: lines(flaggedLoads),
+			listeners,
 			reported,
 		})}\n`,
 	);
