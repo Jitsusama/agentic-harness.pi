@@ -8,7 +8,15 @@
  * new one leaves the function that says the reload landed, and the old
  * command calls it once the reload has returned, by which time every
  * new extension has started.
+ *
+ * It is a session slot, which on plain pi is that very key. In a host
+ * each conversation has its own, so one conversation's waiting request
+ * or rollover can't hold another's; a hosted conversation's reload goes
+ * through its host (extensions/reload-workflow/hosted.ts), so its slot
+ * stays empty unless a path that doesn't yet ask hosted() reaches it.
  */
+
+import { sessionSlot } from "../../core/session/index.ts";
 
 /** A reload somebody asked for, and what it is to load. */
 export interface ReloadRequest {
@@ -72,13 +80,11 @@ export interface ReloadSlot {
 	unsaid?: ReloadLanded;
 }
 
-const SLOT_KEY = Symbol.for("agentic-harness.reload.slot");
-
-type SlotGlobal = { [SLOT_KEY]?: ReloadSlot };
-
-/** The process's one slot, made on first use. */
+/** The session's slot, made on first use. */
 export function reloadSlot(): ReloadSlot {
-	const global = globalThis as SlotGlobal;
-	global[SLOT_KEY] ??= {};
-	return global[SLOT_KEY];
+	return sessionSlot<ReloadSlot>(
+		"agentic-harness.reload.slot",
+		undefined,
+		() => ({}),
+	);
 }
