@@ -7,7 +7,9 @@
  * exposure and whether it is declared, to `<folder>/tools.jsonl`, the same
  * from a hosted conversation as from a plain pi. Its `/probe-wait` command
  * waits, as a command asking a person does, until the host calls what it
- * leaves at WAIT_RELEASE. It is an .mts, like the
+ * leaves at WAIT_RELEASE. First words of ASK_ME are held by its input
+ * handler until the person answers a select, as an extension asking
+ * before a prompt goes on does. It is an .mts, like the
  * programs beside it, because it is copied rather than imported.
  */
 import { appendFileSync } from "node:fs";
@@ -16,6 +18,9 @@ import { fileURLToPath } from "node:url";
 /** What the probe reads of a handler's context. */
 interface ProbeContext {
 	readonly sessionManager: { getSessionId(): string };
+	readonly ui: {
+		select(title: string, labels: string[]): Promise<string | undefined>;
+	};
 	newSession(): Promise<{ cancelled: boolean }>;
 }
 
@@ -23,7 +28,10 @@ interface ProbeContext {
 interface ProbeApi {
 	on(
 		event: string,
-		handler: (event: { reason?: string }, context: ProbeContext) => void,
+		handler: (
+			event: { reason?: string; text?: string },
+			context: ProbeContext,
+		) => unknown,
 	): void;
 	registerCommand(
 		name: string,
@@ -41,6 +49,9 @@ interface ProbeApi {
 
 /** The harness's ambient conversation, as withSession sets it, read without importing the harness. */
 const AMBIENT = Symbol.for("agentic-harness.session.ambient.v1");
+
+/** First words the probe's input handler asks the person about before they go on. */
+const ASK_ME = "ask me first";
 
 /** Where `/probe-wait` leaves what ends its wait, for the host in the same process. */
 const WAIT_RELEASE = Symbol.for("test-host.probe-wait.release");
@@ -107,6 +118,13 @@ export default function probeExtension(pi: ProbeApi): void {
 		handler: async (_args, context) => {
 			await context.newSession();
 		},
+	});
+
+	pi.on("input", async (event, context) => {
+		if (event.text !== ASK_ME) return { action: "continue" };
+		const answer = await context.ui.select("Go on?", ["Yes", "No"]);
+		note({ event: "input-asked", answer });
+		return answer === "Yes" ? { action: "continue" } : { action: "handled" };
 	});
 
 	pi.registerCommand("probe-wait", {

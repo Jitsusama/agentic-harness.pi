@@ -59,8 +59,19 @@ export interface EngineScreens {
 		title: string,
 		labels: readonly string[],
 	): Promise<string | undefined>;
-	/** A conversation is registered and built; its first words are still to come. */
-	opened(view: HostedView): void | Promise<void>;
+	/**
+	 * A conversation is registered and built; its first words are still to
+	 * come. What the screen may tell the engine of it comes with it.
+	 */
+	opened(view: HostedView, signals: ScreenSignals): void | Promise<void>;
+	/**
+	 * A conversation's build or first words failed after its start had
+	 * answered, as it does while the person is asked something, so no open
+	 * failed with it: show it, as pi shows an initial message's error. It is
+	 * reported to the service as well. Not called once the conversation is
+	 * closing.
+	 */
+	failed?(sessionId: string, message: string): void;
 	/** A conversation became another (new, fork or resume) under a new id. */
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
 	/**
@@ -69,6 +80,18 @@ export interface EngineScreens {
 	 * goes.
 	 */
 	closed(sessionId: string): void | Promise<void>;
+}
+
+/** What a screen may tell the engine of a conversation it shows. */
+export interface ScreenSignals {
+	/**
+	 * Something in the conversation waits on the person, such as an
+	 * extension's dialog, and no viewer has attached to answer it. The
+	 * conversation's start answers at once, so one can; its build and first
+	 * words carry on, and what fails later is reported. Once start has
+	 * answered, it does nothing.
+	 */
+	asking(): void;
 }
 
 /** What the engine is made from. */

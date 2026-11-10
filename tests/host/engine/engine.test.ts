@@ -108,6 +108,8 @@ interface Seen {
 	/** What the conversation with nobody to ask was told as it started. */
 	readonly nobodySaid?: readonly { type: string; message: string }[];
 	readonly built?: readonly boolean[];
+	/** What a conversation's screen was told failed after its start answered, and whether it was the one meant to. */
+	readonly screenFailures?: readonly { lost: boolean; message: string }[];
 	/** Each load of a project folder's own extension. */
 	readonly projectLoads?: readonly { loaded: string }[];
 	readonly listeners: {
@@ -508,6 +510,33 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 			expect(seen.reported).toEqual([
 				expect.stringMatching(/nobody is not trusted/),
 				expect.stringMatching(/closed before it was built$/),
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"answers an open its screen says is asking the person, and shows what fails after",
+		async () => {
+			const seen = await step(hostFolder(), "open-asking");
+			expect(
+				seen.answeredWhileAsking,
+				"the open answers before the input handler's question is",
+			).toBe(true);
+			expect(seen.transcript).toEqual([
+				"system: ",
+				"user: ask me first",
+				"assistant: went on",
+			]);
+			expect(seen.probe).toContainEqual({
+				event: "input-asked",
+				answer: "Yes",
+			});
+			expect(seen.screenFailures).toEqual([
+				{ lost: true, message: expect.stringMatching(/^No model selected/) },
+			]);
+			expect(seen.reported).toEqual([
+				expect.stringMatching(/No model selected/),
 			]);
 		},
 		HOST_LIFE_MS,

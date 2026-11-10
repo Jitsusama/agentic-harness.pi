@@ -5,7 +5,9 @@
  * extensions are the folder's. The folder outlives a run, so a later run
  * plays the host's next start: entry.json is the roster entry a run held,
  * effects counts what a tool really did, and probe.jsonl is what the
- * probe extension saw. It prints one JSON line.
+ * probe extension saw. It prints one JSON line. Long because each
+ * scenario is one step of a host's life, and the steps share the host,
+ * the screens and the helpers they run on.
  */
 import {
 	copyFileSync,
@@ -139,6 +141,45 @@ function trustScreens(): EngineScreens {
 	};
 }
 
+/** What answers the select the asking screens' UI is showing, while one is. */
+let selectAnswer: ((label: string | undefined) => void) | undefined;
+/** What the asking screens were told failed, by conversation. */
+const screenFailures: { sessionId: string; message: string }[] = [];
+
+/**
+ * Screens that bind a UI whose select waits for the scenario to answer it,
+ * telling the engine that the person is being asked, as a hosted screen
+ * does when a dialog opens before any viewer attached. Every other call
+ * on the UI does nothing.
+ */
+function askingScreens(): EngineScreens {
+	const select = (): Promise<string | undefined> =>
+		new Promise((answer) => {
+			selectAnswer = answer;
+		});
+	return {
+		opened: async (view, signals) => {
+			screensOpened.add(view.sessionId);
+			const asking = (): Promise<string | undefined> => {
+				const answer = select();
+				signals.asking();
+				return answer;
+			};
+			await view.runtime.session.bindExtensions({
+				uiContext: new Proxy(
+					{},
+					{ get: (_ui, key) => (key === "select" ? asking : () => undefined) },
+				),
+			});
+		},
+		rebound: () => {},
+		failed: (sessionId, message) => {
+			screenFailures.push({ sessionId, message });
+		},
+		closed: () => selectAnswer?.(undefined),
+	};
+}
+
 /** A project folder holding an extension of its own, which pi loads only where the folder is trusted. */
 function project(name: string): string {
 	const dir = join(projects, name);
@@ -154,6 +195,18 @@ function project(name: string): string {
 		].join("\n"),
 	);
 	return realpathSync(dir);
+}
+
+/** Whether a probe line is something other than its input handler's answer. */
+function notAsked(line: unknown): boolean {
+	return field(line, "event") !== "input-asked";
+}
+
+/** One field of something read loosely, or nothing when it isn't an object. */
+function field(value: unknown, key: string): unknown {
+	return typeof value === "object" && value !== null
+		? Reflect.get(value, key)
+		: undefined;
 }
 
 /** Wait until a condition holds, refusing the run once it has waited too long. */
@@ -238,6 +291,52 @@ const scenarios: Record<string, Scenario> = {
 			await idle(engine, id);
 			await host.close(id);
 			return { answeredWhileWaiting };
+		},
+	},
+	/** Open with first words an extension's input handler asks the person about, at a screen nobody has attached to yet. */
+	"open-asking": {
+		responses: () => [say("went on")],
+		screens: askingScreens,
+		run: async (engine, host) => {
+			const id = await open(
+				engine,
+				{ first: "ask me first" },
+				{ attended: true },
+			);
+			const answeredWhileAsking =
+				selectAnswer !== undefined && lines(probe).every(notAsked);
+			selectAnswer?.("Yes");
+			await until("the first words are answered", () =>
+				String(summary(engine, id).transcript).includes("went on"),
+			);
+			await idle(engine, id);
+			const seen = { ...summary(engine, id), answeredWhileAsking };
+			await host.close(id);
+			// A second whose model is gone by the time the person answers, so its first words fail after its start answered.
+			const lost = await open(
+				engine,
+				{ first: "ask me first" },
+				{ attended: true },
+			);
+			const state = field(
+				field(engine.view(lost)?.runtime.session, "agent"),
+				"state",
+			);
+			if (typeof state !== "object" || state === null)
+				throw new Error("The lost conversation has no agent state");
+			Reflect.set(state, "model", undefined);
+			selectAnswer?.("Yes");
+			await until("the lost conversation's screen is told", () =>
+				screenFailures.some(({ sessionId }) => sessionId === lost),
+			);
+			await host.close(lost);
+			return {
+				...seen,
+				screenFailures: screenFailures.map(({ sessionId, message }) => ({
+					lost: sessionId === lost,
+					message,
+				})),
+			};
 		},
 	},
 	/** Open with no words, then stop the host, as a restart does. */
