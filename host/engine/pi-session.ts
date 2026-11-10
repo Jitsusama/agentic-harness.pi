@@ -194,6 +194,8 @@ export interface RuntimeTarget {
 	readonly agentDir: string;
 	readonly sessionManager: SessionManager;
 	readonly sessionStartEvent?: object;
+	/** pi's screen's context for asking whether to trust the folder, as it hands one to a session it resumes. */
+	readonly projectTrustContext?: object;
 }
 
 /** What a runtime factory answers: the session and the services it was built with. */
@@ -226,7 +228,13 @@ export interface PiSessions {
 		cwd: string;
 		agentDir?: string;
 		modelRuntime?: ModelRuntime;
+		settingsManager?: object;
 		resourceLoaderOptions?: ResourceLoaderOptions;
+		resourceLoaderReloadOptions?: {
+			resolveProjectTrust(options: {
+				extensionsResult: unknown;
+			}): Promise<boolean>;
+		};
 	}): Promise<SessionServices>;
 	createAgentSession(options: {
 		cwd: string;

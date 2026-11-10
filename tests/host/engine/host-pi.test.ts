@@ -56,6 +56,7 @@ function fakeInstall(
 		codingAgent: `export const VERSION = "${FAKE_VERSION}";\nexport class AgentSession { ${agent} }\nexport class InteractiveMode { ${screen} }\nexport class ModelRuntime { ${auth} }\n`,
 		builtins:
 			'export const builtInExtensions = [{ name: "tool-search", factory: () => {}, replaceable: true, builtin: true }];\n',
+		projectTrust: "export const resolveProjectTrusted = async () => true;\n",
 		durable: `export const GenerationTask = { definition: { version: ${seams.turn ? 3 : 2}, phases: ${phases} } };\n`,
 		agentCore: "export const DEFAULT_AGENT_IDENTITY = {};\n",
 		ai: "export const validateToolArguments = () => {};\n",

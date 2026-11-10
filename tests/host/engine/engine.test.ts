@@ -92,6 +92,24 @@ interface Seen {
 	/** The process's listeners for each event, once pi loaded and once the step was done. */
 	/** Whether an open on a waiting command answered while it still waited. */
 	readonly answeredWhileWaiting?: boolean;
+	/** Whether an attended open answered while its screen asked whether to trust its folder. */
+	readonly answeredWhileAsking?: boolean;
+	/** The trust question its screen was asked, and whether it named that conversation and folder. */
+	readonly question?: {
+		readonly asked: boolean;
+		readonly cwd: boolean;
+		readonly title: string;
+		readonly labels: readonly string[];
+	};
+	/** The project folder of each trust question asked, in order. */
+	readonly questionsFor?: readonly string[];
+	readonly closingScreenClosed?: boolean;
+	readonly closingHeld?: string;
+	/** What the conversation with nobody to ask was told as it started. */
+	readonly nobodySaid?: readonly { type: string; message: string }[];
+	readonly built?: readonly boolean[];
+	/** Each load of a project folder's own extension. */
+	readonly projectLoads?: readonly { loaded: string }[];
 	readonly listeners: {
 		readonly atStart: Readonly<Record<string, number>>;
 		readonly atEnd: Readonly<Record<string, number>>;
@@ -452,6 +470,45 @@ describe.runIf(packageDir !== undefined)("the host's engine", () => {
 				"the open answers before the command's wait ends",
 			).toBe(true);
 			expect(seen.probe).toContainEqual({ event: "wait-started" });
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"trusts each folder as pi decides, asking an attended conversation's screen",
+		async () => {
+			const seen = await step(hostFolder(), "trust");
+			expect(
+				seen.projectLoads,
+				"only the folders pi's store trusts or the person trusted load their own extension",
+			).toEqual([{ loaded: "stored" }, { loaded: "asked" }]);
+			expect(seen.questionsFor, "only attended opens are asked").toEqual([
+				"asked",
+				"closing",
+			]);
+			expect(seen.question).toMatchObject({ asked: true, cwd: true });
+			expect(seen.question?.title).toMatch(/^Trust project folder\?\n/);
+			expect(seen.question?.labels).toContain("Trust (this session only)");
+			expect(
+				seen.answeredWhileAsking,
+				"the open answers before the person does",
+			).toBe(true);
+			expect(seen.built).toEqual([true, true, true]);
+			expect(seen.nobodySaid).toEqual([
+				{
+					type: "warning",
+					message: expect.stringMatching(/nobody\/? is not trusted/),
+				},
+			]);
+			expect(
+				seen.closingScreenClosed,
+				"a close while asking tells the screen",
+			).toBe(true);
+			expect(seen.closingHeld).toBe("gone");
+			expect(seen.reported).toEqual([
+				expect.stringMatching(/nobody is not trusted/),
+				expect.stringMatching(/closed before it was built$/),
+			]);
 		},
 		HOST_LIFE_MS,
 	);
