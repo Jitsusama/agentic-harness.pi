@@ -30,10 +30,18 @@ export interface HostRunOptions {
 	ready?: (env: NodeJS.ProcessEnv) => Promise<void>;
 	/** Where errors go; standard error, which the journal keeps, by default. */
 	report?: (error: unknown) => void;
-	/** Passed on to serveHost, for tests. */
+	/**
+	 * Passed on to serveHost, for tests: a host run from a tree is given
+	 * its rollout gate, since it has no install to read one from.
+	 */
 	places?: Pick<
 		Parameters<typeof serveHost>[0],
-		"rosterDir" | "registryDir" | "rejectionLog" | "owner" | "standing"
+		| "rosterDir"
+		| "registryDir"
+		| "rejectionLog"
+		| "owner"
+		| "standing"
+		| "rollout"
 	>;
 }
 

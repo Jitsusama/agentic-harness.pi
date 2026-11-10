@@ -15,7 +15,10 @@
 		"tests/**/*.test.ts",
 		// Programs a test runs in a node of its own.
 		"tests/**/fixtures/*.mts",
-		"vitest*.config.ts"
+		"vitest*.config.ts",
+		// An engine a sealed host process imports by path, which no static
+		// import names.
+		"tests/host/end-to-end/support/fake-engine.ts"
 	],
 	"project": [
 		"extensions/**/*.ts",
