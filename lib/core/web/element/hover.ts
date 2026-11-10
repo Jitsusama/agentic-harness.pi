@@ -17,6 +17,7 @@
  * them and it belongs to the document.
  */
 
+import { pageScript } from "../page-script.ts";
 import type { StyleChange } from "./pseudo.ts";
 
 /**
@@ -69,7 +70,8 @@ export interface HoverReport {
 /**
  * Find selectors carrying a :hover, in the page.
  *
- * Ships as a source string because it declares helpers. Two traps
+ * Kept as page source, in hover-scan.page.js, because it declares
+ * helpers. Two traps
  * are handled here rather than discovered later. A cross-origin
  * sheet throws on `cssRules` and is counted rather than skipped
  * silently. And CSS nesting gave every style rule a `cssRules` of
@@ -78,30 +80,9 @@ export interface HoverReport {
  * rule and read no selector at all, which reported a page full of
  * hover styles as having none.
  */
-export const HOVER_SCAN = `(() => {
-  const found = [];
-  let unreadableSheets = 0;
-  const walk = (list) => {
-    for (const rule of list) {
-      const selector = rule.selectorText;
-      if (typeof selector === "string") {
-        for (const part of selector.split(",")) {
-          if (/:hover\\b/.test(part)) {
-            const base = part.replace(/:hover\\b/g, "").trim();
-            if (base) found.push(base);
-          }
-        }
-      }
-      if (rule.cssRules && rule.cssRules.length > 0) walk(rule.cssRules);
-    }
-  };
-  for (const sheet of document.styleSheets) {
-    let rules;
-    try { rules = sheet.cssRules } catch { unreadableSheets += 1; continue }
-    walk(rules);
-  }
-  return JSON.stringify({ selectors: [...new Set(found)], unreadableSheets });
-})()`;
+export const HOVER_SCAN = pageScript(
+	new URL("./hover-scan.page.js", import.meta.url),
+);
 
 /** A stable signature for one set of changes. */
 function signature(changes: readonly StyleChange[]): string {

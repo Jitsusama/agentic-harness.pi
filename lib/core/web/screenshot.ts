@@ -11,6 +11,7 @@
  */
 
 import type { Page } from "puppeteer-core";
+import { pageScript } from "./page-script.ts";
 
 /** A vertical slice of the page to capture, in page pixels. */
 export interface TileBand {
@@ -187,20 +188,7 @@ export async function captureTiles(page: Page): Promise<TiledCapture> {
  * a style through the CSSOM is not something a page's content security
  * policy can refuse.
  */
-const UNSTICK = `(() => {
-	for (const el of document.querySelectorAll("body *")) {
-		if (getComputedStyle(el).position === "sticky") {
-			el.style.setProperty("position", "relative", "important");
-			el.style.setProperty("inset", "auto", "important");
-		}
-	}
-})()`;
+const UNSTICK = pageScript(new URL("./unstick.page.js", import.meta.url));
 
 /** Page-side source: hide every element the viewport pins in place. */
-const HIDE_FIXED = `(() => {
-	for (const el of document.querySelectorAll("body *")) {
-		if (getComputedStyle(el).position === "fixed") {
-			el.style.setProperty("visibility", "hidden", "important");
-		}
-	}
-})()`;
+const HIDE_FIXED = pageScript(new URL("./hide-fixed.page.js", import.meta.url));

@@ -20,6 +20,7 @@ const MODAL_SELECTOR =
 	'dialog[open], [role="dialog"][aria-modal="true"], ' +
 	'[role="alertdialog"][aria-modal="true"]';
 
+import { pageScript } from "../page-script.ts";
 import { DEEP_DOM } from "../snapshot/deep.ts";
 
 /**
@@ -39,31 +40,7 @@ import { DEEP_DOM } from "../snapshot/deep.ts";
  * collects candidates left the one that records stops still
  * answering the old way.
  */
-const NAMING = `
-	const labelled = (el) => {
-		const by = el.getAttribute && el.getAttribute("aria-labelledby");
-		if (by) {
-			const words = by.split(/\\s+/)
-				.map((id) => {
-					const source = document.getElementById(id);
-					return source ? source.innerText || source.textContent || "" : "";
-				})
-				.join(" ").trim();
-			if (words) return words;
-		}
-		const labels = el.labels;
-		if (labels && labels.length) {
-			return Array.prototype.map
-				.call(labels, (label) => label.innerText || label.textContent || "")
-				.join(" ").trim();
-		}
-		return "";
-	};
-	const nameOf = (el) =>
-		(el.getAttribute("aria-label") || labelled(el) || el.innerText ||
-			el.value || el.getAttribute("title") || el.getAttribute("alt") ||
-			"").trim().slice(0, 60);
-`;
+const NAMING = pageScript(new URL("./naming.page.js", import.meta.url));
 
 /**
  * Collect everything the browser will let focus land on, and
@@ -369,32 +346,11 @@ ${NAMING}
  *
  * Paired with WALK_RESTORE below, which puts both back.
  */
-export const WALK_REMEMBER = `(() => {
-	window.__walkOrigin = {
-		el: document.activeElement,
-		x: window.scrollX,
-		y: window.scrollY,
-	};
-	return true;
-})()`;
+export const WALK_REMEMBER = pageScript(
+	new URL("./walk-remember.page.js", import.meta.url),
+);
 
 /** Put focus and the scroll position back where the walk found them. */
-export const WALK_RESTORE = `(() => {
-	const origin = window.__walkOrigin;
-	if (document.activeElement && document.activeElement.blur) {
-		document.activeElement.blur();
-	}
-	if (origin) {
-		const el = origin.el;
-		// Refocusing only makes sense if it is still in the document
-		// and could hold focus in the first place; body cannot.
-		if (el && el.isConnected && typeof el.focus === "function" &&
-			el !== document.body && el !== document.documentElement) {
-			try { el.focus({ preventScroll: true }); } catch { /* gone */ }
-		}
-		window.scrollTo(origin.x, origin.y);
-	}
-	window.__walkOrigin = undefined;
-	window.__walkCandidates = undefined;
-	return true;
-})()`;
+export const WALK_RESTORE = pageScript(
+	new URL("./walk-restore.page.js", import.meta.url),
+);

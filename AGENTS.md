@@ -226,8 +226,11 @@ rules, and where it doesn't yet.
 - **Embedded programs:** SQL and GraphQL live in `.sql` and
   `.graphql` files beside the code that runs them, read in with
   `sqlFile` (`lib/core/internal/sqlite/sql-file.ts`) and
-  `graphqlFile`. The page scripts, shell and one generated
-  insert still written as strings are listed in
+  `graphqlFile`. JavaScript that runs in a page lives in a
+  `.page.js` beside the module that sends it, read in with
+  `pageScript` (`lib/core/web/page-script.ts`), so Biome reads
+  it. The page scripts that splice values in, shell and one
+  generated insert still written as strings are listed in
   `tests/package/embedded-programs.txt`, which only shrinks.
 
 ## Before Trusting a Live Run
