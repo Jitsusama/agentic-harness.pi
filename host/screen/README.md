@@ -17,3 +17,13 @@ the new id, and refuses a different runtime.
 `hostedModeOf` takes the InteractiveMode class the host's pi exports and
 refuses one without core.nix's `pi-host-interactive-lifecycle.patch`,
 whose screens would own the host's process exit and signals.
+
+A question pi asks before a conversation's screen exists, whether to
+trust its project folder, comes through `askProjectTrust` when the host
+gives the screens an asker. `startup-ask.ts` shows it as pi's CLI shows
+its startup selector: pi's ExtensionSelectorComponent in a main-screen
+TUI of its own, on a terminal made early for the conversation. Viewers
+can join it there, and the screen takes the same terminal once it opens.
+Questions follow one another there, never two at once. A close while one
+waits answers it with nothing, which is untrusted, and lets its viewers
+go. `hostedAskerOf` refuses a pi that exports no such selector.

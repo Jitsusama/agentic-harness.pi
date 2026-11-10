@@ -8,6 +8,7 @@ import {
 	hostedModeOf,
 	hostScreens,
 } from "../../../host/screen/screens.ts";
+import type { StartupAsker } from "../../../host/screen/startup-ask.ts";
 import { ambientSession } from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
 
@@ -54,7 +55,30 @@ class FakeMode implements HostedMode {
 	}
 }
 
-function host() {
+/** A stand-in for pi's startup selector: each question waits until the test answers it. */
+function asker() {
+	const asked: {
+		readonly terminal: ViewerTerminal;
+		readonly title: string;
+		readonly labels: readonly string[];
+		readonly pick: (label: string | undefined) => void;
+		readonly repaint: ReturnType<typeof vi.fn>;
+		readonly cancel: ReturnType<typeof vi.fn>;
+	}[] = [];
+	const ask: StartupAsker = (terminal, title, labels) => {
+		let pick: (label: string | undefined) => void = () => undefined;
+		const answer = new Promise<string | undefined>((done) => {
+			pick = done;
+		});
+		const repaint = vi.fn();
+		const cancel = vi.fn(() => pick(undefined));
+		asked.push({ terminal, title, labels, pick, repaint, cancel });
+		return { answer, repaint, cancel };
+	};
+	return { ask, asked };
+}
+
+function host(ask?: StartupAsker) {
 	const modes = new Map<unknown, FakeMode>();
 	const report = vi.fn();
 	const screens = hostScreens({
@@ -64,6 +88,7 @@ function host() {
 			return mode;
 		},
 		report,
+		...(ask ? { ask } : {}),
 	});
 	const closes: [string, string][] = [];
 	function view(
@@ -277,6 +302,88 @@ describe("hosted screens", () => {
 		expect(watching.disconnect).not.toHaveBeenCalled();
 		await screens.mode(runtime).shutdown();
 		expect(screens.closes).toEqual([["c", "quit"]]);
+	});
+
+	it("asks whether to trust a folder on the conversation's terminal, which viewers join and its screen keeps", async () => {
+		const { ask, asked } = asker();
+		const screens = host(ask);
+		const answer = screens.screens.askProjectTrust?.(
+			"a",
+			"/project",
+			"Trust project folder?",
+			["Trust", "Don't trust"],
+		);
+		const [question] = asked;
+		expect(question?.title).toBe("Trust project folder?");
+		expect(question?.labels).toEqual(["Trust", "Don't trust"]);
+		const watching = sink();
+		screens.viewer.attach(attach("a"), watching);
+		expect(
+			question?.repaint,
+			"a viewer joining sees the question",
+		).toHaveBeenCalled();
+
+		question?.pick("Trust");
+		await expect(answer).resolves.toBe("Trust");
+		const a = screens.view("a");
+		await screens.screens.opened(a);
+
+		const mode = screens.mode(a.runtime);
+		expect(mode.options.terminal).toBe(question?.terminal);
+		expect(
+			watching.disconnect,
+			"its viewer stays for the screen",
+		).not.toHaveBeenCalled();
+		screens.viewer.attach(attach("a"), sink());
+		expect(mode.ui.requestRender).toHaveBeenCalledWith(true);
+	});
+
+	it("a conversation closed while it asks settles the question unanswered and lets its viewers go", async () => {
+		const { ask, asked } = asker();
+		const screens = host(ask);
+		const answer = screens.screens.askProjectTrust?.("a", "/p", "Trust?", [
+			"Trust",
+		]);
+		const watching = sink();
+		screens.viewer.attach(attach("a"), watching);
+
+		await screens.screens.closed("a");
+
+		await expect(answer).resolves.toBeUndefined();
+		expect(asked[0]?.cancel).toHaveBeenCalledOnce();
+		expect(watching.disconnect).toHaveBeenCalledWith("Conversation closed");
+		expect(() => screens.viewer.attach(attach("a"), sink())).toThrow(
+			"Conversation has no screen: a",
+		);
+	});
+
+	it("asks nothing without an asker, and one question at a time on the same terminal", async () => {
+		expect(host().screens.askProjectTrust).toBeUndefined();
+		const { ask, asked } = asker();
+		const screens = host(ask);
+		const first = screens.screens.askProjectTrust?.("a", "/p", "Trust?", [
+			"Trust",
+		]);
+		await expect(
+			screens.screens.askProjectTrust?.("a", "/p", "Sure?", ["Yes", "No"]),
+		).rejects.toThrow("Conversation is already asking: a");
+
+		asked[0]?.pick("Trust");
+		await first;
+		const second = screens.screens.askProjectTrust?.("a", "/p", "Sure?", [
+			"Yes",
+			"No",
+		]);
+		expect(asked[1]?.terminal, "the next question shares the terminal").toBe(
+			asked[0]?.terminal,
+		);
+		asked[1]?.pick("Yes");
+		await expect(second).resolves.toBe("Yes");
+
+		await screens.screens.opened(screens.view("a"));
+		await expect(
+			screens.screens.askProjectTrust?.("a", "/p", "Trust?", ["Trust"]),
+		).rejects.toThrow("Conversation already has a screen: a");
 	});
 
 	it("refuses a rebind onto another runtime and a second screen for one id", async () => {

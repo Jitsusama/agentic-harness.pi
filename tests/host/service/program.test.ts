@@ -9,6 +9,7 @@ import {
 	hostPackageDir,
 	nameViewerTerminal,
 	startHostProgram,
+	startupSelector,
 	themeStarter,
 } from "../../../host/service/program.ts";
 
@@ -105,6 +106,22 @@ describe("themeStarter", () => {
 		expect(() => themeStarter(lacking, "/")).toThrow(
 			"The host's pi lacks initTheme, SettingsManager or getAgentDir",
 		);
+	});
+});
+
+describe("startupSelector", () => {
+	it("takes the selector pi asks its startup questions with", () => {
+		class ExtensionSelectorComponent {}
+		expect(startupSelector({ ExtensionSelectorComponent })).toBe(
+			ExtensionSelectorComponent,
+		);
+	});
+
+	it("refuses a pi without one", () => {
+		for (const codingAgent of [{}, { ExtensionSelectorComponent: "no" }])
+			expect(() => startupSelector(codingAgent)).toThrow(
+				"The host's pi lacks ExtensionSelectorComponent",
+			);
 	});
 });
 

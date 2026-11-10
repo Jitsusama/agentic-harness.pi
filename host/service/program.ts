@@ -119,8 +119,10 @@ export async function startHostProgram(
 	// pi, so they load only once that pi is judged whole: a refused one is
 	// said as a refusal, not as a module that can't be found.
 	const { hostScreens, hostedModeOf } = await import("../screen/screens.ts");
+	const { hostedAskerOf } = await import("../screen/startup-ask.ts");
 	const screens = hostScreens({
 		create: hostedModeOf(configured.interactiveMode),
+		ask: hostedAskerOf(configured.selector),
 		report,
 	});
 	return runHost({
@@ -145,6 +147,7 @@ export async function startHostProgram(
 async function configuration(options: HostProgramOptions): Promise<{
 	packageDir: string;
 	interactiveMode: unknown;
+	selector: unknown;
 	startTheme: () => void;
 }> {
 	try {
@@ -155,11 +158,26 @@ async function configuration(options: HostProgramOptions): Promise<{
 		return {
 			packageDir,
 			interactiveMode: pi.modules.codingAgent.InteractiveMode,
+			selector: startupSelector(pi.modules.codingAgent),
 			startTheme: themeStarter(pi.modules.codingAgent, homedir()),
 		};
 	} catch (error) {
 		throw new HostMisconfigured(error);
 	}
+}
+
+/**
+ * The selector pi's CLI asks its startup questions with (whether to trust
+ * a project folder), which a hosted screen shows the same way. A pi
+ * lacking it is refused.
+ */
+export function startupSelector(
+	codingAgent: Readonly<Record<string, unknown>>,
+): unknown {
+	const selector = codingAgent.ExtensionSelectorComponent;
+	if (typeof selector !== "function")
+		throw new Error("The host's pi lacks ExtensionSelectorComponent");
+	return selector;
 }
 
 /**
