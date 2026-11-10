@@ -68,6 +68,7 @@ const PROCESS_TESTS = [
 	"tests/host/service/killed-host.test.ts",
 	"tests/host/engine/hosted-agent.test.ts",
 	"tests/host/engine/engine.test.ts",
+	"tests/host/end-to-end/sealed-host.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its
