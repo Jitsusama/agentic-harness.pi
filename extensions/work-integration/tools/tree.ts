@@ -192,6 +192,13 @@ function resolved(path: string): string {
 const TIDY_MEASURE_MS = 15_000;
 
 /**
+ * How long one tree's status may take before tidy keeps it unread. A
+ * World tree holding 2.3 million files took 46 s at load 40, and one
+ * took 733 s, which held every survey of the trees beside it.
+ */
+const TIDY_STATUS_MS = 60_000;
+
+/**
  * Which trees beside this one nothing owns any more.
  *
  * Shared by `tidy`, which reports them, and `reclaim`, which acts on
@@ -206,6 +213,7 @@ async function treesLeftBehind(
 	broker: TreeBroker,
 	mainPath: string,
 	trunk: string,
+	signal: AbortSignal | undefined,
 ): Promise<OrphanPlan> {
 	// This broker is not the only thing that cuts a worktree. A quest
 	// holds trees against a piece of work and knows nothing about this
@@ -216,10 +224,27 @@ async function treesLeftBehind(
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
 
 	const unattributed = new Set(broker.unattributed().map((one) => one.path));
+	const remembered = [
+		...(await broker.stillHeld())
+			.filter((one) => !unattributed.has(one.path))
+			.map((one) => one.path),
+		...claims.paths,
+	].map(resolved);
+	// The checkout and every held tree are kept whatever they hold, so
+	// git is asked nothing more of them than where they are.
+	const keeping = new Set([resolved(mainPath), ...remembered]);
 
 	return orphanedTrees({
 		mainPath: resolved(mainPath),
-		worktrees: (await history.worktrees(mainPath, trunk)).map((tree) => ({
+		worktrees: (
+			await history.worktrees(mainPath, trunk, {
+				kept: (path) => keeping.has(resolved(path)),
+				statusExec: spawnExec({
+					...(signal ? { signal } : {}),
+					timeoutMs: TIDY_STATUS_MS,
+				}),
+			})
+		).map((tree) => ({
 			...tree,
 			path: resolved(tree.path),
 		})),
@@ -235,12 +260,7 @@ async function treesLeftBehind(
 		// never runs, which is a whole feature that reads as implemented
 		// and does nothing. A claim is added back afterwards, since a
 		// quest saying it wants a tree outranks a record saying nothing.
-		remembered: [
-			...(await broker.stillHeld())
-				.filter((one) => !unattributed.has(one.path))
-				.map((one) => one.path),
-			...claims.paths,
-		].map(resolved),
+		remembered,
 		unattributed: [...unattributed].map(resolved),
 	});
 }
@@ -260,6 +280,7 @@ async function surveyRepo(
 	action: "tidy" | "reclaim",
 	trunk: string,
 	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
 ): Promise<Answer> {
 	const history = createGitHistory({ exec });
 	// A held tree's key is a name; an unheld checkout's is its path, and
@@ -273,6 +294,7 @@ async function surveyRepo(
 		treeBroker(),
 		target.path,
 		trunk,
+		signal,
 	);
 
 	if (action === "reclaim") {
@@ -765,6 +787,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						action,
 						args.trunk ?? "main",
 						ctx,
+						signal,
 					);
 				}
 

@@ -20,6 +20,8 @@ export interface WorktreeOnDisk {
 	branch?: string;
 	/** Whether it holds changes that are not committed anywhere. */
 	dirty?: boolean;
+	/** Whether git failed to say, or ran out of time saying, if it is dirty. */
+	unread?: boolean;
 	/** Whether trunk already contains that branch's commits. */
 	mergedIntoTrunk?: boolean;
 	/**
@@ -137,6 +139,15 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// A refusal, not a decision. An uncommitted change exists in
 			// exactly one place and removing the tree ends it.
 			keep("it has uncommitted changes, which exist nowhere else");
+			continue;
+		}
+		if (tree.unread) {
+			// Beside the dirty check and for its reason: a tree git could not
+			// read may hold the only copy of some work. Asking again on a
+			// quieter machine is what settles it.
+			keep(
+				"git didn't say in time whether it has uncommitted changes, so ask again once the machine is quieter",
+			);
 			continue;
 		}
 		if (unattributed.has(tree.path)) {
