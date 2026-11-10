@@ -1,4 +1,23 @@
-/** The shared host's conversation ownership and, later, pi engine adapters. */
+/** The shared host's conversation ownership, the host's own pi and, later, its engine adapter. */
+export {
+	type ConversationTraits,
+	createEngine,
+	type EngineKey,
+	type EngineOptions,
+	type EngineScreens,
+	type HostEngine,
+	type HostedView,
+	KEY_VARIABLES,
+} from "./engine.ts";
+export {
+	HOST_SEAMS,
+	type HostPi,
+	type HostPiModules,
+	HostPiRefused,
+	type HostSeam,
+	hostPiFiles,
+	loadHostPi,
+} from "./host-pi.ts";
 export {
 	type ConversationIdentity,
 	type ConversationRegistration,

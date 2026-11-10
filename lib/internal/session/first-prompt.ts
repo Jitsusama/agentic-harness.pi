@@ -16,7 +16,10 @@
  */
 
 import { parseArgs } from "@earendil-works/pi-coding-agent";
-import { hosted, sessionSlot } from "../../core/session/index.ts";
+import { hosted } from "../../core/session/index.ts";
+import { firstPromptSlot as slot } from "./first-prompt-slot.ts";
+
+export { noteFirstPrompt } from "./first-prompt-slot.ts";
 
 /**
  * How long after the process starts its first prompt may still be on
@@ -24,31 +27,6 @@ import { hosted, sessionSlot } from "../../core/session/index.ts";
  * from their first log entry to their first prompt (11-02, 18:40).
  */
 export const FIRST_PROMPT_MS = 60_000;
-
-/** What the conversation has seen of its first prompt, across reloads. */
-interface FirstPromptSlot {
-	ran: boolean;
-	hasInitialWords?: boolean;
-	beganAt?: number;
-}
-
-function slot(): FirstPromptSlot {
-	return sessionSlot("agentic-harness.pi/first-prompt", undefined, () => ({
-		ran: false,
-	}));
-}
-
-/** Admit hosted initial words once, before extension loading; no-op on pi. */
-export function noteFirstPrompt(
-	words: string | undefined,
-	now: number = Date.now(),
-): void {
-	if (!hosted()) return;
-	const current = slot();
-	current.hasInitialWords = words !== undefined;
-	current.beganAt = now;
-	current.ran = false;
-}
 
 /** Whether these command-line words give pi a first prompt. */
 export function givesFirstPrompt(args: readonly string[]): boolean {
