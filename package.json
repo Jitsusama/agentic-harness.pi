@@ -38,11 +38,12 @@
 		"./ts-import-specifiers": "./scripts/ts-import-specifiers.ts"
 	},
 	"scripts": {
-		"check": "pnpm lint && pnpm typecheck && pnpm knip && vitest run --changed origin/main && pnpm test:browser:changed && pnpm load-check",
+		"check": "pnpm lint && pnpm typecheck && pnpm typecheck:indexed && pnpm knip && vitest run --changed origin/main && pnpm test:browser:changed && pnpm load-check",
 		"check:there": "bash scripts/check-there.sh",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"typecheck": "tsc --noEmit",
+		"typecheck:indexed": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/indexed-access.ts",
 		"knip": "knip --no-progress",
 		"load-check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/load-check.ts --production",
 		"test": "vitest run",
