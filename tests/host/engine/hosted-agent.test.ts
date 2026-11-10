@@ -101,7 +101,65 @@ const SCENARIOS = {
 	"unknown-tool":
 		"fails an unknown tool and invalid arguments with pi's texts, in call order",
 	truncated: "fails a call cut off at the output limit and continues",
+	routed:
+		"sends each request to the model a virtual model's router picks for it",
+	retry: "retries a provider's passing error by continuing the run",
+	overflow: "compacts on a context overflow and continues",
+	branch: "answers on the branch the session went back to",
 } as const;
+
+/** A message's text, its parts joined. */
+function textOf(message: { readonly content: unknown }): string {
+	const { content } = message;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part: unknown) => {
+			const text: unknown =
+				typeof part === "object" && part !== null
+					? Reflect.get(part, "text")
+					: undefined;
+			return typeof text === "string" ? text : "";
+		})
+		.join("");
+}
+
+function said(observed: Observed, role: string): string[] {
+	return observed.transcript
+		.filter((message) => message.role === role)
+		.map(textOf);
+}
+
+/**
+ * What a scenario's transcript must show beyond matching pi's, so a run
+ * in which neither agent did the thing can't pass.
+ */
+const SHOWN: Partial<
+	Record<
+		keyof typeof SCENARIOS,
+		{ readonly what: (observed: Observed) => unknown; readonly is: unknown }
+	>
+> = {
+	routed: {
+		what: (observed) =>
+			observed.transcript
+				.filter((message) => message.role === "assistant")
+				.map((message) => Reflect.get(message, "model")),
+		is: ["faux-small", "faux-large"],
+	},
+	retry: {
+		what: (observed) => said(observed, "assistant").at(-1),
+		is: "recovered",
+	},
+	overflow: {
+		what: (observed) => said(observed, "assistant").at(-1),
+		is: "after compacting",
+	},
+	branch: {
+		what: (observed) => said(observed, "user"),
+		is: ["first", "third"],
+	},
+};
 
 describe.runIf(packageDir !== undefined)(
 	"the hosted agent, beside pi's",
@@ -117,6 +175,11 @@ describe.runIf(packageDir !== undefined)(
 					hosted,
 					`the host's agent shows pi's listeners what pi's own does (${scenario})`,
 				).toEqual(ours);
+				const shown = Object.entries(SHOWN).find(([name]) => name === scenario);
+				if (shown)
+					expect(shown[1].what(hosted), `what ${scenario} shows`).toEqual(
+						shown[1].is,
+					);
 			});
 		}
 	},
