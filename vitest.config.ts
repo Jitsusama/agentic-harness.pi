@@ -74,6 +74,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/screens.test.ts",
 	"tests/host/end-to-end/keys.test.ts",
 	"tests/host/end-to-end/budgets.test.ts",
+	"tests/host/end-to-end/cutover.test.ts",
 	"tests/host/end-to-end/mesh.test.ts",
 	"tests/host/end-to-end/pausing.test.ts",
 	"tests/host/end-to-end/restart.test.ts",
