@@ -147,6 +147,7 @@ function letGo(stream: unknown): void {
 export class Engine {
 	private child: ChildProcess | null = null;
 	private broken = false;
+	private stopped = false;
 	private heard = "";
 	private asking: string | null = null;
 	private waiting: string | null = null;
@@ -169,7 +170,7 @@ export class Engine {
 	}
 
 	ask(dir: string): void {
-		if (this.broken) return;
+		if (this.broken || this.stopped) return;
 		if (this.asking !== null) {
 			this.waiting = dir;
 			return;
@@ -184,10 +185,18 @@ export class Engine {
 		child.stdin.write(`${id}${UNIT}${dir}${UNIT}${RECORD}`);
 	}
 
-	/** Ends the engine, which exits once its input closes. */
+	/**
+	 * Ends the engine for good. A question held for later is dropped too,
+	 * since an answer still out would otherwise ask it and start an engine
+	 * nothing stops: they gathered at up to five a session.
+	 */
 	stop(): void {
-		this.child?.stdin?.end();
+		this.stopped = true;
+		this.waiting = null;
+		const child = this.child;
 		this.child = null;
+		child?.stdin?.end();
+		child?.kill();
 	}
 
 	private started(): ChildProcess | null {
