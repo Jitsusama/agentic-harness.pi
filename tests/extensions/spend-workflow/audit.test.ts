@@ -3,7 +3,14 @@
  * the digest built from it and the ledger.
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readlinkSync,
+	realpathSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,6 +22,7 @@ import {
 	byRepo,
 	standingOf,
 } from "../../../extensions/spend-workflow/standing.ts";
+import { until } from "../../support/until.ts";
 
 function log(lines: unknown[]): string {
 	const dir = mkdtempSync(join(tmpdir(), "audit-"));
@@ -38,7 +46,40 @@ const SYSTEM = {
 	},
 };
 
+/** How many of this process's open files are `path`, where /proc says. */
+function openCopies(path: string): number {
+	return readdirSync("/proc/self/fd").filter((fd) => {
+		try {
+			return readlinkSync(`/proc/self/fd/${fd}`) === realpathSync(path);
+		} catch {
+			// An fd closed between the listing and the read is not this file.
+			return false;
+		}
+	}).length;
+}
+
 describe("the always-on context of a session", () => {
+	// 11-10: a pi that had run the audit held 355 other sessions' logs
+	// open, each read to a 64 KiB boundary and left (80ECO2 [93fd846f]),
+	// since closing the line reader leaves the file it reads open.
+	it.runIf(existsSync("/proc/self/fd"))(
+		"closes the log once it has read what it needs, partway through",
+		async () => {
+			const path = log([
+				{ type: "session", id: "S1", cwd: "/home/me/src/walgit-rs" },
+				SYSTEM,
+				...Array.from({ length: 2_000 }, () => ({
+					...answer,
+					filler: "f".repeat(200),
+				})),
+			]);
+
+			await standingOf(path);
+
+			await until("the log is closed", () => openCopies(path) === 0);
+		},
+	);
+
 	it("reads each piece from the log's first system message", async () => {
 		const path = log([
 			{ type: "session", id: "S1", cwd: "/home/me/src/walgit-rs" },

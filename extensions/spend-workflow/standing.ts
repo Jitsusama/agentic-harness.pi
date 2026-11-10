@@ -121,7 +121,8 @@ function declaredAgain(
 export async function standingOf(
 	path: string,
 ): Promise<StandingPrompt | undefined> {
-	const lines = createInterface({ input: createReadStream(path) });
+	const input = createReadStream(path);
+	const lines = createInterface({ input });
 	let session: string | undefined;
 	let cwd: string | null = null;
 	let read = 0;
@@ -177,6 +178,10 @@ export async function standingOf(
 		return standing();
 	} finally {
 		lines.close();
+		// Closing the reader leaves the file open, paused partway: on 10
+		// November a pi that had run the audit held 355 logs so (80ECO2
+		// [93fd846f]).
+		input.destroy();
 	}
 }
 

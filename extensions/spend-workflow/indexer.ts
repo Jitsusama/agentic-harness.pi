@@ -75,11 +75,17 @@ function saveWatermarks(path: string, sizes: Watermarks): void {
 }
 
 async function* linesOf(path: string): AsyncGenerator<string> {
+	const input = createReadStream(path);
 	const reader = createInterface({
-		input: createReadStream(path),
+		input,
 		crlfDelay: Number.POSITIVE_INFINITY,
 	});
-	for await (const line of reader) yield line;
+	try {
+		for await (const line of reader) yield line;
+	} finally {
+		// A reader left early leaves its file open unless it is destroyed.
+		input.destroy();
+	}
 }
 
 /**
