@@ -136,6 +136,17 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 	});
 }
 
+/** The session's key for its crash writer, or one for the process when it can't say. */
+function crashKeyOf(ctx: ExtensionContext): string {
+	try {
+		return sessionKeyOf(ctx);
+	} catch {
+		// A context with no session manager: plain pi runs one session,
+		// so one writer for the process still records its jobs.
+		return "process";
+	}
+}
+
 /** Why a session started, when it may be one the machine cut off. */
 const RETURNS = new Set(["startup", "resume"]);
 
@@ -176,7 +187,7 @@ export default function jobWorkflow(
 		crashes?.();
 		crashes = hosted()
 			? undefined
-			: recordCrashes(`job-workflow:${sessionKeyOf(ctx)}`, () =>
+			: recordCrashes(`job-workflow:${crashKeyOf(ctx)}`, () =>
 					recordCutOff(pi, session, ctx),
 				);
 		if (RETURNS.has(event.reason)) resumeIfCutOff(session, ctx);
