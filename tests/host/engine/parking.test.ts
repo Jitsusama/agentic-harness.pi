@@ -38,6 +38,44 @@ function held(asking: (sessionId: string) => Promise<void>) {
 	return { parked, stop, report, letStop: () => stopped?.() };
 }
 
+/**
+ * Park `a` in parking whose wakes are refused as a stopping host's are,
+ * then wake it as the mesh does, through the wake file its marker names,
+ * answering that file once the refusal is kept beside it.
+ */
+async function refusedOnce(): Promise<{
+	parked: ReturnType<typeof held>["parked"];
+	wake: string;
+}> {
+	const { parked, letStop } = held(() =>
+		Promise.reject(new Error("the host is stopping")),
+	);
+	const parking = parked.park("a");
+	letStop();
+	await parking;
+	const wake = parked.wakeFile("a");
+	const parks = join(dir, "parks");
+	writeParked(
+		{
+			session: "a",
+			sessionFile: join(dir, "a.jsonl"),
+			cwd: dir,
+			addresses: ["A1B2C3"],
+			parkedAt: new Date().toISOString(),
+			pid: process.pid,
+			wake,
+		},
+		parks,
+	);
+	expect(askWake("a", "2f95756a", parks), "the sender asked").toBe(true);
+	await until(
+		"the refused wake to be kept",
+		() => readRefusedWake(wake) !== undefined,
+		KEPT_WITHIN_MS,
+	);
+	return { parked, wake };
+}
+
 describe("parking a conversation", () => {
 	it("settles once its stop has, and wakes one asked for meanwhile only then", async () => {
 		const asking = vi.fn(() => Promise.resolve());
@@ -97,35 +135,8 @@ describe("parking a conversation", () => {
 	});
 
 	it("keeps a refused wake's message and why beside its wake file, until it runs", async () => {
-		const { parked, letStop } = held(() =>
-			Promise.reject(new Error("the host is stopping")),
-		);
-		const parking = parked.park("a");
-		letStop();
-		await parking;
-		const wake = parked.wakeFile("a");
-		// Woken as the mesh wakes it: through the wake file its marker names.
-		const parks = join(dir, "parks");
-		writeParked(
-			{
-				session: "a",
-				sessionFile: join(dir, "a.jsonl"),
-				cwd: dir,
-				addresses: ["A1B2C3"],
-				parkedAt: new Date().toISOString(),
-				pid: process.pid,
-				wake,
-			},
-			parks,
-		);
+		const { parked, wake } = await refusedOnce();
 
-		expect(askWake("a", "2f95756a", parks), "the sender asked").toBe(true);
-
-		await until(
-			"the refused wake to be kept",
-			() => readRefusedWake(wake) !== undefined,
-			KEPT_WITHIN_MS,
-		);
 		expect(readRefusedWake(wake), "what asked, and why not").toMatchObject({
 			messageId: "2f95756a",
 			reason: "the host is stopping",
@@ -133,5 +144,16 @@ describe("parking a conversation", () => {
 		parked.running("a");
 		expect(readRefusedWake(wake), "gone once it runs").toBeUndefined();
 		parked.unwatch("a");
+	});
+
+	it("forgets a refused wake once the conversation is closed", async () => {
+		const { parked, wake } = await refusedOnce();
+
+		parked.closed("a");
+
+		expect(
+			readRefusedWake(wake),
+			"no refusal outlives the conversation's close",
+		).toBeUndefined();
 	});
 });
