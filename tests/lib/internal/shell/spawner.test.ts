@@ -3,6 +3,9 @@
  * two streams and an end, takes the requests and sends frames, so what
  * pi's bash sees is checked without starting anything.
  */
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +14,10 @@ import {
 	type SpawnerOptions,
 	spawnedBy,
 } from "../../../../lib/internal/shell/spawner.ts";
+import {
+	systemFolders,
+	systemProgram,
+} from "../../../../lib/internal/system-program.ts";
 
 const SHELL = { shell: "/bin/bash", args: ["-c"] };
 
@@ -113,16 +120,43 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(spawnedBy(own, { env: {} })).toBe(own);
 	});
 
-	it("falls back to pi's own spawn where the program isn't on the PATH", async () => {
+	it("falls back to pi's own spawn where the system's profile has no program", async () => {
 		const own = fallback();
 		const operations = spawnedBy(own, {
-			env: { [SPAWNER_VARIABLE]: "on", PATH: "/nowhere" },
+			env: { [SPAWNER_VARIABLE]: "on" },
 			shell: SHELL,
+			find: () => undefined,
 		});
 
 		await operations.exec("true", "/", { onData: () => {}, env: {} });
 
 		expect(own.calls).toEqual(["true"]);
+	});
+
+	it("never starts one planted in a folder the user can write, first on the PATH", async () => {
+		const planted = mkdtempSync(join(tmpdir(), "planted-"));
+		const fake = join(planted, "pi-spawner");
+		writeFileSync(fake, "#!/bin/sh\nexit 0\n");
+		chmodSync(fake, 0o755);
+		const own = fallback();
+		const start = vi.fn<NonNullable<SpawnerOptions["start"]>>();
+		try {
+			const operations = spawnedBy(own, {
+				env: { [SPAWNER_VARIABLE]: "on", PATH: `${planted}:/usr/bin` },
+				shell: SHELL,
+				start,
+				// The lookup itself, asked to look in the planted folder first.
+				find: (name) => systemProgram(name, [planted, ...systemFolders()]),
+			});
+
+			await operations.exec("true", "/", { onData: () => {}, env: {} });
+
+			expect(start, "the planted program was started").not.toHaveBeenCalledWith(
+				fake,
+			);
+		} finally {
+			rmSync(planted, { recursive: true, force: true });
+		}
 	});
 
 	it("asks for the shell, folder and variables, and passes on what the command says", async () => {

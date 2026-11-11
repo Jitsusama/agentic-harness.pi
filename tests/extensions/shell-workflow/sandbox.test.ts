@@ -26,7 +26,6 @@ import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
 import {
 	askTheCloudAhead,
 	NIX_DOOR,
-	onPath,
 	type Sandbox,
 	sandboxFolders,
 	sandboxFor,
@@ -34,6 +33,7 @@ import {
 	unfencedFolder,
 	worktreeRepository,
 } from "../../../lib/internal/sandbox.ts";
+import { systemProgram } from "../../../lib/internal/system-program.ts";
 
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
@@ -440,14 +440,14 @@ describe("a command in the sandbox", () => {
 	});
 });
 
-describe.skipIf(!onPath("landrun") || process.platform !== "linux")(
+describe.skipIf(!systemProgram("landrun") || process.platform !== "linux")(
 	"a command under landrun itself",
 	() => {
 		let work: string;
 		let elsewhere: string;
 		let shared: string;
 		let fixture: string;
-		const landrun = onPath("landrun") ?? "";
+		const landrun = systemProgram("landrun") ?? "";
 
 		/** git on the fixture alone, without the person's own settings. */
 		const git = (cwd: string, ...args: string[]) =>
