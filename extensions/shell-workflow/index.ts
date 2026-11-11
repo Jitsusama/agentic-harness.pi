@@ -11,7 +11,8 @@
  * still running after a minute is handed to job-workflow rather than
  * holding the session silently: the call returns saying so, and the job
  * says how the command ended. A model expecting a long run passes
- * `background`; a codemode script's calls are never handed off. A
+ * `background`; a codemode script's calls are never handed off, nor
+ * are a print or JSON run's, which exits as its prompts end. A
  * session started with `PI_SANDBOX=strict` runs each command under
  * Landlock, with no credentials and no sockets but name lookups and
  * Nix's untrusted door (sandbox.ts).
@@ -31,7 +32,12 @@ import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
-import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
+import {
+	endsWithItsPrompts,
+	HAND_OFF_MS,
+	runOrHandOff,
+	spoken,
+} from "./hand-off.ts";
 
 type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 
@@ -139,7 +145,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 					? { background: params.background }
 					: {}),
 				// pi numbers a script's calls under the call that ran it.
-				nested: toolCallId.includes("/"),
+				nested: toolCallId.includes("/") || endsWithItsPrompts(ctx.mode),
 				signal,
 				onUpdate,
 				bus: pi.events,

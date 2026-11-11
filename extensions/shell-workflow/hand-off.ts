@@ -38,6 +38,16 @@ import { firstText } from "../../lib/ui/tool-result.ts";
 /** How long a command may hold the call before it is handed off. */
 export const HAND_OFF_MS = 60 * 1000;
 
+/**
+ * Whether a run in pi's `mode` ends once its prompts are done, as print
+ * (`pi -p`) and JSON runs exit then. A command handed off there would be
+ * killed as the run ended, its result never heard, so it is not handed
+ * off at all.
+ */
+export function endsWithItsPrompts(mode: string | undefined): boolean {
+	return mode === "print" || mode === "json";
+}
+
 /** Lines of output the hand-off shows, so the model can see where it was. */
 export const HAND_OFF_LINES = 20;
 
@@ -57,7 +67,10 @@ export interface Call<T> {
 	readonly toolCallId?: string;
 	/** True to hand off at once; false or unset, after a while. */
 	readonly background?: boolean;
-	/** Made by a codemode script, which needs the real result. */
+	/**
+	 * Made by a codemode script, or in a run that ends with its prompts,
+	 * which need the real result: never handed off, even when asked.
+	 */
 	readonly nested: boolean;
 	readonly signal: AbortSignal | undefined;
 	readonly onUpdate: AgentToolUpdateCallback<T> | undefined;
