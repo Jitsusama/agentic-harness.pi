@@ -101,8 +101,8 @@ describe("what a session asking for the fence is given", () => {
 });
 
 /**
- * A disk where every path is a folder but the links named, and the home
- * folder holds `entries`.
+ * A disk where every path is a folder but the links named and any git
+ * folder, and the home folder holds `entries`.
  */
 function diskWith(
 	home: string,
@@ -110,7 +110,10 @@ function diskWith(
 	links: readonly string[] = [],
 ): Disk {
 	return {
-		kind: (path) => (links.includes(path) ? "link" : "folder"),
+		kind: (path) => {
+			if (links.includes(path)) return "link";
+			return path.split("/").includes(".git") ? undefined : "folder";
+		},
 		entries: (folder) => (folder === home ? entries : []),
 	};
 }
@@ -664,7 +667,7 @@ describe("pi's file tools in a fenced session", () => {
 	beforeAll(() => {
 		base = realpathSync(mkdtempSync(join(tmpdir(), "fence-files-")));
 		home = join(base, "home");
-		work = join(home, "src/thing");
+		work = join(home, "work/thing");
 		runtimeDir = join(base, "run");
 		for (const folder of [work, join(home, ".config"), runtimeDir]) {
 			mkdirSync(folder, { recursive: true });
@@ -689,6 +692,15 @@ describe("pi's file tools in a fenced session", () => {
 		expect(refusal("write", join(work, "file.ts"))).toBeUndefined();
 		expect(refusal("edit", "file.ts")).toBeUndefined();
 		expect(refusal("read", join(home, ".config/thing.conf"))).toBeUndefined();
+	});
+
+	it("writes nothing in a checkout under src that isn't the session's own tree", () => {
+		const checkout = join(home, "src/repo");
+		mkdirSync(checkout, { recursive: true });
+		expect(refusal("write", join(checkout, "file.ts"))).toContain(
+			"under ~/src and ~/world",
+		);
+		expect(refusal("read", join(checkout, "file.ts"))).toBeUndefined();
 	});
 
 	it("writes no settings or startup file, even through a link", () => {
