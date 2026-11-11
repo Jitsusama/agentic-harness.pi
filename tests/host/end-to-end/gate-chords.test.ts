@@ -2,7 +2,8 @@
  * The harness's gate and panel chords, pressed on hosted screens: a tabbed
  * gate submitted with Ctrl+Enter and with Ctrl+S, a gate redirected with
  * Shift+Escape, focus hopped out of a gate and back with Ctrl+Alt+N, and a
- * view zoomed with Ctrl+Alt+F and Ctrl+Alt+M.
+ * view and a docked gate zoomed with Ctrl+Alt+F and Ctrl+Alt+M, each drawn
+ * at the chord with no other key.
  *
  * Each chord is the bytes a kitty terminal sends, since a host tells every
  * viewer to speak kitty's protocol, and the gates, views and extensions are
@@ -70,6 +71,11 @@ function bodyRows(rows: number, share: number): number {
 function showsRow(on: Viewer, n: number): boolean {
 	const row = new RegExp(`\\brow ${n}\\b`);
 	return on.screen().some((line) => row.test(line));
+}
+
+/** How many of a tall gate's numbered rows the screen shows. */
+function rowsShown(on: Viewer): number {
+	return on.screen().filter((line) => /\brow \d+\b/.test(line)).length;
 }
 
 /** Whether the screen shows `text` anywhere. */
@@ -150,7 +156,7 @@ describe.skipIf(!packageDir)(
 
 				on.type(CTRL_ALT_N);
 				await until(
-					"the gate gives up the keys",
+					"the gate to give up the keys",
 					() => !showing(on, FOCUSED),
 					TURN_MS,
 				);
@@ -177,7 +183,7 @@ describe.skipIf(!packageDir)(
 
 				zoomed.type(CTRL_ALT_F);
 				await until(
-					"the view fills the screen",
+					"the view to fill the screen",
 					() => showsRow(zoomed, bodyRows(VIEW_ROWS, FULLSCREEN)),
 					TURN_MS,
 				);
@@ -199,7 +205,7 @@ describe.skipIf(!packageDir)(
 
 				zoomed.type(CTRL_ALT_M);
 				await until(
-					"the view shrinks to its minimized share",
+					"the view to shrink to its minimized share",
 					() => !showsRow(zoomed, bodyRows(VIEW_ROWS, MINIMIZED) + 1),
 					TURN_MS,
 				);
@@ -207,6 +213,32 @@ describe.skipIf(!packageDir)(
 					showsRow(zoomed, bodyRows(VIEW_ROWS, MINIMIZED)),
 					"it still shows its minimized share",
 				).toBe(true);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"zooms a docked gate taller than its screen",
+			async () => {
+				const on = await conversation(VIEW_ROWS);
+				await raise(on, "gate", "tall");
+				const normal = rowsShown(on);
+				expect(normal, "the gate shows some of its rows").toBeGreaterThan(0);
+
+				on.type(CTRL_ALT_F);
+				await until(
+					"the gate to grow to its full screen share",
+					() => rowsShown(on) > normal,
+					TURN_MS,
+				);
+				on.type(CTRL_ALT_M);
+				await until(
+					"the gate to shrink below its normal share",
+					() => rowsShown(on) < normal,
+					TURN_MS,
+				);
+				await approve(on, "tall");
+				expect(gated()).toContain("tall a");
 			},
 			CASE_MS,
 		);
@@ -239,7 +271,7 @@ async function raise(
 async function approve(on: Viewer, name: string): Promise<void> {
 	let pressed = 0;
 	await until(
-		`gate ${name} is approved`,
+		`gate ${name} to be approved`,
 		() => {
 			if (answer(name) !== undefined) return true;
 			if (Date.now() - pressed >= PRESS_EVERY_MS) {
@@ -261,7 +293,7 @@ async function approve(on: Viewer, name: string): Promise<void> {
 async function submitFeedback(on: Viewer, name: string): Promise<void> {
 	let pressed = 0;
 	await until(
-		`gate ${name} is answered`,
+		`gate ${name} to be answered`,
 		() => {
 			if (answer(name) !== undefined) return true;
 			if (showing(on, "Feedback:") && Date.now() - pressed >= PRESS_EVERY_MS) {
@@ -277,7 +309,7 @@ async function submitFeedback(on: Viewer, name: string): Promise<void> {
 /** Wait until the gate named `name` has kept an answer. */
 async function answered(name: string): Promise<void> {
 	await until(
-		`gate ${name} is answered`,
+		`gate ${name} to be answered`,
 		() => answer(name) !== undefined,
 		TURN_MS,
 	);
