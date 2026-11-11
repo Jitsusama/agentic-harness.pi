@@ -17,9 +17,11 @@
  * first minute, so it comes back as it was.
  * A parked session of a quest since concluded or retired isn't offered,
  * since its work is done and it parked for having nothing left to do.
- * One marked `hosted` ran in a shared pi host, which brings it back
- * itself, so the launcher's Reopen Them All leaves it out (N4S6OF and
- * Y2YBTS, 9 November). One marked `released` was let go by its host to
+ * One marked `hosted` ran in a shared pi host, which brings the
+ * conversation back itself, so the launcher's Reopen Them All opens only
+ * its viewer where it was, never a pi that would start it twice (N4S6OF
+ * and Y2YBTS, 9 November; core.nix #3316, 11 November). One marked
+ * `released` was let go by its host to
  * be opened in plain pi from the same file, and is offered whatever the
  * boot until a plain pi starts it (KP0L6A, 10 November).
  * A released session has always run here, so it is offered while its
