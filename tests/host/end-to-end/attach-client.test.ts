@@ -55,6 +55,11 @@ const CASE_MS = 60_000;
 const ROWS = 30;
 const COLUMNS = 100;
 const ENTER = "\r";
+/**
+ * The width a window is resized to: wider, since xterm wraps a row it
+ * narrows, which would show a shorter rule before pi had drawn one.
+ */
+const WIDER = 120;
 /** Joel's chords, as kitty's keyboard protocol sends them. */
 const CTRL_G = "\u001b[103;5u";
 const CTRL_Z = "\u001b[122;5u";
@@ -115,6 +120,21 @@ describe.skipIf(missing.length > 0)(
 				expect((await host.list()).map((s) => s.sessionId)).toContain(
 					sessionId,
 				);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"redraws at the window's new width when the window is resized",
+			async () => {
+				const { sessionId } = await host.open(folder());
+				const window = await joined(sessionId);
+
+				window.resize(ROWS, WIDER);
+
+				await window.shows(new RegExp(`^─{${WIDER}}$`, "m"));
+				window.type(`at its new width${ENTER}`);
+				await window.shows("heard: at its new width");
 			},
 			CASE_MS,
 		);
