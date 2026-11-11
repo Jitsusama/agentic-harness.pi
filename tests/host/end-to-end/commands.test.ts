@@ -35,6 +35,8 @@ const ROWS = 30;
 const COLUMNS = 100;
 /** Recent history `/compact` keeps, small enough that one earlier turn is folded. */
 const KEEP_RECENT_TOKENS = 1;
+/** The resume selector's row for the earlier conversation, marked as the one Enter takes. */
+const SELECTED_EARLIER = /^\s*› resumable words\b/;
 
 let sealed: Seal;
 let host: ScreenHost;
@@ -119,8 +121,8 @@ describe.skipIf(!packageDir)(
 				await typing.shows("Resume Session", TURN_MS);
 				typing.type("resumable");
 				await until(
-					"the search to leave only the earlier conversation",
-					() => !shown(typing, "later words"),
+					"the search to select the earlier conversation",
+					() => typing.screen().some((row) => SELECTED_EARLIER.test(row)),
 					TURN_MS,
 				).catch((failed: unknown) => {
 					throw new Error(
