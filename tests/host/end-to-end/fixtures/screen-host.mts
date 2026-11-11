@@ -37,7 +37,9 @@
  * which the host's environment holds as the host unit sets it.
  *
  * It prints one JSON line naming its socket once it listens, and stops at
- * SIGTERM. Errors it is told of go to standard error.
+ * SIGTERM. At SIGUSR2 it stops as a host does once systemd has queued its
+ * restart, telling each viewer so first. Errors it is told of go to
+ * standard error.
  */
 import {
 	chmodSync,
@@ -180,7 +182,8 @@ const serving = await serveHost({
 	rollout: () => Promise.resolve(),
 });
 process.stdout.write(`${JSON.stringify({ path: serving.path })}\n`);
-process.once("SIGTERM", () => {
+/** Stop as systemd's stop does: park every conversation and leave. */
+function stop(): void {
 	serving.stop().then(
 		() => process.exit(0),
 		(error: unknown) => {
@@ -188,6 +191,13 @@ process.once("SIGTERM", () => {
 			process.exit(1);
 		},
 	);
+}
+process.once("SIGTERM", stop);
+// What restart.ts does once systemd has queued the host's restart: say a
+// restart is coming, then take systemd's stop, which its restart sends.
+process.once("SIGUSR2", () => {
+	serving.restartComing(true);
+	stop();
 });
 
 /**
