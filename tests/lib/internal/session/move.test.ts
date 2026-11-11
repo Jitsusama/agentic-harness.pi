@@ -84,7 +84,8 @@ describe("claiming a move note", () => {
 	const CUTOVER = 7001;
 	const JOIN = 7002;
 	// Every file a note or a claim left, past writeWhole's own `.writing`.
-	const left = () => readdirSync(folder).filter((name) => !name.startsWith("."));
+	const left = () =>
+		readdirSync(folder).filter((name) => !name.startsWith("."));
 
 	it("lets the cutover adopt, and then tells the join it is adopting", () => {
 		writeMoveNote(note(), folder);
