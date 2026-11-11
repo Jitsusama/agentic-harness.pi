@@ -34,6 +34,16 @@ describe("telling the user why the session is compacting", () => {
 		);
 	});
 
+	it("says a compaction the rent hasn't paid for fired at the ceiling", () => {
+		const early = { ...FIRED, rentPaid: 0.0712, pastCeiling: 200_000 };
+		expect(compactionNotice(205_000, early, { ahead: true })).toBe(
+			"Writing a compaction summary in the background at 205k tokens. " +
+				"Compacting costs about $0.63 (summary $0.22, rewrite $0.34, re-fetching $0.07), " +
+				"and what it drops has cost $0.07 in reads since the last compaction, " +
+				"but every turn sends the whole context and this one is past the 200k-token ceiling",
+		);
+	});
+
 	it("says an idle session is compacted before its cache expires, and what that saves", () => {
 		expect(idleCompactionNotice(280_000, 1.2, FIRED.cost)).toBe(
 			"Compacting at 280k tokens while idle, before the cache expires: " +
