@@ -15,8 +15,9 @@ which a host waits out before restarting.
 `confirmQuit` judges a quit pi was asked for. One no viewer's key asked
 for, such as an extension's shutdown, holds at once. One a viewer typed
 is asked of that viewer alone, on its bottom row, with its frames held
-until it answers: y or Ctrl+D again holds it, and any other key lets that
-viewer go with `LEFT_RUNNING` and leaves the conversation running. A
+until it answers: only y holds it, and any other key (a paste or Ctrl+D
+again among them) lets that viewer go with `LEFT_RUNNING` and leaves the
+conversation running. A
 viewer that leaves first, or a close elsewhere, is no yes. It asks even a
 lone viewer, since a key can come from no person: script(1) types Ctrl+D
 as its input ends.

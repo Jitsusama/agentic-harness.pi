@@ -361,9 +361,10 @@ export class ViewerTerminal implements Terminal {
 	 * viewer typed (Ctrl+D, a double Ctrl+C, /quit) is asked of that viewer
 	 * alone: a hosted conversation outlives its windows, others may be
 	 * watching, and a key can come from no person at all, as script(1)
-	 * types Ctrl+D when its input ends. y, or Ctrl+D again, closes it for
-	 * everyone; any other key lets that viewer go and leaves the
-	 * conversation running. Call it within pi's handling of the key.
+	 * types Ctrl+D when its input ends. Only y closes it for everyone; any
+	 * other key, a paste or Ctrl+D again among them, lets that viewer go and
+	 * leaves the conversation running. Call it within pi's handling of the
+	 * key.
 	 */
 	confirmQuit(busy: boolean): Promise<QuitVerdict> {
 		const viewer = this.typing;
@@ -495,7 +496,7 @@ export class ViewerTerminal implements Terminal {
 		if (isKeyRelease(data)) return;
 		const settle = viewer.quitting;
 		viewer.quitting = undefined;
-		if (matchesKey(data, "y") || matchesKey(data, "ctrl+d")) {
+		if (matchesKey(data, "y")) {
 			settle?.(true);
 			return;
 		}

@@ -110,18 +110,35 @@ describe("a quit typed in a viewer", () => {
 		);
 	});
 
-	it("asks a lone viewer too, since a key can come from no person, and Ctrl+D again holds", async () => {
+	it("asks a lone viewer too, since a key can come from no person, and takes only y as yes", async () => {
 		const { terminal, verdicts } = screen();
 		const alone = viewer();
 		const one = terminal.attach(alone);
 
 		one.input("\x04");
 		expect(asked(alone), "even alone, it asks").toBe(true);
-		one.input("\x1b[100;1:3u");
+		one.input("\x1b[121;1:3u");
 		expect(verdicts, "a key's release is no answer").toHaveLength(1);
 		one.input("\x04");
 
-		expect((await first(verdicts)).holds, "Ctrl+D again closes it").toBe(true);
+		expect((await first(verdicts)).holds, "Ctrl+D again is no yes").toBe(false);
+		expect(alone.disconnect, "it lets that viewer go").toHaveBeenCalledWith(
+			LEFT_RUNNING,
+		);
+	});
+
+	it("takes a paste while it asks as no yes, even one that starts with y", async () => {
+		const { terminal, verdicts } = screen();
+		const pasting = viewer();
+		const one = terminal.attach(pasting);
+
+		one.input("\x04");
+		one.input("\x1b[200~yes please\x1b[201~");
+
+		expect((await first(verdicts)).holds, "a paste is no yes").toBe(false);
+		expect(pasting.disconnect, "it lets that viewer go").toHaveBeenCalledWith(
+			LEFT_RUNNING,
+		);
 	});
 
 	it("doesn't hold when the asked viewer leaves before it answers, or the conversation closes", async () => {
