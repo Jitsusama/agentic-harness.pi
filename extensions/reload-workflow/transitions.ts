@@ -204,7 +204,7 @@ export async function performReload(
 ): Promise<void> {
 	if (hosted()) {
 		if (hostReloads()) {
-			reloadThroughHost(ctx, {
+			void reloadThroughHost(ctx, {
 				reason: "you asked with /harness reload",
 				by: "person",
 			});

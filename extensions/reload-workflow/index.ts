@@ -16,7 +16,8 @@
  *
  * A session that runs the install follows it (follow.ts): when it
  * moves, the session reloads itself once nothing would be lost, and
- * says what came in, so nobody has to tell it to.
+ * says what came in, so nobody has to tell it to. A host's
+ * conversations each follow it too, reloading through the host.
  *
  * Work left for a replaced session never ends the process: a rejection
  * nothing watched that is pi's stale-context error is dropped and
@@ -44,7 +45,7 @@ import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
-import { type Follower, follow } from "./follow.ts";
+import { type Follower, follow, stopFollowing } from "./follow.ts";
 import {
 	hostReloads,
 	requestHostedReload,
@@ -111,6 +112,12 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			pi.appendEntry(OVERRULED_ENTRY, { times, at: new Date().toISOString() }),
 	};
 
+	// A closed conversation's slots go with it, so its follower stops
+	// first; the host runs on, and a watch left behind would too.
+	pi.on("session_shutdown", (_event, ctx) => {
+		if (hosted()) stopFollowing(ctx);
+	});
+
 	pi.on("session_start", async (event, ctx) => {
 		tellPiPackages(settings);
 		// A session this process rolled away from, started again, follows
@@ -129,9 +136,12 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	// through pi's prompt path, which is what gives it `reload()`.
 	pi.on("agent_settled", async (event, ctx: ExtensionContext) => {
 		underWay = false;
-		// A hosted conversation's request waits in its own slot, for its host.
+		// A hosted conversation's request waits in its own slot, for its host;
+		// with none, the install may have moved during the run.
 		if (hosted()) {
-			settleHostedReload(ctx, settledAborted(event));
+			if (!settleHostedReload(ctx, settledAborted(event))) {
+				follower?.consider(true);
+			}
 			return;
 		}
 		// The session's own reload waits for a settle, whoever stopped the

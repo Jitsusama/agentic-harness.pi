@@ -134,6 +134,12 @@ of its own under script(1) (support/terminal-pi.ts), as Joel's do,
 since pi over RPC holds a session's ending for its client's next
 command.
 
+follow-install.test.ts is E10: the host's conversations load the
+harness from an install kept as pi-packages keeps one, a `current`
+link onto a folder of versions. Once the link moves, a steer's run ends
+with the host reloading the conversation, and its new runtime says the
+move was its own and that it runs the new version.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 

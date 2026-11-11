@@ -155,11 +155,10 @@ hidden custom message.
 
 ## In a Host
 
-The request slot, the follower and `loaded/<pid>` are one per process,
-and a tree is swapped in through pi's shared settings. In a
-multi-session host each would act for every conversation at once, so
-a hosted conversation uses none of them: it follows no install, and
-it asks its host to reload it instead (`hosted.ts`). The `reload`
+`loaded/<pid>` is one per process, and a tree is swapped in through
+pi's shared settings. In a multi-session host either would act for
+every conversation at once, so a hosted conversation asks its host to
+reload it instead (`hosted.ts`). The `reload`
 tool queues the request in the conversation's own slot; the end of
 that conversation's run hands it to the host's `reload`, which reloads
 that conversation alone and keeps its slots; and its new runtime says
@@ -171,7 +170,14 @@ refuse, saying why. A reload reads that install from disk again, so
 once pi-packages moves it a reloaded conversation runs the new
 version while the others keep the old one until each reloads: an
 install swap reaches a host one conversation at a time. Each
-conversation's load still writes
+conversation follows the install with a follower of its own, kept in
+its own slot and stopped when it closes, so when the install moves it
+asks the host to reload it between its runs, spread by its id as
+plain pi's sessions are, with or without a screen attached. Its new
+runtime says "Reloaded between runs, because the install moved". A
+reload the host fails is said once and tried again ten minutes later.
+The host's own code and pi's runtime move only when the host restarts.
+Each conversation's load still writes
 `loaded/<pid>`, so pi-packages keeps the version the host runs, but
 none takes it back and no exit listener is added: one conversation
 ending must not take it back for the others, and pi-packages removes

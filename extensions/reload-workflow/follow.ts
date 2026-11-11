@@ -6,7 +6,12 @@
  *
  * Only a session somebody sits at follows. A subagent or a print-mode
  * run is short and doing one thing, and reloading it would only cut
- * that short.
+ * that short. Every conversation of a host that can reload one follows,
+ * whether a screen is attached or not, since each is a session in its
+ * own right; each has its own follower, and reloads through its host
+ * (hosted.ts), which reloads that conversation alone. Without this a
+ * hosted conversation kept the code it started with until something
+ * asked it to reload, where plain pi moved on by itself.
  */
 
 import { lstatSync } from "node:fs";
@@ -15,7 +20,12 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { hosted } from "../../lib/core/session/index.ts";
+import {
+	hosted,
+	sessionCell,
+	sessionKeyOf,
+	withSession,
+} from "../../lib/core/session/index.ts";
 import {
 	cameIn,
 	dependenciesReady,
@@ -38,6 +48,12 @@ import {
 	sourceOf,
 } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import {
+	hostedReloadAsker,
+	hostReloads,
+	reloadThroughHost,
+	retellHostedReload,
+} from "./hosted.ts";
 import { canonical } from "./lifecycle.ts";
 import { COMMAND, RELOAD_ARG } from "./transitions.ts";
 
@@ -67,10 +83,22 @@ export const HELD_ENTRY = "reload-held";
  */
 export const WAITING_ENTRY = "reload-waiting";
 
-/** The process's one follower, so a reload replaces it rather than adding one. */
-const FOLLOWER_KEY = Symbol.for("agentic-harness.reload.follower");
+/**
+ * The session's one follower, so a reload replaces it rather than adding
+ * one. On plain pi it is the process's, under the key it always had; in
+ * a host each conversation has its own, so B's start can't stop A's.
+ */
+const FOLLOWER_CELL = "agentic-harness.reload.follower";
 
-type FollowerGlobal = { [FOLLOWER_KEY]?: Unwatch };
+/**
+ * Stop this session's follower. A hosted conversation's close calls it,
+ * since the close frees its slots and with them the way to stop it.
+ */
+export function stopFollowing(ctx: ExtensionContext): void {
+	const cell = sessionCell<Unwatch>(FOLLOWER_CELL, ctx);
+	cell.get()?.();
+	cell.clear();
+}
 
 /** The follower a runtime hands the reload-workflow extension. */
 export interface Follower {
@@ -117,9 +145,8 @@ function installedRoots(settings: PackageSettings): string[] {
 /**
  * Follow the installs this session runs. Returns nothing when this
  * session does not follow, which the caller reads as nothing to ask.
- * A hosted conversation never follows: the follower is one per
- * process, so B's start would stop A's, and the host owns which
- * install its conversations load.
+ * A conversation of a host that can't reload one never follows, since
+ * its reload would be the whole process's.
  */
 export async function follow(
 	pi: ExtensionAPI,
@@ -132,12 +159,14 @@ export async function follow(
 		spreadMs = SPREAD_MS,
 	}: { env?: NodeJS.ProcessEnv; quietMs?: number; spreadMs?: number } = {},
 ): Promise<Follower | undefined> {
-	// The follower is the process's; a host's conversations never touch it.
-	if (hosted()) return undefined;
-	const global = globalThis as FollowerGlobal;
-	global[FOLLOWER_KEY]?.();
-	global[FOLLOWER_KEY] = undefined;
-	if (!ctx.hasUI || isSubagent(env) || env[FOLLOW_ENV]?.trim() === "off") {
+	const inHost = hosted() !== undefined;
+	if (inHost && !hostReloads()) return undefined;
+	stopFollowing(ctx);
+	if (
+		(!inHost && !ctx.hasUI) ||
+		isSubagent(env) ||
+		env[FOLLOW_ENV]?.trim() === "off"
+	) {
 		return undefined;
 	}
 
@@ -147,6 +176,12 @@ export async function follow(
 	// and more can land meanwhile; the next runtime starts with none.
 	const moved = new Map<string, Moved>();
 	let recheck: NodeJS.Timeout | undefined;
+	// Stops the watch, the look and the recheck, once they are in place.
+	let stopper: Unwatch | undefined;
+	const stop = () => {
+		stopper?.();
+		stopper = undefined;
+	};
 	// When this runtime first heard of a move it hasn't reloaded for, the
 	// start of an idle session's place in the spread.
 	let heardAt: number | undefined;
@@ -175,6 +210,13 @@ export async function follow(
 
 	/** A dispatched reload of our own, not yet under way, says what came in since. */
 	const retell = async () => {
+		// A hosted one waits in the conversation's own slot (hosted.ts), and
+		// is read back inside its session, since git is asked outside it.
+		if (inHost) {
+			const reason = await reasonNow();
+			within(() => retellHostedReload(ctx, reason));
+			return;
+		}
 		const slot = reloadSlot();
 		if (slot.request?.by !== "self" || slot.reloading) return;
 		const reason = await reasonNow();
@@ -191,11 +233,23 @@ export async function follow(
 	// One at a time: considers that overlap while git is asked would each
 	// ask it again, and one landing late would make a request nobody sent.
 	let dispatching = false;
+	// A hosted conversation's reload that its host failed is tried again
+	// only after this, epoch ms, so a failure isn't said every look.
+	let retryAt = 0;
 	const dispatch = async () => {
 		if (dispatching) return;
 		dispatching = true;
 		try {
 			const reason = await reasonNow().catch(() => "the install moved");
+			// The host waits for the run to end and reloads this conversation
+			// alone; its new runtime says it landed, as plain pi's does.
+			if (inHost) {
+				if (hostedReloadAsker(ctx) !== undefined) return;
+				if (!(await reloadThroughHost(ctx, { reason, by: "self" }))) {
+					retryAt = Date.now() + HELD_MS;
+				}
+				return;
+			}
 			const slot = reloadSlot();
 			if (slot.request !== undefined) return;
 			slot.request = { reason, by: "self" };
@@ -283,7 +337,7 @@ export async function follow(
 		return true;
 	};
 
-	const consider = (settled = false) => {
+	const considerNow = (settled = false) => {
 		if (roots.length === 0) roots = installedRoots(settings);
 		for (const root of roots) {
 			if (moved.has(root)) continue;
@@ -311,6 +365,18 @@ export async function follow(
 			}
 			return;
 		}
+		// A hosted conversation's reload waits in its own slot (hosted.ts).
+		const asker = inHost ? hostedReloadAsker(ctx) : undefined;
+		if (asker !== undefined) {
+			if (asker !== "self") sayWhy("another reload is waiting", { by: asker });
+			return;
+		}
+		if (Date.now() < retryAt) {
+			if (recheck) clearTimeout(recheck);
+			recheck = setTimeout(() => consider(), retryAt - Date.now());
+			recheck.unref?.();
+			return;
+		}
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
@@ -319,6 +385,9 @@ export async function follow(
 		} catch {
 			// A stale context belongs to a runtime that has gone.
 			sayWhy("its context has gone");
+			// A host goes on running after a conversation's runtime has gone,
+			// so its follower stops rather than look every 30 seconds for good.
+			if (inHost) stop();
 			return;
 		}
 		const now = runningNow();
@@ -354,25 +423,37 @@ export async function follow(
 		// After a run, the settle calls consider again, idle by then.
 		if (moment === "now") void dispatch();
 	};
+	// A host's slots are found by the conversation each call runs in, and
+	// a watch or a timer may call back outside it, where a slot read
+	// would throw and take every conversation down with the host.
+	const key = inHost ? sessionKeyOf(ctx) : undefined;
+	const within = (fn: () => void) =>
+		key === undefined ? fn() : withSession(key, fn);
+	const consider = (settled = false) => within(() => considerNow(settled));
 
 	const unwatch = await watchHeads(
 		roots,
-		(one) => {
-			const earlier = moved.get(one.root);
-			moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
-			hear();
-			if (reloadSlot().request?.by === "self") void retell();
-			else consider();
-		},
+		(one) =>
+			within(() => {
+				const earlier = moved.get(one.root);
+				moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
+				hear();
+				const ours = inHost
+					? hostedReloadAsker(ctx) === "self"
+					: reloadSlot().request?.by === "self";
+				if (ours) void retell();
+				else consider();
+			}),
 		quietMs,
 	);
 	// Read the link itself every so often, whether or not the watch hears.
 	const look = setInterval(() => consider(), RECHECK_MS);
 	look.unref?.();
-	global[FOLLOWER_KEY] = () => {
+	stopper = () => {
 		unwatch();
 		clearInterval(look);
 		if (recheck) clearTimeout(recheck);
 	};
+	sessionCell<Unwatch>(FOLLOWER_CELL, ctx).set(stopper);
 	return { consider };
 }
