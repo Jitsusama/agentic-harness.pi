@@ -34,7 +34,7 @@ it does:
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
   `reload-workflow`, `rollover-workflow`, `park-workflow`,
-  `shell-workflow`,
+  `one-writer-workflow`, `shell-workflow`,
   `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
   `model-retry-workflow`.
 
@@ -96,6 +96,12 @@ it does:
   It exits with code 75 for its holder, which starts it again for
   a message that gives it a turn or a key typed in its window.
   Off until the switch turns it on, and only for held sessions.
+
+  `one-writer-workflow` keeps a conversation's log to one writer:
+  a plain pi started on a conversation a live host holds says which
+  host holds it and ends with code 78, taking no prompt. Pi has no
+  lock on a log, and on 10 November a plain pi and the background
+  host both appended to one.
 
   `job-workflow` hosts background work. A tool that returns
   before its work ends hands the work to it, and it says the

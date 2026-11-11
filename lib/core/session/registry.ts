@@ -1,5 +1,5 @@
 /** Read a host's open sessions only after its process identity was checked. */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "../../internal/paths.ts";
 import type { Standing, TickedOwner } from "../../internal/process-ticks.ts";
@@ -50,6 +50,23 @@ export function askedHostOnce(): (owner: TickedOwner) => Standing {
 			if (!lists.has(path)) lists.set(path, registryAt(path));
 			return lists.get(path);
 		});
+}
+
+/**
+ * Every host list kept in the folder that reads as one, whether or not
+ * its host still runs: the caller judges each owner itself.
+ */
+export function hostRegistries(dir = stateDir("hosts")): HostRegistry[] {
+	let names: string[];
+	try {
+		names = readdirSync(dir).filter((name) => name.endsWith(".json"));
+	} catch {
+		// No folder: no host has run here since it was last cleared.
+		return [];
+	}
+	return names
+		.map((name) => registryAt(join(dir, name)))
+		.filter((read): read is HostRegistry => read !== undefined);
 }
 
 function registryAt(path: string): HostRegistry | undefined {
