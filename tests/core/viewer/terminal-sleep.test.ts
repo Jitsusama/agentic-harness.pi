@@ -173,6 +173,9 @@ describe("a parked conversation's terminal", () => {
 		);
 		const asked = viewer();
 		const one = terminal.attach(asked);
+		// A lone viewer's quit holds at once; it's asked only while another
+		// window watches.
+		terminal.attach(viewer());
 		one.input("\x04");
 		park(terminal);
 
