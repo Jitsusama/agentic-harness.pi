@@ -155,6 +155,12 @@ export function hostBackend(options: {
 	// Each conversation's wakes and ends, one at a time, so a close never
 	// lands between a wake's look at the roster and its resume.
 	const turns = new Map<string, Promise<unknown>>();
+	// Each open or adopt from its roster hold until its start has settled.
+	// The engine lists a conversation as it registers it, seconds before
+	// its screen exists, and a join in place takes a listed conversation as
+	// open: an attach inside those seconds found no screen, and its window
+	// closed (QCXZEB's move in place, 11 November).
+	const starts = new Map<string, Promise<void>>();
 
 	function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
 		const before = turns.get(sessionId) ?? Promise.resolve();
@@ -237,6 +243,25 @@ export function hostBackend(options: {
 		request: OpenRequest | AdoptRequest,
 	): Promise<SessionIdentity> {
 		const prepared = await engine.prepare(request);
+		let settle = (): void => undefined;
+		starts.set(
+			prepared.sessionId,
+			new Promise<void>((done) => {
+				settle = done;
+			}),
+		);
+		try {
+			return await startedAs(request, prepared);
+		} finally {
+			starts.delete(prepared.sessionId);
+			settle();
+		}
+	}
+
+	async function startedAs(
+		request: OpenRequest | AdoptRequest,
+		prepared: Prepared,
+	): Promise<SessionIdentity> {
 		try {
 			await roster.hold({
 				sessionId: prepared.sessionId,
@@ -320,8 +345,11 @@ export function hostBackend(options: {
 					await engine.abort(request.sessionId);
 					return { sessionId: request.sessionId };
 				case "attach":
-					// A window opened on a parked conversation is its person asking
-					// for it, as soon as a park under way has settled.
+					// A window opened on a conversation still starting views it once
+					// its screen exists, or is refused as its failed start is; one
+					// opened on a parked conversation is its person asking for it,
+					// as soon as a park under way has settled.
+					await starts.get(request.sessionId);
 					await engine.parkSettled?.(request.sessionId);
 					if (
 						host.holds(request.sessionId) === undefined &&

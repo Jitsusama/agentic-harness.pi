@@ -162,22 +162,39 @@ export function attachWords(hold: HostHold, sessionId: string): string[] {
 export const RELEASED_EXIT = 3;
 
 /**
- * The words a window runs to view a conversation `hold` holds, carrying
- * on as `released` in that window should the host let the conversation
- * go back to plain pi; any other leaving ends them as attach ended. Each
- * word stays a word of its own, so `--session` and the id still sit side
- * by side, which is how mycelium's node knows the window is the
+ * Set, to the exit code attach failed with, for the words a window
+ * carries on as after its attach failed rather than being released; unset
+ * after a release.
+ */
+export const ATTACH_FAILED_ENV = "PI_HOST_ATTACH_FAILED";
+
+/**
+ * The words a window runs to view a conversation `hold` holds. Should
+ * attach end any way but 0, the window carries on as `after`: after a
+ * release, with {@link ATTACH_FAILED_ENV} unset, and after a failure,
+ * as when the host refused the attach, with it set to attach's exit code,
+ * so the window stays rather than closing (QCXZEB's move in place, 11
+ * November). Attach ending 0, as its person quitting does, ends them.
+ * Each word stays a word of its own, so `--session` and the id still sit
+ * side by side, which is how mycelium's node knows the window is the
  * conversation's.
  */
 export function viewingWords(
 	hold: HostHold,
 	sessionId: string,
-	released: readonly string[],
+	after: readonly string[],
 ): string[] {
 	const attach = attachWords(hold, sessionId);
 	const run = attach.map((_, at) => `"\${${at + 1}}"`).join(" ");
-	const script = `${run}; s=$?; [ "$s" -eq ${RELEASED_EXIT} ] || exit "$s"; shift ${attach.length}; exec "$@"`;
-	return ["sh", "-c", script, "sh", ...attach, ...released];
+	const script = [
+		`${run}; s=$?`,
+		`[ "$s" -eq 0 ] && exit 0`,
+		`shift ${attach.length}`,
+		`[ "$#" -gt 0 ] || exit "$s"`,
+		`if [ "$s" -eq ${RELEASED_EXIT} ]; then unset ${ATTACH_FAILED_ENV}; else export ${ATTACH_FAILED_ENV}="$s"; fi`,
+		`exec "$@"`,
+	].join("; ");
+	return ["sh", "-c", script, "sh", ...attach, ...after];
 }
 
 /** What a reader says of a conversation a host holds, and how to reach it. */

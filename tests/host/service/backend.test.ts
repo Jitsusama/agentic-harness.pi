@@ -481,6 +481,85 @@ describe("hostBackend", () => {
 		});
 	});
 
+	it("answers an attach on a conversation still starting once its start has settled", async () => {
+		const sessionId = randomUUID();
+		let screenUp = (): void => undefined;
+		const order: string[] = [];
+		const { fake } = engine({
+			prepare: vi.fn(async (request) => ({
+				sessionId,
+				file: request.op === "adopt" ? request.sessionFile : dir,
+				cwd: dir,
+			})),
+			// Registered, so listed, seconds before its screen exists, as the
+			// engine's build does.
+			start: vi.fn(async (prepared: Prepared) => {
+				register(prepared);
+				await new Promise<void>((done) => {
+					screenUp = done;
+				});
+				order.push("screen");
+			}),
+		});
+		const backend = backendWith(fake);
+		const adopting = backend.execute({
+			v: 1,
+			id: "a",
+			op: "adopt",
+			sessionFile: join(dir, "moved.jsonl"),
+			attended: false,
+		});
+		await vi.waitFor(() => expect(host.holds(sessionId)).toBeDefined());
+		const attaching = backend
+			.execute({
+				v: 1,
+				id: "t",
+				op: "attach",
+				sessionId,
+				rows: 1,
+				columns: 1,
+			})
+			.then((answer) => {
+				order.push("attach");
+				return answer;
+			});
+		// Long enough for an attach that doesn't wait to have answered.
+		await new Promise((done) => setTimeout(done, 50));
+		expect(order).toEqual([]);
+		screenUp();
+		await adopting;
+		expect(parseSessionResult(await attaching)).toEqual({ sessionId });
+		expect(order).toEqual(["screen", "attach"]);
+	});
+
+	it("refuses an attach on a conversation whose start failed before it registered", async () => {
+		const sessionId = randomUUID();
+		let fail = (): void => undefined;
+		const { fake } = engine({
+			prepare: vi.fn(async () => ({ sessionId, file: dir, cwd: dir })),
+			start: vi.fn(
+				() =>
+					new Promise<void>((_, refuse) => {
+						fail = () => refuse(new Error("extension load failed"));
+					}),
+			),
+		});
+		const backend = backendWith(fake);
+		const opening = backend.execute(open);
+		await vi.waitFor(() => expect(roster.entries()).toHaveLength(1));
+		const attaching = backend.execute({
+			v: 1,
+			id: "t",
+			op: "attach",
+			sessionId,
+			rows: 1,
+			columns: 1,
+		});
+		fail();
+		await expect(opening).rejects.toThrow("extension load failed");
+		await expect(attaching).rejects.toThrow("not hosted");
+	});
+
 	it("refuses to end, abort or attach a conversation it never held", async () => {
 		const backend = backendWith(engine().fake);
 		const sessionId = randomUUID();
