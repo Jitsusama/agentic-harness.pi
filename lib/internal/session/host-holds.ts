@@ -36,6 +36,8 @@ export interface HostHold {
 	readonly realm: string;
 	/** Open in a running host now, rather than only kept for its resume. */
 	readonly open: boolean;
+	/** Kept, not open, by a running host that parked it while idle, so a wake takes it up rather than a start. */
+	readonly parked?: boolean;
 }
 
 /** Where the lists and rosters are; the machine's unless a test sets them. */
@@ -184,6 +186,8 @@ export function viewingWords(
 export function heldByHost(sessionId: string, hold: HostHold): string {
 	const where = hold.open
 		? `is open in the ${hold.key} host`
-		: `is kept by the ${hold.key} host, which takes it up again as it starts`;
+		: hold.parked
+			? `is parked in the ${hold.key} host, and a key in its window or a message to it wakes it`
+			: `is kept by the ${hold.key} host, which takes it up again as it starts`;
 	return `Session ${sessionId} ${where}, so nothing else was opened on its log, which would give it a second writer. Reach it through its host, with the launcher's Go To or: ${attachWords(hold, sessionId).join(" ")}`;
 }
