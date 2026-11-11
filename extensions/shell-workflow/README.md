@@ -130,7 +130,14 @@ folder's way back and its `commondir` agree. The call's git is then
 held to that tree's git folder (`GIT_DIR`), so a `.git` rewritten
 mid-run is never read; without a `cd` it is given none, so build a
 tree by `cd <tree> && nix-offload there . <attribute>`, not by naming
-the tree's path. git over SSH and commit signing need the agents, so commit and push with
+the tree's path. One reach stays while the exemption does:
+changed-checks evaluates the tree's flake here with `--impure`, outside
+the fence, and a fenced command can write that flake, so the
+evaluation can read what the fence hides from reads (the runtime
+folder, other sessions' `/tmp` and `/dev/shm`). It can't run a program
+or write outside the store. When the exemption ends, that evaluation
+runs fenced through the untrusted Nix socket, not exempted again. git
+over SSH and commit signing need the agents, so commit and push with
 the work tool, which runs in pi's own process.
 
 ## A Strict Sandbox

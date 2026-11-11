@@ -509,7 +509,19 @@ describe("a command in the fence, through stand-ins", () => {
 			.filter((line) => line.includes("="))
 			.map((line) => line.slice(0, line.indexOf("=")));
 		// bash sets PWD, SHLVL and OLDPWD for itself.
-		const given = ["HOME", "LOGNAME", "PATH", "USER", "XDG_RUNTIME_DIR"];
+		// The GIT_ ones hold its git away from any .git (offload-exemption).
+		const given = [
+			"GIT_CEILING_DIRECTORIES",
+			"GIT_CONFIG_COUNT",
+			"GIT_CONFIG_KEY_0",
+			"GIT_CONFIG_VALUE_0",
+			"GIT_DIR",
+			"HOME",
+			"LOGNAME",
+			"PATH",
+			"USER",
+			"XDG_RUNTIME_DIR",
+		];
 		const own = ["OLDPWD", "PWD", "SHLVL", "_"];
 		expect(
 			names.filter((name) => !own.includes(name)).sort(),
