@@ -173,7 +173,28 @@ full corpus of 1,167,000 lines takes about 80 seconds.
 
 Logs are streamed a line at a time rather than read whole. The largest
 log here is 1.2 GB, past the ceiling on a JavaScript string, so anything
-reading a file in one piece cannot open it at all.
+reading a file in one piece cannot open it at all. The sizes are saved
+after every log, so a pass cut short keeps what it read.
+
+### Keeping It Current
+
+The `spend` tool indexes before it answers, but readers outside pi (the
+spend cards) read the ledger directly. On 10 November no session called
+the tool from 10:19 to 18:55, so the cards showed figures more than
+eight hours old as if they were current. So a pi also keeps it:
+
+- Every five minutes, a pi with a person's session (or a host) looks
+  whether the last pass is over half an hour old or failed. It runs
+  one only when its session has had no run for two minutes, since a
+  pass reads logs on its event loop. Subagents never do.
+- A lease, `ledger-pass.lease` beside the ledger, lets one pi on the
+  machine pass at a time. A lease whose pid has gone, or one older
+  than half an hour, is taken over.
+- Every pass, the tool's or the keeper's, writes `ledger-indexed.json`
+  beside the ledger: `at`, `ok`, `by`, `pid`, `seconds`, `scanned` and
+  `inserted`, or `error` when it failed. A reader should treat an `at`
+  over an hour old, or `ok: false`, as figures it can't trust, and say
+  so.
 
 ## Beyond a Total: Tool Calls, Drops and Verifiers
 

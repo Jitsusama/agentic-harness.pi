@@ -176,4 +176,49 @@ describe("indexing tool calls", () => {
 		expect(second.skipped).toBe(1);
 		await store.close();
 	});
+
+	it("keeps what a pass read before it was cut short", async () => {
+		scratch = mkdtempSync(join(tmpdir(), "ledger-indexer-"));
+		const sessionsRoot = join(scratch, "sessions", "proj");
+		mkdirSync(sessionsRoot, { recursive: true });
+		writeFileSync(
+			join(sessionsRoot, "one.jsonl"),
+			`${assistantLine("a1", "t1")}\n`,
+		);
+		writeFileSync(
+			join(sessionsRoot, "two.jsonl"),
+			`${assistantLine("b1", "u1")}\n`,
+		);
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		const watermarks = join(scratch, "watermarks.json");
+		// A store that fails on the second log, as a full disk or a
+		// session ending mid-pass would leave it.
+		let recorded = 0;
+		const failing = new Proxy(store, {
+			get(target, name) {
+				if (name === "recordTurns") {
+					return (turns: Parameters<typeof store.recordTurns>[0]) => {
+						recorded += 1;
+						if (recorded > 1) return Promise.reject(new Error("disk full"));
+						return target.recordTurns(turns);
+					};
+				}
+				const value: unknown = Reflect.get(target, name, target);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+
+		await expect(
+			indexSessionLogs(failing, watermarks, join(scratch, "sessions")),
+		).rejects.toThrow("disk full");
+		const next = await indexSessionLogs(
+			store,
+			watermarks,
+			join(scratch, "sessions"),
+		);
+
+		expect(next.skipped).toBe(1);
+		expect(next.scanned).toBe(1);
+		await store.close();
+	});
 });
