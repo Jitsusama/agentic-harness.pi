@@ -116,7 +116,9 @@ input pipeline or screen. No unit or running host is installed yet.
   and its holder then starts `mycelium attach` in the same terminal; or,
   once the move note has waited unclaimed for 10 s, it takes the move
   back through the note's claim and the window runs plain pi again, so
-  the log never has two writers.
+  the log never has two writers. With no note, claim or host for 10 s
+  it runs plain pi too, and a roster host slow to start is waited on
+  under one line saying so, so the window never sits frozen.
 
 The public sessionId is always pi's stable UUID, never durable's internal
 conversation id. Control operations are open, adopt, list, release, close,
