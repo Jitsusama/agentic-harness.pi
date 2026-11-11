@@ -2,10 +2,11 @@
  * A quit typed in one viewer of a hosted conversation, on pi's own screen.
  * On 11 November a check attached under script(1) with its input from
  * /dev/null: script typed Ctrl+D as that input ended, pi's quit closed the
- * conversation for everyone, and the host wrote nothing. Here a quit holds
- * only once the viewer that typed it says y, anything else lets that
- * viewer go, a viewer whose input ends leaves the conversation running, and
- * every end is a line in the host's journal naming who asked.
+ * conversation for everyone, and the host wrote nothing. Here a viewer
+ * whose input ends leaves the conversation running. A lone viewer keeps
+ * pi's quit keys, as plain pi does. With others watching, a quit holds only
+ * once the viewer that typed it says y, and anything else lets that viewer
+ * go. Every end is a line in the host's journal naming who asked.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
@@ -81,15 +82,12 @@ describe.skipIf(!packageDir)(
 		}, CASE_MS);
 
 		it(
-			"keeps the conversation when the only viewer's input ends, as script(1) ends it",
+			"keeps the conversation when the only viewer's input ends",
 			async () => {
 				const { sessionId } = await host.open(work.trusted(), "first words");
 				const alone = await viewer(sessionId);
 				await alone.shows("heard: first words", TURN_MS);
 
-				// script(1) types Ctrl+D as its input ends, then closes the window.
-				alone.type(CTRL_D);
-				await alone.shows(QUESTION, TURN_MS);
 				await alone.leave();
 
 				await host.idle(sessionId, TURN_MS);
@@ -98,6 +96,35 @@ describe.skipIf(!packageDir)(
 				await back.shows("heard: after the window", TURN_MS);
 				expect(host.errors(), `nothing ended it${said()}`).not.toContain(
 					ended(sessionId),
+				);
+			},
+			CASE_MS,
+		);
+
+		it.each([
+			["Ctrl+D", CTRL_D],
+			["/quit", `/quit${ENTER}`],
+			["Ctrl+C twice", `${CTRL_C}${CTRL_C}`],
+		])(
+			"closes at %s from a lone viewer with no question, as plain pi does, journalling that viewer",
+			async (named, quit) => {
+				const { sessionId } = await host.open(work.trusted(), `alone ${named}`);
+				const alone = await viewer(sessionId, "w-1");
+				await alone.shows(`heard: alone ${named}`, TURN_MS);
+
+				alone.type(quit);
+
+				await host.gone(sessionId, TURN_MS);
+				expect(await alone.detached, "its window is told it closed").toBe(
+					"Conversation closed",
+				);
+				expect(alone.screen().join("\n"), "it never asked").not.toMatch(
+					QUESTION,
+				);
+				expect(host.errors(), "the journal says who asked").toMatch(
+					new RegExp(
+						`${ended(sessionId).replace(/[()]/g, "\\$&")}quit, asked by viewer 1 in window w-1, joined \\d{4}-`,
+					),
 				);
 			},
 			CASE_MS,
@@ -135,10 +162,11 @@ describe.skipIf(!packageDir)(
 			["/quit", `/quit${ENTER}`],
 			["Ctrl+C twice", `${CTRL_C}${CTRL_C}`],
 		])(
-			"asks before %s closes it, as pi quits within the key",
+			"asks before %s closes it with another viewer watching, as pi quits within the key",
 			async (_named, quit) => {
 				const { sessionId } = await host.open(work.trusted(), "other quits");
 				const typing = await viewer(sessionId);
+				const watching = await viewer(sessionId);
 				await typing.shows("heard: other quits", TURN_MS);
 
 				typing.type(quit);
@@ -148,6 +176,8 @@ describe.skipIf(!packageDir)(
 				expect(await typing.detached, "that viewer is let go").toBe(
 					LEFT_RUNNING,
 				);
+				watching.type(`still watching${ENTER}`);
+				await watching.shows("heard: still watching", TURN_MS);
 				await host.idle(sessionId, TURN_MS);
 				expect(
 					(await host.list()).map((one) => one.sessionId),

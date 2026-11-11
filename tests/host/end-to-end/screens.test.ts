@@ -266,10 +266,8 @@ describe.skipIf(!packageDir)(
 				const other = await viewer(sibling.sessionId, 30, 100);
 				await watching.shows(rule(100));
 
+				// A lone viewer's quit holds as plain pi's does (quit.test.ts).
 				watching.type(`/quit${ENTER}`);
-				// A quit typed in a viewer holds once that viewer says so (quit.test.ts).
-				await watching.shows("Close this conversation for everyone?");
-				watching.type("y");
 
 				expect(await watching.detached).toBe("Conversation closed");
 				await host.gone(quitting.sessionId, TURN_MS);

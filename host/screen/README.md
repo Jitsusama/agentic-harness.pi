@@ -9,7 +9,8 @@ of viewers join a screen by its pi session id.
 
 A screen that quits, crashes or fails closes only its own conversation,
 through the view's `close`, with a reason naming who asked. A quit a
-viewer typed holds only once that viewer confirms it (the terminal's
+lone viewer typed holds as in plain pi; one typed with others watching
+holds only once that viewer confirms it (the terminal's
 `confirmQuit`), through `hosted.quit`, which pi asks before its hosted
 quit. Today's runtime doesn't ask, so `hostedModeOf` wraps the screen's
 own shutdown to ask first; on a runtime that says

@@ -258,7 +258,8 @@ export function hostScreens(options: {
 	}
 
 	// A quit closes the conversation for everyone, so one a viewer typed
-	// holds only once that viewer says so (ViewerTerminal.confirmQuit). One
+	// with others watching holds only once that viewer says so; a lone
+	// viewer's holds as plain pi's does (ViewerTerminal.confirmQuit). One
 	// asked as the conversation closes elsewhere already holds.
 	async function quitHolds(screen: Screen | undefined): Promise<boolean> {
 		if (!screen || screen.closing) return true;

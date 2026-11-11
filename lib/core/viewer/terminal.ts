@@ -124,18 +124,17 @@ function described(viewer: JoinedViewer): string {
 	return `viewer ${viewer.number}${window}, joined ${viewer.joined.toISOString()}`;
 }
 
-// The question on the bottom row of the viewer that typed the quit, alone.
+// The question on the bottom row of the viewer that typed the quit, alone,
+// with `others` watching.
 function quitQuestion(
 	viewer: JoinedViewer,
 	others: number,
 	busy: boolean,
 ): string {
 	const watching =
-		others === 0
-			? ""
-			: others === 1
-				? " 1 other viewer is watching."
-				: ` ${others} other viewers are watching.`;
+		others === 1
+			? " 1 other viewer is watching."
+			: ` ${others} other viewers are watching.`;
 	const working = busy ? " A turn is running." : "";
 	const said = ` Close this conversation for everyone?${watching}${working} y closes it; any other key leaves it running and closes this window. `;
 	return `\x1b[${viewer.rows};1H\x1b[2K\x1b[7m${said.slice(0, viewer.columns)}\x1b[0m`;
@@ -357,14 +356,13 @@ export class ViewerTerminal implements Terminal {
 
 	/**
 	 * Say whether the quit pi was just asked for holds. One no viewer's key
-	 * asked for, such as an extension's shutdown, holds at once. One a
-	 * viewer typed (Ctrl+D, a double Ctrl+C, /quit) is asked of that viewer
-	 * alone: a hosted conversation outlives its windows, others may be
-	 * watching, and a key can come from no person at all, as script(1)
-	 * types Ctrl+D when its input ends. Only y closes it for everyone; any
-	 * other key, a paste or Ctrl+D again among them, lets that viewer go and
-	 * leaves the conversation running. Call it within pi's handling of the
-	 * key.
+	 * asked for, such as an extension's shutdown, holds at once. So does one
+	 * a lone viewer typed (Ctrl+D, a double Ctrl+C, /quit): pi keeps its
+	 * quit keys, and that viewer is the only one it closes for. With others
+	 * watching, it is asked of that viewer alone, since it would close the
+	 * conversation under them: only y closes it for everyone; any other key,
+	 * a paste or Ctrl+D again among them, lets that viewer go and leaves the
+	 * conversation running. Call it within pi's handling of the key.
 	 */
 	confirmQuit(busy: boolean): Promise<QuitVerdict> {
 		const viewer = this.typing;
@@ -377,6 +375,7 @@ export class ViewerTerminal implements Terminal {
 			return Promise.resolve({ holds: false });
 		const by = described(viewer);
 		const others = this.viewers.size - 1;
+		if (others === 0) return Promise.resolve({ holds: true, by });
 		return new Promise((settle) => {
 			viewer.quitting = (holds) =>
 				settle(holds ? { holds: true, by } : { holds: false });

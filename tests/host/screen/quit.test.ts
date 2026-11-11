@@ -134,6 +134,24 @@ describe.each([
 		);
 	});
 
+	it("closes at once for a lone viewer, as plain pi's quit does, naming that viewer", async () => {
+		const { screens, closes, view } = host(pi);
+		await screens.screens.opened(view("a"));
+		const alone = sink();
+		const one = screens.viewer.attach(attach("a"), alone);
+
+		one.input("\x04");
+
+		await vi.waitFor(() => expect(closes).toHaveLength(1));
+		expect(closes[0], "the close names who asked").toMatch(
+			/^quit, asked by viewer 1, joined /,
+		);
+		expect(
+			alone.disconnect,
+			"its window is told it closed",
+		).toHaveBeenCalledWith("Conversation closed");
+	});
+
 	it("lets only that viewer go and keeps the screen when it says anything else", async () => {
 		const { screens, closes, view } = host(pi);
 		await screens.screens.opened(view("a"));
