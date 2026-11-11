@@ -132,7 +132,10 @@ describe("waking a parked conversation", () => {
 		expect(
 			fake.dropped,
 			"its kept screen was let go, told it was released",
-		).toHaveBeenCalledWith(sessionId, "released, asked by the cutover");
+		).toHaveBeenCalledWith(
+			sessionId,
+			"released, asked by the cutover over the control socket",
+		);
 		expect(host.holds(sessionId), "it stays closed").toBeUndefined();
 	});
 

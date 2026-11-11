@@ -114,6 +114,12 @@ async function logOf(sessionId: string): Promise<string> {
 	return held.file;
 }
 
+/** How the host lists a conversation now, so a wake is proved from a park. */
+async function standing(sessionId: string): Promise<string | undefined> {
+	const held = (await host.list()).find((s) => s.sessionId === sessionId);
+	return held?.state;
+}
+
 /** Say what a wait on the host waited for, with what the host said. */
 function withHost(error: unknown): never {
 	throw new Error(
@@ -195,6 +201,9 @@ describe.skipIf(!packageDir)(
 			async () => {
 				const [onKey] = viewers;
 				if (!onKey) throw new Error("the parked conversation has no window");
+				expect(await standing(woken.byKey), "it woke from a park").toBe(
+					"parked",
+				);
 				const started = Date.now();
 				// Typed in pieces: the first wakes it, the rest arrive as it wakes.
 				for (const piece of ["typed ", "while ", "it ", "woke", ENTER])
@@ -222,6 +231,9 @@ describe.skipIf(!packageDir)(
 		it(
 			"wakes as a window opens on it, as Go To opens one",
 			async () => {
+				expect(await standing(woken.byWindow), "it woke from a park").toBe(
+					"parked",
+				);
 				const started = Date.now();
 				const onWindow = await attach(host.path, woken.byWindow, ROWS, COLUMNS);
 				viewers.push(onWindow);
@@ -240,6 +252,9 @@ describe.skipIf(!packageDir)(
 		it(
 			"wakes when a mesh sender asks, as the mesh asks for plain pi",
 			async () => {
+				expect(await standing(woken.byMesh), "it woke from a park").toBe(
+					"parked",
+				);
 				const started = Date.now();
 				expect(
 					askWake(woken.byMesh, "message-1", parkFolder),
