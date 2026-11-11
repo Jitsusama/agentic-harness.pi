@@ -94,6 +94,7 @@ import {
 	type NoModelEvent,
 	onNoModel,
 } from "../../lib/internal/session/no-model.ts";
+import { liveHolder } from "../../lib/internal/session/one-writer.ts";
 import {
 	askWake,
 	isParkAsk,
@@ -1545,6 +1546,13 @@ export function meshWorkflow(
 			// peer: on 3 November one caught up on 13 messages the live
 			// session it had become never got (lib/internal/session/left.ts).
 			if (sessionLeft(started.sessionManager.getSessionId())) return;
+			// A plain pi on a log a live host holds ends at once, and its peer
+			// is the host's: on 10 November one wrote its pid over it.
+			if (
+				!hosted() &&
+				(await liveHolder(started.sessionManager.getSessionId()))
+			)
+				return;
 			ctx = started;
 			startCaughtUp = false;
 			turnAsked = false;

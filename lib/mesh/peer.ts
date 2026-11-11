@@ -12,7 +12,9 @@
  * Presence is published when something in it changes (its addresses,
  * its work, its groups, whether it is mid-run, what it waits on its
  * person for, what it landed), never on a clock, so a peer at rest
- * writes nothing however long it rests. What it landed is kept, like
+ * writes nothing however long it rests. Its file is written again only
+ * when a refresh finds it names another process or host, which another
+ * process must have written. What it landed is kept, like
  * its joined groups, across a reload and a rollover.
  *
  * What it waits on is never kept across a start, since whatever asked
@@ -289,6 +291,21 @@ export function orchestrationRoles(
 	};
 }
 
+/**
+ * Whether a presence names the process and host this peer runs in: the
+ * same owner pid, and the same host and conversation or none.
+ */
+function heldAsSaid(
+	presence: Presence,
+	at: Pick<Surroundings, "owner" | "hosted">,
+): boolean {
+	return (
+		presence.owner?.pid === at.owner?.pid &&
+		presence.hosted?.host === at.hosted?.host &&
+		presence.hosted?.conversation === at.hosted?.conversation
+	);
+}
+
 /** This session's peer, with the groups it last joined. */
 export function localPeer(at: Surroundings): Peer {
 	// A peer carried on from an earlier session is the same peer: it takes
@@ -438,6 +455,13 @@ export function localPeer(at: Surroundings): Peer {
 	let yieldedTo: Presence | undefined;
 	const refresh = () => {
 		const everyone = at.presences.all();
+		// Another process wrote this peer's file: on 10 November a plain pi
+		// opened a hosted conversation's log and left its own pid there,
+		// which the host's peer, publishing only changes, never wrote over.
+		// Two writers still alive would take turns at it each refresh; the
+		// one-writer workflow ends a plain pi on a hosted log, so that's rare.
+		const onDisk = everyone.find((one) => one.session === at.session);
+		if (onDisk && !heldAsSaid(onDisk, at)) published = undefined;
 		const counted = at.live?.();
 		const live = counted
 			? everyone.filter((one) => counted.has(one.session))
