@@ -17,7 +17,11 @@
  * again through its holder rather than reloaded, since a reload would
  * resolve those extensions through their first targets
  * (lib/internal/reload/extension-links.ts). One its holder can't start
- * again keeps the code it runs, and says why.
+ * again keeps the code it runs, and says why. A runtime that starts
+ * with such links came up through a reload, which loaded them half
+ * stale, so it starts again too once idle, install moved or not: the
+ * first swap after this lands reaches every pi through the reload of
+ * the follower it replaces.
  */
 
 import { lstatSync } from "node:fs";
@@ -227,7 +231,14 @@ export async function follow(
 		return spreadOf(id, spreadMs);
 	})();
 
+	// Read once, as the runtime starts: links made after the process
+	// started mean a reload brought it up on them. In a host no holder
+	// starts one conversation again; core.nix's
+	// pi-host-extension-realpath patch has its loads take real paths.
+	const reloadedStale =
+		!inHost && linksMovedSince(extensions, startedAt).length > 0;
 	const reasonNow = async () => {
+		if (moved.size === 0) return "a reload loaded extensions whose links moved";
 		const named = (
 			await Promise.all(
 				[...moved.values()].map((one) => cameIn(one.root, one.from, one.to)),
@@ -432,7 +443,7 @@ export async function follow(
 				hear();
 			}
 		}
-		if (moved.size === 0) return;
+		if (moved.size === 0 && !reloadedStale) return;
 		const slot = reloadSlot();
 		// A rollover is switching logs: the fresh session's follower takes
 		// the move up, or this one does once the switch was called off.
