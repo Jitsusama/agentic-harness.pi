@@ -102,6 +102,7 @@ import {
 	readMoveNotes,
 	removeMoveNote,
 } from "../../lib/internal/session/move.ts";
+import { isParking, PARKING } from "../../lib/internal/session/park.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -590,22 +591,30 @@ function stampSignalled(sessionId: string, now: Date): void {
 /**
  * Follow only this conversation's host endings, disposing the hook on
  * reload. A host parks a conversation by stopping it as a host stop
- * does, so one stopped while `parking` says it parks is recorded as
- * parked, as plain pi's park is, rather than as taken away.
+ * does, so one stopped once it said it parks (park-workflow's PARKING)
+ * is recorded as parked, as plain pi's park is, rather than as taken
+ * away. Each start follows anew, so a park said before it is forgotten.
  */
 export function followHostStamps(
 	bus: { on(channel: string, listener: (data: unknown) => void): () => void },
 	session: string,
 	release: () => void,
-	parking: () => boolean,
 ): () => void {
-	return bus.on(SESSION_STAMP_EVENT, (data) => {
+	let parking = false;
+	const offParking = bus.on(PARKING, (data) => {
+		if (isParking(data) && data.session === session) parking = true;
+	});
+	const offStamps = bus.on(SESSION_STAMP_EVENT, (data) => {
 		if (!isSessionStamp(data) || data.session !== session) return;
 		if (data.how !== "signalled") recordSessionEnd(session, "quit");
-		else if (parking()) recordSessionEnd(session, "parked");
+		else if (parking) recordSessionEnd(session, "parked");
 		else stampSignalled(session, new Date());
 		release();
 	});
+	return () => {
+		offParking();
+		offStamps();
+	};
 }
 
 /** Apply an end reason to a session's record, if it has one. */
