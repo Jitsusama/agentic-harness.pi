@@ -5,7 +5,9 @@
  * in its session's log, as a `crash` entry, and in the system's log
  * (the journal on Linux, the unified log on macOS), with the stack. pi's
  * own handler still prints to the terminal, adds to crashes.json and
- * exits as before; this only writes first. See
+ * exits as before; this only writes first. It arms only in plain pi: a
+ * host runs many conversations in one process and installs whatever
+ * that process listens for itself. See
  * `lib/internal/session/crash-record.ts`.
  */
 
@@ -13,6 +15,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/host.ts";
 import {
 	type CrashWriter,
 	crashText,
@@ -27,6 +30,7 @@ export const CRASH_ENTRY = "crash";
 
 /** Registers this session's crash writer while the session runs. */
 export default function crashRecord(pi: ExtensionAPI): void {
+	if (hosted()) return;
 	const journal = journalCommand();
 	let stop: (() => void) | undefined;
 	pi.on("session_start", (_event, ctx) => {

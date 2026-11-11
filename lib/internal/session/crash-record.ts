@@ -18,6 +18,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { processGlobal } from "../process-global.ts";
 import { systemFolders, systemProgram } from "../system-program.ts";
 
 /** One uncaught error, as a dying pi records it. */
@@ -41,28 +42,15 @@ interface Slot {
 	writers: Map<string, CrashWriter>;
 }
 
-const SLOT = Symbol.for("agentic-harness.session.crash-record");
+/** The process's slot; a load whose slot has another shape takes a new version. */
+export const CRASH_SLOT = "pi:harness:crash-record:v1";
 
 /** The longest a journal write may hold a dying process up. */
 const JOURNAL_WAIT_MS = 2_000;
 
-/** Whether `found` is a slot of this shape. */
-function isSlot(found: unknown): found is Slot {
-	return (
-		typeof found === "object" &&
-		found !== null &&
-		"writers" in found &&
-		found.writers instanceof Map
-	);
-}
-
-/** The process's slot, made afresh when one an older load left has another shape. */
+/** The process's slot, shared by every load. */
 function slotOf(): Slot {
-	const found: unknown = Reflect.get(process, SLOT);
-	if (isSlot(found)) return found;
-	const made: Slot = { writers: new Map() };
-	Reflect.set(process, SLOT, made);
-	return made;
+	return processGlobal<Slot>(CRASH_SLOT, () => ({ writers: new Map() }));
 }
 
 /** The error as a crash, whatever was thrown. */

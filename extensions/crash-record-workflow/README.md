@@ -25,6 +25,8 @@ that file.
 - Changes nothing about how the process ends: Node's
   `uncaughtExceptionMonitor` runs before pi's own handler, which
   still prints, records and exits.
+- Arms only in plain pi. A host runs many conversations in one
+  process and installs what that process listens for itself.
 
 The process keeps one listener, which each load replaces with its
 own, so a reload never leaves an older load's code running against

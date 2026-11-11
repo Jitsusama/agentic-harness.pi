@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { processGlobal } from "../../../../lib/internal/process-global.ts";
 import {
+	CRASH_SLOT,
 	type Crash,
 	crashOf,
 	crashText,
@@ -8,18 +10,14 @@ import {
 } from "../../../../lib/internal/session/crash-record.ts";
 
 const MONITOR = "uncaughtExceptionMonitor";
-const SLOT = Symbol.for("agentic-harness.session.crash-record");
 
 /**
  * Calls the listener this module put on the process, as Node does just
  * before a crash, leaving alone any the test runner keeps.
  */
 function crash(error: unknown, origin = "uncaughtException"): void {
-	const slot: unknown = Reflect.get(process, SLOT);
-	const listener =
-		typeof slot === "object" && slot !== null
-			? Reflect.get(slot, "listener")
-			: undefined;
+	const slot = processGlobal<{ listener?: unknown }>(CRASH_SLOT, () => ({}));
+	const { listener } = slot;
 	if (typeof listener !== "function") throw new Error("no listener");
 	const listeners = process.listeners(MONITOR);
 	expect(listeners, "the listener is on the process").toContain(listener);
@@ -88,14 +86,6 @@ describe("recordCrashes", () => {
 		expect(process.listenerCount(MONITOR)).toBe(before + 1);
 		stopB();
 		expect(process.listenerCount(MONITOR)).toBe(before);
-	});
-
-	it("starts afresh past a slot an older load left in another shape", () => {
-		Reflect.set(process, SLOT, { writers: [] });
-		const told: string[] = [];
-		stops.push(recordCrashes("a", () => told.push("a")));
-		crash(new Error("boom"));
-		expect(told).toEqual(["a"]);
 	});
 });
 
