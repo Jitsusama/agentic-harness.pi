@@ -3,7 +3,13 @@
  * as it changes, even when it changes within a clock tick of a read.
  */
 
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	rmSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -58,6 +64,27 @@ describe("a quest file parsed once", () => {
 		settled(path, "- [x] one", 1);
 		expect(read(path).text).toBe("- [x] one");
 		expect(parser.parses).toBe(2);
+	});
+
+	it("is parsed again after a same-size rewrite that puts its old time back", () => {
+		const path = join(dir, "README.md");
+		const when = new Date(Date.now() - 3_600_000);
+		writeFileSync(path, "- [ ] one");
+		utimesSync(path, when, when);
+		const first = statSync(path, { bigint: true }).ctimeNs;
+		const parser = counting();
+		const read = parsedFiles(parser.parse);
+		read(path);
+
+		// Rewritten as `touch -r` would leave it: same size, same mtime.
+		// Written until a clock tick has passed, so its change time moves.
+		for (let tries = 0; tries < 1_000; tries++) {
+			writeFileSync(path, "- [x] one");
+			utimesSync(path, when, when);
+			if (statSync(path, { bigint: true }).ctimeNs !== first) break;
+		}
+		expect(statSync(path, { bigint: true }).ctimeNs).not.toBe(first);
+		expect(read(path).text).toBe("- [x] one");
 	});
 
 	it("is parsed every time while it was written moments ago", () => {

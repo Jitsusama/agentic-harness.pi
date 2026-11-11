@@ -7,8 +7,10 @@
  * every turn, and parses their YAML each time: on 10 November that was
  * about 220 ms of main-thread runs of 50 ms or more in ten minutes of
  * one session, almost all of it the YAML parser, for files that had not
- * changed. A file whose size, inode and modification time are what they
- * were when it was parsed holds the same text, so the parse is kept.
+ * changed. A file whose size, inode, modification and change times are
+ * what they were when it was parsed holds the same text, so the parse
+ * is kept. The change time moves on every write, even one that puts an
+ * old modification time back.
  *
  * A modification time is only as fine as the filesystem's clock tick,
  * so a file written in the same tick as it was read could keep its old
@@ -30,6 +32,8 @@ interface Kept<T> {
 	readonly size: bigint;
 	readonly ino: bigint;
 	readonly mtimeNs: bigint;
+	/** Moved by any write, even one that puts an old mtime back. */
+	readonly ctimeNs: bigint;
 	readonly value: T;
 }
 
@@ -49,7 +53,8 @@ export function parsedFiles<T>(
 			before !== undefined &&
 			before.size === stat.size &&
 			before.ino === stat.ino &&
-			before.mtimeNs === stat.mtimeNs
+			before.mtimeNs === stat.mtimeNs &&
+			before.ctimeNs === stat.ctimeNs
 		) {
 			// Only a parse that passed `racy` below was kept: the same text.
 			return before.value;
@@ -62,6 +67,7 @@ export function parsedFiles<T>(
 				size: stat.size,
 				ino: stat.ino,
 				mtimeNs: stat.mtimeNs,
+				ctimeNs: stat.ctimeNs,
 				value,
 			});
 		}
