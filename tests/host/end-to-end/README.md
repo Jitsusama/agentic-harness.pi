@@ -154,6 +154,13 @@ what it held before the kill and holds only whole entries, the killed
 run is taken up again (and stopped) or answered, and then all three
 answer.
 
+release-all.test.ts is E12, item 11's rollback drill: `host-release.ts
+--all` from both hosts, holding two conversations each, one mid-run.
+The release waits on the busy one until a Stop, then both hosts are
+empty and restore.json offers all four. Each log is whole and keeps
+what it held, and reopened from its file each runs in one plain pi
+under its addresses, and answers.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
