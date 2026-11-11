@@ -34,8 +34,8 @@ input pipeline or screen. No unit or running host is installed yet.
   dated counts as stale, and the refusal names each stale pid and
   root. A wake it refuses is told it stays parked and wakes at the
   next message or key once those pis reload or end, since its sender
-  has nothing to fix. One conversation per host is never gated. A host run from a
-  tree keeps to one. `node scripts/host-rollout.ts` prints the same
+  has nothing to fix. One conversation per host is never gated. A
+  host run from a tree keeps to one. `node scripts/host-rollout.ts` prints the same
   verdict for a person.
 - serve.ts: one realm-kind host's life. It takes the roster's lock,
   installs SessionHost, loads the engine, resumes what is held and only

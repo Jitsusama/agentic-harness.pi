@@ -17,7 +17,11 @@ import { writeWhole } from "../write-whole.ts";
 
 /** What asked for a wake, why its host refused it, and when. */
 export interface RefusedWake {
-	/** The message whose sender wrote the wake, when its file named one. */
+	/**
+	 * The message whose sender wrote the wake, when its file named one. A
+	 * second written before the host took the file is folded into the same
+	 * wake, so this names the first; both senders see the same reason.
+	 */
 	readonly messageId?: string;
 	readonly reason: string;
 	readonly at: string;

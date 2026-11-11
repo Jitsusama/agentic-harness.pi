@@ -479,8 +479,10 @@ export function clearParked(
  * Ask a parked session's holder to wake it, for this message, through
  * the file its marker names; answers whether it was asked. Anything
  * written there wakes it, so the message's id is written as a record.
- * The holder reads the file as a whole once a second and deletes it, so
- * it is written in place rather than renamed in from beside it.
+ * It is renamed in whole (writeWhole), never written in place: a pi
+ * host reads the id as the file appears. Mycelium's holder only looks
+ * for the file once a second, and its listing reads only `.json`
+ * records, so the folder the file is first written in goes unread.
  */
 export function askWake(
 	session: string,
@@ -491,9 +493,7 @@ export function askWake(
 ): boolean {
 	const parked = readParked(session, folder, booted);
 	if (!parked) return false;
-	// Put in place whole: a host reads which message asked as the file
-	// appears (host/engine/parking.ts), and a file created and then written
-	// could be read empty between the two. A holder only looks for it.
+	// A file created and then written could be read empty between the two.
 	writeWhole(
 		parked.wake,
 		`${JSON.stringify({ session, messageId, at: now.toISOString() })}\n`,
