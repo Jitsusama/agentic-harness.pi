@@ -84,6 +84,12 @@ export interface CutoverPlaces {
 	readonly windows?: () => Promise<MachineWindows>;
 	/** The mycelium executables vouched for as carrying #121, whose holders park quietly. */
 	readonly quietMycelium?: readonly string[];
+	/**
+	 * The mark swayidle-away keeps while Joel is at the machine, touched at
+	 * any input and removed after 2 minutes idle. Given, a window on his
+	 * workspace may move while it is absent; without it, never.
+	 */
+	readonly presenceMark?: string;
 }
 
 function messageOf(error: unknown): string {
@@ -195,8 +201,10 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			);
 		return places.claimer;
 	};
+	const mark = places.presenceMark;
 	return {
 		...(places.self ? { self: places.self } : {}),
+		...(mark === undefined ? {} : { joelAway: () => !existsSync(mark) }),
 		present: async () => [...(await census(presences.all(), ticks)).present],
 		// A harness that knows the move says whether a person drives its
 		// session, either way, in every presence it publishes; a parked pi

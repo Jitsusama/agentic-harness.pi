@@ -61,19 +61,29 @@ export interface CutoverFacts {
 	window(presence: Presence): Promise<WindowStanding | undefined>;
 	/** The session running the cutover, if a pi runs it. */
 	readonly self?: string;
+	/**
+	 * Whether Joel is away from the machine at this moment. Only a run
+	 * that may move his workspace while he is away asks; without it, a
+	 * window on his workspace is always spared.
+	 */
+	joelAway?(): boolean;
 }
 
 /**
  * Why a session's window must be left where it stands, or nothing when
- * it may move: on Joel's focused workspace, a running pi no mycelium
- * holds, whose window would close, or where nobody can say. A parked pi
- * no mycelium holds has no window to lose.
+ * it may move: on Joel's focused workspace while he may be there, a
+ * running pi no mycelium holds, whose window would close, or where
+ * nobody can say. A parked pi no mycelium holds has no window to lose.
+ * A move keeps its window in place (core #3179), so one on his
+ * workspace may move once he is away (`joelAway`), never while he is
+ * at the machine.
  */
 export function windowSpares(
 	window: WindowStanding | undefined,
 	parked: boolean,
+	joelAway = false,
 ): string | undefined {
-	if (window?.where === "joel")
+	if (window?.where === "joel" && !joelAway)
 		return "its window is on the workspace Joel has focused";
 	if (window?.where === "unheld")
 		return parked
@@ -138,8 +148,13 @@ export async function planCutover(
 						why: "its harness predates the move",
 					};
 				const window = await facts.window(one);
-				const spared = windowSpares(window, one.state === "parked");
+				const away = facts.joelAway?.() ?? false;
+				const spared = windowSpares(window, one.state === "parked", away);
 				if (spared !== undefined) return leave(spared);
+				const his =
+					window?.where === "joel"
+						? "; its window is on Joel's workspace, and he is away"
+						: "";
 				const wrote = one.driven ?? (await facts.personWrote(file));
 				const choice = hostFor(one.addresses, wrote, overrides);
 				const old =
@@ -151,7 +166,7 @@ export async function planCutover(
 					session,
 					address,
 					to: choice.kind,
-					why: `${choice.why}${old}`,
+					why: `${choice.why}${his}${old}`,
 					parked: one.state === "parked",
 				};
 			}),
@@ -179,6 +194,8 @@ export interface MoveFacts {
 	keepPlace(session: string): Promise<string>;
 	/** Where the session's window stands at this moment, read afresh. */
 	windowNow(session: string): Promise<WindowStanding | undefined>;
+	/** Whether Joel is away at this moment, as CutoverFacts.joelAway. */
+	joelAway?(): boolean;
 	/** Tell a session to move, through its steer inbox. */
 	tell(address: string, to: HostKind): void;
 	/** Wake a parked session, so it takes its move. */
@@ -256,7 +273,11 @@ export async function carryOut(
 	const places: { address: string; said: string }[] = [];
 	const spared: { address: string; why: string }[] = [];
 	for (const step of steps) {
-		const why = windowSpares(await facts.windowNow(step.session), step.parked);
+		const why = windowSpares(
+			await facts.windowNow(step.session),
+			step.parked,
+			facts.joelAway?.() ?? false,
+		);
 		if (why !== undefined) {
 			spared.push({ address: step.address, why });
 			facts.say(`left ${step.address} untold: ${why}`);

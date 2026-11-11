@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -121,5 +121,19 @@ describe("machineFacts' knowsMove", () => {
 			await machineFacts({ realm: "work" }).knowsMove(parked),
 			"with no install named",
 		).toBe(false);
+	});
+
+	it("says Joel is away only while his presence mark is absent, and asks nothing without one", () => {
+		const mark = join(
+			mkdtempSync(join(tmpdir(), "cutover-mark-")),
+			"someone-at-the-machine",
+		);
+		const facts = machineFacts({ realm: "work", presenceMark: mark });
+		expect(facts.joelAway?.(), "no mark").toBe(true);
+		writeFileSync(mark, "");
+		expect(facts.joelAway?.(), "the mark there").toBe(false);
+		rmSync(mark);
+		expect(facts.joelAway?.(), "the mark gone again").toBe(true);
+		expect(machineFacts({ realm: "work" }).joelAway).toBeUndefined();
 	});
 });
