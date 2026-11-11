@@ -5,18 +5,22 @@
  * answers to; this decides, guard by guard, what actually happens. A
  * blocking guard refuses. A redirecting guard refuses with its remedy
  * and lets the same call through when it comes back unchanged, except
- * the untracked-tree guard, which adopts the tree: the refusal only
- * ever told the agent to do that, and one session took 56 refusals to
- * stop trying the write instead. A guard that is off lets the write
- * through and shows the person what it saw. Whatever a guard lets
- * through outside every tree is noted for the quest, and `conclude`
- * names it (outside-writes.ts).
+ * two. The untracked-tree guard adopts the tree: the refusal only ever
+ * told the agent to do that, and one session took 56 refusals to stop
+ * trying the write instead. The homeless guard lets the write through
+ * and notes it: from 3 to 10 November it refused 118 calls in 34
+ * sessions, and 120 in the same 34 were made again and went through,
+ * so the refusal only cost each write a second call. A guard that is
+ * off lets the write through and shows the person what it saw.
+ * Whatever a guard lets through outside every tree is noted for the
+ * quest, and `conclude` names it (outside-writes.ts).
  */
 
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
 import { reportGuard } from "../../lib/guardian/report.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import type { QuestVerdict } from "./enforce.ts";
 import { recordOutsideWrites } from "./outside-writes.ts";
 import type { QuestState } from "./state.ts";
@@ -57,6 +61,21 @@ function firstRefusal(state: QuestState, root: string): boolean {
 	if (roots.has(root)) return false;
 	roots.add(root);
 	return true;
+}
+
+/** The quest states already told that writes outside every tree are noted. */
+const toldNoted = new WeakSet<QuestState>();
+
+/** Say once a session that writes outside every tree go ahead, noted. */
+function sayNoted(state: QuestState, paths: readonly string[]): void {
+	if (toldNoted.has(state)) return;
+	toldNoted.add(state);
+	reportGuard({
+		guard: GUARDS.questHomeless.name,
+		kind: "fixed",
+		title: "Noting writes outside every git tree",
+		body: `This quest is in build and wrote outside every git tree: ${paths.join(", ")}. Such writes go ahead for the rest of this session, each noted for the quest, and conclude names them. Code belongs in a tree: run tree-add to cut one.`,
+	});
 }
 
 /**
@@ -112,6 +131,10 @@ export function applyQuestGuards(
 					body: `${adopted.why}\n\nWrites into it go ahead untracked for the rest of this session.`,
 				});
 			}
+			continue;
+		}
+		if (verdict.guard === GUARDS.questHomeless.name) {
+			sayNoted(state, verdict.outside ?? []);
 			continue;
 		}
 		const refusal = refusalUnder(

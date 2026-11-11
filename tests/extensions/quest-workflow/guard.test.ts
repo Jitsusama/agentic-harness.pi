@@ -262,41 +262,59 @@ describe("the quest gates under the policy", () => {
 		expect(reports.map((r) => r.guard)).toEqual(["quest-temp"]);
 	});
 
-	it("refuses a homeless write with its remedy, then lets the same write through", async () => {
-		// Most of what this gate refused since June was work that was fine,
-		// and the agent could only hunt for a way round it. Now it hears why,
-		// and making the same write again goes through, shown to the person.
+	it("lets a homeless write through, saying once a session that it's noted", async () => {
+		// From 3 to 10 November it refused 118 calls in 34 sessions, and 120
+		// calls in the same 34 were made again and went through: the refusal
+		// changed nothing but cost each write a second call. So it notes the
+		// write and lets it through, as the untracked-tree guard adopts.
 		const state = await questInBuild();
 		const homeless: QuestVerdict = {
 			guard: "quest-homeless",
 			block: true,
 			reason: "outside every git tree",
+			outside: ["/home/me/.config/x"],
 		};
-		const write = () => 'write {"path":"/home/me/.config/x"}';
 
-		const first = applyQuestGuards(state, [homeless], undefined, write);
-		const again = applyQuestGuards(state, [homeless], undefined, write);
+		const first = applyQuestGuards(state, [homeless], undefined, () => "a");
+		const other = applyQuestGuards(state, [homeless], undefined, () => "b");
 
-		expect(first?.reason).toMatch(
-			/outside every git tree\n\n.*same call again/s,
-		);
-		expect(again).toBeUndefined();
-		expect(reports.map((r) => r.kind)).toEqual(["overridden"]);
+		expect(first).toBeUndefined();
+		expect(other).toBeUndefined();
+		expect(reports).toMatchObject([
+			{ guard: "quest-homeless", kind: "fixed" },
+		]);
+		expect(reports[0]?.body).toContain("/home/me/.config/x");
 	});
 
-	it("refuses a different write afresh", async () => {
+	it("still refuses a homeless write once the guard blocks", async () => {
 		const state = await questInBuild();
+		setSessionMode("quest-homeless", "block");
 		const homeless: QuestVerdict = {
 			guard: "quest-homeless",
 			block: true,
 			reason: "outside every git tree",
 		};
 
-		applyQuestGuards(state, [homeless], undefined, () => "write a");
-
 		expect(
-			applyQuestGuards(state, [homeless], undefined, () => "write b"),
-		).toMatchObject({ block: true });
+			applyQuestGuards(state, [homeless], undefined, () => "write a"),
+		).toEqual({ block: true, reason: "outside every git tree" });
+	});
+
+	it("still refuses a system temp write, then lets the same one through", async () => {
+		const state = await questInBuild();
+		const temp: QuestVerdict = {
+			guard: "quest-temp",
+			block: true,
+			reason: "use $TMPDIR",
+			outside: ["/tmp/x"],
+		};
+		const write = () => 'write {"path":"/tmp/x"}';
+
+		const first = applyQuestGuards(state, [temp], undefined, write);
+		const again = applyQuestGuards(state, [temp], undefined, write);
+
+		expect(first?.reason).toMatch(/use \$TMPDIR\n\n.*same call again/s);
+		expect(again).toBeUndefined();
 	});
 
 	it("adopts a linked worktree through the quest's own verb", async () => {
@@ -325,8 +343,9 @@ describe("the quest gates under the policy", () => {
 		const write = () => 'write {"path":"/home/me/.config/x"}';
 
 		applyQuestGuards(state, [homeless], undefined, write, note);
-		expect(noted).toEqual([]);
+		expect(noted).toEqual([["/home/me/.config/x"]]);
 
+		setSessionMode("quest-homeless", "block");
 		applyQuestGuards(state, [homeless], undefined, write, note);
 		expect(noted).toEqual([["/home/me/.config/x"]]);
 	});

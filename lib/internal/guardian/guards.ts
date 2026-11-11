@@ -275,7 +275,8 @@ export const GUARDS = {
 	questHomeless: declare({
 		name: "quest-homeless",
 		class: "form",
-		description: "Refuses a build write outside every git tree",
+		description:
+			"Notes a build write outside every git tree; block refuses instead",
 		defaultMode: "redirect",
 		groups: ["quest"],
 	}),

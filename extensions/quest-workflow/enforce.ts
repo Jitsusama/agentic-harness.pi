@@ -16,8 +16,8 @@
  * flow freely; only edits to already-tracked code defer to build.
  * During build, any write that lands inside a git working tree is
  * allowed (that is a code home, whether or not the quest has
- * registered it); only a genuinely homeless write is blocked, with
- * a satisfiable remedy.
+ * registered it); only a genuinely homeless write draws a verdict,
+ * which the guard policy turns into a note (guard.ts).
  *
  * This blocks the agent, never the human. It returns an
  * agent-facing reason, never a prompt. Each verdict names the guard
