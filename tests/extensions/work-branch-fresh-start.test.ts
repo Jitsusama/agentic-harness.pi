@@ -36,15 +36,20 @@ let origin: string;
 let behind: string;
 let ahead: string;
 let savedState: string | undefined;
+let savedHome: string | undefined;
 
 beforeEach(async () => {
 	savedState = process.env.XDG_STATE_HOME;
+	savedHome = process.env.HOME;
 	forgetTreeBroker();
 	seed = await freshRepo("fresh-start-seed");
 	place = realpathSync(mkdtempSync(join(tmpdir(), "fresh-start-")));
 	origin = join(place, "origin.git");
-	behind = join(place, "behind");
+	// pi runs git in a tree it cuts only when the tree's repository is
+	// one the fence guards, a checkout under the home's src.
+	behind = join(place, "src", "behind");
 	ahead = join(place, "ahead");
+	process.env.HOME = place;
 	await git(place, "clone", "-q", "--bare", seed, origin);
 	await git(place, "clone", "-q", origin, behind);
 	await git(place, "clone", "-q", origin, ahead);
@@ -60,6 +65,8 @@ afterEach(() => {
 	forgetTreeBroker();
 	if (savedState === undefined) delete process.env.XDG_STATE_HOME;
 	else process.env.XDG_STATE_HOME = savedState;
+	if (savedHome === undefined) delete process.env.HOME;
+	else process.env.HOME = savedHome;
 	disposeRepo(seed);
 	rmSync(place, { recursive: true, force: true });
 });
