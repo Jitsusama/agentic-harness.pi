@@ -72,6 +72,27 @@ export interface TreeClaims {
 	 * drop the answers of everything that ran before it.
 	 */
 	paths: string[];
+	/**
+	 * Trees a holder keeps only while they are still work, which an
+	 * unattended sweep may take by reclaim's rules once every session
+	 * that used one has ended: clean, and in trunk or pushed and left
+	 * alone a day. Offered by an asker that does that; a holder finding
+	 * it missing writes into {@link paths} instead, so an asker that
+	 * never heard of it holds them for good.
+	 */
+	untilSpent?: string[];
+}
+
+/**
+ * Emitted after an unattended sweep took trees back, naming them, so a
+ * holder that listed one in {@link TreeClaims.untilSpent} stops listing
+ * a folder that is gone.
+ */
+export const WORK_TREES_SWEPT = "work:trees-swept:v1";
+
+/** What a sweep says it took. */
+export interface SweptTrees {
+	paths: readonly string[];
 }
 
 /**

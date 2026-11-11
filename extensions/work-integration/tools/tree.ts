@@ -134,10 +134,10 @@ function claimedTree(pi: ExtensionAPI, name: string): HeldTree | undefined {
 			? join(homedir(), name.slice(1))
 			: name;
 	if (!isAbsolute(expanded)) return undefined;
-	const claims: TreeClaims = { paths: [] };
+	const claims: TreeClaims = { paths: [], untilSpent: [] };
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
 	const asked = resolved(expanded);
-	const holder = claims.paths
+	const holder = [...claims.paths, ...(claims.untilSpent ?? [])]
 		.map(resolved)
 		.filter((p) => asked === p || asked.startsWith(`${p}${sep}`))
 		.sort((a, b) => b.length - a.length)[0];
@@ -230,7 +230,10 @@ async function treesLeftBehind(
 	// memory, and from git's side that is indistinguishable from a tree
 	// somebody leaked. Asking is the only way to tell, and the very
 	// first run against a real repo offered up a tree a quest owned.
-	const claims: TreeClaims = { paths: [] };
+	// The person asked for this survey, so a tree a quest holds only
+	// while it is still work is held here all the same: only the
+	// unattended sweep spends them.
+	const claims: TreeClaims = { paths: [], untilSpent: [] };
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
 
 	const unattributed = new Set(broker.unattributed().map((one) => one.path));
@@ -240,6 +243,7 @@ async function treesLeftBehind(
 	const remembered = [
 		...(await treesToKeep(broker, useSigns())),
 		...claims.paths,
+		...(claims.untilSpent ?? []),
 	].map(resolved);
 	// The checkout and every held tree are kept whatever they hold, so
 	// git is asked nothing more of them than where they are.

@@ -19,10 +19,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
 import {
+	answerTreeClaims,
+	forgetSweptTrees,
+} from "../../../extensions/quest-workflow/claims.ts";
+import {
+	type SweptTrees,
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
+	WORK_TREES_SWEPT,
 } from "../../../lib/core/work/index.ts";
 
 /** Just enough of pi's bus for a listener to be reached over it. */
@@ -175,5 +180,61 @@ describe("answering who holds a tree", () => {
 		pi.events.emit(WORK_TREE_CLAIMS, claims);
 
 		expect(claims.paths).toEqual([]);
+	});
+
+	it("holds a live quest's trees only until spent for an asker that offers that list", () => {
+		// A quest lists every tree it ever cut, and claiming them for good
+		// kept 220 ended trees of 456 on one machine: the sweep judges them
+		// by reclaim's rules instead, once their sessions have ended.
+		const pi = bus();
+		answerTreeClaims(
+			pi as never,
+			questsRootHolding("/src/repo/.worktrees/mine"),
+		);
+
+		const claims: TreeClaims = { paths: [], untilSpent: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths, "held for good").toEqual([]);
+		expect(claims.untilSpent, "held until spent").toEqual([
+			"/src/repo/.worktrees/mine",
+		]);
+	});
+});
+
+describe("hearing that a sweep took a tree", () => {
+	it("drops a tree the sweep took from the quest that listed it", () => {
+		const root = questsRootHolding(
+			"/src/repo/.worktrees/spent",
+			"/src/repo/.worktrees/working",
+		);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		const claims: TreeClaims = { paths: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.paths, "what the quest lists after the sweep").toEqual([
+			"/src/repo/.worktrees/working",
+		]);
+	});
+
+	it("leaves a quest's trees alone when the sweep took others", () => {
+		const root = questsRootHolding("/src/repo/.worktrees/mine");
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/nobodys"] };
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		const claims: TreeClaims = { paths: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.paths, "what the quest lists after the sweep").toEqual([
+			"/src/repo/.worktrees/mine",
+		]);
 	});
 });

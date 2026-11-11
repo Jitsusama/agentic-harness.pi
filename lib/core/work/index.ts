@@ -43,12 +43,13 @@ export type {
 	CarryOutcome,
 } from "./carry.ts";
 export { carrySession, carryTree } from "./carry.ts";
-export type { TreeClaims, WorkApi } from "./events.ts";
+export type { SweptTrees, TreeClaims, WorkApi } from "./events.ts";
 export {
 	WORK_READY,
 	WORK_REGISTER_TREE_PROVIDER,
 	WORK_REQUEST,
 	WORK_TREE_CLAIMS,
+	WORK_TREES_SWEPT,
 } from "./events.ts";
 export type {
 	ChangedPath,

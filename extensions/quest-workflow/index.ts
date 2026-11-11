@@ -54,7 +54,7 @@ import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
 import { keepQuestBudget } from "./budget.ts";
-import { answerTreeClaims } from "./claims.ts";
+import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
 import {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
@@ -378,8 +378,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		sessionRetentionDays: section.value.sessionRetentionDays,
 	});
 
-	// So the working layer does not reclaim a tree a quest is holding.
+	// So the working layer does not reclaim a tree a quest is holding,
+	// and a quest stops listing one an unattended sweep took.
 	answerTreeClaims(pi, questsRoot);
+	forgetSweptTrees(pi, questsRoot);
 
 	// The model calls draw on the budget the loaded quest names, and what
 	// a name means is asked of the budget providers registered here.
