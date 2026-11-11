@@ -13,7 +13,9 @@ import {
 	stopFirstTurnWatches,
 	watchFirstTurn,
 } from "../../../extensions/quest-workflow/first-turn-watch.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
 import type { FirstTurn } from "../../../lib/internal/quest/first-words.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 let said: { text: string; options: unknown }[];
 let noted: { content: unknown; options: unknown }[];
@@ -376,6 +378,59 @@ describe("a spawner watching for its session's first turn", () => {
 			expect(opened).toEqual([]);
 			expect(said).toHaveLength(1);
 		});
+	});
+
+	it("neither says nor watches again when a reopen settles after its spawner ended", async () => {
+		let opened: (words: string) => void = () => {};
+		offerReopen(
+			spawned.key,
+			() =>
+				new Promise<string>((settle) => {
+					opened = settle;
+				}),
+		);
+		let looks = 0;
+		watchFirstTurn(
+			pi,
+			ctx,
+			{ ...spawned, sessionId: "019a-dead" },
+			() => {
+				looks += 1;
+				return waiting;
+			},
+			FIRST_TURN_WATCH_MS,
+			gone,
+		);
+		await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+
+		stopFirstTurnWatches();
+		opened("a window through kitty");
+		await vi.advanceTimersByTimeAsync(MOST_START_MS);
+
+		expect(looks, "no look armed after the end").toBe(1);
+		expect(noted).toEqual([]);
+		expect(said).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("stops only the looks of the conversation that ended, in a host", async () => {
+		const host = installTestHost();
+		try {
+			const asked: string[] = [];
+			for (const id of ["a", "b"])
+				withSession(id, () =>
+					watchFirstTurn(pi, ctx, { key: id, questId: "QEST-1" }, ({ key }) => {
+						asked.push(key);
+						return { started: true, sessionId: `019a-${key}` };
+					}),
+				);
+			withSession("a", stopFirstTurnWatches);
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+
+			expect(asked).toEqual(["b"]);
+		} finally {
+			host.dispose();
+		}
 	});
 
 	it("looks no more once the session doing the watching ends", () => {

@@ -39,6 +39,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { automatedText } from "../../lib/internal/automated.ts";
 import {
 	type FirstTurn,
@@ -103,30 +104,52 @@ export const piRunsFor: PiRuns = ({ sessionId }) => {
 	});
 };
 
-/** Looks still to come, so a session that ends takes none with it. */
-const watches = new Set<ReturnType<typeof setTimeout>>();
-
 /**
  * Opens a spawned session again from this session, answering what it
  * opened, as the words the spawner is told.
  */
 export type Reopen = () => Promise<string>;
 
-/** How each spawn still watched can be opened again, by its words' key. */
-const reopeners = new Map<string, Reopen>();
+/**
+ * One conversation's watching: the looks still to come, so a session
+ * that ends takes none with it; how each spawn still watched can be
+ * opened again, by its words' key; and the round, which each end moves
+ * on, so nothing armed before an end acts after it.
+ *
+ * Keyed by conversation, since in a host one module serves several and
+ * one's end must leave the others' looks alone. The round matters as
+ * much: a reopen that settles after its spawner ended used to arm a
+ * fresh look, whose turn then read the ended conversation's ctx and threw
+ * from a timer, taking the whole host down (6YZSML, 11 November).
+ */
+interface Watching {
+	readonly watches: Set<ReturnType<typeof setTimeout>>;
+	readonly reopeners: Map<string, Reopen>;
+	round: number;
+}
+
+const WATCHING_SLOT = "agentic-harness.quest-workflow.first-turn-watch";
+
+function watching(): Watching {
+	return sessionSlot<Watching>(WATCHING_SLOT, undefined, () => ({
+		watches: new Set(),
+		reopeners: new Map(),
+		round: 0,
+	}));
+}
 
 /**
  * Say how to open the session spawned under `key` again, should its pi
  * end without taking its words: once, and only while it is watched.
  */
 export function offerReopen(key: string, reopen: Reopen): void {
-	reopeners.set(key, reopen);
+	watching().reopeners.set(key, reopen);
 }
 
 /** The way to open a spawn again, taken so it is tried only once. */
-function takeReopen(key: string): Reopen | undefined {
-	const reopen = reopeners.get(key);
-	reopeners.delete(key);
+function takeReopen(slot: Watching, key: string): Reopen | undefined {
+	const reopen = slot.reopeners.get(key);
+	slot.reopeners.delete(key);
 	return reopen;
 }
 
@@ -175,14 +198,41 @@ export function watchFirstTurn(
 	afterMs: number = FIRST_TURN_WATCH_MS,
 	runs: PiRuns = piRunsFor,
 ): void {
+	const slot = watching();
+	watchIn({ slot, round: slot.round }, pi, ctx, spawned, look, afterMs, runs);
+}
+
+/** A conversation's watching as it stood when a watch was armed. */
+interface Armed {
+	readonly slot: Watching;
+	readonly round: number;
+}
+
+/** Whether the conversation that armed a watch still watches. */
+function stillWatching(armed: Armed): boolean {
+	return armed.slot.round === armed.round;
+}
+
+function watchIn(
+	armed: Armed,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	spawned: Spawned,
+	look: LookForFirstTurn,
+	afterMs: number,
+	runs: PiRuns,
+): void {
+	const { watches, reopeners } = armed.slot;
 	const spawnedAt = Date.now();
 	// Whether a pi of it has run at any look, which for one the launcher
 	// took is what says it was opened at all.
 	let seenRunning = false;
 	const lookAfter = (waited: number) => {
+		if (!stillWatching(armed)) return;
 		const watch = setTimeout(
 			() => {
 				watches.delete(watch);
+				if (!stillWatching(armed)) return;
 				const turn = look(spawned, spawnedAt);
 				if (turn.started) {
 					reopeners.delete(spawned.key);
@@ -199,11 +249,11 @@ export function watchFirstTurn(
 				}
 				const reopen =
 					turn.waiting && !piRuns && !notYetOpened
-						? takeReopen(spawned.key)
+						? takeReopen(armed.slot, spawned.key)
 						: undefined;
 				reopeners.delete(spawned.key);
 				if (reopen) {
-					reopenAndWatch(pi, ctx, spawned, turn, waited, reopen, {
+					reopenAndWatch(armed, pi, ctx, spawned, turn, waited, reopen, {
 						look,
 						afterMs,
 						runs,
@@ -226,9 +276,11 @@ export function watchFirstTurn(
 
 /** Drop every look still to come, as the session watching ends. */
 export function stopFirstTurnWatches(): void {
-	for (const watch of watches) clearTimeout(watch);
-	watches.clear();
-	reopeners.clear();
+	const slot = watching();
+	for (const watch of slot.watches) clearTimeout(watch);
+	slot.watches.clear();
+	slot.reopeners.clear();
+	slot.round += 1;
 }
 
 /**
@@ -256,6 +308,7 @@ const CLOCK_CHARS = 5;
  * reopen. A reopen that fails is told as a session that never started.
  */
 function reopenAndWatch(
+	armed: Armed,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	spawned: Spawned,
@@ -272,6 +325,9 @@ function reopenAndWatch(
 	const which = session ? `Session ${session}` : "The session";
 	reopen().then(
 		(opened) => {
+			// Its spawner ended while it opened: that ctx is gone, and the
+			// session opened again is the launcher's to show.
+			if (!stillWatching(armed)) return;
 			pi.sendMessage({
 				customType: "quest-spawn-reopened",
 				content: automatedText(
@@ -282,7 +338,8 @@ function reopenAndWatch(
 			});
 			// The reopened pi starts under an id of its own, so only its
 			// words' key finds it.
-			watchFirstTurn(
+			watchIn(
+				armed,
 				pi,
 				ctx,
 				{
@@ -296,6 +353,7 @@ function reopenAndWatch(
 			);
 		},
 		(error: unknown) => {
+			if (!stillWatching(armed)) return;
 			const why = error instanceof Error ? error.message : String(error);
 			tell(
 				pi,
