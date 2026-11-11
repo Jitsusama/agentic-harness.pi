@@ -108,11 +108,12 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 	let taken: string[] = [];
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
-		// when asked, as it does for reclaim. Those it holds only while
-		// they are still work go by reclaim's rules here, as a lapsed
-		// session's do: a live quest's claims alone kept 220 ended trees
-		// of 456 on one machine on 11 November, with its disk at 76%.
-		const claims: TreeClaims = { paths: [], untilSpent: [] };
+		// when asked, as it does for reclaim. A live quest's trees are
+		// held for good here: offered as held only until spent, one sweep
+		// on 11 November took 154 trees, among them the folder a hosted
+		// conversation worked in, since nothing here sees a hosted
+		// conversation's folder as in use.
+		const claims: TreeClaims = { paths: [] };
 		pi.events.emit(WORK_TREE_CLAIMS, claims);
 		const outcome = await sweepEndedTrees({
 			exec: unattendedExec(),

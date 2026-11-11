@@ -1,12 +1,13 @@
 /**
- * The unattended sweep holds for good only what holders claim for good,
- * and tells them what it took.
+ * The unattended sweep holds every live quest's trees for good, and
+ * tells holders what it took.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
 import { registerTreeSweeps } from "../../../extensions/work-integration/sweep.ts";
 import {
 	type SweptTrees,
@@ -53,17 +54,8 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-it("holds for good only what is claimed for good, and says what it took", async () => {
-	const events = createEventBus();
-	events.on(WORK_TREE_CLAIMS, (data) => {
-		const claims = data as TreeClaims;
-		claims.paths.push("/src/repo/.worktrees/kept");
-		claims.untilSpent?.push("/src/repo/.worktrees/spent");
-	});
-	const heard: string[] = [];
-	events.on(WORK_TREES_SWEPT, (data) => {
-		heard.push(...(data as SweptTrees).paths);
-	});
+/** Start one session's sweeps on the bus and let the first one run. */
+async function sweepOn(events: ReturnType<typeof createEventBus>) {
 	const hooks = new Map<string, Handler[]>();
 	registerTreeSweeps({
 		on: (name: string, fn: Handler) =>
@@ -73,8 +65,49 @@ it("holds for good only what is claimed for good, and says what it took", async 
 	for (const fn of hooks.get("session_start") ?? []) {
 		fn({ reason: "startup" }, { sessionManager: { getSessionId: () => "a" } });
 	}
-
 	await vi.advanceTimersByTimeAsync(FIRST_SWEEP_MS);
+}
+
+/** A quests root holding one active quest that lists `path`. */
+function liveQuestListing(path: string): string {
+	const quests = join(root, "quests");
+	const id = "QEST-20260731-AAAAAA";
+	mkdirSync(join(quests, id), { recursive: true });
+	writeFileSync(
+		join(quests, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+			`trees:\n  - path: ${path}\n    providerId: git-worktree\n` +
+			`    repoRoot: ${path}\n    origin: cut\n` +
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with a tree.\n",
+	);
+	return quests;
+}
+
+it("holds a live quest's tree for good, though no process sits in it", async () => {
+	// A hosted conversation's folder is no process's working folder, so
+	// only its quest's claim keeps its tree: offered as held until spent,
+	// one sweep on 11 November took a hosted conversation's tree.
+	const events = createEventBus();
+	const tree = "/src/repo/.worktrees/hosted";
+	answerTreeClaims({ events } as never, liveQuestListing(tree));
+
+	await sweepOn(events);
+
+	expect(given, "the claims the sweep held for good").toEqual([[tree]]);
+});
+
+it("says what it took to whoever listed it", async () => {
+	const events = createEventBus();
+	events.on(WORK_TREE_CLAIMS, (data) => {
+		(data as TreeClaims).paths.push("/src/repo/.worktrees/kept");
+	});
+	const heard: string[] = [];
+	events.on(WORK_TREES_SWEPT, (data) => {
+		heard.push(...(data as SweptTrees).paths);
+	});
+
+	await sweepOn(events);
 
 	expect(given, "the claims the sweep held for good").toEqual([
 		["/src/repo/.worktrees/kept"],
