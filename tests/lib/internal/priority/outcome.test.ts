@@ -1,4 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,6 +22,7 @@ import {
 	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	outcomesSince,
 	peakGibAfter,
 	QUICK_S,
 	quickAfter,
@@ -507,15 +516,47 @@ describe("how heavy work ended", () => {
 		}
 	});
 
-	it("keeps the newer half once the file is full, and reads what it can", () => {
+	it("keeps the newer half once the file is full, and reads what it can", async () => {
 		const file = join(dir, "state", "outcomes.jsonl");
 		const big = "x".repeat(MOST_OUTCOME_BYTES / 4);
 		for (const id of ["a", "b", "c", "d", "e"]) {
-			keepOutcome(file, outcome({ id, what: big }));
+			await keepOutcome(file, outcome({ id, what: big }));
 		}
 		expect(outcomesIn(file).map((one) => one.id)).toEqual(["c", "d", "e"]);
 		writeFileSync(file, `${readFileSync(file, "utf8")}not json\n{"v":2}\n`);
 		expect(outcomesIn(file)).toHaveLength(3);
 		expect(outcomesIn(join(dir, "none"))).toEqual([]);
+	});
+
+	it("reads only what was added since, and all again once the file is halved", async () => {
+		const file = join(dir, "state", "outcomes.jsonl");
+		await keepOutcome(file, outcome({ id: "a" }));
+		const first = outcomesSince(file);
+		expect(first.outcomes.map((one) => one.id)).toEqual(["a"]);
+		expect(outcomesSince(file, first), "an unchanged file is not read").toBe(
+			first,
+		);
+
+		// Another session's line, the last still being written.
+		writeFileSync(
+			file,
+			`${readFileSync(file, "utf8")}${JSON.stringify(outcome({ id: "b" }))}\n{"v":1,`,
+		);
+		const grown = outcomesSince(file, first);
+		expect(grown.outcomes.map((one) => one.id)).toEqual(["a", "b"]);
+		appendFileSync(file, `"id":"c"}\n`);
+		expect(
+			outcomesSince(file, grown).through,
+			"a line read once it is whole",
+		).toBe(statSync(file).size);
+
+		// Halved, it is a new file, read whole.
+		const halved = `${file}.new`;
+		writeFileSync(halved, `${JSON.stringify(outcome({ id: "z" }))}\n`);
+		renameSync(halved, file);
+		expect(outcomesSince(file, grown).outcomes.map((one) => one.id)).toEqual([
+			"z",
+		]);
+		expect(outcomesSince(join(dir, "none"), grown).outcomes).toEqual([]);
 	});
 });

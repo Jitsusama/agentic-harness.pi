@@ -20,9 +20,15 @@
  * account's temporary folder, by its own room reading
  * (lib/internal/priority/room-darwin.ts), and places nothing, since it
  * has no cgroups. Elsewhere, nothing changes.
+ *
+ * The machine's room and the builds' yield are read and set off pi's
+ * main thread, so a cgroup file, a process's memory or systemd taking
+ * its time never holds the keys the person types. A turn asked for
+ * between keeps is given by the room as read just before its command.
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -46,6 +52,7 @@ import { skippedHooksRefusal } from "../../lib/internal/priority/pushes.ts";
 import {
 	CLASS_OF,
 	type Job,
+	kindOf,
 	type Rules,
 	runsChangedChecks,
 } from "../../lib/internal/priority/queue.ts";
@@ -100,6 +107,13 @@ const KEEP_MS = 2_000;
 
 /** How often the memory floors are looked for again. */
 const FLOORS_MS = 5 * 60_000;
+
+/**
+ * How young the room's last reading must be to give a turn asked for
+ * between keeps: it is read just before a heavy command, milliseconds
+ * ahead of the ask.
+ */
+const RECENT_ROOM_MS = 5_000;
 
 function ownCgroup(): string | undefined {
 	try {
@@ -207,14 +221,15 @@ export function sayBackgroundTurns(
 /** What the queue reads of the machine it keeps, on each kind of machine. */
 interface Machine {
 	readonly processes: Parameters<typeof queueFolder>[1];
-	readonly room: () => Reading;
+	/** The machine's room now, read off pi's main thread. */
+	readonly room: () => Promise<Reading>;
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly rules: () => Rules;
 	/**
 	 * Have the daemon's builds give way while a deploy's stamp runs, from
 	 * the queue kept in `dir`, where the machine can.
 	 */
-	readonly yieldBuilds?: (dir: string) => void;
+	readonly yieldBuilds?: (dir: string) => Promise<void>;
 }
 
 function linuxMachine(own: string | undefined): Machine {
@@ -230,10 +245,10 @@ function linuxMachine(own: string | undefined): Machine {
 			ownedPeakOf: (cgroup, shell) => ownedMemoryPeakOf(cgroup, shell),
 			commandsIn: (cgroup) => commandsIn(cgroup),
 		},
-		room: () => {
+		room: async () => {
 			const now = Date.now();
 			if (now - floorsAt >= FLOORS_MS) {
-				floors = floorsIn(KERNEL.cgroups);
+				floors = await floorsIn(KERNEL.cgroups);
 				floorsAt = now;
 			}
 			return readRoom(floors);
@@ -242,20 +257,20 @@ function linuxMachine(own: string | undefined): Machine {
 			CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined,
 		// Until VM tests run timed, a build waits while a VM check runs.
 		rules: () => ({ buildsWaitForVmChecks: !hasTimed() }),
-		yieldBuilds: (dir) => {
+		yieldBuilds: async (dir) => {
 			const slice = systemBuildSlice(KERNEL.cgroups);
-			const yielding = buildsShouldYield(queueIn(dir), slice, {
+			const yielding = await buildsShouldYield(await queueIn(dir), slice, {
 				first: questsFirstIn(dir),
 			});
-			keepYield(dir, yielding, slice);
+			await keepYield(dir, yielding, slice);
 		},
 	};
 }
 
 /** The queue's whole record, or nothing while it can't be read. */
-function queueIn(dir: string): unknown {
+async function queueIn(dir: string): Promise<unknown> {
 	try {
-		return JSON.parse(readFileSync(join(dir, "queue.json"), "utf8"));
+		return JSON.parse(await readFile(join(dir, "queue.json"), "utf8"));
 	} catch {
 		// A record being replaced is read whole on the next keep.
 		return undefined;
@@ -263,10 +278,13 @@ function queueIn(dir: string): unknown {
 }
 
 function macMachine(): Machine {
+	const room = darwinRoom();
 	return {
 		// No cgroups to say what a job's processes are or held.
 		processes: { isRunning, cgroupOf: () => undefined },
-		room: darwinRoom(),
+		// Read on the main thread still: its facts come from a program run
+		// synchronously (room-darwin.ts).
+		room: async () => room(),
 		cgroupFor: () => undefined,
 		rules: () => ({ buildsWaitForVmChecks: true }),
 	};
@@ -293,13 +311,39 @@ function placeWork(pi: ExtensionAPI, own: string | undefined) {
 function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	const dir = machineQueueDir();
 	if (!dir) return;
-	const { room, cgroupFor } = machine;
+	const { cgroupFor } = machine;
 	const folder = queueFolder(
 		dir,
 		machine.processes,
 		machine.rules,
 		join(stateDir("priority-workflow"), "outcomes.jsonl"),
 	);
+
+	// The room as last read, for a turn asked for between keeps.
+	let latest: { readonly reading: Reading; readonly at: number } | undefined;
+	const readNow = async (): Promise<Reading> => {
+		const reading = await machine.room();
+		latest = { reading, at: Date.now() };
+		return reading;
+	};
+	const recent = (): Reading | undefined =>
+		latest !== undefined && Date.now() - latest.at < RECENT_ROOM_MS
+			? latest.reading
+			: undefined;
+	// One keep at a time: a reading that outlasts the tick isn't read twice.
+	let keeping = false;
+	const keepNow = async () => {
+		try {
+			const now = Date.now();
+			const wanted = folder.hasJobs() || folder.isDue(now);
+			if (!wanted || folder.keptFresh(now)) return;
+			const reading = await readNow();
+			folder.keep(reading, Date.now(), cgroupFor);
+			await machine.yieldBuilds?.(dir);
+		} catch {
+			// A folder that can't be kept this time is kept on the next.
+		}
+	};
 
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let undo: (() => void) | undefined;
@@ -315,22 +359,17 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 		undo = queueHeavyWork({
 			folder,
 			session: ctx.sessionManager.getSessionId(),
-			room,
+			room: recent,
 			cgroupFor,
 			sendsWholeRun: (command, cwd) =>
 				sendsWholeRun(command, cwd, takesKnown()),
 		});
 		timer = setInterval(() => {
-			const now = Date.now();
-			try {
-				const wanted = folder.hasJobs() || folder.isDue(now);
-				if (wanted && !folder.keptFresh(now)) {
-					folder.keep(room, now, cgroupFor);
-					machine.yieldBuilds?.(dir);
-				}
-			} catch {
-				// A folder that can't be kept this time is kept on the next.
-			}
+			if (keeping) return;
+			keeping = true;
+			void keepNow().finally(() => {
+				keeping = false;
+			});
 		}, KEEP_MS);
 		timer.unref();
 	});
@@ -338,9 +377,13 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	pi.on("session_shutdown", async () => stop());
 
 	// A changed-checks run asks what nix-offload takes before it spawns,
-	// so even a session's first is held to what a sent run needs.
-	pi.on("tool_call", async (event) => {
+	// so even a session's first is held to what a sent run needs. Heavy
+	// work has the room read for it, so its turn can be given as it asks.
+	pi.on("tool_call", async (event, ctx) => {
 		if (!isToolCallEventType("bash", event)) return;
-		if (runsChangedChecks(event.input.command)) await takesNow();
+		const { command } = event.input;
+		if (runsChangedChecks(command)) await takesNow();
+		if (kindOf(command, { cwd: ctx.cwd, home: homedir() }) !== undefined)
+			await readNow().catch(() => undefined);
 	});
 }

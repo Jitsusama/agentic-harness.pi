@@ -53,15 +53,18 @@ import {
 import { mayKeep } from "./keeper.ts";
 import { workNameIn } from "./name.ts";
 import {
+	appendOutcome,
 	besideNow,
 	capFor,
-	keepOutcome,
+	halveOutcomes,
 	kindAfter,
 	mostBeside,
 	NOTHING_BESIDE,
+	NOTHING_READ,
 	type Outcome,
+	type OutcomesRead,
 	outcomeOf,
-	outcomesIn,
+	outcomesSince,
 	peakGibAfter,
 	quickAfter,
 	ranSAfter,
@@ -333,6 +336,11 @@ export interface QueueFolder {
 		now: number,
 		cgroupFor: (job: Job) => string | undefined,
 	): void;
+	/**
+	 * Once every outcome a keep has taken down is in the outcome file,
+	 * which is written off pi's main thread.
+	 */
+	outcomesKept(): Promise<void>;
 }
 
 /** Every file a job has in the folder, by its ending. */
@@ -378,22 +386,28 @@ export function queueFolder(
 	};
 
 	// The queue is kept every two seconds and the file is up to 2 MiB, so
-	// it is read again only once it has changed.
-	let read: { readonly stamp: string; readonly outcomes: Outcome[] } = {
-		stamp: "",
-		outcomes: [],
-	};
-	const recorded = (): Outcome[] => {
+	// only what was added to it since is read.
+	let read: OutcomesRead = NOTHING_READ;
+	// Outcomes this session is still adding, by job, which count from the
+	// moment their job is given up, as when they were written at once.
+	const adding = new Map<string, Outcome>();
+	// An outcome is looked for this far back in the file before it counts
+	// as still being added: far more than end between two keeps.
+	const ADDED_WITHIN = 64;
+	const writing = new Set<Promise<void>>();
+	const recorded = (): readonly Outcome[] => {
 		if (!outcomes) return [];
-		let stamp = "";
-		try {
-			const { mtimeMs, size } = statSync(outcomes);
-			stamp = `${mtimeMs}|${size}`;
-		} catch {
-			return [];
-		}
-		if (stamp !== read.stamp) read = { stamp, outcomes: outcomesIn(outcomes) };
-		return read.outcomes;
+		read = outcomesSince(outcomes, read);
+		if (adding.size === 0) return read.outcomes;
+		const lately = new Set(
+			read.outcomes.slice(-ADDED_WITHIN).map((outcome) => outcome.id),
+		);
+		const unwritten = [...adding.values()].filter(
+			(outcome) => !lately.has(outcome.id),
+		);
+		return unwritten.length === 0
+			? read.outcomes
+			: [...read.outcomes, ...unwritten];
 	};
 
 	const drop = (id: string) => {
@@ -448,11 +462,21 @@ export function queueFolder(
 				text(path(job.id, "main-before")),
 				text(path(job.id, "main-after")),
 			);
-		try {
-			keepOutcome(outcomes, outcomeOf(job, at, exit, moved));
-		} catch {
+		const outcome = outcomeOf(job, at, exit, moved);
+		const file = outcomes;
+		adding.set(outcome.id, outcome);
+		const written: Promise<void> = appendOutcome(file, outcome)
+			.then(
+				() => halveOutcomes(file),
+				() => undefined,
+			)
 			// An outcome that can't be kept never holds up the queue.
-		}
+			.catch(() => undefined)
+			.finally(() => {
+				adding.delete(outcome.id);
+				writing.delete(written);
+			});
+		writing.add(written);
 	};
 
 	const ended = (job: Job, now: number) => {
@@ -684,6 +708,10 @@ export function queueFolder(
 				now - kept.at < KEPT_FOR_MS &&
 				kept.seen === seenIn(dir)
 			);
+		},
+
+		async outcomesKept() {
+			await Promise.all([...writing]);
 		},
 
 		keep(read, now, cgroupFor) {

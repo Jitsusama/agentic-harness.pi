@@ -675,7 +675,7 @@ describe("the machine's queue folder", () => {
 		expect(record().machine.pressure.cpu).toBe(TIGHT.pressure.cpu + 3);
 	});
 
-	it("answers the fetches of main waiting on one that moved origin/main, for a minute after", () => {
+	it("answers the fetches of main waiting on one that moved origin/main, for a minute after", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const world = join(dir, "..", "world", "git");
 		const queue = queueFolder(
@@ -722,6 +722,7 @@ describe("the machine's queue folder", () => {
 		expect(wrapper).toContain(`'${world}'`);
 		expect(statSync(join(dir, "fetched", "git")).mode & 0o111).not.toBe(0);
 		// Piped into grep, its exit said 1: the ref it moved is what counts.
+		await queue.outcomesKept();
 		const [made] = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -793,11 +794,11 @@ describe("the machine's queue folder", () => {
 		).toBe(false);
 	});
 
-	it("keeps how each job ended and what ran beside it", () => {
+	it("keeps how each job ended and what ran beside it", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		// The check passed before, with no capped build beside it.
 		const before = new Date(NOW - 600_000).toISOString();
-		keepOutcome(
+		await keepOutcome(
 			file,
 			outcomeOf(job("before", { kind: "vm-check", started: before }), NOW, 0),
 		);
@@ -830,6 +831,7 @@ describe("the machine's queue folder", () => {
 		queue.ask(job("next"));
 		shellSays("next", 603);
 		queue.keep(vm, NOW + 9_000, () => undefined);
+		await queue.outcomesKept();
 		const [, ...kept] = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -854,7 +856,7 @@ describe("the machine's queue folder", () => {
 		);
 	});
 
-	it("keeps what each job waited on, writing its file only as the reason changes", () => {
+	it("keeps what each job waited on, writing its file only as the reason changes", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const queue = queueFolder(
 			dir,
@@ -890,6 +892,7 @@ describe("the machine's queue folder", () => {
 		running.delete(701);
 		queue.keep(ROOMY, NOW + 31_000, () => undefined);
 
+		await queue.outcomesKept();
 		const [kept] = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -903,7 +906,7 @@ describe("the machine's queue folder", () => {
 		});
 	});
 
-	it("records the most memory a job's own commands held, from its scope", () => {
+	it("records the most memory a job's own commands held, from its scope", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const GIB = 1024 ** 3;
 		// A VM test run from its driver: qemu runs in the job's own scope, so
@@ -939,6 +942,7 @@ describe("the machine's queue folder", () => {
 		running.delete(801);
 		running.delete(802);
 		queue.keep(ROOMY, NOW + 6_000, () => undefined);
+		await queue.outcomesKept();
 		const kept = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -951,7 +955,7 @@ describe("the machine's queue folder", () => {
 		expect(unread).not.toHaveProperty("ownedPeakBytes");
 	});
 
-	it("records no peak from a scope its shell shares with other work", () => {
+	it("records no peak from a scope its shell shares with other work", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		// 10 November: 397 outcomes held exactly the work service's own
 		// memory.peak, 10,804,027,392 bytes, read while each job's shell
@@ -972,6 +976,7 @@ describe("the machine's queue folder", () => {
 		queue.keep(ROOMY, NOW, () => undefined);
 		running.delete(803);
 		queue.keep(ROOMY, NOW + 3_000, () => undefined);
+		await queue.outcomesKept();
 		const kept = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -981,7 +986,7 @@ describe("the machine's queue folder", () => {
 		);
 	});
 
-	it("says how long a VM job held its slot before a VM of its own ran", () => {
+	it("says how long a VM job held its slot before a VM of its own ran", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const commands = new Map<string, string[]>();
 		const queue = queueFolder(
@@ -1020,6 +1025,7 @@ describe("the machine's queue folder", () => {
 		for (const pid of [901, 902, 903]) running.delete(pid);
 		queue.keep(ROOMY, NOW + 45_000, () => undefined);
 
+		await queue.outcomesKept();
 		const kept = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -1030,7 +1036,7 @@ describe("the machine's queue folder", () => {
 		expect(of("none")).not.toHaveProperty("vmAfterS");
 	});
 
-	it("learns from a job's builds whether it runs a check with deadlines, and how much memory they held", () => {
+	it("learns from a job's builds whether it runs a check with deadlines, and how much memory they held", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const GIB = 1024 ** 3;
 		const queue = queueFolder(
@@ -1074,6 +1080,7 @@ describe("the machine's queue folder", () => {
 		running.delete(801);
 		running.delete(802);
 		queue.keep(ROOMY, NOW + 6_000, () => undefined);
+		await queue.outcomesKept();
 		const kept = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
@@ -1090,14 +1097,14 @@ describe("the machine's queue folder", () => {
 		expect(queue.kindFor("build", "nix build .#never-ran")).toBe("build");
 		expect(queue.kindFor("benchmark", "nix flake check")).toBe("benchmark");
 		// A run that gave up waiting says nothing about what the work runs.
-		keepOutcome(
+		await keepOutcome(
 			file,
 			outcomeOf(job("gave-up", { what: "nix flake check" }), NOW + 7_000, 0),
 		);
 		expect(queue.kindFor("build", "nix flake check")).toBe("vm-check");
 		// Its latest run built no check with deadlines, all cached, so it is a
 		// build again.
-		keepOutcome(
+		await keepOutcome(
 			file,
 			outcomeOf(
 				job("cached", { what: "nix flake check", started: ran }),
@@ -1108,7 +1115,7 @@ describe("the machine's queue folder", () => {
 		expect(queue.kindFor("build", "nix flake check")).toBe("build");
 	});
 
-	it("runs fewer VMs while the outcomes say the most was too many", () => {
+	it("runs fewer VMs while the outcomes say the most was too many", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const check = (id: string, exit: number, vms: number) => ({
 			...outcomeOf(
@@ -1118,9 +1125,9 @@ describe("the machine's queue folder", () => {
 			),
 			beside: { ...NOTHING_BESIDE, vms },
 		});
-		keepOutcome(file, check("passed", 0, MOST_VMS - 1));
+		await keepOutcome(file, check("passed", 0, MOST_VMS - 1));
 		for (let at = 0; at < FAILURES_TO_LOWER_VMS; at += 1) {
-			keepOutcome(file, check(`failed${at}`, 1, MOST_VMS));
+			await keepOutcome(file, check(`failed${at}`, 1, MOST_VMS));
 		}
 		const queue = queueFolder(
 			dir,

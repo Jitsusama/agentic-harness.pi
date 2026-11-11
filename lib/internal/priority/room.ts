@@ -43,9 +43,17 @@
  * and nine jobs waited on it for twenty minutes with nothing running.
  * A machine short of memory stalls the others too, so it still holds
  * the queue.
+ *
+ * A reading is made off pi's main thread, its files read in Node's
+ * thread pool: a cgroup's file can wait on the kernel's cgroup lock, a
+ * process's command line on that process's memory, and pis that took no
+ * keys during the night of 10 November were waiting in the kernel
+ * (7QEY1S). What a job's own processes are is still read on it, by the
+ * folder that keeps the queue.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MOST_MEMORY_PRESSURE, type Offload, type Room } from "./queue.ts";
 
@@ -162,16 +170,31 @@ export function offloadIn(
 }
 
 /** The builders standing now, from the machines file, or none. */
-function offloadOf(kernel: Kernel): Offload | undefined {
+async function offloadOf(kernel: Kernel): Promise<Offload | undefined> {
 	if (kernel.machines === undefined) return undefined;
 	let text: string;
 	try {
-		text = readFileSync(kernel.machines, "utf8");
+		text = await readFile(kernel.machines, "utf8");
 	} catch {
 		// No file: no builder stands.
 		return undefined;
 	}
-	return offloadIn(text, slotsBusy(kernel));
+	return offloadIn(text, await slotsBusy(kernel));
+}
+
+/** {@link lendingSinceIn}, read off the main thread. */
+async function lendingSince(
+	kernel: Pick<Kernel, "lending">,
+): Promise<number | undefined> {
+	if (kernel.lending === undefined) return undefined;
+	try {
+		if ((await readFile(kernel.lending, "utf8")).trim() === "")
+			return undefined;
+		return (await stat(kernel.lending)).mtimeMs;
+	} catch {
+		// No file: nothing is being lent.
+		return undefined;
+	}
 }
 
 /**
@@ -199,114 +222,152 @@ export function lendingSinceIn(
  * contents. A slot whose file can't be read is free, as on a machine
  * that keeps no such folder.
  */
-export function slotsBusy(
+async function slotsBusy(
 	kernel: Pick<Kernel, "proc" | "nixLoad">,
-): (uri: string, slot: number) => boolean {
+): Promise<(uri: string, slot: number) => boolean> {
 	if (kernel.nixLoad === undefined) return () => false;
 	const load = kernel.nixLoad;
 	const held = new Set(
-		text(join(kernel.proc, "locks"))
+		(await read(join(kernel.proc, "locks")))
 			.split("\n")
 			.map((line) => line.trim().split(/\s+/)[5]?.split(":")[2])
 			.filter((inode): inode is string => inode !== undefined),
 	);
-	return (uri, slot) => {
-		try {
-			const file = join(load, `${uri.replaceAll("/", "_")}-${slot}`);
-			return held.has(String(statSync(file).ino));
-		} catch {
-			// No lock file yet: nothing has built in that slot.
-			return false;
-		}
-	};
+	// Each slot's file by name, with its inode; a slot with no file yet
+	// has built nothing.
+	const inodes = new Map(
+		await Promise.all(
+			(await listed(load)).map(
+				async (name) =>
+					[
+						name,
+						await stat(join(load, name)).then(
+							(seen) => String(seen.ino),
+							() => "",
+						),
+					] as const,
+			),
+		),
+	);
+	return (uri, slot) =>
+		held.has(inodes.get(`${uri.replaceAll("/", "_")}-${slot}`) ?? "");
 }
 
 /** How deep floors are looked for: user.slice/user-N/user@N/app.slice. */
 const FLOOR_DEPTH = 5;
 
 /** The innermost cgroups with a memory floor, by path. */
-export function floorsIn(cgroups: string): string[] {
+export async function floorsIn(cgroups: string): Promise<string[]> {
 	const found: string[] = [];
-	const walk = (dir: string, depth: number): boolean => {
-		let below = false;
-		if (depth < FLOOR_DEPTH) {
-			for (const entry of entries(dir)) {
-				if (walk(join(dir, entry), depth + 1)) below = true;
-			}
-		}
-		if (below) return true;
-		if (depth > 0 && number(join(dir, "memory.min")) > 0) {
+	const walk = async (dir: string, depth: number): Promise<boolean> => {
+		const below =
+			depth < FLOOR_DEPTH
+				? await Promise.all(
+						(await folders(dir)).map((entry) =>
+							walk(join(dir, entry), depth + 1),
+						),
+					)
+				: [];
+		if (below.some(Boolean)) return true;
+		if (depth > 0 && (await numberIn(join(dir, "memory.min"))) > 0) {
 			found.push(dir);
 			return true;
 		}
 		return false;
 	};
-	walk(cgroups, 0);
+	await walk(cgroups, 0);
 	return found.sort();
 }
 
 /** The machine's room now, given the floors to count. */
-export function readRoom(
+export async function readRoom(
 	floors: readonly string[],
 	kernel: Kernel = KERNEL,
-): Reading {
-	const swap = swapFree(kernel.proc);
+): Promise<Reading> {
+	const pressureFile = (kind: string) =>
+		read(join(kernel.proc, "pressure", kind));
+	const [
+		meminfo,
+		memoryFile,
+		cpuFile,
+		ioFile,
+		keptEach,
+		builds,
+		offload,
+		vmsRunning,
+		cpuinfo,
+		floorsMemory,
+		floorsCpu,
+	] = await Promise.all([
+		read(join(kernel.proc, "meminfo")),
+		pressureFile("memory"),
+		pressureFile("cpu"),
+		pressureFile("io"),
+		Promise.all(floors.map(keptBy)),
+		buildsIn(kernel),
+		offloadOf(kernel),
+		vmsIn(kernel.proc),
+		read(join(kernel.proc, "cpuinfo")),
+		Promise.all(floors.map((floor) => read(join(floor, "memory.pressure")))),
+		Promise.all(floors.map((floor) => read(join(floor, "cpu.pressure")))),
+	]);
+	const swapTotal = meminfoField(meminfo, "SwapTotal") ?? 0;
+	// The swap left, on a machine with any.
+	const swap =
+		swapTotal > 0 ? (meminfoField(meminfo, "SwapFree") ?? 0) : undefined;
 	const available = Math.min(
-		memAvailable(kernel.proc),
+		meminfoField(meminfo, "MemAvailable") ?? 0,
 		swap ?? Number.POSITIVE_INFINITY,
 	);
-	const kept = floors.reduce(
-		(sum, floor) =>
-			sum + Math.max(0, number(join(floor, "memory.min")) - anonIn(floor)),
-		0,
-	);
-	const memory = pressure(kernel.proc, "memory");
-	const cpu = pressure(kernel.proc, "cpu");
-	const builds = buildsIn(kernel);
-	const offload = offloadOf(kernel);
+	const kept = keptEach.reduce((sum, one) => sum + one, 0);
+	const memory = avg10(memoryFile);
+	const cpu = avg10(cpuFile);
+	const io = avg10(ioFile);
 	// Waiting for a lend is only while no builder stands yet.
-	const lendingSince = offload ? undefined : lendingSinceIn(kernel);
+	const lending = offload ? undefined : await lendingSince(kernel);
+	// No cgroup stalls more than the whole machine, so the walk, 6 ms
+	// over optimus's 171 cgroups, is only made when it could matter.
+	const felt =
+		memory >= MOST_MEMORY_PRESSURE
+			? await memoryPressureFelt(kernel.cgroups)
+			: undefined;
 	return {
 		...(offload ? { offload } : {}),
-		...(lendingSince !== undefined ? { lendingSince } : {}),
+		...(lending !== undefined ? { lendingSince: lending } : {}),
 		availableGib: Math.max(0, available - kept) / GIB,
-		// No cgroup stalls more than the whole machine, so the walk, 6 ms
-		// over optimus's 171 cgroups, is only made when it could matter.
-		memoryPressure:
-			memory >= MOST_MEMORY_PRESSURE
-				? (memoryPressureFelt(kernel.cgroups) ?? memory)
-				: memory,
+		memoryPressure: felt ?? memory,
 		vms:
-			vmsIn(kernel.proc) +
-			builds.filter((build) => build.timed && !build.qemu).length,
+			vmsRunning + builds.filter((build) => build.timed && !build.qemu).length,
 		builds: builds.map(({ qemu: _, ...seen }) => seen),
 		cpuPressure: cpu,
-		cpuPressureMinute: stalledOverMinute(join(kernel.proc, "pressure", "cpu")),
-		ioPressure: Math.max(
-			pressure(kernel.proc, "io"),
-			stalledOverMinute(join(kernel.proc, "pressure", "io")),
-		),
+		cpuPressureMinute: avg60(cpuFile),
+		ioPressure: Math.max(io, avg60(ioFile)),
 		// The person's own programs, as the floors keep them, so VMs past
 		// the first few wait while those programs wait on memory.
 		...(floors.length > 0
 			? {
-					floorsPressure: Math.max(
-						...floors.map((floor) => stalled(join(floor, "memory.pressure"))),
-					),
+					floorsPressure: Math.max(...floorsMemory.map(avg10)),
 					// And on CPU, which the machine's figure hides: weights keep
 					// the person's programs first while agents wait on each other.
-					floorsCpuPressure: Math.max(
-						...floors.map((floor) => stalled(join(floor, "cpu.pressure"))),
-					),
+					floorsCpuPressure: Math.max(...floorsCpu.map(avg10)),
 				}
 			: {}),
-		cores: cores(kernel.proc),
-		pressure: {
-			cpu,
-			memory,
-			io: pressure(kernel.proc, "io"),
-		},
+		cores: (cpuinfo.match(/^processor\s*:/gm) ?? []).length,
+		pressure: { cpu, memory, io },
 	};
+}
+
+/**
+ * What a floor keeps that MemAvailable counts as free: all of it but the
+ * memory its programs hold as their own.
+ */
+async function keptBy(floor: string): Promise<number> {
+	const [floorBytes, memoryStat] = await Promise.all([
+		numberIn(join(floor, "memory.min")),
+		read(join(floor, "memory.stat")),
+	]);
+	const anon = /^anon (\d+)$/m.exec(memoryStat);
+	return Math.max(0, floorBytes - (anon ? Number(anon[1]) : 0));
 }
 
 /** Whether a process is still running. */
@@ -324,9 +385,12 @@ export function cgroupOf(
 	pid: number,
 	proc: string = KERNEL.proc,
 ): string | undefined {
-	const line = text(join(proc, String(pid), "cgroup"))
-		.split("\n")
-		.find((entry) => entry.startsWith("0::"));
+	return cgroupIn(text(join(proc, String(pid), "cgroup")));
+}
+
+/** The cgroup a process's /proc cgroup file names. */
+function cgroupIn(file: string): string | undefined {
+	const line = file.split("\n").find((entry) => entry.startsWith("0::"));
 	return line ? line.slice(3) : undefined;
 }
 
@@ -385,9 +449,12 @@ function startedBy(pid: number, shell: number, proc: string): boolean {
 
 /** A process's parent, from /proc's status; nothing for a process gone. */
 function parentOf(pid: number, proc: string): number | undefined {
-	const parent = /^PPid:\s*(\d+)$/m.exec(
-		text(join(proc, String(pid), "status")),
-	)?.[1];
+	return parentIn(text(join(proc, String(pid), "status")));
+}
+
+/** The parent a process's /proc status file names. */
+function parentIn(status: string): number | undefined {
+	const parent = /^PPid:\s*(\d+)$/m.exec(status)?.[1];
 	return parent === undefined ? undefined : Number(parent);
 }
 
@@ -407,45 +474,24 @@ export function commandsIn(cgroup: string, kernel: Kernel = KERNEL): string[] {
 		.filter((command) => command !== "");
 }
 
-/** The memory a cgroup's programs hold as their own, from memory.stat. */
-function anonIn(cgroup: string): number {
-	const anon = /^anon (\d+)$/m.exec(text(join(cgroup, "memory.stat")));
-	return anon ? Number(anon[1]) : 0;
-}
-
-function memAvailable(proc: string): number {
-	return meminfo(proc, "MemAvailable") ?? 0;
-}
-
-/** The swap left, in bytes, or undefined on a machine with none. */
-function swapFree(proc: string): number | undefined {
-	const total = meminfo(proc, "SwapTotal") ?? 0;
-	return total > 0 ? (meminfo(proc, "SwapFree") ?? 0) : undefined;
-}
-
-/** One field of /proc/meminfo, in bytes. */
-function meminfo(proc: string, field: string): number | undefined {
-	const line = text(join(proc, "meminfo"))
+/** One field of /proc/meminfo's text, in bytes. */
+function meminfoField(meminfo: string, field: string): number | undefined {
+	const line = meminfo
 		.split("\n")
 		.find((entry) => entry.startsWith(`${field}:`));
 	const kib = Number(line?.split(/\s+/)[1]);
 	return Number.isFinite(kib) ? kib * 1024 : undefined;
 }
 
-/** The share of time some task stalled, avg10, in percent. */
-function pressure(proc: string, kind: string): number {
-	return stalled(join(proc, "pressure", kind));
-}
-
-/** The share of time some task stalled, avg10, from a pressure file. */
-function stalled(path: string): number {
-	const some = /^some avg10=([\d.]+)/m.exec(text(path));
+/** The share of time some task stalled, avg10, from a pressure file's text. */
+function avg10(pressure: string): number {
+	const some = /^some avg10=([\d.]+)/m.exec(pressure);
 	return some ? Number(some[1]) : 0;
 }
 
-/** The share of time some task stalled over the last minute, from a pressure file. */
-function stalledOverMinute(path: string): number {
-	const some = /^some avg10=[\d.]+ avg60=([\d.]+)/m.exec(text(path));
+/** The share of time some task stalled over the last minute, from a pressure file's text. */
+function avg60(pressure: string): number {
+	const some = /^some avg10=[\d.]+ avg60=([\d.]+)/m.exec(pressure);
 	return some ? Number(some[1]) : 0;
 }
 
@@ -457,26 +503,32 @@ const HELD_DEPTH = FLOOR_DEPTH;
  * feel it: the most any of them stalls, each read where the walk ends.
  * Nothing when no cgroup is held, so the machine's own figure stands.
  */
-export function memoryPressureFelt(cgroups: string): number | undefined {
+async function memoryPressureFelt(
+	cgroups: string,
+): Promise<number | undefined> {
 	let held = false;
-	const felt = (dir: string, depth: number): number => {
-		if (depth > 0 && overOwnHigh(dir)) {
+	const felt = async (dir: string, depth: number): Promise<number> => {
+		if (depth > 0 && (await overOwnHigh(dir))) {
 			held = true;
 			return 0;
 		}
-		const below = depth < HELD_DEPTH ? entries(dir) : [];
-		if (below.length === 0) return stalled(join(dir, "memory.pressure"));
-		return Math.max(...below.map((child) => felt(join(dir, child), depth + 1)));
+		const below = depth < HELD_DEPTH ? await folders(dir) : [];
+		if (below.length === 0)
+			return avg10(await read(join(dir, "memory.pressure")));
+		const each = await Promise.all(
+			below.map((child) => felt(join(dir, child), depth + 1)),
+		);
+		return Math.max(...each);
 	};
-	const most = felt(cgroups, 0);
+	const most = await felt(cgroups, 0);
 	return held ? most : undefined;
 }
 
 /** Whether a cgroup holds more than its own memory.high lets it. */
-function overOwnHigh(cgroup: string): boolean {
-	const high = text(join(cgroup, "memory.high")).trim();
+async function overOwnHigh(cgroup: string): Promise<boolean> {
+	const high = (await read(join(cgroup, "memory.high"))).trim();
 	if (!/^\d+$/.test(high)) return false;
-	return number(join(cgroup, "memory.current")) >= Number(high);
+	return (await numberIn(join(cgroup, "memory.current"))) >= Number(high);
 }
 
 /** A VM's process name, cut to the kernel's 15 characters. */
@@ -492,13 +544,12 @@ export function isVmCommand(command: string): boolean {
 }
 
 /** How many VMs run on the machine, by their processes' names. */
-function vmsIn(proc: string): number {
-	let count = 0;
-	for (const entry of names(proc)) {
-		if (!/^\d+$/.test(entry)) continue;
-		if (VM_PROCESS.test(text(join(proc, entry, "comm")))) count += 1;
-	}
-	return count;
+async function vmsIn(proc: string): Promise<number> {
+	const pids = (await listed(proc)).filter((entry) => /^\d+$/.test(entry));
+	const comms = await Promise.all(
+		pids.map((pid) => read(join(proc, pid, "comm"))),
+	);
+	return comms.filter((comm) => VM_PROCESS.test(comm)).length;
 }
 
 /** Where the Nix daemon makes a cgroup for each build. */
@@ -556,13 +607,15 @@ const ASKS_AND_EXITS = new Set([
  * that counted, every system build caught at it waited as a VM check
  * for as long as 14 minutes, though it ran under two.
  */
-function runsTimed(proc: string, pid: string, comm: string): boolean {
+async function runsTimed(
+	proc: string,
+	pid: string,
+	comm: string,
+): Promise<boolean> {
 	if (!isTimed(comm)) return false;
 	const bare = comm.startsWith(".") ? comm.slice(1) : comm;
 	if (!/^(?:niri|sway)(?:-wrapped)?$/.test(bare)) return true;
-	const argv = text(join(proc, pid, "cmdline"))
-		.split("\0")
-		.slice(1);
+	const argv = (await read(join(proc, pid, "cmdline"))).split("\0").slice(1);
 	return !argv.some((argument) => ASKS_AND_EXITS.has(argument));
 }
 
@@ -570,27 +623,41 @@ function runsTimed(proc: string, pid: string, comm: string): boolean {
  * The Nix builds the daemon runs, in order of their cgroups' names, and
  * whether a qemu runs in each, which {@link vmsIn} counts already.
  */
-function buildsIn(kernel: Kernel): (BuildSeen & { qemu: boolean })[] {
+async function buildsIn(
+	kernel: Kernel,
+): Promise<(BuildSeen & { qemu: boolean })[]> {
 	const daemon = join(kernel.cgroups, BUILDS);
-	return entries(daemon)
+	const builds = (await folders(daemon))
 		.filter((build) => build.startsWith("nix-build-"))
-		.sort()
-		.map((build) => {
-			const pids = pidsUnder(join(daemon, build));
-			const comms = pids.map((pid) =>
-				text(join(kernel.proc, pid, "comm")).trim(),
+		.sort();
+	return Promise.all(
+		builds.map(async (build) => {
+			const pids = await pidsBelow(join(daemon, build));
+			const comms = await Promise.all(
+				pids.map(async (pid) =>
+					(await read(join(kernel.proc, pid, "comm"))).trim(),
+				),
 			);
 			const qemu = comms.some((comm) => VM_PROCESS.test(comm));
-			const asker = askerOf(pids, kernel.proc);
+			const [asker, timedEach, memoryPeak] = await Promise.all([
+				askerOf(pids, kernel.proc),
+				qemu
+					? []
+					: Promise.all(
+							pids.map((pid, at) =>
+								runsTimed(kernel.proc, pid, comms[at] ?? ""),
+							),
+						),
+				numberIn(join(daemon, build, "memory.peak")),
+			]);
 			return {
 				...(asker !== undefined ? { asker } : {}),
-				timed:
-					qemu ||
-					pids.some((pid, at) => runsTimed(kernel.proc, pid, comms[at])),
-				memoryPeak: number(join(daemon, build, "memory.peak")),
+				timed: qemu || timedEach.some(Boolean),
+				memoryPeak,
 				qemu,
 			};
-		});
+		}),
+	);
 }
 
 /**
@@ -604,14 +671,17 @@ const MOST_ANCESTORS = 32;
  * a worker for each client, named `nix-daemon <client's pid>`, and a
  * build's processes descend from its worker.
  */
-function askerOf(pids: readonly string[], proc: string): string | undefined {
+async function askerOf(
+	pids: readonly string[],
+	proc: string,
+): Promise<string | undefined> {
 	for (const pid of pids) {
 		let at: number | undefined = Number(pid);
 		for (let step = 0; step < MOST_ANCESTORS && at !== undefined; step += 1) {
-			const argv = text(join(proc, String(at), "cmdline")).split("\0");
+			const argv = (await read(join(proc, String(at), "cmdline"))).split("\0");
 			if (argv[0] === "nix-daemon" && /^\d+$/.test(argv[1] ?? ""))
-				return cgroupOf(Number(argv[1]), proc);
-			at = parentOf(at, proc);
+				return cgroupIn(await read(join(proc, argv[1] ?? "", "cgroup")));
+			at = parentIn(await read(join(proc, String(at), "status")));
 			if (at === 0 || at === 1) break;
 		}
 	}
@@ -629,21 +699,19 @@ function pidsUnder(cgroup: string): string[] {
 	];
 }
 
-function names(dir: string): string[] {
-	try {
-		return readdirSync(dir);
-	} catch {
-		return [];
-	}
-}
-
-function cores(proc: string): number {
-	return (text(join(proc, "cpuinfo")).match(/^processor\s*:/gm) ?? []).length;
-}
-
-function number(path: string): number {
-	const value = Number(text(path).trim());
-	return Number.isFinite(value) ? value : 0;
+/** {@link pidsUnder}, read off the main thread. */
+async function pidsBelow(cgroup: string): Promise<string[]> {
+	const [procs, children] = await Promise.all([
+		read(join(cgroup, "cgroup.procs")),
+		folders(cgroup),
+	]);
+	const below = await Promise.all(
+		children.map((child) => pidsBelow(join(cgroup, child))),
+	);
+	return [
+		...procs.split("\n").filter((pid) => /^\d+$/.test(pid)),
+		...below.flat(),
+	];
 }
 
 function text(path: string): string {
@@ -657,6 +725,41 @@ function text(path: string): string {
 function entries(dir: string): string[] {
 	try {
 		return readdirSync(dir, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => entry.name);
+	} catch {
+		return [];
+	}
+}
+
+/** A file's text, read off the main thread; empty once it can't be read. */
+async function read(path: string): Promise<string> {
+	try {
+		return await readFile(path, "utf8");
+	} catch {
+		return "";
+	}
+}
+
+/** A file's number, read off the main thread; nought once it isn't one. */
+async function numberIn(path: string): Promise<number> {
+	const value = Number((await read(path)).trim());
+	return Number.isFinite(value) ? value : 0;
+}
+
+/** A folder's entries, read off the main thread; none once it can't be. */
+async function listed(dir: string): Promise<string[]> {
+	try {
+		return await readdir(dir);
+	} catch {
+		return [];
+	}
+}
+
+/** A folder's folders, read off the main thread; none once it can't be. */
+async function folders(dir: string): Promise<string[]> {
+	try {
+		return (await readdir(dir, { withFileTypes: true }))
 			.filter((entry) => entry.isDirectory())
 			.map((entry) => entry.name);
 	} catch {
