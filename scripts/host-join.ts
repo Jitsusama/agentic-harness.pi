@@ -17,10 +17,7 @@
 import { writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { joinMove } from "../host/service/join.ts";
-import {
-	attachWords,
-	hostHold,
-} from "../lib/internal/session/host-holds.ts";
+import { attachWords, hostHold } from "../lib/internal/session/host-holds.ts";
 import {
 	readMoveNote,
 	restoreStrandedClaims,
@@ -43,7 +40,9 @@ if (!own.includes("--session") || session === "" || plainPi.length === 0) {
 	throw new Error("Usage: host-join.ts --session ID -- PLAIN PI WORDS");
 }
 if (wake === "" || again === "") {
-	throw new Error("host-join.ts runs under a mycelium holder, which names its wake");
+	throw new Error(
+		"host-join.ts runs under a mycelium holder, which names its wake",
+	);
 }
 
 /** Whether a pid still runs, as signal 0 says. */
@@ -65,8 +64,7 @@ const joined = await joinMove({
 	now: Date.now,
 	pause: (ms) => delay(ms),
 });
-const next =
-	joined.to === "host" ? attachWords(joined.hold, session) : plainPi;
+const next = joined.to === "host" ? attachWords(joined.hold, session) : plainPi;
 writeFileSync(again, JSON.stringify(next));
 writeFileSync(
 	wake,

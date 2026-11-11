@@ -78,9 +78,7 @@ describe("handing a window over", () => {
 
 	it("can't when no holder runs it itself", () => {
 		expect(handOverOf(facts({ env: {} }))).toBeUndefined();
-		expect(
-			handOverOf(facts({ env: { MYCELIUM_WAKE: wake } })),
-		).toBeUndefined();
+		expect(handOverOf(facts({ env: { MYCELIUM_WAKE: wake } }))).toBeUndefined();
 		expect(handOverOf(facts({ pid: 7 })), "a shell between").toBeUndefined();
 	});
 

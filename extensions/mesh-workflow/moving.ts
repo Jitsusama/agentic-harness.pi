@@ -32,8 +32,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
-import type { Moving } from "../../lib/mesh/presence.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
+import type { Moving } from "../../lib/mesh/presence.ts";
 import type { HandOver } from "./in-place.ts";
 
 /** How often a waiting move looks again at what holds the session. */

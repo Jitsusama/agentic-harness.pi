@@ -233,6 +233,7 @@ import {
 	leftToIn,
 	saidIn,
 } from "./glances.ts";
+import { handOverOf } from "./in-place.ts";
 import {
 	createEditNotes,
 	createHeavyCalls,
@@ -244,7 +245,6 @@ import {
 	reloading,
 	takeHeavyCalls,
 } from "./leases.ts";
-import { handOverOf } from "./in-place.ts";
 import { createMoving, holdsOf, moveNoteOf } from "./moving.ts";
 import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import { meshLines, type Shown } from "./render.ts";
@@ -848,7 +848,7 @@ export function meshWorkflow(
 				ctx?.hasUI && peer && hostKey === undefined
 					? handOverOf({
 							env,
-							pid: process.pid,
+							pid: senderIdentity().pid,
 							args: process.argv.slice(2),
 							session: peer.session,
 							sessionFile: ctx.sessionManager.getSessionFile(),
