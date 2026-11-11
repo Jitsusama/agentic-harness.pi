@@ -59,6 +59,8 @@ interface Compat {
 		readonly api: string;
 		setResponses(responses: readonly unknown[]): void;
 	};
+	getApiProvider(api: string): object | undefined;
+	registerApiProvider(provider: object): void;
 	fauxAssistantMessage(content: unknown, options?: object): unknown;
 	fauxToolCall(name: string, args: object, options: { id: string }): unknown;
 	fauxText(text: string): unknown;
@@ -126,6 +128,16 @@ const compat = piModule<Compat>(
 );
 const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
 faux.setResponses(Array.from({ length: ANSWERS }, () => answer));
+// pi's reload clears every provider registered in the process, as it does
+// before an extension's provider comes back with its new load; the agent
+// folder's footer extension brings this one back the same way.
+const scripted = compat.getApiProvider(faux.api);
+(globalThis as Record<symbol, unknown>)[
+	Symbol.for("screen-host.faux.restore")
+] = () => {
+	if (scripted && !compat.getApiProvider(faux.api))
+		compat.registerApiProvider(scripted);
+};
 writeAgentFolder(faux.api);
 const clipboard = writeClipboard();
 // What the host unit gives the host: the session's Wayland display beside
@@ -426,6 +438,7 @@ const LOADS = Symbol.for("screen-host.footer.loads");
 const WANTED = Symbol.for("screen-host.footer.wanted");
 const wanted = (globalThis[WANTED] ??= new Set());
 export default function (pi) {
+	globalThis[Symbol.for("screen-host.faux.restore")]?.();
 	const load = (globalThis[LOADS] = (globalThis[LOADS] ?? 0) + 1);
 	const draw = (ctx) =>
 		ctx.ui.setFooter(() => ({
