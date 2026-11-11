@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PARKED, parking } from "../../../host/engine/parking.ts";
+import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { until } from "../../support/until.ts";
 
@@ -103,11 +104,22 @@ describe("parking a conversation", () => {
 		letStop();
 		await parking;
 		const wake = parked.wakeFile("a");
-
-		await writeFile(
-			wake,
-			`${JSON.stringify({ session: "a", messageId: "2f95756a", at: "now" })}\n`,
+		// Woken as the mesh wakes it: through the wake file its marker names.
+		const parks = join(dir, "parks");
+		writeParked(
+			{
+				session: "a",
+				sessionFile: join(dir, "a.jsonl"),
+				cwd: dir,
+				addresses: ["A1B2C3"],
+				parkedAt: new Date().toISOString(),
+				pid: process.pid,
+				wake,
+			},
+			parks,
 		);
+
+		expect(askWake("a", "2f95756a", parks), "the sender asked").toBe(true);
 
 		await until(
 			"the refused wake to be kept",
