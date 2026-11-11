@@ -6,7 +6,9 @@
  * seal's hosts, the first five attended and the rest background, each
  * keeping its session and address, and asks the shell to keep each
  * window's place; a stand-in `qs` on PATH says it kept the five with a
- * window and that the rest had none, which the cutover lists. Every
+ * window and that the rest had none, which the cutover lists. Stand-in
+ * mycelium, niri and kitten say each pi's window sits away from Joel's
+ * workspace, so the cutover's window limits spare none of them. Every
  * conversation then answers in its host. The release hands all ten
  * back: the hosts drop them, restore.json offers each as released, and
  * each, opened in plain pi from the same file, answers again under the
@@ -65,6 +67,57 @@ const QS = `#!/bin/sh
 echo "$@" >> "$QS_LOG"
 if [ -e "$QS_WINDOWS/$5" ]; then echo kept; else echo "no window to keep"; fi
 `;
+
+/**
+ * Stand-ins for what the cutover reads of the machine's windows: mycelium
+ * holding each session in a kitty window, and niri showing every window on
+ * a workspace Joel hasn't focused, so the window limits let all ten move.
+ * Each answers only what the cutover asks, from a file the test wrote.
+ */
+const MACHINE = {
+	mycelium: `#!/bin/sh
+[ "$3" = sessions ] || { echo "the E9 mycelium answers only sessions: $*" >&2; exit 2; }
+cat "$MACHINE_DIR/sessions.json"
+`,
+	niri: `#!/bin/sh
+cat "$MACHINE_DIR/niri-$3.json"
+`,
+	kitten: `#!/bin/sh
+cat "$MACHINE_DIR/kitty.json"
+`,
+};
+
+/** The kitty every plain pi's window sits in, as mycelium names it. */
+const KITTY = "unix:@kitty-e9";
+
+/** What the stand-ins answer for `sessions`, each in a window of its own. */
+function machineFiles(sessions: readonly string[]): Record<string, unknown> {
+	const title = (i: number) => `e9-${i}`;
+	return {
+		"sessions.json": {
+			Ok: {
+				Sessions: sessions.map((session, i) => ({
+					held: `hold-${i}`,
+					window: { terminal: "kitty", within: KITTY, id: i + 1 },
+					presence: { session },
+				})),
+			},
+		},
+		"kitty.json": sessions.map((_, i) => ({
+			wm_class: "pi-spawned",
+			tabs: [{ is_active: true, title: title(i), windows: [{ id: i + 1 }] }],
+		})),
+		"niri-windows.json": sessions.map((_, i) => ({
+			app_id: "pi-spawned",
+			title: title(i),
+			workspace_id: 2,
+		})),
+		"niri-workspaces.json": [
+			{ id: 1, is_focused: true },
+			{ id: 2, is_focused: false },
+		],
+	};
+}
 
 let sealed: Seal;
 let hosts: HostProcess[] = [];
@@ -213,15 +266,25 @@ it(
 			const windows = join(sealed.root, "windows");
 			await mkdir(bin);
 			await mkdir(windows);
-			await writeFile(join(bin, "qs"), QS);
-			await chmod(join(bin, "qs"), 0o755);
+			for (const [name, body] of Object.entries({ qs: QS, ...MACHINE })) {
+				await writeFile(join(bin, name), body);
+				await chmod(join(bin, name), 0o755);
+			}
 			for (const one of sessions.slice(0, DRIVEN))
 				await writeFile(join(windows, one.sessionId), "");
+			// Every window away from Joel's workspace, so none is spared.
+			const machine = join(sealed.root, "machine");
+			await mkdir(machine);
+			for (const [name, body] of Object.entries(
+				machineFiles(sessions.map((one) => one.sessionId)),
+			))
+				await writeFile(join(machine, name), JSON.stringify(body));
 			const env = {
 				...sealed.env,
 				PATH: `${bin}:${sealed.env.PATH ?? ""}`,
 				QS_LOG: join(sealed.root, "qs.log"),
 				QS_WINDOWS: windows,
+				MACHINE_DIR: machine,
 			};
 
 			const cutover = await script(
