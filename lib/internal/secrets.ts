@@ -64,6 +64,13 @@ const SHAPES: readonly SecretShape[] = [
 		keeps: 1,
 	},
 	{
+		// A git remote or a registry's address can carry its password or
+		// token after the user's name, whatever its shape.
+		kind: "credential",
+		pattern: /(:\/\/[^/\s:@]+:)[^@\s]{16,}(@)/g,
+		keeps: 2,
+	},
+	{
 		kind: "AWS secret key",
 		pattern:
 			/(\baws_(?:secret_access_key|session_token)\s*[=:]\s*['"]?)[A-Za-z0-9/+=]{16,}/gi,

@@ -26,11 +26,16 @@ replaced:
   aside), or starts with CLOUDSMITH_, is scrubbed wherever it appears,
   and the mark names the variable. A value under 16 characters, without
   a letter and a digit, or that is a path or an address, is left alone.
+  These are pi's own variables: a token that only a command's own
+  environment holds, as direnv or dev's exported tokens give a shell, is
+  caught by its shape alone.
 - **Places a credential sits:** a shell variable whose name ends in
   TOKEN, SECRET, PASSWORD, API_KEY or ACCESS_KEY, an npmrc's
   `_authToken`, an AWS credentials file's `aws_secret_access_key` and
-  `aws_session_token`, a JSON field such as `refresh_token`, and an
-  `Authorization` header, `Bearer` or any other scheme. The name stays and only the value goes. The value has to be
+  `aws_session_token`, a JSON field such as `refresh_token`, an
+  `Authorization` header, `Bearer` or any other scheme, and the password
+  in an address, as a git remote or a registry's holds it after the
+  user's name. The name stays and only the value goes. The value has to be
   16 characters or more, with a letter and a digit, and not start with
   `$`, so a variable passed on or a function's name is left alone.
 

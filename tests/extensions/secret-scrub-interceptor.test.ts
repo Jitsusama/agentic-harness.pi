@@ -100,6 +100,19 @@ describe("a credential where a file or a shell keeps it", () => {
 		}
 	});
 
+	it("keeps an address and its user, whatever the password's shape", () => {
+		const lines = [
+			`origin https://x-access:${"pa55"}word-${mixed(20)}@github.com/a/b.git`,
+			`registry=https://npm:${mixed(32)}@npm.example.com/repo/`,
+		].join("\n");
+		expect(scrubSecrets(lines).text).toBe(
+			[
+				"origin https://x-access:[secret scrubbed: credential]@github.com/a/b.git",
+				"registry=https://npm:[secret scrubbed: credential]@npm.example.com/repo/",
+			].join("\n"),
+		);
+	});
+
 	it("keeps an AWS credentials file's key names", () => {
 		const file = [
 			`aws_secret${"_access_key"} = ${mixed(40)}`,
@@ -172,6 +185,9 @@ describe("ordinary output", () => {
 		"API_TOKEN=<paste-the-token-here-1>",
 		"NPM_TOKEN=nothingButLettersInHere",
 		"Token scopes: 'gist', 'read:org', 'repo', 'workflow'",
+		"git@github.com:Jitsusama/agentic-harness.pi.git",
+		"ssh://git@github.com/Jitsusama/core.nix.git",
+		"https://user:short@example.com/",
 		'{"access_token": "short"}',
 	];
 	for (const text of ordinary) {
