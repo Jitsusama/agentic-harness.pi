@@ -203,7 +203,12 @@ the harness starts once for the session. The command runs as it would
 under pi: in a process group of its own, with the same folder,
 variables, stop, time limit and exit code. Where the program isn't on
 the PATH or stops, pi starts commands itself, as it does without the
-variable.
+variable. A reload or a new session retires its load's `pi-spawner`,
+which closes once the commands it runs have ended, so a background
+command outlives the reload. Before a load starts its own, it stops any
+`pi-spawner` its pi started that runs nothing, as loads from before
+retiring was possible left them; a shared host stops none, since there
+they are other conversations'.
 
 ## Stopping a Command
 

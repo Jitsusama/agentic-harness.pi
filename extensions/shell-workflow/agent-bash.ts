@@ -9,6 +9,7 @@ import {
 	createBashToolDefinition,
 	createLocalBashOperations,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/host.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
 import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
@@ -24,14 +25,31 @@ export type ShellSettings = Pick<
 	"commandPrefix" | "shellPath"
 >;
 
+/** pi's bash, with a way to retire the pi-spawner behind it. */
+export type AgentBash = ReturnType<typeof createBashToolDefinition> & {
+	/** Close its pi-spawner once the commands it runs have ended. */
+	retire(): void;
+};
+
 /** pi's bash for the conversation `session`, built with its settings. */
 export function agentBash(
 	cwd: string,
 	settings: ShellSettings = {},
 	sandbox: Sandbox = { kind: "none" },
 	session?: SessionRef,
-): ReturnType<typeof createBashToolDefinition> {
-	return createBashToolDefinition(cwd, {
+): AgentBash {
+	// In a host, the pi-spawners its pid started are other conversations',
+	// so none is taken for one an earlier load left.
+	const spawning = spawnedBy(
+		createLocalBashOperations(
+			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
+		),
+		{
+			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
+			...(hosted() ? { reap: () => undefined } : {}),
+		},
+	);
+	const definition = createBashToolDefinition(cwd, {
 		...settings,
 		// A command starts from its conversation's environment, which on a
 		// host is not the process's (environment.ts).
@@ -55,16 +73,9 @@ export function agentBash(
 		// left the shell's process group, as `timeout` does. Asked for, each
 		// command starts in pi-spawner, so pi never forks itself to start
 		// one (lib/internal/shell/spawner.ts).
-		operations: timedFromTurn(
-			reapsWhatItLeft(
-				spawnedBy(
-					createLocalBashOperations(
-						settings.shellPath ? { shellPath: settings.shellPath } : undefined,
-					),
-					settings.shellPath ? { shellPath: settings.shellPath } : {},
-				),
-			),
-			{ commandOf: (command, env) => env?.[COMMAND_VARIABLE] ?? command },
-		),
+		operations: timedFromTurn(reapsWhatItLeft(spawning), {
+			commandOf: (command, env) => env?.[COMMAND_VARIABLE] ?? command,
+		}),
 	});
+	return { ...definition, retire: spawning.retire };
 }
