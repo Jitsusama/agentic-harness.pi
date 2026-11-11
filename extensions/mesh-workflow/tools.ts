@@ -113,9 +113,13 @@ export interface Local {
 	readonly endProcess?: EndProcess;
 }
 
-/** Asks the process a presence names to end, once it is sure it is that one. */
+/**
+ * Asks the process a presence names to end, once it is sure it is that
+ * one, saying `by` asked, for a host's journal.
+ */
 export type EndProcess = (
 	owner: TickedOwner,
+	by: string,
 ) => Promise<"ended" | "gone" | "unsure">;
 
 /** What mesh_send hands back beside its words. */
@@ -1804,7 +1808,10 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
 		at.presences.all(),
 	);
 	if ("refused" in target) return answer(`Nothing ended: ${target.refused}.`);
-	const ended = await (at.endProcess ?? endByOwner)(target.owner);
+	const ended = await (at.endProcess ?? endByOwner)(
+		target.owner,
+		`mesh_end from ${at.peer.signature}`,
+	);
 	if (ended === "gone") {
 		return answer(`${address} had already ended; nothing was signalled.`);
 	}
@@ -1829,14 +1836,14 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
  * socket, or signal a plain pi only while its recorded process identity
  * still matches.
  */
-const endByOwner: EndProcess = async (owner) => {
+const endByOwner: EndProcess = async (owner, by) => {
 	const standing = await tickedStanding(owner);
 	if (standing === "gone") return "gone";
 	if (standing === "unknown") return "unsure";
 	if (owner.session !== undefined && !hostedHere(owner))
-		return closeThroughHost(owner);
+		return closeThroughHost(owner, by);
 	try {
-		await endSession(owner);
+		await endSession(owner, `closed, asked by ${by}`);
 		return "ended";
 	} catch {
 		// A failed local close is not known to have landed, and a hosted

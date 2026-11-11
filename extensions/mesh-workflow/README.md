@@ -779,7 +779,8 @@ A steer may instead carry an `act`, with no text needed
   where it left off; with text, the text is the turn instead.
 - `close` ends the session for good, as /exit does: any run in
   progress is ended, then pi shuts down, so its record reads
-  closed rather than lost, and `restore.json` and Reopen Them
+  closed rather than lost (in a host, the host closes it, and its
+  journal names the steer's writer), and `restore.json` and Reopen Them
   All don't offer it back. Its quest, trees and Needs You
   items stay, and for 24 hours `quest reopen-sessions` can
   still reopen it by id.
@@ -1022,7 +1023,10 @@ installed host. A hosted owner in another process, once its host's list
 still holds the conversation, is closed through that host's control
 socket, `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, named by the host
 key `<realm>-<kind>`. The request carries the host's whole process
-identity as expectedHost, so a successor on the same socket refuses it.
+identity as expectedHost, so a successor on the same socket refuses it,
+and says who asked (`by`, as `mesh_end from <address>`), which the
+host's journal writes as it lets the conversation go; a move's release
+says the move the same way.
 An unreachable socket, a refusal or a lost reply leaves the conversation
 alone and is never retried; the shared pid is never signalled. Plain pi
 still receives SIGTERM after its process identity is checked. The steer

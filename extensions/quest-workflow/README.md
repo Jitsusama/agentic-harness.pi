@@ -449,7 +449,8 @@ while it waits its turn leaves without running.
   concluded it; when the quest is concluded or retired and, at
   two looks in a row, no turn runs, no message waits and nothing
   is typed in the prompt, it shuts pi down and its window closes
-  with it. A session with no quest loaded, or one that loaded
+  with it. In a host, the host closes it, and its journal names
+  the quest that ended it. A session with no quest loaded, or one that loaded
   another, is left running.
 - Telling the model which quest and document it is on. The
   line is frozen into the system prompt the first time a
