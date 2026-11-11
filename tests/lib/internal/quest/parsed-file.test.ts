@@ -62,12 +62,15 @@ describe("a quest file parsed once", () => {
 
 	it("is parsed every time while it was written moments ago", () => {
 		const path = join(dir, "README.md");
+		const tick = new Date();
 		writeFileSync(path, "- [ ] one");
+		utimesSync(path, tick, tick);
 		const parser = counting();
 		const read = parsedFiles(parser.parse);
 		read(path);
-		// Written within the same clock tick, so its time may not move.
+		// Written again within the same clock tick, so its time stays put.
 		writeFileSync(path, "- [x] one");
+		utimesSync(path, tick, tick);
 
 		expect(read(path).text).toBe("- [x] one");
 		expect(parser.parses).toBe(2);
