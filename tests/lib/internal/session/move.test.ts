@@ -12,6 +12,7 @@ import {
 	giveBackMoveNote,
 	type MoveNote,
 	moveNoteFrom,
+	noteState,
 	readMoveNote,
 	readMoveNotes,
 	removeMoveNote,
@@ -86,6 +87,19 @@ describe("claiming a move note", () => {
 	// Every file a note or a claim left, past writeWhole's own `.writing`.
 	const left = () =>
 		readdirSync(folder).filter((name) => !name.startsWith("."));
+
+	it("tells a waiting note from a claimed one and from none", () => {
+		expect(noteState(session, folder), "never left").toBe("none");
+		writeMoveNote(note(), folder);
+		expect(noteState(session, folder)).toBe("waiting");
+		claimMoveNote(session, CUTOVER, folder);
+		expect(noteState(session, folder)).toBe("claimed");
+		removeMoveNote(session, folder);
+		expect(noteState(session, folder), "taken up").toBe("none");
+		expect(noteState(session, join(folder, "gone")), "no folder").toBe(
+			"none",
+		);
+	});
 
 	it("lets the cutover adopt, and then tells the join it is adopting", () => {
 		writeMoveNote(note(), folder);

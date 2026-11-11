@@ -15,21 +15,28 @@
  * the two act, so the log never has two writers, and a host that kept
  * the log on its roster before it failed keeps it (the cutover's kept).
  *
+ * With no note, no claim and no host holding it past the grace, as when
+ * a host adopted the conversation and closed it straight after, nothing
+ * can adopt the log any more, so plain pi takes it up. A host that holds
+ * it on its roster but doesn't come back within the grace is waited on,
+ * since it resumes the conversation as it starts, and the window says so
+ * in one line rather than showing a frame that looks alive.
+ *
  * A note a cutover claimed and died holding is given back first, on
  * every look, so it can be taken; one a live cutover holds is waited
  * on, as that cutover's adopt ends one way or the other.
  */
 
 import type { HostHold } from "../../lib/internal/session/host-holds.ts";
-import type { TakeBack } from "../../lib/internal/session/move.ts";
+import type { NoteState, TakeBack } from "../../lib/internal/session/move.ts";
 
 /** How often the join looks again at where the session stands. */
 export const JOIN_LOOK_MS = 250;
 
 /**
- * How long a note may wait unclaimed before the join takes the move
- * back: five of the cutover's looks (host/cutover/cutover.ts
- * LOOK_EVERY_MS), so a running cutover always claims it first.
+ * How long the join waits on one state before it acts: five of the
+ * cutover's looks (host/cutover/cutover.ts LOOK_EVERY_MS), so a running
+ * cutover always claims a waiting note first.
  */
 export const JOIN_GRACE_MS = 10_000;
 
@@ -37,12 +44,14 @@ export const JOIN_GRACE_MS = 10_000;
 export interface JoinFacts {
 	/** The host holding the session: open now, kept on a roster, or none. */
 	readonly hold: () => Promise<HostHold | undefined>;
-	/** Whether the session's note waits with no cutover holding it. */
-	readonly noted: () => boolean;
+	/** Where the session's move note stands. */
+	readonly noted: () => NoteState;
 	/** Give back the notes a cutover died holding. */
 	readonly restoreStranded: () => void;
 	/** Take the move back for this join, as move.ts takeBackMove does. */
 	readonly takeBack: () => TakeBack;
+	/** Say one line in the window, over pi's last frame. */
+	readonly say: (line: string) => void;
 	readonly now: () => number;
 	readonly pause: (ms: number) => Promise<void>;
 }
@@ -52,26 +61,47 @@ export type Joined =
 	| { readonly to: "host"; readonly hold: HostHold }
 	| { readonly to: "pi" };
 
+/** What the join is waiting on, which it acts on once it lasts. */
+type Waiting = "note" | "nothing" | "roster" | "cutover";
+
+function waitingOn(hold: HostHold | undefined, noted: NoteState): Waiting {
+	if (hold !== undefined) return "roster";
+	if (noted === "waiting") return "note";
+	if (noted === "claimed") return "cutover";
+	return "nothing";
+}
+
 /**
  * Wait for the session to be open in its host, answering that host, or
- * take the move back once its note has waited unclaimed past the grace.
+ * answer plain pi once its note has waited unclaimed past the grace and
+ * the join took it back, or once nothing at all has held it that long.
  */
 export async function joinMove(
 	facts: JoinFacts,
 	graceMs: number = JOIN_GRACE_MS,
 ): Promise<Joined> {
-	let unclaimedSince: number | undefined;
+	let waiting: Waiting | undefined;
+	let since = facts.now();
+	let said = false;
 	for (;;) {
 		facts.restoreStranded();
 		const hold = await facts.hold();
 		if (hold?.open) return { to: "host", hold };
-		// Kept on a roster, the host resumes it as it starts again.
-		if (hold === undefined && facts.noted()) {
-			unclaimedSince ??= facts.now();
-			const waited = facts.now() - unclaimedSince;
-			if (waited >= graceMs && facts.takeBack() === "taken")
-				return { to: "pi" };
-		} else unclaimedSince = undefined;
+		const now = waitingOn(hold, facts.noted());
+		if (now !== waiting) {
+			waiting = now;
+			since = facts.now();
+		}
+		if (facts.now() - since >= graceMs) {
+			if (now === "nothing") return { to: "pi" };
+			if (now === "note" && facts.takeBack() === "taken") return { to: "pi" };
+			if (now === "roster" && hold && !said) {
+				facts.say(
+					`Waiting for the ${hold.key} host to start; this window carries on there.`,
+				);
+				said = true;
+			}
+		}
 		await facts.pause(JOIN_LOOK_MS);
 	}
 }

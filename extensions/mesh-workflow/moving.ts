@@ -12,14 +12,17 @@
  * the note the move is taken up by and ends as Close does. Its presence
  * says where it is moving and what holds it meanwhile.
  *
- * The person resuming, talking to it or typing in its window calls a
- * move off, as it ends a pause: they are at the desk. A move to `pi` is
+ * The person resuming it or sending it a message from its window calls
+ * a move off, as it ends a pause: they are at the desk. A move to `pi` is
  * for a hosted conversation only; asked of a pi, it is said and dropped.
  *
  * A pi that can hand its own window to a host (in-place.ts) moves in
- * it rather than closing it, and its person typing doesn't call the
- * move off: it waits for them. It goes only after {@link QUIET_MS} with
- * no key pressed in the window, on top of being free, and says nothing
+ * it rather than closing it, and a message its person sends doesn't
+ * call the move off: the run it starts holds the move, which waits for
+ * them. Keys pressed without sending anything are seen apart from
+ * messages, through the window's own input, and only ever defer it: it
+ * goes only after {@link QUIET_MS} with no key pressed in the window,
+ * on top of being free, and says nothing
  * on screen as it goes, since its window carries straight on in the
  * host. One that finds no quiet moment within {@link QUIET_BOUND_MS}
  * gives up for now and looks again after {@link QUIET_REST_MS}, rather
@@ -83,8 +86,8 @@ export interface MovingSession {
 	/** The person is at the desk: a move waiting is called off. */
 	cancel(): void;
 	/**
-	 * The person typed in its window: a move waiting is called off,
-	 * unless it moves in place, which waits for them instead.
+	 * The person sent a message from its window: a move waiting is called
+	 * off, unless it moves in place, which waits for them instead.
 	 */
 	typed(): void;
 	/** Something changed: a move waiting ends the session once it's free. */

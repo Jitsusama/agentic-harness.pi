@@ -7,7 +7,8 @@
  *
  *   node scripts/host-join.ts --session ID -- pi --session LOG [FLAGS]
  *
- * It draws nothing. Once the host has the conversation open it names
+ * It draws nothing, unless a host holding the conversation is slow to
+ * come back, when it says so in one line. Once the host has the conversation open it names
  * `mycelium attach --host` as what its holder starts next; should the
  * move be taken back, plain pi's words. Either way it writes its wake
  * and exits as a park does, so its holder starts that at once on the
@@ -19,7 +20,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { joinMove } from "../host/service/join.ts";
 import { attachWords, hostHold } from "../lib/internal/session/host-holds.ts";
 import {
-	readMoveNote,
+	noteState,
 	restoreStrandedClaims,
 	takeBackMove,
 } from "../lib/internal/session/move.ts";
@@ -58,9 +59,10 @@ function alive(pid: number): boolean {
 
 const joined = await joinMove({
 	hold: () => hostHold(session),
-	noted: () => readMoveNote(session) !== undefined,
+	noted: () => noteState(session),
 	restoreStranded: () => restoreStrandedClaims(alive),
 	takeBack: () => takeBackMove(session, process.pid),
+	say: (line) => process.stdout.write(`\r\n${line}\r\n`),
 	now: Date.now,
 	pause: (ms) => delay(ms),
 });
