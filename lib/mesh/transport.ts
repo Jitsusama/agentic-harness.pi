@@ -205,9 +205,14 @@ export function folderTransport(dir: string): Transport {
 			return message;
 		},
 		ids() {
+			// Once each: a link to another machine can write a moved message
+			// back at the top, and it stays there beside its day's copy until
+			// the next settle.
 			return [
-				...idsIn(dir),
-				...daysIn(dir).flatMap((day) => idsIn(join(dir, day))),
+				...new Set([
+					...idsIn(dir),
+					...daysIn(dir).flatMap((day) => idsIn(join(dir, day))),
+				]),
 			].sort();
 		},
 		recentIds: () => idsIn(dir).sort(),

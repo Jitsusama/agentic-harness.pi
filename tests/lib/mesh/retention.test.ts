@@ -224,6 +224,18 @@ describe("a folder of messages", () => {
 		);
 	});
 
+	it("lists a message once that a link wrote back at the top beside its day's copy", () => {
+		const transport = folderTransport(messages);
+		const moved = stamped(messages, RECENT_MS + 1000);
+		transport.settle(now - RECENT_MS);
+		stamped(messages, RECENT_MS + 1000);
+
+		expect(transport.ids()).toEqual([moved]);
+		transport.settle(now - RECENT_MS);
+		expect(transport.recentIds()).toEqual([]);
+		expect(transport.ids()).toEqual([moved]);
+	});
+
 	it("lists only what hasn't moved, a little at a time", async () => {
 		const transport = folderTransport(messages);
 		stamped(messages, RECENT_MS + 1000);
