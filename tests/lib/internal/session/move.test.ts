@@ -83,6 +83,8 @@ describe("claiming a move note", () => {
 	const session = note().session;
 	const CUTOVER = 7001;
 	const JOIN = 7002;
+	// Every file a note or a claim left, past writeWhole's own `.writing`.
+	const left = () => readdirSync(folder).filter((name) => !name.startsWith("."));
 
 	it("lets the cutover adopt, and then tells the join it is adopting", () => {
 		writeMoveNote(note(), folder);
@@ -92,7 +94,7 @@ describe("claiming a move note", () => {
 		);
 		expect(takeBackMove(session, JOIN, folder)).toBe("adopting");
 		removeMoveNote(session, folder);
-		expect(readdirSync(folder), "nothing left once adopted").toEqual([]);
+		expect(left(), "nothing left once adopted").toEqual([]);
 		expect(takeBackMove(session, JOIN, folder)).toBe("adopting");
 	});
 
@@ -100,7 +102,7 @@ describe("claiming a move note", () => {
 		writeMoveNote(note(), folder);
 		expect(takeBackMove(session, JOIN, folder)).toBe("taken");
 		expect(claimMoveNote(session, CUTOVER, folder)).toBeUndefined();
-		expect(readdirSync(folder)).toEqual([]);
+		expect(left()).toEqual([]);
 	});
 
 	it("lets the join take back a note the cutover gave back", () => {
@@ -129,7 +131,7 @@ describe("claiming a move note", () => {
 			note(),
 			{ ...other, at: "2026-11-10T10:00:00.000Z" },
 		]);
-		expect(readdirSync(folder)).toHaveLength(2);
+		expect(left()).toHaveLength(2);
 	});
 
 	it("claims nothing where nothing has moved", () => {
