@@ -3,7 +3,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
@@ -14,6 +14,7 @@ import {
 	clearParked,
 	flagsLost,
 	heldDirectly,
+	holderRecord,
 	isRestartAsk,
 	opensOnlyItself,
 	PARK_ASK,
@@ -245,14 +246,9 @@ function niriFocused(): string | null {
 
 /** The app ids of the windows a holder's record says show this session. */
 function shownIn(wake: string): string[] | undefined {
-	let record: unknown;
-	try {
-		record = JSON.parse(readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"));
-	} catch {
-		// A record missing or half written can't say where it shows.
-		return undefined;
-	}
-	if (typeof record !== "object" || record === null) return undefined;
+	const record = holderRecord(wake);
+	// A record missing or half written can't say where it shows.
+	if (!record) return undefined;
 	const windows = "windows" in record ? record.windows : [];
 	if (!Array.isArray(windows)) return undefined;
 	return windows.map((window: unknown) =>
