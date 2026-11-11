@@ -35,6 +35,8 @@ const TOKENS_PER_K = 1_000;
 export interface WorkflowFacts {
 	readonly enabled: boolean;
 	readonly floorTokens: number;
+	/** Past this, it compacts whatever rent has been paid; 0 for none. */
+	readonly ceilingTokens: number;
 	readonly retention: string | undefined;
 	readonly chain: {
 		readonly providers: readonly string[];
@@ -108,6 +110,10 @@ export function workflowSection(
 		`trigger: ${facts.enabled ? "on" : "off (PI_COMPACTION_POLICY=off)"}${
 			facts.floorTokens > 0
 				? `, never at or below ${size(facts.floorTokens)}`
+				: ""
+		}${
+			facts.ceilingTokens > 0
+				? `, at the latest from ${size(facts.ceilingTokens)}`
 				: ""
 		}`,
 		`provider chain: ${

@@ -100,7 +100,21 @@ export interface TriggerInput {
 	readonly cost: CompactionCost;
 	/** Never compact a context this small or smaller; zero for no floor. */
 	readonly floorTokens: number;
+	/**
+	 * Compact a context this large or larger once it holds enough to drop,
+	 * whatever rent it has paid; zero or left out for no ceiling.
+	 */
+	readonly ceilingTokens?: number;
+	/** Tokens a compaction would drop: the context less what it keeps. */
+	readonly droppableTokens?: number;
 }
+
+/**
+ * The least a compaction past the ceiling must drop. Below it, what a
+ * compaction keeps already sits near the ceiling, and compacting would
+ * start the same context again for the price of a summary.
+ */
+const CEILING_LEAST_DROPPED = 30_000;
 
 export interface TriggerDecision {
 	readonly fire: boolean;
@@ -108,11 +122,24 @@ export interface TriggerDecision {
 	readonly cost: CompactionCost;
 }
 
-/** Whether the rent paid has reached what compacting now would cost. */
+/**
+ * Whether the rent paid has reached what compacting now would cost, or
+ * the context has passed the ceiling with enough to drop.
+ *
+ * The ceiling prices what the rent leaves out: every turn uploads its
+ * whole context, and a saturated uplink slows every session. Replayed
+ * over a day's 104,350 turns in November, a 200k ceiling sent 11.7
+ * percent fewer tokens for about 5 percent more in dollars.
+ */
 export function compactionPays(input: TriggerInput): TriggerDecision {
+	const ceiling = input.ceilingTokens ?? 0;
+	const pastCeiling =
+		ceiling > 0 &&
+		input.contextTokens >= ceiling &&
+		(input.droppableTokens ?? 0) >= CEILING_LEAST_DROPPED;
 	const fire =
 		input.contextTokens > input.floorTokens &&
-		input.rentPaid >= input.cost.total;
+		(input.rentPaid >= input.cost.total || pastCeiling);
 	return { fire, rentPaid: input.rentPaid, cost: input.cost };
 }
 

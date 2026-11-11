@@ -77,7 +77,10 @@
  * json` and ends when its run does, so interrupting one is not
  * something to assume is safe. `PI_COMPACTION_POLICY=off` turns this
  * off, and `PI_COMPACTION_FLOOR_TOKENS` sets a size it never compacts
- * at or below; there is none by default.
+ * at or below; there is none by default. Past a ceiling, 200k unless
+ * `PI_COMPACTION_CEILING_TOKENS` says otherwise (0 for none), it
+ * compacts whatever rent has been paid, since every turn uploads its
+ * whole context.
  */
 
 import type {
@@ -194,6 +197,19 @@ function floorTokens(): number {
 	return Number.isFinite(raw) && raw > 0 ? raw : 0;
 }
 
+/** Past this context, compact whatever rent has been paid. */
+const DEFAULT_CEILING_TOKENS = 200_000;
+
+/** The ceiling, from the environment when it names a number; 0 for none. */
+function ceilingTokens(): number {
+	const raw = Number.parseInt(
+		process.env.PI_COMPACTION_CEILING_TOKENS ?? "",
+		10,
+	);
+	if (!Number.isFinite(raw)) return DEFAULT_CEILING_TOKENS;
+	return raw > 0 ? raw : 0;
+}
+
 /** The active model's prices per token, or nothing without cache pricing. */
 function pricesOf(ctx: ExtensionContext): CompactionPrices | undefined {
 	const model = ctx.model;
@@ -286,6 +302,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	registerCompactionStatus(pi, () => ({
 		enabled: enabled(),
 		floorTokens: floorTokens(),
+		ceilingTokens: ceilingTokens(),
 		retention: process.env.PI_CACHE_RETENTION,
 		chain: host.chain(),
 		ahead: host.state(),
@@ -522,6 +539,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			rentPaid,
 			cost: costAt(ctx, tokens, prices),
 			floorTokens: floorTokens(),
+			ceilingTokens: ceilingTokens(),
+			droppableTokens: Math.max(0, tokens - retained()),
 		});
 		if (!decision.fire) return;
 
