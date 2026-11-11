@@ -155,15 +155,7 @@ describe("host-join under no holder", () => {
 		// Its real pause, 4 s after one earlier failure, is what's measured.
 		const began = Date.now();
 		const joined = await hostJoin(
-			[
-				"--released",
-				"--failures",
-				"1",
-				"--session",
-				"01a1",
-				"--",
-				...PLAIN_PI,
-			],
+			["--released", "--failures", "1", "--session", "01a1", "--", ...PLAIN_PI],
 			home(),
 			undefined,
 			{ [ATTACH_FAILED_ENV]: "1" },
