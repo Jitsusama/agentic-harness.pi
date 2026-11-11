@@ -39,14 +39,16 @@ export interface TtyOptions {
 /** Open a shell in a terminal of `rows` by `columns`, under `seal`. */
 export async function openTty(seal: Seal, options: TtyOptions): Promise<Tty> {
 	const drawing = drawn(options.rows, options.columns);
+	// script(1) runs its command through `$SHELL -c`, and a bash run that
+	// way drops PS1 from its environment, so the prompt is handed to the
+	// interactive bash by env(1), past whichever shell script(1) runs.
 	const child = spawn(
 		"script",
-		["-qfec", "bash --norc --noprofile -i", "/dev/null"],
+		["-qfec", `env PS1='${PROMPT}' bash --norc --noprofile -i`, "/dev/null"],
 		{
 			env: {
 				...seal.env,
 				TERM: "xterm-256color",
-				PS1: PROMPT,
 			},
 			stdio: ["pipe", "pipe", "pipe"],
 		},
