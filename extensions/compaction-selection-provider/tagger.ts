@@ -18,11 +18,15 @@ import {
 	taggingRequest,
 	tagsFrom,
 } from "../../lib/compaction/selection/tagging.ts";
-import { untagged } from "../../lib/compaction/selection/tags.ts";
+import {
+	taggedBranchAt,
+	untagged,
+} from "../../lib/compaction/selection/tags.ts";
 import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
+import { entriesBefore } from "../../lib/internal/session/branch-walk.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
 
@@ -63,18 +67,19 @@ export function tagger(
 	async function pass(ctx: ExtensionContext, signal: AbortSignal) {
 		const classifier = await status.resolve(ctx);
 		if (!classifier.ok || signal.aborted) return;
-		const branch = ctx.sessionManager.getBranch();
-		const position = new Map(branch.map((entry, at) => [entry.id, at]));
-		const queue = untagged(branch, store.tags(branch))
+		// Read from what the branch gained since the last pass, not the
+		// whole branch, since a pass follows every turn.
+		const session = ctx.sessionManager;
+		const { live } = taggedBranchAt(session);
+		const queue = untagged(live, store.tagsAt(session))
 			.filter((entry) => (attempts.get(entry.id) ?? 0) < ATTEMPTS)
 			.reverse();
 
 		const tagOne = async (entry: (typeof queue)[number]) => {
 			const tried = attempts.get(entry.id) ?? 0;
-			const at = position.get(entry.id) ?? 0;
 			const units = unitsOf(entry);
 			const before = unitsOfBranch(
-				branch.slice(Math.max(0, at - CONTEXT_ENTRIES), at),
+				entriesBefore(session, entry, CONTEXT_ENTRIES),
 			);
 			const started = Date.now();
 			const result = await classify(
