@@ -211,11 +211,15 @@ export class Engine {
 		this.end();
 	}
 
-	/** Ends the running engine, if there is one, for the next ask to restart. */
+	/**
+	 * Ends the running engine, if there is one, for the next ask to restart.
+	 * The next must answer before it counts as working, as the first did.
+	 */
 	private end(): void {
 		const child = this.child;
 		this.child = null;
 		this.heard = "";
+		this.spoke = false;
 		child?.stdin?.end();
 		child?.kill();
 	}

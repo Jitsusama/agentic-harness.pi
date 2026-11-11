@@ -312,6 +312,29 @@ describe("the engine, kept running", () => {
 		expect(readFileSync(starts, "utf8")).toBe("start\nstart\n");
 	});
 
+	it("doesn't start again an engine that, started after a rest, ended without answering", async () => {
+		// Serves as the stand-in the first time, and ends at once every time after.
+		const once = join(dir, "once");
+		writeFileSync(
+			once,
+			`#!/bin/sh\n[ -e ${JSON.stringify(starts)} ] && { echo start >> ${JSON.stringify(starts)}; exit 0; }\nexec ${JSON.stringify(program)}\n`,
+		);
+		chmodSync(once, 0o755);
+		const { all, answered } = listen(1);
+		const engine = new Engine(once, answered, none, ANSWER_MS);
+		engine.ask(dir);
+		await all;
+		// Past the rest, then past the second engine's end.
+		await quietFor(ANSWER_MS, 3);
+		engine.ask(dir);
+		await quietFor(ANSWER_MS, 3);
+		engine.ask(dir);
+		await quietFor(ANSWER_MS, 3);
+		engine.stop();
+
+		expect(readFileSync(starts, "utf8")).toBe("start\nstart\n");
+	});
+
 	it("lets no engine rest while a question is out", async () => {
 		const { got, all, answered } = listen(1);
 		const engine = new Engine(program, answered, none, ANSWER_MS / 4);
