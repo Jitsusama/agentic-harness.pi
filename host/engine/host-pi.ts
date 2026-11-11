@@ -68,6 +68,14 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 			staticNumber(codingAgent.InteractiveMode, "hostedLifecycleVersion") === 1,
 	},
 	{
+		patch: "pi-host-interactive-lifecycle.patch",
+		why: "a quit typed while other windows watch would end the conversation without asking the one who typed it",
+		// Added to the lifecycle patch as hosted.quit, after its version 1.
+		present: ({ codingAgent }) =>
+			isRecord(codingAgent.InteractiveMode) &&
+			codingAgent.InteractiveMode.hostedQuit === true,
+	},
+	{
 		patch: "pi-host-model-auth-context.patch",
 		why: "a conversation's credentials would be read from the host's own environment",
 		// Version 1 kept keys to the context but read header variables from the host's own environment; version 2 keeps both.

@@ -10,11 +10,13 @@ import {
 import { LEFT_RUNNING } from "../../../lib/core/viewer/terminal.ts";
 
 /**
- * pi's hosted screen as today's runtime has it: Ctrl+D goes straight to its
- * shutdown, which stops the screen and tells the host.
+ * pi's hosted screen as the runtime has it: Ctrl+D asks the host first
+ * (hosted.quit), and only a yes goes on to its shutdown, which stops the
+ * screen and tells the host.
  */
-class Unasking implements HostedMode {
+class Asking implements HostedMode {
 	static readonly hostedLifecycleVersion = 1;
+	static readonly hostedQuit = true;
 	readonly ui = { requestRender: vi.fn() };
 	readonly session: { isStreaming: boolean };
 	readonly options: HostedModeOptions;
@@ -42,8 +44,8 @@ class Unasking implements HostedMode {
 		});
 	}
 
-	protected quitKey(): Promise<void> {
-		return this.shutdown();
+	private async quitKey(): Promise<void> {
+		if (await this.options.hosted.quit()) await this.shutdown();
 	}
 
 	async shutdown(): Promise<void> {
@@ -51,15 +53,6 @@ class Unasking implements HostedMode {
 		this.options.terminal.stop();
 		await this.options.hosted.onExit(0);
 		this.finish?.();
-	}
-}
-
-/** The same screen on a runtime whose hosted quit asks its host first. */
-class Asking extends Unasking {
-	static readonly hostedQuit = true;
-
-	protected override async quitKey(): Promise<void> {
-		if (await this.options.hosted.quit()) await this.shutdown();
 	}
 }
 
@@ -83,15 +76,9 @@ function attach(sessionId: string) {
 	} as const;
 }
 
-function host(pi: unknown) {
-	const create = hostedModeOf(pi);
-	const made: HostedMode[] = [];
+function host() {
 	const screens = hostScreens({
-		create: (runtime, options) => {
-			const mode = create(runtime, options);
-			made.push(mode);
-			return mode;
-		},
+		create: hostedModeOf(Asking),
 		report: vi.fn(),
 	});
 	const closes: string[] = [];
@@ -105,15 +92,12 @@ function host(pi: unknown) {
 			},
 		};
 	}
-	return { screens, closes, view, made };
+	return { screens, closes, view };
 }
 
-describe.each([
-	["today's runtime, its shutdown wrapped", Unasking],
-	["a runtime that asks its host", Asking],
-])("a hosted screen's quit on %s", (_, pi) => {
+describe("a hosted screen's quit", () => {
 	it("closes for everyone once the viewer that typed it says y, naming that viewer", async () => {
-		const { screens, closes, view } = host(pi);
+		const { screens, closes, view } = host();
 		await screens.screens.opened(view("a"));
 		const typing = sink();
 		const other = sink();
@@ -135,7 +119,7 @@ describe.each([
 	});
 
 	it("closes at once for a lone viewer, as plain pi's quit does, naming that viewer", async () => {
-		const { screens, closes, view } = host(pi);
+		const { screens, closes, view } = host();
 		await screens.screens.opened(view("a"));
 		const alone = sink();
 		const one = screens.viewer.attach(attach("a"), alone);
@@ -153,7 +137,7 @@ describe.each([
 	});
 
 	it("lets only that viewer go and keeps the screen when it says anything else", async () => {
-		const { screens, closes, view } = host(pi);
+		const { screens, closes, view } = host();
 		await screens.screens.opened(view("a"));
 		const typing = sink();
 		const other = sink();
@@ -174,7 +158,7 @@ describe.each([
 	});
 
 	it("stops the screen at once when the conversation closes elsewhere", async () => {
-		const { screens, closes, view } = host(pi);
+		const { screens, closes, view } = host();
 		await screens.screens.opened(view("a"));
 		const watching = sink();
 		screens.viewer.attach(attach("a"), watching);
@@ -183,23 +167,5 @@ describe.each([
 
 		expect(closes, "a close from elsewhere isn't closed again").toEqual([]);
 		expect(watching.disconnect).toHaveBeenCalledWith("Conversation closed");
-	});
-});
-
-describe("the wrap on today's runtime", () => {
-	it("wraps only a runtime that doesn't ask its host itself", async () => {
-		const today = host(Unasking);
-		const hooked = host(Asking);
-		await today.screens.screens.opened(today.view("a"));
-		await hooked.screens.screens.opened(hooked.view("a"));
-
-		expect(
-			Object.hasOwn(today.made[0] ?? {}, "shutdown"),
-			"today's screen asks before its own quit",
-		).toBe(true);
-		expect(
-			Object.hasOwn(hooked.made[0] ?? {}, "shutdown"),
-			"a screen that asks itself keeps pi's own quit",
-		).toBe(false);
 	});
 });

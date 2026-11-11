@@ -12,10 +12,7 @@ through the view's `close`, with a reason naming who asked. A quit a
 lone viewer typed holds as in plain pi; one typed with others watching
 holds only once that viewer confirms it (the terminal's
 `confirmQuit`), through `hosted.quit`, which pi asks before its hosted
-quit. Today's runtime doesn't ask, so `hostedModeOf` wraps the screen's
-own shutdown to ask first; on a runtime that says
-`InteractiveMode.hostedQuit`, the wrap stays off, and it goes once every
-host's runtime says so. A conversation closed elsewhere (the
+quit. A conversation closed elsewhere (the
 launcher's Close, a host stop) stops its screen without closing it
 again. A conversation parked while idle (`parked`) stops its screen as
 a close does, but keeps its terminal and viewers, shows them
@@ -56,7 +53,9 @@ A closed screen still contains what its leftover timers throw.
 
 `hostedModeOf` takes the InteractiveMode class the host's pi exports and
 refuses one without core.nix's `pi-host-interactive-lifecycle.patch`,
-whose screens would own the host's process exit and signals.
+whose screens would own the host's process exit and signals, or one
+from before that patch's hosted quit (`InteractiveMode.hostedQuit`),
+whose screens would quit without asking.
 
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host
