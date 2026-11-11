@@ -143,4 +143,24 @@ describe("a throw the host's process caught", () => {
 
 		expect(mode.resets).toEqual(["a"]);
 	});
+
+	it("is still its conversation's once the screen has closed, and touches it no more", async () => {
+		const screens = host();
+		const mode = await screens.open("a");
+		await screens.screens.closed("a");
+
+		expect(
+			screens.faulted("a", new Error("a leftover timer")),
+			"a closed conversation's throw is still contained",
+		).toBe(true);
+		mode.drawThrowing("a leftover frame");
+		screens.faulted("a", new Error("and another"));
+
+		expect(mode.resets, "a closed screen is never reset").toEqual([]);
+		expect(screens.closes).toEqual([]);
+		expect(screens.report.mock.calls.map(([error]) => String(error))).toEqual([
+			"Error: Conversation a threw where nothing caught it, after it began closing; the host carries on",
+			"Error: Conversation a threw where nothing caught it, after it began closing; the host carries on",
+		]);
+	});
 });

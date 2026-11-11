@@ -130,7 +130,12 @@ export interface HostScreens {
 	faulted(sessionId: string, error: unknown): boolean;
 }
 
-interface Screen {
+/** How many throws a conversation's screen has had contained. */
+interface Faults {
+	faults: number;
+}
+
+interface Screen extends Faults {
 	readonly terminal: ViewerTerminal;
 	readonly mode: HostedMode;
 	readonly runtime: unknown;
@@ -139,12 +144,12 @@ interface Screen {
 	closing: boolean;
 	/** Set once pi's screen has started, and runs. */
 	started: boolean;
-	/** How many throws it has had contained. */
-	faults: number;
 }
 
 /** Throws reported of one screen; past these it is closing, and each frame would say the same. */
 const FAULTS_REPORTED = 2;
+/** What follows a throw from a screen already closing: nothing more. */
+const CLOSING = "after it began closing";
 
 /** A conversation's terminal, made before its screen when pi asks something first. */
 interface Early {
@@ -164,9 +169,10 @@ export function hostScreens(options: {
 }): HostScreens {
 	const live = new Map<string, Screen>();
 	const early = new Map<string, Early>();
-	// Screens closed, kept so a timer one left behind that throws later is
-	// still its conversation's, not a reason to stop the host.
-	const gone = new Map<string, Screen>();
+	// Conversations whose screens closed, kept so a timer one left behind
+	// that throws later is still its conversation's, not a reason to stop
+	// the host; only their count, so no closed screen outlives its close.
+	const gone = new Map<string, Faults>();
 
 	function find(sessionId: string): Screen {
 		const screen = live.get(sessionId);
@@ -242,27 +248,39 @@ export function hostScreens(options: {
 	// ended the host. A second throw means the screen itself is broken, so
 	// its conversation closes alone, its log kept for opening again.
 	function contain(screen: Screen, error: unknown): void {
-		screen.faults += 1;
-		const { sessionId } = screen.view;
-		if (screen.faults <= FAULTS_REPORTED) {
-			const then = screen.closing
-				? "after it began closing"
-				: screen.faults === 1
+		noted(
+			screen,
+			screen.view.sessionId,
+			screen.closing
+				? CLOSING
+				: screen.faults === 0
 					? "so its extensions' screen comes down"
-					: "so it closes";
-			options.report(
-				new Error(
-					`Conversation ${sessionId} threw where nothing caught it, ${then}; the host carries on`,
-					{ cause: error },
-				),
-			);
-		}
+					: "so it closes",
+			error,
+		);
 		if (screen.closing) return;
 		if (screen.faults === 1 && settled(screen, error)) return;
 		screen.closing = true;
 		screen.view
 			.close("its screen kept throwing")
 			.catch((closing: unknown) => options.report(closing));
+	}
+
+	// Count a throw, and report the first few with what follows from it.
+	function noted(
+		counted: Faults,
+		sessionId: string,
+		then: string,
+		error: unknown,
+	): void {
+		counted.faults += 1;
+		if (counted.faults > FAULTS_REPORTED) return;
+		options.report(
+			new Error(
+				`Conversation ${sessionId} threw where nothing caught it, ${then}; the host carries on`,
+				{ cause: error },
+			),
+		);
 	}
 
 	// Take the extensions' footer, widgets, panels and key listeners down,
@@ -382,7 +400,12 @@ export function hostScreens(options: {
 		const screen = live.get(sessionId);
 		if (!screen) return;
 		live.delete(sessionId);
-		gone.set(sessionId, screen);
+		// From here a throw is only counted, by its terminal and the host alike.
+		const closed: Faults = { faults: screen.faults };
+		gone.set(sessionId, closed);
+		screen.terminal.whenFaulted((error) =>
+			noted(closed, sessionId, CLOSING, error),
+		);
 		const quitting = screen.closing;
 		screen.closing = true;
 		try {
@@ -425,10 +448,11 @@ export function hostScreens(options: {
 					noGates(screen.view.sessionId),
 			),
 		faulted(sessionId, error) {
-			const screen = live.get(sessionId) ?? gone.get(sessionId);
-			if (!screen) return false;
-			contain(screen, error);
-			return true;
+			const screen = live.get(sessionId);
+			if (screen) contain(screen, error);
+			const closed = screen ? undefined : gone.get(sessionId);
+			if (closed) noted(closed, sessionId, CLOSING, error);
+			return screen !== undefined || closed !== undefined;
 		},
 	};
 }
