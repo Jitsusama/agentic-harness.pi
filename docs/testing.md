@@ -76,8 +76,8 @@ as a record only: it proves the pi, not the harness.
 A harness change reaches the hosts through a gate of its own, since
 `pnpm check` skips the host cases wherever no runtime is installed.
 `bash scripts/host-test-there.sh` runs the whole of `pnpm test:host` for
-the commit checked out on a lent builder (`scripts/host-test.nix`), on the
-runtime the hosts are proven on, and keeps what it said under
+the commit checked out on a lent builder, through `nix-offload there
+--run`, on the runtime the hosts are proven on, and keeps what it said under
 `$XDG_STATE_HOME/agentic-harness.pi/host-tests/<commit>/`. Given test
 files, it runs only those, which answers for a branch's own tests but
 clears no merge. `scripts/host-gate.sh` is the harness's

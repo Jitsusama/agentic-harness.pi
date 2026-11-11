@@ -46,9 +46,9 @@ elif [[ $(< "$record/runtime") != "$runtime" ]]; then
   why="test:host ran at $sha on $(< "$record/runtime"), not the proven $runtime"
 elif [[ $(< "$record/status") != 0 ]]; then
   why="test:host at $sha exited $(< "$record/status"); its log is $record/log"
-  # The store keeps a run's result, a failed one too, so the same commit
-  # reads the same failure back however often it is run.
-  clear="A run at $sha gives this same result again, from the store: fix it in a new commit, then run bash scripts/host-test-there.sh there"
+  # Each run is a fresh one, so a flake clears on a second run at the
+  # same commit; anything else needs fixing first.
+  clear="Read the log, then fix it in a new commit and run bash scripts/host-test-there.sh there, or run that same command again at $sha if a case only flaked"
 fi
 if [[ -z $why ]]; then
   echo "host-gate: test:host passed at $sha on $runtime"
