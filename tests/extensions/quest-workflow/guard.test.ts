@@ -280,9 +280,7 @@ describe("the quest gates under the policy", () => {
 
 		expect(first).toBeUndefined();
 		expect(other).toBeUndefined();
-		expect(reports).toMatchObject([
-			{ guard: "quest-homeless", kind: "fixed" },
-		]);
+		expect(reports).toMatchObject([{ guard: "quest-homeless", kind: "fixed" }]);
 		expect(reports[0]?.body).toContain("/home/me/.config/x");
 	});
 
