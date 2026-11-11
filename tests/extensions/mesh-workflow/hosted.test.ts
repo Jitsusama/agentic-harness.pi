@@ -1,6 +1,13 @@
 /** Two mesh runtimes in one host exchange messages and close independently. */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
@@ -30,6 +37,7 @@ import {
 } from "../../../lib/core/session/index.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
+import { PARKING, writeParked } from "../../../lib/internal/session/park.ts";
 import { handIn } from "../../../lib/mesh/hand.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
 import { census } from "../../../lib/mesh/liveness.ts";
@@ -56,6 +64,7 @@ const stops: (() => Promise<unknown>)[] = [];
 let uninstall: (() => void) | undefined;
 afterEach(async () => {
 	for (const stop of stops.splice(0)) await stop();
+	vi.unstubAllEnvs();
 	for (const id of ["alpha-AAAAAAAA", "bravo-BBBBBBBB"]) releaseSession(id);
 	uninstall?.();
 	rmSync(root, { recursive: true, force: true });
@@ -114,6 +123,8 @@ async function peer(id: string) {
 	return {
 		messages,
 		ctx,
+		emit: (name: string, data: unknown) =>
+			withSession(id, () => pi.events.emit(name, data)),
 		close: (reason = "quit") => fire("session_shutdown", { reason }),
 		call: (name: string, params: unknown) =>
 			withSession(id, async () => {
@@ -238,6 +249,45 @@ it("trades a question and answer, then forgets only the closed conversation", as
 			text: "Still there?",
 		}),
 	).toContain("no session");
+});
+
+it("keeps a parked conversation's presence, so a question to it wakes it", async () => {
+	vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
+	await inHost();
+	const a = await peer("alpha-AAAAAAAA");
+	const b = await peer("bravo-BBBBBBBB");
+	const wake = join(root, "bravo.wake");
+	// As the host parks it: the marker, then the bus's word, then its end.
+	writeParked({
+		session: "bravo-BBBBBBBB",
+		sessionFile: join(root, "bravo-BBBBBBBB.jsonl"),
+		cwd: b.ctx.cwd,
+		addresses: ["BBBBBBBB"],
+		parkedAt: new Date().toISOString(),
+		pid: process.pid,
+		wake,
+	});
+	b.emit(PARKING, { session: "bravo-BBBBBBBB", addresses: [], wake });
+	await b.close();
+
+	const presences = createPresences(join(paths.mesh, "presence"));
+	expect(
+		presences.of("bravo-BBBBBBBB")?.state,
+		"its presence stays, saying it parked",
+	).toBe("parked");
+	expect(
+		await a.call("mesh_send", {
+			to: "BBBBBBBB",
+			intent: "question",
+			text: "Awake?",
+		}),
+	).toContain("Sent");
+	await vi.waitFor(() =>
+		expect(existsSync(wake), "the question asks its host to wake it").toBe(
+			true,
+		),
+	);
+	expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe("bravo-BBBBBBBB");
 });
 
 it("keeps reload presence and heavy-call carry separate for two conversations", async () => {
