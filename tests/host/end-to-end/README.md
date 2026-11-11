@@ -97,10 +97,10 @@ commit credits only its own model.
 restart.test.ts is E4: one conversation stores a query's rows under a
 handle, the host is killed outright, and once a new host has resumed
 both, a steer to the old address reaches it and its query of the old
-handle answers. Neither is offered to reopen in a window, with the host
-dead or back: the next boot's restore file marks both hosted, so the
-launcher's Sessions to Reopen leaves them out, and `quest
-reopen-sessions` names neither.
+handle answers. Neither is ever started twice, with the host dead or
+back: the next boot's restore file marks both hosted, so the launcher's
+Reopen Them All opens only a viewer of each, giving it its window back
+with no second pi, and `quest reopen-sessions` names neither.
 
 rollback.test.ts is E5, the rollback drill: one conversation is closed
 in the host and its log opened in a plain `pi --session`, which

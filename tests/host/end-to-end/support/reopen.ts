@@ -1,10 +1,11 @@
 /**
- * What the launcher's Sessions to Reopen would offer from a seal's
- * session records on the boot after this one: the restore file the
- * harness would write then (lib/internal/quest/restore-file.ts), read
- * through the launcher's own filter, which leaves out an entry marked
- * `hosted` (core.nix's modules/quickshell/Sessions.qml, restoreOf),
- * since its host brings it back and a window too would start it twice.
+ * What the launcher's Reopen Them All would open from a seal's session
+ * records on the boot after this one: the restore file the harness would
+ * write then (lib/internal/quest/restore-file.ts), read as the launcher
+ * reads it (core.nix's modules/quickshell/Sessions.qml, restoreOf). An
+ * entry marked `hosted` is kept, but only its viewer opens, since its
+ * host brings the conversation back and a pi too would start it twice;
+ * before core.nix #3316 it was left out, and its window was lost.
  *
  * Read on the next boot rather than this one, because on this boot the
  * file offers nothing at all, hosted or not: only a boot that ended
@@ -71,7 +72,20 @@ export function nextBootRestore(seal: Seal): RestoreFile {
 	return restoreFileOf(sealedRecords(seal), NEXT_BOOT);
 }
 
-/** What the launcher would offer of a restore file: none marked hosted. */
-export function launcherOffers(file: RestoreFile): RestoreEntry[] {
-	return file.sessions.filter((one) => one.hosted !== true);
+/** What Reopen Them All opens for one entry of a restore file. */
+export interface Reopened {
+	readonly id: string;
+	/** A viewer of its host's conversation, or a pi that starts it. */
+	readonly opens: "viewer" | "pi";
+}
+
+/**
+ * What the launcher would open for each entry of a restore file: a
+ * viewer for one marked hosted, a pi for any other.
+ */
+export function launcherReopens(file: RestoreFile): Reopened[] {
+	return file.sessions.map((one: RestoreEntry) => ({
+		id: one.id,
+		opens: one.hosted === true ? "viewer" : "pi",
+	}));
 }
