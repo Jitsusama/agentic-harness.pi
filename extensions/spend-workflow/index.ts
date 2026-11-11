@@ -12,7 +12,9 @@
  * since subagents write no session log for the ledger to index.
  * Indexing is incremental: an append-only log that has not grown is not
  * read again, so a routine pass costs seconds rather than the minute a
- * full corpus takes.
+ * full corpus takes. One still pi on the machine also runs a pass every
+ * half hour, and every pass stamps when it ran and whether it failed
+ * (`keeper.ts`), so readers outside pi know how current the ledger is.
  *
  * Every answer states its own coverage. Turns that carried no usage are
  * counted but not priced, and spend whose session named no repo or quest
@@ -80,6 +82,7 @@ import { registerBudgetItem } from "./budget-item.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs, sessionsDir } from "./indexer.ts";
+import { registerKeeper, stampedPass } from "./keeper.ts";
 import {
 	formatBill,
 	formatFanOut,
@@ -310,6 +313,8 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 		});
 		return indexing;
 	};
+
+	registerKeeper(pi, async () => indexOnce(await open()));
 
 	// A second connection, opened read-only, so no query can write
 	// whatever it says. Opened after the store, which makes the views.
@@ -573,7 +578,9 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			const opened = await open();
-			const index = await indexOnce(opened);
+			const index = await stampedPass(stateDir("observability"), "tool", () =>
+				indexOnce(opened),
+			);
 
 			if (params.reindex) {
 				return {

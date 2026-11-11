@@ -4,12 +4,12 @@ import {
 	readdirSync,
 	readFileSync,
 	statSync,
-	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { TurnStore } from "../../lib/core/observability/index.ts";
+import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { readTurns, SCAN_VERSION } from "../../lib/ledger/index.ts";
 import type { IndexOutcome } from "./report.ts";
 
@@ -71,7 +71,9 @@ function loadWatermarks(path: string): Watermarks {
 
 function saveWatermarks(path: string, sizes: Watermarks): void {
 	const file: WatermarkFile = { scanVersion: SCAN_VERSION, sizes };
-	writeFileSync(path, JSON.stringify(file), "utf8");
+	// Written whole, since a file cut short trusts nothing and costs a
+	// full re-index of every log.
+	writeWhole(path, JSON.stringify(file));
 }
 
 async function* linesOf(path: string): AsyncGenerator<string> {
@@ -170,6 +172,10 @@ export async function indexSessionLogs(
 			insertedDropped += droppedOutcome.inserted;
 			marks[path] = size;
 			scanned += 1;
+			// Saved after every log, so a pass cut short (its session ended,
+			// a reload, a failure further on) keeps what it read rather than
+			// leaving the next one to read it all again.
+			saveWatermarks(watermarkPath, marks);
 		}
 	}
 
