@@ -84,10 +84,14 @@ through landrun:
   lookups through nscd still work. The variables that name them are
   left out, so a command fails at once rather than search.
 - **Settings read-only.** `~/.config`, the shell's startup files,
-  `~/.ssh`, `~/.local/bin`, the launcher's entries, direnv's allow
-  list, `~/.pi/agent` and pi's packages, so nothing it writes runs as
-  you later. pi's own file tools are held to the same (see the
-  sandbox file interceptor).
+  git's and npm's settings, `~/.ssh`, what is on your `PATH` (`~/.local/bin`,
+  the Nix profile, dev's toolchain), the launcher's entries, direnv's
+  allow list, `~/.pi/agent`, pi's packages, and the skills and settings
+  every agent loads, so nothing it writes runs as you later. The home
+  folder itself is read-only, with its other entries bound back
+  writable, since a dotfile linked into the store could otherwise be
+  deleted and replaced. pi's own file tools are held to the same (see
+  the sandbox file interceptor).
 - **No new privileges.** A setgid wrapper such as 1Password's `op`
   gains nothing.
 
@@ -95,6 +99,8 @@ Everything else is as it was: the home folder, the work, the network
 and the rest of the environment. The strict profile below is for text a
 stranger wrote; the fence is for every session. A session asking for
 it without bwrap and landrun on `PATH`, or off Linux, runs no command.
+It cost about 110 ms a command on a machine at a load of 40 (142 ms
+against 35 ms unfenced).
 
 Until the SSH agent's proxy lets the fence reach the builders, a
 `nix-offload there` call on its own runs outside: the store's own
@@ -146,7 +152,7 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
   signal reaches a process outside the sandbox.
 - **The network** stays open.
 
-It costs 20 to 35 ms a command. The queue still reads the command as
+The strict profile costs 20 to 35 ms a command. The queue still reads the command as
 given, and the lines that wait for its turn run outside the sandbox. A
 session that asks for it where it can't be had, off Linux or without
 landrun on `PATH`, runs no command at all rather than run one unfenced.

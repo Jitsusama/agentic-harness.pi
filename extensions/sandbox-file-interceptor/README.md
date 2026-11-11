@@ -44,8 +44,10 @@ The agent fence (see the shell workflow's [The Agent Fence][2]) keeps
 the work open and the desktop closed, and pi's file tools follow it:
 
 - **Writing** is refused where a fenced command can't write: the
-  settings and startup files it binds read-only, and the runtime
-  folder.
+  settings and startup files it binds read-only, a new file or a link
+  in the home folder itself, and the runtime folder. The path as named
+  counts as well as where it leads, since writing a link may replace
+  it.
 - **Reading** is refused for any process's files in `/proc`, pi's own
   through `/proc/self` included, and for the runtime folder, which
   holds the clipboard's pictures and the desktop's sockets.

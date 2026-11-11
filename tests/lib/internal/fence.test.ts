@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	type Disk,
 	FENCE,
 	fenceArgs,
 	fenceRules,
@@ -97,10 +98,34 @@ describe("what a session asking for the fence is given", () => {
 	});
 });
 
+/**
+ * A disk where every path is a folder but the links named, and the home
+ * folder holds `entries`.
+ */
+function diskWith(
+	home: string,
+	entries: readonly string[],
+	links: readonly string[] = [],
+): Disk {
+	return {
+		kind: (path) => (links.includes(path) ? "link" : "folder"),
+		entries: (folder) => (folder === home ? entries : []),
+	};
+}
+
 describe("the fence's arguments", () => {
 	const place = { home: "/home/someone", runtimeDir: "/run/user/1000" };
-	const args = fenceArgs(place, () => true);
+	const args = fenceArgs(
+		place,
+		diskWith(
+			place.home,
+			["src", ".cache", ".local", ".pi", ".config", ".bashrc", ".zshrc"],
+			["/home/someone/.zshrc"],
+		),
+	);
 	const rules = fenceRules(place);
+	const pairs = (flag: string) =>
+		args.flatMap((arg, at) => (arg === flag ? [args[at + 1]] : []));
 
 	it("gives each command its own processes and an empty runtime folder", () => {
 		expect(args.join(" ")).toContain("--unshare-pid");
@@ -109,11 +134,45 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes", () => {
-		const bound = args.flatMap((arg, at) =>
-			arg === "--bind" ? [args[at + 1]] : [],
+	it("binds back only the Nix daemon's door for sandboxes in the runtime folder", () => {
+		const bound = pairs("--bind").filter((path) =>
+			path?.startsWith(place.runtimeDir),
 		);
 		expect(bound).toEqual(["/run/user/1000/nix-untrusted.sock"]);
+	});
+
+	it("makes the home folder read-only, binding back writable every entry but the read-only ones and links", () => {
+		expect(pairs("--ro-bind")[0]).toBe(place.home);
+		const writable = pairs("--bind").filter((path) =>
+			path?.startsWith(place.home),
+		);
+		expect(writable).toEqual([
+			"/home/someone/.cache",
+			"/home/someone/.local",
+			"/home/someone/.pi",
+			"/home/someone/src",
+		]);
+	});
+
+	it("binds each deeper read-only path over its writable folder, after it", () => {
+		const agent = args.lastIndexOf("/home/someone/.pi/agent");
+		const pi = args.indexOf("/home/someone/.pi");
+		expect(args[agent - 2], "pi's settings are writable").toBe("--ro-bind");
+		expect(agent > pi, "pi's settings are bound before their folder").toBe(
+			true,
+		);
+	});
+
+	it("makes the folder holding a deeper read-only link read-only instead", () => {
+		const linked = fenceArgs(
+			place,
+			diskWith(place.home, [".local"], ["/home/someone/.local/bin"]),
+		);
+		const readOnly = linked.flatMap((arg, at) =>
+			arg === "--ro-bind" ? [linked[at + 1]] : [],
+		);
+		expect(readOnly).toContain("/home/someone/.local");
+		expect(readOnly).not.toContain("/home/someone/.local/bin");
 	});
 
 	it("lets none of the desktop's names through, by bind or by socket", () => {
@@ -138,19 +197,20 @@ describe("the fence's arguments", () => {
 		}
 	});
 
-	it("hides the system bus and X's sockets, and makes every startup file read-only", () => {
+	it("hides the system bus and X's sockets, and binds no read-only path writable", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/dbus");
 		expect(args.join(" ")).toContain("--tmpfs /tmp/.X11-unix");
 		for (const path of READ_ONLY) {
 			const full = join(place.home, path);
-			expect(args.join(" "), `${path} is writable`).toContain(
-				`--ro-bind ${full} ${full}`,
-			);
+			expect(pairs("--bind"), `${path} is writable`).not.toContain(full);
+			if (path.includes("/")) {
+				expect(pairs("--ro-bind"), `${path} is writable`).toContain(full);
+			}
 		}
 	});
 
 	it("binds nothing that isn't there", () => {
-		const none = fenceArgs(place, () => false);
+		const none = fenceArgs(place, { kind: () => undefined, entries: () => [] });
 		expect(none).not.toContain("--bind");
 		expect(none).not.toContain("--ro-bind");
 	});
@@ -244,9 +304,13 @@ describe("a command in the fence, through stand-ins", () => {
 			].join("\n"),
 		);
 		for (const program of [bwrap, landrun, offload]) chmodSync(program, 0o755);
-		const env = spawnSync("bash", ["-c", "command -v env"], {
-			encoding: "utf8",
-		}).stdout.trim();
+		// Through its links, as a session finds it: on NixOS, coreutils'
+		// one binary for every program, which acts by the name it is given.
+		const env = realpathSync(
+			spawnSync("bash", ["-c", "command -v env"], {
+				encoding: "utf8",
+			}).stdout.trim(),
+		);
 		sandbox = {
 			kind: "fence",
 			bwrap,
@@ -374,6 +438,8 @@ describe("pi's file tools in a fenced session", () => {
 		);
 
 	it("writes and reads the work, and reads the settings", () => {
+		writeFileSync(join(home, ".history"), "");
+		expect(refusal("write", join(home, ".history"))).toBeUndefined();
 		expect(refusal("write", join(work, "file.ts"))).toBeUndefined();
 		expect(refusal("edit", "file.ts")).toBeUndefined();
 		expect(refusal("read", join(home, ".config/thing.conf"))).toBeUndefined();
@@ -387,6 +453,12 @@ describe("pi's file tools in a fenced session", () => {
 		const link = join(work, "sneaky");
 		spawnSync("ln", ["-s", join(home, ".config"), link]);
 		expect(refusal("write", join(link, "x"))).toContain("read-only");
+	});
+
+	it("makes no file in the home folder itself, and writes no link there", () => {
+		expect(refusal("write", join(home, ".newrc"))).toContain("read-only");
+		spawnSync("ln", ["-s", join(work, "file.ts"), join(home, ".linked")]);
+		expect(refusal("write", join(home, ".linked"))).toContain("read-only");
 	});
 
 	it("reads no other process's files, pi's own included, and nothing in the runtime folder", () => {

@@ -195,7 +195,12 @@ function fenceRefusal(
 		if (real === undefined) {
 			return `${SANDBOX_VARIABLE}=${FENCE} couldn't follow ${path} through its links, so ${toolName} didn't run.`;
 		}
-		if (use === "write" && fenceRefusesWrite(real, fence)) {
+		// The path as named counts as well as where it leads: writing a
+		// link in a read-only place may replace the link itself.
+		if (
+			use === "write" &&
+			(fenceRefusesWrite(candidate, fence) || fenceRefusesWrite(real, fence))
+		) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Change them through core and a switch.`;
 		}
 		if (fenceRefusesRead(real, fence)) {

@@ -32,8 +32,8 @@
  * is for text a stranger wrote; the fence is for every session.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
 export const FENCE = "fence";
@@ -80,9 +80,15 @@ export const NEVER_THROUGH = [
 /**
  * The person's files that run code as them later, or say what does,
  * read-only inside: the shell's startup files, every program's settings
- * (systemd's units and quickshell's code among them), SSH's, what is on
- * their path, the launcher's entries, direnv's allow list and pi's own
- * settings and packages.
+ * (systemd's units and quickshell's code among them), git's and npm's,
+ * SSH's, what is on their path (their own bin, the Nix profile, dev's
+ * toolchain), the launcher's entries, direnv's allow list, pi's own
+ * settings and packages, and the skills and settings every agent loads.
+ *
+ * The home folder itself is read-only too, with every other entry in
+ * it bound back writable, since a dotfile is often a link into the
+ * store: one a command could delete, and put a file of its own in its
+ * place, if it could write the folder holding it.
  */
 export const READ_ONLY = [
 	".config",
@@ -93,14 +99,51 @@ export const READ_ONLY = [
 	".profile",
 	".bashrc",
 	".bash_profile",
+	".gitconfig",
+	".npmrc",
 	".ssh",
+	".agents",
+	".claude",
+	".claude-personal",
+	".claude.json",
+	".codex",
 	".local/bin",
 	".local/share/applications",
 	".local/share/direnv/allow",
 	".local/share/systemd",
 	".local/share/pi-packages",
+	".local/state/nix",
+	".local/state/tec/toolchain",
 	".pi/agent",
 ] as const;
+
+/** What the fence needs to know of the disk: what a path is, and what a folder holds. */
+export interface Disk {
+	kind(path: string): "folder" | "file" | "link" | undefined;
+	entries(folder: string): readonly string[];
+}
+
+/** The disk as it is. */
+const DISK: Disk = {
+	kind(path) {
+		try {
+			const stat = lstatSync(path);
+			if (stat.isSymbolicLink()) return "link";
+			return stat.isDirectory() ? "folder" : "file";
+		} catch {
+			// Not there, so nothing to bind.
+			return undefined;
+		}
+	},
+	entries(folder) {
+		try {
+			return readdirSync(folder);
+		} catch {
+			// No folder to read, so nothing in it to bind.
+			return [];
+		}
+	},
+};
 
 /**
  * Variables that name the desktop, left out so a command fails at once
@@ -132,14 +175,40 @@ export function readOnlyPaths(home: string): string[] {
 }
 
 /**
+ * bubblewrap's arguments for the home folder: itself read-only, every
+ * entry but the read-only ones bound back writable, then each read-only
+ * path deeper down bound read-only over its writable parent. A link
+ * can't be bound over, so an entry that is one stays as the read-only
+ * home folder holds it, and a deeper read-only path that is one makes
+ * its folder read-only instead.
+ */
+function homeArgs(home: string, disk: Disk): string[] {
+	if (disk.kind(home) !== "folder") return [];
+	const top = new Set(READ_ONLY.filter((path) => !path.includes("/")));
+	const args = ["--ro-bind", home, home];
+	for (const entry of [...disk.entries(home)].sort()) {
+		const path = join(home, entry);
+		const kind = disk.kind(path);
+		if (top.has(entry) || kind === "link" || kind === undefined) continue;
+		args.push("--bind", path, path);
+	}
+	for (const deeper of READ_ONLY.filter((path) => path.includes("/"))) {
+		const path = join(home, deeper);
+		const kind = disk.kind(path);
+		if (kind === undefined) continue;
+		const kept = kind === "link" ? dirname(path) : path;
+		args.push("--ro-bind", kept, kept);
+	}
+	return args;
+}
+
+/**
  * bubblewrap's arguments for the fence. A path that isn't on this
  * machine is left out, since bubblewrap refuses to bind one, and
  * nothing inside could make it.
  */
-export function fenceArgs(
-	place: FencePlace,
-	exists: (path: string) => boolean = existsSync,
-): string[] {
+export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
+	const exists = (path: string) => disk.kind(path) !== undefined;
 	const args = [
 		"--die-with-parent",
 		"--new-session",
@@ -161,10 +230,7 @@ export function fenceArgs(
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
-	for (const path of readOnlyPaths(place.home)) {
-		if (exists(path)) args.push("--ro-bind", path, path);
-	}
-	return args;
+	return [...args, ...homeArgs(place.home, disk)];
 }
 
 /** landrun's arguments for the fence: every path, and only the listed sockets. */
@@ -195,17 +261,27 @@ export function nixDoor(runtimeDir: string | undefined): string | undefined {
 }
 
 /**
- * Whether a path, already resolved, lies where the fence keeps pi's
- * own file tools from writing: a read-only path, or the runtime folder.
+ * Whether an absolute path lies where the fence keeps pi's own file
+ * tools from writing: a read-only path, the runtime folder, or the home
+ * folder itself, where only an entry already there and bound back
+ * writable may be written.
  */
-export function fenceRefusesWrite(path: string, place: FencePlace): boolean {
+export function fenceRefusesWrite(
+	path: string,
+	place: FencePlace,
+	disk: Disk = DISK,
+): boolean {
 	const kept = [
 		...readOnlyPaths(place.home),
 		...(place.runtimeDir ? [place.runtimeDir] : []),
 	];
-	return kept.some(
-		(folder) => path === folder || path.startsWith(`${folder}/`),
-	);
+	if (kept.some((folder) => path === folder || path.startsWith(`${folder}/`))) {
+		return true;
+	}
+	if (path === place.home) return true;
+	if (dirname(path) !== place.home) return false;
+	const kind = disk.kind(path);
+	return kind === undefined || kind === "link";
 }
 
 /**

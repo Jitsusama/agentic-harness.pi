@@ -637,8 +637,10 @@ export function offloadedOutside(
 			? [`XDG_RUNTIME_DIR=${place.env.XDG_RUNTIME_DIR}`]
 			: []),
 	];
+	// Named env, since the store's may be coreutils' one binary for every
+	// program, which acts by the name it is started with.
 	return [
-		"exec",
+		"exec -a env",
 		quoted(offload.env),
 		"-i",
 		...environment.map(quoted),
