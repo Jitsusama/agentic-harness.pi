@@ -63,22 +63,13 @@
  */
 
 import {
-	accessSync,
-	constants,
 	mkdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
 	statSync,
 } from "node:fs";
-import {
-	basename,
-	delimiter,
-	dirname,
-	join,
-	relative,
-	resolve,
-} from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
 	FENCE,
 	fenceArgs,
@@ -97,6 +88,7 @@ import {
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
+import { systemProgram } from "./system-program.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
@@ -345,24 +337,6 @@ export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
 }
 
-/** A program's path from `PATH`, when it is there and runnable. */
-export function onPath(
-	program: string,
-	path: string | undefined = process.env.PATH,
-): string | undefined {
-	for (const folder of (path ?? "").split(delimiter)) {
-		if (!folder) continue;
-		const candidate = join(folder, program);
-		try {
-			accessSync(candidate, constants.X_OK);
-			return candidate;
-		} catch {
-			// Not here; the next folder may hold it.
-		}
-	}
-	return undefined;
-}
-
 /** A path as it really is, or as given when it can't be resolved. */
 function real(path: string): string {
 	try {
@@ -573,7 +547,7 @@ function fenceFor(
 		const missing = [bwrap ? [] : "bwrap", landrun ? [] : "landrun"].flat();
 		return {
 			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${missing.join(" and ")} isn't on PATH, so no command runs unfenced.`,
+			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${missing.join(" and ")} isn't in the system's own profile, where only root puts programs, so no command runs unfenced.`,
 		};
 	}
 	const program = inStore(find("nix-offload"));
@@ -590,7 +564,8 @@ function fenceFor(
 export function sandboxFor(
 	env: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = process.platform,
-	find: (program: string) => string | undefined = onPath,
+	// Never PATH: a fenced command can write to folders on it (system-program.ts).
+	find: (program: string) => string | undefined = systemProgram,
 	github: GitHubTokenSource = sessionTokens,
 	gcloud: CloudGrantSource = sessionGrants,
 ): Sandbox {
@@ -610,7 +585,7 @@ export function sandboxFor(
 	if (!landrun) {
 		return {
 			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but landrun isn't on PATH, so no command runs unfenced.`,
+			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a sandbox, but landrun isn't in the system's own profile, where only root puts programs, so no command runs unfenced.`,
 		};
 	}
 	return { kind: "strict", landrun, github, gcloud };

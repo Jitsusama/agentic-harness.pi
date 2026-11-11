@@ -18,14 +18,14 @@
  */
 
 import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { delimiter, join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import {
 	type BashOperations,
 	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
+import { systemProgram } from "../system-program.ts";
 
 /** The variable that asks for pi-spawner, while it is new: `on`. */
 export const SPAWNER_VARIABLE = "PI_SPAWNER";
@@ -72,8 +72,13 @@ export interface SpawnerOptions {
 	env?: NodeJS.ProcessEnv;
 	shellPath?: string;
 	shell?: Shell;
-	/** Where the program is, found on the PATH when left out. */
+	/**
+	 * Where the program is, found in the system's own profile when left
+	 * out, never on the PATH (system-program.ts).
+	 */
 	program?: string;
+	/** How the program is found, when `program` doesn't say. */
+	find?: (program: string) => string | undefined;
 	start?: (program: string) => Started;
 	/** Kill a command's process group, as pi's stop does. */
 	kill?: (pid: number) => void;
@@ -119,7 +124,8 @@ export function spawnedBy(
 	const linked = (): Link | undefined => {
 		if (lost) return undefined;
 		if (link) return link;
-		const program = options.program ?? onPath(SPAWNER_PROGRAM, env.PATH);
+		const program =
+			options.program ?? (options.find ?? systemProgram)(SPAWNER_PROGRAM);
 		if (program === undefined) {
 			lost = true;
 			return undefined;
@@ -235,21 +241,6 @@ function killGroup(pid: number): void {
 			// Gone already.
 		}
 	}
-}
-
-/** Where a program is on the PATH, or nothing. */
-function onPath(program: string, path = ""): string | undefined {
-	for (const folder of path.split(delimiter)) {
-		if (folder === "") continue;
-		const candidate = join(folder, program);
-		try {
-			accessSync(candidate, constants.X_OK);
-			return candidate;
-		} catch {
-			// Not in this folder; look in the next.
-		}
-	}
-	return undefined;
 }
 
 /**

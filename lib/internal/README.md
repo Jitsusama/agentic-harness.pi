@@ -151,6 +151,9 @@ may import from here, and any of it may change without notice.
   or session switch, from any other.
 - **`state.ts`**: persisting an extension's state across sessions
   and restoring it.
+- **`system-program.ts`**: finding a program that runs outside the
+  sandbox (bwrap, landrun, nix-offload, env, pi-spawner) only in the
+  system's own profile, through steps root alone can change.
 - **`transcript.ts`**: pi's session entries as the plain turns the
   governance distiller reads.
 - **`unattended-exec.ts`**: running git and gh with nobody at the
