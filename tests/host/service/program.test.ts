@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	conversationBase,
+	conversationLaunch,
 	HostMisconfigured,
 	hostPackageDir,
 	nameViewerTerminal,
@@ -53,6 +54,19 @@ async function proofOf(runtime: string): Promise<string> {
 	);
 	return file;
 }
+
+describe("conversationLaunch", () => {
+	it("runs a conversation's commands as the session it continues ran them", () => {
+		expect(
+			conversationLaunch({ env: { PI_SANDBOX: "fence", PI_SPAWNER: "on" } }),
+			"a fenced session's open or adopt keeps its fence in the host",
+		).toEqual({ PI_SANDBOX: "fence", PI_SPAWNER: "on" });
+		expect(
+			conversationLaunch({}),
+			"one that says nothing runs as the realm does",
+		).toEqual({});
+	});
+});
 
 describe("conversationBase", () => {
 	it("keeps the realm's environment but not systemd's hand-over, the host's pi or its proof", () => {
