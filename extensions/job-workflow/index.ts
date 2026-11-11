@@ -17,6 +17,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted, sessionKeyOf } from "../../lib/core/session/index.ts";
+import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { showJobs } from "./command.ts";
@@ -78,8 +79,9 @@ function* userTexts(ctx: {
 }
 
 /**
- * Leave a record that a signal ended the session with work under way,
- * for the session to be told when it returns (cut-off.ts).
+ * Leave a record that a signal or an uncaught error ended the session
+ * with work under way, for the session to be told when it returns
+ * (cut-off.ts).
  */
 function recordCutOff(
 	pi: ExtensionAPI,
@@ -157,6 +159,7 @@ export default function jobWorkflow(
 	let session: JobSession | undefined;
 	let shown: ShownReports = shownReports([]);
 	let signals: EndWatch | undefined;
+	let crashes: (() => void) | undefined;
 
 	pi.on("session_start", (event, ctx) => {
 		session?.close();
@@ -166,6 +169,16 @@ export default function jobWorkflow(
 		signals = hosted()
 			? watchStamps(pi.events, sessionKeyOf(ctx))
 			: watchSignals(options.signals ?? process);
+		// An uncaught error ends a pi as a kill does, with no signal, and
+		// a session waiting on jobs then leaves a log that reads as idle:
+		// on 11 November five lanes came back so and sat two hours. A host
+		// runs others' conversations too, and listens for itself.
+		crashes?.();
+		crashes = hosted()
+			? undefined
+			: recordCrashes(`job-workflow:${sessionKeyOf(ctx)}`, () =>
+					recordCutOff(pi, session, ctx),
+				);
 		if (RETURNS.has(event.reason)) resumeIfCutOff(session, ctx);
 	});
 
@@ -179,6 +192,8 @@ export default function jobWorkflow(
 		}
 		signals?.stop();
 		signals = undefined;
+		crashes?.();
+		crashes = undefined;
 		const successor =
 			event.reason === "resume"
 				? carriedOnIn(event.targetSessionFile, sessionFileOf(ctx))

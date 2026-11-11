@@ -26,10 +26,22 @@ import {
 	SESSION_STAMP_EVENT,
 	withSession,
 } from "../../../lib/core/session/index.ts";
+import { processGlobal } from "../../../lib/internal/process-global.ts";
+import { CRASH_SLOT } from "../../../lib/internal/session/crash-record.ts";
 import { findJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 const AT = "2026-10-24T17:54:34.617Z";
+
+/** Hand an uncaught error to the crash slot's listener, as Node would. */
+function crash(): void {
+	const { listener } = processGlobal<{ listener?: unknown }>(
+		CRASH_SLOT,
+		() => ({}),
+	);
+	if (typeof listener !== "function") throw new Error("no crash listener");
+	listener(new Error("ESRCH: no such process, write"), "uncaughtException");
+}
 
 const message = (role: string, extra: Record<string, unknown> = {}) => ({
 	type: "message",
@@ -110,6 +122,9 @@ describe("a session cut off when it ended", () => {
 		expect(
 			resumeText({ at: 0, running: true, jobs: [] }, () => "13:54"),
 		).toMatch(/mid-run/);
+		expect(text, "the orchestrator hears it came back").toMatch(
+			/tell it once, by mesh/,
+		);
 	});
 });
 
@@ -177,6 +192,34 @@ describe("the job workflow, at a session's end and its return", () => {
 			running: false,
 			jobs: [{ label: "three lanes" }],
 		});
+	});
+
+	it("records the jobs that were running when an uncaught error ends the session", async () => {
+		const pi = activate([], new EventEmitter(), "crashed");
+		await pi.fire("session_start", { reason: "startup" });
+		findJobHost(pi.events)?.start({ kind: "shell", label: "v3-prove" });
+		crash();
+		await pi.fire("session_shutdown", { reason: "quit" });
+		expect(pi.appended, "one record, left as it died").toHaveLength(1);
+		expect(pi.appended[0]?.type).toBe(CUT_OFF_ENTRY);
+		expect(pi.appended[0]?.data).toMatchObject({
+			running: false,
+			jobs: [{ label: "v3-prove" }],
+		});
+	});
+
+	it("stops hearing errors once its session ends", async () => {
+		const pi = activate([], new EventEmitter(), "ended");
+		await pi.fire("session_start", { reason: "startup" });
+		findJobHost(pi.events)?.start({ kind: "shell", label: "left" });
+		await pi.fire("session_shutdown", { reason: "quit" });
+		const before = pi.appended.length;
+		// Another session's writer keeps the listener in place to call.
+		const other = activate([], new EventEmitter(), "other");
+		await other.fire("session_start", { reason: "startup" });
+		crash();
+		expect(pi.appended.length, "an ended session records nothing").toBe(before);
+		await other.fire("session_shutdown", { reason: "quit" });
 	});
 
 	it("records nothing for a quit the person asked for, or with nothing under way", async () => {
