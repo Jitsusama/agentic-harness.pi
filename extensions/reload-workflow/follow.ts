@@ -48,7 +48,12 @@ import {
 	sourceOf,
 } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
-import { hostedReloadAsker, hostReloads, reloadThroughHost } from "./hosted.ts";
+import {
+	hostedReloadAsker,
+	hostReloads,
+	reloadThroughHost,
+	retellHostedReload,
+} from "./hosted.ts";
 import { canonical } from "./lifecycle.ts";
 import { COMMAND, RELOAD_ARG } from "./transitions.ts";
 
@@ -205,6 +210,13 @@ export async function follow(
 
 	/** A dispatched reload of our own, not yet under way, says what came in since. */
 	const retell = async () => {
+		// A hosted one waits in the conversation's own slot (hosted.ts), and
+		// is read back inside its session, since git is asked outside it.
+		if (inHost) {
+			const reason = await reasonNow();
+			within(() => retellHostedReload(ctx, reason));
+			return;
+		}
 		const slot = reloadSlot();
 		if (slot.request?.by !== "self" || slot.reloading) return;
 		const reason = await reasonNow();
@@ -426,7 +438,10 @@ export async function follow(
 				const earlier = moved.get(one.root);
 				moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
 				hear();
-				if (reloadSlot().request?.by === "self") void retell();
+				const ours = inHost
+					? hostedReloadAsker(ctx) === "self"
+					: reloadSlot().request?.by === "self";
+				if (ours) void retell();
 				else consider();
 			}),
 		quietMs,

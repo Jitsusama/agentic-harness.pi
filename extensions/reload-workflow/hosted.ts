@@ -130,6 +130,17 @@ export function hostedReloadAsker(
 	return (slot.request ?? slot.landing)?.by;
 }
 
+/**
+ * Say why again for a reload of the conversation's own that its host
+ * has but hasn't landed, when more came in meanwhile, so the landing
+ * names it all. One somebody else asked for keeps its own reason.
+ */
+export function retellHostedReload(ctx: SessionContext, reason: string): void {
+	const slot = state(ctx);
+	if (slot.request?.by === "self") slot.request = { ...slot.request, reason };
+	if (slot.landing?.by === "self") slot.landing = { ...slot.landing, reason };
+}
+
 /** The landing a reloaded conversation's new runtime says, taken once. */
 export function takeHostedLanding(
 	ctx: SessionContext,

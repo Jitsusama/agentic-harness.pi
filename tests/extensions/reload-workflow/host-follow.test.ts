@@ -156,6 +156,31 @@ it("reloads each conversation through its host, saying the move was its own", as
 	]);
 });
 
+it("names a second move in the landing while its host still holds the reload", async () => {
+	let release = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const landed = runner;
+	runner = async (id) => {
+		await held;
+		await landed(id);
+	};
+	await start("a");
+
+	await land("feat: something to try");
+	await until("the reload is asked for", () => asked.length === 1);
+	await land("fix: something else");
+	// Nothing shows the retelling until the landing, so wait out the watch.
+	await quietFor(QUIET_MS, 4);
+	release();
+	await until("it lands", () => landings.has("a"));
+
+	expect(landings.get("a")?.reason).toMatch(/something to try/);
+	expect(landings.get("a")?.reason).toMatch(/something else/);
+	expect(asked, "the host is asked once").toHaveLength(1);
+});
+
 it("waits for a busy conversation's run to end", async () => {
 	const a = await start("a");
 	a.busy = true;
