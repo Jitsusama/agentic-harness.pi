@@ -402,8 +402,10 @@ const scenarios: Record<string, Scenario> = {
 			await host.run(id, () => prompt(engine, id, "/probe-job"));
 			await idle(engine, id);
 			const during = engine.background();
+			const own = engine.backgroundOf(id);
+			const unheld = engine.backgroundOf("never-held");
 			await host.close(id);
-			return { background: { before, during } };
+			return { background: { before, during, own, unheld } };
 		},
 	},
 	/** Answer, start a new conversation from an extension's command, answer there, then stop. */

@@ -50,6 +50,12 @@ export interface ConversationEngine {
 	resume(entry: RosterEntry, woken?: boolean): Promise<void>;
 	abort(sessionId: string): Promise<void>;
 	/**
+	 * How much background work one conversation holds: commands, fleets
+	 * and rounds still running, and results not yet said, which a host
+	 * restart would end or lose.
+	 */
+	backgroundOf(sessionId: string): number;
+	/**
 	 * Once a park of the conversation under way has settled, at once when
 	 * none is: until then it is still held, though it is no longer running.
 	 */
@@ -206,7 +212,12 @@ export function hostBackend(options: {
 		const found = host.list().find((held) => held.id === sessionId);
 		if (!found) throw new Error(`Conversation is not hosted: ${sessionId}`);
 		const { id, file, cwd, state, since } = found;
-		return { sessionId: id, file, cwd, state, since };
+		// A turn ended with its background work still running is busy to
+		// anyone outside, who would end that work by restarting the host;
+		// since still says when its turn last changed.
+		const working =
+			state === "idle" && engine.backgroundOf(id) > 0 ? "busy" : state;
+		return { sessionId: id, file, cwd, state: working, since };
 	}
 
 	// Held but not running, as after a failed resume: listed parked, so a

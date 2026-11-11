@@ -43,6 +43,7 @@ const engine = async (host: SessionHost): Promise<ConversationEngine> => ({
 	discard: async () => {},
 	resume: async () => {},
 	abort: async () => {},
+	backgroundOf: () => 0,
 });
 
 /** A background host whose uncaught throws are heard on `faults`, with one conversation open. */

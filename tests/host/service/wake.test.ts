@@ -63,6 +63,7 @@ function engine(overrides: Partial<ConversationEngine> = {}) {
 		discard: vi.fn(async () => {}),
 		resume: vi.fn(async (entry) => register(entry)),
 		abort: vi.fn(async () => {}),
+		backgroundOf: () => 0,
 		dropped: vi.fn(async () => {}),
 		...overrides,
 	};

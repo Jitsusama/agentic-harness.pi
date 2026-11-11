@@ -138,7 +138,10 @@ input pipeline or screen. No unit or running host is installed yet.
 
 The public sessionId is always pi's stable UUID, never durable's internal
 conversation id. Control operations are open, adopt, list, release, close,
-abort and attach. Attached viewer events are input and resize. Frames
+abort and attach. List names each conversation busy, idle or parked;
+busy while a turn runs or while background work it holds (a command,
+fleet or round, or a result not yet said) outlives its turn, since a
+restart would end that work. Attached viewer events are input and resize. Frames
 to a viewer are output, edit, suspend, detached and restarting. The listener
 owns a mode-0600 socket inside a user-owned mode-0700 directory. Viewer
 output is bounded at 4 MiB pending writes; EOF detaches only the viewer.
