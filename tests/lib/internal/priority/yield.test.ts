@@ -1,11 +1,15 @@
+import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -247,5 +251,35 @@ describe("the machine updating itself to main", () => {
 			idle: false,
 			building: true,
 		});
+	});
+});
+
+describe("the build slice's weight", () => {
+	const path = process.env.PATH;
+	afterEach(() => {
+		if (path === undefined) delete process.env.PATH;
+		else process.env.PATH = path;
+	});
+
+	it("is set while pi's main thread carries on, so systemd's wait holds up no key", async () => {
+		// A systemctl that ends only once this test, still running, says so.
+		const bin = join(dir, "bin");
+		mkdirSync(bin);
+		const go = join(dir, "go");
+		execFileSync("mkfifo", [go]);
+		writeFileSync(
+			join(bin, "systemctl"),
+			`#!/bin/sh\necho "$@" > '${join(dir, "asked")}'\nread said < '${go}'\n`,
+		);
+		chmodSync(join(bin, "systemctl"), 0o755);
+		process.env.PATH = `${bin}:${path ?? ""}`;
+
+		const set = systemBuildSlice(join(dir, "cg")).setWeight(YIELD_WEIGHT);
+		await writeFile(go, "go\n");
+
+		expect(await set, "systemctl said it set the weight").toBe(true);
+		expect(readFileSync(join(dir, "asked"), "utf8")).toBe(
+			`set-property --runtime --no-ask-password build.slice CPUWeight=${YIELD_WEIGHT}\n`,
+		);
 	});
 });
