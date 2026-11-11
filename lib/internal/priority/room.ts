@@ -55,6 +55,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { kernelText } from "./kernel-file.ts";
 import { MOST_MEMORY_PRESSURE, type Offload, type Room } from "./queue.ts";
 
 const GIB = 1024 ** 3;
@@ -732,10 +733,13 @@ function entries(dir: string): string[] {
 	}
 }
 
-/** A file's text, read off the main thread; empty once it can't be read. */
+/**
+ * A kernel file's text, read off the main thread (kernel-file.ts says
+ * why not whole); empty once it can't be read.
+ */
 async function read(path: string): Promise<string> {
 	try {
-		return await readFile(path, "utf8");
+		return await kernelText(path);
 	} catch {
 		return "";
 	}
