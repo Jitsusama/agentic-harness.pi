@@ -87,9 +87,11 @@ may import from here, and any of it may change without notice.
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
 - **`fence.ts`**: the agent fence, as bubblewrap's and landrun's
-  arguments: each command's own processes, no desktop, and the
-  settings and startup files read-only; what it never lets through,
-  and where it keeps pi's own file tools from.
+  arguments and the shell text that runs a command in it: each
+  command's own processes and devices, no desktop, and the settings,
+  startup files and git's code read-only; what it never lets through,
+  where it keeps pi's own file tools from, and nix-offload's day-long
+  exemption.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
@@ -121,8 +123,9 @@ may import from here, and any of it may change without notice.
   its work used, from the kernel's counters.
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
   text that runs each command in it: the strict profile as landrun's
-  rules, the agent fence from `fence.ts`, and nix-offload's day-long
-  exemption from the fence.
+  rules, and the agent fence from `fence.ts`.
+- **`sandbox-shell.ts`**: the shell text both sandboxes build on: a
+  word quoted for the shell, and the variable a command travels in.
 - **`sandbox-files.ts`**: the check `sandbox-file-interceptor` holds
   pi's own file tools to, under either sandbox.
 - **`secrets.ts`**: the shapes a credential takes in a tool's output,

@@ -82,9 +82,12 @@ import {
 import {
 	FENCE,
 	fenceArgs,
+	fencedCommand,
 	fenceRules,
+	inStore,
 	nixDoor,
-	unsetVariables,
+	type Offload,
+	offloadedOutside,
 } from "./fence.ts";
 import {
 	type CloudGrant,
@@ -93,13 +96,11 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
 export const STRICT = "strict";
-
-/** The variable the command travels in through landrun, as through the shell. */
-export const SANDBOXED_COMMAND = "PI_SANDBOXED_COMMAND";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -300,11 +301,6 @@ export function strictRules(place: SandboxPlace): Rule[] {
 	];
 }
 
-/** `text` as one word to the shell, whatever it holds. */
-export function quoted(text: string): string {
-	return `'${text.replaceAll("'", `'\\''`)}'`;
-}
-
 /**
  * The shell text that runs `command` under landrun with `rules`.
  *
@@ -400,6 +396,19 @@ export function unfencedFolder(cwd: string, home: string): string | undefined {
 		// No git folder here, or a worktree's .git file pointing elsewhere.
 	}
 	return undefined;
+}
+
+/** The folder a worktree's `.git` file names, or nothing when `cwd` has none. */
+function worktreeFolder(cwd: string): string | undefined {
+	try {
+		const named = /^gitdir: (.+)$/m.exec(
+			readFileSync(join(cwd, ".git"), "utf8"),
+		)?.[1];
+		return named ? real(resolve(cwd, named.trim())) : undefined;
+	} catch {
+		// No .git file here: a plain folder, or a clone's own git folder.
+		return undefined;
+	}
 }
 
 /**
@@ -547,115 +556,6 @@ export function noSuchSandbox(asked: string, what: string): string {
 	return `${SANDBOX_VARIABLE}=${asked} names no sandbox; the ones there are are "${FENCE}" and "${STRICT}". No ${what} runs until it is set right or unset.`;
 }
 
-/**
- * The shell text that runs `command` in the agent fence: bubblewrap
- * with `args`, around landrun with `rules`. Every variable the shell
- * exports goes in but those naming the desktop, and Nix is reached
- * through `door`, its daemon's door for sandboxes.
- */
-export function fencedCommand(
-	command: string,
-	fence: {
-		readonly bwrap: string;
-		readonly landrun: string;
-		readonly args: readonly string[];
-		readonly rules: readonly string[];
-		readonly door?: string;
-	},
-): string {
-	const unset = [...unsetVariables(), SANDBOXED_COMMAND].join("|");
-	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
-	return [
-		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
-		[
-			`${SANDBOXED_COMMAND}=${quoted(command)}`,
-			quoted(fence.bwrap),
-			...fence.args.map(quoted),
-			"--",
-			quoted(fence.landrun),
-			...fence.rules.map(quoted),
-			`"\${__pi_env[@]}" --env ${SANDBOXED_COMMAND}`,
-			...(fence.door ? [`--env ${quoted(`NIX_REMOTE=${fence.door}`)}`] : []),
-			`-- bash -c ${quoted(stub)}`,
-		].join(" "),
-	].join("\n");
-}
-
-/**
- * nix-offload, run outside the fence until the SSH agent's proxy lets
- * the fence reach the builders: the store's own binary, and the store's
- * `env` to start it with an environment of its own.
- */
-export interface Offload {
-	readonly program: string;
-	readonly env: string;
-}
-
-/**
- * The day the nix-offload exemption is due out: the SSH agent's proxy
- * (the fence's fourth piece) lets the fence reach the builders by then,
- * and a test fails from this day while the exemption is still here.
- */
-export const OFFLOAD_EXEMPTION_ENDS = "2026-11-13";
-
-/** A `nix-offload there` call alone, its arguments plain words. */
-const OFFLOAD_CALL =
-	/^nix-offload[ \t]+there(?:[ \t]+[A-Za-z0-9_./=:@%+,-]+)*$/;
-
-/** The only folders on the exemption's `PATH`: the system's own programs. */
-function systemPath(user: string | undefined): string {
-	const own =
-		user && /^[a-z_][a-z0-9_-]*$/.test(user)
-			? [`/etc/profiles/per-user/${user}/bin`]
-			: [];
-	return [...own, "/run/current-system/sw/bin"].join(":");
-}
-
-/**
- * The shell text that runs a `nix-offload there` call outside the fence,
- * or nothing for any other command, which stays fenced. Only a call
- * alone, of plain words, is let out: anything chained on, quoted,
- * substituted or expanded stays in. It runs the store's binary by its
- * path with the call's own words, in an environment of its own: the
- * home and runtime folders, the account's name, the system's `PATH`,
- * and nothing from the shell that asked.
- */
-export function offloadedOutside(
-	command: string,
-	offload: Offload | undefined,
-	place: { home: string; env: NodeJS.ProcessEnv },
-): string | undefined {
-	const call = command.trim();
-	if (!offload || !OFFLOAD_CALL.test(call)) return undefined;
-	const words = call.split(/[ \t]+/).slice(1);
-	const user = place.env.USER;
-	const environment = [
-		`HOME=${place.home}`,
-		`PATH=${systemPath(user)}`,
-		...(user ? [`USER=${user}`, `LOGNAME=${user}`] : []),
-		...(place.env.XDG_RUNTIME_DIR
-			? [`XDG_RUNTIME_DIR=${place.env.XDG_RUNTIME_DIR}`]
-			: []),
-	];
-	// Named env, since the store's may be coreutils' one binary for every
-	// program, which acts by the name it is started with.
-	return [
-		"exec -a env",
-		quoted(offload.env),
-		"-i",
-		...environment.map(quoted),
-		quoted(offload.program),
-		...words.map(quoted),
-	].join(" ");
-}
-
-/** A program's own path in the Nix store, through every link, or nothing. */
-function inStore(path: string | undefined): string | undefined {
-	if (!path) return undefined;
-	const own = real(path);
-	return own.startsWith("/nix/store/") ? own : undefined;
-}
-
 /** What the agent fence needs of this machine, or why it can't be had. */
 function fenceFor(
 	platform: NodeJS.Platform,
@@ -731,7 +631,12 @@ export function wrapFor(
 		case "refused":
 			return () => refusedCommand(sandbox.reason);
 		case "fence": {
-			const fence = { home, runtimeDir: place.env.XDG_RUNTIME_DIR };
+			const fence = {
+				home,
+				runtimeDir: place.env.XDG_RUNTIME_DIR,
+				cwd: place.cwd,
+				ownGitFolder: worktreeFolder(place.cwd),
+			};
 			const made = {
 				bwrap: sandbox.bwrap,
 				landrun: sandbox.landrun,

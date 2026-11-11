@@ -73,8 +73,20 @@ a session with `PI_SANDBOX=fence` and each command runs in
 [bubblewrap](https://github.com/containers/bubblewrap), around Landlock
 through landrun:
 
-- **Its own processes.** A pid namespace and a `/proc` of its own, so
-  no other process's files, memory or open pipes.
+- **Its own processes and devices.** A pid namespace and a `/proc` of
+  its own, so no other process's files, memory or open pipes, and a
+  `/dev` holding only what any program needs, so no TPM (which would
+  sign with a key whose handle it could read), camera, microphone or
+  security key.
+- **No private keys.** `~/.ssh` shows only public keys, its settings
+  and the known hosts.
+- **No git that runs later.** In each repository under the home
+  folder, `src` and `world`, the settings, hooks and `info` are
+  read-only, and so is a worktrees folder whose trees keep settings of
+  their own, World's among them, but for the session's own tree.
+  Objects, refs and the index stay writable, so commits still work in
+  the session's tree. The tree's `.git` file and its links back are
+  read-only too.
 - **No desktop.** The runtime folder is an empty one of its own, with
   only the Nix daemon's door for sandboxes bound back, and `NIX_REMOTE`
   points there. Landlock refuses every other socket, an abstract one
@@ -99,8 +111,8 @@ Everything else is as it was: the home folder, the work, the network
 and the rest of the environment. The strict profile below is for text a
 stranger wrote; the fence is for every session. A session asking for
 it without bwrap and landrun on `PATH`, or off Linux, runs no command.
-It cost about 110 ms a command on a machine at a load of 40 (142 ms
-against 35 ms unfenced).
+It cost about 80 ms a command on a machine at a load of 20 (85 ms
+against 8 ms unfenced), most of it bubblewrap's mounts.
 
 Until the SSH agent's proxy lets the fence reach the builders, a
 `nix-offload there` call on its own runs outside: the store's own
