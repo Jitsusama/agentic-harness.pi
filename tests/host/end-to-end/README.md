@@ -154,6 +154,13 @@ up. The fixture's footer reads its load as it draws, and each load asks
 for a frame before setting its own, so a screen still drawing the old
 load's footer throws, as the background host did on 11 November.
 
+killed-busy.test.ts is E11: three conversations share a host, one
+mid-turn in a tool that never ends by itself, when the host is killed
+outright. A new host resumes all three under their ids, each log keeps
+what it held before the kill and holds only whole entries, the killed
+run is taken up again (and stopped) or answered, and then all three
+answer.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
