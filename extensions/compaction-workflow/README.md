@@ -66,15 +66,15 @@ have aged out with the next change to prices or to the summariser.
 There is no floor by default. `PI_COMPACTION_FLOOR_TOKENS` sets a size
 it never compacts at or below.
 
-The rent leaves out what every turn uploads: the whole context, which
-on 10 November saturated the uplink of the machine the sessions ran on. So past a ceiling of 200k
-tokens the trigger fires whatever rent has been paid, as long as at
-least 30k would be dropped; below that, what a compaction keeps already
-sits near the ceiling. Replayed over that day's 104,350 turns, the
-ceiling sent 11.7 percent fewer tokens for about 5 percent more in
-dollars; at 180k, 16.9 percent fewer for 16 percent more.
-`PI_COMPACTION_CEILING_TOKENS` sets another ceiling, and 0 turns it
-off.
+There is no ceiling by default either. The rent leaves out what every
+turn uploads: the whole context, which on 10 November saturated the
+uplink of the machine the sessions ran on. `PI_COMPACTION_CEILING_TOKENS`
+sets a size past which the trigger fires whatever rent has been paid,
+as long as at least 30k would be dropped; below that, what a compaction
+keeps already sits near the ceiling. Replayed over that day's 104,350
+turns, a 200k ceiling sent 11.7 percent fewer tokens for about 5
+percent more in dollars, some $130 a day, which was judged too dear to
+be the default; at 180k, 16.9 percent fewer for 16 percent more.
 
 ## Writing Ahead
 

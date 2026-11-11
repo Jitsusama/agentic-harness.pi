@@ -141,8 +141,7 @@ async function toTheEdge(withSentRequest: boolean) {
 beforeEach(() => {
 	completeSimple.mockReset();
 	vi.stubEnv("PI_CACHE_RETENTION", "short");
-	// These count the turns until the rent pays; the ceiling has its own.
-	vi.stubEnv("PI_COMPACTION_CEILING_TOKENS", "0");
+	vi.stubEnv("PI_COMPACTION_CEILING_TOKENS", undefined);
 });
 
 afterEach(() => {
@@ -195,6 +194,21 @@ describe("the compaction trigger", () => {
 		state.tokens = 250_000;
 		await fire("turn_end", ranTools, ctx);
 		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+	});
+
+	it("has no ceiling unless one is set", async () => {
+		const { fire } = activate();
+		const { state, ctx } = session();
+		await fire("session_start", { reason: "startup" }, ctx);
+		await fire("before_provider_request", { payload }, ctx);
+		state.branch = [userEntry, replyEntry];
+		state.leaf = "a1";
+		await fire("turn_end", ranTools, ctx);
+		state.tokens = 250_000;
+		await fire("turn_end", ranTools, ctx);
+		// One tick, for a summary the turn would have started to be asked for.
+		await new Promise((r) => setTimeout(r, 0));
+		expect(completeSimple).not.toHaveBeenCalled();
 	});
 
 	it("applies the summary at the next turn's end and resumes the run it interrupted", async () => {
