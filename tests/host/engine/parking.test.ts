@@ -110,7 +110,7 @@ describe("parking a conversation", () => {
 		);
 
 		await until(
-			"to keep the refused wake",
+			"the refused wake to be kept",
 			() => readRefusedWake(wake) !== undefined,
 			KEPT_WITHIN_MS,
 		);
