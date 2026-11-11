@@ -275,7 +275,8 @@ function writeClipboard(): string {
  * pi's agent folder: the scripted provider's two models, the `/pick`
  * extension, and the harness's own gates: a `/gate` command raising this
  * checkout's `showSinglePrompt` and keeping its answer in `gated` in HOME,
- * a `/tabs` command raising its `showTabbedPrompt` over two items and
+ * with 100 numbered rows below its question when its name starts with
+ * `tall`, a `/tabs` command raising its `showTabbedPrompt` over two items and
  * keeping its answer there too, a `/view` command showing this checkout's `view` over 200 numbered
  * rows, and this checkout's panel-lifecycle and panel-zoom extensions.
  */
@@ -338,7 +339,10 @@ export default function (pi) {
 		handler: async (name, ctx) => {
 			const result = await showSinglePrompt(ctx, {
 				title: "Gate " + name,
-				content: () => ["Gate " + name + " asks"],
+				content: () =>
+					name.startsWith("tall")
+						? ["Gate " + name + " asks", ...Array.from({ length: 100 }, (_, at) => "row " + (at + 1))]
+						: ["Gate " + name + " asks"],
 				actions: [{ key: "a", label: "Approve" }, { key: "r", label: "Reject" }],
 			});
 			const said =
