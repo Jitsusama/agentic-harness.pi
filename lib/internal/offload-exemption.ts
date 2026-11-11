@@ -29,6 +29,7 @@
  * only a held tree's commit goes.
  */
 
+import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { quoted } from "./sandbox-shell.ts";
@@ -41,6 +42,44 @@ import { quoted } from "./sandbox-shell.ts";
 export interface Offload {
 	readonly program: string;
 	readonly env: string;
+	/**
+	 * Whether this nix-offload keeps a run to the lent builders when told
+	 * to, as `there --takes` says (`takesLentOnly`). One from before core
+	 * #3331 doesn't, and would ignore `NIX_OFFLOAD_LENT_ONLY`, so no
+	 * commit goes out through it.
+	 */
+	readonly lentOnly?: boolean;
+}
+
+/** How long `there --takes` may take to answer before it counts as no. */
+const TAKES_MS = 5_000;
+
+/** What each nix-offload in the store said it takes, by its path. */
+const taken = new Map<string, boolean>();
+
+/**
+ * Whether the nix-offload at `program` takes `--lent-only`, asked once
+ * a path, since a path in the store never changes. One that can't say,
+ * or says otherwise, doesn't.
+ */
+export function takesLentOnly(program: string): boolean {
+	const known = taken.get(program);
+	if (known !== undefined) return known;
+	let takes = false;
+	try {
+		takes = execFileSync(program, ["there", "--takes"], {
+			encoding: "utf8",
+			timeout: TAKES_MS,
+			stdio: ["ignore", "pipe", "ignore"],
+		})
+			.split("\n")
+			.includes("lent-only");
+	} catch {
+		// An older nix-offload refuses `--takes`, or none answered in time:
+		// either way it can't be trusted to keep a run to the lent builders.
+	}
+	taken.set(program, takes);
+	return takes;
 }
 
 /**
@@ -240,7 +279,10 @@ export function offloadedOutside(
 	}
 	if (!OFFLOAD_CALL.test(call)) return undefined;
 	const words = call.split(/[ \t]+/).slice(1);
-	const sends = tree !== undefined && sendsCommit(words.slice(1));
+	const sends =
+		offload.lentOnly === true &&
+		tree !== undefined &&
+		sendsCommit(words.slice(1));
 	if (!(sends || letOut(words.slice(1)))) return undefined;
 	const user = place.env.USER;
 	const environment = [

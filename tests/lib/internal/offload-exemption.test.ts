@@ -11,6 +11,7 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -26,12 +27,14 @@ import {
 	type OffloadPlace,
 	offloadedOutside,
 	offloadKeptIn,
+	takesLentOnly,
 } from "../../../lib/internal/offload-exemption.ts";
 import { folderGit, heldTree } from "../../../lib/internal/sandbox.ts";
 
 const OFFLOAD = {
 	program: "/nix/store/0000-nix-offload/bin/nix-offload",
 	env: "/nix/store/0000-coreutils/bin/env",
+	lentOnly: true,
 };
 const SCRIPT = "/nix/store/0000-harness-check";
 const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
@@ -162,6 +165,48 @@ describe("the flags the exemption lets out", () => {
 			`nix-offload there --run ${SCRIPT}`,
 		]) {
 			expect(letOut(command, HELD_TREE), command).toBeUndefined();
+		}
+	});
+
+	it("keeps every commit fenced through a nix-offload that can't keep it to lent builders", () => {
+		const older = { ...OFFLOAD, lentOnly: false };
+		for (const command of ["nix-offload there --changed", RUN]) {
+			expect(
+				offloadedOutside(command, older, { home: "/h", env: {}, ...HELD_TREE }),
+				command,
+			).toBeUndefined();
+		}
+		expect(
+			offloadedOutside(DRV_CALL, older, { home: "/h", env: {} }),
+			"a derivations' build still goes",
+		).toBeDefined();
+	});
+
+	it("asks nix-offload once whether it takes --lent-only", () => {
+		const folder = mkdtempSync(join(tmpdir(), "offload-takes-"));
+		try {
+			const program = (name: string, takes: readonly string[]) => {
+				const path = join(folder, name);
+				const script = [
+					"#!/bin/sh",
+					`echo asked >> ${join(folder, `${name}.asked`)}`,
+					...takes.map((word) => `echo ${word}`),
+				];
+				writeFileSync(path, `${script.join("\n")}\n`, { mode: 0o755 });
+				return path;
+			};
+			const newer = program("newer", ["tree", "changed", "lent-only", "run"]);
+			const older = program("older", ["tree", "changed", "run"]);
+			expect(takesLentOnly(newer), "one that lists it").toBe(true);
+			expect(takesLentOnly(newer), "asked again").toBe(true);
+			expect(takesLentOnly(older), "one that doesn't").toBe(false);
+			expect(takesLentOnly(join(folder, "none")), "none there").toBe(false);
+			expect(
+				readFileSync(join(folder, "newer.asked"), "utf8"),
+				"asked once",
+			).toBe("asked\n");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
 		}
 	});
 

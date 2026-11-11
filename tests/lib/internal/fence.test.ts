@@ -62,7 +62,9 @@ describe("what a session asking for the fence is given", () => {
 			kind: "fence",
 			bwrap: "/bin/bwrap",
 			landrun: "/bin/landrun",
-			offload: { program: STORE_OFFLOAD, env: STORE_ENV },
+			// No nix-offload is there to ask, so it is taken as one from before
+			// --lent-only, which sends no commit out.
+			offload: { program: STORE_OFFLOAD, env: STORE_ENV, lentOnly: false },
 		});
 	});
 

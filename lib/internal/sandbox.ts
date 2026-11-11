@@ -88,6 +88,7 @@ import {
 	type Offload,
 	offloadedOutside,
 	offloadKeptIn,
+	takesLentOnly,
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
@@ -597,7 +598,9 @@ function fenceFor(
 		kind: "fence",
 		bwrap,
 		landrun,
-		...(program && env ? { offload: { program, env } } : {}),
+		...(program && env
+			? { offload: { program, env, lentOnly: takesLentOnly(program) } }
+			: {}),
 	};
 }
 
