@@ -21,6 +21,8 @@ import { git } from "../support/git-fixture.ts";
 
 const run = promisify(execFile);
 const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "host-gate.sh");
+/** The runner a refusal names: the one beside the gate, not the branch's. */
+const RUNNER = join(dirname(SCRIPT), "host-test-there.sh");
 
 const made: string[] = [];
 afterEach(() => removeAll(made));
@@ -110,9 +112,7 @@ describe("host-gate.sh", () => {
 
 		expect(answer.code).toBe(1);
 		expect(answer.said).toContain(`nothing ran test:host at ${sha}`);
-		expect(answer.said).toContain(
-			`git checkout ${sha} && bash scripts/host-test-there.sh`,
-		);
+		expect(answer.said).toContain(`git checkout ${sha} && bash ${RUNNER}`);
 	});
 
 	it("lets a change to the host merge once test:host passed at it", async () => {
@@ -128,7 +128,7 @@ describe("host-gate.sh", () => {
 		});
 	});
 
-	it("refuses a run that failed, saying a new commit clears it", async () => {
+	it("refuses a run that failed, saying a fix or, for a flake, a rerun clears it", async () => {
 		const on = await harness();
 		const sha = await change(on, "lib/core/session/slot.ts");
 		kept(on, sha, { status: "1" });
@@ -138,6 +138,7 @@ describe("host-gate.sh", () => {
 		expect(answer.code).toBe(1);
 		expect(answer.said).toContain(`test:host at ${sha} exited 1`);
 		expect(answer.said).toContain("fix it in a new commit");
+		expect(answer.said).toContain(`again at ${sha} if a case only flaked`);
 		expect(answer.said).not.toContain(`git checkout ${sha}`);
 	});
 
