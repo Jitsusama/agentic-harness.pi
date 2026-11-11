@@ -237,6 +237,9 @@ export async function follow(
 	// pi-host-extension-realpath patch has its loads take real paths.
 	const reloadedStale =
 		!inHost && linksMovedSince(extensions, startedAt).length > 0;
+	// Heard now, so an idle session's place in the spread counts from
+	// here; unheard, each look counted it afresh and it never came.
+	if (reloadedStale) hear();
 	const reasonNow = async () => {
 		if (moved.size === 0) return "a reload loaded extensions whose links moved";
 		const named = (
@@ -356,7 +359,7 @@ export async function follow(
 		sayWhy(why, { links });
 		try {
 			ctx.ui.notify(
-				`Not reloaded: ${why}. It keeps the code it runs; start it again to take the new install.`,
+				`${why.charAt(0).toUpperCase()}${why.slice(1)}. It keeps the code it runs; start it again by hand to load them afresh.`,
 				"warning",
 			);
 		} catch {
