@@ -4,9 +4,9 @@
  * The engine speaks gitstatusd's protocol: a request is an id and a folder,
  * an answer is the id and the repository's state, one each, over the
  * program's standard input and output. It is started the first time it is
- * needed and kept, so each question costs a write rather than a process,
- * and it is asked only when something may have changed the answer. Nothing
- * polls.
+ * needed and kept while questions come, so each costs a write rather than a
+ * process, and it is asked only when something may have changed the
+ * answer. Nothing polls.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -134,6 +134,13 @@ export function parseAnswer(
 	};
 }
 
+/**
+ * How long an engine nothing asks of is kept. What it has read stays with
+ * it: in a large repository, hundreds of megabytes, held for an idle
+ * session nobody is looking at. Started again, it reads the folder afresh.
+ */
+const REST_AFTER_MS = 10 * 60_000;
+
 /** Lets a stream go without keeping node running for it. */
 function letGo(stream: unknown): void {
 	(stream as { unref?: () => void } | null)?.unref?.();
@@ -143,6 +150,8 @@ function letGo(stream: unknown): void {
  * The engine, asked about one folder at a time. A question asked while
  * one is out is held, and only the latest folder is asked once the answer
  * comes, so a burst of tool calls costs two questions rather than one each.
+ * Once nothing has been asked for a while it ends, and the next question
+ * starts it again.
  */
 export class Engine {
 	private child: ChildProcess | null = null;
@@ -153,20 +162,24 @@ export class Engine {
 	private waiting: string | null = null;
 	private next = 0;
 	private spoke = false;
+	private resting: ReturnType<typeof setTimeout> | null = null;
 	private readonly questions = new Map<string, string>();
 
 	private readonly program: string;
 	private readonly answered: (dir: string, state: GitState | false) => void;
 	private readonly readOperation?: (workdir: string) => Operation | null;
+	private readonly restAfterMs: number;
 
 	constructor(
 		program: string,
 		answered: (dir: string, state: GitState | false) => void,
 		readOperation?: (workdir: string) => Operation | null,
+		restAfterMs: number = REST_AFTER_MS,
 	) {
 		this.program = program;
 		this.answered = answered;
 		this.readOperation = readOperation;
+		this.restAfterMs = restAfterMs;
 	}
 
 	ask(dir: string): void {
@@ -176,6 +189,7 @@ export class Engine {
 			return;
 		}
 		if (!existsSync(dir)) return;
+		this.wake();
 		const child = this.started();
 		if (!child?.stdin) return;
 		this.next += 1;
@@ -193,10 +207,37 @@ export class Engine {
 	stop(): void {
 		this.stopped = true;
 		this.waiting = null;
+		this.wake();
+		this.end();
+	}
+
+	/**
+	 * Ends the running engine, if there is one, for the next ask to restart.
+	 * The next must answer before it counts as working, as the first did.
+	 */
+	private end(): void {
 		const child = this.child;
 		this.child = null;
+		this.heard = "";
+		this.spoke = false;
 		child?.stdin?.end();
 		child?.kill();
+	}
+
+	/** Lets the engine rest once nothing is out or held, and nothing comes. */
+	private restSoon(): void {
+		if (this.child === null || this.stopped) return;
+		this.resting = setTimeout(() => {
+			this.resting = null;
+			if (this.asking === null && this.waiting === null) this.end();
+		}, this.restAfterMs);
+		this.resting.unref();
+	}
+
+	private wake(): void {
+		if (this.resting === null) return;
+		clearTimeout(this.resting);
+		this.resting = null;
 	}
 
 	private started(): ChildProcess | null {
@@ -261,6 +302,10 @@ export class Engine {
 		if (this.asking === null && held !== null) {
 			this.waiting = null;
 			this.ask(held);
+		}
+		if (this.asking === null && this.waiting === null) {
+			this.wake();
+			this.restSoon();
 		}
 	}
 }
