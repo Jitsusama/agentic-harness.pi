@@ -96,9 +96,7 @@ describe("claiming a move note", () => {
 		expect(noteState(session, folder)).toBe("claimed");
 		removeMoveNote(session, folder);
 		expect(noteState(session, folder), "taken up").toBe("none");
-		expect(noteState(session, join(folder, "gone")), "no folder").toBe(
-			"none",
-		);
+		expect(noteState(session, join(folder, "gone")), "no folder").toBe("none");
 	});
 
 	it("lets the cutover adopt, and then tells the join it is adopting", () => {
