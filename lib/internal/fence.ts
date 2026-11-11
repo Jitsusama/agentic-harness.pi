@@ -184,7 +184,7 @@ export function readOnlyPaths(home: string): string[] {
  */
 function homeArgs(home: string, disk: Disk): string[] {
 	if (disk.kind(home) !== "folder") return [];
-	const top = new Set(READ_ONLY.filter((path) => !path.includes("/")));
+	const top = new Set<string>(READ_ONLY.filter((path) => !path.includes("/")));
 	const args = ["--ro-bind", home, home];
 	for (const entry of [...disk.entries(home)].sort()) {
 		const path = join(home, entry);
