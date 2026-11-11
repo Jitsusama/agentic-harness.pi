@@ -64,6 +64,7 @@ const PROCESS_TESTS = [
 	"tests/package/hosted-loads-add-no-process-listeners.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
 	"tests/lib/internal/priority/push-hooks.test.ts",
+	"tests/scripts/host-join.test.ts",
 	"tests/scripts/pi-carry.test.ts",
 	"tests/scripts/pi-host.test.ts",
 	"tests/host/service/killed-host.test.ts",

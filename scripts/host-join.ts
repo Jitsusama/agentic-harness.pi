@@ -15,11 +15,13 @@
  * pi's words. With `--released`, it names plain pi's words once no host
  * holds the conversation. With `--view`, as a window the launcher opens
  * on a hosted conversation runs it, it looks once: the host's attach
- * while any host holds it, else plain pi. Either way it writes its wake and exits as a
- * park does, so its holder starts that at once on the same terminal,
- * where the keys typed meanwhile still wait.
+ * while any host holds it, else plain pi. Under a holder, it writes its
+ * wake and exits as a park does, so its holder starts that at once on
+ * the same terminal, where the keys typed meanwhile still wait. Under
+ * none, a view or a release runs it itself, ending as it ends.
  */
 
+import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -46,7 +48,11 @@ const again = process.env[AGAIN_ENV] ?? "";
 if (!own.includes("--session") || session === "" || plainPi.length === 0) {
 	throw new Error("Usage: host-join.ts --session ID -- PLAIN PI WORDS");
 }
-if (wake === "" || again === "") {
+// Under no holder, as a window opened by a caller that can't hold one
+// runs a view's words, it runs what comes next itself and ends as that
+// does; only a holder lets the window go on past it.
+const held = wake !== "" && again !== "";
+if (!held && !own.includes("--view") && !own.includes("--released")) {
 	throw new Error(
 		"host-join.ts runs under a mycelium holder, which names its wake",
 	);
@@ -94,9 +100,19 @@ const released = [
 ];
 const next =
 	joined.to === "host" ? viewingWords(joined.hold, session, released) : plainPi;
-writeFileSync(again, JSON.stringify(next));
-writeFileSync(
-	wake,
-	JSON.stringify({ session, joined: joined.to, at: new Date().toISOString() }),
-);
-process.exitCode = PARKED_EXIT;
+if (held) {
+	writeFileSync(again, JSON.stringify(next));
+	writeFileSync(
+		wake,
+		JSON.stringify({
+			session,
+			joined: joined.to,
+			at: new Date().toISOString(),
+		}),
+	);
+	process.exitCode = PARKED_EXIT;
+} else {
+	const [program = "", ...words] = next;
+	const ran = spawnSync(program, words, { stdio: "inherit" });
+	process.exitCode = ran.status ?? 1;
+}
