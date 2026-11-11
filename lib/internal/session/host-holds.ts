@@ -55,7 +55,8 @@ const ROSTER_SUFFIX = ".json";
  */
 export function rosterHolds(dir: string = rosterDir()): Map<string, string> {
 	const holds = new Map<string, string>();
-	for (const { key, entry } of keptEntries(dir)) holds.set(entry.sessionId, key);
+	for (const { key, entry } of keptEntries(dir))
+		holds.set(entry.sessionId, key);
 	return holds;
 }
 
