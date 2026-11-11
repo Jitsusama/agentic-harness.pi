@@ -152,10 +152,17 @@ function letGo(stream: unknown): void {
  * comes, so a burst of tool calls costs two questions rather than one each.
  * Once nothing has been asked for a while it ends, and the next question
  * starts it again.
+ *
+ * The program is named afresh for each question, so after a switch names
+ * a new engine the next question moves to it, rather than keeping the old
+ * one, and all it holds, until pi reloads.
  */
 export class Engine {
 	private child: ChildProcess | null = null;
-	private broken = false;
+	/** The program the running engine was started from. */
+	private childProgram: string | null = null;
+	/** A program that couldn't start or ended unheard, not to be tried again. */
+	private brokenFor: string | null = null;
 	private stopped = false;
 	private heard = "";
 	private asking: string | null = null;
@@ -165,32 +172,35 @@ export class Engine {
 	private resting: ReturnType<typeof setTimeout> | null = null;
 	private readonly questions = new Map<string, string>();
 
-	private readonly program: string;
+	private readonly program: () => string | null;
 	private readonly answered: (dir: string, state: GitState | false) => void;
 	private readonly readOperation?: (workdir: string) => Operation | null;
 	private readonly restAfterMs: number;
 
 	constructor(
-		program: string,
+		program: string | (() => string | null),
 		answered: (dir: string, state: GitState | false) => void,
 		readOperation?: (workdir: string) => Operation | null,
 		restAfterMs: number = REST_AFTER_MS,
 	) {
-		this.program = program;
+		this.program = typeof program === "string" ? () => program : program;
 		this.answered = answered;
 		this.readOperation = readOperation;
 		this.restAfterMs = restAfterMs;
 	}
 
 	ask(dir: string): void {
-		if (this.broken || this.stopped) return;
+		if (this.stopped) return;
 		if (this.asking !== null) {
 			this.waiting = dir;
 			return;
 		}
 		if (!existsSync(dir)) return;
+		const program = this.program();
+		if (program === null || program === this.brokenFor) return;
 		this.wake();
-		const child = this.started();
+		if (this.child !== null && this.childProgram !== program) this.end();
+		const child = this.started(program);
 		if (!child?.stdin) return;
 		this.next += 1;
 		const id = String(this.next);
@@ -218,6 +228,7 @@ export class Engine {
 	private end(): void {
 		const child = this.child;
 		this.child = null;
+		this.childProgram = null;
 		this.heard = "";
 		this.spoke = false;
 		child?.stdin?.end();
@@ -240,24 +251,25 @@ export class Engine {
 		this.resting = null;
 	}
 
-	private started(): ChildProcess | null {
+	private started(program: string): ChildProcess | null {
 		if (this.child) return this.child;
 		let child: ChildProcess;
 		try {
 			// Kept where pi is rather than with the work pi starts: it answers
 			// for pi's own screen, and beside the builds it fell behind.
 			child = withPi(() =>
-				spawn(this.program, ["-s", "1", "-u", "1", "-c", "1", "-d", "1"], {
+				spawn(program, ["-s", "1", "-u", "1", "-c", "1", "-d", "1"], {
 					stdio: ["pipe", "pipe", "ignore"],
 				}),
 			);
 		} catch {
-			this.broken = true;
+			this.brokenFor = program;
 			return null;
 		}
 		child.on("error", () => {
-			// A program that can't be started won't start next time either.
-			this.broken = true;
+			// A program that can't be started won't start next time either,
+			// though one named after it may.
+			if (this.child === child) this.brokenFor = program;
 			this.forget(child);
 		});
 		child.on("exit", () => this.forget(child));
@@ -268,6 +280,7 @@ export class Engine {
 		letGo(child.stdin);
 		letGo(child.stdout);
 		this.child = child;
+		this.childProgram = program;
 		return child;
 	}
 
@@ -275,8 +288,9 @@ export class Engine {
 		if (this.child !== child) return;
 		// One that ends before it ever answers would only end again, so the
 		// line goes on with pi's own branch rather than starting it each time.
-		if (!this.spoke) this.broken = true;
+		if (!this.spoke) this.brokenFor = this.childProgram;
 		this.child = null;
+		this.childProgram = null;
 		this.heard = "";
 		this.asking = null;
 		this.questions.clear();

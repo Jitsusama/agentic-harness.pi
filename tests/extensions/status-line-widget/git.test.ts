@@ -335,6 +335,84 @@ describe("the engine, kept running", () => {
 		expect(readFileSync(starts, "utf8")).toBe("start\nstart\n");
 	});
 
+	/** A program that writes down it was started, then serves as the stand-in. */
+	function successor(): string {
+		const next = join(dir, "next");
+		writeFileSync(
+			next,
+			`#!/bin/sh\necho next >> ${JSON.stringify(starts)}\nexec ${JSON.stringify(program)}\n`,
+		);
+		chmodSync(next, 0o755);
+		return next;
+	}
+
+	// A switch names a new engine while pis keep running; the old one keeps
+	// what the new one was made to let go of.
+	it("starts an engine that rested on the program named now", async () => {
+		const first = listen(1);
+		const second = listen(1);
+		let answer = first.answered;
+		let named = program;
+		const engine = new Engine(
+			() => named,
+			(folder, state) => answer(folder, state),
+			none,
+			ANSWER_MS,
+		);
+		engine.ask(dir);
+		await first.all;
+		named = successor();
+		// Past the rest, so the engine has been let go of.
+		await quietFor(ANSWER_MS, 3);
+		answer = second.answered;
+		engine.ask(dir);
+		await second.all;
+		engine.stop();
+
+		expect(readFileSync(starts, "utf8")).toBe("start\nnext\nstart\n");
+	});
+
+	it("moves a running engine to the program named now at its next question", async () => {
+		const first = listen(1);
+		const second = listen(1);
+		let answer = first.answered;
+		let named = program;
+		const engine = new Engine(
+			() => named,
+			(folder, state) => answer(folder, state),
+			none,
+		);
+		engine.ask(dir);
+		await first.all;
+		named = successor();
+		answer = second.answered;
+		engine.ask(dir);
+		await second.all;
+		engine.stop();
+
+		expect(second.got.map(([folder]) => folder)).toEqual([dir]);
+		expect(readFileSync(starts, "utf8")).toBe("start\nnext\nstart\n");
+	});
+
+	it("tries a newly named program after one that couldn't be started", async () => {
+		const { got, all, answered } = listen(1);
+		let named = join(dir, "missing");
+		const engine = new Engine(() => named, answered, none);
+		engine.ask(dir);
+		// The failure to start arrives as an event, after the question, and
+		// leaves nothing to poll for.
+		await quietFor(ANSWER_MS, 1);
+		named = program;
+		await until("the named program to answer", () => {
+			engine.ask(dir);
+			return got.length > 0;
+		});
+		await all;
+		engine.stop();
+
+		expect(got.map(([folder]) => folder)).toEqual([dir]);
+	});
+
 	it("lets no engine rest while a question is out", async () => {
 		const { got, all, answered } = listen(1);
 		const engine = new Engine(program, answered, none, ANSWER_MS / 4);
