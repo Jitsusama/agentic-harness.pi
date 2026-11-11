@@ -48,7 +48,7 @@ export function refusedSection(
 		const refused = refusal(one);
 		const address = one.addresses[0];
 		return refused && address !== undefined
-			? [`${address} at ${clock(refused)}: ${refused.reason}`]
+			? [`${address} at ${clock(refused)}: ${sentence(refused)}`]
 			: [];
 	});
 	return lines.length > 0
