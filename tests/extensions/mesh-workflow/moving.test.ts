@@ -2,7 +2,7 @@
  * Move from outside a session's window: it ends the first moment
  * nothing of its own is out, leaving the note its move is taken up by.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	createMoving,
 	MOVE_LOOK_MS,
@@ -24,7 +24,11 @@ interface Session {
 	readonly clocks: number[];
 }
 
-function session(holds?: string, hosted = false): Session {
+function session(
+	holds?: string,
+	hosted = false,
+	release?: () => Promise<boolean>,
+): Session {
 	const at: Session = {
 		holds,
 		moving: undefined,
@@ -47,6 +51,14 @@ function session(holds?: string, hosted = false): Session {
 			},
 			tell: (text) => at.told.push(text),
 			close: () => at.did.push("close"),
+			...(release
+				? {
+						release: () => {
+							at.did.push("release");
+							return release();
+						},
+					}
+				: {}),
 			now: () => new Date("2026-11-10T09:00:00.000Z"),
 			every: (ms, look) => {
 				at.clocks.push(ms);
@@ -147,6 +159,32 @@ describe("moving a session", () => {
 		expect(plain.did).toEqual([]);
 		expect(plain.moving).toBeUndefined();
 		expect(plain.told.at(-1)).toMatch(/runs in plain pi already/);
+	});
+
+	it("lets a hosted conversation go through its host, closing it only when the host made no release", async () => {
+		const released = session(undefined, true, async () => true);
+		released.move.move("pi");
+		// Past the release's answer, when a refused one would close it.
+		await new Promise((settled) => setImmediate(settled));
+		expect(released.did).toEqual(["note pi", "release"]);
+		for (const failing of [
+			async () => false,
+			async () => {
+				throw new Error("the host went");
+			},
+		]) {
+			const refused = session(undefined, true, failing);
+			refused.move.move("pi");
+			await vi.waitFor(() =>
+				expect(refused.did).toEqual(["note pi", "release", "close"]),
+			);
+		}
+	});
+
+	it("moves to a host by closing, though it could be released", () => {
+		const one = session(undefined, true, async () => true);
+		one.move.move("background");
+		expect(one.did).toEqual(["note background", "close"]);
 	});
 
 	it("ends once, however often it is asked after", () => {

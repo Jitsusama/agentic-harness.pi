@@ -1,5 +1,6 @@
 /**
- * Closing one conversation that another process hosts.
+ * Closing one conversation that another process hosts, or releasing it
+ * back to plain pi.
  *
  * A host holds several conversations under one pid, so ending one is
  * never a signal: it is a close sent to the host's control socket,
@@ -45,10 +46,32 @@ export function hostedHere(owner: TickedOwner): boolean {
  * Ask the host the owner names to close only its conversation, through
  * the host's control socket under `runtimeDir`.
  */
-export async function closeThroughHost(
+export function closeThroughHost(
 	owner: TickedOwner,
 	runtimeDir = process.env.XDG_RUNTIME_DIR,
 	timeoutMs?: number,
+): Promise<HostClose> {
+	return endThroughHost("close", owner, runtimeDir, timeoutMs);
+}
+
+/**
+ * Ask the host the owner names to let only its conversation go back to
+ * plain pi, as a release does, so its viewers are told it was released
+ * rather than closed.
+ */
+export function releaseThroughHost(
+	owner: TickedOwner,
+	runtimeDir = process.env.XDG_RUNTIME_DIR,
+	timeoutMs?: number,
+): Promise<HostClose> {
+	return endThroughHost("release", owner, runtimeDir, timeoutMs);
+}
+
+async function endThroughHost(
+	op: "close" | "release",
+	owner: TickedOwner,
+	runtimeDir: string | undefined,
+	timeoutMs: number | undefined,
 ): Promise<HostClose> {
 	const key = owner.host === undefined ? undefined : HOST_KEY.exec(owner.host);
 	if (!key || !owner.session) return "unsure";
@@ -60,8 +83,8 @@ export async function closeThroughHost(
 			hostSocketPath(realm, kind, runtimeDir),
 			{
 				v: 1,
-				id: `mesh-end-${randomUUID()}`,
-				op: "close",
+				id: `mesh-${op === "close" ? "end" : op}-${randomUUID()}`,
+				op,
 				sessionId: owner.session,
 				expectedHost: { key: hostKey, owner: identityOf(owner) },
 			},

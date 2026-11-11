@@ -117,7 +117,7 @@ describe("releaseBack", () => {
 			{
 				quest: "Q-s1",
 				prose:
-					"AAAAAA was released from the work-attended host back to plain pi at 2026-11-24T19:00:00.000Z, and waits in the launcher's Sessions to Reopen to open from the same file. It closed at once, holding nothing. Only the host held its screen, so any viewer on it closed with it.",
+					"AAAAAA was released from the work-attended host back to plain pi at 2026-11-24T19:00:00.000Z, and waits in the launcher's Sessions to Reopen to open from the same file. It closed at once, holding nothing. Only the host held its screen, so a window viewing it through its holder carried on there as plain pi, and any other viewer closed with it.",
 			},
 			{
 				quest: "Q-s2",
@@ -178,7 +178,7 @@ describe("releaseProse", () => {
 				waitedFor: ["messages wait for it"],
 			}),
 		).toBe(
-			"AAAAAA was released from the work-background host back to plain pi at 2026-11-24T19:00:00.000Z, and waits in the launcher's Sessions to Reopen to open from the same file. Before it closed it waited while messages wait for it. Only the host held its screen, so any viewer on it closed with it.",
+			"AAAAAA was released from the work-background host back to plain pi at 2026-11-24T19:00:00.000Z, and waits in the launcher's Sessions to Reopen to open from the same file. Before it closed it waited while messages wait for it. Only the host held its screen, so a window viewing it through its holder carried on there as plain pi, and any other viewer closed with it.",
 		);
 	});
 });

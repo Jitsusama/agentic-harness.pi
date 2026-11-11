@@ -122,7 +122,17 @@ export interface Presence {
 	/** The process holding it, when the machine would say. */
 	readonly owner?: TickedOwner;
 	/** A hosted conversation, independently live within its owner process. */
-	readonly hosted?: { readonly host: string; readonly conversation: string };
+	readonly hosted?: {
+		readonly host: string;
+		readonly conversation: string;
+		/**
+		 * The words a window runs to view it: the join
+		 * (scripts/host-join.ts), which becomes its viewer while the host
+		 * holds it and carries on as plain pi once the host lets it go.
+		 * Mycelium's node gives them as the session's attach.
+		 */
+		readonly view?: readonly string[];
+	};
 	/**
 	 * The terminal window title pi gives its session, exactly, so the
 	 * desktop can tell which window is this peer's without parsing it
@@ -585,7 +595,11 @@ function isHostedPresence(
 		value.host !== "" &&
 		"conversation" in value &&
 		typeof value.conversation === "string" &&
-		value.conversation !== ""
+		value.conversation !== "" &&
+		(!("view" in value) ||
+			(Array.isArray(value.view) &&
+				value.view.length > 0 &&
+				value.view.every((word) => typeof word === "string")))
 	);
 }
 

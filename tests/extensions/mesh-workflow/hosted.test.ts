@@ -173,7 +173,7 @@ it("trades a question and answer, then forgets only the closed conversation", as
 	const presences = createPresences(join(paths.mesh, "presence"));
 	expect((await census(presences.all())).present).toHaveLength(2);
 	expect(presences.of("alpha-AAAAAAAA")?.cwd).toBe(a.ctx.cwd);
-	expect(presences.of("bravo-BBBBBBBB")?.hosted).toEqual({
+	expect(presences.of("bravo-BBBBBBBB")?.hosted).toMatchObject({
 		host: "test-host",
 		conversation: "bravo-BBBBBBBB",
 	});

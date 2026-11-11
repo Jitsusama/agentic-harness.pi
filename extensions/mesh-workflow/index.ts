@@ -132,6 +132,7 @@ import {
 import { crossAt, flowsAt } from "../../lib/mesh/flow.ts";
 import { groupNamed, homeOf, isJoinable } from "../../lib/mesh/group.ts";
 import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
+import { releaseThroughHost } from "../../lib/mesh/host-close.ts";
 import { landingKeeper } from "../../lib/mesh/landing-history.ts";
 import {
 	awaitedSessions,
@@ -233,7 +234,7 @@ import {
 	leftToIn,
 	saidIn,
 } from "./glances.ts";
-import { handOverOf } from "./in-place.ts";
+import { handOverOf, hostedPresence } from "./in-place.ts";
 import {
 	createEditNotes,
 	createHeavyCalls,
@@ -859,6 +860,13 @@ export function meshWorkflow(
 				if (ctx?.hasUI) ctx.ui.notify(text, "info");
 			},
 			close: () => ctx?.shutdown(),
+			// Through its host, so a window viewing it carries on as plain pi.
+			release: async () => {
+				const owner = peer ? presences.of(peer.session)?.owner : undefined;
+				return (
+					owner !== undefined && (await releaseThroughHost(owner)) === "ended"
+				);
+			},
 		});
 
 		/**
@@ -1619,7 +1627,15 @@ export function meshWorkflow(
 						started.sessionManager.getCwd(),
 					),
 				...(owner ? { owner } : {}),
-				...(host ? { hosted: { host: host.key, conversation: session } } : {}),
+				...(host
+					? {
+							hosted: hostedPresence(
+								host.key,
+								session,
+								started.sessionManager.getSessionFile(),
+							),
+						}
+					: {}),
 				...(previous ? { previous } : {}),
 				...terminalOf(),
 				// Kept a month past the presence, for the desktop's Landed.

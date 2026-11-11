@@ -15,6 +15,9 @@
  * The person resuming it or sending it a message from its window calls
  * a move off, as it ends a pause: they are at the desk. A move to `pi` is
  * for a hosted conversation only; asked of a pi, it is said and dropped.
+ * It goes through its host as a release rather than a close, so a window
+ * viewing it through the join carries on there as plain pi (host-join.ts);
+ * only when the host makes no release does it close as before.
  *
  * A pi that can hand its own window to a host (in-place.ts) moves in
  * it rather than closing it, and a message its person sends doesn't
@@ -74,6 +77,12 @@ export interface MovingHost {
 	readonly tell: (text: string) => void;
 	/** End the session, as /exit does. */
 	readonly close: () => void;
+	/**
+	 * Have its host let the conversation go back to plain pi, as the
+	 * host's release does, so a window viewing it carries on there as
+	 * that pi: whether the host said it had. A hosted conversation only.
+	 */
+	readonly release?: () => Promise<boolean>;
 	readonly now?: () => Date;
 	/** Look again every so often; answers how to stop. */
 	readonly every?: (ms: number, look: () => void) => () => void;
@@ -121,6 +130,25 @@ function handedOver(over: HandOver): boolean {
 		// the session ends as a move that closes its window does.
 		return false;
 	}
+}
+
+/**
+ * End a hosted conversation moving to plain pi through its host's
+ * release, which tells its viewers it was released rather than closed;
+ * a release the host didn't say it made ends it as Close does.
+ */
+async function letGo(
+	host: MovingHost,
+	release: () => Promise<boolean>,
+): Promise<void> {
+	let released = false;
+	try {
+		released = await release();
+	} catch {
+		// An unanswered release reads as none made: the session closes as
+		// before, and a viewer on it closes with it.
+	}
+	if (!released) host.close();
 }
 
 /** Moving, as its peer last left it. */
@@ -184,6 +212,10 @@ export function createMoving(host: MovingHost): MovingSession {
 		ended = true;
 		if (!over || !handedOver(over)) {
 			host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
+		}
+		if (moving.to === "pi" && host.release) {
+			void letGo(host, host.release);
+			return;
 		}
 		host.close();
 	};
