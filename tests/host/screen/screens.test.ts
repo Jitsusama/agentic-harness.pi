@@ -500,6 +500,7 @@ describe("the host's pi screen", () => {
 			onExit: async () => undefined,
 			editText: async () => ({ status: "failed", message: "none" }) as const,
 			suspend: () => false,
+			quit: async () => true,
 		};
 		const terminal = new ViewerTerminal("a", () => {});
 		const mode = create(runtime, {
