@@ -22,6 +22,7 @@ import {
 	FENCE,
 	fenceArgs,
 	fenceRules,
+	inStore,
 	NEVER_THROUGH,
 	OFFLOAD_EXEMPTION_ENDS,
 	offloadedOutside,
@@ -544,6 +545,17 @@ describe("a command in the fence, through stand-ins", () => {
 			new Date() < new Date(`${OFFLOAD_EXEMPTION_ENDS}T00:00:00-05:00`),
 			"the nix-offload exemption is past its day: take it out, now the SSH agent's proxy lets the fence reach the builders",
 		).toBe(true);
+	});
+
+	it("counts a program as the store's only where its path, resolved, lies in the store", () => {
+		expect(inStore("/nix/store/0000-gone/bin/nix-offload")).toBe(
+			"/nix/store/0000-gone/bin/nix-offload",
+		);
+		expect(
+			inStore("/nix/store/../home/someone/bin/nix-offload"),
+			"a missing path climbing out of the store by name counts as the store's",
+		).toBeUndefined();
+		expect(inStore("/home/someone/bin/nix-offload")).toBeUndefined();
 	});
 });
 

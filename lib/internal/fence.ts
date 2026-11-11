@@ -33,7 +33,7 @@
  */
 
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -535,9 +535,10 @@ export function offloadedOutside(
 /** A program's own path in the Nix store, through every link, or nothing. */
 export function inStore(path: string | undefined): string | undefined {
 	if (!path) return undefined;
-	let own = path;
+	// Resolved first, so a `..` can't climb out of the store by name.
+	let own = resolve(path);
 	try {
-		own = realpathSync(path);
+		own = realpathSync(own);
 	} catch {
 		// Not there to follow: judged by its name, since nothing runs from it.
 	}
