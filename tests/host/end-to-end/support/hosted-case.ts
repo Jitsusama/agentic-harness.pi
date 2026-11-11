@@ -82,6 +82,21 @@ export function repliesIn(file: string | undefined): number {
 		.filter((line) => entryMessage(line)?.role === "assistant").length;
 }
 
+/**
+ * Whether a session file's latest turn has ended: its last message is the
+ * model's reply that calls no tool. A log that stops on a tool call or its
+ * result is one job-workflow's cut-off reads as killed mid-run, and a host
+ * started on it gives the conversation that run again (cut-off.ts).
+ */
+export function turnEnded(file: string | undefined): boolean {
+	const messages = textOf(file)
+		.split("\n")
+		.map(entryMessage)
+		.filter((message) => message !== undefined);
+	const last = messages.at(-1);
+	return last?.role === "assistant" && last.stopReason !== "toolUse";
+}
+
 /** The message a session file's line records, if it records one. */
 function entryMessage(line: string): Record<string, unknown> | undefined {
 	try {
