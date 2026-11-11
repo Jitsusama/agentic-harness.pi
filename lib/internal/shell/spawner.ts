@@ -34,9 +34,7 @@ import {
 	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
 import { systemProgram } from "../system-program.ts";
-
-/** The variable that asks for pi-spawner, while it is new: `on`. */
-export const SPAWNER_VARIABLE = "PI_SPAWNER";
+import { SPAWNER_VARIABLE } from "./spawner-variable.ts";
 
 /** The program's name, as core.nix puts it on the PATH. */
 export const SPAWNER_PROGRAM = "pi-spawner";
