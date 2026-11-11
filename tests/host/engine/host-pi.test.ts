@@ -192,6 +192,17 @@ it("refuses a pi whose screens would quit without asking the host", async () => 
 	);
 });
 
+it("names a missing patch once, with every reason the host needs it", async () => {
+	const error = await refusal(
+		fakeInstall({ agent: true, turn: true, screen: false, auth: true }),
+	);
+	const named = error.message.split("pi-host-interactive-lifecycle.patch");
+	expect(named.length - 1, `named once: ${error.message}`).toBe(1);
+	expect(error.message).toContain(
+		"would own the host's process exit and signals, and a quit typed while other windows watch",
+	);
+});
+
 it("names only the patch a pi is missing", async () => {
 	const error = await refusal(
 		fakeInstall({ agent: true, screen: true, auth: true }),
