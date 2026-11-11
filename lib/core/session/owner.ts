@@ -41,8 +41,10 @@ export function endConversation(ctx: Ending, by: string): void {
 	Promise.resolve()
 		.then(() => host.close(sessionId, `closed, asked by ${by}`))
 		.catch((error: unknown) => {
-			// A close that failed leaves the conversation held; the host's
-			// journal, its standard error, says so.
+			// A close that failed leaves the conversation held, as the host
+			// keeps every failed close (SessionHost.close); the host's journal,
+			// its standard error, says so. pi's shutdown is no fallback: in a
+			// host it ends in this same close, only without saying who asked.
 			process.stderr.write(
 				`pi-host: ${sessionId} didn't close, asked by ${by}: ${error instanceof Error ? error.message : String(error)}\n`,
 			);

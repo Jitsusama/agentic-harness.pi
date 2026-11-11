@@ -24,7 +24,10 @@ import type { TickedOwner } from "../internal/process-ticks.ts";
 /** What a host said, or didn't, when asked to close one conversation. */
 export type HostClose = "ended" | "unsure";
 
-/** The longest `by` the host's protocol takes; a longer one is refused. */
+/**
+ * The longest `by` the host's protocol takes. The host refuses a longer
+ * one, so the client cuts `by` to fit before it sends.
+ */
 const CALLER_MOST = 128;
 
 /** The socket's two parts, from a host key `<realm>-<kind>`. */
