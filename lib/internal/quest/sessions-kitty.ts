@@ -14,6 +14,13 @@
  * niri opens unfocused, in a scope of its own under the agents' slice,
  * without the activation token niri would spend on taking the focus,
  * and its login shell running the command under the realm's holder.
+ *
+ * Each window gets a class of its own, told to it in `MYCELIUM_APP_ID`
+ * as well, as the launcher's own windows are (core.nix's Sessions.qml,
+ * inSessions). One kitty draws every window there, so a bare class
+ * names none of them: on 11 November 48 of 58 pi windows sat in it as
+ * `pi-spawned`, and nothing could tie the window Joel was at to its pi
+ * (7QEY1S [12aa2de1]).
  */
 
 import { readFileSync } from "node:fs";
@@ -24,7 +31,8 @@ import {
 	typedLine,
 } from "../../core/internal/terminal/drivers/shared.ts";
 import { startDetached } from "../../core/internal/terminal/launchers.ts";
-import { AGENTS_SLICE, SPAWNED_CLASS } from "../../terminal/types.ts";
+import { classOfItsOwn } from "../../terminal/niri.ts";
+import { AGENTS_SLICE } from "../../terminal/types.ts";
 
 /** The instance group the desktop's sessions kitty answers for. */
 export const SESSIONS_GROUP = "pi-sessions";
@@ -74,7 +82,12 @@ export interface SessionsKittyStart {
 	readonly binary: string;
 	readonly args: readonly string[];
 	readonly env: Readonly<Record<string, string>>;
+	/** The window's class, and the app id niri lists it by. */
+	readonly windowClass: string;
 }
+
+/** The variable a window's class is told to what runs in it. */
+const APP_ID_VARIABLE = "MYCELIUM_APP_ID";
 
 /**
  * How `window` is started in the sessions kitty from a session whose
@@ -87,13 +100,20 @@ export interface SessionsKittyStart {
 export function sessionsKittyStart(
 	window: SessionsKittyWindow,
 	from: Readonly<Record<string, string | undefined>>,
+	windowClass: string = classOfItsOwn(),
 ): SessionsKittyStart {
 	const realm = from.MYCELIUM_REALM?.trim();
 	const held = realm
 		? `mycelium --realm ${shellQuote(realm)} hold -- ${window.command}`
 		: window.command;
 	const shell = from.SHELL ?? "/bin/sh";
-	const line = typedLine(held, window.env, true).trimEnd();
+	// The holder reads the class and keeps it from its program; with no
+	// holder, a session this one spawns would say it as its own window's.
+	const line = `${realm ? "" : `unset ${APP_ID_VARIABLE}\n`}${typedLine(
+		held,
+		window.env,
+		true,
+	).trimEnd()}`;
 	const env = launchEnvironment(from);
 	for (const name of FOCUS_VARIABLES) delete env[name];
 	return {
@@ -105,12 +125,14 @@ export function sessionsKittyStart(
 			"--quiet",
 			`--slice=${AGENTS_SLICE}`,
 			"--",
+			"env",
+			`${APP_ID_VARIABLE}=${windowClass}`,
 			"kitty",
 			"-1",
 			"--instance-group",
 			SESSIONS_GROUP,
 			"--class",
-			SPAWNED_CLASS,
+			windowClass,
 			"--directory",
 			window.cwd,
 			shell,
@@ -120,6 +142,7 @@ export function sessionsKittyStart(
 			line,
 		],
 		env,
+		windowClass,
 	};
 }
 

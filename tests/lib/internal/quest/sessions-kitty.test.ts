@@ -59,19 +59,21 @@ describe("the desktop's sessions kitty", () => {
 			},
 		);
 		expect(start.binary).toBe("systemd-run");
-		expect(start.args.slice(0, 16)).toEqual([
+		expect(start.args.slice(0, 18)).toEqual([
 			"--user",
 			"--scope",
 			"--collect",
 			"--quiet",
 			"--slice=agents.slice",
 			"--",
+			"env",
+			`MYCELIUM_APP_ID=${start.windowClass}`,
 			"kitty",
 			"-1",
 			"--instance-group",
 			"pi-sessions",
 			"--class",
-			"pi-spawned",
+			start.windowClass,
 			"--directory",
 			"/work/one",
 			"/bin/zsh",
@@ -82,6 +84,43 @@ describe("the desktop's sessions kitty", () => {
 		expect(line).toContain("mycelium --realm 'work' hold -- pi");
 		expect(start.env).not.toHaveProperty("XDG_ACTIVATION_TOKEN");
 		expect(start.env).not.toHaveProperty("DESKTOP_STARTUP_ID");
+	});
+
+	it("gives each window a class of its own that niri opens unfocused", () => {
+		const window = { command: "pi", cwd: "/work/one" };
+		const first = sessionsKittyStart(window, { SHELL: "/bin/sh" });
+		const second = sessionsKittyStart(window, { SHELL: "/bin/sh" });
+		// core.nix's modules/niri/config.kdl opens these without the focus.
+		const unfocused = /^pi-spawned(\.[0-9]+)?$/;
+		expect(first.windowClass, "niri's rule matches the class").toMatch(
+			unfocused,
+		);
+		expect(
+			first.windowClass,
+			"a class shared by two windows names neither",
+		).not.toBe(second.windowClass);
+		expect(first.windowClass, "a bare class names no window").not.toBe(
+			"pi-spawned",
+		);
+	});
+
+	it("keeps the window's class from a program no holder keeps it from", () => {
+		const held = sessionsKittyStart(
+			{ command: "pi", cwd: "/work/one" },
+			{ SHELL: "/bin/sh", MYCELIUM_REALM: "work" },
+		);
+		const unheld = sessionsKittyStart(
+			{ command: "pi", cwd: "/work/one" },
+			{ SHELL: "/bin/sh" },
+		);
+		expect(
+			unheld.args.at(-1),
+			"a session it spawns would say the class as its own window's",
+		).toMatch(/^unset MYCELIUM_APP_ID\n/);
+		expect(
+			held.args.at(-1),
+			"the holder reads the class and keeps it from its program",
+		).not.toContain("unset MYCELIUM_APP_ID");
 	});
 
 	it("runs the command as it is outside a realm, and says where it opened", async () => {
