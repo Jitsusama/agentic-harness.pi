@@ -1,7 +1,15 @@
 /** A host process: kind from argv, realm from env, ready once listening, parked on a stop signal. */
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import {
+	access,
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +19,7 @@ import { controlRequest } from "../../../host/service/client.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { describeStep, hostKind, runHost } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
+import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
 // The net is process-wide; serve.test.ts checks a host sets it.
 vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
@@ -261,5 +270,62 @@ describe("runHost", () => {
 		expect(report).toHaveBeenCalledWith(failed);
 		signals.emit("SIGINT");
 		await run.stopped;
+	});
+
+	it("tells systemd from its own unit, never from the jobs cgroup a conversation's spawns go to", async () => {
+		// systemd credits a notify to the unit whose cgroup its sender is in,
+		// and a hosted conversation's priority-workflow writes every child the
+		// process spawns into jobs.service: on 11 November the background
+		// host's ready went to jobs.service, and systemd stopped the host at
+		// its start timeout.
+		const bin = join(dir, "bin");
+		const told = join(dir, "told");
+		await mkdir(bin, { recursive: true });
+		const notify = join(bin, "systemd-notify");
+		await writeFile(notify, `#!/bin/sh\necho "$$ $*" >> '${told}'\n`);
+		await chmod(notify, 0o755);
+		const placed: number[] = [];
+		const undo = placeChildren("/jobs", (_path, pid) => {
+			placed.push(pid);
+		});
+		const signals = new EventEmitter();
+		try {
+			const run = await runHost({
+				argv: ["background"],
+				env: {
+					...env(),
+					NOTIFY_SOCKET: join(dir, "notify"),
+					PATH: `${bin}:${process.env.PATH ?? ""}`,
+				},
+				engine,
+				signals,
+				say: () => {},
+				report: (error) => {
+					throw error;
+				},
+				places: places(),
+			});
+			signals.emit("SIGTERM");
+			await run.stopped;
+		} finally {
+			undo();
+		}
+
+		const notifies = (await readFile(told, "utf8"))
+			.trim()
+			.split("\n")
+			.map((line) => line.split(" "));
+		expect(
+			notifies.map((words) => words.slice(1).join(" ")),
+			"what the host told systemd",
+		).toEqual([
+			expect.stringContaining("STATUS=building the engine"),
+			"--ready",
+		]);
+		const senders = notifies.map((words) => Number(words.at(0)));
+		expect(
+			placed.filter((pid) => senders.includes(pid)),
+			"notifies written into jobs",
+		).toEqual([]);
 	});
 });

@@ -20,6 +20,7 @@
 
 import { execFile } from "node:child_process";
 import { ambientSession } from "../../lib/core/session/index.ts";
+import { withPi } from "../../lib/internal/priority/place.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostRealm } from "./address.ts";
 import type { ConversationEngine } from "./backend.ts";
@@ -211,14 +212,31 @@ export function describeStep(step: StartStep): string {
  * unit's status, when it runs the host as a notify unit.
  */
 function notifyProgress(env: NodeJS.ProcessEnv, status: string): Promise<void> {
-	if (!env.NOTIFY_SOCKET) return Promise.resolve();
 	const extension = STEP_ALLOWANCE_MS * MICROSECONDS_PER_MS;
+	return tellSystemd(env, [
+		`EXTEND_TIMEOUT_USEC=${extension}`,
+		`STATUS=${status}`,
+	]);
+}
+
+/**
+ * Run systemd-notify with `args`, when the host runs as a notify unit,
+ * from the host's own cgroup. systemd credits a notify to the unit whose
+ * cgroup its sender is in, and a hosted conversation's priority-workflow
+ * writes every child this process spawns into jobs.service: on 11
+ * November the background host's ready went to jobs.service whenever the
+ * move landed first, and systemd stopped the host at its start timeout.
+ */
+function tellSystemd(
+	env: NodeJS.ProcessEnv,
+	args: readonly string[],
+): Promise<void> {
+	if (!env.NOTIFY_SOCKET) return Promise.resolve();
 	return new Promise((resolve, reject) => {
-		execFile(
-			"systemd-notify",
-			[`EXTEND_TIMEOUT_USEC=${extension}`, `STATUS=${status}`],
-			{ env },
-			(error) => (error ? reject(error) : resolve()),
+		withPi(() =>
+			execFile("systemd-notify", args, { env }, (error) =>
+				error ? reject(error) : resolve(),
+			),
 		);
 	});
 }
@@ -250,12 +268,7 @@ function uncontained(
 
 /** Tell systemd the host listens, when it runs the host as a notify unit. */
 function notifyReady(env: NodeJS.ProcessEnv): Promise<void> {
-	if (!env.NOTIFY_SOCKET) return Promise.resolve();
-	return new Promise((resolve, reject) => {
-		execFile("systemd-notify", ["--ready"], { env }, (error) =>
-			error ? reject(error) : resolve(),
-		);
-	});
+	return tellSystemd(env, ["--ready"]);
 }
 
 /** Write an error, and what caused it, to standard error, which systemd's journal keeps. */
