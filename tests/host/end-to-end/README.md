@@ -140,6 +140,13 @@ link onto a folder of versions. Once the link moves, a steer's run ends
 with the host reloading the conversation, and its new runtime says the
 move was its own and that it runs the new version.
 
+screen-reload.test.ts reloads a hosted conversation through its host,
+as the follower does, on the screen host: its screen draws the new
+load's footer, takes a resize and the next words, and the host stays
+up. The fixture's footer reads its load as it draws, and each load asks
+for a frame before setting its own, so a screen still drawing the old
+load's footer throws, as the background host did on 11 November.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
