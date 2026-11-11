@@ -15,6 +15,8 @@ import {
 	mkdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
+	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -80,6 +82,8 @@ const openedIn: string[] = [];
 /** An extension the engine is given as pi's `-e` gives one, and the file it notes each load in. */
 const flaggedExtension = join(folder, "flagged.mjs");
 const flaggedLoads = join(folder, "flagged.jsonl");
+/** Which copy of the linked extension each of its loads ran, as its helper module named it. */
+const linkedLoads = join(folder, "linked.jsonl");
 const agentDir = join(folder, "home", ".pi", "agent");
 const entryFile = join(folder, "entry.json");
 const effects = join(folder, "effects");
@@ -517,6 +521,38 @@ const scenarios: Record<string, Scenario> = {
 			return { ...seen, projectLoads: lines(projectLoads) };
 		},
 	},
+	/**
+	 * An extension linked into pi's folder, as Shopify's proxy is, whose
+	 * link moves onto another copy and whose first copy is then deleted,
+	 * as a switch and a store collection do: the first conversation
+	 * reloads, and a second is built, in the same process.
+	 */
+	"extension-moved": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const link = join(agentDir, "extensions", "linked");
+			const copies = join(folder, "copies");
+			for (const copy of ["first", "second"])
+				linkedCopy(join(copies, copy), copy);
+			symlinkSync(join(copies, "first"), link);
+			const first = await open(engine, {});
+			symlinkSync(join(copies, "second"), `${link}.next`);
+			renameSync(`${link}.next`, link);
+			rmSync(join(copies, "first"), { recursive: true });
+			const runtime = engine.view(first)?.runtime;
+			if (!runtime) throw new Error("The first conversation has no runtime");
+			await runtime.session.reload();
+			const afterReload = piModule<{
+				getExtensions(): { errors: readonly { error: string }[] };
+			}>(runtime.services.resourceLoader)
+				.getExtensions()
+				.errors.map((failed) => failed.error);
+			const second = await open(engine, {});
+			await host.close(first);
+			await host.close(second);
+			return { afterReload, linked: lines(linkedLoads) };
+		},
+	},
 	/** The host's next start, resuming nothing, as when the last run's hold was dropped or its resume fails. */
 	start: {
 		responses: () => [],
@@ -796,6 +832,30 @@ function text(message: Message): string {
 					.map((part) => (part.type === "text" ? part.text : `[${part.type}]`))
 					.join("");
 	return `${message.role}: ${content}`;
+}
+
+/**
+ * A copy of the linked extension: its entry imports a helper beside it,
+ * as Shopify's proxy imports its own, and notes the helper's word at
+ * each load.
+ */
+function linkedCopy(dir: string, word: string): void {
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		join(dir, "helper.ts"),
+		`export const copy = ${JSON.stringify(word)};\n`,
+	);
+	writeFileSync(
+		join(dir, "index.ts"),
+		[
+			'import { appendFileSync } from "node:fs";',
+			'import { copy } from "./helper.js";',
+			"export default function () {",
+			`\tappendFileSync(${JSON.stringify(linkedLoads)}, \`\${JSON.stringify({ copy })}\\n\`);`,
+			"}",
+			"",
+		].join("\n"),
+	);
 }
 
 /** pi's agent folder: the scripted provider with the gateway key's variable, settings, and the probe. */
