@@ -11,10 +11,15 @@
  * start timeout killed each. So each step of the start asks systemd for
  * more time from that moment and says where it is, and the journal keeps
  * how long each step took.
- * The engine is passed in, so the program that starts this names which.
+ *
+ * What one conversation throws where nothing caught it is contained to
+ * that conversation; anything else stops the host the same way, and its
+ * stop then fails. The engine is passed in, so the program that starts
+ * this names which.
  */
 
 import { execFile } from "node:child_process";
+import { ambientSession } from "../../lib/core/session/index.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostRealm } from "./address.ts";
 import type { ConversationEngine } from "./backend.ts";
@@ -33,6 +38,13 @@ export const STEP_ALLOWANCE_MS = 120_000;
 
 const MICROSECONDS_PER_MS = 1000;
 const MS_PER_SECOND = 1000;
+
+/**
+ * How long a stop for a throw nothing contained may take before the host
+ * ends anyway: inside systemd's 60 s stop timeout, so the next host starts
+ * from what parked rather than from a kill.
+ */
+const FAILED_STOP_MS = 45_000;
 
 /** What a host process is given to run. */
 export interface HostRunOptions {
@@ -58,6 +70,18 @@ export interface HostRunOptions {
 	/** Where errors go; standard error, which the journal keeps, by default. */
 	report?: (error: unknown) => void;
 	/**
+	 * Where the process hears a throw nothing caught. Production passes the
+	 * process; without one, nothing listens, as in a test.
+	 */
+	faults?: {
+		on(event: "uncaughtException", listener: (error: unknown) => void): unknown;
+	};
+	/**
+	 * Contain a throw made in `sessionId`'s conversation to it, saying
+	 * whether it could; one it can't stops the host.
+	 */
+	contain?: (sessionId: string, error: unknown) => boolean;
+	/**
 	 * Passed on to serveHost, for tests: a host run from a tree is given
 	 * its rollout gate, since it has no install to read one from.
 	 */
@@ -75,7 +99,10 @@ export interface HostRunOptions {
 /** A running host process, and when it has stopped. */
 export interface HostRun {
 	readonly serving: ServingHost;
-	/** Settles once a stop signal has parked every conversation. */
+	/**
+	 * Settles once a stop signal has parked every conversation, or fails
+	 * once a throw nothing could contain has stopped the host.
+	 */
 	readonly stopped: Promise<void>;
 }
 
@@ -118,11 +145,28 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		runtimeDir: options.env.XDG_RUNTIME_DIR,
 	});
 	const signals = options.signals ?? process;
+	let stopping: Promise<void> | undefined;
+	const stop = () => {
+		stopping ??= serving.stop();
+		return stopping;
+	};
 	const stopped = new Promise<void>((resolve, reject) => {
-		const stop = () => {
-			serving.stop().then(resolve, reject);
-		};
-		for (const signal of STOP_SIGNALS) signals.once(signal, stop);
+		for (const signal of STOP_SIGNALS)
+			signals.once(signal, () => {
+				stop().then(resolve, reject);
+			});
+		options.faults?.on("uncaughtException", (error) => {
+			const failure = uncontained(error, options.contain);
+			if (!failure) return;
+			report(error);
+			const ended = () => reject(failure);
+			// A stop that hangs still ends the host, inside systemd's own timeout.
+			setTimeout(ended, FAILED_STOP_MS).unref();
+			stop().then(ended, (stopFailed: unknown) => {
+				report(stopFailed);
+				ended();
+			});
+		});
 	});
 	try {
 		await (options.ready ?? notifyReady)(options.env);
@@ -169,6 +213,26 @@ function sayToJournal(line: string): void {
 	process.stderr.write(`pi-host: ${line}\n`);
 }
 
+/**
+ * Contain a throw nothing caught to the conversation it was made in, as
+ * the context it ran in names it, answering why the host must stop when
+ * it can't be.
+ */
+function uncontained(
+	error: unknown,
+	contain: HostRunOptions["contain"],
+): Error | undefined {
+	const sessionId = ambientSession();
+	if (sessionId !== undefined && contain?.(sessionId, error)) return undefined;
+	const said = error instanceof Error ? error.message : String(error);
+	return new Error(
+		sessionId === undefined
+			? `The host threw outside every conversation, so it parked them all and stopped: ${said}`
+			: `Conversation ${sessionId} threw with no screen to contain it, so the host parked every conversation and stopped: ${said}`,
+		{ cause: error },
+	);
+}
+
 /** Tell systemd the host listens, when it runs the host as a notify unit. */
 function notifyReady(env: NodeJS.ProcessEnv): Promise<void> {
 	if (!env.NOTIFY_SOCKET) return Promise.resolve();
@@ -179,8 +243,16 @@ function notifyReady(env: NodeJS.ProcessEnv): Promise<void> {
 	});
 }
 
-/** Write an error to standard error, which systemd's journal keeps. */
+/** Write an error, and what caused it, to standard error, which systemd's journal keeps. */
 export function reportToJournal(error: unknown): void {
-	const said = error instanceof Error ? (error.stack ?? error.message) : error;
-	process.stderr.write(`pi-host: ${String(said)}\n`);
+	process.stderr.write(`pi-host: ${said(error)}\n`);
+}
+
+// An error's stack, then its cause's, which holds where a contained throw came from.
+function said(error: unknown): string {
+	if (!(error instanceof Error)) return String(error);
+	const own = error.stack ?? error.message;
+	return error.cause === undefined
+		? own
+		: `${own}\nCaused by: ${said(error.cause)}`;
 }
