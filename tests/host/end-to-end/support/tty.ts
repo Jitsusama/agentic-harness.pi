@@ -8,9 +8,12 @@
  * its PATH.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { dirname } from "node:path";
-import { type Drawn, drawn } from "./drawn.ts";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { until } from "../../../support/until.ts";
+import { type Drawn, drawn, SHOWN_MS } from "./drawn.ts";
 import type { Seal } from "./seal.ts";
 
 /** The prompt bash shows. */
@@ -24,6 +27,12 @@ const CLOSE_MS = 10_000;
 export interface Tty extends Drawn {
 	/** Type into the terminal, as the bytes a keyboard sends. */
 	type(data: string): void;
+	/**
+	 * Resize the window, as a tiling or a font change does: its terminal
+	 * takes the new size, and the kernel tells what runs in the foreground
+	 * there with a SIGWINCH.
+	 */
+	resize(rows: number, columns: number): void;
 	/** Close the window: end its terminal, hanging up on what runs in it, and wait for it to go. */
 	close(): Promise<void>;
 }
@@ -90,18 +99,42 @@ export async function openTty(seal: Seal, options: TtyOptions): Promise<Tty> {
 	};
 	await drawing.shows(AT_PROMPT);
 	// script(1) reads no window from a pipe, so the terminal is told its
-	// size; and NixOS's bash sets PATH and the editors even without
+	// size, and names itself for a resize from outside; and NixOS's bash sets PATH and the editors even without
 	// profile or rc, so the shell is told where mycelium is and which
 	// editor the person uses.
 	const bin = JSON.stringify(dirname(options.mycelium));
 	const editor = JSON.stringify(options.editor);
+	const named = join(seal.root, `tty-${randomUUID()}`);
 	type(
-		`export PATH=${bin}:"$PATH" VISUAL=${editor} EDITOR=${editor}; stty rows ${options.rows} cols ${options.columns}; clear\r`,
+		`export PATH=${bin}:"$PATH" VISUAL=${editor} EDITOR=${editor}; stty rows ${options.rows} cols ${options.columns}; tty > ${JSON.stringify(`${named}.new`)} && mv ${JSON.stringify(`${named}.new`)} ${JSON.stringify(named)}; clear\r`,
+	);
+	// The first prompt can pass the wait below before the line above has
+	// even echoed, so the shell is waited on through what it writes.
+	await until(
+		"the shell to name its terminal",
+		() => existsSync(named),
+		SHOWN_MS,
 	);
 	await drawing.shows(/^\$ ?$(?![\s\S]*stty)/m);
+	const terminal = readFileSync(named, "utf8").trim();
 	return {
 		...drawing,
 		type,
+		resize: (rows, columns) => {
+			drawing.terminal.resize(columns, rows);
+			const sized = spawnSync("stty", [
+				"-F",
+				terminal,
+				"rows",
+				String(rows),
+				"cols",
+				String(columns),
+			]);
+			if (sized.status !== 0)
+				throw new Error(
+					`stty could not resize ${terminal}: ${String(sized.stderr).trim()}`,
+				);
+		},
 		close: () => close(child, exited),
 	};
 }
