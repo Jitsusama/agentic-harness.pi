@@ -2387,6 +2387,53 @@ describe("groups", () => {
 		]);
 	});
 
+	it("says what a busy peer's step is once it has gone on a minute", async () => {
+		const presences = createPresences(join(paths.mesh, "presence"));
+		const MINUTE = 60_000;
+		const HOUR = 60 * MINUTE;
+		const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+		const publish = (
+			address: string,
+			stepDetail?: {
+				kind: "tool" | "thinking" | "waiting";
+				name: string;
+				since: string;
+			},
+		) =>
+			presences.publish({
+				session: `session-${address}`,
+				addresses: [address],
+				groups: [],
+				worksOn: "work",
+				owns: [],
+				busy: true,
+				...(stepDetail ? { stepDetail: { ...stepDetail, detail: "" } } : {}),
+				at: new Date().toISOString(),
+			});
+		publish("LOOPER", { kind: "tool", name: "codemode", since: ago(3 * HOUR) });
+		publish("MULLER", { kind: "thinking", name: "", since: ago(5 * MINUTE) });
+		publish("ASKING", {
+			kind: "waiting",
+			name: "gate",
+			since: ago(2 * MINUTE),
+		});
+		publish("QUICKR", { kind: "tool", name: "bash", since: ago(10_000) });
+		publish("OLDERP");
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		const lines = text.split("\nPeers:\n")[1]?.split("\n") ?? [];
+		expect([...lines].sort()).toEqual([
+			"ASKING, busy, waiting on its person for 2 min: work",
+			"LOOPER, busy, in codemode for 3 h: work",
+			"MULLER, busy, thinking for 5 min: work",
+			"OLDERP, busy: work",
+			"QUICKR, busy: work",
+		]);
+	});
+
 	it("says in presence what this session waits on, from the bus, held until it starts", async () => {
 		const kept = () =>
 			createPresences(join(paths.mesh, "presence")).of(session)?.wants;

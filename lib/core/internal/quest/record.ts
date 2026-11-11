@@ -262,11 +262,8 @@ export interface AttachmentCitations {
 const LINK_TARGET =
 	/\]\(\s*(<[^>\n]+>|[^)\s]+)|^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|\S+)/gm;
 
-/** Any path-like run of text that goes through an `attachments/` folder. */
-const MENTION = new RegExp(
-	`[^\\s\`'"()<>\\[\\]|,;]*${ATTACHMENTS_FOLDER}/[^\\s\`'"()<>\\[\\]|,;]*`,
-	"g",
-);
+/** A character that ends a path-like run of text. */
+const PATH_END = /[\s`'"()<>[\]|,;]/;
 
 const QUEST_ID = /QEST-\d{8}-[0-9A-Z]{6}/g;
 
@@ -312,10 +309,34 @@ export function attachmentCitations(
 			if (!target.includes(`${ATTACHMENTS_FOLDER}/`)) continue;
 			if (!credit(rel, target)) broken.push({ document: rel, target: written });
 		}
-		for (const [mention] of text.matchAll(MENTION)) credit(rel, mention);
+		for (const mention of mentions(text)) credit(rel, mention);
 	}
 
 	return { cited, broken };
+}
+
+/**
+ * Every path-like run of text that goes through an `attachments/` folder:
+ * each whole run of characters no PATH_END ends that holds one.
+ *
+ * It looks for the folder's name first and widens from there, rather than
+ * asking a pattern to try every place a run could start: a pattern with
+ * no fixed start backtracks through each run, and over a long plan the
+ * audit spent most of its time there.
+ */
+function* mentions(text: string): Generator<string> {
+	const marker = `${ATTACHMENTS_FOLDER}/`;
+	let from = 0;
+	for (;;) {
+		const at = text.indexOf(marker, from);
+		if (at < 0) return;
+		let start = at;
+		while (start > from && !PATH_END.test(text.charAt(start - 1))) start--;
+		let end = at + marker.length;
+		while (end < text.length && !PATH_END.test(text.charAt(end))) end++;
+		yield text.slice(start, end);
+		from = end;
+	}
 }
 
 /**

@@ -72,6 +72,26 @@ describe("attachmentCitations", () => {
 		expect(broken).toEqual([]);
 	});
 
+	it("reads each path in a line as its own, whatever ends it", () => {
+		const { cited } = cite([
+			{
+				rel: "README.md",
+				text: [
+					"x;attachments/cost.png,attachments/lonely.md",
+					"a\u00a0attachments/taxonomy.json\u2028b",
+					"`q/attachments/runs/a/summary.md`attachments/runs/b/summary.md",
+				].join("\n"),
+			},
+		]);
+		expect([...cited.keys()].sort()).toEqual([
+			"attachments/cost.png",
+			"attachments/lonely.md",
+			"attachments/runs/a/summary.md",
+			"attachments/runs/b/summary.md",
+			"attachments/taxonomy.json",
+		]);
+	});
+
 	it("reads an encoded space in a link", () => {
 		const { cited } = cite([
 			{ rel: "README.md", text: "![c](attachments/cost%20chart.png)" },
