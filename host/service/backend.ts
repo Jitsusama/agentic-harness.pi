@@ -49,9 +49,9 @@ export interface ConversationEngine {
 	/**
 	 * A held conversation that wasn't running, such as a parked one, was
 	 * closed or released: let go of what is kept for its wake, its screen's
-	 * terminal and viewers among it.
+	 * terminal and viewers among it, telling them `why` as a close does.
 	 */
-	dropped?(sessionId: string): Promise<void>;
+	dropped?(sessionId: string, why: string): Promise<void>;
 }
 
 /**
@@ -259,7 +259,7 @@ export function hostBackend(options: {
 			if (running) await host.close(sessionId, asked);
 			await roster.drop(sessionId);
 			if (!running) {
-				await engine.dropped?.(sessionId);
+				await engine.dropped?.(sessionId, asked);
 				options.say?.(endedLine(sessionId, `${asked}, held but not running`));
 			}
 			return { sessionId };

@@ -110,12 +110,18 @@ describe("waking a parked conversation", () => {
 		expect(host.holds(sessionId), "it runs again").toBe("idle");
 	});
 
-	it("leaves one closed while it slept closed, even with the wake asked first", async () => {
+	it("leaves one released while it slept gone, telling its screen why, even with the wake asked first", async () => {
 		const fake = engine();
 		const backend = backendWith(fake);
 		const sessionId = await parked(backend);
 
-		const closing = backend.execute({ v: 1, id: "c", op: "close", sessionId });
+		const closing = backend.execute({
+			v: 1,
+			id: "c",
+			op: "release",
+			sessionId,
+			by: "the cutover",
+		});
 		const waking = backend.wake(sessionId);
 		await Promise.all([closing, waking]);
 
@@ -123,9 +129,10 @@ describe("waking a parked conversation", () => {
 			fake.resume,
 			"the wake asked in the close's turn finds it gone",
 		).not.toHaveBeenCalled();
-		expect(fake.dropped, "its kept screen was let go").toHaveBeenCalledWith(
-			sessionId,
-		);
+		expect(
+			fake.dropped,
+			"its kept screen was let go, told it was released",
+		).toHaveBeenCalledWith(sessionId, "released, asked by the cutover");
 		expect(host.holds(sessionId), "it stays closed").toBeUndefined();
 	});
 

@@ -786,9 +786,9 @@ export async function createEngine(
 			);
 		},
 
-		async dropped(sessionId) {
+		async dropped(sessionId, why) {
 			parked.unwatch(sessionId);
-			await options.screens?.closed(sessionId);
+			await options.screens?.closed(sessionId, why);
 		},
 
 		async abort(sessionId) {
