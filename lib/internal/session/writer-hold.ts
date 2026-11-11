@@ -60,8 +60,9 @@ export async function writerHold(
 		// A drop the host makes after its list's; nothing announces it, so its roster is read again.
 		await new Promise((settle) => setTimeout(settle, SETTLE_POLL_MS));
 	}
-	// Still kept by a running host that couldn't resume it: its next start tries again.
+	// Still kept by a running host that couldn't run it: stranded until that
+	// host next starts.
 	return rosterHolds(looking.rosters).get(sessionId) === hold.key
-		? hold
+		? { ...hold, stranded: true }
 		: undefined;
 }
