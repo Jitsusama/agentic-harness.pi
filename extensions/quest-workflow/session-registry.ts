@@ -587,16 +587,23 @@ function stampSignalled(sessionId: string, now: Date): void {
 	if (stamped !== record) saveRecord(stamped);
 }
 
-/** Follow only this conversation's host endings, disposing the hook on reload. */
+/**
+ * Follow only this conversation's host endings, disposing the hook on
+ * reload. A host parks a conversation by stopping it as a host stop
+ * does, so one stopped while `parking` says it parks is recorded as
+ * parked, as plain pi's park is, rather than as taken away.
+ */
 export function followHostStamps(
 	bus: { on(channel: string, listener: (data: unknown) => void): () => void },
 	session: string,
 	release: () => void,
+	parking: () => boolean,
 ): () => void {
 	return bus.on(SESSION_STAMP_EVENT, (data) => {
 		if (!isSessionStamp(data) || data.session !== session) return;
-		if (data.how === "signalled") stampSignalled(session, new Date());
-		else recordSessionEnd(session, "quit");
+		if (data.how !== "signalled") recordSessionEnd(session, "quit");
+		else if (parking()) recordSessionEnd(session, "parked");
+		else stampSignalled(session, new Date());
 		release();
 	});
 }

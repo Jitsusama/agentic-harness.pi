@@ -691,8 +691,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		if (hosted()) {
 			const session = currentSessionId(ctx, undefined);
 			if (session)
-				stopHostStamp = followHostStamps(pi.events, session, () =>
-					releaseSessionOnShutdown(state, session),
+				stopHostStamp = followHostStamps(
+					pi.events,
+					session,
+					() => releaseSessionOnShutdown(state, session),
+					// park-workflow says it parks before it asks the host to.
+					() => parking === session,
 				);
 		}
 		// Surface any layout-drift errors the discovery walk
