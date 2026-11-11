@@ -24,8 +24,8 @@ import {
 	readTags,
 	SELECTION_TAGS_ENTRY,
 	type SelectionTags,
-	taggedBranchAt,
 	type TagIndex,
+	taggedBranchAt,
 } from "../../lib/compaction/selection/tags.ts";
 import type { BranchReader } from "../../lib/internal/session/branch-walk.ts";
 
