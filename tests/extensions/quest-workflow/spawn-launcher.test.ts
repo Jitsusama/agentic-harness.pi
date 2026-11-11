@@ -491,16 +491,21 @@ describe("spawn through the desktop's launcher", () => {
 		expect(handed()).toBeDefined();
 		expect(opened).toBeUndefined();
 		const words = started() ?? [];
-		expect(
-			words.slice(words.indexOf("kitty"), words.indexOf("kitty") + 6),
-		).toEqual([
+		const at = words.indexOf("kitty");
+		const windowClass = words[at + 5] ?? "";
+		expect(words.slice(at - 2, at + 5)).toEqual([
+			"env",
+			`MYCELIUM_APP_ID=${windowClass}`,
 			"kitty",
 			"-1",
 			"--instance-group",
 			"pi-sessions",
 			"--class",
-			"pi-spawned",
 		]);
+		expect(
+			windowClass,
+			"a class of its own, which niri opens unfocused",
+		).toMatch(/^pi-spawned\.[0-9]+$/);
 		expect(result.message).toContain(
 			"Spawned a window in the desktop's sessions kitty",
 		);
