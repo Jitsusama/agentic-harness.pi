@@ -17,13 +17,20 @@ So every answer's text, its details and its structured answer are read
 for the shapes in `lib/internal/secrets.ts`, and each one found is
 replaced:
 
-- **Shapes a service gives its credentials:** GitHub, npm, Anthropic,
-  OpenAI, AWS, Google, Slack and Shopify tokens, age identities, JSON
-  web tokens and private keys in PEM form.
+- **Shapes a service gives its credentials:** GitHub, GitLab, npm,
+  Anthropic, OpenAI, AWS, Google, Slack and Shopify tokens, age
+  identities, JSON web tokens and private keys in PEM form.
+- **The session's own secrets, by value:** a gateway's token or a
+  proxy's key has no shape, so the value of each variable whose name
+  ends in TOKEN, SECRET, PASSWORD, AUTH_HEADER or `_KEY` (a PUBLIC_KEY
+  aside), or starts with CLOUDSMITH_, is scrubbed wherever it appears,
+  and the mark names the variable. A value under 16 characters, without
+  a letter and a digit, or that is a path or an address, is left alone.
 - **Places a credential sits:** a shell variable whose name ends in
   TOKEN, SECRET, PASSWORD, API_KEY or ACCESS_KEY, an npmrc's
-  `_authToken`, a JSON field such as `refresh_token`, and a `Bearer`
-  header. The name stays and only the value goes. The value has to be
+  `_authToken`, an AWS credentials file's `aws_secret_access_key` and
+  `aws_session_token`, a JSON field such as `refresh_token`, and an
+  `Authorization` header, `Bearer` or any other scheme. The name stays and only the value goes. The value has to be
   16 characters or more, with a letter and a digit, and not start with
   `$`, so a variable passed on or a function's name is left alone.
 

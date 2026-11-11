@@ -7,6 +7,11 @@
  * the same as before. A shape that also matches ordinary output (a hash, a
  * function's name) would cost the agent more than it saves, so a shape with
  * no prefix of its own is kept to a name that says it holds a secret.
+ *
+ * Some credentials have no shape at all: a gateway's token or a proxy's
+ * key is any long string. The session holds those in its own variables,
+ * so each such variable's value is put out of sight wherever it appears,
+ * named by the variable.
  */
 
 /** One shape: what it matches, what it is called, and what it keeps. */
@@ -36,6 +41,8 @@ const SHAPES: readonly SecretShape[] = [
 	{ kind: "Google access token", pattern: /\bya29\.[A-Za-z0-9_-]{20,}/g },
 	{ kind: "Google API key", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
 	{ kind: "Slack token", pattern: /\bxox[abeprs]-[A-Za-z0-9-]{10,}/g },
+	{ kind: "Slack token", pattern: /\bxapp-\d-[A-Za-z0-9-]{10,}/g },
+	{ kind: "GitLab token", pattern: /\bglpat-[A-Za-z0-9_-]{20,}/g },
 	{ kind: "Shopify token", pattern: /\bshp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}\b/g },
 	{ kind: "age identity", pattern: /\bAGE-SECRET-KEY-1[0-9A-Z]{58}\b/g },
 	{
@@ -46,6 +53,20 @@ const SHAPES: readonly SecretShape[] = [
 	{
 		kind: "bearer token",
 		pattern: /\b(Bearer\s+)[A-Za-z0-9._~+/-]{20,}=*/g,
+		keeps: 1,
+	},
+	{
+		kind: "credential",
+		pattern: new RegExp(
+			String.raw`(\bauthorization\s*[:=]\s*['"]?(?:[A-Za-z]+\s+)?)${CREDENTIAL_VALUE}`,
+			"gi",
+		),
+		keeps: 1,
+	},
+	{
+		kind: "AWS secret key",
+		pattern:
+			/(\baws_(?:secret_access_key|session_token)\s*[=:]\s*['"]?)[A-Za-z0-9/+=]{16,}/gi,
 		keeps: 1,
 	},
 	{
@@ -77,13 +98,69 @@ export function scrubbedMark(kind: string): string {
 	return `[secret scrubbed: ${kind}]`;
 }
 
+/** A variable's name that says its value is a credential. */
+const SECRET_NAME =
+	/^(?:CLOUDSMITH_\w+|\w*(?:TOKEN|SECRET|PASSWORD|PASSWD|AUTH_HEADER)|\w*(?<!PUBLIC)_KEY)$/;
+
+/** The shortest value taken as a credential's, as CREDENTIAL_VALUE has it. */
+const SHORTEST_SECRET = 16;
+
+/** One credential known by its value, named by the variable holding it. */
+export interface KnownSecret {
+	readonly name: string;
+	readonly value: string;
+}
+
+/**
+ * The credentials the environment holds by value: each variable whose name
+ * says it holds one, and each word of its value long and mixed enough to
+ * be one, longest first. A path or an address is left out, since a
+ * variable named for a token sometimes names the program that makes it.
+ */
+export function knownSecrets(
+	env: NodeJS.ProcessEnv = process.env,
+): KnownSecret[] {
+	const known: KnownSecret[] = [];
+	for (const [name, value] of Object.entries(env)) {
+		if (value === undefined || !SECRET_NAME.test(name)) continue;
+		const words = value.includes(" ")
+			? [value, ...value.split(/\s+/)]
+			: [value];
+		for (const word of words) {
+			if (looksLikeSecret(word)) known.push({ name, value: word });
+		}
+	}
+	return known.sort((one, other) => other.value.length - one.value.length);
+}
+
+/** Whether a value is long and mixed enough, and not a path or address. */
+function looksLikeSecret(value: string): boolean {
+	return (
+		value.length >= SHORTEST_SECRET &&
+		/\d/.test(value) &&
+		/[A-Za-z]/.test(value) &&
+		!value.startsWith("/") &&
+		!value.includes("://")
+	);
+}
+
 /**
  * The text with every credential it holds put out of sight, and the kinds
  * found, in the order found; the same text, and none, when it holds none.
+ * The known values are the environment's unless given.
  */
-export function scrubSecrets(text: string): { text: string; kinds: string[] } {
+export function scrubSecrets(
+	text: string,
+	known: readonly KnownSecret[] = knownSecrets(),
+): { text: string; kinds: string[] } {
 	const kinds: string[] = [];
 	let scrubbed = text;
+	for (const { name, value } of known) {
+		if (!scrubbed.includes(value)) continue;
+		const parts = scrubbed.split(value);
+		for (let found = 1; found < parts.length; found++) kinds.push(name);
+		scrubbed = parts.join(scrubbedMark(name));
+	}
 	for (const shape of SHAPES) {
 		scrubbed = scrubbed.replace(shape.pattern, (...match: unknown[]) => {
 			kinds.push(shape.kind);
@@ -103,21 +180,27 @@ export function scrubSecrets(text: string): { text: string; kinds: string[] } {
  * strings and every array and object keeps its shape, so the value keeps
  * its type.
  */
-export function scrubDeep<T>(value: T): { value: T; kinds: string[] } {
-	const scrubbed = scrubAny(value);
+export function scrubDeep<T>(
+	value: T,
+	known: readonly KnownSecret[] = knownSecrets(),
+): { value: T; kinds: string[] } {
+	const scrubbed = scrubAny(value, known);
 	return { value: scrubbed.value as T, kinds: scrubbed.kinds };
 }
 
 /** scrubDeep over a value of no known type. */
-function scrubAny(value: unknown): { value: unknown; kinds: string[] } {
+function scrubAny(
+	value: unknown,
+	known: readonly KnownSecret[],
+): { value: unknown; kinds: string[] } {
 	if (typeof value === "string") {
-		const { text, kinds } = scrubSecrets(value);
+		const { text, kinds } = scrubSecrets(value, known);
 		return { value: kinds.length > 0 ? text : value, kinds };
 	}
 	if (Array.isArray(value)) {
 		const kinds: string[] = [];
 		const items = value.map((item) => {
-			const scrubbed = scrubAny(item);
+			const scrubbed = scrubAny(item, known);
 			kinds.push(...scrubbed.kinds);
 			return scrubbed.value;
 		});
@@ -126,7 +209,7 @@ function scrubAny(value: unknown): { value: unknown; kinds: string[] } {
 	if (isPlainObject(value)) {
 		const kinds: string[] = [];
 		const entries = Object.entries(value).map(([key, item]) => {
-			const scrubbed = scrubAny(item);
+			const scrubbed = scrubAny(item, known);
 			kinds.push(...scrubbed.kinds);
 			return [key, scrubbed.value] as const;
 		});
