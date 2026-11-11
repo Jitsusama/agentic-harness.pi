@@ -13,6 +13,7 @@ import {
 	clearOutlivedParks,
 	clearParked,
 	flagsLost,
+	heldDirectly,
 	isRestartAsk,
 	opensOnlyItself,
 	PARK_ASK,
@@ -275,33 +276,6 @@ function exitWith(code: number, line: string): void {
 		// The window stays with its holder, so it says why it is quiet.
 		process.stdout.write(`\r\n${line}\r\n`);
 	});
-}
-
-/**
- * Whether the holder runs this very process, as its record beside the
- * wake file says. A pi started through a shell is the shell's child, so
- * its exit would reach the shell and leave a bare prompt, not a park.
- */
-function heldDirectly(wake: string, pid: number): boolean {
-	let record: unknown;
-	try {
-		record = JSON.parse(readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"));
-	} catch {
-		// A record missing or caught half written can't say this process is
-		// the one held, and staying up costs only memory.
-		return false;
-	}
-	return namesPid(record, pid);
-}
-
-/** Whether a holder's record says it runs `pid`. */
-function namesPid(record: unknown, pid: number): boolean {
-	return (
-		typeof record === "object" &&
-		record !== null &&
-		"pid" in record &&
-		record.pid === pid
-	);
 }
 
 /**
