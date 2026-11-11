@@ -65,6 +65,14 @@ export function rosterHolds(dir: string = rosterDir()): Map<string, string> {
 }
 
 /**
+ * The folder of every conversation the rosters keep, which is its own
+ * and never its host process's working folder.
+ */
+export function rosterFolders(dir: string = rosterDir()): string[] {
+	return keptEntries(dir).map(({ entry }) => entry.cwd);
+}
+
+/**
  * The conversations the rosters keep that work in `folder` or below it,
  * by session id. A hosted conversation's folder is its own, not its host
  * process's, so `/proc` never shows it working there: a clone in a
