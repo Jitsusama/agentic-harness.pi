@@ -29,6 +29,7 @@ import { SELECTION_TAGS_ENTRY } from "../../../lib/compaction/selection/tags.ts"
 import {
 	paragraphRef,
 	unitsOf,
+	unitsOfBranch,
 } from "../../../lib/compaction/selection/units.ts";
 import {
 	assistant,
@@ -89,11 +90,27 @@ function session(
 ) {
 	const sent: Array<{ model: string; context: ClassifierContext }> = [];
 	const notices: string[] = [];
+	// What was read of the session: whole branches, and entries one by one.
+	const reads = { branches: 0, entries: 0 };
 	const ctx = {
 		hasUI: true,
 		ui: { notify: (message: string) => notices.push(message) },
 		sessionManager: {
-			getBranch: () => branch,
+			getBranch: () => {
+				reads.branches += 1;
+				return branch;
+			},
+			getLeafId: () => branch.at(-1)?.id ?? null,
+			// The fixtures name no parent, so each entry's is the one
+			// before it, as on pi's branch.
+			getEntry: (id: string) => {
+				reads.entries += 1;
+				const at = branch.findIndex((entry) => entry.id === id);
+				const entry = at < 0 ? undefined : branch.at(at);
+				if (entry === undefined) return undefined;
+				const parent = at > 0 ? branch.at(at - 1) : undefined;
+				return { ...entry, parentId: parent?.id ?? null };
+			},
 			getSessionId: () => "s1",
 		},
 		modelRegistry: {
@@ -120,7 +137,7 @@ function session(
 			data,
 		} as SessionEntry);
 	});
-	return { ctx, store, sent, appended, notices };
+	return { ctx, store, sent, appended, notices, reads };
 }
 
 /** The selection's record on a compaction's contributions. */
@@ -263,6 +280,32 @@ describe("tagging", () => {
 		const contributions = newContributions({}, "u2");
 		selectionContributor(() => ctx, { store }).listener(contributions);
 		expect(contributions.appendix[0]).toContain("> Always sign every commit.");
+	});
+
+	it("reads only what the branch gained since the last pass, with the same context", async () => {
+		const said = Array.from({ length: 100 }, (_, at) =>
+			user(`u${at}`, `Message number ${at} of the session.`),
+		);
+		const branch = said.flatMap((message) => [message, tagged(message)]);
+		const { ctx, store, sent, reads } = session(branch, answeringYesTo());
+		const tags = tagger(store);
+		tags.schedule(ctx);
+		await tags.idle();
+		expect(sent).toHaveLength(0);
+
+		branch.push(user("n1", "A new message after them."));
+		branch.push(user("n2", "And the newest of them all."));
+		const context = unitsOfBranch(branch.slice(-13, -1)).map((u) => u.text);
+		reads.branches = 0;
+		reads.entries = 0;
+		tags.schedule(ctx);
+		await tags.idle();
+
+		expect(sent).toHaveLength(2);
+		expect(passages(sent[0]?.context, "context")).toEqual(context);
+		expect(reads.branches, "whole branches read").toBe(0);
+		// The two new entries, and the twelve before each as its context.
+		expect(reads.entries, "entries read").toBeLessThanOrEqual(2 + 2 * 12);
 	});
 
 	it("does nothing when no classifier has credentials", async () => {

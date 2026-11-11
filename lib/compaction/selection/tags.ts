@@ -16,6 +16,10 @@
 
 import type { Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import {
+	type BranchReader,
+	foldedBranch,
+} from "../../internal/session/branch-walk.ts";
 import { isSelectionKind, type SelectionKind } from "./kinds.ts";
 import { unitsOf } from "./units.ts";
 
@@ -74,13 +78,52 @@ export function indexTags(
 /** Every tag recorded on a branch. */
 export function readTags(branch: readonly SessionEntry[]): TagIndex {
 	const index = emptyTagIndex();
-	for (const entry of branch) {
-		if (entry.type !== "custom" || entry.customType !== SELECTION_TAGS_ENTRY)
-			continue;
-		const read = asTags(entry.data);
-		if (read) indexTags(index, read);
-	}
+	for (const entry of branch) indexEntry(index, entry);
 	return index;
+}
+
+/** What a session's branch holds for tagging, read at its leaf. */
+export interface TaggedBranch {
+	/** Every tag recorded on the branch, as {@link readTags} reads it. */
+	readonly recorded: TagIndex;
+	/** The entries after the branch's last compaction, oldest first. */
+	readonly live: readonly SessionEntry[];
+}
+
+const taggedBranch = foldedBranch<
+	{ recorded: ReturnType<typeof emptyTagIndex>; live: SessionEntry[] },
+	SessionEntry
+>({
+	start: () => ({ recorded: emptyTagIndex(), live: [] }),
+	step(state, entry) {
+		indexEntry(state.recorded, entry);
+		// A fresh list rather than emptying it, for a reader still holding
+		// the one from before the compaction.
+		if (entry.type === "compaction") state.live = [];
+		else state.live.push(entry);
+		return state;
+	},
+});
+
+/**
+ * The session's branch at its leaf now, as tagging reads it, folded as
+ * the branch grows rather than read whole after every turn. It is the
+ * live reading, which later entries add to, so read it at once.
+ */
+export function taggedBranchAt(
+	session: BranchReader<SessionEntry>,
+): TaggedBranch {
+	return taggedBranch(session);
+}
+
+function indexEntry(
+	index: ReturnType<typeof emptyTagIndex>,
+	entry: SessionEntry,
+): void {
+	if (entry.type !== "custom" || entry.customType !== SELECTION_TAGS_ENTRY)
+		return;
+	const read = asTags(entry.data);
+	if (read) indexTags(index, read);
 }
 
 /**

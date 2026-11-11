@@ -25,7 +25,9 @@ import {
 	SELECTION_TAGS_ENTRY,
 	type SelectionTags,
 	type TagIndex,
+	taggedBranchAt,
 } from "../../lib/compaction/selection/tags.ts";
+import type { BranchReader } from "../../lib/internal/session/branch-walk.ts";
 
 /** The environment variable choosing the store: `session` or `memory`. */
 export const SELECTION_STORE_ENV = "PI_COMPACTION_SELECTION_STORE";
@@ -62,6 +64,11 @@ export interface SelectionStore {
 	readonly kind: SelectionStoreKind;
 	/** Every tag known for a branch. */
 	tags(branch: readonly SessionEntry[]): TagIndex;
+	/**
+	 * Every tag known for a session at its leaf now, read from what the
+	 * branch gained since last asked, for a reader that asks every turn.
+	 */
+	tagsAt(session: BranchReader<SessionEntry>): TagIndex;
 	/** Every judgement since the last compaction, by paragraph hash. */
 	holds(branch: readonly SessionEntry[]): Map<string, number>;
 	/** What tagging and judging have cost since the last compaction, in dollars. */
@@ -83,6 +90,7 @@ export function sessionStore(
 	return {
 		kind: "session",
 		tags: readTags,
+		tagsAt: (session) => taggedBranchAt(session).recorded,
 		holds: readHolds,
 		spend(branch) {
 			let total = 0;
@@ -141,6 +149,7 @@ export function memoryStore(): SelectionStore {
 	return {
 		kind: "memory",
 		tags: () => index,
+		tagsAt: () => index,
 		holds: () => new Map(holds),
 		spend: () => spent,
 		effort: () => ({ taggingMs, judgingMs, tokens }),
