@@ -53,7 +53,7 @@ import { type Booted, machineBooted } from "../booted.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
 import { SANDBOX_VARIABLE } from "../sandbox.ts";
-import { SPAWNER_VARIABLE } from "../shell/spawner.ts";
+import { SPAWNER_VARIABLE } from "../shell/spawner-variable.ts";
 import { writeWhole } from "../write-whole.ts";
 import { type Holding, whatHolds } from "./free.ts";
 

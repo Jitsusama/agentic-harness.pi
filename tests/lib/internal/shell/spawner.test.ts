@@ -16,11 +16,11 @@ import { PassThrough } from "node:stream";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
-	SPAWNER_VARIABLE,
 	type SpawnerOptions,
 	spawnedBy,
 	stopIdleSpawners,
 } from "../../../../lib/internal/shell/spawner.ts";
+import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variable.ts";
 import {
 	systemFolders,
 	systemProgram,

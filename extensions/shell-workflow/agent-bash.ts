@@ -14,10 +14,8 @@ import type { SessionRef } from "../../lib/core/session/index.ts";
 import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
-import {
-	SPAWNER_VARIABLE,
-	spawnedBy,
-} from "../../lib/internal/shell/spawner.ts";
+import { spawnedBy } from "../../lib/internal/shell/spawner.ts";
+import { SPAWNER_VARIABLE } from "../../lib/internal/shell/spawner-variable.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { reapsWhatItLeft } from "./reap.ts";
