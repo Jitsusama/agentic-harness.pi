@@ -94,6 +94,11 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 						"Commands run in a strict sandbox, since this session reads what strangers wrote: no credentials, no SSH or signing agent, no session or system bus, writes only to the working folder and the sandbox's own TMPDIR and cache (not /tmp or ~/.cache), and Nix as an untrusted user. gcloud, where the machine gives a token, acts as the agents' own cloud account in its one project, never the person's login. A refusal there is the sandbox, not a fault: do the work another way, or say what needs the person.",
 					]
 				: []),
+			...(sandbox.kind === "fence"
+				? [
+						"Commands run in the agent fence: their own processes only, no display, compositor, session or system bus, sound, keyring, password, clipboard or SSH agent, settings and startup files (~/.config, shell rc files, ~/.ssh, ~/.pi/agent) read-only, and Nix as an untrusted user. The work, the network and the environment are as they were. A `nix-offload there ...` call on its own, with nothing chained on, runs outside the fence. A refusal there is the fence, not a fault: do the work another way (commit and push with the work tool), or say what needs the person.",
+					]
+				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere
 			// nice still ranks a command against what the person uses.
 			...(process.env.JOBS_CGROUP

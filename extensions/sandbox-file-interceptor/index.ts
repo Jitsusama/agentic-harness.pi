@@ -25,7 +25,7 @@
 
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { fileToolRefusal } from "../../lib/internal/sandbox.ts";
+import { fileToolRefusal } from "../../lib/internal/sandbox-files.ts";
 
 /** Wires the fence onto each call to pi's file tools. */
 export default function sandboxFileInterceptor(pi: ExtensionAPI) {

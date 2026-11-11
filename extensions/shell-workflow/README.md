@@ -62,6 +62,49 @@ What it adds:
   only ranks a command against other agents' work, so a niced VM test
   loses to every build beside it.
 
+## The Agent Fence
+
+Within one account, every check a desktop daemon could make is one a
+process running as you can forge: the uid a socket reports, the program
+a pid runs, the cgroup it sits in, a pipe another process holds. The
+compositor hands every client a virtual keyboard, the clipboard and the
+screen. So rather than ask each daemon to tell an agent from you, start
+a session with `PI_SANDBOX=fence` and each command runs in
+[bubblewrap](https://github.com/containers/bubblewrap), around Landlock
+through landrun:
+
+- **Its own processes.** A pid namespace and a `/proc` of its own, so
+  no other process's files, memory or open pipes.
+- **No desktop.** The runtime folder is an empty one of its own, with
+  only the Nix daemon's door for sandboxes bound back, and `NIX_REMOTE`
+  points there. Landlock refuses every other socket, an abstract one
+  and a signal outside too, so the display, the compositor, the shell's
+  ipc, the session and system buses, sound, the keyring, the password
+  and clipboard daemons, SSH agents and kitty are out of reach. Name
+  lookups through nscd still work. The variables that name them are
+  left out, so a command fails at once rather than search.
+- **Settings read-only.** `~/.config`, the shell's startup files,
+  `~/.ssh`, `~/.local/bin`, the launcher's entries, direnv's allow
+  list, `~/.pi/agent` and pi's packages, so nothing it writes runs as
+  you later. pi's own file tools are held to the same (see the
+  sandbox file interceptor).
+- **No new privileges.** A setgid wrapper such as 1Password's `op`
+  gains nothing.
+
+Everything else is as it was: the home folder, the work, the network
+and the rest of the environment. The strict profile below is for text a
+stranger wrote; the fence is for every session. A session asking for
+it without bwrap and landrun on `PATH`, or off Linux, runs no command.
+
+Until the SSH agent's proxy lets the fence reach the builders, a
+`nix-offload there` call on its own runs outside: the store's own
+binary, started by its path with the call's own words and an
+environment of its own (home, runtime folder, account, the system's
+`PATH`). Anything chained on, quoted or expanded stays fenced, and a
+test fails from 13 November while the exemption is still here. git
+over SSH and commit signing need the agents, so commit and push with
+the work tool, which runs in pi's own process.
+
 ## A Strict Sandbox
 
 A session that reads what a stranger wrote (reviewing an outside

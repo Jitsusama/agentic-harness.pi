@@ -1,8 +1,8 @@
 # Sandbox File Interceptor
 
-Holds pi's own file tools to the strict sandbox's fence, in a session
-that sets `PI_SANDBOX=strict`. A call reaching past it is refused, with
-the reason.
+Holds pi's own file tools to the sandbox a session's commands run in,
+`PI_SANDBOX=strict` or `PI_SANDBOX=fence`. A call reaching past it is
+refused, with the reason.
 
 ## What It Does
 
@@ -38,6 +38,23 @@ Each call to one of them is checked before it runs:
 A session with no sandbox is let through untouched, and a `PI_SANDBOX`
 naming no sandbox refuses every file tool, as it refuses every command.
 
+## Under the Agent Fence
+
+The agent fence (see the shell workflow's [The Agent Fence][2]) keeps
+the work open and the desktop closed, and pi's file tools follow it:
+
+- **Writing** is refused where a fenced command can't write: the
+  settings and startup files it binds read-only, and the runtime
+  folder.
+- **Reading** is refused for any process's files in `/proc`, pi's own
+  through `/proc/self` included, and for the runtime folder, which
+  holds the clipboard's pictures and the desktop's sockets.
+- **Every link** is followed as above, so a link made in the work
+  leads nowhere the fence refuses.
+
+Everything else, the home folder and the work, reads and writes as it
+did.
+
 It blocks rather than asks, and through no guard policy: a fence a
 policy could soften is one an injected instruction could talk its way
 past.
@@ -53,3 +70,4 @@ reading strangers' text keeps to a small set of tools, as a council
 does.
 
 [1]: ../shell-workflow/README.md#a-strict-sandbox
+[2]: ../shell-workflow/README.md#the-agent-fence
