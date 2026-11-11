@@ -217,6 +217,32 @@ it("accepts only its own host stamps and preserves signal endings through shutdo
 	expect(release).toHaveBeenCalledOnce();
 });
 
+it("records a host's stop of a conversation parking as a park, not as lost", () => {
+	const pi = fakePi();
+	const release = vi.fn();
+	for (const id of ["a", "b"])
+		withSession(id, () =>
+			trackSession({
+				sessionId: id,
+				cwd: root,
+				...captureSessionIdentity(),
+			}),
+		);
+	const parking = followHostStamps(pi.events, "a", release, () => true);
+	const stopping = followHostStamps(pi.events, "b", release, () => false);
+
+	pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
+	pi.events.emit(SESSION_STAMP_EVENT, { session: "b", how: "signalled" });
+
+	expect(readRecord("a")?.endReason, "a parked as it was stopped").toBe(
+		"parked",
+	);
+	expect(readRecord("b")?.endReason, "b's host stopped it").toBe("signalled");
+	expect(release, "each released").toHaveBeenCalledTimes(2);
+	parking();
+	stopping();
+});
+
 it("checks the host list from another reader without treating a missing list as death", () => {
 	const identity = withSession("a", () => captureSessionIdentity().process);
 	if (!identity?.hosted) throw new Error("no hosted identity");
