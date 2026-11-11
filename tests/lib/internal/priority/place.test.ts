@@ -1,4 +1,10 @@
-import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import {
+	ChildProcess,
+	execFile,
+	execFileSync,
+	spawn,
+	spawnSync,
+} from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -114,6 +120,53 @@ describe("placeChildren", () => {
 		await spawned();
 		expect(calls).toBe(2);
 		expect(placedCommand("make")).not.toBe("make");
+	});
+
+	it("refuses nothing to a wrapper an earlier load left, which drops what a write answers", async () => {
+		// placeChildren wraps spawn once per process, so after a reload the
+		// wrapper an older load put there calls the newer placement's write
+		// and ignores its answer. A refusal in that answer went unhandled
+		// and ended every pi that reloaded onto an asynchronous write.
+		const prototype = ChildProcess.prototype as unknown as Record<
+			symbol | string,
+			unknown
+		>;
+		const placementKey = Symbol.for("agentic-harness.priority.placement");
+		const originalKey = Symbol.for("agentic-harness.priority.original-spawn");
+		const nodeSpawn = prototype.spawn as (...args: unknown[]) => unknown;
+		prototype[originalKey] = nodeSpawn;
+		prototype.spawn = function earlierWrapper(
+			this: ChildProcess,
+			...args: unknown[]
+		) {
+			const result = nodeSpawn.apply(this, args);
+			const placement = prototype[placementKey] as
+				| { path: string; write: (path: string, pid: number) => unknown }
+				| undefined;
+			if (placement && this.pid !== undefined) {
+				placement.write(placement.path, this.pid);
+			}
+			return result;
+		};
+		const unhandled: unknown[] = [];
+		const listen = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", listen);
+		try {
+			let calls = 0;
+			undo = placeChildren("/jobs", () => {
+				calls += 1;
+				return Promise.reject(
+					Object.assign(new Error("gone"), { code: "ESRCH" }),
+				);
+			});
+			await spawned();
+			await spawned();
+			await new Promise((resolve) => setImmediate(resolve));
+			expect(calls, "the earlier wrapper still writes").toBe(2);
+			expect(unhandled, "no refusal left unhandled").toEqual([]);
+		} finally {
+			process.off("unhandledRejection", listen);
+		}
 	});
 
 	it("reaches a spawn made through execFile too", async () => {
