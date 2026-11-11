@@ -43,6 +43,17 @@ const FIRST_SWEEP_MS = 3 * 60 * 1000;
 const SWEEP_EVERY_MS = 60 * 60 * 1000;
 
 /**
+ * How long a session a crash or a signal took away keeps its trees:
+ * a day, the time a restore after a reboot or a crash takes to be
+ * noticed. A reopen after that finds its folder gone and starts in a
+ * fallback one, and the sweep's log line names the branch to recut.
+ */
+const LOST_HOLDS_FOR_MS = 24 * 60 * 60 * 1000;
+
+/** How many of the commonest reasons for keeping a tree a log line names. */
+const KEPT_REASONS_NAMED = 8;
+
+/**
  * One conversation's sweep timers. In a session slot rather than module
  * state, since a host runs several conversations in one process: B's
  * start must not stop A's sweeps, nor B's close leave A sweeping never.
@@ -171,7 +182,10 @@ async function liveSessions(): Promise<ReadonlySet<string>> {
 		// one restore brings back, and it comes back to the trees it had.
 		Promise.all(
 			everyRealmsDir("state", "quest-workflow").map((dir) =>
-				sessionsNobodyClosed(join(dir, "sessions")),
+				sessionsNobodyClosed(
+					join(dir, "sessions"),
+					Date.now() - LOST_HOLDS_FOR_MS,
+				),
 			),
 		),
 	]);
@@ -216,6 +230,27 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		taken: outcome.taken,
 		refused: outcome.refused,
 		kept: outcome.kept.length,
+		keptFor: commonest(outcome.kept.map((one) => one.why)),
 		dropped: outcome.dropped,
 	};
+}
+
+/**
+ * The commonest reasons trees were kept, with how many each, so a log
+ * line says what stands between the disk and its trees without naming
+ * five hundred of them.
+ */
+function commonest(whys: readonly string[]): Record<string, number> {
+	const counts = new Map<string, number>();
+	for (const said of whys) {
+		// The one reason that names its tree's branch, counted as one reason.
+		const why = said.replace(
+			/^(nothing holds it, but )\S+( is not contained in trunk)/,
+			"$1its branch$2",
+		);
+		counts.set(why, (counts.get(why) ?? 0) + 1);
+	}
+	return Object.fromEntries(
+		[...counts].sort(([, a], [, b]) => b - a).slice(0, KEPT_REASONS_NAMED),
+	);
 }

@@ -17,6 +17,7 @@ import {
 	realpathSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,7 +28,10 @@ import type { HeldTree, TreeProvider } from "../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../lib/core/work/dev-shell-roots.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
-import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
+import {
+	PUSHED_SETTLE_MS,
+	sweepEndedTrees,
+} from "../../../lib/core/work/sweep.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 /** An exec over real processes, shaped the way the library expects. */
@@ -223,6 +227,29 @@ async function setUp() {
 	}
 }
 
+/**
+ * Cut a tree on `branch` with a commit trunk doesn't hold and push it,
+ * as a branch a squash merge landed is left.
+ */
+async function landed(
+	cut: (key: string, how: string[]) => Promise<string>,
+	branch: string,
+): Promise<string> {
+	const tree = await cut(branch, ["-b", branch, "@", "main"]);
+	await git(tree, "commit", "-q", "--allow-empty", "-m", "work");
+	await git(tree, "push", "-q", "origin", branch);
+	return tree;
+}
+
+/** Put a tree's HEAD and its reflog two days back, as one left alone. */
+async function settle(tree: string): Promise<void> {
+	const gitDir = (await git(tree, "rev-parse", "--absolute-git-dir")).trim();
+	const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+	for (const one of ["HEAD", join("logs", "HEAD")]) {
+		utimesSync(join(gitDir, one), then, then);
+	}
+}
+
 describe("sweeping the trees whose sessions have ended", () => {
 	it("takes an ended session's merged tree, keeping its branch", async () => {
 		const { main, memory, cut, sweep } = await setUp();
@@ -276,6 +303,51 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(
 			existsSync(unsaid),
 			`${unsaid}, whose record names nobody, is kept`,
+		).toBe(true);
+	});
+
+	it("takes a squash-landed tree once its HEAD sat a day, naming its remote", async () => {
+		const { main, cut, sweep } = await setUp();
+		const tree = await landed(cut, "landed");
+		await settle(tree);
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([
+			{ path: tree, branch: "landed", remote: "origin/landed" },
+		]);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
+		expect(await git(main, "branch", "--list", "landed")).toContain("landed");
+	});
+
+	it("keeps a pushed tree whose HEAD moved within the day", async () => {
+		const { cut, sweep } = await setUp();
+		const tree = await landed(cut, "fresh");
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toEqual([
+			{
+				path: tree,
+				why: "nothing holds it, but fresh is not contained in trunk, so it is either a squash merge or the only copy of that work",
+			},
+		]);
+	});
+
+	it("keeps a tree with a commit on no remote, however long it sat", async () => {
+		const { cut, sweep } = await setUp();
+		const tree = await landed(cut, "unpushed");
+		await git(tree, "commit", "-q", "--allow-empty", "-m", "only here");
+		await settle(tree);
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept.map((one) => one.path)).toEqual([tree]);
+		expect(
+			existsSync(tree),
+			`${tree}, with a commit on no remote, is kept`,
 		).toBe(true);
 	});
 
@@ -395,7 +467,10 @@ describe("trees a session still uses, whatever their owners say", () => {
 			liveSessions: async () => new Set(["another"]),
 		});
 
-		expect(outcome.taken).toEqual([{ path: tree, branch: "done" }]);
+		// The record's sessions are named, so one reopened can recut it.
+		expect(outcome.taken).toEqual([
+			{ path: tree, branch: "done", sessions: ["ended"] },
+		]);
 	});
 
 	it("keeps one a running process stands in", async () => {
