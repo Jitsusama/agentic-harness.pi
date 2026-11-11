@@ -216,13 +216,23 @@ describe("a round nobody waited for", () => {
 		// Given back rather than merely gone. Both read as nothing
 		// holding the round, and only one of them is the supervisor
 		// closing its lease on the way out, so asking the weaker
-		// question would pass against a supervisor that died.
-		await waitFor(
-			async () =>
-				(await supervisorStanding(store, held.id, "hawk", systemFacts)).kind ===
-				"finished",
-			"the lease was never closed, so nothing distinguishes a finished supervisor from a dead one",
-		);
+		// question would pass against a supervisor that died. Each one's,
+		// since a reviewer's answer is written before its supervisor gives
+		// its lease back, and the round is free only once both have.
+		for (const participant of held.participants) {
+			await waitFor(
+				async () =>
+					(
+						await supervisorStanding(
+							store,
+							held.id,
+							participant.id,
+							systemFacts,
+						)
+					).kind === "finished",
+				`${participant.id}'s lease was never closed, so nothing distinguishes a finished supervisor from a dead one`,
+			);
+		}
 		expect(await whyNotYet(store, held)).toBeUndefined();
 
 		const answers = new Map<string, AskAnswer>();
