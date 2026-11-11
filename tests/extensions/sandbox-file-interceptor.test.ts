@@ -20,7 +20,10 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import sandboxFileInterceptor from "../../extensions/sandbox-file-interceptor/index.ts";
-import { fileToolRefusal, toolPaths } from "../../lib/internal/sandbox.ts";
+import {
+	fileToolRefusal,
+	toolPaths,
+} from "../../lib/internal/sandbox-files.ts";
 
 let base: string;
 let home: string;

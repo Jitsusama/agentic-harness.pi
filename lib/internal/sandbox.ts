@@ -54,8 +54,12 @@
  * reaches now, not what the person later runs from what it wrote.
  *
  * pi's own file tools run in pi's process, outside Landlock, so
- * `fileToolRefusal` holds them to the same paths for the
+ * `sandbox-files.ts` holds them to the same paths for the
  * `sandbox-file-interceptor` extension, less `/proc` and the devices.
+ *
+ * `PI_SANDBOX=fence` asks for the agent fence instead (`fence.ts`):
+ * every session's commands kept off the person's desktop, with the
+ * work, the network and the environment as they were.
  */
 
 import {
@@ -63,7 +67,6 @@ import {
 	constants,
 	mkdirSync,
 	readFileSync,
-	readlinkSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -72,12 +75,20 @@ import {
 	basename,
 	delimiter,
 	dirname,
-	isAbsolute,
 	join,
 	relative,
 	resolve,
 } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+	FENCE,
+	fenceArgs,
+	fencedCommand,
+	fenceRules,
+	inStore,
+	nixDoor,
+	type Offload,
+	offloadedOutside,
+} from "./fence.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
@@ -85,14 +96,11 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
-import { isRecord } from "./record.ts";
+import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
-/** The variable that asks for the sandbox, and the one value it takes. */
+/** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
 export const STRICT = "strict";
-
-/** The variable the command travels in through landrun, as through the shell. */
-export const SANDBOXED_COMMAND = "PI_SANDBOXED_COMMAND";
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -293,11 +301,6 @@ export function strictRules(place: SandboxPlace): Rule[] {
 	];
 }
 
-/** `text` as one word to the shell, whatever it holds. */
-export function quoted(text: string): string {
-	return `'${text.replaceAll("'", `'\\''`)}'`;
-}
-
 /**
  * The shell text that runs `command` under landrun with `rules`.
  *
@@ -370,7 +373,7 @@ function real(path: string): string {
 }
 
 /** Whether `path` is `folder` or lies inside it, as both really are. */
-function within(path: string, folder: string): boolean {
+export function within(path: string, folder: string): boolean {
 	const between = relative(real(folder), real(path));
 	return (
 		between === "" || !(between.startsWith("..") || between.startsWith("/"))
@@ -393,6 +396,19 @@ export function unfencedFolder(cwd: string, home: string): string | undefined {
 		// No git folder here, or a worktree's .git file pointing elsewhere.
 	}
 	return undefined;
+}
+
+/** The folder a worktree's `.git` file names, or nothing when `cwd` has none. */
+function worktreeFolder(cwd: string): string | undefined {
+	try {
+		const named = /^gitdir: (.+)$/m.exec(
+			readFileSync(join(cwd, ".git"), "utf8"),
+		)?.[1];
+		return named ? real(resolve(cwd, named.trim())) : undefined;
+	} catch {
+		// No .git file here: a plain folder, or a clone's own git folder.
+		return undefined;
+	}
 }
 
 /**
@@ -438,6 +454,12 @@ export type Sandbox =
 			readonly landrun: string;
 			readonly github?: GitHubTokenSource;
 			readonly gcloud?: CloudGrantSource;
+	  }
+	| {
+			readonly kind: "fence";
+			readonly bwrap: string;
+			readonly landrun: string;
+			readonly offload?: Offload;
 	  }
 	| { readonly kind: "refused"; readonly reason: string };
 
@@ -530,8 +552,38 @@ export function githubRules(): Rule[] {
 }
 
 /** Why a sandbox that isn't there is refused, for what it would fence. */
-function noSuchSandbox(asked: string, what: string): string {
-	return `${SANDBOX_VARIABLE}=${asked} names no sandbox; the one there is is "${STRICT}". No ${what} runs until it is set right or unset.`;
+export function noSuchSandbox(asked: string, what: string): string {
+	return `${SANDBOX_VARIABLE}=${asked} names no sandbox; the ones there are are "${FENCE}" and "${STRICT}". No ${what} runs until it is set right or unset.`;
+}
+
+/** What the agent fence needs of this machine, or why it can't be had. */
+function fenceFor(
+	platform: NodeJS.Platform,
+	find: (program: string) => string | undefined,
+): Sandbox {
+	if (platform !== "linux") {
+		return {
+			kind: "refused",
+			reason: `${SANDBOX_VARIABLE}=${FENCE} asks for bubblewrap and Landlock, which only Linux has, so no command runs unfenced here.`,
+		};
+	}
+	const bwrap = find("bwrap");
+	const landrun = find("landrun");
+	if (!bwrap || !landrun) {
+		const missing = [bwrap ? [] : "bwrap", landrun ? [] : "landrun"].flat();
+		return {
+			kind: "refused",
+			reason: `${SANDBOX_VARIABLE}=${FENCE} needs bwrap and landrun, but ${missing.join(" and ")} isn't on PATH, so no command runs unfenced.`,
+		};
+	}
+	const program = inStore(find("nix-offload"));
+	const env = inStore(find("env"));
+	return {
+		kind: "fence",
+		bwrap,
+		landrun,
+		...(program && env ? { offload: { program, env } } : {}),
+	};
 }
 
 /** What the session asked for, and whether this machine can give it. */
@@ -544,6 +596,7 @@ export function sandboxFor(
 ): Sandbox {
 	const asked = env[SANDBOX_VARIABLE]?.trim();
 	if (!asked) return { kind: "none" };
+	if (asked === FENCE) return fenceFor(platform, find);
 	if (asked !== STRICT) {
 		return { kind: "refused", reason: noSuchSandbox(asked, "command") };
 	}
@@ -577,6 +630,24 @@ export function wrapFor(
 			return undefined;
 		case "refused":
 			return () => refusedCommand(sandbox.reason);
+		case "fence": {
+			const fence = {
+				home,
+				runtimeDir: place.env.XDG_RUNTIME_DIR,
+				cwd: place.cwd,
+				ownGitFolder: worktreeFolder(place.cwd),
+			};
+			const made = {
+				bwrap: sandbox.bwrap,
+				landrun: sandbox.landrun,
+				args: fenceArgs(fence),
+				rules: fenceRules(fence),
+				door: nixDoor(fence.runtimeDir),
+			};
+			return (command) =>
+				offloadedOutside(command, sandbox.offload, { home, env: place.env }) ??
+				fencedCommand(command, made);
+		}
 		case "strict": {
 			const unfenced = unfencedFolder(place.cwd, home);
 			if (unfenced) return () => refusedCommand(unfenced);
@@ -615,22 +686,6 @@ export function wrapFor(
 export type FileUse = "read" | "write";
 
 /**
- * pi's file tools, by what each does with its `path`. Those that search
- * a folder search the working folder when given none.
- */
-const FILE_TOOLS: ReadonlyMap<
-	string,
-	{ readonly use: FileUse; readonly searches: boolean }
-> = new Map([
-	["read", { use: "read", searches: false }],
-	["grep", { use: "read", searches: true }],
-	["find", { use: "read", searches: true }],
-	["ls", { use: "read", searches: true }],
-	["edit", { use: "write", searches: false }],
-	["write", { use: "write", searches: false }],
-]);
-
-/**
  * Where pi's file tools may `use` a path under the strict profile: where
  * a command may, less `/proc` and the devices. pi's tools run in pi's own
  * process, unfenced, and its `/proc/self/environ` holds every token the
@@ -642,151 +697,4 @@ export function fileReach(place: SandboxPlace, use: FileUse): string[] {
 	const written = writable.filter(ours);
 	if (use === "write") return written;
 	return [...runnable, ...readable.filter(ours), ...written];
-}
-
-/** Unicode spaces pi reads as plain ones in a path a tool is given. */
-const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
-
-/**
- * Every file a tool may open for `path`, as pi resolves it: spaces made
- * plain, a leading `@` dropped, `~` and `file://` expanded, against the
- * working folder, with each spelling pi tries when the first is missing
- * (a screenshot's narrow space, decomposed accents, a curly apostrophe).
- */
-export function toolPaths(path: string, cwd: string, home: string): string[] {
-	let given = path.replace(UNICODE_SPACES, " ");
-	if (given.startsWith("@")) given = given.slice(1);
-	if (given === "~") given = home;
-	else if (given.startsWith("~/")) given = join(home, given.slice(2));
-	if (given.startsWith("file://")) given = fileURLToPath(given);
-	const first = isAbsolute(given) ? resolve(given) : resolve(cwd, given);
-	const decomposed = first.normalize("NFD");
-	const curly = (text: string) => text.replaceAll("'", "\u2019");
-	return [
-		...new Set([
-			first,
-			first.replace(/ (AM|PM)\./gi, "\u202F$1."),
-			decomposed,
-			curly(first),
-			curly(decomposed),
-		]),
-	];
-}
-
-/** How many links a path may pass through before it counts as a loop. */
-const MOST_LINKS = 40;
-
-/**
- * Where `path` really leads, through every link in it, a dangling one
- * too, since writing through a link to nothing makes the file it names;
- * nothing when its links loop.
- */
-export function leadsTo(path: string, links = 0): string | undefined {
-	if (links > MOST_LINKS) return undefined;
-	try {
-		return realpathSync(path);
-	} catch {
-		// Not all there, or looping: follow what is, a step at a time.
-	}
-	try {
-		return leadsTo(resolve(dirname(path), readlinkSync(path)), links + 1);
-	} catch {
-		// Not a link either, so a name yet to be made.
-	}
-	const parent = dirname(path);
-	if (parent === path) return path;
-	const above = leadsTo(parent, links);
-	return above === undefined ? undefined : join(above, basename(path));
-}
-
-/** Whether `path` is `folder` or lies inside it, both already resolved. */
-function inside(path: string, folder: string): boolean {
-	const between = relative(folder, path);
-	return between === "" || !(between.startsWith("..") || isAbsolute(between));
-}
-
-/** The path a file tool's call names, or the working folder for a search. */
-function pathOf(input: unknown, searches: boolean): string | undefined {
-	const path = isRecord(input) ? input.path : undefined;
-	if (typeof path === "string") return path;
-	return path === undefined && searches ? "." : undefined;
-}
-
-/** A call to one of pi's tools, as it is about to run. */
-export interface ToolCall {
-	readonly toolName: string;
-	readonly input: unknown;
-}
-
-/**
- * Why the strict profile refuses a call to one of pi's file tools, when
- * it does: one naming a path that leads where a fenced command couldn't
- * reach, or that it couldn't write to for a tool that writes. Every path
- * the tool may open is checked, through its links, so a link made inside
- * the work leads nowhere it couldn't. A working folder holding its git
- * folder may be read but never written. Any other tool, or a session
- * with no sandbox, is let through.
- */
-export function fileToolRefusal(
-	call: ToolCall,
-	place: {
-		cwd: string;
-		env: NodeJS.ProcessEnv;
-		home: string;
-		/**
-		 * The folders of the skills pi offered this session. pi names each
-		 * skill's file and leaves the model to read it, so a fence that
-		 * refused them would quietly strip a reviewer of its output
-		 * contract; they are read, never written.
-		 */
-		skills?: readonly string[];
-	},
-): string | undefined {
-	const asked = place.env[SANDBOX_VARIABLE]?.trim();
-	const tool = FILE_TOOLS.get(call.toolName);
-	if (!asked || !tool) return undefined;
-	if (asked !== STRICT) return noSuchSandbox(asked, "file tool");
-	const { cwd, home } = place;
-	// A folder holding its git folder is refused for what writing there
-	// would reach, which reading it doesn't, so a review that falls back
-	// to a plain clone still reads it. The home folder is refused both ways.
-	const unfenced = unfencedFolder(cwd, home);
-	if (unfenced && (tool.use === "write" || within(home, cwd))) {
-		return `${unfenced} pi's file tools don't ${tool.use} there either.`;
-	}
-	const path = pathOf(call.input, tool.searches);
-	if (path === undefined) {
-		return `${SANDBOX_VARIABLE}=${STRICT} checks the path each file tool names, and this ${call.toolName} named none it could check, so it didn't run.`;
-	}
-	let candidates: string[];
-	try {
-		candidates = toolPaths(path, cwd, home);
-	} catch {
-		return `${SANDBOX_VARIABLE}=${STRICT} couldn't tell where ${path} leads, so ${call.toolName} didn't run.`;
-	}
-	const reach = fileReach(
-		{
-			home,
-			runtimeDir: place.env.XDG_RUNTIME_DIR,
-			cwd,
-			repository: worktreeRepository(cwd, home),
-		},
-		tool.use,
-	)
-		.concat(tool.use === "read" ? (place.skills ?? []) : [])
-		.flatMap((folder) => leadsTo(folder) ?? []);
-	for (const candidate of candidates) {
-		const real = leadsTo(candidate);
-		if (real !== undefined && reach.some((folder) => inside(real, folder))) {
-			continue;
-		}
-		const where =
-			real === undefined ? "through a loop of links" : `to ${real}, outside it`;
-		const what =
-			tool.use === "write"
-				? "may write only in the working folder and the sandbox's own cache and temporary folder"
-				: "may read only what its commands may, and the session's skills: the work, the store, and the system's and git's settings";
-		return `${SANDBOX_VARIABLE}=${STRICT} holds pi's file tools to its fence: ${call.toolName} ${what}, and ${path} leads ${where}, so it didn't run.`;
-	}
-	return undefined;
 }
