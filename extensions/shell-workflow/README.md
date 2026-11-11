@@ -131,34 +131,32 @@ it without bwrap and landrun on `PATH`, or off Linux, runs no command.
 It cost about 80 ms a command on a machine at a load of 20 (85 ms
 against 8 ms unfenced), most of it bubblewrap's mounts.
 
-Until the SSH agent's proxy lets the fence reach the builders, a
-`nix-offload there` call on its own runs outside: the store's own
-binary, started by its path with the call's own words and an
-environment of its own (home, runtime folder, account, the system's
-`PATH`). Anything chained on, quoted or expanded stays fenced, and a
-test fails from 13 November while the exemption is still here. So
-does a call with `--here`, `--here-when-idle` or `--outlive`, which
-work on this machine, or `--out`, which writes into any folder, and a
-`--run` whose copies or command aren't Nix store paths: give a script
-as an executable store path (`nix store add-path`), not `bash
-<script>`. One `cd` into a tree the work tool holds for the session
-may come before the call, as `nix-offload there --changed` needs,
-provided the tree is named without a link and its `.git` file, its git
-folder's way back and its `commondir` agree. The call's git is then
-held to that tree's git folder (`GIT_DIR`), so a `.git` rewritten
-mid-run is never read. Without a `cd` the call runs in the command's
-own folder, and `--run` always sends the commit there: that folder's
-git is held the same way when it is a tree the session holds or the
-top of a checkout the fence guards, and anywhere else git is given
-none, so a `--run` there fails saying the folder isn't in a git tree.
-Build a tree by `cd <tree> && nix-offload there . <attribute>`, not by
-naming the tree's path. One reach stays while the exemption does:
-changed-checks evaluates the tree's flake here with `--impure`, outside
-the fence, and a fenced command can write that flake, so the
-evaluation can read what the fence hides from reads (the runtime
-folder, other sessions' `/tmp` and `/dev/shm`). It can't run a program
-or write outside the store. When the exemption ends, that evaluation
-runs fenced through the untrusted Nix socket, not exempted again. git
+Until a broker holds the builders' key, one kind of `nix-offload
+there` call runs outside, alone: derivations already in the store
+(`nix-offload there <drv>^*`), with only a build's own flags (`-L`,
+`--keep-going`, `--print-out-paths`, `--bulk`, `--first`,
+`--never-ask`). It runs the store's own binary, started by its path
+with the call's own words and an environment of its own (home, runtime
+folder, account, the system's `PATH`), and a test fails from 28
+November while the exemption is still here. A flake never goes out:
+nix-offload sends one that isn't a git tree, or any `path:` one, as
+its whole folder read as you, and `--changed` can send a tree to an
+evaluator, a machine of yours whose `--impure` evaluation of a flake
+a command wrote reads that machine's files. A `--run` stays in too,
+since nix-offload commits the tree's changes from an index and files a
+command can write: a planted gitlink has a hidden repository's HEAD
+read and sent. It goes out again once nix-offload sends a held tree's
+committed objects alone. Any of these, alone, is refused, saying to
+evaluate inside the fence first (`nix eval --raw
+<flake>#<attribute>.drvPath`) and to hand on each derivation as
+printed; one with `--here`, `--here-when-idle` or `--outlive` builds
+fenced, here, as any build does, and anything chained on, quoted or
+expanded stays fenced. One `cd` into a tree the work tool holds may
+come before the call, provided the tree is named without a link and
+its `.git` file, its git folder's way back and its `commondir` agree.
+Whatever git nix-offload runs is held to that tree's git folder
+(`GIT_DIR`), or that of a checkout the fence guards, and anywhere else
+to one that can't exist, so a `.git` rewritten mid-run is never read. git
 over SSH and commit signing need the agents, so commit and push with
 the work tool, which runs in pi's own process.
 

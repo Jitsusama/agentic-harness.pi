@@ -1,9 +1,9 @@
 /**
- * What the nix-offload exemption lets out of the fence beyond a bare
- * call: never a flag that works on this machine, a `--run` only of the
- * store's own, and one `cd` only into a tree the work tool holds for the
- * session, as ISXEG8's review of 11 November set out. A bare call runs
- * in the command's own folder, whose git a `--run` always reads.
+ * What the nix-offload exemption lets out of the fence: derivations
+ * already in the store, alone or after one `cd` into a tree the work
+ * tool holds for the session; never a flake, a tree's checks,
+ * `--changed`, a `--run` or a flag that works on this machine, as
+ * ISXEG8's reviews of 11 November set out.
  */
 
 import {
@@ -17,13 +17,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { gitFolders, guardsGitFolder } from "../../../lib/internal/fence.ts";
 import {
-	gitFolders,
-	guardsGitFolder,
 	NO_GIT_DIR,
 	type OffloadPlace,
 	offloadedOutside,
-} from "../../../lib/internal/fence.ts";
+	offloadKeptIn,
+} from "../../../lib/internal/offload-exemption.ts";
 import { folderGit, heldTree } from "../../../lib/internal/sandbox.ts";
 
 const OFFLOAD = {
@@ -31,6 +31,17 @@ const OFFLOAD = {
 	env: "/nix/store/0000-coreutils/bin/env",
 };
 const SCRIPT = "/nix/store/0000-harness-check";
+const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
+const OTHER_DRV = `/nix/store/${"b".repeat(32)}-check.drv`;
+const RUN = `nix-offload there --run --copy ${SCRIPT} -- ${SCRIPT} main`;
+const DRV_CALL = `nix-offload there ${DRV}`;
+
+/** A folder the session holds, as the sandbox vouches for one. */
+const HELD: Partial<OffloadPlace> = {
+	cwd: "/tree",
+	folderGit: (folder) =>
+		folder === "/tree" ? { folder, gitDir: "/repo/.git" } : undefined,
+};
 
 /** The shell text for `command`, or nothing when it stays fenced. */
 function letOut(
@@ -59,18 +70,39 @@ describe("the flags the exemption lets out", () => {
 		}
 	});
 
-	it("lets out a build or a changed-checks run on a builder", () => {
+	it("lets out derivations already in the store, with a build's own flags", () => {
 		for (const command of [
-			"nix-offload there --keep-going /tree checks.x86_64-linux.formatting",
-			"nix-offload there -L --changed",
-			"nix-offload there /nix/store/0000-a.drv^*",
+			`nix-offload there ${DRV}`,
+			`nix-offload there ${DRV}^*`,
+			`nix-offload there -L --keep-going ${DRV}^out ${OTHER_DRV}`,
+			`nix-offload there --print-out-paths --bulk ${DRV}`,
 		]) {
 			expect(letOut(command), command).toBeDefined();
 		}
 	});
 
+	it("keeps fenced every flake, tree and changed-checks run, held tree or not", () => {
+		for (const command of [
+			"nix-offload there --keep-going /tree checks.x86_64-linux.formatting",
+			"nix-offload there path:/home/someone/.config/gh checks.x86_64-linux.a",
+			"nix-offload there github:o/r/abc checks.x86_64-linux.a",
+			"nix-offload there /tree#checks.x86_64-linux.a",
+			"nix-offload there -L --changed",
+			"nix-offload there --takes",
+			"nix-offload there",
+			`nix-offload there ${DRV} checks.x86_64-linux.a`,
+			`nix-offload there --apply f ${DRV}`,
+			`nix-offload there --unknown ${DRV}`,
+			"nix-offload there /nix/store/short-check.drv",
+			`nix-offload there ${DRV}/../../home/someone/x.drv`,
+			`nix-offload there /home/someone/${"a".repeat(32)}-x.drv`,
+		]) {
+			expect(letOut(command, HELD), command).toBeUndefined();
+		}
+	});
+
 	it("tells git outside any tree to read no .git at all", () => {
-		const text = letOut("nix-offload there /tree checks.x86_64-linux.a");
+		const text = letOut(`nix-offload there ${DRV}`);
 		for (const set of [
 			`GIT_DIR=${NO_GIT_DIR}`,
 			"GIT_CEILING_DIRECTORIES=/",
@@ -81,24 +113,42 @@ describe("the flags the exemption lets out", () => {
 		}
 	});
 
-	it("lets out a --run only of what the store holds", () => {
-		expect(
-			letOut(
-				`nix-offload there --run --copy ${SCRIPT} --longest 1800 -- ${SCRIPT} main`,
-			),
-			"a store program with a store copy",
-		).toBeDefined();
+	it("keeps every --run fenced, in a held tree or not", () => {
 		for (const command of [
+			`nix-offload there --run --copy ${SCRIPT} --longest 1800 -- ${SCRIPT} main`,
 			`nix-offload there --run --copy ${SCRIPT} -- bash ${SCRIPT} main`,
-			`nix-offload there --run --copy /home/someone/x.sh -- ${SCRIPT}`,
 			`nix-offload there --run --copy=${SCRIPT} -- ${SCRIPT}`,
 			`nix-offload there --run --copy ${SCRIPT} -- /home/someone/x.sh`,
-			`nix-offload there --run --copy /nix/store/../home/x -- ${SCRIPT}`,
-			`nix-offload there --run --copy ${SCRIPT} ${SCRIPT}`,
 			`nix-offload there --run --copy ${SCRIPT} --`,
-			`nix-offload there --run --copy -- ${SCRIPT}`,
 		]) {
+			expect(letOut(command, HELD), command).toBeUndefined();
 			expect(letOut(command), command).toBeUndefined();
+		}
+	});
+});
+
+describe("a call the exemption keeps in", () => {
+	it("is refused saying to evaluate inside and hand on the derivations", () => {
+		for (const command of [
+			"nix-offload there /tree checks.x86_64-linux.formatting",
+			"nix-offload there -L --changed",
+			"cd /tree && nix-offload there path:/home/someone/.config/gh checks.x86_64-linux.a",
+			RUN,
+		]) {
+			const said = offloadKeptIn(command);
+			expect(said, command).toContain("only derivations");
+			expect(said, command).toContain("nix-offload there <drv>^*");
+		}
+	});
+
+	it("runs fenced when it builds here, asks what it takes, or isn't a lone call", () => {
+		for (const command of [
+			"nix-offload there --here /tree checks.x86_64-linux.formatting",
+			"nix-offload there --takes",
+			"nix-offload there /tree checks.x86_64-linux.a && echo out",
+			"nix build /tree#checks.x86_64-linux.a",
+		]) {
+			expect(offloadKeptIn(command), command).toBeUndefined();
 		}
 	});
 });
@@ -145,7 +195,7 @@ describe("a cd before the call", () => {
 		heldTree(folder, home, session, records);
 
 	it("runs the call in a tree the session holds", () => {
-		const text = letOut(`cd ${tree} && nix-offload there --changed`, {
+		const text = letOut(`cd ${tree} && ${DRV_CALL}`, {
 			heldTree: vouch("s1"),
 		});
 		expect(text, "a held tree is refused").toBeDefined();
@@ -156,7 +206,7 @@ describe("a cd before the call", () => {
 	});
 
 	it("holds git to the tree's own git folder, read once", () => {
-		const text = letOut(`cd ${tree} && nix-offload there --changed`, {
+		const text = letOut(`cd ${tree} && ${DRV_CALL}`, {
 			heldTree: vouch("s1"),
 		});
 		const own = join(base, "repo", "worktrees", "tree");
@@ -174,25 +224,25 @@ describe("a cd before the call", () => {
 
 	it("refuses a tree another session holds, or none", () => {
 		expect(
-			letOut(`cd ${tree} && nix-offload there --changed`, {
+			letOut(`cd ${tree} && ${DRV_CALL}`, {
 				heldTree: vouch("s2"),
 			}),
 			"another session's tree",
 		).toBeUndefined();
 		expect(
-			letOut(`cd ${home} && nix-offload there --changed`, {
+			letOut(`cd ${home} && ${DRV_CALL}`, {
 				heldTree: vouch("s1"),
 			}),
 			"a folder no record names",
 		).toBeUndefined();
 		expect(
-			letOut(`cd ${tree} && nix-offload there --changed`),
+			letOut(`cd ${tree} && ${DRV_CALL}`),
 			"nothing to vouch for it",
 		).toBeUndefined();
 	});
 
 	it("holds a bare call in a held tree to the tree's own git folder", () => {
-		const text = letOut("nix-offload there --changed", {
+		const text = letOut(DRV_CALL, {
 			cwd: tree,
 			folderGit: (folder) => folderGit(folder, home, "s1", records),
 		});
@@ -203,7 +253,7 @@ describe("a cd before the call", () => {
 
 	it("refuses a held tree named through a link", () => {
 		expect(
-			letOut(`cd ${join(base, "link")} && nix-offload there --changed`, {
+			letOut(`cd ${join(base, "link")} && ${DRV_CALL}`, {
 				heldTree: vouch("s1"),
 			}),
 		).toBeUndefined();
@@ -222,16 +272,16 @@ describe("a cd before the call", () => {
 	it("refuses anything chained, substituted or flagged around it", () => {
 		const held = { heldTree: vouch("s1") };
 		for (const command of [
-			`cd ${tree} && nix-offload there --changed && echo out`,
-			`cd ${tree} && cd ${tree} && nix-offload there --changed`,
-			`cd ${tree}; nix-offload there --changed`,
-			`cd $(echo ${tree}) && nix-offload there --changed`,
-			`cd "${tree}" && nix-offload there --changed`,
-			`cd ${tree}/* && nix-offload there --changed`,
-			"cd trees/tree && nix-offload there --changed",
-			`cd ${tree} && nix-offload there --here --changed`,
+			`cd ${tree} && ${DRV_CALL} && echo out`,
+			`cd ${tree} && cd ${tree} && ${DRV_CALL}`,
+			`cd ${tree}; ${DRV_CALL}`,
+			`cd $(echo ${tree}) && ${DRV_CALL}`,
+			`cd "${tree}" && ${DRV_CALL}`,
+			`cd ${tree}/* && ${DRV_CALL}`,
+			`cd trees/tree && ${DRV_CALL}`,
+			`cd ${tree} && nix-offload there --here ${DRV}`,
 			`cd ${tree} && echo out`,
-			`cd ${tree} &&\nnix-offload there --changed`,
+			`cd ${tree} &&\n${DRV_CALL}`,
 		]) {
 			expect(letOut(command, held), command).toBeUndefined();
 		}
@@ -253,14 +303,14 @@ describe("a bare call in the command's folder", () => {
 	afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 	const bare = (cwd: string) =>
-		letOut(`nix-offload there --run --copy ${SCRIPT} -- ${SCRIPT} main`, {
+		letOut(DRV_CALL, {
 			home,
 			cwd,
 			folderGit: (folder) =>
 				folderGit(folder, home, "s1", join(home, "elsewhere", "records")),
 		});
 
-	it("holds a run in a guarded checkout to that checkout's git", () => {
+	it("holds a call in a guarded checkout to that checkout's git", () => {
 		const checkout = join(home, "src/r");
 		const text = bare(checkout);
 		expect(text, "its git folder").toContain(

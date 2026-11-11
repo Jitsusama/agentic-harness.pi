@@ -21,14 +21,18 @@ import {
 	type Disk,
 	FENCE,
 	fenceArgs,
+	fenceRefusesRead,
 	fenceRefusesWrite,
 	fenceRules,
-	inStore,
+	HIDDEN,
 	NEVER_THROUGH,
-	OFFLOAD_EXEMPTION_ENDS,
-	offloadedOutside,
 	READ_ONLY,
 } from "../../../lib/internal/fence.ts";
+import {
+	inStore,
+	OFFLOAD_EXEMPTION_ENDS,
+	offloadedOutside,
+} from "../../../lib/internal/offload-exemption.ts";
 import {
 	type Sandbox,
 	sandboxFor,
@@ -37,6 +41,7 @@ import {
 import { fileToolRefusal } from "../../../lib/internal/sandbox-files.ts";
 
 const STORE_OFFLOAD = "/nix/store/0000-nix-offload/bin/nix-offload";
+const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
 const STORE_ENV = "/nix/store/0000-coreutils/bin/env";
 
 /** A finder that knows `programs`, as PATH would. */
@@ -139,11 +144,32 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes in the runtime folder", () => {
+	it("binds back only the Nix daemon's door for sandboxes and the SSH agent's proxy in the runtime folder", () => {
 		const bound = pairs("--bind").filter((path) =>
 			path?.startsWith(place.runtimeDir),
 		);
-		expect(bound).toEqual(["/run/user/1000/nix-untrusted.sock"]);
+		expect(bound).toEqual([
+			"/run/user/1000/nix-untrusted.sock",
+			"/run/user/1000/pi-agent.sock",
+		]);
+	});
+
+	it("binds the copy of the system's SSH settings over them, read-only, once it's made", () => {
+		const sshConfig = "/run/user/1000/pi-fence/ssh_config";
+		const given = fenceArgs(
+			{ ...place, sshConfig },
+			diskWith(place.home, [".config"]),
+		);
+		const at = given.indexOf(sshConfig);
+		expect(given.slice(at - 1, at + 2)).toEqual([
+			"--ro-bind",
+			sshConfig,
+			"/etc/ssh/ssh_config",
+		]);
+		expect(
+			args,
+			"with no copy, the system's settings are as they are",
+		).not.toContain("/etc/ssh/ssh_config");
 	});
 
 	it("makes the home folder read-only, binding back writable every entry but the read-only ones and links", () => {
@@ -259,6 +285,7 @@ describe("the fence's arguments", () => {
 		expect(sockets).toEqual([
 			"/run/nscd/socket",
 			"/run/user/1000/nix-untrusted.sock",
+			"/run/user/1000/pi-agent.sock",
 		]);
 		expect(rules).not.toContain("--unrestricted-scoped");
 		expect(rules).not.toContain("--unrestricted-filesystem");
@@ -299,6 +326,8 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		`${home}/.ssh/agent-signing.pub`,
 		`${home}/.ssh/agent-signing.tpm`,
 		`${home}/.ssh/id_ed25519_sk`,
+		`${home}/.local/state/nix-offload/store_ed25519`,
+		`${home}/.local/state/nix-offload/store_ed25519.pub`,
 		`${home}/src/repo/.git/config`,
 		`${home}/src/repo/.git/hooks/`,
 		`${home}/src/repo/.git/info/`,
@@ -345,6 +374,28 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			`${ssh}/known_hosts`,
 		]);
 		expect(args.join(" ")).toContain(`--remount-ro ${ssh}`);
+	});
+
+	it("empties the private keys kept outside ~/.ssh, for commands and pi's file tools alike", () => {
+		const key = `${home}/.local/state/nix-offload/store_ed25519`;
+		expect(HIDDEN.map((path) => `${home}/${path}`)).toContain(key);
+		const at = args.lastIndexOf(key);
+		expect(args.slice(at - 2, at + 1), "the key is emptied inside").toEqual([
+			"--ro-bind",
+			"/dev/null",
+			key,
+		]);
+		expect(args, "its public half is left as it is").not.toContain(
+			`${key}.pub`,
+		);
+		const place = { home, runtimeDir: "/run/user/1000" };
+		expect(fenceRefusesRead(key, place), "pi's read tool is refused it").toBe(
+			true,
+		);
+		expect(
+			fenceRefusesRead(`${key}.pub`, place),
+			"its public half stays readable",
+		).toBe(false);
 	});
 
 	it("keeps src and world read-only, each git folder there but what a commit writes", () => {
@@ -582,15 +633,31 @@ describe("a command in the fence, through stand-ins", () => {
 		}
 	});
 
+	it("reaches an SSH agent only through the proxy, once the proxy is there", () => {
+		const proxy = join(runtimeDir, "pi-agent.sock");
+		writeFileSync(proxy, "");
+		try {
+			const result = run("env", {
+				SSH_AUTH_SOCK: "/run/user/1000/ssh-tpm-agent.sock",
+			});
+			const given = result.stdout
+				.split("\n")
+				.filter((line) => line.startsWith("SSH_AUTH_SOCK="));
+			expect(given).toEqual([`SSH_AUTH_SOCK=${proxy}`]);
+		} finally {
+			rmSync(proxy);
+		}
+	});
+
 	it("runs a nix-offload there call alone outside, with its own words and an environment of its own", () => {
-		const result = run("nix-offload there -L --changed", {
+		const result = run(`nix-offload there -L ${DRV}^*`, {
 			FENCE_TEST_KEPT: "kept",
 			LD_PRELOAD: "/tmp/evil.so",
 			BASH_ENV: "/tmp/evil.sh",
 			NIX_PATH: "nixpkgs=/tmp/evil",
 			USER: "someone",
 		});
-		expect(result.stdout).toContain("words:there -L --changed");
+		expect(result.stdout).toContain(`words:there -L ${DRV}^*`);
 		const names = result.stdout
 			.split("\n")
 			.filter((line) => line.includes("="))
@@ -621,16 +688,16 @@ describe("a command in the fence, through stand-ins", () => {
 
 	it("keeps fenced any nix-offload call with anything chained, quoted or expanded", () => {
 		for (const command of [
-			"nix-offload there; echo out",
-			"nix-offload there && echo out",
-			"nix-offload there | cat",
-			"nix-offload there $(echo out)",
-			"nix-offload there `echo out`",
+			`nix-offload there ${DRV}; echo out`,
+			`nix-offload there ${DRV} && echo out`,
+			`nix-offload there ${DRV} | cat`,
+			`nix-offload there ${DRV} $(echo out)`,
+			`nix-offload there ${DRV} \`echo out\``,
 			'nix-offload there "$drv^*"',
-			"nix-offload there > /tmp/out",
-			"nix-offload there\necho out",
-			"env -u SSH_AUTH_SOCK nix-offload there",
-			"nix-offload build",
+			`nix-offload there ${DRV} > /tmp/out`,
+			`nix-offload there ${DRV}\necho out`,
+			`env -u SSH_AUTH_SOCK nix-offload there ${DRV}`,
+			`nix-offload build ${DRV}`,
 		]) {
 			expect(
 				offloadedOutside(command, sandbox.offload, { home, env: {} }),
@@ -642,7 +709,7 @@ describe("a command in the fence, through stand-ins", () => {
 	it("is let out only until the fence reaches the builders itself", () => {
 		expect(
 			new Date() < new Date(`${OFFLOAD_EXEMPTION_ENDS}T00:00:00-05:00`),
-			"the nix-offload exemption is past its day: take it out, now the SSH agent's proxy lets the fence reach the builders",
+			"the nix-offload exemption is past its day: take it out, now a broker holds the builders' key",
 		).toBe(true);
 	});
 
