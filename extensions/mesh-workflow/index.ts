@@ -1294,7 +1294,7 @@ export function meshWorkflow(
 				!sentBy(message, { addresses: peer.addresses, ...senderIdentity() })
 			) {
 				answered.add(message.re);
-				awaiting.answered(message.re, addressesOf(message.from));
+				awaiting.answered(message.re, () => addressesOf(message.from));
 			}
 			if (!message || !reaches(message, peer.listener, senderIdentity().pid)) {
 				return undefined;

@@ -25,6 +25,7 @@ import {
 	type Orchestration,
 	orchestrationOf,
 } from "../internal/quest/orchestration.ts";
+import { parsedFiles } from "../internal/quest/parsed-file.ts";
 import { isRecord } from "../internal/record.ts";
 import { isLanding, type Landing } from "../internal/session/landings.ts";
 import { isMoveTarget, type MoveTarget } from "../internal/session/move.ts";
@@ -295,8 +296,7 @@ export function workOf(
 	const checkout = checkoutOf(cwd);
 	const runsIn = checkout ? [repositoryName(checkout)] : [];
 	const quest = loadedQuest(sessionId, records.sessions);
-	const readme = quest ? readReadme(records.quests, quest) : undefined;
-	const parsed = readme ? parseQuestFrontMatter(readme) : undefined;
+	const parsed = quest ? parsedReadme(records.quests, quest) : undefined;
 	const repo = runsIn[0];
 	if (!quest || !parsed) {
 		return {
@@ -355,11 +355,7 @@ function frontMatterReader(
 	const read = new Map<string, QuestFrontMatter | undefined>([[quest, own]]);
 	return (id) => {
 		if (!read.has(id)) {
-			const readme = readReadme(records.quests, id);
-			read.set(
-				id,
-				readme ? parseQuestFrontMatter(readme)?.frontMatter : undefined,
-			);
+			read.set(id, parsedReadme(records.quests, id)?.frontMatter);
 		}
 		return read.get(id);
 	};
@@ -632,10 +628,23 @@ function describe(body: string): string {
 	return [title, opening].filter(Boolean).join(": ");
 }
 
-function readReadme(quests: string, quest: string): string | undefined {
+/**
+ * Quest READMEs, each parsed again only once it changes. Every peer
+ * works out its presence from its quest and each parent's on every
+ * refresh, and orchestrators' front matter runs to tens of kilobytes
+ * of YAML: on 11 November an idle pi allocated 35 MB in 90 s parsing
+ * READMEs that hadn't changed.
+ */
+const readmes = parsedFiles(parseQuestFrontMatter);
+
+function parsedReadme(
+	quests: string,
+	quest: string,
+): ReturnType<typeof parseQuestFrontMatter> {
 	try {
-		return readFileSync(join(quests, quest, "README.md"), "utf8");
+		return readmes(join(quests, quest, "README.md"));
 	} catch {
+		// A quest whose README can't be read works out as no quest.
 		return undefined;
 	}
 }
