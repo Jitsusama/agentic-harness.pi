@@ -73,6 +73,7 @@ const places: CutoverPlaces = {
 	...(version ? { current: version } : {}),
 	realm: hostRealm(process.env),
 	...(process.env.PI_SESSION_ID ? { self: process.env.PI_SESSION_ID } : {}),
+	claimer: process.pid,
 };
 const facts = machineFacts(places);
 const only = values.only === undefined ? undefined : named(values.only);
@@ -115,6 +116,9 @@ if (values["dry-run"]) {
 				`still waiting: ${one.address}${one.holds ? `, ${one.holds}` : ""}`,
 		),
 		...report.refused.map((one) => `not adopted: ${one.address}, ${one.why}`),
+		...report.takenBack.map(
+			(address) => `taken back in its own window: ${address}`,
+		),
 		...report.places
 			.filter((one) => !one.said.startsWith("kept"))
 			.map((one) => `window not kept: ${one.address}, ${one.said}`),

@@ -147,6 +147,15 @@ export interface MoveFacts {
 	/** Take a note away once its session is adopted. */
 	removeNote(session: string): void;
 	/**
+	 * Claim a session's note before asking a host to adopt its log, so a
+	 * join taking the move back in the session's own window can't start
+	 * `pi --session` beside the host: the note, or nothing once the join
+	 * has it (lib/internal/session/move.ts claimMoveNote).
+	 */
+	claim(session: string): MoveNote | undefined;
+	/** Give a claimed note back, as the host wouldn't adopt its log. */
+	giveBack(session: string): void;
+	/**
 	 * Whether what wrote a note still has its session: the pi that wrote
 	 * it, or for a note from a host, that host.
 	 */
@@ -172,6 +181,8 @@ export interface MoveReport {
 	readonly waiting: readonly { address: string; holds?: string }[];
 	/** Sessions a host wouldn't take, with why. */
 	readonly refused: readonly { address: string; why: string }[];
+	/** The addresses of the sessions their own window took back, running plain pi there. */
+	readonly takenBack: readonly string[];
 	/** What the shell said of keeping each session's window's place. */
 	readonly places: readonly { address: string; said: string }[];
 }
@@ -210,6 +221,7 @@ export async function carryOut(
 		addresses.set(note.session, note.addresses[0] ?? note.session);
 	}
 	const moved: string[] = [];
+	const takenBack: string[] = [];
 	const refused = new Map<string, string>();
 	const addressOf = (session: string) => addresses.get(session) ?? session;
 	for (;;) {
@@ -230,16 +242,32 @@ export async function carryOut(
 			}
 			if (note === undefined || note.to === "pi") continue;
 			if (await facts.running(note)) continue;
-			const why = await facts.adopt(note, note.to);
+			const claimed = facts.claim(session);
+			if (claimed?.to === "pi") {
+				// Written again as a release since it was read: the release's.
+				facts.giveBack(session);
+				continue;
+			}
+			if (claimed === undefined) {
+				goes.delete(session);
+				refused.delete(session);
+				takenBack.push(addressOf(session));
+				facts.say(`${addressOf(session)} taken back in its own window`);
+				continue;
+			}
+			const why = await facts.adopt(claimed, claimed.to);
 			if (why === undefined) {
 				facts.removeNote(session);
 				goes.delete(session);
 				refused.delete(session);
 				moved.push(addressOf(session));
 				facts.say(`${addressOf(session)} adopted by the ${note.to} host`);
-			} else if (refused.get(session) !== why) {
-				refused.set(session, why);
-				facts.say(`${addressOf(session)} not adopted yet: ${why}`);
+			} else {
+				facts.giveBack(session);
+				if (refused.get(session) !== why) {
+					refused.set(session, why);
+					facts.say(`${addressOf(session)} not adopted yet: ${why}`);
+				}
 			}
 		}
 		if (goes.size === 0 || facts.now() >= deadline) break;
@@ -258,6 +286,7 @@ export async function carryOut(
 		moved,
 		waiting,
 		places,
+		takenBack,
 		refused: [...refused].map(([session, why]) => ({
 			address: addressOf(session),
 			why,

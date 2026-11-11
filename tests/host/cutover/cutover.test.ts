@@ -162,8 +162,12 @@ function fakeMachine(script: {
 	held?: Record<string, string>;
 	/** Each look, the sessions the host leaving them lets go. */
 	leaving?: string[][];
+	/** Sessions whose own window takes the move back before the cutover claims it. */
+	takenBack?: string[];
 }) {
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
+	const claimed = new Map<string, MoveNote>();
+	const givenBack: string[] = [];
 	const held = new Map(Object.entries(script.held ?? {}));
 	const told: string[] = [];
 	const woken: string[] = [];
@@ -181,7 +185,25 @@ function fakeMachine(script: {
 		},
 		wake: (session) => woken.push(session),
 		notes: () => [...notes.values()],
-		removeNote: (session) => notes.delete(session),
+		removeNote: (session) => {
+			notes.delete(session);
+			claimed.delete(session);
+		},
+		claim: (session) => {
+			if (script.takenBack?.includes(session)) notes.delete(session);
+			const one = notes.get(session);
+			if (one === undefined) return undefined;
+			notes.delete(session);
+			claimed.set(session, one);
+			return one;
+		},
+		giveBack: (session) => {
+			const one = claimed.get(session);
+			if (one === undefined) return;
+			claimed.delete(session);
+			notes.set(session, one);
+			givenBack.push(session);
+		},
 		// A note from a host runs while that host holds its session.
 		running: async (one) =>
 			one.from !== undefined
@@ -209,7 +231,7 @@ function fakeMachine(script: {
 		},
 		say: (line) => said.push(line),
 	};
-	return { facts, told, woken, adopted, said, notes };
+	return { facts, told, woken, adopted, said, notes, claimed, givenBack };
 }
 
 describe("carryOut", () => {
@@ -227,6 +249,7 @@ describe("carryOut", () => {
 			moved: ["A", "B"],
 			waiting: [],
 			refused: [],
+			takenBack: [],
 			places: [
 				{ address: "A", said: "kept" },
 				{ address: "B", said: "no window to keep" },
@@ -266,6 +289,7 @@ describe("carryOut", () => {
 			moved: [],
 			waiting: [{ address: "A", holds: "background jobs are out" }],
 			refused: [],
+			takenBack: [],
 			places: [{ address: "A", said: "kept" }],
 		});
 	});
@@ -304,8 +328,46 @@ describe("carryOut", () => {
 			moved: [],
 			waiting: [],
 			refused: [{ address: "A", why: "no work-attended host is listening" }],
+			takenBack: [],
 			places: [{ address: "A", said: "kept" }],
 		});
+		expect(machine.claimed.size, "no claim left held").toBe(0);
+		expect(
+			[...machine.notes.keys()],
+			"the note given back for its window to take",
+		).toEqual(["a"]);
+	});
+
+	it("adopts nothing its own window took back, and says so", async () => {
+		const machine = fakeMachine({ ending: [["a"]], takenBack: ["a"] });
+		const report = await carryOut(
+			[move("a", "background")],
+			machine.facts,
+			60_000,
+		);
+		expect(machine.adopted, "no second writer beside its plain pi").toEqual([]);
+		expect(report.moved).toEqual([]);
+		expect(report.waiting).toEqual([]);
+		expect(report.takenBack).toEqual(["A"]);
+		expect(machine.said).toContain("A taken back in its own window");
+	});
+
+	it("gives a release written since it was read back to the release", async () => {
+		const machine = fakeMachine({ ending: [["a"]] });
+		const claim = machine.facts.claim;
+		machine.facts.claim = (session) => {
+			const one = machine.notes.get(session);
+			if (one) machine.notes.set(session, { ...one, to: "pi" });
+			return claim(session);
+		};
+		const report = await carryOut(
+			[move("a", "background")],
+			machine.facts,
+			4_000,
+		);
+		expect(machine.adopted).toEqual([]);
+		expect(report.takenBack).toEqual([]);
+		expect(machine.notes.get("a")?.to).toBe("pi");
 	});
 
 	it("finishes an earlier run's notes, and leaves a release's alone", async () => {

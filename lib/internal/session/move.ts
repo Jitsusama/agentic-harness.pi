@@ -16,9 +16,25 @@
  * One file a session, `<session>.json`, in its realm's `moves/` folder
  * of the package's state, written whole: a host serves one realm, as
  * the mesh and the steer inboxes do.
+ *
+ * Two may want one note: the cutover, to adopt the log into a host, and
+ * a join in the session's own window that takes the move back when the
+ * cutover gives up, to run `pi --session` there instead (H2's move in
+ * place, 11 November). Each claims the note by renaming it to a name of
+ * its own before acting on it, and a rename whose source has gone fails,
+ * so exactly one of the two acts and the log never gets two writers.
+ * A claimed note is no longer `<session>.json`, so no other reader sees
+ * it; a cutover that dies holding one leaves it for the next to give
+ * back (restoreStrandedClaims).
  */
 
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
@@ -66,8 +82,44 @@ export function moveFolder(): string {
 
 const NOTE = ".json";
 
+/** Between a session's name and the pid of the cutover adopting it. */
+const ADOPTING = ".adopting-";
+
+/** Between a session's name and the pid of the join taking it back. */
+const TAKEN = ".taken-";
+
+const STRANDED = /^(.+)\.adopting-(\d+)$/;
+
+function nameOf(session: string): string {
+	return session.replace(/[^A-Za-z0-9-]/g, "_");
+}
+
 function noteFile(folder: string, session: string): string {
-	return join(folder, `${session.replace(/[^A-Za-z0-9-]/g, "_")}${NOTE}`);
+	return join(folder, `${nameOf(session)}${NOTE}`);
+}
+
+function adoptingFile(folder: string, session: string, pid: number): string {
+	return join(folder, `${nameOf(session)}${ADOPTING}${pid}`);
+}
+
+/** Whether a rename's source had gone, the one failure a claim expects. */
+function isGone(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error.code === "ENOENT" || error.code === "ENOTDIR")
+	);
+}
+
+/** Rename `from` to `to`: true once done, false when `from` had gone. */
+function claim(from: string, to: string): boolean {
+	try {
+		renameSync(from, to);
+		return true;
+	} catch (error) {
+		if (isGone(error)) return false;
+		throw error;
+	}
 }
 
 /** Leave the note a session's move is taken up by. */
@@ -102,12 +154,97 @@ export function readMoveNotes(folder: string = moveFolder()): MoveNote[] {
 		.sort((one, other) => one.at.localeCompare(other.at));
 }
 
-/** The move was taken up: its note goes. */
+/** The move was taken up: its note goes, claimed or not. */
 export function removeMoveNote(
 	session: string,
 	folder: string = moveFolder(),
 ): void {
 	rmSync(noteFile(folder, session), { force: true });
+	const claimed = `${nameOf(session)}${ADOPTING}`;
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// No folder: no claim to take away either.
+		return;
+	}
+	for (const name of names)
+		if (name.startsWith(claimed)) rmSync(join(folder, name), { force: true });
+}
+
+/**
+ * Claim a session's note for the cutover running as `pid`, before it
+ * asks a host to adopt the log: the note, or nothing when it has gone,
+ * taken back by the session's join or never left. Give it back if the
+ * host won't adopt, and remove it once one has.
+ */
+export function claimMoveNote(
+	session: string,
+	pid: number,
+	folder: string = moveFolder(),
+): MoveNote | undefined {
+	const held = adoptingFile(folder, session, pid);
+	if (!claim(noteFile(folder, session), held)) return undefined;
+	const note = readNote(held);
+	if (note === undefined) claim(held, noteFile(folder, session));
+	return note;
+}
+
+/** Give a claimed note back, as the host wouldn't adopt its log. */
+export function giveBackMoveNote(
+	session: string,
+	pid: number,
+	folder: string = moveFolder(),
+): void {
+	claim(adoptingFile(folder, session, pid), noteFile(folder, session));
+}
+
+/** What a join asking for its session's move back was told. */
+export type TakeBack = "taken" | "adopting";
+
+/**
+ * Take a session's move back for the join running as `pid`, so it can
+ * run `pi --session` in the session's own window: "taken" once the note
+ * is the join's and gone, so no cutover adopts the log; "adopting" when
+ * the cutover holds the note or it has already gone, with the log in a
+ * host or on its way, and the join should view it there instead. A note
+ * the cutover gives back can be taken on a later ask.
+ */
+export function takeBackMove(
+	session: string,
+	pid: number,
+	folder: string = moveFolder(),
+): TakeBack {
+	const taken = join(folder, `${nameOf(session)}${TAKEN}${pid}`);
+	if (!claim(noteFile(folder, session), taken)) return "adopting";
+	rmSync(taken, { force: true });
+	return "taken";
+}
+
+/**
+ * Give back every note a cutover claimed and died holding, judged by
+ * whether its pid still runs, so the next cutover or join can take it.
+ * A note written again since stays, and the stranded claim goes.
+ */
+export function restoreStrandedClaims(
+	alive: (pid: number) => boolean,
+	folder: string = moveFolder(),
+): void {
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// No folder: nothing has moved.
+		return;
+	}
+	for (const name of names) {
+		const stranded = STRANDED.exec(name);
+		if (!stranded || alive(Number(stranded[2]))) continue;
+		const back = join(folder, `${stranded[1]}${NOTE}`);
+		if (names.includes(`${stranded[1]}${NOTE}`))
+			rmSync(join(folder, name), { force: true });
+		else claim(join(folder, name), back);
+	}
 }
 
 function readNote(path: string): MoveNote | undefined {

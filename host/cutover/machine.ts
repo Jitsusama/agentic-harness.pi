@@ -21,11 +21,14 @@ import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import {
+	claimMoveNote,
+	giveBackMoveNote,
 	type MoveNote,
 	moveFolder,
 	readMoveNote,
 	readMoveNotes,
 	removeMoveNote,
+	restoreStrandedClaims,
 } from "../../lib/internal/session/move.ts";
 import { askWake } from "../../lib/internal/session/park.ts";
 import { census } from "../../lib/mesh/liveness.ts";
@@ -64,6 +67,11 @@ export interface CutoverPlaces {
 	readonly moves?: string;
 	readonly logs?: string;
 	readonly self?: string;
+	/**
+	 * The pid of the cutover running, which names the notes it claims, so
+	 * one it dies holding is given back; a cutover that adopts needs it.
+	 */
+	readonly claimer?: number;
 	readonly ticks?: TickFacts;
 	/** The hosts' rosters, the realm's own unless a test says. */
 	readonly rosters?: string;
@@ -160,6 +168,13 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 	let logs: Map<string, string> | undefined;
 	const socket = (kind: HostKind) =>
 		hostSocketPath(places.realm, kind, places.runtimeDir);
+	const claimer = () => {
+		if (places.claimer === undefined)
+			throw new Error(
+				"a cutover claims a move note under its own pid (claimer)",
+			);
+		return places.claimer;
+	};
 	return {
 		...(places.self ? { self: places.self } : {}),
 		present: async () => [...(await census(presences.all(), ticks)).present],
@@ -204,8 +219,13 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 		wake: (session) => {
 			askWake(session, `move-${Date.now()}`);
 		},
-		notes: () => readMoveNotes(moves),
+		notes: () => {
+			restoreStrandedClaims((pid) => rolloutFacts.alive(pid), moves);
+			return readMoveNotes(moves);
+		},
 		removeNote: (session) => removeMoveNote(session, moves),
+		claim: (session) => claimMoveNote(session, claimer(), moves),
+		giveBack: (session) => giveBackMoveNote(session, claimer(), moves),
 		running: async (note: MoveNote) => {
 			// A note from a host names that host's pid, which outlives the
 			// conversation: it has gone once the host neither lists it nor
