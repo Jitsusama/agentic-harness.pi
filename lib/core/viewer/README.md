@@ -27,7 +27,8 @@ called before its screen stops, holds every key its viewers type, in
 order and bounded to 1 MiB per viewer, calling `wake` at the first.
 `awake()`, once the screen it wakes into has started, hands the held
 keys to that screen, each as its viewer typed it, so none is lost to
-the wake.
+the wake. A wake that fails is said on the screen, and the next key
+asks again, the keys before it still held.
 
 The repaint callback must request a full pi render, including on a
 same-size join. It and pi's input and resize callbacks run inside

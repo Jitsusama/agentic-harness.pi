@@ -24,7 +24,8 @@ input pipeline or screen. No unit or running host is installed yet.
   and why, naming the viewer or caller that asked. A conversation the
   engine parked while idle is held but not running; `wake` resumes it,
   in turn with any close of it and through the rollout gate as another
-  start would, and an attach to it wakes it first.
+  start would, and an attach to it wakes it first. A wake of one whose
+  start failed says so, since only a close lets it go.
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,
@@ -41,7 +42,8 @@ input pipeline or screen. No unit or running host is installed yet.
   every conversation as signalled and releases the lock, keeping holds.
   It watches the engine before resuming, so no end or replacement is
   missed. The engine's wakes reach the backend only while it listens,
-  so one racing a stop does nothing.
+  so one racing a stop does nothing, and the stop waits out any wake
+  already resuming before it parks.
   Start first sets the package's stale-rejection net, logging under
   the host's state folder, so one conversation's reload leftovers never
   end the host and its other conversations.

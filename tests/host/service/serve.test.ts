@@ -17,6 +17,7 @@ import {
 } from "../../../host/service/protocol.ts";
 import { serveHost } from "../../../host/service/serve.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
+import { until } from "../../support/until.ts";
 
 // The net is process-wide, so the worker running these tests keeps its
 // own handling; what is checked is that a host sets it, and where.
@@ -260,6 +261,57 @@ describe("serveHost", () => {
 		} finally {
 			await second.stop();
 		}
+	});
+
+	it("lets a wake under way finish before a stop parks, so it stays held and stops with the rest", async () => {
+		let sessionHost: SessionHost | undefined;
+		let events: ConversationEvents | undefined;
+		let resumed: (() => void) | undefined;
+		const waking = new Promise<void>((resolve) => {
+			resumed = resolve;
+		});
+		let resuming = false;
+		const serving = await serveHost({
+			...places(),
+			engine: async (h) => {
+				sessionHost = h;
+				const plain = engine(h);
+				return {
+					...plain,
+					watch: (given) => {
+						events = given;
+					},
+					resume: async (entry) => {
+						resuming = true;
+						await waking;
+						await plain.resume(entry);
+					},
+				};
+			},
+		});
+		const reply = await opened(serving.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await sessionHost?.stop(sessionId, "parked while idle");
+
+		const woke = events?.wake?.(sessionId);
+		await until("the wake to resume it", () => resuming);
+		const stopped = serving.stop();
+		resumed?.();
+		await expect(
+			woke,
+			"the wake resumed it in a host not yet disposed",
+		).resolves.toBeUndefined();
+		await stopped;
+
+		expect(
+			sessionHost?.list().map(({ id }) => id),
+			"the stop parked what the wake resumed, leaving nothing running",
+		).toEqual([]);
+		expect(
+			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
+			"it stays held for the next start",
+		).toBe("held");
 	});
 
 	it("watches the engine before it resumes, so a conversation that ends inside pi is dropped", async () => {

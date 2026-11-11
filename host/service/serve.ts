@@ -158,6 +158,9 @@ export async function serveHost(options: {
 					wakes = undefined;
 					if (restarting) await listener.restarting();
 					await listener.close();
+					// A wake already resuming finishes first, so it is parked with
+					// the rest rather than left running in a host disposed under it.
+					await backend.settled();
 					await park(running);
 					running.dispose();
 					await roster.close();

@@ -47,6 +47,11 @@ const LOOK_MS = 60_000;
 const PARK_MS = NAMED_PARK_AFTER_MS + LOOK_MS + 30_000;
 /** How long the parking case may take, parking included. */
 const PARKING_CASE_MS = PARK_MS + 60_000;
+/**
+ * A parked conversation a restart resumes parks again at the first look,
+ * idle since its log's last message, well inside the switch's two minutes.
+ */
+const PARK_AGAIN_MS = LOOK_MS + 30_000;
 /** How long a wake case may take. */
 const CASE_MS = 60_000;
 const ENTER = "\r";
@@ -64,6 +69,10 @@ const viewers: Viewer[] = [];
 const KINDS = ["byKey", "byWindow", "byMesh"] as const;
 /** The conversations, by how each is woken. */
 const woken = { byKey: "", byWindow: "", byMesh: "" };
+/** A conversation parked and never woken, for a host restart to resume. */
+let resting = "";
+/** Every conversation the switch names. */
+const named = () => [...Object.values(woken), resting];
 let awake: Weight;
 /** How long each wake took, in ms, said at the end for the record. */
 const took: Record<string, number> = {};
@@ -146,16 +155,16 @@ describe.skipIf(!packageDir)(
 				await host.idle(sessionId, TURN_MS).catch(withHost);
 				woken[kind] = sessionId;
 			}
+			const rests = await host.open(work.trusted(), "first resting");
+			await host.idle(rests.sessionId, TURN_MS).catch(withHost);
+			resting = rests.sessionId;
 			const onKey = await attach(host.path, woken.byKey, ROWS, COLUMNS);
 			viewers.push(onKey);
 			await onKey.shows("heard: first byKey", TURN_MS);
 			awake = await host.weigh();
 			// The switch naming each parks it after two minutes idle.
 			await mkdir(parkFolder, { recursive: true });
-			writeFileSync(
-				join(parkFolder, "switch"),
-				`${Object.values(woken).join("\n")}\n`,
-			);
+			writeFileSync(join(parkFolder, "switch"), `${named().join("\n")}\n`);
 		}, CASE_MS);
 		afterAll(async () => {
 			for (const viewer of viewers) await viewer.leave().catch(() => {});
@@ -168,11 +177,11 @@ describe.skipIf(!packageDir)(
 		it(
 			"parks each conversation the switch names, keeping its window, and lets its session go",
 			async () => {
-				for (const sessionId of Object.values(woken))
+				for (const sessionId of named())
 					await host.parked(sessionId, PARK_MS).catch(withHost);
 				const [onKey] = viewers;
 				await onKey?.shows(PARKED, TURN_MS);
-				for (const sessionId of Object.values(woken))
+				for (const sessionId of named())
 					expect(
 						readParked(sessionId, parkFolder),
 						`${sessionId} left plain pi's marker, which the mesh wakes it by`,
@@ -276,6 +285,24 @@ describe.skipIf(!packageDir)(
 				).toEqual(expect.arrayContaining(Object.values(woken)));
 			},
 			CASE_MS,
+		);
+
+		it(
+			"parks one a host restart resumed again at its first look, idle since its log's last message",
+			async () => {
+				expect(await standing(resting), "it was parked").toBe("parked");
+				expect(await host.restart(), "the host stops cleanly").toBe(0);
+				if (!packageDir) throw new Error("the host's pi went missing");
+				host = await startScreenHost(sealed, packageDir);
+				expect(
+					await standing(resting),
+					"the restarted host resumed it, running",
+				).toBe("idle");
+				const started = Date.now();
+				await host.parked(resting, PARK_AGAIN_MS).catch(withHost);
+				took.parkedAgainMs = Date.now() - started;
+			},
+			PARK_AGAIN_MS + CASE_MS,
 		);
 	},
 );

@@ -23,7 +23,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
-import { WAKE_ENV } from "../../lib/internal/session/park.ts";
+import { clearParked, WAKE_ENV } from "../../lib/internal/session/park.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type {
 	AdoptRequest,
@@ -765,10 +765,13 @@ export async function createEngine(
 			prepared.delete(conversation.sessionId);
 		},
 
-		async resume(entry: RosterEntry) {
+		async resume(entry: RosterEntry, woken = false) {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
-			parked.unwatch(entry.sessionId);
+			// A host starting resumes what it held; a conversation parked
+			// before then isn't woken, so it counts idle from its log and parks
+			// again within a look, rather than an hour from now.
+			if (!woken) clearParked(entry.sessionId);
 			if (!existsSync(entry.file))
 				throw new Error(
 					`Conversation ${entry.sessionId} has lost its session file: ${entry.file}`,
@@ -784,7 +787,11 @@ export async function createEngine(
 				manager,
 				launch ?? {},
 			);
+			// Only once it runs: a wake that failed leaves its wake file watched.
+			parked.unwatch(sessionId);
 		},
+
+		parkSettled: (sessionId) => parked.settled(sessionId),
 
 		async dropped(sessionId, why) {
 			parked.unwatch(sessionId);

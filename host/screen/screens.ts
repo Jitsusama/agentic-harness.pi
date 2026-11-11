@@ -55,9 +55,10 @@ export interface EngineScreens {
 	/**
 	 * Park a conversation's screen: pi's screen stops, its viewers stay,
 	 * shown it is parked, and what they type is kept for the screen it
-	 * wakes into, the first key calling `wake`.
+	 * wakes into, the first key calling `wake`, which rejects with why a
+	 * wake failed.
 	 */
-	parked(sessionId: string, wake: () => void): Promise<void>;
+	parked(sessionId: string, wake: () => Promise<void>): Promise<void>;
 	/** Reload an idle conversation's extensions as its screen's pi does at /reload. */
 	reload(sessionId: string): Promise<void>;
 	/**
@@ -473,7 +474,10 @@ export function hostScreens(options: {
 	// Parking: pi's screen stops as at a close, but its terminal stays with
 	// its viewers, holding what they type from before the stop, so no key
 	// reaches the screen going away, and saying the conversation is parked.
-	async function parked(sessionId: string, wake: () => void): Promise<void> {
+	async function parked(
+		sessionId: string,
+		wake: () => Promise<void>,
+	): Promise<void> {
 		const screen = live.get(sessionId);
 		if (!screen) return closed(sessionId);
 		live.delete(sessionId);

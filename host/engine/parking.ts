@@ -21,10 +21,22 @@ export interface Parking {
 	running(sessionId: string): void;
 	/** Park it, then watch for its wake; a wake asked meanwhile wakes it once parked. */
 	park(sessionId: string): Promise<void>;
-	/** It is asked for: wake it, or once its park settles. */
-	wake(sessionId: string): void;
+	/**
+	 * It is asked for: wake it, or once its park settles. Settles once the
+	 * wake has, rejecting with why it failed, so whoever asked can say so
+	 * and ask again.
+	 */
+	wake(sessionId: string): Promise<void>;
+	/** Once a park of it under way has settled, at once when none is. */
+	settled(sessionId: string): Promise<void>;
 	/** Stop watching for its wake, as it resumes or is closed. */
 	unwatch(sessionId: string): void;
+}
+
+/** A park under way: when it settles, and the wakes asked of it meanwhile. */
+interface Settling {
+	readonly done: Promise<void>;
+	readonly asked: { resolve(): void; reject(error: unknown): void }[];
 }
 
 /**
@@ -41,8 +53,8 @@ export function parking(options: {
 	const { stateDir, report } = options;
 	// Parked conversations, each watching its wake file until it wakes or is closed.
 	const sleepers = new Map<string, FSWatcher>();
-	// Conversations parking now, each saying whether it was asked for meanwhile.
-	const settling = new Map<string, { asked: boolean }>();
+	// Conversations parking now.
+	const settling = new Map<string, Settling>();
 	const folderOf = (sessionId: string) => join(stateDir, sessionId);
 	const wakeFile = (sessionId: string) => join(folderOf(sessionId), WAKE_FILE);
 
@@ -58,7 +70,9 @@ export function parking(options: {
 		const woken = () => {
 			if (!sleepers.has(sessionId) || !existsSync(file)) return;
 			rmSync(file, { force: true });
-			wake(sessionId);
+			wake(sessionId).catch(() => {
+				// Reported as it failed; the next message writes the file again.
+			});
 		};
 		const watcher = watch(folderOf(sessionId), (_, name) => {
 			if (name === WAKE_FILE) woken();
@@ -70,18 +84,47 @@ export function parking(options: {
 		woken();
 	}
 
-	function wake(sessionId: string): void {
+	function wake(sessionId: string): Promise<void> {
 		const parked = settling.get(sessionId);
-		if (parked) {
-			parked.asked = true;
-			return;
-		}
+		if (parked)
+			return new Promise((resolve, reject) => {
+				parked.asked.push({ resolve, reject });
+			});
 		const asking = options.asking();
 		if (!asking) {
-			report(new Error(`Nothing can wake parked conversation ${sessionId}`));
-			return;
+			const error = new Error(
+				`Nothing can wake parked conversation ${sessionId}`,
+			);
+			report(error);
+			return Promise.reject(error);
 		}
-		asking(sessionId).catch(report);
+		return asking(sessionId).catch((error: unknown) => {
+			report(error);
+			throw error;
+		});
+	}
+
+	async function park(sessionId: string, asked: Settling["asked"]) {
+		try {
+			await options.stop(sessionId, PARKED);
+			watchWake(sessionId);
+		} catch (error) {
+			// Stopped but unwatched, only a viewer or an attach wakes it; not
+			// stopped, it stays held as a failed close leaves it.
+			report(error);
+		} finally {
+			settling.delete(sessionId);
+		}
+		// A key or a message while it parked asked for it before it could wake.
+		if (asked.length > 0)
+			wake(sessionId).then(
+				() => {
+					for (const one of asked) one.resolve();
+				},
+				(error: unknown) => {
+					for (const one of asked) one.reject(error);
+				},
+			);
 	}
 
 	return {
@@ -89,23 +132,14 @@ export function parking(options: {
 		running(sessionId) {
 			rmSync(wakeFile(sessionId), { force: true });
 		},
-		async park(sessionId) {
-			const parked = { asked: false };
-			settling.set(sessionId, parked);
-			try {
-				await options.stop(sessionId, PARKED);
-				watchWake(sessionId);
-			} catch (error) {
-				// Stopped but unwatched, only a viewer or an attach wakes it; not
-				// stopped, it stays held as a failed close leaves it.
-				report(error);
-			} finally {
-				settling.delete(sessionId);
-			}
-			// A key or a message while it parked asked for it before it could wake.
-			if (parked.asked) wake(sessionId);
+		park(sessionId) {
+			const asked: Settling["asked"] = [];
+			const done = park(sessionId, asked);
+			settling.set(sessionId, { done, asked });
+			return done;
 		},
 		wake,
+		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch,
 	};
 }

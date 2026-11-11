@@ -11,6 +11,7 @@ import {
 } from "../../../host/service/backend.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
+import { until } from "../../support/until.ts";
 
 const KEY = "work-attended";
 const owner = { pid: process.pid, startedAt: 1 };
@@ -70,6 +71,7 @@ function engine(overrides: Partial<ConversationEngine> = {}) {
 function backendWith(
 	fake: ConversationEngine,
 	admitAnother?: () => Promise<void>,
+	say?: (line: string) => void,
 ) {
 	return hostBackend({
 		identity: { key: host.key, owner: host.owner },
@@ -77,6 +79,7 @@ function backendWith(
 		roster,
 		engine: fake,
 		...(admitAnother ? { admitAnother } : {}),
+		...(say ? { say } : {}),
 	});
 }
 
@@ -105,8 +108,11 @@ describe("waking a parked conversation", () => {
 
 		expect(
 			fake.resume,
-			"two wakes at once resume it once",
-		).toHaveBeenCalledOnce();
+			"two wakes at once resume it once, as a wake",
+		).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ sessionId }),
+			true,
+		);
 		expect(host.holds(sessionId), "it runs again").toBe("idle");
 	});
 
@@ -137,6 +143,90 @@ describe("waking a parked conversation", () => {
 			"released, asked by the cutover over the control socket",
 		);
 		expect(host.holds(sessionId), "it stays closed").toBeUndefined();
+	});
+
+	it("closes one released while it parks as a parked one, saying the end before telling its screen", async () => {
+		const said: string[] = [];
+		let parking: Promise<void> | undefined;
+		const fake = engine({
+			parkSettled: () => parking ?? Promise.resolve(),
+			dropped: vi.fn(async () => {
+				said.push("dropped");
+			}),
+		});
+		const backend = backendWith(fake, undefined, (line) => said.push(line));
+		const { sessionId } = parseOpenResult(await backend.execute(open));
+
+		parking = host.stop(sessionId, "parked while idle");
+		await backend.execute({
+			v: 1,
+			id: "r",
+			op: "release",
+			sessionId,
+			by: "the cutover",
+		});
+
+		expect(
+			fake.dropped,
+			"its kept screen was let go, told it was released",
+		).toHaveBeenCalledWith(
+			sessionId,
+			"released, asked by the cutover over the control socket",
+		);
+		expect(said, "the end was said, then its screen told").toEqual([
+			expect.stringContaining(
+				"ended: released, asked by the cutover over the control socket, held but not running",
+			),
+			"dropped",
+		]);
+		expect(
+			roster.entries().map((held) => held.sessionId),
+			"the roster let it go",
+		).not.toContain(sessionId);
+	});
+
+	it("says a wake of one whose start failed can't, and that a close lets it go", async () => {
+		const fake = engine();
+		const backend = backendWith(fake);
+		const { sessionId } = parseOpenResult(await backend.execute(open));
+		host.state(sessionId, "parked");
+
+		await expect(
+			backend.wake(sessionId),
+			"the wake says why it can't",
+		).rejects.toThrow(/failed as it started; close it and open it again/);
+		expect(fake.resume, "nothing resumed").not.toHaveBeenCalled();
+	});
+
+	it("waits out every wake under way before saying it settled", async () => {
+		let resumed: (() => void) | undefined;
+		const waking = new Promise<void>((resolve) => {
+			resumed = resolve;
+		});
+		const fake = engine({
+			resume: vi.fn(async (entry) => {
+				await waking;
+				register(entry);
+			}),
+		});
+		const backend = backendWith(fake);
+		const sessionId = await parked(backend);
+		let settled = false;
+
+		const woke = backend.wake(sessionId);
+		const settling = backend.settled().then(() => {
+			settled = true;
+		});
+		await until(
+			"the wake to resume it",
+			() => vi.mocked(fake.resume).mock.calls.length > 0,
+		);
+		expect(settled, "unsettled while the wake resumes").toBe(false);
+		resumed?.();
+		await woke;
+		await settling;
+
+		expect(host.holds(sessionId), "settled once it runs").toBe("idle");
 	});
 
 	it("goes through the rollout gate beside another conversation, and stays parked when refused", async () => {

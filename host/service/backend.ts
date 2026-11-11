@@ -43,8 +43,17 @@ export interface ConversationEngine {
 	prepare(request: OpenRequest | AdoptRequest): Promise<Prepared>;
 	start(prepared: Prepared, request: OpenRequest | AdoptRequest): Promise<void>;
 	discard(prepared: Prepared): Promise<void>;
-	resume(entry: RosterEntry): Promise<void>;
+	/**
+	 * `woken` when a person or a message asked for it from a park, rather
+	 * than the host resuming what it held as it starts.
+	 */
+	resume(entry: RosterEntry, woken?: boolean): Promise<void>;
 	abort(sessionId: string): Promise<void>;
+	/**
+	 * Once a park of the conversation under way has settled, at once when
+	 * none is: until then it is still held, though it is no longer running.
+	 */
+	parkSettled?(sessionId: string): Promise<void>;
 	watch?(events: ConversationEvents): void;
 	/**
 	 * A held conversation that wasn't running, such as a parked one, was
@@ -111,9 +120,15 @@ export interface HostBackend extends ControlBackend {
 	 * would: in the same turn as a close of it, so one closed while it
 	 * slept stays closed, and through `admitAnother` beside any other
 	 * conversation. One running already, or no longer held, is left alone;
-	 * one whose build fails stays held, parked, as a failed open does.
+	 * one whose build fails stays held, parked, as a failed open does, and
+	 * a wake of it after says so. One still parking is woken once settled.
 	 */
 	wake(sessionId: string): Promise<void>;
+	/**
+	 * Once every wake and end under way has finished, so a stop parks what
+	 * they leave rather than racing a resume into a host it disposes.
+	 */
+	settled(): Promise<void>;
 }
 
 /**
@@ -154,7 +169,14 @@ export function hostBackend(options: {
 
 	function wake(sessionId: string): Promise<void> {
 		return inTurn(sessionId, async () => {
-			if (host.holds(sessionId) !== undefined) return;
+			await engine.parkSettled?.(sessionId);
+			const holds = host.holds(sessionId);
+			// Held and not running: its last start failed, and only a close lets it go.
+			if (holds === "parked")
+				throw new Error(
+					`Conversation ${sessionId} failed as it started; close it and open it again`,
+				);
+			if (holds !== undefined) return;
 			const entry = roster
 				.entries()
 				.find((held) => held.sessionId === sessionId);
@@ -165,7 +187,7 @@ export function hostBackend(options: {
 			beginning += 1;
 			try {
 				if (another) await options.admitAnother?.();
-				await engine.resume(entry);
+				await engine.resume(entry, true);
 			} finally {
 				beginning -= 1;
 			}
@@ -252,6 +274,9 @@ export function hostBackend(options: {
 		by: string | undefined,
 	) {
 		return inTurn(sessionId, async () => {
+			// A park under way holds it while no longer running: once settled,
+			// it is closed as a parked one, its viewers told and the end said.
+			await engine.parkSettled?.(sessionId);
 			const running = host.holds(sessionId) !== undefined;
 			if (!running && !rostered(sessionId))
 				throw new Error(`Conversation is not hosted: ${sessionId}`);
@@ -259,8 +284,9 @@ export function hostBackend(options: {
 			if (running) await host.close(sessionId, asked);
 			await roster.drop(sessionId);
 			if (!running) {
-				await engine.dropped?.(sessionId, asked);
+				// Said first: the roster has let it go, whatever its screen does.
 				options.say?.(endedLine(sessionId, `${asked}, held but not running`));
+				await engine.dropped?.(sessionId, asked);
 			}
 			return { sessionId };
 		});
@@ -269,6 +295,9 @@ export function hostBackend(options: {
 	return {
 		identity: options.identity,
 		wake,
+		async settled() {
+			while (turns.size > 0) await Promise.all(turns.values());
+		},
 		async execute(request) {
 			switch (request.op) {
 				case "open":
@@ -291,7 +320,9 @@ export function hostBackend(options: {
 					await engine.abort(request.sessionId);
 					return { sessionId: request.sessionId };
 				case "attach":
-					// A window opened on a parked conversation is its person asking for it.
+					// A window opened on a parked conversation is its person asking
+					// for it, as soon as a park under way has settled.
+					await engine.parkSettled?.(request.sessionId);
 					if (
 						host.holds(request.sessionId) === undefined &&
 						rostered(request.sessionId)

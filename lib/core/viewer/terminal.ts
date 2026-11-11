@@ -109,7 +109,8 @@ interface JoinedViewer {
 
 /** A parked conversation's terminal: who a key wakes, and the keys held till then. */
 interface Sleeping {
-	readonly wake: () => void;
+	/** Asks for it to wake, rejecting with why it couldn't. */
+	readonly wake: () => Promise<void>;
 	readonly held: { readonly viewer: JoinedViewer; readonly data: string }[];
 	/** How much each viewer typed while it slept, each bounded alone. */
 	readonly bytes: Map<JoinedViewer, number>;
@@ -477,11 +478,13 @@ export class ViewerTerminal implements Terminal {
 	 * Keep this terminal while its conversation is parked: its viewers stay,
 	 * and the keys they type are held, in order, for the screen it wakes
 	 * into, `wake` told at the first. A key typed to a parked conversation
-	 * is a person asking for it, so none is lost to the wake. Called before
+	 * is a person asking for it, so none is lost to the wake. A wake that
+	 * fails is said on the screen, and the next key asks again, the keys
+	 * before it still held. Called before
 	 * its screen stops, so no key reaches the screen going away; from then
 	 * until `awake` the screen it wakes into reads nothing either.
 	 */
-	sleep(wake: () => void): void {
+	sleep(wake: () => Promise<void>): void {
 		// A quit still asked of a viewer goes with the screen that asked it:
 		// unanswered, the conversation stays, and that viewer's keys are held.
 		for (const viewer of this.viewers) this.cancelQuit(viewer);
@@ -601,7 +604,15 @@ export class ViewerTerminal implements Terminal {
 		sleeping.held.push({ viewer, data });
 		if (sleeping.told) return;
 		sleeping.told = true;
-		this.inConversation(sleeping.wake);
+		this.inConversation(() => {
+			sleeping.wake().catch((error: unknown) => {
+				// Still asleep in this terminal: the next key asks again.
+				if (this.sleeping !== sleeping) return;
+				sleeping.told = false;
+				const why = error instanceof Error ? error.message : String(error);
+				this.write(`Couldn't wake it: ${why}. A key tries again.\r\n`);
+			});
+		});
 	}
 
 	private cancelEdit(viewer: JoinedViewer): void {

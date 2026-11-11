@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ambientSession } from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+import { until } from "../../support/until.ts";
 
 const terminals: ViewerTerminal[] = [];
 afterEach(() => {
@@ -30,7 +31,10 @@ function parkable() {
 /** Park it as the host does: hold keys, then stop the screen. */
 function park(terminal: ViewerTerminal) {
 	const wakes: (string | undefined)[] = [];
-	terminal.sleep(() => wakes.push(ambientSession()));
+	terminal.sleep(() => {
+		wakes.push(ambientSession());
+		return Promise.resolve();
+	});
 	terminal.stop();
 	return wakes;
 }
@@ -80,6 +84,43 @@ describe("a parked conversation's terminal", () => {
 		).toBe("typed! after");
 		expect(wakes, "it asked for the wake once").toHaveLength(1);
 		expect(terminal.isAsleep(), "awake, it holds nothing").toBe(false);
+	});
+
+	it("says a wake that failed, and asks again at the next key, every key still held", async () => {
+		const { terminal } = parkable();
+		const watching = viewer();
+		const one = terminal.attach(watching);
+		const refusals = ["the rollout gate said no"];
+		const wakes = vi.fn(() => {
+			const refused = refusals.shift();
+			return refused === undefined
+				? Promise.resolve()
+				: Promise.reject(new Error(refused));
+		});
+		terminal.sleep(wakes);
+		terminal.stop();
+
+		one.input("first");
+		await until("its window to say why the wake failed", () =>
+			watching.write.mock.calls
+				.map(([data]) => String(data))
+				.join("")
+				.includes(
+					"Couldn't wake it: the rollout gate said no. A key tries again.",
+				),
+		);
+		one.input(" second");
+		expect(wakes, "the next key asked again").toHaveBeenCalledTimes(2);
+		one.input(" third");
+		expect(wakes, "a wake under way is asked once").toHaveBeenCalledTimes(2);
+		const next: string[] = [];
+		wakeInto(terminal, next);
+		terminal.awake();
+
+		expect(
+			next.join(""),
+			"the woken screen read every key, the failed wake's among them",
+		).toBe("first second third");
 	});
 
 	it("drops the keys of a viewer who left before it woke", () => {

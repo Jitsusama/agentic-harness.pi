@@ -89,7 +89,7 @@ describe("a parked conversation's screen", () => {
 		const watching = sink();
 		screens.viewer.attach(attach("a"), watching);
 
-		await screens.screens.parked("a", () => {});
+		await screens.screens.parked("a", () => Promise.resolve());
 
 		expect(first.shutdown, "pi's screen stopped").toHaveBeenCalledOnce();
 		expect(watching.disconnect, "its viewer stays").not.toHaveBeenCalled();
@@ -107,7 +107,7 @@ describe("a parked conversation's screen", () => {
 		const screens = host();
 		const first = await screens.open("a");
 		const attached = screens.viewer.attach(attach("a"), sink());
-		const wake = vi.fn();
+		const wake = vi.fn(() => Promise.resolve());
 		await screens.screens.parked("a", wake);
 
 		attached.input("wake ");
@@ -134,7 +134,7 @@ describe("a parked conversation's screen", () => {
 		await screens.open("a");
 		const watching = sink();
 		screens.viewer.attach(attach("a"), watching);
-		await screens.screens.parked("a", () => {});
+		await screens.screens.parked("a", () => Promise.resolve());
 
 		await screens.screens.closed("a");
 
@@ -148,7 +148,7 @@ describe("a parked conversation's screen", () => {
 	it("leaves the host free to restart while every conversation is parked", async () => {
 		const screens = host();
 		await screens.open("a");
-		await screens.screens.parked("a", () => {});
+		await screens.screens.parked("a", () => Promise.resolve());
 
 		expect(screens.resting(), "a parked conversation is at rest").toBe(true);
 	});
