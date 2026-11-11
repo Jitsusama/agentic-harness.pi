@@ -15,7 +15,10 @@ import {
 	follow,
 	stopFollowing,
 } from "../../../extensions/reload-workflow/follow.ts";
-import { takeHostedLanding } from "../../../extensions/reload-workflow/hosted.ts";
+import {
+	hostedReloadReason,
+	takeHostedLanding,
+} from "../../../extensions/reload-workflow/hosted.ts";
 import { landedText } from "../../../extensions/reload-workflow/lifecycle.ts";
 import {
 	type HostReloadRequest,
@@ -166,13 +169,16 @@ it("names a second move in the landing while its host still holds the reload", a
 		await held;
 		await landed(id);
 	};
-	await start("a");
+	const a = await start("a");
 
 	await land("feat: something to try");
 	await until("the reload is asked for", () => asked.length === 1);
 	await land("fix: something else");
-	// Nothing shows the retelling until the landing, so wait out the watch.
-	await quietFor(QUIET_MS, 4);
+	// The retelling asks git what came in, which a loaded machine took
+	// longer than a few watches to answer (11 November), so it is waited for.
+	await until("the reload is retold", () =>
+		/something else/.test(hostedReloadReason(a.ctx as never) ?? ""),
+	);
 	release();
 	await until("it lands", () => landings.has("a"));
 

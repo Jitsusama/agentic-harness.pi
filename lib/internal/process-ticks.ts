@@ -17,7 +17,6 @@
  */
 
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import {
 	askedOnce,
 	type Owner,
@@ -43,16 +42,15 @@ export type Standing = "running" | "gone" | "unknown";
 /** Index of the start time (field 22) after the command's closing parenthesis. */
 const START_FIELD = 19;
 
-/** A process's start in ticks, read from `/proc/<pid>/stat`. */
-export const startTicksFromProc: StartTicks = async (pid) => {
-	try {
-		return ticksOfStat(await readFile(`/proc/${pid}/stat`, "utf8"));
-	} catch {
-		// No such process, or no /proc, as on macOS: there is nothing to
-		// name it by, and the caller falls back on core's account.
-		return undefined;
-	}
-};
+/**
+ * A process's start in ticks, read from `/proc/<pid>/stat`: at once, as
+ * core's start time is (lib/core/process/process.ts), since the kernel
+ * answers without a disk and a read through libuv's threads wakes one
+ * for each step. No such process, or no /proc as on macOS, names none,
+ * and the caller falls back on core's account.
+ */
+export const startTicksFromProc: StartTicks = async (pid) =>
+	startTicksFromProcSync(pid);
 
 /**
  * A process's start in ticks, read from `/proc/<pid>/stat` at once, for

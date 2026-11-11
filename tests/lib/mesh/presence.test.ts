@@ -140,6 +140,34 @@ describe("presences", () => {
 		const here = createPresences(root).of("s-1");
 		expect(here?.machine).toBeUndefined();
 	});
+
+	it("read a file again only once it has changed", () => {
+		const presences = createPresences(root);
+		presences.publish(presence());
+		const first = presences.all()[0];
+		expect(presences.all()[0], "an unchanged file is not parsed again").toBe(
+			first,
+		);
+
+		presences.publish(presence({ busy: true }));
+		expect(presences.all()[0]?.busy, "a publish is read").toBe(true);
+
+		// As another writer does it, in place and inside one clock tick.
+		const path = join(root, "s-1.json");
+		const at = new Date("2026-11-11T11:00:00Z");
+		writeFileSync(path, JSON.stringify(presence({ worksOn: "aaaa" })));
+		utimesSync(path, at, at);
+		expect(presences.of("s-1")?.worksOn).toBe("aaaa");
+		writeFileSync(path, JSON.stringify(presence({ worksOn: "a longer one" })));
+		utimesSync(path, at, at);
+		expect(presences.of("s-1")?.worksOn, "a size that changed is read").toBe(
+			"a longer one",
+		);
+
+		rmSync(path);
+		expect(presences.all(), "a removed file is gone").toEqual([]);
+		expect(presences.of("s-1")).toBeUndefined();
+	});
 });
 
 describe("this session's peer", () => {
