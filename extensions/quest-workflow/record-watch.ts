@@ -19,6 +19,7 @@ import { questRecordPath } from "../../lib/core/internal/quest/record.ts";
 import {
 	auditQuestRecord,
 	type RecordAudit,
+	recordStamp,
 } from "../../lib/core/internal/quest/record-audit.ts";
 import { recordWritesOf } from "./enforce.ts";
 import type { QuestState } from "./state.ts";
@@ -46,6 +47,14 @@ export class RecordWatch {
 	private readonly reported = new Map<string, Set<string>>();
 	/** What the last continuation asked about, so it is never asked twice. */
 	private lastAsked: string | undefined;
+	/**
+	 * Each quest's last audit, by the stamp its folder had then, so a call
+	 * that left the folder as it was costs a walk rather than a reading.
+	 */
+	private readonly audited = new Map<
+		string,
+		{ readonly stamp: string; readonly found: Map<string, Breakage> }
+	>();
 
 	private readonly roots: WatchRoots;
 
@@ -109,16 +118,24 @@ export class RecordWatch {
 
 	private breakage(quest: string): Map<string, Breakage> {
 		const questDir = join(this.roots.questsRoot, quest);
+		let stamp: string;
 		let audit: RecordAudit;
 		try {
+			stamp = recordStamp(questDir);
+			const before = this.audited.get(quest);
+			if (before?.stamp === stamp) return before.found;
 			audit = auditQuestRecord(questDir);
 		} catch {
 			// A quest that vanished or cannot be read has no record to judge.
+			this.audited.delete(quest);
 			return new Map();
 		}
 		const workspace = workspaceDirOf(this.roots.workspaceRoot, quest) ?? "";
-		const found = recordBreakage(audit, workspace);
-		return new Map(found.map((b) => [b.key, b]));
+		const found = new Map(
+			recordBreakage(audit, workspace).map((b) => [b.key, b]),
+		);
+		this.audited.set(quest, { stamp, found });
+		return found;
 	}
 }
 

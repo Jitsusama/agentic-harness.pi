@@ -1,6 +1,7 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -13,6 +14,7 @@ import {
 	attachmentFileAt,
 	auditQuestRecord,
 	isRecordSound,
+	recordStamp,
 } from "../../../../lib/core/internal/quest/record-audit.ts";
 
 const QUEST = "QEST-20260924-ABC123";
@@ -133,6 +135,32 @@ describe("auditQuestRecord", () => {
 			isRecordSound(auditQuestRecord(questDir)),
 			"uncited attachments alone leave the record sound",
 		).toBe(true);
+	});
+});
+
+describe("recordStamp", () => {
+	it("is the same twice for a folder nothing touched", () => {
+		expect(recordStamp(questDir)).toBe(recordStamp(questDir));
+	});
+
+	it("changes when a file is added anywhere in the folder", () => {
+		const before = recordStamp(questDir);
+		put("attachments/runs/b.md");
+		expect(recordStamp(questDir)).not.toBe(before);
+	});
+
+	it("changes when a file is written whole again at the same size", () => {
+		const before = recordStamp(questDir);
+		const staged = join(questDir, ".README.md.staged");
+		writeFileSync(staged, "# Quest\n\n![Cost](attachments/cost.jpg)\n");
+		renameSync(staged, join(questDir, "README.md"));
+		expect(recordStamp(questDir)).not.toBe(before);
+	});
+
+	it("leaves out the quest machinery's own files", () => {
+		const before = recordStamp(questDir);
+		put(".quest.lock", "1234\n");
+		expect(recordStamp(questDir)).toBe(before);
 	});
 });
 
