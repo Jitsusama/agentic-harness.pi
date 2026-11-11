@@ -15,8 +15,10 @@ import {
 } from "../../../lib/internal/quest/first-words.ts";
 import {
 	ancestorTreesOf,
+	type CwdSource,
 	describeCwdSource,
 	pickResumeSession,
+	reopenedCwd,
 	resolveSpawnCwd,
 } from "../../../lib/internal/quest/reopen.ts";
 import {
@@ -410,10 +412,10 @@ export async function spawn(
 		...(ctx.cwd ? { spawner: ctx.cwd } : {}),
 	});
 	const given = params.cwd?.trim();
-	const cwd = given || resolved.cwd;
+	let cwd = given || resolved.cwd;
 	// What chose it, as the answer says it: the call's own cwd wins.
-	const cwdSource = given ? "given" : resolved.source;
-	const chosenBy = given
+	let cwdSource: CwdSource | "given" = given ? "given" : resolved.source;
+	let chosenBy = given
 		? "the folder the call named"
 		: describeCwdSource(resolved.source);
 
@@ -476,6 +478,21 @@ export async function spawn(
 	}
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
+	// A reopen starts where its session ran, since pi finds a session by
+	// id only among the logs of the folder it starts in.
+	const reopenedIn = given
+		? undefined
+		: reopenedCwd({
+				command: spawned.command,
+				sessions,
+				questDir: entry.dir,
+				store: state.questsRoot,
+			});
+	if (reopenedIn) {
+		cwd = reopenedIn;
+		cwdSource = "reopened";
+		chosenBy = describeCwdSource("reopened");
+	}
 	// A realm whose node declares another command for its agent sessions,
 	// as Joel's personal one declares pi-claude, starts that instead.
 	const spawnsPi = !params.command?.trim();
