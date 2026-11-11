@@ -123,7 +123,7 @@ describe.skipIf(!packageDir)(
 		);
 
 		it(
-			"jumps back a prompt on Ctrl+Shift+Up and forward on Ctrl+Shift+Down",
+			"jumps back a message at a time on Ctrl+Shift+Up and forward on Ctrl+Shift+Down",
 			async () => {
 				const { sessionId } = await host.open(work.trusted());
 				const reading = await viewer(sessionId);
@@ -131,28 +131,24 @@ describe.skipIf(!packageDir)(
 				await reading.shows(`line ${LAST_LINE} alpha`, TURN_MS);
 				reading.type(`long answer beta${ENTER}`);
 				await reading.shows(`line ${LAST_LINE} beta`, TURN_MS);
-				// A jump shows the start of the answer to the prompt it lands on.
-				const [first, second] = ["line 1 alpha", "line 1 beta"];
-				expect(
-					shown(reading, second),
-					"the second answer's start is scrolled away at its end",
-				).toBe(false);
-
-				reading.type(KEY.ctrlShiftUp);
-				await reading.shows(second, TURN_MS);
-				expect(shown(reading, first), "one jump goes back one prompt").toBe(
-					false,
-				);
-
-				reading.type(KEY.ctrlShiftUp);
-				await reading.shows(first, TURN_MS);
-
-				reading.type(KEY.ctrlShiftDown);
-				await until(
-					"Ctrl+Shift+Down to come forward to the second prompt",
-					() => shown(reading, second) && !shown(reading, first),
-					TURN_MS,
-				);
+				// pi marks where each message starts, prompt and answer alike,
+				// and a jump scrolls the next mark to the top of the screen.
+				const jumps: [string, string][] = [
+					[KEY.ctrlShiftUp, "line 1 beta"],
+					[KEY.ctrlShiftUp, "long answer beta"],
+					[KEY.ctrlShiftUp, "line 1 alpha"],
+					[KEY.ctrlShiftDown, "long answer beta"],
+				];
+				for (const [key, lands] of jumps) {
+					reading.type(key);
+					await until(
+						`a jump to put ${lands} at the top`,
+						() => top(reading) === lands,
+						TURN_MS,
+					).catch((failed: unknown) => {
+						throw new Error(`${String(failed)}; the top shows ${top(reading)}`);
+					});
+				}
 			},
 			CASE_MS,
 		);
@@ -426,6 +422,16 @@ function lastShown(on: Viewer): number {
 /** Whether a viewer's screen shows `words` anywhere. */
 function shown(on: Viewer, words: string): boolean {
 	return on.screen().join("\n").includes(words);
+}
+
+/** The first words on a viewer's screen, below any blank rows. */
+function top(on: Viewer): string {
+	return (
+		on
+			.screen()
+			.map((row) => row.trim())
+			.find((row) => row !== "") ?? ""
+	);
 }
 
 /** What the latest copy a viewer was sent holds. */
