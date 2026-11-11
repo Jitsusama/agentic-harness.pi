@@ -104,7 +104,9 @@ describe("presences", () => {
 		const view = ["node", "host-join.ts", "--session", "s-1", "--", "pi"];
 		const presences = createPresences(root);
 		presences.publish(
-			presence({ hosted: { host: "work-attended", conversation: "s-1", view } }),
+			presence({
+				hosted: { host: "work-attended", conversation: "s-1", view },
+			}),
 		);
 		writeFileSync(
 			join(root, "s-2.json"),

@@ -91,22 +91,23 @@ describe("handing a window over", () => {
 
 describe("a hosted conversation's presence", () => {
 	it("names the join as what a window opened on it runs", () => {
-		expect(
-			hostedPresence("work-attended", "01a1", "/logs/01a1.jsonl"),
-		).toEqual({
-			host: "work-attended",
-			conversation: "01a1",
-			view: [
-				process.execPath,
-				JOIN_SCRIPT,
-				"--session",
-				"01a1",
-				"--",
-				"pi",
-				"--session",
-				"/logs/01a1.jsonl",
-			],
-		});
+		expect(hostedPresence("work-attended", "01a1", "/logs/01a1.jsonl")).toEqual(
+			{
+				host: "work-attended",
+				conversation: "01a1",
+				view: [
+					process.execPath,
+					JOIN_SCRIPT,
+					"--view",
+					"--session",
+					"01a1",
+					"--",
+					"pi",
+					"--session",
+					"/logs/01a1.jsonl",
+				],
+			},
+		);
 	});
 
 	it("names no words with no log for plain pi to take up", () => {

@@ -117,7 +117,9 @@ export function joinCommand(
  * What a hosted conversation's presence says of its host, with the words
  * a window opened on it runs: the join, which becomes its viewer while
  * the host holds it and plain pi on its log once the host lets it go, so
- * a release carries on in the window rather than closing it. With no
+ * a release carries on in the window rather than closing it. It looks
+ * once (`--view`), never waiting on a move: a parked conversation is
+ * held but not open, and the attach is what wakes it. With no
  * log there are no plain pi words, and mycelium's node gives today's
  * attach words instead.
  */
@@ -131,7 +133,17 @@ export function hostedPresence(
 		conversation: session,
 		...(sessionFile === undefined
 			? {}
-			: { view: joinCommand(session, restartCommand(sessionFile)) }),
+			: {
+					view: [
+						process.execPath,
+						JOIN_SCRIPT,
+						"--view",
+						"--session",
+						session,
+						"--",
+						...restartCommand(sessionFile),
+					],
+				}),
 	};
 }
 

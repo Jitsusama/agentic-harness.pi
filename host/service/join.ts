@@ -77,6 +77,19 @@ function waitingOn(hold: HostHold | undefined, noted: NoteState): Waiting {
 	return "nothing";
 }
 
+/** Where a join a window opened on a hosted conversation looks. */
+export type ViewFacts = Pick<JoinFacts, "hold">;
+
+/**
+ * Answer the host holding the conversation, open or only kept on its
+ * roster, since attaching is what wakes one parked; or plain pi, once,
+ * when no host holds it at all. It never waits, as nothing moves.
+ */
+export async function joinView(facts: ViewFacts): Promise<Joined> {
+	const hold = await facts.hold();
+	return hold === undefined ? { to: "pi" } : { to: "host", hold };
+}
+
 /** Where a join after a release looks. */
 export type ReleaseFacts = Pick<JoinFacts, "hold" | "say" | "now" | "pause">;
 

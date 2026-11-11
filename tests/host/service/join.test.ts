@@ -10,6 +10,7 @@ import {
 	type JoinFacts,
 	joinMove,
 	joinRelease,
+	joinView,
 } from "../../../host/service/join.ts";
 import type { HostHold } from "../../../lib/internal/session/host-holds.ts";
 import type {
@@ -152,6 +153,21 @@ describe("the join", () => {
 		);
 		expect(await joinMove(join.facts)).toEqual({ to: "host", hold: OPEN });
 		expect(tries).toBeGreaterThan(0);
+	});
+});
+
+describe("the join a window opened on a hosted conversation runs", () => {
+	it("views it through any host holding it, parked ones too, at once", async () => {
+		for (const hold of [OPEN, KEPT]) {
+			expect(await joinView({ hold: () => hold })).toEqual({
+				to: "host",
+				hold,
+			});
+		}
+	});
+
+	it("runs plain pi when no host holds it", async () => {
+		expect(await joinView({ hold: () => undefined })).toEqual({ to: "pi" });
 	});
 });
 

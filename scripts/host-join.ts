@@ -5,7 +5,7 @@
  * mycelium's node knows the window is the hosted session's, and plain
  * pi's words after `--`:
  *
- *   node scripts/host-join.ts [--released] --session ID -- pi --session LOG [FLAGS]
+ *   node scripts/host-join.ts [--released|--view] --session ID -- pi --session LOG [FLAGS]
  *
  * It draws nothing, unless a host holding the conversation is slow to
  * come back, when it says so in one line. Once the host has the
@@ -13,7 +13,9 @@
  * starts next, carrying on as this join with `--released` should the
  * host let the conversation go; should the move be taken back, plain
  * pi's words. With `--released`, it names plain pi's words once no host
- * holds the conversation. Either way it writes its wake and exits as a
+ * holds the conversation. With `--view`, as a window the launcher opens
+ * on a hosted conversation runs it, it looks once: the host's attach
+ * while any host holds it, else plain pi. Either way it writes its wake and exits as a
  * park does, so its holder starts that at once on the same terminal,
  * where the keys typed meanwhile still wait.
  */
@@ -21,7 +23,7 @@
 import { writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { joinMove, joinRelease } from "../host/service/join.ts";
+import { joinMove, joinRelease, joinView } from "../host/service/join.ts";
 import { hostHold, viewingWords } from "../lib/internal/session/host-holds.ts";
 import {
 	noteState,
@@ -67,14 +69,18 @@ const looking = {
 	now: Date.now,
 	pause: (ms: number) => delay(ms),
 };
-const joined = own.includes("--released")
-	? await joinRelease(looking)
-	: await joinMove({
-			...looking,
-			noted: () => noteState(session),
-			restoreStranded: () => restoreStrandedClaims(alive),
-			takeBack: () => takeBackMove(session, process.pid),
-		});
+/** Where the window goes next, as its words ask. */
+function joining() {
+	if (own.includes("--released")) return joinRelease(looking);
+	if (own.includes("--view")) return joinView(looking);
+	return joinMove({
+		...looking,
+		noted: () => noteState(session),
+		restoreStranded: () => restoreStrandedClaims(alive),
+		takeBack: () => takeBackMove(session, process.pid),
+	});
+}
+const joined = await joining();
 // Released, the window carries on as this join again, which waits for the
 // host to let the log go before plain pi takes it up.
 const released = [

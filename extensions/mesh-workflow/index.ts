@@ -864,8 +864,7 @@ export function meshWorkflow(
 			release: async () => {
 				const owner = peer ? presences.of(peer.session)?.owner : undefined;
 				return (
-					owner !== undefined &&
-					(await releaseThroughHost(owner)) === "ended"
+					owner !== undefined && (await releaseThroughHost(owner)) === "ended"
 				);
 			},
 		});
