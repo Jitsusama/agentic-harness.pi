@@ -3,7 +3,7 @@
  */
 
 import {
-	escapeHtml,
+	redirectPages,
 	waitForRedirect,
 } from "../../core/internal/oauth-redirect.ts";
 
@@ -13,47 +13,8 @@ export interface OAuthCallbackResult {
 	error?: string;
 }
 
-const PAGE_STYLES = `
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-  padding: 3rem 1rem;
-  text-align: center;
-  color: #1a1a1a;
-  background: #fafafa;
-}
-@media (prefers-color-scheme: dark) {
-  body { color: #e0e0e0; background: #1a1a1a; }
-}`;
-
-const SUCCESS_PAGE = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Authentication Successful</title>
-  <style>${PAGE_STYLES}</style>
-</head>
-<body>
-  <h1>✓ Authentication Successful</h1>
-  <p>You can close this tab and return to Pi.</p>
-  <script>setTimeout(() => window.close(), 1500)</script>
-</body>
-</html>`;
-
-function errorPage(error: string): string {
-	return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Authentication Failed</title>
-  <style>${PAGE_STYLES}</style>
-</head>
-<body>
-  <h1>✕ Authentication Failed</h1>
-  <p>Error: ${escapeHtml(error || "Unknown error")}</p>
-  <p>Please try again.</p>
-</body>
-</html>`;
-}
+/** What the browser tab shows when the redirect lands. */
+const PAGES = redirectPages("Google");
 
 /**
  * Start a local server to handle the OAuth callback.
@@ -66,8 +27,7 @@ export async function waitForOAuthCallback(
 ): Promise<OAuthCallbackResult> {
 	const query = await waitForRedirect(port, {
 		signal: options.signal,
-		success: SUCCESS_PAGE,
-		failure: errorPage,
+		...PAGES,
 	});
 	return {
 		code: query.get("code") || undefined,

@@ -60,10 +60,11 @@ export function callbackServerCases(wait: WaitForCallback): void {
 		const waiting = wait(port);
 		await listening(port);
 
-		await fetch(`http://localhost:${port}/?code=abc&state=s`);
+		const answer = await fetch(`http://localhost:${port}/?code=abc&state=s`);
 		const result = await waiting;
 
 		expect(result.code).toBe("abc");
+		expect(await answer.text()).toContain("Authentication Successful");
 		expect(
 			await portIsFree(port),
 			`port ${port} is free after the redirect`,
