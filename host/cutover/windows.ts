@@ -8,10 +8,12 @@
  * Read once a plan from what the machine says: mycelium's sessions, each
  * with its hold and kitty window; niri's windows and workspaces; kitty's
  * remote `ls` of each instance a window is in; and each holder's
- * executable. A kitty window is matched to niri's by the title of its OS
- * window's active tab, which is the title niri shows, since a shared
- * kitty gives every window one pid and old windows share app ids. Where
- * that can't say, the window counts as unplaced, and a wave spares it.
+ * executable. A kitty window is matched to niri's by its OS window's
+ * class and the title of its active tab, which are the app id and title
+ * niri shows, since a shared kitty gives every window one pid and old
+ * windows share app ids; the title tells apart windows of one class,
+ * and the class a standalone kitty showing the same title. Where that
+ * can't say, the window counts as unplaced, and a wave spares it.
  */
 
 import { execFile } from "node:child_process";
@@ -32,15 +34,17 @@ export interface HeldSession {
 	readonly window?: { readonly within: string; readonly id: string };
 }
 
-/** One of niri's windows: its title and the workspace it's on. */
+/** One of niri's windows: its app id, title and the workspace it's on. */
 export interface NiriWindow {
+	readonly appId?: string;
 	readonly title: string;
 	readonly workspace: number | undefined;
 }
 
-/** One of a kitty's OS windows: the kitty windows in it and its title. */
+/** One of a kitty's OS windows: the kitty windows in it, its class and title. */
 export interface KittyWindow {
 	readonly windows: readonly string[];
+	readonly wmClass?: string;
 	readonly title: string;
 }
 
@@ -76,8 +80,8 @@ export interface WindowStanding {
 
 /**
  * Where `session`'s window stands, or nothing for one mycelium knows no
- * window of. Of several niri windows with its title, any on Joel's
- * workspace counts, since sparing one too many costs only a later move.
+ * window of. Of several niri windows with its class and title, any on
+ * Joel's workspace counts, since sparing one too many costs only a later move.
  */
 export function standingOf(
 	session: string,
@@ -103,9 +107,15 @@ export function standingOf(
 		.get(within)
 		?.find((one) => one.windows.includes(id));
 	if (os === undefined) return unplaced(`kitty ${within} has no window ${id}`);
-	const shown = machine.niri.filter((one) => one.title === os.title);
+	const shown = machine.niri.filter(
+		(one) =>
+			one.title === os.title &&
+			(os.wmClass === undefined || one.appId === os.wmClass),
+	);
 	if (shown.length === 0)
-		return unplaced(`niri shows no window titled "${os.title}"`);
+		return unplaced(
+			`niri shows no window titled "${os.title}"${os.wmClass === undefined ? "" : ` of class ${os.wmClass}`}`,
+		);
 	if (machine.focused === undefined)
 		return unplaced("niri has no workspace focused");
 	const onJoels = shown.some((one) => one.workspace === machine.focused);
@@ -151,6 +161,7 @@ export function parseNiriWindows(text: string): NiriWindow[] {
 	const parsed: unknown = JSON.parse(text);
 	if (!Array.isArray(parsed)) return [];
 	return parsed.filter(isRecord).map((one) => ({
+		...(typeof one.app_id === "string" ? { appId: one.app_id } : {}),
 		title: typeof one.title === "string" ? one.title : "",
 		workspace:
 			typeof one.workspace_id === "number" ? one.workspace_id : undefined,
@@ -184,6 +195,7 @@ export function parseKittyWindows(text: string): KittyWindow[] {
 		);
 		return {
 			windows,
+			...(typeof os.wm_class === "string" ? { wmClass: os.wm_class } : {}),
 			title: typeof active?.title === "string" ? active.title : "",
 		};
 	});

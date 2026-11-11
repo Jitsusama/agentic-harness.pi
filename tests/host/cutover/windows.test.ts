@@ -31,16 +31,24 @@ const machine = (over: Partial<MachineWindows> = {}): MachineWindows => ({
 		{ session: "bare" },
 	],
 	niri: [
-		{ title: "π - Network - core.nix", workspace: 8 },
-		{ title: "π - Agentic loop", workspace: 11 },
+		{ appId: "pi-spawned", title: "π - Network - core.nix", workspace: 8 },
+		{ appId: "pi-spawned", title: "π - Agentic loop", workspace: 11 },
 	],
 	focused: 8,
 	kitties: new Map([
 		[
 			"unix:@kitty-1",
 			[
-				{ windows: ["133"], title: "π - Network - core.nix" },
-				{ windows: ["159", "160"], title: "π - Agentic loop" },
+				{
+					windows: ["133"],
+					wmClass: "pi-spawned",
+					title: "π - Network - core.nix",
+				},
+				{
+					windows: ["159", "160"],
+					wmClass: "pi-spawned",
+					title: "π - Agentic loop",
+				},
 			],
 		],
 	]),
@@ -72,11 +80,21 @@ describe("standingOf", () => {
 	it("counts a title shown on Joel's workspace among several as his", () => {
 		const twice = machine({
 			niri: [
-				{ title: "π - Agentic loop", workspace: 11 },
-				{ title: "π - Agentic loop", workspace: 8 },
+				{ appId: "pi-spawned", title: "π - Agentic loop", workspace: 11 },
+				{ appId: "pi-spawned", title: "π - Agentic loop", workspace: 8 },
 			],
 		});
 		expect(standingOf("s2", twice)?.where).toBe("joel");
+	});
+
+	it("takes no standalone kitty showing the same title for the session's", () => {
+		const lookalike = machine({
+			niri: [
+				{ appId: "kitty", title: "π - Agentic loop", workspace: 8 },
+				{ appId: "pi-spawned", title: "π - Agentic loop", workspace: 11 },
+			],
+		});
+		expect(standingOf("s2", lookalike)?.where).toBe("away");
 	});
 
 	it("leaves a window unplaced where kitty, niri or the machine can't say", () => {
@@ -84,7 +102,8 @@ describe("standingOf", () => {
 			unplaced: "kitty unix:@kitty-1 has no window 133",
 		});
 		expect(standingOf("s1", machine({ niri: [] }))?.where).toEqual({
-			unplaced: 'niri shows no window titled "π - Network - core.nix"',
+			unplaced:
+				'niri shows no window titled "π - Network - core.nix" of class pi-spawned',
 		});
 		expect(standingOf("s1", machine({ focused: undefined }))?.where).toEqual({
 			unplaced: "niri has no workspace focused",
@@ -144,12 +163,17 @@ describe("parsing what the machine prints", () => {
 		expect(
 			parseNiriWindows(
 				JSON.stringify([
-					{ id: 435, title: "π - Network", workspace_id: 8 },
+					{
+						id: 435,
+						app_id: "pi-spawned",
+						title: "π - Network",
+						workspace_id: 8,
+					},
 					{ id: 7, title: null, workspace_id: null },
 				]),
 			),
 		).toEqual([
-			{ title: "π - Network", workspace: 8 },
+			{ appId: "pi-spawned", title: "π - Network", workspace: 8 },
 			{ title: "", workspace: undefined },
 		]);
 		expect(
@@ -169,6 +193,7 @@ describe("parsing what the machine prints", () => {
 				JSON.stringify([
 					{
 						id: 133,
+						wm_class: "pi-spawned",
 						tabs: [
 							{ is_active: false, title: "other", windows: [{ id: 134 }] },
 							{ is_active: true, title: "π - Network", windows: [{ id: 133 }] },
@@ -176,6 +201,8 @@ describe("parsing what the machine prints", () => {
 					},
 				]),
 			),
-		).toEqual([{ windows: ["134", "133"], title: "π - Network" }]);
+		).toEqual([
+			{ windows: ["134", "133"], wmClass: "pi-spawned", title: "π - Network" },
+		]);
 	});
 });
