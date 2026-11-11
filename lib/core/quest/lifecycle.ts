@@ -35,6 +35,7 @@ import {
 	withQuestLock,
 } from "../../internal/quest/io.ts";
 import { mutateQuestFrontMatter } from "../../internal/quest/mutate.ts";
+import { parsedFiles } from "../../internal/quest/parsed-file.ts";
 import {
 	currentInstanceId,
 	currentProcessIdentity,
@@ -87,14 +88,12 @@ import type { QuestState } from "./state.ts";
 export function refreshProgress(state: QuestState): void {
 	if (state.documentPath) {
 		try {
-			const text = readFileSync(state.documentPath, "utf8");
-			const parsed = parseDocumentFrontMatter(text);
-			if (parsed) {
-				const progress = checkboxProgress(parsed.body);
-				state.done = progress.done;
-				state.total = progress.total;
-				state.currentItem = progress.currentItem;
-				state.documentStage = parsed.frontMatter.stage as Stage;
+			const read = documentProgress(state.documentPath);
+			if (read) {
+				state.done = read.progress.done;
+				state.total = read.progress.total;
+				state.currentItem = read.progress.currentItem;
+				state.documentStage = read.stage as Stage;
 				return;
 			}
 		} catch {
@@ -103,8 +102,7 @@ export function refreshProgress(state: QuestState): void {
 	}
 	if (state.questDir) {
 		try {
-			const text = readFileSync(join(state.questDir, "README.md"), "utf8");
-			const parsed = parseQuestDoc(text);
+			const parsed = questDoc(join(state.questDir, "README.md"));
 			if (parsed) {
 				const progress = checkboxProgress(parsed.body);
 				state.done = progress.done;
@@ -120,6 +118,22 @@ export function refreshProgress(state: QuestState): void {
 	state.total = 0;
 	state.currentItem = undefined;
 }
+
+/**
+ * Quest READMEs and documents, parsed again only once they change:
+ * both refreshes run at the end of every turn, and parsing an unchanged
+ * file's YAML each time was most of what they cost.
+ */
+const questDoc = parsedFiles(parseQuestDoc);
+const documentProgress = parsedFiles((text) => {
+	const parsed = parseDocumentFrontMatter(text);
+	return parsed
+		? {
+				progress: checkboxProgress(parsed.body),
+				stage: parsed.frontMatter.stage,
+			}
+		: undefined;
+});
 
 /** Find a quest entry by id across the quests root. */
 export function findQuestEntry(
@@ -138,14 +152,13 @@ export function findQuestEntry(
  */
 export function refreshLoadedSlice(state: QuestState): void {
 	if (!state.questDir) return;
-	let text: string;
+	let parsed: ReturnType<typeof parseQuestDoc>;
 	try {
-		text = readFileSync(join(state.questDir, "README.md"), "utf8");
+		parsed = questDoc(join(state.questDir, "README.md"));
 	} catch {
 		// README missing or unreadable; leave the slice as-is.
 		return;
 	}
-	const parsed = parseQuestDoc(text);
 	if (!parsed) return;
 	state.questTitle = parsed.title ?? null;
 	state.questKind = parsed.frontMatter.kind;

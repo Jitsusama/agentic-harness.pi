@@ -18,11 +18,11 @@
  * parser does not know it and writes them back untouched.
  */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isBudgetName } from "../../budget/provider.ts";
 import type { QuestFrontMatter } from "../../quest/types.ts";
 import { parseQuestFrontMatter } from "./frontmatter.ts";
+import { parsedFiles } from "./parsed-file.ts";
 
 /** The word that says a quest draws on no budget, past its parents. */
 export const NO_BUDGET = "none";
@@ -81,6 +81,14 @@ export function budgetOf(
 }
 
 /**
+ * Each README's front matter, parsed again only once it changes, since
+ * the budget is asked for before every model call.
+ */
+const frontMatterOf = parsedFiles(
+	(readme) => parseQuestFrontMatter(readme)?.frontMatter,
+);
+
+/**
  * The budget a quest draws on, read from the quest records under
  * `questsRoot`, where each quest's README sits in a folder of its id.
  */
@@ -89,13 +97,11 @@ export function budgetInRecord(
 	quest: string,
 ): QuestBudget | undefined {
 	return budgetOf(quest, (id) => {
-		let readme: string;
 		try {
-			readme = readFileSync(join(questsRoot, id, "README.md"), "utf8");
+			return frontMatterOf(join(questsRoot, id, "README.md"));
 		} catch {
 			// No README, no quest: the walk stops there.
 			return undefined;
 		}
-		return parseQuestFrontMatter(readme)?.frontMatter;
 	});
 }
