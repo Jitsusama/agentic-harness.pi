@@ -15,6 +15,9 @@
 set -euo pipefail
 
 sha=${1:?Name the commit to merge: host-gate.sh SHA}
+# The runner beside this gate, the install's when the install runs it: a
+# branch's own copy can predate the runner the gate's records come from.
+runner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-test-there.sh"
 state=${XDG_STATE_HOME:-$HOME/.local/state}
 runtime=$(readlink -f "${PI_HOST_RUNTIME:-$state/pi-host/runtime}")
 record=$state/agentic-harness.pi/host-tests/$sha
@@ -37,7 +40,7 @@ if [[ -z $touched ]]; then
 fi
 
 why=""
-clear="Clear it from a harness checkout: git checkout $sha && bash scripts/host-test-there.sh"
+clear="Clear it from a harness checkout: git checkout $sha && bash $runner"
 if [[ ! -f $record/status ]]; then
   why="nothing ran test:host at $sha"
 elif [[ -e $record/files ]]; then
@@ -46,9 +49,9 @@ elif [[ $(< "$record/runtime") != "$runtime" ]]; then
   why="test:host ran at $sha on $(< "$record/runtime"), not the proven $runtime"
 elif [[ $(< "$record/status") != 0 ]]; then
   why="test:host at $sha exited $(< "$record/status"); its log is $record/log"
-  # The store keeps a run's result, a failed one too, so the same commit
-  # reads the same failure back however often it is run.
-  clear="A run at $sha gives this same result again, from the store: fix it in a new commit, then run bash scripts/host-test-there.sh there"
+  # Each run is a fresh one, so a flake clears on a second run at the
+  # same commit; anything else needs fixing first.
+  clear="Read the log, then fix it in a new commit and run bash $runner there, or run that same command again at $sha if a case only flaked"
 fi
 if [[ -z $why ]]; then
   echo "host-gate: test:host passed at $sha on $runtime"
