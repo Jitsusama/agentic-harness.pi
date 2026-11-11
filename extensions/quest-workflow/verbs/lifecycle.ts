@@ -69,7 +69,7 @@ import {
 	showQuestById,
 } from "../lookup.ts";
 import { livePeers, peersSaid } from "../peers.ts";
-import { trackSession } from "../session-registry.ts";
+import { startedWith, trackSession } from "../session-registry.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -415,6 +415,7 @@ function trackOnQuest(
 			cwd: ctx.cwd,
 			questId: state.questId,
 			...captureSessionIdentity(),
+			...startedWith(),
 		},
 		() => releaseSessionOnShutdown(state, sid),
 	);

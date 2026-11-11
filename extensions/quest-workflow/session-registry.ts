@@ -92,6 +92,10 @@ import {
 } from "../../lib/internal/quest/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import {
+	type CarriedEnvironment,
+	carriedEnvironment,
+} from "../../lib/internal/session/carried-environment.ts";
+import {
 	attachWords,
 	rosterHolds,
 } from "../../lib/internal/session/host-holds.ts";
@@ -1149,6 +1153,7 @@ async function handedToLauncher(
 			id: record.sessionId,
 			cwd: record.cwd,
 			...(record.quest ? { quest: record.quest } : {}),
+			...(record.env ? { env: record.env } : {}),
 			...placeOf(record),
 			// Back where its own window was.
 			replaces: record.sessionId,
@@ -1198,6 +1203,20 @@ export interface OnQuestInput {
 	instanceId: string;
 	process?: SessionRecord["process"];
 	terminal?: SessionRecord["terminal"];
+	/** What it was started with that says how its commands run. */
+	env?: CarriedEnvironment;
+}
+
+/**
+ * What this pi was started with that says how its commands run, in the
+ * fence and through the spawner, for its session's record, so the
+ * launcher reopens it the same way after a reboot.
+ */
+export function startedWith(env: NodeJS.ProcessEnv = process.env): {
+	env?: CarriedEnvironment;
+} {
+	const carried = carriedEnvironment(env);
+	return carried ? { env: carried } : {};
 }
 
 /**
@@ -1229,8 +1248,9 @@ export function recordSession(input: OnQuestInput, now = new Date()): void {
 					instanceId: input.instanceId,
 					...(input.process ? { process: input.process } : {}),
 					...(input.terminal ? { terminal: input.terminal } : {}),
+					...(input.env ? { env: input.env } : {}),
 				})
-			: existing;
+			: startedAs(existing, input.env);
 		// A session that reaches this code is running a process that
 		// keeps the registry, so it has a shutdown hook and is no longer
 		// merely adopted. Leaving the flag on would keep treating its
@@ -1247,9 +1267,22 @@ export function recordSession(input: OnQuestInput, now = new Date()): void {
 			...(input.questId ? { questId: input.questId } : {}),
 			...(input.process ? { process: input.process } : {}),
 			...(input.terminal ? { terminal: input.terminal } : {}),
+			...(input.env ? { env: input.env } : {}),
 			now,
 		}),
 	);
+}
+
+/**
+ * `record`, saying it runs with `env`: this process's own start, which
+ * a record it opened before it kept the variables doesn't say yet.
+ */
+function startedAs(
+	record: SessionRecord,
+	env: CarriedEnvironment | undefined,
+): SessionRecord {
+	const { env: _was, ...rest } = record;
+	return env ? { ...rest, env } : rest;
 }
 
 /**
@@ -1298,6 +1331,7 @@ export function handOverSession(
 		...(carriesQuest && from.questId ? { questId: from.questId } : {}),
 		...(from.process ? { process: from.process } : {}),
 		...(from.terminal ? { terminal: from.terminal } : {}),
+		...(from.env ? { env: from.env } : {}),
 	};
 	recordSession(successor);
 	startHeartbeat(successor.sessionId, HEARTBEAT_INTERVAL_MS, () =>

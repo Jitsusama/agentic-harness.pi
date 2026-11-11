@@ -52,9 +52,8 @@ import { join } from "node:path";
 import { type Booted, machineBooted } from "../booted.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
-import { SANDBOX_VARIABLE } from "../sandbox.ts";
-import { SPAWNER_VARIABLE } from "../shell/spawner-variable.ts";
 import { writeWhole } from "../write-whole.ts";
+import { carriedEnvironment } from "./carried-environment.ts";
 import { type Holding, whatHolds } from "./free.ts";
 
 /**
@@ -90,27 +89,19 @@ export function restartCommand(
 }
 
 /**
- * The variables, as a session was started with them, that say how it
- * runs its commands: in the agent fence and through the spawner. A
- * holder runs the command it is given in its own environment, so on 11
- * November a session started fenced came back from its park unfenced.
- */
-const CARRIED_VARIABLES = [SANDBOX_VARIABLE, SPAWNER_VARIABLE];
-
-/**
  * The command a holder starts the session again with: the
- * {@link restartCommand}, behind `env` naming each of the
- * {@link CARRIED_VARIABLES} this pi was started with.
+ * {@link restartCommand}, behind `env` naming each carried variable
+ * this pi was started with (`carried-environment.ts`), since a holder
+ * runs the command it is given in its own environment.
  */
 export function holderCommand(
 	sessionFile: string,
 	args: readonly string[] = [],
 	env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-	const carried = CARRIED_VARIABLES.flatMap((name) => {
-		const value = env[name];
-		return value === undefined || value === "" ? [] : [`${name}=${value}`];
-	});
+	const carried = Object.entries(carriedEnvironment(env) ?? {}).map(
+		([name, value]) => `${name}=${value}`,
+	);
 	const command = restartCommand(sessionFile, args);
 	return carried.length === 0 ? command : ["env", ...carried, ...command];
 }

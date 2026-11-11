@@ -108,6 +108,7 @@ import {
 	refreshRestoreFile,
 	setSignalStampSession,
 	settleMoveNote,
+	startedWith,
 	stopHeartbeat,
 	trackSession,
 } from "./session-registry.ts";
@@ -781,6 +782,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 					cwd: ctx.cwd,
 					...(state.questId ? { questId: state.questId } : {}),
 					...captureSessionIdentity(),
+					...startedWith(),
 				},
 				() => releaseSessionOnShutdown(state, sid),
 			);
@@ -858,6 +860,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 								...(state.questId ? { questId: state.questId } : {}),
 								...(sessionFile ? { sessionFile } : {}),
 								...captureSessionIdentity(),
+								...startedWith(),
 							},
 							event.targetSessionFile,
 						)

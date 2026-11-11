@@ -156,6 +156,21 @@ describe("restoreRecipe", () => {
 		});
 	});
 
+	it("starts a session as it ran, in the fence and through the spawner", () => {
+		const fenced = opened({ env: { PI_SANDBOX: "fence", PI_SPAWNER: "on" } });
+		expect(restoreRecipe([fenced])).toEqual([
+			"(cd '/work' && PI_SANDBOX='fence' PI_SPAWNER='on' pi --session 'sess-1')  # QEST-1",
+		]);
+		expect(reopenCommand(fenced, false)).toEqual({
+			command: "pi",
+			env: {
+				PI_SANDBOX: "fence",
+				PI_SPAWNER: "on",
+				QUEST_WORKFLOW_AUTOLOAD_ID: "QEST-1",
+			},
+		});
+	});
+
 	it("keeps a newline out of the trailing comment", () => {
 		// A newline would end the comment and turn the rest of the line
 		// into a live command.
@@ -434,6 +449,20 @@ describe("reopenRecord", () => {
 		expect(back.endReason).toBeUndefined();
 	});
 
+	it("says how it was started this time, not the time before", () => {
+		// A session reopened plain runs plain from here, so a later reopen
+		// mustn't fence it on the strength of an older start.
+		const fenced = closeRecord(
+			opened({ env: { PI_SANDBOX: "fence" } }),
+			"died",
+			LATER,
+		);
+		expect(reopenRecord(fenced, resumed).env).toBeUndefined();
+		expect(
+			reopenRecord(fenced, { ...resumed, env: { PI_SPAWNER: "on" } }).env,
+		).toEqual({ PI_SPAWNER: "on" });
+	});
+
 	it("takes on the identity of the process now running it", () => {
 		// The old pid belongs to a dead process, and after a reboot to
 		// whatever inherited the number. Probing it would answer about a
@@ -511,6 +540,24 @@ describe("parseSessionRecord", () => {
 		);
 		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
 		expect(round).toEqual(record);
+	});
+
+	it("reads back how a session was started", () => {
+		const record = opened({ env: { PI_SANDBOX: "fence", PI_SPAWNER: "on" } });
+		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
+		expect(round).toEqual(record);
+	});
+
+	it("keeps a record whose start it can't read, leaving that out", () => {
+		// Refusing the record would lose the tab; without the setting it
+		// reopens as a plain session, as before records kept it.
+		const stored = {
+			...JSON.parse(JSON.stringify(opened())),
+			env: { PI_SANDBOX: "fence", LD_PRELOAD: "/tmp/x.so" },
+		};
+		const round = parseSessionRecord(stored);
+		expect(round?.sessionId).toBe("sess-1");
+		expect(round).not.toHaveProperty("env");
 	});
 
 	it("reads back the endings of a session resumed before", () => {

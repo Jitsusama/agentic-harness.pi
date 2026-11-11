@@ -50,6 +50,7 @@
  */
 
 import { execFile } from "node:child_process";
+import type { CarriedEnvironment } from "../session/carried-environment.ts";
 
 /**
  * A session the launcher can open: one pi saved, or one it starts
@@ -90,6 +91,13 @@ export interface HandedSession {
 	 * starts on pi's default and a resumed one on what its log says.
 	 */
 	readonly model?: string;
+	/**
+	 * What it was started with that says how its commands run, in the
+	 * agent fence and through the spawner, each a plain word, for the
+	 * launcher to start it with again behind `env`. Absent, it starts as
+	 * the launcher's own shell would.
+	 */
+	readonly env?: CarriedEnvironment;
 }
 
 /** Runs the launcher's call with its one argument, answering its words. */
@@ -187,6 +195,7 @@ export async function askLauncher(
 				title,
 				replaces,
 				model,
+				env,
 			}) => ({
 				id,
 				cwd,
@@ -197,6 +206,7 @@ export async function askLauncher(
 				...(title ? { title } : {}),
 				...(replaces ? { replaces } : {}),
 				...(model ? { model } : {}),
+				...(env ? { env } : {}),
 				focus: false,
 			}),
 		),

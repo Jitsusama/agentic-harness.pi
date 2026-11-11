@@ -8,6 +8,10 @@
  * wiring.
  */
 
+import {
+	asCarriedEnvironment,
+	type CarriedEnvironment,
+} from "../session/carried-environment.ts";
 import type { ProcessIdentity } from "./process-liveness.ts";
 
 /**
@@ -43,6 +47,12 @@ export interface SessionRecord {
 	previousQuests?: Record<string, string>;
 	process?: ProcessIdentity;
 	terminal?: RecordedTerminal;
+	/**
+	 * The variables saying how its commands run, in the fence and through
+	 * the spawner, as it was last started with them, so whatever reopens
+	 * it starts it the same way.
+	 */
+	env?: CarriedEnvironment;
 	/**
 	 * True when the registry adopted this session rather than opening
 	 * it: a tab that was already running before the registry existed.
@@ -116,6 +126,7 @@ export interface OpenInput {
 	questId?: string;
 	process?: ProcessIdentity;
 	terminal?: RecordedTerminal;
+	env?: CarriedEnvironment;
 	/** True when adopting a tab that was running before the registry. */
 	adopted?: true;
 	now: Date;
@@ -135,6 +146,7 @@ export function openRecord(input: OpenInput): SessionRecord {
 		...(input.questId ? { quest: input.questId } : {}),
 		...(input.process ? { process: input.process } : {}),
 		...(input.terminal ? { terminal: input.terminal } : {}),
+		...(input.env ? { env: input.env } : {}),
 		...(input.adopted ? { adopted: input.adopted } : {}),
 		openedAt: input.now.toISOString(),
 	};
@@ -194,6 +206,12 @@ export function parseSessionRecord(value: unknown): SessionRecord | undefined {
 		return undefined;
 	}
 	if (v.endings !== undefined && !isEndingList(v.endings)) return undefined;
+	// Left off rather than refusing the record, which would lose the tab:
+	// the session then reopens as a plain one, as before it was kept.
+	if (v.env !== undefined && asCarriedEnvironment(v.env) === undefined) {
+		const { env: _unread, ...rest } = v;
+		return rest as unknown as SessionRecord;
+	}
 	return value as SessionRecord;
 }
 
@@ -376,12 +394,20 @@ export function reopenCommand(
 	record: SessionRecord,
 	saved: boolean,
 ): { command: string; env?: Record<string, string> } {
+	const started = record.env ?? {};
 	if (saved) {
-		return { command: `pi --session ${shellSingleQuote(record.sessionId)}` };
+		return {
+			command: `pi --session ${shellSingleQuote(record.sessionId)}`,
+			...(record.env ? { env: { ...started } } : {}),
+		};
 	}
+	const env = {
+		...started,
+		...(record.quest ? { [AUTOLOAD_VARIABLE]: record.quest } : {}),
+	};
 	return {
 		command: "pi",
-		...(record.quest ? { env: { [AUTOLOAD_VARIABLE]: record.quest } } : {}),
+		...(Object.keys(env).length > 0 ? { env } : {}),
 	};
 }
 
@@ -608,13 +634,22 @@ export function reopenRecord(
 		instanceId: string;
 		process?: ProcessIdentity;
 		terminal?: RecordedTerminal;
+		env?: CarriedEnvironment;
 	},
 ): SessionRecord {
 	// `adopted` goes with the rest: a session being resumed is running
 	// a process that keeps this registry, so from here it has a
 	// shutdown hook and owns its own ending.
-	const { closedAt, endReason, process, terminal, adopted, endings, ...rest } =
-		record;
+	const {
+		closedAt,
+		endReason,
+		process,
+		terminal,
+		adopted,
+		endings,
+		env,
+		...rest
+	} = record;
 	const kept =
 		closedAt && endReason
 			? [...(endings ?? []), { closedAt, endReason }].slice(-MAX_ENDINGS)
@@ -625,6 +660,8 @@ export function reopenRecord(
 		instanceId: input.instanceId,
 		...(input.process ? { process: input.process } : {}),
 		...(input.terminal ? { terminal: input.terminal } : {}),
+		// As it is started now: one reopened plain runs plain from here.
+		...(input.env ? { env: input.env } : {}),
 	};
 }
 
