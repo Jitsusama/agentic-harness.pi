@@ -15,6 +15,7 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { sayLoaded } from "../../lib/internal/reload/said.ts";
 import {
 	createEngine,
 	type HostEngine,
@@ -25,6 +26,7 @@ import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { hostProof } from "./proof.ts";
 import { followWhatStarts } from "./restart.ts";
+import { hostRoot } from "./rollout.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 
 /**
@@ -114,6 +116,23 @@ export function conversationBase(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
+ * Say in the install's `loaded` folder that this process runs the
+ * harness at `root`, as each pi says at its load, so pi-packages keeps
+ * the version the host's own code runs from, and every version retired
+ * since the host started, before any conversation has loaded one. An
+ * attended host with none open said nothing on 11 November (K7's audit,
+ * gap 21), so two install moves could remove the code it ran. Answers
+ * the file, or nothing for a root outside an install, such as a tree.
+ * Nothing takes it back: pi-packages removes it once the process ends.
+ */
+export function sayHostRuns(
+	root: string = hostRoot(),
+	pid: number = process.pid,
+): string | undefined {
+	return sayLoaded(root, undefined, pid);
+}
+
+/**
  * Start the host: judge its configuration, then serve until a stop
  * signal. A configuration refused rejects with HostMisconfigured before
  * anything is held, named or listening.
@@ -124,6 +143,7 @@ export async function startHostProgram(
 	const { argv, env } = options;
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
+	sayHostRuns();
 	nameViewerTerminal(env);
 	configured.startTheme();
 	// The screens import pi's terminal library, which binds to the host's

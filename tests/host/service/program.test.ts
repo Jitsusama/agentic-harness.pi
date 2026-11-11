@@ -1,5 +1,12 @@
 /** The host program judges what it was given before it holds, pins or listens anything. */
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,6 +15,7 @@ import {
 	HostMisconfigured,
 	hostPackageDir,
 	nameViewerTerminal,
+	sayHostRuns,
 	startHostProgram,
 	startupQuestions,
 	themeStarter,
@@ -170,6 +178,35 @@ describe("hostPackageDir", () => {
 			expect(() => hostPackageDir(env)).toThrow(
 				"PI_PACKAGE_DIR must name the host's pi install",
 			);
+	});
+});
+
+describe("sayHostRuns", () => {
+	it("says in the install's loaded folder which version the host runs, as a pi does", async () => {
+		const install = join(dir, "github.com", "Jitsusama", "agentic-harness.pi");
+		const root = join(
+			install,
+			"versions",
+			"01475a4f601d244bc31c11d5627e3176b1198fee",
+		);
+		await mkdir(root, { recursive: true });
+
+		const file = sayHostRuns(root, 4100);
+
+		expect(file).toBe(join(install, "loaded", "4100"));
+		expect(
+			JSON.parse(await readFile(join(install, "loaded", "4100"), "utf8")),
+		).toEqual({
+			root,
+		});
+	});
+
+	it("says nothing for a host run from a tree, which no install keeps", async () => {
+		const tree = join(dir, "agentic-harness.pi");
+		await mkdir(tree, { recursive: true });
+
+		expect(sayHostRuns(tree, 4100)).toBeUndefined();
+		expect(await readdir(dir)).toEqual(["agentic-harness.pi"]);
 	});
 });
 
