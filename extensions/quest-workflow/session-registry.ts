@@ -96,7 +96,12 @@ import {
 	rosterHolds,
 } from "../../lib/internal/session/host-holds.ts";
 import { sessionLogHeader } from "../../lib/internal/session/log-header.ts";
-import { moveFolder, readMoveNotes } from "../../lib/internal/session/move.ts";
+import {
+	moveFolder,
+	readMoveNote,
+	readMoveNotes,
+	removeMoveNote,
+} from "../../lib/internal/session/move.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -742,15 +747,36 @@ export function carriedHome(questsRoot: string): RestoreEntry[] {
 }
 
 /**
+ * Take away the note a move left for a session now taken up where it
+ * runs: in plain pi, since no host is to adopt it; in a host, a
+ * release's note, which would have the launcher open it again beside
+ * the host. A note for a host stays, for the cutover to take once it
+ * sees the session held there.
+ */
+export function settleMoveNote(
+	sessionId: string,
+	hosted: boolean,
+	folder: string = moveFolder(),
+): void {
+	if (!hosted || readMoveNote(sessionId, folder)?.to === "pi")
+		removeMoveNote(sessionId, folder);
+}
+
+/**
  * The sessions their hosts let go to plain pi, from the notes their
  * conversations left as they closed (lib/internal/session/move.ts).
+ * One a host keeps again is left out, since opening it here would give
+ * its log a second writer.
  */
 export function releasedHome(
 	questsRoot: string,
 	folder: string = moveFolder(),
+	kept: () => ReadonlyMap<string, string> = rosterHolds,
 ): RestoreEntry[] {
-	return readMoveNotes(folder)
-		.filter((note) => note.to === "pi")
+	const notes = readMoveNotes(folder).filter((note) => note.to === "pi");
+	const holds = notes.length > 0 ? kept() : new Map<string, string>();
+	return notes
+		.filter((note) => !holds.has(note.session))
 		.map((note) => releasedEntry(note, (id) => questTitle(questsRoot, id)));
 }
 

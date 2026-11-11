@@ -41,7 +41,6 @@ import {
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
-import { removeMoveNote } from "../../lib/internal/session/move.ts";
 import { isParking, PARKING } from "../../lib/internal/session/park.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
@@ -108,6 +107,7 @@ import {
 	recordSessionEnd,
 	refreshRestoreFile,
 	setSignalStampSession,
+	settleMoveNote,
 	stopHeartbeat,
 	trackSession,
 } from "./session-registry.ts";
@@ -782,9 +782,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				},
 				() => releaseSessionOnShutdown(state, sid),
 			);
-			// Taken up in plain pi: no host is to adopt it, and the launcher
-			// offers it no longer, so the note a move left for it goes.
-			if (!hosted()) removeMoveNote(sid);
+			settleMoveNote(sid, hosted() !== undefined);
 			// Off the start path: the launcher's list of what the last boot's
 			// end took away, now without this session if it was one of them.
 			setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();

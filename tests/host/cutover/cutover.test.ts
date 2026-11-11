@@ -158,10 +158,13 @@ function fakeMachine(script: {
 	refuse?: (note: MoveNote) => string | undefined;
 	holds?: Record<string, string>;
 	notes?: MoveNote[];
-	held?: string[];
+	/** What the hosts hold at the start, by the host's key. */
+	held?: Record<string, string>;
+	/** Each look, the sessions the host leaving them lets go. */
+	leaving?: string[][];
 }) {
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
-	const held = new Set(script.held ?? []);
+	const held = new Map(Object.entries(script.held ?? {}));
 	const told: string[] = [];
 	const woken: string[] = [];
 	const adopted: string[] = [];
@@ -179,8 +182,13 @@ function fakeMachine(script: {
 		wake: (session) => woken.push(session),
 		notes: () => [...notes.values()],
 		removeNote: (session) => notes.delete(session),
-		running: async (one) => one.pid !== 0,
+		// A note from a host runs while that host holds its session.
+		running: async (one) =>
+			one.from !== undefined
+				? held.get(one.session) === one.from
+				: one.pid !== 0,
 		held: async () => {
+			for (const session of script.leaving?.[looks] ?? []) held.delete(session);
 			for (const session of script.ending[looks] ?? []) {
 				notes.set(session, note(session, goes.get(session) ?? "background", 0));
 			}
@@ -191,7 +199,7 @@ function fakeMachine(script: {
 			const why = script.refuse?.(one);
 			if (why) return why;
 			adopted.push(`${one.session}>${to}`);
-			held.add(one.session);
+			held.set(one.session, `work-${to}`);
 			return undefined;
 		},
 		holds: async (session) => script.holds?.[session],
@@ -308,11 +316,40 @@ describe("carryOut", () => {
 				note("done", "attended", 0),
 				note("back", "pi", 0),
 			],
-			held: ["done"],
+			held: { done: "work-attended" },
 		});
 		const report = await carryOut([], machine.facts, 60_000);
 		expect(machine.adopted).toEqual(["left>background"]);
 		expect([...report.moved].sort()).toEqual(["DONE", "LEFT"]);
 		expect([...machine.notes.keys()]).toEqual(["back"]);
+	});
+
+	it("moves a conversation from one host to the other only once the first lets it go", async () => {
+		const machine = fakeMachine({
+			ending: [],
+			notes: [{ ...note("hop", "attended"), from: "work-background" }],
+			held: { hop: "work-background" },
+			leaving: [[], ["hop"]],
+		});
+		const report = await carryOut([], machine.facts, 60_000);
+		expect(
+			machine.said.some((line) => line.includes("held by the work-background")),
+			"the host it leaves never counts as where it went",
+		).toBe(false);
+		expect(machine.adopted).toEqual(["hop>attended"]);
+		expect(report.moved).toEqual(["HOP"]);
+		expect(machine.notes.size, "its note taken away").toBe(0);
+	});
+
+	it("leaves a host-to-host move waiting while the host it leaves still holds it", async () => {
+		const machine = fakeMachine({
+			ending: [],
+			notes: [{ ...note("hop", "attended"), from: "work-background" }],
+			held: { hop: "work-background" },
+		});
+		const report = await carryOut([], machine.facts, 4_000);
+		expect(machine.adopted).toEqual([]);
+		expect(report.waiting).toEqual([{ address: "HOP" }]);
+		expect([...machine.notes.keys()], "its note kept").toEqual(["hop"]);
 	});
 });
