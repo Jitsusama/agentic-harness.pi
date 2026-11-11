@@ -51,6 +51,20 @@ input pipeline or screen. No unit or running host is installed yet.
   engine pins the host's pi for their subagents. A kind, realm,
   pi install or proof it refuses exits 78, before anything is held or
   listens, so a unit naming that status stops restarting it.
+- restart.ts and what-starts.ts: the host restarting itself. A host
+  systemd runs as its unit's main process looks every minute, from
+  five minutes after it starts, whether it would start differently:
+  the install's current version changes the code the host process
+  loads itself (every module `scripts/pi-host.ts` reaches through
+  runtime imports, with package.json and pnpm-lock.yaml), or systemd
+  has read a new unit file, as a switch naming a new pi writes. Code
+  only a conversation loads moves with that conversation instead
+  (reload-workflow's follower). Once either differs, and every
+  conversation has been idle or parked for two minutes with every
+  screen at rest (screens.ts), it tells each viewer `restarting` and
+  asks systemd to restart the unit, which parks and resumes every
+  conversation. A unit file systemd hasn't reloaded yet asks nothing,
+  since a restart would start the old one.
 - proof.ts: a runtime's proof, which `scripts/host-prove.ts` writes
   once `pnpm test:host` has passed on that runtime with no case
   skipped. The program refuses a pi that PI_HOST_PROOF doesn't prove,
@@ -89,7 +103,8 @@ input pipeline or screen. No unit or running host is installed yet.
 
 The public sessionId is always pi's stable UUID, never durable's internal
 conversation id. Control operations are open, adopt, list, release, close,
-abort and attach. Attached viewer events are input and resize. The listener
+abort and attach. Attached viewer events are input and resize. Frames
+to a viewer are output, edit, suspend, detached and restarting. The listener
 owns a mode-0600 socket inside a user-owned mode-0700 directory. Viewer
 output is bounded at 4 MiB pending writes; EOF detaches only the viewer.
 Attach replies precede initial screen output on the same connection.

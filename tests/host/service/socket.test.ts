@@ -370,6 +370,32 @@ describe("viewer connection lifecycle", () => {
 		expect(host.list()).toHaveLength(2);
 		expect(cleanup).not.toHaveBeenCalled();
 	});
+	it("tells each attached viewer, and only those, that the host is restarting", async () => {
+		await start({
+			attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
+		});
+		const viewing = createConnection(path);
+		const seen = readMessages(viewing);
+		viewing.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		expect((await seen.next()).value).toMatchObject({ ok: true });
+		const asking = createConnection(path);
+		const answers = readMessages(asking);
+		asking.write(`${JSON.stringify(list)}\n`);
+		expect((await answers.next()).value).toMatchObject({ ok: true });
+
+		listener?.restarting();
+		asking.write(`${JSON.stringify({ ...list, id: "again" })}\n`);
+
+		expect((await seen.next()).value).toEqual({ type: "restarting" });
+		expect(
+			(await answers.next()).value,
+			"a connection with no viewer hears only its answers",
+		).toMatchObject({ id: "again", ok: true });
+		viewing.destroy();
+		asking.destroy();
+	});
 	it("refuses unsupported attach without calling the engine", async () => {
 		await start();
 		const socket = createConnection(path);

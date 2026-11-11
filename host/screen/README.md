@@ -14,6 +14,13 @@ again. A window closing only detaches its viewer. A rebind after pi
 replaced the session keeps the screen, its runtime and its viewers under
 the new id, and refuses a different runtime.
 
+`resting` says whether a host may restart without anyone losing a
+thing: every screen started, pi's editor focused and empty with no
+overlay, no answer, compaction, command or queued message under way,
+and no viewer editing a draft in its own editor. It reads pi's private
+parts without trusting their type, and counts a screen it can't read
+as in use, so a pi that renamed them keeps its host from restarting.
+
 `hostedModeOf` takes the InteractiveMode class the host's pi exports and
 refuses one without core.nix's `pi-host-interactive-lifecycle.patch`,
 whose screens would own the host's process exit and signals.

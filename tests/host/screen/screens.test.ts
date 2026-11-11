@@ -488,3 +488,102 @@ describe("the host's pi screen", () => {
 		expect(() => hostedModeOf(undefined)).toThrow("lacks the hosted lifecycle");
 	});
 });
+
+describe("resting screens", () => {
+	// A screen as pi has it at rest: its empty editor focused, nothing over
+	// it and nothing running; each case then changes one thing.
+	async function resting() {
+		const screens = host();
+		const session = {
+			isStreaming: false,
+			isCompacting: false,
+			isBashRunning: false,
+			pendingMessageCount: 0,
+		};
+		const view = screens.view("a", { sessionId: "a", session });
+		await screens.screens.opened(view);
+		const mode = screens.mode(view.runtime);
+		const editor = { text: "", getText: () => editor.text };
+		const ui: { focused: unknown; overlay: boolean } = {
+			focused: editor,
+			overlay: false,
+		};
+		// The screen's own renderer answers from `ui`, which each case changes.
+		Object.assign(mode.ui, {
+			getFocusedComponent: () => ui.focused,
+			hasOverlay: () => ui.overlay,
+		});
+		Reflect.set(mode, "editor", editor);
+		return { screens, session, editor, ui, mode };
+	}
+
+	it("rests with pi's empty editor focused and nothing running", async () => {
+		const { screens } = await resting();
+		expect(screens.resting(), "an empty, focused editor").toBe(true);
+	});
+
+	it.each([
+		[
+			"words are typed",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.editor.text = "half a thought";
+			},
+		],
+		[
+			"a panel or dialog has focus",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.ui.focused = {};
+			},
+		],
+		[
+			"an overlay is open",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.ui.overlay = true;
+			},
+		],
+		[
+			"pi answers",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.session.isStreaming = true;
+			},
+		],
+		[
+			"a command runs",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.session.isBashRunning = true;
+			},
+		],
+		[
+			"a message waits",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.session.pendingMessageCount = 1;
+			},
+		],
+	])("is in use while %s", async (_why, change) => {
+		const at = await resting();
+		change(at);
+		expect(at.screens.resting(), "a screen in use").toBe(false);
+	});
+
+	it("is in use while a viewer edits in its own editor", async () => {
+		const { screens, mode } = await resting();
+		mode.options.terminal.start(
+			() => {},
+			() => {},
+		);
+		const editing = sink();
+		screens.viewer
+			.attach({ ...attach("a"), features: ["edit"] }, editing)
+			.input("g");
+		void mode.options.hosted.editText("draft");
+		expect(screens.resting(), "a draft out in a viewer's editor").toBe(false);
+	});
+
+	it("counts a screen it can't read as in use", async () => {
+		const screens = host();
+		await screens.screens.opened(screens.view("a"));
+		expect(screens.resting(), "a pi whose parts are named otherwise").toBe(
+			false,
+		);
+	});
+});

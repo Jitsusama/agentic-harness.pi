@@ -23,6 +23,7 @@ import {
 import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { hostProof } from "./proof.ts";
+import { followWhatStarts } from "./restart.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 
 /**
@@ -137,7 +138,7 @@ export async function startHostProgram(
 		),
 		report,
 	});
-	return runHost({
+	const run = await runHost({
 		argv,
 		env,
 		report,
@@ -153,6 +154,18 @@ export async function startHostProgram(
 			}),
 		viewer: () => screens.viewer,
 	});
+	// The host's own code and pi move only as it restarts, so it restarts
+	// itself once either would differ and nobody would notice.
+	const unfollow = await followWhatStarts({
+		serving: run.serving,
+		resting: () => screens.resting(),
+		report,
+	}).catch((error: unknown) => {
+		report(error);
+		return () => undefined;
+	});
+	run.stopped.then(unfollow, unfollow);
+	return run;
 }
 
 /** Everything a restart can't change, judged before the host starts. */

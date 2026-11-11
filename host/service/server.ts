@@ -106,6 +106,8 @@ export async function listenControl(options: {
 		throw new Error("Host socket path must be absolute");
 	await privateDirectory(dirname(options.path));
 	const sockets = new Set<Socket>();
+	// How to reach each connection a viewer is attached on.
+	const viewing = new Map<Socket, (value: unknown) => void>();
 	let ready = false;
 	const server = createServer((socket) => {
 		if (!ready) {
@@ -128,6 +130,7 @@ export async function listenControl(options: {
 					options.report(error);
 				}
 			}
+			viewing.delete(socket);
 			sockets.delete(socket);
 		}
 		function send(value: unknown) {
@@ -215,6 +218,7 @@ export async function listenControl(options: {
 						},
 					}),
 				);
+				viewing.set(socket, send);
 			}
 		}
 		socket.on("data", (chunk) => {
@@ -262,6 +266,14 @@ export async function listenControl(options: {
 	}
 	server.on("error", options.report);
 	return {
+		/**
+		 * Tell every attached viewer the host is about to restart, so a
+		 * client that knows the frame joins the same conversation again
+		 * once the next host listens; an older one passes it over.
+		 */
+		restarting(): void {
+			for (const send of viewing.values()) send({ type: "restarting" });
+		},
 		async close(): Promise<void> {
 			ready = false;
 			for (const socket of sockets) socket.destroy();

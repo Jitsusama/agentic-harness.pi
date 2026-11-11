@@ -28,6 +28,7 @@ import {
 	type Unresumed,
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
+import type { SessionIdentity } from "./protocol.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
@@ -38,6 +39,10 @@ export interface ServingHost {
 	readonly path: string;
 	/** Holds the engine could not resume at start, still held. */
 	readonly unresumed: readonly Unresumed[];
+	/** Each conversation the host runs, with its state and when it last changed. */
+	held(): readonly Pick<SessionIdentity, "state" | "since">[];
+	/** Tell every attached viewer the host is about to restart. */
+	announceRestart(): void;
 	/** Close the socket, park every conversation and release the lock. */
 	stop(): Promise<void>;
 }
@@ -99,6 +104,8 @@ export async function serveHost(options: {
 			identity,
 			path,
 			unresumed,
+			held: () => running.list(),
+			announceRestart: () => listener.restarting(),
 			stop() {
 				stopping ??= (async () => {
 					await listener.close();

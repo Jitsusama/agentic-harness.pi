@@ -1,0 +1,282 @@
+/** When a host restarts itself: only once it would differ and all is settled. */
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	rename,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	followWhatStarts,
+	type Held,
+	type RestartFacts,
+	restartWhenSettled,
+	settled,
+} from "../../../host/service/restart.ts";
+import type { Systemctl } from "../../../host/service/what-starts.ts";
+
+const NOW = Date.parse("2026-11-10T20:00:00Z");
+const long = new Date(NOW - 10 * 60_000).toISOString();
+const lately = new Date(NOW - 30_000).toISOString();
+
+// Timers the test fires by hand, in the order they were set.
+function manualTimers() {
+	const waiting: { ms: number; run: () => void; cancelled: boolean }[] = [];
+	return {
+		after(ms: number, run: () => void) {
+			const timer = { ms, run, cancelled: false };
+			waiting.push(timer);
+			return () => {
+				timer.cancelled = true;
+			};
+		},
+		pending: () => waiting.filter((timer) => !timer.cancelled),
+		/**
+		 * Run the next timer and wait until its look is over: by default
+		 * until it set the next, or until `over` says so for one that
+		 * restarted and sets none.
+		 */
+		async fire(over = () => waiting.length > 0) {
+			const timer = waiting.shift();
+			if (!timer) throw new Error("No timer is waiting");
+			if (!timer.cancelled) timer.run();
+			await vi.waitFor(() => {
+				if (!over()) throw new Error("The look hasn't finished");
+			});
+		},
+	};
+}
+
+function facts(overrides: Partial<RestartFacts> = {}) {
+	const said: string[] = [];
+	const base: RestartFacts = {
+		differs: async () => "the install moved",
+		held: () => [{ state: "idle", since: long }],
+		resting: () => true,
+		announce: () => said.push("announce"),
+		restart: async (why) => {
+			said.push(`restart: ${why}`);
+		},
+		report: (error) => said.push(`report: ${String(error)}`),
+		now: () => NOW,
+		...overrides,
+	};
+	return { facts: base, said };
+}
+
+describe("settled", () => {
+	it("needs every conversation idle or parked, and unchanged long enough", () => {
+		const parked: Held = { state: "parked", since: long };
+		expect(settled([], NOW), "a host holding nothing").toBe(true);
+		expect(
+			settled([{ state: "idle", since: long }, parked], NOW),
+			"one idle and one parked, both long since",
+		).toBe(true);
+		expect(settled([{ state: "busy", since: long }], NOW), "one running").toBe(
+			false,
+		);
+		expect(
+			settled([{ state: "idle", since: lately }], NOW),
+			"one that just finished",
+		).toBe(false);
+	});
+});
+
+describe("restartWhenSettled", () => {
+	it("first looks after the first wait, then every look", async () => {
+		const timers = manualTimers();
+		const { facts: given } = facts({ differs: async () => undefined });
+		restartWhenSettled(given, {
+			after: timers.after,
+			firstLookMs: 300,
+			lookMs: 60,
+		});
+		expect(timers.pending().map(({ ms }) => ms)).toEqual([300]);
+		await timers.fire();
+		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
+	});
+
+	it("announces, then restarts once, when it differs and all is settled", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts();
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire(() => said.length === 2);
+		expect(said).toEqual(["announce", "restart: the install moved"]);
+		expect(timers.pending(), "nothing looks again after a restart").toEqual([]);
+	});
+
+	it.each([
+		["nothing differs", { differs: async () => undefined }],
+		[
+			"a conversation runs",
+			{ held: (): readonly Held[] => [{ state: "busy", since: long }] },
+		],
+		[
+			"a conversation changed lately",
+			{ held: (): readonly Held[] => [{ state: "idle", since: lately }] },
+		],
+		["a screen is in use", { resting: () => false }],
+	])("waits while %s", async (_why, overrides) => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts(overrides);
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual([]);
+		expect(timers.pending(), "it looks again").toHaveLength(1);
+	});
+
+	it("reports a look that failed and looks again", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => {
+				throw new Error("unreadable");
+			},
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual(["report: Error: unreadable"]);
+		expect(timers.pending()).toHaveLength(1);
+	});
+
+	it("looks no more once stopped", async () => {
+		const timers = manualTimers();
+		const { facts: given } = facts();
+		const stop = restartWhenSettled(given, { after: timers.after });
+		stop();
+		expect(timers.pending()).toEqual([]);
+	});
+});
+
+describe("followWhatStarts", () => {
+	const unit = "pi-host-work-attended.service";
+	let dir: string;
+	let install: string;
+	let cgroup: string;
+	let unitFile: string;
+	beforeEach(async () => {
+		dir = await realpath(await mkdtemp(join(tmpdir(), "h1-restart-")));
+		install = join(dir, "install");
+		cgroup = join(dir, "cgroup");
+		unitFile = join(dir, unit);
+		await writeFile(cgroup, `0::/user.slice/app.slice/${unit}\n`);
+		await writeFile(unitFile, "[Service]\n");
+		for (const [version, body] of [
+			["one", "export const a = 1;\n"],
+			["same", "export const a = 1;\n"],
+			["two", "export const a = 2;\n"],
+		] as const) {
+			const root = join(install, "versions", version);
+			await mkdir(join(root, "scripts"), { recursive: true });
+			await mkdir(join(root, "host"), { recursive: true });
+			await writeFile(
+				join(root, "scripts", "pi-host.ts"),
+				'import "../host/a.ts";\n',
+			);
+			await writeFile(join(root, "host", "a.ts"), body);
+		}
+		await symlink(join(install, "versions", "one"), join(install, "current"));
+	});
+	afterEach(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	// systemd as the test has it: this process the unit's main one, its
+	// file the one named, read since it last changed.
+	function systemd(main = 7): {
+		systemctl: Systemctl;
+		calls: string[][];
+	} {
+		const calls: string[][] = [];
+		return {
+			calls,
+			systemctl: async (args) => {
+				calls.push([...args]);
+				if (args.includes("--property=MainPID")) return `MainPID=${main}\n`;
+				if (args[0] === "show")
+					return `NeedDaemonReload=no\nFragmentPath=${unitFile}\nDropInPaths=\n`;
+				return "";
+			},
+		};
+	}
+
+	async function follow(systemctl: Systemctl, report = vi.fn()) {
+		const timers = manualTimers();
+		const serving = {
+			held: () => [{ state: "idle" as const, since: long }],
+			announceRestart: vi.fn(),
+		};
+		const stop = await followWhatStarts({
+			serving,
+			resting: () => true,
+			report,
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			timing: { after: timers.after, settledMs: 0 },
+		});
+		return { timers, serving, stop, report };
+	}
+
+	async function moveTo(version: string) {
+		const next = join(install, "next");
+		await symlink(join(install, "versions", version), next);
+		await rename(next, join(install, "current"));
+	}
+
+	it("restarts its own unit once the install changes the host's own code", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, serving, report } = await follow(systemctl);
+		await timers.fire();
+		expect(serving.announceRestart).not.toHaveBeenCalled();
+
+		await moveTo("two");
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+
+		expect(serving.announceRestart).toHaveBeenCalledOnce();
+		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+		expect(String(report.mock.calls[0]?.[0])).toContain(
+			"the install's two changes the host's own code",
+		);
+	});
+
+	it("stays when the install moves to the same host code", async () => {
+		const { systemctl } = systemd();
+		const { timers, serving } = await follow(systemctl);
+		await moveTo("same");
+		await timers.fire();
+		expect(serving.announceRestart).not.toHaveBeenCalled();
+	});
+
+	it("restarts once systemd has read a new unit file", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, serving } = await follow(systemctl);
+		const next = join(dir, "next.service");
+		await writeFile(next, "[Service]\n");
+		await rename(unitFile, join(dir, "old.service"));
+		await symlink(next, unitFile);
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(serving.announceRestart).toHaveBeenCalledOnce();
+		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+	});
+
+	it("follows nothing where it isn't the unit's main process", async () => {
+		const { systemctl, calls } = systemd(8);
+		const { timers } = await follow(systemctl);
+		expect(timers.pending()).toEqual([]);
+		expect(calls).toHaveLength(1);
+	});
+
+	it("follows nothing outside a unit", async () => {
+		await writeFile(cgroup, "0::/user.slice/session-2.scope\n");
+		const { systemctl, calls } = systemd();
+		const { timers } = await follow(systemctl);
+		expect(timers.pending()).toEqual([]);
+		expect(calls).toEqual([]);
+	});
+});

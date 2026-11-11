@@ -35,6 +35,14 @@ pins or listens anything, the environment it gives conversations, the
 terminal it names and the theme it starts. Its run against the real patched pi is a drill, not a
 test here, since that pi is built outside this package;
 tests/scripts/pi-host.test.ts checks the exit status a unit reads.
+restart.test.ts checks when a host restarts itself, with timers fired
+by hand and a fake systemctl over an install in a private folder: once
+the install changes the host's own code or systemd has a new unit, and
+only with every conversation settled and every screen at rest; never
+outside a unit or as a process that isn't the unit's main one.
+what-starts.test.ts checks the import walk and fingerprint over a
+private tree, reading the unit from a cgroup file, and the unit's
+files read only once systemd has reloaded them.
 pi-resolution.test.ts checks the host program's resolve hook sends only
 pi imports made from outside the host's pi to that pi.
 gateway-key.test.ts checks the launcher's key order and when a personal
