@@ -297,6 +297,12 @@ describe("serveHost", () => {
 		const woke = events?.wake?.(sessionId);
 		await until("the wake to resume it", () => resuming);
 		const stopped = serving.stop();
+		// Resumed only once the stop has closed its socket, as it would go on
+		// to park and dispose the host.
+		await until(
+			"the stop to close its socket",
+			async () => !(await exists(serving.path)),
+		);
 		resumed?.();
 		await expect(
 			woke,
