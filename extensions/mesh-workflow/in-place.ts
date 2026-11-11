@@ -50,6 +50,8 @@ export interface InPlaceFacts {
 	readonly session: string;
 	/** The session's log, which plain pi opens should the join fall back. */
 	readonly sessionFile: string | undefined;
+	/** Go quiet on the terminal and end as a park; a test says otherwise. */
+	readonly quiet?: () => void;
 }
 
 /** What the session does to hand its window over, once it may. */
@@ -86,7 +88,7 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 					at: new Date().toISOString(),
 				}),
 			);
-			goQuiet();
+			(facts.quiet ?? goQuiet)();
 		},
 	};
 }

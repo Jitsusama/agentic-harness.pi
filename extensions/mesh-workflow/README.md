@@ -811,8 +811,15 @@ A steer may instead carry an `act`, with no text needed
   naming its file, where it goes and its addresses, which
   `scripts/host-cutover.ts` reads to adopt it and the restore
   file reads to offer a released one back. Resume, a talk or
-  the person typing cancels it. A move with no valid `to` is no
-  act. A pi in a terminal ends the moment it asks, as a host's
+  the person typing cancels it. A pi its mycelium holder runs
+  itself moves into a host in its own window instead
+  ([`in-place.ts`](in-place.ts)): it waits for 5 s with no key
+  pressed, resting 5 minutes when a minute passes without one,
+  and typing defers it rather than cancelling. Then it names the
+  join (`scripts/host-join.ts`) as its holder's next command and
+  exits drawing nothing, so the window keeps its place, size,
+  focus and last frame until the host's viewer takes it over.
+  A move with no valid `to` is no act. A pi in a terminal ends the moment it asks, as a host's
   conversation does; one over RPC ends when its client next
   sends it a command, as pi's RPC mode holds every shutdown for.
 

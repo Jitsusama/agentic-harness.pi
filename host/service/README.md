@@ -110,6 +110,13 @@ input pipeline or screen. No unit or running host is installed yet.
   roster lock; a live socket, a file or another user's socket is refused.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
+- join.ts: what a window's pi hands its window to as it moves in place
+  (extensions/mesh-workflow/in-place.ts), run as `scripts/host-join.ts`.
+  It waits, drawing nothing, until the host has the conversation open,
+  and its holder then starts `mycelium attach` in the same terminal; or,
+  once the move note has waited unclaimed for 10 s, it takes the move
+  back through the note's claim and the window runs plain pi again, so
+  the log never has two writers.
 
 The public sessionId is always pi's stable UUID, never durable's internal
 conversation id. Control operations are open, adopt, list, release, close,
