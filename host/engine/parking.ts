@@ -95,12 +95,16 @@ export function parking(options: {
 		const file = wakeFile(sessionId);
 		mkdirSync(folderOf(sessionId), { recursive: true });
 		const woken = () => {
-			if (!sleepers.has(sessionId) || !existsSync(file)) return;
+			const watching = sleepers.get(sessionId);
+			if (!watching || !existsSync(file)) return;
 			const messageId = wakeAskedBy(readWritten(file));
 			rmSync(file, { force: true });
 			wake(sessionId).catch((error: unknown) => {
 				// Reported as it failed; kept for the mesh to say, until the next
-				// message writes the file again or the conversation runs.
+				// message writes the file again or the conversation runs. One
+				// settling once this watch is gone, at a close or another park,
+				// would outlive what cleared it.
+				if (sleepers.get(sessionId) !== watching) return;
 				try {
 					writeRefusedWake(file, {
 						...(messageId === undefined ? {} : { messageId }),
