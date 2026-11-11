@@ -1,4 +1,4 @@
-/** A quit a viewer types is asked of that viewer alone before it holds. */
+/** A quit a lone viewer types holds as plain pi's does; with others watching, it is asked of that viewer alone first. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	LEFT_RUNNING,
@@ -110,19 +110,40 @@ describe("a quit typed in a viewer", () => {
 		);
 	});
 
-	it("asks a lone viewer too, since a key can come from no person, and takes only y as yes", async () => {
-		const { terminal, verdicts } = screen();
-		const alone = viewer();
+	it("holds at once for a lone viewer, as plain pi's quit keys do, naming that viewer", async () => {
+		const { terminal, verdicts } = screen(true);
+		const alone = viewer("3");
 		const one = terminal.attach(alone);
 
 		one.input("\x04");
-		expect(asked(alone), "even alone, it asks").toBe(true);
+
+		expect(asked(alone), "alone, it asks nothing").toBe(false);
+		const verdict = await first(verdicts);
+		expect(verdict.holds, "the quit holds, even with a turn running").toBe(
+			true,
+		);
+		expect(verdict.holds && verdict.by, "it names the viewer").toMatch(
+			/^viewer 1 in window 3, joined /,
+		);
+		expect(
+			alone.disconnect,
+			"the close lets it go, not the quit",
+		).not.toHaveBeenCalled();
+	});
+
+	it("takes only y as yes: a key's release is no answer, and Ctrl+D again is no yes", async () => {
+		const { terminal, verdicts } = screen();
+		const typing = viewer();
+		const one = terminal.attach(typing);
+		terminal.attach(viewer());
+
+		one.input("\x04");
 		one.input("\x1b[121;1:3u");
 		expect(verdicts, "a key's release is no answer").toHaveLength(1);
 		one.input("\x04");
 
 		expect((await first(verdicts)).holds, "Ctrl+D again is no yes").toBe(false);
-		expect(alone.disconnect, "it lets that viewer go").toHaveBeenCalledWith(
+		expect(typing.disconnect, "it lets that viewer go").toHaveBeenCalledWith(
 			LEFT_RUNNING,
 		);
 	});
@@ -131,6 +152,7 @@ describe("a quit typed in a viewer", () => {
 		const { terminal, verdicts } = screen();
 		const pasting = viewer();
 		const one = terminal.attach(pasting);
+		terminal.attach(viewer());
 
 		one.input("\x04");
 		one.input("\x1b[200~yes please\x1b[201~");
@@ -146,6 +168,7 @@ describe("a quit typed in a viewer", () => {
 		const leaving = terminal.attach(viewer());
 		const staying = viewer();
 		const two = terminal.attach(staying);
+		terminal.attach(viewer());
 
 		leaving.input("\x04");
 		leaving.detach();
