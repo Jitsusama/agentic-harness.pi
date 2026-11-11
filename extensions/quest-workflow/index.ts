@@ -687,6 +687,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		// What this session journals is its own, for its own undo.
 		setJournalSession(currentSessionId(ctx, undefined));
+		// A park said before this start is over: it parked, or never did.
+		parking = undefined;
 		stopHostStamp?.();
 		if (hosted()) {
 			const session = currentSessionId(ctx, undefined);
