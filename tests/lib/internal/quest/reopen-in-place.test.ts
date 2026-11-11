@@ -226,11 +226,26 @@ describe("settling before a reopen", () => {
 		const settled = await settleBeforeReopen(["s1", "s2"], m.host);
 
 		expect(settled).toEqual({
+			hosted: [],
 			running: [],
 			woken: [],
 			parked: [],
 			reopen: ["s1", "s2"],
 			closed: 0,
+		});
+	});
+
+	it("still leaves a session a host holds when the node can't say what it holds", async () => {
+		const m = machine(undefined, []);
+		const hold = { key: "work-attended", realm: "work", open: true };
+		const settled = await settleBeforeReopen(["s1", "s2"], {
+			...m.host,
+			hostHold: async (session) => (session === "s2" ? hold : undefined),
+		});
+
+		expect(settled).toMatchObject({
+			hosted: [{ session: "s2", hold }],
+			reopen: ["s1"],
 		});
 	});
 });
