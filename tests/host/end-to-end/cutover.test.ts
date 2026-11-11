@@ -72,12 +72,18 @@ if [ -e "$QS_WINDOWS/$5" ]; then echo kept; else echo "no window to keep"; fi
  * Stand-ins for what the cutover reads of the machine's windows: mycelium
  * holding each session in a kitty window, and niri showing every window on
  * a workspace Joel hasn't focused, so the window limits let all ten move.
- * Each answers only what the cutover asks, from a file the test wrote.
+ * Each answers what the cutover asks from a file the test wrote; the
+ * mycelium hands anything else to the seal's own, as before.
  */
 const MACHINE = {
 	mycelium: `#!/bin/sh
-[ "$3" = sessions ] || { echo "the E9 mycelium answers only sessions: $*" >&2; exit 2; }
-cat "$MACHINE_DIR/sessions.json"
+if [ "$3" = sessions ]; then exec cat "$MACHINE_DIR/sessions.json"; fi
+IFS=:
+for dir in $PATH; do
+	[ -x "$dir/mycelium" ] && ! [ "$dir/mycelium" -ef "$0" ] && exec "$dir/mycelium" "$@"
+done
+echo "no mycelium past the E9 stand-in: $*" >&2
+exit 127
 `,
 	niri: `#!/bin/sh
 cat "$MACHINE_DIR/niri-$3.json"
