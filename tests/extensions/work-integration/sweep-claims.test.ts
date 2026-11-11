@@ -8,7 +8,10 @@ import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
-import { registerTreeSweeps } from "../../../extensions/work-integration/sweep.ts";
+import {
+	registerTreeSweeps,
+	useSigns,
+} from "../../../extensions/work-integration/sweep.ts";
 import {
 	type SweptTrees,
 	type TreeClaims,
@@ -95,6 +98,40 @@ it("holds a live quest's tree for good, though no process sits in it", async () 
 	await sweepOn(events);
 
 	expect(given, "the claims the sweep held for good").toEqual([[tree]]);
+});
+
+it("counts a hosted conversation's folder as in use, though its host stands elsewhere", async () => {
+	// The sweep took QCXZEB's folder while its host held it open, as no
+	// process's working folder named it and its tree's record no session.
+	const rosters = join(
+		root,
+		"state",
+		"pi",
+		"agentic-harness.pi",
+		"host-rosters",
+	);
+	mkdirSync(rosters, { recursive: true });
+	const folder = "/src/repo/.worktrees/hosted";
+	writeFileSync(
+		join(rosters, "work-background.json"),
+		JSON.stringify({
+			v: 1,
+			key: "work-background",
+			sessions: [
+				{
+					sessionId: "01a1b8be-44ff-77aa-be03-5ca923cefb70",
+					file: "/home/someone/.pi/sessions/hosted.jsonl",
+					cwd: folder,
+					attended: false,
+					since: "2026-11-11T00:30:00.000Z",
+				},
+			],
+		}),
+	);
+
+	const folders = (await useSigns().sessionFolders?.()) ?? [];
+
+	expect(folders, "the folders live sessions work in").toContain(folder);
 });
 
 it("says what it took to whoever listed it", async () => {

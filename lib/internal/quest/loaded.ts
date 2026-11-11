@@ -12,7 +12,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stateDir } from "../paths.ts";
-import { parseSessionRecord, wasLost } from "./session-registry.ts";
+import {
+	parseSessionRecord,
+	type SessionRecord,
+	wasLost,
+} from "./session-registry.ts";
 
 /** Where the quest workflow keeps one record per session. */
 export function sessionRegistryDir(): string {
@@ -40,28 +44,56 @@ export async function sessionsNobodyClosed(
 	dir: string = sessionRegistryDir(),
 	lostSince?: number,
 ): Promise<ReadonlySet<string>> {
+	const records = await everyRecord(dir);
+	return new Set(
+		records
+			.filter((record) => nobodyClosed(record, lostSince))
+			.map((record) => record.sessionId),
+	);
+}
+
+/**
+ * The working folders of every session that may work in one again:
+ * those {@link sessionsNobodyClosed} names, and those parked, which a
+ * wake takes up in the folder they left. A hosted conversation's folder
+ * is no process's working folder, so this is the only sign of it.
+ */
+export async function foldersOfSessionsNobodyClosed(
+	dir: string = sessionRegistryDir(),
+	lostSince?: number,
+): Promise<string[]> {
+	const records = await everyRecord(dir);
+	return records
+		.filter(
+			(record) =>
+				nobodyClosed(record, lostSince) || record.endReason === "parked",
+		)
+		.map((record) => record.cwd);
+}
+
+function nobodyClosed(record: SessionRecord, lostSince?: number): boolean {
+	if (!record.closedAt) return true;
+	if (!wasLost(record)) return false;
+	return lostSince === undefined || Date.parse(record.closedAt) >= lostSince;
+}
+
+/** Every session record that reads, in no order. */
+async function everyRecord(dir: string): Promise<SessionRecord[]> {
 	let names: string[];
 	try {
 		names = await readdir(dir);
 	} catch {
 		// No registry is a machine where no session has loaded a quest.
-		return new Set();
+		return [];
 	}
-	const ids = await Promise.all(
+	const records = await Promise.all(
 		names
 			.filter((name) => name.endsWith(".json"))
 			.map(async (name) => {
 				try {
-					const record = parseSessionRecord(
+					return parseSessionRecord(
 						JSON.parse(await readFile(join(dir, name), "utf8")),
 					);
-					if (!record) return undefined;
-					if (!record.closedAt) return record.sessionId;
-					if (!wasLost(record)) return undefined;
-					const lostAt = Date.parse(record.closedAt);
-					return lostSince !== undefined && lostAt < lostSince
-						? undefined
-						: record.sessionId;
 				} catch {
 					// Gone since the listing, or half written: a record that will
 					// not read names no session anybody could trust.
@@ -69,7 +101,9 @@ export async function sessionsNobodyClosed(
 				}
 			}),
 	);
-	return new Set(ids.filter((id): id is string => id !== undefined));
+	return records.filter(
+		(record): record is SessionRecord => record !== undefined,
+	);
 }
 
 /** The quest a session has loaded now, or undefined when it has none. */

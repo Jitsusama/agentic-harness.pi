@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	foldersOfSessionsNobodyClosed,
 	questLoadedIn,
 	sessionsNobodyClosed,
 } from "../../../../lib/internal/quest/loaded.ts";
@@ -114,5 +115,21 @@ describe("the sessions nobody closed", () => {
 
 		expect([...(await sessionsNobodyClosed(dir))]).toEqual(["open"]);
 		expect((await sessionsNobodyClosed(join(dir, "absent"))).size).toBe(0);
+	});
+
+	it("work in the folders their records name, a parked one's included", async () => {
+		// A wake takes a parked session up in the folder it left.
+		const at = (one: Record<string, unknown>, cwd: string) => ({ ...one, cwd });
+		const dir = await registry({
+			open: at(record("open"), "/work/open"),
+			parked: at(closed("parked", "parked"), "/work/parked"),
+			died: at(closed("died", "died"), "/work/died"),
+			quit: at(closed("quit", "quit"), "/work/quit"),
+		});
+
+		expect(
+			(await foldersOfSessionsNobodyClosed(dir)).sort(),
+			"the folders sessions may work in again",
+		).toEqual(["/work/died", "/work/open", "/work/parked"]);
 	});
 });

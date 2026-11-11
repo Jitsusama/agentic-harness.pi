@@ -79,6 +79,23 @@ describe("which recorded trees are still in use", () => {
 		).toEqual([stoodIn.path]);
 	});
 
+	it("names a tree a live session works in, though no process stands there", async () => {
+		// 11 November: a sweep took the folder a host held a conversation
+		// open in, since the host process stands elsewhere (QCXZEB).
+		const hosted = recorded("hosted");
+		const idle = recorded("idle");
+
+		expect(
+			paths(
+				await treesInUse({ sessionFolders: async () => [hosted.path] }, [
+					hosted,
+					idle,
+				]),
+			),
+			"the trees kept as in use",
+		).toEqual([hosted.path]);
+	});
+
 	it("names a tree no session is recorded for once its git moved this boot", async () => {
 		const booted = Date.now() - 60_000;
 		const movedSince = recorded("moved-since");

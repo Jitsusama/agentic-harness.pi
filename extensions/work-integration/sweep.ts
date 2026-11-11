@@ -31,12 +31,16 @@ import {
 import { machineBooted } from "../../lib/internal/booted.ts";
 import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
-import { sessionsNobodyClosed } from "../../lib/internal/quest/loaded.ts";
+import {
+	foldersOfSessionsNobodyClosed,
+	sessionsNobodyClosed,
+} from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
-import { createPresences } from "../../lib/mesh/presence.ts";
+import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 
 /** How long after a session starts its first sweep runs. */
 const FIRST_SWEEP_MS = 3 * 60 * 1000;
@@ -178,20 +182,65 @@ function inFinishedQuest(gitDir: string): boolean {
  * owners, for whatever takes trees whose owners have ended.
  */
 export function useSigns(): UseSigns {
-	return { liveSessions, standingIn, ...bootedAt() };
+	// One census for both signs, since each asks every presence again.
+	let present: Promise<readonly Presence[]> | undefined;
+	const onTheMesh = () => {
+		present ??= presentNow();
+		return present;
+	};
+	return {
+		liveSessions: () => liveSessions(onTheMesh),
+		sessionFolders: () => sessionFolders(onTheMesh),
+		standingIn,
+		...bootedAt(),
+	};
+}
+
+/** The sessions on the mesh now, in every realm: trees are the machine's. */
+async function presentNow(): Promise<readonly Presence[]> {
+	const everyone = everyRealmsDir("state", "mesh-workflow").flatMap((dir) =>
+		createPresences(join(dir, "presence")).all(),
+	);
+	return (await census(everyone)).present;
+}
+
+/**
+ * The folders live sessions work in, wherever they run: those on the
+ * mesh now, those nobody closed or that are parked, and those a host
+ * keeps for its resume, whose folder is no process's working folder.
+ */
+async function sessionFolders(
+	onTheMesh: () => Promise<readonly Presence[]>,
+): Promise<string[]> {
+	const [present, recorded] = await Promise.all([
+		onTheMesh(),
+		Promise.all(
+			everyRealmsDir("state", "quest-workflow").map((dir) =>
+				foldersOfSessionsNobodyClosed(
+					join(dir, "sessions"),
+					Date.now() - LOST_HOLDS_FOR_MS,
+				),
+			),
+		),
+	]);
+	return [
+		...present.flatMap((one) => (one.cwd === undefined ? [] : [one.cwd])),
+		...recorded.flat(),
+		...everyRealmsDir("state", "host-rosters").flatMap((dir) =>
+			rosterFolders(dir),
+		),
+	];
 }
 
 /**
  * The sessions that still hold their trees, by session id: those on
  * the mesh now, and those nobody closed, which restore brings back.
  */
-async function liveSessions(): Promise<ReadonlySet<string>> {
-	// Every realm's sessions: the trees they hold are the machine's.
-	const everyone = everyRealmsDir("state", "mesh-workflow").flatMap((dir) =>
-		createPresences(join(dir, "presence")).all(),
-	);
-	const [{ present }, unclosed] = await Promise.all([
-		census(everyone),
+async function liveSessions(
+	onTheMesh: () => Promise<readonly Presence[]>,
+): Promise<ReadonlySet<string>> {
+	const [present, unclosed] = await Promise.all([
+		onTheMesh(),
 		// A session the machine's shutdown or a closed window took away is
 		// one restore brings back, and it comes back to the trees it had.
 		Promise.all(

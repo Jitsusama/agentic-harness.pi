@@ -26,6 +26,12 @@ export interface UseSigns {
 	/** The working folders of every process running now. */
 	standingIn?(): readonly string[];
 	/**
+	 * The working folders of every session that may work in one, wherever
+	 * it runs. A hosted conversation's folder is no process's: on 11
+	 * November a sweep took one while its host held it open.
+	 */
+	sessionFolders?(): Promise<readonly string[]>;
+	/**
 	 * When this boot began, in milliseconds since the epoch. A tree whose
 	 * record names no session is kept once its git has moved since then,
 	 * since a session that resumed in a new process may be working in it.
@@ -35,15 +41,18 @@ export interface UseSigns {
 
 /**
  * The trees something is working in: one a running session holds, one a
- * running process stands in, and one with no session named whose git
- * has moved since this boot began.
+ * running process or a live session stands in, and one with no session
+ * named whose git has moved since this boot began.
  */
 export async function treesInUse(
 	signs: UseSigns,
 	trees: readonly HeldTree[],
 ): Promise<HeldTree[]> {
 	const live = (await signs.liveSessions?.()) ?? new Set<string>();
-	const standing = (signs.standingIn?.() ?? []).map(resolvedPath);
+	const standing = [
+		...(signs.standingIn?.() ?? []),
+		...((await signs.sessionFolders?.()) ?? []),
+	].map(resolvedPath);
 	return trees.filter((tree) => {
 		const sessions = Array.isArray(tree.sessions) ? tree.sessions : [];
 		if (sessions.some((one) => live.has(one))) return true;
