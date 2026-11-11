@@ -80,13 +80,12 @@ through landrun:
   security key.
 - **No private keys.** `~/.ssh` shows only public keys, its settings
   and the known hosts.
-- **No git that runs later.** In each repository under the home
-  folder, `src` and `world`, the settings, hooks and `info` are
-  read-only, and so is a worktrees folder whose trees keep settings of
-  their own, World's among them, but for the session's own tree.
-  Objects, refs and the index stay writable, so commits still work in
-  the session's tree. The tree's `.git` file and its links back are
-  read-only too.
+- **No git that runs later.** In each repository in the home folder,
+  under `src` four levels down, and in `world`, the settings, hooks,
+  `info` and other trees' git folders are read-only. Objects, refs and
+  the index stay writable, so commits still work in the session's own
+  tree, but not from a command in any other. The tree's `.git` file
+  and its links back are read-only too.
 - **No desktop.** The runtime folder is an empty one of its own, with
   only the Nix daemon's door for sandboxes bound back, and `NIX_REMOTE`
   points there. Landlock refuses every other socket, an abstract one

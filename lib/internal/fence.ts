@@ -279,38 +279,62 @@ function sshArgs(home: string, disk: Disk): string[] {
  */
 const GIT_CODE = ["config", "config.worktree", "hooks", "info"] as const;
 
-/** Folders whose entries may be repositories: the home folder, and its `src` and `world`. */
-const REPOSITORY_HOMES = ["", "src", "world"] as const;
+/**
+ * Folders that may hold repositories, and how many levels down: the
+ * home folder's own entries, `src` as deep as `src/github.com/org/repo`
+ * and a level more, and `world`.
+ */
+const REPOSITORY_HOMES = [
+	{ where: "", depth: 1 },
+	{ where: "src", depth: 4 },
+	{ where: "world", depth: 1 },
+] as const;
 
-/** The git folders in the home folder's repositories, working and bare. */
-function gitFolders(home: string, disk: Disk): string[] {
+/** A repository's git folder, working or bare, or nothing when `path` holds none. */
+function gitFolderOf(path: string, disk: Disk): string | undefined {
+	if (disk.kind(join(path, ".git")) === "folder") return join(path, ".git");
+	const bare =
+		disk.kind(join(path, "HEAD")) === "file" &&
+		disk.kind(join(path, "objects")) === "folder";
+	return bare ? path : undefined;
+}
+
+/**
+ * The git folders in the home folder's repositories, working and bare.
+ * A walk stops at a repository, and below the top goes only into plain
+ * folders, never a hidden one or a link.
+ */
+export function gitFolders(home: string, disk: Disk = DISK): string[] {
 	const found = new Set<string>();
-	for (const where of REPOSITORY_HOMES) {
-		const folder = join(home, where);
+	const walk = (folder: string, depth: number) => {
 		for (const entry of disk.entries(folder)) {
 			const path = join(folder, entry);
-			if (disk.kind(join(path, ".git")) === "folder") {
-				found.add(join(path, ".git"));
-			} else if (
-				disk.kind(join(path, "HEAD")) === "file" &&
-				disk.kind(join(path, "objects")) === "folder"
+			const git = gitFolderOf(path, disk);
+			if (git) found.add(git);
+			else if (
+				depth > 1 &&
+				!entry.startsWith(".") &&
+				disk.kind(path) === "folder" &&
+				disk.kind(join(path, ".git")) === undefined
 			) {
-				found.add(path);
+				walk(path, depth - 1);
 			}
 		}
-	}
+	};
+	for (const { where, depth } of REPOSITORY_HOMES)
+		walk(join(home, where), depth);
 	return [...found].sort();
 }
 
 /**
  * bubblewrap's arguments for git: what runs code in each repository's
  * git folder read-only, since git runs outside the fence there (the
- * person, pi's work tool). Where a repository's worktrees keep settings
- * of their own (World's sparse trees), its whole `worktrees` folder is
- * read-only, one mount rather than hundreds, and the session's own is
- * bound back writable. The session's own tree has its `.git` file and
- * its worktree folder's settings and links read-only, so it can't be
- * pointed at a git folder of a command's making.
+ * person, pi's work tool). A repository's whole `worktrees` folder is
+ * read-only too, one mount rather than hundreds, so no command changes
+ * another tree's settings or makes a git folder of its own in there for
+ * a tree to be pointed at; the session's own is bound back writable,
+ * with its settings and links still read-only, and so is its tree's
+ * `.git` file.
  */
 function gitArgs(place: FencePlace, disk: Disk): string[] {
 	const there = (path: string) => {
@@ -322,11 +346,7 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 	const kept: string[] = [];
 	for (const git of gitFolders(place.home, disk)) {
 		for (const name of GIT_CODE) kept.push(join(git, name));
-		const worktrees = join(git, "worktrees");
-		const settled = disk
-			.entries(worktrees)
-			.some((tree) => there(join(worktrees, tree, "config.worktree")));
-		if (settled) kept.push(worktrees);
+		kept.push(join(git, "worktrees"));
 	}
 	const own = place.cwd ? place.ownGitFolder : undefined;
 	const ownBack =

@@ -266,6 +266,8 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		`${home}/src/repo/.git/hooks/`,
 		`${home}/src/repo/.git/info/`,
 		`${home}/src/repo/.git/objects/`,
+		`${home}/src/github.com/org/deep/.git/config`,
+		`${home}/src/github.com/org/deep/.git/objects/`,
 		`${own}/commondir`,
 		`${own}/gitdir`,
 		`${own}/HEAD`,
@@ -309,16 +311,15 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			`${home}/src/repo/.git/config`,
 			`${home}/src/repo/.git/hooks`,
 			`${home}/src/repo/.git/info`,
+			`${home}/src/repo/.git/worktrees`,
+			`${home}/src/github.com/org/deep/.git/config`,
 			`${home}/world/git/config`,
 			`${home}/world/git/worktrees`,
 		]) {
 			expect(readOnly, `${path} is writable`).toContain(path);
 		}
-		expect(
-			readOnly,
-			"a repository whose worktrees keep no settings of their own has its worktrees made read-only",
-		).not.toContain(`${home}/src/repo/.git/worktrees`);
 		for (const path of [
+			`${home}/src/github.com/org/deep/.git/objects`,
 			`${home}/src/repo/.git/objects`,
 			`${home}/world/git/worktrees/zone/index`,
 			`${own}/HEAD`,
@@ -331,6 +332,12 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		for (const path of [`${tree}/.git`, `${own}/commondir`, `${own}/gitdir`]) {
 			expect(readOnly, `${path} is writable`).toContain(path);
 		}
+		const back = args.findIndex(
+			(arg, at) => arg === "--bind" && args[at + 1] === own,
+		);
+		expect(back, "the own worktree folder isn't bound back").toBeGreaterThan(
+			args.indexOf(`${home}/src/repo/.git/worktrees`),
+		);
 	});
 
 	it("binds the session's own worktree folder back writable from a read-only worktrees folder, its settings still read-only", () => {
