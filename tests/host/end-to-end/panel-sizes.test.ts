@@ -9,8 +9,16 @@
  * screen: a short viewer lost its footer off the bottom, and a tall one
  * saw a strip. A view takes six tenths of the screen's rows, less five
  * rows of its own around its body.
+ *
+ * A view or a gate already open keeps fitting when the screen changes
+ * under it: when its one viewer shrinks, and when a smaller viewer
+ * joins. Each re-lays itself for the new size and keeps its footer, the
+ * way out, rather than staying drawn for the size it opened at. The gate
+ * is the fixture's `/gate`, the harness's own; one drawn wider than the
+ * screen shows as rows the viewer's terminal had to wrap.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { until } from "../../support/until.ts";
 import { type Folders, folders } from "./support/folders.ts";
 import {
 	HOST_PI_REQUIRED,
@@ -36,6 +44,10 @@ const SHORT = 15;
 const TALL = 50;
 /** What the view's footer shows, which is the way out of it. */
 const FOOTER = "Esc close";
+/** Narrower than the screens above, so a gate drawn for them would wrap. */
+const NARROW = 72;
+/** What a focused gate's footer shows, which is the way out of it. */
+const GATE_FOOTER = "Esc cancel";
 
 /** The body rows a view has on a screen `rows` high. */
 function bodyRows(rows: number): number {
@@ -46,6 +58,42 @@ function bodyRows(rows: number): number {
 function showsRow(screen: readonly string[], n: number): boolean {
 	const row = new RegExp(`\\brow ${n}\\b`);
 	return screen.some((line) => row.test(line));
+}
+
+/**
+ * Whether the view on `on` is laid out for a screen `rows` high: its
+ * body from its top, exactly that screen's share of it, and its footer.
+ */
+function fitsView(on: Viewer, rows: number): boolean {
+	const screen = on.screen();
+	return (
+		screen.some((line) => line.includes(FOOTER)) &&
+		showsRow(screen, 1) &&
+		showsRow(screen, bodyRows(rows)) &&
+		!showsRow(screen, bodyRows(rows) + 1)
+	);
+}
+
+/** How many rows on `on`'s screen carry on a line too wide for it. */
+function wrappedRows(on: Viewer): number {
+	const buffer = on.terminal.buffer.active;
+	let wrapped = 0;
+	for (let row = 0; row < on.terminal.rows; row++)
+		if (buffer.getLine(buffer.viewportY + row)?.isWrapped) wrapped++;
+	return wrapped;
+}
+
+/**
+ * Whether the gate named `name` on `on` is laid out for its screen: what
+ * it asks, its footer, and no line wider than the screen.
+ */
+function fitsGate(on: Viewer, name: string): boolean {
+	const screen = on.screen();
+	return (
+		screen.some((line) => line.includes(`Gate ${name} asks`)) &&
+		screen.some((line) => line.includes(GATE_FOOTER)) &&
+		wrappedRows(on) === 0
+	);
 }
 
 let sealed: Seal;
@@ -135,8 +183,110 @@ describe.skipIf(!packageDir)(
 			},
 			CASE_MS,
 		);
+
+		it(
+			"re-lays an open view when its viewer shrinks",
+			async () => {
+				const one = await viewer(await conversation(), TALL);
+				one.type(`/view${ENTER}`);
+				await until(
+					"the view to fill the tall screen's share",
+					() => fitsView(one, TALL),
+					SHOW_MS,
+				);
+
+				one.resize(SHORT, COLUMNS);
+
+				await until(
+					"the view to re-lay itself for the short screen, footer and all",
+					() => fitsView(one, SHORT),
+					SHOW_MS,
+				);
+				one.type(ESCAPE);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"re-lays an open view when a shorter viewer joins",
+			async () => {
+				const both = await conversation();
+				const tall = await viewer(both, TALL);
+				tall.type(`/view${ENTER}`);
+				await until(
+					"the view to fill the tall screen's share",
+					() => fitsView(tall, TALL),
+					SHOW_MS,
+				);
+
+				const short = await viewer(both, SHORT);
+
+				for (const [name, on] of [
+					["short", short],
+					["tall", tall],
+				] as const)
+					await until(
+						`the ${name} viewer to see the view re-laid for the short screen`,
+						() => fitsView(on, SHORT),
+						SHOW_MS,
+					);
+				tall.type(ESCAPE);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"re-lays an open gate when its viewer shrinks",
+			async () => {
+				const one = await viewer(await conversation(), TALL);
+				await raise(one, "shrunk");
+
+				one.resize(SHORT, NARROW);
+
+				await until(
+					"the gate to re-lay itself for the narrow screen, footer and all",
+					() => fitsGate(one, "shrunk"),
+					SHOW_MS,
+				);
+				one.type(ESCAPE);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"re-lays an open gate when a smaller viewer joins",
+			async () => {
+				const both = await conversation();
+				const wide = await viewer(both, TALL);
+				await raise(wide, "joined");
+
+				const narrow = await viewer(both, SHORT, NARROW);
+
+				for (const [name, on] of [
+					["narrow", narrow],
+					["wide", wide],
+				] as const)
+					await until(
+						`the ${name} viewer to see the gate re-laid for the narrow screen`,
+						() => fitsGate(on, "joined"),
+						SHOW_MS,
+					);
+				wide.type(ESCAPE);
+			},
+			CASE_MS,
+		);
 	},
 );
+
+/** Raise the fixture's gate named `name` and wait until it holds the keys. */
+async function raise(on: Viewer, name: string): Promise<void> {
+	on.type(`/gate ${name}${ENTER}`);
+	await until(
+		`gate ${name} to show, laid out for its screen`,
+		() => fitsGate(on, name),
+		SHOW_MS,
+	);
+}
 
 /** A fresh conversation on the host, by its session id. */
 async function conversation(): Promise<string> {
@@ -144,9 +294,13 @@ async function conversation(): Promise<string> {
 	return sessionId;
 }
 
-/** A viewer `rows` high on the conversation `sessionId`. */
-async function viewer(sessionId: string, rows: number): Promise<Viewer> {
-	const attached = await attach(host.path, sessionId, rows, COLUMNS);
+/** A viewer `rows` high, and `columns` wide, on the conversation `sessionId`. */
+async function viewer(
+	sessionId: string,
+	rows: number,
+	columns = COLUMNS,
+): Promise<Viewer> {
+	const attached = await attach(host.path, sessionId, rows, columns);
 	viewers.push(attached);
 	return attached;
 }
