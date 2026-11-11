@@ -7,6 +7,9 @@ import { PARKED, parking } from "../../../host/engine/parking.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { until } from "../../support/until.ts";
 
+/** How long a refusal may take to be kept, inside the case's own 5 s, so a red names this wait. */
+const KEPT_WITHIN_MS = 2000;
+
 let dir: string;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "parking-"));
@@ -109,6 +112,7 @@ describe("parking a conversation", () => {
 		await until(
 			"to keep the refused wake",
 			() => readRefusedWake(wake) !== undefined,
+			KEPT_WITHIN_MS,
 		);
 		expect(readRefusedWake(wake), "what asked, and why not").toMatchObject({
 			messageId: "2f95756a",

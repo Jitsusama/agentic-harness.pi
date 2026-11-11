@@ -10,6 +10,7 @@ import {
 	hostBackend,
 } from "../../../host/service/backend.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
+import type { AdmitAnother } from "../../../host/service/rollout.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import { until } from "../../support/until.ts";
 
@@ -70,7 +71,7 @@ function engine(overrides: Partial<ConversationEngine> = {}) {
 
 function backendWith(
 	fake: ConversationEngine,
-	admitAnother?: () => Promise<void>,
+	admitAnother?: AdmitAnother,
 	say?: (line: string) => void,
 ) {
 	return hostBackend({
@@ -241,7 +242,10 @@ describe("waking a parked conversation", () => {
 
 		await expect(backend.wake(sessionId)).rejects.toBe(refused);
 
-		expect(gate, "the wake asked the gate").toHaveBeenCalledOnce();
+		expect(
+			gate,
+			"the wake asked the gate, as a wake",
+		).toHaveBeenCalledExactlyOnceWith("wake");
 		expect(
 			fake.resume,
 			"a refused wake resumes nothing",
