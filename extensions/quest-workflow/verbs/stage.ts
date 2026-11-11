@@ -12,7 +12,10 @@ import {
 	auditQuestRecord,
 	isRecordSound,
 } from "../../../lib/core/internal/quest/record-audit.ts";
-import { removeQuestWorkspace } from "../../../lib/core/internal/quest/workspace.ts";
+import {
+	removeQuestWorkspace,
+	type WorkspaceUsers,
+} from "../../../lib/core/internal/quest/workspace.ts";
 import { resolveTreeProvider } from "../../../lib/core/tree/index.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
@@ -798,7 +801,8 @@ const CONCLUDE_MEASURE_MS = 5_000;
 /**
  * Remove a sealed quest's scratch folder, its caches and builds with it,
  * and say what that freed: a cache goes with its owner, not with its
- * age. One a process still works in stays for the disk guard. Nothing
+ * age. One a process or hosted conversation still works in stays for
+ * the disk guard. Nothing
  * when it has no scratch folder.
  */
 export async function scratchRemoved(
@@ -809,7 +813,7 @@ export async function scratchRemoved(
 		...(signal ? { signal } : {}),
 	}),
 	root: string = defaultWorkspaceRoot(),
-	users?: (dir: string) => readonly number[],
+	users?: WorkspaceUsers,
 ): Promise<string | undefined> {
 	const dir = questId ? workspaceDirOf(root, questId) : undefined;
 	if (!questId || !dir) return undefined;
@@ -821,7 +825,7 @@ export async function scratchRemoved(
 		return `Removed its scratch folder${held}.`;
 	}
 	if (removal.why === "in use") {
-		return `Left its scratch folder${held}, since a process still works in it; the disk guard takes it once nothing does.`;
+		return `Left its scratch folder${held}, since a process or a hosted conversation still works in it; the disk guard takes it once nothing does.`;
 	}
 	if (removal.why === "stuck") {
 		return `Could not remove all of its scratch folder${held}; the disk guard takes what is left.`;

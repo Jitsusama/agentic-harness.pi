@@ -17,6 +17,7 @@ import {
 	questWorkspace,
 	removeQuestWorkspace,
 } from "../../../../lib/core/internal/quest/workspace.ts";
+import { rosterDir } from "../../../../lib/core/session/roster.ts";
 
 const QUEST_ID = "QEST-20260924-ABC123";
 
@@ -99,6 +100,42 @@ describe("removeQuestWorkspace", () => {
 			why: "in use",
 		});
 		expect(existsSync(dir), `${dir} is kept`).toBe(true);
+	});
+
+	it("leaves a workspace a hosted conversation works in, by its roster", () => {
+		const { dir } = questWorkspace(root, QUEST_ID);
+		const clone = join(dir, "clone");
+		mkdirSync(clone, { recursive: true });
+		const rosters = rosterDir();
+		mkdirSync(rosters, { recursive: true });
+		const roster = join(rosters, "test-background.json");
+		writeFileSync(
+			roster,
+			JSON.stringify({
+				v: 1,
+				key: "test-background",
+				sessions: [
+					{
+						sessionId: "019e0c11-2b2c-7bd5-9e04-1c3c0a5b7a10",
+						file: join(root, "session.jsonl"),
+						cwd: clone,
+						attended: false,
+						since: "2026-11-11T02:00:00.000Z",
+					},
+				],
+			}),
+		);
+		try {
+			// No process works in it, so only the roster keeps it.
+			expect(removeQuestWorkspace(root, QUEST_ID)).toEqual({
+				removed: false,
+				why: "in use",
+			});
+			expect(existsSync(clone), `${clone} is kept`).toBe(true);
+		} finally {
+			rmSync(roster, { force: true });
+		}
+		expect(removeQuestWorkspace(root, QUEST_ID)).toEqual({ removed: true });
 	});
 
 	it("says there was none to take", () => {

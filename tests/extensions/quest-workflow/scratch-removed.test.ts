@@ -78,7 +78,9 @@ describe("scratchRemoved", () => {
 		]);
 
 		expect(existsSync(dir), `${dir} is kept`).toBe(true);
-		expect(said).toContain("since a process still works in it");
+		expect(said).toContain(
+			"since a process or a hosted conversation still works in it",
+		);
 	});
 
 	it("says nothing when the quest has no scratch folder", async () => {
