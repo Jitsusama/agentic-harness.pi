@@ -1,6 +1,7 @@
 /** Versioned control requests and viewer frames for a realm's host socket. */
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import { asCarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 
 const text = z.string().min(1);
 const path = text.refine(isAbsolute);
@@ -25,6 +26,14 @@ const envelope = {
 };
 const session = { ...envelope, sessionId };
 const caller = text.max(128).optional();
+// How the conversation runs its commands, as the session it continues was
+// started (the fence, the spawner): those variables alone, each a word.
+const carried = z
+	.record(text, text)
+	.refine((env) => asCarriedEnvironment(env) !== undefined, {
+		message: "only the carried variables, each set to a plain word",
+	})
+	.optional();
 const request = z.discriminatedUnion("op", [
 	z.strictObject({
 		...envelope,
@@ -37,6 +46,7 @@ const request = z.discriminatedUnion("op", [
 			.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
 			.optional(),
 		first: text.optional(),
+		env: carried,
 	}),
 	z.strictObject({
 		...envelope,
@@ -44,6 +54,7 @@ const request = z.discriminatedUnion("op", [
 		sessionFile: path,
 		attended: z.boolean(),
 		quest: text.optional(),
+		env: carried,
 	}),
 	z.strictObject({ ...envelope, op: z.literal("list") }),
 	// Who asks, as the caller names itself (the launcher, a command), for

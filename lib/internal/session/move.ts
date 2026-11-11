@@ -39,6 +39,10 @@ import { join } from "node:path";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
 import { writeWhole } from "../write-whole.ts";
+import {
+	asCarriedEnvironment,
+	type CarriedEnvironment,
+} from "./carried-environment.ts";
 
 /** Where a session moves to: a host of its realm, by kind, or plain pi. */
 export const MOVE_TARGETS = ["attended", "background", "pi"] as const;
@@ -73,6 +77,11 @@ export interface MoveNote {
 	 * seen done by the host's list instead.
 	 */
 	readonly pid: number;
+	/**
+	 * How it ran its commands (the fence, the spawner), so the host that
+	 * takes it up runs them the same way; none when it set neither.
+	 */
+	readonly env?: CarriedEnvironment;
 }
 
 /** The folder move notes are kept in. */
@@ -313,5 +322,12 @@ export function moveNoteFrom(value: unknown): MoveNote | undefined {
 		...text("title"),
 		...text("from"),
 		pid,
+		...carried(value.env),
 	};
+}
+
+/** A note's carried environment, left out when it holds anything else. */
+function carried(value: unknown): { env?: CarriedEnvironment } {
+	const env = asCarriedEnvironment(value);
+	return env ? { env } : {};
 }

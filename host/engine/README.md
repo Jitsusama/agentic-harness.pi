@@ -160,7 +160,10 @@ host's life a start at a time.
 A conversation's environment is the realm's, then its launch, then what
 the engine derives each start. The launch is what conversationEnv says
 when it opens or is adopted; prepare returns it, the service's roster
-holds it, and a resume replays it as held. Each start the engine sets
+holds it, and a resume replays it as held. The service's says the
+request's `env`: the fence and spawner variables of the session it
+continues (lib/internal/session/carried-environment.ts), so a fenced
+session that moves into a host runs its commands fenced there too. Each start the engine sets
 SHOPIFY_HARNESS_SETTINGS (harness-settings.ts) from the host's value,
 the conversation's traits and the loaded pi's version, and the
 markers naming the conversation, the host's key and the host process

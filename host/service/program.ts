@@ -170,6 +170,10 @@ export async function startHostProgram(
 				stateDir: join(stateDir("host-engine"), host.key),
 				host,
 				env: conversationBase(env),
+				// How the session it continues ran its commands (the fence, the
+				// spawner), which the asker hands on, since the host's own
+				// environment sets neither.
+				conversationEnv: (_conversation, request) => request.env ?? {},
 				key: gatewayKey({ env }),
 				screens: screens.screens,
 				report,

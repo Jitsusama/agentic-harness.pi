@@ -298,6 +298,8 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 					sessionFile: note.sessionFile,
 					attended: to === "attended",
 					...(note.quest ? { quest: note.quest } : {}),
+					// A fenced session stays fenced in the host (protocol.ts).
+					...(note.env ? { env: note.env } : {}),
 				});
 				return reply.ok
 					? undefined

@@ -78,6 +78,18 @@ describe("move notes", () => {
 		const { quest: _quest, ...plain } = note();
 		expect(moveNoteFrom({ ...plain, title: "", from: 3 })).toEqual(plain);
 	});
+
+	it("keeps how the session ran its commands, and nothing else in its place", () => {
+		const fenced = { ...note(), env: { PI_SANDBOX: "fence" } };
+		expect(
+			moveNoteFrom(fenced),
+			"a fenced session's note says the fence",
+		).toEqual(fenced);
+		expect(
+			moveNoteFrom({ ...note(), env: { PI_SANDBOX: "fence", HOME: "/x" } }),
+			"a note's env holding anything but the carried variables is dropped",
+		).toEqual(note());
+	});
 });
 
 describe("claiming a move note", () => {

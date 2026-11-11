@@ -69,6 +69,7 @@ import {
 	takeOwedTurn,
 } from "../../lib/internal/reload/hold.ts";
 import { SANDBOX_VARIABLE, STRICT } from "../../lib/internal/sandbox.ts";
+import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import {
 	isPersonText,
@@ -832,6 +833,8 @@ export function meshWorkflow(
 				if (pid === undefined)
 					throw new Error("its presence names no owner to watch end.");
 				const title = ctx.sessionManager.getSessionName();
+				// The fence and spawner go with it, as a holder's restart takes them.
+				const carried = carriedEnvironment(env);
 				writeMoveNote(
 					moveNoteOf(
 						ctx,
@@ -843,6 +846,7 @@ export function meshWorkflow(
 							...(title ? { title } : {}),
 							...(hostKey ? { from: hostKey } : {}),
 							pid,
+							...(carried ? { env: carried } : {}),
 						},
 						to,
 					),
@@ -1640,6 +1644,7 @@ export function meshWorkflow(
 								host.key,
 								session,
 								started.sessionManager.getSessionFile(),
+								env,
 							),
 						}
 					: {}),
