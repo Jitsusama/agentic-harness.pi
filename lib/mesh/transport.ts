@@ -13,6 +13,7 @@
 
 import { randomBytes } from "node:crypto";
 import {
+	type Dir,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -96,8 +97,18 @@ export function stampedAt(id: string): number | undefined {
  * in one go held pi's main thread 70 to 95 ms on a loaded machine, with
  * every key typed meanwhile waiting; in batches of this size no one
  * step took more than 3 ms.
+ *
+ * Each batch is read synchronously from the open folder, then the
+ * thread is given back. Iterating the folder with `for await` instead
+ * made a promise and more for every entry: on 11 November an idle pi
+ * allocated 260 MB in 90 s that way, one listing a minute, and the
+ * collections that followed paged swapped heap back in.
  */
 const LISTING_BATCH = 256;
+
+/** Gives the thread back, so what waits on it runs before the next batch. */
+const yieldThread = (): Promise<void> =>
+	new Promise((resolve) => setImmediate(resolve));
 
 /** Whether a file in a transport folder holds a message. */
 function isMessageFile(file: string): boolean {
@@ -138,16 +149,30 @@ export function folderTransport(dir: string): Transport {
 		},
 		async listIds() {
 			const found: string[] = [];
+			let folder: Dir;
 			try {
-				const folder = await opendir(dir, { bufferSize: LISTING_BATCH });
-				for await (const entry of folder) {
-					if (isMessageFile(entry.name)) found.push(idOf(entry.name));
-				}
+				folder = await opendir(dir, { bufferSize: LISTING_BATCH });
 			} catch {
 				// A folder not made yet holds no messages, as ids() answers.
 				return [];
 			}
-			return found.sort();
+			try {
+				for (;;) {
+					for (let read = 0; read < LISTING_BATCH; read++) {
+						const entry = folder.readSync();
+						if (entry === null) return found.sort();
+						if (isMessageFile(entry.name)) found.push(idOf(entry.name));
+					}
+					await yieldThread();
+				}
+			} catch {
+				// A folder taken away while listed answers what was read of it.
+				return found.sort();
+			} finally {
+				await folder.close().catch(() => {
+					// Closed already, or gone: nothing is left open either way.
+				});
+			}
 		},
 		read(id) {
 			try {

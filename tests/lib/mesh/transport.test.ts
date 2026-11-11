@@ -125,6 +125,24 @@ describe("the folder transport", () => {
 		expect(listed).toEqual(transport.ids());
 	});
 
+	it("lets other work run between the batches it lists", async () => {
+		const transport = folderTransport(dir);
+		for (let n = 0; n < 600; n++) transport.send(draft({ text: `${n}` }));
+		let turns = 0;
+		let listing = true;
+		const turn = (): void => {
+			turns += 1;
+			if (listing) setImmediate(turn);
+		};
+		setImmediate(turn);
+
+		const listed = await transport.listIds();
+		listing = false;
+
+		expect(listed).toHaveLength(600);
+		expect(turns, "other work ran between batches").toBeGreaterThan(1);
+	});
+
 	it("remembers the furthest a peer has read, under any of its addresses", () => {
 		const transport = folderTransport(dir);
 		transport.markRead("7M6JKG", "200-A-1");
