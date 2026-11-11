@@ -14,6 +14,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	clearRefusedWake,
+	writeRefusedWake,
+} from "../../../lib/internal/session/refused-wake.ts";
 import { localPeer, STEP_MS } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
@@ -167,6 +171,38 @@ describe("presences", () => {
 		rmSync(path);
 		expect(presences.all(), "a removed file is gone").toEqual([]);
 		expect(presences.of("s-1")).toBeUndefined();
+	});
+
+	it("say why a parked peer's host refused its last wake, reading it again only once it changed", () => {
+		const presences = createPresences(root);
+		const wake = join(root, "a", "wake");
+		mkdirSync(dirname(wake), { recursive: true });
+		const parked = presence({ state: "parked", wake });
+		expect(presences.refusal(parked), "none kept").toBeUndefined();
+
+		const refused = {
+			messageId: "2f95756a",
+			reason: "the host is stopping",
+			at: "2026-11-11T14:00:00.000Z",
+		};
+		writeRefusedWake(wake, refused);
+		const first = presences.refusal(parked);
+		expect(first, "the kept refusal").toEqual(refused);
+		expect(
+			presences.refusal(parked),
+			"an unchanged file is not read again",
+		).toBe(first);
+		expect(
+			presences.refusal(presence({ state: "listening", wake })),
+			"none for a peer no longer parked",
+		).toBeUndefined();
+
+		writeRefusedWake(wake, { ...refused, reason: "the gate said no" });
+		expect(presences.refusal(parked)?.reason, "a new refusal is read").toBe(
+			"the gate said no",
+		);
+		clearRefusedWake(wake);
+		expect(presences.refusal(parked), "gone once cleared").toBeUndefined();
 	});
 });
 

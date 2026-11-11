@@ -787,14 +787,15 @@ export async function createEngine(
 				manager,
 				launch ?? {},
 			);
-			// Only once it runs: a wake that failed leaves its wake file watched.
+			// Only once it runs: a wake that failed leaves its wake file watched,
+			// and one refused as it began says nothing true now.
 			parked.unwatch(sessionId);
 		},
 
 		parkSettled: (sessionId) => parked.settled(sessionId),
 
 		async dropped(sessionId, why) {
-			parked.unwatch(sessionId);
+			parked.closed(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},
 

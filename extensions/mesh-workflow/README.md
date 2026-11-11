@@ -99,7 +99,11 @@ and can answer a question or a gate left open on screen.
   message that would give it a turn wakes it through its
   holder. Its presence names that holder's `wake` file, so
   a mycelium node steering it can wake it with no live
-  session on the machine.
+  session on the machine. A pi host that refused its last
+  wake keeps why beside that file until it next starts, and
+  mesh_send, mesh_groups and the unanswered list say so
+  ([`refusals.ts`](refusals.ts)), reading it again only once
+  it changes.
 - **Want:** what a peer waits on its person for: a question
   it asked, an approval it is held at, an unattended run
   that ended blocked, or something only they can do, said

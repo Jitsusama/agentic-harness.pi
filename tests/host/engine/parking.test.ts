@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PARKED, parking } from "../../../host/engine/parking.ts";
+import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
+import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { until } from "../../support/until.ts";
+
+/** How long a refusal may take to be kept, inside the case's own 5 s, so a red names this wait. */
+const KEPT_WITHIN_MS = 2000;
 
 let dir: string;
 beforeEach(async () => {
@@ -31,6 +36,49 @@ function held(asking: (sessionId: string) => Promise<void>) {
 		report,
 	});
 	return { parked, stop, report, letStop: () => stopped?.() };
+}
+
+/**
+ * Park `a` in parking whose wakes are refused as a stopping host's are,
+ * then wake it as the mesh does, through the wake file its marker names,
+ * answering that file once the refusal is kept beside it.
+ */
+async function refusedOnce(): Promise<{
+	parked: ReturnType<typeof held>["parked"];
+	wake: string;
+}> {
+	const { parked, letStop } = held(() =>
+		Promise.reject(new Error("the host is stopping")),
+	);
+	const parking = parked.park("a");
+	letStop();
+	await parking;
+	const wake = parked.wakeFile("a");
+	wakeAsTheMeshDoes(wake);
+	await until(
+		"the refused wake to be kept",
+		() => readRefusedWake(wake) !== undefined,
+		KEPT_WITHIN_MS,
+	);
+	return { parked, wake };
+}
+
+/** Wake `a` as a mesh sender does: through the wake file its park marker names. */
+function wakeAsTheMeshDoes(wake: string): void {
+	const parks = join(dir, "parks");
+	writeParked(
+		{
+			session: "a",
+			sessionFile: join(dir, "a.jsonl"),
+			cwd: dir,
+			addresses: ["A1B2C3"],
+			parkedAt: new Date().toISOString(),
+			pid: process.pid,
+			wake,
+		},
+		parks,
+	);
+	expect(askWake("a", "2f95756a", parks), "the sender asked").toBe(true);
 }
 
 describe("parking a conversation", () => {
@@ -89,5 +137,92 @@ describe("parking a conversation", () => {
 		await until("the wake file to wake it", () => asking.mock.calls.length > 0);
 		expect(asking, "it was woken").toHaveBeenCalledWith("a");
 		parked.unwatch("a");
+	});
+
+	it("keeps a refused wake's message and why beside its wake file, until it runs", async () => {
+		const { parked, wake } = await refusedOnce();
+
+		expect(readRefusedWake(wake), "what asked, and why not").toMatchObject({
+			messageId: "2f95756a",
+			reason: "the host is stopping",
+		});
+		parked.running("a");
+		expect(readRefusedWake(wake), "gone once it runs").toBeUndefined();
+		parked.unwatch("a");
+	});
+
+	it("forgets a refused wake once the conversation is closed", async () => {
+		const { parked, wake } = await refusedOnce();
+
+		parked.closed("a");
+
+		expect(
+			readRefusedWake(wake),
+			"no refusal outlives the conversation's close",
+		).toBeUndefined();
+	});
+
+	it("keeps no refusal that settles after the conversation is closed", async () => {
+		let refuse: ((error: Error) => void) | undefined;
+		const asking = vi.fn(
+			() =>
+				new Promise<void>((_, reject) => {
+					refuse = reject;
+				}),
+		);
+		const { parked, report, letStop } = held(asking);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		const wake = parked.wakeFile("a");
+		wakeAsTheMeshDoes(wake);
+		await until("the wake to be asked", () => asking.mock.calls.length > 0);
+
+		parked.closed("a");
+		refuse?.(new Error("the host is stopping"));
+		await until(
+			"the refusal to be reported",
+			() => report.mock.calls.length > 0,
+		);
+		// The refusal is kept, or not, in the turn after it is reported.
+		await new Promise(setImmediate);
+
+		expect(
+			readRefusedWake(wake),
+			"a refusal settling after the close is not kept",
+		).toBeUndefined();
+	});
+
+	it("keeps no refusal that settles as the conversation starts again", async () => {
+		let refuse: ((error: Error) => void) | undefined;
+		const asking = vi.fn(
+			() =>
+				new Promise<void>((_, reject) => {
+					refuse = reject;
+				}),
+		);
+		const { parked, report, letStop } = held(asking);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		const wake = parked.wakeFile("a");
+		wakeAsTheMeshDoes(wake);
+		await until("the wake to be asked", () => asking.mock.calls.length > 0);
+
+		// The engine says it runs as it begins, and unwatches once begun.
+		parked.running("a");
+		refuse?.(new Error("the host is stopping"));
+		await until(
+			"the refusal to be reported",
+			() => report.mock.calls.length > 0,
+		);
+		// The refusal is kept, or not, in the turn after it is reported.
+		await new Promise(setImmediate);
+		parked.unwatch("a");
+
+		expect(
+			readRefusedWake(wake),
+			"a refusal settling as it starts is not kept once it runs",
+		).toBeUndefined();
 	});
 });

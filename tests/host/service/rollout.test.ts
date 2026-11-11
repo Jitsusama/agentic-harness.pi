@@ -193,6 +193,26 @@ describe("refusalText", () => {
 		expect(text).toContain("pid 5: its file names no root");
 		expect(text).toContain("Reload or end them");
 	});
+
+	it("says a wake it refused passes once they reload or end, with nothing for its sender to do", async () => {
+		await says(2, { root: OLD });
+		const gate = rolloutGate({
+			loadedDir: loaded,
+			self: SELF,
+			facts: facts([2], { [OLD]: false }),
+		});
+
+		const refused = await gate("wake").then(
+			() => "admitted",
+			(error: unknown) => String(error),
+		);
+
+		expect(refused).toContain(`pid 2 (${OLD}): before the census change`);
+		expect(refused).toContain(
+			"It stays parked, keeping what was sent to it, and the next message or key wakes it once they reload or end.",
+		);
+		expect(refused, "no open's advice").not.toContain("Reload or end them");
+	});
 });
 
 describe("hostRolloutGate", () => {

@@ -194,7 +194,7 @@ export function hostBackend(options: {
 				beginning > 0;
 			beginning += 1;
 			try {
-				if (another) await options.admitAnother?.();
+				if (another) await options.admitAnother?.("wake");
 				await engine.resume(entry, true);
 			} finally {
 				beginning -= 1;
