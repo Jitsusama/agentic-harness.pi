@@ -22,6 +22,7 @@ const MODAL_SELECTOR =
 
 import { pageCall, pageScript } from "../page-script.ts";
 import { DEEP_DOM } from "../snapshot/deep.ts";
+import { PRESENTED } from "../snapshot/presented.ts";
 
 /**
  * What to call a focus stop, shared by both halves of the walk.
@@ -53,7 +54,10 @@ const NAMING = pageScript(new URL("./naming.page.js", import.meta.url));
  */
 export const WALK_COLLECT = pageCall(
 	new URL("./walk-collect.page.js", import.meta.url),
-	{ helpers: [DEEP_DOM, NAMING], values: { modalSelector: MODAL_SELECTOR } },
+	{
+		helpers: [DEEP_DOM, NAMING, PRESENTED],
+		values: { modalSelector: MODAL_SELECTOR },
+	},
 );
 
 /**
