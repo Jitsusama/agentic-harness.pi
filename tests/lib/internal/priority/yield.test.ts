@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -23,6 +22,7 @@ import {
 	YIELD_FILE,
 	YIELD_WEIGHT,
 } from "../../../../lib/internal/priority/yield.ts";
+import { until } from "../../../support/until.ts";
 
 let dir: string;
 
@@ -266,15 +266,15 @@ describe("the build slice's weight", () => {
 		const bin = join(dir, "bin");
 		mkdirSync(bin);
 		const go = join(dir, "go");
-		execFileSync("mkfifo", [go]);
 		writeFileSync(
 			join(bin, "systemctl"),
-			`#!/bin/sh\necho "$@" > '${join(dir, "asked")}'\nread said < '${go}'\n`,
+			`#!/bin/sh\necho "$@" > '${join(dir, "asked")}'\nmkfifo '${go}'\nread said < '${go}'\n`,
 		);
 		chmodSync(join(bin, "systemctl"), 0o755);
 		process.env.PATH = `${bin}:${path ?? ""}`;
 
 		const set = systemBuildSlice(join(dir, "cg")).setWeight(YIELD_WEIGHT);
+		await until("systemctl waits to be told", () => existsSync(go));
 		await writeFile(go, "go\n");
 
 		expect(await set, "systemctl said it set the weight").toBe(true);
