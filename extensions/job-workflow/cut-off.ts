@@ -13,7 +13,10 @@
  * still under way then was cut off; a run the person stopped with
  * Escape has settled long before. When a signal ends the session with
  * a run or a job under way, an entry records it, and the restored
- * session is told where it stopped until a prompt takes it up. A
+ * session is told where it stopped until a prompt takes it up. An
+ * uncaught error ends pi with no signal, so the same entry is left as
+ * it dies (`lib/internal/session/crash-record.ts`); on 11 November five
+ * lanes waiting on jobs died so and came back idle for two hours. A
  * session killed outright writes nothing, so a log that stops mid-run,
  * on a tool call or its result, is read the same way.
  */
@@ -132,7 +135,7 @@ export function resumeText(cut: CutOff, time: (at: number) => string): string {
 						", ",
 					)}. Anything they started outside this machine, such as cloud VMs, may still be running.`
 			: "";
-	return `${what}${died} Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first.`;
+	return `${what}${died} Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first. If an orchestrator gave you this work, tell it once, by mesh, that you came back and what you carry on with.`;
 }
 
 /** Where signals are heard: the process, or a stand-in under test. */

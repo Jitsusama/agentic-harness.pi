@@ -209,17 +209,25 @@ session from the person ending it. When one ends the session with a
 run or a running job under way, a `job-session-cut-off` entry records
 which, and when the session is next started or resumed it is given a
 turn of its own: when it ended, whether mid-run, and which jobs died
-and will never report. A session killed outright writes nothing, so a
-log that stops on a tool call or its result is read the same way. A
-prompt after the record, the person's or that turn's, takes it up, so
-the turn comes once.
+and will never report. An uncaught error ends pi with no signal, so
+the record is left as it dies too, through the crash record's slot
+(`lib/internal/session/crash-record.ts`). A session killed outright
+writes nothing, so a log that stops on a tool call or its result is
+read the same way. A prompt after the record, the person's or that
+turn's, takes it up, so the turn comes once. The turn asks the session
+to tell its orchestrator, once, that it came back and what it carries
+on with.
 
 - A run stopped with Escape has settled before the session ends, so
   it is never read as cut off.
 - A log from before this ran can't tell a signal's abort from Escape,
   so it gets no turn.
 - A session killed outright while idle and waiting on a job is missed:
-  its log ends where a finished run's would.
+  its log ends where a finished run's would. One that an uncaught
+  error ends is not: on 11 November five lanes waiting on jobs died so
+  and sat idle for two hours before this.
+- In a host no conversation hears an uncaught error: the host listens
+  for the process itself.
 - Closing a terminal mid-run sends SIGHUP, so that session too is given
   a turn when it is reopened.
 - In a multi-session host a signal reaches the process, so every
