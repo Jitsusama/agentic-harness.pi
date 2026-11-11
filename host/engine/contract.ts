@@ -80,6 +80,15 @@ export interface EngineScreens {
 	 * goes.
 	 */
 	closed(sessionId: string): void | Promise<void>;
+	/**
+	 * Reload an idle conversation's extensions as its screen's pi does at
+	 * /reload: what the old load put on the screen goes before pi
+	 * invalidates that load, and the new load's keys, commands and theme
+	 * are bound. pi says a failure on the screen rather than to its caller.
+	 * None leaves the engine to reload the session itself, as for screens
+	 * that draw nothing of the extensions'.
+	 */
+	reload?(sessionId: string): Promise<void>;
 }
 
 /** What a screen may tell the engine of a conversation it shows. */

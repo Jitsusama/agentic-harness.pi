@@ -25,7 +25,13 @@
  * and writes its answer to `gated`, a `/tabs` command that raises its
  * tabbed gate the same way, a `/view` command that shows one of the
  * harness's views over more rows than any screen, and a `/theme` command
- * that switches pi's one theme, as /settings does. A stand-in `wl-paste`
+ * that switches pi's one theme, as /settings does. A `/footer` command
+ * draws a footer naming the load that drew it and the conversation's
+ * folder, read as it draws; once asked for, each later load of that
+ * conversation takes a while to start, asking for a frame first, as a
+ * harness's many extensions do, then draws its own. A `/host-reload`
+ * command asks the host to reload the conversation, as the harness's
+ * follower does once its install moves. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -53,6 +59,8 @@ interface Compat {
 		readonly api: string;
 		setResponses(responses: readonly unknown[]): void;
 	};
+	getApiProvider(api: string): object | undefined;
+	registerApiProvider(provider: object): void;
 	fauxAssistantMessage(content: unknown, options?: object): unknown;
 	fauxToolCall(name: string, args: object, options: { id: string }): unknown;
 	fauxText(text: string): unknown;
@@ -120,6 +128,16 @@ const compat = piModule<Compat>(
 );
 const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
 faux.setResponses(Array.from({ length: ANSWERS }, () => answer));
+// pi's reload clears every provider registered in the process, as it does
+// before an extension's provider comes back with its new load; the agent
+// folder's footer extension brings this one back the same way.
+const scripted = compat.getApiProvider(faux.api);
+(globalThis as Record<symbol, unknown>)[
+	Symbol.for("screen-host.faux.restore")
+] = () => {
+	if (scripted && !compat.getApiProvider(faux.api))
+		compat.registerApiProvider(scripted);
+};
 writeAgentFolder(faux.api);
 const clipboard = writeClipboard();
 // What the host unit gives the host: the session's Wayland display beside
@@ -280,7 +298,9 @@ function writeClipboard(): string {
  * `tall`, a `/tabs` command raising its `showTabbedPrompt` over two items and
  * keeping its answer there too, a `/view` command showing this checkout's `view` over 200 numbered
  * rows, a `/theme` command switching pi's theme by name and saying which,
- * and this checkout's panel-lifecycle and panel-zoom extensions.
+ * a `/footer` naming its load with a `/host-reload` command reloading it
+ * through the host, and this checkout's panel-lifecycle and panel-zoom
+ * extensions.
  */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -406,6 +426,44 @@ export default function (pi) {
 		handler: async (name, ctx) => {
 			const result = ctx.ui.setTheme(name.trim());
 			ctx.ui.notify(result.success ? "Theme is now " + name.trim() : "No theme " + name.trim() + ": " + result.error, "info");
+		},
+	});
+}
+`,
+	);
+	writeFileSync(
+		join(agentDir, "extensions", "footer.ts"),
+		`import { hosted, sessionKeyOf } from ${JSON.stringify(join(harness, "lib/core/session/index.ts"))};
+const LOADS = Symbol.for("screen-host.footer.loads");
+const WANTED = Symbol.for("screen-host.footer.wanted");
+const wanted = (globalThis[WANTED] ??= new Set());
+export default function (pi) {
+	globalThis[Symbol.for("screen-host.faux.restore")]?.();
+	const load = (globalThis[LOADS] = (globalThis[LOADS] ?? 0) + 1);
+	const draw = (ctx) =>
+		ctx.ui.setFooter(() => ({
+			invalidate() {},
+			render: () => ["footer of load " + load + " in " + ctx.cwd],
+		}));
+	pi.on("session_start", async (_event, ctx) => {
+		if (!wanted.has(ctx.sessionManager.getSessionId())) return;
+		ctx.ui.setStatus("footer", "load " + load + " starting");
+		// Stands in for a load's slow start, during which the screen draws the frame just asked for.
+		await new Promise((started) => setTimeout(started, 300));
+		draw(ctx);
+	});
+	pi.registerCommand("footer", {
+		description: "Draw a footer naming its load, now and after each reload",
+		handler: async (_args, ctx) => {
+			wanted.add(ctx.sessionManager.getSessionId());
+			draw(ctx);
+		},
+	});
+	pi.registerCommand("host-reload", {
+		description: "Ask the host to reload this conversation, as the follower does",
+		handler: async (_args, ctx) => {
+			// Not awaited: the host waits for the conversation to be idle, which this command holds it from.
+			void hosted()?.reload?.(sessionKeyOf(ctx), { reason: "the proof" });
 		},
 	});
 }

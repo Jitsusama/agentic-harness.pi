@@ -653,11 +653,23 @@ export async function createEngine(
 		}
 	}
 
-	/** Load a conversation's extensions again once its run is done, as pi's /reload does. */
+	/**
+	 * Load a conversation's extensions again once its run is done, as pi's
+	 * /reload does. A screen reloads it through its own pi's /reload, since
+	 * reloading the session under the screen would leave the old load's
+	 * footer and widgets drawing on a load that throws at every read.
+	 */
 	async function reload(record: Live): Promise<void> {
-		const session = view(record.traits.sessionId, record).runtime.session;
+		const { sessionId } = record.traits;
+		const session = view(sessionId, record).runtime.session;
 		await session.waitForIdle();
-		await session.reload();
+		const screens = options.screens;
+		if (!screens?.reload) return session.reload();
+		const before = session.extensionRunner;
+		await screens.reload(sessionId);
+		// pi's /reload says its failure on the screen, not to its caller; a load whose runner pi never replaced did not reload.
+		if (session.extensionRunner === before)
+			throw new Error("pi's reload failed, as the conversation's screen says");
 	}
 
 	return {
