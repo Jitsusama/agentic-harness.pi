@@ -27,17 +27,18 @@ export type AsideContext = Pick<ExtensionContext, "hasUI" | "ui">;
 /** An aside for this session, said through its screen when it has one. */
 export function asideFor(ctx: AsideContext): Aside {
 	return (text, level = "warning") => {
-		if (!ctx.hasUI) {
-			process.stderr.write(`${text}\n`);
-			return;
-		}
+		let screen: boolean;
 		try {
-			ctx.ui.notify(text, level);
+			// A replaced session's context refuses even this question.
+			screen = ctx.hasUI;
+			if (screen) ctx.ui.notify(text, level);
 		} catch {
 			// The session that started this has been replaced, by a reload
 			// or a new session, and its screen went with it. Writing to the
 			// terminal instead would break the screen that replaced it, and
 			// the housekeeping that had this to say runs again there.
+			return;
 		}
+		if (!screen) process.stderr.write(`${text}\n`);
 	};
 }

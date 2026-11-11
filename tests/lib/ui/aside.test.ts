@@ -57,6 +57,26 @@ describe("an aside", () => {
 		expect(() => say("a sweep could not run")).not.toThrow();
 		expect(written).not.toHaveBeenCalled();
 	});
+
+	it("says nothing when its replaced context won't say whether there is a screen", () => {
+		const written = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const stale = {
+			get hasUI(): boolean {
+				throw new Error("this context is stale");
+			},
+		};
+		const say = asideFor(stale as never);
+		expect(
+			() => say("a sweep could not run"),
+			"an aside from a replaced session must not throw",
+		).not.toThrow();
+		expect(
+			written,
+			"an aside from a replaced session must not write behind pi",
+		).not.toHaveBeenCalled();
+	});
 });
 
 describe("the harness", () => {
