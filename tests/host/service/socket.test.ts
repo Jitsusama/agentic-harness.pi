@@ -401,6 +401,37 @@ describe("viewer connection lifecycle", () => {
 		viewing.destroy();
 		asking.destroy();
 	});
+	it("takes no new connection once it says it is restarting, so a viewer joining again waits for the next host", async () => {
+		await start({
+			attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
+		});
+		const viewing = createConnection(path);
+		const seen = readMessages(viewing);
+		viewing.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		expect((await seen.next()).value).toMatchObject({ ok: true });
+
+		const told = listener?.restarting();
+		expect((await seen.next()).value).toEqual({ type: "restarting" });
+		const late = await new Promise<string>((resolve) => {
+			const again = createConnection(path);
+			again.once("error", (error: NodeJS.ErrnoException) =>
+				resolve(error.code ?? String(error)),
+			);
+			again.once("connect", () => {
+				again.destroy();
+				resolve("connected");
+			});
+		});
+
+		expect(
+			["ECONNREFUSED", "ENOENT"],
+			"a client retries a refused or missing socket, and ends at a reset",
+		).toContain(late);
+		await told;
+		viewing.destroy();
+	});
 	it("refuses unsupported attach without calling the engine", async () => {
 		await start();
 		const socket = createConnection(path);
