@@ -9,10 +9,10 @@
  * of what it holds (`hosts/<pid>-<start>.json`, see
  * lib/core/session/registry.ts), and a list whose process still runs,
  * judged by its start ticks so a reused pid never counts, holds what it
- * names. A list left by a host that died holds nothing, so a crashed
- * host never keeps a conversation from plain pi. A move to pi waits for
- * the host's list to drop the conversation before plain pi starts
- * (move.ts), so a move is never refused.
+ * names. A list left by a host that died holds nothing here; what that
+ * host keeps for its next start is on its roster, which writer-hold.ts
+ * reads beside this, since a host takes up everything on its roster as
+ * it starts and would become the second writer itself.
  */
 
 import { hostRegistries } from "../../core/session/registry.ts";
@@ -62,12 +62,17 @@ export async function liveHolder(
 	return undefined;
 }
 
-/** What a refused pi says, naming who holds the conversation. */
-export function heldElsewhere(sessionId: string, holder: Holder): string {
-	return (
-		`Conversation ${sessionId} is open in the ${holder.key} host ` +
-		`(pid ${holder.pid}), so plain pi won't open it as a second writer ` +
-		"on its log. Reach it through that host, or move it to pi first. " +
-		"Nothing was written."
-	);
+/** Whether a host going by `key` runs now, judged as liveHolder judges one. */
+export async function hostRunning(
+	key: string,
+	looking: Looking = {},
+): Promise<boolean> {
+	const standing = looking.standing ?? ((owner) => tickedStanding(owner));
+	const lists = looking.dir ? hostRegistries(looking.dir) : hostRegistries();
+	for (const list of lists) {
+		if (list.key !== key) continue;
+		const { session: _session, ...hostProcess } = list.owner;
+		if ((await standing(hostProcess)) === "running") return true;
+	}
+	return false;
 }

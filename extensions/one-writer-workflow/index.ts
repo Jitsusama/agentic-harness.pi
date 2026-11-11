@@ -1,13 +1,13 @@
 /**
- * One Writer Workflow: a plain pi refuses a conversation a live host
- * holds, so no log ever has two writers.
+ * One Writer Workflow: a plain pi refuses a conversation a host holds,
+ * open now or kept for its next start, so no log ever has two writers.
  *
  * At each session start in plain pi, the conversation is looked up in
- * the lists the machine's hosts keep (lib/internal/session/one-writer.ts).
- * Held by one still running, the pi says which host holds it, takes no
- * prompt, and ends with HELD_ELSEWHERE_EXIT. A hosted conversation is
- * its host's own, and a session with no log has none to share, so
- * neither is looked up.
+ * the lists and rosters the machine's hosts keep
+ * (lib/internal/session/writer-hold.ts). Held by one, the pi says which
+ * host holds it and how to reach it there, takes no prompt, and ends
+ * with HELD_ELSEWHERE_EXIT. A hosted conversation is its host's own, and
+ * a session with no log has none to share, so neither is looked up.
  */
 
 import type {
@@ -15,25 +15,25 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
+import { heldByHost } from "../../lib/internal/session/host-holds.ts";
+import { HELD_ELSEWHERE_EXIT } from "../../lib/internal/session/one-writer.ts";
 import {
-	HELD_ELSEWHERE_EXIT,
-	heldElsewhere,
-	type Looking,
-	liveHolder,
-} from "../../lib/internal/session/one-writer.ts";
+	type WriterLooking,
+	writerHold,
+} from "../../lib/internal/session/writer-hold.ts";
 
 /** The extension, looking where `looking` says; the machine's unless a test sets it. */
-export function oneWriterWorkflow(looking: Looking = {}) {
+export function oneWriterWorkflow(looking: WriterLooking = {}) {
 	return (pi: ExtensionAPI) => {
 		// Set once this pi refused its conversation; nothing is taken after.
 		let refused = false;
 		pi.on("session_start", async (_event, ctx) => {
 			if (hosted() || ctx.sessionManager.getSessionFile() === undefined) return;
 			const sessionId = ctx.sessionManager.getSessionId();
-			const holder = await liveHolder(sessionId, looking);
-			if (!holder) return;
+			const hold = await writerHold(sessionId, looking);
+			if (!hold) return;
 			refused = true;
-			refuse(ctx, heldElsewhere(sessionId, holder));
+			refuse(ctx, heldByHost(sessionId, hold));
 		});
 		// A prompt given on the command line, or typed before the end lands.
 		pi.on("input", () =>
