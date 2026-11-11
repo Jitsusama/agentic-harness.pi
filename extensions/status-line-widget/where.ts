@@ -63,10 +63,7 @@ export const DEFAULT_WHERE: Where = {
  * before when it no longer reads, so a switch that names a new engine
  * reaches pis already running while a file being rewritten loses none.
  */
-export function engineNamed(
-	before: string,
-	file = whereFile(),
-): () => string {
+export function engineNamed(before: string, file = whereFile()): () => string {
 	let last = before;
 	return () => {
 		const named = readWhere(file).engine;
