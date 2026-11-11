@@ -10,8 +10,10 @@ hosted-agent.test.ts and engine.test.ts are the exceptions. The first runs
 fixtures/hosted-session.mts in child node processes, beside pi's own agent,
 on pi's scripted provider. The second runs fixtures/hosted-engine.mts, a
 host's life one start at a time in a sealed folder: open, a refused key,
-a stop and resume, a kill mid-tool and the start after it, and ordinary
-pi reading the file. One step loads this package as a conversation's
+a stop and resume, a kill mid-tool and the start after it, ordinary
+pi reading the file, and an extension whose link moves onto another
+copy once its first is deleted, as a switch and a store collection
+leave Shopify's proxy. One step loads this package as a conversation's
 settings would: its tool list, deferred tools and pi's built-ins
 included, and what its screen is handed to show at startup must equal a
 plain pi's on the same folder. Both need a pi built with the host's

@@ -117,6 +117,10 @@ interface Seen {
 	readonly screenFailures?: readonly { lost: boolean; message: string }[];
 	/** Each load of a project folder's own extension. */
 	readonly projectLoads?: readonly { loaded: string }[];
+	/** Which copy of a linked extension each load ran, once its link moved. */
+	readonly linked?: readonly { copy: string }[];
+	/** What the first conversation's extensions failed with once it reloaded. */
+	readonly afterReload?: readonly string[];
 	readonly listeners: {
 		readonly atStart: Readonly<Record<string, number>>;
 		readonly atEnd: Readonly<Record<string, number>>;
@@ -583,6 +587,26 @@ describe("the host's engine", () => {
 					launch_mode: "restore",
 				}),
 			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"loads a linked extension through where its link now points, once the copy it first loaded is gone",
+		async () => {
+			const seen = await step(hostFolder(), "extension-moved");
+			expect(
+				seen.afterReload,
+				"a reload loads the moved extension's helper beside its entry",
+			).toEqual([]);
+			expect(
+				seen.reported,
+				"the next conversation's build loads every extension",
+			).toEqual([]);
+			expect(
+				seen.linked,
+				"the first build ran the first copy, the reload and the next build the second",
+			).toEqual([{ copy: "first" }, { copy: "second" }, { copy: "second" }]);
 		},
 		HOST_LIFE_MS,
 	);
