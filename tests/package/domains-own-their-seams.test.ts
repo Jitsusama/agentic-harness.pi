@@ -103,6 +103,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"work:ready:v1",
 			"work:request:v1",
 			"work:tree-claims:v1",
+			"work:trees-swept:v1",
 		]);
 	});
 
