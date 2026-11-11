@@ -7,6 +7,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -614,6 +615,34 @@ describe("this session's peer", () => {
 				JSON.stringify({ quest: loaded }),
 			);
 		};
+
+		it("sees a parent start orchestrating, though its README kept its old times", () => {
+			// A README's parse is kept while the file is unchanged; one written
+			// again with its old modification time is still read afresh.
+			const long = new Date(Date.now() - 3_600_000);
+			const age = (id: string) =>
+				utimesSync(join(root, "quests", id, "README.md"), long, long);
+			write(
+				[
+					[MISSION, readme(MISSION, "null")],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			age(MISSION);
+			age(LOOP);
+			const peer = localPeer(surroundings());
+			expect(peer.orchestratedBy).toBeUndefined();
+
+			writeFileSync(
+				join(root, "quests", MISSION, "README.md"),
+				readme(MISSION, "null", true),
+			);
+			age(MISSION);
+			peer.refresh();
+
+			expect(peer.orchestratedBy).toBe("WCJQSG");
+		});
 
 		it("joins the orchestration's group and names its orchestrator, found up the tree", () => {
 			write(
