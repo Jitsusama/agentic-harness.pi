@@ -157,6 +157,9 @@ export async function startHostProgram(
 			return engine;
 		},
 		viewer: () => screens.viewer,
+		// One conversation's throw ends only it, never the host's other conversations.
+		faults: process,
+		contain: (sessionId, error) => screens.faulted(sessionId, error),
 	});
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.

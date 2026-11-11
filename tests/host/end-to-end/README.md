@@ -52,6 +52,13 @@ holds an answer named "hold until <file>" until the turn is stopped or
 the file appears in HOME, so a case can act during a run. Run it as
 screens.test.ts is run, naming it instead.
 
+screen-faults.test.ts gives one of two conversations on that host a
+footer that throws on every frame, as a stale extension's once did,
+ending every conversation in its host. The throw stays in its own
+conversation: its extensions' screen comes down, then a second throw
+closes it, while the other conversation answers throughout. Run it as
+screens.test.ts is run, naming it instead.
+
 attach-client.test.ts runs mycelium's own attach client in a real
 terminal against the same sealed host: an interactive bash under
 script(1)'s pseudo-terminal, which joins a conversation as the

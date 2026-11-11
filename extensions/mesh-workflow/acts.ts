@@ -46,6 +46,7 @@ export function createActs<T>(
 ): Acts<T> {
 	let waiting: T[] = [];
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let stopped = false;
 	const wait = settling.settleMs + spreadOf(session, settling.spreadMs);
 	const cancel = () => {
 		if (timer !== undefined) clearTimeout(timer);
@@ -59,6 +60,10 @@ export function createActs<T>(
 	};
 	return {
 		add(item) {
+			// A look still in flight when its session ended adds what it found;
+			// acted on, it would reach a context already gone, and a throw from
+			// a timer ends the process (6YZSML, 11 November).
+			if (stopped) return;
 			waiting = [...waiting, item];
 			if (timer !== undefined) return;
 			timer = setTimeout(() => {
@@ -76,6 +81,7 @@ export function createActs<T>(
 		},
 		pending: () => waiting.length > 0,
 		stop() {
+			stopped = true;
 			take();
 		},
 	};

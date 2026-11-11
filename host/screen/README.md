@@ -30,6 +30,16 @@ invalidates the load. Reloading the session under the screen left them
 drawing on that load, whose every read throws, and one such render took
 the host down on 11 November.
 
+What a screen throws where nothing catches it, from a frame, a key, a
+resize or a timer of its own, ends at its conversation, never the
+host's process. The ViewerTerminal hands each such throw to its screen
+(`whenFaulted`), and the host's uncaught-exception backstop hands one
+it can tie to a conversation to `faulted`. A first throw takes down the
+extensions' footer, widgets and panels, as pi's own `/reload` does
+before it reloads, and says so on the screen; a second closes that
+conversation alone, keeping its log. Only the first two are reported.
+A closed screen still contains what its leftover timers throw.
+
 `hostedModeOf` takes the InteractiveMode class the host's pi exports and
 refuses one without core.nix's `pi-host-interactive-lifecycle.patch`,
 whose screens would own the host's process exit and signals.

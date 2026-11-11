@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { machineFacts } from "../../../host/cutover/machine.ts";
+import type { MoveNote } from "../../../lib/internal/session/move.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
 const presence = (over: Partial<Presence> = {}): Presence => ({
@@ -15,6 +16,64 @@ const presence = (over: Partial<Presence> = {}): Presence => ({
 	state: "listening",
 	at: "2026-11-10T09:00:00.000Z",
 	...over,
+});
+
+const HOPPING = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
+
+/** A host's roster folder, keeping `sessions` for the background host. */
+function rosters(sessions: string[]): string {
+	const folder = mkdtempSync(join(tmpdir(), "cutover-rosters-"));
+	writeFileSync(
+		join(folder, "work-background.json"),
+		JSON.stringify({
+			v: 1,
+			key: "work-background",
+			sessions: sessions.map((sessionId) => ({
+				sessionId,
+				file: `/home/someone/.pi/sessions/${sessionId}.jsonl`,
+				cwd: "/home/someone/src/core.nix",
+				attended: false,
+				since: "2026-11-11T00:30:00.000Z",
+			})),
+		}),
+	);
+	return folder;
+}
+
+/** A note a conversation leaving the background host wrote, naming its pid. */
+const hop: MoveNote = {
+	session: HOPPING,
+	sessionFile: `/home/someone/.pi/sessions/${HOPPING}.jsonl`,
+	cwd: "/home/someone/src/core.nix",
+	to: "attended",
+	at: "2026-11-11T00:30:00.000Z",
+	addresses: ["HOPPER"],
+	from: "work-background",
+	pid: process.pid,
+};
+
+describe("machineFacts' running", () => {
+	const places = () => ({
+		realm: "work",
+		runtimeDir: mkdtempSync(join(tmpdir(), "cutover-run-")),
+		presence: mkdtempSync(join(tmpdir(), "cutover-presence-")),
+	});
+
+	it("says a conversation gone from the host it left, though that host still runs", async () => {
+		const facts = machineFacts({ ...places(), rosters: rosters([]) });
+		expect(
+			await facts.running(hop),
+			"the host's pid outlives it, so it isn't asked",
+		).toBe(false);
+	});
+
+	it("keeps a conversation the host it left still keeps, even while that host is down", async () => {
+		const facts = machineFacts({ ...places(), rosters: rosters([HOPPING]) });
+		expect(
+			await facts.running(hop),
+			"its host takes it up again as it starts",
+		).toBe(true);
+	});
 });
 
 /** A harness root, knowing the move or not. */

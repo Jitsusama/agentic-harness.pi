@@ -270,6 +270,30 @@ describe("hostBackend", () => {
 		expect(await heldSessionStatus(sessionId, { dir: rosters })).toBe("held");
 	});
 
+	it("keeps a hold whose start step can't be said, and resumes the rest", async () => {
+		const { fake } = engine();
+		const first = backendWith(fake);
+		const a = parseOpenResult(await first.execute(open)).sessionId;
+		const b = parseOpenResult(await first.execute(open)).sessionId;
+		for (const id of [a, b]) await host.stop(id);
+
+		const unheard = new Error("nobody to tell");
+		const restart = engine({ resume: vi.fn(async (entry) => register(entry)) });
+		expect(
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				starting: async ({ sessionId }) => {
+					if (sessionId === a) throw unheard;
+				},
+			}),
+		).toEqual({
+			resumed: [b],
+			unresumed: [{ sessionId: a, reason: unheard }],
+		});
+		expect(await heldSessionStatus(a, { dir: rosters })).toBe("held");
+	});
+
 	it("resumes every hold at start and lists one that would not resume as parked", async () => {
 		const { fake } = engine();
 		const first = backendWith(fake);

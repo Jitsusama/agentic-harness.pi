@@ -25,7 +25,9 @@
  * and writes its answer to `gated`, a `/tabs` command that raises its
  * tabbed gate the same way, a `/view` command that shows one of the
  * harness's views over more rows than any screen, and a `/theme` command
- * that switches pi's one theme, as /settings does. A `/footer` command
+ * that switches pi's one theme, as /settings does. A `/throw` command
+ * sets a footer whose every frame throws, as a stale extension's did. A
+ * `/footer` command
  * draws a footer naming the load that drew it and the conversation's
  * folder, read as it draws; once asked for, each later load of that
  * conversation takes a while to start, asking for a frame first, as a
@@ -309,7 +311,8 @@ function writeClipboard(): string {
  * keeping its answer there too, a `/view` command showing this checkout's `view` over 200 numbered
  * rows, a `/theme` command switching pi's theme by name and saying which,
  * a `/footer` naming its load with a `/host-reload` command reloading it
- * through the host, and this checkout's panel-lifecycle and panel-zoom
+ * through the host, a `/throw` command setting a footer that throws on
+ * every frame, and this checkout's panel-lifecycle and panel-zoom
  * extensions.
  */
 function writeAgentFolder(api: string): void {
@@ -474,6 +477,23 @@ export default function (pi) {
 		handler: async (_args, ctx) => {
 			// Not awaited: the host waits for the conversation to be idle, which this command holds it from.
 			void hosted()?.reload?.(sessionKeyOf(ctx), { reason: "the proof" });
+		},
+	});
+}
+`,
+	);
+	writeFileSync(
+		join(agentDir, "extensions", "throw.ts"),
+		`export default function (pi) {
+	pi.registerCommand("throw", {
+		description: "Set a footer whose every frame throws, as a stale extension's did",
+		handler: async (_args, ctx) => {
+			ctx.ui.setFooter(() => ({
+				render() {
+					throw new Error("this footer's extension is stale");
+				},
+				invalidate() {},
+			}));
 		},
 	});
 }

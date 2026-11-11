@@ -147,16 +147,28 @@ export default function statusLine(pi: ExtensionAPI) {
 	// while the screen may draw this footer until the next session sets
 	// its own: so it draws its last line from then on, reading nothing.
 	let shut = false;
+	// A frame asked for once a change the usage put off falls due.
+	let due: ReturnType<typeof setTimeout> | null = null;
+	const drawWhenDue = (afterMs: number) => {
+		if (due !== null) clearTimeout(due);
+		due = setTimeout(() => {
+			due = null;
+			if (!shut) surface?.requestRender();
+		}, afterMs);
+		due.unref?.();
+	};
 	pi.on("session_shutdown", async () => {
 		shut = true;
 		surface = null;
+		if (due !== null) clearTimeout(due);
+		due = null;
 		engine?.stop();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		shut = false;
 		ask(ctx);
-		usage = usageReader(() => contextUsageOf(ctx));
+		usage = usageReader(() => contextUsageOf(ctx), Date.now, drawWhenDue);
 		const reader = usage;
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			surface = tui;

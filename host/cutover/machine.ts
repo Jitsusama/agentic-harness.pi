@@ -19,6 +19,7 @@ import {
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
+import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import {
 	type MoveNote,
 	moveFolder,
@@ -64,6 +65,8 @@ export interface CutoverPlaces {
 	readonly logs?: string;
 	readonly self?: string;
 	readonly ticks?: TickFacts;
+	/** The hosts' rosters, the realm's own unless a test says. */
+	readonly rosters?: string;
 }
 
 function messageOf(error: unknown): string {
@@ -204,6 +207,19 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 		notes: () => readMoveNotes(moves),
 		removeNote: (session) => removeMoveNote(session, moves),
 		running: async (note: MoveNote) => {
+			// A note from a host names that host's pid, which outlives the
+			// conversation: it has gone once the host neither lists it nor
+			// keeps it on its roster, which a host down still resumes.
+			if (note.from !== undefined) {
+				const listed = await listHeld(places.realm, places.runtimeDir);
+				if (
+					listed.some(
+						(one) => one.session === note.session && one.host === note.from,
+					)
+				)
+					return true;
+				return rosterHolds(places.rosters).get(note.session) === note.from;
+			}
 			const owner = presences.of(note.session)?.owner;
 			// Without its presence, the pid alone: a pid is seldom reused
 			// within the seconds between a note and its pi's end.
@@ -211,10 +227,11 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			return (await tickedStanding(owner, ticks)) !== "gone";
 		},
 		held: async () =>
-			new Set(
-				(await listHeld(places.realm, places.runtimeDir)).map(
-					(one) => one.session,
-				),
+			new Map(
+				(await listHeld(places.realm, places.runtimeDir)).map((one) => [
+					one.session,
+					one.host,
+				]),
 			),
 		adopt: async (note, to) => {
 			const key = hostKey(places.realm, to);

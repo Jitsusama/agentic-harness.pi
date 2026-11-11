@@ -107,6 +107,8 @@ export class ViewerTerminal implements Terminal {
 	private edits = 0;
 	/** Told each time pi says something waits on the person. */
 	private blocked: (() => void) | undefined;
+	/** Told what one of pi's callbacks threw, in place of the host's process. */
+	private faulted: ((error: unknown) => void) | undefined;
 
 	private currentSession: string;
 	private readonly repaint: () => void;
@@ -127,7 +129,7 @@ export class ViewerTerminal implements Terminal {
 	 */
 	rebind(sessionId: string): void {
 		this.currentSession = sessionId;
-		withSession(sessionId, () => this.repaint());
+		this.inConversation(() => this.repaint());
 	}
 
 	/** Bind pi's callbacks, always dispatching in this conversation. */
@@ -170,7 +172,7 @@ export class ViewerTerminal implements Terminal {
 			viewer.pendingBytes = 0;
 			if (!this.viewers.has(viewer)) return;
 			this.lastTyped = viewer;
-			withSession(this.sessionId, () => this.onInput?.(data));
+			this.inConversation(() => this.onInput?.(data));
 		};
 		viewer.stdin.on("data", deliver);
 		viewer.stdin.on("paste", (data) =>
@@ -339,7 +341,17 @@ export class ViewerTerminal implements Terminal {
 	 * A pi without the host's render scope never calls this.
 	 */
 	renderScope(draw: () => void): void {
-		withSession(this.currentSession, draw);
+		this.inConversation(draw);
+	}
+
+	/**
+	 * Call `listener` with whatever one of pi's frames, keys or resizes
+	 * throws on this terminal, rather than letting it escape to the host's
+	 * process, where it would end every conversation the host holds.
+	 * Undefined lets a throw go on up, as it does before any is set.
+	 */
+	whenFaulted(listener: ((error: unknown) => void) | undefined): void {
+		this.faulted = listener;
 	}
 
 	/**
@@ -358,6 +370,8 @@ export class ViewerTerminal implements Terminal {
 		this.onInput = undefined;
 		this.onResize = undefined;
 		this.blocked = undefined;
+		// The fault listener stays: pi's renderer may draw once more after a
+		// close, and that frame's throw is still this conversation's.
 		const viewers = [...this.viewers];
 		this.viewers.clear();
 		for (const viewer of viewers) {
@@ -384,7 +398,7 @@ export class ViewerTerminal implements Terminal {
 			this.disconnect(viewer, "Viewer output failed");
 			return;
 		}
-		withSession(this.sessionId, () => this.repaint());
+		this.inConversation(() => this.repaint());
 	}
 
 	private cancelEdit(viewer: JoinedViewer): void {
@@ -418,10 +432,22 @@ export class ViewerTerminal implements Terminal {
 				...[...this.viewers].map((viewer) => viewer.columns),
 			);
 		}
-		withSession(this.sessionId, () => {
+		this.inConversation(() => {
 			if (this.rows !== oldRows || this.columns !== oldColumns)
 				this.onResize?.();
 			this.repaint();
 		});
+	}
+
+	// Every one of pi's callbacks runs as this conversation, and what it
+	// throws goes to the fault listener when there is one.
+	private inConversation(call: () => void): void {
+		try {
+			withSession(this.currentSession, call);
+		} catch (error) {
+			const faulted = this.faulted;
+			if (!faulted) throw error;
+			withSession(this.currentSession, () => faulted(error));
+		}
 	}
 }
