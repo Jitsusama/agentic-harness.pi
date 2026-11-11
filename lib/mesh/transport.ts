@@ -14,9 +14,10 @@
  * watch missed, and a week of messages ran to 48,299 files on 11
  * November 2026, growing by nine thousand a day. So messages past their
  * first hours move into a folder for their day (`2026-11-11/`), which
- * the minute's look passes by and reads of an id still reach. Holds stay
- * where every peer lists them until they expire, since a peer on older
- * code looks only at the top.
+ * the minute's look passes by and reads of an id still reach. A hold
+ * stays where every reader lists it, with every answer to it, until its
+ * end is as old, since a peer on older code and readers outside the
+ * harness, such as merge-net, look only at the top.
  */
 
 import { randomBytes } from "node:crypto";
@@ -37,6 +38,7 @@ import { join } from "node:path";
 import { processGlobal } from "../internal/process-global.ts";
 import { clearWriting, writeWhole } from "../internal/write-whole.ts";
 import { type Draft, ENVELOPE, type Message, messageFrom } from "./message.ts";
+import { sentBy } from "./thread.ts";
 
 /** What the mesh needs of wherever messages travel. */
 export interface Transport {
@@ -68,7 +70,9 @@ export interface Transport {
 	watch(arrived: (id: string) => void): () => void;
 	/**
 	 * Move messages stamped before this time into their day's folder,
-	 * out of what every peer looks through each minute. Holds stay.
+	 * out of what every peer looks through each minute. A hold not yet
+	 * ended stays, and so does every answer to it; an ended one moves
+	 * with its end.
 	 */
 	settle(before: number): void;
 	/**
@@ -271,23 +275,116 @@ export function folderTransport(dir: string): Transport {
 }
 
 /**
- * Move each message stamped before this time, other than a hold, into
- * its day's folder. Two peers settling at once each move what the
- * other hasn't, since a file already moved won't rename again.
+ * Move each message stamped before this time into its day's folder,
+ * keeping a hold and its thread together where a reader outside the
+ * harness finds them. A hold stays at the top until its end is past
+ * this time too, and then moves with it; an answer to a hold that stays,
+ * stays beside it. Two peers settling at once each move what the other
+ * hasn't, since a file already moved won't rename again.
+ *
+ * On 11 November merge-net, which reads holds from the top alone, saw
+ * 16V6F4's ended Monday hold as standing for half an hour and started
+ * no runs, because the hold had stayed and its end had moved. So a hold
+ * whose end an older settle moved away is found ended among its
+ * holder's files in the day folders, and moves to join it.
  */
 function settleFolder(dir: string, before: number): void {
-	for (const id of idsIn(dir)) {
+	const old = new Map<string, Message>();
+	for (const id of idsIn(dir).sort()) {
 		const at = stampedAt(id);
-		const day = dayOf(id);
-		if (at === undefined || day === undefined || at >= before) continue;
-		const from = join(dir, `${id}.json`);
-		if (readMessage(from)?.intent === "hold") continue;
-		try {
-			mkdirSync(join(dir, day), { recursive: true });
-			renameSync(from, join(dir, day, `${id}.json`));
-		} catch {
-			// Moved already by another peer, or taken away: either way gone.
-		}
+		if (at === undefined || at >= before) continue;
+		const message = readMessage(join(dir, `${id}.json`));
+		if (message !== undefined) old.set(id, message);
+	}
+	const holds = [...old.values()].filter((one) => one.intent === "hold");
+	const ended = new Set(
+		[...old.values()].flatMap((one) =>
+			holds.filter((hold) => ends(one, hold)).map((hold) => hold.id),
+		),
+	);
+	const days = dayListings(dir);
+	for (const hold of holds) {
+		if (!ended.has(hold.id) && endedAway(hold, days)) ended.add(hold.id);
+	}
+	const standing = new Set(
+		holds.filter((hold) => !ended.has(hold.id)).map((hold) => hold.id),
+	);
+	for (const [id, message] of old) {
+		if (standing.has(id) || answersOneOf(message, standing)) continue;
+		moveToDay(dir, id);
+	}
+}
+
+/** Whether a message ends this hold: its holder answering or replacing it, or anyone on the person's word. */
+function ends(message: Message, hold: Message): boolean {
+	if (message.re !== hold.id && message.supersedes !== hold.id) return false;
+	return (
+		message.endsHold === true ||
+		sentBy(hold, {
+			addresses: [message.from],
+			pid: message.pid,
+			...(message.hosted ? { hosted: true } : {}),
+		})
+	);
+}
+
+/** Whether a message answers or replaces one of these. */
+function answersOneOf(message: Message, ids: ReadonlySet<string>): boolean {
+	return (
+		(message.re !== undefined && ids.has(message.re)) ||
+		(message.supersedes !== undefined && ids.has(message.supersedes))
+	);
+}
+
+/**
+ * Whether the holder's end of this hold already sits in a day folder.
+ * Only the holder's own files from the hold's day on are read, picked
+ * out by the sender each name carries, so a week of messages is listed
+ * but hardly read. An end on the person's word from another peer is
+ * not looked for: the hold then moves once that end is at the top.
+ */
+function endedAway(hold: Message, days: DayListings): boolean {
+	const since = dayOf(hold.id);
+	if (since === undefined) return false;
+	return days(since).some(({ day, ids }) =>
+		ids.some((id) => {
+			if (id <= hold.id || senderOf(id) !== hold.from) return false;
+			const message = readMessage(join(day, `${id}.json`));
+			return message !== undefined && ends(message, hold);
+		}),
+	);
+}
+
+/** Each day folder from a day on, with the ids it holds. */
+type DayListings = (first: string) => { day: string; ids: string[] }[];
+
+/** The day folders' ids, each folder listed once however many holds ask. */
+function dayListings(dir: string): DayListings {
+	const listed = new Map<string, string[]>();
+	return (first) =>
+		daysIn(dir)
+			.filter((name) => name >= first)
+			.sort()
+			.map((name) => {
+				const day = join(dir, name);
+				let ids = listed.get(name);
+				if (ids === undefined) {
+					ids = idsIn(day);
+					listed.set(name, ids);
+				}
+				return { day, ids };
+			});
+}
+
+/** Move one message into its day's folder. */
+function moveToDay(dir: string, id: string): void {
+	const day = dayOf(id);
+	if (day === undefined) return;
+	try {
+		mkdirSync(join(dir, day), { recursive: true });
+		renameSync(join(dir, `${id}.json`), join(dir, day, `${id}.json`));
+	} catch {
+		// Moved already by another peer, or taken away: either way gone.
 	}
 }
 
