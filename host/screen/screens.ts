@@ -11,7 +11,8 @@
  * terminal, which viewers can already join, and the screen takes it over.
  * A dialog pi opens before anyone could attach tells the engine, so the
  * open answers and a viewer can join to reply; what fails after that is
- * shown on the screen.
+ * shown on the screen. What one screen throws, from a frame, a key or a
+ * timer of its own, ends only its conversation, never the host's process.
  */
 
 import { withSession } from "../../lib/core/session/index.ts";
@@ -122,6 +123,11 @@ export interface HostScreens {
 	 * only then, since a restart loses each of those (restart.ts).
 	 */
 	resting(): boolean;
+	/**
+	 * Contain what `sessionId`'s conversation threw where nothing caught it,
+	 * saying whether it has a screen to contain it in.
+	 */
+	faulted(sessionId: string, error: unknown): boolean;
 }
 
 interface Screen {
@@ -133,7 +139,12 @@ interface Screen {
 	closing: boolean;
 	/** Set once pi's screen has started, and runs. */
 	started: boolean;
+	/** How many throws it has had contained. */
+	faults: number;
 }
+
+/** Throws reported of one screen; past these it is closing, and each frame would say the same. */
+const FAULTS_REPORTED = 2;
 
 /** A conversation's terminal, made before its screen when pi asks something first. */
 interface Early {
@@ -153,6 +164,9 @@ export function hostScreens(options: {
 }): HostScreens {
 	const live = new Map<string, Screen>();
 	const early = new Map<string, Early>();
+	// Screens closed, kept so a timer one left behind that throws later is
+	// still its conversation's, not a reason to stop the host.
+	const gone = new Map<string, Screen>();
 
 	function find(sessionId: string): Screen {
 		const screen = live.get(sessionId);
@@ -221,6 +235,56 @@ export function hostScreens(options: {
 		await screen.view.close(why);
 	}
 
+	// One conversation threw where nothing caught it: a frame, a key, a
+	// resize, or a timer of its own. The first time, the screen takes down
+	// what its extensions put on it, the likeliest cause, and says so; on 11
+	// November a footer left by an earlier load threw on every frame and
+	// ended the host. A second throw means the screen itself is broken, so
+	// its conversation closes alone, its log kept for opening again.
+	function contain(screen: Screen, error: unknown): void {
+		screen.faults += 1;
+		const { sessionId } = screen.view;
+		if (screen.faults <= FAULTS_REPORTED) {
+			const then = screen.closing
+				? "after it began closing"
+				: screen.faults === 1
+					? "so its extensions' screen comes down"
+					: "so it closes";
+			options.report(
+				new Error(
+					`Conversation ${sessionId} threw where nothing caught it, ${then}; the host carries on`,
+					{ cause: error },
+				),
+			);
+		}
+		if (screen.closing) return;
+		if (screen.faults === 1 && settled(screen, error)) return;
+		screen.closing = true;
+		screen.view
+			.close("its screen kept throwing")
+			.catch((closing: unknown) => options.report(closing));
+	}
+
+	// Take the extensions' footer, widgets, panels and key listeners down,
+	// say why in the chat, and draw again, saying whether that went through.
+	function settled(screen: Screen, error: unknown): boolean {
+		const { mode, view } = screen;
+		try {
+			withSession(view.sessionId, () => {
+				if (!dropExtensionScreen(mode)) throw error;
+				const said = error instanceof Error ? error.message : String(error);
+				mode.showError?.(
+					`Something on this screen failed, so the extensions' footer, widgets and panels were taken down: ${said}. /reload puts them back.`,
+				);
+				repaint(mode);
+			});
+			return true;
+		} catch (failed) {
+			if (failed !== error) options.report(failed);
+			return false;
+		}
+	}
+
 	// The engine sends a conversation's first words once this settles, so the
 	// screen starts first, as pi does before its own first prompt: otherwise
 	// the words reach a screen that can't take input or show a panel yet.
@@ -258,7 +322,10 @@ export function hostScreens(options: {
 			view,
 			closing: false,
 			started: false,
+			faults: 0,
 		};
+		const made = screen;
+		terminal.whenFaulted((error) => contain(made, error));
 		live.set(view.sessionId, screen);
 		try {
 			await withSession(view.sessionId, () => mode.init());
@@ -315,6 +382,7 @@ export function hostScreens(options: {
 		const screen = live.get(sessionId);
 		if (!screen) return;
 		live.delete(sessionId);
+		gone.set(sessionId, screen);
 		const quitting = screen.closing;
 		screen.closing = true;
 		try {
@@ -356,6 +424,12 @@ export function hostScreens(options: {
 					atRest(screen.mode, screen.runtime) &&
 					noGates(screen.view.sessionId),
 			),
+		faulted(sessionId, error) {
+			const screen = live.get(sessionId) ?? gone.get(sessionId);
+			if (!screen) return false;
+			contain(screen, error);
+			return true;
+		},
 	};
 }
 
@@ -459,6 +533,18 @@ function called(on: Record<string, unknown>, name: string): unknown {
 	return typeof method === "function"
 		? Reflect.apply(method, on, [])
 		: undefined;
+}
+
+// pi's own way to take down what extensions put on its screen (footer,
+// header, widgets, dialogs, key listeners and statuses), as its /reload
+// does before loading them again; private, so read without trusting it.
+// Says whether the screen had one.
+function dropExtensionScreen(mode: HostedMode): boolean {
+	if (!("resetExtensionUI" in mode)) return false;
+	const reset = mode.resetExtensionUI;
+	if (typeof reset !== "function") return false;
+	reset.call(mode);
+	return true;
 }
 
 // A conversation closed by the launcher or a host stop: end its screen the
