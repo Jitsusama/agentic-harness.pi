@@ -14,6 +14,7 @@ import {
 	clearParked,
 	flagsLost,
 	heldDirectly,
+	holderCommand,
 	holderRecord,
 	isRestartAsk,
 	opensOnlyItself,
@@ -284,6 +285,7 @@ function restartNamed(
 	args: readonly string[],
 	session: string,
 	sessionFile: string,
+	env: NodeJS.ProcessEnv,
 ): string | undefined {
 	const unwritten = logWritten(sessionFile);
 	if (unwritten !== undefined) return unwritten;
@@ -295,7 +297,7 @@ function restartNamed(
 	const lost = flagsLost(args);
 	if (lost.length > 0) return `starting again would drop ${lost.join(", ")}`;
 	try {
-		writeFileSync(again, JSON.stringify(restartCommand(sessionFile, args)));
+		writeFileSync(again, JSON.stringify(holderCommand(sessionFile, args, env)));
 		return undefined;
 	} catch {
 		return "its holder couldn't be told how to start it again";
@@ -412,7 +414,7 @@ export function watch(
 		// has to be told how to start it again.
 		const unnamed = parkingHost()
 			? logWritten(sessionFile)
-			: restartNamed(again, args, session, sessionFile);
+			: restartNamed(again, args, session, sessionFile, env);
 		if (unnamed !== undefined) return unnamed;
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
@@ -471,7 +473,7 @@ export function watch(
 		if (seen !== undefined) return seen;
 		const throughHolder = () => {
 			try {
-				writeFileSync(again, JSON.stringify(restartCommand(fresh, args)));
+				writeFileSync(again, JSON.stringify(holderCommand(fresh, args, env)));
 				writeFileSync(
 					wake,
 					`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
