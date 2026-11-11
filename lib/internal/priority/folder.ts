@@ -395,6 +395,9 @@ export function queueFolder(
 	// as still being added: far more than end between two keeps.
 	const ADDED_WITHIN = 64;
 	const writing = new Set<Promise<void>>();
+	// Each write waits for the one before, so outcomes kept in one keep land
+	// in the order they were seen rather than the order the disk answers.
+	let lastWrite: Promise<void> = Promise.resolve();
 	const recorded = (): readonly Outcome[] => {
 		if (!outcomes) return [];
 		read = outcomesSince(outcomes, read);
@@ -465,7 +468,8 @@ export function queueFolder(
 		const outcome = outcomeOf(job, at, exit, moved);
 		const file = outcomes;
 		adding.set(outcome.id, outcome);
-		const written: Promise<void> = appendOutcome(file, outcome)
+		const written: Promise<void> = lastWrite
+			.then(() => appendOutcome(file, outcome))
 			.then(
 				() => halveOutcomes(file),
 				() => undefined,
@@ -476,6 +480,7 @@ export function queueFolder(
 				adding.delete(outcome.id);
 				writing.delete(written);
 			});
+		lastWrite = written;
 		writing.add(written);
 	};
 

@@ -756,7 +756,7 @@ describe("the machine's queue folder", () => {
 		).toBe(false);
 	});
 
-	it("leaves the fetches of main waiting to their own turns when the one running moved nothing", () => {
+	it("leaves the fetches of main waiting to their own turns when the one running moved nothing", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const world = join(dir, "..", "world", "git");
 		const queue = queueFolder(
@@ -792,6 +792,9 @@ describe("the machine's queue folder", () => {
 			existsSync(fetched),
 			`${fetched} is not written when the running fetch moved nothing`,
 		).toBe(false);
+		// The ended fetch's outcome is still being written, and the folder it
+		// goes in is removed after each test.
+		await queue.outcomesKept();
 	});
 
 	it("keeps how each job ended and what ran beside it", async () => {
