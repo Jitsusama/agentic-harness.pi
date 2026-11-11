@@ -42,6 +42,8 @@ export interface Abilities {
 	readonly features?: readonly string[];
 	/** Its external editor: what the draft becomes, or undefined when it gives nothing back. */
 	readonly editor?: (text: string) => string | undefined;
+	/** The window it says it draws in, as the launcher's kitty window does. */
+	readonly window?: string;
 }
 
 /** One viewer of one conversation. */
@@ -98,7 +100,12 @@ export async function attach(
 			done();
 		}),
 	);
-	const geometry = { rows, columns, features: abilities.features };
+	const geometry = {
+		rows,
+		columns,
+		features: abilities.features,
+		...(abilities.window ? { window: abilities.window } : {}),
+	};
 	const reply = await attached(socket, sessionId, geometry, (frame) => {
 		const { type, data, reason, id, text } = frame;
 		if (type === "output" && data !== undefined) {
@@ -139,7 +146,12 @@ export async function attach(
 function attached(
 	socket: Socket,
 	sessionId: string,
-	geometry: { rows: number; columns: number; features?: readonly string[] },
+	geometry: {
+		rows: number;
+		columns: number;
+		features?: readonly string[];
+		window?: string;
+	},
 	frame: (frame: Frame) => void,
 ): Promise<{ readonly ok: boolean }> {
 	return new Promise((done, fail) => {

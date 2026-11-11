@@ -180,6 +180,8 @@ const serving = await serveHost({
 		}),
 	viewer: () => screens.viewer,
 	report,
+	// The lines the host's journal keeps, such as each conversation's end.
+	say: (line: string) => process.stderr.write(`screen-host: ${line}\n`),
 	runtimeDir: process.env.XDG_RUNTIME_DIR,
 	rollout: () => Promise.resolve(),
 });

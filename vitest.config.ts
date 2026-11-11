@@ -91,6 +91,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/attach-client.test.ts",
 	"tests/host/end-to-end/follow-install.test.ts",
 	"tests/host/end-to-end/screen-reload.test.ts",
+	"tests/host/end-to-end/quit.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its
