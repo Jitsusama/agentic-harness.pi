@@ -32,6 +32,7 @@ import {
 	restartCommand,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
+import type { Presence } from "../../lib/mesh/presence.ts";
 
 /** The join a window's pi hands it to, beside this package's scripts. */
 export const JOIN_SCRIPT = fileURLToPath(
@@ -110,6 +111,28 @@ export function joinCommand(
 		"--",
 		...plainPi,
 	];
+}
+
+/**
+ * What a hosted conversation's presence says of its host, with the words
+ * a window opened on it runs: the join, which becomes its viewer while
+ * the host holds it and plain pi on its log once the host lets it go, so
+ * a release carries on in the window rather than closing it. With no
+ * log there are no plain pi words, and mycelium's node gives today's
+ * attach words instead.
+ */
+export function hostedPresence(
+	host: string,
+	session: string,
+	sessionFile: string | undefined,
+): NonNullable<Presence["hosted"]> {
+	return {
+		host,
+		conversation: session,
+		...(sessionFile === undefined
+			? {}
+			: { view: joinCommand(session, restartCommand(sessionFile)) }),
+	};
 }
 
 /** Writes nothing, so pi's last frame stays on the terminal. */

@@ -1,4 +1,7 @@
-/** A conversation in another host closes through that host's socket alone. */
+/**
+ * A conversation in another host closes, or is released back to plain
+ * pi, through that host's socket alone.
+ */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +10,10 @@ import { SessionHost } from "../../../host/engine/index.ts";
 import { hostSocketPath } from "../../../host/service/address.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import type { TickedOwner } from "../../../lib/internal/process-ticks.ts";
-import { closeThroughHost } from "../../../lib/mesh/host-close.ts";
+import {
+	closeThroughHost,
+	releaseThroughHost,
+} from "../../../lib/mesh/host-close.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
 const b = "b0000000-0000-4000-8000-000000000002";
@@ -15,10 +21,12 @@ const b = "b0000000-0000-4000-8000-000000000002";
 let dir: string;
 let host: SessionHost;
 let closed: ReturnType<typeof vi.fn<(why: string) => void>>;
+let asked: string[];
 let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
 let answer: (sessionId: string) => unknown;
 beforeEach(async () => {
 	answer = (sessionId) => ({ sessionId });
+	asked = [];
 	dir = await mkdtemp(join(tmpdir(), "mesh-host-close-"));
 	host = new SessionHost({
 		key: "work-attended",
@@ -39,7 +47,9 @@ beforeEach(async () => {
 		backend: {
 			identity: { key: host.key, owner: host.owner },
 			execute: async (request) => {
-				if (request.op !== "close") throw new Error(request.op);
+				if (request.op !== "close" && request.op !== "release")
+					throw new Error(request.op);
+				asked.push(request.op);
 				await host.close(request.sessionId);
 				return answer(request.sessionId);
 			},
@@ -63,6 +73,12 @@ it("closes only the named conversation through its host's socket", async () => {
 	expect(await closeThroughHost(ownerOf(a), dir)).toBe("ended");
 	expect(host.list().map((one) => one.id)).toEqual([b]);
 	expect(closed).toHaveBeenCalledTimes(1);
+});
+
+it("releases only the named conversation, asking its host for a release", async () => {
+	expect(await releaseThroughHost(ownerOf(a), dir)).toBe("ended");
+	expect(asked).toEqual(["release"]);
+	expect(host.list().map((one) => one.id)).toEqual([b]);
 });
 
 it("leaves a conversation alone when the socket answers for another process", async () => {

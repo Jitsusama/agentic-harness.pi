@@ -3,9 +3,11 @@
  * roster, so readers judge a hosted conversation by its host rather than
  * by the pid an old record names.
  */
+import { spawnSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -21,7 +23,9 @@ import {
 	heldByHost,
 	holdOf,
 	hostHold,
+	RELEASED_EXIT,
 	rosterHolds,
+	viewingWords,
 } from "../../../../lib/internal/session/host-holds.ts";
 
 const kept = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
@@ -192,5 +196,62 @@ describe("reaching a held conversation", () => {
 		expect(heldByHost(open, holdOf("work-background", true))).toContain(
 			"is open in the work-background host",
 		);
+	});
+});
+
+describe("viewing a hosted conversation in a window", () => {
+	/**
+	 * Run the viewing words with a stand-in mycelium that keeps the words
+	 * it was given and leaves as `code` says, and a release that says so.
+	 */
+	function viewed(code: number): {
+		status: number | null;
+		out: string;
+		attached: string[];
+	} {
+		const bin = join(root, "bin");
+		const attached = join(root, "attached");
+		mkdirSync(bin);
+		writeFileSync(
+			join(bin, "mycelium"),
+			`#!/bin/sh\nprintf '%s\\n' "$@" > '${attached}'\nexit ${code}\n`,
+			{ mode: 0o755 },
+		);
+		const words = viewingWords(holdOf("work-attended", true), open, [
+			"sh",
+			"-c",
+			"echo carried on as plain pi",
+		]);
+		const ran = spawnSync(words[0] ?? "", words.slice(1), {
+			encoding: "utf8",
+			env: { PATH: `${bin}:${process.env.PATH ?? ""}` },
+		});
+		return {
+			status: ran.status,
+			out: ran.stdout,
+			attached: readFileSync(attached, "utf8").trim().split("\n"),
+		};
+	}
+
+	it("carries on as what it was released to once the host lets it go", () => {
+		const ran = viewed(RELEASED_EXIT);
+
+		expect(ran.attached).toEqual(
+			attachWords(holdOf("work-attended", true), open).slice(1),
+		);
+		expect(ran.out).toBe("carried on as plain pi\n");
+		expect(ran.status).toBe(0);
+	});
+
+	it("ends as attach ended on any other leaving", () => {
+		expect(viewed(0)).toMatchObject({ out: "", status: 0 });
+		rmSync(join(root, "bin"), { recursive: true });
+		expect(viewed(1)).toMatchObject({ out: "", status: 1 });
+	});
+
+	it("keeps the session's id beside --session, as the node finds it", () => {
+		const words = viewingWords(holdOf("work-attended", true), open, []);
+
+		expect(words[words.indexOf("--session") + 1]).toBe(open);
 	});
 });

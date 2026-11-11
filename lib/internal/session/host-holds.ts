@@ -154,6 +154,32 @@ export function attachWords(hold: HostHold, sessionId: string): string[] {
 	];
 }
 
+/**
+ * The exit code `mycelium attach --host` ends with when its host let the
+ * conversation go back to plain pi, as a release does, rather than 0 for
+ * any other leaving (mycelium's `hold::holder::RELEASED`).
+ */
+export const RELEASED_EXIT = 3;
+
+/**
+ * The words a window runs to view a conversation `hold` holds, carrying
+ * on as `released` in that window should the host let the conversation
+ * go back to plain pi; any other leaving ends them as attach ended. Each
+ * word stays a word of its own, so `--session` and the id still sit side
+ * by side, which is how mycelium's node knows the window is the
+ * conversation's.
+ */
+export function viewingWords(
+	hold: HostHold,
+	sessionId: string,
+	released: readonly string[],
+): string[] {
+	const attach = attachWords(hold, sessionId);
+	const run = attach.map((_, at) => `"\${${at + 1}}"`).join(" ");
+	const script = `${run}; s=$?; [ "$s" -eq ${RELEASED_EXIT} ] || exit "$s"; shift ${attach.length}; exec "$@"`;
+	return ["sh", "-c", script, "sh", ...attach, ...released];
+}
+
 /** What a reader says of a conversation a host holds, and how to reach it. */
 export function heldByHost(sessionId: string, hold: HostHold): string {
 	const where = hold.open

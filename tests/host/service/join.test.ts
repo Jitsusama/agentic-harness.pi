@@ -1,6 +1,7 @@
 /**
  * The join: the window becomes the host's viewer once the host has the
- * conversation open, or plain pi again once nobody takes the move up.
+ * conversation open, or plain pi again once nobody takes the move up,
+ * and plain pi again after a release once no host holds it.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +9,7 @@ import {
 	JOIN_LOOK_MS,
 	type JoinFacts,
 	joinMove,
+	joinRelease,
 } from "../../../host/service/join.ts";
 import type { HostHold } from "../../../lib/internal/session/host-holds.ts";
 import type {
@@ -150,5 +152,29 @@ describe("the join", () => {
 		);
 		expect(await joinMove(join.facts)).toEqual({ to: "host", hold: OPEN });
 		expect(tries).toBeGreaterThan(0);
+	});
+});
+
+describe("the join after a release", () => {
+	it("runs plain pi once no host holds the conversation at all", async () => {
+		const join = joined([
+			...lasting(1_000, { hold: OPEN, noted: "none" }),
+			...lasting(1_000, { hold: KEPT, noted: "none" }),
+			{ noted: "none" },
+		]);
+		expect(await joinRelease(join.facts)).toEqual({ to: "pi" });
+		expect(join.facts.now(), "it waited out the host").toBe(2_000);
+		expect(join.said).toEqual([]);
+	});
+
+	it("waits on a host still holding it past the grace, saying so once", async () => {
+		const join = joined([
+			...lasting(JOIN_GRACE_MS * 3, { hold: KEPT, noted: "none" }),
+			{ noted: "none" },
+		]);
+		expect(await joinRelease(join.facts)).toEqual({ to: "pi" });
+		expect(join.said).toEqual([
+			"Waiting for the work-attended host to let the conversation go; plain pi carries on here once it has.",
+		]);
 	});
 });

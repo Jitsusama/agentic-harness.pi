@@ -100,6 +100,25 @@ describe("presences", () => {
 		).toEqual(["s-1", "s-2"]);
 	});
 
+	it("keep the words a window on a hosted conversation runs, only when they are words", () => {
+		const view = ["node", "host-join.ts", "--session", "s-1", "--", "pi"];
+		const presences = createPresences(root);
+		presences.publish(
+			presence({ hosted: { host: "work-attended", conversation: "s-1", view } }),
+		);
+		writeFileSync(
+			join(root, "s-2.json"),
+			JSON.stringify({
+				...presence({ session: "s-2" }),
+				hosted: { host: "work-attended", conversation: "s-2", view: [] },
+			}),
+			"utf8",
+		);
+
+		expect(presences.of("s-1")?.hosted?.view).toEqual(view);
+		expect(presences.of("s-2")?.hosted).toBeUndefined();
+	});
+
 	// As a mycelium node writes a session that runs on another machine.
 	it("say which machine a session elsewhere runs on", () => {
 		writeFileSync(

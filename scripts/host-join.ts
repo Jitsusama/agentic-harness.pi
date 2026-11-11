@@ -5,20 +5,24 @@
  * mycelium's node knows the window is the hosted session's, and plain
  * pi's words after `--`:
  *
- *   node scripts/host-join.ts --session ID -- pi --session LOG [FLAGS]
+ *   node scripts/host-join.ts [--released] --session ID -- pi --session LOG [FLAGS]
  *
  * It draws nothing, unless a host holding the conversation is slow to
- * come back, when it says so in one line. Once the host has the conversation open it names
- * `mycelium attach --host` as what its holder starts next; should the
- * move be taken back, plain pi's words. Either way it writes its wake
- * and exits as a park does, so its holder starts that at once on the
- * same terminal, where the keys typed meanwhile still wait.
+ * come back, when it says so in one line. Once the host has the
+ * conversation open it names `mycelium attach --host` as what its holder
+ * starts next, carrying on as this join with `--released` should the
+ * host let the conversation go; should the move be taken back, plain
+ * pi's words. With `--released`, it names plain pi's words once no host
+ * holds the conversation. Either way it writes its wake and exits as a
+ * park does, so its holder starts that at once on the same terminal,
+ * where the keys typed meanwhile still wait.
  */
 
 import { writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import { joinMove } from "../host/service/join.ts";
-import { attachWords, hostHold } from "../lib/internal/session/host-holds.ts";
+import { fileURLToPath } from "node:url";
+import { joinMove, joinRelease } from "../host/service/join.ts";
+import { hostHold, viewingWords } from "../lib/internal/session/host-holds.ts";
 import {
 	noteState,
 	restoreStrandedClaims,
@@ -57,16 +61,33 @@ function alive(pid: number): boolean {
 	}
 }
 
-const joined = await joinMove({
+const looking = {
 	hold: () => hostHold(session),
-	noted: () => noteState(session),
-	restoreStranded: () => restoreStrandedClaims(alive),
-	takeBack: () => takeBackMove(session, process.pid),
-	say: (line) => process.stdout.write(`\r\n${line}\r\n`),
+	say: (line: string) => process.stdout.write(`\r\n${line}\r\n`),
 	now: Date.now,
-	pause: (ms) => delay(ms),
-});
-const next = joined.to === "host" ? attachWords(joined.hold, session) : plainPi;
+	pause: (ms: number) => delay(ms),
+};
+const joined = own.includes("--released")
+	? await joinRelease(looking)
+	: await joinMove({
+			...looking,
+			noted: () => noteState(session),
+			restoreStranded: () => restoreStrandedClaims(alive),
+			takeBack: () => takeBackMove(session, process.pid),
+		});
+// Released, the window carries on as this join again, which waits for the
+// host to let the log go before plain pi takes it up.
+const released = [
+	process.execPath,
+	fileURLToPath(import.meta.url),
+	"--released",
+	"--session",
+	session,
+	"--",
+	...plainPi,
+];
+const next =
+	joined.to === "host" ? viewingWords(joined.hold, session, released) : plainPi;
 writeFileSync(again, JSON.stringify(next));
 writeFileSync(
 	wake,

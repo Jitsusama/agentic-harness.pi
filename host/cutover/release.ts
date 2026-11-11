@@ -105,7 +105,7 @@ export function releaseProse(one: Omit<Released, "journaled">): string {
 	return [
 		`${one.address} was released from the ${one.from} host back to plain pi at ${one.at}, and waits in the launcher's Sessions to Reopen to open from the same file.`,
 		waited,
-		"Only the host held its screen, so any viewer on it closed with it.",
+		"A window viewing it through its holder carried on there as plain pi, and any other viewer closed with it.",
 	].join(" ");
 }
 

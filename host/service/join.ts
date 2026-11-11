@@ -25,6 +25,12 @@
  * A note a cutover claimed and died holding is given back first, on
  * every look, so it can be taken; one a live cutover holds is waited
  * on, as that cutover's adopt ends one way or the other.
+ *
+ * A release comes back through the join too: the window's viewer leaves
+ * as its host lets the conversation go, and the join waits until no host
+ * holds the conversation, open or on a roster, before the window runs
+ * plain pi on its log, since the host tells its viewers before it stops
+ * writing (host/engine/engine.ts end).
  */
 
 import type { HostHold } from "../../lib/internal/session/host-holds.ts";
@@ -69,6 +75,34 @@ function waitingOn(hold: HostHold | undefined, noted: NoteState): Waiting {
 	if (noted === "waiting") return "note";
 	if (noted === "claimed") return "cutover";
 	return "nothing";
+}
+
+/** Where a join after a release looks. */
+export type ReleaseFacts = Pick<JoinFacts, "hold" | "say" | "now" | "pause">;
+
+/**
+ * Wait for the host a release came from to let the conversation go,
+ * answering plain pi once no host holds it at all. One still holding it
+ * past the grace is waited on, saying so once, since plain pi beside it
+ * would give the log a second writer.
+ */
+export async function joinRelease(
+	facts: ReleaseFacts,
+	graceMs: number = JOIN_GRACE_MS,
+): Promise<Joined> {
+	const since = facts.now();
+	let said = false;
+	for (;;) {
+		const hold = await facts.hold();
+		if (hold === undefined) return { to: "pi" };
+		if (!said && facts.now() - since >= graceMs) {
+			facts.say(
+				`Waiting for the ${hold.key} host to let the conversation go; plain pi carries on here once it has.`,
+			);
+			said = true;
+		}
+		await facts.pause(JOIN_LOOK_MS);
+	}
 }
 
 /**

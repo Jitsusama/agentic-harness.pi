@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type HandOver,
 	handOverOf,
+	hostedPresence,
 	JOIN_SCRIPT,
 } from "../../../extensions/mesh-workflow/in-place.ts";
 import {
@@ -85,6 +86,34 @@ describe("handing a window over", () => {
 	it("can't with no log, or with flags plain pi would drop", () => {
 		expect(handOverOf(facts({ sessionFile: undefined }))).toBeUndefined();
 		expect(handOverOf(facts({ args: ["--offline"] }))).toBeUndefined();
+	});
+});
+
+describe("a hosted conversation's presence", () => {
+	it("names the join as what a window opened on it runs", () => {
+		expect(
+			hostedPresence("work-attended", "01a1", "/logs/01a1.jsonl"),
+		).toEqual({
+			host: "work-attended",
+			conversation: "01a1",
+			view: [
+				process.execPath,
+				JOIN_SCRIPT,
+				"--session",
+				"01a1",
+				"--",
+				"pi",
+				"--session",
+				"/logs/01a1.jsonl",
+			],
+		});
+	});
+
+	it("names no words with no log for plain pi to take up", () => {
+		expect(hostedPresence("work-attended", "01a1", undefined)).toEqual({
+			host: "work-attended",
+			conversation: "01a1",
+		});
 	});
 });
 
