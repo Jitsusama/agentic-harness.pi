@@ -135,48 +135,48 @@ interface BeforeSettleResult {
 export const QUEST_PARAMETERS = Type.Object({
 	action: StringEnum([...QUEST_ACTIONS], {
 		description:
-			"The action to perform. `status` is an alias for `show`, which given a document's id answers its outline: sections and their sizes, open items, the next.",
+			"The action. `status` is `show`, which given a document's id answers its outline: sections and sizes, open items, the next.",
 	}),
 	id: Type.Optional(
 		Type.String({
 			description:
-				"The quest or document acted on, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it, trees pruned; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document id concludes just that. locate: any quest, document, alias or session id. undo: optional; it reverses only this session's newest change, refused once another session changed that quest.",
+				"The quest or document, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document's id ends just that. locate: any quest, document, alias or session id. undo: reverses this session's newest change.",
 		}),
 	),
 	url: Type.Optional(
 		Type.String({
 			description:
-				"create: seed a new quest from this URL (Slack thread, GitHub PR or issue). The tool fetches and parses the source.",
+				"create: seed the quest from a Slack thread, GitHub PR or issue URL.",
 		}),
 	),
 	title: Type.Optional(
 		Type.String({
 			description:
-				"create: the quest's title, as a person reads it (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names. show: the section to read.",
+				"create: the quest's title (its H1). draft: the document's. section: the heading to replace or add (a README's optional Milestones, Spirit, Outcomes or Context), no emoji. retitle: `id`'s new H1. show: the section to read.",
 		}),
 	),
 	parent: Type.Optional(
 		Type.String({
 			description:
-				"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the targets to top level.",
+				"create: the parent quest, for a subquest. reparent: the new parent, or `null` for top level.",
 		}),
 	),
 	kind: Type.Optional(
 		Type.String({
 			description:
-				"create and reclassify: quest, subquest or sidequest. think, or draft to override think's choice: plan, research, brief or report.",
+				"create, reclassify: quest, subquest or sidequest. think, or draft over think's choice: plan, research, brief or report.",
 		}),
 	),
 	note: Type.Optional(
 		Type.String({
 			description:
-				"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it. spawn: what the new session is started for, the spec it is told first after carrying on its quest.",
+				"think: what the document is about, or what sent it back. create: Summary prose. journal: the Journey entry, dated for you. spawn: what the new session is for, told it first.",
 		}),
 	),
 	body: Type.Optional(
 		Type.String({
 			description:
-				"section: the section's new text, without its heading. It may not hold a `## ` heading of its own.",
+				"section: the section's new text, without its heading or any `## ` heading.",
 		}),
 	),
 	reason: Type.Optional(
@@ -187,13 +187,13 @@ export const QUEST_PARAMETERS = Type.Object({
 	priority: Type.Optional(
 		Type.String({
 			description:
-				"create: initial priority bucket (driving, active, queued, bench, someday). Defaults to active. find: filter by priority.",
+				"create: driving, active (default), queued, bench or someday. find: filter by it.",
 		}),
 	),
 	status: Type.Optional(
 		Type.String({
 			description:
-				"find: filter by status (active, paused, blocked, concluded, retired).",
+				"find: active, paused, blocked, concluded or retired.",
 		}),
 	),
 	target: Type.Optional(
@@ -204,138 +204,138 @@ export const QUEST_PARAMETERS = Type.Object({
 	ref: Type.Optional(
 		Type.String({
 			description:
-				"alias-add/alias-remove: aliases as `type:value` (e.g. `github-pr:shop/world#47281`), comma-separated. need-add/need-remove: what its sessions need of a machine, kind=value (machine, system, arch, reach, accelerator) such as reach=home, comma-separated, on `id`'s quest or the loaded one. budget: a budget provider's name the quest and those under it draw on, `none` for the session's default, or `inherit` to drop the quest's own; left out, it says which. tree-expand: the zone to add (e.g. system/gitstream).",
+				"alias-add/remove: comma-separated `type:value` (e.g. `github-pr:shop/world#47281`). need-add/remove: comma-separated kind=value, as needs. budget: a provider's name, `none` or `inherit`; left out, it says which. tree-expand: the zone (e.g. system/gitstream).",
 		}),
 	),
 	query: Type.Optional(
 		Type.String({
 			description:
-				"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick, and show to read it with its notes: the checkbox item, by its number, its text or the start of it.",
+				"find: text matched in titles, ids, bodies and aliases. locate: what to resolve without `id`. tick/untick/show: an item by its number, text or start; show also takes words no item reads, listing the lines that hold them (`a|b` for either).",
 		}),
 	),
 	since: Type.Optional(
 		Type.String({
 			description:
-				"find: only quests updated on or after this date (YYYY-MM-DD or ISO).",
+				"find: on or after this date (YYYY-MM-DD or ISO).",
 		}),
 	),
 	until: Type.Optional(
 		Type.String({
-			description: "find: only quests updated on or before this date.",
+			description: "find: on or before this date.",
 		}),
 	),
 	role: Type.Optional(
 		Type.String({
 			description:
-				"who: filter Cast bullets by role (owner, reviewer, originator, ...).",
+				"who: Cast bullets by role (owner, reviewer, originator, ...).",
 		}),
 	),
 	name: Type.Optional(
 		Type.String({
 			description:
-				"who: filter Cast bullets by name substring. session-attach/session-rename: a label for the session entry, as a person reads it.",
+				"who: Cast bullets by name. session-attach/rename: the session's label.",
 		}),
 	),
 	layout: Type.Optional(
 		Type.String({
 			description:
-				"spawn and reopen-sessions: window, tab or pane. Defaults to the person's terminal setting, else tab; spawn-* takes its suffix.",
+				"spawn, reopen-sessions: window, tab or pane (default: the person's setting, else tab).",
 		}),
 	),
 	terminal: Type.Optional(
 		Type.String({
 			description:
-				"spawn and reopen-sessions: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
+				"spawn, reopen-sessions: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured.",
 		}),
 	),
 	host: Type.Optional(
 		Type.String({
 			description:
-				"spawn: attended or background, to open it in this realm's shared pi host, not a terminal. It goes alone; a resumed session is adopted and takes no note. Left out, a plain spawn follows the quest-workflow spawnHost setting, off by default.",
+				"spawn: attended or background, to open it in the shared pi host, not a terminal; left out, the spawnHost setting decides (off by default).",
 		}),
 	),
 	nesting: Type.Optional(
 		Type.String({
 			description:
-				"spawn and reopen-sessions: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
+				"spawn, reopen-sessions: in nested terminals, innermost (default) or outermost.",
 		}),
 	),
 	machine: Type.Optional(
 		Type.String({
 			description:
-				"spawn: the machine to start on, by its mycelium node's name (this one, or one its links reach). It starts held there, in the same folder under that home, or the home; the window here joins it, and closing it leaves it running. reopen-sessions refuses it.",
+				"spawn: the machine to start on, by its mycelium node's name; it starts held there and the window here joins it.",
 		}),
 	),
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, kind=value (machine, system, arch, reach, accelerator) such as reach=home. The mycelium node picks among its realm's machines, ranking down one on battery or short of memory or disk, and starts the session held there as with machine (one more need). With neither, the quest's own needs (need-add) place it. dryRun asks only where. reopen-sessions refuses it.",
+				"spawn: what the machine must be, kind=value (machine, system, arch, reach, accelerator), e.g. reach=home; the node picks one.",
 		}),
 	),
 	command: Type.Optional(
 		Type.String({
 			description:
-				"spawn: the command to run, `pi` by default. It runs detached, past every guard, so spawn only what the user authorized.",
+				"spawn: the command (default `pi`). It runs past every guard, so spawn only what the user authorized.",
 		}),
 	),
 	cwd: Type.Optional(
 		Type.String({
 			description:
-				"Where spawn starts, the repo tree-add cuts from, a path in the tree tree-adopt registers, or the tree tree-release and tree-expand act on when there are several. spawn defaults to where the session it reopens ran, else the quest's newest tree, else a recent session's folder, a tree's repo, the checkout of a parent quest's newest tree, this session's folder in a repo, else home, never a quest folder or a parent's tree; the rest to the loaded quest's directory or pi's cwd.",
+				"Where spawn starts (default: a reopened session's folder, else the quest's newest tree), the repo tree-add cuts from, a path tree-adopt registers, or the tree tree-release and tree-expand act on.",
 		}),
 	),
 	sessionId: Type.Optional(
 		Type.String({
 			description:
-				"session-*: target session id when not the current pi session.",
+				"session-*: another session than this one.",
 		}),
 	),
 	field: Type.Optional(
 		Type.String({
 			description:
-				"find: which date drives since/until (started, updated, due, eta). Defaults to updated.",
+				"find: the date since/until read: started, updated (default), due or eta.",
 		}),
 	),
 	refType: Type.Optional(
 		Type.String({
 			description:
-				"find: only quests carrying an alias of this type (e.g. github-pr).",
+				"find: quests with an alias of this type (e.g. github-pr).",
 		}),
 	),
 	pattern: Type.Optional(
 		Type.String({
-			description: "links: substring filter on the link's value or URL.",
+			description: "links: text in the link's value or URL.",
 		}),
 	),
 	scope: Type.Optional(
 		Type.String({
 			description:
-				"conclude/retire: 'quest' or 'document', which wins over what the id's shape implies. With no id it acts on the focused document, and refuses when nothing is focused.",
+				"conclude/retire: 'quest' or 'document', over what the id implies; with no id, the focused document.",
 		}),
 	),
 	force: Type.Optional(
 		Type.Boolean({
 			description:
-				"tree-release: override its refusals (dirty tree, unmerged branch, attached session), losing uncommitted work: confirm with the person first. section: let a body drop most of a large section. reopen-sessions: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
+				"tree-release: override its refusals, losing uncommitted work: confirm with the person first. section: let a body drop most of a large section. reopen-sessions: reopen the lost sessions rather than list them; confirm first too.",
 		}),
 	),
 	dryRun: Type.Optional(
 		Type.Boolean({
 			description:
-				"Say what would change, doing nothing: reparent, and conclude/retire of quests not loaded here; spawn and reopen-sessions say what would open where and which setting chose it. Every other action, and conclude/retire of the loaded quest or a document, refuses it.",
+				"Say what would change, doing nothing: reparent, spawn, reopen-sessions, and conclude/retire of quests not loaded here. Other actions refuse it.",
 		}),
 	),
 	limit: Type.Optional(
 		Type.Integer({
 			description:
-				"list/find/who: maximum rows in the listing. Defaults to 25.",
+				"list/find/who: most rows (default 25).",
 			minimum: 1,
 		}),
 	),
 	offset: Type.Optional(
 		Type.Integer({
 			description:
-				"list/find/who: skip the first N rows before rendering. Use with limit for pagination.",
+				"list/find/who: rows to skip, to page with limit.",
 			minimum: 0,
 		}),
 	),
