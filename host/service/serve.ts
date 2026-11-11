@@ -24,6 +24,7 @@ import {
 	type ConversationEngine,
 	conversationEvents,
 	hostBackend,
+	type Resuming,
 	resumeHeld,
 	type Unresumed,
 } from "./backend.ts";
@@ -31,6 +32,13 @@ import type { ControlBackend } from "./dispatch.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
+
+/**
+ * A step a starting host has reached: building its engine, then each held
+ * conversation it resumes. A host listens only after the last, so these
+ * are how whoever waits on it knows a slow start still moves.
+ */
+export type StartStep = { readonly step: "engine" } | Resuming;
 
 /** A running host, until stop. */
 export interface ServingHost {
@@ -61,6 +69,8 @@ export async function serveHost(options: {
 	 * default the rollout gate over the install this host runs from.
 	 */
 	rollout?: AdmitAnother;
+	/** Hears each step of the start before it begins. */
+	starting?: (step: StartStep) => Promise<void>;
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
@@ -80,11 +90,17 @@ export async function serveHost(options: {
 	let host: SessionHost | undefined;
 	try {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
+		await options.starting?.({ step: "engine" });
 		const engine = await options.engine(host);
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
 		engine.watch?.(conversationEvents({ roster, report: options.report }));
-		const { unresumed } = await resumeHeld({ roster, engine, admitAnother });
+		const { unresumed } = await resumeHeld({
+			roster,
+			engine,
+			admitAnother,
+			starting: options.starting,
+		});
 		for (const { reason } of unresumed) options.report(reason);
 		const identity = { key: host.key, owner: host.owner };
 		const listener = await listenControl({

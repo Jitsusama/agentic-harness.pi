@@ -254,6 +254,14 @@ export function conversationEvents(options: {
 	};
 }
 
+/** A held conversation a starting host is about to resume, counted from one. */
+export interface Resuming {
+	readonly step: "resume";
+	readonly number: number;
+	readonly of: number;
+	readonly sessionId: string;
+}
+
 /**
  * Resume every held conversation at start, one at a time in the order
  * they were held. One that can't resume stays held, since only a
@@ -261,15 +269,25 @@ export function conversationEvents(options: {
  * person to close or repair. With `admitAnother`, each after the first
  * that resumed must pass it, so the same one runs alone after every
  * restart and a refused one is parked with the open path's reason.
+ * `starting` hears each one before it begins, so whoever waits on the
+ * start knows it still moves.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
 	engine: ConversationEngine;
 	admitAnother?: AdmitAnother;
+	starting?: (step: Resuming) => Promise<void>;
 }): Promise<{ resumed: string[]; unresumed: Unresumed[] }> {
 	const resumed: string[] = [];
 	const unresumed: Unresumed[] = [];
-	for (const entry of options.roster.entries()) {
+	const entries = options.roster.entries();
+	for (const [index, entry] of entries.entries()) {
+		await options.starting?.({
+			step: "resume",
+			number: index + 1,
+			of: entries.length,
+			sessionId: entry.sessionId,
+		});
 		try {
 			if (resumed.length > 0) await options.admitAnother?.();
 			await options.engine.resume(entry);
