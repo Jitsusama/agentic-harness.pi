@@ -355,8 +355,8 @@ while it waits its turn leaves without running.
   quest tracks none. In `build`, writes flow inside any tree
   the quest tracks, into any quest's record and into any
   quest's scratch folder; a write inside an untracked git tree
-  adopts that tree and goes ahead, and a homeless write is
-  refused with `tree-add`. Across stages, `/dev` nodes
+  adopts that tree and goes ahead, and a homeless write goes
+  ahead and is noted for the quest. Across stages, `/dev` nodes
   always flow. The agent's commands run with `TMPDIR` set
   to `/tmp/pi-quest-<ID>`, a link to the loaded quest's scratch
   folder's `tmp/`, and `GOCACHE` and `GOMODCACHE` in the scratch
@@ -410,10 +410,14 @@ while it waits its turn leaves without running.
   script returns reaches the context.
 - The gates are guards under the guard policy:
   `quest-record`, `quest-owned-fields` and
-  `quest-plan-stage` block. `quest-document-read`,
-  `quest-temp` and `quest-homeless` redirect: the agent hears the refusal
+  `quest-plan-stage` block. `quest-document-read` and
+  `quest-temp` redirect: the agent hears the refusal
   and its remedy, and the same write made again goes
-  through as an override you see. Each path those let
+  through as an override you see. `quest-homeless` redirects
+  by letting the write through and noting it, said once per
+  session, since nearly every write it refused was made
+  again; `/guards quest-homeless block` restores the refusal.
+  Each path those let
   through, outside every tree, is noted in the quest's
   scratch folder (`outside-writes.jsonl`), and `conclude` names
   them in its message and Journey, so a quest accounts for
