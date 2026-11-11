@@ -171,10 +171,12 @@ export function hostBackend(options: {
 		return inTurn(sessionId, async () => {
 			await engine.parkSettled?.(sessionId);
 			const holds = host.holds(sessionId);
-			// Held and not running: its last start failed, and only a close lets it go.
+			// Held and not running: its last start failed, or a park's stop did
+			// (parking.ts leaves it held as a failed close does), and only a close
+			// lets it go.
 			if (holds === "parked")
 				throw new Error(
-					`Conversation ${sessionId} failed as it started; close it and open it again`,
+					`Conversation ${sessionId} is held but not running, since its last start or park failed; close it and open it again`,
 				);
 			if (holds !== undefined) return;
 			const entry = roster
