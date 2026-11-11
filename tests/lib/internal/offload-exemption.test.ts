@@ -1,14 +1,17 @@
 /**
  * What the nix-offload exemption lets out of the fence: derivations
  * already in the store, alone or after one `cd` into a tree the work
- * tool holds for the session; never a flake, a tree's checks,
- * `--changed`, a `--run` or a flag that works on this machine, as
- * ISXEG8's reviews of 11 November set out.
+ * tool holds for the session, and from such a tree its commit, as
+ * `--changed` or a `--run` of store programs, to lent builders alone;
+ * never a flake, a tree's named checks, a checkout's commit or a flag
+ * that works on this machine, as ISXEG8's reviews of 11 November set
+ * out.
  */
 
 import {
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -19,16 +22,19 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gitFolders, guardsGitFolder } from "../../../lib/internal/fence.ts";
 import {
+	LENT_ONLY,
 	NO_GIT_DIR,
 	type OffloadPlace,
 	offloadedOutside,
 	offloadKeptIn,
+	takesLentOnly,
 } from "../../../lib/internal/offload-exemption.ts";
 import { folderGit, heldTree } from "../../../lib/internal/sandbox.ts";
 
 const OFFLOAD = {
 	program: "/nix/store/0000-nix-offload/bin/nix-offload",
 	env: "/nix/store/0000-coreutils/bin/env",
+	lentOnly: true,
 };
 const SCRIPT = "/nix/store/0000-harness-check";
 const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
@@ -40,6 +46,13 @@ const DRV_CALL = `nix-offload there ${DRV}`;
 const HELD: Partial<OffloadPlace> = {
 	cwd: "/tree",
 	folderGit: (folder) =>
+		folder === "/tree" ? { folder, gitDir: "/repo/.git" } : undefined,
+};
+
+/** A tree the session holds, which a call may send the commit of. */
+const HELD_TREE: Partial<OffloadPlace> = {
+	...HELD,
+	heldTree: (folder) =>
 		folder === "/tree" ? { folder, gitDir: "/repo/.git" } : undefined,
 };
 
@@ -113,22 +126,97 @@ describe("the flags the exemption lets out", () => {
 		}
 	});
 
-	it("keeps every --run fenced, in a held tree or not", () => {
+	it("lets out a held tree's commit, as --changed or a --run of store programs", () => {
 		for (const command of [
+			"nix-offload there --changed",
+			"nix-offload there --never-ask --first --changed",
+			"nix-offload there --lent-only --changed",
+			RUN,
 			`nix-offload there --run --copy ${SCRIPT} --longest 1800 -- ${SCRIPT} main`,
+			`nix-offload there --never-ask --run -- ${SCRIPT}`,
+		]) {
+			expect(letOut(command, HELD_TREE), command).toBeDefined();
+		}
+	});
+
+	it("sends every commit it lets out to the lent builders alone", () => {
+		for (const command of ["nix-offload there --changed", RUN]) {
+			expect(letOut(command, HELD_TREE), command).toContain(`'${LENT_ONLY}'`);
+		}
+	});
+
+	it("keeps fenced a commit from a checkout or a folder no tree holds", () => {
+		for (const command of ["nix-offload there --changed", RUN]) {
+			expect(letOut(command, HELD), `${command} in a checkout`).toBeUndefined();
+			expect(letOut(command), `${command} anywhere`).toBeUndefined();
+		}
+	});
+
+	it("keeps fenced a --changed with arguments, or a --run of anything outside the store", () => {
+		for (const command of [
+			"nix-offload there --changed --only formatting",
+			"nix-offload there --first --never-ask --changed",
 			`nix-offload there --run --copy ${SCRIPT} -- bash ${SCRIPT} main`,
 			`nix-offload there --run --copy=${SCRIPT} -- ${SCRIPT}`,
 			`nix-offload there --run --copy ${SCRIPT} -- /home/someone/x.sh`,
+			`nix-offload there --run --copy /home/someone/x.sh -- ${SCRIPT}`,
+			`nix-offload there --run --longest soon -- ${SCRIPT}`,
 			`nix-offload there --run --copy ${SCRIPT} --`,
+			`nix-offload there --run ${SCRIPT}`,
 		]) {
-			expect(letOut(command, HELD), command).toBeUndefined();
-			expect(letOut(command), command).toBeUndefined();
+			expect(letOut(command, HELD_TREE), command).toBeUndefined();
 		}
+	});
+
+	it("keeps every commit fenced through a nix-offload that can't keep it to lent builders", () => {
+		const older = { ...OFFLOAD, lentOnly: false };
+		for (const command of ["nix-offload there --changed", RUN]) {
+			expect(
+				offloadedOutside(command, older, { home: "/h", env: {}, ...HELD_TREE }),
+				command,
+			).toBeUndefined();
+		}
+		expect(
+			offloadedOutside(DRV_CALL, older, { home: "/h", env: {} }),
+			"a derivations' build still goes",
+		).toBeDefined();
+	});
+
+	it("asks nix-offload once whether it takes --lent-only", () => {
+		const folder = mkdtempSync(join(tmpdir(), "offload-takes-"));
+		try {
+			const program = (name: string, takes: readonly string[]) => {
+				const path = join(folder, name);
+				const script = [
+					"#!/bin/sh",
+					`echo asked >> ${join(folder, `${name}.asked`)}`,
+					...takes.map((word) => `echo ${word}`),
+				];
+				writeFileSync(path, `${script.join("\n")}\n`, { mode: 0o755 });
+				return path;
+			};
+			const newer = program("newer", ["tree", "changed", "lent-only", "run"]);
+			const older = program("older", ["tree", "changed", "run"]);
+			expect(takesLentOnly(newer), "one that lists it").toBe(true);
+			expect(takesLentOnly(newer), "asked again").toBe(true);
+			expect(takesLentOnly(older), "one that doesn't").toBe(false);
+			expect(takesLentOnly(join(folder, "none")), "none there").toBe(false);
+			expect(
+				readFileSync(join(folder, "newer.asked"), "utf8"),
+				"asked once",
+			).toBe("asked\n");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves a derivations' build to go where it goes", () => {
+		expect(letOut(DRV_CALL, HELD_TREE)).not.toContain(LENT_ONLY);
 	});
 });
 
 describe("a call the exemption keeps in", () => {
-	it("is refused saying to evaluate inside and hand on the derivations", () => {
+	it("is refused saying to evaluate inside, or to send a held tree's commit", () => {
 		for (const command of [
 			"nix-offload there /tree checks.x86_64-linux.formatting",
 			"nix-offload there -L --changed",
@@ -138,6 +226,9 @@ describe("a call the exemption keeps in", () => {
 			const said = offloadKeptIn(command);
 			expect(said, command).toContain("only derivations");
 			expect(said, command).toContain("nix-offload there <drv>^*");
+			expect(said, command).toContain(
+				"cd <tree> && nix-offload there --changed",
+			);
 		}
 	});
 
@@ -220,6 +311,23 @@ describe("a cd before the call", () => {
 			expect(text, set).toContain(`'${set}'`);
 		}
 		expect(text, "no other git folder").not.toContain(NO_GIT_DIR);
+	});
+
+	it("sends a held tree's commit from the tree, to the lent builders alone", () => {
+		const text = letOut(`cd ${tree} && nix-offload there --changed`, {
+			heldTree: vouch("s1"),
+		});
+		expect(
+			text?.startsWith(`cd '${tree}' && exec -a env`),
+			"the call runs from the tree",
+		).toBe(true);
+		expect(text, "lent builders alone").toContain(`'${LENT_ONLY}'`);
+		expect(
+			letOut(`cd ${tree} && nix-offload there --changed`, {
+				heldTree: vouch("s2"),
+			}),
+			"another session's tree",
+		).toBeUndefined();
 	});
 
 	it("refuses a tree another session holds, or none", () => {
@@ -318,6 +426,18 @@ describe("a bare call in the command's folder", () => {
 		);
 		expect(text, "its files").toContain(`'GIT_WORK_TREE=${checkout}'`);
 		expect(text, "no other git folder").not.toContain(NO_GIT_DIR);
+	});
+
+	it("keeps a guarded checkout's commit fenced", () => {
+		const records = join(home, "elsewhere", "records");
+		expect(
+			letOut("nix-offload there --changed", {
+				home,
+				cwd: join(home, "src/r"),
+				folderGit: (folder) => folderGit(folder, home, "s1", records),
+				heldTree: (folder) => heldTree(folder, home, "s1", records),
+			}),
+		).toBeUndefined();
 	});
 
 	it("gives git no folder at all anywhere else", () => {
