@@ -138,7 +138,13 @@ at once, and what fails after is reported and handed to the screen
 
 A close aborts what runs and stamps `closed`. A stop parks the agent and
 stamps `signalled`, leaving what durable had in flight for the next
-start, whose resume carries it on. Given screens, the engine hands each
+start, whose resume carries it on. A conversation park-workflow parks
+while idle (`Host.park`) is stopped the same way, so the service keeps
+its hold, and its screen keeps its viewers (`parked`). parking.ts
+watches the wake file each conversation is told of in MYCELIUM_WAKE
+and asks the service to wake it (`ConversationEvents.wake`) when it is
+written or a viewer types; a wake asked while it is still parking
+waits for the park to settle. Given screens, the engine hands each
 built conversation to them; without, it binds extensions with no
 interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.

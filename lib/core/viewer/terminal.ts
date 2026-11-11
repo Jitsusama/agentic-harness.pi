@@ -111,7 +111,8 @@ interface JoinedViewer {
 interface Sleeping {
 	readonly wake: () => void;
 	readonly held: { readonly viewer: JoinedViewer; readonly data: string }[];
-	bytes: number;
+	/** How much each viewer typed while it slept, each bounded alone. */
+	readonly bytes: Map<JoinedViewer, number>;
 	/** Whether a key has told it to wake yet. */
 	told: boolean;
 }
@@ -270,21 +271,8 @@ export class ViewerTerminal implements Terminal {
 		return {
 			input: (data) => {
 				if (!this.viewers.has(viewer) || viewer.editing) return;
-				if (this.sleeping) {
-					this.hold(viewer, data);
-					return;
-				}
-				if (!this.onInput) return;
-				viewer.pendingBytes += Buffer.byteLength(data);
-				if (viewer.pendingBytes > MAX_PENDING_INPUT_BYTES) {
-					this.remove(viewer);
-					this.disconnect(
-						viewer,
-						"Viewer input exceeded 1 MiB without a complete event",
-					);
-					return;
-				}
-				viewer.stdin.process(data);
+				if (this.sleeping) this.hold(viewer, data);
+				else this.take(viewer, data);
 			},
 			resize: (rows, columns) => {
 				if (!this.viewers.has(viewer)) return;
@@ -494,7 +482,7 @@ export class ViewerTerminal implements Terminal {
 	 * until `awake` the screen it wakes into reads nothing either.
 	 */
 	sleep(wake: () => void): void {
-		this.sleeping = { wake, held: [], bytes: 0, told: false };
+		this.sleeping = { wake, held: [], bytes: new Map(), told: false };
 	}
 
 	/** Whether this terminal's conversation is parked. */
@@ -511,8 +499,7 @@ export class ViewerTerminal implements Terminal {
 		this.sleeping = undefined;
 		if (!sleeping) return;
 		for (const { viewer, data } of sleeping.held)
-			if (this.viewers.has(viewer) && !viewer.editing)
-				viewer.stdin.process(data);
+			if (this.viewers.has(viewer) && !viewer.editing) this.take(viewer, data);
 	}
 
 	/**
@@ -577,14 +564,30 @@ export class ViewerTerminal implements Terminal {
 		this.inConversation(() => this.repaint());
 	}
 
+	// What a viewer typed, for the screen to read, bounded until it reads it.
+	private take(viewer: JoinedViewer, data: string): void {
+		if (!this.onInput) return;
+		viewer.pendingBytes += Buffer.byteLength(data);
+		if (viewer.pendingBytes > MAX_PENDING_INPUT_BYTES) {
+			this.remove(viewer);
+			this.disconnect(
+				viewer,
+				"Viewer input exceeded 1 MiB without a complete event",
+			);
+			return;
+		}
+		viewer.stdin.process(data);
+	}
+
 	// A key for a parked conversation: kept for its next screen, the first
 	// telling it to wake. Past the bound a viewer is cut off, as a screen
 	// that never reads would cut it off.
 	private hold(viewer: JoinedViewer, data: string): void {
 		const sleeping = this.sleeping;
 		if (!sleeping) return;
-		sleeping.bytes += Buffer.byteLength(data);
-		if (sleeping.bytes > MAX_PENDING_INPUT_BYTES) {
+		const bytes = (sleeping.bytes.get(viewer) ?? 0) + Buffer.byteLength(data);
+		sleeping.bytes.set(viewer, bytes);
+		if (bytes > MAX_PENDING_INPUT_BYTES) {
 			this.remove(viewer);
 			this.disconnect(
 				viewer,

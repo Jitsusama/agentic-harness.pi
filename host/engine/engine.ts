@@ -6,16 +6,14 @@
  * it, carries on what a restart cut off, and ends it, through SessionHost,
  * which owns who holds what. A conversation that becomes another (pi's
  * /new, /fork, /resume or import) is held under its new id before pi builds
- * it, and the one it was ends with it.
+ * it, and the one it was ends with it. A conversation left idle parks,
+ * freeing its session while it stays held, and wakes in place (parking.ts).
+ *
+ * Long because a conversation's steps (register, build, begin, end, park,
+ * resume) meet here in the order each relies on, every one of them
+ * handing its own work to a module of its own beside this one.
  */
-import {
-	existsSync,
-	type FSWatcher,
-	mkdirSync,
-	rmSync,
-	watch,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
 	type LaunchHints,
@@ -52,6 +50,7 @@ import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
+import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
 	type AgentSessionRuntime,
@@ -95,12 +94,6 @@ const REFUSED_KEY = /\b401\b/;
 
 /** The durable store's file inside a conversation's folder. */
 const STORE_FILE = "durable.sqlite";
-
-/** The file inside a conversation's folder that, once written, wakes it from a park. */
-const WAKE_FILE = "wake";
-
-/** Why a parked conversation's session ended, as its stop says. */
-const PARKED = "parked while idle";
 
 /** One conversation the engine registered. */
 interface Live {
@@ -164,15 +157,13 @@ export async function createEngine(
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
-	// Parked conversations, each watching its wake file until it wakes or is closed.
-	const sleepers = new Map<string, FSWatcher>();
-	// Conversations parking now, each saying whether it was asked for meanwhile.
-	const parking = new Map<string, { asked: boolean }>();
 	let watched: ConversationEvents | undefined;
-
-	function wakeFile(sessionId: string): string {
-		return join(options.stateDir, sessionId, WAKE_FILE);
-	}
+	const parked = parking({
+		stateDir: options.stateDir,
+		stop: (sessionId, why) => host.stop(sessionId, why),
+		asking: () => watched?.wake,
+		report,
+	});
 
 	function held(sessionId: string, file: string): boolean {
 		return (
@@ -614,7 +605,7 @@ export async function createEngine(
 				),
 				...conversationMarker(sessionId, { key: host.key, mark: owner }),
 				// Where a sender wakes it once it parks, as a holder says for plain pi.
-				[WAKE_ENV]: wakeFile(sessionId),
+				[WAKE_ENV]: parked.wakeFile(sessionId),
 			},
 			hints,
 			close: (why) => end(sessionId, record, why),
@@ -624,78 +615,16 @@ export async function createEngine(
 				record.bus.emit(SESSION_STAMP_EVENT, stamp);
 			},
 			reload: () => reload(record),
-			park: () => park(record),
+			// Its close then keeps its screen's terminal for the wake.
+			park: () => {
+				record.parking = true;
+				return parked.park(sessionId);
+			},
 		});
-		// A wake left from an earlier park would wake its next one at once; it
-		// runs now, and reads its mesh as it starts.
-		rmSync(wakeFile(sessionId), { force: true });
+		// It reads its mesh as it starts, so nothing left from a park wakes it.
+		parked.running(sessionId);
 		live.set(sessionId, record);
 		return record;
-	}
-
-	/**
-	 * Park an idle conversation that asked to: stop it as a host stop does,
-	 * so durable keeps its run and the service its hold, keep its screen's
-	 * terminal for its viewers, and watch for its wake.
-	 */
-	async function park(record: Live): Promise<void> {
-		const { sessionId } = record.traits;
-		record.parking = true;
-		const parked = { asked: false };
-		parking.set(sessionId, parked);
-		try {
-			await host.stop(sessionId, PARKED);
-			sleep(sessionId);
-		} catch (error) {
-			// Stopped but unwatched, only a viewer or an attach wakes it; not
-			// stopped, it stays held as a failed close leaves it.
-			report(error);
-		} finally {
-			parking.delete(sessionId);
-		}
-		// A key or a message while it parked asked for it before it could wake.
-		if (parked.asked) wake(sessionId);
-	}
-
-	/** Watch a parked conversation's wake file, waking it the moment one is written. */
-	function sleep(sessionId: string): void {
-		unsleep(sessionId);
-		const file = wakeFile(sessionId);
-		mkdirSync(join(options.stateDir, sessionId), { recursive: true });
-		const woken = () => {
-			if (!sleepers.has(sessionId) || !existsSync(file)) return;
-			rmSync(file, { force: true });
-			wake(sessionId);
-		};
-		const watcher = watch(join(options.stateDir, sessionId), (_, name) => {
-			if (name === WAKE_FILE) woken();
-		});
-		watcher.unref();
-		watcher.on("error", report);
-		sleepers.set(sessionId, watcher);
-		// One written between its park and this watch.
-		woken();
-	}
-
-	/** Stop watching a parked conversation's wake file, as it wakes or is closed. */
-	function unsleep(sessionId: string): void {
-		sleepers.get(sessionId)?.close();
-		sleepers.delete(sessionId);
-	}
-
-	/** Ask the service to wake a parked conversation, which it admits as any other start. */
-	function wake(sessionId: string): void {
-		const parked = parking.get(sessionId);
-		if (parked) {
-			parked.asked = true;
-			return;
-		}
-		const asking = watched?.wake;
-		if (!asking) {
-			report(new Error(`Nothing can wake parked conversation ${sessionId}`));
-			return;
-		}
-		asking(sessionId).catch(report);
 	}
 
 	/**
@@ -712,7 +641,7 @@ export async function createEngine(
 		if (record.runtime || record.questioned) {
 			const screens = options.screens;
 			if (record.parking && screens?.parked)
-				await screens.parked(sessionId, () => wake(sessionId));
+				await screens.parked(sessionId, () => parked.wake(sessionId));
 			else await screens?.closed(sessionId, why);
 		}
 		const agent = record.conversation?.agent;
@@ -839,7 +768,7 @@ export async function createEngine(
 		async resume(entry: RosterEntry) {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
-			unsleep(entry.sessionId);
+			parked.unwatch(entry.sessionId);
 			if (!existsSync(entry.file))
 				throw new Error(
 					`Conversation ${entry.sessionId} has lost its session file: ${entry.file}`,
@@ -858,7 +787,7 @@ export async function createEngine(
 		},
 
 		async dropped(sessionId) {
-			unsleep(sessionId);
+			parked.unwatch(sessionId);
 			await options.screens?.closed(sessionId);
 		},
 

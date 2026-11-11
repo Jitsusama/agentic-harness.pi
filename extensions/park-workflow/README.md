@@ -66,10 +66,16 @@ no flag that restart would drop, such as `-e`. And the holder's
 record has to name this very process, since a pi run through a shell
 would exit to the shell's prompt rather than to its holder.
 
-A conversation in a multi-session host never parks itself, even with
-a screen and a holder: parking ends the process, which is every
-conversation the host runs. Its awake note says `its host parks it`,
-and the host decides when one sleeps.
+A conversation in a multi-session host parks by the same rule, but
+never ends the process, which is every conversation the host runs.
+The host holds it, so only its wake (`MYCELIUM_WAKE`, which the host
+sets for each conversation) and a written log are asked of it. It says
+`parked` and writes its marker as below, then asks the host to park
+it (`Host.park`), which frees its session and screen while keeping it
+held, its window open, and wakes it in place at the wake file, a key
+or a window opening on it. Under a host that can't park one
+conversation alone, it never parks, and its awake note says
+`its host parks it`.
 
 ## What Happens
 

@@ -22,6 +22,13 @@ viewer that leaves first, or a close elsewhere, is no yes. It asks even a
 lone viewer, since a key can come from no person: script(1) types Ctrl+D
 as its input ends.
 
+A parked conversation keeps its terminal and viewers. `sleep(wake)`,
+called before its screen stops, holds every key its viewers type, in
+order and bounded to 1 MiB per viewer, calling `wake` at the first.
+`awake()`, once the screen it wakes into has started, hands the held
+keys to that screen, each as its viewer typed it, so none is lost to
+the wake.
+
 The repaint callback must request a full pi render, including on a
 same-size join. It and pi's input and resize callbacks run inside
 withSession. One StdinBuffer per viewer prevents split escape sequences and
