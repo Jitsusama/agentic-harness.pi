@@ -2,17 +2,21 @@
  * Move notes: what a session that ended to move leaves for whoever
  * takes it up, and what holds a session from ending.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { whatHolds } from "../../../../lib/internal/session/free.ts";
 import {
+	claimMoveNote,
+	giveBackMoveNote,
 	type MoveNote,
 	moveNoteFrom,
 	readMoveNote,
 	readMoveNotes,
 	removeMoveNote,
+	restoreStrandedClaims,
+	takeBackMove,
 	writeMoveNote,
 } from "../../../../lib/internal/session/move.ts";
 
@@ -72,6 +76,70 @@ describe("move notes", () => {
 	it("keeps only the names a note says", () => {
 		const { quest: _quest, ...plain } = note();
 		expect(moveNoteFrom({ ...plain, title: "", from: 3 })).toEqual(plain);
+	});
+});
+
+describe("claiming a move note", () => {
+	const session = note().session;
+	const CUTOVER = 7001;
+	const JOIN = 7002;
+	// Every file a note or a claim left, past writeWhole's own `.writing`.
+	const left = () =>
+		readdirSync(folder).filter((name) => !name.startsWith("."));
+
+	it("lets the cutover adopt, and then tells the join it is adopting", () => {
+		writeMoveNote(note(), folder);
+		expect(claimMoveNote(session, CUTOVER, folder)).toEqual(note());
+		expect(readMoveNotes(folder), "a claimed note hidden from readers").toEqual(
+			[],
+		);
+		expect(takeBackMove(session, JOIN, folder)).toBe("adopting");
+		removeMoveNote(session, folder);
+		expect(left(), "nothing left once adopted").toEqual([]);
+		expect(takeBackMove(session, JOIN, folder)).toBe("adopting");
+	});
+
+	it("lets the join take it first, leaving the cutover nothing to adopt", () => {
+		writeMoveNote(note(), folder);
+		expect(takeBackMove(session, JOIN, folder)).toBe("taken");
+		expect(claimMoveNote(session, CUTOVER, folder)).toBeUndefined();
+		expect(left()).toEqual([]);
+	});
+
+	it("lets the join take back a note the cutover gave back", () => {
+		writeMoveNote(note(), folder);
+		claimMoveNote(session, CUTOVER, folder);
+		giveBackMoveNote(session, CUTOVER, folder);
+		expect(readMoveNote(session, folder)).toEqual(note());
+		expect(takeBackMove(session, JOIN, folder)).toBe("taken");
+	});
+
+	it("gives back a claim whose cutover died, and drops one a newer note replaced", () => {
+		const other = note({ session: "01a1c1e7-0000-7d34-91e9-6d01d8a47c3e" });
+		writeMoveNote(note(), folder);
+		writeMoveNote(other, folder);
+		claimMoveNote(session, CUTOVER, folder);
+		claimMoveNote(other.session, CUTOVER, folder);
+		writeMoveNote({ ...other, at: "2026-11-10T10:00:00.000Z" }, folder);
+
+		restoreStrandedClaims(() => true, folder);
+		expect(readMoveNotes(folder), "a live cutover's claims kept").toHaveLength(
+			1,
+		);
+
+		restoreStrandedClaims((pid) => pid !== CUTOVER, folder);
+		expect(readMoveNotes(folder)).toEqual([
+			note(),
+			{ ...other, at: "2026-11-10T10:00:00.000Z" },
+		]);
+		expect(left()).toHaveLength(2);
+	});
+
+	it("claims nothing where nothing has moved", () => {
+		const nowhere = join(folder, "never");
+		expect(claimMoveNote(session, CUTOVER, nowhere)).toBeUndefined();
+		expect(takeBackMove(session, JOIN, nowhere)).toBe("adopting");
+		restoreStrandedClaims(() => false, nowhere);
 	});
 });
 
