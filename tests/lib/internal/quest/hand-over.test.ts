@@ -119,6 +119,27 @@ describe("handing sessions to the launcher", () => {
 		});
 	});
 
+	it("says what a session was started with, for the launcher to start it so again", async () => {
+		const sent: string[] = [];
+		await handOver(
+			[{ id: "01a1-back", cwd: "/w", env: { PI_SANDBOX: "fence" } }],
+			async (argument) => {
+				sent.push(argument);
+				return "taken";
+			},
+		);
+		expect(JSON.parse(sent[0] ?? "")).toEqual({
+			sessions: [
+				{
+					id: "01a1-back",
+					cwd: "/w",
+					env: { PI_SANDBOX: "fence" },
+					focus: false,
+				},
+			],
+		});
+	});
+
 	it("hands over two sessions asked for at once, each in its own call", async () => {
 		// Y2YBTS [51dbc285], 2026-11-04: two spawns 0.4 s apart both said
 		// they were handed over, and the shell logged both; only one opened.

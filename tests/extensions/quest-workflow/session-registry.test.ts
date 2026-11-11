@@ -21,6 +21,7 @@ import {
 	seedLiveSessions,
 	sessionRegistryDir,
 	setSignalStampSession,
+	startedWith,
 	startHeartbeat,
 	stopHeartbeat,
 	touchHeartbeat,
@@ -237,6 +238,21 @@ describe("following a session onto its quests", () => {
 			openedAt: NOW.toISOString(),
 			previousQuests: { "QEST-1": later.toISOString() },
 		});
+	});
+
+	it("records how this pi was started, and says it again on each start", () => {
+		// A record opened before records kept it, or by a start since
+		// changed, says how the running process was started from its
+		// next start on, so a reboot reopens it the same way.
+		const input = { sessionId: "sess-1", cwd: "/work", instanceId: "inst-1" };
+		recordSession(input, NOW);
+		expect(readRecord("sess-1")).not.toHaveProperty("env");
+
+		recordSession({ ...input, ...startedWith({ PI_SANDBOX: "fence" }) }, NOW);
+		expect(readRecord("sess-1")?.env).toEqual({ PI_SANDBOX: "fence" });
+
+		recordSession({ ...input, ...startedWith({}) }, NOW);
+		expect(readRecord("sess-1")).not.toHaveProperty("env");
 	});
 
 	it("records a tab with no quest, so restore can bring it back", () => {

@@ -36,6 +36,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
 import { realmSegments, type SessionRealm, sessionRealm } from "../realm.ts";
+import type { CarriedEnvironment } from "../session/carried-environment.ts";
 import type { MoveNote } from "../session/move.ts";
 import type { CarriedHome } from "./carried.ts";
 import { atomicWriteFile } from "./io.ts";
@@ -96,6 +97,13 @@ export interface RestoreEntry {
 	 * `cwd`.
 	 */
 	readonly released?: { readonly from: string; readonly at: string };
+	/**
+	 * The variables a session ran here with that say how its commands
+	 * run, in the agent fence and through the spawner, each a plain word:
+	 * the launcher starts it again behind `env` with them, so one fenced
+	 * before the boot is fenced after it.
+	 */
+	readonly env?: CarriedEnvironment;
 }
 
 /** The whole file. */
@@ -267,6 +275,7 @@ function entryOf(
 		cwd: record.cwd,
 		lostAt: record.closedAt ?? "",
 		...(record.process?.hosted ? { hosted: true as const } : {}),
+		...(record.env ? { env: record.env } : {}),
 	};
 }
 

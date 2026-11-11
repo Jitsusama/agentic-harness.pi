@@ -77,6 +77,27 @@ describe("the restore file", () => {
 		});
 	});
 
+	it("says how each session was started, so one fenced comes back fenced", () => {
+		const fenced = {
+			...ranIn("01a1cccc-dddd", "last"),
+			env: { PI_SANDBOX: "fence", PI_SPAWNER: "on" },
+		};
+		const plain = ranIn("01a1aaaa-bbbb", "last");
+		const file = restoreFileOf(
+			[
+				{ record: fenced, heartbeatAt: "2026-10-29T05:00:00Z" },
+				{ record: plain, heartbeatAt: "2026-10-29T05:00:00Z" },
+			],
+			"this",
+		);
+		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
+		expect(byId.get("01a1cccc-dddd")?.env).toEqual({
+			PI_SANDBOX: "fence",
+			PI_SPAWNER: "on",
+		});
+		expect(byId.get("01a1aaaa-bbbb")).not.toHaveProperty("env");
+	});
+
 	it("marks a session a shared host ran as hosted, so the launcher leaves it to the host", () => {
 		const plain = ranIn("01a1cccc-dddd", "last");
 		const inHost = openRecord({
