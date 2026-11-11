@@ -159,7 +159,7 @@ describe("the join", () => {
 describe("the join a window opened on a hosted conversation runs", () => {
 	it("views it through any host holding it, parked ones too, at once", async () => {
 		for (const hold of [OPEN, KEPT]) {
-			expect(await joinView({ hold: () => hold })).toEqual({
+			expect(await joinView({ hold: async () => hold })).toEqual({
 				to: "host",
 				hold,
 			});
@@ -167,7 +167,9 @@ describe("the join a window opened on a hosted conversation runs", () => {
 	});
 
 	it("runs plain pi when no host holds it", async () => {
-		expect(await joinView({ hold: () => undefined })).toEqual({ to: "pi" });
+		expect(await joinView({ hold: async () => undefined })).toEqual({
+			to: "pi",
+		});
 	});
 });
 
