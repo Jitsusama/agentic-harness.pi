@@ -61,6 +61,19 @@ describe("acts", () => {
 
 		expect(acted).toEqual([["third"]]);
 	});
+
+	it("are never acted on once stopped, even when added after", () => {
+		const { acts, acted } = waiting();
+
+		acts.add("before");
+		acts.stop();
+		// A look still in flight as its session ends adds what it found.
+		acts.add("after");
+		vi.advanceTimersByTime(5000);
+
+		expect(acted).toEqual([]);
+		expect(acts.pending(), "nothing waits on a stopped queue").toBe(false);
+	});
 });
 
 describe("a session's share of the spread", () => {
