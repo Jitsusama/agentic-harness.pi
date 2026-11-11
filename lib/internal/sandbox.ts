@@ -87,6 +87,7 @@ import {
 	inStore,
 	type Offload,
 	offloadedOutside,
+	offloadKeptIn,
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
@@ -662,15 +663,21 @@ export function wrapFor(
 				door: nixDoor(fence.runtimeDir),
 				agent: agentProxy(fence.runtimeDir),
 			};
-			return (command) =>
-				offloadedOutside(command, sandbox.offload, {
+			return (command) => {
+				const out = offloadedOutside(command, sandbox.offload, {
 					home,
 					env: place.env,
 					heldTree: (folder) => heldTree(folder, home, place.env.PI_SESSION_ID),
 					cwd: place.cwd,
 					folderGit: (folder) =>
 						folderGit(folder, home, place.env.PI_SESSION_ID),
-				}) ?? fencedCommand(command, made);
+				});
+				if (out !== undefined) return out;
+				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
+				return keptIn === undefined
+					? fencedCommand(command, made)
+					: refusedCommand(keptIn);
+			};
 		}
 		case "strict": {
 			const unfenced = unfencedFolder(place.cwd, home);

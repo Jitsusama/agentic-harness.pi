@@ -41,6 +41,7 @@ import {
 import { fileToolRefusal } from "../../../lib/internal/sandbox-files.ts";
 
 const STORE_OFFLOAD = "/nix/store/0000-nix-offload/bin/nix-offload";
+const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
 const STORE_ENV = "/nix/store/0000-coreutils/bin/env";
 
 /** A finder that knows `programs`, as PATH would. */
@@ -649,14 +650,14 @@ describe("a command in the fence, through stand-ins", () => {
 	});
 
 	it("runs a nix-offload there call alone outside, with its own words and an environment of its own", () => {
-		const result = run("nix-offload there -L --changed", {
+		const result = run(`nix-offload there -L ${DRV}^*`, {
 			FENCE_TEST_KEPT: "kept",
 			LD_PRELOAD: "/tmp/evil.so",
 			BASH_ENV: "/tmp/evil.sh",
 			NIX_PATH: "nixpkgs=/tmp/evil",
 			USER: "someone",
 		});
-		expect(result.stdout).toContain("words:there -L --changed");
+		expect(result.stdout).toContain(`words:there -L ${DRV}^*`);
 		const names = result.stdout
 			.split("\n")
 			.filter((line) => line.includes("="))
@@ -687,16 +688,16 @@ describe("a command in the fence, through stand-ins", () => {
 
 	it("keeps fenced any nix-offload call with anything chained, quoted or expanded", () => {
 		for (const command of [
-			"nix-offload there; echo out",
-			"nix-offload there && echo out",
-			"nix-offload there | cat",
-			"nix-offload there $(echo out)",
-			"nix-offload there `echo out`",
+			`nix-offload there ${DRV}; echo out`,
+			`nix-offload there ${DRV} && echo out`,
+			`nix-offload there ${DRV} | cat`,
+			`nix-offload there ${DRV} $(echo out)`,
+			`nix-offload there ${DRV} \`echo out\``,
 			'nix-offload there "$drv^*"',
-			"nix-offload there > /tmp/out",
-			"nix-offload there\necho out",
-			"env -u SSH_AUTH_SOCK nix-offload there",
-			"nix-offload build",
+			`nix-offload there ${DRV} > /tmp/out`,
+			`nix-offload there ${DRV}\necho out`,
+			`env -u SSH_AUTH_SOCK nix-offload there ${DRV}`,
+			`nix-offload build ${DRV}`,
 		]) {
 			expect(
 				offloadedOutside(command, sandbox.offload, { home, env: {} }),
@@ -708,7 +709,7 @@ describe("a command in the fence, through stand-ins", () => {
 	it("is let out only until the fence reaches the builders itself", () => {
 		expect(
 			new Date() < new Date(`${OFFLOAD_EXEMPTION_ENDS}T00:00:00-05:00`),
-			"the nix-offload exemption is past its day: take it out, now the SSH agent's proxy lets the fence reach the builders",
+			"the nix-offload exemption is past its day: take it out, now a broker holds the builders' key",
 		).toBe(true);
 	});
 
