@@ -39,29 +39,37 @@ export interface CommitHookOptions {
 	readonly trailerExpr: string;
 }
 
-/** Build the prepare-commit-msg script for the given adapter options. */
+/** The hook's script, with an `@name@` left for each of an adapter's options. */
+const HOOK_SCRIPT = new URL("./prepare-commit-msg.sh", import.meta.url);
+
+/** An `@name@` the hook's script leaves for an option. */
+const BLANK = /@(\w+)@/g;
+
+/**
+ * Build the prepare-commit-msg script for the given adapter options. Each
+ * option is written in as it is, since two of them are shell the hook
+ * runs. A blank no option fills is refused rather than left in a hook
+ * that would fail on every commit.
+ */
 export function buildPrepareCommitMsgHook(options: CommitHookOptions): string {
-	return `#!/bin/sh
-# ${options.marker}
-# Appends the AI co-author trailer to commits made under this adapter.
-# Idempotent and chains to any displaced hook.
-
-msg_file="$1"
-
-chained="$(CDPATH= cd "$(dirname "$0")" && pwd)/prepare-commit-msg.${options.chainedSuffix}"
-if [ -x "$chained" ]; then
-	"$chained" "$@" || exit $?
-fi
-
-${options.gateTest} || exit 0
-[ -f "$msg_file" ] || exit 0
-
-if grep -qi 'co-authored-by[: ]*ai' "$msg_file"; then
-	exit 0
-fi
-
-git interpret-trailers --in-place --trailer ${options.trailerExpr} "$msg_file"
-`;
+	const filled = new Map<string, string>([
+		["marker", options.marker],
+		["chainedSuffix", options.chainedSuffix],
+		["gateTest", options.gateTest],
+		["trailerExpr", options.trailerExpr],
+	]);
+	return readFileSync(HOOK_SCRIPT, "utf8").replaceAll(
+		BLANK,
+		(_blank, name: string) => {
+			const value = filled.get(name);
+			if (value === undefined) {
+				throw new Error(
+					`prepare-commit-msg.sh leaves @${name}@, and no option fills it`,
+				);
+			}
+			return value;
+		},
+	);
 }
 
 /** The outcome of trying to install the hook. */

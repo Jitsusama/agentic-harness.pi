@@ -71,6 +71,15 @@ function initRepo(): string {
 }
 
 describe("buildPrepareCommitMsgHook", () => {
+	it("writes each option in, leaving no blank for git to run", () => {
+		const hook = buildPrepareCommitMsgHook(OPTIONS);
+
+		expect(hook).toContain(`# ${OPTIONS.marker}\n`);
+		expect(hook).toContain(`${OPTIONS.gateTest} || exit 0`);
+		expect(hook).toContain(`--trailer ${OPTIONS.trailerExpr} `);
+		expect(hook).not.toMatch(/@\w+@/);
+	});
+
 	it("appends the trailer when the gate env var is set", () => {
 		const dir = tempDir();
 		const hook = writeHook(dir);

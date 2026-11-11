@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	copyFileSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -33,14 +34,7 @@ const GIT_ENV: NodeJS.ProcessEnv = {
 delete GIT_ENV.GIT_CONFIG_COUNT;
 
 // World's pre-push, as it runs each hook in pre-push.d in order.
-const DISPATCHER = `#!/usr/bin/env bash
-set -euo pipefail
-export GIT_COMMON_DIR="\${GIT_COMMON_DIR-$(git rev-parse --path-format=absolute --git-common-dir)}"
-INPUT=$(cat)
-for hook in $(find -L "$GIT_COMMON_DIR/hooks/pre-push.d" -maxdepth 1 -mindepth 1 -type f -perm -u=x | sort); do
-  "$hook" "$@" <<< "$INPUT"
-done
-`;
+const DISPATCHER = new URL("./world-pre-push.sh", import.meta.url);
 
 let root: string;
 let queue: string;
@@ -99,7 +93,7 @@ beforeEach(() => {
 	git("push", "-q", "origin", "main");
 	const hooks = join(work, ".git", "hooks");
 	mkdirSync(join(hooks, "pre-push.d"), { recursive: true });
-	writeFileSync(join(hooks, "pre-push"), DISPATCHER);
+	copyFileSync(DISPATCHER, join(hooks, "pre-push"));
 	chmodSync(join(hooks, "pre-push"), 0o755);
 	hookFile(
 		join(hooks, "pre-push.d", "001-lfs"),
