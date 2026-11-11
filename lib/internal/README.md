@@ -50,8 +50,9 @@ may import from here, and any of it may change without notice.
 - **`registry/`**: pluggable registries kept on `globalThis` under a
   `Symbol.for` key, so a reload or a second module instance finds
   the same one.
-- **`reload/`**: following the install, and reloading a session onto
-  a worktree.
+- **`reload/`**: following the install, reloading a session onto
+  a worktree, and telling which extension links moved since the
+  process started, which only a new process loads afresh.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on

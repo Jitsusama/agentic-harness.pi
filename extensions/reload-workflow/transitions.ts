@@ -10,9 +10,13 @@
  * is one, reloads, and puts the settings back whatever happened.
  */
 
-import { resolve } from "node:path";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { join, resolve } from "node:path";
+import {
+	type ExtensionCommandContext,
+	getAgentDir,
+} from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
+import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	checkLoad,
 	describeLoad,
@@ -281,6 +285,18 @@ async function reloadOnce(
 	// Read after the wait: the session's own request says what came in,
 	// and more can come in while it waits.
 	const request: ReloadRequest = slot.request;
+	// Asked for, it reloads anyway, but says what it can't load afresh;
+	// the follower's own reload starts a new process instead (follow.ts).
+	const moved = linksMovedSince(
+		join(getAgentDir(), "extensions"),
+		performance.timeOrigin,
+	);
+	if (moved.length > 0) {
+		ctx.ui.notify(
+			`Extension links moved since this pi started (${moved.join(", ")}), and a reload still loads them through their first targets. Start the session again to load them afresh.`,
+			"warning",
+		);
+	}
 	let restore: Restore | undefined;
 	if (request.tree !== undefined) {
 		try {

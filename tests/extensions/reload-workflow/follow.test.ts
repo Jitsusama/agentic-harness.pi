@@ -19,10 +19,16 @@ import {
 	follow,
 	HELD_ENTRY,
 	HELD_MS,
+	RESTARTING_ENTRY,
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
+import {
+	isRestartAsk,
+	RESTART_ASK,
+	type RestartAsk,
+} from "../../../lib/internal/session/park.ts";
 import { announceJobHost, type JobHost } from "../../../lib/jobs/index.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 import { quietFor, until } from "../../support/until.ts";
@@ -59,6 +65,18 @@ async function behind({
 	swapped = false,
 	installUnread = false,
 	spreadMs = 0,
+	// Its extension links, and when its process started against them.
+	extensions = "/nonexistent/extensions",
+	startedAt = Date.now(),
+	// How its holder answers a restart, if anything here answers one.
+	answer,
+}: {
+	swapped?: boolean;
+	installUnread?: boolean;
+	spreadMs?: number;
+	extensions?: string;
+	startedAt?: number;
+	answer?: (ask: RestartAsk) => void;
 } = {}) {
 	const install = mkdtempSync(join(tmpdir(), "install-"));
 	dirs.push(install);
@@ -70,14 +88,30 @@ async function behind({
 	symlinkSync(join("versions", "bbbb"), link);
 	const prompted: string[] = [];
 	const entries: { type: string; data: unknown }[] = [];
+	const notices: string[] = [];
+	const asks: RestartAsk[] = [];
 	const pi = {
 		events: createEventBus(),
 		sendUserMessage: (text: string) => prompted.push(text),
 		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 	};
+	pi.events.on(RESTART_ASK, (data) => {
+		if (!isRestartAsk(data)) return;
+		asks.push({ ...data });
+		answer?.(data);
+	});
+	const ctx = {
+		hasUI: true,
+		isIdle: () => true,
+		sessionManager: {
+			getSessionId: () => "the-session",
+			getSessionFile: () => "/logs/the-session.jsonl",
+		},
+		ui: { notify: (text: string) => notices.push(text) },
+	};
 	const follower = await follow(
 		pi as never,
-		{ hasUI: true, isIdle: () => true } as never,
+		ctx as never,
 		settingsFor(link),
 		// Swapped, it runs a version of another install than its settings
 		// name; an install the start couldn't read is none at all.
@@ -89,9 +123,30 @@ async function behind({
 					? undefined
 					: now,
 		}),
-		{ env: {}, quietMs: QUIET_MS, spreadMs },
+		{ env: {}, quietMs: QUIET_MS, spreadMs, extensions, startedAt },
 	);
-	return { follower, prompted, entries };
+	return { follower, prompted, entries, notices, asks };
+}
+
+/**
+ * An extensions folder whose link moved after the process started: made
+ * onto a first target, repointed onto a second, the first then gone, as
+ * the Shopify proxy's link was on 11 November.
+ */
+function movedLinks(): { extensions: string; startedAt: number } {
+	const root = mkdtempSync(join(tmpdir(), "extensions-"));
+	dirs.push(root);
+	const first = join(root, "first");
+	const second = join(root, "second");
+	mkdirSync(first);
+	mkdirSync(second);
+	const extensions = join(root, "extensions");
+	mkdirSync(extensions);
+	// Well before the link moved, so a coarse clock can't put them together.
+	const startedAt = Date.now() - 60_000;
+	symlinkSync(second, join(extensions, "the-proxy"));
+	rmSync(first, { recursive: true });
+	return { extensions, startedAt };
 }
 
 function settingsFor(root: string): PackageSettings {
@@ -249,6 +304,69 @@ describe("following the install", () => {
 
 		await until("the reload is asked for", () => prompted.length > 0);
 		expect(prompted).toEqual(["/harness reload"]);
+	});
+
+	it("starts again through its holder when an extension link moved, rather than reload", async () => {
+		const { follower, prompted, entries, asks } = await behind({
+			...movedLinks(),
+			answer: (ask) => {
+				ask.restarting = true;
+			},
+		});
+
+		follower?.consider();
+
+		await until("the restart is asked for", () => asks.length > 0);
+		expect(asks, "the restart names the session's own log").toEqual([
+			{ session: "the-session", sessionFile: "/logs/the-session.jsonl" },
+		]);
+		await quietFor(QUIET_MS, 4);
+		expect(prompted, "a reload would load the moved link half stale").toEqual(
+			[],
+		);
+		expect(entries, "the log says why it starts again").toMatchObject([
+			{ type: RESTARTING_ENTRY, data: { links: ["the-proxy"] } },
+		]);
+	});
+
+	it("keeps its code and says why when its holder can't start it again", async () => {
+		const { follower, prompted, entries, notices, asks } = await behind({
+			...movedLinks(),
+			answer: (ask) => {
+				ask.why = "its person was at its window in the last ten minutes";
+			},
+		});
+
+		follower?.consider();
+		await until("the restart is asked for", () => asks.length > 0);
+		follower?.consider();
+
+		await quietFor(QUIET_MS, 4);
+		expect(asks, "it asks again only after a while").toHaveLength(1);
+		expect(prompted, "it never reloads onto the moved link").toEqual([]);
+		expect(entries, "the log says why, once").toMatchObject([
+			{
+				type: WAITING_ENTRY,
+				data: {
+					reason: expect.stringContaining("its person was at its window"),
+					links: ["the-proxy"],
+				},
+			},
+		]);
+		expect(notices, "its person is told once").toHaveLength(1);
+	});
+
+	it("reloads as before when its extension links are older than it", async () => {
+		const links = movedLinks();
+		const { follower, prompted, asks } = await behind({
+			extensions: links.extensions,
+			startedAt: Date.now() + 60_000,
+		});
+
+		follower?.consider();
+
+		await until("the reload is asked for", () => prompted.length > 0);
+		expect(asks, "nothing needs a new process").toEqual([]);
 	});
 
 	it("asks nothing while a rollover switches the session's log", async () => {
