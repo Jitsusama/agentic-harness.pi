@@ -73,9 +73,11 @@ describe("a parked conversation's terminal", () => {
 		one.input(" after");
 
 		expect(first, "the screen that parked read none of it").toEqual([]);
-		expect(next, "the woken screen read every key, in the order typed").toEqual(
-			["ty", "pe", "d", "!", " after"],
-		);
+		// pi's stdin buffer splits what it reads into keys, so read them joined.
+		expect(
+			next.join(""),
+			"the woken screen read every key, in the order typed",
+		).toBe("typed! after");
 		expect(wakes, "it asked for the wake once").toHaveLength(1);
 		expect(terminal.isAsleep(), "awake, it holds nothing").toBe(false);
 	});
@@ -93,7 +95,7 @@ describe("a parked conversation's terminal", () => {
 		wakeInto(terminal, next);
 		terminal.awake();
 
-		expect(next, "only the viewer still there is read").toEqual(["kept"]);
+		expect(next.join(""), "only the viewer still there is read").toBe("kept");
 	});
 
 	it("cuts off a viewer who types over its bound while it wakes, leaving the other", () => {
@@ -115,7 +117,7 @@ describe("a parked conversation's terminal", () => {
 		).toHaveBeenCalledWith(
 			"Viewer typed over 1 MiB while its conversation woke",
 		);
-		expect(next, "the other viewer's key was read").toEqual(["b"]);
+		expect(next.join(""), "the other viewer's key was read").toBe("b");
 	});
 
 	it("closed while parked, holds and wakes nothing", () => {

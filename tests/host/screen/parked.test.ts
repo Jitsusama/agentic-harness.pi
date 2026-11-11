@@ -121,11 +121,11 @@ describe("a parked conversation's screen", () => {
 
 		expect(first.read, "the screen that parked read none of it").toEqual([]);
 		expect(next, "it woke into a new screen").not.toBe(first);
-		expect(next.read, "the woken screen read every key, in order").toEqual([
-			"wake ",
-			"up",
-			"!",
-		]);
+		// pi's stdin buffer splits what it reads into keys, so read them joined.
+		expect(
+			next.read.join(""),
+			"the woken screen read every key, in order",
+		).toBe("wake up!");
 		expect(wake, "awake, a key asks for no wake").toHaveBeenCalledOnce();
 	});
 

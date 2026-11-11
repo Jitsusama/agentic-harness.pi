@@ -162,6 +162,15 @@ everyone, anything else lets only that viewer go, and a viewer whose
 window closes before answering leaves it running. Each end is a line in
 the host's journal naming the viewer or the caller that asked.
 
+park.test.ts parks three conversations on the screen host by the
+harness's own park-workflow, the switch naming each, and has the host
+weigh itself (SIGHUP, with its garbage collected): no parked
+conversation's session is left in memory, and the host weighs less.
+Each wakes in place a different way: keys typed in its window, all of
+them read once it wakes; a window opening on it; and the wake file its
+marker names, written as the mesh writes it. It waits out the rule's
+two minutes and its minute between looks once, for all three.
+
 killed-busy.test.ts is E11: three conversations share a host, one
 mid-turn in a tool that never ends by itself, when the host is killed
 outright. A new host resumes all three under their ids, each log keeps
