@@ -22,7 +22,8 @@
  * conversation a `/pick` command that shows a select panel and writes the
  * answer to `picked` in HOME, and a `/gate` command that raises one of
  * the harness's own gates, with this checkout's panel extensions loaded,
- * and writes its answer to `gated`, and a `/view` command that shows
+ * and writes its answer to `gated`, a `/tabs` command that raises its
+ * tabbed gate the same way, and a `/view` command that shows
  * one of the harness's views over more rows than any screen. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
@@ -274,7 +275,8 @@ function writeClipboard(): string {
  * pi's agent folder: the scripted provider's two models, the `/pick`
  * extension, and the harness's own gates: a `/gate` command raising this
  * checkout's `showSinglePrompt` and keeping its answer in `gated` in HOME,
- * a `/view` command showing this checkout's `view` over 200 numbered
+ * a `/tabs` command raising its `showTabbedPrompt` over two items and
+ * keeping its answer there too, a `/view` command showing this checkout's `view` over 200 numbered
  * rows, and this checkout's panel-lifecycle and panel-zoom extensions.
  */
 function writeAgentFolder(api: string): void {
@@ -339,7 +341,36 @@ export default function (pi) {
 				content: () => ["Gate " + name + " asks"],
 				actions: [{ key: "a", label: "Approve" }, { key: "r", label: "Reject" }],
 			});
-			const said = result?.type === "action" ? result.key : "cancelled";
+			const said =
+				result?.type === "action"
+					? result.key
+					: result?.type === "redirect"
+						? "redirected " + result.note
+						: "cancelled";
+			appendFileSync(${JSON.stringify(join(home, "gated"))}, name + " " + said + "\\n");
+		},
+	});
+}
+`,
+	);
+	writeFileSync(
+		join(agentDir, "extensions", "tabs.ts"),
+		`import { appendFileSync } from "node:fs";
+import { showTabbedPrompt } from ${JSON.stringify(join(harness, "lib/ui/prompt-tabbed.ts"))};
+export default function (pi) {
+	pi.registerCommand("tabs", {
+		description: "Raise one of the harness's tabbed gates and keep its answer",
+		handler: async (name, ctx) => {
+			const item = (label) => ({
+				label,
+				views: [{ key: "c", label: "Content", content: () => ["Tabs " + name + " " + label] }],
+			});
+			const result = await showTabbedPrompt(ctx, {
+				title: "Tabs " + name,
+				items: [item("Q1"), item("Q2")],
+				actions: [{ key: "a", label: "Approve" }, { key: "r", label: "Reject" }],
+			});
+			const said = result === null ? "cancelled" : "submitted";
 			appendFileSync(${JSON.stringify(join(home, "gated"))}, name + " " + said + "\\n");
 		},
 	});

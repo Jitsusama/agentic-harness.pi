@@ -32,6 +32,7 @@ import { drawsToTerminal } from "./dock.ts";
 import { dockGate, type GateFactory } from "./gate-dock.ts";
 import { runGate } from "./gate-queue.ts";
 import { OVERLAID } from "./overlay.ts";
+import { repaintOnHeightChange } from "./panel-height.ts";
 import { trackPanel } from "./panel-registry.ts";
 import { onPanelScreen, type PanelScreen } from "./panel-screen.ts";
 
@@ -184,6 +185,7 @@ function showUntilGone<T>(
 		// Set once this panel has answered, by a key, a stop or a dismiss.
 		// Pi's own promise may settle later or never; ours settles here.
 		let answer: { value: T } | undefined;
+		const unrepaint = repaintOnHeightChange(() => tui?.requestRender());
 
 		const takeDown = (value: T): void => {
 			// Pi shows the overlay only after the factory's promise
@@ -205,6 +207,7 @@ function showUntilGone<T>(
 		const close = (value: T): void => {
 			if (answer) return;
 			answer = { value };
+			unrepaint();
 			signal?.removeEventListener("abort", stop);
 			takeDown(value);
 			resolve(value);
@@ -243,6 +246,7 @@ function showUntilGone<T>(
 				(error: unknown) => {
 					if (answer) return;
 					answer = { value: cancelled };
+					unrepaint();
 					signal?.removeEventListener("abort", stop);
 					reject(error);
 				},
