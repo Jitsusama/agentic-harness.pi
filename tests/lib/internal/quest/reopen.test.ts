@@ -3,6 +3,8 @@ import {
 	ancestorTreesOf,
 	describeCwdSource,
 	pickResumeSession,
+	reopenedCwd,
+	reopenedSession,
 	resolveSpawnCwd,
 	summariseSessions,
 } from "../../../../lib/internal/quest/reopen.ts";
@@ -453,5 +455,85 @@ describe("summariseSessions", () => {
 			},
 		]);
 		expect(out[0]).toMatchObject({ name: "root cause dig", cwd: "/work/tree" });
+	});
+});
+
+describe("reopenedSession", () => {
+	it("finds the session a pi command reopens, however it is written", () => {
+		expect(reopenedSession("pi --session 01a1c1c6-a387")).toBe("01a1c1c6-a387");
+		expect(reopenedSession("pi --model x --session=abc")).toBe("abc");
+		expect(reopenedSession("pi --session '/s/a b.jsonl'")).toBe("/s/a b.jsonl");
+		expect(reopenedSession("pi --session-id abc")).toBeUndefined();
+		expect(reopenedSession("pi")).toBeUndefined();
+	});
+});
+
+describe("reopenedCwd", () => {
+	const ran = (id: string, cwd: string): SessionView => ({
+		id,
+		cwd,
+		status: "active",
+		liveness: "dead",
+		lastActivity: "2026-11-11T08:00:00Z",
+	});
+	const sessions = [
+		ran("01a1c1c6-a387-7000", "/src/harness"),
+		ran("01a1c1c6-b000-7000", "/src/core"),
+	];
+	const base = {
+		sessions,
+		questDir: "/store/Q1",
+		store: "/store",
+		exists: all,
+	};
+
+	it("starts a reopen where its session ran, rather than in the newest tree", () => {
+		expect(
+			reopenedCwd({ ...base, command: "pi --session 01a1c1c6-a387-7000" }),
+		).toBe("/src/harness");
+	});
+
+	it("takes a session by the start of its id only when one has it", () => {
+		expect(reopenedCwd({ ...base, command: "pi --session 01a1c1c6-a" })).toBe(
+			"/src/harness",
+		);
+		expect(
+			reopenedCwd({ ...base, command: "pi --session 01a1c1c6" }),
+			"two sessions start so",
+		).toBeUndefined();
+	});
+
+	it("reads the folder from a log's header when the command names its path", () => {
+		expect(
+			reopenedCwd({
+				...base,
+				command: "pi --session /logs/x.jsonl",
+				headerCwd: (path) => (path === "/logs/x.jsonl" ? "/src/y" : undefined),
+			}),
+		).toBe("/src/y");
+	});
+
+	it("leaves the choice to spawn for a fresh pi, a gone folder or the store", () => {
+		expect(reopenedCwd({ ...base, command: "pi" })).toBeUndefined();
+		expect(
+			reopenedCwd({
+				...base,
+				command: "pi --session 01a1c1c6-a387-7000",
+				exists: () => false,
+			}),
+		).toBeUndefined();
+		expect(
+			reopenedCwd({
+				...base,
+				sessions: [ran("s1", "/store/Q1")],
+				command: "pi --session s1",
+			}),
+		).toBeUndefined();
+	});
+
+	it("says what chose the folder", () => {
+		expect(describeCwdSource("reopened")).toBe(
+			"the folder the reopened session ran in",
+		);
 	});
 });

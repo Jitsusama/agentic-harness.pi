@@ -13,6 +13,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import type { QuestTree } from "../../quest/types.ts";
+import { sessionLogHeader } from "../session/log-header.ts";
 import type { SessionView } from "./session-liveness.ts";
 import { treePlace } from "./tree-place.ts";
 
@@ -26,6 +27,7 @@ export interface ResolvedCwd {
 
 /** What chose the folder a quest's session opens in. */
 export type CwdSource =
+	| "reopened"
 	| "tree"
 	| "session"
 	| "repoRoot"
@@ -34,6 +36,7 @@ export type CwdSource =
 	| "home";
 
 const SOURCE_WORDS: Record<CwdSource, string> = {
+	reopened: "the folder the reopened session ran in",
 	tree: "the quest's newest tree",
 	session: "its latest session's folder",
 	repoRoot: "a tree's repo",
@@ -45,6 +48,66 @@ const SOURCE_WORDS: Record<CwdSource, string> = {
 /** What chose the folder, as a person reads it in what spawn answers. */
 export function describeCwdSource(source: CwdSource): string {
 	return SOURCE_WORDS[source];
+}
+
+/** The session a pi command reopens with `--session`, by id or log path. */
+export function reopenedSession(command: string): string | undefined {
+	const named =
+		/(?:^|\s)--session(?:=|\s+)(?:'([^']+)'|"([^"]+)"|([^\s'"]+))/.exec(
+			command,
+		);
+	return named?.[1] ?? named?.[2] ?? named?.[3];
+}
+
+/**
+ * Where a pi command that reopens a session should start: the folder
+ * that session ran in, as the quest records it for an id, or as its
+ * log's header says for a path. pi looks a session id up only among the
+ * logs of the folder it starts in, so a reopen started anywhere else
+ * finds nothing to reopen: on 11 November OSPHT4's reopen, started in
+ * the quest's newest tree, sat five minutes at a prompt with no session
+ * open. Nothing when the command reopens nothing, or the folder is gone
+ * or lies in the quest store.
+ */
+export function reopenedCwd(opts: {
+	command: string;
+	sessions: readonly SessionView[];
+	questDir: string;
+	store?: string;
+	exists?: (p: string) => boolean;
+	/** The cwd a log's header records; read from disk unless a test names one. */
+	headerCwd?: (path: string) => string | undefined;
+}): string | undefined {
+	const named = reopenedSession(opts.command);
+	if (!named) return undefined;
+	const exists = opts.exists ?? existsSync;
+	const cwd = named.endsWith(".jsonl")
+		? (opts.headerCwd ?? ((path) => sessionLogHeader(path)?.cwd))(named)
+		: sessionCwd(opts.sessions, named);
+	if (!cwd || !exists(cwd)) return undefined;
+	return inStoreOf(opts.questDir, opts.store)(cwd) ? undefined : cwd;
+}
+
+/** Whether a folder is the quest's own, or anywhere in the quest store. */
+function inStoreOf(
+	questDir: string,
+	store: string | undefined,
+): (p: string) => boolean {
+	return (p) =>
+		[questDir, store].some(
+			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
+		);
+}
+
+/** The folder of the one session `id` names, whole or by its start. */
+function sessionCwd(
+	sessions: readonly SessionView[],
+	id: string,
+): string | undefined {
+	const exact = sessions.find((s) => s.id === id);
+	if (exact) return exact.cwd;
+	const started = sessions.filter((s) => s.id.startsWith(id));
+	return started.length === 1 ? started[0]?.cwd : undefined;
 }
 
 /**
@@ -98,10 +161,7 @@ export function resolveSpawnCwd(opts: {
 }): ResolvedCwd {
 	const exists = opts.exists ?? existsSync;
 	const checkoutOf = opts.checkoutOf ?? checkoutOnDisk;
-	const inStore = (p: string) =>
-		[opts.questDir, opts.store].some(
-			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
-		);
+	const inStore = inStoreOf(opts.questDir, opts.store);
 	let healed = false;
 	const markMissing = () => {
 		healed = true;
@@ -303,10 +363,7 @@ export function sessionToReopen(opts: {
 	exists?: (p: string) => boolean;
 }): { id: string; cwd: string } | undefined {
 	const exists = opts.exists ?? existsSync;
-	const inStore = (p: string) =>
-		[opts.questDir, opts.store].some(
-			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
-		);
+	const inStore = inStoreOf(opts.questDir, opts.store);
 	// No activity means pi has no log of it, so there is nothing to resume.
 	const stillOn = opts.stillOn ?? (() => true);
 	const newest = [...opts.sessions]

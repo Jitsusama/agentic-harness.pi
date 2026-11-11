@@ -101,7 +101,10 @@ shipped and tested.
   quest, by project or by default, and the answer names the
   layer that chose. The command is typed into a login shell
   so the person's startup files put the right pi on PATH.
-  A spawn opens in the quest's newest tree, else its latest
+  A spawn that reopens a session (`pi --session`, given or
+  picked) opens where that session ran, since pi finds a
+  session by id only among the logs of the folder it starts
+  in. Any other opens in the quest's newest tree, else its latest
   live session's folder, else a tree's repo, else the
   checkout a parent quest's newest tree was cut from, else
   the spawning session's folder when it is in a repo (its
