@@ -38,8 +38,10 @@ tests/scripts/pi-host.test.ts checks the exit status a unit reads.
 restart.test.ts checks when a host restarts itself, with timers fired
 by hand and a fake systemctl over an install in a private folder: once
 the install changes the host's own code or systemd has a new unit, and
-only with every conversation settled and every screen at rest; never
-outside a unit or as a process that isn't the unit's main one.
+only with every conversation settled, no background work held and
+every screen at rest; never outside a unit or as a process that isn't
+the unit's main one; and a restart systemd refused leaves no viewer
+told.
 what-starts.test.ts checks the import walk and fingerprint over a
 private tree, reading the unit from a cgroup file, and the unit's
 files read only once systemd has reloaded them.

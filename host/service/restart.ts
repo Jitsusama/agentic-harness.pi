@@ -1,7 +1,8 @@
 /**
  * A host restarts itself once what it would start differs from what it
  * runs and nothing it holds would notice: no conversation running, none
- * that changed lately, and no screen with a panel open or words typed.
+ * that changed lately, no background work held, and no screen with a
+ * panel open, a gate waiting or words typed.
  *
  * Without this a host ran the harness and pi it started with until a
  * login, a crash or a reboot: its unit is keep-old, so a switch leaves it
@@ -11,7 +12,12 @@
  * conversation and the next host resumes each before it listens, so a
  * viewer told the host is restarting joins the same conversation again.
  * The restart itself is systemd's, so the next start reads the unit as
- * systemd has it now.
+ * systemd has it now, and viewers hear of it only once systemd has it
+ * queued, as the host stops (serve.ts).
+ *
+ * The look and systemd's stop are not one step: something the person
+ * starts between them, in the moment systemctl takes, is parked or ended
+ * with the host as a logout would, and its conversation resumes after.
  */
 
 import { realpath } from "node:fs/promises";
@@ -58,10 +64,12 @@ export interface RestartFacts {
 	differs(): Promise<string | undefined>;
 	/** What the host holds now. */
 	held(): readonly Held[];
+	/** How much background work the conversations hold, which a restart would end. */
+	background(): number;
 	/** Whether every screen shows only an empty editor, with nobody in one. */
 	resting(): boolean;
-	/** Tell every viewer the host is restarting, so it joins again after. */
-	announce(): void;
+	/** Say whether a restart is coming, so stopping tells every viewer to join again after. */
+	expect(coming: boolean): void;
 	/** Have systemd restart the host's unit, without waiting for it. */
 	restart(why: string): Promise<void>;
 	report(error: unknown): void;
@@ -83,8 +91,10 @@ export function settled(
 
 /**
  * Look every `lookMs` whether the host would start differently, and once
- * it would and everything it holds has settled, announce the restart and
- * ask systemd for it, once. Answers the function that stops looking.
+ * it would and everything it holds has settled, ask systemd for the
+ * restart, once; a refused one is reported and looked at again later,
+ * with nothing said to any viewer. Answers the function that stops
+ * looking.
  */
 export function restartWhenSettled(
 	facts: RestartFacts,
@@ -122,10 +132,20 @@ export function restartWhenSettled(
 	async function consider(): Promise<boolean> {
 		const why = await facts.differs();
 		if (why === undefined || stopped) return false;
-		if (!settled(facts.held(), facts.now(), settledMs) || !facts.resting())
+		if (
+			!settled(facts.held(), facts.now(), settledMs) ||
+			facts.background() > 0 ||
+			!facts.resting()
+		)
 			return false;
-		facts.announce();
-		await facts.restart(why);
+		// Before systemctl, since systemd may stop the host before it answers.
+		facts.expect(true);
+		try {
+			await facts.restart(why);
+		} catch (error) {
+			facts.expect(false);
+			throw error;
+		}
 		return true;
 	}
 
@@ -137,7 +157,9 @@ export function restartWhenSettled(
 
 /** What a running host gives the restart loop, and where to look. */
 export interface Following {
-	readonly serving: Pick<ServingHost, "held" | "announceRestart">;
+	readonly serving: Pick<ServingHost, "held" | "restartComing">;
+	/** How much background work the conversations hold (the engine's). */
+	background(): number;
 	/** Whether every screen is at rest (screens.ts). */
 	resting(): boolean;
 	report(error: unknown): void;
@@ -201,8 +223,9 @@ export async function followWhatStarts(
 		{
 			differs: async () => (await installMoved()) ?? (await unitChanged()),
 			held: () => options.serving.held(),
+			background: options.background,
 			resting: options.resting,
-			announce: () => options.serving.announceRestart(),
+			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why) => {
 				options.report(`Restarting once every conversation settled, as ${why}`);
 				await systemctl(["--no-block", "restart", unit]);

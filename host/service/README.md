@@ -60,11 +60,14 @@ input pipeline or screen. No unit or running host is installed yet.
   has read a new unit file, as a switch naming a new pi writes. Code
   only a conversation loads moves with that conversation instead
   (reload-workflow's follower). Once either differs, and every
-  conversation has been idle or parked for two minutes with every
-  screen at rest (screens.ts), it tells each viewer `restarting` and
-  asks systemd to restart the unit, which parks and resumes every
-  conversation. A unit file systemd hasn't reloaded yet asks nothing,
-  since a restart would start the old one.
+  conversation has been idle or parked for two minutes, with no
+  background work held (the engine's count of each conversation's
+  job-workflow) and every screen at rest (screens.ts), it asks
+  systemd to restart the unit, which parks and resumes every
+  conversation. Only once systemctl has queued it does the stop tell
+  each viewer `restarting`, just before it closes on them, so a
+  refused restart says nothing. A unit file systemd hasn't reloaded
+  yet asks nothing, since a restart would start the old one.
 - proof.ts: a runtime's proof, which `scripts/host-prove.ts` writes
   once `pnpm test:host` has passed on that runtime with no case
   skipped. The program refuses a pi that PI_HOST_PROOF doesn't prove,

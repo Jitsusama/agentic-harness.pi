@@ -57,8 +57,9 @@ function facts(overrides: Partial<RestartFacts> = {}) {
 	const base: RestartFacts = {
 		differs: async () => "the install moved",
 		held: () => [{ state: "idle", since: long }],
+		background: () => 0,
 		resting: () => true,
-		announce: () => said.push("announce"),
+		expect: (coming) => said.push(`expect ${coming}`),
 		restart: async (why) => {
 			said.push(`restart: ${why}`);
 		},
@@ -101,13 +102,30 @@ describe("restartWhenSettled", () => {
 		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
 	});
 
-	it("announces, then restarts once, when it differs and all is settled", async () => {
+	it("expects the restart, then asks for it once, when it differs and all is settled", async () => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts();
 		restartWhenSettled(given, { after: timers.after });
 		await timers.fire(() => said.length === 2);
-		expect(said).toEqual(["announce", "restart: the install moved"]);
+		expect(said).toEqual(["expect true", "restart: the install moved"]);
 		expect(timers.pending(), "nothing looks again after a restart").toEqual([]);
+	});
+
+	it("expects no restart systemd refused, and looks again", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			restart: async () => {
+				throw new Error("refused");
+			},
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual([
+			"expect true",
+			"expect false",
+			"report: Error: refused",
+		]);
+		expect(timers.pending()).toHaveLength(1);
 	});
 
 	it.each([
@@ -121,6 +139,7 @@ describe("restartWhenSettled", () => {
 			{ held: (): readonly Held[] => [{ state: "idle", since: lately }] },
 		],
 		["a screen is in use", { resting: () => false }],
+		["background work is held", { background: () => 1 }],
 	])("waits while %s", async (_why, overrides) => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts(overrides);
@@ -208,10 +227,11 @@ describe("followWhatStarts", () => {
 		const timers = manualTimers();
 		const serving = {
 			held: () => [{ state: "idle" as const, since: long }],
-			announceRestart: vi.fn(),
+			restartComing: vi.fn(),
 		};
 		const stop = await followWhatStarts({
 			serving,
+			background: () => 0,
 			resting: () => true,
 			report,
 			root: join(install, "versions", "one"),
@@ -233,12 +253,12 @@ describe("followWhatStarts", () => {
 		const { systemctl, calls } = systemd();
 		const { timers, serving, report } = await follow(systemctl);
 		await timers.fire();
-		expect(serving.announceRestart).not.toHaveBeenCalled();
+		expect(serving.restartComing).not.toHaveBeenCalled();
 
 		await moveTo("two");
 		await timers.fire(() => calls.at(-1)?.[1] === "restart");
 
-		expect(serving.announceRestart).toHaveBeenCalledOnce();
+		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
 		expect(String(report.mock.calls[0]?.[0])).toContain(
 			"the install's two changes the host's own code",
@@ -250,7 +270,7 @@ describe("followWhatStarts", () => {
 		const { timers, serving } = await follow(systemctl);
 		await moveTo("same");
 		await timers.fire();
-		expect(serving.announceRestart).not.toHaveBeenCalled();
+		expect(serving.restartComing).not.toHaveBeenCalled();
 	});
 
 	it("restarts once systemd has read a new unit file", async () => {
@@ -261,7 +281,7 @@ describe("followWhatStarts", () => {
 		await rename(unitFile, join(dir, "old.service"));
 		await symlink(next, unitFile);
 		await timers.fire(() => calls.at(-1)?.[1] === "restart");
-		expect(serving.announceRestart).toHaveBeenCalledOnce();
+		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
 	});
 

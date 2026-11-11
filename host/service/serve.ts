@@ -41,8 +41,13 @@ export interface ServingHost {
 	readonly unresumed: readonly Unresumed[];
 	/** Each conversation the host runs, with its state and when it last changed. */
 	held(): readonly Pick<SessionIdentity, "state" | "since">[];
-	/** Tell every attached viewer the host is about to restart. */
-	announceRestart(): void;
+	/**
+	 * Say whether a restart of the host is coming. While it is, stopping
+	 * tells every attached viewer the host is restarting before it closes
+	 * the socket, so a viewer hears it only once systemd has the restart
+	 * and just before the close it would otherwise take for the end.
+	 */
+	restartComing(coming: boolean): void;
 	/** Close the socket, park every conversation and release the lock. */
 	stop(): Promise<void>;
 }
@@ -100,14 +105,18 @@ export async function serveHost(options: {
 		});
 		const running = host;
 		let stopping: Promise<void> | undefined;
+		let restarting = false;
 		return {
 			identity,
 			path,
 			unresumed,
 			held: () => running.list(),
-			announceRestart: () => listener.restarting(),
+			restartComing: (coming) => {
+				restarting = coming;
+			},
 			stop() {
 				stopping ??= (async () => {
+					if (restarting) await listener.restarting();
 					await listener.close();
 					await park(running);
 					running.dispose();

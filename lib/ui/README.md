@@ -44,6 +44,13 @@ top of Pi's TUI primitives.
   wizard. Nothing else mounts between its steps, and stopped
   while still waiting it answers the value you give it rather
   than throwing.
+- **`gatesDocked`** and **`gatesWaiting`** (`screen-gates.ts`):
+  how many gates a screen has docked, and how many hold it or
+  wait in line for it, read from the dock's and the queue's
+  shared state by name without loading pi or installing either.
+  A host reads them, per conversation, before it restarts: a
+  gate the person hopped away from leaves pi's editor focused
+  and empty, and only the dock still knows it waits.
 
 In a terminal, `promptSingle` and `promptTabbed` dock above the
 editor rather than cover it, so the transcript they ask about

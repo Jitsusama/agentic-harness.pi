@@ -370,7 +370,7 @@ describe("viewer connection lifecycle", () => {
 		expect(host.list()).toHaveLength(2);
 		expect(cleanup).not.toHaveBeenCalled();
 	});
-	it("tells each attached viewer, and only those, that the host is restarting", async () => {
+	it("tells each attached viewer, and only those, that the host is restarting, then lets it go", async () => {
 		await start({
 			attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
 		});
@@ -385,10 +385,15 @@ describe("viewer connection lifecycle", () => {
 		asking.write(`${JSON.stringify(list)}\n`);
 		expect((await answers.next()).value).toMatchObject({ ok: true });
 
-		listener?.restarting();
+		const told = listener?.restarting();
 		asking.write(`${JSON.stringify({ ...list, id: "again" })}\n`);
 
 		expect((await seen.next()).value).toEqual({ type: "restarting" });
+		expect(
+			(await seen.next()).done,
+			"the viewer's connection ends after the frame",
+		).toBe(true);
+		await told;
 		expect(
 			(await answers.next()).value,
 			"a connection with no viewer hears only its answers",

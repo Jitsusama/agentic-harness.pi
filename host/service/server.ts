@@ -14,6 +14,12 @@ import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
 
 const MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 const SOCKET_MODE = 0o600;
+/**
+ * How long a restarting host waits for its viewers to take the frame
+ * saying so before it closes on them, well inside the 30 s a client
+ * holds keys for after it.
+ */
+const RESTART_FLUSH_MS = 2_000;
 const DIRECTORY_MODE = 0o700;
 
 /** One viewer's connection to a persistent Terminal, not the session itself. */
@@ -267,12 +273,30 @@ export async function listenControl(options: {
 	server.on("error", options.report);
 	return {
 		/**
-		 * Tell every attached viewer the host is about to restart, so a
-		 * client that knows the frame joins the same conversation again
-		 * once the next host listens; an older one passes it over.
+		 * Tell every attached viewer the host is about to restart, and end
+		 * its connection once the frame is out, so a client that knows the
+		 * frame joins the same conversation again once the next host
+		 * listens; an older one passes it over. Settles once each viewer has
+		 * gone, or after RESTART_FLUSH_MS, whichever comes first.
 		 */
-		restarting(): void {
-			for (const send of viewing.values()) send({ type: "restarting" });
+		async restarting(): Promise<void> {
+			const leaving = [...viewing].map(
+				([socket, send]) =>
+					new Promise<void>((resolve) => {
+						if (socket.destroyed) return resolve();
+						socket.once("close", () => resolve());
+						send({ type: "restarting" });
+						socket.end();
+					}),
+			);
+			let timer: NodeJS.Timeout | undefined;
+			await Promise.race([
+				Promise.all(leaving),
+				new Promise<void>((resolve) => {
+					timer = setTimeout(resolve, RESTART_FLUSH_MS);
+				}),
+			]);
+			clearTimeout(timer);
 		},
 		async close(): Promise<void> {
 			ready = false;

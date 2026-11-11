@@ -9,8 +9,13 @@ import {
 	hostScreens,
 } from "../../../host/screen/screens.ts";
 import type { StartupAsker } from "../../../host/screen/startup-ask.ts";
-import { ambientSession } from "../../../lib/core/session/index.ts";
+import {
+	ambientSession,
+	withSession,
+} from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+import { DOCK_NAME } from "../../../lib/ui/screen-gates.ts";
+import { keepOnScreen } from "../../../lib/ui/screen-slot.ts";
 
 /** A stand-in for pi's hosted InteractiveMode: it starts, then runs until it quits. */
 class FakeMode implements HostedMode {
@@ -577,6 +582,20 @@ describe("resting screens", () => {
 			.input("g");
 		void mode.options.hosted.editText("draft");
 		expect(screens.resting(), "a draft out in a viewer's editor").toBe(false);
+	});
+
+	it("is in use while a gate the person hopped away from waits in the dock", async () => {
+		const { screens } = await resting();
+		// The dock as every copy keeps it: the gate stays, focus went back.
+		withSession("a", () =>
+			keepOnScreen(DOCK_NAME, { version: 1, entries: [{ gate: true }] }),
+		);
+		try {
+			expect(screens.resting(), "a docked gate, unfocused").toBe(false);
+		} finally {
+			withSession("a", () => keepOnScreen(DOCK_NAME, undefined));
+		}
+		expect(screens.resting(), "once the gate is gone").toBe(true);
 	});
 
 	it("counts a screen it can't read as in use", async () => {

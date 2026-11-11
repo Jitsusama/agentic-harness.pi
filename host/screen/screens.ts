@@ -18,6 +18,7 @@ import {
 	ViewerTerminal,
 } from "../../lib/core/viewer/terminal.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import { gatesDocked, gatesWaiting } from "../../lib/ui/screen-gates.ts";
 import type { StartupDiagnostic } from "../engine/index.ts";
 import type { ViewerBridge } from "../service/server.ts";
 import { terminalBridge } from "../service/viewer.ts";
@@ -105,9 +106,9 @@ export interface HostScreens {
 	ids(): string[];
 	/**
 	 * Whether every screen is at rest: started, showing pi's own editor
-	 * empty and focused, with no panel, dialog or overlay over it, no
-	 * command of the person's running, and nobody editing in their own
-	 * editor. A host restarts only then, since a restart loses each of
+	 * empty and focused, with no panel, dialog or overlay over it, no gate
+	 * docked or waiting for the screen, no command of the person's
+	 * running, and nobody editing in their own editor. A host restarts only then, since a restart loses each of
 	 * those (restart.ts).
 	 */
 	resting(): boolean;
@@ -331,7 +332,8 @@ export function hostScreens(options: {
 					screen.started &&
 					!screen.closing &&
 					!screen.terminal.isEditing() &&
-					atRest(screen.mode, screen.runtime),
+					atRest(screen.mode, screen.runtime) &&
+					noGates(screen.view.sessionId),
 			),
 	};
 }
@@ -418,6 +420,15 @@ function atRest(mode: HostedMode, runtime: unknown): boolean {
 		Reflect.get(session, "isCompacting") === false &&
 		Reflect.get(session, "isBashRunning") === false &&
 		Reflect.get(session, "pendingMessageCount") === 0
+	);
+}
+
+// Gates keep their state on the conversation's screen (lib/ui), read in
+// its session; a gate the person hopped away from shows nowhere else.
+function noGates(sessionId: string): boolean {
+	return withSession(
+		sessionId,
+		() => gatesDocked() === 0 && gatesWaiting() === 0,
 	);
 }
 
