@@ -149,10 +149,11 @@ a parked one. It watches the wake file until a resume has begun, so a
 wake that fails leaves it to the next. A wake through the file that is
 refused is kept beside it as `wake.refused`, with the message that asked
 and why (lib/internal/session/refused-wake.ts), so the mesh can say why
-it sleeps on; the conversation's next start clears it. A resume as the host starts,
-rather than a wake, clears plain pi's marker, so the conversation counts
-idle from its log and parks again at its first look. Given screens, the engine hands each
-built conversation to them; without, it binds extensions with no
+it sleeps on; the conversation's next start or its close clears it. A
+resume as the host starts, rather than a wake, clears plain pi's marker,
+so the conversation counts idle from its log and parks again at its
+first look. Given screens, the engine hands each built conversation to
+them; without, it binds extensions with no
 interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.
 

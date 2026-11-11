@@ -794,7 +794,7 @@ export async function createEngine(
 		parkSettled: (sessionId) => parked.settled(sessionId),
 
 		async dropped(sessionId, why) {
-			parked.unwatch(sessionId);
+			parked.closed(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},
 

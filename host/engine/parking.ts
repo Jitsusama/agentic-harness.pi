@@ -54,8 +54,10 @@ export interface Parking {
 	wake(sessionId: string): Promise<void>;
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
-	/** Stop watching for its wake, as it resumes or is closed. */
+	/** Stop watching for its wake, as it resumes. */
 	unwatch(sessionId: string): void;
+	/** It was closed: stop watching, and forget a wake refused it. */
+	closed(sessionId: string): void;
 }
 
 /** A park under way: when it settles, and the wakes asked of it meanwhile. */
@@ -178,5 +180,9 @@ export function parking(options: {
 		wake,
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch,
+		closed(sessionId) {
+			unwatch(sessionId);
+			clearRefusedWake(wakeFile(sessionId));
+		},
 	};
 }
