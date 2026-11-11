@@ -66,17 +66,15 @@ import { mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
+	agentProxy,
 	FENCE,
 	fenceArgs,
 	fencedCommand,
 	fenceRules,
 	guardsGitFolder,
-	type HeldGit,
-	inStore,
 	nixDoor,
-	type Offload,
-	offloadedOutside,
 } from "./fence.ts";
+import { fenceSshConfig } from "./fence-ssh.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
@@ -84,6 +82,12 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+import {
+	type HeldGit,
+	inStore,
+	type Offload,
+	offloadedOutside,
+} from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { systemProgram } from "./system-program.ts";
@@ -648,6 +652,7 @@ export function wrapFor(
 				cwd: place.cwd,
 				ownGitFolder: worktreeFolder(place.cwd),
 				scratch: questScratch(place.env.TMPDIR),
+				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 			};
 			const made = {
 				bwrap: sandbox.bwrap,
@@ -655,6 +660,7 @@ export function wrapFor(
 				args: fenceArgs(fence),
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
+				agent: agentProxy(fence.runtimeDir),
 			};
 			return (command) =>
 				offloadedOutside(command, sandbox.offload, {

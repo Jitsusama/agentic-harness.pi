@@ -92,8 +92,11 @@ may import from here, and any of it may change without notice.
   arguments and the shell text that runs a command in it: each
   command's own processes and devices, no desktop, and the settings,
   startup files and git's code read-only; what it never lets through,
-  where it keeps pi's own file tools from, and nix-offload's day-long
-  exemption.
+  the one SSH agent it lets in (core's proxy), the private keys it
+  empties, and where it keeps pi's own file tools from.
+- **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
+  binds over them, each included file written in, since ssh inside
+  refuses root's files as nobody's.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
@@ -108,6 +111,9 @@ may import from here, and any of it may change without notice.
 - **`notify.ts`**: reaching the person at the machine through a
   desktop notification. It decides how; the mesh decides when.
   `PI_NOTIFY=off` silences it.
+- **`offload-exemption.ts`**: the fence's one exemption, a
+  `nix-offload there` call let out to run as the person: what may go
+  out, and the environment and git it is given there.
 - **`paths.ts`**: the package's configuration, data, state and cache
   paths, by the XDG base directories.
 - **`process-global.ts`**: singletons shared across an extension's

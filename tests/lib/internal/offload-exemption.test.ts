@@ -17,13 +17,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { gitFolders, guardsGitFolder } from "../../../lib/internal/fence.ts";
 import {
-	gitFolders,
-	guardsGitFolder,
 	NO_GIT_DIR,
 	type OffloadPlace,
 	offloadedOutside,
-} from "../../../lib/internal/fence.ts";
+} from "../../../lib/internal/offload-exemption.ts";
 import { folderGit, heldTree } from "../../../lib/internal/sandbox.ts";
 
 const OFFLOAD = {

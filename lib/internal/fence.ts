@@ -14,7 +14,8 @@
  * - **No other process:** a pid namespace of its own and a `/proc` to
  *   match, so no other process's files, memory or open pipes.
  * - **No desktop:** the runtime folder is an empty one of its own, with
- *   only the Nix daemon's door for sandboxes bound back in. The display,
+ *   only the Nix daemon's door for sandboxes and the SSH agent's proxy
+ *   bound back in. The display,
  *   niri, the shell's ipc, the session bus, sound, the keyring, the
  *   password and clipboard daemons and kitty's socket are named in
  *   `NEVER_THROUGH`, and Landlock refuses any socket it wasn't told of,
@@ -37,8 +38,8 @@
  * is for text a stranger wrote; the fence is for every session.
  */
 
-import { lstatSync, readdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { lstatSync, readdirSync } from "node:fs";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -46,9 +47,18 @@ export const FENCE = "fence";
 
 /**
  * What in the runtime folder a fenced command may reach: the Nix
- * daemon's door for sandboxes, which takes its caller as untrusted.
+ * daemon's door for sandboxes, which takes its caller as untrusted, and
+ * the SSH agent's proxy, which signs only logins to the hosts it's told
+ * of, each proved by the host's own signature over the session (core's
+ * `modules/pi/agent-proxy`).
  */
-const LET_THROUGH = ["nix-untrusted.sock"] as const;
+const LET_THROUGH = ["nix-untrusted.sock", "pi-agent.sock"] as const;
+
+/** The SSH agent's proxy, in the runtime folder. */
+const AGENT_PROXY = "pi-agent.sock";
+
+/** Where the system's SSH settings are, which the fence's copy stands in for. */
+export const SYSTEM_SSH_CONFIG = "/etc/ssh/ssh_config";
 
 /** Sockets outside the runtime folder a fenced command may reach. */
 const SOCKETS_ELSEWHERE = ["/run/nscd/socket"] as const;
@@ -179,6 +189,13 @@ export interface FencePlace {
 	readonly ownGitFolder?: string;
 	/** Where quests' scratch folders live, and this session's quest's own. */
 	readonly scratch?: { readonly root: string; readonly own?: string };
+	/**
+	 * A copy of the system's SSH settings with the files they include
+	 * written in, bound over them (`fence-ssh.ts`): ssh refuses an
+	 * included file its owner doesn't match, and root's files show inside
+	 * as nobody's.
+	 */
+	readonly sshConfig?: string;
 }
 
 /** The read-only paths, for the home folder `home`. */
@@ -249,13 +266,32 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
+	if (place.sshConfig && exists(place.sshConfig)) {
+		args.push("--ro-bind", place.sshConfig, SYSTEM_SSH_CONFIG);
+	}
 	return [
 		...args,
 		...homeArgs(place.home, disk),
 		...sshArgs(place.home, disk),
 		...gitArgs(place, disk),
 		...scratchArgs(place, disk),
+		...hiddenArgs(place.home, disk),
 	];
+}
+
+/**
+ * Private keys outside `~/.ssh`, emptied inside, as paths from the home
+ * folder: nix-offload's login to the lent builders, which ssh takes from
+ * its file through the relay on this machine's loopback, so a command
+ * holding it could run anything there, past the exemption's rules.
+ */
+export const HIDDEN = [".local/state/nix-offload/store_ed25519"] as const;
+
+/** bubblewrap's arguments emptying each hidden file that is there. */
+function hiddenArgs(home: string, disk: Disk): string[] {
+	return HIDDEN.map((path) => join(home, path))
+		.filter((path) => disk.kind(path) === "file")
+		.flatMap((path) => ["--ro-bind", "/dev/null", path]);
 }
 
 /**
@@ -477,6 +513,19 @@ export function fenceRules(place: FencePlace): string[] {
 	];
 }
 
+/**
+ * The SSH agent's proxy, for `SSH_AUTH_SOCK` inside, when it's there;
+ * without it no SSH agent is reachable inside at all.
+ */
+export function agentProxy(
+	runtimeDir: string | undefined,
+	disk: Disk = DISK,
+): string | undefined {
+	if (!runtimeDir) return undefined;
+	const path = join(runtimeDir, AGENT_PROXY);
+	return disk.kind(path) === undefined ? undefined : path;
+}
+
 /** The fence's door to Nix, for `NIX_REMOTE` inside. */
 export function nixDoor(runtimeDir: string | undefined): string | undefined {
 	return runtimeDir ? `unix://${join(runtimeDir, LET_THROUGH[0])}` : undefined;
@@ -517,14 +566,15 @@ export function fenceRefusesWrite(
 
 /**
  * Whether a path, already resolved, lies where the fence keeps pi's own
- * file tools from reading: another process's files in `/proc`, or the
- * runtime folder, which holds the clipboard's pictures and the
+ * file tools from reading: another process's files in `/proc`, a hidden
+ * key (`HIDDEN`), or the runtime folder, which holds the clipboard's pictures and the
  * desktop's sockets.
  */
 export function fenceRefusesRead(path: string, place: FencePlace): boolean {
 	// pi's own /proc/self resolves to its pid, so it is refused too: its
 	// open files are pipes and sockets no fenced command could reach.
 	if (/^\/proc\/(\d+|thread-self)(\/|$)/.test(path)) return true;
+	if (HIDDEN.some((hidden) => path === join(place.home, hidden))) return true;
 	const runtime = place.runtimeDir;
 	return (
 		runtime !== undefined &&
@@ -535,8 +585,9 @@ export function fenceRefusesRead(path: string, place: FencePlace): boolean {
 /**
  * The shell text that runs `command` in the agent fence: bubblewrap
  * with `args`, around landrun with `rules`. Every variable the shell
- * exports goes in but those naming the desktop, and Nix is reached
- * through `door`, its daemon's door for sandboxes.
+ * exports goes in but those naming the desktop, Nix is reached
+ * through `door`, its daemon's door for sandboxes, and SSH's agent is
+ * `agent`, the proxy, when there is one.
  */
 export function fencedCommand(
 	command: string,
@@ -546,6 +597,7 @@ export function fencedCommand(
 		readonly args: readonly string[];
 		readonly rules: readonly string[];
 		readonly door?: string;
+		readonly agent?: string;
 	},
 ): string {
 	const unset = [...UNSET, SANDBOXED_COMMAND].join("|");
@@ -561,208 +613,10 @@ export function fencedCommand(
 			...fence.rules.map(quoted),
 			`"\${__pi_env[@]}" --env ${SANDBOXED_COMMAND}`,
 			...(fence.door ? [`--env ${quoted(`NIX_REMOTE=${fence.door}`)}`] : []),
+			...(fence.agent
+				? [`--env ${quoted(`SSH_AUTH_SOCK=${fence.agent}`)}`]
+				: []),
 			`-- bash -c ${quoted(stub)}`,
 		].join(" "),
 	].join("\n");
-}
-
-/**
- * nix-offload, run outside the fence until the SSH agent's proxy lets
- * the fence reach the builders: the store's own binary, and the store's
- * `env` to start it with an environment of its own.
- */
-export interface Offload {
-	readonly program: string;
-	readonly env: string;
-}
-
-/**
- * The day the nix-offload exemption is due out: the SSH agent's proxy
- * (the fence's fourth piece) lets the fence reach the builders by then,
- * and a test fails from this day while the exemption is still here.
- */
-export const OFFLOAD_EXEMPTION_ENDS = "2026-11-13";
-
-/** A word with no meaning to a shell: no quote, expansion, glob or redirect. */
-const PLAIN_WORD = /^[A-Za-z0-9._/@:=+^*-]+$/;
-
-/** A `nix-offload there` call alone, its arguments plain words. */
-const OFFLOAD_CALL =
-	/^nix-offload[ \t]+there(?:[ \t]+[A-Za-z0-9._/@:=+^*-]+)*$/;
-
-/** One `cd` into a folder, then the call: the form changed-checks needs. */
-const CD_CALL = /^cd[ \t]+(\S+)[ \t]*&&[ \t]*(nix-offload[ \t].*)$/;
-
-/**
- * Flags that build, wait or keep running on this machine rather than a
- * builder, which the exemption never lets out: what runs here should run
- * fenced, as any other command here does. `--out` copies a build's files
- * into any folder it names, which outside the fence would write where a
- * fenced command can't, such as `~/.config/systemd/user`.
- */
-const LOCAL_FLAGS = [
-	"--here",
-	"--here-when-idle",
-	"--outlive",
-	"--out",
-] as const;
-
-/**
- * A git folder no account can make, given as `GIT_DIR` to a call outside
- * any held tree, so no git it runs reads a `.git` a fenced command wrote.
- */
-export const NO_GIT_DIR = "/var/empty/no-git";
-
-/** What the work tool vouches for in a held tree: it and its git folder. */
-export interface HeldGit {
-	readonly folder: string;
-	readonly gitDir: string;
-}
-
-/** Whether `word` names a path in the Nix store, through every link. */
-function storeWord(word: string): boolean {
-	return (
-		word.startsWith("/nix/store/") &&
-		!word.split("/").includes("..") &&
-		inStore(word) !== undefined
-	);
-}
-
-/**
- * Whether a call's arguments may run outside the fence: none of the flags
- * that work here, and a `--run` only when everything it copies and the
- * command it runs are the store's, which a fenced command can't change.
- * The builder runs a `--run` as an account its Nix doesn't trust.
- */
-function letOut(words: readonly string[]): boolean {
-	const here = (word: string) =>
-		LOCAL_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
-	if (words.some(here)) return false;
-	if (!words.includes("--run")) return true;
-	const end = words.indexOf("--");
-	if (end === -1) return false;
-	const options = words.slice(0, end);
-	if (options.some((word) => word.startsWith("--copy="))) return false;
-	for (const [at, word] of options.entries()) {
-		if (word !== "--copy") continue;
-		const copied = options[at + 1];
-		if (copied === undefined || !storeWord(copied)) return false;
-	}
-	const command = words[end + 1];
-	return command !== undefined && storeWord(command);
-}
-
-/** The only folders on the exemption's `PATH`: the system's own programs. */
-function systemPath(user: string | undefined): string {
-	const own =
-		user && /^[a-z_][a-z0-9_-]*$/.test(user)
-			? [`/etc/profiles/per-user/${user}/bin`]
-			: [];
-	return [...own, "/run/current-system/sw/bin"].join(":");
-}
-
-/** Where an exempt call runs, and how a `cd` folder is vouched for. */
-export interface OffloadPlace {
-	readonly home: string;
-	readonly env: NodeJS.ProcessEnv;
-	/**
-	 * The folder as it really is, when it is a tree the work tool holds
-	 * for this session, named without a link, whose git links check out;
-	 * nothing otherwise, and nothing when it isn't given.
-	 */
-	readonly heldTree?: (folder: string) => HeldGit | undefined;
-	/** The folder the command runs in, where a bare call runs. */
-	readonly cwd?: string;
-	/**
-	 * The folder as it really is, with its git folder, when it is a tree
-	 * the session holds or a checkout whose git folder the fence keeps
-	 * read-only; nothing otherwise.
-	 */
-	readonly folderGit?: (folder: string) => HeldGit | undefined;
-}
-
-/**
- * The shell text that runs a `nix-offload there` call outside the fence,
- * or nothing for any other command, which stays fenced. Only a call
- * alone, of plain words, is let out, or one `cd` into a tree the session
- * holds before it, which changed-checks needs, since it finds its
- * repository from the folder it runs in: anything else chained on,
- * quoted, substituted or expanded stays in, and so does a call with a
- * flag that works on this machine, or a `--run` of anything but the
- * store's (`letOut`). It runs the store's binary by its path with the
- * call's own words, in an environment of its own: the home and runtime
- * folders, the account's name, the system's `PATH`, and nothing from
- * the shell that asked.
- *
- * The checks hold only as they run, while nix-offload and changed-checks
- * run git for minutes after, and a fenced command could point the tree's
- * `.git` at a git folder it made, whose config names a program to run.
- * So git is told where to look and never reads `.git` again: the held
- * tree's own git folder, which the fence keeps read-only. A bare call
- * runs in the command's own folder, and `--run` always sends the commit
- * there, so that folder is held the same way when it is a held tree or
- * a checkout the fence guards. In any other folder git is given one that
- * can't exist, so a flake named by a path, or a `--run`, fails rather
- * than read a `.git` a command wrote. `core.fsmonitor` is off either way.
- */
-export function offloadedOutside(
-	command: string,
-	offload: Offload | undefined,
-	place: OffloadPlace,
-): string | undefined {
-	if (!offload) return undefined;
-	let call = command.trim();
-	let held: HeldGit | undefined;
-	const cd = CD_CALL.exec(call);
-	if (cd) {
-		const [, named = "", rest = ""] = cd;
-		if (!(PLAIN_WORD.test(named) && named.startsWith("/"))) return undefined;
-		held = place.heldTree?.(named);
-		if (held === undefined) return undefined;
-		call = rest.trim();
-	} else if (place.cwd !== undefined) {
-		held = place.folderGit?.(place.cwd);
-	}
-	if (!OFFLOAD_CALL.test(call)) return undefined;
-	const words = call.split(/[ \t]+/).slice(1);
-	if (!letOut(words.slice(1))) return undefined;
-	const user = place.env.USER;
-	const environment = [
-		`HOME=${place.home}`,
-		`PATH=${systemPath(user)}`,
-		...(user ? [`USER=${user}`, `LOGNAME=${user}`] : []),
-		...(place.env.XDG_RUNTIME_DIR
-			? [`XDG_RUNTIME_DIR=${place.env.XDG_RUNTIME_DIR}`]
-			: []),
-		...(held
-			? [`GIT_DIR=${held.gitDir}`, `GIT_WORK_TREE=${held.folder}`]
-			: [`GIT_DIR=${NO_GIT_DIR}`, "GIT_CEILING_DIRECTORIES=/"]),
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=core.fsmonitor",
-		"GIT_CONFIG_VALUE_0=false",
-	];
-	// Named env, since the store's may be coreutils' one binary for every
-	// program, which acts by the name it is started with.
-	return [
-		...(held ? ["cd", quoted(held.folder), "&&"] : []),
-		"exec -a env",
-		quoted(offload.env),
-		"-i",
-		...environment.map(quoted),
-		quoted(offload.program),
-		...words.map(quoted),
-	].join(" ");
-}
-
-/** A program's own path in the Nix store, through every link, or nothing. */
-export function inStore(path: string | undefined): string | undefined {
-	if (!path) return undefined;
-	// Resolved first, so a `..` can't climb out of the store by name.
-	let own = resolve(path);
-	try {
-		own = realpathSync(own);
-	} catch {
-		// Not there to follow: judged by its name, since nothing runs from it.
-	}
-	return own.startsWith("/nix/store/") ? own : undefined;
 }
