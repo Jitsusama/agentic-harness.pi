@@ -113,7 +113,11 @@ function session() {
 		},
 		getContextUsage: () => {
 			state.asks += 1;
-			return { tokens: state.tokens };
+			return {
+				tokens: state.tokens,
+				contextWindow: WINDOW,
+				percent: (100 * state.tokens) / WINDOW,
+			};
 		},
 		isIdle: () => state.idle,
 		hasPendingMessages: () => false,
@@ -129,6 +133,9 @@ function session() {
 	};
 	return { state, ctx };
 }
+
+/** The context window the stand-in session's usage is a share of. */
+const WINDOW = 1_000_000;
 
 function isEntry(
 	value: unknown,
