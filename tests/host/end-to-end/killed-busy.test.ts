@@ -135,8 +135,11 @@ it(
 			// The cut-off gives the killed run again, back in its endless tool,
 			// or the model answers it and ends the turn. Taken up again, it is
 			// stopped as a person would; either way it must answer after.
-			const dawdles = () => textOf(c.file).split(DAWDLING).length - 1;
-			const killedIn = dawdles();
+			// Counted from the log at the kill, since the new host may have
+			// taken the run up again already.
+			const dawdlesIn = (text: string) => text.split(DAWDLING).length - 1;
+			const dawdles = () => dawdlesIn(textOf(c.file));
+			const killedIn = dawdlesIn(before[2] ?? "");
 			await untilAnswered(
 				"the third's killed run is taken up again or answered",
 				async () => dawdles() > killedIn || turnEnded(c.file),
