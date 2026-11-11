@@ -15,10 +15,11 @@
  * pi's words. With `--released`, it names plain pi's words once no host
  * holds the conversation. With `--view`, as a window the launcher opens
  * on a hosted conversation runs it, it looks once: the host's attach
- * while any host holds it, else plain pi. Under a holder, it writes its
- * wake and exits as a park does, so its holder starts that at once on
- * the same terminal, where the keys typed meanwhile still wait. Under
- * none, a view or a release runs it itself, ending as it ends.
+ * while any host holds it, else plain pi. Under its own holder, one whose
+ * record names this process, it writes its wake and exits as a park
+ * does, so its holder starts that at once on the same terminal, where
+ * the keys typed meanwhile still wait. Under none, a view or a release
+ * runs it itself, ending as it ends.
  */
 
 import { spawnSync } from "node:child_process";
@@ -34,6 +35,7 @@ import {
 } from "../lib/internal/session/move.ts";
 import {
 	AGAIN_ENV,
+	heldDirectly,
 	PARKED_EXIT,
 	WAKE_ENV,
 } from "../lib/internal/session/park.ts";
@@ -50,8 +52,12 @@ if (!own.includes("--session") || session === "" || plainPi.length === 0) {
 }
 // Under no holder, as a window opened by a caller that can't hold one
 // runs a view's words, it runs what comes next itself and ends as that
-// does; only a holder lets the window go on past it.
-const held = wake !== "" && again !== "";
+// does; only a holder lets the window go on past it. The variables alone
+// don't say this join is held: a window opened from a shell under some
+// pi's holder inherits them, and on 11 November one wrote that pi's
+// holder a wake and exited, closing the window, so the holder's record
+// must name this process.
+const held = wake !== "" && again !== "" && heldDirectly(wake, process.pid);
 if (!held && !own.includes("--view") && !own.includes("--released")) {
 	throw new Error(
 		"host-join.ts runs under a mycelium holder, which names its wake",
