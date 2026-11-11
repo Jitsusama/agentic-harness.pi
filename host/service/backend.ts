@@ -270,7 +270,8 @@ export interface Resuming {
  * that resumed must pass it, so the same one runs alone after every
  * restart and a refused one is parked with the open path's reason.
  * `starting` hears each one before it begins, so whoever waits on the
- * start knows it still moves.
+ * start knows it still moves; if it throws, that conversation stays held
+ * and is reported like one that couldn't resume, and the rest go on.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
@@ -282,13 +283,13 @@ export async function resumeHeld(options: {
 	const unresumed: Unresumed[] = [];
 	const entries = options.roster.entries();
 	for (const [index, entry] of entries.entries()) {
-		await options.starting?.({
-			step: "resume",
-			number: index + 1,
-			of: entries.length,
-			sessionId: entry.sessionId,
-		});
 		try {
+			await options.starting?.({
+				step: "resume",
+				number: index + 1,
+				of: entries.length,
+				sessionId: entry.sessionId,
+			});
 			if (resumed.length > 0) await options.admitAnother?.();
 			await options.engine.resume(entry);
 			resumed.push(entry.sessionId);

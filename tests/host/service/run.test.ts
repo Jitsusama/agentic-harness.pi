@@ -209,6 +209,7 @@ describe("runHost", () => {
 			"ready",
 		]);
 		expect(said).toHaveLength(3);
+		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
 		expect(said[2]).toMatch(/^\d+\.\d s: ready, listening on /);
 		second.emit("SIGTERM");
