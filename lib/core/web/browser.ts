@@ -26,7 +26,7 @@ import type {
 } from "puppeteer-core";
 import { processGlobal } from "../../internal/process-global.ts";
 import { abortError, type Bounds, bounded } from "./bound.ts";
-import { resolveChromePath } from "./chrome.ts";
+import { headlessEnvironment, resolveChromePath } from "./chrome.ts";
 import { CookieJar, cookieData } from "./jar.ts";
 import { findProcsByProfile, verifyBrowser } from "./procs.ts";
 
@@ -573,6 +573,9 @@ async function launchOnce(executablePath: string): Promise<Browser> {
 			"--remote-debugging-port=0",
 		],
 		dumpio: false,
+		// Off the session bus, so Chrome can't move itself into the
+		// person's app.slice and stays in this session's.
+		env: headlessEnvironment(),
 		// Puppeteer's own handlers kill Chrome and then call process.exit,
 		// taking the exit from the host; the ones above kill it without.
 		handleSIGINT: false,
