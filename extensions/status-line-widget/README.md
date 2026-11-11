@@ -60,7 +60,9 @@ when it is set), so the two agree:
   have changed the answer: the session starting, a tool finishing, a shell
   command, the agent settling, pi seeing the branch move. Nothing polls.
   A program that can't start, or ends before it answers, isn't started
-  again.
+  again. The file is read again at each question, so when a switch names
+  a new engine, a running pi moves to it at its next question rather than
+  keeping the old one until it reloads.
 - `roots` are the files or folders that mark a root; the nearest folder
   holding any of them names it.
 - `marks` are drawn by meaning: `branch`, `more`, `complete`, `active`,

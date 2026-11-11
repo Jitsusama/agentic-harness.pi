@@ -58,6 +58,23 @@ export const DEFAULT_WHERE: Where = {
 	marks: DEFAULT_MARKS,
 };
 
+/**
+ * Name the engine as the machine's description does now, or as it did
+ * before when it no longer reads, so a switch that names a new engine
+ * reaches pis already running while a file being rewritten loses none.
+ */
+export function engineNamed(
+	before: string,
+	file = whereFile(),
+): () => string {
+	let last = before;
+	return () => {
+		const named = readWhere(file).engine;
+		if (named !== null) last = named;
+		return last;
+	};
+}
+
 /** Where the machine's description is kept. */
 export function whereFile(): string {
 	return join(configDir("status-line"), "where.json");

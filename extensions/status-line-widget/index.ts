@@ -37,7 +37,7 @@ import { Engine, type GitState } from "./git.ts";
 import { type Facts, layout, type Piece, type Role, width } from "./layout.ts";
 import { told } from "./place.ts";
 import { type UsageReader, usageReader } from "./usage.ts";
-import { readWhere } from "./where.ts";
+import { engineNamed, readWhere } from "./where.ts";
 
 /**
  * The theme's colour for each role. pi names no strong colour of its own,
@@ -104,8 +104,10 @@ export default function statusLine(pi: ExtensionAPI) {
 
 	const where = readWhere();
 	const answers = new Map<string, GitState | false>();
+	// The engine is named again at each question, since a switch can name a
+	// new one while this pi keeps running.
 	const engine = where.engine
-		? new Engine(where.engine, (dir, state) => {
+		? new Engine(engineNamed(where.engine), (dir, state) => {
 				answers.set(dir, state);
 				surface?.requestRender();
 			})

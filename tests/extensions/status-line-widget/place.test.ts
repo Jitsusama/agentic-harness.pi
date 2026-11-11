@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { told } from "../../../extensions/status-line-widget/place.ts";
 import {
 	DEFAULT_WHERE,
+	engineNamed,
 	readWhere,
 } from "../../../extensions/status-line-widget/where.ts";
 
@@ -105,6 +106,17 @@ describe("what the machine says to tell it by", () => {
 		expect(where.marks).not.toHaveProperty("unsaved");
 		expect(where.marks).not.toHaveProperty("unpushed");
 		expect(where.marks.more).toBe("~");
+	});
+
+	it("names the engine a switch wrote since, and the last one while the file doesn't read", () => {
+		const file = join(dir, "where.json");
+		writeFileSync(file, JSON.stringify({ engine: "/old/git-engine" }));
+		const named = engineNamed("/old/git-engine", file);
+
+		writeFileSync(file, JSON.stringify({ engine: "/new/git-engine" }));
+		expect(named()).toBe("/new/git-engine");
+		writeFileSync(file, "{ engi");
+		expect(named()).toBe("/new/git-engine");
 	});
 
 	it("keeps the default roots over an empty list, which would tell nothing", () => {
