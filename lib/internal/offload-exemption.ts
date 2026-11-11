@@ -6,24 +6,27 @@
  * environment and git it is given there, is decided here.
  *
  * Only what reads nothing a fenced command chose goes out: derivations
- * already in the store. A flake never does. nix-offload sends a flake that
- * isn't a git tree here, or any `path:` one, as its whole folder, read as
- * the person, so a fenced command naming `path:~/.config/gh` would have
- * shipped that folder to a builder; and `--changed` sends a tree to an
- * evaluator, a machine of the person's own where nothing lent is up,
- * whose `--impure` evaluation of a flake the command wrote reads that
- * machine's files as the person. So a flake, a tree's checks and
- * `--changed` are evaluated inside the fence, through the untrusted
- * daemon's socket, and what they name is handed on as derivations
- * (ISXEG8, 11 November).
+ * already in the store, and a held tree's commit. A flake never does.
+ * nix-offload sends a flake that isn't a git tree here, or any `path:`
+ * one, as its whole folder, read as the person, so a fenced command
+ * naming `path:~/.config/gh` would have shipped that folder to a
+ * builder. So a flake and a tree's named checks are evaluated inside the
+ * fence, through the untrusted daemon's socket, and what they name is
+ * handed on as derivations (ISXEG8, 11 November).
  *
- * A `--run` stays in too, for now. nix-offload commits a tree's changes
- * from its index and files, both of which a fenced command can write:
- * an index entry naming a gitlink whose `.git` points at a repository
- * the fence hides has that repository's HEAD read and sent, an
- * alternates file reaches its objects, and the tree's attributes pick
- * the filters git runs. It goes out again once nix-offload sends a held
- * tree's committed objects alone, refusing alternates and gitlinks.
+ * A tree's commit goes out as `--changed` alone or a `--run` of programs
+ * in the store, from a tree the work tool holds for the session, whose
+ * `.git` file, way back and `commondir` the fence keeps read-only and
+ * `heldTree` checks at the call. nix-offload sends that commit's objects
+ * alone, refusing alternates and changes not committed, so nothing the
+ * index or files say is read (core #3331). Each such call goes with
+ * `NIX_OFFLOAD_LENT_ONLY=1`, set here rather than left to the caller,
+ * so it reaches a lent builder or nothing: never an evaluator of the
+ * person's own, whose `--impure` evaluation of a flake the command wrote
+ * would read that machine's files as the person, and never this machine,
+ * where `--changed` would run the commit's own changed-checks (ISXEG8,
+ * 11 November). A checkout's refs are a fenced command's to write, so
+ * only a held tree's commit goes.
  */
 
 import { realpathSync } from "node:fs";
@@ -86,6 +89,12 @@ const DERIVATION_FLAGS = [
 	"--never-ask",
 ] as const;
 
+/**
+ * What a call sending a held tree's commit carries, so nix-offload keeps
+ * it, and everything it starts, to the lent builders (core #3331).
+ */
+export const LENT_ONLY = "NIX_OFFLOAD_LENT_ONLY=1";
+
 /** A derivation's path in the store, with the outputs wanted or without. */
 const DERIVATION =
 	/^\/nix\/store\/[0-9a-z]{32}-[^/]+\.drv(?:\^[A-Za-z0-9_,*-]+)?$/;
@@ -131,6 +140,33 @@ function letOut(words: readonly string[]): boolean {
 	);
 }
 
+/**
+ * Whether a call sends a tree's commit to a builder in a way the fence
+ * lets out: `--changed` alone, the checks the commit changes, or `--run`
+ * of a program in the store with only store paths copied up, after the
+ * flags that say how it waits its turn.
+ */
+function sendsCommit(words: readonly string[]): boolean {
+	let at = words[0] === "--never-ask" ? 1 : 0;
+	while (words[at] === "--first" || words[at] === "--lent-only") at++;
+	const [verb, ...rest] = words.slice(at);
+	if (verb === "--changed") return rest.length === 0;
+	return verb === "--run" && runsFromStore(rest);
+}
+
+/**
+ * Whether a `--run`'s words copy up only store paths and run a program
+ * in the store, with plain words after it for the program alone.
+ */
+function runsFromStore(words: readonly string[]): boolean {
+	let at = 0;
+	while (words[at] === "--copy" && storeWord(words[at + 1] ?? "")) at += 2;
+	if (words[at] === "--longest" && /^\d+$/.test(words[at + 1] ?? "")) {
+		at += 2;
+	}
+	return words[at] === "--" && storeWord(words[at + 1] ?? "");
+}
+
 /** The only folders on the exemption's `PATH`: the system's own programs. */
 function systemPath(user: string | undefined): string {
 	const own =
@@ -165,8 +201,9 @@ export interface OffloadPlace {
  * or nothing for any other command, which stays fenced. Only a call
  * alone, of plain words, is let out, or one `cd` into a tree the session
  * holds before it: anything else chained on, quoted, substituted or
- * expanded stays in, and so does anything but derivations (`letOut`).
- * It runs the store's binary by its path with the call's own words, in an environment of its own: the home and runtime
+ * expanded stays in, and so does anything but derivations (`letOut`) or,
+ * from a held tree, its commit (`sendsCommit`), which goes to the lent
+ * builders alone. It runs the store's binary by its path with the call's own words, in an environment of its own: the home and runtime
  * folders, the account's name, the system's `PATH`, and nothing from
  * the shell that asked.
  *
@@ -186,19 +223,25 @@ export function offloadedOutside(
 	if (!offload) return undefined;
 	let call = command.trim();
 	let held: HeldGit | undefined;
+	// Only a tree the session holds sends its commit: a checkout's refs
+	// are a fenced command's to point anywhere.
+	let tree: HeldGit | undefined;
 	const cd = CD_CALL.exec(call);
 	if (cd) {
 		const [, named = "", rest = ""] = cd;
 		if (!(PLAIN_WORD.test(named) && named.startsWith("/"))) return undefined;
 		held = place.heldTree?.(named);
 		if (held === undefined) return undefined;
+		tree = held;
 		call = rest.trim();
 	} else if (place.cwd !== undefined) {
 		held = place.folderGit?.(place.cwd);
+		tree = place.heldTree?.(place.cwd);
 	}
 	if (!OFFLOAD_CALL.test(call)) return undefined;
 	const words = call.split(/[ \t]+/).slice(1);
-	if (!letOut(words.slice(1))) return undefined;
+	const sends = tree !== undefined && sendsCommit(words.slice(1));
+	if (!(sends || letOut(words.slice(1)))) return undefined;
 	const user = place.env.USER;
 	const environment = [
 		`HOME=${place.home}`,
@@ -213,6 +256,7 @@ export function offloadedOutside(
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=core.fsmonitor",
 		"GIT_CONFIG_VALUE_0=false",
+		...(sends ? [LENT_ONLY] : []),
 	];
 	// Named env, since the store's may be coreutils' one binary for every
 	// program, which acts by the name it is started with.
@@ -243,8 +287,9 @@ export function offloadKeptIn(command: string): string | undefined {
 		LOCAL_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
 	if (words.some(here) || words.join(" ") === "--takes") return undefined;
 	return [
-		"The agent fence sends only derivations to the builders: a flake, a path: folder or --changed would be read or evaluated as the person outside it, and a --run would commit the tree from an index and files a fenced command can write.",
-		"Evaluate inside first (`nix eval --raw <flake>#<attribute>.drvPath`, or `nix path-info --derivation <flake>#<attribute>`), then run `nix-offload there <drv>^*` with each path written out as printed. A --run goes out again once nix-offload sends only a tree's committed objects.",
+		"The agent fence sends the builders only derivations, and the commit of a tree the work tool holds for this session: a flake or a path: folder would be read as the person outside it, and a checkout's commit is one a fenced command can point anywhere.",
+		"Evaluate inside first (`nix eval --raw <flake>#<attribute>.drvPath`, or `nix path-info --derivation <flake>#<attribute>`), then run `nix-offload there <drv>^*` with each path written out as printed.",
+		"From a held tree, `cd <tree> && nix-offload there --changed` alone, or `--run --copy <store path> -- <store path> <words>`, sends its commit to a lent builder.",
 	].join(" ");
 }
 

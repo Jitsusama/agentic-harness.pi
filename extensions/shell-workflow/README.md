@@ -131,25 +131,25 @@ it without bwrap and landrun on `PATH`, or off Linux, runs no command.
 It cost about 80 ms a command on a machine at a load of 20 (85 ms
 against 8 ms unfenced), most of it bubblewrap's mounts.
 
-Until a broker holds the builders' key, one kind of `nix-offload
-there` call runs outside, alone: derivations already in the store
+Until a broker holds the builders' key, two kinds of `nix-offload
+there` call run outside, alone: derivations already in the store
 (`nix-offload there <drv>^*`), with only a build's own flags (`-L`,
 `--keep-going`, `--print-out-paths`, `--bulk`, `--first`,
-`--never-ask`). It runs the store's own binary, started by its path
+`--never-ask`); and, from a tree the work tool holds for the session,
+its commit, as `--changed` alone or a `--run` whose copies and program
+are store paths. A commit goes with `NIX_OFFLOAD_LENT_ONLY=1`, set by
+the fence, so it reaches a lent builder or nothing, never an evaluator
+of yours or this machine, and nix-offload sends its committed objects
+alone. It runs the store's own binary, started by its path
 with the call's own words and an environment of its own (home, runtime
 folder, account, the system's `PATH`), and a test fails from 28
 November while the exemption is still here. A flake never goes out:
 nix-offload sends one that isn't a git tree, or any `path:` one, as
-its whole folder read as you, and `--changed` can send a tree to an
-evaluator, a machine of yours whose `--impure` evaluation of a flake
-a command wrote reads that machine's files. A `--run` stays in too,
-since nix-offload commits the tree's changes from an index and files a
-command can write: a planted gitlink has a hidden repository's HEAD
-read and sent. It goes out again once nix-offload sends a held tree's
-committed objects alone. Any of these, alone, is refused, saying to
-evaluate inside the fence first (`nix eval --raw
+its whole folder read as you. Nor does a checkout's commit, since its
+refs are a command's to point anywhere. Any of these, alone, is
+refused, saying to evaluate inside the fence first (`nix eval --raw
 <flake>#<attribute>.drvPath`) and to hand on each derivation as
-printed; one with `--here`, `--here-when-idle` or `--outlive` builds
+printed, or to send a held tree's commit; one with `--here`, `--here-when-idle` or `--outlive` builds
 fenced, here, as any build does, and anything chained on, quoted or
 expanded stays fenced. One `cd` into a tree the work tool holds may
 come before the call, provided the tree is named without a link and
