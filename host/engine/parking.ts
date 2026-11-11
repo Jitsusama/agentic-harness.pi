@@ -54,7 +54,10 @@ export interface Parking {
 	wake(sessionId: string): Promise<void>;
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
-	/** Stop watching for its wake, as it resumes. */
+	/**
+	 * It resumed: stop watching for its wake, and forget a wake refused it
+	 * as it started, after `running` cleared the last.
+	 */
 	unwatch(sessionId: string): void;
 	/** It was closed: stop watching, and forget a wake refused it. */
 	closed(sessionId: string): void;
@@ -85,13 +88,19 @@ export function parking(options: {
 	const folderOf = (sessionId: string) => join(stateDir, sessionId);
 	const wakeFile = (sessionId: string) => join(folderOf(sessionId), WAKE_FILE);
 
-	function unwatch(sessionId: string): void {
+	function stopWatching(sessionId: string): void {
 		sleepers.get(sessionId)?.close();
 		sleepers.delete(sessionId);
 	}
 
+	// Once it runs or is closed, no refusal of a wake says anything true.
+	function forget(sessionId: string): void {
+		stopWatching(sessionId);
+		clearRefusedWake(wakeFile(sessionId));
+	}
+
 	function watchWake(sessionId: string): void {
-		unwatch(sessionId);
+		stopWatching(sessionId);
 		const file = wakeFile(sessionId);
 		mkdirSync(folderOf(sessionId), { recursive: true });
 		const woken = () => {
@@ -183,10 +192,7 @@ export function parking(options: {
 		},
 		wake,
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
-		unwatch,
-		closed(sessionId) {
-			unwatch(sessionId);
-			clearRefusedWake(wakeFile(sessionId));
-		},
+		unwatch: forget,
+		closed: forget,
 	};
 }
