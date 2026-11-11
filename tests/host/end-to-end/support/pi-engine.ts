@@ -26,8 +26,13 @@ import {
 	scriptedCore,
 } from "./scripted-model.ts";
 
-/** The harness every conversation loads, this tree. */
-const HARNESS = resolve(import.meta.dirname, "../../../..");
+/**
+ * The harness every conversation loads: this tree, or the install
+ * PI_HOST_TEST_HARNESS names, for a case about an install that moves.
+ */
+const HARNESS =
+	process.env.PI_HOST_TEST_HARNESS ??
+	resolve(import.meta.dirname, "../../../..");
 
 /** What the module uses of pi-ai's registry of apis. */
 interface Compat {
