@@ -39,6 +39,11 @@ export interface ScreenHost {
 	gone(sessionId: string, ms: number): Promise<void>;
 	/** Send it systemd's stop and wait for it to go. */
 	stop(): Promise<number | null>;
+	/**
+	 * Stop it as systemd restarts it, telling each viewer a restart is
+	 * coming, and wait for it to go. Start the next host on the same seal.
+	 */
+	restart(): Promise<number | null>;
 	/** What it wrote to standard error so far. */
 	errors(): string;
 }
@@ -119,6 +124,10 @@ export async function startScreenHost(
 			settles(sessionId, ms, "gone", (held) => held === undefined),
 		stop: () => {
 			child.kill("SIGTERM");
+			return exited;
+		},
+		restart: () => {
+			child.kill("SIGUSR2");
 			return exited;
 		},
 		errors: () => errors,

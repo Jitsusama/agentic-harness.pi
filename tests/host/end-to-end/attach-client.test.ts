@@ -4,13 +4,15 @@
  * shell, joined to a conversation of a sealed host composed as the host
  * program composes it. What its screen shows is read through a terminal
  * emulator, and its Ctrl+G and Ctrl+Z run through its own tty: a scripted
- * editor in that terminal, and bash's own job control. Only kitty itself
- * is left out. Runs on the host's pi as support/host-pi.ts finds it, a
- * mycelium with mycelium#112's client (MYCELIUM_BIN, else the PATH's) and
- * script(1): an ordinary run without one skips it saying which, and
- * `pnpm test:host` fails instead. A mycelium is judged by its own binary,
- * since an older one attaches all the same and only says, on the screen,
- * that it has no editor.
+ * editor in that terminal, and bash's own job control. Its window stays
+ * open through the host's restart and joins the same conversation again.
+ * Only kitty itself is left out. Runs on the host's pi as
+ * support/host-pi.ts finds it, a mycelium with mycelium#118's client
+ * (MYCELIUM_BIN, else the PATH's) and script(1): an ordinary run without
+ * one skips it saying which, and `pnpm test:host` fails instead. A
+ * mycelium is judged by its own binary, since an older one attaches all
+ * the same and only says, on the screen, that it has no editor, or ends
+ * when its host restarts.
  */
 
 import { spawnSync } from "node:child_process";
@@ -33,6 +35,8 @@ const mycelium = process.env.MYCELIUM_BIN || onPath("mycelium");
 const hasScript = spawnSync("script", ["--version"]).status === 0;
 /** A string only mycelium#112's client and later hold: the name of the file it hands the editor. */
 const HANDOFF_MARK = "mycelium-edit-";
+/** A string only mycelium#118's client and later hold: what it says while a restarting host comes back. */
+const REJOIN_MARK = "pi is restarting; joining again";
 /** What this machine lacks to run the proof: skipped saying so, or failed under `pnpm test:host`. */
 const missing = [
 	packageDir ? undefined : hostPiMissing(),
@@ -43,11 +47,15 @@ const missing = [
 ].filter((each) => each !== undefined);
 if (missing.length > 0 && process.env[HOST_PI_REQUIRED])
 	throw new Error(missing.join("; "));
-/** Why `program` can't run the proof, or nothing when its client edits and suspends. */
+/** Why `program` can't run the proof, or nothing when its client edits, suspends and outlives a host's restart. */
 function handsOff(program: string): string | undefined {
 	if (!existsSync(program)) return `No mycelium to run: ${program}`;
-	if (readFileSync(program).includes(HANDOFF_MARK)) return undefined;
-	return `The mycelium at ${program} predates mycelium#112, so its client neither edits nor suspends: set MYCELIUM_BIN to one built from mycelium 509febc or later, as core.nix#2843 pins`;
+	const binary = readFileSync(program);
+	if (!binary.includes(HANDOFF_MARK))
+		return `The mycelium at ${program} predates mycelium#112, so its client neither edits nor suspends: set MYCELIUM_BIN to one built from mycelium 509febc or later, as core.nix#2843 pins`;
+	if (!binary.includes(REJOIN_MARK))
+		return `The mycelium at ${program} predates mycelium#118, so its client ends when its host restarts: set MYCELIUM_BIN to one built from mycelium f6f7bcb or later`;
+	return undefined;
 }
 
 /** A case: a turn or two, and a client joining, leaving and coming back. */
@@ -181,6 +189,31 @@ describe.skipIf(missing.length > 0)(
 				expect(window.terminal.buffer.active.type).toBe("alternate");
 				window.type(`back again${ENTER}`);
 				await other.shows("heard: back again");
+			},
+			CASE_MS,
+		);
+
+		// Last, since it replaces the host every case before it shares.
+		it(
+			"stays open through a host restart and joins the same conversation again",
+			async () => {
+				const { sessionId } = await host.open(folder());
+				const window = await joined(sessionId);
+				window.type(`before the restart${ENTER}`);
+				await window.shows("heard: before the restart");
+
+				expect(await host.restart(), "the host stops cleanly").toBe(0);
+				await window.shows(REJOIN_MARK);
+				if (!packageDir) throw new Error(hostPiMissing());
+				host = await startScreenHost(sealed, packageDir);
+				await host.idle(sessionId, CASE_MS / 2);
+
+				window.type(`after the restart${ENTER}`);
+				await window.shows("heard: after the restart");
+				expect(
+					window.terminal.buffer.active.type,
+					"the window is still on pi's screen, not back at its shell",
+				).toBe("alternate");
 			},
 			CASE_MS,
 		);
