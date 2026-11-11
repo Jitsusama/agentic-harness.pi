@@ -535,12 +535,11 @@ export function offloadedOutside(
 /** A program's own path in the Nix store, through every link, or nothing. */
 export function inStore(path: string | undefined): string | undefined {
 	if (!path) return undefined;
-	let own: string;
+	let own = path;
 	try {
 		own = realpathSync(path);
 	} catch {
-		// Not there, so not the store's.
-		return undefined;
+		// Not there to follow: judged by its name, since nothing runs from it.
 	}
 	return own.startsWith("/nix/store/") ? own : undefined;
 }

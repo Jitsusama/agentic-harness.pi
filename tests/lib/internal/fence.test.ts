@@ -211,8 +211,10 @@ describe("the fence's arguments", () => {
 
 	it("binds nothing that isn't there", () => {
 		const none = fenceArgs(place, { kind: () => undefined, entries: () => [] });
-		expect(none).not.toContain("--bind");
-		expect(none).not.toContain("--ro-bind");
+		const bound = none.flatMap((arg, at) =>
+			arg === "--bind" || arg === "--ro-bind" ? [none[at + 1]] : [],
+		);
+		expect(bound, "only the root is bound").toEqual(["/"]);
 	});
 
 	it("tells Landlock of only nscd's socket and the door, never every scope", () => {
