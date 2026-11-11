@@ -192,6 +192,19 @@ pi's own file tools run outside Landlock, so the
 
 [sandbox-file]: ../sandbox-file-interceptor/README.md
 
+## Starting a Command Without Stalling pi
+
+Starting a process forks the one that starts it, and pi grows past a
+gigabyte in a long session: a spawn from it took 36 ms at the median,
+against 4 ms from a fresh node, on the thread that reads the person's
+keys. A session started with `PI_SPAWNER=on` hands each command to
+`pi-spawner` instead, a small program core.nix puts on the PATH, which
+the harness starts once for the session. The command runs as it would
+under pi: in a process group of its own, with the same folder,
+variables, stop, time limit and exit code. Where the program isn't on
+the PATH or stops, pi starts commands itself, as it does without the
+variable.
+
 ## Stopping a Command
 
 Before it moves, Escape stops it as always. After it moves, `/jobs`
