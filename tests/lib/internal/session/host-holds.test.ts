@@ -3,7 +3,13 @@
  * roster, so readers judge a hosted conversation by its host rather than
  * by the pid an old record names.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +17,7 @@ import type { HostRegistry } from "../../../../lib/core/session/host.ts";
 import type { TickedOwner } from "../../../../lib/internal/process-ticks.ts";
 import {
 	attachWords,
+	conversationsIn,
 	heldByHost,
 	holdOf,
 	hostHold,
@@ -57,8 +64,12 @@ function list(key: string, owner: TickedOwner, sessions: string[]): void {
 	);
 }
 
-/** Write a host's roster as roster.ts does. */
-function roster(key: string, sessions: string[]): void {
+/** Write a host's roster as roster.ts does, each working where `cwdOf` says. */
+function roster(
+	key: string,
+	sessions: string[],
+	cwdOf: (sessionId: string) => string = () => "/home/someone/src/core.nix",
+): void {
 	writeFileSync(
 		join(rosters, `${key}.json`),
 		JSON.stringify({
@@ -67,13 +78,44 @@ function roster(key: string, sessions: string[]): void {
 			sessions: sessions.map((sessionId) => ({
 				sessionId,
 				file: `/home/someone/.pi/sessions/${sessionId}.jsonl`,
-				cwd: "/home/someone/src/core.nix",
+				cwd: cwdOf(sessionId),
 				attended: false,
 				since: "2026-11-11T00:30:00.000Z",
 			})),
 		}),
 	);
 }
+
+describe("the conversations a roster keeps working in a folder", () => {
+	it("are those whose folder is it or inside it, through links too", () => {
+		const scratch = join(root, "QEST-20261111-AAAAAA");
+		const clone = join(scratch, "clone");
+		const beside = join(root, "QEST-20261111-AAAAAA-old");
+		mkdirSync(clone, { recursive: true });
+		mkdirSync(beside, { recursive: true });
+		const link = join(root, "pi-quest-link");
+		symlinkSync(scratch, link);
+		const cwds: Record<string, string> = {
+			[kept]: clone,
+			[open]: join(link, "clone"),
+			[loose]: beside,
+		};
+		roster("work-background", [kept, loose], (id) => cwds[id] ?? "");
+		roster("work-attended", [open], (id) => cwds[id] ?? "");
+
+		expect(conversationsIn(scratch, rosters).sort()).toEqual(
+			[kept, open].sort(),
+		);
+		expect(
+			conversationsIn(join(root, "elsewhere"), rosters),
+			"a folder nobody works in",
+		).toEqual([]);
+	});
+
+	it("are none where no roster folder is", () => {
+		expect(conversationsIn(root, join(root, "missing"))).toEqual([]);
+	});
+});
 
 describe("the conversations the rosters keep", () => {
 	it("maps each to the host keeping it", () => {

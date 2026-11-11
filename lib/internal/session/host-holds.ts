@@ -19,9 +19,13 @@
  * else may open it, stamp it ended or forget it.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parseRoster, rosterDir } from "../../core/session/roster.ts";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
+import { join, sep } from "node:path";
+import {
+	parseRoster,
+	type RosterEntry,
+	rosterDir,
+} from "../../core/session/roster.ts";
 import { type Looking, liveHolder } from "./one-writer.ts";
 
 /** A host holding a conversation. */
@@ -51,13 +55,52 @@ const ROSTER_SUFFIX = ".json";
  */
 export function rosterHolds(dir: string = rosterDir()): Map<string, string> {
 	const holds = new Map<string, string>();
+	for (const { key, entry } of keptEntries(dir))
+		holds.set(entry.sessionId, key);
+	return holds;
+}
+
+/**
+ * The conversations the rosters keep that work in `folder` or below it,
+ * by session id. A hosted conversation's folder is its own, not its host
+ * process's, so `/proc` never shows it working there: a clone in a
+ * quest's scratch folder would look unused while one sat open in it.
+ */
+export function conversationsIn(
+	folder: string,
+	dir: string = rosterDir(),
+): string[] {
+	const real = realOr(folder);
+	return keptEntries(dir)
+		.filter(({ entry }) => {
+			const cwd = realOr(entry.cwd);
+			return cwd === real || cwd.startsWith(real + sep);
+		})
+		.map(({ entry }) => entry.sessionId);
+}
+
+/** A path with its links resolved, or as given once it is gone. */
+function realOr(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// Gone, or never made: compared as written.
+		return path;
+	}
+}
+
+/** Every roster's entries, each with the key of the host keeping it. */
+function keptEntries(
+	dir: string,
+): { readonly key: string; readonly entry: RosterEntry }[] {
 	let names: string[];
 	try {
 		names = readdirSync(dir).filter((name) => name.endsWith(ROSTER_SUFFIX));
 	} catch {
 		// No folder: no host has kept anything on this machine.
-		return holds;
+		return [];
 	}
+	const kept: { readonly key: string; readonly entry: RosterEntry }[] = [];
 	for (const name of names) {
 		const key = name.slice(0, -ROSTER_SUFFIX.length);
 		let text: string;
@@ -68,10 +111,10 @@ export function rosterHolds(dir: string = rosterDir()): Map<string, string> {
 			continue;
 		}
 		for (const entry of parseRoster(text, key)?.sessions ?? []) {
-			holds.set(entry.sessionId, key);
+			kept.push({ key, entry });
 		}
 	}
-	return holds;
+	return kept;
 }
 
 /** The hold a host key makes. */

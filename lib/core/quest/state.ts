@@ -19,6 +19,7 @@ import type {
 	QuestPriority,
 	QuestStatus,
 } from "../../quest/types.ts";
+import type { WorkspaceUsers } from "../internal/quest/workspace.ts";
 import { DEFAULT_SESSION_RETENTION_DAYS } from "./config.ts";
 import type { Stage } from "./machine.ts";
 
@@ -48,11 +49,11 @@ export interface QuestState {
 	sessionRetentionDays: number;
 
 	/**
-	 * The processes working in a folder, so a seal leaves a scratch
-	 * folder one still uses. Unset, it reads this machine's `/proc`,
-	 * which takes a quarter second on a machine running 2,000 of them.
+	 * Who works in a folder, so a seal leaves a scratch folder one still
+	 * uses. Unset, it reads this machine's `/proc`, which takes a quarter
+	 * second on a machine running 2,000 processes, and the hosts' rosters.
 	 */
-	readonly inUse?: (dir: string) => readonly number[];
+	readonly inUse?: WorkspaceUsers;
 
 	/** Absolute path to the loaded quest's directory. */
 	questDir: string | null;
@@ -131,7 +132,7 @@ export function createQuestState(opts: {
 	questsRoot: string;
 	autoloadFromCwd?: boolean;
 	sessionRetentionDays?: number;
-	inUse?: (dir: string) => readonly number[];
+	inUse?: WorkspaceUsers;
 }): QuestState {
 	return {
 		questsRoot: opts.questsRoot,

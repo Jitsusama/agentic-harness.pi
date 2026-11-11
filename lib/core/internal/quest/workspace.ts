@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import { join, sep } from "node:path";
 import { isId, prefixOf } from "../../../internal/quest/id.ts";
+import { conversationsIn } from "../../../internal/session/host-holds.ts";
 
 /** A quest's workspace folder and its `tmp/`. */
 export interface QuestWorkspace {
@@ -56,15 +57,22 @@ export type WorkspaceRemoval =
 	| { readonly removed: false; readonly why: "none" | "in use" | "stuck" };
 
 /**
- * Remove a quest's whole workspace, unless a process still works in it:
- * one whose folder or open file is inside keeps it, for the disk guard
- * to take once it is done. A folder made read-only, as Go's module cache
- * is, is made writable so its files can go.
+ * Who works in a folder: a process by its pid, a hosted conversation by
+ * its session id.
+ */
+export type WorkspaceUsers = (dir: string) => readonly (number | string)[];
+
+/**
+ * Remove a quest's whole workspace, unless something still works in it:
+ * a process whose folder or open file is inside, or a hosted
+ * conversation whose folder is, keeps it for the disk guard to take once
+ * it is done. A folder made read-only, as Go's module cache is, is made
+ * writable so its files can go.
  */
 export function removeQuestWorkspace(
 	root: string,
 	questId: string,
-	users: (dir: string) => readonly number[] = processesIn,
+	users: WorkspaceUsers = workingIn,
 ): WorkspaceRemoval {
 	const { dir } = questWorkspace(root, questId);
 	if (!existsSync(dir)) return { removed: false, why: "none" };
@@ -88,6 +96,16 @@ function makeWritable(dir: string): void {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		if (entry.isDirectory()) makeWritable(join(dir, entry.name));
 	}
+}
+
+/**
+ * Everything working in `dir`: the processes `/proc` shows there, and the
+ * conversations a host keeps there. A host's own process works wherever
+ * it was started, so a hosted conversation open on a clone in the
+ * workspace shows only on its host's roster.
+ */
+export function workingIn(dir: string): (number | string)[] {
+	return [...processesIn(dir), ...conversationsIn(dir)];
 }
 
 /**
