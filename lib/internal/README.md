@@ -66,7 +66,8 @@ may import from here, and any of it may change without notice.
   whether a person drives it; and the context's usage, worked out
   once per leaf however many extensions ask.
 - **`shell/`**: what the agent's shell runs with, offered by the
-  extensions that know.
+  extensions that know, and its commands started by pi-spawner, so
+  pi never forks itself to start one.
 - **`stray/`**: catching writes that would land behind pi's screen.
 - **`verification/`**: a process-global check another extension can
   ask whether the code is failing.

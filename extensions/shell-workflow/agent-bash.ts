@@ -13,6 +13,7 @@ import type { SessionRef } from "../../lib/core/session/index.ts";
 import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
+import { spawnedBy } from "../../lib/internal/shell/spawner.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { reapsWhatItLeft } from "./reap.ts";
@@ -51,11 +52,16 @@ export function agentBash(
 		// A time limit on work the queue holds starts when its turn does.
 		// The command has left the command line by then, so it is read
 		// where it travels. A stop, that limit's included, also kills what
-		// left the shell's process group, as `timeout` does.
+		// left the shell's process group, as `timeout` does. Asked for, each
+		// command starts in pi-spawner, so pi never forks itself to start
+		// one (lib/internal/shell/spawner.ts).
 		operations: timedFromTurn(
 			reapsWhatItLeft(
-				createLocalBashOperations(
-					settings.shellPath ? { shellPath: settings.shellPath } : undefined,
+				spawnedBy(
+					createLocalBashOperations(
+						settings.shellPath ? { shellPath: settings.shellPath } : undefined,
+					),
+					settings.shellPath ? { shellPath: settings.shellPath } : {},
 				),
 			),
 			{ commandOf: (command, env) => env?.[COMMAND_VARIABLE] ?? command },
