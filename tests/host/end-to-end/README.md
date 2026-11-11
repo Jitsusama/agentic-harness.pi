@@ -208,7 +208,7 @@ E2 also needs `mycelium` on the PATH, for a node of the sealed realm;
 without it the check skips, or fails under `pnpm test:host`, saying so.
 
 - `fixtures/`: programs a test runs as a process of its own: the screen
-  host.
+  host, and E9's stand-in mycelium.
 - `support/`: the seal, a host process and its control requests, the
   host's pi as the checks find it, what every case on it shares (a
   session file and its tools' answers read as they grow, a steer written

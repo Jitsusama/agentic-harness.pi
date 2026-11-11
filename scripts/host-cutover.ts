@@ -7,7 +7,7 @@
  *
  *   node scripts/host-cutover.ts [--dry-run] [--only ADDR,...]
  *     [--attended ADDR,...] [--background ADDR,...] [--deadline MINUTES]
- *     [--install FOLDER]
+ *     [--install FOLDER] [--quiet-mycelium PATH,...]
  *
  * --dry-run prints where each session would go and why, and moves
  * nothing. --only moves just the sessions it names, by address or
@@ -17,8 +17,15 @@
  * minutes unless said; run it again for those still held. --install
  * names the harness install a parked pi wakes on, when run from a tree;
  * without one, a parked pi moves only if its presence says it knows how.
+ * --quiet-mycelium vouches for mycelium executables that carry #121, as
+ * the system's does once a switch brings core's pin; any other holder's
+ * move says its window may show a Parked line for a moment.
+ *
+ * A session whose window is on the workspace Joel has focused, or can't
+ * be placed, is left, as planned and again just before it is told.
  * Exits 0 when every session told to move was adopted and every name
- * --only gave goes by a live pi, 1 otherwise.
+ * --only gave goes by a live pi, 1 otherwise, a session left untold
+ * included.
  */
 
 import { realpathSync } from "node:fs";
@@ -47,6 +54,7 @@ const { values } = parseArgs({
 		background: { type: "string", default: "" },
 		deadline: { type: "string", default: String(DEFAULT_DEADLINE_MINUTES) },
 		install: { type: "string" },
+		"quiet-mycelium": { type: "string", default: "" },
 	},
 });
 
@@ -74,6 +82,10 @@ const places: CutoverPlaces = {
 	realm: hostRealm(process.env),
 	...(process.env.PI_SESSION_ID ? { self: process.env.PI_SESSION_ID } : {}),
 	claimer: process.pid,
+	quietMycelium: values["quiet-mycelium"]
+		.split(",")
+		.map((one) => one.trim())
+		.filter((one) => one !== ""),
 };
 const facts = machineFacts(places);
 const only = values.only === undefined ? undefined : named(values.only);
@@ -115,6 +127,7 @@ if (values["dry-run"]) {
 			(one) =>
 				`still waiting: ${one.address}${one.holds ? `, ${one.holds}` : ""}`,
 		),
+		...report.spared.map((one) => `left untold: ${one.address}, ${one.why}`),
 		...report.refused.map((one) => `not adopted: ${one.address}, ${one.why}`),
 		...report.takenBack.map(
 			(address) => `taken back in its own window: ${address}`,
@@ -127,6 +140,7 @@ if (values["dry-run"]) {
 	process.exitCode =
 		report.waiting.length === 0 &&
 		report.refused.length === 0 &&
+		report.spared.length === 0 &&
 		unknown.length === 0
 			? 0
 			: 1;
