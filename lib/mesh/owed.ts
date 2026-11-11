@@ -62,8 +62,13 @@ export interface Again {
 export interface Awaiting {
 	/** This peer sent a question; `self` are its own addresses. */
 	asked(message: Message, self: readonly string[], now?: number): void;
-	/** An answer came, from a peer going by these addresses. */
-	answered(re: string, from: readonly string[]): void;
+	/**
+	 * An answer came, from a peer going by the addresses `from` looks up.
+	 * Every peer sees every answer on the mesh, and looking a sender up
+	 * reads every presence, so it is looked up only for a question this
+	 * peer awaits.
+	 */
+	answered(re: string, from: () => readonly string[]): void;
 	/** Questions stuck now, each said once, with who has not answered. */
 	stuck(now?: number): readonly Stuck[];
 }
@@ -141,7 +146,7 @@ export function createAwaiting(): Awaiting {
 		answered(re, from) {
 			const one = awaited.get(re);
 			if (!one) return;
-			for (const address of from) one.waitingOn.delete(address);
+			for (const address of from()) one.waitingOn.delete(address);
 			if (one.waitingOn.size === 0) awaited.delete(re);
 		},
 		stuck(now = Date.now()) {

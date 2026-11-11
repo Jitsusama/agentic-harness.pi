@@ -46,10 +46,7 @@ const CORES = /core(?:'s)? $/i;
  * Mentions that stay, each with why. A file being rewritten by its owner keeps
  * its words until the rewrite lands.
  */
-const EXEMPT: Record<string, string> = {
-	"extensions/quest-workflow/README.md lib/quest/pr-bridge.ts":
-		"85PKB2's PLAN-20261025-LES0F4 rewrites quest-workflow and owns its words until it lands",
-};
+const EXEMPT: Record<string, string> = {};
 
 function markdownUnder(dir: string): string[] {
 	const found: string[] = [];
