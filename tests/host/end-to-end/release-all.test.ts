@@ -216,7 +216,13 @@ it(
 				({ one }) => presences().of(one.sessionId)?.addresses ?? [],
 			);
 
+			// What each held before the release, which it must keep whole.
+			const held = opened.map(({ one }) => textOf(one.file));
 			const releasing = release();
+			let settled = false;
+			void releasing.finally(() => {
+				settled = true;
+			});
 			// Those nothing holds go at once; the busy one waits for its run.
 			await untilAnswered(
 				"every conversation but the busy one is let go",
@@ -229,6 +235,7 @@ it(
 				},
 				ROUND_TRIP_MS * 2,
 			);
+			expect(settled, "the release waits on the busy one").toBe(false);
 			await steerInbox(sealed, signature(busy.sessionId), "", "stop");
 			const released = await releasing;
 			expect(released.code, released.out).toBe(0);
@@ -239,11 +246,17 @@ it(
 			);
 
 			const before = opened.map(({ one }) => textOf(one.file));
-			for (const { one } of opened)
+			for (const [at, { one }] of opened.entries()) {
 				expect(
 					brokenLines(one.file ?? ""),
 					`${one.sessionId}'s log is whole after the release`,
 				).toEqual([]);
+				// The busy one grows by its Stop, which startsWith allows.
+				expect(
+					before[at]?.startsWith(held[at] ?? ""),
+					`${one.sessionId}'s release keeps every entry it held`,
+				).toBe(true);
+			}
 			const restore = JSON.parse(
 				await readFile(
 					restoreFilePath(
