@@ -106,10 +106,26 @@ function activate(appendFails = false) {
 	return { fire, entries };
 }
 
+/**
+ * A session whose idleness and size the test moves. A context that
+ * changes size has had an entry appended, so setting `tokens` moves the
+ * leaf, as pi's append would.
+ */
 function session() {
+	let tokens = 20_000;
+	let appended = 1;
 	const state = {
 		idle: true,
-		tokens: 20_000,
+		get tokens() {
+			return tokens;
+		},
+		set tokens(size: number) {
+			tokens = size;
+			appended += 1;
+		},
+		get leaf() {
+			return `u${appended}`;
+		},
 		replies: [] as unknown[],
 		compactions: 0,
 	};
@@ -146,7 +162,7 @@ function session() {
 		sessionManager: {
 			getSessionId: () => "s1",
 			getBranch: () => [],
-			getLeafId: () => "u1",
+			getLeafId: () => state.leaf,
 		},
 	};
 	return { state, sent, ctx };

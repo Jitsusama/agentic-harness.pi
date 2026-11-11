@@ -7,6 +7,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isRecord } from "../../../lib/internal/record.ts";
+import { contextUsageOf } from "../../../lib/internal/session/context-usage.ts";
 
 const completeSimple = vi.fn();
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
@@ -71,10 +73,29 @@ const replyEntry = {
 	},
 };
 
-/** A session whose size, idleness and branch the test moves. */
+/**
+ * A session whose size, idleness and branch the test moves. A context
+ * that changes size has had an entry appended, so setting `tokens` moves
+ * the leaf onto a fresh copy of the branch's last entry, as pi's append
+ * would.
+ */
 function session() {
+	let tokens = 60_000;
+	let appended = 0;
 	const state = {
-		tokens: 60_000,
+		get tokens() {
+			return tokens;
+		},
+		set tokens(size: number) {
+			tokens = size;
+			const last = state.branch.at(-1);
+			if (state.leaf === null || !isEntry(last)) return;
+			appended += 1;
+			const id = `${last.id}.${appended}`;
+			state.branch = [...state.branch.slice(0, -1), { ...last, id }];
+			state.leaf = id;
+		},
+		asks: 0,
 		idle: false,
 		branch: [userEntry] as unknown[],
 		leaf: "u1" as string | null,
@@ -90,7 +111,10 @@ function session() {
 			maxTokens: 128_000,
 			cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
 		},
-		getContextUsage: () => ({ tokens: state.tokens }),
+		getContextUsage: () => {
+			state.asks += 1;
+			return { tokens: state.tokens };
+		},
 		isIdle: () => state.idle,
 		hasPendingMessages: () => false,
 		compact: (options: CompactOptions) => state.compactions.push(options),
@@ -104,6 +128,12 @@ function session() {
 		},
 	};
 	return { state, ctx };
+}
+
+function isEntry(
+	value: unknown,
+): value is Record<string, unknown> & { id: string } {
+	return isRecord(value) && typeof value.id === "string";
 }
 
 const payload = {
@@ -153,6 +183,21 @@ describe("the compaction trigger", () => {
 	it("answers a compaction from one handler, whichever provider writes it", () => {
 		const { handlers } = activate();
 		expect(handlers.get("session_before_compact")).toHaveLength(1);
+	});
+
+	it("reads a turn's context size from the reading other extensions took at that leaf", async () => {
+		const { fire } = activate();
+		const { state, ctx } = session();
+		await fire("session_start", { reason: "startup" }, ctx);
+		state.branch = [userEntry, replyEntry];
+		state.leaf = "a1";
+		state.tokens = 120_000;
+		contextUsageOf(ctx);
+		state.asks = 0;
+
+		await fire("turn_end", ranTools, ctx);
+
+		expect(state.asks, "pi rebuilt the context's usage again").toBe(0);
 	});
 
 	it("holds off until the rent paid reaches what compacting costs, then writes the summary in the background", async () => {
