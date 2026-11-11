@@ -171,14 +171,26 @@
 			}
 		}
 	},
-	// Scripts are run by hand and report on the console.
 	"overrides": [
+		// Scripts are run by hand and report on the console.
 		{
 			"includes": ["scripts/**"],
 			"linter": {
 				"rules": {
 					"suspicious": {
 						"noConsole": "off"
+					}
+				}
+			}
+		},
+		// A page script is one expression the browser evaluates, and its
+		// value is the answer, so the expression standing alone is the point.
+		{
+			"includes": ["**/*.page.js"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noUnusedExpressions": "off"
 					}
 				}
 			}

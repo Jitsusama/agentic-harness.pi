@@ -2,8 +2,8 @@
  * Page-side answers to "is this actually being offered to
  * anybody", shared by every probe that has to decide.
  *
- * This ships as a source string, like the deep traversal it sits
- * beside, because it declares helpers of its own and the bundler
+ * This is page source, in presented.page.js, like the deep
+ * traversal it sits beside, because it declares helpers of its own and the bundler
  * renames named inner bindings through a wrapper the page has
  * never heard of.
  *
@@ -22,55 +22,17 @@
  * correctly built skip link on every page is a finding.
  */
 
+import { pageCall } from "../page-script.ts";
+
 /** A box no larger than this is a hiding technique, not content. */
 export const HIDDEN_BOX_PX = 4;
 
 /**
- * Declares `presented`, `visible`, `inertHere` and
- * `visuallyHidden` for a page-side probe.
- *
- * Prepend it inside the probe's IIFE, as with DEEP_DOM.
+ * Gives `presented`, `visible`, `inertHere` and `visuallyHidden`
+ * to a page-side probe, which takes them as an argument through
+ * pageCall's helpers, as with DEEP_DOM.
  */
-export const PRESENTED = `
-	// The browser's own answer, but only when asked the whole
-	// question. Bare checkVisibility() reports on display alone,
-	// so it calls a visibility:hidden control visible, and real
-	// apps hide closed menus and dialogs exactly that way.
-	//
-	// opacity is deliberately not asked about. An opacity:0
-	// control is still in the focus order and still clickable, so
-	// treating it as absent buries real defects rather than
-	// avoiding false ones.
-	const visible = (el) =>
-		typeof el.checkVisibility === "function"
-			? el.checkVisibility({
-					visibilityProperty: true,
-					contentVisibilityAuto: true,
-				})
-			: el.getClientRects().length > 0;
-
-	// inert takes a subtree out of interaction without changing
-	// anything about how it looks, so no style question finds it.
-	// A closed dialog is the ordinary case.
-	const inertHere = (el) =>
-		typeof el.closest === "function" && el.closest("[inert]") !== null;
-
-	// The screen-reader-only family: clipped to nothing, or parked
-	// off the left edge where no scrollable area is created. Such
-	// an element is deliberately not shown to sighted users, so it
-	// is not something they can look at or aim a pointer at.
-	const visuallyHidden = (el) => {
-		const rect = el.getBoundingClientRect();
-		const tiny =
-			rect.width <= ${HIDDEN_BOX_PX} && rect.height <= ${HIDDEN_BOX_PX};
-		const style = getComputedStyle(el);
-		if (tiny && style.clipPath !== "none") return true;
-		if (tiny && style.overflowX === "hidden") return true;
-		return rect.x + rect.width < 0;
-	};
-
-	// Offered to somebody: painted, not inert, and not hidden by
-	// one of the idioms above.
-	const presented = (el) =>
-		visible(el) && !inertHere(el) && !visuallyHidden(el);
-`;
+export const PRESENTED = pageCall(
+	new URL("./presented.page.js", import.meta.url),
+	{ values: { HIDDEN_BOX_PX } },
+);

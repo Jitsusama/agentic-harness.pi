@@ -228,9 +228,10 @@ rules, and where it doesn't yet.
   `sqlFile` (`lib/core/internal/sqlite/sql-file.ts`) and
   `graphqlFile`. JavaScript that runs in a page lives in a
   `.page.js` beside the module that sends it, read in with
-  `pageScript` (`lib/core/web/page-script.ts`), so Biome reads
-  it. The page scripts that splice values in, shell and one
-  generated insert still written as strings are listed in
+  `pageScript`, or called by `pageCall` with the values and
+  helper scripts it takes as arguments
+  (`lib/core/web/page-script.ts`), so Biome reads it. The
+  programs still written as strings are listed in
   `tests/package/embedded-programs.txt`, which only shrinks.
 
 ## Before Trusting a Live Run

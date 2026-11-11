@@ -8,6 +8,7 @@
  * reader user hear when I pressed save".
  */
 
+import { pageCall } from "../page-script.ts";
 import type { Recorded } from "../telemetry/buffer.ts";
 
 /** Something the page announced through a live region. */
@@ -70,8 +71,8 @@ export interface AnnouncementCandidate {
 /**
  * Watch the page for anything that might be spoken.
  *
- * This is plain JavaScript source rather than a function, on
- * purpose. Injecting a function serializes whatever the
+ * This is page source, in announcement-observer.page.js, rather
+ * than a function, on purpose. Injecting a function serializes whatever the
  * compiler made of it, and esbuild's keepNames wraps every
  * named inner binding in a call to a __name helper. The page
  * has never heard of __name, so the script throws before it
@@ -95,58 +96,7 @@ export interface AnnouncementCandidate {
  * Over-nominating costs one lookup; under-nominating loses an
  * announcement silently, which is the failure that matters.
  */
-export const ANNOUNCEMENT_OBSERVER = `(() => {
-  var BINDING = ${JSON.stringify(ANNOUNCE_BINDING)};
-  var REGISTRY = ${JSON.stringify(CANDIDATE_REGISTRY)};
-  var CANDIDATE_SELECTOR = "[aria-live], [role], output";
-  var epoch = String(Date.now()) + "-" + String(Math.random()).slice(2, 8);
-
-  globalThis[REGISTRY] = [];
-  var indexByElement = new WeakMap();
-
-  function indexOf(element) {
-    var known = indexByElement.get(element);
-    if (known !== undefined) return known;
-    var index = globalThis[REGISTRY].length;
-    globalThis[REGISTRY].push(element);
-    indexByElement.set(element, index);
-    return index;
-  }
-
-  function nominate(index, text) {
-    var sink = globalThis[BINDING];
-    if (sink) {
-      sink({ epoch: epoch, index: index, text: text, at: Date.now() });
-    }
-  }
-
-  function watch() {
-    var observer = new MutationObserver(function (records) {
-      var seen = {};
-      for (var i = 0; i < records.length; i++) {
-        var node = records[i].target;
-        var element = node.nodeType === 1 ? node : node.parentElement;
-        if (!element) continue;
-        var region = element.closest(CANDIDATE_SELECTOR);
-        if (!region) continue;
-        var text = (region.textContent || "").trim();
-        if (!text) continue;
-        var index = indexOf(region);
-        // One edit can raise several records against the same
-        // region; a listener hears it once.
-        var key = String(index) + "\\u0000" + text;
-        if (seen[key]) continue;
-        seen[key] = true;
-        nominate(index, text);
-      }
-    });
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-  }
-
-  if (document.body) watch();
-  else document.addEventListener("DOMContentLoaded", watch);
-})();`;
+export const ANNOUNCEMENT_OBSERVER = pageCall(
+	new URL("./announcement-observer.page.js", import.meta.url),
+	{ values: { BINDING: ANNOUNCE_BINDING, REGISTRY: CANDIDATE_REGISTRY } },
+);
