@@ -36,7 +36,13 @@ it does:
   `reload-workflow`, `rollover-workflow`, `park-workflow`,
   `one-writer-workflow`, `shell-workflow`,
   `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
-  `model-retry-workflow`.
+  `model-retry-workflow`, `crash-record-workflow`.
+
+  `crash-record-workflow` has a pi that an uncaught error ends write
+  the error and its stack to its session's log and the system's log
+  before pi's own handler exits. pi printed it only to a terminal that
+  closed with the window, so about 40 pis died one night with nothing
+  said where anybody looked.
 
   `model-retry-workflow` asks the model again when a call failed
   for a moment and pi's own retries, 14 seconds of them, ran out:

@@ -1,0 +1,71 @@
+/**
+ * Crash Record extension.
+ *
+ * Has a pi that an uncaught error ends say why where somebody will look:
+ * in its session's log, as a `crash` entry, and in the system's log
+ * (the journal on Linux, the unified log on macOS), with the stack. pi's
+ * own handler still prints to the terminal, adds to crashes.json and
+ * exits as before; this only writes first. See
+ * `lib/internal/session/crash-record.ts`.
+ */
+
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+	type CrashWriter,
+	crashText,
+	type JournalCommand,
+	journalCommand,
+	recordCrashes,
+	writeJournal,
+} from "../../lib/internal/session/crash-record.ts";
+
+/** The session entry a crash is kept as. */
+export const CRASH_ENTRY = "crash";
+
+/** Registers this session's crash writer while the session runs. */
+export default function crashRecord(pi: ExtensionAPI): void {
+	const journal = journalCommand();
+	let stop: (() => void) | undefined;
+	pi.on("session_start", (_event, ctx) => {
+		stop?.();
+		const session = sessionOf(ctx);
+		stop = recordCrashes(
+			session,
+			writerFor(pi, `session ${session} in ${ctx.cwd}`, journal),
+		);
+	});
+	pi.on("session_shutdown", () => {
+		stop?.();
+		stop = undefined;
+	});
+}
+
+/** Writes a crash to the session's log, then to the system's. */
+function writerFor(
+	pi: ExtensionAPI,
+	who: string,
+	journal: JournalCommand | undefined,
+): CrashWriter {
+	return (crash) => {
+		try {
+			pi.appendEntry(CRASH_ENTRY, crash);
+		} catch {
+			// A session that can't take the entry any more still has the
+			// journal say it, the one place left that outlives it.
+		}
+		writeJournal(crashText(crash, who), journal);
+	};
+}
+
+function sessionOf(ctx: ExtensionContext): string {
+	try {
+		return ctx.sessionManager.getSessionId();
+	} catch {
+		// A context the session already replaced: one writer for the
+		// process still says the crash, under no session's name.
+		return "unknown";
+	}
+}
