@@ -9,7 +9,9 @@
  * viewer to speak kitty's protocol, and the gates, views and extensions are
  * this checkout's: the fixture's `/gate`, `/tabs` and `/view`, with the
  * panel-lifecycle and panel-zoom extensions loaded. Zoom is kept for each
- * screen, so zooming one conversation leaves another's view as it was.
+ * screen, so zooming one conversation leaves another's view as it was, and
+ * a theme changed from a third, which redraws every screen at once, leaves
+ * each at its own zoom.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -76,6 +78,28 @@ function showsRow(on: Viewer, n: number): boolean {
 /** How many of a tall gate's numbered rows the screen shows. */
 function rowsShown(on: Viewer): number {
 	return on.screen().filter((line) => /\brow \d+\b/.test(line)).length;
+}
+
+/** The colours the screen is drawn in, cell by cell, which a frame in another theme changes. */
+function colours(on: Viewer): string {
+	const buffer = on.terminal.buffer.active;
+	const cell = buffer.getNullCell();
+	const drawn: number[] = [];
+	for (let row = 0; row < on.terminal.rows; row++) {
+		const line = buffer.getLine(buffer.viewportY + row);
+		if (!line) continue;
+		for (let column = 0; column < line.length; column++) {
+			line.getCell(column, cell);
+			drawn.push(cell.getFgColor(), cell.getBgColor());
+		}
+	}
+	return drawn.join(",");
+}
+
+/** Switch pi's one theme from `on`'s conversation, and wait until it says so. */
+async function theme(on: Viewer, name: string): Promise<void> {
+	on.type(`/theme ${name}${ENTER}`);
+	await on.shows(`Theme is now ${name}`, TURN_MS);
 }
 
 /** Whether the screen shows `text` anywhere. */
@@ -239,6 +263,58 @@ describe.skipIf(!packageDir)(
 				);
 				await approve(on, "tall");
 				expect(gated()).toContain("tall a");
+			},
+			CASE_MS,
+		);
+
+		// pi has one theme for the process, and every screen redraws when it
+		// changes, asked from inside the command of whichever conversation
+		// changed it. Each screen must still draw as its own conversation,
+		// with its own zoom, rather than as the one that asked.
+		it(
+			"keeps each conversation's zoom when another changes the theme",
+			async () => {
+				const changer = await conversation(GATE_ROWS);
+				await theme(changer, "dark");
+				const zoomed = await conversation(VIEW_ROWS);
+				const other = await conversation(VIEW_ROWS);
+				zoomed.type(`/view${ENTER}`);
+				await zoomed.shows(VIEW_FOOTER, TURN_MS);
+				zoomed.type(CTRL_ALT_F);
+				await until(
+					"the view to fill the screen",
+					() => showsRow(zoomed, bodyRows(VIEW_ROWS, FULLSCREEN)),
+					TURN_MS,
+				);
+				other.type(`/view${ENTER}`);
+				await other.shows(VIEW_FOOTER, TURN_MS);
+				const inDark = { zoomed: colours(zoomed), other: colours(other) };
+
+				await theme(changer, "light");
+
+				await until(
+					"the zoomed view to redraw in the new theme",
+					() => colours(zoomed) !== inDark.zoomed,
+					TURN_MS,
+				);
+				await until(
+					"the zoomed view to keep its full share in the new theme",
+					() => showsRow(zoomed, bodyRows(VIEW_ROWS, FULLSCREEN)),
+					TURN_MS,
+				);
+				await until(
+					"the other view to redraw in the new theme",
+					() => colours(other) !== inDark.other,
+					TURN_MS,
+				);
+				await until(
+					"the other view to keep its normal share in the new theme",
+					() =>
+						showsRow(other, bodyRows(VIEW_ROWS, NORMAL)) &&
+						!showsRow(other, bodyRows(VIEW_ROWS, NORMAL) + 1),
+					TURN_MS,
+				);
+				await theme(changer, "dark");
 			},
 			CASE_MS,
 		);

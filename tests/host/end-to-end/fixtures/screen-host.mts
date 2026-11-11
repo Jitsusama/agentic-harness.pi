@@ -23,8 +23,9 @@
  * answer to `picked` in HOME, and a `/gate` command that raises one of
  * the harness's own gates, with this checkout's panel extensions loaded,
  * and writes its answer to `gated`, a `/tabs` command that raises its
- * tabbed gate the same way, and a `/view` command that shows
- * one of the harness's views over more rows than any screen. A stand-in `wl-paste`
+ * tabbed gate the same way, a `/view` command that shows one of the
+ * harness's views over more rows than any screen, and a `/theme` command
+ * that switches pi's one theme, as /settings does. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -278,7 +279,8 @@ function writeClipboard(): string {
  * with 100 numbered rows below its question when its name starts with
  * `tall`, a `/tabs` command raising its `showTabbedPrompt` over two items and
  * keeping its answer there too, a `/view` command showing this checkout's `view` over 200 numbered
- * rows, and this checkout's panel-lifecycle and panel-zoom extensions.
+ * rows, a `/theme` command switching pi's theme by name and saying which,
+ * and this checkout's panel-lifecycle and panel-zoom extensions.
  */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -391,6 +393,19 @@ export default function (pi) {
 			await view(ctx, {
 				content: () => Array.from({ length: 200 }, (_, at) => "row " + (at + 1)),
 			});
+		},
+	});
+}
+`,
+	);
+	writeFileSync(
+		join(agentDir, "extensions", "theme.ts"),
+		`export default function (pi) {
+	pi.registerCommand("theme", {
+		description: "Switch pi's theme by name, as /settings does",
+		handler: async (name, ctx) => {
+			const result = ctx.ui.setTheme(name.trim());
+			ctx.ui.notify(result.success ? "Theme is now " + name.trim() : "No theme " + name.trim() + ": " + result.error, "info");
 		},
 	});
 }
