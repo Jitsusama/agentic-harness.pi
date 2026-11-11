@@ -131,6 +131,16 @@ export function hostedReloadAsker(
 }
 
 /**
+ * Why this conversation's reload, waiting for its run to end or handed
+ * to its host and not yet landed, says it reloads; nothing when none
+ * waits.
+ */
+export function hostedReloadReason(ctx: SessionContext): string | undefined {
+	const slot = state(ctx);
+	return (slot.request ?? slot.landing)?.reason;
+}
+
+/**
  * Say why again for a reload of the conversation's own that its host
  * has but hasn't landed, when more came in meanwhile, so the landing
  * names it all. One somebody else asked for keeps its own reason.
