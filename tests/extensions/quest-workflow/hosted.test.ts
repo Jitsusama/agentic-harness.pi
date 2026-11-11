@@ -44,6 +44,7 @@ import {
 	journalSession,
 	setJournalSession,
 } from "../../../lib/internal/quest/structural-journal.ts";
+import { PARKING } from "../../../lib/internal/session/park.ts";
 import { parseQuestFrontMatter } from "../../../lib/quest/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { succeeded } from "./_helpers.ts";
@@ -203,7 +204,7 @@ it("accepts only its own host stamps and preserves signal endings through shutdo
 				...captureSessionIdentity(),
 			}),
 		);
-	const off = followHostStamps(pi.events, "a", release, () => false);
+	const off = followHostStamps(pi.events, "a", release);
 	pi.events.emit(SESSION_STAMP_EVENT, { session: "b", how: "signalled" });
 	pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "reload" });
 	expect(release).not.toHaveBeenCalled();
@@ -220,7 +221,7 @@ it("accepts only its own host stamps and preserves signal endings through shutdo
 it("records a host's stop of a conversation parking as a park, not as lost", () => {
 	const pi = fakePi();
 	const release = vi.fn();
-	for (const id of ["a", "b"])
+	for (const id of ["a", "b", "c"])
 		withSession(id, () =>
 			trackSession({
 				sessionId: id,
@@ -228,19 +229,28 @@ it("records a host's stop of a conversation parking as a park, not as lost", () 
 				...captureSessionIdentity(),
 			}),
 		);
-	const parking = followHostStamps(pi.events, "a", release, () => true);
-	const stopping = followHostStamps(pi.events, "b", release, () => false);
+	const follows = ["a", "b"].map((id) =>
+		followHostStamps(pi.events, id, release),
+	);
+	// c said it parks, then started again, which follows its stamps anew.
+	followHostStamps(pi.events, "c", release)();
+	pi.events.emit(PARKING, { session: "c", addresses: [] });
+	follows.push(followHostStamps(pi.events, "c", release));
 
-	pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
-	pi.events.emit(SESSION_STAMP_EVENT, { session: "b", how: "signalled" });
+	pi.events.emit(PARKING, { session: "a", addresses: [] });
+	for (const id of ["a", "b", "c"])
+		pi.events.emit(SESSION_STAMP_EVENT, { session: id, how: "signalled" });
 
 	expect(readRecord("a")?.endReason, "a parked as it was stopped").toBe(
 		"parked",
 	);
 	expect(readRecord("b")?.endReason, "b's host stopped it").toBe("signalled");
-	expect(release, "each released").toHaveBeenCalledTimes(2);
-	parking();
-	stopping();
+	expect(
+		readRecord("c")?.endReason,
+		"c's park was before its start, so its host stopped it",
+	).toBe("signalled");
+	expect(release, "each released").toHaveBeenCalledTimes(3);
+	for (const off of follows) off();
 });
 
 it("checks the host list from another reader without treating a missing list as death", () => {
