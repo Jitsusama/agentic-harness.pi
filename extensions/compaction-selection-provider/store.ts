@@ -13,7 +13,6 @@
  */
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { BranchReader } from "../../lib/internal/session/branch-walk.ts";
 import {
 	readHolds,
 	SELECTION_HOLDS_ENTRY,
@@ -28,6 +27,7 @@ import {
 	taggedBranchAt,
 	type TagIndex,
 } from "../../lib/compaction/selection/tags.ts";
+import type { BranchReader } from "../../lib/internal/session/branch-walk.ts";
 
 /** The environment variable choosing the store: `session` or `memory`. */
 export const SELECTION_STORE_ENV = "PI_COMPACTION_SELECTION_STORE";
