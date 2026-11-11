@@ -77,6 +77,23 @@ describe("handing a window over", () => {
 		expect(quiet).toBe(1);
 	});
 
+	it("keeps a fenced session fenced should plain pi take its log back", () => {
+		handOverOf(
+			facts({
+				env: {
+					MYCELIUM_WAKE: wake,
+					MYCELIUM_AGAIN: again,
+					PI_SANDBOX: "fence",
+				},
+			}),
+		)?.end();
+		const command: unknown = JSON.parse(readFileSync(again, "utf8"));
+		expect(
+			Array.isArray(command) ? command.slice(5, 9) : command,
+			"plain pi's words, after the join's, start in the fence",
+		).toEqual(["env", "PI_SANDBOX=fence", "pi", "--session"]);
+	});
+
 	it("can't when no holder runs it itself", () => {
 		expect(handOverOf(facts({ env: {} }))).toBeUndefined();
 		expect(handOverOf(facts({ env: { MYCELIUM_WAKE: wake } }))).toBeUndefined();

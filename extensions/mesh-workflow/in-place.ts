@@ -28,6 +28,7 @@ import {
 	AGAIN_ENV,
 	flagsLost,
 	heldDirectly,
+	holderCommand,
 	PARKED_EXIT,
 	restartCommand,
 	WAKE_ENV,
@@ -74,9 +75,11 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 	if (!heldDirectly(wake, facts.pid)) return undefined;
 	if (facts.sessionFile === undefined) return undefined;
 	if (flagsLost(facts.args).length > 0) return undefined;
+	// The holder runs the join in its own environment, so plain pi's words
+	// carry the fence and the spawner as a park's restart does.
 	const command = joinCommand(
 		facts.session,
-		restartCommand(facts.sessionFile, facts.args),
+		holderCommand(facts.sessionFile, facts.args, facts.env),
 	);
 	return {
 		end: () => {
