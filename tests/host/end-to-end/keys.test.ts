@@ -131,10 +131,11 @@ describe.skipIf(!packageDir)(
 				await reading.shows(`line ${LAST_LINE} alpha`, TURN_MS);
 				reading.type(`long answer beta${ENTER}`);
 				await reading.shows(`line ${LAST_LINE} beta`, TURN_MS);
-				const [first, second] = ["long answer alpha", "long answer beta"];
+				// A jump shows the start of the answer to the prompt it lands on.
+				const [first, second] = ["line 1 alpha", "line 1 beta"];
 				expect(
 					shown(reading, second),
-					"the second prompt is scrolled away at its answer's end",
+					"the second answer's start is scrolled away at its end",
 				).toBe(false);
 
 				reading.type(KEY.ctrlShiftUp);
