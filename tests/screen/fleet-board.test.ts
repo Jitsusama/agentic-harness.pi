@@ -169,8 +169,12 @@ describe("a running fleet", () => {
 	it("says how to reach its keys", async () => {
 		const session = await startFleet(["alpha"]);
 
-		expect(await session.viewport()).toContainEqual(
-			expect.stringContaining("Ctrl+Alt+N"),
+		// Read once, straight after the board's first row showed, it failed
+		// on a lent builder (11 November), so it waits as the others do.
+		await waitFor(
+			async () =>
+				(await session.viewport()).some((row) => row.includes("Ctrl+Alt+N")),
+			"the board's key line",
 		);
 	});
 
