@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
 	shellMovesItself,
 	withPi,
 } from "../../../../lib/internal/priority/place.ts";
+import { until } from "../../../support/until.ts";
 
 const OWN =
 	"0::/user.slice/user-1000.slice/user@1000.service/app.slice/kitty-1-2.scope\n";
@@ -62,6 +63,57 @@ describe("placeChildren", () => {
 		});
 		const pid = await spawned();
 		expect(written).toEqual([["/jobs/cgroup.procs", pid]]);
+	});
+
+	it("writes the pid off pi's thread, so a spawn returns before the move", async () => {
+		// Moving a process between cgroups waits out an RCU grace period,
+		// 5 to 7 ms on optimus, which pi's thread paid on every spawn.
+		const dir = mkdtempSync(join(tmpdir(), "place-"));
+		try {
+			const procs = join(dir, "cgroup.procs");
+			writeFileSync(procs, "");
+			undo = placeChildren(procs);
+			const child = spawn("true");
+			const pid = child.pid;
+			const atReturn = readFileSync(procs, "utf8");
+			await new Promise((resolve) => child.on("exit", resolve));
+
+			expect(atReturn, "nothing written before spawn returns").toBe("");
+			await until(
+				"the pid is written",
+				() => readFileSync(procs, "utf8") === `${pid}\n`,
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("stops trying once a write refuses later, and the spawn still works", async () => {
+		let calls = 0;
+		undo = placeChildren("/jobs", () => {
+			calls += 1;
+			return Promise.reject(
+				Object.assign(new Error("denied"), { code: "EACCES" }),
+			);
+		});
+		const pid = await spawned();
+		await spawned();
+		expect(pid).toBeGreaterThan(0);
+		expect(calls).toBe(1);
+	});
+
+	it("carries on past a child that left before a later write moved it", async () => {
+		let calls = 0;
+		undo = placeChildren("/jobs", () => {
+			calls += 1;
+			return Promise.reject(
+				Object.assign(new Error("gone"), { code: "ESRCH" }),
+			);
+		});
+		await spawned();
+		await spawned();
+		expect(calls).toBe(2);
+		expect(placedCommand("make")).not.toBe("make");
 	});
 
 	it("reaches a spawn made through execFile too", async () => {
