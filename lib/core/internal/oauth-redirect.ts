@@ -6,9 +6,23 @@
  * signal, so a person who gave up left a server holding the port until its
  * five-minute clock ran out, and that clock was never cleared on success,
  * so it held the process open for five minutes after every login.
+ *
+ * The pages themselves are HTML and CSS in `oauth-pages/`, the same for
+ * every service but for its name.
  */
 
+import { readFileSync } from "node:fs";
 import * as http from "node:http";
+
+/** Where the pages a login's browser tab is shown live. */
+const PAGES = new URL("./oauth-pages/", import.meta.url);
+
+/**
+ * A `%name%` a page leaves for its text, or the link to its stylesheet,
+ * which the page is sent with written in. Both are filled in one pass, so
+ * no text filled in is read again.
+ */
+const BLANK = /%(\w+)%|<link rel="stylesheet" href="page\.css">/g;
 
 /** How long a redirect is waited for before the wait gives up. */
 export const REDIRECT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -79,8 +93,40 @@ export function waitForRedirect(
 	});
 }
 
+/**
+ * The pages shown for a login to `service`, by name: one for a redirect
+ * that carried a code, and one for a redirect that carried an error.
+ */
+export function redirectPages(
+	service: string,
+): Pick<RedirectWait, "success" | "failure"> {
+	return {
+		success: page("success.html", { service }),
+		failure: (error) =>
+			page("failure.html", { service, error: error || "Unknown error" }),
+	};
+}
+
+/**
+ * One page, with its stylesheet written in and each blank filled with its
+ * text, escaped. A blank left without text is refused, as a misspelt
+ * name would be, so no page reaches a browser saying `%error%`.
+ */
+function page(name: string, text: Readonly<Record<string, string>>): string {
+	const styles = `<style>\n${readFileSync(new URL("page.css", PAGES), "utf8")}</style>`;
+	const template = readFileSync(new URL(name, PAGES), "utf8");
+	return template.replaceAll(BLANK, (_blank, key: string | undefined) => {
+		if (key === undefined) return styles;
+		const value = text[key];
+		if (value === undefined) {
+			throw new Error(`${name} leaves %${key}%, and nothing fills it`);
+		}
+		return escapeHtml(value);
+	});
+}
+
 /** Text made safe to put inside an HTML page. */
-export function escapeHtml(text: string): string {
+function escapeHtml(text: string): string {
 	return text
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")

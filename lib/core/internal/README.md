@@ -27,6 +27,9 @@ localhost for the redirect an OAuth login ends in.
 - `notes/`: the notes archive on disk: finding notes, their
   frontmatter, ids, atomic writes and safe file names. The verbs
   that use them are in `lib/core/notes/verbs`.
+- `oauth-pages/`: the HTML and CSS a login's browser tab is shown
+  when its redirect lands, filled in by `oauth-redirect.ts` with the
+  service's name and any error.
 - `quest/`: a quest's record and its workspace: which files the
   record holds, the gate and the audit that keep it so, and the
   workspace outside it for everything else. Beside them, what a

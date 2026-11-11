@@ -5,8 +5,6 @@
 lib/core/attribution/commit-hook.ts shell 1
 lib/core/observability/ledger/store.ts sql 1
 lib/core/web/article.ts page-js 1
-lib/google/auth/server.ts page-js 1
-lib/slack/auth/server.ts page-js 1
 tests/core/browser/capture.test.ts page-js 1
 tests/core/browser/environment.test.ts page-js 1
 tests/core/browser/hydration.test.ts page-js 1
