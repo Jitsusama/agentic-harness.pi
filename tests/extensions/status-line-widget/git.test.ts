@@ -289,6 +289,40 @@ describe("the engine, kept running", () => {
 		expect(readFileSync(starts, "utf8")).toBe("start\n");
 	});
 
+	it("ends an engine nothing asks of for a while, and starts one when asked again", async () => {
+		const first = listen(1);
+		const second = listen(1);
+		let answer = first.answered;
+		const engine = new Engine(
+			program,
+			(folder, state) => answer(folder, state),
+			none,
+			ANSWER_MS,
+		);
+		engine.ask(dir);
+		await first.all;
+		// Past the rest, so the engine has been let go of.
+		await quietFor(ANSWER_MS, 3);
+		answer = second.answered;
+		engine.ask(dir);
+		await second.all;
+		engine.stop();
+
+		expect(second.got.map(([folder]) => folder)).toEqual([dir]);
+		expect(readFileSync(starts, "utf8")).toBe("start\nstart\n");
+	});
+
+	it("lets no engine rest while a question is out", async () => {
+		const { got, all, answered } = listen(1);
+		const engine = new Engine(program, answered, none, ANSWER_MS / 4);
+		engine.ask(dir);
+		await all;
+		engine.stop();
+
+		expect(got.map(([folder]) => folder)).toEqual([dir]);
+		expect(readFileSync(starts, "utf8")).toBe("start\n");
+	});
+
 	it("goes quiet for a program that can't be started", async () => {
 		const { got, answered } = listen(1);
 		const engine = new Engine(join(dir, "missing"), answered, none);
