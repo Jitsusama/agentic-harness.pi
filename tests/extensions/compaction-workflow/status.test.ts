@@ -27,8 +27,10 @@ describe("the workflow's status", () => {
 	});
 
 	it("says the ceiling past which it compacts whatever the rent", () => {
-		const lines = workflowSection({ ...FACTS, ceilingTokens: 200_000 }, [])
-			.lines;
+		const lines = workflowSection(
+			{ ...FACTS, ceilingTokens: 200_000 },
+			[],
+		).lines;
 
 		expect(lines[0]).toBe("trigger: on, at the latest from 200k");
 	});
