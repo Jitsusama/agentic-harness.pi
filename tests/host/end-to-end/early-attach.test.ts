@@ -106,6 +106,7 @@ function heldAtStart(): string {
 		`import { existsSync } from "node:fs";
 export default async function () {
 	while (!existsSync(${JSON.stringify(join(cwd, GO_ON))}))
+		// Nothing tells an extension a file appeared, so it looks every 50 ms.
 		await new Promise((done) => setTimeout(done, 50));
 }
 `,
