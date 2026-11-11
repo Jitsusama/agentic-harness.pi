@@ -38,13 +38,15 @@ import {
 	QUEUED_LIMIT_MS,
 	queuedExec,
 } from "../../lib/internal/priority/queued-exec.ts";
+import { gitRules } from "../../lib/internal/sandbox.ts";
+import { guardedExec } from "../../lib/internal/tree-git.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
-import { treeRecordDir } from "../../lib/internal/work-records.ts";
+import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
-	return join(stateDir("work"), "trees");
+	return cutTreeDir();
 }
 
 /**
@@ -69,14 +71,20 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 	);
 }
 
-/** The tree provider's git: unattended, and queued when it is heavy. */
+/**
+ * The tree provider's git: unattended, queued when it is heavy, and in
+ * either case held to the folders it may run in (`tree-git.ts`).
+ */
 function treeExec(signal?: AbortSignal): Exec {
 	return queuedExec(
 		unattendedExec(signal),
-		spawnExec({
-			...(signal ? { signal } : {}),
-			timeoutMs: QUEUED_LIMIT_MS,
-		}),
+		guardedExec(
+			spawnExec({
+				...(signal ? { signal } : {}),
+				timeoutMs: QUEUED_LIMIT_MS,
+			}),
+			gitRules,
+		),
 	);
 }
 

@@ -172,6 +172,8 @@ export interface FencePlace {
 	readonly cwd?: string;
 	/** The worktree's own folder in its repository's `worktrees`. */
 	readonly ownGitFolder?: string;
+	/** Where quests' scratch folders live, and this session's quest's own. */
+	readonly scratch?: { readonly root: string; readonly own?: string };
 }
 
 /** The read-only paths, for the home folder `home`. */
@@ -247,7 +249,24 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...homeArgs(place.home, disk),
 		...sshArgs(place.home, disk),
 		...gitArgs(place, disk),
+		...scratchArgs(place, disk),
 	];
+}
+
+/**
+ * bubblewrap's arguments for quests' scratch folders: every one
+ * read-only, this session's quest's own bound back writable. Other
+ * quests keep clones there, whose settings pi's git, and their own
+ * sessions', run outside the fence.
+ */
+function scratchArgs(place: FencePlace, disk: Disk): string[] {
+	const scratch = place.scratch;
+	if (!scratch || disk.kind(scratch.root) !== "folder") return [];
+	const own =
+		scratch.own && disk.kind(scratch.own) === "folder"
+			? ["--bind", scratch.own, scratch.own]
+			: [];
+	return ["--ro-bind", scratch.root, scratch.root, ...own];
 }
 
 /** The files in `~/.ssh` a command may read: public keys, settings and known hosts. */
@@ -434,8 +453,12 @@ export function fenceRefusesWrite(
 		...readOnlyPaths(place.home),
 		...(place.runtimeDir ? [place.runtimeDir] : []),
 	];
-	if (kept.some((folder) => path === folder || path.startsWith(`${folder}/`))) {
-		return true;
+	const inside = (folder: string) =>
+		path === folder || path.startsWith(`${folder}/`);
+	if (kept.some(inside)) return true;
+	const scratch = place.scratch;
+	if (scratch && inside(scratch.root)) {
+		return !(scratch.own && inside(scratch.own));
 	}
 	if (path === place.home) return true;
 	if (dirname(path) !== place.home) return false;

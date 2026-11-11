@@ -14,6 +14,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ownerRepoFromRemote } from "../../core/review/providers/github/claims.ts";
+import { gitRules } from "../sandbox.ts";
+import { gitRun } from "../tree-git.ts";
 import type { Place } from "./places.ts";
 
 /** A GitHub repo, by its owner and name. */
@@ -73,7 +75,11 @@ export function targetOf(place: Place, world: PlaceWorld): string | undefined {
  * the folder is in no repo or its origin is not on GitHub.
  */
 export function originRepoOf(cwd: string): GithubRepo | undefined {
-	const result = spawnSync("git", ["remote", "get-url", "origin"], {
+	// Outside any sandbox, so held to where a sandboxed command couldn't
+	// have set what git runs (tree-git.ts).
+	const run = gitRun(cwd, ["remote", "get-url", "origin"], gitRules());
+	if ("refused" in run) return;
+	const result = spawnSync("git", run.args, {
 		cwd,
 		encoding: "utf8",
 		timeout: GIT_TIMEOUT_MS,

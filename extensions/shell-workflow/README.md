@@ -85,7 +85,19 @@ through landrun:
   `info` and other trees' git folders are read-only. Objects, refs and
   the index stay writable, so commits still work in the session's own
   tree, but not from a command in any other. The tree's `.git` file
-  and its links back are read-only too.
+  and its links back are read-only too. Other quests' scratch folders
+  are read-only, the session's own quest's bound back, since clones
+  there run git outside the fence for their own sessions.
+- **No git of its making run outside.** pi runs git outside the fence
+  (the work and review tools, the write classifier, verification), so
+  it runs it only where a command couldn't have set what git runs
+  (`lib/internal/tree-git.ts`). A tree's `.git` file counts only when
+  the folder it names, in its repository's `worktrees`, names it back,
+  and git is then told both folders outright. A tree where the work
+  tool cuts them must come from a repository the fence guards, in every
+  session; a fenced session's git runs only in such repositories. Cut a
+  tree from a checkout under `~/src`, not from a clone in a scratch
+  folder.
 - **No desktop.** The runtime folder is an empty one of its own, with
   only the Nix daemon's door for sandboxes bound back, and `NIX_REMOTE`
   points there. Landlock refuses every other socket, an abstract one

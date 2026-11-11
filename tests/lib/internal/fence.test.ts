@@ -21,6 +21,7 @@ import {
 	type Disk,
 	FENCE,
 	fenceArgs,
+	fenceRefusesWrite,
 	fenceRules,
 	inStore,
 	NEVER_THROUGH,
@@ -208,6 +209,36 @@ describe("the fence's arguments", () => {
 				expect(pairs("--ro-bind"), `${path} is writable`).toContain(full);
 			}
 		}
+	});
+
+	it("keeps every quest's scratch folder read-only but the session's own, over the home's binds", () => {
+		const scratch = {
+			root: "/home/someone/.cache/pi/quest-workspace",
+			own: "/home/someone/.cache/pi/quest-workspace/QEST-1",
+		};
+		const given = fenceArgs(
+			{ ...place, scratch },
+			diskWith(place.home, [".cache"]),
+		);
+		const root = given.lastIndexOf(scratch.root);
+		const own = given.lastIndexOf(scratch.own);
+		expect(given[root - 2]).toBe("--ro-bind");
+		expect(given[own - 2]).toBe("--bind");
+		expect(
+			root > given.lastIndexOf("/home/someone/.cache"),
+			"the scratch folders are bound over the cache's writable bind",
+		).toBe(true);
+		expect(own > root, "the session's own is bound back after").toBe(true);
+
+		const at = { ...place, scratch };
+		expect(
+			fenceRefusesWrite(`${scratch.root}/QEST-2/clone/.git/config`, at),
+			"another quest's scratch is read-only to pi's file tools too",
+		).toBe(true);
+		expect(
+			fenceRefusesWrite(`${scratch.own}/tmp/x`, at),
+			"the session's own scratch stays writable",
+		).toBe(false);
 	});
 
 	it("binds nothing that isn't there", () => {

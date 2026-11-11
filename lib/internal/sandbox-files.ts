@@ -26,12 +26,12 @@ import {
 	type FileUse,
 	fileReach,
 	noSuchSandbox,
+	questScratch,
 	SANDBOX_VARIABLE,
 	STRICT,
 	unfencedFolder,
-	within,
-	worktreeRepository,
 } from "./sandbox.ts";
+import { within, worktreeRepository } from "./tree-git.ts";
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
@@ -189,7 +189,11 @@ function fenceRefusal(
 	candidates: readonly string[],
 	place: FilePlace,
 ): string | undefined {
-	const fence = { home: place.home, runtimeDir: place.env.XDG_RUNTIME_DIR };
+	const fence = {
+		home: place.home,
+		runtimeDir: place.env.XDG_RUNTIME_DIR,
+		scratch: questScratch(place.env.TMPDIR),
+	};
 	for (const candidate of candidates) {
 		const real = leadsTo(candidate);
 		if (real === undefined) {
@@ -201,7 +205,7 @@ function fenceRefusal(
 			use === "write" &&
 			(fenceRefusesWrite(candidate, fence) || fenceRefusesWrite(real, fence))
 		) {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Change them through core and a switch.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Change settings through core and a switch, and another quest's files through its sessions.`;
 		}
 		if (fenceRefusesRead(real, fence)) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run.`;

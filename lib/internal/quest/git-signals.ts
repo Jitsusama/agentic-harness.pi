@@ -13,6 +13,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
+import { gitRules } from "../sandbox.ts";
+import { gitRun } from "../tree-git.ts";
 
 /**
  * Wall-clock ceiling for a single git invocation. The classifier
@@ -22,10 +24,24 @@ import * as path from "node:path";
  */
 const GIT_TIMEOUT_MS = 5000;
 
+/**
+ * git's arguments for `cwd`, or null when pi may not run git there.
+ * pi runs these outside any sandbox, on every write it judges, so they
+ * are held to the folders whose git a sandboxed command couldn't have
+ * set (`tree-git.ts`): a write into a repository one made would
+ * otherwise run whatever its settings name.
+ */
+function allowed(cwd: string, args: string[]): string[] | null {
+	const run = gitRun(cwd, args, gitRules());
+	return "refused" in run ? null : [...run.args];
+}
+
 /** Run git in `cwd`, returning trimmed stdout, or null on any failure. */
 function git(cwd: string, args: string[]): string | null {
+	const held = allowed(cwd, args);
+	if (!held) return null;
 	try {
-		return execFileSync("git", args, {
+		return execFileSync("git", held, {
 			cwd,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
@@ -157,8 +173,10 @@ export function hasNoCommits(absPath: string): boolean {
 /** Whether the target is gitignored at its destination. */
 export function isGitignored(absPath: string): boolean {
 	const { dir, target } = located(absPath);
+	const held = allowed(dir, ["check-ignore", "-q", "--", target]);
+	if (!held) return false;
 	try {
-		execFileSync("git", ["check-ignore", "-q", "--", target], {
+		execFileSync("git", held, {
 			cwd: dir,
 			stdio: "ignore",
 			timeout: GIT_TIMEOUT_MS,
@@ -210,8 +228,10 @@ export function isWithin(child: string, parent: string): boolean {
 /** Whether the target is tracked in its repository's index. */
 export function isTracked(absPath: string): boolean {
 	const { dir, target } = located(absPath);
+	const held = allowed(dir, ["ls-files", "--error-unmatch", "--", target]);
+	if (!held) return false;
 	try {
-		execFileSync("git", ["ls-files", "--error-unmatch", "--", target], {
+		execFileSync("git", held, {
 			cwd: dir,
 			stdio: "ignore",
 			timeout: GIT_TIMEOUT_MS,

@@ -12,6 +12,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { gitRules } from "../../lib/internal/sandbox.ts";
+import { gitRun } from "../../lib/internal/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;
@@ -95,8 +97,12 @@ function canonical(path: string): string {
 }
 
 function git(cwd: string, args: readonly string[]): string | undefined {
+	// Outside any sandbox, so held to where a sandboxed command couldn't
+	// have set what git runs (tree-git.ts).
+	const run = gitRun(cwd, args, gitRules());
+	if ("refused" in run) return undefined;
 	try {
-		return execFileSync("git", args, {
+		return execFileSync("git", run.args, {
 			cwd,
 			encoding: "utf8",
 			timeout: GIT_WALL_MS,

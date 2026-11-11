@@ -10,6 +10,9 @@
  *
  * Shared by the review and work integrations, which must not import each
  * other, so it lives here rather than in either.
+ *
+ * Its git runs outside any sandbox, so it is held to the folders whose
+ * git a sandboxed command couldn't have set (`tree-git.ts`).
  */
 
 import type {
@@ -23,6 +26,8 @@ import {
 	type Exec,
 	spawnExec,
 } from "../core/exec/index.ts";
+import { gitRules } from "./sandbox.ts";
+import { guardedExec } from "./tree-git.ts";
 
 /**
  * How long one command may run when its caller names no clock.
@@ -38,10 +43,13 @@ export const UNATTENDED_LIMIT_MS = 10 * 60 * 1000;
  * given, and by the unattended clock either way.
  */
 export function unattendedExec(signal?: AbortSignal): Exec {
-	return spawnExec({
-		...(signal ? { signal } : {}),
-		timeoutMs: UNATTENDED_LIMIT_MS,
-	});
+	return guardedExec(
+		spawnExec({
+			...(signal ? { signal } : {}),
+			timeoutMs: UNATTENDED_LIMIT_MS,
+		}),
+		gitRules,
+	);
 }
 
 /** Run a command that cannot prompt, and cannot outlive its signal or clock. */
@@ -50,11 +58,15 @@ export async function execUnattended(
 	args: string[],
 	options: ExecOptions = {},
 ): Promise<ExecResult> {
-	const exec = spawnExec({
-		...(options.signal ? { signal: options.signal } : {}),
-		...(options.cwd ? { cwd: options.cwd } : {}),
-		timeoutMs: options.timeout ?? UNATTENDED_LIMIT_MS,
-	});
+	const exec = guardedExec(
+		spawnExec({
+			...(options.signal ? { signal: options.signal } : {}),
+			...(options.cwd ? { cwd: options.cwd } : {}),
+			timeoutMs: options.timeout ?? UNATTENDED_LIMIT_MS,
+		}),
+		gitRules,
+		options.cwd,
+	);
 	const result = await exec(command, args);
 	return {
 		...result,

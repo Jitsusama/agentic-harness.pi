@@ -17,6 +17,7 @@ import {
 	realpathSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -26,14 +27,15 @@ import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
 import {
 	askTheCloudAhead,
 	NIX_DOOR,
+	questScratch,
 	type Sandbox,
 	sandboxFolders,
 	sandboxFor,
 	strictRules,
 	unfencedFolder,
-	worktreeRepository,
 } from "../../../lib/internal/sandbox.ts";
 import { systemProgram } from "../../../lib/internal/system-program.ts";
+import { worktreeRepository } from "../../../lib/internal/tree-git.ts";
 
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
@@ -239,6 +241,29 @@ describe("a worktree's repository", () => {
 
 	it("is nothing in a folder with no .git file", () => {
 		expect(worktreeRepository(base, "/nowhere-home")).toBeUndefined();
+	});
+});
+
+describe("a session's quest scratch folder", () => {
+	it("is the one its TMPDIR leads into, through a link, and none elsewhere", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-scratch-")));
+		const root = join(base, "quest-workspace");
+		mkdirSync(join(root, "QEST-1/tmp"), { recursive: true });
+		const link = join(base, "pi-quest-QEST-1");
+		symlinkSync(join(root, "QEST-1/tmp"), link);
+		try {
+			expect(questScratch(link, root)).toEqual({
+				root,
+				own: join(root, "QEST-1"),
+			});
+			expect(questScratch(join(base, "other"), root)).toEqual({ root });
+			expect(questScratch(root, root), "the root is no quest's").toEqual({
+				root,
+			});
+			expect(questScratch(undefined, root)).toEqual({ root });
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
 	});
 });
 
