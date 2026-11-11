@@ -104,9 +104,10 @@ describe("a quit typed in a viewer", () => {
 		);
 		expect(other.disconnect, "the other stays").not.toHaveBeenCalled();
 		two.input("still here");
-		expect(read, "pi reads the other viewer, not the answer").toEqual([
+		// pi's stdin buffer hands it each key alone, so read them joined.
+		expect(read.join(""), "pi reads the other viewer, not the answer").toBe(
 			"still here",
-		]);
+		);
 	});
 
 	it("asks a lone viewer too, since a key can come from no person, and Ctrl+D again holds", async () => {
