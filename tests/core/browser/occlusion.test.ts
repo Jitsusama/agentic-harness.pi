@@ -3,7 +3,7 @@ import {
 	type ActResult,
 	BrowserSession,
 } from "../../../lib/core/web/session.ts";
-import { type Fixture, serve } from "./_harness.ts";
+import { type Fixture, pageFile, serve } from "./_harness.ts";
 
 /**
  * A page with enough structure that a target below the fold has to
@@ -12,41 +12,7 @@ import { type Fixture, serve } from "./_harness.ts";
  * such target refused as "covered", naming a paragraph that was
  * nowhere near it.
  */
-const STRUCTURED = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Structured</title><style>
-  body { font: 16px system-ui; margin: 0; }
-  main { padding: 1rem; max-width: 900px; }
-  .card { background: #f2f3f7; padding: 1rem; margin: 1rem 0; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; }
-</style></head><body>
-  <header style="padding:1rem">a header</header>
-  <div style="padding:2rem 1rem"><h1>A tall hero</h1></div>
-  <main>
-    <h2>Forms</h2>
-    <form><label for="e">Email</label><input id="e"><input id="n"></form>
-    <h2>Cards</h2>
-    <div class="card"><p>A paragraph inside a card.</p></div>
-    <p id="one">Filler one.</p>
-    <p id="two">Filler two.</p>
-    <div style="height:200px">more filler</div>
-    <h2>Interaction</h2>
-    <div class="row">
-      <button id="deep">Deep button</button>
-    </div>
-    <div id="out"></div>
-    <div id="host"></div>
-  </main>
-  <script>
-    document.getElementById('deep').addEventListener('click', () => {
-      document.getElementById('out').textContent = 'clicked';
-    });
-    const root = document.getElementById('host').attachShadow({ mode: 'open' });
-    root.innerHTML = '<button id="inner">Inside a shadow root</button>';
-    root.getElementById('inner').addEventListener('click', () => {
-      document.getElementById('out').textContent = 'shadow clicked';
-    });
-  </script>
-</body></html>`;
+const STRUCTURED = pageFile("structured.html");
 
 describe("acting on a target that must be scrolled to", () => {
 	let fixture: Fixture;

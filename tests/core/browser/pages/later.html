@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Later</title>
+</head>
+<body><main><h1>Later</h1><div id="host"></div></main>
+<script>
+"use strict";
+setTimeout(() => {
+  const el = document.createElement("p");
+  el.id = "arrived";
+  el.textContent = "arrived at last";
+  document.getElementById("host").append(el);
+}, 400);
+</script></body>
+</html>

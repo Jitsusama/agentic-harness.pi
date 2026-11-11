@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { SETTLE_QUIET_MS } from "../../../lib/core/web/wait/index.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, page, pageFile, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -26,31 +26,10 @@ const SLOW = page(
 );
 
 /** A page that adds a node on a timer, for waiting on. */
-const LATER = page(
-	"Later",
-	`<main><h1>Later</h1><div id="host"></div></main>
-<script>
-setTimeout(() => {
-  const el = document.createElement("p");
-  el.id = "arrived";
-  el.textContent = "arrived at last";
-  document.getElementById("host").append(el);
-}, 400);
-</script>`,
-);
+const LATER = pageFile("later.html");
 
 /** A page that never stops changing, so it can never settle. */
-const RESTLESS = page(
-	"Restless",
-	`<main><h1>Restless</h1><div id="host"></div></main>
-<script>
-setInterval(() => {
-  const el = document.createElement("span");
-  el.textContent = String(Date.now());
-  document.getElementById("host").append(el);
-}, 30);
-</script>`,
-);
+const RESTLESS = pageFile("restless.html");
 
 let fixture: Fixture;
 let session: BrowserSession;

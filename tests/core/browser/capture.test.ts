@@ -14,7 +14,7 @@ import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyseWalk, renderWalk } from "../../../lib/core/web/a11y/walk.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, page, pageFile, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -107,15 +107,7 @@ const COLLAPSED = page(
  * changed the page, from the inspection whose stated purpose is
  * to explain why a click did nothing.
  */
-const DELEGATED = page(
-	"Delegated",
-	`<main><h1>Delegated</h1><button type="button" id="save">Save</button></main>
-<script>
-document.body.addEventListener("click", function (event) {
-  if (event.target.id === "save") document.title = "clicked";
-});
-</script>`,
-);
+const DELEGATED = pageFile("delegated.html");
 
 /**
  * Controls a keyboard reaches correctly without one Tab each: a

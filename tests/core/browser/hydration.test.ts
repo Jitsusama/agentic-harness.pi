@@ -9,25 +9,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { judgeHydration } from "../../../lib/core/web/hydration/judge.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, page, pageFile, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 /** A page whose script rewrites what the server sent. */
-const MUTATES = page(
-	"Mutates",
-	`<main>
-  <h1>Mutates</h1>
-  <p id="kept">This paragraph survives hydration untouched, present in both renders.</p>
-  <p id="lost">This paragraph is removed by the page's own script after it loads.</p>
-</main>
-<script>
-  document.getElementById("lost").remove();
-  const extra = document.createElement("p");
-  extra.textContent = "This paragraph only exists after the script has run.";
-  document.querySelector("main").appendChild(extra);
-</script>`,
-);
+const MUTATES = pageFile("mutates.html");
 
 /** A page whose script leaves the server render alone. */
 const FAITHFUL = page(

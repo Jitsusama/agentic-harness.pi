@@ -13,19 +13,11 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, page, pageFile, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
-const STORE = page(
-	"Storage",
-	`<main><h1>Storage</h1></main>
-<script>
-localStorage.setItem("from-the-page", "local value");
-sessionStorage.setItem("session-key", "session value");
-document.cookie = "baked=yes; path=/";
-</script>`,
-);
+const STORE = pageFile("storage.html");
 
 let fixture: Fixture;
 let session: BrowserSession;

@@ -5,23 +5,14 @@ import {
 	releaseRecording,
 } from "../../../lib/core/web/session/recording.ts";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, pageFile, serve } from "./_harness.ts";
 
 /**
  * A button whose handler schedules the work we want explained: two
  * timers, and two fetches that deliberately settle in the opposite
  * order to the one they were sent in.
  */
-const CAUSAL = page(
-	"Causal",
-	`<main><h1>Causal</h1><button type="button" id="go">Go</button></main>
-<script>
-document.getElementById("go").addEventListener("click", function () {
-  setTimeout(function () { fetch("/slow"); }, 20);
-  setTimeout(function () { fetch("/quick"); }, 40);
-});
-</script>`,
-);
+const CAUSAL = pageFile("causal.html");
 
 let fixture: Fixture;
 let session: BrowserSession;

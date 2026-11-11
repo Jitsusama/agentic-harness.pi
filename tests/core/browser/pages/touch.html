@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Touch</title>
+</head>
+<body><main><h1>Touch</h1><div id="pad" style="width:200px;height:200px"></div>
+<p id="touched">none</p>
+<script>
+"use strict";
+document.addEventListener("touchstart", () => {
+  const seen = document.getElementById("touched");
+  if (seen.textContent === "none") seen.textContent = "touchstart";
+}, { passive: true });
+</script></main></body>
+</html>

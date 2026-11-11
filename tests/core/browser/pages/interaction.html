@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interaction</title>
+</head>
+<body><main>
+  <h1>Interaction</h1>
+  <button type="button" id="plain" onclick="document.getElementById('log').textContent = 'clicked'">Press me</button>
+  <button type="button" id="off" disabled>Disabled button</button>
+  <label for="text">Your name</label>
+  <input id="text" name="text" value="start">
+  <label for="choice">Pick one</label>
+  <select id="choice"><option>Alpha</option><option>Beta</option></select>
+  <div id="hoverable" onmouseenter="document.getElementById('log').textContent = 'hovered'">Hover target</div>
+  <p id="log">nothing yet</p>
+  <div id="cover-host" style="position:relative">
+    <button type="button" id="under" onclick="document.getElementById('log').textContent = 'should not happen'">Covered button</button>
+    <div id="cover" style="position:absolute;inset:0;background:rgba(0,0,0,0.01)"></div>
+  </div>
+  <nav><button type="button" id="icon" onclick="document.getElementById('log').textContent = 'icon'"><svg width="20" height="20" aria-hidden="true"></svg></button></nav>
+  <div id="faux" style="padding:4px;border:1px solid #999">Publish</div>
+  <label for="attach">Attach a file</label>
+  <input type="file" id="attach" style="position:absolute;opacity:0;width:1px;height:1px" onchange="document.getElementById('picked').textContent = Array.from(this.files).map(f => f.name).join(',')">
+  <p id="picked">none</p>
+  <div id="scroller" style="height:2000px"></div>
+  <button type="button" id="far" onclick="document.getElementById('log').textContent = 'far'">Far below</button>
+</main></body>
+</html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restless</title>
+</head>
+<body><main><h1>Restless</h1><div id="host"></div></main>
+<script>
+"use strict";
+setInterval(() => {
+  const el = document.createElement("span");
+  el.textContent = String(Date.now());
+  document.getElementById("host").append(el);
+}, 30);
+</script></body>
+</html>

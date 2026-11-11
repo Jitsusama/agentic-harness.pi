@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Socket</title>
+</head>
+<body><main><p id="heard">nothing yet</p></main>
+	<script>
+		"use strict";
+		const socket = new WebSocket(`ws://${location.host}/feed`);
+		socket.addEventListener("open", () => socket.send("subscribe"));
+		socket.addEventListener("message", (event) => {
+			document.getElementById("heard").textContent = event.data;
+		});
+	</script></body>
+</html>
