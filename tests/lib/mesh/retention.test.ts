@@ -79,7 +79,10 @@ function sentBy(
 	from: string,
 	over: { intent?: string; re?: string; endsHold?: true; pid?: number } = {},
 ): string {
-	const pid = over.pid ?? from.length;
+	// A pid of each sender's own, since a shared one reads as the same sender.
+	const pid =
+		over.pid ??
+		[...from].reduce((sum, c) => sum * 31 + c.charCodeAt(0), 7) % 100_000;
 	const id = `${now - ago}-${from}-${pid}-${from.toLowerCase()}`;
 	writeFileSync(
 		join(dir, `${id}.json`),
