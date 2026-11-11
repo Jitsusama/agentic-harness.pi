@@ -86,7 +86,7 @@ describe("answers awaited", () => {
 		const awaiting = createAwaiting();
 		const both = question({ from: "P9R1KI", to: ["@Y2YBTS", "@85PKB2"] });
 		awaiting.asked(both, ["P9R1KI", "WCJQSG"], asked);
-		awaiting.answered(both.id, ["85PKB2", "EB40158D"]);
+		awaiting.answered(both.id, () => ["85PKB2", "EB40158D"]);
 
 		expect(awaiting.stuck(asked + ASK_AGAIN_MS - 1)).toEqual([]);
 		expect(awaiting.stuck(asked + ASK_AGAIN_MS)).toEqual([
@@ -99,7 +99,7 @@ describe("answers awaited", () => {
 		const awaiting = createAwaiting();
 		const one = question();
 		awaiting.asked(one, ["20KSI7"], asked);
-		awaiting.answered(one.id, ["WCJQSG", "P9R1KI"]);
+		awaiting.answered(one.id, () => ["WCJQSG", "P9R1KI"]);
 		awaiting.asked(question({ id: "2", to: ["#quest/wcjqsg"] }), [], asked);
 		awaiting.asked(question({ id: "3", to: ["@20KSI7"] }), ["20KSI7"], asked);
 		awaiting.asked(
@@ -108,5 +108,21 @@ describe("answers awaited", () => {
 			asked,
 		);
 		expect(awaiting.stuck(asked + ASK_AGAIN_MS)).toEqual([]);
+	});
+
+	it("looks up who answered only for a question it awaits", () => {
+		// Every peer sees every answer, and looking one up reads every presence.
+		const awaiting = createAwaiting();
+		let lookups = 0;
+		const from = () => {
+			lookups += 1;
+			return ["P9R1KI"];
+		};
+		awaiting.answered("someone else's question", from);
+		expect(lookups, "looked up an answer to another peer").toBe(0);
+
+		awaiting.asked(question(), ["20KSI7"], asked);
+		awaiting.answered(question().id, from);
+		expect(lookups, "didn't look up an answer it awaited").toBe(1);
 	});
 });

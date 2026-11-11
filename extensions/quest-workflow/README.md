@@ -469,26 +469,3 @@ is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
 (per XDG); override it by setting `questsRoot` in the
 `quest-workflow` section of the package config file at
 `~/.config/pi/agentic-harness.pi/config.json`.
-
-## Related Extensions
-
-- `plan-workflow` has been retired. Its responsibilities
-  (the stage machine, plan-doc scaffolding, the status-bar
-  widget) live here now, with plans positioned as one of
-  four document kinds under a quest.
-- There used to be a bridge here, `lib/quest/pr-bridge.ts`,
-  that let a review tool write notes under a sidequest found
-  by a `github-pr` alias. It went with `pr-workflow`, which
-  was its only consumer, though not at the same time: it
-  outlived that deletion by a week with a producer and no
-  reader, kept alive by its own tests.
-
-  It is worth saying why it was not generalized instead. Its
-  whole vocabulary was a PR: `findOrCreateSidequestForPr`
-  took an owner, a repo and a number, which cannot name a
-  change on a system that has none of the three. Widening a
-  shape built around one backend is how the substrate came to
-  exist in the first place. If quest footprints from review
-  rounds are wanted again, they should be built against a
-  change reference and its label, and the alias type should
-  come from the provider that claimed it.
