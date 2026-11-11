@@ -482,6 +482,9 @@ export class ViewerTerminal implements Terminal {
 	 * until `awake` the screen it wakes into reads nothing either.
 	 */
 	sleep(wake: () => void): void {
+		// A quit still asked of a viewer goes with the screen that asked it:
+		// unanswered, the conversation stays, and that viewer's keys are held.
+		for (const viewer of this.viewers) this.cancelQuit(viewer);
 		this.sleeping = { wake, held: [], bytes: new Map(), told: false };
 	}
 

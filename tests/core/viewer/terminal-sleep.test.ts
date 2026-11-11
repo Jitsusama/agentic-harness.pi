@@ -120,6 +120,36 @@ describe("a parked conversation's terminal", () => {
 		expect(next.join(""), "the other viewer's key was read").toBe("b");
 	});
 
+	it("parking settles a quit still asked as unanswered, and holds that viewer's next key for the wake", async () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		terminals.push(terminal);
+		const verdicts: Promise<unknown>[] = [];
+		terminal.start(
+			(data) => {
+				if (data === "\x04") verdicts.push(terminal.confirmQuit(false));
+			},
+			() => {},
+		);
+		const asked = viewer();
+		const one = terminal.attach(asked);
+		one.input("\x04");
+		park(terminal);
+
+		await expect(
+			verdicts.at(0),
+			"the quit doesn't hold once its screen parks",
+		).resolves.toEqual({ holds: false });
+		one.input("y");
+		const next: string[] = [];
+		wakeInto(terminal, next);
+		terminal.awake();
+
+		expect(asked.disconnect, "its viewer stays").not.toHaveBeenCalled();
+		expect(next.join(""), "its y is a key for the wake, not an answer").toBe(
+			"y",
+		);
+	});
+
 	it("closed while parked, holds and wakes nothing", () => {
 		const { terminal } = parkable();
 		const one = terminal.attach(viewer());
