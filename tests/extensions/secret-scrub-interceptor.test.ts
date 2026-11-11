@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import secretScrubInterceptor from "../../extensions/secret-scrub-interceptor/index.ts";
 import { savedOutputFile } from "../../extensions/secret-scrub-interceptor/output-file.ts";
-import { scrubSecrets } from "../../lib/internal/secrets.ts";
+import { knownSecrets, scrubSecrets } from "../../lib/internal/secrets.ts";
 
 const mixed = (length: number) =>
 	"a1B2c3D4e5".repeat(Math.ceil(length / 10)).slice(0, length);
@@ -33,6 +33,8 @@ const credentials: [kind: string, value: string][] = [
 	["Google access token", `ya${"29."}${mixed(40)}`],
 	["Google API key", `AI${"za"}${mixed(35)}`],
 	["Slack token", `xo${"xb"}-${mixed(30)}`],
+	["Slack token", `xa${"pp"}-1-${mixed(30)}`],
+	["GitLab token", `gl${"pat"}-${mixed(20)}`],
 	["Shopify token", `shp${"at_"}${hex(32)}`],
 	["age identity", `AGE-SECRET${"-KEY-1"}${upper(58)}`],
 	["JSON web token", `ey${"J"}${mixed(20)}.ey${"J"}${mixed(20)}.${mixed(20)}`],
@@ -87,6 +89,76 @@ describe("a credential where a file or a shell keeps it", () => {
 		expect(scrubSecrets(header).text).toBe(
 			"Authorization: Bearer [secret scrubbed: bearer token]",
 		);
+	});
+
+	it("keeps the header and its scheme, whatever the scheme", () => {
+		for (const scheme of ["Basic", "token", "Bot"]) {
+			const header = `authorization: ${scheme} ${mixed(40)}`;
+			expect(scrubSecrets(header).text, scheme).toBe(
+				`authorization: ${scheme} [secret scrubbed: credential]`,
+			);
+		}
+	});
+
+	it("keeps an AWS credentials file's key names", () => {
+		const file = [
+			`aws_secret${"_access_key"} = ${mixed(40)}`,
+			`aws_session${"_token"}=${mixed(60)}`,
+		].join("\n");
+		expect(scrubSecrets(file).text).toBe(
+			[
+				"aws_secret_access_key = [secret scrubbed: AWS secret key]",
+				"aws_session_token=[secret scrubbed: AWS secret key]",
+			].join("\n"),
+		);
+	});
+});
+
+describe("a credential the session holds in a variable", () => {
+	const value = mixed(48);
+
+	it("is scrubbed by its value wherever it appears, named by the variable", () => {
+		const known = knownSecrets({ LLM_GATEWAY_TOKEN: value });
+		const { text, kinds } = scrubSecrets(`a ${value} b ${value}`, known);
+		expect(text).toBe(
+			"a [secret scrubbed: LLM_GATEWAY_TOKEN] b [secret scrubbed: LLM_GATEWAY_TOKEN]",
+		);
+		expect(kinds).toEqual(["LLM_GATEWAY_TOKEN", "LLM_GATEWAY_TOKEN"]);
+	});
+
+	it("is known by every name that says it holds a secret", () => {
+		const names = [
+			"LLM_GATEWAY_TEAM_TOKEN",
+			"TOOL_GATEWAY_TOKEN",
+			"PI_PROXY_API_KEY",
+			"PI_PROXY_AUTH_HEADER",
+			"GOOGLE_ID_TOKEN",
+			"CLOUDSMITH_SHOPIFY_NPM",
+			"SHOPIFY_PROXY_KEY",
+		];
+		const known = knownSecrets(
+			Object.fromEntries(names.map((name) => [name, `${name}${value}`])),
+		);
+		expect(known.map((one) => one.name).sort()).toEqual([...names].sort());
+	});
+
+	it("is known word by word in a header's value", () => {
+		const known = knownSecrets({ PI_PROXY_AUTH_HEADER: `Bearer ${value}` });
+		expect(scrubSecrets(`sent ${value}`, known).text).toBe(
+			"sent [secret scrubbed: PI_PROXY_AUTH_HEADER]",
+		);
+	});
+
+	it("is never a path, an address, a short value or a public key", () => {
+		const known = knownSecrets({
+			GUIDE_FIDO2_TOKEN: "/nix/store/0123abcd-fido2-token/bin/token",
+			CLOUDSMITH_URL: "https://dl.cloudsmith.io/a1b2c3/npm",
+			SHORT_TOKEN: "a1b2",
+			LETTERS_TOKEN: "nothingButLettersInHere",
+			KITTY_PUBLIC_KEY: value,
+			HOME: value,
+		});
+		expect(known).toEqual([]);
 	});
 });
 
@@ -162,6 +234,47 @@ describe("a tool's answer", () => {
 			details: { runs: [{ output: "[secret scrubbed: npm token]", exit: 0 }] },
 			structuredContent: { tokens: ["[secret scrubbed: npm token]"] },
 		});
+	});
+
+	describe("from any tool, the harness's own included", () => {
+		const tools = [
+			"bash",
+			"read",
+			"codemode",
+			"quest",
+			"mesh_read",
+			"web_read",
+		];
+		const variable = "SCRUB_TEST_GATEWAY_TOKEN";
+		const held = mixed(52);
+		const kinds: [kind: string, value: string][] = [
+			...credentials,
+			[variable, held],
+		];
+
+		beforeEach(() => {
+			process.env[variable] = held;
+		});
+		afterEach(() => {
+			delete process.env[variable];
+		});
+
+		for (const toolName of tools) {
+			it(`reaches neither the model nor the log from ${toolName}`, async () => {
+				for (const [kind, value] of kinds) {
+					const result = await answer({
+						toolName,
+						content: [{ type: "text", text: `found ${value}` }],
+						details: { found: value },
+					});
+					const kept = JSON.stringify(result);
+					expect(kept.includes(value), `${kind} from ${toolName}`).toBe(false);
+					expect(kept, `${kind} from ${toolName}`).toContain(
+						`[secret scrubbed: ${kind}]`,
+					);
+				}
+			});
+		}
 	});
 
 	it("is handed on untouched when it holds no secret", async () => {

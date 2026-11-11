@@ -3,7 +3,8 @@
  *
  * Puts every credential a tool's answer holds out of sight before the
  * model reads it or pi writes it to the session's log, leaving words that
- * say what kind it was (see `lib/internal/secrets.ts` for the shapes).
+ * say what kind it was (see `lib/internal/secrets.ts` for the shapes, and
+ * for the session's own secret variables, put out of sight by value).
  *
  * An agent's tools print what they find, and some of what they find is a
  * credential: a token in a shell's history, a key in a file read, a
@@ -27,20 +28,28 @@ import type {
 	ExtensionAPI,
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import { scrubDeep, scrubSecrets } from "../../lib/internal/secrets.ts";
+import {
+	type KnownSecret,
+	knownSecrets,
+	scrubDeep,
+	scrubSecrets,
+} from "../../lib/internal/secrets.ts";
 import { savedOutputFile, scrubOutputFile } from "./output-file.ts";
 
 type Content = ToolResultEvent["content"];
 
 /** The answer's parts with each text scrubbed, and whether any changed. */
-function scrubContent(content: Content): {
+function scrubContent(
+	content: Content,
+	known: readonly KnownSecret[],
+): {
 	content: Content;
 	changed: boolean;
 } {
 	let changed = false;
 	const scrubbed = content.map((part) => {
 		if (part.type !== "text") return part;
-		const { text, kinds } = scrubSecrets(part.text);
+		const { text, kinds } = scrubSecrets(part.text, known);
 		if (kinds.length === 0) return part;
 		changed = true;
 		return { ...part, text };
@@ -60,9 +69,10 @@ export default function secretScrubInterceptor(pi: ExtensionAPI) {
 			),
 		);
 		for (const file of saved) if (file) scrubOutputFile(file);
-		const content = scrubContent(event.content);
-		const details = scrubDeep(event.details);
-		const structured = scrubDeep(event.structuredContent);
+		const known = knownSecrets();
+		const content = scrubContent(event.content, known);
+		const details = scrubDeep(event.details, known);
+		const structured = scrubDeep(event.structuredContent, known);
 		if (
 			!content.changed &&
 			details.kinds.length === 0 &&
