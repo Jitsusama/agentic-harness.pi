@@ -250,11 +250,55 @@ describe("hostBackend", () => {
 		});
 		await host.stop(stopped);
 		expect(cleanup.mock.calls).toEqual([
-			["closed"],
-			["released"],
+			["closed, asked by a control request that didn't say who sent it"],
+			["released, asked by a control request that didn't say who sent it"],
 			["host stopped"],
 		]);
 		expect(roster.entries().map((held) => held.sessionId)).toEqual([stopped]);
+	});
+
+	it("closes with the caller a request names, and journals a close of one held but not running", async () => {
+		const { fake } = engine();
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+		});
+		const running = parseOpenResult(await backend.execute(open)).sessionId;
+		const stranded = parseOpenResult(await backend.execute(open)).sessionId;
+		await host.stop(stranded);
+
+		await backend.execute({
+			v: 1,
+			id: "c",
+			op: "close",
+			sessionId: running,
+			by: "the launcher\n",
+		});
+		await backend.execute({
+			v: 1,
+			id: "s",
+			op: "close",
+			sessionId: stranded,
+			by: "mycelium close",
+		});
+
+		expect(
+			cleanup,
+			"a running one closes naming its caller, kept to one line",
+		).toHaveBeenCalledWith(
+			"closed, asked by the launcher  over the control socket",
+		);
+		const address = stranded.replace(/-/g, "").slice(-8).toUpperCase();
+		expect(
+			said,
+			"one not running has no end to say it, so it's said here",
+		).toEqual([
+			`${address} (${stranded}) ended: closed, asked by mycelium close over the control socket, held but not running`,
+		]);
 	});
 
 	it("keeps a hold whose close failed, so the next start still owes it", async () => {
@@ -525,6 +569,22 @@ describe("conversationEvents", () => {
 		expect(await heldSessionStatus(id, { dir: rosters })).toBe("unheld");
 		await events.ended(id, "closed");
 		expect(roster.entries(), "a second end is a no-op").toEqual([]);
+	});
+
+	it("journals each conversation that ends, by its address and id, saying why", async () => {
+		const id = await opened();
+		const said: string[] = [];
+		const events = conversationEvents({
+			roster,
+			report: vi.fn(),
+			now: at,
+			say: (line) => said.push(line),
+		});
+		await events.ended(id, "quit, asked by viewer 2 in window 7");
+		const address = id.replace(/-/g, "").slice(-8).toUpperCase();
+		expect(said).toEqual([
+			`${address} (${id}) ended: quit, asked by viewer 2 in window 7`,
+		]);
 	});
 
 	it("reports a drop that fails rather than throwing it back into pi", async () => {

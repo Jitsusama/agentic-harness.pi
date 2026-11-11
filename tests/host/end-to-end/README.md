@@ -154,6 +154,14 @@ up. The fixture's footer reads its load as it draws, and each load asks
 for a frame before setting its own, so a screen still drawing the old
 load's footer throws, as the background host did on 11 November.
 
+quit.test.ts types pi's quit in one viewer of a hosted conversation. On
+11 November script(1), its input ended, typed Ctrl+D into a check's
+window, and the conversation closed for everyone with no word in the
+journal. Here the viewer that typed it is asked alone: y closes it for
+everyone, anything else lets only that viewer go, and a viewer whose
+window closes before answering leaves it running. Each end is a line in
+the host's journal naming the viewer or the caller that asked.
+
 killed-busy.test.ts is E11: three conversations share a host, one
 mid-turn in a tool that never ends by itself, when the host is killed
 outright. A new host resumes all three under their ids, each log keeps

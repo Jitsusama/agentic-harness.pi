@@ -154,6 +154,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		engine: options.engine,
 		...(options.viewer ? { viewer: options.viewer } : {}),
 		report,
+		say,
 		starting,
 		runtimeDir: options.env.XDG_RUNTIME_DIR,
 	});

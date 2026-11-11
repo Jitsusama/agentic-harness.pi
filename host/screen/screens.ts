@@ -3,8 +3,9 @@
  * module when a conversation opens, is rebound to a new id and closes; each
  * opening builds pi's own InteractiveMode over a ViewerTerminal, so the
  * screen keeps running with nobody watching and any number of viewers can
- * join it later. A screen that quits closes only its conversation; a window
- * closing only detaches its viewer. A conversation reloads through its
+ * join it later. A screen that quits closes only its conversation, and a
+ * quit a viewer typed holds only once that viewer confirms it, or else lets
+ * that viewer go; a window closing only detaches its viewer. A conversation reloads through its
  * screen's /reload, as plain pi does, so what its old load drew never
  * outlives that load. A question pi asks before the screen
  * exists (whether to trust the project folder) is shown on the same
@@ -17,6 +18,8 @@
 
 import { withSession } from "../../lib/core/session/index.ts";
 import {
+	CLOSED,
+	RELEASED,
 	type ViewerEdit,
 	ViewerTerminal,
 } from "../../lib/core/viewer/terminal.ts";
@@ -47,7 +50,8 @@ export interface EngineScreens {
 	/** Settles once the screen has started and takes input, before the first words. */
 	opened(view: HostedView, signals?: ScreenSignals): void | Promise<void>;
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
-	closed(sessionId: string): void | Promise<void>;
+	/** Its conversation closed, for `why` as the close gave it. */
+	closed(sessionId: string, why?: string): void | Promise<void>;
 	/** Reload an idle conversation's extensions as its screen's pi does at /reload. */
 	reload(sessionId: string): Promise<void>;
 	/**
@@ -84,6 +88,11 @@ export interface HostedModeOptions {
 		editText(text: string): Promise<ViewerEdit>;
 		/** Ctrl+Z: suspend only the viewer that pressed it, saying whether it could. */
 		suspend(): boolean;
+		/**
+		 * Ctrl+D, a double Ctrl+C, /quit or an extension's shutdown: whether
+		 * the quit holds, asked of the viewer that typed it.
+		 */
+		quit(): Promise<boolean>;
 	};
 }
 
@@ -144,6 +153,8 @@ interface Screen extends Faults {
 	closing: boolean;
 	/** Set once pi's screen has started, and runs. */
 	started: boolean;
+	/** Who asked for the quit that held, for the reason it closes with. */
+	quitBy?: string;
 }
 
 /** Throws reported of one screen; past these it is closing, and each frame would say the same. */
@@ -237,8 +248,23 @@ export function hostScreens(options: {
 		if (error !== undefined) options.report(error);
 		if (screen.closing) return;
 		screen.closing = true;
-		const why = exitCode === 0 ? "quit" : `screen ended with ${exitCode}`;
+		const why =
+			exitCode !== 0
+				? `screen ended with ${exitCode}`
+				: screen.quitBy
+					? `quit, asked by ${screen.quitBy}`
+					: "quit";
 		await screen.view.close(why);
+	}
+
+	// A quit closes the conversation for everyone, so one a viewer typed
+	// holds only once that viewer says so (ViewerTerminal.confirmQuit). One
+	// asked as the conversation closes elsewhere already holds.
+	async function quitHolds(screen: Screen | undefined): Promise<boolean> {
+		if (!screen || screen.closing) return true;
+		const verdict = await screen.terminal.confirmQuit(working(screen.runtime));
+		if (verdict.holds) screen.quitBy = verdict.by;
+		return verdict.holds;
 	}
 
 	// One conversation threw where nothing caught it: a frame, a key, a
@@ -331,6 +357,7 @@ export function hostScreens(options: {
 					screen ? exited(screen, code, error) : Promise.resolve(),
 				editText: (text) => terminal.editInViewer(text),
 				suspend: () => terminal.suspendViewer(),
+				quit: () => quitHolds(screen),
 			},
 		});
 		screen = {
@@ -390,12 +417,15 @@ export function hostScreens(options: {
 		await withSession(sessionId, () => mode.handleReloadCommand?.());
 	}
 
-	async function closed(sessionId: string): Promise<void> {
+	async function closed(sessionId: string, why?: string): Promise<void> {
+		// A release hands it back to plain pi, which its windows start; any
+		// other end just ends them.
+		const told = why?.startsWith("released") ? RELEASED : CLOSED;
 		const held = early.get(sessionId);
 		if (held) {
 			early.delete(sessionId);
 			held.asking?.cancel();
-			held.terminal.dispose();
+			held.terminal.dispose(told);
 		}
 		const screen = live.get(sessionId);
 		if (!screen) return;
@@ -411,7 +441,7 @@ export function hostScreens(options: {
 		try {
 			if (!quitting) await stopScreen(screen.mode);
 		} finally {
-			screen.terminal.dispose();
+			screen.terminal.dispose(told);
 		}
 	}
 
@@ -466,7 +496,28 @@ export function hostedModeOf(interactiveMode: unknown): HostedModeFactory {
 		throw new Error(
 			"pi's InteractiveMode lacks the hosted lifecycle (pi-host-interactive-lifecycle.patch)",
 		);
-	return (runtime, options) => new interactiveMode(runtime, options);
+	const asksItsHost = Reflect.get(interactiveMode, "hostedQuit") === true;
+	return (runtime, options) => {
+		const mode = new interactiveMode(runtime, options);
+		if (!asksItsHost) askBeforeQuitting(mode, options.hosted.quit);
+		return mode;
+	};
+}
+
+// A pi whose hosted quit asks its host first (hosted.quit, marked by
+// InteractiveMode.hostedQuit, in pi-host-interactive-lifecycle.patch)
+// needs nothing more. Until every host's pi has it, the screen's own
+// shutdown, private to pi and where each of its quits goes, asks first
+// here. Drop this once the runtime has the hook.
+function askBeforeQuitting(
+	mode: HostedMode,
+	quit: () => Promise<boolean>,
+): void {
+	const shutdown: unknown = Reflect.get(mode, "shutdown");
+	if (typeof shutdown !== "function") return;
+	Reflect.set(mode, "shutdown", async (...args: unknown[]) => {
+		if (await quit()) return Reflect.apply(shutdown, mode, args);
+	});
 }
 
 type HostedModeClass = (new (
@@ -539,6 +590,20 @@ function atRest(mode: HostedMode, runtime: unknown): boolean {
 		Reflect.get(session, "isCompacting") === false &&
 		Reflect.get(session, "isBashRunning") === false &&
 		Reflect.get(session, "pendingMessageCount") === 0
+	);
+}
+
+// Whether the conversation is answering, compacting or running a command,
+// read as atRest reads it; one that can't be read counts as working.
+function working(runtime: unknown): boolean {
+	const session: unknown = isRecord(runtime)
+		? Reflect.get(runtime, "session")
+		: undefined;
+	if (!isRecord(session)) return true;
+	return (
+		Reflect.get(session, "isStreaming") !== false ||
+		Reflect.get(session, "isCompacting") !== false ||
+		Reflect.get(session, "isBashRunning") !== false
 	);
 }
 

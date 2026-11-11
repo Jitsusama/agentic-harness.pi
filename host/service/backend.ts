@@ -6,6 +6,7 @@
  * step leaves it held for the next start rather than lost.
  */
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -74,6 +75,20 @@ export interface LiveHost {
 	close(id: string, why?: string): Promise<void>;
 }
 
+// One conversation's end as the journal says it: its mesh address, its
+// id, and why, the caller or viewer that asked among it.
+function endedLine(sessionId: string, why: string): string {
+	return `${sessionAddress(sessionId)} (${sessionId}) ended: ${why}`;
+}
+
+// Who sent a control request, as it named itself; a name is only a
+// caller's word, so it is kept to one plain line.
+function askedBy(by: string | undefined): string {
+	return by === undefined
+		? "a control request that didn't say who sent it"
+		: `${by.replace(/\p{Cc}/gu, " ")} over the control socket`;
+}
+
 /** A held conversation the engine could not resume, and why. */
 export interface Unresumed {
 	readonly sessionId: string;
@@ -93,6 +108,8 @@ export function hostBackend(options: {
 	engine: ConversationEngine;
 	admitAnother?: AdmitAnother;
 	now?: () => Date;
+	/** Writes a line to the host's journal, as each close of one held but not running. */
+	say?: (line: string) => void;
 }): ControlBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
@@ -171,12 +188,22 @@ export function hostBackend(options: {
 		return live(prepared.sessionId);
 	}
 
-	async function end(sessionId: string, why: "closed" | "released") {
+	// The reason it closes with names the caller, so the journal line the
+	// engine's ended brings says who asked; one not running has no end to
+	// bring it, so it is said here.
+	async function end(
+		sessionId: string,
+		why: "closed" | "released",
+		by: string | undefined,
+	) {
 		const running = host.holds(sessionId) !== undefined;
 		if (!running && !rostered(sessionId))
 			throw new Error(`Conversation is not hosted: ${sessionId}`);
-		if (running) await host.close(sessionId, why);
+		const asked = `${why}, asked by ${askedBy(by)}`;
+		if (running) await host.close(sessionId, asked);
 		await roster.drop(sessionId);
+		if (!running)
+			options.say?.(endedLine(sessionId, `${asked}, held but not running`));
 		return { sessionId };
 	}
 
@@ -196,9 +223,9 @@ export function hostBackend(options: {
 						host: options.identity,
 					};
 				case "close":
-					return end(request.sessionId, "closed");
+					return end(request.sessionId, "closed", request.by);
 				case "release":
-					return end(request.sessionId, "released");
+					return end(request.sessionId, "released", request.by);
 				case "abort":
 					live(request.sessionId);
 					await engine.abort(request.sessionId);
@@ -224,11 +251,14 @@ export function conversationEvents(options: {
 	roster: HostRoster;
 	report: (error: unknown) => void;
 	now?: () => Date;
+	/** Writes a line to the host's journal: one for each conversation that ends, and why. */
+	say?: (line: string) => void;
 }): ConversationEvents {
 	const { roster, report } = options;
 	const now = options.now ?? (() => new Date());
 	return {
-		async ended(sessionId) {
+		async ended(sessionId, why) {
+			options.say?.(endedLine(sessionId, why));
 			try {
 				await roster.drop(sessionId);
 			} catch (error) {

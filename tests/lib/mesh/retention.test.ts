@@ -72,6 +72,39 @@ function stamped(
 	return id;
 }
 
+/** A message one peer sent this long before now, answering or ending what `over` says. */
+function sentBy(
+	dir: string,
+	ago: number,
+	from: string,
+	over: { intent?: string; re?: string; endsHold?: true; pid?: number } = {},
+): string {
+	// A pid of each sender's own, since a shared one reads as the same sender.
+	const pid =
+		over.pid ??
+		[...from].reduce((sum, c) => sum * 31 + c.charCodeAt(0), 7) % 100_000;
+	const id = `${now - ago}-${from}-${pid}-${from.toLowerCase()}`;
+	writeFileSync(
+		join(dir, `${id}.json`),
+		JSON.stringify({
+			v: 1,
+			id,
+			at: new Date(now - ago).toISOString(),
+			from,
+			to: [ALL],
+			intent: over.intent ?? "fyi",
+			text: "hi",
+			pid,
+			...(over.re ? { re: over.re } : {}),
+			...(over.endsHold ? { endsHold: true } : {}),
+		}),
+	);
+	return id;
+}
+
+/** The day folder a message sent this long before now moves to. */
+const dayAgo = (ago: number) => new Date(now - ago).toISOString().slice(0, 10);
+
 const presence = (session: string, at: number): Presence => ({
 	session,
 	addresses: [session.toUpperCase()],
@@ -116,6 +149,91 @@ describe("a folder of messages", () => {
 		expect(readdirSync(join(messages, "2026-10-21"))).toEqual([
 			`${older}.json`,
 		]);
+	});
+
+	it("keeps a hold and every answer to it at the top while the hold stands", () => {
+		const transport = folderTransport(messages);
+		const hold = sentBy(messages, RECENT_MS + 3000, "WCJQSG", {
+			intent: "hold",
+		});
+		const parked = sentBy(messages, RECENT_MS + 2000, "16V6F4", { re: hold });
+		const other = sentBy(messages, RECENT_MS + 1000, "80ECO2");
+
+		transport.settle(now - RECENT_MS);
+
+		expect(transport.recentIds()).toEqual([hold, parked]);
+		expect(transport.read(other)).toMatchObject({ id: other });
+	});
+
+	it("moves an ended hold with its thread once its end is old too", () => {
+		const transport = folderTransport(messages);
+		const hold = sentBy(messages, RECENT_MS + 4000, "WCJQSG", {
+			intent: "hold",
+		});
+		const parked = sentBy(messages, RECENT_MS + 3000, "16V6F4", { re: hold });
+		const end = sentBy(messages, RECENT_MS - 1000, "WCJQSG", { re: hold });
+
+		transport.settle(now - RECENT_MS);
+		expect(
+			transport.recentIds(),
+			"a hold whose end is recent stays, with its answers",
+		).toEqual([hold, parked, end]);
+
+		transport.settle(now);
+		expect(transport.recentIds()).toEqual([]);
+		expect(transport.ids()).toEqual([hold, parked, end]);
+	});
+
+	it("ends a hold on another peer's word only when it says so", () => {
+		const transport = folderTransport(messages);
+		const hold = sentBy(messages, RECENT_MS + 4000, "WCJQSG", {
+			intent: "hold",
+		});
+		const answer = sentBy(messages, RECENT_MS + 3000, "16V6F4", { re: hold });
+		transport.settle(now - RECENT_MS);
+		expect(transport.recentIds(), "an answer is no end").toEqual([
+			hold,
+			answer,
+		]);
+
+		const ended = sentBy(messages, RECENT_MS + 2000, "OSPHT4", {
+			re: hold,
+			endsHold: true,
+		});
+		transport.settle(now - RECENT_MS);
+
+		expect(transport.recentIds()).toEqual([]);
+		expect(transport.ids()).toEqual([hold, answer, ended]);
+	});
+
+	it("moves a hold to join the end an older settle moved away", () => {
+		const transport = folderTransport(messages);
+		const hold = sentBy(messages, RECENT_MS + 4000, "16V6F4", {
+			intent: "hold",
+		});
+		const day = join(messages, dayAgo(RECENT_MS + 1000));
+		mkdirSync(day);
+		const end = sentBy(day, RECENT_MS + 1000, "16V6F4", { re: hold });
+		const elsewhere = sentBy(day, RECENT_MS + 2000, "16V6F4");
+
+		transport.settle(now - RECENT_MS);
+
+		expect(transport.recentIds()).toEqual([]);
+		expect(readdirSync(day).sort()).toEqual(
+			[hold, elsewhere, end].map((id) => `${id}.json`).sort(),
+		);
+	});
+
+	it("lists a message once that a link wrote back at the top beside its day's copy", () => {
+		const transport = folderTransport(messages);
+		const moved = stamped(messages, RECENT_MS + 1000);
+		transport.settle(now - RECENT_MS);
+		stamped(messages, RECENT_MS + 1000);
+
+		expect(transport.ids()).toEqual([moved]);
+		transport.settle(now - RECENT_MS);
+		expect(transport.recentIds()).toEqual([]);
+		expect(transport.ids()).toEqual([moved]);
 	});
 
 	it("lists only what hasn't moved, a little at a time", async () => {

@@ -31,8 +31,10 @@ export interface ScreenHost {
 	open(cwd: string, first?: string): Promise<SessionIdentity>;
 	/** The conversations it holds. */
 	list(): Promise<SessionIdentity[]>;
-	/** Close a conversation, as the launcher's Close does. */
-	close(sessionId: string): Promise<void>;
+	/** Close a conversation, as the launcher's Close does, naming itself as `by` when given. */
+	close(sessionId: string, by?: string): Promise<void>;
+	/** Release a conversation back to plain pi, as a cutover does, naming itself as `by` when given. */
+	release(sessionId: string, by?: string): Promise<void>;
 	/** Wait until the conversation is idle, or until `ms` pass. */
 	idle(sessionId: string, ms: number): Promise<void>;
 	/** Wait until it no longer holds the conversation, or until `ms` pass. */
@@ -78,6 +80,22 @@ export async function startScreenHost(
 	const id = () => `s${++asked}`;
 	const list = async () =>
 		parseListResult(await ask({ v: 1, id: id(), op: "list" })).sessions;
+	const end = async (
+		op: "close" | "release",
+		sessionId: string,
+		by: string | undefined,
+	) => {
+		// A request that ends a conversation names the host it was listed by.
+		const { host } = parseListResult(await ask({ v: 1, id: id(), op: "list" }));
+		await ask({
+			v: 1,
+			id: id(),
+			op,
+			sessionId,
+			expectedHost: host,
+			...(by === undefined ? {} : { by }),
+		});
+	};
 	const settles = async (
 		sessionId: string,
 		ms: number,
@@ -111,13 +129,8 @@ export async function startScreenHost(
 				}),
 			),
 		list,
-		close: async (sessionId) => {
-			// A request that ends a conversation names the host it was listed by.
-			const { host } = parseListResult(
-				await ask({ v: 1, id: id(), op: "list" }),
-			);
-			await ask({ v: 1, id: id(), op: "close", sessionId, expectedHost: host });
-		},
+		close: (sessionId, by) => end("close", sessionId, by),
+		release: (sessionId, by) => end("release", sessionId, by),
 		idle: (sessionId, ms) =>
 			settles(sessionId, ms, "idle", (held) => held?.state === "idle"),
 		gone: (sessionId, ms) =>
