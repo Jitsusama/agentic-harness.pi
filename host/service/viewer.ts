@@ -15,6 +15,7 @@ export function terminalBridge(
 				rows: request.rows,
 				columns: request.columns,
 				features: request.features ?? [],
+				...(request.window ? { window: request.window } : {}),
 				...sink,
 			});
 		},

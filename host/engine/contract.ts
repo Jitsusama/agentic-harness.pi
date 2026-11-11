@@ -77,9 +77,10 @@ export interface EngineScreens {
 	/**
 	 * A conversation is ending: called first in its cleanup, before its
 	 * session is disposed, so a screen stops before the session it watches
-	 * goes.
+	 * goes. `why` is the reason its close gave, such as "released, asked by
+	 * ...", so a screen can tell its viewers a release apart from a close.
 	 */
-	closed(sessionId: string): void | Promise<void>;
+	closed(sessionId: string, why?: string): void | Promise<void>;
 	/**
 	 * Reload an idle conversation's extensions as its screen's pi does at
 	 * /reload: what the old load put on the screen goes before pi

@@ -24,6 +24,7 @@ const envelope = {
 	expectedHost: expectedHost.optional(),
 };
 const session = { ...envelope, sessionId };
+const caller = text.max(128).optional();
 const request = z.discriminatedUnion("op", [
 	z.strictObject({
 		...envelope,
@@ -45,8 +46,10 @@ const request = z.discriminatedUnion("op", [
 		quest: text.optional(),
 	}),
 	z.strictObject({ ...envelope, op: z.literal("list") }),
-	z.strictObject({ ...session, op: z.literal("release") }),
-	z.strictObject({ ...session, op: z.literal("close") }),
+	// Who asks, as the caller names itself (the launcher, a command), for
+	// the line the host's journal writes as it lets the conversation go.
+	z.strictObject({ ...session, op: z.literal("release"), by: caller }),
+	z.strictObject({ ...session, op: z.literal("close"), by: caller }),
 	z.strictObject({ ...session, op: z.literal("abort") }),
 	z.strictObject({
 		...session,

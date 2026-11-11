@@ -1,6 +1,8 @@
 /** A persistent pi terminal whose viewers never own the conversation. */
 import {
 	formatProgramStatus,
+	isKeyRelease,
+	matchesKey,
 	type ProgramStatus,
 	StdinBuffer,
 	setKittyProtocolActive,
@@ -41,6 +43,27 @@ const LEFT: ViewerEdit = {
 	message: "The viewer left before its edit came back",
 };
 
+/** What a viewer that typed a quit and didn't confirm it is told as it goes. */
+/** What each viewer is told as a conversation it watched closes for everyone. */
+export const CLOSED = "Conversation closed";
+
+/**
+ * What each viewer is told as its conversation is released, handed back to
+ * plain pi, so its window can start that pi where a close would just end.
+ */
+export const RELEASED = "Conversation released";
+
+export const LEFT_RUNNING =
+	"Left the conversation running; open it again from the launcher";
+
+/**
+ * Whether a quit pi was asked for holds, and if it does, who asked: a
+ * viewer, or the conversation itself (an extension's shutdown).
+ */
+export type QuitVerdict =
+	| { readonly holds: true; readonly by: string }
+	| { readonly holds: false };
+
 /** One viewer's dimensions and non-blocking output sink, owned by H2. */
 export interface Viewer {
 	rows: number;
@@ -49,6 +72,8 @@ export interface Viewer {
 	disconnect(reason: string): void;
 	/** What its client said it can do as it attached, such as edit and suspend. */
 	readonly features?: readonly string[];
+	/** The window its client said it draws in, to say which viewer did what. */
+	readonly window?: string;
 	/** Ask its client to edit `text` in its own terminal; it answers through `edited`. */
 	edit?(id: string, text: string): void;
 	/** Tell its client to suspend itself, and let the connection go. */
@@ -75,6 +100,11 @@ interface JoinedViewer {
 	pendingBytes: number;
 	/** The edit its client is running, during which it is sent nothing and types nothing. */
 	editing: { readonly id: string; settle(edit: ViewerEdit): void } | undefined;
+	/** Its quit, waiting on its next key to say whether it holds; it is sent nothing until then. */
+	quitting: ((holds: boolean) => void) | undefined;
+	/** Which viewer of this terminal it is, counting from one, and when it joined. */
+	readonly number: number;
+	readonly joined: Date;
 }
 
 function can(viewer: JoinedViewer, feature: string): boolean {
@@ -84,6 +114,31 @@ function can(viewer: JoinedViewer, feature: string): boolean {
 // What pi's own editor makes of the file it read back.
 function asPiReadsIt(text: string): string {
 	return text.replace(/^\uFEFF/, "").replace(/\n$/, "");
+}
+
+// Which viewer, as the host's journal names it.
+function described(viewer: JoinedViewer): string {
+	const window = viewer.sink.window
+		? ` in window ${viewer.sink.window.replace(/\p{Cc}/gu, " ")}`
+		: "";
+	return `viewer ${viewer.number}${window}, joined ${viewer.joined.toISOString()}`;
+}
+
+// The question on the bottom row of the viewer that typed the quit, alone.
+function quitQuestion(
+	viewer: JoinedViewer,
+	others: number,
+	busy: boolean,
+): string {
+	const watching =
+		others === 0
+			? ""
+			: others === 1
+				? " 1 other viewer is watching."
+				: ` ${others} other viewers are watching.`;
+	const working = busy ? " A turn is running." : "";
+	const said = ` Close this conversation for everyone?${watching}${working} y closes it; any other key leaves it running and closes this window. `;
+	return `\x1b[${viewer.rows};1H\x1b[2K\x1b[7m${said.slice(0, viewer.columns)}\x1b[0m`;
 }
 
 function validSize(rows: number, columns: number): boolean {
@@ -104,6 +159,9 @@ export class ViewerTerminal implements Terminal {
 	private onResize: (() => void) | undefined;
 	/** The viewer whose keys came last: the one that pressed what pi acts on. */
 	private lastTyped: JoinedViewer | undefined;
+	/** The viewer whose key pi is acting on right now, only while it does. */
+	private typing: JoinedViewer | undefined;
+	private joins = 0;
 	private edits = 0;
 	/** Told each time pi says something waits on the person. */
 	private blocked: (() => void) | undefined;
@@ -157,7 +215,7 @@ export class ViewerTerminal implements Terminal {
 
 	/** Connect an H2 sink; detach destroys only that viewer's input buffer. */
 	attach(sink: Viewer): Attachment {
-		if (this.closed) throw new Error("Conversation closed");
+		if (this.closed) throw new Error(CLOSED);
 		if (!validSize(sink.rows, sink.columns))
 			throw new Error("Viewer dimensions must be integers from 1 to 1000");
 		const viewer: JoinedViewer = {
@@ -167,12 +225,24 @@ export class ViewerTerminal implements Terminal {
 			stdin: new StdinBuffer({ escapeTimeout: ESCAPE_TIMEOUT_MS }),
 			pendingBytes: 0,
 			editing: undefined,
+			quitting: undefined,
+			number: ++this.joins,
+			joined: new Date(),
 		};
 		const deliver = (data: string) => {
 			viewer.pendingBytes = 0;
 			if (!this.viewers.has(viewer)) return;
+			if (viewer.quitting) {
+				this.answerQuit(viewer, data);
+				return;
+			}
 			this.lastTyped = viewer;
-			this.inConversation(() => this.onInput?.(data));
+			this.typing = viewer;
+			try {
+				this.inConversation(() => this.onInput?.(data));
+			} finally {
+				this.typing = undefined;
+			}
 		};
 		viewer.stdin.on("data", deliver);
 		viewer.stdin.on("paste", (data) =>
@@ -285,12 +355,48 @@ export class ViewerTerminal implements Terminal {
 		return true;
 	}
 
+	/**
+	 * Say whether the quit pi was just asked for holds. One no viewer's key
+	 * asked for, such as an extension's shutdown, holds at once. One a
+	 * viewer typed (Ctrl+D, a double Ctrl+C, /quit) is asked of that viewer
+	 * alone: a hosted conversation outlives its windows, others may be
+	 * watching, and a key can come from no person at all, as script(1)
+	 * types Ctrl+D when its input ends. Only y closes it for everyone; any
+	 * other key, a paste or Ctrl+D again among them, lets that viewer go and
+	 * leaves the conversation running. Call it within pi's handling of the
+	 * key.
+	 */
+	confirmQuit(busy: boolean): Promise<QuitVerdict> {
+		const viewer = this.typing;
+		if (!viewer)
+			return Promise.resolve({
+				holds: true,
+				by: "the conversation itself, with no viewer's key",
+			});
+		if (viewer.quitting || !this.viewers.has(viewer))
+			return Promise.resolve({ holds: false });
+		const by = described(viewer);
+		const others = this.viewers.size - 1;
+		return new Promise((settle) => {
+			viewer.quitting = (holds) =>
+				settle(holds ? { holds: true, by } : { holds: false });
+			try {
+				viewer.sink.write(quitQuestion(viewer, others, busy));
+			} catch {
+				// A broken connection is a viewer that left; the quit doesn't hold.
+				this.remove(viewer);
+				this.disconnect(viewer, "Viewer output failed");
+			}
+		});
+	}
+
 	/** H2 bounds queued output; one broken sink never blocks the other viewers. */
 	write(data: string): void {
 		this.modes.saw(data);
 		for (const viewer of [...this.viewers]) {
 			// Its editor has its terminal; the repaint after brings it up to date.
-			if (viewer.editing) continue;
+			// One asked about its quit keeps the question until it answers.
+			if (viewer.editing || viewer.quitting) continue;
 			try {
 				viewer.sink.write(data);
 			} catch {
@@ -364,8 +470,11 @@ export class ViewerTerminal implements Terminal {
 		this.blocked = listener;
 	}
 
-	/** Free connection buffers when the conversation itself closes. */
-	dispose(): void {
+	/**
+	 * Free connection buffers when the conversation itself closes, telling
+	 * each viewer `reason` as it goes.
+	 */
+	dispose(reason: string = CLOSED): void {
 		this.closed = true;
 		this.onInput = undefined;
 		this.onResize = undefined;
@@ -377,8 +486,29 @@ export class ViewerTerminal implements Terminal {
 		for (const viewer of viewers) {
 			viewer.stdin.destroy();
 			this.cancelEdit(viewer);
-			this.disconnect(viewer, "Conversation closed");
+			this.cancelQuit(viewer);
+			this.disconnect(viewer, reason);
 		}
+	}
+
+	// The first key after its question answers it; a key's release is no answer.
+	private answerQuit(viewer: JoinedViewer, data: string): void {
+		if (isKeyRelease(data)) return;
+		const settle = viewer.quitting;
+		viewer.quitting = undefined;
+		if (matchesKey(data, "y")) {
+			settle?.(true);
+			return;
+		}
+		this.remove(viewer);
+		this.disconnect(viewer, LEFT_RUNNING);
+		settle?.(false);
+	}
+
+	private cancelQuit(viewer: JoinedViewer): void {
+		const settle = viewer.quitting;
+		viewer.quitting = undefined;
+		settle?.(false);
 	}
 
 	private edited(viewer: JoinedViewer, id: string, text?: string): void {
@@ -420,6 +550,7 @@ export class ViewerTerminal implements Terminal {
 		if (this.lastTyped === viewer) this.lastTyped = undefined;
 		viewer.stdin.destroy();
 		this.cancelEdit(viewer);
+		this.cancelQuit(viewer);
 		this.redraw();
 	}
 

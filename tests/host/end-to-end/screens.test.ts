@@ -267,6 +267,9 @@ describe.skipIf(!packageDir)(
 				await watching.shows(rule(100));
 
 				watching.type(`/quit${ENTER}`);
+				// A quit typed in a viewer holds once that viewer says so (quit.test.ts).
+				await watching.shows("Close this conversation for everyone?");
+				watching.type("y");
 
 				expect(await watching.detached).toBe("Conversation closed");
 				await host.gone(quitting.sessionId, TURN_MS);

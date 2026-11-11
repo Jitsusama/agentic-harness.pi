@@ -66,6 +66,8 @@ export async function serveHost(options: {
 	kind: HostKind;
 	engine: (host: SessionHost) => Promise<ConversationEngine>;
 	report: (error: unknown) => void;
+	/** Writes a line to the host's journal, as each conversation's end. */
+	say?: (line: string) => void;
 	viewer?: (host: SessionHost) => ViewerBridge;
 	runtimeDir?: string;
 	rosterDir?: string;
@@ -104,7 +106,13 @@ export async function serveHost(options: {
 		const engine = await options.engine(host);
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
-		engine.watch?.(conversationEvents({ roster, report: options.report }));
+		engine.watch?.(
+			conversationEvents({
+				roster,
+				report: options.report,
+				...(options.say ? { say: options.say } : {}),
+			}),
+		);
 		const { unresumed } = await resumeHeld({
 			roster,
 			engine,
@@ -115,7 +123,14 @@ export async function serveHost(options: {
 		const identity = { key: host.key, owner: host.owner };
 		const listener = await listenControl({
 			path,
-			backend: hostBackend({ identity, host, roster, engine, admitAnother }),
+			backend: hostBackend({
+				identity,
+				host,
+				roster,
+				engine,
+				admitAnother,
+				...(options.say ? { say: options.say } : {}),
+			}),
 			viewer: options.viewer?.(host),
 			report: options.report,
 		});

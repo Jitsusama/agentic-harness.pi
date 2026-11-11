@@ -12,6 +12,16 @@ running. Dispose releases viewer buffers when the conversation closes.
 `isEditing` says whether a viewer has a draft out in its own editor,
 which a host waits out before restarting.
 
+`confirmQuit` judges a quit pi was asked for. One no viewer's key asked
+for, such as an extension's shutdown, holds at once. One a viewer typed
+is asked of that viewer alone, on its bottom row, with its frames held
+until it answers: only y holds it, and any other key (a paste or Ctrl+D
+again among them) lets that viewer go with `LEFT_RUNNING` and leaves the
+conversation running. A
+viewer that leaves first, or a close elsewhere, is no yes. It asks even a
+lone viewer, since a key can come from no person: script(1) types Ctrl+D
+as its input ends.
+
 The repaint callback must request a full pi render, including on a
 same-size join. It and pi's input and resize callbacks run inside
 withSession. One StdinBuffer per viewer prevents split escape sequences and
