@@ -270,6 +270,9 @@ agent passed still applies in the background.
 
 - Calls a codemode script makes are never moved, since the script needs
   the real result.
+- Nor are a print (`pi -p`) or JSON run's, `background` included: the
+  run exits once its prompts are done, which would kill a moved command
+  before its result was heard. A long command holds such a run instead.
 - Without job-workflow loaded nothing is moved, and bash behaves as pi's
   does.
 - A minute is one constant, `HAND_OFF_MS` in `hand-off.ts`. It was

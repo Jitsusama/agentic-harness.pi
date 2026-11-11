@@ -7,10 +7,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
+import { announceJobHost, type JobSpec } from "../../../lib/jobs/host.ts";
 
 interface Tool {
 	name: string;
@@ -29,6 +30,7 @@ let agentDir: string;
 let saved: string | undefined;
 let tool: Tool | undefined;
 let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
+let bus: EventBus;
 
 beforeEach(() => {
 	saved = process.env.PI_CODING_AGENT_DIR;
@@ -38,8 +40,9 @@ beforeEach(() => {
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
 	);
+	bus = createEventBus();
 	const pi = {
-		events: createEventBus(),
+		events: bus,
 		on: (event: string, handler: typeof sessionStart) => {
 			if (event === "session_start") sessionStart = handler;
 		},
@@ -56,7 +59,8 @@ afterEach(() => {
 	rmSync(agentDir, { recursive: true, force: true });
 });
 
-const ctx = () => ({
+const ctx = (mode = "tui") => ({
+	mode,
 	cwd: agentDir,
 	isProjectTrusted: () => false,
 	// pi's bash names the session to the command it runs.
@@ -103,6 +107,62 @@ describe("the registered bash", () => {
 		expect(shown).toContain("eval");
 		expect(shown).not.toContain("WIRED");
 		expect(shown).not.toContain("cmdline");
+	});
+});
+
+// 80ECO2's fenced `pi -p` proof on 2026-11-11: a command handed off after
+// the minute was killed as the run ended, and its result never came.
+describe("a run that ends with its prompts", () => {
+	const started: JobSpec[] = [];
+
+	beforeEach(() => {
+		started.length = 0;
+		announceJobHost(bus, {
+			start: (spec) => {
+				started.push(spec);
+				return {
+					id: "j1",
+					signal: new AbortController().signal,
+					finish: () => undefined,
+					onDelivered: () => undefined,
+					withdraw: () => false,
+				};
+			},
+		});
+	});
+
+	const run = async (mode: string) => {
+		await sessionStart?.({ type: "session_start" }, ctx(mode));
+		return await tool?.execute(
+			"t3",
+			{ command: "printf ran", background: true },
+			undefined,
+			undefined,
+			ctx(mode),
+		);
+	};
+
+	it.each([
+		"print",
+		"json",
+	])("keeps a %s run's command in the call, since its job would die as the run ends", async (mode) => {
+		const result = await run(mode);
+
+		expect(
+			result?.content[0]?.text,
+			"the command's own result, not a hand-off",
+		).toBe("ran");
+		expect(started, "no job was started for it").toEqual([]);
+	});
+
+	it("still hands a session's command to a job when the session goes on", async () => {
+		const result = await run("tui");
+
+		expect(
+			result?.content[0]?.text,
+			"the call says the command moved",
+		).toContain("background command j1");
+		expect(started, "one job holds the command").toHaveLength(1);
 	});
 });
 
