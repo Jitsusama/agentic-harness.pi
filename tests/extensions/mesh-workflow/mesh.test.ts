@@ -72,6 +72,7 @@ import {
 	type Lease,
 } from "../../../lib/mesh/lease.ts";
 import {
+	clock,
 	type Draft,
 	type Message,
 	shortId,
@@ -2289,9 +2290,9 @@ describe("groups", () => {
 	});
 
 	it("says a parked peer's host refused its last wake, and why, wherever it is named", async () => {
-		// Today, so each says the time alone.
-		const refusedAt = new Date().toISOString();
-		const at = new Date(refusedAt).toTimeString().slice(0, 5);
+		// A day gone by, so each says its date and time whenever this runs.
+		const refusedAt = "2026-11-01T12:00:00.000Z";
+		const at = clock({ at: refusedAt });
 		const wake = join(paths.mesh, "parked-r", "wake");
 		mkdirSync(join(paths.mesh, "parked-r"), { recursive: true });
 		writeRefusedWake(wake, {
@@ -2324,7 +2325,7 @@ describe("groups", () => {
 			"REFUSD, parked: the launcher",
 		);
 		expect(listed, "mesh_groups says why it sleeps on").toContain(
-			`Parked, their last wake refused:\nREFUSD at ${at}: the host is stopping`,
+			`Parked, their last wake refused:\nREFUSD at ${at}: the host is stopping.`,
 		);
 
 		const open =

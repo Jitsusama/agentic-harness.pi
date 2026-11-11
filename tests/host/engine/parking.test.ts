@@ -192,4 +192,37 @@ describe("parking a conversation", () => {
 			"a refusal settling after the close is not kept",
 		).toBeUndefined();
 	});
+
+	it("keeps no refusal that settles as the conversation starts again", async () => {
+		let refuse: ((error: Error) => void) | undefined;
+		const asking = vi.fn(
+			() =>
+				new Promise<void>((_, reject) => {
+					refuse = reject;
+				}),
+		);
+		const { parked, report, letStop } = held(asking);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		const wake = parked.wakeFile("a");
+		wakeAsTheMeshDoes(wake);
+		await until("the wake to be asked", () => asking.mock.calls.length > 0);
+
+		// The engine says it runs as it begins, and unwatches once begun.
+		parked.running("a");
+		refuse?.(new Error("the host is stopping"));
+		await until(
+			"the refusal to be reported",
+			() => report.mock.calls.length > 0,
+		);
+		// The refusal is kept, or not, in the turn after it is reported.
+		await new Promise(setImmediate);
+		parked.unwatch("a");
+
+		expect(
+			readRefusedWake(wake),
+			"a refusal settling as it starts is not kept once it runs",
+		).toBeUndefined();
+	});
 });
