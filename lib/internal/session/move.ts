@@ -139,6 +139,30 @@ export function readMoveNote(
 	return readNote(noteFile(folder, session));
 }
 
+/**
+ * Where a session's note stands: `waiting` for a cutover to take it up,
+ * `claimed` by a cutover adopting the log now, or `none` at all, as once
+ * it was taken up or taken back, or when it was never left.
+ */
+export type NoteState = "waiting" | "claimed" | "none";
+
+/** Where the note `session`'s move left stands now. */
+export function noteState(
+	session: string,
+	folder: string = moveFolder(),
+): NoteState {
+	if (readMoveNote(session, folder) !== undefined) return "waiting";
+	const claimed = `${nameOf(session)}${ADOPTING}`;
+	try {
+		return readdirSync(folder).some((name) => name.startsWith(claimed))
+			? "claimed"
+			: "none";
+	} catch {
+		// No folder: no note was ever left.
+		return "none";
+	}
+}
+
 /** Every note a move left and nobody has taken up, oldest first. */
 export function readMoveNotes(folder: string = moveFolder()): MoveNote[] {
 	let names: string[];

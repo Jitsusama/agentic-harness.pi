@@ -12,9 +12,21 @@
  * the note the move is taken up by and ends as Close does. Its presence
  * says where it is moving and what holds it meanwhile.
  *
- * The person resuming, talking to it or typing in its window calls a
- * move off, as it ends a pause: they are at the desk. A move to `pi` is
+ * The person resuming it or sending it a message from its window calls
+ * a move off, as it ends a pause: they are at the desk. A move to `pi` is
  * for a hosted conversation only; asked of a pi, it is said and dropped.
+ *
+ * A pi that can hand its own window to a host (in-place.ts) moves in
+ * it rather than closing it, and a message its person sends doesn't
+ * call the move off: the run it starts holds the move, which waits for
+ * them. Keys pressed without sending anything are seen apart from
+ * messages, through the window's own input, and only ever defer it: it
+ * goes only after {@link QUIET_MS} with no key pressed in the window,
+ * on top of being free, and says nothing
+ * on screen as it goes, since its window carries straight on in the
+ * host. One that finds no quiet moment within {@link QUIET_BOUND_MS}
+ * gives up for now and looks again after {@link QUIET_REST_MS}, rather
+ * than moving under someone typing.
  */
 
 import type {
@@ -25,9 +37,19 @@ import { whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type { Moving } from "../../lib/mesh/presence.ts";
+import type { HandOver } from "./in-place.ts";
 
 /** How often a waiting move looks again at what holds the session. */
 export const MOVE_LOOK_MS = 2_000;
+
+/** How long a window goes with no key pressed before it moves in place. */
+export const QUIET_MS = 5_000;
+
+/** How long a move in place looks for a quiet moment before it rests. */
+export const QUIET_BOUND_MS = 60_000;
+
+/** How long a move in place that found no quiet moment rests. */
+export const QUIET_REST_MS = 5 * 60_000;
 
 /** What a move needs from its session. */
 export interface MovingHost {
@@ -41,6 +63,13 @@ export interface MovingHost {
 	readonly setMoving: (moving: Moving | undefined) => void;
 	/** Leave the note the move is taken up by; throws when it can't. */
 	readonly note: (to: MoveTarget) => void;
+	/**
+	 * How it would hand its own window to a host, or nothing when a move
+	 * must close the window (in-place.ts).
+	 */
+	readonly handOver?: () => HandOver | undefined;
+	/** When a key was last pressed in its window, in ms since the epoch. */
+	readonly keyedAt?: () => number;
 	/** Say on screen what the person did. */
 	readonly tell: (text: string) => void;
 	/** End the session, as /exit does. */
@@ -56,6 +85,11 @@ export interface MovingSession {
 	move(to: MoveTarget): void;
 	/** The person is at the desk: a move waiting is called off. */
 	cancel(): void;
+	/**
+	 * The person sent a message from its window: a move waiting is called
+	 * off, unless it moves in place, which waits for them instead.
+	 */
+	typed(): void;
 	/** Something changed: a move waiting ends the session once it's free. */
 	look(): void;
 	/** The session ends: stop looking. */
@@ -73,15 +107,52 @@ function whereTo(to: MoveTarget): string {
 	return to === "pi" ? "plain pi" : `the ${to} host`;
 }
 
+/**
+ * Hand the window over, saying nothing on screen since the window
+ * carries straight on in the host: false when it couldn't, and the
+ * window closes as a move without one does.
+ */
+function handedOver(over: HandOver): boolean {
+	try {
+		over.end();
+		return true;
+	} catch {
+		// Its holder couldn't be told what to start: the note stands, and
+		// the session ends as a move that closes its window does.
+		return false;
+	}
+}
+
 /** Moving, as its peer last left it. */
 export function createMoving(host: MovingHost): MovingSession {
 	const now = host.now ?? (() => new Date());
 	const every = host.every ?? everyFew;
 	let ended = false;
 	let unwatch: (() => void) | undefined;
+	// A move in place: when it began looking for a quiet moment, and
+	// until when it rests after finding none.
+	let seeking: number | undefined;
+	let restsUntil = Number.NEGATIVE_INFINITY;
 	const unlook = () => {
 		unwatch?.();
 		unwatch = undefined;
+	};
+	const wait = (moving: Moving, holds: string) => {
+		if (holds !== moving.holds) host.setMoving({ ...moving, holds });
+		unwatch ??= every(MOVE_LOOK_MS, look);
+	};
+	/** What still holds a move in place for want of quiet, or nothing. */
+	const unquiet = (at: number): string | undefined => {
+		if (at < restsUntil) {
+			return `no quiet moment in its window; looking again at ${new Date(restsUntil).toISOString()}`;
+		}
+		const keyedAt = host.keyedAt?.() ?? Number.NEGATIVE_INFINITY;
+		if (at - keyedAt >= QUIET_MS) return undefined;
+		seeking ??= at;
+		if (at - seeking < QUIET_BOUND_MS) return "its person typing";
+		seeking = undefined;
+		restsUntil = at + QUIET_REST_MS;
+		return unquiet(at);
 	};
 	const look = () => {
 		const moving = host.moving();
@@ -91,8 +162,13 @@ export function createMoving(host: MovingHost): MovingSession {
 		}
 		const holds = host.holds();
 		if (holds !== undefined) {
-			if (holds !== moving.holds) host.setMoving({ ...moving, holds });
-			unwatch ??= every(MOVE_LOOK_MS, look);
+			wait(moving, holds);
+			return;
+		}
+		const over = moving.to === "pi" ? undefined : host.handOver?.();
+		const still = over ? unquiet(now().getTime()) : undefined;
+		if (still !== undefined) {
+			wait(moving, still);
 			return;
 		}
 		unlook();
@@ -106,8 +182,16 @@ export function createMoving(host: MovingHost): MovingSession {
 			return;
 		}
 		ended = true;
-		host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
+		if (!over || !handedOver(over)) {
+			host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
+		}
 		host.close();
+	};
+	const cancel = () => {
+		if (ended || host.moving() === undefined) return;
+		unlook();
+		host.setMoving(undefined);
+		host.tell("The move is off: the person is at the desk.");
 	};
 	return {
 		move(to) {
@@ -118,17 +202,20 @@ export function createMoving(host: MovingHost): MovingSession {
 				);
 				return;
 			}
+			seeking = undefined;
+			restsUntil = Number.NEGATIVE_INFINITY;
 			host.setMoving({ to, since: now().toISOString() });
 			host.tell(
 				`Moving to ${whereTo(to)} from outside this window, once nothing of its own is out.`,
 			);
 			look();
 		},
-		cancel() {
-			if (ended || host.moving() === undefined) return;
-			unlook();
-			host.setMoving(undefined);
-			host.tell("The move is off: the person is at the desk.");
+		cancel,
+		typed() {
+			const moving = host.moving();
+			if (ended || moving === undefined) return;
+			if (moving.to !== "pi" && host.handOver?.()) look();
+			else cancel();
 		},
 		look,
 		stop: unlook,

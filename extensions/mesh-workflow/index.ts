@@ -233,6 +233,7 @@ import {
 	leftToIn,
 	saidIn,
 } from "./glances.ts";
+import { handOverOf } from "./in-place.ts";
 import {
 	createEditNotes,
 	createHeavyCalls,
@@ -806,6 +807,10 @@ export function meshWorkflow(
 		});
 		// Prompts open for the person, which a move waits out.
 		let prompts = 0;
+		// When a key was last pressed in this window, which a move in place
+		// waits to go quiet.
+		let keyedAt = Number.NEGATIVE_INFINITY;
+		let unhearKeys: (() => void) | undefined;
 		// The host this conversation runs in, by key, read where hosted() knows.
 		let hostKey: string | undefined;
 		// Move into a host or out of one, from outside the window (moving.ts).
@@ -838,6 +843,18 @@ export function meshWorkflow(
 					),
 				);
 			},
+			// A host's conversation has no window of its own to hand over.
+			handOver: () =>
+				ctx?.hasUI && peer && hostKey === undefined
+					? handOverOf({
+							env,
+							pid: senderIdentity().pid,
+							args: process.argv.slice(2),
+							session: peer.session,
+							sessionFile: ctx.sessionManager.getSessionFile(),
+						})
+					: undefined,
+			keyedAt: () => keyedAt,
 			tell: (text) => {
 				if (ctx?.hasUI) ctx.ui.notify(text, "info");
 			},
@@ -1554,6 +1571,13 @@ export function meshWorkflow(
 			)
 				return;
 			ctx = started;
+			unhearKeys?.();
+			unhearKeys = started.hasUI
+				? started.ui.onTerminalInput(() => {
+						keyedAt = Date.now();
+						return undefined;
+					})
+				: undefined;
 			startCaughtUp = false;
 			turnAsked = false;
 			handedNow = 0;
@@ -1779,7 +1803,7 @@ export function meshWorkflow(
 			if (isPersonText(event.text)) peer?.setDriven();
 			if (event.source === "interactive") {
 				pausing.talked();
-				moving.cancel();
+				moving.typed();
 			}
 			return { action: "continue" };
 		});
@@ -1857,6 +1881,8 @@ export function meshWorkflow(
 
 		pi.on("session_shutdown", async (event) => {
 			moving.stop();
+			unhearKeys?.();
+			unhearKeys = undefined;
 			// What still waits is not marked read, so the next start has it.
 			acts?.stop();
 			clearInterval(lookClock);
