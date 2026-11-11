@@ -2,7 +2,10 @@
 # code, before programs-live-in-their-own-files.test.ts held them, per
 # file and kind. The list only shrinks: move one into a file of its own
 # language and lower its count, or remove the line at 0.
-lib/core/attribution/commit-hook.ts shell 1
+#
+# The two left stay for a reason: the ledger's turn insert is written
+# from the columns its facts name, so a new fact is one change, and the
+# article reader's worker is sent as source, for the reason article.ts
+# gives above it.
 lib/core/observability/ledger/store.ts sql 1
 lib/core/web/article.ts page-js 1
-tests/lib/internal/priority/push-hooks.test.ts shell 1
