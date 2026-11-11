@@ -23,6 +23,13 @@ editing a draft in its own editor. It reads pi's private
 parts without trusting their type, and counts a screen it can't read
 as in use, so a pi that renamed them keeps its host from restarting.
 
+A reload goes through the screen (`screens.reload`), which runs its pi's
+own /reload, as plain pi's follower and /reload do. That takes down the
+old load's footer, header, widgets, dialogs and key listeners before pi
+invalidates the load. Reloading the session under the screen left them
+drawing on that load, whose every read throws, and one such render took
+the host down on 11 November.
+
 `hostedModeOf` takes the InteractiveMode class the host's pi exports and
 refuses one without core.nix's `pi-host-interactive-lifecycle.patch`,
 whose screens would own the host's process exit and signals.

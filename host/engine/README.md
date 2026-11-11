@@ -58,7 +58,10 @@ calling close or stop: `reload(id, { reason })` runs the registration's
 optional reload callback under withSession, joins a reload already
 under way, refuses an unknown or closing conversation, a tree (`onto`)
 and a runner with no callback, and leaves a conversation whose reload
-failed held and usable.
+failed held and usable. The engine's callback waits for the run to end,
+then reloads through the conversation's screen when it has one
+(`screens.reload`, its pi's /reload), and the session itself only when
+nothing draws what the extensions put on a screen.
 
 ## The Hosted Agent
 

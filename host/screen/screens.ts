@@ -4,7 +4,9 @@
  * opening builds pi's own InteractiveMode over a ViewerTerminal, so the
  * screen keeps running with nobody watching and any number of viewers can
  * join it later. A screen that quits closes only its conversation; a window
- * closing only detaches its viewer. A question pi asks before the screen
+ * closing only detaches its viewer. A conversation reloads through its
+ * screen's /reload, as plain pi does, so what its old load drew never
+ * outlives that load. A question pi asks before the screen
  * exists (whether to trust the project folder) is shown on the same
  * terminal, which viewers can already join, and the screen takes it over.
  * A dialog pi opens before anyone could attach tells the engine, so the
@@ -45,6 +47,8 @@ export interface EngineScreens {
 	opened(view: HostedView, signals?: ScreenSignals): void | Promise<void>;
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
 	closed(sessionId: string): void | Promise<void>;
+	/** Reload an idle conversation's extensions as its screen's pi does at /reload. */
+	reload(sessionId: string): Promise<void>;
 	/**
 	 * The build or first words failed after the open answered early: show
 	 * it as pi shows a failed first message.
@@ -90,6 +94,12 @@ export interface HostedMode {
 	run(): Promise<void>;
 	/** Show an error in the chat, as pi does when its first message fails. */
 	showError?(message: string): void;
+	/**
+	 * pi's /reload: take down what the old load's extensions put on the
+	 * screen, reload them, and bind the new load's. It says a failure on
+	 * the screen rather than to its caller.
+	 */
+	handleReloadCommand?(): Promise<void>;
 }
 
 /** Builds one screen; production passes pi's InteractiveMode through hostedModeOf. */
@@ -285,6 +295,16 @@ export function hostScreens(options: {
 			withSession(sessionId, () => mode.showError?.(message));
 	}
 
+	// pi's own /reload, so the old load's footer, widgets and listeners go
+	// before pi invalidates that load, which every read of theirs would then
+	// throw at, and the new load binds its keys and commands as on plain pi.
+	async function reload(sessionId: string): Promise<void> {
+		const { mode } = find(sessionId);
+		if (!mode.handleReloadCommand)
+			throw new Error("pi's screen has no /reload to reload it by");
+		await withSession(sessionId, () => mode.handleReloadCommand?.());
+	}
+
 	async function closed(sessionId: string): Promise<void> {
 		const held = early.get(sessionId);
 		if (held) {
@@ -310,6 +330,7 @@ export function hostScreens(options: {
 			opened,
 			rebound,
 			closed,
+			reload,
 			failed,
 			...(ask
 				? {

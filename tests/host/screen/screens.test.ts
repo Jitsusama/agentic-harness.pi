@@ -59,6 +59,12 @@ class FakeMode implements HostedMode {
 		this.fail?.(error);
 	}
 
+	/** The sessions pi's /reload ran under, one for each reload. */
+	readonly reloadedIn: (string | undefined)[] = [];
+	async handleReloadCommand(): Promise<void> {
+		this.reloadedIn.push(ambientSession());
+	}
+
 	/** What pi's screen showed as errors, and the session each was shown under. */
 	readonly errors: { message: string; in: string | undefined }[] = [];
 	showError(message: string): void {
@@ -454,6 +460,26 @@ describe("hosted screens", () => {
 			Promise.resolve(screens.screens.opened(screens.view("a"))),
 		).rejects.toThrow("Conversation already has a screen: a");
 		expect(screens.ids()).toEqual(["a"]);
+	});
+
+	it("reloads a conversation through its own screen's /reload, under its session", async () => {
+		const screens = host();
+		const a = screens.view("a");
+		const b = screens.view("b");
+		await screens.screens.opened(a);
+		await screens.screens.opened(b);
+
+		await screens.screens.reload("a");
+
+		expect(
+			screens.mode(a.runtime).reloadedIn,
+			"A's pi reloads once, as A",
+		).toEqual(["a"]);
+		expect(screens.mode(b.runtime).reloadedIn, "B is left alone").toEqual([]);
+		await expect(
+			screens.screens.reload("z"),
+			"a conversation with no screen is refused",
+		).rejects.toThrow("Conversation has no screen: z");
 	});
 });
 
