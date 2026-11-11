@@ -77,6 +77,46 @@ describe("deciding whether to compact now", () => {
 		});
 		expect(decision).toMatchObject({ fire: false });
 	});
+
+	// Every turn uploads its whole context, so past a ceiling the bytes
+	// count as well as the rent.
+	it("compacts a context past a ceiling before its rent has paid, once it holds enough to drop", () => {
+		const decision = compactionPays({
+			contextTokens: 200_000,
+			rentPaid: cost.total * 0.1,
+			cost,
+			floorTokens: 0,
+			ceilingTokens: 200_000,
+			droppableTokens: 70_000,
+		});
+		expect(decision).toMatchObject({ fire: true });
+	});
+
+	it("holds off below the ceiling while the rent hasn't paid", () => {
+		const decision = compactionPays({
+			contextTokens: 199_000,
+			rentPaid: cost.total * 0.1,
+			cost,
+			floorTokens: 0,
+			ceilingTokens: 200_000,
+			droppableTokens: 70_000,
+		});
+		expect(decision).toMatchObject({ fire: false });
+	});
+
+	it("doesn't compact past the ceiling a context with little to drop", () => {
+		// What a compaction keeps sits near the ceiling already, so compacting
+		// would only start the same context again.
+		const decision = compactionPays({
+			contextTokens: 220_000,
+			rentPaid: cost.total * 0.1,
+			cost,
+			floorTokens: 0,
+			ceilingTokens: 200_000,
+			droppableTokens: 20_000,
+		});
+		expect(decision).toMatchObject({ fire: false });
+	});
 });
 
 describe("compacting before an idle session's cache expires", () => {

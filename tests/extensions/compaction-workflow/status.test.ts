@@ -8,6 +8,7 @@ import {
 const FACTS: WorkflowFacts = {
 	enabled: true,
 	floorTokens: 0,
+	ceilingTokens: 0,
 	retention: "long",
 	chain: { providers: ["conversation", "pi"], unknown: [] },
 	ahead: "none",
@@ -23,6 +24,13 @@ describe("the workflow's status", () => {
 			"last outcome in this process: none since load",
 			"compactions on this branch: none yet",
 		]);
+	});
+
+	it("says the ceiling past which it compacts whatever the rent", () => {
+		const lines = workflowSection({ ...FACTS, ceilingTokens: 200_000 }, [])
+			.lines;
+
+		expect(lines[0]).toBe("trigger: on, at the latest from 200k");
 	});
 
 	it("names a configured provider nothing registered, and a short cache", () => {
