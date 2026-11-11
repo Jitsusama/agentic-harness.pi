@@ -7,7 +7,7 @@
  *
  *   node scripts/host-cutover.ts [--dry-run] [--only ADDR,...]
  *     [--attended ADDR,...] [--background ADDR,...] [--deadline MINUTES]
- *     [--install FOLDER] [--quiet-mycelium PATH,...]
+ *     [--install FOLDER] [--quiet-mycelium PATH,...] [--while-away]
  *
  * --dry-run prints where each session would go and why, and moves
  * nothing. --only moves just the sessions it names, by address or
@@ -23,6 +23,10 @@
  *
  * A session whose window is on the workspace Joel has focused, or can't
  * be placed, is left, as planned and again just before it is told.
+ * --while-away lets one on his workspace move while
+ * $XDG_RUNTIME_DIR/someone-at-the-machine, the mark swayidle-away keeps
+ * while he is there, is absent, read at the plan and before each tell;
+ * the move keeps its window in place.
  * Exits 0 when every session told to move was adopted and every name
  * --only gave goes by a live pi, 1 otherwise, a session left untold
  * included.
@@ -55,6 +59,7 @@ const { values } = parseArgs({
 		deadline: { type: "string", default: String(DEFAULT_DEADLINE_MINUTES) },
 		install: { type: "string" },
 		"quiet-mycelium": { type: "string", default: "" },
+		"while-away": { type: "boolean", default: false },
 	},
 });
 
@@ -76,6 +81,16 @@ function current(): string | undefined {
 	return folder ? realpathSync(join(folder, "current")) : undefined;
 }
 
+/** Where swayidle-away keeps its mark while Joel is at the machine. */
+function presenceMark(): string {
+	const runtime = process.env.XDG_RUNTIME_DIR;
+	if (runtime === undefined)
+		throw new Error(
+			"--while-away reads $XDG_RUNTIME_DIR/someone-at-the-machine, and XDG_RUNTIME_DIR isn't set",
+		);
+	return join(runtime, "someone-at-the-machine");
+}
+
 const version = current();
 const places: CutoverPlaces = {
 	...(version ? { current: version } : {}),
@@ -86,6 +101,7 @@ const places: CutoverPlaces = {
 		.split(",")
 		.map((one) => one.trim())
 		.filter((one) => one !== ""),
+	...(values["while-away"] ? { presenceMark: presenceMark() } : {}),
 };
 const facts = machineFacts(places);
 const only = values.only === undefined ? undefined : named(values.only);

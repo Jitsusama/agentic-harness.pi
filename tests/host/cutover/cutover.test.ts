@@ -132,6 +132,31 @@ describe("planCutover", () => {
 		]);
 	});
 
+	it("moves a window on Joel's workspace only while he is away, saying so", async () => {
+		const windows = new Map<string, WindowStanding>([
+			["there", { where: "joel" }],
+			["lost", { where: { unplaced: "niri didn't answer" } }],
+		]);
+		const plan = (joelAway?: () => boolean) =>
+			planCutover(
+				planFacts(
+					["there", "lost"].map((one) => presence(one, { driven: false })),
+					{
+						window: async ({ session }) => windows.get(session),
+						...(joelAway ? { joelAway } : {}),
+					},
+				),
+			);
+		expect((await plan(() => true)).map(stepLine)).toEqual([
+			"THERE     move to background          nobody but the harness has written in it; its window is on Joel's workspace, and he is away",
+			"LOST      leave                       its window can't be placed, so may be Joel's: niri didn't answer",
+		]);
+		for (const present of [() => false, undefined])
+			expect((await plan(present))[0]?.kind, "spared unless he is away").toBe(
+				"leave",
+			);
+	});
+
 	it("puts a session where the person named it", async () => {
 		const [step] = await planCutover(
 			planFacts([presence("joel1", { driven: true })]),
@@ -208,7 +233,10 @@ function fakeMachine(script: {
 	kept?: string[];
 	/** Where each session's window stands just before its tell. */
 	windows?: Record<string, WindowStanding>;
+	/** Whether Joel is away at each ask, in turn; absent, nobody asks. */
+	away?: boolean[];
 }) {
+	const away = script.away === undefined ? undefined : [...script.away];
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
 	const claimed = new Map<string, MoveNote>();
 	const givenBack: string[] = [];
@@ -224,6 +252,7 @@ function fakeMachine(script: {
 		keepPlace: async (session) =>
 			session === "b" ? "no window to keep" : "kept",
 		windowNow: async (session) => script.windows?.[session],
+		...(away === undefined ? {} : { joelAway: () => away.shift() ?? false }),
 		tell: (address, to) => {
 			told.push(`${address}>${to}`);
 			goes.set(address.toLowerCase(), to);
@@ -336,6 +365,24 @@ describe("carryOut", () => {
 		]);
 		expect(report.places, "no place kept for a session left").toEqual([
 			{ address: "C", said: "kept" },
+		]);
+	});
+
+	it("tells a window on Joel's workspace only while he is still away", async () => {
+		const machine = fakeMachine({
+			ending: [["a"]],
+			windows: { a: { where: "joel" }, c: { where: "joel" } },
+			away: [true, false],
+		});
+		const report = await carryOut(
+			[move("a", "background"), move("c", "background")],
+			machine.facts,
+			60_000,
+		);
+		expect(machine.told).toEqual(["A>background"]);
+		expect(report.moved).toEqual(["A"]);
+		expect(report.spared).toEqual([
+			{ address: "C", why: "its window is on the workspace Joel has focused" },
 		]);
 	});
 
