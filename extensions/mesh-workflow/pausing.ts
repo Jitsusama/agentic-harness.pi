@@ -47,8 +47,8 @@ export interface PausingHost {
 	readonly carryOn: () => void;
 	/** Say on screen what the person did. */
 	readonly tell: (text: string) => void;
-	/** End the session, as /exit does. */
-	readonly close: () => void;
+	/** End the session, as /exit does, saying `by` asked. */
+	readonly close: (by: string) => void;
 	/**
 	 * Carry its work for the machine `to`, once its run has wound down,
 	 * settling once its done file is written.
@@ -60,13 +60,17 @@ export interface PausingHost {
 export interface Pausing {
 	/** Whether it is paused now. */
 	readonly paused: boolean;
-	/** The person did this from outside the window. */
-	act(act: Exclude<SteerAct, "carry">): void;
 	/**
-	 * The person carried it to the machine `to` from outside the window:
-	 * settles once it has carried and closed, or said why it couldn't.
+	 * The person did this from outside the window, in a steer `from`
+	 * wrote, as the steer names its writer.
 	 */
-	carry(to: string): Promise<void>;
+	act(act: Exclude<SteerAct, "carry">, from?: string): void;
+	/**
+	 * The person carried it to the machine `to` from outside the window,
+	 * in a steer `from` wrote: settles once it has carried and closed, or
+	 * said why it couldn't.
+	 */
+	carry(to: string, from?: string): Promise<void>;
 	/**
 	 * The person talked to it, from the launcher or by typing in its
 	 * window: a pause ends, and what they said is the turn.
@@ -78,6 +82,11 @@ export interface Pausing {
 	turnEnded(): void;
 }
 
+/** Where a steer came from, as its writer signed it, for a host's journal. */
+function steeredBy(from: string | undefined): string {
+	return `from outside its window, steered by ${from === undefined || from === "" ? "a writer that didn't sign it" : from}`;
+}
+
 /** Pausing, as its peer last left it. */
 export function createPausing(host: PausingHost): Pausing {
 	let carrying = false;
@@ -85,11 +94,11 @@ export function createPausing(host: PausingHost): Pausing {
 		get paused() {
 			return host.paused();
 		},
-		act(act) {
+		act(act, from) {
 			if (act === "close") {
 				if (!host.idle()) host.abort();
 				host.tell("Closed from outside this window.");
-				host.close();
+				host.close(`Close ${steeredBy(from)}`);
 				return;
 			}
 			if (act === "stop") {
@@ -115,7 +124,7 @@ export function createPausing(host: PausingHost): Pausing {
 		talked() {
 			host.setPaused(false);
 		},
-		async carry(to) {
+		async carry(to, from) {
 			carrying = true;
 			if (!host.idle()) host.abort();
 			host.tell(
@@ -131,7 +140,7 @@ export function createPausing(host: PausingHost): Pausing {
 				return;
 			}
 			host.tell(`Carried to ${to}; closing.`);
-			host.close();
+			host.close(`a carry to ${to} ${steeredBy(from)}`);
 		},
 		started() {
 			if (host.paused() || carrying) host.abort();

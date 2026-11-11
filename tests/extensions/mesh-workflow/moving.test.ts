@@ -18,6 +18,8 @@ interface Session {
 	readonly move: MovingSession;
 	readonly did: string[];
 	readonly told: string[];
+	/** Who each close or release said asked for it. */
+	readonly asked: string[];
 	readonly said: (Moving | undefined)[];
 	/** The look the clock would make, while one is set. */
 	tick?: () => void;
@@ -35,6 +37,7 @@ function session(
 		noteFails: false,
 		did: [],
 		told: [],
+		asked: [],
 		said: [],
 		clocks: [],
 		move: createMoving({
@@ -50,11 +53,15 @@ function session(
 				at.did.push(`note ${to}`);
 			},
 			tell: (text) => at.told.push(text),
-			close: () => at.did.push("close"),
+			close: (by) => {
+				at.did.push("close");
+				at.asked.push(`close by ${by}`);
+			},
 			...(release
 				? {
-						release: () => {
+						release: (by: string) => {
 							at.did.push("release");
+							at.asked.push(`release by ${by}`);
 							return release();
 						},
 					}
@@ -185,6 +192,23 @@ describe("moving a session", () => {
 		const one = session(undefined, true, async () => true);
 		one.move.move("background");
 		expect(one.did).toEqual(["note background", "close"]);
+	});
+
+	it("says the move as it closes or releases, for its host's journal", async () => {
+		const closed = session(undefined, true, async () => true);
+		closed.move.move("background");
+		expect(closed.asked).toEqual([
+			"close by a move to the background host, asked from outside its window",
+		]);
+
+		const refused = session(undefined, true, async () => false);
+		refused.move.move("pi");
+		await vi.waitFor(() =>
+			expect(refused.asked, "the close after a refused release").toEqual([
+				"release by a move to plain pi, asked from outside its window",
+				"close by a move to plain pi, asked from outside its window",
+			]),
+		);
 	});
 
 	it("ends once, however often it is asked after", () => {

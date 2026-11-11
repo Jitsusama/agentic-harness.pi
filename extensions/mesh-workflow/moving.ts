@@ -76,13 +76,14 @@ export interface MovingHost {
 	/** Say on screen what the person did. */
 	readonly tell: (text: string) => void;
 	/** End the session, as /exit does. */
-	readonly close: () => void;
+	readonly close: (by: string) => void;
 	/**
 	 * Have its host let the conversation go back to plain pi, as the
 	 * host's release does, so a window viewing it carries on there as
-	 * that pi: whether the host said it had. A hosted conversation only.
+	 * that pi, saying `by` asked: whether the host said it had. A hosted
+	 * conversation only.
 	 */
-	readonly release?: () => Promise<boolean>;
+	readonly release?: (by: string) => Promise<boolean>;
 	readonly now?: () => Date;
 	/** Look again every so often; answers how to stop. */
 	readonly every?: (ms: number, look: () => void) => () => void;
@@ -139,16 +140,17 @@ function handedOver(over: HandOver): boolean {
  */
 async function letGo(
 	host: MovingHost,
-	release: () => Promise<boolean>,
+	release: (by: string) => Promise<boolean>,
+	by: string,
 ): Promise<void> {
 	let released = false;
 	try {
-		released = await release();
+		released = await release(by);
 	} catch {
 		// An unanswered release reads as none made: the session closes as
 		// before, and a viewer on it closes with it.
 	}
-	if (!released) host.close();
+	if (!released) host.close(by);
 }
 
 /** Moving, as its peer last left it. */
@@ -213,11 +215,12 @@ export function createMoving(host: MovingHost): MovingSession {
 		if (!over || !handedOver(over)) {
 			host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
 		}
+		const by = `a move to ${whereTo(moving.to)}, asked from outside its window`;
 		if (moving.to === "pi" && host.release) {
-			void letGo(host, host.release);
+			void letGo(host, host.release, by);
 			return;
 		}
-		host.close();
+		host.close(by);
 	};
 	const cancel = () => {
 		if (ended || host.moving() === undefined) return;

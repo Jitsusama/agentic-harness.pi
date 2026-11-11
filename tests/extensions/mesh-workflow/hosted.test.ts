@@ -150,6 +150,7 @@ async function inHost() {
 	const owner = await tickedOwnerNow();
 	if (!owner) throw new Error("test process has no owner");
 	const open = new Set(["alpha-AAAAAAAA", "bravo-BBBBBBBB"]);
+	const whys: string[] = [];
 	const environments = new Map<string, Record<string, string>>();
 	const env = (id: string): SessionEnvironment => {
 		const values = environments.get(id) ?? {};
@@ -172,13 +173,14 @@ async function inHost() {
 		holds: (id) => (open.has(id) ? "idle" : undefined),
 		env,
 		hints: () => ({}),
-		close: async (id) => {
+		close: async (id, why) => {
 			open.delete(id);
+			whys.push(`${id}: ${why}`);
 		},
 		stamp() {},
 	};
 	uninstall = installHost(host);
-	return { open, host };
+	return { open, host, whys };
 }
 
 it("trades a question and answer, then forgets only the closed conversation", async () => {
@@ -341,7 +343,7 @@ it("reads each hosted hand's environment and uses its conversation as fallback i
 });
 
 it("ends only the addressed conversation and refuses a foreign host without signalling it", async () => {
-	const { open, host } = await inHost();
+	const { open, host, whys } = await inHost();
 	const a = await peer("alpha-AAAAAAAA");
 	await peer("bravo-BBBBBBBB");
 	const presences = createPresences(join(paths.mesh, "presence"));
@@ -381,6 +383,9 @@ it("ends only the addressed conversation and refuses a foreign host without sign
 	presences.publish({ ...bravo, orchestratedBy: "ORCHST", owner: host.owner });
 	expect(await end()).toContain("close only that conversation");
 	expect([...open]).toEqual(["alpha-AAAAAAAA"]);
+	expect(whys, "the host's close says who ended it").toEqual([
+		"bravo-BBBBBBBB: closed, asked by mesh_end from AAAAAAAA",
+	]);
 	self.dispose();
 });
 
@@ -394,6 +399,7 @@ it("ends a conversation another host holds through that host's socket, never a s
 	const far = "c0000000-0000-4000-8000-000000000003";
 	const near = "d0000000-0000-4000-8000-000000000004";
 	const open = new Set([far, near]);
+	const askers: (string | undefined)[] = [];
 	const identity = { key: "work-attended", owner: host.owner };
 	const publishList = () => {
 		const path = hostRegistryPath(host.owner, stateDir("hosts"));
@@ -418,6 +424,7 @@ it("ends a conversation another host holds through that host's socket, never a s
 			identity,
 			execute: async (request) => {
 				if (request.op !== "close") throw new Error(request.op);
+				askers.push(request.by);
 				open.delete(request.sessionId);
 				publishList();
 				return { sessionId: request.sessionId };
@@ -468,6 +475,9 @@ it("ends a conversation another host holds through that host's socket, never a s
 		(await tools.get("mesh_end")?.execute("end", { peer }))?.content[0]?.text;
 	expect(await end("FFFFFFFF")).toContain("close only that conversation");
 	expect([...open]).toEqual([near]);
+	expect(askers, "the far host hears who ended it").toEqual([
+		"mesh_end from AAAAAAAA",
+	]);
 	expect(await end("FFFFFFFF")).toContain("already ended");
 	await stopListening();
 	expect(await end("EEEEEEEE")).toContain("did not confirm");

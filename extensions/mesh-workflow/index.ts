@@ -52,6 +52,7 @@ import {
 	sessionKeyOf,
 	sessionOwner,
 } from "../../lib/core/session/index.ts";
+import { endConversation } from "../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { machineBooted } from "../../lib/internal/booted.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
@@ -799,8 +800,11 @@ export function meshWorkflow(
 			tell: (text) => {
 				if (ctx?.hasUI) ctx.ui.notify(text, "info");
 			},
-			// pi waits until it is idle, so the run just ended winds down first.
-			close: () => ctx?.shutdown(),
+			// Plain pi waits until it is idle, so the run just ended winds down
+			// first; a host closes it as a Close over its socket does.
+			close: (by) => {
+				if (ctx) endConversation(ctx, by);
+			},
 			carry: async (to) => {
 				if (!ctx) throw new Error("the session isn't there to carry.");
 				await carryThisSession(ctx, to);
@@ -859,12 +863,15 @@ export function meshWorkflow(
 			tell: (text) => {
 				if (ctx?.hasUI) ctx.ui.notify(text, "info");
 			},
-			close: () => ctx?.shutdown(),
+			close: (by) => {
+				if (ctx) endConversation(ctx, by);
+			},
 			// Through its host, so a window viewing it carries on as plain pi.
-			release: async () => {
+			release: async (by) => {
 				const owner = peer ? presences.of(peer.session)?.owner : undefined;
 				return (
-					owner !== undefined && (await releaseThroughHost(owner)) === "ended"
+					owner !== undefined &&
+					(await releaseThroughHost(owner, by)) === "ended"
 				);
 			},
 		});
@@ -888,7 +895,7 @@ export function meshWorkflow(
 				addresses: () => peer?.addresses ?? [],
 				deliver: (one, inbox) => {
 					if (one.act === "carry") {
-						if (one.to !== undefined) void pausing.carry(one.to);
+						if (one.to !== undefined) void pausing.carry(one.to, one.from);
 						return;
 					}
 					if (one.act === "fill") {
@@ -903,7 +910,7 @@ export function meshWorkflow(
 					if (one.act === "resume" || !one.act) moving.cancel();
 					// Resume with words is a talk; any other act is only the act.
 					if (one.act && !(one.act === "resume" && one.text)) {
-						pausing.act(one.act);
+						pausing.act(one.act, one.from);
 						return;
 					}
 					pausing.talked();

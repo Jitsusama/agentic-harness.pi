@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	ENDS_AFTER_LOOKS,
+	endedBy,
 	endingCount,
 	lookAt,
 	type SessionLook,
@@ -105,6 +106,9 @@ describe("a look at a session", () => {
 			),
 		);
 		expect(look()).toEqual({ questEnded: true, busy: false });
+		expect(endedBy(state), "the host's journal names the quest").toBe(
+			`quest-workflow, its quest ${state.questId} being concluded`,
+		);
 		expect(look({ typed: "one more thing" })).toEqual({
 			questEnded: true,
 			busy: true,

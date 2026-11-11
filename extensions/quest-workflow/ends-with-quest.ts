@@ -18,6 +18,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { endConversation } from "../../lib/core/session/owner.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { refreshLoadedSlice } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";
@@ -109,12 +110,17 @@ export function watchForQuestEnd(
 		},
 		() => {
 			stopWatchingForQuestEnd();
-			ctx.shutdown();
+			endConversation(ctx, endedBy(state));
 		},
 	);
 	const timer = setInterval(tick, everyMs);
 	timer.unref?.();
 	watchSlot().timer = timer;
+}
+
+/** Who ends the session, for a host's journal: its quest, as it ended. */
+export function endedBy(state: QuestState): string {
+	return `quest-workflow, its quest ${state.questId ?? "unknown"} being ${state.questStatus ?? "ended"}`;
 }
 
 /** Stop the watch, as a session ends. */
