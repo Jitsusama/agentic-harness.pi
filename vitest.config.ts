@@ -94,6 +94,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/screen-reload.test.ts",
 	"tests/host/end-to-end/quit.test.ts",
 	"tests/host/end-to-end/park.test.ts",
+	"tests/host/end-to-end/footer.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its

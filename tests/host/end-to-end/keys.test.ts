@@ -44,6 +44,13 @@ const KEY = {
 	pageUp: "\u001b[5~",
 	ctrlHome: "\u001b[1;5H",
 	ctrlEnd: "\u001b[1;5F",
+	ctrlShiftUp: "\u001b[1;6A",
+	ctrlShiftDown: "\u001b[1;6B",
+	altUp: "\u001b[1;3A",
+	ctrlJ: "\u001b[106;5u",
+	ctrlW: "\u001b[119;5u",
+	ctrlY: "\u001b[121;5u",
+	ctrlMinus: "\u001b[45;5u",
 } as const;
 /** A wheel notch upward over the screen, in the SGR mouse reports pi asks for. */
 const WHEEL_UP = "\u001b[<64;10;10M";
@@ -111,6 +118,37 @@ describe.skipIf(!packageDir)(
 					() => lastShown(reading) === LAST_LINE,
 					TURN_MS,
 				);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"jumps back a message at a time on Ctrl+Shift+Up and forward on Ctrl+Shift+Down",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const reading = await viewer(sessionId);
+				reading.type(`long answer alpha${ENTER}`);
+				await reading.shows(`line ${LAST_LINE} alpha`, TURN_MS);
+				reading.type(`long answer beta${ENTER}`);
+				await reading.shows(`line ${LAST_LINE} beta`, TURN_MS);
+				// pi marks where each message starts, prompt and answer alike,
+				// and a jump scrolls the next mark to the top of the screen.
+				const jumps: [string, string][] = [
+					[KEY.ctrlShiftUp, "line 1 beta"],
+					[KEY.ctrlShiftUp, "long answer beta"],
+					[KEY.ctrlShiftUp, "line 1 alpha"],
+					[KEY.ctrlShiftDown, "long answer beta"],
+				];
+				for (const [key, lands] of jumps) {
+					reading.type(key);
+					await until(
+						`a jump to put ${lands} at the top`,
+						() => top(reading) === lands,
+						TURN_MS,
+					).catch((failed: unknown) => {
+						throw new Error(`${String(failed)}; the top shows ${top(reading)}`);
+					});
+				}
 			},
 			CASE_MS,
 		);
@@ -198,6 +236,65 @@ describe.skipIf(!packageDir)(
 
 				await queuing.shows("released: queued", TURN_MS);
 				await queuing.shows("heard: and then this", TURN_MS);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"takes a queued follow-up back into the editor on Alt+Up, unsent",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const queuing = await viewer(sessionId);
+				queuing.type(`hold until dequeued${ENTER}`);
+				await queuing.shows("Working");
+				queuing.type(`not after all${KEY.altEnter}`);
+				await queuing.shows("Follow-up: not after all");
+
+				queuing.type(KEY.altUp);
+
+				await until(
+					"Alt+Up to take the follow-up out of the queue",
+					() => !shown(queuing, "Follow-up: not after all"),
+					TURN_MS,
+				);
+				await queuing.shows("not after all");
+				writeFileSync(join(sealed.home, "dequeued"), "");
+				await queuing.shows("released: dequeued", TURN_MS);
+				await host.idle(sessionId, TURN_MS);
+				expect(
+					shown(queuing, "heard: not after all"),
+					"the follow-up taken back is never sent",
+				).toBe(false);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"breaks a line on Ctrl+J, kills a word on Ctrl+W, yanks it back on Ctrl+Y and undoes on Ctrl+-",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const typing = await viewer(sessionId);
+				typing.type(`first row${KEY.ctrlJ}second gone`);
+				await typing.shows("second gone");
+
+				typing.type(KEY.ctrlW);
+				await until(
+					"Ctrl+W to kill the word before the cursor",
+					() => !shown(typing, "gone"),
+					TURN_MS,
+				);
+				typing.type(KEY.ctrlY);
+				await typing.shows("second gone");
+				typing.type(KEY.ctrlMinus);
+				await until(
+					"Ctrl+- to undo the yank",
+					() => !shown(typing, "gone"),
+					TURN_MS,
+				);
+				typing.type(`back${ENTER}`);
+
+				await typing.shows("heard: first row", TURN_MS);
+				await typing.shows(/^\W*second back\W*$/m, TURN_MS);
 			},
 			CASE_MS,
 		);
@@ -319,6 +416,21 @@ function lastShown(on: Viewer): number {
 	return Math.max(
 		0,
 		...on.screen().map((row) => Number(ANSWER_LINE.exec(row)?.[1] ?? 0)),
+	);
+}
+
+/** Whether a viewer's screen shows `words` anywhere. */
+function shown(on: Viewer, words: string): boolean {
+	return on.screen().join("\n").includes(words);
+}
+
+/** The first words on a viewer's screen, below any blank rows. */
+function top(on: Viewer): string {
+	return (
+		on
+			.screen()
+			.map((row) => row.trim())
+			.find((row) => row !== "") ?? ""
 	);
 }
 
