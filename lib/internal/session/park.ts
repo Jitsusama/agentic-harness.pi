@@ -47,13 +47,7 @@
  * marker counts as no park, and the next session to start clears it.
  */
 
-import {
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type Booted, machineBooted } from "../booted.ts";
 import { stateDir } from "../paths.ts";
@@ -497,7 +491,10 @@ export function askWake(
 ): boolean {
 	const parked = readParked(session, folder, booted);
 	if (!parked) return false;
-	writeFileSync(
+	// Put in place whole: a host reads which message asked as the file
+	// appears (host/engine/parking.ts), and a file created and then written
+	// could be read empty between the two. A holder only looks for it.
+	writeWhole(
 		parked.wake,
 		`${JSON.stringify({ session, messageId, at: now.toISOString() })}\n`,
 	);
