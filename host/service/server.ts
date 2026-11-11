@@ -271,6 +271,15 @@ export async function listenControl(options: {
 		throw error;
 	}
 	server.on("error", options.report);
+	// Stops taking connections at once; settles once every one has ended.
+	let listening: Promise<void> | undefined;
+	const stopListening = () => {
+		ready = false;
+		listening ??= new Promise<void>((resolve, reject) => {
+			server.close((error) => (error ? reject(error) : resolve()));
+		});
+		return listening;
+	};
 	return {
 		/**
 		 * Tell every attached viewer the host is about to restart, and end
@@ -280,6 +289,11 @@ export async function listenControl(options: {
 		 * gone, or after RESTART_FLUSH_MS, whichever comes first.
 		 */
 		async restarting(): Promise<void> {
+			// A client told of the restart joins again at once, so this host
+			// takes no more connections: one it took would end at its close,
+			// with no frame to say why.
+			// close() awaits the same promise, and reports how it ended.
+			stopListening().catch(() => undefined);
 			const leaving = [...viewing].map(
 				([socket, send]) =>
 					new Promise<void>((resolve) => {
@@ -299,11 +313,9 @@ export async function listenControl(options: {
 			clearTimeout(timer);
 		},
 		async close(): Promise<void> {
-			ready = false;
+			const closed = stopListening();
 			for (const socket of sockets) socket.destroy();
-			await new Promise<void>((resolve, reject) => {
-				server.close((error) => (error ? reject(error) : resolve()));
-			});
+			await closed;
 		},
 	};
 }
