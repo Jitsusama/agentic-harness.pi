@@ -4,14 +4,7 @@
 # language and lower its count, or remove the line at 0.
 lib/core/attribution/commit-hook.ts shell 1
 lib/core/observability/ledger/store.ts sql 1
-lib/core/web/a11y/announcements.ts page-js 1
-lib/core/web/a11y/walkprobe.ts page-js 2
 lib/core/web/article.ts page-js 1
-lib/core/web/audit/probe.ts page-js 2
-lib/core/web/design/probe.ts page-js 1
-lib/core/web/design/typography.ts page-js 1
-lib/core/web/hydration/capture.ts page-js 1
-lib/core/web/snapshot/presented.ts page-js 1
 lib/google/auth/server.ts page-js 1
 lib/slack/auth/server.ts page-js 1
 tests/core/browser/capture.test.ts page-js 1

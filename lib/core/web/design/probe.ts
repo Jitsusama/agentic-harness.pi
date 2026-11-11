@@ -14,6 +14,7 @@
  * popular decision on the page when nobody decided it at all.
  */
 
+import { pageCall } from "../page-script.ts";
 /** The properties worth sampling, in the order they are read. */
 import { DEEP_DOM } from "../snapshot/deep.ts";
 import { PRESENTED } from "../snapshot/presented.ts";
@@ -40,52 +41,8 @@ export const SAMPLED_PROPERTIES = [
  * element chose 14px".
  */
 export function inventorySource(): string {
-	return `(() => {
-	${DEEP_DOM}
-	${PRESENTED}
-	const PROPERTIES = ${JSON.stringify(SAMPLED_PROPERTIES)};
-
-	const NOTHING = new Set([
-		"none", "normal", "auto", "0px", "rgba(0, 0, 0, 0)", "0px 0px 0px 0px",
-	]);
-
-	const samples = [];
-	for (const el of deepElements(document)) {
-		const tag = el.tagName.toLowerCase();
-		if (tag === "script" || tag === "style" || tag === "head") continue;
-		// An inventory of what the design actually looks like, so it
-		// samples what somebody can actually see: not a closed
-		// dialog's contents, and not a screen-reader-only label whose
-		// colours nobody ever looks at.
-		if (!presented(el)) continue;
-
-		const own = getComputedStyle(el);
-		const parent = el.parentElement ? getComputedStyle(el.parentElement) : null;
-
-		// A border colour with no border is not a decision. Its
-		// initial value is currentColor, so every element reports
-		// one, and sampling them all just echoes the colour list
-		// back under a second heading.
-		const hasBorder =
-			own.borderStyle !== "none" &&
-			parseFloat(own.borderTopWidth) +
-				parseFloat(own.borderRightWidth) +
-				parseFloat(own.borderBottomWidth) +
-				parseFloat(own.borderLeftWidth) >
-				0;
-
-		const values = {};
-		for (const property of PROPERTIES) {
-			if (property === "border-color" && !hasBorder) continue;
-			const value = own.getPropertyValue(property);
-			if (!value || NOTHING.has(value)) continue;
-			// Only what this element decided, not what it was handed.
-			if (parent && parent.getPropertyValue(property) === value) continue;
-			values[property] = value;
-		}
-		if (Object.keys(values).length === 0) continue;
-		samples.push({ selector: deepSelectorFor(el), values });
-	}
-	return samples;
-})()`;
+	return pageCall(new URL("./inventory.page.js", import.meta.url), {
+		helpers: [DEEP_DOM, PRESENTED],
+		values: { PROPERTIES: SAMPLED_PROPERTIES },
+	});
 }

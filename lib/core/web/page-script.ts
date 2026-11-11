@@ -26,3 +26,29 @@ export function pageScript(url: URL): string {
 		.trimEnd()
 		.replace(CLOSING_SEMICOLON, "");
 }
+
+/** What a page script that is a function is called with. */
+export interface PageCall {
+	/**
+	 * Other page scripts, each an expression the page evaluates into the
+	 * helpers it gives, handed in first and in this order.
+	 */
+	readonly helpers?: readonly string[];
+	/** Values the script names, handed in last as one object, as JSON. */
+	readonly values?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Read a `.page.js` that holds a function and call it in the page.
+ *
+ * A script that needs a value from here, or helpers another script
+ * gives, takes them as arguments rather than having them spliced into
+ * its text, so the file stays JavaScript every tool can read: a helper
+ * it uses and isn't handed is an unbound name to the linter, and a
+ * value is a parameter rather than a hole in the source.
+ */
+export function pageCall(url: URL, call: PageCall): string {
+	const args = [...(call.helpers ?? [])];
+	if (call.values !== undefined) args.push(JSON.stringify(call.values));
+	return `(${pageScript(url)})(${args.join(", ")})`;
+}

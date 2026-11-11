@@ -10,21 +10,22 @@
  * that was mostly not there. The DOM snapshot pierces both, so
  * the same library was answering the same question two ways.
  *
- * These are page source, in deep-dom.page.js, rather than functions
- * because they
- * are injected into the page, and the bundler renames named
- * inner bindings through a wrapper the page has never heard of.
+ * These are page source, in deep-dom.page.js, rather than
+ * functions because they are injected into the page, and the
+ * bundler renames named inner bindings through a wrapper the
+ * page has never heard of.
  *
  * Same-origin only, for frames. A cross-origin iframe runs in
  * another process and its document is unreachable from page
- * script; nothing here can change that, so the count of frames
- * that could not be entered is reported rather than hidden.
+ * script; nothing here can change that, so such a frame's
+ * contents are left out. No capture yet says how many were.
  */
 
 import { pageScript } from "../page-script.ts";
 
 /**
- * Declares `deepElements(root)` and `deepSelectorFor(el)`.
+ * Gives `deepElements(root)` and `deepSelectorFor(el)` to a probe,
+ * which takes them as an argument through pageCall's helpers.
  *
  * `deepElements` returns every element under a root, descending
  * through open shadow roots and same-origin frames. Closed
