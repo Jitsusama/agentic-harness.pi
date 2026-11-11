@@ -13,14 +13,8 @@
  * own, which a stop or a time limit kills whole. It is done once both its
  * streams end after it exits, or 100 ms after its last output past its
  * exit. An end by a signal counts as 128 and the signal's number. Where
- * pi-spawner is turned off (PI_SPAWNER=off), isn't in the system's
- * profile or has stopped, pi's own spawn starts the command, as before.
- *
- * It was asked for by PI_SPAWNER=on while new, and is on by default
- * since 11 November 2026, after a night of every command in one session
- * going through it. A variable asking for it was lost whenever a session
- * parked and woke, since the holder starts it again from pi's own
- * arguments.
+ * pi-spawner isn't asked for (PI_SPAWNER=on), isn't on the PATH or has
+ * stopped, pi's own spawn starts the command, as before.
  */
 
 import { spawn } from "node:child_process";
@@ -33,7 +27,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { systemProgram } from "../system-program.ts";
 
-/** The variable that turns pi-spawner off: `off`. */
+/** The variable that asks for pi-spawner, while it is new: `on`. */
 export const SPAWNER_VARIABLE = "PI_SPAWNER";
 
 /** The program's name, as core.nix puts it on the PATH. */
@@ -115,14 +109,14 @@ interface Link {
 
 /**
  * pi's bash operations with each command started by pi-spawner, or
- * `fallback` itself where it is turned off.
+ * `fallback` itself where it isn't asked for.
  */
 export function spawnedBy(
 	fallback: BashOperations,
 	options: SpawnerOptions = {},
 ): BashOperations {
 	const env = options.env ?? process.env;
-	if (env[SPAWNER_VARIABLE] === "off") return fallback;
+	if (env[SPAWNER_VARIABLE] !== "on") return fallback;
 	const kill = options.kill ?? killGroup;
 	let link: Link | undefined;
 	let lost = false;

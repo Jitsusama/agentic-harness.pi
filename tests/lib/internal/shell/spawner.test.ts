@@ -114,25 +114,10 @@ async function askedFor(program: ReturnType<typeof standIn>, count: number) {
 }
 
 describe("the agent's commands through pi-spawner", () => {
-	it("leaves pi's own spawn in place when it is turned off", () => {
+	it("leaves pi's own spawn in place unless it is asked for", () => {
 		const own = fallback();
 
-		expect(spawnedBy(own, { env: { [SPAWNER_VARIABLE]: "off" } })).toBe(own);
-	});
-
-	it("starts commands through it with nothing asking for it", async () => {
-		const { program, own, operations } = through({ env: {} });
-
-		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
-		await askedFor(program, 1);
-
-		program.started(1, 4321);
-		program.closed(1, 1);
-		program.closed(1, 2);
-		program.exited(1, 0);
-
-		await expect(ran).resolves.toEqual({ exitCode: 0 });
-		expect(own.calls, "pi's own spawn ran it").toEqual([]);
+		expect(spawnedBy(own, { env: {} })).toBe(own);
 	});
 
 	it("falls back to pi's own spawn where the system's profile has no program", async () => {
