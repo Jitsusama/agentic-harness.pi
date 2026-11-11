@@ -376,6 +376,23 @@ describe("following the install", () => {
 		expect(prompted, "nothing reloads it again").toEqual([]);
 	});
 
+	it("starts an idle runtime reloaded on moved links again once its place comes", async () => {
+		// Each look once counted its place afresh, so an idle one never went.
+		const { follower, asks } = await behind({
+			...movedLinks(),
+			current: true,
+			spreadMs: QUIET_MS,
+			answer: (ask) => {
+				ask.restarting = true;
+			},
+		});
+
+		await until("the restart is asked for", () => {
+			follower?.consider();
+			return asks.length > 0;
+		});
+	});
+
 	it("asks nothing of a current runtime whose links are older than it", async () => {
 		const links = movedLinks();
 		const { follower, prompted, asks } = await behind({
