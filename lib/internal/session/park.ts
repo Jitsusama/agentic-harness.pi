@@ -57,6 +57,7 @@ import {
 import { join } from "node:path";
 import { type Booted, machineBooted } from "../booted.ts";
 import { stateDir } from "../paths.ts";
+import { isRecord } from "../record.ts";
 import { writeWhole } from "../write-whole.ts";
 import { type Holding, whatHolds } from "./free.ts";
 
@@ -178,20 +179,27 @@ export const PARKED_EXIT = 75;
  * prompt, not a park or a restart.
  */
 export function heldDirectly(wake: string, pid: number): boolean {
+	// A record missing or caught half written can't say this process is
+	// the one held, and staying up costs only memory.
+	return holderRecord(wake)?.pid === pid;
+}
+
+/**
+ * The record mycelium's holder keeps beside the wake file `wake`: its
+ * pid and the windows showing it. Undefined when it is missing, caught
+ * half written, or not a record.
+ */
+export function holderRecord(
+	wake: string,
+): Record<string, unknown> | undefined {
 	let record: unknown;
 	try {
 		record = JSON.parse(readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"));
 	} catch {
-		// A record missing or caught half written can't say this process is
-		// the one held, and staying up costs only memory.
-		return false;
+		// Missing or half written, it says nothing of its holder.
+		return undefined;
 	}
-	return (
-		typeof record === "object" &&
-		record !== null &&
-		"pid" in record &&
-		record.pid === pid
-	);
+	return isRecord(record) ? record : undefined;
 }
 
 /** How long a session waits idle before it parks, once parking is on. */

@@ -17,6 +17,8 @@ import {
 	askWake,
 	clearOutlivedParks,
 	clearParked,
+	heldDirectly,
+	holderRecord,
 	isParked,
 	NAMED_PARK_AFTER_MS,
 	PARK_AFTER_MS,
@@ -115,6 +117,32 @@ describe("a parked session's marker and wake", () => {
 			askWake("s-1", "2-80ECO2-1-aaaa", folder),
 			"waking s-1, which is not parked, asks nothing",
 		).toBe(false);
+	});
+});
+
+describe("the record its holder keeps beside the wake file", () => {
+	const wake = () => join(folder, "held.wake");
+	const record = (text: string) =>
+		writeFileSync(join(folder, "held.json"), text);
+
+	it("reads it, saying whether the holder runs this very process", () => {
+		record(JSON.stringify({ pid: 4242, windows: [] }));
+
+		expect(holderRecord(wake()), "what the holder says").toEqual({
+			pid: 4242,
+			windows: [],
+		});
+		expect(heldDirectly(wake(), 4242), "held directly").toBe(true);
+		expect(heldDirectly(wake(), 1), "held through a shell").toBe(false);
+	});
+
+	it("reads none missing, half written or not a record", () => {
+		expect(holderRecord(wake()), "missing").toBeUndefined();
+		record('{"pid": 42');
+		expect(holderRecord(wake()), "half written").toBeUndefined();
+		record("[42]");
+		expect(holderRecord(wake()), "not a record").toBeUndefined();
+		expect(heldDirectly(wake(), 42), "so not held directly").toBe(false);
 	});
 });
 
