@@ -171,6 +171,29 @@ export function flagsLost(args: readonly string[]): string[] {
  */
 export const PARKED_EXIT = 75;
 
+/**
+ * Whether the holder whose wake file is `wake` runs `pid` itself, as its
+ * record beside that file says. A pi started through a shell is the
+ * shell's child, so its exit would reach the shell and leave a bare
+ * prompt, not a park or a restart.
+ */
+export function heldDirectly(wake: string, pid: number): boolean {
+	let record: unknown;
+	try {
+		record = JSON.parse(readFileSync(wake.replace(/\.wake$/, ".json"), "utf8"));
+	} catch {
+		// A record missing or caught half written can't say this process is
+		// the one held, and staying up costs only memory.
+		return false;
+	}
+	return (
+		typeof record === "object" &&
+		record !== null &&
+		"pid" in record &&
+		record.pid === pid
+	);
+}
+
 /** How long a session waits idle before it parks, once parking is on. */
 export const PARK_AFTER_MS = 60 * 60 * 1000;
 
