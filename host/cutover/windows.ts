@@ -2,8 +2,12 @@
  * Where a session's window stands as the cutover plans its move: whether
  * it sits on the workspace Joel has focused, which a wave must spare
  * (OSPHT4, 11 November: the windows stay where they are), and whether a
- * mycelium older than #121 holds it, whose window shows one Parked line
- * for 2 to 5 s as it moves.
+ * mycelium that may predate #121 holds it, whose window then shows one
+ * Parked line for 2 to 5 s as it moves.
+ *
+ * Nothing in a mycelium's executable says whether it carries #121 (its
+ * version is 0.1.0 throughout), so a holder counts as quiet only when it
+ * runs a mycelium the run vouches for; every other is named.
  *
  * Read once a plan from what the machine says: mycelium's sessions, each
  * with its hold and kitty window; niri's windows and workspaces; kitty's
@@ -18,7 +22,7 @@
 
 import { execFile } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { isRecord } from "../../lib/internal/record.ts";
 
@@ -64,49 +68,51 @@ export interface MachineWindows {
 	readonly kitties: ReadonlyMap<string, readonly KittyWindow[]>;
 	/** Each hold's holder, by the hold's id. */
 	readonly holders: ReadonlyMap<string, Holder>;
-	/** What the system's mycelium resolves to. */
-	readonly mycelium: string | undefined;
+	/** The mycelium executables vouched for as carrying #121, resolved. */
+	readonly quiet: ReadonlySet<string>;
 	/** Why the machine couldn't be read, when it couldn't. */
 	readonly unread?: string;
 }
 
 /** Where a session's window stands, for a session that has one. */
 export interface WindowStanding {
-	/** On Joel's focused workspace, elsewhere, or unplaced with why. */
-	readonly where: "joel" | "away" | { readonly unplaced: string };
-	/** The pid of a holder that isn't the system's mycelium. */
-	readonly oldHolder?: number;
+	/**
+	 * On Joel's focused workspace, elsewhere, held by no mycelium, so its
+	 * window would close were its pi running, or unplaced with why.
+	 */
+	readonly where: "joel" | "away" | "unheld" | { readonly unplaced: string };
+	/** Why its holder may show a Parked line as it moves, when it may. */
+	readonly loudHolder?: string;
 }
 
 /**
- * Where `session`'s window stands, or nothing for one mycelium knows no
- * window of. Of several niri windows with its class and title, any on
- * Joel's workspace counts, since sparing one too many costs only a later move.
+ * Where `session`'s window stands, or nothing for one a mycelium holds
+ * with no window, which has nothing on screen to lose. One no mycelium
+ * holds or lists is unheld: the cutover knows whether its pi runs, and
+ * so whether a window would close. Anything else the machine can't say
+ * counts as unplaced, a failed read first of all. Of several niri windows with its class and title,
+ * any on Joel's workspace counts, since sparing one too many costs only
+ * a later move.
  */
 export function standingOf(
 	session: string,
 	machine: MachineWindows,
 ): WindowStanding | undefined {
-	const row = machine.sessions.find((one) => one.session === session);
-	if (row?.window === undefined) return undefined;
-	const holder =
-		row.held === undefined ? undefined : machine.holders.get(row.held);
-	const old =
-		holder?.exe !== undefined &&
-		machine.mycelium !== undefined &&
-		holder.exe !== machine.mycelium
-			? { oldHolder: holder.pid }
-			: {};
-	const unplaced = (why: string): WindowStanding => ({
+	const unplaced = (why: string, loud = {}): WindowStanding => ({
 		where: { unplaced: why },
-		...old,
+		...loud,
 	});
 	if (machine.unread !== undefined) return unplaced(machine.unread);
+	const row = machine.sessions.find((one) => one.session === session);
+	if (row?.held === undefined) return { where: "unheld" };
+	if (row.window === undefined) return undefined;
+	const loud = loudness(machine.holders.get(row.held), machine.quiet);
 	const { within, id } = row.window;
 	const os = machine.kitties
 		.get(within)
 		?.find((one) => one.windows.includes(id));
-	if (os === undefined) return unplaced(`kitty ${within} has no window ${id}`);
+	if (os === undefined)
+		return unplaced(`kitty ${within} has no window ${id}`, loud);
 	const shown = machine.niri.filter(
 		(one) =>
 			one.title === os.title &&
@@ -115,11 +121,24 @@ export function standingOf(
 	if (shown.length === 0)
 		return unplaced(
 			`niri shows no window titled "${os.title}"${os.wmClass === undefined ? "" : ` of class ${os.wmClass}`}`,
+			loud,
 		);
 	if (machine.focused === undefined)
-		return unplaced("niri has no workspace focused");
+		return unplaced("niri has no workspace focused", loud);
 	const onJoels = shown.some((one) => one.workspace === machine.focused);
-	return { where: onJoels ? "joel" : "away", ...old };
+	return { where: onJoels ? "joel" : "away", ...loud };
+}
+
+// Why a holder may show the Parked line: any not running a vouched mycelium.
+function loudness(
+	holder: Holder | undefined,
+	quiet: ReadonlySet<string>,
+): { loudHolder?: string } {
+	if (holder === undefined) return { loudHolder: "its holder can't be read" };
+	if (holder.exe !== undefined && quiet.has(holder.exe)) return {};
+	return {
+		loudHolder: `its holder (pid ${holder.pid}) runs no mycelium vouched for as carrying #121`,
+	};
 }
 
 /** mycelium's sessions, from what `mycelium sessions` printed. */
@@ -205,6 +224,7 @@ export function parseKittyWindows(text: string): KittyWindow[] {
 export async function readMachineWindows(
 	realm: string,
 	runtimeDir: string | undefined = process.env.XDG_RUNTIME_DIR,
+	quietMycelium: readonly string[] = [],
 ): Promise<MachineWindows> {
 	const empty: MachineWindows = {
 		sessions: [],
@@ -212,7 +232,7 @@ export async function readMachineWindows(
 		focused: undefined,
 		kitties: new Map(),
 		holders: new Map(),
-		mycelium: systemMycelium(),
+		quiet: new Set(quietMycelium.flatMap((path) => realOrNothing(path) ?? [])),
 	};
 	let sessions: HeldSession[];
 	try {
@@ -293,16 +313,6 @@ function holderOf(record: string): Holder | undefined {
 		pid: parsed.holder,
 		exe: realOrNothing(`/proc/${parsed.holder}/exe`),
 	};
-}
-
-// What the mycelium on PATH resolves to, the system's own.
-function systemMycelium(): string | undefined {
-	for (const dir of (process.env.PATH ?? "").split(delimiter)) {
-		if (dir === "") continue;
-		const found = realOrNothing(join(dir, "mycelium"));
-		if (found) return found;
-	}
-	return undefined;
 }
 
 function realOrNothing(path: string): string | undefined {

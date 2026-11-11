@@ -12,11 +12,13 @@
  * parked one is woken to take its move. Sessions elsewhere (penelope,
  * the Mac) are left alone, as is the session running the cutover.
  *
- * A session whose window is on the workspace Joel has focused as the
- * cutover plans is left too, since a move may close or redraw that
- * window, as is one whose window can't be placed (OSPHT4, 11 November).
- * One whose window an older mycelium holds still moves, saying that
- * window shows a Parked line for a moment (windows.ts).
+ * A session whose window is on the workspace Joel has focused is left
+ * too, since a move may close or redraw that window, as is one whose
+ * window can't be placed (OSPHT4, 11 November). Both are judged as the
+ * cutover plans and again just before each session is told, as Joel
+ * may have moved since. One whose holder may predate mycelium #121
+ * still moves, saying its window may show a Parked line for a moment
+ * (windows.ts).
  */
 
 import type { MoveNote } from "../../lib/internal/session/move.ts";
@@ -59,6 +61,27 @@ export interface CutoverFacts {
 	window(presence: Presence): Promise<WindowStanding | undefined>;
 	/** The session running the cutover, if a pi runs it. */
 	readonly self?: string;
+}
+
+/**
+ * Why a session's window must be left where it stands, or nothing when
+ * it may move: on Joel's focused workspace, a running pi no mycelium
+ * holds, whose window would close, or where nobody can say. A parked pi
+ * no mycelium holds has no window to lose.
+ */
+export function windowSpares(
+	window: WindowStanding | undefined,
+	parked: boolean,
+): string | undefined {
+	if (window?.where === "joel")
+		return "its window is on the workspace Joel has focused";
+	if (window?.where === "unheld")
+		return parked
+			? undefined
+			: "no mycelium holds it, so whatever window it has would close";
+	if (typeof window?.where === "object")
+		return `its window can't be placed, so may be Joel's: ${window.where.unplaced}`;
+	return undefined;
 }
 
 /**
@@ -115,18 +138,14 @@ export async function planCutover(
 						why: "its harness predates the move",
 					};
 				const window = await facts.window(one);
-				if (window?.where === "joel")
-					return leave("its window is on the workspace Joel has focused");
-				if (typeof window?.where === "object")
-					return leave(
-						`its window can't be placed, so may be Joel's: ${window.where.unplaced}`,
-					);
+				const spared = windowSpares(window, one.state === "parked");
+				if (spared !== undefined) return leave(spared);
 				const wrote = one.driven ?? (await facts.personWrote(file));
 				const choice = hostFor(one.addresses, wrote, overrides);
 				const old =
-					window?.oldHolder === undefined
+					window?.loudHolder === undefined
 						? ""
-						: `; its holder (pid ${window.oldHolder}) predates mycelium #121, so its window shows a Parked line for 2 to 5 s`;
+						: `; ${window.loudHolder}, so its window may show a Parked line for 2 to 5 s`;
 				return {
 					kind: "move",
 					session,
@@ -158,6 +177,8 @@ export interface MoveFacts {
 	 * answers what the shell said.
 	 */
 	keepPlace(session: string): Promise<string>;
+	/** Where the session's window stands at this moment, read afresh. */
+	windowNow(session: string): Promise<WindowStanding | undefined>;
 	/** Tell a session to move, through its steer inbox. */
 	tell(address: string, to: HostKind): void;
 	/** Wake a parked session, so it takes its move. */
@@ -211,6 +232,8 @@ export interface MoveReport {
 	readonly takenBack: readonly string[];
 	/** What the shell said of keeping each session's window's place. */
 	readonly places: readonly { address: string; said: string }[];
+	/** Sessions left untold, as their window stood just before, with why. */
+	readonly spared: readonly { address: string; why: string }[];
 }
 
 /** How often the cutover looks again while sessions are moving. */
@@ -231,7 +254,14 @@ export async function carryOut(
 ): Promise<MoveReport> {
 	const goes = new Map<string, HostKind>();
 	const places: { address: string; said: string }[] = [];
+	const spared: { address: string; why: string }[] = [];
 	for (const step of steps) {
+		const why = windowSpares(await facts.windowNow(step.session), step.parked);
+		if (why !== undefined) {
+			spared.push({ address: step.address, why });
+			facts.say(`left ${step.address} untold: ${why}`);
+			continue;
+		}
 		const said = await facts.keepPlace(step.session);
 		places.push({ address: step.address, said });
 		facts.say(`${step.address}'s window: ${said}`);
@@ -323,6 +353,7 @@ export async function carryOut(
 		moved,
 		waiting,
 		places,
+		spared,
 		takenBack,
 		refused: [...refused].map(([session, why]) => ({
 			address: addressOf(session),

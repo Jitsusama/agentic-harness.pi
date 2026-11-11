@@ -99,12 +99,24 @@ describe("planCutover", () => {
 			["there", { where: "joel" }],
 			["lost", { where: { unplaced: 'niri shows no window titled "x"' } }],
 			["away", { where: "away" }],
-			["old", { where: "away", oldHolder: 42 }],
+			["loose", { where: "unheld" }],
+			["asleep", { where: "unheld" }],
+			[
+				"old",
+				{
+					where: "away",
+					loudHolder:
+						"its holder (pid 42) runs no mycelium vouched for as carrying #121",
+				},
+			],
 		]);
 		const steps = await planCutover(
 			planFacts(
-				["there", "lost", "away", "old", "bare"].map((one) =>
-					presence(one, { driven: false }),
+				["there", "lost", "away", "loose", "asleep", "old", "bare"].map((one) =>
+					presence(one, {
+						driven: false,
+						...(one === "asleep" ? { state: "parked" as const } : {}),
+					}),
 				),
 				{ window: async ({ session }) => windows.get(session) },
 			),
@@ -113,7 +125,9 @@ describe("planCutover", () => {
 			"THERE     leave                       its window is on the workspace Joel has focused",
 			"LOST      leave                       its window can't be placed, so may be Joel's: niri shows no window titled \"x\"",
 			"AWAY      move to background          nobody but the harness has written in it",
-			"OLD       move to background          nobody but the harness has written in it; its holder (pid 42) predates mycelium #121, so its window shows a Parked line for 2 to 5 s",
+			"LOOSE     leave                       no mycelium holds it, so whatever window it has would close",
+			"ASLEEP    wake and move to background  nobody but the harness has written in it",
+			"OLD       move to background          nobody but the harness has written in it; its holder (pid 42) runs no mycelium vouched for as carrying #121, so its window may show a Parked line for 2 to 5 s",
 			"BARE      move to background          nobody but the harness has written in it",
 		]);
 	});
@@ -192,6 +206,8 @@ function fakeMachine(script: {
 	takenBack?: string[];
 	/** Sessions the target host's roster keeps though its adopt failed. */
 	kept?: string[];
+	/** Where each session's window stands just before its tell. */
+	windows?: Record<string, WindowStanding>;
 }) {
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
 	const claimed = new Map<string, MoveNote>();
@@ -207,6 +223,7 @@ function fakeMachine(script: {
 	const facts: MoveFacts = {
 		keepPlace: async (session) =>
 			session === "b" ? "no window to keep" : "kept",
+		windowNow: async (session) => script.windows?.[session],
 		tell: (address, to) => {
 			told.push(`${address}>${to}`);
 			goes.set(address.toLowerCase(), to);
@@ -283,11 +300,43 @@ describe("carryOut", () => {
 				{ address: "A", said: "kept" },
 				{ address: "B", said: "no window to keep" },
 			],
+			spared: [],
 		});
 		expect(machine.said.slice(0, 2), "the place kept before the steer").toEqual(
 			["A's window: kept", "told A to move to attended"],
 		);
 		expect(machine.notes.size, "every note taken away").toBe(0);
+	});
+
+	it("leaves untold a session whose window is Joel's or unplaced just before its tell", async () => {
+		const machine = fakeMachine({
+			ending: [["c"]],
+			windows: {
+				a: { where: "joel" },
+				b: { where: { unplaced: "niri didn't answer: gone" } },
+				c: { where: "away" },
+			},
+		});
+		const report = await carryOut(
+			[move("a", "attended"), move("b", "background"), move("c", "background")],
+			machine.facts,
+			60_000,
+		);
+		expect(machine.told).toEqual(["C>background"]);
+		expect(report.moved).toEqual(["C"]);
+		expect(report.spared).toEqual([
+			{
+				address: "A",
+				why: "its window is on the workspace Joel has focused",
+			},
+			{
+				address: "B",
+				why: "its window can't be placed, so may be Joel's: niri didn't answer: gone",
+			},
+		]);
+		expect(report.places, "no place kept for a session left").toEqual([
+			{ address: "C", said: "kept" },
+		]);
 	});
 
 	it("leaves a session alone while its pi still runs", async () => {
@@ -320,6 +369,7 @@ describe("carryOut", () => {
 			refused: [],
 			takenBack: [],
 			places: [{ address: "A", said: "kept" }],
+			spared: [],
 		});
 	});
 
@@ -359,6 +409,7 @@ describe("carryOut", () => {
 			refused: [{ address: "A", why: "no work-attended host is listening" }],
 			takenBack: [],
 			places: [{ address: "A", said: "kept" }],
+			spared: [],
 		});
 		expect(machine.claimed.size, "no claim left held").toBe(0);
 		expect(

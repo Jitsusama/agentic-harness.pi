@@ -1,8 +1,8 @@
 /**
  * Where a session's window stands as the cutover plans: matched from
- * mycelium's window to kitty's OS window to niri's by title, with the
- * holder judged against the system's mycelium. The shapes are those the
- * machine printed on 11 November.
+ * mycelium's window to kitty's OS window to niri's by class and title,
+ * with the holder judged against the mycelium the run vouches for. The
+ * shapes are those the machine printed on 11 November.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -29,6 +29,7 @@ const machine = (over: Partial<MachineWindows> = {}): MachineWindows => ({
 			window: { within: "unix:@kitty-1", id: "159" },
 		},
 		{ session: "bare" },
+		{ session: "parked", held: "h3" },
 	],
 	niri: [
 		{ appId: "pi-spawned", title: "π - Network - core.nix", workspace: 8 },
@@ -56,25 +57,32 @@ const machine = (over: Partial<MachineWindows> = {}): MachineWindows => ({
 		["h1", { pid: 10, exe: SYSTEM }],
 		["h2", { pid: 20, exe: "/nix/store/old-mycelium/bin/mycelium" }],
 	]),
-	mycelium: SYSTEM,
+	quiet: new Set([SYSTEM]),
 	...over,
 });
+
+const LOUD_20 =
+	"its holder (pid 20) runs no mycelium vouched for as carrying #121";
 
 describe("standingOf", () => {
 	it("says a window on Joel's focused workspace is his", () => {
 		expect(standingOf("s1", machine())).toEqual({ where: "joel" });
 	});
 
-	it("says a window elsewhere is away, naming a holder older than the system's", () => {
+	it("says a window elsewhere is away, naming a holder nobody vouched for", () => {
 		expect(standingOf("s2", machine())).toEqual({
 			where: "away",
-			oldHolder: 20,
+			loudHolder: LOUD_20,
 		});
 	});
 
-	it("knows no window of a session with none", () => {
-		expect(standingOf("bare", machine())).toBeUndefined();
-		expect(standingOf("unknown", machine())).toBeUndefined();
+	it("knows no window of a held session with none", () => {
+		expect(standingOf("parked", machine())).toBeUndefined();
+	});
+
+	it("says a session no mycelium holds or lists is unheld", () => {
+		expect(standingOf("bare", machine())).toEqual({ where: "unheld" });
+		expect(standingOf("unknown", machine())).toEqual({ where: "unheld" });
 	});
 
 	it("counts a title shown on Joel's workspace among several as his", () => {
@@ -108,24 +116,34 @@ describe("standingOf", () => {
 		expect(standingOf("s1", machine({ focused: undefined }))?.where).toEqual({
 			unplaced: "niri has no workspace focused",
 		});
-		expect(
-			standingOf("s2", machine({ unread: "niri didn't answer: gone" })),
-		).toEqual({
-			where: { unplaced: "niri didn't answer: gone" },
-			oldHolder: 20,
-		});
 	});
 
-	it("judges no holder whose executable or the system's can't be read", () => {
-		expect(standingOf("s2", machine({ mycelium: undefined }))).toEqual({
-			where: "away",
+	it("spares every session when the machine couldn't be read, mycelium's list included", () => {
+		const unread = machine({
+			sessions: [],
+			unread: "mycelium didn't list sessions: timed out",
+		});
+		for (const session of ["s1", "bare", "parked", "unknown"])
+			expect(standingOf(session, unread)).toEqual({
+				where: { unplaced: "mycelium didn't list sessions: timed out" },
+			});
+	});
+
+	it("names a holder as loud unless its executable is one vouched for", () => {
+		expect(standingOf("s1", machine({ quiet: new Set() }))).toEqual({
+			where: "joel",
+			loudHolder:
+				"its holder (pid 10) runs no mycelium vouched for as carrying #121",
 		});
 		expect(
 			standingOf(
-				"s2",
-				machine({ holders: new Map([["h2", { pid: 20, exe: undefined }]]) }),
-			),
-		).toEqual({ where: "away" });
+				"s1",
+				machine({ holders: new Map([["h1", { pid: 10, exe: undefined }]]) }),
+			)?.loudHolder,
+		).toBe("its holder (pid 10) runs no mycelium vouched for as carrying #121");
+		expect(standingOf("s1", machine({ holders: new Map() }))?.loudHolder).toBe(
+			"its holder can't be read",
+		);
 	});
 });
 
