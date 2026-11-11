@@ -132,8 +132,14 @@ describe("a throw the host's process caught", () => {
 		const screens = host();
 		const mode = await screens.open("a");
 
-		expect(screens.faulted("a", new Error("a timer broke"))).toBe(true);
-		expect(screens.faulted("gone", new Error("elsewhere"))).toBe(false);
+		expect(
+			screens.faulted("a", new Error("a timer broke")),
+			"a live screen contains its conversation's throw",
+		).toBe(true);
+		expect(
+			screens.faulted("gone", new Error("elsewhere")),
+			"no screen contains an unknown conversation's throw",
+		).toBe(false);
 
 		expect(mode.resets).toEqual(["a"]);
 	});

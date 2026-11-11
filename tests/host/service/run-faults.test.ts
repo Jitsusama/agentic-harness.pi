@@ -124,7 +124,10 @@ describe("a throw nothing caught", () => {
 		);
 		expect(contain).not.toHaveBeenCalled();
 		expect(host.report).toHaveBeenCalledWith(lost);
-		expect(await listening(host.run.serving.path)).toBe(false);
+		expect(
+			await listening(host.run.serving.path),
+			"the stopped host no longer listens",
+		).toBe(false);
 		expect(
 			await heldSessionStatus(host.sessionId, { dir: join(dir, "rosters") }),
 		).toBe("held");
