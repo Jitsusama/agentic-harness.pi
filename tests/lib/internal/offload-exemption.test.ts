@@ -2,7 +2,8 @@
  * What the nix-offload exemption lets out of the fence beyond a bare
  * call: never a flag that works on this machine, a `--run` only of the
  * store's own, and one `cd` only into a tree the work tool holds for the
- * session, as ISXEG8's review of 11 November set out.
+ * session, as ISXEG8's review of 11 November set out. A bare call runs
+ * in the command's own folder, whose git a `--run` always reads.
  */
 
 import {
@@ -17,11 +18,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	gitFolders,
+	guardsGitFolder,
 	NO_GIT_DIR,
 	type OffloadPlace,
 	offloadedOutside,
 } from "../../../lib/internal/fence.ts";
-import { heldTree } from "../../../lib/internal/sandbox.ts";
+import { folderGit, heldTree } from "../../../lib/internal/sandbox.ts";
 
 const OFFLOAD = {
 	program: "/nix/store/0000-nix-offload/bin/nix-offload",
@@ -188,6 +191,16 @@ describe("a cd before the call", () => {
 		).toBeUndefined();
 	});
 
+	it("holds a bare call in a held tree to the tree's own git folder", () => {
+		const text = letOut("nix-offload there --changed", {
+			cwd: tree,
+			folderGit: (folder) => folderGit(folder, home, "s1", records),
+		});
+		const own = join(base, "repo", "worktrees", "tree");
+		expect(text, "the tree's git").toContain(`'GIT_DIR=${own}'`);
+		expect(text, "the tree's files").toContain(`'GIT_WORK_TREE=${tree}'`);
+	});
+
 	it("refuses a held tree named through a link", () => {
 		expect(
 			letOut(`cd ${join(base, "link")} && nix-offload there --changed`, {
@@ -222,5 +235,94 @@ describe("a cd before the call", () => {
 		]) {
 			expect(letOut(command, held), command).toBeUndefined();
 		}
+	});
+});
+
+describe("a bare call in the command's folder", () => {
+	let home: string;
+
+	beforeAll(() => {
+		home = realpathSync(mkdtempSync(join(tmpdir(), "offload-bare-")));
+		for (const where of ["src/r/.git", "src/r/sub", "elsewhere/r/.git"]) {
+			mkdirSync(join(home, where), { recursive: true });
+		}
+		mkdirSync(join(home, "src/linked"), { recursive: true });
+		symlinkSync(join(home, "elsewhere/r/.git"), join(home, "src/linked/.git"));
+	});
+
+	afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+	const bare = (cwd: string) =>
+		letOut(`nix-offload there --run --copy ${SCRIPT} -- ${SCRIPT} main`, {
+			home,
+			cwd,
+			folderGit: (folder) =>
+				folderGit(folder, home, "s1", join(home, "elsewhere", "records")),
+		});
+
+	it("holds a run in a guarded checkout to that checkout's git", () => {
+		const checkout = join(home, "src/r");
+		const text = bare(checkout);
+		expect(text, "its git folder").toContain(
+			`'GIT_DIR=${join(checkout, ".git")}'`,
+		);
+		expect(text, "its files").toContain(`'GIT_WORK_TREE=${checkout}'`);
+		expect(text, "no other git folder").not.toContain(NO_GIT_DIR);
+	});
+
+	it("gives git no folder at all anywhere else", () => {
+		for (const cwd of [
+			join(home, "elsewhere/r"),
+			join(home, "src/r/sub"),
+			join(home, "src/linked"),
+			home,
+		]) {
+			expect(bare(cwd), cwd).toContain(`'GIT_DIR=${NO_GIT_DIR}'`);
+		}
+	});
+});
+
+describe("the fence's guarded git folders", () => {
+	let home: string;
+
+	beforeAll(() => {
+		home = realpathSync(mkdtempSync(join(tmpdir(), "guarded-git-")));
+	});
+
+	afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+	it("are told apart one at a time as the walk would list them", () => {
+		const places = [
+			"top",
+			".hidden-top",
+			"src/a",
+			"src/github.com/org/repo",
+			"src/w/x/y/z",
+			"src/v/w/x/y/z",
+			"src/.hidden/r",
+			"src/a/inner",
+			"world/r",
+			"world/r2/deeper",
+			"elsewhere/r",
+		];
+		for (const where of places) {
+			mkdirSync(join(home, where, ".git"), { recursive: true });
+		}
+		const bareRepository = join(home, "src/bare.git");
+		mkdirSync(join(bareRepository, "objects"), { recursive: true });
+		writeFileSync(join(bareRepository, "HEAD"), "ref: refs/heads/main\n");
+
+		const listed = new Set(gitFolders(home));
+		const candidates = [
+			...places.map((where) => join(home, where, ".git")),
+			bareRepository,
+		];
+		for (const git of candidates) {
+			expect(guardsGitFolder(git, home), git).toBe(listed.has(git));
+		}
+		expect(listed.size, "the walk found some and missed some").toBeLessThan(
+			candidates.length,
+		);
+		expect([...listed]).toContain(join(home, "src/a/.git"));
 	});
 });

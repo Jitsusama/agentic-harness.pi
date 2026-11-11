@@ -33,7 +33,7 @@
  */
 
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -327,6 +327,36 @@ export function gitFolders(home: string, disk: Disk = DISK): string[] {
 }
 
 /**
+ * Whether `git` is a git folder `gitFolders` finds, without walking
+ * every repository: what pi asks before it runs git outside the fence,
+ * once a call, so it follows the walk's rules rather than its listing.
+ */
+export function guardsGitFolder(
+	git: string,
+	home: string,
+	disk: Disk = DISK,
+): boolean {
+	const working = basename(git) === ".git" && disk.kind(git) === "folder";
+	const repository = working ? dirname(git) : git;
+	if (gitFolderOf(repository, disk) !== git) return false;
+	return REPOSITORY_HOMES.some(({ where, depth }) => {
+		const top = join(home, where);
+		const parts = relative(top, repository).split(sep);
+		const first = parts[0] ?? "";
+		if (first === "" || first === ".." || parts.length > depth) return false;
+		let folder = top;
+		return parts.slice(0, -1).every((entry) => {
+			folder = join(folder, entry);
+			return (
+				!entry.startsWith(".") &&
+				disk.kind(folder) === "folder" &&
+				disk.kind(join(folder, ".git")) === undefined
+			);
+		});
+	});
+}
+
+/**
  * bubblewrap's arguments for git: what runs code in each repository's
  * git folder read-only, since git runs outside the fence there (the
  * person, pi's work tool). A repository's whole `worktrees` folder is
@@ -569,6 +599,14 @@ export interface OffloadPlace {
 	 * nothing otherwise, and nothing when it isn't given.
 	 */
 	readonly heldTree?: (folder: string) => HeldGit | undefined;
+	/** The folder the command runs in, where a bare call runs. */
+	readonly cwd?: string;
+	/**
+	 * The folder as it really is, with its git folder, when it is a tree
+	 * the session holds or a checkout whose git folder the fence keeps
+	 * read-only; nothing otherwise.
+	 */
+	readonly folderGit?: (folder: string) => HeldGit | undefined;
 }
 
 /**
@@ -588,9 +626,12 @@ export interface OffloadPlace {
  * run git for minutes after, and a fenced command could point the tree's
  * `.git` at a git folder it made, whose config names a program to run.
  * So git is told where to look and never reads `.git` again: the held
- * tree's own git folder, which the fence keeps read-only, and with no
- * tree a folder that can't exist, so a flake named by a path fails
- * rather than reading one. `core.fsmonitor` is off either way.
+ * tree's own git folder, which the fence keeps read-only. A bare call
+ * runs in the command's own folder, and `--run` always sends the commit
+ * there, so that folder is held the same way when it is a held tree or
+ * a checkout the fence guards. In any other folder git is given one that
+ * can't exist, so a flake named by a path, or a `--run`, fails rather
+ * than read a `.git` a command wrote. `core.fsmonitor` is off either way.
  */
 export function offloadedOutside(
 	command: string,
@@ -607,6 +648,8 @@ export function offloadedOutside(
 		held = place.heldTree?.(named);
 		if (held === undefined) return undefined;
 		call = rest.trim();
+	} else if (place.cwd !== undefined) {
+		held = place.folderGit?.(place.cwd);
 	}
 	if (!OFFLOAD_CALL.test(call)) return undefined;
 	const words = call.split(/[ \t]+/).slice(1);

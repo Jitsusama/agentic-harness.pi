@@ -128,9 +128,13 @@ may come before the call, as `nix-offload there --changed` needs,
 provided the tree is named without a link and its `.git` file, its git
 folder's way back and its `commondir` agree. The call's git is then
 held to that tree's git folder (`GIT_DIR`), so a `.git` rewritten
-mid-run is never read; without a `cd` it is given none, so build a
-tree by `cd <tree> && nix-offload there . <attribute>`, not by naming
-the tree's path. One reach stays while the exemption does:
+mid-run is never read. Without a `cd` the call runs in the command's
+own folder, and `--run` always sends the commit there: that folder's
+git is held the same way when it is a tree the session holds or the
+top of a checkout the fence guards, and anywhere else git is given
+none, so a `--run` there fails saying the folder isn't in a git tree.
+Build a tree by `cd <tree> && nix-offload there . <attribute>`, not by
+naming the tree's path. One reach stays while the exemption does:
 changed-checks evaluates the tree's flake here with `--impure`, outside
 the fence, and a fenced command can write that flake, so the
 evaluation can read what the fence hides from reads (the runtime
