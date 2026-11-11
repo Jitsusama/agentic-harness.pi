@@ -1,12 +1,26 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	questsTouchedBy,
 	RecordWatch,
 } from "../../../extensions/quest-workflow/record-watch.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { auditQuestRecord } from "../../../lib/core/internal/quest/record-audit.ts";
+
+vi.mock("../../../lib/core/internal/quest/record-audit.ts", async (actual) => {
+	const module =
+		await actual<
+			typeof import("../../../lib/core/internal/quest/record-audit.ts")
+		>();
+	return {
+		...module,
+		auditQuestRecord: vi.fn(module.auditQuestRecord),
+	};
+});
+
+const audits = vi.mocked(auditQuestRecord);
 
 const QUEST = "QEST-20260924-ABC123";
 const OTHER = "QEST-20260101-OTHER1";
@@ -80,6 +94,23 @@ describe("RecordWatch.after", () => {
 	it("says nothing for a call it never saw start", () => {
 		put(QUEST, "lab/results.csv");
 		expect(watch.after("unknown")).toBeUndefined();
+	});
+
+	it("reads the record again only after a call changed its folder", () => {
+		watch.before("call-1", [QUEST]);
+		watch.after("call-1");
+		const read = audits.mock.calls.length;
+		watch.before("call-2", [QUEST]);
+		expect(watch.after("call-2")).toBeUndefined();
+		expect(
+			audits.mock.calls.length,
+			"audits after a call that changed nothing",
+		).toBe(read);
+
+		watch.before("call-3", [QUEST]);
+		put(QUEST, "lab/results.csv");
+		expect(watch.after("call-3")).toContain("lab");
+		expect(audits.mock.calls.length).toBe(read + 1);
 	});
 });
 

@@ -118,6 +118,33 @@ export function auditQuestRecord(questDir: string): RecordAudit {
 }
 
 /**
+ * What a quest folder holds as it stands, said by every path's kind,
+ * size, inode and times rather than its contents, so the same stamp twice
+ * means the audit would find the same again. Reading the documents for
+ * links took 40 to 70 ms of pi's main thread for a quest with a 400 KB
+ * plan, after every call that could touch the folder, while this walk
+ * reads no file. An atomic write renames a new file into place, so it
+ * shows as a new inode even when its size and time match.
+ */
+export function recordStamp(questDir: string): string {
+	const parts: string[] = [];
+	const walk = (dir: string, rel: string): void => {
+		for (const name of readdirSync(dir).sort()) {
+			if (isMachinery(name)) continue;
+			const path = join(dir, name);
+			const stats = lstatSync(path);
+			const kind = stats.isDirectory() ? "d" : stats.isFile() ? "f" : "o";
+			parts.push(
+				`${rel}${name}\t${kind}\t${stats.size}\t${stats.ino}\t${stats.mtimeMs}\t${stats.ctimeMs}`,
+			);
+			if (kind === "d") walk(path, `${rel}${name}/`);
+		}
+	};
+	walk(questDir, "");
+	return parts.join("\n");
+}
+
+/**
  * Whether a record may conclude as it is. Uncited attachments do not
  * stop it: the backup leaves them out, which is their only cost.
  */
