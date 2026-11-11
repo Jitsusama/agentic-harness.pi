@@ -167,7 +167,11 @@ That waits for the session to be idle, keeps its fence and spawner,
 and opens or moves no window; a session its person may be looking at,
 or one nothing holds, keeps the code it runs, says why once, and asks
 again ten minutes later. A reload somebody asks for still reloads, and
-warns that the moved links load from their first targets.
+warns that the moved links load from their first targets. A runtime
+that starts with such links came up through a reload, so it asks for
+the same restart once idle, whether or not the install moved: that is
+how the first swap after this change reaches pis whose follower
+predates it.
 
 ## In a Host
 

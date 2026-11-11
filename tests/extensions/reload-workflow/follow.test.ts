@@ -70,7 +70,10 @@ async function behind({
 	startedAt = Date.now(),
 	// How its holder answers a restart, if anything here answers one.
 	answer,
+	// It already runs the version its install's link names.
+	current = false,
 }: {
+	current?: boolean;
 	swapped?: boolean;
 	installUnread?: boolean;
 	spreadMs?: number;
@@ -116,7 +119,7 @@ async function behind({
 		// Swapped, it runs a version of another install than its settings
 		// name; an install the start couldn't read is none at all.
 		() => ({
-			root: was,
+			root: current ? now : was,
 			install: swapped
 				? join(install, "elsewhere", "versions", "cccc")
 				: installUnread
@@ -354,6 +357,38 @@ describe("following the install", () => {
 			},
 		]);
 		expect(notices, "its person is told once").toHaveLength(1);
+	});
+
+	it("starts again when a reload brought it up on moved links, install moved or not", async () => {
+		// Every pi's first swap after this lands is a reload by the follower
+		// it replaces, so the new runtime is the first that can say.
+		const { follower, prompted, asks } = await behind({
+			...movedLinks(),
+			current: true,
+			answer: (ask) => {
+				ask.restarting = true;
+			},
+		});
+
+		follower?.consider();
+
+		await until("the restart is asked for", () => asks.length > 0);
+		expect(prompted, "nothing reloads it again").toEqual([]);
+	});
+
+	it("asks nothing of a current runtime whose links are older than it", async () => {
+		const links = movedLinks();
+		const { follower, prompted, asks } = await behind({
+			extensions: links.extensions,
+			startedAt: Date.now() + 60_000,
+			current: true,
+		});
+
+		follower?.consider();
+
+		await quietFor(QUIET_MS, 4);
+		expect(asks, "no restart").toEqual([]);
+		expect(prompted, "no reload").toEqual([]);
 	});
 
 	it("reloads as before when its extension links are older than it", async () => {
