@@ -217,6 +217,15 @@ it(
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\n${textOf(orchestrator.file)}`);
 			});
+			// The host's list can drop the child before pi writes the tool's
+			// answer to the orchestrator's log, so wait for the answer too.
+			await untilAnswered(
+				"mesh_end's answer reaches the orchestrator's log",
+				async () => lastSaid("mesh_end") !== undefined,
+				ROUND_TRIP_MS,
+			).catch((error: unknown) => {
+				throw new Error(`${String(error)}\n${textOf(orchestrator.file)}`);
+			});
 			expect(lastSaid("mesh_end")).toContain(
 				"Asked E6C000's host to close only that conversation",
 			);
