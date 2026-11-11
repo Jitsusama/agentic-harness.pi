@@ -135,6 +135,14 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(own.calls).toEqual(["true"]);
 	});
 
+	it("stops what an earlier load left as it is made, asked for or not", () => {
+		for (const env of [{}, { [SPAWNER_VARIABLE]: "on" }]) {
+			const reap = vi.fn<() => void>();
+			spawnedBy(fallback(), { env, shell: SHELL, reap });
+			expect(reap, JSON.stringify(env)).toHaveBeenCalledOnce();
+		}
+	});
+
 	it("falls back to pi's own spawn where the system's profile has no program", async () => {
 		const own = fallback();
 		const operations = spawnedBy(own, {

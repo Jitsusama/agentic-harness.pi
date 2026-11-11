@@ -91,8 +91,12 @@ export interface SpawnerOptions {
 	/** Kill a command's process group, as pi's stop does. */
 	kill?: (pid: number) => void;
 	/**
-	 * Stop what earlier loads left, before this one starts its own; by
-	 * default each idle pi-spawner this pi started (stopIdleSpawners).
+	 * Stop what earlier loads left, as this one is made and before it
+	 * starts its own; by default each idle pi-spawner this pi started
+	 * (stopIdleSpawners). It runs whether or not pi-spawner is asked for:
+	 * a pi that ran it under an earlier load and runs without it now
+	 * would otherwise keep that one idle until it ends, as eight did on
+	 * 11 November.
 	 */
 	reap?: () => void;
 }
@@ -140,6 +144,7 @@ export function spawnedBy(
 	options: SpawnerOptions = {},
 ): SpawnerOperations {
 	const env = options.env ?? process.env;
+	(options.reap ?? stopIdleSpawners)();
 	if (env[SPAWNER_VARIABLE] !== "on") {
 		return {
 			exec: (command, cwd, settings) => fallback.exec(command, cwd, settings),
@@ -159,7 +164,6 @@ export function spawnedBy(
 			lost = true;
 			return undefined;
 		}
-		(options.reap ?? stopIdleSpawners)();
 		try {
 			link = connect((options.start ?? startProgram)(program), kill, () => {
 				lost = true;
