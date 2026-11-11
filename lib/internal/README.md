@@ -156,6 +156,9 @@ may import from here, and any of it may change without notice.
   system's own profile, through steps root alone can change.
 - **`transcript.ts`**: pi's session entries as the plain turns the
   governance distiller reads.
+- **`tree-git.ts`**: where pi may run git outside the sandbox, and
+  with which git folder: a tree only as its own files agree, and in a
+  sandboxed session only in repositories the fence guards.
 - **`unattended-exec.ts`**: running git and gh with nobody at the
   keyboard.
 - **`work-records.ts`**: where the work broker writes down the trees

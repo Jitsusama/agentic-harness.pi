@@ -62,14 +62,9 @@
  * work, the network and the environment as they were.
  */
 
-import {
-	mkdirSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-	statSync,
-} from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { mkdirSync, rmSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
 	FENCE,
 	fenceArgs,
@@ -89,13 +84,40 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { systemProgram } from "./system-program.ts";
-import { treesHeldBy } from "./work-records.ts";
+import {
+	type GitRules,
+	namedGitFolder,
+	real,
+	treeGit,
+	within,
+	worktreeRepository,
+} from "./tree-git.ts";
+import { cutTreeDir, treesHeldBy } from "./work-records.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
 export const STRICT = "strict";
+
+/**
+ * What git that pi runs outside the sandbox holds to for this session
+ * (`tree-git.ts`): a repository the fence guards, when its commands run
+ * fenced or sandboxed, since they could have set what git runs anywhere
+ * else.
+ */
+export function gitRules(
+	env: NodeJS.ProcessEnv = process.env,
+	home: string = homedir(),
+): GitRules {
+	const asked = env[SANDBOX_VARIABLE]?.trim();
+	return {
+		home: real(home),
+		fenced: asked === FENCE || asked === STRICT,
+		trees: cutTreeDir(),
+	};
+}
 
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
@@ -340,23 +362,6 @@ export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
 }
 
-/** A path as it really is, or as given when it can't be resolved. */
-function real(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		return path;
-	}
-}
-
-/** Whether `path` is `folder` or lies inside it, as both really are. */
-export function within(path: string, folder: string): boolean {
-	const between = relative(real(folder), real(path));
-	return (
-		between === "" || !(between.startsWith("..") || between.startsWith("/"))
-	);
-}
-
 /**
  * Why the sandbox can't let commands write `cwd`, when it can't: its
  * writes would reach what runs outside the sandbox later.
@@ -375,46 +380,27 @@ export function unfencedFolder(cwd: string, home: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * Where quests' scratch folders live, and the one `temporary` (a
+ * session's `TMPDIR`, a link into its quest's) lies in, if it does.
+ */
+export function questScratch(
+	temporary: string | undefined,
+	root: string = questWorkspacesRoot(),
+): { root: string; own?: string } {
+	const top = real(root);
+	const at = temporary ? relative(top, real(temporary)) : "..";
+	const first = at.split(sep)[0] ?? "";
+	const outside = first === "" || first === ".." || isAbsolute(at);
+	return outside ? { root: top } : { root: top, own: join(top, first) };
+}
+
 /** The folder a worktree's `.git` file names, or nothing when `cwd` has none. */
 function worktreeFolder(cwd: string): string | undefined {
 	try {
-		const named = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(cwd, ".git"), "utf8"),
-		)?.[1];
-		return named ? real(resolve(cwd, named.trim())) : undefined;
+		return namedGitFolder(cwd);
 	} catch {
 		// No .git file here: a plain folder, or a clone's own git folder.
-		return undefined;
-	}
-}
-
-/**
- * The git folder of the repository `cwd` is a worktree of, for the
- * sandbox to read, or nothing when it isn't one.
- *
- * The `.git` file naming it lies in the working folder, which commands
- * write, so it is taken only when the folder it names is a worktree's
- * own, in its repository's `worktrees`, and points back at this `.git`;
- * a command can make neither outside its work. A repository holding the
- * home folder is never given.
- */
-export function worktreeRepository(
-	cwd: string,
-	home: string,
-): string | undefined {
-	try {
-		const dotGit = join(cwd, ".git");
-		const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
-		if (!named) return undefined;
-		const own = real(resolve(cwd, named.trim()));
-		if (basename(dirname(own)) !== "worktrees") return undefined;
-		const repository = dirname(dirname(own));
-		const back = readFileSync(join(own, "gitdir"), "utf8").trim();
-		if (real(resolve(own, back)) !== real(dotGit)) return undefined;
-		if (!statSync(join(repository, "objects")).isDirectory()) return undefined;
-		return within(home, repository) ? undefined : repository;
-	} catch {
-		// No .git file here, or one naming no worktree of a repository.
 		return undefined;
 	}
 }
@@ -440,21 +426,8 @@ export function heldTree(
 		(tree) => real(tree) === named,
 	);
 	if (!held) return undefined;
-	const repository = worktreeRepository(named, home);
-	if (repository === undefined) return undefined;
-	try {
-		const gitdir = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(named, ".git"), "utf8"),
-		)?.[1];
-		const own = real(resolve(named, gitdir?.trim() ?? ""));
-		const common = readFileSync(join(own, "commondir"), "utf8").trim();
-		return real(resolve(own, common)) === real(repository)
-			? { folder: named, gitDir: own }
-			: undefined;
-	} catch {
-		// A git folder with no commondir is no worktree the broker cut.
-		return undefined;
-	}
+	const git = treeGit(named, home);
+	return git ? { folder: named, gitDir: git.gitDir } : undefined;
 }
 
 /**
@@ -674,6 +647,7 @@ export function wrapFor(
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				ownGitFolder: worktreeFolder(place.cwd),
+				scratch: questScratch(place.env.TMPDIR),
 			};
 			const made = {
 				bwrap: sandbox.bwrap,

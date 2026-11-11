@@ -23,6 +23,11 @@
  * - **No startup files:** the settings and startup files that run code
  *   as the person later (`READ_ONLY`) are read-only, from this command
  *   and from pi's own file tools (`sandbox-files.ts`).
+ * - **No repositories of its making:** `~/src` and `~/world`, where the
+ *   repositories pi runs git in outside the fence live, are read-only
+ *   but for the session's own tree and what a commit writes in each git
+ *   folder (`GIT_WRITTEN`), so no command plants a repository, a
+ *   setting or a `commondir` there for git outside to run.
  * - **No new privileges:** bubblewrap and Landlock both set
  *   NoNewPrivs, so a setgid wrapper such as 1Password's `op` gains
  *   nothing, and 1Password refuses it.
@@ -172,6 +177,8 @@ export interface FencePlace {
 	readonly cwd?: string;
 	/** The worktree's own folder in its repository's `worktrees`. */
 	readonly ownGitFolder?: string;
+	/** Where quests' scratch folders live, and this session's quest's own. */
+	readonly scratch?: { readonly root: string; readonly own?: string };
 }
 
 /** The read-only paths, for the home folder `home`. */
@@ -247,7 +254,24 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...homeArgs(place.home, disk),
 		...sshArgs(place.home, disk),
 		...gitArgs(place, disk),
+		...scratchArgs(place, disk),
 	];
+}
+
+/**
+ * bubblewrap's arguments for quests' scratch folders: every one
+ * read-only, this session's quest's own bound back writable. Other
+ * quests keep clones there, whose settings pi's git, and their own
+ * sessions', run outside the fence.
+ */
+function scratchArgs(place: FencePlace, disk: Disk): string[] {
+	const scratch = place.scratch;
+	if (!scratch || disk.kind(scratch.root) !== "folder") return [];
+	const own =
+		scratch.own && disk.kind(scratch.own) === "folder"
+			? ["--bind", scratch.own, scratch.own]
+			: [];
+	return ["--ro-bind", scratch.root, scratch.root, ...own];
 }
 
 /** The files in `~/.ssh` a command may read: public keys, settings and known hosts. */
@@ -280,15 +304,35 @@ function sshArgs(home: string, disk: Disk): string[] {
 const GIT_CODE = ["config", "config.worktree", "hooks", "info"] as const;
 
 /**
+ * What a commit in a worktree writes in its repository's git folder,
+ * bound back writable in a repository home the fence keeps read-only:
+ * the rest of the folder stays read-only, so no command can add a
+ * `commondir` that sends git to settings elsewhere, or a submodule's
+ * git folder under `modules`.
+ */
+const GIT_WRITTEN = ["objects", "refs", "logs", "lfs", "rr-cache"] as const;
+
+/**
  * Folders that may hold repositories, and how many levels down: the
  * home folder's own entries, `src` as deep as `src/github.com/org/repo`
- * and a level more, and `world`.
+ * and a level more, and `world`. `src` and `world` are kept read-only
+ * inside, so no command can make a repository there, and only theirs
+ * count as guarded: a command can still make a git folder in another
+ * entry of the home folder and write its settings before the fence
+ * ever guards them.
  */
 const REPOSITORY_HOMES = [
-	{ where: "", depth: 1 },
-	{ where: "src", depth: 4 },
-	{ where: "world", depth: 1 },
+	{ where: "", depth: 1, kept: false },
+	{ where: "src", depth: 4, kept: true },
+	{ where: "world", depth: 1, kept: true },
 ] as const;
+
+/** The repository homes the fence keeps read-only, that are folders here. */
+function keptHomes(home: string, disk: Disk): string[] {
+	return REPOSITORY_HOMES.filter(({ kept }) => kept)
+		.map(({ where }) => join(home, where))
+		.filter((top) => disk.kind(top) === "folder");
+}
 
 /** A repository's git folder, working or bare, or nothing when `path` holds none. */
 function gitFolderOf(path: string, disk: Disk): string | undefined {
@@ -327,9 +371,10 @@ export function gitFolders(home: string, disk: Disk = DISK): string[] {
 }
 
 /**
- * Whether `git` is a git folder `gitFolders` finds, without walking
- * every repository: what pi asks before it runs git outside the fence,
- * once a call, so it follows the walk's rules rather than its listing.
+ * Whether `git` is a git folder `gitFolders` finds in a repository home
+ * the fence keeps read-only, without walking every repository: what pi
+ * asks before it runs git outside the fence, once a call, so it follows
+ * the walk's rules rather than its listing.
  */
 export function guardsGitFolder(
 	git: string,
@@ -339,7 +384,8 @@ export function guardsGitFolder(
 	const working = basename(git) === ".git" && disk.kind(git) === "folder";
 	const repository = working ? dirname(git) : git;
 	if (gitFolderOf(repository, disk) !== git) return false;
-	return REPOSITORY_HOMES.some(({ where, depth }) => {
+	return REPOSITORY_HOMES.some(({ where, depth, kept }) => {
+		if (!kept) return false;
 		const top = join(home, where);
 		const parts = relative(top, repository).split(sep);
 		const first = parts[0] ?? "";
@@ -357,14 +403,17 @@ export function guardsGitFolder(
 }
 
 /**
- * bubblewrap's arguments for git: what runs code in each repository's
- * git folder read-only, since git runs outside the fence there (the
- * person, pi's work tool). A repository's whole `worktrees` folder is
- * read-only too, one mount rather than hundreds, so no command changes
- * another tree's settings or makes a git folder of its own in there for
- * a tree to be pointed at; the session's own is bound back writable,
- * with its settings and links still read-only, and so is its tree's
- * `.git` file.
+ * bubblewrap's arguments for git, since git runs outside the fence in
+ * each repository (the person, pi's work tool). `src` and `world` are
+ * read-only, so no command makes a repository there, and so is each
+ * git folder in them but what a commit writes (`GIT_WRITTEN`). In a
+ * repository elsewhere, what runs code is read-only (`GIT_CODE`). A
+ * repository's whole `worktrees` folder is read-only too, one mount
+ * rather than hundreds, so no command changes another tree's settings
+ * or makes a git folder of its own in there for a tree to be pointed
+ * at. The session's own tree and its git folder are bound back
+ * writable, with its settings and links still read-only, and so is its
+ * tree's `.git` file.
  */
 function gitArgs(place: FencePlace, disk: Disk): string[] {
 	const there = (path: string) => {
@@ -373,14 +422,25 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 	};
 	const bound = (flag: string, paths: readonly string[]) =>
 		paths.filter(there).flatMap((path) => [flag, path, path]);
+	const homes = keptHomes(place.home, disk);
+	const inKept = (path: string) =>
+		homes.some((top) => path.startsWith(`${top}/`));
 	const kept: string[] = [];
+	const written: string[] = [];
+	const trees: string[] = [];
 	for (const git of gitFolders(place.home, disk)) {
-		for (const name of GIT_CODE) kept.push(join(git, name));
-		kept.push(join(git, "worktrees"));
+		trees.push(join(git, "worktrees"));
+		if (inKept(git)) {
+			for (const name of GIT_WRITTEN) written.push(join(git, name));
+		} else {
+			for (const name of GIT_CODE) kept.push(join(git, name));
+			kept.push(join(git, "worktrees"));
+		}
 	}
 	const own = place.cwd ? place.ownGitFolder : undefined;
 	const ownBack =
-		own && kept.some((path) => own.startsWith(`${path}/`)) ? [own] : [];
+		own && trees.some((path) => own.startsWith(`${path}/`)) ? [own] : [];
+	const treeBack = own && place.cwd && inKept(place.cwd) ? [place.cwd] : [];
 	const ownKept =
 		own && place.cwd
 			? [
@@ -391,7 +451,10 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 				]
 			: [];
 	return [
+		...homes.flatMap((top) => ["--ro-bind", top, top]),
+		...bound("--bind", written),
 		...bound("--ro-bind", kept),
+		...bound("--bind", treeBack),
 		...bound("--bind", ownBack),
 		...bound("--ro-bind", ownKept),
 	];
@@ -421,9 +484,10 @@ export function nixDoor(runtimeDir: string | undefined): string | undefined {
 
 /**
  * Whether an absolute path lies where the fence keeps pi's own file
- * tools from writing: a read-only path, the runtime folder, or the home
- * folder itself, where only an entry already there and bound back
- * writable may be written.
+ * tools from writing: a read-only path, the runtime folder, another
+ * quest's scratch folder, `src` and `world` but the session's own tree
+ * there (its `.git` file aside), or the home folder itself, where only
+ * an entry already there and bound back writable may be written.
  */
 export function fenceRefusesWrite(
 	path: string,
@@ -434,8 +498,16 @@ export function fenceRefusesWrite(
 		...readOnlyPaths(place.home),
 		...(place.runtimeDir ? [place.runtimeDir] : []),
 	];
-	if (kept.some((folder) => path === folder || path.startsWith(`${folder}/`))) {
-		return true;
+	const inside = (folder: string) =>
+		path === folder || path.startsWith(`${folder}/`);
+	if (kept.some(inside)) return true;
+	const scratch = place.scratch;
+	if (scratch && inside(scratch.root)) {
+		return !(scratch.own && inside(scratch.own));
+	}
+	if (keptHomes(place.home, disk).some(inside)) {
+		const tree = place.ownGitFolder ? place.cwd : undefined;
+		return !(tree && inside(tree) && path !== join(tree, ".git"));
 	}
 	if (path === place.home) return true;
 	if (dirname(path) !== place.home) return false;

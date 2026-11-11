@@ -22,6 +22,11 @@ export function treeRecordDir(): string {
 	return join(stateDir("work"), "cut");
 }
 
+/** The folder the work broker cuts its trees in. */
+export function cutTreeDir(): string {
+	return join(stateDir("work"), "trees");
+}
+
 /** A tree the broker cut, still on disk, and the sessions its record names. */
 export interface RecordedTree {
 	readonly path: string;

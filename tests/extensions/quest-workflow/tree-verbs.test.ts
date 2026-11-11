@@ -268,8 +268,17 @@ describe("tree-release", () => {
 
 	it("names the work release that gives back an adopted work tree", async () => {
 		const saved = process.env.XDG_STATE_HOME;
+		const savedHome = process.env.HOME;
 		process.env.XDG_STATE_HOME = join(tmpRoot, "state");
+		// pi runs git in a cut tree only when its repository is one the
+		// fence guards, a checkout under the home's src, so the fixture
+		// moves there and the tree is a worktree of it, as `work tree` cuts.
+		process.env.HOME = tmpRoot;
 		try {
+			const checkout = join(tmpRoot, "src", "repo");
+			mkdirSync(dirname(checkout), { recursive: true });
+			renameSync(repoRoot, checkout);
+			repoRoot = checkout;
 			const trees = join(
 				tmpRoot,
 				"state",
@@ -280,8 +289,7 @@ describe("tree-release", () => {
 			);
 			mkdirSync(trees, { recursive: true });
 			const cut = join(trees, "worktree-github-someone-repo-a-branch");
-			renameSync(repoRoot, cut);
-			repoRoot = cut;
+			await git(checkout, "worktree", "add", "-q", "-b", "a-branch", cut);
 			const state = buildState();
 			await createQuest(state, "Feature I");
 			await handle(state, fakePi(), fakeCtx(cut), {
@@ -304,6 +312,8 @@ describe("tree-release", () => {
 		} finally {
 			if (saved === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = saved;
+			if (savedHome === undefined) delete process.env.HOME;
+			else process.env.HOME = savedHome;
 		}
 	});
 

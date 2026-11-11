@@ -24,6 +24,8 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { abortError, WallClockExceeded } from "../../../../clock/bound.ts";
+import { gitRules } from "../../../../internal/sandbox.ts";
+import { guardedExec } from "../../../../internal/tree-git.ts";
 import { spawnExec } from "../../../exec/spawn.ts";
 import type {
 	CreateTreeInput,
@@ -142,7 +144,13 @@ async function git(
 	cwd: string,
 	...args: string[]
 ): Promise<string> {
-	const result = await spawnExec({ signal: op.signal, cwd })("git", args);
+	// Outside any sandbox, so held to where a sandboxed command couldn't
+	// have set what git runs (tree-git.ts).
+	const result = await guardedExec(
+		spawnExec({ signal: op.signal, cwd }),
+		gitRules,
+		cwd,
+	)("git", args);
 	if (result.code !== 0) {
 		throw (
 			op.stopped() ??
