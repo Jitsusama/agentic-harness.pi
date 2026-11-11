@@ -153,6 +153,22 @@ A landing the agent asked for is said through the job host, the only
 thing that starts a turn nobody typed. One the person asked for is a
 hidden custom message.
 
+A reload can't take a moved extension link. Node's resolver keeps the
+real path of each link it resolved for the life of the process, and pi
+hands its loader the link, so after a link in `~/.pi/agent/extensions`
+moves, a reload reads the new entry file against the first target's
+helpers, or fails once that target is collected: on 2026-11-11 the
+Shopify proxy's link moved and reloads failed with "Cannot find module
+'./optimize-images.js'". So when the install moves and a link there
+was made after the process started (`lib/internal/reload/extension-links.ts`),
+the follower asks the park watch to start the session again on its own
+log through its holder (`session:restart-ask:v1`), as a rollover does.
+That waits for the session to be idle, keeps its fence and spawner,
+and opens or moves no window; a session its person may be looking at,
+or one nothing holds, keeps the code it runs, says why once, and asks
+again ten minutes later. A reload somebody asks for still reloads, and
+warns that the moved links load from their first targets.
+
 ## In a Host
 
 `loaded/<pid>` is one per process, and a tree is swapped in through

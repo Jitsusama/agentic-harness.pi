@@ -12,13 +12,20 @@
  * (hosted.ts), which reloads that conversation alone. Without this a
  * hosted conversation kept the code it started with until something
  * asked it to reload, where plain pi moved on by itself.
+ *
+ * A plain pi whose extension links moved since it started is started
+ * again through its holder rather than reloaded, since a reload would
+ * resolve those extensions through their first targets
+ * (lib/internal/reload/extension-links.ts). One its holder can't start
+ * again keeps the code it runs, and says why.
  */
 
 import { lstatSync } from "node:fs";
-import { resolve } from "node:path";
-import type {
-	ExtensionAPI,
-	ExtensionContext,
+import { join, resolve } from "node:path";
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import {
 	hosted,
@@ -26,6 +33,7 @@ import {
 	sessionKeyOf,
 	withSession,
 } from "../../lib/core/session/index.ts";
+import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	cameIn,
 	dependenciesReady,
@@ -48,6 +56,10 @@ import {
 	sourceOf,
 } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import {
+	RESTART_ASK,
+	type RestartAsk,
+} from "../../lib/internal/session/park.ts";
 import {
 	hostedReloadAsker,
 	hostReloads,
@@ -82,6 +94,12 @@ export const HELD_ENTRY = "reload-held";
  * said nothing of why.
  */
 export const WAITING_ENTRY = "reload-waiting";
+
+/**
+ * The entry a session writes as its holder is about to start it again,
+ * naming the extension links that moved and what came in.
+ */
+export const RESTARTING_ENTRY = "reload-restarting";
 
 /**
  * The session's one follower, so a reload replaces it rather than adding
@@ -157,7 +175,17 @@ export async function follow(
 		env = process.env,
 		quietMs,
 		spreadMs = SPREAD_MS,
-	}: { env?: NodeJS.ProcessEnv; quietMs?: number; spreadMs?: number } = {},
+		extensions = join(getAgentDir(), "extensions"),
+		startedAt = performance.timeOrigin,
+	}: {
+		env?: NodeJS.ProcessEnv;
+		quietMs?: number;
+		spreadMs?: number;
+		/** The folder of extension links whose moves need a new process. */
+		extensions?: string;
+		/** When this process started, epoch ms. */
+		startedAt?: number;
+	} = {},
 ): Promise<Follower | undefined> {
 	const inHost = hosted() !== undefined;
 	if (inHost && !hostReloads()) return undefined;
@@ -250,6 +278,11 @@ export async function follow(
 				}
 				return;
 			}
+			const links = linksMovedSince(extensions, startedAt);
+			if (links.length > 0) {
+				restartOver(links, reason);
+				return;
+			}
 			const slot = reloadSlot();
 			if (slot.request !== undefined) return;
 			slot.request = { reason, by: "self" };
@@ -265,6 +298,58 @@ export async function follow(
 			}
 		} finally {
 			dispatching = false;
+		}
+	};
+
+	/**
+	 * Have the holder start this session again on its own log, since a
+	 * reload would load the moved links' extensions half from their first
+	 * targets. The park watch answers only when nothing holds the session
+	 * and nobody may be looking at it, and it carries the fence and the
+	 * spawner (#1345). Refused, the session keeps the code it runs, asks
+	 * again after {@link HELD_MS}, and says why once for each reason.
+	 */
+	const restartOver = (links: string[], reason: string) => {
+		let ask: RestartAsk;
+		try {
+			const sessionFile = ctx.sessionManager.getSessionFile();
+			if (sessionFile === undefined) {
+				retryAt = Date.now() + HELD_MS;
+				sayWhy("its extension links moved, and it has no log to start on", {
+					links,
+				});
+				return;
+			}
+			ask = { session: ctx.sessionManager.getSessionId(), sessionFile };
+		} catch {
+			// A stale context belongs to a runtime that has gone.
+			sayWhy("its context has gone");
+			return;
+		}
+		pi.events.emit(RESTART_ASK, ask);
+		if (ask.restarting === true) {
+			try {
+				pi.appendEntry(RESTARTING_ENTRY, {
+					links,
+					reason,
+					at: new Date().toISOString(),
+				});
+			} catch {
+				// A stale runtime has no log to write to; the restart goes on.
+			}
+			return;
+		}
+		retryAt = Date.now() + HELD_MS;
+		const why = `its extension links moved (${links.join(", ")}), and it can't start again: ${ask.why ?? "nothing here starts it again"}`;
+		if (waitingNoted.has(why)) return;
+		sayWhy(why, { links });
+		try {
+			ctx.ui.notify(
+				`Not reloaded: ${why}. It keeps the code it runs; start it again to take the new install.`,
+				"warning",
+			);
+		} catch {
+			// A context with no screen; the entry still says it.
 		}
 	};
 
