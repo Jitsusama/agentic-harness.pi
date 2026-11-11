@@ -12,6 +12,8 @@ interface Session {
 	readonly pausing: Pausing;
 	readonly did: string[];
 	readonly told: string[];
+	/** Who each close said asked for it. */
+	readonly closedBy: string[];
 }
 
 function session(
@@ -20,6 +22,7 @@ function session(
 ): Session {
 	const did: string[] = [];
 	const told: string[] = [];
+	const closedBy: string[] = [];
 	let paused = false;
 	const state = { idle };
 	const at: Session = {
@@ -38,7 +41,10 @@ function session(
 			},
 			carryOn: () => did.push("carry on"),
 			tell: (text) => told.push(text),
-			close: () => did.push("close"),
+			close: (by) => {
+				did.push("close");
+				closedBy.push(by);
+			},
 			carry: async (to) => {
 				did.push(`carry to ${to}`);
 				await carry(to);
@@ -46,6 +52,7 @@ function session(
 		}),
 		did,
 		told,
+		closedBy,
 	};
 	return at;
 }
@@ -113,6 +120,20 @@ describe("closing a session", () => {
 		idle.pausing.act("close");
 		expect(idle.did).toEqual(["close"]);
 	});
+
+	it("says who steered the close, for its host's journal", () => {
+		const one = session(true);
+		one.pausing.act("close", "joel");
+		expect(one.closedBy).toEqual([
+			"Close from outside its window, steered by joel",
+		]);
+
+		const unsigned = session(true);
+		unsigned.pausing.act("close");
+		expect(unsigned.closedBy, "a steer with no writer says so").toEqual([
+			"Close from outside its window, steered by a writer that didn't sign it",
+		]);
+	});
 });
 
 describe("carrying a session to another machine", () => {
@@ -124,6 +145,14 @@ describe("carrying a session to another machine", () => {
 		const idle = session(true);
 		await idle.pausing.carry("penelope");
 		expect(idle.did).toEqual(["carry to penelope", "close"]);
+	});
+
+	it("says the carry and who steered it as it closes, for its host's journal", async () => {
+		const one = session(true);
+		await one.pausing.carry("penelope", "joel");
+		expect(one.closedBy).toEqual([
+			"a carry to penelope from outside its window, steered by joel",
+		]);
 	});
 
 	it("ends any run that starts once its work is being carried", async () => {
