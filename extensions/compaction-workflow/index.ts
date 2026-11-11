@@ -107,6 +107,7 @@ import {
 	idleCompactionPays,
 } from "../../lib/compaction/trigger.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import { whileCurrent } from "../../lib/internal/stale.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerFirstHead } from "./head.ts";
@@ -399,14 +400,14 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// compaction between runs interrupts nothing.
 	host.whenReady((ctx) => {
 		if (compacting || !ctx.isIdle()) return;
-		compactNow(ctx, ctx.getContextUsage()?.tokens ?? 0, false);
+		compactNow(ctx, contextUsageOf(ctx)?.tokens ?? 0, false);
 	});
 
 	function compactIdle(ctx: ExtensionContext) {
 		if (!enabled() || compacting || !ctx.isIdle() || ctx.hasPendingMessages())
 			return;
 		if (process.env.PI_CACHE_RETENTION !== "long") return;
-		const tokens = ctx.getContextUsage()?.tokens ?? null;
+		const tokens = contextUsageOf(ctx)?.tokens ?? null;
 		const prices = pricesOf(ctx);
 		if (tokens === null || !prices || tokens <= floorTokens()) return;
 		const cost = costAt(ctx, tokens, prices);
@@ -499,7 +500,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	pi.on("turn_end", async (event, ctx) => {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
 		if (didNotComplete(event)) return;
-		const tokens = ctx.getContextUsage()?.tokens ?? null;
+		// Shared with the status line and the mesh, which ask at the same
+		// leaf: each rebuild holds pi's main thread.
+		const tokens = contextUsageOf(ctx)?.tokens ?? null;
 		if (tokens === null) return;
 		if (firstTurnTokens === null) firstTurnTokens = tokens;
 		const overhead = overheadOf(event.message);
