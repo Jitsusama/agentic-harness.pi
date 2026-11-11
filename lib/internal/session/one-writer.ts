@@ -55,8 +55,8 @@ export async function liveHolder(
 	for (const list of lists) {
 		if (!list.sessions.some((one) => one.id === sessionId)) continue;
 		// Asked of the host's process alone: the list itself says what it holds.
-		const { session: _session, ...process } = list.owner;
-		if ((await standing(process)) === "running")
+		const { session: _session, ...hostProcess } = list.owner;
+		if ((await standing(hostProcess)) === "running")
 			return { key: list.key, pid: list.owner.pid };
 	}
 	return undefined;

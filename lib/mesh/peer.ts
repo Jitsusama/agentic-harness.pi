@@ -458,6 +458,8 @@ export function localPeer(at: Surroundings): Peer {
 		// Another process wrote this peer's file: on 10 November a plain pi
 		// opened a hosted conversation's log and left its own pid there,
 		// which the host's peer, publishing only changes, never wrote over.
+		// Two writers still alive would take turns at it each refresh; the
+		// one-writer workflow ends a plain pi on a hosted log, so that's rare.
 		const onDisk = everyone.find((one) => one.session === at.session);
 		if (onDisk && !heldAsSaid(onDisk, at)) published = undefined;
 		const counted = at.live?.();
