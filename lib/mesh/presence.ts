@@ -15,7 +15,13 @@
  * whose process has ended is gone, however recently it wrote.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
@@ -470,8 +476,31 @@ function commonGitDir(checkout: string): string {
 export function createPresences(dir: string): Presences {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
+	const kept = new Map<string, Kept>();
+	// Each file's parse, kept while the file is the one it was read from:
+	// a publish renames a new file in, so its inode says a change, and
+	// mtime and size say one written in place. Every pi lists every
+	// presence three times a minute (the peer refresh, the live count and
+	// the steer look), and a hundred parses each time were most of what
+	// an idle pi allocated.
+	const readKept = (path: string): Presence | undefined => {
+		let stamp: string;
+		try {
+			const stat = statSync(path);
+			stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
+		} catch {
+			// Gone since it was listed, or never there: nothing to read.
+			kept.delete(path);
+			return undefined;
+		}
+		const was = kept.get(path);
+		if (was?.stamp === stamp) return was.presence;
+		const presence = read(path);
+		kept.set(path, { stamp, presence });
+		return presence;
+	};
 	return {
-		of: (session) => read(file(session)),
+		of: (session) => readKept(file(session)),
 		publish(presence) {
 			mkdirSync(dir, { recursive: true });
 			writeWhole(file(presence.session), JSON.stringify(presence));
@@ -483,8 +512,12 @@ export function createPresences(dir: string): Presences {
 			} catch {
 				return [];
 			}
-			return files
-				.map((name) => read(join(dir, name)))
+			const paths = new Set(files.map((name) => join(dir, name)));
+			for (const path of kept.keys()) {
+				if (!paths.has(path)) kept.delete(path);
+			}
+			return [...paths]
+				.map(readKept)
 				.filter((one): one is Presence => one !== undefined);
 		},
 		forget: (session) => removeQuietly(file(session)),
@@ -492,6 +525,12 @@ export function createPresences(dir: string): Presences {
 		// staged and never renamed is old here; ended peers are forgotten.
 		expire: (before) => removeStaged(dir, before),
 	};
+}
+
+/** A presence file's parse, and the file it came from. */
+interface Kept {
+	readonly stamp: string;
+	readonly presence: Presence | undefined;
 }
 
 function read(path: string): Presence | undefined {

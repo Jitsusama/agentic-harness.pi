@@ -24,7 +24,6 @@
 
 import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { askedHostOnce, hostedStanding } from "../session/registry.ts";
 
@@ -298,14 +297,18 @@ function ticksPerSecond(): Promise<number> {
  * plus the start in ticks, so a value recorded through `ps` before
  * this agrees with it to well inside SAME_PROCESS_MS. A missing file
  * is a process that is not there, and says nothing.
+ *
+ * Read at once rather than through libuv's threads: the kernel writes
+ * these as they are read, with no disk to wait on, so a read takes
+ * microseconds, while an asynchronous one wakes a thread for each of
+ * its open, read and close. A census of a hundred peers a minute in
+ * every pi made those hops most of an idle pi's wakes.
  */
 async function startedAtFromProc(pid: number): Promise<number | undefined> {
 	try {
-		const [stat, system, ticks] = await Promise.all([
-			readFile(`/proc/${pid}/stat`, "utf8"),
-			readFile("/proc/stat", "utf8"),
-			ticksPerSecond(),
-		]);
+		const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+		const system = readFileSync("/proc/stat", "utf8");
+		const ticks = await ticksPerSecond();
 		// The command name sits in parentheses and may hold anything,
 		// parentheses and spaces included, so the fields are counted
 		// from the last closing one. Field 3, the state, comes first
