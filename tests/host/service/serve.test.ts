@@ -86,6 +86,7 @@ function engine(
 			register(entry);
 		},
 		abort: async () => {},
+		backgroundOf: () => 0,
 	};
 }
 

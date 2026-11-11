@@ -50,6 +50,7 @@ const engine = async (host: SessionHost): Promise<ConversationEngine> => ({
 	discard: async () => {},
 	resume: async () => {},
 	abort: async () => {},
+	backgroundOf: () => 0,
 });
 
 async function exists(path: string): Promise<boolean> {

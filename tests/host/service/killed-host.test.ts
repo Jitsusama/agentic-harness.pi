@@ -42,6 +42,7 @@ const engine = (host, dir) => {
 		discard: async () => {},
 		resume: async (entry) => register(entry),
 		abort: async () => {},
+		backgroundOf: () => 0,
 	};
 };`;
 
@@ -64,6 +65,7 @@ function engine(host: SessionHost, dir: string): ConversationEngine {
 		discard: async () => {},
 		resume: async (entry) => register(entry),
 		abort: async () => {},
+		backgroundOf: () => 0,
 	};
 }
 

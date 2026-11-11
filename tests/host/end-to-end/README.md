@@ -188,6 +188,11 @@ what it held before the kill and holds only whole entries, the killed
 run is taken up again (and stopped) or answered, and then all three
 answer.
 
+listed-busy.test.ts has a conversation leave a background job running
+past its turn: the host lists it busy while the job runs, and idle once
+the job's result is said and answered, so a watcher outside the host
+never reads it as settled.
+
 release-all.test.ts is E12, item 11's rollback drill: `host-release.ts
 --all` from both hosts, holding two conversations each, one mid-run.
 The release waits on the busy one until a Stop, then both hosts are

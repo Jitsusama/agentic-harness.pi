@@ -712,14 +712,13 @@ export async function createEngine(
 
 		background() {
 			let held = 0;
-			for (const record of live.values()) {
-				if (!record.runtime) continue;
-				// job-workflow answers on the conversation's own bus; one from
-				// before it could count says nothing, so it counts as holding work.
-				const jobs = findJobHost(record.bus);
-				if (jobs) held += jobs.pending?.() ?? 1;
-			}
+			for (const record of live.values()) held += backgroundIn(record);
 			return held;
+		},
+
+		backgroundOf(sessionId) {
+			const record = live.get(sessionId);
+			return record ? backgroundIn(record) : 0;
 		},
 
 		async prepare(request) {
@@ -831,6 +830,18 @@ function keptFile(
 		{ flag: "wx" },
 	);
 	return sessions.SessionManager.open(file);
+}
+
+/**
+ * How much background work a conversation holds, as its job host counts
+ * it; none while pi doesn't run it.
+ */
+function backgroundIn(record: Live): number {
+	if (!record.runtime) return 0;
+	// job-workflow answers on the conversation's own bus; one from before
+	// it could count says nothing, so it counts as holding work.
+	const jobs = findJobHost(record.bus);
+	return jobs ? (jobs.pending?.() ?? 1) : 0;
 }
 
 /** Whether pi builds a session it resumed, rather than a new or forked one. */

@@ -37,5 +37,6 @@ export async function engine(host: SessionHost): Promise<ConversationEngine> {
 		discard: async () => {},
 		resume: async (entry) => register(entry),
 		abort: async () => {},
+		backgroundOf: () => 0,
 	};
 }

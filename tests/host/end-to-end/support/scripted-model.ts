@@ -30,6 +30,8 @@
  *   answers in, which for a subagent is the subagent's own;
  * - told `dawdle`, it has bash run a command that never ends by
  *   itself, so only a Stop ends it;
+ * - told `linger`, it has bash run, in the background from the start, a
+ *   command that ends by itself a while after the turn does;
  * - told `reopen`, it asks quest which lost sessions it would reopen;
  * - after any other tool's result, it says `sent`.
  *
@@ -84,6 +86,16 @@ export const DAWDLE = "dawdle";
  * never ends by itself. Not a long sleep, which the harness refuses.
  */
 export const DAWDLING = "tail -f /dev/null";
+
+/** What a conversation is told to leave a background job running past its turn. */
+export const LINGER = "linger";
+
+/**
+ * What bash runs in the background for `linger`: the endless follow,
+ * ended by `timeout` once a case has seen the job outlive its turn, since
+ * the harness refuses a long sleep and nothing else is left to stop it.
+ */
+export const LINGERING = "timeout 20 tail -f /dev/null";
 
 /** What a conversation is told to list the sessions it would reopen. */
 export const REOPEN = "reopen";
@@ -257,6 +269,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
 	if (toldTo(words, DAWDLE))
 		return toolCall(faux, "bash", { command: DAWDLING });
+	if (toldTo(words, LINGER))
+		return toolCall(faux, "bash", { command: LINGERING, background: true });
 	if (toldTo(words, REOPEN))
 		return toolCall(faux, "quest", { action: "reopen-sessions" });
 	const fleet = /^fleet (\S+) (\S+)$/m.exec(words);
