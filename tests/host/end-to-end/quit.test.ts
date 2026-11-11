@@ -6,8 +6,12 @@
  * whose input ends leaves the conversation running. A lone viewer keeps
  * pi's quit keys, as plain pi does. With others watching, a quit holds only
  * once the viewer that typed it says y, and anything else lets that viewer
- * go. Every end is a line in the host's journal naming who asked.
+ * go. Every end is a line in the host's journal naming who asked. The
+ * host reads Joel's own Ctrl+D bindings, quit and delete forward, so a
+ * Ctrl+D typed into words he is writing deletes and never quits.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
 import { type Folders, folders } from "./support/folders.ts";
@@ -31,6 +35,14 @@ const CASE_MS = 60_000;
 const ENTER = "\r";
 const CTRL_D = "\x04";
 const CTRL_C = "\x03";
+/** Ctrl+D as Joel's kitty sends it, under the keyboard protocol pi asks for. */
+const KITTY_CTRL_D = "\u001b[100;5u";
+const LEFT = "\u001b[D";
+/** Joel's own bindings for Ctrl+D, from his keybindings.json: it quits, and deletes forward. */
+const JOELS_CTRL_D = {
+	"app.exit": ["ctrl+d"],
+	"tui.editor.deleteCharForward": ["ctrl+d", "delete"],
+};
 const ROWS = 30;
 const COLUMNS = 160;
 const QUESTION = /Close this conversation for everyone\?/;
@@ -73,6 +85,12 @@ describe.skipIf(!packageDir)(
 			if (!packageDir) return;
 			sealed = await seal();
 			work = folders(sealed);
+			const agent = join(sealed.home, ".pi", "agent");
+			mkdirSync(agent, { recursive: true });
+			writeFileSync(
+				join(agent, "keybindings.json"),
+				JSON.stringify(JOELS_CTRL_D),
+			);
 			host = await startScreenHost(sealed, packageDir);
 		}, CASE_MS);
 		afterAll(async () => {
@@ -102,7 +120,40 @@ describe.skipIf(!packageDir)(
 		);
 
 		it.each([
+			["in kitty's encoding", KITTY_CTRL_D],
+			["as a control byte", CTRL_D],
+		])(
+			"deletes forward at Ctrl+D %s while the editor holds words, and never quits, as plain pi does",
+			async (named, ctrlD) => {
+				const { sessionId } = await host.open(
+					work.trusted(),
+					`typing ${named}`,
+				);
+				const alone = await viewer(sessionId);
+				await alone.shows(`heard: typing ${named}`, TURN_MS);
+
+				alone.type("abcd");
+				await alone.shows("abcd", TURN_MS);
+				alone.type(ctrlD);
+				alone.type(`${LEFT}${LEFT}`);
+				alone.type(ctrlD);
+				alone.type(ENTER);
+
+				await alone.shows("heard: abd", TURN_MS);
+				await host.idle(sessionId, TURN_MS);
+				expect(alone.screen().join("\n"), "it never asked").not.toMatch(
+					QUESTION,
+				);
+				expect(host.errors(), `nothing ended it${said()}`).not.toContain(
+					ended(sessionId),
+				);
+			},
+			CASE_MS,
+		);
+
+		it.each([
 			["Ctrl+D", CTRL_D],
+			["Ctrl+D in kitty's encoding", KITTY_CTRL_D],
 			["/quit", `/quit${ENTER}`],
 			["Ctrl+C twice", `${CTRL_C}${CTRL_C}`],
 		])(
