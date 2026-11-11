@@ -450,7 +450,7 @@ export function registerTools(
 		execute: using(async (at) => {
 			const standing = await peers(at);
 			return answer(
-				`${groupsText(standing, at.peer)}${peersText(standing.present, at.peer)}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}`,
+				`${groupsText(standing, at.peer)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}`,
 				{ groups: at.peer.groups },
 			);
 		}),
@@ -1346,10 +1346,12 @@ function pivotState(
 
 /** How long ago a message was sent, in minutes, or hours past two. */
 function since(message: Message, now: number): string {
-	const minutes = Math.max(
-		0,
-		Math.floor((now - Date.parse(message.at)) / 60_000),
-	);
+	return lastedText(now - Date.parse(message.at));
+}
+
+/** A span of time in minutes, or hours past two. */
+function lastedText(ms: number): string {
+	const minutes = Math.max(0, Math.floor(ms / 60_000));
 	return minutes < 120 ? `${minutes} min` : `${Math.floor(minutes / 60)} h`;
 }
 
@@ -1625,11 +1627,18 @@ function groupsText(standing: Census, peer: Peer): string {
 /** How much of what a peer works on mesh_groups says, to name it. */
 const WORK_CHARS = 100;
 
+/** How long a step runs before mesh_groups says what it is. */
+const STEP_SAID_AFTER_MS = 60_000;
+
 /**
  * Every other peer still there, one line each: whether it is in a run,
  * and what it works on, so a peer can tell whom to ask without asking.
  */
-function peersText(present: readonly Presence[], peer: Peer): string {
+function peersText(
+	present: readonly Presence[],
+	peer: Peer,
+	now: number,
+): string {
 	const lines = present.flatMap((one) => {
 		const address = one.addresses[0];
 		if (one.session === peer.session || !address) return [];
@@ -1637,9 +1646,26 @@ function peersText(present: readonly Presence[], peer: Peer): string {
 		const cut =
 			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;
 		const where = one.machine ? ` on ${one.machine}` : "";
-		return [`${address}${where}, ${one.busy ? "busy" : "idle"}: ${cut}`];
+		return [`${address}${where}, ${runText(one, now)}: ${cut}`];
 	});
 	return lines.length > 0 ? `\nPeers:\n${lines.join("\n")}` : "";
+}
+
+/**
+ * Whether a peer is in a run and, once a step has gone on a minute, what
+ * the step is and for how long. A single tool call that runs for hours
+ * otherwise reads as a run that is merely busy, or as a stuck model
+ * request, since the session's file says nothing until the call ends.
+ */
+function runText(one: Presence, now: number): string {
+	if (!one.busy) return "idle";
+	const step = one.stepDetail;
+	const lasted = step ? now - Date.parse(step.since) : Number.NaN;
+	if (!step || !(lasted >= STEP_SAID_AFTER_MS)) return "busy";
+	const span = lastedText(lasted);
+	if (step.kind === "tool") return `busy, in ${step.name} for ${span}`;
+	if (step.kind === "thinking") return `busy, thinking for ${span}`;
+	return `busy, waiting on its person for ${span}`;
 }
 
 /**

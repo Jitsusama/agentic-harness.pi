@@ -111,7 +111,7 @@ export function loadedFolderOf(root: string): string | undefined {
 }
 
 /** The package root this host runs, resolved through any link. */
-function hostRoot(): string {
+export function hostRoot(): string {
 	const root = fileURLToPath(new URL("../..", import.meta.url));
 	try {
 		return realpathSync(root);

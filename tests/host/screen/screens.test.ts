@@ -9,8 +9,13 @@ import {
 	hostScreens,
 } from "../../../host/screen/screens.ts";
 import type { StartupAsker } from "../../../host/screen/startup-ask.ts";
-import { ambientSession } from "../../../lib/core/session/index.ts";
+import {
+	ambientSession,
+	withSession,
+} from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+import { DOCK_NAME } from "../../../lib/ui/screen-gates.ts";
+import { keepOnScreen } from "../../../lib/ui/screen-slot.ts";
 
 /** A stand-in for pi's hosted InteractiveMode: it starts, then runs until it quits. */
 class FakeMode implements HostedMode {
@@ -486,5 +491,118 @@ describe("the host's pi screen", () => {
 			"pi's InteractiveMode lacks the hosted lifecycle (pi-host-interactive-lifecycle.patch)",
 		);
 		expect(() => hostedModeOf(undefined)).toThrow("lacks the hosted lifecycle");
+	});
+});
+
+describe("resting screens", () => {
+	// A screen as pi has it at rest: its empty editor focused, nothing over
+	// it and nothing running; each case then changes one thing.
+	async function resting() {
+		const screens = host();
+		const session = {
+			isStreaming: false,
+			isCompacting: false,
+			isBashRunning: false,
+			pendingMessageCount: 0,
+		};
+		const view = screens.view("a", { sessionId: "a", session });
+		await screens.screens.opened(view);
+		const mode = screens.mode(view.runtime);
+		const editor = { text: "", getText: () => editor.text };
+		const ui: { focused: unknown; overlay: boolean } = {
+			focused: editor,
+			overlay: false,
+		};
+		// The screen's own renderer answers from `ui`, which each case changes.
+		Object.assign(mode.ui, {
+			getFocusedComponent: () => ui.focused,
+			hasOverlay: () => ui.overlay,
+		});
+		Reflect.set(mode, "editor", editor);
+		return { screens, session, editor, ui, mode };
+	}
+
+	it("rests with pi's empty editor focused and nothing running", async () => {
+		const { screens } = await resting();
+		expect(screens.resting(), "an empty, focused editor").toBe(true);
+	});
+
+	it.each([
+		[
+			"words are typed",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.editor.text = "half a thought";
+			},
+		],
+		[
+			"a panel or dialog has focus",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.ui.focused = {};
+			},
+		],
+		[
+			"an overlay is open",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.ui.overlay = true;
+			},
+		],
+		[
+			"pi answers",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.session.isStreaming = true;
+			},
+		],
+		[
+			"a command runs",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.session.isBashRunning = true;
+			},
+		],
+		[
+			"a message waits",
+			(at: Awaited<ReturnType<typeof resting>>) => {
+				at.session.pendingMessageCount = 1;
+			},
+		],
+	])("is in use while %s", async (_why, change) => {
+		const at = await resting();
+		change(at);
+		expect(at.screens.resting(), "a screen in use").toBe(false);
+	});
+
+	it("is in use while a viewer edits in its own editor", async () => {
+		const { screens, mode } = await resting();
+		mode.options.terminal.start(
+			() => {},
+			() => {},
+		);
+		const editing = sink();
+		screens.viewer
+			.attach({ ...attach("a"), features: ["edit"] }, editing)
+			.input("g");
+		void mode.options.hosted.editText("draft");
+		expect(screens.resting(), "a draft out in a viewer's editor").toBe(false);
+	});
+
+	it("is in use while a gate the person hopped away from waits in the dock", async () => {
+		const { screens } = await resting();
+		// The dock as every copy keeps it: the gate stays, focus went back.
+		withSession("a", () =>
+			keepOnScreen(DOCK_NAME, { version: 1, entries: [{ gate: true }] }),
+		);
+		try {
+			expect(screens.resting(), "a docked gate, unfocused").toBe(false);
+		} finally {
+			withSession("a", () => keepOnScreen(DOCK_NAME, undefined));
+		}
+		expect(screens.resting(), "once the gate is gone").toBe(true);
+	});
+
+	it("counts a screen it can't read as in use", async () => {
+		const screens = host();
+		await screens.screens.opened(screens.view("a"));
+		expect(screens.resting(), "a pi whose parts are named otherwise").toBe(
+			false,
+		);
 	});
 });

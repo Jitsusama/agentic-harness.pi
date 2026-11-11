@@ -23,6 +23,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { QUEUE_NAME } from "./screen-gates.ts";
 import { screenShared } from "./screen-slot.ts";
 
 /** Handed to the gate holding the screen. */
@@ -56,13 +57,16 @@ export interface GateOptions {
 interface GateQueueProtocol {
 	readonly version: number;
 	run<T>(fn: (hold: GateHold) => Promise<T>, options?: GateOptions): Promise<T>;
+	/**
+	 * How many gates hold the screen or wait in line for it, which a host
+	 * reads (screen-gates.ts). Since version 2; a queue an older copy
+	 * installed has none.
+	 */
+	waiting?(): number;
 }
 
-/** The name every copy looks for. The string is the contract; keep it. */
-const QUEUE_NAME = "agentic-harness.gate-queue";
-
 /** The protocol version this copy installs. */
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 
 /**
  * Run a gate prompt with exclusive access to the UI.
@@ -132,6 +136,9 @@ function createQueue(): GateQueueProtocol {
 	// Which hold the running code sits inside, carried across its awaits,
 	// so a gate asked for from inside the gate on screen is recognized.
 	const within = new AsyncLocalStorage<Holder>();
+	// Every arrival from asking until it lets go, by settling, releasing
+	// its hold or being stopped while it waits.
+	let waiting = 0;
 
 	function run<T>(
 		fn: (hold: GateHold) => Promise<T>,
@@ -159,8 +166,16 @@ function createQueue(): GateQueueProtocol {
 		tail = done;
 
 		const holder: Holder = { holding: false };
+		waiting += 1;
+		let left = false;
+		const leave = (): void => {
+			if (left) return;
+			left = true;
+			waiting -= 1;
+		};
 		const release = (): void => {
 			holder.holding = false;
+			leave();
 			letGo();
 		};
 
@@ -168,6 +183,7 @@ function createQueue(): GateQueueProtocol {
 			// Listening only while queued: the listener comes off as the gate
 			// mounts, and a mounted gate keeps the screen until it is gone.
 			const onAbort = (): void => {
+				leave();
 				// Leave the line but keep its place: whoever is behind
 				// waits for the one ahead, not for this caller.
 				turn.then(release);
@@ -202,7 +218,7 @@ function createQueue(): GateQueueProtocol {
 		});
 	}
 
-	return { version: PROTOCOL_VERSION, run };
+	return { version: PROTOCOL_VERSION, run, waiting: () => waiting };
 }
 
 function stopped(signal: AbortSignal): Error {

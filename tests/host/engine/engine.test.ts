@@ -62,6 +62,8 @@ interface Seen {
 	readonly env?: Readonly<Record<string, unknown>>;
 	/** What the conversation's screen was handed to show as it started. */
 	readonly diagnostics?: readonly { type: string; message: string }[];
+	/** The background work the engine counted, before and after an extension handed some off. */
+	readonly background?: { readonly before: number; readonly during: number };
 	/** Which conversation each probe load and event ran as, beside the one pi named. */
 	readonly as: readonly {
 		readonly at: string;
@@ -418,6 +420,16 @@ describe("the host's engine", () => {
 				`${said.stdout}${said.stderr}`.trim(),
 				"the pinned pi runs, and is the pi the host loaded",
 			).toContain(seen.piVersion);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"counts the background work a conversation's job host holds, which a restart would end",
+		async () => {
+			const seen = await step(hostFolder(), "background");
+			expect(seen.probe).toContainEqual({ event: "job", started: "true" });
+			expect(seen.background).toEqual({ before: 0, during: 1 });
 		},
 		HOST_LIFE_MS,
 	);

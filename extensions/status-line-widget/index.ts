@@ -143,15 +143,25 @@ export default function statusLine(pi: ExtensionAPI) {
 	pi.on("tool_result", async (_event, ctx) => ask(ctx));
 	pi.on("user_bash", async (_event, ctx) => ask(ctx));
 	pi.on("agent_end", async (_event, ctx) => ask(ctx));
-	pi.on("session_shutdown", async () => engine?.stop());
+	// Once pi shuts the session down, every context it handed out throws,
+	// while the screen may draw this footer until the next session sets
+	// its own: so it draws its last line from then on, reading nothing.
+	let shut = false;
+	pi.on("session_shutdown", async () => {
+		shut = true;
+		surface = null;
+		engine?.stop();
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		shut = false;
 		ask(ctx);
 		usage = usageReader(() => contextUsageOf(ctx));
 		const reader = usage;
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			surface = tui;
 			const unsub = footerData.onBranchChange(() => {
+				if (shut) return;
 				ask(ctx);
 				tui.requestRender();
 			});
@@ -183,6 +193,7 @@ export default function statusLine(pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(columns: number): string[] {
+					if (shut) return fitToWidth(fitted.line, columns);
 					const cwd = ctx.cwd;
 					if (toldFor !== cwd) {
 						toldFor = cwd;

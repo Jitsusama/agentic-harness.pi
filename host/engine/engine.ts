@@ -18,6 +18,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
+import { findJobHost } from "../../lib/jobs/host.ts";
 import type {
 	AdoptRequest,
 	ConversationEvents,
@@ -667,6 +668,18 @@ export async function createEngine(
 
 		watch(events) {
 			watched = events;
+		},
+
+		background() {
+			let held = 0;
+			for (const record of live.values()) {
+				if (!record.runtime) continue;
+				// job-workflow answers on the conversation's own bus; one from
+				// before it could count says nothing, so it counts as holding work.
+				const jobs = findJobHost(record.bus);
+				if (jobs) held += jobs.pending?.() ?? 1;
+			}
+			return held;
 		},
 
 		async prepare(request) {

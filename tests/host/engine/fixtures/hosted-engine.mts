@@ -391,6 +391,21 @@ const scenarios: Record<string, Scenario> = {
 			return { diagnostics };
 		},
 	},
+	/** Count the background work a conversation holds, before and after its extension hands some off. */
+	background: {
+		responses: () => [],
+		harness: true,
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			const before = engine.background();
+			await host.run(id, () => prompt(engine, id, "/probe-job"));
+			await idle(engine, id);
+			const during = engine.background();
+			await host.close(id);
+			return { background: { before, during } };
+		},
+	},
 	/** Answer, start a new conversation from an extension's command, answer there, then stop. */
 	replace: {
 		responses: () => [say("hello there"), say("fine, thanks")],

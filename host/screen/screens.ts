@@ -17,6 +17,8 @@ import {
 	type ViewerEdit,
 	ViewerTerminal,
 } from "../../lib/core/viewer/terminal.ts";
+import { isRecord } from "../../lib/internal/record.ts";
+import { gatesDocked, gatesWaiting } from "../../lib/ui/screen-gates.ts";
 import type { StartupDiagnostic } from "../engine/index.ts";
 import type { ViewerBridge } from "../service/server.ts";
 import { terminalBridge } from "../service/viewer.ts";
@@ -102,6 +104,14 @@ export interface HostScreens {
 	readonly viewer: ViewerBridge;
 	/** The ids with a live screen, for tests and the host's own listing. */
 	ids(): string[];
+	/**
+	 * Whether every screen is at rest: started, showing pi's own editor
+	 * empty and focused, with no panel, dialog or overlay over it, no gate
+	 * docked or waiting for the screen, no command of the person's
+	 * running, and nobody editing in their own editor. A host restarts
+	 * only then, since a restart loses each of those (restart.ts).
+	 */
+	resting(): boolean;
 }
 
 interface Screen {
@@ -111,6 +121,8 @@ interface Screen {
 	view: HostedView;
 	/** Set once the conversation is closing, so its quit closes nothing twice. */
 	closing: boolean;
+	/** Set once pi's screen has started, and runs. */
+	started: boolean;
 }
 
 /** A conversation's terminal, made before its screen when pi asks something first. */
@@ -229,7 +241,14 @@ export function hostScreens(options: {
 				suspend: () => terminal.suspendViewer(),
 			},
 		});
-		screen = { terminal, mode, runtime: view.runtime, view, closing: false };
+		screen = {
+			terminal,
+			mode,
+			runtime: view.runtime,
+			view,
+			closing: false,
+			started: false,
+		};
 		live.set(view.sessionId, screen);
 		try {
 			await withSession(view.sessionId, () => mode.init());
@@ -240,6 +259,7 @@ export function hostScreens(options: {
 			throw error;
 		}
 		const running = screen;
+		running.started = true;
 		withSession(view.sessionId, () => mode.run())
 			.catch((error: unknown) => exited(running, 1, error))
 			.catch(options.report);
@@ -304,6 +324,17 @@ export function hostScreens(options: {
 		},
 		viewer: terminalBridge(terminalOf),
 		ids: () => [...live.keys()],
+		// A screen still starting, or a question asked before it, is in use.
+		resting: () =>
+			early.size === 0 &&
+			[...live.values()].every(
+				(screen) =>
+					screen.started &&
+					!screen.closing &&
+					!screen.terminal.isEditing() &&
+					atRest(screen.mode, screen.runtime) &&
+					noGates(screen.view.sessionId),
+			),
 	};
 }
 
@@ -368,6 +399,45 @@ function repaint(mode: HostedMode): void {
 		ui.repaintForNewTerminal();
 	else if ("requestRender" in ui && typeof ui.requestRender === "function")
 		ui.requestRender(true);
+}
+
+// pi keeps its screen's parts private, so a host reads them without
+// trusting their type, and counts a screen it can't read as busy: a pi
+// that renamed them keeps its hosts from restarting under the person,
+// rather than restarting them over an open panel.
+function atRest(mode: HostedMode, runtime: unknown): boolean {
+	const ui: unknown = Reflect.get(mode, "ui");
+	const editor: unknown = Reflect.get(mode, "editor");
+	const session: unknown = isRecord(runtime)
+		? Reflect.get(runtime, "session")
+		: undefined;
+	if (!isRecord(ui) || !isRecord(editor) || !isRecord(session)) return false;
+	return (
+		called(ui, "getFocusedComponent") === editor &&
+		called(ui, "hasOverlay") === false &&
+		called(editor, "getText") === "" &&
+		Reflect.get(session, "isStreaming") === false &&
+		Reflect.get(session, "isCompacting") === false &&
+		Reflect.get(session, "isBashRunning") === false &&
+		Reflect.get(session, "pendingMessageCount") === 0
+	);
+}
+
+// Gates keep their state on the conversation's screen (lib/ui), read in
+// its session; a gate the person hopped away from shows nowhere else.
+function noGates(sessionId: string): boolean {
+	return withSession(
+		sessionId,
+		() => gatesDocked() === 0 && gatesWaiting() === 0,
+	);
+}
+
+// What a method of `on` answers, or nothing when it has none.
+function called(on: Record<string, unknown>, name: string): unknown {
+	const method = on[name];
+	return typeof method === "function"
+		? Reflect.apply(method, on, [])
+		: undefined;
 }
 
 // A conversation closed by the launcher or a host stop: end its screen the

@@ -6,7 +6,10 @@ quitting one closes only its conversation, a close from elsewhere stops
 the screen once, a failure closes and reports, and a rebind keeps the
 viewers under the new id. A question asked before the screen goes to a
 terminal viewers can join and the screen keeps, and a close settles it
-unanswered. The real InteractiveMode's hosted paths are proved by
+unanswered. Its resting cases change one thing at a time from a screen
+at rest: words typed, focus elsewhere, an overlay, an answer, a command,
+a queued message, a draft out in a viewer's editor, or parts it can't
+read. The real InteractiveMode's hosted paths are proved by
 core.nix's `pi-hosted-screen-stays-in-its-session` check.
 
 startup-ask.test.ts draws a startup question with pi-tui's own
