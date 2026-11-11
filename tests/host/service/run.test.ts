@@ -9,7 +9,7 @@ import type { SessionHost } from "../../../host/engine/index.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import { hostKind, runHost } from "../../../host/service/run.ts";
+import { describeStep, hostKind, runHost } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 
 // The net is process-wide; serve.test.ts checks a host sets it.
@@ -73,6 +73,15 @@ describe("hostKind", () => {
 	});
 });
 
+describe("describeStep", () => {
+	it("names the engine, and which conversation of how many", () => {
+		expect(describeStep({ step: "engine" })).toBe("building the engine");
+		expect(
+			describeStep({ step: "resume", number: 2, of: 5, sessionId: "s" }),
+		).toBe("resuming 2 of 5: s");
+	});
+});
+
 describe("runHost", () => {
 	it("says it is ready only once it listens, and parks on a stop signal", async () => {
 		const signals = new EventEmitter();
@@ -87,6 +96,7 @@ describe("runHost", () => {
 			engine,
 			signals,
 			ready,
+			say: () => {},
 			report: () => {},
 			places: places(),
 		});
@@ -125,6 +135,7 @@ describe("runHost", () => {
 			viewer,
 			signals,
 			ready: async () => {},
+			say: () => {},
 			report: () => {},
 			places: places(),
 		});
@@ -149,6 +160,85 @@ describe("runHost", () => {
 		expect(await exists(socket()), "no socket without a realm").toBe(false);
 	});
 
+	it("says each step of the start before ready, and how long it took", async () => {
+		const first = new EventEmitter();
+		const seeded = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals: first,
+			ready: async () => {},
+			progress: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(seeded.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		first.emit("SIGTERM");
+		await seeded.stopped;
+
+		const heard: string[] = [];
+		const said: string[] = [];
+		const second = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals: second,
+			ready: async () => {
+				heard.push("ready");
+			},
+			progress: async (_env, status) => {
+				heard.push(status);
+			},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		expect(heard).toEqual([
+			"building the engine",
+			`resuming 1 of 1: ${sessionId}`,
+			"ready",
+		]);
+		expect(said).toHaveLength(3);
+		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
+		expect(said[2]).toMatch(/^\d+\.\d s: ready, listening on /);
+		second.emit("SIGTERM");
+		await run.stopped;
+	});
+
+	it("starts anyway when it can't ask for more time, and reports why", async () => {
+		const report = vi.fn();
+		const refused = new Error("no notify socket");
+		const ready = vi.fn(async () => {});
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals,
+			ready,
+			progress: async () => {
+				throw refused;
+			},
+			say: () => {},
+			report,
+			places: places(),
+		});
+		expect(report).toHaveBeenCalledWith(refused);
+		expect(ready).toHaveBeenCalledTimes(1);
+		signals.emit("SIGTERM");
+		await run.stopped;
+	});
+
 	it("keeps serving when readiness can't be said, and reports why", async () => {
 		const report = vi.fn();
 		const failed = new Error("systemd-notify failed");
@@ -161,6 +251,7 @@ describe("runHost", () => {
 			ready: async () => {
 				throw failed;
 			},
+			say: () => {},
 			report,
 			places: places(),
 		});
