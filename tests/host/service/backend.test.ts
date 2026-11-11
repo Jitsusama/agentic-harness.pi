@@ -126,6 +126,33 @@ async function ask(path: string, request: ControlRequest): Promise<unknown> {
 }
 
 describe("hostBackend", () => {
+	it("lists an idle conversation busy while it holds background work, and only that one", async () => {
+		const working = new Set<string>();
+		const { fake } = engine({
+			backgroundOf: (sessionId) => (working.has(sessionId) ? 1 : 0),
+		});
+		const backend = backendWith(fake);
+		const lingering = parseOpenResult(await backend.execute(open));
+		const quiet = parseOpenResult(await backend.execute({ ...open, id: "o2" }));
+		working.add(lingering.sessionId);
+		const states = async () =>
+			Object.fromEntries(
+				parseListResult(
+					await backend.execute({ v: 1, id: "l", op: "list" }),
+				).sessions.map((one) => [one.sessionId, one.state]),
+			);
+
+		expect(await states(), "listed while one holds background work").toEqual({
+			[lingering.sessionId]: "busy",
+			[quiet.sessionId]: "idle",
+		});
+		working.clear();
+		expect(await states(), "listed once its work is done").toEqual({
+			[lingering.sessionId]: "idle",
+			[quiet.sessionId]: "idle",
+		});
+	});
+
 	it("holds durably before start registers, and answers the live identity", async () => {
 		const { fake, seen } = engine();
 		const opened = parseOpenResult(await backendWith(fake).execute(open));
