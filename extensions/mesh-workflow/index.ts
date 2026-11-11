@@ -68,6 +68,7 @@ import {
 	takeOwedTurn,
 } from "../../lib/internal/reload/hold.ts";
 import { SANDBOX_VARIABLE, STRICT } from "../../lib/internal/sandbox.ts";
+import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import {
 	isPersonText,
 	isPersonWords,
@@ -1798,7 +1799,7 @@ export function meshWorkflow(
 		});
 		pi.on("message_end", async (event, ctx) => {
 			if (peer && event.message.role === "assistant") {
-				const context = ctx.getContextUsage?.();
+				const context = contextUsageOf(ctx);
 				peer.setUsage(
 					withCall(peer.usage ?? noUsage(localDay(new Date())), event.message, {
 						at: new Date(),

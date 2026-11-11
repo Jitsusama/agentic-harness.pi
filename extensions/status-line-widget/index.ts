@@ -29,6 +29,7 @@ import {
 	marginalText,
 	sessionText,
 } from "../../lib/internal/cost-meter/index.ts";
+import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import {
 	getPanelHeightGlyph,
 	getPanelHeightMode,
@@ -146,7 +147,7 @@ export default function statusLine(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ask(ctx);
-		usage = usageReader(() => ctx.getContextUsage());
+		usage = usageReader(() => contextUsageOf(ctx));
 		const reader = usage;
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			surface = tui;
