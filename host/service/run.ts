@@ -122,8 +122,21 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const say = options.say ?? sayToJournal;
 	const progress = options.progress ?? notifyProgress;
 	const began = Date.now();
-	const since = () => `${((Date.now() - began) / MS_PER_SECOND).toFixed(1)} s`;
+	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
+	const since = () => seconds(Date.now() - began);
+	// The conversation being resumed and when it began, so each says how
+	// long it took and a restart of thirty can be sized from one.
+	let resuming: { readonly step: StartStep; readonly at: number } | undefined;
+	const resumed = () => {
+		if (resuming?.step.step !== "resume") return;
+		const { number, of } = resuming.step;
+		say(
+			`${since()}: resumed ${number} of ${of} in ${seconds(Date.now() - resuming.at)}`,
+		);
+	};
 	const starting = async (step: StartStep) => {
+		resumed();
+		resuming = { step, at: Date.now() };
 		const status = describeStep(step);
 		say(`${since()}: ${status}`);
 		try {
@@ -175,6 +188,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		// unit then; the host keeps serving what it can until it does.
 		report(error);
 	}
+	resumed();
 	say(
 		`${since()}: ready, listening on ${serving.path}` +
 			(serving.unresumed.length > 0

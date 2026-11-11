@@ -208,10 +208,11 @@ describe("runHost", () => {
 			`resuming 1 of 1: ${sessionId}`,
 			"ready",
 		]);
-		expect(said).toHaveLength(3);
+		expect(said).toHaveLength(4);
 		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
-		expect(said[2]).toMatch(/^\d+\.\d s: ready, listening on /);
+		expect(said[2]).toMatch(/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s$/);
+		expect(said[3]).toMatch(/^\d+\.\d s: ready, listening on /);
 		second.emit("SIGTERM");
 		await run.stopped;
 	});
