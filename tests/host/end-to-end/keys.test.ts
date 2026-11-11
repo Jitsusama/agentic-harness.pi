@@ -51,6 +51,8 @@ const KEY = {
 	ctrlW: "\u001b[119;5u",
 	ctrlY: "\u001b[121;5u",
 	ctrlMinus: "\u001b[45;5u",
+	altY: "\u001b[121;3u",
+	tab: "\t",
 } as const;
 /** A wheel notch upward over the screen, in the SGR mouse reports pi asks for. */
 const WHEEL_UP = "\u001b[<64;10;10M";
@@ -295,6 +297,75 @@ describe.skipIf(!packageDir)(
 
 				await typing.shows("heard: first row", TURN_MS);
 				await typing.shows(/^\W*second back\W*$/m, TURN_MS);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"swaps a yank for the kill before it on Alt+Y",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const typing = await viewer(sessionId);
+				// Typing between the kills keeps them two entries, not one grown kill.
+				typing.type("older");
+				await typing.shows("older");
+				typing.type(KEY.ctrlW);
+				await until(
+					"Ctrl+W to kill the first word",
+					() => !shown(typing, "older"),
+					TURN_MS,
+				);
+				typing.type("newer");
+				await typing.shows("newer");
+				typing.type(KEY.ctrlW);
+				await until(
+					"Ctrl+W to kill the second word",
+					() => !shown(typing, "newer"),
+					TURN_MS,
+				);
+
+				typing.type(KEY.ctrlY);
+				await typing.shows("newer");
+				typing.type(KEY.altY);
+				await until(
+					"Alt+Y to swap the yank for the older kill",
+					() => !shown(typing, "newer"),
+					TURN_MS,
+				);
+				typing.type(ENTER);
+
+				await typing.shows("heard: older", TURN_MS);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"completes a file's name and a command's on Tab",
+			async () => {
+				const cwd = work.trusted();
+				writeFileSync(join(cwd, "completed-by-tab.txt"), "");
+				const { sessionId } = await host.open(cwd);
+				const typing = await viewer(sessionId);
+
+				typing.type(`look at ./completed-by${KEY.tab}`);
+				await typing.shows("completed-by-tab.txt");
+				typing.type(ENTER);
+				await typing.shows("heard: look at ./completed-by-tab.txt", TURN_MS);
+
+				typing.type("/stat");
+				await typing.shows("Set a status line in the footer");
+				typing.type(`${KEY.tab}tabbed-status${ENTER}`);
+				// Once the editor no longer shows the command, the words left are the footer's.
+				await until(
+					"the completed /status to set its words in the footer",
+					() => !shown(typing, "/stat") && shown(typing, "tabbed-status"),
+					TURN_MS,
+				);
+				await host.idle(sessionId, TURN_MS);
+				expect(
+					shown(typing, "heard: /stat"),
+					"the completed command never went to the model",
+				).toBe(false);
 			},
 			CASE_MS,
 		);
