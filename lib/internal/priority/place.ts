@@ -68,7 +68,12 @@ const writePid: Write = (path, pid) => writeFile(path, `${pid}\n`);
 
 interface Placement {
 	path: string;
-	write: Write;
+	/**
+	 * Never throws and answers nothing, so a spawn wrapper an earlier load
+	 * left on the prototype, which calls this and drops its answer, has no
+	 * refusal to leave unhandled ({@link settling}).
+	 */
+	write: (path: string, pid: number) => void;
 	/** Set once the cgroup refuses a write, rather than missing it. */
 	broken: boolean;
 }
@@ -84,6 +89,26 @@ const PASSING = new Set(["ESRCH", "ENOENT", "ENODEV"]);
 function refused(placement: Placement, error: unknown): void {
 	const code = (error as NodeJS.ErrnoException | undefined)?.code;
 	if (!code || !PASSING.has(code)) placement.broken = true;
+}
+
+/**
+ * `write`, with its refusal handled where it happens. Spawn is wrapped
+ * once per process and the wrapper outlives a reload, so the wrapper an
+ * older load installed calls this placement's write. One that dropped an
+ * asynchronous write's answer left ESRCH unhandled, and that ended every
+ * pi that reloaded onto it.
+ */
+function settling(placement: Placement, write: Write): Placement["write"] {
+	return (path, pid) => {
+		try {
+			const written = write(path, pid);
+			if (written instanceof Promise) {
+				written.catch((error: unknown) => refused(placement, error));
+			}
+		} catch (error) {
+			refused(placement, error);
+		}
+	};
 }
 
 const PLACEMENT = Symbol.for("agentic-harness.priority.placement");
@@ -163,7 +188,9 @@ export function placeChildren(
 	write: Write = writePid,
 ): () => void {
 	const prototype = prototypeOf();
-	prototype[PLACEMENT] = { path, write, broken: false };
+	const placement: Placement = { path, write: () => {}, broken: false };
+	placement.write = settling(placement, write);
+	prototype[PLACEMENT] = placement;
 	if (!prototype[ORIGINAL]) {
 		const original = prototype.spawn;
 		prototype[ORIGINAL] = original;
@@ -176,14 +203,7 @@ export function placeChildren(
 				!staying &&
 				this.pid !== undefined
 			) {
-				try {
-					const written = placement.write(placement.path, this.pid);
-					if (written instanceof Promise) {
-						written.catch((error: unknown) => refused(placement, error));
-					}
-				} catch (error) {
-					refused(placement, error);
-				}
+				placement.write(placement.path, this.pid);
 			}
 			return result;
 		};
