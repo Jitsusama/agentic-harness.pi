@@ -16,6 +16,7 @@ import {
 	createOutbox,
 	type JobResult,
 	PROMPT_WAIT_MS,
+	TICK_MS,
 } from "../../../extensions/job-workflow/outbox.ts";
 
 const result = (jobId: string, text = `${jobId} finished`): JobResult => ({
@@ -314,5 +315,69 @@ describe("when a send goes nowhere", () => {
 		expect(sent).toHaveLength(1);
 		advance(1);
 		expect(sent).toHaveLength(2);
+	});
+});
+
+/** An outbox whose clock is counted: how many run, and their ticks. */
+function clocked() {
+	const sent: string[] = [];
+	const session = { busy: true };
+	const clocks: Array<{ tick: () => void; stopped: boolean }> = [];
+	const box = createOutbox({
+		idle: () => !session.busy,
+		send: (message) => sent.push(message),
+		now: () => 0,
+		every: (ms, tick) => {
+			expect(ms, "it looks again every second").toBe(TICK_MS);
+			const clock = { tick, stopped: false };
+			clocks.push(clock);
+			return () => {
+				clock.stopped = true;
+			};
+		},
+	});
+	const running = () => clocks.filter((clock) => !clock.stopped);
+	return { box, sent, session, clocks, running };
+}
+
+describe("looking again on its own", () => {
+	// 11 November: a tick a second woke each of 94 idle pis for nothing.
+	it("starts no clock while nothing waits", () => {
+		const { box, clocks } = clocked();
+
+		box.runStarted();
+		box.runSettled();
+		box.seen("a message of the person's");
+
+		expect(clocks).toEqual([]);
+	});
+
+	it("keeps one clock while a result waits, and stops it once the result is seen", () => {
+		const { box, sent, session, clocks, running } = clocked();
+
+		box.post(result("j1"));
+		box.post(result("j2"));
+		expect(running(), "one clock while results wait").toHaveLength(1);
+		session.busy = false;
+		clocks[0]?.tick();
+		expect(sent).toHaveLength(1);
+		box.runStarted();
+		box.seen(sent[0] ?? "");
+
+		expect(running(), "no clock once nothing waits").toEqual([]);
+	});
+
+	it("stops its clock while paused, and starts it again on resuming", () => {
+		const { box, running } = clocked();
+		box.post(result("j1"));
+
+		box.pause();
+		expect(running(), "no clock while paused").toEqual([]);
+		box.resume();
+
+		expect(
+			running(),
+			"a clock again, since the result still waits",
+		).toHaveLength(1);
 	});
 });

@@ -76,9 +76,6 @@ function askToYield(pi: ExtensionAPI, session: string | undefined): boolean {
 	return ask.parked;
 }
 
-/** How often the outbox looks again, for a prompt that went nowhere. */
-const TICK_MS = 1_000;
-
 /** The footer slot the job count sits in. */
 const STATUS_KEY = "jobs";
 
@@ -221,6 +218,11 @@ function freshSession(
 			}
 		},
 		now: Date.now,
+		every: (ms, tick) => {
+			const clock = setInterval(tick, ms);
+			clock.unref();
+			return () => clearInterval(clock);
+		},
 	});
 	// pi's own first prompt is on its way, as a typed one would be: what
 	// the outbox holds, a cut-off notice above all, waits for its run.
@@ -259,7 +261,6 @@ function freshSession(
 
 	let withdraw: (() => void) | undefined;
 	let yielding: (() => void) | undefined;
-	let timer: ReturnType<typeof setInterval> | undefined;
 	const listen = () => {
 		withdraw = announceJobHost(runtime.pi.events, jobs);
 		yielding = runtime.pi.events.on(JOBS_YIELD, (data) => {
@@ -268,16 +269,14 @@ function freshSession(
 			data.parked = true;
 			session.park();
 		});
-		timer = setInterval(() => outbox.tick(), TICK_MS);
-		timer.unref();
+		outbox.resume();
 	};
 	const quiet = () => {
 		withdraw?.();
 		withdraw = undefined;
 		yielding?.();
 		yielding = undefined;
-		clearInterval(timer);
-		timer = undefined;
+		outbox.pause();
 	};
 
 	const session: JobSession = {

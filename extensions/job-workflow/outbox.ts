@@ -65,6 +65,11 @@ export interface OutboxOptions {
 	/** No run active and no compaction, by pi's own account. */
 	idle(): boolean;
 	now(): number;
+	/**
+	 * Call `tick` every `ms` until the answer is called. The outbox asks
+	 * only while something waits; without it, only its caller ticks it.
+	 */
+	every?(ms: number, tick: () => void): () => void;
 }
 
 /** The outbox, told what the session is doing. */
@@ -85,6 +90,10 @@ export interface Outbox {
 	withdraw(jobId: string): boolean;
 	/** Something changed or time passed: send whatever can go. */
 	tick(): void;
+	/** Stop looking again on its own, as a session parking does. */
+	pause(): void;
+	/** Look again on its own while something waits. */
+	resume(): void;
 	/** Results not yet seen in the session, in the order they finished. */
 	waiting(): readonly JobResult[];
 }
@@ -96,6 +105,14 @@ export interface Outbox {
  * something has to bound it.
  */
 export const PROMPT_WAIT_MS = 30_000;
+
+/**
+ * How often the outbox looks again while something waits, for a run to
+ * settle or a prompt that went nowhere. Nothing waiting, it looks never:
+ * a tick a second in each of 94 idle pis woke them for nothing, while
+ * their slice swapped (11 November).
+ */
+export const TICK_MS = 1_000;
 
 /** The custom message a result steered into a run goes as. */
 export const STEERED_RESULTS = "job-results";
@@ -140,6 +157,20 @@ export function createOutbox(options: OutboxOptions): Outbox {
 	let promptSince: number | undefined;
 	// Whether a run is under way, from its start until it settles.
 	let running = false;
+	let paused = false;
+	let stopClock: (() => void) | undefined;
+
+	// Looks again on its own only while a result or a prompt waits.
+	const keepClock = () => {
+		const waits =
+			queued.length > 0 || out.length > 0 || promptSince !== undefined;
+		if (!paused && waits) {
+			stopClock ??= options.every?.(TICK_MS, () => box.tick());
+		} else if (stopClock) {
+			stopClock();
+			stopClock = undefined;
+		}
+	};
 
 	const giveBack = () => {
 		queued.unshift(...out);
@@ -180,24 +211,28 @@ export function createOutbox(options: OutboxOptions): Outbox {
 		promptSince = options.now();
 	};
 
-	return {
+	const box: Outbox = {
 		post(result) {
 			queued.push(result);
 			trySend();
+			keepClock();
 		},
 		promptSubmitted() {
 			if (options.idle()) promptSince ??= options.now();
+			keepClock();
 		},
 		runStarted() {
 			promptSince = undefined;
 			running = true;
 			trySteer();
+			keepClock();
 		},
 		runSettled(stopped = false) {
 			promptSince = undefined;
 			running = false;
 			giveBack();
 			if (!stopped) trySend();
+			keepClock();
 		},
 		seen(text) {
 			if (!isOutboxMessage(text)) return;
@@ -207,11 +242,13 @@ export function createOutbox(options: OutboxOptions): Outbox {
 				const result = queued[i];
 				if (result && said(result)) queued.splice(i, 1);
 			}
+			keepClock();
 		},
 		withdraw(jobId) {
 			const at = queued.findIndex((result) => result.jobId === jobId);
 			if (at < 0) return false;
 			queued.splice(at, 1);
+			keepClock();
 			return true;
 		},
 		tick() {
@@ -221,7 +258,17 @@ export function createOutbox(options: OutboxOptions): Outbox {
 				giveBack();
 			}
 			trySend();
+			keepClock();
+		},
+		pause() {
+			paused = true;
+			keepClock();
+		},
+		resume() {
+			paused = false;
+			keepClock();
 		},
 		waiting: () => [...out, ...queued],
 	};
+	return box;
 }
