@@ -54,7 +54,10 @@ input pipeline or screen. No unit or running host is installed yet.
   host's environment less systemd's hand-over and PI_PACKAGE_DIR; the
   engine pins the host's pi for their subagents. A kind, realm,
   pi install or proof it refuses exits 78, before anything is held or
-  listens, so a unit naming that status stops restarting it.
+  listens, so a unit naming that status stops restarting it. Once
+  judged, it writes `loaded/<pid>` naming the version it runs, as
+  each pi does, so pi-packages keeps that version and every one
+  retired since the host started, even with no conversation open.
 - restart.ts and what-starts.ts: the host restarting itself. A host
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
