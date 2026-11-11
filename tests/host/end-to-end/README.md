@@ -44,9 +44,10 @@ The component cases need a pi from core.nix#2853 or later.
 
 keys.test.ts holds the keys and the mouse a person uses at pi's own
 screen to that same host: scrolling a long answer with the wheel and by
-key, searching it, stopping a turn, opening the tree, clearing the
-editor, queueing a follow-up, expanding a tool's output and thinking,
-picking a model, and copying a drag. Each viewer sends what kitty sends
+key, jumping between prompts, searching it, stopping a turn, opening
+the tree, clearing the editor, queueing a follow-up and taking it back,
+breaking a line, killing, yanking and undoing in the editor, expanding
+a tool's output and thinking, picking a model, and copying a drag. Each viewer sends what kitty sends
 under the keyboard protocol pi asks for. The host's scripted model
 holds an answer named "hold until <file>" until the turn is stopped or
 the file appears in HOME, so a case can act during a run. Run it as
@@ -157,10 +158,19 @@ load's footer throws, as the background host did on 11 November.
 quit.test.ts types pi's quit in one viewer of a hosted conversation. On
 11 November script(1), its input ended, typed Ctrl+D into a check's
 window, and the conversation closed for everyone with no word in the
-journal. Here the viewer that typed it is asked alone: y closes it for
-everyone, anything else lets only that viewer go, and a viewer whose
-window closes before answering leaves it running. Each end is a line in
-the host's journal naming the viewer or the caller that asked.
+journal. Here a window whose input ends leaves it running. A lone
+viewer's Ctrl+D, /quit or Ctrl+C twice closes it as plain pi does,
+under Joel's own Ctrl+D bindings, and a Ctrl+D typed into words deletes
+forward and never quits. With another viewer watching, the viewer that
+typed the quit is asked alone: y closes it for everyone, anything else
+lets only that viewer go. Each end is a line in the host's journal
+naming the viewer or the caller that asked.
+
+footer.test.ts reads pi's own footer on hosted screens: each
+conversation's folder and git branch, not the host's, redrawn when the
+branch moves; a status line an extension sets, changes and clears, on
+every viewer; and the model and thinking level as Ctrl+P, Ctrl+Shift+P
+and Shift+Tab cycle them.
 
 park.test.ts parks three conversations on the screen host by the
 harness's own park-workflow, the switch naming each, and has the host

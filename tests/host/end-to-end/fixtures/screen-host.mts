@@ -120,6 +120,8 @@ const MODEL = "faux-1";
 const OTHER_MODEL = "faux-2";
 /** What a held answer is held by: words naming the file in HOME that releases it. */
 const HELD = /hold until (\S+)/;
+/** The word a long answer is asked for by, which ends each of its lines. */
+const LONG_TAG = /long answer (\w+)/;
 /** More answers than any run of the proofs asks for. */
 const ANSWERS = 200;
 const home = homedir();
@@ -248,7 +250,7 @@ function weigh(): void {
  * Answer by what the latest message asks: a picture is a read of
  * `picture.png` in the conversation's folder and notes a read of
  * `notes.txt`, a tool's result is acknowledged, a long answer is 120
- * lines, thinking comes before its answer, a hold waits to be stopped or
+ * lines, each ending in the word after `long answer` when one follows, thinking comes before its answer, a hold waits to be stopped or
  * released, and anything else is echoed back.
  */
 async function answer(
@@ -290,10 +292,15 @@ async function answer(
 			],
 			{ stopReason: "toolUse" },
 		);
-	if (words.includes("long answer"))
+	if (words.includes("long answer")) {
+		const tag = LONG_TAG.exec(words)?.[1];
 		return compat.fauxAssistantMessage(
-			Array.from({ length: 120 }, (_, n) => `line ${n + 1}`).join("\n"),
+			Array.from(
+				{ length: 120 },
+				(_, n) => `line ${n + 1}${tag ? ` ${tag}` : ""}`,
+			).join("\n"),
 		);
+	}
 	return compat.fauxAssistantMessage(`heard: ${words}`);
 }
 
@@ -354,8 +361,9 @@ function writeClipboard(): string {
  * rows, a `/theme` command switching pi's theme by name and saying which,
  * a `/footer` naming its load with a `/host-reload` command reloading it
  * through the host, a `/throw` command setting a footer that throws on
- * every frame, and this checkout's panel-lifecycle and panel-zoom
- * extensions.
+ * every frame, a `/status` command setting a footer status line to its
+ * words, and this checkout's panel-lifecycle and panel-zoom extensions.
+ * The second model reasons, so the footer names its thinking level.
  */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -373,7 +381,7 @@ function writeAgentFolder(api: string): void {
 					].map(([id, name]) => ({
 						id,
 						name,
-						reasoning: false,
+						reasoning: id === OTHER_MODEL,
 						input: ["text", "image"],
 						contextWindow: 128_000,
 						maxTokens: 16_384,
@@ -536,6 +544,18 @@ export default function (pi) {
 				},
 				invalidate() {},
 			}));
+		},
+	});
+}
+`,
+	);
+	writeFileSync(
+		join(agentDir, "extensions", "status.ts"),
+		`export default function (pi) {
+	pi.registerCommand("status", {
+		description: "Set a status line in the footer to these words",
+		handler: async (args, ctx) => {
+			ctx.ui.setStatus("proof", args.trim() || undefined);
 		},
 	});
 }

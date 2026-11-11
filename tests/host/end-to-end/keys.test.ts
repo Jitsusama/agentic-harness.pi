@@ -44,6 +44,13 @@ const KEY = {
 	pageUp: "\u001b[5~",
 	ctrlHome: "\u001b[1;5H",
 	ctrlEnd: "\u001b[1;5F",
+	ctrlShiftUp: "\u001b[1;6A",
+	ctrlShiftDown: "\u001b[1;6B",
+	altUp: "\u001b[1;3A",
+	ctrlJ: "\u001b[106;5u",
+	ctrlW: "\u001b[119;5u",
+	ctrlY: "\u001b[121;5u",
+	ctrlMinus: "\u001b[45;5u",
 } as const;
 /** A wheel notch upward over the screen, in the SGR mouse reports pi asks for. */
 const WHEEL_UP = "\u001b[<64;10;10M";
@@ -109,6 +116,40 @@ describe.skipIf(!packageDir)(
 				await until(
 					"Ctrl+End comes back to the end",
 					() => lastShown(reading) === LAST_LINE,
+					TURN_MS,
+				);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"jumps back a prompt on Ctrl+Shift+Up and forward on Ctrl+Shift+Down",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const reading = await viewer(sessionId);
+				reading.type(`long answer alpha${ENTER}`);
+				await reading.shows(`line ${LAST_LINE} alpha`, TURN_MS);
+				reading.type(`long answer beta${ENTER}`);
+				await reading.shows(`line ${LAST_LINE} beta`, TURN_MS);
+				const [first, second] = ["long answer alpha", "long answer beta"];
+				expect(
+					shown(reading, second),
+					"the second prompt is scrolled away at its answer's end",
+				).toBe(false);
+
+				reading.type(KEY.ctrlShiftUp);
+				await reading.shows(second, TURN_MS);
+				expect(shown(reading, first), "one jump goes back one prompt").toBe(
+					false,
+				);
+
+				reading.type(KEY.ctrlShiftUp);
+				await reading.shows(first, TURN_MS);
+
+				reading.type(KEY.ctrlShiftDown);
+				await until(
+					"Ctrl+Shift+Down to come forward to the second prompt",
+					() => shown(reading, second) && !shown(reading, first),
 					TURN_MS,
 				);
 			},
@@ -198,6 +239,65 @@ describe.skipIf(!packageDir)(
 
 				await queuing.shows("released: queued", TURN_MS);
 				await queuing.shows("heard: and then this", TURN_MS);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"takes a queued follow-up back into the editor on Alt+Up, unsent",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const queuing = await viewer(sessionId);
+				queuing.type(`hold until dequeued${ENTER}`);
+				await queuing.shows("Working");
+				queuing.type(`not after all${KEY.altEnter}`);
+				await queuing.shows("Follow-up: not after all");
+
+				queuing.type(KEY.altUp);
+
+				await until(
+					"Alt+Up to take the follow-up out of the queue",
+					() => !shown(queuing, "Follow-up: not after all"),
+					TURN_MS,
+				);
+				await queuing.shows("not after all");
+				writeFileSync(join(sealed.home, "dequeued"), "");
+				await queuing.shows("released: dequeued", TURN_MS);
+				await host.idle(sessionId, TURN_MS);
+				expect(
+					shown(queuing, "heard: not after all"),
+					"the follow-up taken back is never sent",
+				).toBe(false);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"breaks a line on Ctrl+J, kills a word on Ctrl+W, yanks it back on Ctrl+Y and undoes on Ctrl+-",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				const typing = await viewer(sessionId);
+				typing.type(`first row${KEY.ctrlJ}second gone`);
+				await typing.shows("second gone");
+
+				typing.type(KEY.ctrlW);
+				await until(
+					"Ctrl+W to kill the word before the cursor",
+					() => !shown(typing, "gone"),
+					TURN_MS,
+				);
+				typing.type(KEY.ctrlY);
+				await typing.shows("second gone");
+				typing.type(KEY.ctrlMinus);
+				await until(
+					"Ctrl+- to undo the yank",
+					() => !shown(typing, "gone"),
+					TURN_MS,
+				);
+				typing.type(`back${ENTER}`);
+
+				await typing.shows("heard: first row", TURN_MS);
+				await typing.shows(/^\W*second back\W*$/m, TURN_MS);
 			},
 			CASE_MS,
 		);
@@ -320,6 +420,11 @@ function lastShown(on: Viewer): number {
 		0,
 		...on.screen().map((row) => Number(ANSWER_LINE.exec(row)?.[1] ?? 0)),
 	);
+}
+
+/** Whether a viewer's screen shows `words` anywhere. */
+function shown(on: Viewer, words: string): boolean {
+	return on.screen().join("\n").includes(words);
 }
 
 /** What the latest copy a viewer was sent holds. */
