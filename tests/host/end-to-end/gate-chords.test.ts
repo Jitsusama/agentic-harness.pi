@@ -132,8 +132,11 @@ describe.skipIf(!packageDir)(
 
 				on.type(SHIFT_ESCAPE);
 				await on.shows("Feedback:", TURN_MS);
-				on.type(`another way${ENTER}`);
-				await answered("elsewhere");
+				// Typed, then Enter on its own, as a terminal sends them: in
+				// one chunk with the words, Enter goes into the feedback.
+				on.type("another way");
+				await on.shows("another way", TURN_MS);
+				await submitFeedback(on, "elsewhere");
 				expect(gated()).toContain("elsewhere redirected another way");
 			},
 			CASE_MS,
@@ -241,6 +244,28 @@ async function approve(on: Viewer, name: string): Promise<void> {
 			if (answer(name) !== undefined) return true;
 			if (Date.now() - pressed >= PRESS_EVERY_MS) {
 				on.type(APPROVE);
+				pressed = Date.now();
+			}
+			return false;
+		},
+		TURN_MS,
+	);
+}
+
+/**
+ * Submit the feedback typed into the gate named `name`, pressing Enter
+ * until its answer is kept, since a press that lands while the editor
+ * arms is dropped. Only while the feedback shows, so no Enter reaches
+ * pi's editor once the gate has gone.
+ */
+async function submitFeedback(on: Viewer, name: string): Promise<void> {
+	let pressed = 0;
+	await until(
+		`gate ${name} is answered`,
+		() => {
+			if (answer(name) !== undefined) return true;
+			if (showing(on, "Feedback:") && Date.now() - pressed >= PRESS_EVERY_MS) {
+				on.type(ENTER);
 				pressed = Date.now();
 			}
 			return false;
