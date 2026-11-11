@@ -26,6 +26,9 @@
  * every look, so it can be taken; one a live cutover holds is waited
  * on, as that cutover's adopt ends one way or the other.
  *
+ * An attach that fails comes back through the join rather than closing
+ * the window, which looks again after a pause (joinAfterFailedAttach).
+ *
  * A release comes back through the join too: the window's viewer leaves
  * as its host lets the conversation go, and the join waits until no host
  * holds the conversation, open or on a roster, before the window runs
@@ -88,6 +91,33 @@ export type ViewFacts = Pick<JoinFacts, "hold">;
 export async function joinView(facts: ViewFacts): Promise<Joined> {
 	const hold = await facts.hold();
 	return hold === undefined ? { to: "pi" } : { to: "host", hold };
+}
+
+/**
+ * How long a window whose attach failed waits before it looks again, so
+ * a host that keeps refusing costs a line every few seconds rather than
+ * a loop as fast as attach can fail.
+ */
+export const ATTACH_AGAIN_MS = 2_000;
+
+/** Where a join after a failed attach looks. */
+export type FailedAttachFacts = Pick<JoinFacts, "hold" | "say" | "pause">;
+
+/**
+ * After an attach that failed with `code`, as when its host refused it,
+ * the window stays: it says so, waits {@link ATTACH_AGAIN_MS}, and looks
+ * again as a view does, attaching once more while a host holds the
+ * conversation and running plain pi on its log once none does.
+ */
+export async function joinAfterFailedAttach(
+	facts: FailedAttachFacts,
+	code: string,
+): Promise<Joined> {
+	facts.say(
+		`The host couldn't show this conversation (attach ended ${code}); looking again.`,
+	);
+	await facts.pause(ATTACH_AGAIN_MS);
+	return joinView(facts);
 }
 
 /** Where a join after a release looks. */

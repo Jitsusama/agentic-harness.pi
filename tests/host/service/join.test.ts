@@ -1,13 +1,16 @@
 /**
  * The join: the window becomes the host's viewer once the host has the
  * conversation open, or plain pi again once nobody takes the move up,
- * and plain pi again after a release once no host holds it.
+ * and plain pi again after a release once no host holds it; after a
+ * failed attach, the window looks again rather than closing.
  */
 import { describe, expect, it } from "vitest";
 import {
+	ATTACH_AGAIN_MS,
 	JOIN_GRACE_MS,
 	JOIN_LOOK_MS,
 	type JoinFacts,
+	joinAfterFailedAttach,
 	joinMove,
 	joinRelease,
 	joinView,
@@ -168,6 +171,27 @@ describe("the join a window opened on a hosted conversation runs", () => {
 
 	it("runs plain pi when no host holds it", async () => {
 		expect(await joinView({ hold: async () => undefined })).toEqual({
+			to: "pi",
+		});
+	});
+});
+
+describe("the join after a failed attach", () => {
+	it("says so, waits, and attaches again while a host holds the conversation", async () => {
+		const join = joined([{ hold: OPEN, noted: "none" }]);
+		expect(await joinAfterFailedAttach(join.facts, "1")).toEqual({
+			to: "host",
+			hold: OPEN,
+		});
+		expect(join.facts.now()).toBe(ATTACH_AGAIN_MS);
+		expect(join.said).toEqual([
+			"The host couldn't show this conversation (attach ended 1); looking again.",
+		]);
+	});
+
+	it("runs plain pi in the window once no host holds the conversation", async () => {
+		const join = joined([{ hold: OPEN, noted: "none" }, { noted: "none" }]);
+		expect(await joinAfterFailedAttach(join.facts, "1")).toEqual({
 			to: "pi",
 		});
 	});

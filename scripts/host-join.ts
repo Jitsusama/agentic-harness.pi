@@ -18,16 +18,27 @@
  * while any host holds it, else plain pi. Under its own holder, one whose
  * record names this process, it writes its wake and exits as a park
  * does, so its holder starts that at once on the same terminal, where
- * the keys typed meanwhile still wait. Under none, a view or a release
- * runs it itself, ending as it ends.
+ * the keys typed meanwhile still wait. Should the attach fail rather
+ * than be released, the window carries on as this join all the same,
+ * which says so and looks again. Under none, a view or a release runs
+ * it itself, ending as it ends.
  */
 
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { joinMove, joinRelease, joinView } from "../host/service/join.ts";
-import { hostHold, viewingWords } from "../lib/internal/session/host-holds.ts";
+import {
+	joinAfterFailedAttach,
+	joinMove,
+	joinRelease,
+	joinView,
+} from "../host/service/join.ts";
+import {
+	ATTACH_FAILED_ENV,
+	hostHold,
+	viewingWords,
+} from "../lib/internal/session/host-holds.ts";
 import {
 	noteState,
 	restoreStrandedClaims,
@@ -47,6 +58,10 @@ const plainPi = split === -1 ? [] : args.slice(split + 1);
 const session = own[own.indexOf("--session") + 1] ?? "";
 const wake = process.env[WAKE_ENV] ?? "";
 const again = process.env[AGAIN_ENV] ?? "";
+// Set by the viewing words when the attach before this join failed, not
+// released; gone from here on, so what this join runs next starts clean.
+const failed = process.env[ATTACH_FAILED_ENV] ?? "";
+Reflect.deleteProperty(process.env, ATTACH_FAILED_ENV);
 if (!own.includes("--session") || session === "" || plainPi.length === 0) {
 	throw new Error("Usage: host-join.ts --session ID -- PLAIN PI WORDS");
 }
@@ -83,6 +98,8 @@ const looking = {
 };
 /** Where the window goes next, as its words ask. */
 function joining() {
+	if (own.includes("--released") && failed !== "")
+		return joinAfterFailedAttach(looking, failed);
 	if (own.includes("--released")) return joinRelease(looking);
 	if (own.includes("--view")) return joinView(looking);
 	return joinMove({
@@ -94,7 +111,8 @@ function joining() {
 }
 const joined = await joining();
 // Released, the window carries on as this join again, which waits for the
-// host to let the log go before plain pi takes it up.
+// host to let the log go before plain pi takes it up; after a failed
+// attach, it carries on as this join too, which looks again.
 const released = [
 	process.execPath,
 	fileURLToPath(import.meta.url),

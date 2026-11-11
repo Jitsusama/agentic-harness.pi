@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HostRegistry } from "../../../../lib/core/session/host.ts";
 import type { TickedOwner } from "../../../../lib/internal/process-ticks.ts";
 import {
+	ATTACH_FAILED_ENV,
 	attachWords,
 	conversationsIn,
 	heldByHost,
@@ -202,7 +203,8 @@ describe("reaching a held conversation", () => {
 describe("viewing a hosted conversation in a window", () => {
 	/**
 	 * Run the viewing words with a stand-in mycelium that keeps the words
-	 * it was given and leaves as `code` says, and a release that says so.
+	 * it was given and leaves as `code` says, and words after it that say
+	 * whether the attach failed, and with what.
 	 */
 	function viewed(code: number): {
 		status: number | null;
@@ -220,11 +222,15 @@ describe("viewing a hosted conversation in a window", () => {
 		const words = viewingWords(holdOf("work-attended", true), open, [
 			"sh",
 			"-c",
-			"echo carried on as plain pi",
+			`echo "carried on after ${"$"}{${ATTACH_FAILED_ENV}:-a release}"`,
 		]);
+		// One left set from an earlier failure, which a release must clear.
 		const ran = spawnSync(words[0] ?? "", words.slice(1), {
 			encoding: "utf8",
-			env: { PATH: `${bin}:${process.env.PATH ?? ""}` },
+			env: {
+				PATH: `${bin}:${process.env.PATH ?? ""}`,
+				[ATTACH_FAILED_ENV]: "9",
+			},
 		});
 		return {
 			status: ran.status,
@@ -239,14 +245,16 @@ describe("viewing a hosted conversation in a window", () => {
 		expect(ran.attached).toEqual(
 			attachWords(holdOf("work-attended", true), open).slice(1),
 		);
-		expect(ran.out).toBe("carried on as plain pi\n");
+		expect(ran.out).toBe("carried on after a release\n");
 		expect(ran.status).toBe(0);
 	});
 
-	it("ends as attach ended on any other leaving", () => {
+	it("carries on, saying how attach failed, when attach fails, rather than closing the window", () => {
+		expect(viewed(1)).toMatchObject({ out: "carried on after 1\n", status: 0 });
+	});
+
+	it("ends as attach did when its person left", () => {
 		expect(viewed(0)).toMatchObject({ out: "", status: 0 });
-		rmSync(join(root, "bin"), { recursive: true });
-		expect(viewed(1)).toMatchObject({ out: "", status: 1 });
 	});
 
 	it("keeps the session's id beside --session, as the node finds it", () => {
