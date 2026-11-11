@@ -38,7 +38,7 @@
  * is for text a stranger wrote; the fence is for every session.
  */
 
-import { lstatSync, readdirSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
@@ -91,6 +91,9 @@ export const NEVER_THROUGH = [
 	"agent-signing.sock",
 	"github-broker.sock",
 	"gcloud-broker",
+	// The keeper of nix-offload's passes: only the exempted call outside
+	// the fence records one, so nothing inside can claim a check it ran.
+	"/run/nix-offload-keep.sock",
 ] as const;
 
 /**
@@ -137,6 +140,8 @@ export const READ_ONLY = [
 export interface Disk {
 	kind(path: string): "folder" | "file" | "link" | undefined;
 	entries(folder: string): readonly string[];
+	/** Where a path ends once its links are followed, if it ends anywhere. */
+	real?(path: string): string | undefined;
 }
 
 /** The disk as it is. */
@@ -157,6 +162,14 @@ const DISK: Disk = {
 		} catch {
 			// No folder to read, so nothing in it to bind.
 			return [];
+		}
+	},
+	real(path) {
+		try {
+			return realpathSync(path);
+		} catch {
+			// A link to nothing: there is no file to bind over.
+			return undefined;
 		}
 	},
 };
@@ -232,6 +245,18 @@ function homeArgs(home: string, disk: Disk): string[] {
 }
 
 /**
+ * The file the system's SSH settings are in. bubblewrap won't mount on a
+ * link, and NixOS makes `/etc/ssh/ssh_config` one into the store, so a
+ * link's copy goes over the file it ends at: on 11 November every fenced
+ * command failed with "Can't mount on symlink destination".
+ */
+function systemSshConfig(disk: Disk): string | undefined {
+	return disk.kind(SYSTEM_SSH_CONFIG) === "link"
+		? disk.real?.(SYSTEM_SSH_CONFIG)
+		: SYSTEM_SSH_CONFIG;
+}
+
+/**
  * bubblewrap's arguments for the fence. A path that isn't on this
  * machine is left out, since bubblewrap refuses to bind one, and
  * nothing inside could make it.
@@ -266,8 +291,9 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
-	if (place.sshConfig && exists(place.sshConfig)) {
-		args.push("--ro-bind", place.sshConfig, SYSTEM_SSH_CONFIG);
+	const settings = systemSshConfig(disk);
+	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
+		args.push("--ro-bind", place.sshConfig, settings);
 	}
 	return [
 		...args,

@@ -174,6 +174,29 @@ describe("the fence's arguments", () => {
 		).not.toContain("/etc/ssh/ssh_config");
 	});
 
+	it("binds the copy over the file the system's settings link to, since bubblewrap won't mount on a link", () => {
+		// NixOS links /etc/ssh/ssh_config into the store, and every fenced
+		// command failed on 11 November until the bind went past the link.
+		const sshConfig = "/run/user/1000/pi-fence/ssh_config";
+		const stored = "/nix/store/0000-etc-ssh-ssh_config";
+		const disk = {
+			...diskWith(place.home, [".config"], ["/etc/ssh/ssh_config"]),
+			real: (path: string) =>
+				path === "/etc/ssh/ssh_config" ? stored : undefined,
+		};
+		const given = fenceArgs({ ...place, sshConfig }, disk);
+		const at = given.indexOf(sshConfig);
+
+		expect(given.slice(at - 1, at + 2), "the copy's bind").toEqual([
+			"--ro-bind",
+			sshConfig,
+			stored,
+		]);
+		expect(given, "nothing mounts on the link itself").not.toContain(
+			"/etc/ssh/ssh_config",
+		);
+	});
+
 	it("makes the home folder read-only, binding back writable every entry but the read-only ones and links", () => {
 		expect(pairs("--ro-bind")[0]).toBe(place.home);
 		const writable = pairs("--bind").filter((path) =>
