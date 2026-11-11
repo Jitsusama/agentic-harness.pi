@@ -196,9 +196,8 @@ it(
 			await open("attended", "b");
 			await open("background", "c");
 			const busy = await open("background", "d", { first: DAWDLE });
-			await untilAnswered(
-				"the busy conversation is in its tool",
-				async () => textOf(busy.file).includes(DAWDLING),
+			await untilAnswered("the busy conversation is in its tool", async () =>
+				textOf(busy.file).includes(DAWDLING),
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\nd: ${textOf(busy.file)}`);
 			});
@@ -234,13 +233,10 @@ it(
 			const released = await releasing;
 			expect(released.code, released.out).toBe(0);
 			expect(released.out).toContain(`${opened.length} released`);
-			expect(await attended.list(), "the attended host ends empty").toEqual(
+			expect(await attended.list(), "the attended host ends empty").toEqual([]);
+			expect(await background.list(), "the background host ends empty").toEqual(
 				[],
 			);
-			expect(
-				await background.list(),
-				"the background host ends empty",
-			).toEqual([]);
 
 			const before = opened.map(({ one }) => textOf(one.file));
 			for (const { one } of opened)
