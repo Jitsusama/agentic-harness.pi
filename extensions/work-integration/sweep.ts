@@ -16,8 +16,10 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionSlot, withSession } from "../../lib/core/session/index.ts";
 import {
+	type SweptTrees,
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
+	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
 import type { UseSigns } from "../../lib/core/work/in-use.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
@@ -103,10 +105,14 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 	const dir = stateDir("work");
 	const started = Date.now();
 	let line: Record<string, unknown>;
+	let taken: string[] = [];
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
-		// when asked, as it does for reclaim.
-		const claims: TreeClaims = { paths: [] };
+		// when asked, as it does for reclaim. Those it holds only while
+		// they are still work go by reclaim's rules here, as a lapsed
+		// session's do: a live quest's claims alone kept 220 ended trees
+		// of 456 on one machine on 11 November, with its disk at 76%.
+		const claims: TreeClaims = { paths: [], untilSpent: [] };
 		pi.events.emit(WORK_TREE_CLAIMS, claims);
 		const outcome = await sweepEndedTrees({
 			exec: unattendedExec(),
@@ -118,6 +124,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			...useSigns(),
 		});
 		line = said(outcome);
+		taken = outcome.taken.map((tree) => tree.path);
 	} catch (error) {
 		line = { failed: error instanceof Error ? error.message : String(error) };
 	}
@@ -135,6 +142,12 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 	} catch {
 		// The log is for reading afterwards; a sweep that can't write it
 		// has still done what it did, and a timer has nobody to tell.
+	}
+	// Whoever listed a tree it took stops listing a folder that is gone.
+	// pi's bus reports a listener's error itself, never to the emitter.
+	if (taken.length > 0) {
+		const swept: SweptTrees = { paths: taken };
+		pi.events.emit(WORK_TREES_SWEPT, swept);
 	}
 }
 
