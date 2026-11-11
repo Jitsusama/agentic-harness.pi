@@ -14,7 +14,10 @@ import type { SessionRef } from "../../lib/core/session/index.ts";
 import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
-import { spawnedBy } from "../../lib/internal/shell/spawner.ts";
+import {
+	SPAWNER_VARIABLE,
+	spawnedBy,
+} from "../../lib/internal/shell/spawner.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { reapsWhatItLeft } from "./reap.ts";
@@ -38,15 +41,17 @@ export function agentBash(
 	sandbox: Sandbox = { kind: "none" },
 	session?: SessionRef,
 ): AgentBash {
-	// In a host, the pi-spawners its pid started are other conversations',
-	// so none is taken for one an earlier load left.
+	// In a host running pi-spawner, the ones its pid started are other
+	// conversations', so none is taken for one an earlier load left. A host
+	// without it, by the process's own environment, runs none for any.
+	const sharing = hosted() && process.env[SPAWNER_VARIABLE] === "on";
 	const spawning = spawnedBy(
 		createLocalBashOperations(
 			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
 		),
 		{
 			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
-			...(hosted() ? { reap: () => undefined } : {}),
+			...(sharing ? { reap: () => undefined } : {}),
 		},
 	);
 	const definition = createBashToolDefinition(cwd, {

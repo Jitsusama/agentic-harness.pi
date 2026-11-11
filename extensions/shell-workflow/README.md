@@ -223,10 +223,12 @@ variables, stop, time limit and exit code. Where the program isn't on
 the PATH or stops, pi starts commands itself, as it does without the
 variable. A reload or a new session retires its load's `pi-spawner`,
 which closes once the commands it runs have ended, so a background
-command outlives the reload. Before a load starts its own, it stops any
+command outlives the reload. Each load, as it starts, stops any
 `pi-spawner` its pi started that runs nothing, as loads from before
-retiring was possible left them; a shared host stops none, since there
-they are other conversations'.
+retiring was possible left them, whether or not it runs one itself: a
+pi that ran one earlier and runs without it now would keep that one
+idle until it ends. A shared host running `pi-spawner` stops none,
+since there they are other conversations'.
 
 ## Stopping a Command
 
