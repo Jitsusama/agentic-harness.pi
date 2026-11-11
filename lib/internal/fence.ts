@@ -481,9 +481,55 @@ export interface Offload {
  */
 export const OFFLOAD_EXEMPTION_ENDS = "2026-11-13";
 
+/** A word with no meaning to a shell: no quote, expansion, glob or redirect. */
+const PLAIN_WORD = /^[A-Za-z0-9._/@:=+^*-]+$/;
+
 /** A `nix-offload there` call alone, its arguments plain words. */
 const OFFLOAD_CALL =
-	/^nix-offload[ \t]+there(?:[ \t]+[A-Za-z0-9_./=:@%+,-]+)*$/;
+	/^nix-offload[ \t]+there(?:[ \t]+[A-Za-z0-9._/@:=+^*-]+)*$/;
+
+/** One `cd` into a folder, then the call: the form changed-checks needs. */
+const CD_CALL = /^cd[ \t]+(\S+)[ \t]*&&[ \t]*(nix-offload[ \t].*)$/;
+
+/**
+ * Flags that build, wait or keep running on this machine rather than a
+ * builder, which the exemption never lets out: what runs here should run
+ * fenced, as any other command here does.
+ */
+const HERE_FLAGS = ["--here", "--here-when-idle", "--outlive"] as const;
+
+/** Whether `word` names a path in the Nix store, through every link. */
+function storeWord(word: string): boolean {
+	return (
+		word.startsWith("/nix/store/") &&
+		!word.split("/").includes("..") &&
+		inStore(word) !== undefined
+	);
+}
+
+/**
+ * Whether a call's arguments may run outside the fence: none of the flags
+ * that work here, and a `--run` only when everything it copies and the
+ * command it runs are the store's, which a fenced command can't change.
+ * The builder runs a `--run` as an account its Nix doesn't trust.
+ */
+function letOut(words: readonly string[]): boolean {
+	const here = (word: string) =>
+		HERE_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
+	if (words.some(here)) return false;
+	if (!words.includes("--run")) return true;
+	const end = words.indexOf("--");
+	if (end === -1) return false;
+	const options = words.slice(0, end);
+	if (options.some((word) => word.startsWith("--copy="))) return false;
+	for (const [at, word] of options.entries()) {
+		if (word !== "--copy") continue;
+		const copied = options[at + 1];
+		if (copied === undefined || !storeWord(copied)) return false;
+	}
+	const command = words[end + 1];
+	return command !== undefined && storeWord(command);
+}
 
 /** The only folders on the exemption's `PATH`: the system's own programs. */
 function systemPath(user: string | undefined): string {
@@ -494,23 +540,50 @@ function systemPath(user: string | undefined): string {
 	return [...own, "/run/current-system/sw/bin"].join(":");
 }
 
+/** Where an exempt call runs, and how a `cd` folder is vouched for. */
+export interface OffloadPlace {
+	readonly home: string;
+	readonly env: NodeJS.ProcessEnv;
+	/**
+	 * The folder as it really is, when it is a tree the work tool holds
+	 * for this session, named without a link, whose git links check out;
+	 * nothing otherwise, and nothing when it isn't given.
+	 */
+	readonly heldTree?: (folder: string) => string | undefined;
+}
+
 /**
  * The shell text that runs a `nix-offload there` call outside the fence,
  * or nothing for any other command, which stays fenced. Only a call
- * alone, of plain words, is let out: anything chained on, quoted,
- * substituted or expanded stays in. It runs the store's binary by its
- * path with the call's own words, in an environment of its own: the
- * home and runtime folders, the account's name, the system's `PATH`,
- * and nothing from the shell that asked.
+ * alone, of plain words, is let out, or one `cd` into a tree the session
+ * holds before it, which changed-checks needs, since it finds its
+ * repository from the folder it runs in: anything else chained on,
+ * quoted, substituted or expanded stays in, and so does a call with a
+ * flag that works on this machine, or a `--run` of anything but the
+ * store's (`letOut`). It runs the store's binary by its path with the
+ * call's own words, in an environment of its own: the home and runtime
+ * folders, the account's name, the system's `PATH`, and nothing from
+ * the shell that asked.
  */
 export function offloadedOutside(
 	command: string,
 	offload: Offload | undefined,
-	place: { home: string; env: NodeJS.ProcessEnv },
+	place: OffloadPlace,
 ): string | undefined {
-	const call = command.trim();
-	if (!offload || !OFFLOAD_CALL.test(call)) return undefined;
+	if (!offload) return undefined;
+	let call = command.trim();
+	let folder: string | undefined;
+	const cd = CD_CALL.exec(call);
+	if (cd) {
+		const [, named = "", rest = ""] = cd;
+		if (!(PLAIN_WORD.test(named) && named.startsWith("/"))) return undefined;
+		folder = place.heldTree?.(named);
+		if (folder === undefined) return undefined;
+		call = rest.trim();
+	}
+	if (!OFFLOAD_CALL.test(call)) return undefined;
 	const words = call.split(/[ \t]+/).slice(1);
+	if (!letOut(words.slice(1))) return undefined;
 	const user = place.env.USER;
 	const environment = [
 		`HOME=${place.home}`,
@@ -523,6 +596,7 @@ export function offloadedOutside(
 	// Named env, since the store's may be coreutils' one binary for every
 	// program, which acts by the name it is started with.
 	return [
+		...(folder ? ["cd", quoted(folder), "&&"] : []),
 		"exec -a env",
 		quoted(offload.env),
 		"-i",

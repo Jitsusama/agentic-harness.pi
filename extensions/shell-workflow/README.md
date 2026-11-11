@@ -118,7 +118,14 @@ Until the SSH agent's proxy lets the fence reach the builders, a
 binary, started by its path with the call's own words and an
 environment of its own (home, runtime folder, account, the system's
 `PATH`). Anything chained on, quoted or expanded stays fenced, and a
-test fails from 13 November while the exemption is still here. git
+test fails from 13 November while the exemption is still here. So
+does a call with `--here`, `--here-when-idle` or `--outlive`, which
+work on this machine, and a `--run` whose copies or command aren't Nix
+store paths: give a script as an executable store path (`nix store
+add-path`), not `bash <script>`. One `cd` into a tree the work tool
+holds for the session may come before the call, as `nix-offload there
+--changed` needs, provided the tree is named without a link and its
+`.git` file, its git folder's way back and its `commondir` agree. git
 over SSH and commit signing need the agents, so commit and push with
 the work tool, which runs in pi's own process.
 
