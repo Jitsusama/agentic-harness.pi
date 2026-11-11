@@ -209,6 +209,20 @@ describe("reaching a held conversation", () => {
 		);
 		expect(said, "no start is waited on").not.toContain("as it starts");
 	});
+
+	it("says one its running host keeps but can't run waits on that host's next start", () => {
+		const said = heldByHost(kept, {
+			...holdOf("work-background", false),
+			stranded: true,
+		});
+
+		expect(said).toContain(
+			"is held but not running in the work-background host, since its last start or park failed",
+		);
+		expect(said).toContain(
+			"systemctl --user restart pi-host-work-background.service starts it now, and restarts every conversation it hosts",
+		);
+	});
 });
 
 describe("viewing a hosted conversation in a window", () => {

@@ -96,13 +96,18 @@ describe("the hold that keeps plain pi off a log", () => {
 		});
 	});
 
-	it("is a running host's roster that keeps what it couldn't resume", async () => {
+	it("is a running host's roster that keeps what it couldn't resume, said as stranded", async () => {
 		list("work-background", running, [open]);
 		roster("work-background", [open, kept]);
 
 		expect(
 			await writerHold(kept, { dir, standing, rosters, settleMs: 300 }),
-		).toEqual({ key: "work-background", realm: "work", open: false });
+		).toEqual({
+			key: "work-background",
+			realm: "work",
+			open: false,
+			stranded: true,
+		});
 	});
 
 	it("is a running host that parked it, said at once rather than after the settle", async () => {
