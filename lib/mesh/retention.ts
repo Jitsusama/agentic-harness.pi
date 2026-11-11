@@ -40,6 +40,13 @@ const HOUR_MS = 60 * 60 * 1000;
 /** How long a message, and a marker nobody moved, is kept. */
 export const KEEP_MS = 7 * 24 * HOUR_MS;
 
+/**
+ * How long a message stays where every peer looks for new ones, before
+ * it moves to its day's folder: past the two hours the unanswered list
+ * looks back, and past an hour's turn of a busy session.
+ */
+export const RECENT_MS = 6 * HOUR_MS;
+
 /** How long an ended peer's presence is kept after it last changed. */
 export const ENDED_MS = 24 * HOUR_MS;
 
@@ -62,6 +69,7 @@ export async function sweep(
 	// Which peers have ended: the machine's census, or a test's.
 	ended: (everyone: readonly Presence[]) => Promise<Census> = census,
 ): Promise<void> {
+	kept.transport.settle(now - RECENT_MS);
 	kept.transport.expire(now - KEEP_MS);
 	kept.board.expire(now);
 	kept.presences.expire(now - KEEP_MS);

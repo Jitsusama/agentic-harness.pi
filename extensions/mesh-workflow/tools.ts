@@ -584,9 +584,7 @@ async function sendAcross(at: Local, params: SendParams): Promise<Answer> {
 			{ sent: false } satisfies SendDetails,
 		);
 	}
-	const re = params.re
-		? (idNamed(params.re, at.transport.ids()) ?? params.re)
-		: undefined;
+	const re = params.re ? (messageNamed(at, params.re) ?? params.re) : undefined;
 	const refused = crossedAnswerRefused(at, re);
 	if (refused) return refused;
 	const sent = await at.cross({
@@ -630,9 +628,20 @@ function flowsText(flows: readonly string[]): string {
 		: `Its node lets it send to ${flows.join(" and ")}: pass that as realm, with the peers there by address.`;
 }
 
+/**
+ * The id a message was named by, as written: looked for among the last
+ * hours' first, since that is where nearly every answer's question is,
+ * and in the whole week only when not found there.
+ */
+function messageNamed(at: Local, written: string): string | undefined {
+	return (
+		idNamed(written, at.transport.recentIds()) ??
+		idNamed(written, at.transport.ids())
+	);
+}
+
 async function send(at: Local, params: SendParams): Promise<Answer> {
-	const ids = at.transport.ids();
-	const answersNamed = params.re ? idNamed(params.re, ids) : undefined;
+	const answersNamed = params.re ? messageNamed(at, params.re) : undefined;
 	const crossedAnswer = crossedAnswerRefused(at, answersNamed);
 	if (crossedAnswer) return crossedAnswer;
 
@@ -648,7 +657,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		}
 	}
 	const supersedes = params.supersedes
-		? idNamed(params.supersedes, ids)
+		? messageNamed(at, params.supersedes)
 		: undefined;
 	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
 	const self = { addresses: at.peer.addresses, ...senderIdentity() };

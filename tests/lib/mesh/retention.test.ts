@@ -19,6 +19,7 @@ import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
 import {
 	ENDED_MS,
 	KEEP_MS,
+	RECENT_MS,
 	sweep,
 	sweeper,
 } from "../../../lib/mesh/retention.ts";
@@ -48,7 +49,12 @@ function aged(path: string, text: string, ago: number): void {
 }
 
 /** A message file stamped this long before now. */
-function stamped(dir: string, ago: number, tail = "LUQ49E-1-aaaa"): string {
+function stamped(
+	dir: string,
+	ago: number,
+	tail = "LUQ49E-1-aaaa",
+	intent = "fyi",
+): string {
 	const id = `${now - ago}-${tail}`;
 	writeFileSync(
 		join(dir, `${id}.json`),
@@ -58,7 +64,7 @@ function stamped(dir: string, ago: number, tail = "LUQ49E-1-aaaa"): string {
 			at: new Date(now - ago).toISOString(),
 			from: "LUQ49E",
 			to: [ALL],
-			intent: "fyi",
+			intent,
 			text: "hi",
 			pid: 1,
 		}),
@@ -94,6 +100,47 @@ describe("a folder of messages", () => {
 			`${recent}.json`,
 			"notes.json",
 		]);
+	});
+
+	it("moves messages past their first hours to their day's folder, where reads still find them", () => {
+		const transport = folderTransport(messages);
+		const older = stamped(messages, RECENT_MS + 1000);
+		const hold = stamped(messages, RECENT_MS + 2000, "WCJQSG-2-cccc", "hold");
+		const recent = stamped(messages, RECENT_MS - 1000, "WCJQSG-2-bbbb");
+
+		transport.settle(now - RECENT_MS);
+
+		expect(transport.recentIds()).toEqual([hold, recent]);
+		expect(transport.ids()).toEqual([hold, older, recent]);
+		expect(transport.read(older)).toMatchObject({ id: older, text: "hi" });
+		expect(readdirSync(join(messages, "2026-10-21"))).toEqual([
+			`${older}.json`,
+		]);
+	});
+
+	it("lists only what hasn't moved, a little at a time", async () => {
+		const transport = folderTransport(messages);
+		stamped(messages, RECENT_MS + 1000);
+		const recent = stamped(messages, RECENT_MS - 1000, "WCJQSG-2-bbbb");
+
+		transport.settle(now - RECENT_MS);
+
+		expect(await transport.listIds()).toEqual([recent]);
+	});
+
+	it("lets go of a day's messages once older than it keeps, and the day with them", () => {
+		const transport = folderTransport(messages);
+		const old = stamped(messages, KEEP_MS + 1000);
+		const kept = stamped(messages, KEEP_MS - DAY, "WCJQSG-2-bbbb");
+		transport.settle(now - RECENT_MS);
+
+		transport.expire(now - KEEP_MS);
+
+		expect(transport.ids()).toEqual([kept]);
+		expect(transport.read(old)).toBeUndefined();
+		expect(
+			readdirSync(messages).filter((name) => !name.startsWith(".")),
+		).toEqual(["2026-10-16"]);
 	});
 });
 

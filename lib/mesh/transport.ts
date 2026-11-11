@@ -9,14 +9,25 @@
  * Ids begin with the time they were stamped, so sorted ids are the order
  * messages were sent in, and a peer remembers how far it has read by the
  * last id it was handed.
+ *
+ * Every peer looks through the folder once a minute for anything its
+ * watch missed, and a week of messages ran to 48,299 files on 11
+ * November 2026, growing by nine thousand a day. So messages past their
+ * first hours move into a folder for their day (`2026-11-11/`), which
+ * the minute's look passes by and reads of an id still reach. Holds stay
+ * where every peer lists them until they expire, since a peer on older
+ * code looks only at the top.
  */
 
 import { randomBytes } from "node:crypto";
 import {
 	type Dir,
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
+	rmdirSync,
 	rmSync,
 	statSync,
 	watch,
@@ -31,11 +42,17 @@ import { type Draft, ENVELOPE, type Message, messageFrom } from "./message.ts";
 export interface Transport {
 	/** Stamp a draft and send it; answers the message as sent. */
 	send(draft: Draft): Message;
-	/** Every message id, oldest first. */
+	/** Every message id kept, oldest first, however long ago it was sent. */
 	ids(): string[];
 	/**
-	 * Every message id, oldest first, read a little at a time, for a
-	 * reader that looks again on a clock and can wait for the answer.
+	 * The ids of messages not yet moved to their day's folder, oldest
+	 * first: the last hours' messages, and holds. Far fewer than
+	 * {@link ids}, for a reader after what came lately.
+	 */
+	recentIds(): string[];
+	/**
+	 * The recent ids, as {@link recentIds} answers, read a little at a
+	 * time, for a reader that looks again on a clock and can wait.
 	 */
 	listIds(): Promise<string[]>;
 	/** One message, or nothing when it will not read. */
@@ -49,6 +66,11 @@ export interface Transport {
 	 * called. Throws when arrivals cannot be watched at all.
 	 */
 	watch(arrived: (id: string) => void): () => void;
+	/**
+	 * Move messages stamped before this time into their day's folder,
+	 * out of what every peer looks through each minute. Holds stay.
+	 */
+	settle(before: number): void;
 	/**
 	 * Let go of what was stamped before this time: messages, and the read
 	 * markers of peers that have read nothing since.
@@ -120,6 +142,44 @@ function idOf(file: string): string {
 	return file.slice(0, -".json".length);
 }
 
+/** Whether a name in a transport folder is a day's folder of messages. */
+function isDay(name: string): boolean {
+	return /^\d{4}-\d{2}-\d{2}$/.test(name);
+}
+
+/** The folder of the day an id was stamped on, in UTC. */
+function dayOf(id: string): string | undefined {
+	const at = stampedAt(id);
+	return at === undefined ? undefined : new Date(at).toISOString().slice(0, 10);
+}
+
+/** The message ids in one folder, unsorted, or none when it won't list. */
+function idsIn(dir: string): string[] {
+	try {
+		return readdirSync(dir).filter(isMessageFile).map(idOf);
+	} catch {
+		return [];
+	}
+}
+
+/** The day folders a transport folder holds. */
+function daysIn(dir: string): string[] {
+	try {
+		return readdirSync(dir).filter(isDay);
+	} catch {
+		return [];
+	}
+}
+
+/** A message read from a file, or nothing when it will not read. */
+function readMessage(path: string): Message | undefined {
+	try {
+		return messageFrom(JSON.parse(readFileSync(path, "utf8")));
+	} catch {
+		return undefined;
+	}
+}
+
 /** Messages as files in this folder, made on first send. */
 export function folderTransport(dir: string): Transport {
 	const marker = (address: string) => join(dir, `.read-${address}`);
@@ -141,12 +201,12 @@ export function folderTransport(dir: string): Transport {
 			return message;
 		},
 		ids() {
-			try {
-				return readdirSync(dir).filter(isMessageFile).map(idOf).sort();
-			} catch {
-				return [];
-			}
+			return [
+				...idsIn(dir),
+				...daysIn(dir).flatMap((day) => idsIn(join(dir, day))),
+			].sort();
 		},
+		recentIds: () => idsIn(dir).sort(),
 		async listIds() {
 			const found: string[] = [];
 			let folder: Dir;
@@ -175,13 +235,13 @@ export function folderTransport(dir: string): Transport {
 			}
 		},
 		read(id) {
-			try {
-				return messageFrom(
-					JSON.parse(readFileSync(join(dir, `${id}.json`), "utf8")),
-				);
-			} catch {
-				return undefined;
-			}
+			const day = dayOf(id);
+			return (
+				readMessage(join(dir, `${id}.json`)) ??
+				(day === undefined
+					? undefined
+					: readMessage(join(dir, day, `${id}.json`)))
+			);
 		},
 		lastRead,
 		markRead(address, id) {
@@ -194,12 +254,54 @@ export function folderTransport(dir: string): Transport {
 		watch(arrived) {
 			mkdirSync(dir, { recursive: true });
 			const watcher = watch(dir, (_kind, file) => {
-				if (file && isMessageFile(file)) arrived(idOf(file));
+				// A message moved to its day's folder leaves this one, and is no
+				// arrival.
+				if (file && isMessageFile(file) && existsSync(join(dir, file))) {
+					arrived(idOf(file));
+				}
 			});
 			return () => watcher.close();
 		},
-		expire: (before) => expireFolder(dir, before),
+		settle: (before) => settleFolder(dir, before),
+		expire: (before) => {
+			for (const day of daysIn(dir)) expireDay(join(dir, day), before);
+			expireFolder(dir, before);
+		},
 	};
+}
+
+/**
+ * Move each message stamped before this time, other than a hold, into
+ * its day's folder. Two peers settling at once each move what the
+ * other hasn't, since a file already moved won't rename again.
+ */
+function settleFolder(dir: string, before: number): void {
+	for (const id of idsIn(dir)) {
+		const at = stampedAt(id);
+		const day = dayOf(id);
+		if (at === undefined || day === undefined || at >= before) continue;
+		const from = join(dir, `${id}.json`);
+		if (readMessage(from)?.intent === "hold") continue;
+		try {
+			mkdirSync(join(dir, day), { recursive: true });
+			renameSync(from, join(dir, day, `${id}.json`));
+		} catch {
+			// Moved already by another peer, or taken away: either way gone.
+		}
+	}
+}
+
+/** Take out of a day's folder what was stamped before this time, and the folder once empty. */
+function expireDay(day: string, before: number): void {
+	for (const id of idsIn(day)) {
+		const at = stampedAt(id);
+		if (at !== undefined && at < before) removeQuietly(join(day, `${id}.json`));
+	}
+	try {
+		rmdirSync(day);
+	} catch {
+		// Still holding messages, or gone already.
+	}
 }
 
 /**

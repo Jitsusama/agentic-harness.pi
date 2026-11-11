@@ -172,4 +172,25 @@ describe("the folder transport", () => {
 		await vi.waitFor(() => expect(arrived).toContain(sent.id));
 		stop();
 	});
+
+	it("tells a watcher nothing of a message moving to its day's folder", async () => {
+		const transport = folderTransport(dir);
+		const arrived: string[] = [];
+		const stop = transport.watch((id) => arrived.push(id));
+		const first = transport.send(draft({ intent: "fyi" }));
+		await vi.waitFor(() => expect(arrived).toContain(first.id));
+
+		transport.settle(Date.now() + 1000);
+		// What the folder says, it says in order: once the next arrival is
+		// told, the move before it has been too.
+		const next = transport.send(draft());
+		await vi.waitFor(() => expect(arrived).toContain(next.id));
+		stop();
+
+		expect(
+			arrived.filter((id) => id === first.id),
+			"the move was told as an arrival",
+		).toHaveLength(1);
+		expect(transport.read(first.id)).toMatchObject({ id: first.id });
+	});
 });
