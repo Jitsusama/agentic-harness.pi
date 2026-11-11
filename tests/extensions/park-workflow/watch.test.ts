@@ -174,6 +174,29 @@ describe("parking a session", () => {
 		]);
 	});
 
+	// 11 November: started fenced and through the spawner, 85PKB2 came
+	// back from its park with neither, since its holder runs the command
+	// in its own environment.
+	it("gives its holder the fence and the spawner it was started with, to wake with", () => {
+		const watched = watching(session(), {
+			...holder(),
+			PI_SANDBOX: "fence",
+			PI_SPAWNER: "on",
+		});
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+		).toEqual([
+			"env",
+			"PI_SANDBOX=fence",
+			"PI_SPAWNER=on",
+			"pi",
+			"--session",
+			logOf(),
+		]);
+	});
+
 	it("stays while its log isn't written, which pi does at its first answer", () => {
 		rmSync(logOf());
 		const watched = watching();
@@ -416,6 +439,15 @@ describe("starting again on a fresh log", () => {
 			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
 		).toMatchObject({ session: SESSION, restart: fresh() });
 		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("has its holder start it fenced on the fresh log, as it was started", () => {
+		restarting({ ...holder(), PI_SANDBOX: "fence" });
+		asked();
+		fallbacks[0]?.();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+		).toEqual(["env", "PI_SANDBOX=fence", "pi", "--session", fresh()]);
 	});
 
 	// WCJQSG, 10 November [e7c3cbbf]: never in the window Joel has
