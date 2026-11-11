@@ -33,7 +33,11 @@
  * conversation takes a while to start, asking for a frame first, as a
  * harness's many extensions do, then draws its own. A `/host-reload`
  * command asks the host to reload the conversation, as the harness's
- * follower does once its install moves. A stand-in `wl-paste`
+ * follower does once its install moves. The harness's own park-workflow
+ * parks a conversation the park switch names, by plain pi's rule. At
+ * SIGHUP it collects its garbage and weighs itself into `weighed.json` in
+ * HOME: its PSS and swapped PSS, and how many conversations' sessions
+ * are still in memory. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -47,6 +51,8 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
+	readFileSync,
+	renameSync,
 	watch,
 	writeFileSync,
 } from "node:fs";
@@ -203,6 +209,40 @@ process.once("SIGUSR2", () => {
 	serving.restartComing(true);
 	stop();
 });
+process.on("SIGHUP", weigh);
+
+/**
+ * Collect the garbage, then write what this process weighs to
+ * `weighed.json` in HOME, whole, for a test to read: its PSS and swapped
+ * PSS in kB, as the kernel counts them, and how many sessions the agent
+ * folder's weigh extension saw start are still in memory.
+ */
+function weigh(): void {
+	const collect = Reflect.get(globalThis, "gc");
+	if (typeof collect !== "function")
+		throw new Error("the fixture runs with --expose-gc to weigh itself");
+	// A session held only by weak references goes at a full collection; the
+	// second takes what the first's finalisers let go.
+	collect();
+	collect();
+	const rollup = readFileSync("/proc/self/smaps_rollup", "utf8");
+	const kb = (name: string) =>
+		Number(
+			new RegExp(`^${name}:\\s+(\\d+) kB`, "m").exec(rollup)?.[1] ?? Number.NaN,
+		);
+	const seen = Reflect.get(globalThis, Symbol.for("screen-host.sessions"));
+	const sessions: string[] = [];
+	if (Array.isArray(seen))
+		for (const [id, ref] of seen)
+			if (ref instanceof WeakRef && ref.deref() !== undefined)
+				sessions.push(id);
+	const weighed = join(home, "weighed.json");
+	writeFileSync(
+		`${weighed}.part`,
+		JSON.stringify({ pss: kb("Pss"), swapPss: kb("SwapPss"), sessions }),
+	);
+	renameSync(`${weighed}.part`, weighed);
+}
 
 /**
  * Answer by what the latest message asks: a picture is a read of
@@ -501,7 +541,23 @@ export default function (pi) {
 }
 `,
 	);
-	for (const extension of ["panel-lifecycle-workflow", "panel-zoom-widget"])
+	// Each session as it starts, held weakly, so a weighing tells which are
+	// still in memory.
+	writeFileSync(
+		join(agentDir, "extensions", "weigh.ts"),
+		`export default function (pi) {
+	pi.on("session_start", async (_event, ctx) => {
+		const seen = (globalThis[Symbol.for("screen-host.sessions")] ??= []);
+		seen.push([ctx.sessionManager.getSessionId(), new WeakRef(ctx.sessionManager)]);
+	});
+}
+`,
+	);
+	for (const extension of [
+		"panel-lifecycle-workflow",
+		"panel-zoom-widget",
+		"park-workflow",
+	])
 		writeFileSync(
 			join(agentDir, "extensions", `${extension}.ts`),
 			`export { default } from ${JSON.stringify(join(harness, "extensions", extension, "index.ts"))};\n`,

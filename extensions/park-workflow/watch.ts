@@ -33,11 +33,19 @@ import {
 import { findJobHost } from "../../lib/jobs/host.ts";
 
 /**
- * Why a hosted conversation never parks itself. Parking ends the whole
- * process, which in a host is every conversation it runs; the host
- * decides when one sleeps.
+ * Why a hosted conversation whose host can't park it stays awake.
+ * Parking plain pi ends the whole process, which in a host is every
+ * conversation it runs, so only a host that parks one conversation
+ * (`Host.park`) lets it sleep.
  */
 export const HOST_PARKS = "its host parks it";
+
+/** The host this conversation runs in, when that host can park it alone. */
+function parkingHost(): { park(sessionId: string): void } | undefined {
+	const host = hosted();
+	const park = host?.park;
+	return host && park ? { park: (id) => park.call(host, id) } : undefined;
+}
 
 /** How often a session asks itself whether it may park. */
 export const LOOK_EVERY_MS = 60_000;
@@ -63,13 +71,15 @@ export type Parkable = Pick<
  * Whether this session may ever park: one its person sees, not a
  * subagent, and held by a holder that said where it watches for its
  * wake (`MYCELIUM_WAKE`). A pi with no holder that parked would just end.
- * Never in a host, whatever its context says of a screen.
+ * In a host, only one that parks a conversation alone, which says where
+ * it watches for the wake in the conversation's own environment.
  */
 export function mayPark(
 	ctx: Pick<ExtensionContext, "hasUI">,
 	env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-	return !hosted() && isPersons(ctx, env) && Boolean(env[WAKE_ENV]);
+	if (hosted() && !parkingHost()) return false;
+	return isPersons(ctx, env) && Boolean(env[WAKE_ENV]);
 }
 
 /** Whether a session is one its person sees, rather than a subagent. */
@@ -93,7 +103,7 @@ export function noteNeverParks(
 	now: () => number = Date.now,
 ): boolean {
 	if (!isPersons(ctx, env)) return false;
-	const inHost = hosted() !== undefined;
+	const inHost = hosted() !== undefined && !parkingHost();
 	if (!inHost && env[WAKE_ENV]) return false;
 	try {
 		writeAwake(
@@ -305,10 +315,8 @@ function restartNamed(
 	session: string,
 	sessionFile: string,
 ): string | undefined {
-	if (sessionFile === "") return "it has no log to start again from";
-	// pi writes a log at its first answer, so one never asked anything
-	// would wake as a new session, under another address.
-	if (!existsSync(sessionFile)) return "its log isn't written yet";
+	const unwritten = logWritten(sessionFile);
+	if (unwritten !== undefined) return unwritten;
 	if (again === "") {
 		return opensOnlyItself(args, session, sessionFile)
 			? undefined
@@ -322,6 +330,17 @@ function restartNamed(
 	} catch {
 		return "its holder couldn't be told how to start it again";
 	}
+}
+
+/**
+ * Why a session can't start again from its log, if it can't: pi writes a
+ * log at its first answer, so one never asked anything would wake as a
+ * new session, under another address.
+ */
+function logWritten(sessionFile: string): string | undefined {
+	if (sessionFile === "") return "it has no log to start again from";
+	if (!existsSync(sessionFile)) return "its log isn't written yet";
+	return undefined;
 }
 
 /**
@@ -381,6 +400,8 @@ export function watch(
 	});
 	const unheld = (): string | undefined => {
 		if (wake === "") return "no holder would wake it";
+		// A host holds its conversations itself, in its own process.
+		if (parkingHost()) return undefined;
 		if (!heldDirectly(wake, options.pid ?? process.pid)) {
 			return "its holder runs it through another program";
 		}
@@ -388,13 +409,19 @@ export function watch(
 	};
 	const end = (line: string) => {
 		parked = true;
+		// A host parks this conversation alone, keeping its window and wake.
+		const host = parkingHost();
+		if (host) {
+			host.park(session);
+			return;
+		}
 		(options.exitWith ?? exitWith)(PARKED_EXIT, line);
 		void ctx.shutdown();
 	};
 	const decide = (): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
-		if (hosted()) return HOST_PARKS;
+		if (hosted() && !parkingHost()) return HOST_PARKS;
 		const ask: ParkAsk = { session, refusals: [] };
 		const afterMs = parkAfterMs(session, options.env, options.switchPath);
 		// Others are asked only once it is due, since asking reads the board.
@@ -411,7 +438,11 @@ export function watch(
 		const away = unheld();
 		if (away !== undefined) return away;
 		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
-		const unnamed = restartNamed(again, args, session, sessionFile);
+		// A host wakes it from its log as it resumes it; plain pi's holder
+		// has to be told how to start it again.
+		const unnamed = parkingHost()
+			? logWritten(sessionFile)
+			: restartNamed(again, args, session, sessionFile);
 		if (unnamed !== undefined) return unnamed;
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);

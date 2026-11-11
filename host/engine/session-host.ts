@@ -31,6 +31,8 @@ export interface ConversationRegistration {
 	readonly stamp?: (how: "signalled" | "closed") => void | Promise<void>;
 	/** Await idle and reload this conversation's runner, as pi's own reload does. */
 	readonly reload?: (request: HostReloadRequest) => void | Promise<void>;
+	/** Park this idle conversation, keeping it held for a wake. */
+	readonly park?: () => void | Promise<void>;
 }
 
 /** Why a host reloads no conversation onto another tree. */
@@ -52,6 +54,7 @@ interface Conversation extends ConversationIdentity {
 	cleanup: ConversationRegistration["close"];
 	stampCallback: ConversationRegistration["stamp"];
 	reloadCallback: ConversationRegistration["reload"];
+	parkCallback: ConversationRegistration["park"];
 	reloading?: Promise<void>;
 	ending?: "signalled" | "closed";
 	stamped?: "signalled" | "closed";
@@ -122,6 +125,7 @@ export class SessionHost implements Host {
 			cleanup: input.close,
 			stampCallback: input.stamp,
 			reloadCallback: input.reload,
+			parkCallback: input.park,
 		});
 		try {
 			this.publish();
@@ -204,6 +208,28 @@ export class SessionHost implements Host {
 			});
 		conversation.reloading = reloading;
 		return reloading;
+	}
+
+	/**
+	 * Park one conversation, as it asks once idle. The park starts after
+	 * this returns, outside the asking extension's own call, since it ends
+	 * that extension; what fails is reported by the callback's owner. One
+	 * closing already, or with no way to park, is left as it is.
+	 */
+	park(id: string): void {
+		const conversation = this.require(id);
+		const callback = conversation.parkCallback;
+		if (!callback)
+			throw new Error(`Conversation can't be parked by its host: ${id}`);
+		if (!conversation.accepting) return;
+		setImmediate(() => {
+			if (!conversation.accepting) return;
+			Promise.resolve()
+				.then(() => withSession(id, callback))
+				.catch(() => {
+					// The engine reports its own park's failure; nothing waits on this one.
+				});
+		});
 	}
 
 	/** Stop for host restart without recording a deliberate conversation quit. */

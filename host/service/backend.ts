@@ -46,6 +46,12 @@ export interface ConversationEngine {
 	resume(entry: RosterEntry): Promise<void>;
 	abort(sessionId: string): Promise<void>;
 	watch?(events: ConversationEvents): void;
+	/**
+	 * A held conversation that wasn't running, such as a parked one, was
+	 * closed or released: let go of what is kept for its wake, its screen's
+	 * terminal and viewers among it.
+	 */
+	dropped?(sessionId: string): Promise<void>;
 }
 
 /**
@@ -55,11 +61,14 @@ export interface ConversationEngine {
  * host stopping, which parks conversations and keeps them held. became:
  * a held conversation is becoming another under a new id (pi's new, fork
  * or resume), awaited before the engine registers the new id, which it
- * must not register when this rejects.
+ * must not register when this rejects. wake: a conversation the engine
+ * parked is asked for (its wake file was written, or a viewer typed to
+ * it): the service wakes it as an attach would, or says why not.
  */
 export interface ConversationEvents {
 	ended(sessionId: string, why: string): Promise<void>;
 	became(previousId: string, next: Prepared): Promise<void>;
+	wake?(sessionId: string): Promise<void>;
 }
 
 /** The engine's live ownership, as SessionHost keeps it. */
@@ -95,11 +104,23 @@ export interface Unresumed {
 	readonly reason: unknown;
 }
 
+/** The control backend, and the one thing it does for the engine: wake. */
+export interface HostBackend extends ControlBackend {
+	/**
+	 * Wake a parked conversation, held but not running, as its resume
+	 * would: in the same turn as a close of it, so one closed while it
+	 * slept stays closed, and through `admitAnother` beside any other
+	 * conversation. One running already, or no longer held, is left alone;
+	 * one whose build fails stays held, parked, as a failed open does.
+	 */
+	wake(sessionId: string): Promise<void>;
+}
+
 /**
  * Answer every control operation in the order that keeps holds durable.
- * With `admitAnother`, an open or adopt while the host already holds a
- * conversation, or is starting one, must pass it first (the rollout gate,
- * rollout.ts); a refusal prepares and holds nothing.
+ * With `admitAnother`, an open, adopt or wake while the host already
+ * holds a conversation, or is starting one, must pass it first (the
+ * rollout gate, rollout.ts); a refusal prepares and holds nothing.
  */
 export function hostBackend(options: {
 	identity: ControlBackend["identity"];
@@ -110,12 +131,46 @@ export function hostBackend(options: {
 	now?: () => Date;
 	/** Writes a line to the host's journal, as each close of one held but not running. */
 	say?: (line: string) => void;
-}): ControlBackend {
+}): HostBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
 	// Begins still in progress, so two opens at once on an empty host can't
 	// both count themselves first.
 	let beginning = 0;
+	// Each conversation's wakes and ends, one at a time, so a close never
+	// lands between a wake's look at the roster and its resume.
+	const turns = new Map<string, Promise<unknown>>();
+
+	function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+		const before = turns.get(sessionId) ?? Promise.resolve();
+		const turn = before.catch(() => undefined).then(work);
+		const kept = turn.catch(() => undefined);
+		turns.set(sessionId, kept);
+		void kept.then(() => {
+			if (turns.get(sessionId) === kept) turns.delete(sessionId);
+		});
+		return turn;
+	}
+
+	function wake(sessionId: string): Promise<void> {
+		return inTurn(sessionId, async () => {
+			if (host.holds(sessionId) !== undefined) return;
+			const entry = roster
+				.entries()
+				.find((held) => held.sessionId === sessionId);
+			if (!entry) return;
+			const another =
+				roster.entries().some((held) => held.sessionId !== sessionId) ||
+				beginning > 0;
+			beginning += 1;
+			try {
+				if (another) await options.admitAnother?.();
+				await engine.resume(entry);
+			} finally {
+				beginning -= 1;
+			}
+		});
+	}
 
 	function live(sessionId: string): SessionIdentity {
 		const found = host.list().find((held) => held.id === sessionId);
@@ -189,26 +244,31 @@ export function hostBackend(options: {
 	}
 
 	// The reason it closes with names the caller, so the journal line the
-	// engine's ended brings says who asked; one not running has no end to
-	// bring it, so it is said here.
-	async function end(
+	// engine's ended brings says who asked; one not running (parked, or
+	// stranded) has no end to bring it, so it is said here.
+	function end(
 		sessionId: string,
 		why: "closed" | "released",
 		by: string | undefined,
 	) {
-		const running = host.holds(sessionId) !== undefined;
-		if (!running && !rostered(sessionId))
-			throw new Error(`Conversation is not hosted: ${sessionId}`);
-		const asked = `${why}, asked by ${askedBy(by)}`;
-		if (running) await host.close(sessionId, asked);
-		await roster.drop(sessionId);
-		if (!running)
-			options.say?.(endedLine(sessionId, `${asked}, held but not running`));
-		return { sessionId };
+		return inTurn(sessionId, async () => {
+			const running = host.holds(sessionId) !== undefined;
+			if (!running && !rostered(sessionId))
+				throw new Error(`Conversation is not hosted: ${sessionId}`);
+			const asked = `${why}, asked by ${askedBy(by)}`;
+			if (running) await host.close(sessionId, asked);
+			await roster.drop(sessionId);
+			if (!running) {
+				await engine.dropped?.(sessionId);
+				options.say?.(endedLine(sessionId, `${asked}, held but not running`));
+			}
+			return { sessionId };
+		});
 	}
 
 	return {
 		identity: options.identity,
+		wake,
 		async execute(request) {
 			switch (request.op) {
 				case "open":
@@ -231,6 +291,12 @@ export function hostBackend(options: {
 					await engine.abort(request.sessionId);
 					return { sessionId: request.sessionId };
 				case "attach":
+					// A window opened on a parked conversation is its person asking for it.
+					if (
+						host.holds(request.sessionId) === undefined &&
+						rostered(request.sessionId)
+					)
+						await wake(request.sessionId);
 					live(request.sessionId);
 					return { sessionId: request.sessionId };
 			}
@@ -250,13 +316,17 @@ export function hostBackend(options: {
 export function conversationEvents(options: {
 	roster: HostRoster;
 	report: (error: unknown) => void;
+	/** How a parked conversation is woken: the backend's wake, once it exists. */
+	wake?: (sessionId: string) => Promise<void>;
 	now?: () => Date;
 	/** Writes a line to the host's journal: one for each conversation that ends, and why. */
 	say?: (line: string) => void;
 }): ConversationEvents {
 	const { roster, report } = options;
 	const now = options.now ?? (() => new Date());
+	const { wake } = options;
 	return {
+		...(wake ? { wake } : {}),
 		async ended(sessionId, why) {
 			options.say?.(endedLine(sessionId, why));
 			try {

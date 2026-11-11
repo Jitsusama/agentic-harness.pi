@@ -107,6 +107,15 @@ interface JoinedViewer {
 	readonly joined: Date;
 }
 
+/** A parked conversation's terminal: who a key wakes, and the keys held till then. */
+interface Sleeping {
+	readonly wake: () => void;
+	readonly held: { readonly viewer: JoinedViewer; readonly data: string }[];
+	bytes: number;
+	/** Whether a key has told it to wake yet. */
+	told: boolean;
+}
+
 function can(viewer: JoinedViewer, feature: string): boolean {
 	return viewer.sink.features?.includes(feature) ?? false;
 }
@@ -167,6 +176,8 @@ export class ViewerTerminal implements Terminal {
 	private blocked: (() => void) | undefined;
 	/** Told what one of pi's callbacks threw, in place of the host's process. */
 	private faulted: ((error: unknown) => void) | undefined;
+	/** While its conversation is parked: who to tell of a key, and the keys held for its next screen. */
+	private sleeping: Sleeping | undefined;
 
 	private currentSession: string;
 	private readonly repaint: () => void;
@@ -258,8 +269,12 @@ export class ViewerTerminal implements Terminal {
 		this.redraw();
 		return {
 			input: (data) => {
-				if (!this.viewers.has(viewer) || !this.onInput || viewer.editing)
+				if (!this.viewers.has(viewer) || viewer.editing) return;
+				if (this.sleeping) {
+					this.hold(viewer, data);
 					return;
+				}
+				if (!this.onInput) return;
 				viewer.pendingBytes += Buffer.byteLength(data);
 				if (viewer.pendingBytes > MAX_PENDING_INPUT_BYTES) {
 					this.remove(viewer);
@@ -471,11 +486,42 @@ export class ViewerTerminal implements Terminal {
 	}
 
 	/**
+	 * Keep this terminal while its conversation is parked: its viewers stay,
+	 * and the keys they type are held, in order, for the screen it wakes
+	 * into, `wake` told at the first. A key typed to a parked conversation
+	 * is a person asking for it, so none is lost to the wake. Called before
+	 * its screen stops, so no key reaches the screen going away; from then
+	 * until `awake` the screen it wakes into reads nothing either.
+	 */
+	sleep(wake: () => void): void {
+		this.sleeping = { wake, held: [], bytes: 0, told: false };
+	}
+
+	/** Whether this terminal's conversation is parked. */
+	isAsleep(): boolean {
+		return this.sleeping !== undefined;
+	}
+
+	/**
+	 * The screen its conversation woke into has started: give it every key
+	 * held while it slept, each as its viewer typed it.
+	 */
+	awake(): void {
+		const sleeping = this.sleeping;
+		this.sleeping = undefined;
+		if (!sleeping) return;
+		for (const { viewer, data } of sleeping.held)
+			if (this.viewers.has(viewer) && !viewer.editing)
+				viewer.stdin.process(data);
+	}
+
+	/**
 	 * Free connection buffers when the conversation itself closes, telling
 	 * each viewer `reason` as it goes.
 	 */
 	dispose(reason: string = CLOSED): void {
 		this.closed = true;
+		this.sleeping = undefined;
 		this.onInput = undefined;
 		this.onResize = undefined;
 		this.blocked = undefined;
@@ -529,6 +575,27 @@ export class ViewerTerminal implements Terminal {
 			return;
 		}
 		this.inConversation(() => this.repaint());
+	}
+
+	// A key for a parked conversation: kept for its next screen, the first
+	// telling it to wake. Past the bound a viewer is cut off, as a screen
+	// that never reads would cut it off.
+	private hold(viewer: JoinedViewer, data: string): void {
+		const sleeping = this.sleeping;
+		if (!sleeping) return;
+		sleeping.bytes += Buffer.byteLength(data);
+		if (sleeping.bytes > MAX_PENDING_INPUT_BYTES) {
+			this.remove(viewer);
+			this.disconnect(
+				viewer,
+				"Viewer typed over 1 MiB while its conversation woke",
+			);
+			return;
+		}
+		sleeping.held.push({ viewer, data });
+		if (sleeping.told) return;
+		sleeping.told = true;
+		this.inConversation(sleeping.wake);
 	}
 
 	private cancelEdit(viewer: JoinedViewer): void {

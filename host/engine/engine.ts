@@ -8,7 +8,14 @@
  * /new, /fork, /resume or import) is held under its new id before pi builds
  * it, and the one it was ends with it.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	type FSWatcher,
+	mkdirSync,
+	rmSync,
+	watch,
+	writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import {
 	type LaunchHints,
@@ -18,6 +25,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
+import { WAKE_ENV } from "../../lib/internal/session/park.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type {
 	AdoptRequest,
@@ -88,6 +96,12 @@ const REFUSED_KEY = /\b401\b/;
 /** The durable store's file inside a conversation's folder. */
 const STORE_FILE = "durable.sqlite";
 
+/** The file inside a conversation's folder that, once written, wakes it from a park. */
+const WAKE_FILE = "wake";
+
+/** Why a parked conversation's session ended, as its stop says. */
+const PARKED = "parked while idle";
+
 /** One conversation the engine registered. */
 interface Live {
 	readonly traits: ConversationTraits;
@@ -106,6 +120,8 @@ interface Live {
 	asked?: () => void;
 	/** Its close has begun, so a build still under way stops short of a session. */
 	closing?: boolean;
+	/** It asked to park, so its close keeps its screen's terminal for the wake. */
+	parking?: boolean;
 }
 
 /**
@@ -148,7 +164,15 @@ export async function createEngine(
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
+	// Parked conversations, each watching its wake file until it wakes or is closed.
+	const sleepers = new Map<string, FSWatcher>();
+	// Conversations parking now, each saying whether it was asked for meanwhile.
+	const parking = new Map<string, { asked: boolean }>();
 	let watched: ConversationEvents | undefined;
+
+	function wakeFile(sessionId: string): string {
+		return join(options.stateDir, sessionId, WAKE_FILE);
+	}
 
 	function held(sessionId: string, file: string): boolean {
 		return (
@@ -589,6 +613,8 @@ export async function createEngine(
 					{ version: pi.version },
 				),
 				...conversationMarker(sessionId, { key: host.key, mark: owner }),
+				// Where a sender wakes it once it parks, as a holder says for plain pi.
+				[WAKE_ENV]: wakeFile(sessionId),
 			},
 			hints,
 			close: (why) => end(sessionId, record, why),
@@ -598,9 +624,78 @@ export async function createEngine(
 				record.bus.emit(SESSION_STAMP_EVENT, stamp);
 			},
 			reload: () => reload(record),
+			park: () => park(record),
 		});
+		// A wake left from an earlier park would wake its next one at once; it
+		// runs now, and reads its mesh as it starts.
+		rmSync(wakeFile(sessionId), { force: true });
 		live.set(sessionId, record);
 		return record;
+	}
+
+	/**
+	 * Park an idle conversation that asked to: stop it as a host stop does,
+	 * so durable keeps its run and the service its hold, keep its screen's
+	 * terminal for its viewers, and watch for its wake.
+	 */
+	async function park(record: Live): Promise<void> {
+		const { sessionId } = record.traits;
+		record.parking = true;
+		const parked = { asked: false };
+		parking.set(sessionId, parked);
+		try {
+			await host.stop(sessionId, PARKED);
+			sleep(sessionId);
+		} catch (error) {
+			// Stopped but unwatched, only a viewer or an attach wakes it; not
+			// stopped, it stays held as a failed close leaves it.
+			report(error);
+		} finally {
+			parking.delete(sessionId);
+		}
+		// A key or a message while it parked asked for it before it could wake.
+		if (parked.asked) wake(sessionId);
+	}
+
+	/** Watch a parked conversation's wake file, waking it the moment one is written. */
+	function sleep(sessionId: string): void {
+		unsleep(sessionId);
+		const file = wakeFile(sessionId);
+		mkdirSync(join(options.stateDir, sessionId), { recursive: true });
+		const woken = () => {
+			if (!sleepers.has(sessionId) || !existsSync(file)) return;
+			rmSync(file, { force: true });
+			wake(sessionId);
+		};
+		const watcher = watch(join(options.stateDir, sessionId), (_, name) => {
+			if (name === WAKE_FILE) woken();
+		});
+		watcher.unref();
+		watcher.on("error", report);
+		sleepers.set(sessionId, watcher);
+		// One written between its park and this watch.
+		woken();
+	}
+
+	/** Stop watching a parked conversation's wake file, as it wakes or is closed. */
+	function unsleep(sessionId: string): void {
+		sleepers.get(sessionId)?.close();
+		sleepers.delete(sessionId);
+	}
+
+	/** Ask the service to wake a parked conversation, which it admits as any other start. */
+	function wake(sessionId: string): void {
+		const parked = parking.get(sessionId);
+		if (parked) {
+			parked.asked = true;
+			return;
+		}
+		const asking = watched?.wake;
+		if (!asking) {
+			report(new Error(`Nothing can wake parked conversation ${sessionId}`));
+			return;
+		}
+		asking(sessionId).catch(report);
 	}
 
 	/**
@@ -614,8 +709,12 @@ export async function createEngine(
 	): Promise<void> {
 		record.closing = true;
 		// A screen asked about the folder holds a terminal for it, and settles any question still open, whether or not a session came of it.
-		if (record.runtime || record.questioned)
-			await options.screens?.closed(sessionId, why);
+		if (record.runtime || record.questioned) {
+			const screens = options.screens;
+			if (record.parking && screens?.parked)
+				await screens.parked(sessionId, () => wake(sessionId));
+			else await screens?.closed(sessionId, why);
+		}
 		const agent = record.conversation?.agent;
 		if (record.ending !== "closed") agent?.park();
 		else if (!record.disposed) await record.runtime?.session.abort();
@@ -740,6 +839,7 @@ export async function createEngine(
 		async resume(entry: RosterEntry) {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
+			unsleep(entry.sessionId);
 			if (!existsSync(entry.file))
 				throw new Error(
 					`Conversation ${entry.sessionId} has lost its session file: ${entry.file}`,
@@ -755,6 +855,11 @@ export async function createEngine(
 				manager,
 				launch ?? {},
 			);
+		},
+
+		async dropped(sessionId) {
+			unsleep(sessionId);
+			await options.screens?.closed(sessionId);
 		},
 
 		async abort(sessionId) {

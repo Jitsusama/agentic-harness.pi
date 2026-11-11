@@ -6,7 +6,8 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { controlRequest } from "../../../../host/service/client.ts";
 import {
 	type ControlRequest,
@@ -14,6 +15,8 @@ import {
 	parseOpenResult,
 	type SessionIdentity,
 } from "../../../../host/service/protocol.ts";
+import { isRecord } from "../../../../lib/internal/record.ts";
+import { until } from "../../../support/until.ts";
 import type { Seal } from "./seal.ts";
 
 const FIXTURE = resolve(import.meta.dirname, "../fixtures/screen-host.mts");
@@ -22,6 +25,18 @@ const FIXTURE = resolve(import.meta.dirname, "../fixtures/screen-host.mts");
 const LISTEN_MS = 60_000;
 /** How often a wait asks the host how a conversation stands. */
 const ASK_EVERY_MS = 50;
+/** How long the host may take to collect its garbage and weigh itself. */
+const WEIGH_MS = 10_000;
+
+/** What the host weighs, as it says once it has collected its garbage. */
+export interface Weight {
+	/** Its proportional set size, in kB. */
+	readonly pss: number;
+	/** Its proportional share of swap, in kB. */
+	readonly swapPss: number;
+	/** The conversations whose sessions are still in its memory. */
+	readonly sessions: readonly string[];
+}
 
 /** A running screen host and the control requests a test makes of it. */
 export interface ScreenHost {
@@ -39,6 +54,10 @@ export interface ScreenHost {
 	idle(sessionId: string, ms: number): Promise<void>;
 	/** Wait until it no longer holds the conversation, or until `ms` pass. */
 	gone(sessionId: string, ms: number): Promise<void>;
+	/** Wait until the conversation is held parked, or until `ms` pass. */
+	parked(sessionId: string, ms: number): Promise<void>;
+	/** Have it collect its garbage and say what it weighs. */
+	weigh(): Promise<Weight>;
 	/** Send it systemd's stop and wait for it to go. */
 	stop(): Promise<number | null>;
 	/**
@@ -57,7 +76,8 @@ export async function startScreenHost(
 ): Promise<ScreenHost> {
 	const child = spawn(
 		process.execPath,
-		["--no-warnings", FIXTURE, packageDir],
+		// Exposed so it can collect its garbage before it weighs itself.
+		["--no-warnings", "--expose-gc", FIXTURE, packageDir],
 		{
 			env: { ...seal.env, PI_OFFLINE: "1" },
 			stdio: ["ignore", "pipe", "pipe"],
@@ -135,6 +155,21 @@ export async function startScreenHost(
 			settles(sessionId, ms, "idle", (held) => held?.state === "idle"),
 		gone: (sessionId, ms) =>
 			settles(sessionId, ms, "gone", (held) => held === undefined),
+		parked: (sessionId, ms) =>
+			settles(sessionId, ms, "parked", (held) => held?.state === "parked"),
+		weigh: async () => {
+			const weighed = join(seal.home, "weighed.json");
+			rmSync(weighed, { force: true });
+			child.kill("SIGHUP");
+			await until(
+				"the host to weigh itself",
+				() => existsSync(weighed),
+				WEIGH_MS,
+			).catch((error: unknown) => {
+				throw new Error(`${String(error)}; the host said: ${errors}`);
+			});
+			return weight(JSON.parse(readFileSync(weighed, "utf8")));
+		},
 		stop: () => {
 			child.kill("SIGTERM");
 			return exited;
@@ -145,6 +180,21 @@ export async function startScreenHost(
 		},
 		errors: () => errors,
 	};
+}
+
+/** A weighing as the host wrote it, or why it isn't one. */
+function weight(said: unknown): Weight {
+	if (
+		!isRecord(said) ||
+		typeof said.pss !== "number" ||
+		typeof said.swapPss !== "number" ||
+		!Array.isArray(said.sessions)
+	)
+		throw new Error(`the host weighed itself as ${JSON.stringify(said)}`);
+	const sessions = said.sessions.filter(
+		(id): id is string => typeof id === "string",
+	);
+	return { pss: said.pss, swapPss: said.swapPss, sessions };
 }
 
 /** The socket the host prints once it listens, or why it never did. */
