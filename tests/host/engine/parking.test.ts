@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PARKED, parking } from "../../../host/engine/parking.ts";
+import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { until } from "../../support/until.ts";
 
 let dir: string;
@@ -88,6 +89,33 @@ describe("parking a conversation", () => {
 
 		await until("the wake file to wake it", () => asking.mock.calls.length > 0);
 		expect(asking, "it was woken").toHaveBeenCalledWith("a");
+		parked.unwatch("a");
+	});
+
+	it("keeps a refused wake's message and why beside its wake file, until it runs", async () => {
+		const { parked, letStop } = held(() =>
+			Promise.reject(new Error("the host is stopping")),
+		);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		const wake = parked.wakeFile("a");
+
+		await writeFile(
+			wake,
+			`${JSON.stringify({ session: "a", messageId: "2f95756a", at: "now" })}\n`,
+		);
+
+		await until(
+			"to keep the refused wake",
+			() => readRefusedWake(wake) !== undefined,
+		);
+		expect(readRefusedWake(wake), "what asked, and why not").toMatchObject({
+			messageId: "2f95756a",
+			reason: "the host is stopping",
+		});
+		parked.running("a");
+		expect(readRefusedWake(wake), "gone once it runs").toBeUndefined();
 		parked.unwatch("a");
 	});
 });
