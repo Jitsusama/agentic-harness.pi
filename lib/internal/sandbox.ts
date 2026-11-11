@@ -75,6 +75,7 @@ import {
 	fenceArgs,
 	fencedCommand,
 	fenceRules,
+	guardsGitFolder,
 	type HeldGit,
 	inStore,
 	nixDoor,
@@ -457,6 +458,28 @@ export function heldTree(
 }
 
 /**
+ * `folder` as it really is, with the git folder a call outside the fence
+ * is held to there: a tree the session holds, as {@link heldTree} has
+ * it, or the top of a checkout whose own `.git` folder the fence keeps
+ * read-only; nothing for any other folder, a checkout's subfolder
+ * among them.
+ */
+export function folderGit(
+	folder: string,
+	home: string,
+	session: string | undefined,
+	records?: string,
+): HeldGit | undefined {
+	const held = heldTree(folder, home, session, records);
+	if (held) return held;
+	const top = real(resolve(folder));
+	const git = join(top, ".git");
+	return guardsGitFolder(git, real(home))
+		? { folder: top, gitDir: git }
+		: undefined;
+}
+
+/**
  * How a session's commands run: as they are, fenced, or not at all. A
  * fenced command is handed a GitHub token from `github`, and a cloud
  * token and project from `gcloud`, when they give them.
@@ -664,6 +687,9 @@ export function wrapFor(
 					home,
 					env: place.env,
 					heldTree: (folder) => heldTree(folder, home, place.env.PI_SESSION_ID),
+					cwd: place.cwd,
+					folderGit: (folder) =>
+						folderGit(folder, home, place.env.PI_SESSION_ID),
 				}) ?? fencedCommand(command, made);
 		}
 		case "strict": {
