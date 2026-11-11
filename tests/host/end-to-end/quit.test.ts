@@ -29,6 +29,7 @@ const TURN_MS = 20_000;
 const CASE_MS = 60_000;
 const ENTER = "\r";
 const CTRL_D = "\x04";
+const CTRL_C = "\x03";
 const ROWS = 30;
 const COLUMNS = 160;
 const QUESTION = /Close this conversation for everyone\?/;
@@ -130,6 +131,32 @@ describe.skipIf(!packageDir)(
 			CASE_MS,
 		);
 
+		it.each([
+			["/quit", `/quit${ENTER}`],
+			["Ctrl+C twice", `${CTRL_C}${CTRL_C}`],
+		])(
+			"asks before %s closes it, as pi quits within the key",
+			async (_named, quit) => {
+				const { sessionId } = await host.open(work.trusted(), "other quits");
+				const typing = await viewer(sessionId);
+				await typing.shows("heard: other quits", TURN_MS);
+
+				typing.type(quit);
+				await typing.shows(QUESTION, TURN_MS);
+				typing.type("n");
+
+				expect(await typing.detached, "that viewer is let go").toBe(
+					LEFT_RUNNING,
+				);
+				await host.idle(sessionId, TURN_MS);
+				expect(
+					(await host.list()).map((one) => one.sessionId),
+					`it is still held${said()}`,
+				).toContain(sessionId);
+			},
+			CASE_MS,
+		);
+
 		it(
 			"closes for everyone once the viewer that typed the quit says y, journalling that viewer",
 			async () => {
@@ -150,6 +177,27 @@ describe.skipIf(!packageDir)(
 					new RegExp(
 						`${ended(sessionId).replace(/[()]/g, "\\$&")}quit, asked by viewer 1 in window w-7, joined \\d{4}-`,
 					),
+				);
+			},
+			CASE_MS,
+		);
+
+		it(
+			"tells a viewer its conversation was released, not closed, and journals who released it",
+			async () => {
+				const { sessionId } = await host.open(work.trusted());
+				await host.idle(sessionId, TURN_MS);
+				const watching = await viewer(sessionId);
+				await watching.shows(/\S/, TURN_MS);
+
+				await host.release(sessionId, "the cutover");
+
+				expect(await watching.detached, "its window can start plain pi").toBe(
+					"Conversation released",
+				);
+				await host.gone(sessionId, TURN_MS);
+				expect(host.errors(), "the journal names the caller").toContain(
+					`${ended(sessionId)}released, asked by the cutover over the control socket`,
 				);
 			},
 			CASE_MS,

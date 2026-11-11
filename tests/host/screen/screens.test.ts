@@ -327,6 +327,22 @@ describe("hosted screens", () => {
 		expect(screens.mode(a.runtime).shutdown).toHaveBeenCalledTimes(1);
 	});
 
+	it("tells its viewers a release apart from a close, so a window starts plain pi only on a release", async () => {
+		const screens = host();
+		await screens.screens.opened(screens.view("a"));
+		await screens.screens.opened(screens.view("b"));
+		const released = sink();
+		const closed = sink();
+		screens.viewer.attach(attach("a"), released);
+		screens.viewer.attach(attach("b"), closed);
+
+		await screens.screens.closed("a", "released, asked by the cutover");
+		await screens.screens.closed("b", "closed, asked by the launcher");
+
+		expect(released.disconnect).toHaveBeenCalledWith("Conversation released");
+		expect(closed.disconnect).toHaveBeenCalledWith("Conversation closed");
+	});
+
 	it("a conversation closed from elsewhere stops its screen without closing it again", async () => {
 		const screens = host();
 		const a = screens.view("a");

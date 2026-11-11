@@ -44,6 +44,15 @@ const LEFT: ViewerEdit = {
 };
 
 /** What a viewer that typed a quit and didn't confirm it is told as it goes. */
+/** What each viewer is told as a conversation it watched closes for everyone. */
+export const CLOSED = "Conversation closed";
+
+/**
+ * What each viewer is told as its conversation is released, handed back to
+ * plain pi, so its window can start that pi where a close would just end.
+ */
+export const RELEASED = "Conversation released";
+
 export const LEFT_RUNNING =
 	"Left the conversation running; open it again from the launcher";
 
@@ -206,7 +215,7 @@ export class ViewerTerminal implements Terminal {
 
 	/** Connect an H2 sink; detach destroys only that viewer's input buffer. */
 	attach(sink: Viewer): Attachment {
-		if (this.closed) throw new Error("Conversation closed");
+		if (this.closed) throw new Error(CLOSED);
 		if (!validSize(sink.rows, sink.columns))
 			throw new Error("Viewer dimensions must be integers from 1 to 1000");
 		const viewer: JoinedViewer = {
@@ -460,8 +469,11 @@ export class ViewerTerminal implements Terminal {
 		this.blocked = listener;
 	}
 
-	/** Free connection buffers when the conversation itself closes. */
-	dispose(): void {
+	/**
+	 * Free connection buffers when the conversation itself closes, telling
+	 * each viewer `reason` as it goes.
+	 */
+	dispose(reason: string = CLOSED): void {
 		this.closed = true;
 		this.onInput = undefined;
 		this.onResize = undefined;
@@ -474,7 +486,7 @@ export class ViewerTerminal implements Terminal {
 			viewer.stdin.destroy();
 			this.cancelEdit(viewer);
 			this.cancelQuit(viewer);
-			this.disconnect(viewer, "Conversation closed");
+			this.disconnect(viewer, reason);
 		}
 	}
 

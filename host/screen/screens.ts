@@ -18,6 +18,8 @@
 
 import { withSession } from "../../lib/core/session/index.ts";
 import {
+	CLOSED,
+	RELEASED,
 	type ViewerEdit,
 	ViewerTerminal,
 } from "../../lib/core/viewer/terminal.ts";
@@ -48,7 +50,8 @@ export interface EngineScreens {
 	/** Settles once the screen has started and takes input, before the first words. */
 	opened(view: HostedView, signals?: ScreenSignals): void | Promise<void>;
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
-	closed(sessionId: string): void | Promise<void>;
+	/** Its conversation closed, for `why` as the close gave it. */
+	closed(sessionId: string, why?: string): void | Promise<void>;
 	/** Reload an idle conversation's extensions as its screen's pi does at /reload. */
 	reload(sessionId: string): Promise<void>;
 	/**
@@ -414,12 +417,15 @@ export function hostScreens(options: {
 		await withSession(sessionId, () => mode.handleReloadCommand?.());
 	}
 
-	async function closed(sessionId: string): Promise<void> {
+	async function closed(sessionId: string, why?: string): Promise<void> {
+		// A release hands it back to plain pi, which its windows start; any
+		// other end just ends them.
+		const told = why?.startsWith("released") ? RELEASED : CLOSED;
 		const held = early.get(sessionId);
 		if (held) {
 			early.delete(sessionId);
 			held.asking?.cancel();
-			held.terminal.dispose();
+			held.terminal.dispose(told);
 		}
 		const screen = live.get(sessionId);
 		if (!screen) return;
@@ -435,7 +441,7 @@ export function hostScreens(options: {
 		try {
 			if (!quitting) await stopScreen(screen.mode);
 		} finally {
-			screen.terminal.dispose();
+			screen.terminal.dispose(told);
 		}
 	}
 

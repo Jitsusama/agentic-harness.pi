@@ -615,7 +615,7 @@ export async function createEngine(
 		record.closing = true;
 		// A screen asked about the folder holds a terminal for it, and settles any question still open, whether or not a session came of it.
 		if (record.runtime || record.questioned)
-			await options.screens?.closed(sessionId);
+			await options.screens?.closed(sessionId, why);
 		const agent = record.conversation?.agent;
 		if (record.ending !== "closed") agent?.park();
 		else if (!record.disposed) await record.runtime?.session.abort();

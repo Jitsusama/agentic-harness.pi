@@ -16,7 +16,10 @@ own shutdown to ask first; on a runtime that says
 `InteractiveMode.hostedQuit`, the wrap stays off, and it goes once every
 host's runtime says so. A conversation closed elsewhere (the
 launcher's Close, a host stop) stops its screen without closing it
-again. A window closing only detaches its viewer. A rebind after pi
+again. A window closing only detaches its viewer. Each viewer of a conversation
+that ends is told why: "Conversation released" when it was released
+back to plain pi, which its window can then start, and "Conversation
+closed" for any other end. A rebind after pi
 replaced the session keeps the screen, its runtime and its viewers under
 the new id, and refuses a different runtime.
 
