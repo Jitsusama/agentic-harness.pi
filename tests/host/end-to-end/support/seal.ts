@@ -2,7 +2,9 @@
  * A sealed home for a host under test: its own HOME, XDG folders and
  * TMPDIR in one private folder, so the host, its engine and every
  * conversation's harness read and write nothing of the person's. Only
- * PATH comes from outside, so node and git are found.
+ * PATH and SHELL come from outside: PATH so node and git are found, and
+ * SHELL because script(1) runs the account's passwd shell without one,
+ * which for a Nix build user is /noshell, so a terminal pi never starts.
  *
  * The folder is kept short: a host's socket lives under XDG_RUNTIME_DIR,
  * and a Unix socket's path can't pass 107 bytes.
@@ -52,6 +54,7 @@ export async function seal(): Promise<Seal> {
 	const realm = `sealed-${randomBytes(3).toString("hex")}`;
 	const env: NodeJS.ProcessEnv = {
 		PATH: process.env.PATH ?? "",
+		SHELL: process.env.SHELL ?? "/bin/sh",
 		LANG: "C.UTF-8",
 		MYCELIUM_REALM: realm,
 	};
