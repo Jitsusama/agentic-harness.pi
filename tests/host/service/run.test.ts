@@ -9,11 +9,7 @@ import type { SessionHost } from "../../../host/engine/index.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import {
-	describeStep,
-	hostKind,
-	runHost,
-} from "../../../host/service/run.ts";
+import { describeStep, hostKind, runHost } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 
 // The net is process-wide; serve.test.ts checks a host sets it.
