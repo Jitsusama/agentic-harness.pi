@@ -5,7 +5,7 @@
  * mycelium's node knows the window is the hosted session's, and plain
  * pi's words after `--`:
  *
- *   node scripts/host-join.ts [--released|--view] --session ID -- pi --session LOG [FLAGS]
+ *   node scripts/host-join.ts [--released [--failures N]|--view] --session ID -- pi --session LOG [FLAGS]
  *
  * It draws nothing, unless a host holding the conversation is slow to
  * come back, when it says so in one line. Once the host has the
@@ -20,8 +20,9 @@
  * does, so its holder starts that at once on the same terminal, where
  * the keys typed meanwhile still wait. Should the attach fail rather
  * than be released, the window carries on as this join all the same,
- * which says so and looks again. Under none, a view or a release runs
- * it itself, ending as it ends.
+ * which says so and looks again, waiting longer the more `--failures`
+ * its words count. Under none, a view or a release runs it itself,
+ * ending as it ends.
  */
 
 import { spawnSync } from "node:child_process";
@@ -56,6 +57,12 @@ const split = args.indexOf("--");
 const own = split === -1 ? args : args.slice(0, split);
 const plainPi = split === -1 ? [] : args.slice(split + 1);
 const session = own[own.indexOf("--session") + 1] ?? "";
+// How many attaches failed before the one that brought this join here,
+// since the window last came to its host afresh, as the words it carries
+// on as after a failure count them.
+const failures = own.includes("--failures")
+	? Number(own[own.indexOf("--failures") + 1] ?? "0") || 0
+	: 0;
 const wake = process.env[WAKE_ENV] ?? "";
 const again = process.env[AGAIN_ENV] ?? "";
 // Set by the viewing words when the attach before this join failed, not
@@ -99,7 +106,7 @@ const looking = {
 /** Where the window goes next, as its words ask. */
 function joining() {
 	if (own.includes("--released") && failed !== "")
-		return joinAfterFailedAttach(looking, failed);
+		return joinAfterFailedAttach(looking, failed, failures);
 	if (own.includes("--released")) return joinRelease(looking);
 	if (own.includes("--view")) return joinView(looking);
 	return joinMove({
@@ -112,11 +119,13 @@ function joining() {
 const joined = await joining();
 // Released, the window carries on as this join again, which waits for the
 // host to let the log go before plain pi takes it up; after a failed
-// attach, it carries on as this join too, which looks again.
+// attach, it carries on as this join too, which looks again, counting
+// this failure with those before it, so the next waits longer.
 const released = [
 	process.execPath,
 	fileURLToPath(import.meta.url),
 	"--released",
+	...(failed === "" ? [] : ["--failures", String(failures + 1)]),
 	"--session",
 	session,
 	"--",

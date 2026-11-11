@@ -4,7 +4,9 @@
  * itself and ends as that does, while a move, which only a holder can
  * carry on past, is refused. A holder's variables inherited from a shell
  * that runs under some other holder don't make it held: only a holder
- * whose record names host-join's own process takes its next words.
+ * whose record names host-join's own process takes its next words. After
+ * a failed attach, it says so and waits longer the more failures its
+ * words count.
  */
 
 import { execFile } from "node:child_process";
@@ -20,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { ATTACH_FAILED_ENV } from "../../lib/internal/session/host-holds.ts";
 import { PARKED_EXIT } from "../../lib/internal/session/park.ts";
 
 const run = promisify(execFile);
@@ -59,13 +62,14 @@ function home(): string {
 
 /**
  * host-join's output and exit code, run by node under a sealed `env` in
- * `at`, under `holder`'s variables when given, through `sh` so the shell
- * can name its own pid before it becomes node.
+ * `at`, under `holder`'s variables when given and `more` of them, through
+ * `sh` so the shell can name its own pid before it becomes node.
  */
 async function hostJoin(
 	args: readonly string[],
 	at: string = home(),
 	holder?: { readonly files: Holder; readonly recordsSelf: boolean },
+	more: Readonly<Record<string, string>> = {},
 ) {
 	const env = {
 		PATH: process.env.PATH,
@@ -79,6 +83,7 @@ async function hostJoin(
 					MYCELIUM_AGAIN: holder.files.again,
 				}
 			: {}),
+		...more,
 	};
 	// A holder runs its program itself, so its record names that pid: the
 	// shell writes its own, then becomes node with it.
@@ -144,6 +149,30 @@ describe("host-join under no holder", () => {
 			existsSync(files.again),
 			"no next command was named to the other program's holder",
 		).toBe(false);
+	});
+
+	it("after a failed attach, says so and waits by the failures its words count", async () => {
+		// Its real pause, 4 s after one earlier failure, is what's measured.
+		const began = Date.now();
+		const joined = await hostJoin(
+			[
+				"--released",
+				"--failures",
+				"1",
+				"--session",
+				"01a1",
+				"--",
+				...PLAIN_PI,
+			],
+			home(),
+			undefined,
+			{ [ATTACH_FAILED_ENV]: "1" },
+		);
+		expect(joined.stdout).toBe(
+			"\r\nThe host couldn't show this conversation (attach ended 1); looking again in 4 s.\r\ncarried on as plain pi\n",
+		);
+		expect(joined.code).toBe(4);
+		expect(Date.now() - began).toBeGreaterThanOrEqual(4_000);
 	});
 
 	it("refuses a move, which only a holder carries on past", async () => {

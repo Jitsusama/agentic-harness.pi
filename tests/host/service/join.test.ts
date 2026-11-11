@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+	ATTACH_AGAIN_MOST_MS,
 	ATTACH_AGAIN_MS,
 	JOIN_GRACE_MS,
 	JOIN_LOOK_MS,
@@ -185,7 +186,23 @@ describe("the join after a failed attach", () => {
 		});
 		expect(join.facts.now()).toBe(ATTACH_AGAIN_MS);
 		expect(join.said).toEqual([
-			"The host couldn't show this conversation (attach ended 1); looking again.",
+			"The host couldn't show this conversation (attach ended 1); looking again in 2 s.",
+		]);
+	});
+
+	it("waits twice as long after each failure in a row, up to its longest", async () => {
+		const waited: number[] = [];
+		for (const failures of [1, 2, 3, 4, 10]) {
+			const join = joined([{ hold: OPEN, noted: "none" }]);
+			await joinAfterFailedAttach(join.facts, "1", failures);
+			waited.push(join.facts.now());
+		}
+		expect(waited).toEqual([
+			ATTACH_AGAIN_MS * 2,
+			ATTACH_AGAIN_MS * 4,
+			ATTACH_AGAIN_MS * 8,
+			ATTACH_AGAIN_MOST_MS,
+			ATTACH_AGAIN_MOST_MS,
 		]);
 	});
 
