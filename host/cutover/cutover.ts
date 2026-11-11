@@ -146,10 +146,13 @@ export interface MoveFacts {
 	notes(): MoveNote[];
 	/** Take a note away once its session is adopted. */
 	removeNote(session: string): void;
-	/** Whether the pi that wrote a note still runs. */
+	/**
+	 * Whether what wrote a note still has its session: the pi that wrote
+	 * it, or for a note from a host, that host.
+	 */
 	running(note: MoveNote): Promise<boolean>;
-	/** The sessions each host holds now. */
-	held(): Promise<ReadonlySet<string>>;
+	/** The sessions the hosts hold now, each by the key of the host holding it. */
+	held(): Promise<ReadonlyMap<string, string>>;
 	/** Ask a host to adopt a log; answers why not when it won't. */
 	adopt(note: MoveNote, to: HostKind): Promise<string | undefined>;
 	/** What holds a session still waiting to move, as its presence says. */
@@ -212,14 +215,17 @@ export async function carryOut(
 	for (;;) {
 		const held = await facts.held();
 		const notes = new Map(facts.notes().map((note) => [note.session, note]));
-		for (const [session, to] of [...goes]) {
+		for (const session of [...goes.keys()]) {
 			const note = notes.get(session);
-			if (held.has(session)) {
+			// The host a conversation is leaving holds it until it goes, so
+			// only another host holding it says it moved.
+			const holder = held.get(session);
+			if (holder !== undefined && holder !== note?.from) {
 				if (note) facts.removeNote(session);
 				goes.delete(session);
 				refused.delete(session);
 				moved.push(addressOf(session));
-				facts.say(`${addressOf(session)} is held by the ${to} host`);
+				facts.say(`${addressOf(session)} is held by the ${holder} host`);
 				continue;
 			}
 			if (note === undefined || note.to === "pi") continue;
