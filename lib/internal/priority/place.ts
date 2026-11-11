@@ -18,10 +18,14 @@
  * before then: in 200 tries, 31 shells had already run their first
  * command. So the bash tool's shell also moves itself, with
  * {@link shellMovesItself}, before it runs anything.
+ *
+ * The write is made off pi's thread. Moving a process between cgroups
+ * waits out an RCU grace period, 5 to 7 ms a move on optimus (11
+ * November), and pi's thread paid it on every spawn, between keys.
  */
 
 import { ChildProcess } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { queuedCommand } from "./turn.ts";
 
@@ -54,10 +58,13 @@ export function jobsProcs(
 	);
 }
 
-/** What {@link placeChildren} writes with, so a test can watch it. */
-export type Write = (path: string, pid: number) => void;
+/**
+ * What {@link placeChildren} writes with, so a test can watch it. It may
+ * throw, or answer a promise that refuses, when the pid can't be written.
+ */
+export type Write = (path: string, pid: number) => void | Promise<void>;
 
-const writePid: Write = (path, pid) => writeFileSync(path, `${pid}\n`);
+const writePid: Write = (path, pid) => writeFile(path, `${pid}\n`);
 
 interface Placement {
 	path: string;
@@ -72,6 +79,12 @@ interface Placement {
  * again after systemd-oomd ends it. That child stays where pi is.
  */
 const PASSING = new Set(["ESRCH", "ENOENT", "ENODEV"]);
+
+/** Gives up on a placement whose cgroup refused a write, rather than missed it. */
+function refused(placement: Placement, error: unknown): void {
+	const code = (error as NodeJS.ErrnoException | undefined)?.code;
+	if (!code || !PASSING.has(code)) placement.broken = true;
+}
 
 const PLACEMENT = Symbol.for("agentic-harness.priority.placement");
 const ORIGINAL = Symbol.for("agentic-harness.priority.original-spawn");
@@ -164,12 +177,12 @@ export function placeChildren(
 				this.pid !== undefined
 			) {
 				try {
-					placement.write(placement.path, this.pid);
-				} catch (error) {
-					const code = (error as NodeJS.ErrnoException).code;
-					if (!code || !PASSING.has(code)) {
-						placement.broken = true;
+					const written = placement.write(placement.path, this.pid);
+					if (written instanceof Promise) {
+						written.catch((error: unknown) => refused(placement, error));
 					}
+				} catch (error) {
+					refused(placement, error);
 				}
 			}
 			return result;
