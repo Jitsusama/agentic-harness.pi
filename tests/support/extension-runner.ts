@@ -47,6 +47,8 @@ export function extensionRunner(
 			tools.set(tool.name, tool);
 		},
 		registerMessageRenderer() {},
+		// What a footer draws beside the model; no model thinks here.
+		getThinkingLevel: () => "off",
 		// Commands need a screen; lifetime tests drive only events and tools.
 		registerCommand() {},
 	} as never);
