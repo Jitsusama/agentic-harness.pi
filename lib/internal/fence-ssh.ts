@@ -13,7 +13,13 @@
  * agent's proxy's to say.
  */
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { SYSTEM_SSH_CONFIG } from "./fence.ts";
 
@@ -129,7 +135,10 @@ export function fenceSshConfig(
 	const path = join(runtimeDir, "pi-fence", "ssh_config");
 	if (files.read(path) === copy) return path;
 	try {
-		mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+		// Only pi's own folder is made, never the runtime folder: node's
+		// recursive mkdir spins for good where a parent exists but refuses
+		// a child with ENOENT, as /proc does, which hung every wrap.
+		if (!existsSync(dirname(path))) mkdirSync(dirname(path), { mode: 0o700 });
 		writeFileSync(path, copy, { mode: 0o600 });
 		return path;
 	} catch {
