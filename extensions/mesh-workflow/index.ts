@@ -1394,12 +1394,15 @@ export function meshWorkflow(
 				}
 			});
 			if (left.size > 0) void reconsider();
-			const missed = transport
-				.ids()
-				.filter((id) => !seen.has(id))
-				.map(take)
-				.filter((one): one is Message => one !== undefined);
-			if (missed.length > 0) void route(missed);
+			// Listed a little at a time: the folder holds a week of messages,
+			// and listing it at once held the thread a key waits on.
+			void transport.listIds().then((ids) => {
+				const missed = ids
+					.filter((id) => !seen.has(id))
+					.map(take)
+					.filter((one): one is Message => one !== undefined);
+				if (missed.length > 0) void route(missed);
+			});
 		};
 
 		// A glance is the model's: on screen it is nothing (see render.ts).
@@ -2109,6 +2112,23 @@ export function meshWorkflow(
 			return `sessions it leads are at work (${working.map((other) => other.addresses[0]).join(", ")})`;
 		};
 
+		// A message's file never changes once it is written, so each is read
+		// once here, not again each time the peer rests: the last two hours
+		// were over a thousand files, 66 ms of reading on 10 November 2026.
+		const recent = new Map<string, Message>();
+		const readRecent = (ids: readonly string[]): Message[] => {
+			const wanted = new Set(ids);
+			for (const id of recent.keys()) if (!wanted.has(id)) recent.delete(id);
+			return ids.flatMap((id) => {
+				const kept = recent.get(id);
+				if (kept) return [kept];
+				const message = transport.read(id);
+				if (!message) return [];
+				recent.set(id, message);
+				return [message];
+			});
+		};
+
 		/** What the mesh holds of this peer's own, for what will wake it. */
 		const ownOnMesh = (one: Peer): Own => {
 			const since = Date.now() - UNANSWERED_WITHIN_MS;
@@ -2119,11 +2139,9 @@ export function meshWorkflow(
 				addresses: one.addresses,
 				leases: own?.leases ?? [],
 				// Ids start with the time they were sent, so older ones go unread.
-				messages: transport
-					.ids()
-					.filter((id) => !(Number.parseInt(id, 10) < since))
-					.map((id) => transport.read(id))
-					.filter((message): message is Message => message !== undefined),
+				messages: readRecent(
+					transport.ids().filter((id) => !(Number.parseInt(id, 10) < since)),
+				),
 				aliases: (address) =>
 					everyone.find((peer) => peer.addresses.includes(address))
 						?.addresses ?? [address],

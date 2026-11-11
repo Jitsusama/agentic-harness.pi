@@ -104,8 +104,25 @@ describe("the folder transport", () => {
 		expect(transport.read("2-X-1")).toBeUndefined();
 	});
 
-	it("answers an empty listing when the folder is not there yet", () => {
+	it("answers an empty listing when the folder is not there yet", async () => {
 		expect(folderTransport(join(dir, "never")).ids()).toEqual([]);
+		await expect(
+			folderTransport(join(dir, "never")).listIds(),
+		).resolves.toEqual([]);
+	});
+
+	it("lists a little at a time what it lists at once, oldest first", async () => {
+		const transport = folderTransport(dir);
+		// More than one batch, sent in no particular order of file name.
+		const sent = Array.from({ length: 600 }, (_, n) =>
+			transport.send(draft({ text: `${n}` })),
+		);
+		writeFileSync(join(dir, "notes.txt"), "not a message", "utf8");
+
+		const listed = await transport.listIds();
+
+		expect(listed).toEqual(sent.map((message) => message.id));
+		expect(listed).toEqual(transport.ids());
 	});
 
 	it("remembers the furthest a peer has read, under any of its addresses", () => {
