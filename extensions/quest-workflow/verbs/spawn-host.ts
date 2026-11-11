@@ -32,6 +32,13 @@ import {
 	type SessionView,
 	sessionActivity,
 } from "../../../lib/internal/quest/session-liveness.ts";
+import {
+	attachWords,
+	type HostHold,
+	heldByHost,
+	holdOf,
+	hostHold,
+} from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
 import {
 	ok,
@@ -182,7 +189,7 @@ export async function spawnInHost(
 	}
 	const attach =
 		spawn.kind === "attended"
-			? attachWords(realm, key, held.sessionId)
+			? attachWords(holdOf(key, true), held.sessionId)
 			: undefined;
 	const screen = attach
 		? `Its screen waits in the host until a viewer attaches: ${attach.join(" ")}`
@@ -227,6 +234,9 @@ export interface HostResume {
 export async function resumeInHost(
 	resume: HostResume,
 	call: ControlCall = controlRequest,
+	holdOfSession: (
+		sessionId: string,
+	) => Promise<HostHold | undefined> = hostHold,
 ): Promise<QuestResult> {
 	const kind = "attended";
 	const { session } = resume;
@@ -239,6 +249,13 @@ export async function resumeInHost(
 		return refuse(`No ${kind} host to resume into: ${messageOf(error)}.`);
 	}
 	const key = hostKey(realm, kind);
+	// A host holding it is the only writer it may have: another host, or
+	// this one's roster while it is down or starting, takes it up again
+	// itself, so adopting it here would make a second. Only this host
+	// having it open is left to its list, which says so.
+	const elsewhere = await holdOfSession(session.id);
+	if (elsewhere && !(elsewhere.key === key && elsewhere.open))
+		return reachedInHost(session.id, elsewhere);
 	let reply: Awaited<ReturnType<ControlCall>>;
 	try {
 		reply = await call(socket, { v: 1, id: uuidv7(), op: "list" });
@@ -268,7 +285,7 @@ export async function resumeInHost(
 		);
 	}
 	if (holds) {
-		const attach = attachWords(realm, key, session.id);
+		const attach = attachWords(holdOf(key, true), session.id);
 		return ok(
 			`The ${key} host already holds session ${session.id}, so nothing was adopted. View it: ${attach.join(" ")}`,
 			{ how: "host", host: key, sessionId: session.id, adopted: false, attach },
@@ -291,21 +308,18 @@ export async function resumeInHost(
 }
 
 /**
- * The words that join a hosted conversation from a terminal here, as
- * mycelium's attach_here gives them. Realm and key are checked names and
- * the id a UUID, so they need no quoting.
+ * The answer for a conversation a host holds: nothing opened, and how to
+ * reach it through that host.
  */
-function attachWords(realm: string, key: string, sessionId: string): string[] {
-	return [
-		"mycelium",
-		"--realm",
-		realm,
-		"attach",
-		"--host",
-		key,
-		"--session",
+export function reachedInHost(sessionId: string, hold: HostHold): QuestResult {
+	return ok(heldByHost(sessionId, hold), {
+		how: "hosted",
+		host: hold.key,
 		sessionId,
-	];
+		open: hold.open,
+		adopted: false,
+		attach: attachWords(hold, sessionId),
+	});
 }
 
 /**

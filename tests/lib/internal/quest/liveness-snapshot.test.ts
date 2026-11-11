@@ -57,6 +57,21 @@ describe("deriveLiveness over a snapshot", () => {
 		expect(deriveLiveness(WITH_PROCESS, snap).liveness).toBe("conflicted");
 	});
 
+	it("reports live, naming the host, when a host holds it, whatever its process", () => {
+		const snap = snapshot({
+			observations: new Map([["p1", { process: "gone" }]]),
+			activity: new Map([["p1", STALE]]),
+			held: new Map([["p1", "work-background"]]),
+		});
+		const view = deriveLiveness(WITH_PROCESS, snap);
+		expect(view.liveness).toBe("live");
+		expect(view.heldBy).toBe("work-background");
+		expect(
+			deriveLiveness({ ...WITH_PROCESS, status: "detached" }, snap).liveness,
+			"a session its quest let go stays detached",
+		).toBe("detached");
+	});
+
 	it("reports live when the process matches", () => {
 		const snap = snapshot({
 			observations: new Map([["p1", { process: "matching" }]]),

@@ -6,7 +6,9 @@
  * out under test. This module supplies the live ones: activity read
  * from the pi session store, the process floor probing local pids,
  * and terminal probing routed through each recorded driver's own
- * liveness capability under a bounded timeout. Call sites build one
+ * liveness capability under a bounded timeout, and what the hosts'
+ * rosters keep, since a hosted session's records can name a process
+ * long gone. Call sites build one
  * snapshot per request and derive every session over it.
  */
 
@@ -21,6 +23,7 @@ import {
 	indexSessionFiles,
 	type LivenessSnapshot,
 } from "../../lib/internal/quest/session-liveness.ts";
+import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	getLivenessProvider,
@@ -49,6 +52,7 @@ export function buildSessionSnapshot(
 		activityOf: (id) => activityFromIndex(index, id),
 		probeProcess: (id) => probeProcess(id, processDeps),
 		probeTerminals: probeTerminalsByDriver,
+		held: rosterHolds(),
 	});
 }
 

@@ -805,6 +805,7 @@ describe("a reopen that replaces windows", () => {
 			settle: async (sessions) => {
 				asked.push([...sessions]);
 				return {
+					hosted: [],
 					running: ["sess-run"],
 					woken: ["sess-woke"],
 					parked: ["sess-stuck"],

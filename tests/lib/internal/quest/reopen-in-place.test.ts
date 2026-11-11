@@ -128,6 +128,29 @@ function holding(
 }
 
 describe("settling before a reopen", () => {
+	it("leaves a session a host holds, closing none of its windows", async () => {
+		const m = machine(
+			[holding("s1", 501)],
+			[
+				// Its old plain pi's window, and a viewer with no pi under it.
+				{ within: kitty, id: "10", pid: 100, marks: {} },
+				{ within: kitty, id: "20", pid: 200, marks: { [SESSION_MARK]: "s1" } },
+			],
+		);
+		const hold = { key: "work-background", realm: "work", open: false };
+		const settled = await settleBeforeReopen(["s1", "s2"], {
+			...m.host,
+			hostHold: async (session) => (session === "s1" ? hold : undefined),
+		});
+
+		expect(settled).toMatchObject({
+			hosted: [{ session: "s1", hold }],
+			reopen: ["s2"],
+			closed: 0,
+		});
+		expect(m.closed).toEqual([]);
+	});
+
 	it("leaves a session a holder runs, closing nothing", async () => {
 		const m = machine(
 			[holding("s1", 501)],

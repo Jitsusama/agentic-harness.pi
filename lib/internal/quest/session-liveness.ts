@@ -64,6 +64,8 @@ export interface LivenessSnapshot {
 	activity: ReadonlyMap<string, string>;
 	observations: ReadonlyMap<string, SessionObservation>;
 	conflicted: ReadonlySet<string>;
+	/** The sessions a host holds, open or kept for resume, to its key. */
+	held?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -80,6 +82,8 @@ export interface LivenessSnapshotDeps {
 		handles: readonly TerminalSessionHandle[],
 	) => Promise<ReadonlyMap<string, TerminalProbe>>;
 	conflicted?: ReadonlySet<string>;
+	/** The sessions a host holds, to its key (session/host-holds.ts). */
+	held?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -109,6 +113,8 @@ export function formatRelativeAge(
 export interface SessionView extends QuestSession {
 	liveness: SessionLiveness;
 	lastActivity?: string;
+	/** The host holding it, by key, when one does. */
+	heldBy?: string;
 }
 
 /**
@@ -267,6 +273,7 @@ export async function buildLivenessSnapshot(
 		activity,
 		observations,
 		conflicted: deps.conflicted ?? new Set<string>(),
+		...(deps.held ? { held: deps.held } : {}),
 	};
 }
 
@@ -274,7 +281,8 @@ export async function buildLivenessSnapshot(
  * Classify an attached session over a prebuilt {@link
  * LivenessSnapshot}. Membership wins first: a detached session reads
  * detached and a conflicted one reads conflicted, whatever a probe
- * saw. A session that carries identity is judged by observation
+ * saw. One a host holds reads live, and says which host. A session
+ * that carries identity is judged by observation
  * alone (a matching process or a present pane is live; a gone
  * process or an absent pane is dead; anything the probe could not
  * resolve is unknown). A record with no captured identity falls back
@@ -290,6 +298,13 @@ export function deriveLiveness(
 	}
 	if (snapshot.conflicted.has(session.id)) {
 		return { ...session, liveness: "conflicted", lastActivity };
+	}
+	// A host holding it is its writer, open now or taking it up again as
+	// it starts, whatever process the record names: the plain pi it moved
+	// from, or a host that crashed.
+	const heldBy = snapshot.held?.get(session.id);
+	if (heldBy !== undefined) {
+		return { ...session, liveness: "live", lastActivity, heldBy };
 	}
 	const observation = snapshot.observations.get(session.id);
 	if ((session.process || session.terminal) && observation) {

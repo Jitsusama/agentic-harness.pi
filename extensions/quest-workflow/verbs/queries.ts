@@ -582,6 +582,16 @@ export async function restore(
 			...outcome.running.map((id) => `- ${id}`),
 		);
 	}
+	if (outcome.hosted.length > 0) {
+		lines.push(
+			"",
+			"Left alone, since a host holds them; reach each with the launcher's Go To or its line:",
+			...outcome.hosted.map(
+				(each) =>
+					`- ${each.sessionId} (${each.host}): ${each.attach.join(" ")}`,
+			),
+		);
+	}
 	if (outcome.fresh.length > 0) {
 		lines.push(
 			"",
