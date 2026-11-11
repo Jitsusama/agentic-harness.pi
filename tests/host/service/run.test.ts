@@ -96,6 +96,7 @@ describe("runHost", () => {
 			engine,
 			signals,
 			ready,
+			say: () => {},
 			report: () => {},
 			places: places(),
 		});
@@ -134,6 +135,7 @@ describe("runHost", () => {
 			viewer,
 			signals,
 			ready: async () => {},
+			say: () => {},
 			report: () => {},
 			places: places(),
 		});
@@ -249,6 +251,7 @@ describe("runHost", () => {
 			ready: async () => {
 				throw failed;
 			},
+			say: () => {},
 			report,
 			places: places(),
 		});
