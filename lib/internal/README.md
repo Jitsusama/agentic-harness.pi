@@ -63,7 +63,8 @@ may import from here, and any of it may change without notice.
   asked of the extensions that hold it; and, for a move between
   plain pi and a host, what holds a session from ending, the note
   a moving session leaves for whoever takes its file up, and
-  whether a person drives it.
+  whether a person drives it; and the context's usage, worked out
+  once per leaf however many extensions ask.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know.
 - **`stray/`**: catching writes that would land behind pi's screen.
