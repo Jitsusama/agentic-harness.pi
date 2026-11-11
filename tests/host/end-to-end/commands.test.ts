@@ -122,7 +122,11 @@ describe.skipIf(!packageDir)(
 					"the search to leave only the earlier conversation",
 					() => !shown(typing, "later words"),
 					TURN_MS,
-				);
+				).catch((failed: unknown) => {
+					throw new Error(
+						`${String(failed)}; the screen shows:\n${typing.screen().join("\n")}`,
+					);
+				});
 				typing.type(ENTER);
 
 				await typing.shows("Resumed session", TURN_MS);
