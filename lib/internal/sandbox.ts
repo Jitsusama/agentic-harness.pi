@@ -75,6 +75,7 @@ import {
 	fenceArgs,
 	fencedCommand,
 	fenceRules,
+	type HeldGit,
 	inStore,
 	nixDoor,
 	type Offload,
@@ -421,15 +422,16 @@ export function worktreeRepository(
  * `folder` as it really is, when it is a tree the work tool's records
  * hold for `session`, named as it is rather than through a link, whose
  * `.git` file, its git folder's way back and its `commondir` all agree
- * on one repository outside the home folder; nothing otherwise. What a
- * `cd` before an exempt nix-offload call must be.
+ * on one repository outside the home folder, with the git folder they
+ * name; nothing otherwise. What a `cd` before an exempt nix-offload call
+ * must be, and the git folder the call is held to.
  */
 export function heldTree(
 	folder: string,
 	home: string,
 	session: string | undefined,
 	records?: string,
-): string | undefined {
+): HeldGit | undefined {
 	if (!session) return undefined;
 	const named = resolve(folder);
 	if (real(named) !== named) return undefined;
@@ -445,7 +447,9 @@ export function heldTree(
 		)?.[1];
 		const own = real(resolve(named, gitdir?.trim() ?? ""));
 		const common = readFileSync(join(own, "commondir"), "utf8").trim();
-		return real(resolve(own, common)) === real(repository) ? named : undefined;
+		return real(resolve(own, common)) === real(repository)
+			? { folder: named, gitDir: own }
+			: undefined;
 	} catch {
 		// A git folder with no commondir is no worktree the broker cut.
 		return undefined;

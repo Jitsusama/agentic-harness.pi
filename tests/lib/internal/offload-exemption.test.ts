@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	NO_GIT_DIR,
 	type OffloadPlace,
 	offloadedOutside,
 } from "../../../lib/internal/fence.ts";
@@ -48,6 +49,8 @@ describe("the flags the exemption lets out", () => {
 			"nix-offload there --outlive /tree checks.x86_64-linux.a",
 			"nix-offload there --here=1 /tree checks.x86_64-linux.a",
 			"nix-offload there --changed --here",
+			"nix-offload there --out /home/someone/.config/systemd/user /tree a",
+			"nix-offload there --out=/home/someone/.config /tree a",
 		]) {
 			expect(letOut(command), command).toBeUndefined();
 		}
@@ -60,6 +63,18 @@ describe("the flags the exemption lets out", () => {
 			"nix-offload there /nix/store/0000-a.drv^*",
 		]) {
 			expect(letOut(command), command).toBeDefined();
+		}
+	});
+
+	it("tells git outside any tree to read no .git at all", () => {
+		const text = letOut("nix-offload there /tree checks.x86_64-linux.a");
+		for (const set of [
+			`GIT_DIR=${NO_GIT_DIR}`,
+			"GIT_CEILING_DIRECTORIES=/",
+			"GIT_CONFIG_KEY_0=core.fsmonitor",
+			"GIT_CONFIG_VALUE_0=false",
+		]) {
+			expect(text, set).toContain(`'${set}'`);
 		}
 	});
 
@@ -135,6 +150,23 @@ describe("a cd before the call", () => {
 			text?.startsWith(`cd '${tree}' && exec -a env`),
 			"the call runs from the tree",
 		).toBe(true);
+	});
+
+	it("holds git to the tree's own git folder, read once", () => {
+		const text = letOut(`cd ${tree} && nix-offload there --changed`, {
+			heldTree: vouch("s1"),
+		});
+		const own = join(base, "repo", "worktrees", "tree");
+		for (const set of [
+			`GIT_DIR=${own}`,
+			`GIT_WORK_TREE=${tree}`,
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=core.fsmonitor",
+			"GIT_CONFIG_VALUE_0=false",
+		]) {
+			expect(text, set).toContain(`'${set}'`);
+		}
+		expect(text, "no other git folder").not.toContain(NO_GIT_DIR);
 	});
 
 	it("refuses a tree another session holds, or none", () => {

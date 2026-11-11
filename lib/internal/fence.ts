@@ -494,9 +494,28 @@ const CD_CALL = /^cd[ \t]+(\S+)[ \t]*&&[ \t]*(nix-offload[ \t].*)$/;
 /**
  * Flags that build, wait or keep running on this machine rather than a
  * builder, which the exemption never lets out: what runs here should run
- * fenced, as any other command here does.
+ * fenced, as any other command here does. `--out` copies a build's files
+ * into any folder it names, which outside the fence would write where a
+ * fenced command can't, such as `~/.config/systemd/user`.
  */
-const HERE_FLAGS = ["--here", "--here-when-idle", "--outlive"] as const;
+const LOCAL_FLAGS = [
+	"--here",
+	"--here-when-idle",
+	"--outlive",
+	"--out",
+] as const;
+
+/**
+ * A git folder no account can make, given as `GIT_DIR` to a call outside
+ * any held tree, so no git it runs reads a `.git` a fenced command wrote.
+ */
+export const NO_GIT_DIR = "/var/empty/no-git";
+
+/** What the work tool vouches for in a held tree: it and its git folder. */
+export interface HeldGit {
+	readonly folder: string;
+	readonly gitDir: string;
+}
 
 /** Whether `word` names a path in the Nix store, through every link. */
 function storeWord(word: string): boolean {
@@ -515,7 +534,7 @@ function storeWord(word: string): boolean {
  */
 function letOut(words: readonly string[]): boolean {
 	const here = (word: string) =>
-		HERE_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
+		LOCAL_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
 	if (words.some(here)) return false;
 	if (!words.includes("--run")) return true;
 	const end = words.indexOf("--");
@@ -549,7 +568,7 @@ export interface OffloadPlace {
 	 * for this session, named without a link, whose git links check out;
 	 * nothing otherwise, and nothing when it isn't given.
 	 */
-	readonly heldTree?: (folder: string) => string | undefined;
+	readonly heldTree?: (folder: string) => HeldGit | undefined;
 }
 
 /**
@@ -564,6 +583,14 @@ export interface OffloadPlace {
  * call's own words, in an environment of its own: the home and runtime
  * folders, the account's name, the system's `PATH`, and nothing from
  * the shell that asked.
+ *
+ * The checks hold only as they run, while nix-offload and changed-checks
+ * run git for minutes after, and a fenced command could point the tree's
+ * `.git` at a git folder it made, whose config names a program to run.
+ * So git is told where to look and never reads `.git` again: the held
+ * tree's own git folder, which the fence keeps read-only, and with no
+ * tree a folder that can't exist, so a flake named by a path fails
+ * rather than reading one. `core.fsmonitor` is off either way.
  */
 export function offloadedOutside(
 	command: string,
@@ -572,13 +599,13 @@ export function offloadedOutside(
 ): string | undefined {
 	if (!offload) return undefined;
 	let call = command.trim();
-	let folder: string | undefined;
+	let held: HeldGit | undefined;
 	const cd = CD_CALL.exec(call);
 	if (cd) {
 		const [, named = "", rest = ""] = cd;
 		if (!(PLAIN_WORD.test(named) && named.startsWith("/"))) return undefined;
-		folder = place.heldTree?.(named);
-		if (folder === undefined) return undefined;
+		held = place.heldTree?.(named);
+		if (held === undefined) return undefined;
 		call = rest.trim();
 	}
 	if (!OFFLOAD_CALL.test(call)) return undefined;
@@ -592,11 +619,17 @@ export function offloadedOutside(
 		...(place.env.XDG_RUNTIME_DIR
 			? [`XDG_RUNTIME_DIR=${place.env.XDG_RUNTIME_DIR}`]
 			: []),
+		...(held
+			? [`GIT_DIR=${held.gitDir}`, `GIT_WORK_TREE=${held.folder}`]
+			: [`GIT_DIR=${NO_GIT_DIR}`, "GIT_CEILING_DIRECTORIES=/"]),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.fsmonitor",
+		"GIT_CONFIG_VALUE_0=false",
 	];
 	// Named env, since the store's may be coreutils' one binary for every
 	// program, which acts by the name it is started with.
 	return [
-		...(folder ? ["cd", quoted(folder), "&&"] : []),
+		...(held ? ["cd", quoted(held.folder), "&&"] : []),
 		"exec -a env",
 		quoted(offload.env),
 		"-i",
