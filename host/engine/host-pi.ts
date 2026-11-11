@@ -93,8 +93,12 @@ export class HostPiRefused extends Error {
 	readonly missing: readonly HostSeam[];
 
 	constructor(packageDir: string, missing: readonly HostSeam[]) {
-		const lines = missing.map(
-			(seam) => `${seam.patch}: without it ${seam.why}`,
+		// A patch can add several seams; it is named once, with each reason.
+		const reasons = new Map<string, string[]>();
+		for (const seam of missing)
+			reasons.set(seam.patch, [...(reasons.get(seam.patch) ?? []), seam.why]);
+		const lines = [...reasons].map(
+			([patch, whys]) => `${patch}: without it ${whys.join(", and ")}`,
 		);
 		super(
 			`The pi at ${packageDir} is not the host's build; it lacks ${lines.join("; ")}`,
