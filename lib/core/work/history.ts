@@ -147,6 +147,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 	const held = async (
 		treePath: string,
 		commits: readonly string[],
+		refs: readonly string[] = ["--branches", "--remotes", "--tags"],
 	): Promise<Set<string>> => {
 		if (commits.length === 0) return new Set();
 		const unheld = new Set(
@@ -154,16 +155,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				await run(
 					deps.exec,
 					"git",
-					[
-						"-C",
-						treePath,
-						"rev-list",
-						...commits,
-						"--not",
-						"--branches",
-						"--remotes",
-						"--tags",
-					],
+					["-C", treePath, "rev-list", ...commits, "--not", ...refs],
 					`Asking which of ${commits.length} commits a branch holds`,
 				)
 			)
@@ -402,6 +394,27 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 						.flatMap((tree) => (tree.commit ? [tree.commit] : [])),
 				),
 			]);
+			// A branch trunk doesn't contain may still be on its remote, as a
+			// squash merge leaves it: World and core.nix merge that way, so
+			// trunk never contains a landed branch's own commits. Only the
+			// remotes count here, since the branch itself holds its commit.
+			const pushed = await held(
+				treePath,
+				[
+					...new Set(
+						asking
+							.filter(
+								(tree) =>
+									tree.branch !== undefined &&
+									!merged.has(tree.branch) &&
+									!dirty.has(tree.path) &&
+									!unread.has(tree.path),
+							)
+							.flatMap((tree) => (tree.commit ? [tree.commit] : [])),
+					),
+				],
+				["--remotes"],
+			);
 
 			return found.map(({ path, commit, branch }) => ({
 				path,
@@ -410,6 +423,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				...(unread.has(path) ? { unread: true } : {}),
 				...(branch && merged.has(branch) ? { mergedIntoTrunk: true } : {}),
 				...(!branch && commit && kept.has(commit) ? { commitKept: true } : {}),
+				...(branch && commit && pushed.has(commit) ? { pushed: true } : {}),
 			}));
 		},
 	};

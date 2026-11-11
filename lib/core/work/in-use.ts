@@ -110,6 +110,27 @@ function gitMovedSince(path: string, since: number): boolean {
 	});
 }
 
+/**
+ * Whether nothing has moved a tree's HEAD since `since`: no checkout,
+ * commit, reset or rebase. The index is left out, since a status from
+ * anybody, the sweep's own included, rewrites it without any work
+ * being done. A tree whose git can't be found says it has moved, so
+ * nothing is taken on a guess.
+ */
+export function headStillSince(path: string, since: number): boolean {
+	const checkout = existsSync(join(path, ".git")) ? path : join(path, "src");
+	const gitDir = gitDirOf(checkout);
+	if (gitDir === undefined) return false;
+	return ["HEAD", join("logs", "HEAD")].every((one) => {
+		try {
+			return statSync(join(gitDir, one)).mtimeMs <= since;
+		} catch {
+			// A tree with no reflog has only its HEAD to say when it moved.
+			return one !== "HEAD";
+		}
+	});
+}
+
 /** The git folder of a checkout, whether `.git` is one or points at one. */
 function gitDirOf(checkout: string): string | undefined {
 	const dotGit = join(checkout, ".git");

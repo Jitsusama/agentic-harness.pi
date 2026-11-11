@@ -33,6 +33,12 @@ export interface WorktreeOnDisk {
 	 * When some ref holds its commit, removing the tree loses nothing.
 	 */
 	commitKept?: boolean;
+	/**
+	 * For a tree on a branch trunk doesn't contain, whether a
+	 * remote-tracking branch holds the commit it sits at, as one a
+	 * squash merge landed still does.
+	 */
+	pushed?: boolean;
 }
 
 /** What is known when asking which trees were left behind. */
@@ -70,12 +76,21 @@ export interface OrphanAsk {
 	 * cut from now on carries an owner.
 	 */
 	unattributed?: readonly string[];
+	/**
+	 * Whether a clean tree whose branch is on its remote has sat long
+	 * enough to take, given its path. Without it such a tree is a
+	 * decision for a person, as before: `reclaim` asks one, and only the
+	 * sweep, which runs with nobody watching, says how long is enough.
+	 */
+	settled?: (path: string) => boolean;
 }
 
 /** A tree nothing claims any more, and what was in it. */
 export interface Reclaimable {
 	path: string;
 	branch?: string;
+	/** Set when only its remote, not trunk, holds the branch's commits. */
+	pushed?: boolean;
 }
 
 /** A tree being left alone, and the reason. */
@@ -187,6 +202,13 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 					true,
 				);
 			}
+			continue;
+		}
+		// On its remote, the branch's commits are kept twice over, there and
+		// by the branch itself, which no removal deletes. A tree nobody has
+		// touched in a while holds nothing more than ignored build output.
+		if (tree.pushed && ask.settled?.(tree.path)) {
+			reclaimable.push({ path: tree.path, branch: tree.branch, pushed: true });
 			continue;
 		}
 		// The same ambiguity a branch has, for the same reason, and named

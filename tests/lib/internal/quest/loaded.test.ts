@@ -91,6 +91,23 @@ describe("the sessions nobody closed", () => {
 		]);
 	});
 
+	it("leave out one lost before the time given, but never one still open", async () => {
+		const dir = await registry({
+			open: record("open"),
+			longLost: closed("longLost", "signalled"),
+			justLost: {
+				...closed("justLost", "died"),
+				closedAt: "2026-10-28T02:51:46.913Z",
+			},
+		});
+
+		const since = Date.parse("2026-10-28T00:00:00.000Z");
+		expect([...(await sessionsNobodyClosed(dir, since))].sort()).toEqual([
+			"justLost",
+			"open",
+		]);
+	});
+
 	it("leave out a record that will not parse, and a registry that is not there", async () => {
 		const dir = await registry({ open: record("open") });
 		await writeFile(join(dir, "broken.json"), "{not json", "utf8");

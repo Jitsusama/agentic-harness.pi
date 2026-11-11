@@ -30,9 +30,15 @@ const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/;
  * those a crash or a signal took away, such as every session when the
  * machine shuts down. Restore offers the lost ones back, so what they
  * hold is still theirs. Only a quit or a swap is someone's choice.
+ *
+ * Given `lostSince`, a session lost before it no longer counts: one
+ * nobody brought back in that long is one nobody is waiting on, and
+ * on 11 November 197 such sessions, lost over eight days, held 405
+ * trees between them.
  */
 export async function sessionsNobodyClosed(
 	dir: string = sessionRegistryDir(),
+	lostSince?: number,
 ): Promise<ReadonlySet<string>> {
 	let names: string[];
 	try {
@@ -50,9 +56,12 @@ export async function sessionsNobodyClosed(
 						JSON.parse(await readFile(join(dir, name), "utf8")),
 					);
 					if (!record) return undefined;
-					return !record.closedAt || wasLost(record)
-						? record.sessionId
-						: undefined;
+					if (!record.closedAt) return record.sessionId;
+					if (!wasLost(record)) return undefined;
+					const lostAt = Date.parse(record.closedAt);
+					return lostSince !== undefined && lostAt < lostSince
+						? undefined
+						: record.sessionId;
 				} catch {
 					// Gone since the listing, or half written: a record that will
 					// not read names no session anybody could trust.

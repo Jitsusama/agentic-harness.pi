@@ -50,6 +50,7 @@ import type { HeldTree, TreeProvider } from "./broker.ts";
 import { dropIdleDevShellRoots } from "./dev-shell-roots.ts";
 import { createGitHistory } from "./history.ts";
 import {
+	headStillSince,
 	resolvedPath as resolved,
 	treesInUse,
 	type UseSigns,
@@ -65,6 +66,16 @@ const GIT_WORKTREE = "git-worktree";
  * it: past any real sweep, so its holder stopped rather than working.
  */
 const SWEEP_STALE_MS = 60 * 60 * 1000;
+
+/**
+ * How long a tree whose branch trunk doesn't contain, but its remote
+ * does, sits with its HEAD still before the sweep takes it. A day, so a
+ * session that ended mid-review, or one about to be reopened after a
+ * restart, comes back to its tree; past that, a recut at the same
+ * branch costs seconds, against the disk the trees held: 48 GiB on one
+ * machine on 11 November, with 23% of its disk free.
+ */
+export const PUSHED_SETTLE_MS = 24 * 60 * 60 * 1000;
 
 /** What a sweep needs. */
 export interface SweepDeps extends UseSigns {
@@ -95,6 +106,10 @@ export interface SweepDeps extends UseSigns {
 export interface SweptTree {
 	path: string;
 	branch?: string;
+	/** The remote-tracking branch that holds its commit, when trunk didn't. */
+	remote?: string;
+	/** The sessions its record named, so one reopened can recut it. */
+	sessions?: string[];
 }
 
 /** A tree the sweep left, and why. */
@@ -413,6 +428,8 @@ async function sweepRepository(
 			})),
 			remembered: held.remembered,
 			unattributed: held.unattributed,
+			settled: (path) =>
+				headStillSince(path, (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS),
 		});
 	} catch (error) {
 		for (const tree of trees) {
@@ -431,8 +448,45 @@ async function sweepRepository(
 			});
 			continue;
 		}
-		await takeBack(deps, facts, main, tree, offered.branch, outcome);
+		const remote = offered.pushed
+			? await remoteHolding(deps.exec, tree.path)
+			: undefined;
+		await takeBack(
+			deps,
+			facts,
+			main,
+			tree,
+			{
+				path: tree.path,
+				...(offered.branch ? { branch: offered.branch } : {}),
+				...(remote ? { remote } : {}),
+				...(tree.sessions?.length ? { sessions: [...tree.sessions] } : {}),
+			},
+			outcome,
+		);
 	}
+}
+
+/**
+ * The remote-tracking branch holding a tree's commit, for its log line,
+ * when trunk doesn't hold it. Read from the refs the tree already has,
+ * never fetched: a fetch costs time and fails inside the agent fence.
+ */
+async function remoteHolding(
+	exec: Exec,
+	path: string,
+): Promise<string | undefined> {
+	const found = await exec("git", [
+		"-C",
+		path,
+		"for-each-ref",
+		"--count=1",
+		"--contains=HEAD",
+		"--format=%(refname:short)",
+		"refs/remotes",
+	]);
+	const name = found.stdout.trim();
+	return found.code === 0 && name !== "" ? name : undefined;
 }
 
 /**
@@ -444,7 +498,7 @@ async function takeBack(
 	facts: ProcessFacts,
 	main: string,
 	tree: HeldTree,
-	branch: string | undefined,
+	taken: SweptTree,
 	outcome: SweepOutcome,
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
@@ -472,7 +526,7 @@ async function takeBack(
 	}
 	const removed = await git("worktree", "remove", aside);
 	if (removed.code === 0) {
-		outcome.taken.push({ path: tree.path, ...(branch ? { branch } : {}) });
+		outcome.taken.push(taken);
 		return;
 	}
 	const back = await git("worktree", "move", aside, tree.path);
