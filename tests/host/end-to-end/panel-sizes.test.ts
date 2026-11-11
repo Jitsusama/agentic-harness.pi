@@ -44,7 +44,7 @@ const SHORT = 15;
 const TALL = 50;
 /** What the view's footer shows, which is the way out of it. */
 const FOOTER = "Esc close";
-/** Narrower than the screens above, as wide as the harness wraps its words. */
+/** Narrower than the screens above, so a gate drawn for them would wrap. */
 const NARROW = 72;
 /** What a focused gate's footer shows, which is the way out of it. */
 const GATE_FOOTER = "Esc cancel";
