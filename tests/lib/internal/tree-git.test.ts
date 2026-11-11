@@ -230,6 +230,6 @@ describe("the fence's guarded git folders", () => {
 		expect(listed.size, "the walk found some and missed some").toBeLessThan(
 			candidates.length,
 		);
-		expect(listed.has(join(home, "src/a/.git"))).toBe(true);
+		expect([...listed]).toContain(join(home, "src/a/.git"));
 	});
 });
