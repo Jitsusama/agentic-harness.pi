@@ -37,7 +37,11 @@ import {
 } from "../../../lib/core/session/index.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
-import { PARKING, writeParked } from "../../../lib/internal/session/park.ts";
+import {
+	isParked,
+	PARKING,
+	writeParked,
+} from "../../../lib/internal/session/park.ts";
 import { handIn } from "../../../lib/mesh/hand.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
 import { census } from "../../../lib/mesh/liveness.ts";
@@ -251,7 +255,7 @@ it("trades a question and answer, then forgets only the closed conversation", as
 	).toContain("no session");
 });
 
-it("keeps a parked conversation's presence, so a question to it wakes it", async () => {
+it("keeps a parked conversation's presence, so cadence counts it alive and a question to it wakes it", async () => {
 	vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
 	await inHost();
 	const a = await peer("alpha-AAAAAAAA");
@@ -271,10 +275,20 @@ it("keeps a parked conversation's presence, so a question to it wakes it", async
 	await b.close();
 
 	const presences = createPresences(join(paths.mesh, "presence"));
+	const kept = presences.of("bravo-BBBBBBBB");
+	// cadence starts a second pi on a watched session only when none of
+	// these says it's there: its state, the host's pid holding it as this
+	// conversation, or its marker.
+	expect(kept?.state, "its presence stays, saying it parked").toBe("parked");
+	expect(kept?.owner?.pid, "the host still owns it").toBe(process.pid);
+	expect(kept?.hosted, "the host still holds it as this conversation").toEqual({
+		host: "test-host",
+		conversation: "bravo-BBBBBBBB",
+	});
 	expect(
-		presences.of("bravo-BBBBBBBB")?.state,
-		"its presence stays, saying it parked",
-	).toBe("parked");
+		isParked("bravo-BBBBBBBB"),
+		"its marker stays, which cadence reads too",
+	).toBe(true);
 	expect(
 		await a.call("mesh_send", {
 			to: "BBBBBBBB",
