@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mutates</title>
+</head>
+<body><main>
+  <h1>Mutates</h1>
+  <p id="kept">This paragraph survives hydration untouched, present in both renders.</p>
+  <p id="lost">This paragraph is removed by the page's own script after it loads.</p>
+</main>
+<script>
+  "use strict";
+  document.getElementById("lost").remove();
+  const extra = document.createElement("p");
+  extra.textContent = "This paragraph only exists after the script has run.";
+  document.querySelector("main").appendChild(extra);
+</script></body>
+</html>

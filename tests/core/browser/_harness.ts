@@ -13,6 +13,7 @@
  * does not create and nothing that can change under it.
  */
 
+import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
@@ -113,6 +114,15 @@ export async function serve(
 			});
 		},
 	};
+}
+
+/**
+ * A page kept in `pages/`, as a browser test serves it. A page past a few
+ * lines lives there as HTML, so its markup and its script are linted as
+ * what they are.
+ */
+export function pageFile(name: string): string {
+	return readFileSync(new URL(`./pages/${name}`, import.meta.url), "utf8");
 }
 
 /** Wrap a body in a document the browser will lay out normally. */

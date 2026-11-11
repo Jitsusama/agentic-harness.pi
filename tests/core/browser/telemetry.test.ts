@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { strandedByCrash } from "../../../lib/core/web/telemetry/index.ts";
 import { until } from "../../support/until.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, page, pageFile, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -34,34 +34,13 @@ fetch("http://127.0.0.1:1/unreachable").catch(() => {});
 </script>`,
 );
 
-const DIALOGS = page(
-	"Dialogs",
-	`<main><h1>Dialogs</h1><p id="answer">unasked</p>
-<script>
-window.ask = () => {
-  document.getElementById("answer").textContent = String(confirm("Really?"));
-};
-window.askText = () => {
-  document.getElementById("answer").textContent = String(prompt("Name?", ""));
-};
-</script></main>`,
-);
+const DIALOGS = pageFile("dialogs.html");
 
 /**
  * A page that opens a socket, says something and waits to be
  * answered, which is the shape of every live feature.
  */
-const SOCKET_PAGE = page(
-	"Socket",
-	`<main><p id="heard">nothing yet</p></main>
-	<script>
-		const socket = new WebSocket("ws://" + location.host + "/feed");
-		socket.addEventListener("open", () => socket.send("subscribe"));
-		socket.addEventListener("message", (event) => {
-			document.getElementById("heard").textContent = event.data;
-		});
-	</script>`,
-);
+const SOCKET_PAGE = pageFile("socket.html");
 
 const LIVE = page(
 	"Live",

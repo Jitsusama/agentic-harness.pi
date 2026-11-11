@@ -194,6 +194,24 @@
 					}
 				}
 			}
+		},
+		// A page a browser test serves does what the test needs the browser
+		// to meet: it asks with a dialog, sets a cookie, or has a plain
+		// element listen, so the rules against doing those don't hold there.
+		{
+			"includes": ["tests/core/browser/pages/**"],
+			"linter": {
+				"rules": {
+					"a11y": {
+						"noNoninteractiveElementInteractions": "off",
+						"noStaticElementInteractions": "off"
+					},
+					"suspicious": {
+						"noAlert": "off",
+						"noDocumentCookie": "off"
+					}
+				}
+			}
 		}
 	],
 	"javascript": {

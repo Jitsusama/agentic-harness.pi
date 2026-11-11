@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Causal</title>
+</head>
+<body><main><h1>Causal</h1><button type="button" id="go">Go</button></main>
+<script>
+"use strict";
+document.getElementById("go").addEventListener("click", () => {
+  setTimeout(() => { fetch("/slow"); }, 20);
+  setTimeout(() => { fetch("/quick"); }, 40);
+});
+</script></body>
+</html>

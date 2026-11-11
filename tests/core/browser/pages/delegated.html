@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delegated</title>
+</head>
+<body><main><h1>Delegated</h1><button type="button" id="save">Save</button></main>
+<script>
+"use strict";
+document.body.addEventListener("click", (event) => {
+  if (event.target.id === "save") document.title = "clicked";
+});
+</script></body>
+</html>

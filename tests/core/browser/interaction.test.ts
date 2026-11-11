@@ -24,51 +24,13 @@ import {
 } from "vitest";
 import { BrowserSession } from "../../../lib/core/web/session.ts";
 import { describeRefusal } from "../../../lib/core/web/target/index.ts";
-import { type Fixture, page, serve } from "./_harness.ts";
+import { type Fixture, page, pageFile, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
-const FORM = page(
-	"Interaction",
-	`<main>
-  <h1>Interaction</h1>
-  <button type="button" id="plain" onclick="document.getElementById('log').textContent = 'clicked'">Press me</button>
-  <button type="button" id="off" disabled>Disabled button</button>
-  <label for="text">Your name</label>
-  <input id="text" name="text" value="start">
-  <label for="choice">Pick one</label>
-  <select id="choice"><option>Alpha</option><option>Beta</option></select>
-  <div id="hoverable" onmouseenter="document.getElementById('log').textContent = 'hovered'">Hover target</div>
-  <p id="log">nothing yet</p>
-  <div id="cover-host" style="position:relative">
-    <button type="button" id="under" onclick="document.getElementById('log').textContent = 'should not happen'">Covered button</button>
-    <div id="cover" style="position:absolute;inset:0;background:rgba(0,0,0,0.01)"></div>
-  </div>
-  <nav><button type="button" id="icon" onclick="document.getElementById('log').textContent = 'icon'"><svg width="20" height="20" aria-hidden="true"></svg></button></nav>
-  <div id="faux" style="padding:4px;border:1px solid #999">Publish</div>
-  <label for="attach">Attach a file</label>
-  <input type="file" id="attach" style="position:absolute;opacity:0;width:1px;height:1px" onchange="document.getElementById('picked').textContent = Array.from(this.files).map(f => f.name).join(',')">
-  <p id="picked">none</p>
-  <div id="scroller" style="height:2000px"></div>
-  <button type="button" id="far" onclick="document.getElementById('log').textContent = 'far'">Far below</button>
-</main>`,
-);
+const FORM = pageFile("interaction.html");
 
-const KEYS = page(
-	"Keys",
-	`<main><h1>Keys</h1><input id="field" value="">
-<p id="seen">none</p>
-<script>
-document.addEventListener("keydown", (e) => {
-  const parts = [];
-  if (e.ctrlKey) parts.push("Ctrl");
-  if (e.shiftKey) parts.push("Shift");
-  if (e.altKey) parts.push("Alt");
-  parts.push(e.key);
-  document.getElementById("seen").textContent = parts.join("+");
-});
-</script></main>`,
-);
+const KEYS = pageFile("keys.html");
 
 const WHEEL = page(
 	"Wheel",
@@ -76,17 +38,7 @@ const WHEEL = page(
 );
 
 /** A page that records the first touch event it receives. */
-const TOUCH = page(
-	"Touch",
-	`<main><h1>Touch</h1><div id="pad" style="width:200px;height:200px"></div>
-<p id="touched">none</p>
-<script>
-document.addEventListener("touchstart", () => {
-  const seen = document.getElementById("touched");
-  if (seen.textContent === "none") seen.textContent = "touchstart";
-}, { passive: true });
-</script></main>`,
-);
+const TOUCH = pageFile("touch.html");
 
 let fixture: Fixture;
 let session: BrowserSession;

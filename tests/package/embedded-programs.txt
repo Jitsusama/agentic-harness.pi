@@ -5,12 +5,4 @@
 lib/core/attribution/commit-hook.ts shell 1
 lib/core/observability/ledger/store.ts sql 1
 lib/core/web/article.ts page-js 1
-tests/core/browser/capture.test.ts page-js 1
-tests/core/browser/environment.test.ts page-js 1
-tests/core/browser/hydration.test.ts page-js 1
-tests/core/browser/interaction.test.ts page-js 3
-tests/core/browser/navigation.test.ts page-js 2
-tests/core/browser/occlusion.test.ts page-js 1
-tests/core/browser/telemetry.test.ts page-js 2
-tests/core/browser/tracing.test.ts page-js 1
 tests/lib/internal/priority/push-hooks.test.ts shell 1

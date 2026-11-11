@@ -230,7 +230,9 @@ rules, and where it doesn't yet.
   `.page.js` beside the module that sends it, read in with
   `pageScript`, or called by `pageCall` with the values and
   helper scripts it takes as arguments
-  (`lib/core/web/page-script.ts`), so Biome reads it. The
+  (`lib/core/web/page-script.ts`), so Biome reads it. A page a
+  browser test serves, past a few lines, is HTML in
+  `tests/core/browser/pages/`, read with `pageFile`. The
   programs still written as strings are listed in
   `tests/package/embedded-programs.txt`, which only shrinks.
 

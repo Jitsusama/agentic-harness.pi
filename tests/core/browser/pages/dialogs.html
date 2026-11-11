@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dialogs</title>
+</head>
+<body><main><h1>Dialogs</h1><p id="answer">unasked</p>
+<script>
+"use strict";
+globalThis.ask = () => {
+  document.getElementById("answer").textContent = String(confirm("Really?"));
+};
+globalThis.askText = () => {
+  document.getElementById("answer").textContent = String(prompt("Name?", ""));
+};
+</script></main></body>
+</html>
