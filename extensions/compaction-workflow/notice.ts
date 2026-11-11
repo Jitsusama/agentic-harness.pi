@@ -33,7 +33,11 @@ function priced(decision: TriggerDecision): string {
 		`Compacting costs about ${dollars(cost.total)} ` +
 		`(summary ${dollars(cost.summary)}, rewrite ${dollars(cost.rewrite)}, ` +
 		`re-fetching ${dollars(cost.refetch)}), and what it drops has cost ` +
-		`${dollars(decision.rentPaid)} in reads since the last compaction`
+		`${dollars(decision.rentPaid)} in reads since the last compaction` +
+		(decision.pastCeiling === undefined
+			? ""
+			: ", but every turn sends the whole context and this one is past " +
+				`the ${Math.round(decision.pastCeiling / TOKENS_PER_K)}k-token ceiling`)
 	);
 }
 

@@ -64,8 +64,11 @@ describe("deciding whether to compact now", () => {
 			rentPaid: cost.total,
 			cost,
 			floorTokens: 0,
+			ceilingTokens: 200_000,
+			droppableTokens: 70_000,
 		});
 		expect(decision).toMatchObject({ fire: true });
+		expect(decision, "the rent paid for it").not.toHaveProperty("pastCeiling");
 	});
 
 	it("never compacts a context at or below a floor someone set", () => {
@@ -89,7 +92,7 @@ describe("deciding whether to compact now", () => {
 			ceilingTokens: 200_000,
 			droppableTokens: 70_000,
 		});
-		expect(decision).toMatchObject({ fire: true });
+		expect(decision).toMatchObject({ fire: true, pastCeiling: 200_000 });
 	});
 
 	it("holds off below the ceiling while the rent hasn't paid", () => {

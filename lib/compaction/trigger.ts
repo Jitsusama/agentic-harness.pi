@@ -120,6 +120,8 @@ export interface TriggerDecision {
 	readonly fire: boolean;
 	readonly rentPaid: number;
 	readonly cost: CompactionCost;
+	/** The ceiling it fired past, when the rent alone hadn't paid. */
+	readonly pastCeiling?: number;
 }
 
 /**
@@ -137,10 +139,11 @@ export function compactionPays(input: TriggerInput): TriggerDecision {
 		ceiling > 0 &&
 		input.contextTokens >= ceiling &&
 		(input.droppableTokens ?? 0) >= CEILING_LEAST_DROPPED;
+	const rentPays = input.rentPaid >= input.cost.total;
 	const fire =
-		input.contextTokens > input.floorTokens &&
-		(input.rentPaid >= input.cost.total || pastCeiling);
-	return { fire, rentPaid: input.rentPaid, cost: input.cost };
+		input.contextTokens > input.floorTokens && (rentPays || pastCeiling);
+	const decision = { fire, rentPaid: input.rentPaid, cost: input.cost };
+	return fire && !rentPays ? { ...decision, pastCeiling: ceiling } : decision;
 }
 
 export interface IdleInput {
