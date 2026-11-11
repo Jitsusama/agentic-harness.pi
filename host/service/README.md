@@ -10,14 +10,18 @@ input pipeline or screen. No unit or running host is installed yet.
   the roster. Open and adopt hold durably before the engine registers;
   a start that never registered is undone, one that registered and
   failed stays held. Close and release drop the hold only after the
-  engine's close commits. resumeHeld resumes each hold at start, keeping
+  engine's close commits, closing with a reason that names the caller
+  as the request does (`by`); a close of one held but not running is
+  journalled here, since no end of the engine's says it. resumeHeld resumes each hold at start, keeping
   one that won't resume held and listed parked for a person to close.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
   conversationEvents is what the engine, watched once before anything
   resumes, tells the service of a change made inside pi: a conversation
   that ended itself is dropped, and one that became another (pi's new,
   fork or resume) is held in its place in one write, keeping attended,
-  quest and launch. Host stop never counts as an end.
+  quest and launch. Host stop never counts as an end. Each end is one
+  line in the host's journal: the conversation's mesh address, its id,
+  and why, naming the viewer or caller that asked.
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,
@@ -101,6 +105,7 @@ input pipeline or screen. No unit or running host is installed yet.
   expiry stamp moves, nears, or the gateway refuses the key.
 - viewer.ts: adapts V's persistent Terminal without reproducing its parser.
 - protocol.ts: strict v1 control requests, replies and viewer input.
+  A close or release may name its caller (`by`), for the journal.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
 - dispatch.ts: validates before engine calls and binds targeted calls
   through core/session's withSession; forwards failures to the host journal.
