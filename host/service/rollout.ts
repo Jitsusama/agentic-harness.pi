@@ -262,24 +262,36 @@ async function saidRoot(file: string): Promise<string | undefined> {
 	}
 }
 
-/** What a refused second conversation is told: every stale pi, and what to do. */
-export function refusalText(stale: readonly StaleHarness[]): string {
+/**
+ * What a refused second conversation is told: every stale pi, and what
+ * to do. A wake is refused only until those pis reload or end, and its
+ * sender has nothing to fix, so it is told that instead.
+ */
+export function refusalText(
+	stale: readonly StaleHarness[],
+	admitting: Admitting = "open",
+): string {
 	const each = stale.map(
 		({ pid, root, why }) => `pid ${pid}${root ? ` (${root})` : ""}: ${why}`,
 	);
 	return [
 		`This host keeps to one conversation: ${stale.length} live pi${stale.length === 1 ? "" : "s"} would take its other conversations as ended, since their harness predates ${CENSUS_COMMIT.slice(0, 8)} (#1129) or can't be dated.`,
 		...each,
-		"Reload or end them, or open the conversation in a host of its own.",
+		admitting === "wake"
+			? "It stays parked, keeping what was sent to it, and the next message or key wakes it once they reload or end."
+			: "Reload or end them, or open the conversation in a host of its own.",
 	].join("\n");
 }
+
+/** What a second conversation comes in by: an open or adopt, or the wake of a parked one. */
+export type Admitting = "open" | "wake";
 
 /**
  * The check a host runs before a second conversation: resolves when every
  * live pi tells hosted conversations apart, and rejects naming each one
- * that doesn't.
+ * that doesn't, in words that fit what it admits (an open, unless said).
  */
-export type AdmitAnother = () => Promise<void>;
+export type AdmitAnother = (admitting?: Admitting) => Promise<void>;
 
 /**
  * The gate over a package's `loaded` folder, for serveHost. It remembers
@@ -292,9 +304,9 @@ export function rolloutGate(options: {
 	facts?: RolloutFacts;
 }): AdmitAnother {
 	const current = new Set<string>();
-	return async () => {
+	return async (admitting) => {
 		const stale = await staleHarnesses({ ...options, current });
 		if (stale.length > 0)
-			throw hostRefusal(ROLLOUT_REFUSED, refusalText(stale));
+			throw hostRefusal(ROLLOUT_REFUSED, refusalText(stale, admitting));
 	};
 }

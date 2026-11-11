@@ -3,12 +3,37 @@
  * host stop does, keeping its hold, and watches the wake file each
  * conversation is told of in MYCELIUM_WAKE, as a holder watches plain
  * pi's, until it is written, a viewer types or a window opens on it.
+ * A wake through the file that is refused is kept beside it, with the
+ * message that asked, for the mesh to say (refused-wake.ts), until the
+ * conversation next runs.
  */
-import { existsSync, type FSWatcher, mkdirSync, rmSync, watch } from "node:fs";
+import {
+	existsSync,
+	type FSWatcher,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	watch,
+} from "node:fs";
 import { join } from "node:path";
+import {
+	clearRefusedWake,
+	wakeAskedBy,
+	writeRefusedWake,
+} from "../../lib/internal/session/refused-wake.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
+
+/** What a wake file holds, or nothing where it went before it was read. */
+function readWritten(file: string): string {
+	try {
+		return readFileSync(file, "utf8");
+	} catch {
+		// Gone between its event and this read: a wake that names no message.
+		return "";
+	}
+}
 
 /** Why a parked conversation's session ended, as its stop says. */
 export const PARKED = "parked while idle";
@@ -69,9 +94,20 @@ export function parking(options: {
 		mkdirSync(folderOf(sessionId), { recursive: true });
 		const woken = () => {
 			if (!sleepers.has(sessionId) || !existsSync(file)) return;
+			const messageId = wakeAskedBy(readWritten(file));
 			rmSync(file, { force: true });
-			wake(sessionId).catch(() => {
-				// Reported as it failed; the next message writes the file again.
+			wake(sessionId).catch((error: unknown) => {
+				// Reported as it failed; kept for the mesh to say, until the next
+				// message writes the file again or the conversation runs.
+				try {
+					writeRefusedWake(file, {
+						...(messageId === undefined ? {} : { messageId }),
+						reason: error instanceof Error ? error.message : String(error),
+						at: new Date().toISOString(),
+					});
+				} catch (unkept) {
+					report(unkept);
+				}
 			});
 		};
 		const watcher = watch(folderOf(sessionId), (_, name) => {
@@ -131,6 +167,7 @@ export function parking(options: {
 		wakeFile,
 		running(sessionId) {
 			rmSync(wakeFile(sessionId), { force: true });
+			clearRefusedWake(wakeFile(sessionId));
 		},
 		park(sessionId) {
 			const asked: Settling["asked"] = [];
