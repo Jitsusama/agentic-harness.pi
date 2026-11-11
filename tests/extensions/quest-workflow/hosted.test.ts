@@ -203,7 +203,7 @@ it("accepts only its own host stamps and preserves signal endings through shutdo
 				...captureSessionIdentity(),
 			}),
 		);
-	const off = followHostStamps(pi.events, "a", release);
+	const off = followHostStamps(pi.events, "a", release, () => false);
 	pi.events.emit(SESSION_STAMP_EVENT, { session: "b", how: "signalled" });
 	pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "reload" });
 	expect(release).not.toHaveBeenCalled();
