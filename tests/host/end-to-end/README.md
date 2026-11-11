@@ -195,6 +195,12 @@ empty and restore.json offers all four. Each log is whole and keeps
 what it held, and reopened from its file each runs in one plain pi
 under its addresses, and answers.
 
+early-attach.test.ts attaches a viewer to a conversation the screen
+host lists but hasn't yet given a screen, its folder's own extension
+holding its start between the two. On 11 November a window moving in
+place attached that soon, was answered, found no screen and closed.
+Here the attach is answered only once the screen exists, and shows it.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
