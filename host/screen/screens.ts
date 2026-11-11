@@ -108,8 +108,8 @@ export interface HostScreens {
 	 * Whether every screen is at rest: started, showing pi's own editor
 	 * empty and focused, with no panel, dialog or overlay over it, no gate
 	 * docked or waiting for the screen, no command of the person's
-	 * running, and nobody editing in their own editor. A host restarts only then, since a restart loses each of
-	 * those (restart.ts).
+	 * running, and nobody editing in their own editor. A host restarts
+	 * only then, since a restart loses each of those (restart.ts).
 	 */
 	resting(): boolean;
 }

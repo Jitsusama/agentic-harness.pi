@@ -140,8 +140,11 @@ function isAnswer(data: unknown): data is (host: JobHost) => void {
 	return typeof data === "function";
 }
 
-/** The host, if one is listening, found now. */
-export function findJobHost(bus: EventBus): JobHost | undefined {
+/**
+ * The host, if one is listening, found now. It only asks, so any bus
+ * that can emit will do, a pi host's own included.
+ */
+export function findJobHost(bus: Pick<EventBus, "emit">): JobHost | undefined {
 	let found: JobHost | undefined;
 	bus.emit(JOBS_ASK, (host: JobHost) => {
 		found ??= host;

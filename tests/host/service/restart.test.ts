@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	followWhatStarts,
 	type Held,
+	RESTART_DUE_MS,
 	type RestartFacts,
 	restartWhenSettled,
 	settled,
@@ -106,9 +107,33 @@ describe("restartWhenSettled", () => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts();
 		restartWhenSettled(given, { after: timers.after });
-		await timers.fire(() => said.length === 2);
+		await timers.fire();
 		expect(said).toEqual(["expect true", "restart: the install moved"]);
-		expect(timers.pending(), "nothing looks again after a restart").toEqual([]);
+		expect(
+			timers.pending().map(({ ms }) => ms),
+			"only the wait for systemd to run it",
+		).toEqual([RESTART_DUE_MS]);
+	});
+
+	it("stops expecting a restart systemd queued but never ran, and looks again", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({ differs: async () => undefined });
+		let first = true;
+		given.differs = async () => {
+			const why = first ? "the install moved" : undefined;
+			first = false;
+			return why;
+		};
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		await timers.fire();
+		expect(said).toEqual([
+			"expect true",
+			"restart: the install moved",
+			"expect false",
+			"report: Error: systemd queued the host's restart but never ran it; looking again",
+		]);
+		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
 	});
 
 	it("expects no restart systemd refused, and looks again", async () => {

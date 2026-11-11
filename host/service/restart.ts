@@ -51,6 +51,15 @@ export const SETTLED_MS = 2 * 60_000;
  */
 export const FIRST_LOOK_MS = 5 * 60_000;
 
+/**
+ * How long a restart systemd queued may take to stop the host before
+ * the host takes it as dropped: no longer expected, so a later stop
+ * for another reason tells no viewer to join again, and looked for
+ * once more. Systemd runs a queued restart at once unless another job
+ * on the unit holds it, so two minutes is long past any it will run.
+ */
+export const RESTART_DUE_MS = 2 * 60_000;
+
 /** A conversation as the host lists it, for whether it is settled. */
 export interface Held {
 	readonly state: "busy" | "idle" | "parked";
@@ -93,7 +102,8 @@ export function settled(
  * Look every `lookMs` whether the host would start differently, and once
  * it would and everything it holds has settled, ask systemd for the
  * restart, once; a refused one is reported and looked at again later,
- * with nothing said to any viewer. Answers the function that stops
+ * with nothing said to any viewer, and so is one systemd queued but
+ * never ran within `restartDueMs`. Answers the function that stops
  * looking.
  */
 export function restartWhenSettled(
@@ -102,6 +112,7 @@ export function restartWhenSettled(
 		lookMs?: number;
 		settledMs?: number;
 		firstLookMs?: number;
+		restartDueMs?: number;
 		/** Starts a timer; setTimeout by default. */
 		after?: (ms: number, run: () => void) => () => void;
 	} = {},
@@ -126,7 +137,21 @@ export function restartWhenSettled(
 		} catch (error) {
 			facts.report(error);
 		}
-		if (!stopped && !restarting) cancel = after(lookMs, () => void look());
+		if (stopped) return;
+		cancel = restarting
+			? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
+			: after(lookMs, () => void look());
+	}
+
+	async function dropped(): Promise<void> {
+		if (stopped) return;
+		facts.expect(false);
+		facts.report(
+			new Error(
+				"systemd queued the host's restart but never ran it; looking again",
+			),
+		);
+		await look();
 	}
 
 	async function consider(): Promise<boolean> {
