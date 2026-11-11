@@ -38,6 +38,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { repaintOnHeightChange } from "./panel-height.ts";
 import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
 import { screenShared } from "./screen-slot.ts";
 import { isTyped } from "./terminal-reports.ts";
@@ -277,6 +278,7 @@ export function dock(
 	let gone = false;
 	let shown = 0;
 	let unsubscribe: (() => void) | undefined;
+	let unrepaint: (() => void) | undefined;
 
 	const isFocused = (): boolean =>
 		tui !== undefined && focusedIn(tui) === component;
@@ -337,6 +339,8 @@ export function dock(
 		owner.entries = owner.entries.filter((one) => one.component !== component);
 		unsubscribe?.();
 		unsubscribe = undefined;
+		unrepaint?.();
+		unrepaint = undefined;
 	};
 
 	const component: Component & { dispose(): void } = {
@@ -446,6 +450,7 @@ export function dock(
 		entry,
 	);
 	unsubscribe = ctx.ui.onTerminalInput((data) => noteKey(owner, data));
+	unrepaint = repaintOnHeightChange(() => tui?.requestRender());
 	return handle;
 }
 
