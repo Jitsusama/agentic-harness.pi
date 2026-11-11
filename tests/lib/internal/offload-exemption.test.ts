@@ -1,9 +1,9 @@
 /**
  * What the nix-offload exemption lets out of the fence: derivations
- * already in the store, and a `--run` of the store's own in a tree the
- * work tool holds for the session, reached by one `cd` or run in it;
- * never a flake, a tree's checks, `--changed` or a flag that works on
- * this machine, as ISXEG8's reviews of 11 November set out.
+ * already in the store, alone or after one `cd` into a tree the work
+ * tool holds for the session; never a flake, a tree's checks,
+ * `--changed`, a `--run` or a flag that works on this machine, as
+ * ISXEG8's reviews of 11 November set out.
  */
 
 import {
@@ -34,6 +34,7 @@ const SCRIPT = "/nix/store/0000-harness-check";
 const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
 const OTHER_DRV = `/nix/store/${"b".repeat(32)}-check.drv`;
 const RUN = `nix-offload there --run --copy ${SCRIPT} -- ${SCRIPT} main`;
+const DRV_CALL = `nix-offload there ${DRV}`;
 
 /** A folder the session holds, as the sandbox vouches for one. */
 const HELD: Partial<OffloadPlace> = {
@@ -112,30 +113,16 @@ describe("the flags the exemption lets out", () => {
 		}
 	});
 
-	it("lets out a --run only of what the store holds, in a held tree", () => {
-		expect(
-			letOut(
-				`nix-offload there --run --copy ${SCRIPT} --longest 1800 -- ${SCRIPT} main`,
-				HELD,
-			),
-			"a store program with a store copy",
-		).toBeDefined();
-		expect(
-			letOut(RUN, { ...HELD, cwd: "/home/someone" }),
-			"a folder nix-offload would send whole",
-		).toBeUndefined();
-		expect(letOut(RUN), "no folder vouched for").toBeUndefined();
+	it("keeps every --run fenced, in a held tree or not", () => {
 		for (const command of [
+			`nix-offload there --run --copy ${SCRIPT} --longest 1800 -- ${SCRIPT} main`,
 			`nix-offload there --run --copy ${SCRIPT} -- bash ${SCRIPT} main`,
-			`nix-offload there --run --copy /home/someone/x.sh -- ${SCRIPT}`,
 			`nix-offload there --run --copy=${SCRIPT} -- ${SCRIPT}`,
 			`nix-offload there --run --copy ${SCRIPT} -- /home/someone/x.sh`,
-			`nix-offload there --run --copy /nix/store/../home/x -- ${SCRIPT}`,
-			`nix-offload there --run --copy ${SCRIPT} ${SCRIPT}`,
 			`nix-offload there --run --copy ${SCRIPT} --`,
-			`nix-offload there --run --copy -- ${SCRIPT}`,
 		]) {
 			expect(letOut(command, HELD), command).toBeUndefined();
+			expect(letOut(command), command).toBeUndefined();
 		}
 	});
 });
@@ -146,6 +133,7 @@ describe("a call the exemption keeps in", () => {
 			"nix-offload there /tree checks.x86_64-linux.formatting",
 			"nix-offload there -L --changed",
 			"cd /tree && nix-offload there path:/home/someone/.config/gh checks.x86_64-linux.a",
+			RUN,
 		]) {
 			const said = offloadKeptIn(command);
 			expect(said, command).toContain("only derivations");
@@ -207,7 +195,7 @@ describe("a cd before the call", () => {
 		heldTree(folder, home, session, records);
 
 	it("runs the call in a tree the session holds", () => {
-		const text = letOut(`cd ${tree} && ${RUN}`, {
+		const text = letOut(`cd ${tree} && ${DRV_CALL}`, {
 			heldTree: vouch("s1"),
 		});
 		expect(text, "a held tree is refused").toBeDefined();
@@ -218,7 +206,7 @@ describe("a cd before the call", () => {
 	});
 
 	it("holds git to the tree's own git folder, read once", () => {
-		const text = letOut(`cd ${tree} && ${RUN}`, {
+		const text = letOut(`cd ${tree} && ${DRV_CALL}`, {
 			heldTree: vouch("s1"),
 		});
 		const own = join(base, "repo", "worktrees", "tree");
@@ -236,25 +224,25 @@ describe("a cd before the call", () => {
 
 	it("refuses a tree another session holds, or none", () => {
 		expect(
-			letOut(`cd ${tree} && ${RUN}`, {
+			letOut(`cd ${tree} && ${DRV_CALL}`, {
 				heldTree: vouch("s2"),
 			}),
 			"another session's tree",
 		).toBeUndefined();
 		expect(
-			letOut(`cd ${home} && ${RUN}`, {
+			letOut(`cd ${home} && ${DRV_CALL}`, {
 				heldTree: vouch("s1"),
 			}),
 			"a folder no record names",
 		).toBeUndefined();
 		expect(
-			letOut(`cd ${tree} && ${RUN}`),
+			letOut(`cd ${tree} && ${DRV_CALL}`),
 			"nothing to vouch for it",
 		).toBeUndefined();
 	});
 
 	it("holds a bare call in a held tree to the tree's own git folder", () => {
-		const text = letOut(RUN, {
+		const text = letOut(DRV_CALL, {
 			cwd: tree,
 			folderGit: (folder) => folderGit(folder, home, "s1", records),
 		});
@@ -265,7 +253,7 @@ describe("a cd before the call", () => {
 
 	it("refuses a held tree named through a link", () => {
 		expect(
-			letOut(`cd ${join(base, "link")} && ${RUN}`, {
+			letOut(`cd ${join(base, "link")} && ${DRV_CALL}`, {
 				heldTree: vouch("s1"),
 			}),
 		).toBeUndefined();
@@ -284,16 +272,16 @@ describe("a cd before the call", () => {
 	it("refuses anything chained, substituted or flagged around it", () => {
 		const held = { heldTree: vouch("s1") };
 		for (const command of [
-			`cd ${tree} && ${RUN} && echo out`,
-			`cd ${tree} && cd ${tree} && ${RUN}`,
-			`cd ${tree}; ${RUN}`,
-			`cd $(echo ${tree}) && ${RUN}`,
-			`cd "${tree}" && ${RUN}`,
-			`cd ${tree}/* && ${RUN}`,
-			`cd trees/tree && ${RUN}`,
-			`cd ${tree} && nix-offload there --here --run --copy ${SCRIPT} -- ${SCRIPT}`,
+			`cd ${tree} && ${DRV_CALL} && echo out`,
+			`cd ${tree} && cd ${tree} && ${DRV_CALL}`,
+			`cd ${tree}; ${DRV_CALL}`,
+			`cd $(echo ${tree}) && ${DRV_CALL}`,
+			`cd "${tree}" && ${DRV_CALL}`,
+			`cd ${tree}/* && ${DRV_CALL}`,
+			`cd trees/tree && ${DRV_CALL}`,
+			`cd ${tree} && nix-offload there --here ${DRV}`,
 			`cd ${tree} && echo out`,
-			`cd ${tree} &&\n${RUN}`,
+			`cd ${tree} &&\n${DRV_CALL}`,
 		]) {
 			expect(letOut(command, held), command).toBeUndefined();
 		}
@@ -315,14 +303,14 @@ describe("a bare call in the command's folder", () => {
 	afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 	const bare = (cwd: string) =>
-		letOut(`nix-offload there --run --copy ${SCRIPT} -- ${SCRIPT} main`, {
+		letOut(DRV_CALL, {
 			home,
 			cwd,
 			folderGit: (folder) =>
 				folderGit(folder, home, "s1", join(home, "elsewhere", "records")),
 		});
 
-	it("holds a run in a guarded checkout to that checkout's git", () => {
+	it("holds a call in a guarded checkout to that checkout's git", () => {
 		const checkout = join(home, "src/r");
 		const text = bare(checkout);
 		expect(text, "its git folder").toContain(
@@ -332,14 +320,14 @@ describe("a bare call in the command's folder", () => {
 		expect(text, "no other git folder").not.toContain(NO_GIT_DIR);
 	});
 
-	it("keeps a run anywhere else fenced, since it would send the folder whole", () => {
+	it("gives git no folder at all anywhere else", () => {
 		for (const cwd of [
 			join(home, "elsewhere/r"),
 			join(home, "src/r/sub"),
 			join(home, "src/linked"),
 			home,
 		]) {
-			expect(bare(cwd), cwd).toBeUndefined();
+			expect(bare(cwd), cwd).toContain(`'GIT_DIR=${NO_GIT_DIR}'`);
 		}
 	});
 });
