@@ -41,6 +41,11 @@ import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
 import type { HeldConversation, ReleaseFacts } from "./release.ts";
+import {
+	type MachineWindows,
+	readMachineWindows,
+	standingOf,
+} from "./windows.ts";
 
 /** How long the shell may take to say it kept a window's place. */
 const SHELL_TIMEOUT_MS = 5_000;
@@ -75,6 +80,8 @@ export interface CutoverPlaces {
 	readonly ticks?: TickFacts;
 	/** The hosts' rosters, the realm's own unless a test says. */
 	readonly rosters?: string;
+	/** What the machine says of its windows; mycelium, niri and kitty's unless a test says. */
+	readonly windows?: () => Promise<MachineWindows>;
 }
 
 function messageOf(error: unknown): string {
@@ -166,6 +173,11 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 	const moves = places.moves ?? moveFolder();
 	const ticks = places.ticks ?? tickFacts;
 	let logs: Map<string, string> | undefined;
+	// Read once a plan, so every session is judged against one moment.
+	let windows: Promise<MachineWindows> | undefined;
+	const readWindows =
+		places.windows ??
+		(() => readMachineWindows(places.realm, places.runtimeDir));
 	const socket = (kind: HostKind) =>
 		hostSocketPath(places.realm, kind, places.runtimeDir);
 	const claimer = () => {
@@ -191,6 +203,10 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			return logs.get(session);
 		},
 		personWrote,
+		window: async (presence) => {
+			windows ??= readWindows();
+			return standingOf(presence.session, await windows);
+		},
 		keepPlace: (session) =>
 			new Promise((settle) => {
 				execFile(

@@ -11,12 +11,19 @@
  * still runs a harness without the move is named to reload first; a
  * parked one is woken to take its move. Sessions elsewhere (penelope,
  * the Mac) are left alone, as is the session running the cutover.
+ *
+ * A session whose window is on the workspace Joel has focused as the
+ * cutover plans is left too, since a move may close or redraw that
+ * window, as is one whose window can't be placed (OSPHT4, 11 November).
+ * One whose window an older mycelium holds still moves, saying that
+ * window shows a Parked line for a moment (windows.ts).
  */
 
 import type { MoveNote } from "../../lib/internal/session/move.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 import type { HostKind } from "../service/address.ts";
 import { type HostOverrides, hostFor, NO_OVERRIDES } from "./attended.ts";
+import type { WindowStanding } from "./windows.ts";
 
 /** What becomes of one session, and why. */
 export type Step =
@@ -48,6 +55,8 @@ export interface CutoverFacts {
 	sessionFile(session: string): string | undefined;
 	/** Whether a person wrote in that log, read only where no presence says. */
 	personWrote(file: string): Promise<boolean>;
+	/** Where the session's window stands now, or nothing when it has none. */
+	window(presence: Presence): Promise<WindowStanding | undefined>;
 	/** The session running the cutover, if a pi runs it. */
 	readonly self?: string;
 }
@@ -105,14 +114,25 @@ export async function planCutover(
 						address,
 						why: "its harness predates the move",
 					};
+				const window = await facts.window(one);
+				if (window?.where === "joel")
+					return leave("its window is on the workspace Joel has focused");
+				if (typeof window?.where === "object")
+					return leave(
+						`its window can't be placed, so may be Joel's: ${window.where.unplaced}`,
+					);
 				const wrote = one.driven ?? (await facts.personWrote(file));
 				const choice = hostFor(one.addresses, wrote, overrides);
+				const old =
+					window?.oldHolder === undefined
+						? ""
+						: `; its holder (pid ${window.oldHolder}) predates mycelium #121, so its window shows a Parked line for 2 to 5 s`;
 				return {
 					kind: "move",
 					session,
 					address,
 					to: choice.kind,
-					why: choice.why,
+					why: `${choice.why}${old}`,
 					parked: one.state === "parked",
 				};
 			}),

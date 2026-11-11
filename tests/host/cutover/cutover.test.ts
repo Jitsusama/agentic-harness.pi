@@ -13,6 +13,7 @@ import {
 	planCutover,
 	stepLine,
 } from "../../../host/cutover/cutover.ts";
+import type { WindowStanding } from "../../../host/cutover/windows.ts";
 import type { HostKind } from "../../../host/service/address.ts";
 import type { MoveNote } from "../../../lib/internal/session/move.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
@@ -37,6 +38,7 @@ const planFacts = (
 	knowsMove: async () => true,
 	sessionFile: (session) => `/logs/${session}.jsonl`,
 	personWrote: async (file) => file.includes("joel"),
+	window: async () => undefined,
 	...over,
 });
 
@@ -89,6 +91,30 @@ describe("planCutover", () => {
 		]);
 		expect(read, "a log read only where no presence says").toEqual([
 			"/logs/asleep.jsonl",
+		]);
+	});
+
+	it("spares a window on Joel's workspace or unplaced, and names an old holder", async () => {
+		const windows = new Map<string, WindowStanding>([
+			["there", { where: "joel" }],
+			["lost", { where: { unplaced: 'niri shows no window titled "x"' } }],
+			["away", { where: "away" }],
+			["old", { where: "away", oldHolder: 42 }],
+		]);
+		const steps = await planCutover(
+			planFacts(
+				["there", "lost", "away", "old", "bare"].map((one) =>
+					presence(one, { driven: false }),
+				),
+				{ window: async ({ session }) => windows.get(session) },
+			),
+		);
+		expect(steps.map(stepLine)).toEqual([
+			"THERE     leave                       its window is on the workspace Joel has focused",
+			"LOST      leave                       its window can't be placed, so may be Joel's: niri shows no window titled \"x\"",
+			"AWAY      move to background          nobody but the harness has written in it",
+			"OLD       move to background          nobody but the harness has written in it; its holder (pid 42) predates mycelium #121, so its window shows a Parked line for 2 to 5 s",
+			"BARE      move to background          nobody but the harness has written in it",
 		]);
 	});
 
