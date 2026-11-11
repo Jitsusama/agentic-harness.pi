@@ -49,6 +49,16 @@ export interface Host {
 	 * host whose runner can't reload a conversation leaves it out.
 	 */
 	reload?(sessionId: string, request: HostReloadRequest): Promise<void>;
+	/**
+	 * Park one idle conversation, as plain pi's park ends its process: its
+	 * session, extensions and screen go, while the host keeps it held, its
+	 * viewers connected, and wakes it in place when its wake file is
+	 * written (MYCELIUM_WAKE in its environment), a viewer types or one
+	 * attaches. Asked by the conversation itself once its park rule holds;
+	 * the park happens after the asking call returns. A host that can't
+	 * park a conversation leaves it out.
+	 */
+	park?(sessionId: string): void;
 }
 
 /** Host.stamp emits this on the conversation bus within withSession. */

@@ -52,6 +52,13 @@ export interface EngineScreens {
 	rebound(view: HostedView, previousId: string): void | Promise<void>;
 	/** Its conversation closed, for `why` as the close gave it. */
 	closed(sessionId: string, why?: string): void | Promise<void>;
+	/**
+	 * Park a conversation's screen: pi's screen stops, its viewers stay,
+	 * shown it is parked, and what they type is kept for the screen it
+	 * wakes into, the first key calling `wake`, which rejects with why a
+	 * wake failed.
+	 */
+	parked(sessionId: string, wake: () => Promise<void>): Promise<void>;
 	/** Reload an idle conversation's extensions as its screen's pi does at /reload. */
 	reload(sessionId: string): Promise<void>;
 	/**
@@ -146,6 +153,8 @@ interface Faults {
 
 interface Screen extends Faults {
 	readonly terminal: ViewerTerminal;
+	/** What its terminal repaints through, which a park turns to its parked line. */
+	readonly held: Early;
 	readonly mode: HostedMode;
 	readonly runtime: unknown;
 	view: HostedView;
@@ -171,6 +180,10 @@ interface Early {
 	asking: StartupAsk | undefined;
 }
 
+/** What a parked conversation's viewers see, as plain pi's parked window says it. */
+export const PARKED_LINE =
+	"Parked while idle, holding no memory. A key or a message wakes it.";
+
 /** Keep a screen for every conversation the engine opens. */
 export function hostScreens(options: {
 	create: HostedModeFactory;
@@ -180,6 +193,9 @@ export function hostScreens(options: {
 }): HostScreens {
 	const live = new Map<string, Screen>();
 	const early = new Map<string, Early>();
+	// Parked conversations' terminals, their viewers kept for the wake;
+	// apart from early, since a parked conversation is at rest.
+	const asleep = new Map<string, Early>();
 	// Conversations whose screens closed, kept so a timer one left behind
 	// that throws later is still its conversation's, not a reason to stop
 	// the host; only their count, so no closed screen outlives its close.
@@ -192,7 +208,8 @@ export function hostScreens(options: {
 	}
 
 	function terminalOf(sessionId: string): ViewerTerminal {
-		const held = live.get(sessionId) ?? early.get(sessionId);
+		const held =
+			live.get(sessionId) ?? early.get(sessionId) ?? asleep.get(sessionId);
 		if (!held) throw new Error(`Conversation has no screen: ${sessionId}`);
 		return held.terminal;
 	}
@@ -340,8 +357,13 @@ export function hostScreens(options: {
 		if (live.has(view.sessionId))
 			throw new Error(`Conversation already has a screen: ${view.sessionId}`);
 		let screen: Screen | undefined;
-		const held = early.get(view.sessionId) ?? earlyTerminal(view.sessionId);
+		const held =
+			early.get(view.sessionId) ??
+			asleep.get(view.sessionId) ??
+			earlyTerminal(view.sessionId);
 		early.delete(view.sessionId);
+		asleep.delete(view.sessionId);
+		gone.delete(view.sessionId);
 		const { terminal } = held;
 		// Nobody can attach until the open answers, so a dialog opened first,
 		// even while the screen starts, would wait for good: the engine
@@ -363,6 +385,7 @@ export function hostScreens(options: {
 		});
 		screen = {
 			terminal,
+			held,
 			mode,
 			runtime: view.runtime,
 			view,
@@ -383,6 +406,8 @@ export function hostScreens(options: {
 		}
 		const running = screen;
 		running.started = true;
+		// Woken from a park: the keys that woke it, now that pi reads them.
+		withSession(view.sessionId, () => terminal.awake());
 		withSession(view.sessionId, () => mode.run())
 			.catch((error: unknown) => exited(running, 1, error))
 			.catch(options.report);
@@ -422,9 +447,10 @@ export function hostScreens(options: {
 		// A release hands it back to plain pi, which its windows start; any
 		// other end just ends them.
 		const told = why?.startsWith("released") ? RELEASED : CLOSED;
-		const held = early.get(sessionId);
+		const held = early.get(sessionId) ?? asleep.get(sessionId);
 		if (held) {
 			early.delete(sessionId);
+			asleep.delete(sessionId);
 			held.asking?.cancel();
 			held.terminal.dispose(told);
 		}
@@ -446,12 +472,42 @@ export function hostScreens(options: {
 		}
 	}
 
+	// Parking: pi's screen stops as at a close, but its terminal stays with
+	// its viewers, holding what they type from before the stop, so no key
+	// reaches the screen going away, and saying the conversation is parked.
+	async function parked(
+		sessionId: string,
+		wake: () => Promise<void>,
+	): Promise<void> {
+		const screen = live.get(sessionId);
+		if (!screen) return closed(sessionId);
+		live.delete(sessionId);
+		const { terminal } = screen;
+		const kept: Faults = { faults: screen.faults };
+		gone.set(sessionId, kept);
+		terminal.whenFaulted((error) => noted(kept, sessionId, CLOSING, error));
+		terminal.whenBlocked(undefined);
+		terminal.sleep(wake);
+		const quitting = screen.closing;
+		screen.closing = true;
+		try {
+			if (!quitting) await stopScreen(screen.mode);
+		} catch (error) {
+			terminal.dispose();
+			throw error;
+		}
+		screen.held.repaint = () => showParked(terminal);
+		asleep.set(sessionId, screen.held);
+		showParked(terminal);
+	}
+
 	const { ask } = options;
 	return {
 		screens: {
 			opened,
 			rebound,
 			closed,
+			parked,
 			reload,
 			failed,
 			...(ask
@@ -635,6 +691,13 @@ function dropExtensionScreen(mode: HostedMode): boolean {
 	if (typeof reset !== "function") return false;
 	reset.call(mode);
 	return true;
+}
+
+// A parked conversation's whole screen: the line saying so, at its top,
+// the cursor shown, as plain pi's parked window leaves it.
+function showParked(terminal: ViewerTerminal): void {
+	terminal.write(`\x1b[2J\x1b[H${PARKED_LINE}\r\n`);
+	terminal.showCursor();
 }
 
 // A conversation closed by the launcher or a host stop: end its screen the

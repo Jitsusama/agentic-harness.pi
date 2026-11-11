@@ -23,6 +23,7 @@ import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
 import {
 	type ConversationEngine,
 	conversationEvents,
+	type HostBackend,
 	hostBackend,
 	type Resuming,
 	resumeHeld,
@@ -104,6 +105,10 @@ export async function serveHost(options: {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		await options.starting?.({ step: "engine" });
 		const engine = await options.engine(host);
+		// What wakes a parked conversation, once the host listens and until it
+		// stops: a wake racing the stop does nothing, and the next start
+		// resumes it anyway.
+		let wakes: HostBackend["wake"] | undefined;
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
 		engine.watch?.(
@@ -111,6 +116,7 @@ export async function serveHost(options: {
 				roster,
 				report: options.report,
 				...(options.say ? { say: options.say } : {}),
+				wake: (sessionId) => wakes?.(sessionId) ?? Promise.resolve(),
 			}),
 		);
 		const { unresumed } = await resumeHeld({
@@ -121,22 +127,24 @@ export async function serveHost(options: {
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const identity = { key: host.key, owner: host.owner };
+		const backend = hostBackend({
+			identity,
+			host,
+			roster,
+			engine,
+			admitAnother,
+			...(options.say ? { say: options.say } : {}),
+		});
 		const listener = await listenControl({
 			path,
-			backend: hostBackend({
-				identity,
-				host,
-				roster,
-				engine,
-				admitAnother,
-				...(options.say ? { say: options.say } : {}),
-			}),
+			backend,
 			viewer: options.viewer?.(host),
 			report: options.report,
 		});
 		const running = host;
 		let stopping: Promise<void> | undefined;
 		let restarting = false;
+		wakes = backend.wake;
 		return {
 			identity,
 			path,
@@ -147,8 +155,12 @@ export async function serveHost(options: {
 			},
 			stop() {
 				stopping ??= (async () => {
+					wakes = undefined;
 					if (restarting) await listener.restarting();
 					await listener.close();
+					// A wake already resuming finishes first, so it is parked with
+					// the rest rather than left running in a host disposed under it.
+					await backend.settled();
 					await park(running);
 					running.dispose();
 					await roster.close();

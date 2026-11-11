@@ -1942,7 +1942,11 @@ export function meshWorkflow(
 			// which the session heard nothing more (and on 22 October, a
 			// reload's landing note did the same).
 			peer?.dispose();
-			if (hosted() && peer && !reloading(event)) presences.forget(peer.session);
+			// A hosted conversation's presence goes with it, unless it parked: its
+			// host is still there to wake it, and a sender finds it parked by its
+			// presence (wakeParked), as it finds a plain pi that parked.
+			if (hosted() && peer && !reloading(event) && !isParked(peer.session))
+				presences.forget(peer.session);
 			peer = undefined;
 			hideWants?.();
 			hideWants = undefined;

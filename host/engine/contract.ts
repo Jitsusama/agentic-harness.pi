@@ -82,6 +82,16 @@ export interface EngineScreens {
 	 */
 	closed(sessionId: string, why?: string): void | Promise<void>;
 	/**
+	 * A conversation is parking, called where `closed` would be: its
+	 * screen stops, but its viewers stay, shown that it is parked, and the
+	 * keys they type are kept for the screen it wakes into, the first
+	 * calling `wake`, which rejects with why a wake failed so the screen
+	 * can say so and let the next key ask again. The next `opened` for it
+	 * takes them on; `closed` lets them go. None closes the screen as at
+	 * any end.
+	 */
+	parked?(sessionId: string, wake: () => Promise<void>): void | Promise<void>;
+	/**
 	 * Reload an idle conversation's extensions as its screen's pi does at
 	 * /reload: what the old load put on the screen goes before pi
 	 * invalidates that load, and the new load's keys, commands and theme

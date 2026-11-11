@@ -17,11 +17,15 @@ own shutdown to ask first; on a runtime that says
 `InteractiveMode.hostedQuit`, the wrap stays off, and it goes once every
 host's runtime says so. A conversation closed elsewhere (the
 launcher's Close, a host stop) stops its screen without closing it
-again. A window closing only detaches its viewer. Each viewer of a conversation
-that ends is told why: "Conversation released" when it was released
-back to plain pi, which its window can then start, and "Conversation
-closed" for any other end. A rebind after pi
-replaced the session keeps the screen, its runtime and its viewers under
+again. A conversation parked while idle (`parked`) stops its screen as
+a close does, but keeps its terminal and viewers, shows them
+`PARKED_LINE`, and holds what they type from before the stop; the
+first key wakes it, and the screen it wakes into (`opened`) takes the
+terminal and every held key. A window closing only detaches its viewer.
+Each viewer of a conversation that ends is told why: "Conversation
+released" when it was released back to plain pi, which its window can
+then start, and "Conversation closed" for any other end. A rebind after
+pi replaced the session keeps the screen, its runtime and its viewers under
 the new id, and refuses a different runtime.
 
 `resting` says whether a host may restart without anyone losing a

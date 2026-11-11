@@ -642,6 +642,65 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// 11 November: a hosted conversation stayed loaded while plain pi's
+	// park let its process go, 116 MB of its host idle (OSPHT4 [a5ee3986]).
+	it("parks by the same rule in a host that parks one conversation, leaving the rest to it", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		const said: (string | undefined)[] = [];
+		events.on(PARKING, (data) => {
+			if (isParking(data)) said.push(data.wake);
+		});
+		// What the engine gives each conversation: a wake, and no restart command.
+		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			expect(mayPark(session(), conversation), "a host that parks").toBe(true);
+			expect(
+				noteNeverParks(session(), conversation, folder),
+				"a conversation its host parks says nothing of never parking",
+			).toBe(false);
+			const watched = watching(session(), conversation);
+			clock = NAMED_PARK_AFTER_MS - 1;
+			expect(watched.look()).toBe("not idle long enough");
+			clock = NAMED_PARK_AFTER_MS;
+			expect(watched.look(), "parked by plain pi's rule").toBeUndefined();
+
+			expect(asked, "the host was asked to park it").toEqual([SESSION]);
+			expect(
+				{ shutdowns, exits },
+				"the host's process, every conversation's, carries on",
+			).toEqual({ shutdowns: 0, exits: [] });
+			expect(said, "the mesh is told where to wake it").toEqual([
+				conversation.MYCELIUM_WAKE,
+			]);
+			expect(
+				readParked(SESSION, folder)?.wake,
+				"its marker names its wake, as plain pi's does",
+			).toBe(conversation.MYCELIUM_WAKE);
+			expect(watched.look(), "it parks once").toBe("parking already");
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("keeps a hosted conversation with no log awake, since its host wakes it from its log", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		rmSync(logOf());
+		try {
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			clock = NAMED_PARK_AFTER_MS;
+			expect(watched.look()).toBe("its log isn't written yet");
+			expect(asked, "nothing asked the host to park it").toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+
 	it("says a person's session with no holder can never park, and nothing of a subagent's", () => {
 		const said = noteNeverParks(session(), {}, folder, () => 5000);
 		const subagent = noteNeverParks(

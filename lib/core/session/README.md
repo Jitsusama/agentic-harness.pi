@@ -80,6 +80,11 @@ Host supplies:
   records the ending and releases its lease. Emit before runner shutdown;
   reload and viewer detach emit neither ending. Remove subscriptions on
   runner shutdown so reload does not keep an old quest state.
+- park(id), optionally: park one idle conversation, as park-workflow
+  asks once its rule holds. The host stops it as at a host stop,
+  keeping it held, and wakes it in place when the file its
+  MYCELIUM_WAKE names is written, a viewer types or one attaches. The
+  park happens after the asking call returns.
 
 Wrap every runner entry, tool execution, provider hook, input handler
 and host callback with withSession(id, fn). A missing wrap is visible
