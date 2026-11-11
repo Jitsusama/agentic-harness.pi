@@ -118,7 +118,25 @@ Until the SSH agent's proxy lets the fence reach the builders, a
 binary, started by its path with the call's own words and an
 environment of its own (home, runtime folder, account, the system's
 `PATH`). Anything chained on, quoted or expanded stays fenced, and a
-test fails from 13 November while the exemption is still here. git
+test fails from 13 November while the exemption is still here. So
+does a call with `--here`, `--here-when-idle` or `--outlive`, which
+work on this machine, or `--out`, which writes into any folder, and a
+`--run` whose copies or command aren't Nix store paths: give a script
+as an executable store path (`nix store add-path`), not `bash
+<script>`. One `cd` into a tree the work tool holds for the session
+may come before the call, as `nix-offload there --changed` needs,
+provided the tree is named without a link and its `.git` file, its git
+folder's way back and its `commondir` agree. The call's git is then
+held to that tree's git folder (`GIT_DIR`), so a `.git` rewritten
+mid-run is never read; without a `cd` it is given none, so build a
+tree by `cd <tree> && nix-offload there . <attribute>`, not by naming
+the tree's path. One reach stays while the exemption does:
+changed-checks evaluates the tree's flake here with `--impure`, outside
+the fence, and a fenced command can write that flake, so the
+evaluation can read what the fence hides from reads (the runtime
+folder, other sessions' `/tmp` and `/dev/shm`). It can't run a program
+or write outside the store. When the exemption ends, that evaluation
+runs fenced through the untrusted Nix socket, not exempted again. git
 over SSH and commit signing need the agents, so commit and push with
 the work tool, which runs in pi's own process.
 

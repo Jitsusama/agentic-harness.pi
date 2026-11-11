@@ -281,7 +281,12 @@ it("keeps a parked conversation's presence, so cadence counts it alive and a que
 	// conversation, or its marker.
 	expect(kept?.state, "its presence stays, saying it parked").toBe("parked");
 	expect(kept?.owner?.pid, "the host still owns it").toBe(process.pid);
-	expect(kept?.hosted, "the host still holds it as this conversation").toEqual({
+	// Matched, not equal: the presence also names the words a window
+	// views it by (hosted.view), which cadence doesn't read.
+	expect(
+		kept?.hosted,
+		"the host still holds it as this conversation",
+	).toMatchObject({
 		host: "test-host",
 		conversation: "bravo-BBBBBBBB",
 	});
