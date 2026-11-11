@@ -5,13 +5,18 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { processSessionSites } from "./session-state.ts";
 
 const ROOT = join(import.meta.dirname, "../..");
 const LIST = join(import.meta.dirname, "session-state-waiting.txt");
 const EXEMPT = join(import.meta.dirname, "session-state-exempt.txt");
 const LOADED = ["extensions", "lib", "host", "packs"];
+/**
+ * How long one walk of every loaded file may take. It takes about 2 s alone,
+ * but a whole-suite run starves it of CPU past vitest's 5 s default.
+ */
+const WALK_MS = 60_000;
 const SITE_KEY = new RegExp(
 	`^(${LOADED.join("|")})/\\S+:(pid|cwd|global|env-write)$`,
 );
@@ -73,6 +78,12 @@ function counted(): Map<string, number> {
 }
 
 describe("session state in the code a conversation loads", () => {
+	// Walked once for the cases that read it.
+	let sites = new Map<string, number>();
+	beforeAll(() => {
+		sites = counted();
+	}, WALK_MS);
+
 	it("finds real sites, including bracket notation, but not prose", () => {
 		const sites = processSessionSites(`
 			// process.pid process.cwd() process.env.KEY = "no"
@@ -100,7 +111,7 @@ describe("session state in the code a conversation loads", () => {
 
 	it("adds no process-wide session shortcuts", () => {
 		const before = allowed();
-		const grown = [...counted()].filter(
+		const grown = [...sites].filter(
 			([key, count]) => count > (before.get(key) ?? 0),
 		);
 		expect(
@@ -110,9 +121,8 @@ describe("session state in the code a conversation loads", () => {
 	});
 
 	it("lowers each waiting count as its domain migrates", () => {
-		const now = counted();
 		const stale = [...allowed()].filter(
-			([key, count]) => count > (now.get(key) ?? 0),
+			([key, count]) => count > (sites.get(key) ?? 0),
 		);
 		expect(
 			stale,
