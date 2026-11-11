@@ -32,16 +32,15 @@
  * puts it back, even when the one that lowered it has gone. The file is
  * made exclusively and taken by a rename, so two sessions never both
  * lower it or both put it back.
+ *
+ * All of it runs off pi's main thread: systemd may take up to
+ * {@link SET_MS} to set the weight, and the slices' files can wait on
+ * the kernel's cgroup lock, and a main thread waiting on either is a pi
+ * that takes no keys (7QEY1S's stall watch, 11 November).
  */
 
-import { spawnSync } from "node:child_process";
-import {
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { spawn } from "node:child_process";
+import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../record.ts";
 
@@ -79,13 +78,13 @@ const UPDATE_NAMES = /^(?:nix|nixos-rebuild|darwin-rebuild|switch-to-conf)/;
 /** The weights of the slice builds run in, read and set. */
 export interface BuildSlice {
 	/** Its processor weight now, or nothing when it can't be read. */
-	weight(): number | undefined;
+	weight(): Promise<number | undefined>;
 	/** Set its processor weight for this boot, saying whether it took. */
-	setWeight(weight: number): boolean;
+	setWeight(weight: number): Promise<boolean>;
 	/** Whether a VM runs where the system's builds and machines run. */
-	hasVm(): boolean;
+	hasVm(): Promise<boolean>;
 	/** Whether the machine is building or switching to its main. */
-	updatesToMain(): boolean;
+	updatesToMain(): Promise<boolean>;
 }
 
 /**
@@ -96,9 +95,9 @@ export interface BuildSlice {
  */
 export function systemBuildSlice(cgroups: string, proc = "/proc"): BuildSlice {
 	return {
-		weight() {
+		async weight() {
 			try {
-				const read = readFileSync(
+				const read = await readFile(
 					join(cgroups, "build.slice", "cpu.weight"),
 					"utf8",
 				);
@@ -109,20 +108,14 @@ export function systemBuildSlice(cgroups: string, proc = "/proc"): BuildSlice {
 				return undefined;
 			}
 		},
-		setWeight(weight) {
-			const set = spawnSync(
-				"systemctl",
-				[
-					"set-property",
-					"--runtime",
-					"--no-ask-password",
-					"build.slice",
-					`CPUWeight=${weight}`,
-				],
-				{ stdio: "ignore", timeout: SET_MS },
-			);
-			return set.status === 0;
-		},
+		setWeight: (weight) =>
+			succeeds("systemctl", [
+				"set-property",
+				"--runtime",
+				"--no-ask-password",
+				"build.slice",
+				`CPUWeight=${weight}`,
+			]),
 		hasVm: () =>
 			vmRunsUnder(
 				[join(cgroups, "build.slice"), join(cgroups, "machine.slice")],
@@ -135,6 +128,18 @@ export function systemBuildSlice(cgroups: string, proc = "/proc"): BuildSlice {
 				proc,
 			),
 	};
+}
+
+/**
+ * Whether a program exits nought within {@link SET_MS}; one that can't
+ * start, or outlasts it, counts as refused.
+ */
+function succeeds(program: string, args: readonly string[]): Promise<boolean> {
+	return new Promise((resolve) => {
+		const child = spawn(program, args, { stdio: "ignore", timeout: SET_MS });
+		child.once("error", () => resolve(false));
+		child.once("exit", (code) => resolve(code === 0));
+	});
 }
 
 /** A job the queue's record says runs now, as far as the yield reads it. */
@@ -179,11 +184,11 @@ export interface YieldContext {
  * updates to main, or while a job of a quest whose work goes first runs
  * on this machine.
  */
-export function buildsShouldYield(
+export async function buildsShouldYield(
 	record: unknown,
 	slice: Pick<BuildSlice, "hasVm" | "updatesToMain">,
 	{ first = new Set<string>(), now = Date.now() }: YieldContext = {},
-): boolean {
+): Promise<boolean> {
 	const jobs = runningJobs(record);
 	const stamp = jobs.some((job) => job.kind === "stamp");
 	const timed = jobs.some(
@@ -194,7 +199,7 @@ export function buildsShouldYield(
 	);
 	if (!stamp && !timed) return false;
 	if (jobs.some((job) => VM_KINDS.has(job.kind))) return false;
-	if (slice.hasVm()) return false;
+	if (await slice.hasVm()) return false;
 	if (stamp) return true;
 	// The timed run's own quest may go first too; it is the run, not a
 	// build kept from it.
@@ -205,7 +210,7 @@ export function buildsShouldYield(
 			first.has(job.quest) &&
 			!job.sent,
 	);
-	return !firstRunsHere && !slice.updatesToMain();
+	return !firstRunsHere && !(await slice.updatesToMain());
 }
 
 /** What keeping the yield did, if anything. */
@@ -217,42 +222,42 @@ export type YieldChange = "lowered" | "restored";
  * or below {@link YIELD_WEIGHT} is left as it is, since there is nothing
  * to give.
  */
-export function keepYield(
+export async function keepYield(
 	dir: string,
 	yielding: boolean,
 	slice: BuildSlice,
-): YieldChange | undefined {
+): Promise<YieldChange | undefined> {
 	const file = join(dir, YIELD_FILE);
 	if (yielding) {
-		const was = slice.weight();
+		const was = await slice.weight();
 		if (was === undefined || was <= YIELD_WEIGHT) return undefined;
 		try {
-			writeFileSync(file, `${was}\n`, { flag: "wx" });
+			await writeFile(file, `${was}\n`, { flag: "wx" });
 		} catch {
 			// Another session lowered it first, or the folder is gone.
 			return undefined;
 		}
-		if (slice.setWeight(YIELD_WEIGHT)) return "lowered";
-		rmSync(file, { force: true });
+		if (await slice.setWeight(YIELD_WEIGHT)) return "lowered";
+		await rm(file, { force: true });
 		return undefined;
 	}
 	const taken = `${file}.${process.pid}`;
 	try {
-		renameSync(file, taken);
+		await rename(file, taken);
 	} catch {
 		// Nothing was lowered, or another session is putting it back.
 		return undefined;
 	}
-	const was = Number.parseInt(readFileSync(taken, "utf8"), 10);
+	const was = Number.parseInt(await readFile(taken, "utf8"), 10);
 	if (!Number.isInteger(was) || was <= 0) {
-		rmSync(taken, { force: true });
+		await rm(taken, { force: true });
 		return undefined;
 	}
-	if (!slice.setWeight(was)) {
-		renameSync(taken, file);
+	if (!(await slice.setWeight(was))) {
+		await rename(taken, file);
 		return undefined;
 	}
-	rmSync(taken, { force: true });
+	await rm(taken, { force: true });
 	return "restored";
 }
 
@@ -260,7 +265,10 @@ export function keepYield(
  * Whether a VM's process runs in any cgroup under `roots`, by its name in
  * `proc`. A cgroup or process that goes while it is read is passed over.
  */
-export function vmRunsUnder(roots: readonly string[], proc = "/proc"): boolean {
+export function vmRunsUnder(
+	roots: readonly string[],
+	proc = "/proc",
+): Promise<boolean> {
 	return runsUnder(roots, VM_NAMES, proc);
 }
 
@@ -269,22 +277,26 @@ export function vmRunsUnder(roots: readonly string[], proc = "/proc"): boolean {
  * `roots`, by its name in `proc`. A cgroup or process that goes while it
  * is read is passed over.
  */
-function runsUnder(
+async function runsUnder(
 	roots: readonly string[],
 	names: RegExp,
 	proc = "/proc",
-): boolean {
-	const walk = (dir: string): boolean => {
-		const named = (pid: string) => names.test(commOf(proc, pid));
-		if (procsIn(dir).some(named)) return true;
-		return childrenOf(dir).some((child) => walk(join(dir, child)));
+): Promise<boolean> {
+	const walk = async (dir: string): Promise<boolean> => {
+		const [pids, children] = await Promise.all([procsIn(dir), childrenOf(dir)]);
+		const comms = await Promise.all(pids.map((pid) => commOf(proc, pid)));
+		if (comms.some((comm) => names.test(comm))) return true;
+		const below = await Promise.all(
+			children.map((child) => walk(join(dir, child))),
+		);
+		return below.some(Boolean);
 	};
-	return roots.some(walk);
+	return (await Promise.all(roots.map(walk))).some(Boolean);
 }
 
-function childrenOf(dir: string): readonly string[] {
+async function childrenOf(dir: string): Promise<readonly string[]> {
 	try {
-		return readdirSync(dir, { withFileTypes: true })
+		return (await readdir(dir, { withFileTypes: true }))
 			.filter((entry) => entry.isDirectory())
 			.map((entry) => entry.name);
 	} catch {
@@ -293,9 +305,9 @@ function childrenOf(dir: string): readonly string[] {
 	}
 }
 
-function procsIn(dir: string): readonly string[] {
+async function procsIn(dir: string): Promise<readonly string[]> {
 	try {
-		return readFileSync(join(dir, "cgroup.procs"), "utf8")
+		return (await readFile(join(dir, "cgroup.procs"), "utf8"))
 			.split("\n")
 			.filter((pid) => pid !== "");
 	} catch {
@@ -304,9 +316,9 @@ function procsIn(dir: string): readonly string[] {
 	}
 }
 
-function commOf(proc: string, pid: string): string {
+async function commOf(proc: string, pid: string): Promise<string> {
 	try {
-		return readFileSync(join(proc, pid, "comm"), "utf8").trim();
+		return (await readFile(join(proc, pid, "comm"), "utf8")).trim();
 	} catch {
 		// A process gone since it was listed was no VM.
 		return "";

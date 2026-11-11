@@ -98,10 +98,10 @@ describe("heavy work waiting for its turn", () => {
 		expect(jobIds()).toEqual([]);
 	});
 
-	it("asks as a VM check for work whose builds last ran one", () => {
+	it("asks as a VM check for work whose builds last ran one", async () => {
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
-		keepOutcome(outcomes, {
+		await keepOutcome(outcomes, {
 			...outcomeOf(
 				{
 					id: "before",
@@ -139,13 +139,13 @@ describe("heavy work waiting for its turn", () => {
 		]);
 	});
 
-	it("asks a walk of World's objects from the folder it runs in, held to 6 GiB", () => {
+	it("asks a walk of World's objects from the folder it runs in, held to 6 GiB", async () => {
 		// A walk's own scope is charged only the pages it read in first, so
 		// what it was seen to hold says little of the packs it maps.
 		const fetch = "git fetch origin someone/branch";
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
-		keepOutcome(outcomes, {
+		await keepOutcome(outcomes, {
 			...outcomeOf(
 				{
 					id: "before",
@@ -189,10 +189,10 @@ describe("heavy work waiting for its turn", () => {
 	// 10 November: four pushes of World peaked at 2.9 to 3.2 MB and ran 3
 	// to 14 s, and each waited 481 to 618 s booked as a 6 GiB walk. With
 	// the LFS scan left out a push reads a few commits, not the packs.
-	it("asks a push of World that leaves out its LFS scan for what it holds, as quick work", () => {
+	it("asks a push of World that leaves out its LFS scan for what it holds, as quick work", async () => {
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
-		keepOutcome(outcomes, {
+		await keepOutcome(outcomes, {
 			...outcomeOf(
 				{
 					id: "before",
@@ -232,7 +232,7 @@ describe("heavy work waiting for its turn", () => {
 		]);
 	});
 
-	it("asks a chain ending in a zone's evaluation tests for theirs, whatever its earlier runs held", () => {
+	it("asks a chain ending in a zone's evaluation tests for theirs, whatever its earlier runs held", async () => {
 		// Runs stopped by a failing cargo test never reached nix-unit, so
 		// they held a build's memory; on 6 November the one that did was
 		// killed at 8.5 GiB against the 4 it was held to.
@@ -240,7 +240,7 @@ describe("heavy work waiting for its turn", () => {
 		const chain = `cargo test && ${tests}`;
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
-		keepOutcome(outcomes, {
+		await keepOutcome(outcomes, {
 			...outcomeOf(
 				{
 					id: "before",
@@ -352,12 +352,12 @@ describe("heavy work waiting for its turn", () => {
 		expect(job.needsGib).toBe(EVERY_CHECK_GIB);
 	});
 
-	it("asks for the memory it held when it last ran, with headroom", () => {
+	it("asks for the memory it held when it last ran, with headroom", async () => {
 		// On 26 October `nix develop -c cargo test` peaked at 10.9 GiB
 		// while held to a build's 4.
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
-		keepOutcome(outcomes, {
+		await keepOutcome(outcomes, {
 			...outcomeOf(
 				{
 					id: "before",
@@ -389,11 +389,11 @@ describe("heavy work waiting for its turn", () => {
 		expect(job.needsGib).toBe(Math.ceil(10.9 * HEADROOM));
 	});
 
-	it("says how long its work took when it last ran, and nothing for new work", () => {
+	it("says how long its work took when it last ran, and nothing for new work", async () => {
 		// The queue reads when a long run's memory is due back from this.
 		const outcomes = join(root, "outcomes.jsonl");
 		const ran = new Date().toISOString();
-		keepOutcome(outcomes, {
+		await keepOutcome(outcomes, {
 			...outcomeOf(
 				{
 					id: "before",
@@ -444,10 +444,10 @@ describe("heavy work waiting for its turn", () => {
 		expect(job.needsGib).toBe(CHANGED_CHECKS_GIB);
 	});
 
-	it("asks for what sending takes for a changed-checks run that sends itself, whatever runs here held", () => {
+	it("asks for what sending takes for a changed-checks run that sends itself, whatever runs here held", async () => {
 		const cc = "direnv exec . changed-checks > $TMPDIR/cc.log 2>&1";
 		const ran = new Date().toISOString();
-		keepOutcome(join(root, "outcomes.jsonl"), {
+		await keepOutcome(join(root, "outcomes.jsonl"), {
 			...outcomeOf(
 				{
 					id: "here",
@@ -507,12 +507,12 @@ describe("heavy work waiting for its turn", () => {
 		expect(asked[0]).toEqual([cc, "/tree"]);
 	});
 
-	it("asks for what a sent changed-checks run was seen to hold, when that is less", () => {
+	it("asks for what a sent changed-checks run was seen to hold, when that is less", async () => {
 		// 10 November: changed-checks runs held 0.17 GiB at the median and
 		// 0.37 at the 90th percentile, each booked 6 (80ECO2).
 		const cc = "direnv exec . changed-checks > $TMPDIR/sent.log 2>&1";
 		const ran = new Date().toISOString();
-		keepOutcome(join(root, "outcomes.jsonl"), {
+		await keepOutcome(join(root, "outcomes.jsonl"), {
 			...outcomeOf(
 				{
 					id: "sent-before",

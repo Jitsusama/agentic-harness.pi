@@ -8,16 +8,23 @@
  * `outcomes.jsonl` in the priority workflow's state directory. The file
  * holds about a month of work at a few hundred jobs a day: past
  * {@link MOST_OUTCOME_BYTES} it keeps its newer half.
+ *
+ * It is written off pi's main thread, and read there only as far as it
+ * grew: a whole read of its 2 MiB took 8 to 13 ms, and the halving 22,
+ * on a calm machine (11 November). 7QEY1S's stall watch found pis
+ * waiting on the disk for pages that night, and a main thread waiting
+ * on the disk is a pi that takes no keys.
  */
 
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import {
-	appendFileSync,
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+	appendFile,
+	mkdir,
+	readFile,
+	rename,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { dirname } from "node:path";
 import {
 	CAPPED_NIX,
@@ -619,23 +626,45 @@ export function vmsFor(outcomes: readonly Outcome[], now: number): number {
 }
 
 /** Adds one outcome to the file, keeping its newer half once it is full. */
-export function keepOutcome(file: string, outcome: Outcome): void {
-	mkdirSync(dirname(file), { recursive: true });
-	appendFileSync(file, `${JSON.stringify(outcome)}\n`);
+export async function keepOutcome(
+	file: string,
+	outcome: Outcome,
+): Promise<void> {
+	await appendOutcome(file, outcome);
+	await halveOutcomes(file);
+}
+
+/** Adds one outcome to the end of the file. */
+export async function appendOutcome(
+	file: string,
+	outcome: Outcome,
+): Promise<void> {
+	await mkdir(dirname(file), { recursive: true });
+	await appendFile(file, `${JSON.stringify(outcome)}\n`);
+}
+
+/**
+ * Keeps the newer half of the file once it has grown past
+ * {@link MOST_OUTCOME_BYTES}. The halving is made outside the queue's
+ * lock, so an outcome another session adds between its read and its
+ * rename is lost: one line, once in about two thousand jobs, which only
+ * a limit's count of a month's runs ever reads.
+ */
+export async function halveOutcomes(file: string): Promise<void> {
 	let size = 0;
 	try {
-		size = statSync(file).size;
+		size = (await stat(file)).size;
 	} catch {
 		return;
 	}
 	if (size <= MOST_OUTCOME_BYTES) return;
-	const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+	const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
 	const temporary = `${file}.${process.pid}.tmp`;
-	writeFileSync(
+	await writeFile(
 		temporary,
 		`${lines.slice(Math.floor(lines.length / 2)).join("\n")}\n`,
 	);
-	renameSync(temporary, file);
+	await rename(temporary, file);
 }
 
 /** The outcomes the file holds, leaving out any line it can't read. */
@@ -646,6 +675,11 @@ export function outcomesIn(file: string): Outcome[] {
 	} catch {
 		return [];
 	}
+	return outcomesOf(content);
+}
+
+/** The outcomes in a file's lines, leaving out any line it can't read. */
+function outcomesOf(content: string): Outcome[] {
 	return content.split("\n").flatMap((line) => {
 		if (!line) return [];
 		try {
@@ -655,4 +689,70 @@ export function outcomesIn(file: string): Outcome[] {
 			return [];
 		}
 	});
+}
+
+/** The outcomes of a file as far as it was read, and where that was. */
+export interface OutcomesRead {
+	readonly outcomes: readonly Outcome[];
+	/** The file read, by its inode; a halving puts a new one in its place. */
+	readonly ino: number;
+	/** How far it was read: to the end of its last whole line. */
+	readonly through: number;
+}
+
+/** Nothing read yet. */
+export const NOTHING_READ: OutcomesRead = { outcomes: [], ino: -1, through: 0 };
+
+/**
+ * The file's outcomes, reading only what was added since `before` when
+ * it is still the same file grown, and the whole of it otherwise. A
+ * line still being written is left for the next read.
+ */
+export function outcomesSince(
+	file: string,
+	before: OutcomesRead = NOTHING_READ,
+): OutcomesRead {
+	let ino: number;
+	let size: number;
+	try {
+		({ ino, size } = statSync(file));
+	} catch {
+		return NOTHING_READ;
+	}
+	if (ino === before.ino && size === before.through) return before;
+	const grown = ino === before.ino && size > before.through;
+	const from = grown ? before.through : 0;
+	const added = readBytes(file, from, size - from);
+	if (added === undefined) return NOTHING_READ;
+	const whole = added.lastIndexOf("\n") + 1;
+	const read = outcomesOf(added.subarray(0, whole).toString("utf8"));
+	return {
+		outcomes: grown ? [...before.outcomes, ...read] : read,
+		ino,
+		through: from + whole,
+	};
+}
+
+/** `length` bytes of a file from `from`, or nothing once it can't be read. */
+function readBytes(
+	file: string,
+	from: number,
+	length: number,
+): Buffer | undefined {
+	let fd: number;
+	try {
+		fd = openSync(file, "r");
+	} catch {
+		return undefined;
+	}
+	try {
+		const buffer = Buffer.alloc(length);
+		const got = readSync(fd, buffer, 0, length, from);
+		return buffer.subarray(0, got);
+	} catch {
+		// Gone or unreadable as it was read: read whole next time.
+		return undefined;
+	} finally {
+		closeSync(fd);
+	}
 }

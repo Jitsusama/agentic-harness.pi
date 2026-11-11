@@ -48,7 +48,12 @@ import { inSharedSlice } from "./shared-slice.ts";
 export interface Queueing {
 	readonly folder: QueueFolder;
 	readonly session: string;
-	readonly room: () => Reading;
+	/**
+	 * The machine's room as read just before, to give a turn as it is
+	 * asked for, or nothing, when the next keep gives it instead: a room
+	 * is read off pi's main thread, and asking is on it.
+	 */
+	readonly room: () => Reading | undefined;
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly now?: () => number;
 	/**
@@ -235,7 +240,8 @@ export function queuedCommand(
 	};
 	try {
 		queueing.folder.ask(job);
-		queueing.folder.keep(queueing.room, now, queueing.cgroupFor);
+		const reading = queueing.room();
+		if (reading) queueing.folder.keep(reading, now, queueing.cgroupFor);
 	} catch {
 		// A queue that can't be written to holds nobody's work back.
 		return wrap(command);

@@ -60,7 +60,7 @@ function proc(
 }
 
 describe("the machine's room", () => {
-	it("counts only the innermost memory floors", () => {
+	it("counts only the innermost memory floors", async () => {
 		cgroup("user.slice", 15);
 		const app = cgroup(
 			"user.slice/user-1000.slice/user@1000.service/app.slice",
@@ -71,14 +71,16 @@ describe("the machine's room", () => {
 			1,
 		);
 		cgroup("user.slice/user-1000.slice/user@1000.service/jobs.slice", 0);
-		expect(floorsIn(join(root, "cgroups"))).toEqual([app, session].sort());
+		expect(await floorsIn(join(root, "cgroups"))).toEqual(
+			[app, session].sort(),
+		);
 	});
 
-	it("leaves out what a floor keeps past its programs' own memory", () => {
+	it("leaves out what a floor keeps past its programs' own memory", async () => {
 		// A floor full of cache keeps it, though MemAvailable calls it free.
 		const app = cgroup("app.slice", 8 * GIB, 6 * GIB, 10 * GIB);
 		const session = cgroup("session.slice", 1 * GIB, 3 * GIB);
-		const reading = readRoom([app, session], {
+		const reading = await readRoom([app, session], {
 			proc: proc(40),
 			cgroups: join(root, "cgroups"),
 		});
@@ -89,7 +91,7 @@ describe("the machine's room", () => {
 		expect(reading.cpuPressure).toBe(1.5);
 	});
 
-	it("reads the CPU pressure the person's own programs feel, apart from the machine's", () => {
+	it("reads the CPU pressure the person's own programs feel, apart from the machine's", async () => {
 		// 21:27 on 7 November: the machine read 63% and app.slice 0.3%.
 		const app = cgroup("app.slice", 8 * GIB);
 		const session = cgroup("session.slice", 1 * GIB);
@@ -100,7 +102,7 @@ describe("the machine's room", () => {
 			);
 		said(app, "0.30");
 		said(session, "6.20");
-		const reading = readRoom([app, session], {
+		const reading = await readRoom([app, session], {
 			proc: proc(40),
 			cgroups: join(root, "cgroups"),
 		});
@@ -127,46 +129,46 @@ describe("the machine's room", () => {
 				cgroups: join(root, "cgroups"),
 			});
 
-		it("leaves out a cgroup stalled at its own limit", () => {
+		it("leaves out a cgroup stalled at its own limit", async () => {
 			// A walk over background.slice's 4 GiB, and nobody else stalled.
 			stalls(`${user}/background.slice`, 86, `${4 * GIB}`, 4.4 * GIB);
 			stalls(`${user}/app.slice`, 0);
 			stalls("system.slice", 0);
 
-			const reading = read();
+			const reading = await read();
 
 			expect(reading.memoryPressure).toBe(0);
 			expect(reading.pressure.memory).toBe(82);
 		});
 
-		it("still holds the queue when others stall as well", () => {
+		it("still holds the queue when others stall as well", async () => {
 			stalls(`${user}/background.slice`, 86, `${4 * GIB}`, 4.4 * GIB);
 			stalls(`${user}/app.slice`, 30);
 
-			expect(read().memoryPressure).toBe(30);
+			expect((await read()).memoryPressure).toBe(30);
 		});
 
-		it("is the machine's figure when no cgroup is at its limit", () => {
+		it("is the machine's figure when no cgroup is at its limit", async () => {
 			stalls(`${user}/background.slice`, 86, `${4 * GIB}`, 1 * GIB);
 			stalls(`${user}/app.slice`, 0);
 
-			expect(read().memoryPressure).toBe(82);
+			expect((await read()).memoryPressure).toBe(82);
 		});
 	});
 
-	it("counts no more memory than the swap left", () => {
+	it("counts no more memory than the swap left", async () => {
 		const cgroups = join(root, "cgroups");
 		mkdirSync(cgroups, { recursive: true });
-		const at = (swap: { totalGib: number; freeGib: number }) =>
-			readRoom([], { proc: proc(40, swap), cgroups }).availableGib;
+		const at = async (swap: { totalGib: number; freeGib: number }) =>
+			(await readRoom([], { proc: proc(40, swap), cgroups })).availableGib;
 		// Cold heaps sit in swap while MemAvailable reads free.
-		expect(at({ totalGib: 96, freeGib: 13 })).toBe(13);
-		expect(at({ totalGib: 96, freeGib: 90 })).toBe(40);
+		expect(await at({ totalGib: 96, freeGib: 13 })).toBe(13);
+		expect(await at({ totalGib: 96, freeGib: 90 })).toBe(40);
 		// A machine with no swap is read by MemAvailable alone.
-		expect(at({ totalGib: 0, freeGib: 0 })).toBe(40);
+		expect(await at({ totalGib: 0, freeGib: 0 })).toBe(40);
 	});
 
-	it("counts the VMs running, by their processes' names", () => {
+	it("counts the VMs running, by their processes' names", async () => {
 		const dir = proc(40);
 		for (const [pid, name] of [
 			["845775", "qemu-system-x86"],
@@ -178,10 +180,10 @@ describe("the machine's room", () => {
 			writeFileSync(join(dir, pid, "comm"), `${name}\n`);
 		}
 		mkdirSync(join(dir, "qemu-system-x86"));
-		expect(readRoom([], { proc: dir, cgroups: root }).vms).toBe(2);
+		expect((await readRoom([], { proc: dir, cgroups: root })).vms).toBe(2);
 	});
 
-	it("counts a check with deadlines in a Nix build as a VM, though no qemu runs in it", () => {
+	it("counts a check with deadlines in a Nix build as a VM, though no qemu runs in it", async () => {
 		const dir = proc(40);
 		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
 		const running = (build: string, pids: Record<string, string>) => {
@@ -219,11 +221,11 @@ describe("the machine's room", () => {
 		writeFileSync(join(dir, "501", "comm"), "niri\n");
 
 		expect(
-			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).vms,
+			(await readRoom([], { proc: dir, cgroups: join(root, "cgroups") })).vms,
 		).toBe(3);
 	});
 
-	it("counts no VM for a compositor only asked something, as a system build asks niri to validate", () => {
+	it("counts no VM for a compositor only asked something, as a system build asks niri to validate", async () => {
 		const dir = proc(40);
 		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
 		const running = (build: string, pid: string, argv: string[]) => {
@@ -240,11 +242,11 @@ describe("the machine's room", () => {
 		running("nix-build-uid-4", "401", [".niri-wrapped", "-c", "config.kdl"]);
 
 		expect(
-			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).vms,
+			(await readRoom([], { proc: dir, cgroups: join(root, "cgroups") })).vms,
 		).toBe(1);
 	});
 
-	it("says who asked for each Nix build, whether it has deadlines, and the most memory it held", () => {
+	it("says who asked for each Nix build, whether it has deadlines, and the most memory it held", async () => {
 		const dir = proc(40);
 		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
 		const running = (
@@ -287,7 +289,8 @@ describe("the machine's room", () => {
 		build("nix-build-uid-3", ["301"]);
 
 		expect(
-			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).builds,
+			(await readRoom([], { proc: dir, cgroups: join(root, "cgroups") }))
+				.builds,
 		).toEqual([
 			{ asker: "/jobs.slice/work-70.scope", timed: true, memoryPeak: 3 * GIB },
 			{ asker: "/jobs.slice/work-71.scope", timed: false, memoryPeak: GIB },
@@ -334,33 +337,35 @@ describe("a builder elsewhere, from Nix's machines file", () => {
 		expect(offloadIn("\n   \n")).toBeUndefined();
 	});
 
-	it("says a builder is being lent while the lending file names one and none stands", () => {
+	it("says a builder is being lent while the lending file names one and none stands", async () => {
 		const kernel = { proc: proc(8), cgroups: join(root, "cgroups") };
 		mkdirSync(kernel.cgroups, { recursive: true });
 		const machines = join(root, "machines");
 		const lending = join(root, "lending");
 		const read = () => readRoom([], { ...kernel, machines, lending });
-		expect(read().lendingSince).toBeUndefined();
+		expect((await read()).lendingSince).toBeUndefined();
 
 		writeFileSync(lending, "optimus-offload-lend-1793297142\n");
-		expect(read().lendingSince).toBeGreaterThan(0);
+		expect((await read()).lendingSince).toBeGreaterThan(0);
 
 		writeFileSync(machines, `${aquifer}\n`);
-		expect(read().lendingSince).toBeUndefined();
+		expect((await read()).lendingSince).toBeUndefined();
 
 		writeFileSync(machines, "");
 		writeFileSync(lending, "");
-		expect(read().lendingSince).toBeUndefined();
+		expect((await read()).lendingSince).toBeUndefined();
 	});
 
-	it("is read with the room, and absent while no file stands", () => {
+	it("is read with the room, and absent while no file stands", async () => {
 		const kernel = { proc: proc(8), cgroups: join(root, "cgroups") };
 		mkdirSync(kernel.cgroups, { recursive: true });
 		const machines = join(root, "machines");
-		expect(readRoom([], { ...kernel, machines }).offload).toBeUndefined();
+		expect(
+			(await readRoom([], { ...kernel, machines })).offload,
+		).toBeUndefined();
 
 		writeFileSync(machines, `${aquifer}\n`);
-		expect(readRoom([], { ...kernel, machines }).offload).toEqual({
+		expect((await readRoom([], { ...kernel, machines })).offload).toEqual({
 			builds: 32,
 			vms: 32,
 		});

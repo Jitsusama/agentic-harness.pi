@@ -1,11 +1,14 @@
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,6 +22,7 @@ import {
 	YIELD_FILE,
 	YIELD_WEIGHT,
 } from "../../../../lib/internal/priority/yield.ts";
+import { until } from "../../../support/until.ts";
 
 let dir: string;
 
@@ -37,15 +41,15 @@ function slice(
 	let weight = start;
 	const set: number[] = [];
 	const it: BuildSlice & { readonly set: number[] } = {
-		weight: () => weight,
-		setWeight(next) {
+		weight: async () => weight,
+		async setWeight(next) {
 			if (opts.refuses) return false;
 			set.push(next);
 			weight = next;
 			return true;
 		},
-		hasVm: () => opts.vm ?? false,
-		updatesToMain: () => opts.updating ?? false,
+		hasVm: async () => opts.vm ?? false,
+		updatesToMain: async () => opts.updating ?? false,
 		set,
 	};
 	return it;
@@ -56,15 +60,15 @@ const running = (...kinds: string[]) => ({
 });
 
 describe("builds giving way to a stamp", () => {
-	it("yield while a stamp runs, and not for a stamp still waiting", () => {
+	it("yield while a stamp runs, and not for a stamp still waiting", async () => {
 		const waiting = {
 			jobs: [{ id: "s", kind: "stamp", state: "waiting" }],
 		};
 		const cases = {
-			stamping: buildsShouldYield(running("build", "stamp"), slice(10)),
-			waiting: buildsShouldYield(waiting, slice(10)),
-			building: buildsShouldYield(running("build"), slice(10)),
-			unread: buildsShouldYield(undefined, slice(10)),
+			stamping: await buildsShouldYield(running("build", "stamp"), slice(10)),
+			waiting: await buildsShouldYield(waiting, slice(10)),
+			building: await buildsShouldYield(running("build"), slice(10)),
+			unread: await buildsShouldYield(undefined, slice(10)),
 		};
 
 		expect(cases).toEqual({
@@ -75,47 +79,52 @@ describe("builds giving way to a stamp", () => {
 		});
 	});
 
-	it("don't yield while a VM runs, so its guest keeps time", () => {
+	it("don't yield while a VM runs, so its guest keeps time", async () => {
 		const cases = {
-			queued: buildsShouldYield(running("stamp", "vm-test"), slice(10)),
-			found: buildsShouldYield(running("stamp"), slice(10, { vm: true })),
+			queued: await buildsShouldYield(running("stamp", "vm-test"), slice(10)),
+			found: await buildsShouldYield(running("stamp"), slice(10, { vm: true })),
 		};
 
 		expect(cases).toEqual({ queued: false, found: false });
 	});
 
-	it("lower the weight once, and put back what it was", () => {
+	it("lower the weight once, and put back what it was", async () => {
 		const build = slice(10);
 
-		expect(keepYield(dir, true, build)).toBe("lowered");
-		expect(keepYield(dir, true, build), "a second keep lowers nothing").toBe(
-			undefined,
-		);
+		expect(await keepYield(dir, true, build)).toBe("lowered");
+		expect(
+			await keepYield(dir, true, build),
+			"a second keep lowers nothing",
+		).toBe(undefined);
 		expect(build.set).toEqual([YIELD_WEIGHT]);
 
-		expect(keepYield(dir, false, build)).toBe("restored");
+		expect(await keepYield(dir, false, build)).toBe("restored");
 		expect(build.set).toEqual([YIELD_WEIGHT, 10]);
 		expect(readdirSync(dir)).toEqual([]);
 	});
 
-	it("are put back by another session than the one that lowered them", () => {
-		keepYield(dir, true, slice(10));
+	it("are put back by another session than the one that lowered them", async () => {
+		await keepYield(dir, true, slice(10));
 		const later = slice(YIELD_WEIGHT);
 
-		expect(keepYield(dir, false, later)).toBe("restored");
+		expect(await keepYield(dir, false, later)).toBe("restored");
 		expect(later.set).toEqual([10]);
 	});
 
-	it("leave nothing to put back when the weight can't be lowered", () => {
-		expect(keepYield(dir, true, slice(10, { refuses: true }))).toBe(undefined);
+	it("leave nothing to put back when the weight can't be lowered", async () => {
+		expect(await keepYield(dir, true, slice(10, { refuses: true }))).toBe(
+			undefined,
+		);
 		expect(existsSync(join(dir, YIELD_FILE)), "no weight is kept").toBe(false);
-		expect(keepYield(dir, true, slice(YIELD_WEIGHT))).toBe(undefined);
+		expect(await keepYield(dir, true, slice(YIELD_WEIGHT))).toBe(undefined);
 	});
 
-	it("keep the weight to put back while systemd refuses it", () => {
-		keepYield(dir, true, slice(10));
+	it("keep the weight to put back while systemd refuses it", async () => {
+		await keepYield(dir, true, slice(10));
 
-		expect(keepYield(dir, false, slice(1, { refuses: true }))).toBe(undefined);
+		expect(await keepYield(dir, false, slice(1, { refuses: true }))).toBe(
+			undefined,
+		);
 		expect(readdirSync(dir)).toEqual([YIELD_FILE]);
 	});
 });
@@ -131,39 +140,39 @@ describe("builds giving way to a timed run", () => {
 	const yields = (
 		queue: unknown,
 		opts: Parameters<typeof slice>[1] = {},
-	): boolean =>
+	): Promise<boolean> =>
 		buildsShouldYield(queue, slice(10, opts), { first: FIRST, now: NOW });
 
-	it("yield while it runs, for its first sixteen minutes only", () => {
+	it("yield while it runs, for its first sixteen minutes only", async () => {
 		const cases = {
-			started: yields(record(timed, { kind: "build" })),
-			atTheEnd: yields(
+			started: await yields(record(timed, { kind: "build" })),
+			atTheEnd: await yields(
 				record({ kind: "timed-run", started: at(TIMED_RUN_YIELD_MS) }),
 			),
-			unstarted: yields(record({ kind: "timed-run" })),
+			unstarted: await yields(record({ kind: "timed-run" })),
 		};
 
 		expect(cases).toEqual({ started: true, atTheEnd: false, unstarted: false });
 	});
 
-	it("don't yield while the machine updates to main, as a stamp still does", () => {
+	it("don't yield while the machine updates to main, as a stamp still does", async () => {
 		const cases = {
-			timed: yields(record(timed), { updating: true }),
-			stamp: yields(record({ kind: "stamp" }), { updating: true }),
+			timed: await yields(record(timed), { updating: true }),
+			stamp: await yields(record({ kind: "stamp" }), { updating: true }),
 		};
 
 		expect(cases).toEqual({ timed: false, stamp: true });
 	});
 
-	it("don't yield while a job of a quest that goes first runs here", () => {
+	it("don't yield while a job of a quest that goes first runs here", async () => {
 		const theirs = { kind: "build", quest: "QEST-DEPLOY" };
 		const cases = {
-			theirs: yields(record(timed, theirs)),
-			sentElsewhere: yields(record(timed, { ...theirs, sent: true })),
-			waiting: yields(record(timed, { ...theirs, state: "waiting" })),
+			theirs: await yields(record(timed, theirs)),
+			sentElsewhere: await yields(record(timed, { ...theirs, sent: true })),
+			waiting: await yields(record(timed, { ...theirs, state: "waiting" })),
 			// The run's own quest going first is the run, not a build.
-			itsOwn: yields(record({ ...timed, quest: "QEST-DEPLOY" })),
-			stamp: yields(record({ kind: "stamp" }, theirs)),
+			itsOwn: await yields(record({ ...timed, quest: "QEST-DEPLOY" })),
+			stamp: await yields(record({ kind: "stamp" }, theirs)),
 		};
 
 		expect(cases).toEqual({
@@ -175,10 +184,10 @@ describe("builds giving way to a timed run", () => {
 		});
 	});
 
-	it("don't yield while a VM runs", () => {
+	it("don't yield while a VM runs", async () => {
 		const cases = {
-			queued: yields(record(timed, { kind: "vm-check" })),
-			found: yields(record(timed), { vm: true }),
+			queued: await yields(record(timed, { kind: "vm-check" })),
+			found: await yields(record(timed), { vm: true }),
 		};
 
 		expect(cases).toEqual({ queued: false, found: false });
@@ -193,7 +202,7 @@ describe("a VM in the system's slices", () => {
 		writeFileSync(join(dir, "proc", pid, "comm"), `${comm}\n`);
 	};
 
-	it("is found by its name in a build's cgroup, however deep", () => {
+	it("is found by its name in a build's cgroup, however deep", async () => {
 		process(
 			"build.slice/nix-daemon.service/nix-build-1",
 			"7",
@@ -202,16 +211,16 @@ describe("a VM in the system's slices", () => {
 		process("build.slice/nix-daemon.service/nix-build-2", "8", "cc1plus");
 
 		expect(
-			vmRunsUnder([join(dir, "cg", "build.slice")], join(dir, "proc")),
+			await vmRunsUnder([join(dir, "cg", "build.slice")], join(dir, "proc")),
 			"qemu in a build's cgroup is a VM",
 		).toBe(true);
 	});
 
-	it("is none among compilers, or where nothing is", () => {
+	it("is none among compilers, or where nothing is", async () => {
 		process("build.slice/nix-daemon.service/nix-build-2", "8", "cc1plus");
 
 		expect(
-			vmRunsUnder(
+			await vmRunsUnder(
 				[join(dir, "cg", "build.slice"), join(dir, "cg", "machine.slice")],
 				join(dir, "proc"),
 			),
@@ -231,16 +240,46 @@ describe("the machine updating itself to main", () => {
 		writeFileSync(join(dir, "proc", pid, "comm"), `${comm}\n`);
 	};
 
-	it("is its Nix client or a switch in its service, not its server or a fetch", () => {
+	it("is its Nix client or a switch in its service, not its server or a fetch", async () => {
 		const system = systemBuildSlice(join(dir, "cg"), join(dir, "proc"));
 		process("1", "update-to-main");
 		process("2", "git");
-		const idle = system.updatesToMain();
+		const idle = await system.updatesToMain();
 		process("3", "nix");
 
-		expect({ idle, building: system.updatesToMain() }).toEqual({
+		expect({ idle, building: await system.updatesToMain() }).toEqual({
 			idle: false,
 			building: true,
 		});
+	});
+});
+
+describe("the build slice's weight", () => {
+	const path = process.env.PATH;
+	afterEach(() => {
+		if (path === undefined) delete process.env.PATH;
+		else process.env.PATH = path;
+	});
+
+	it("is set while pi's main thread carries on, so systemd's wait holds up no key", async () => {
+		// A systemctl that ends only once this test, still running, says so.
+		const bin = join(dir, "bin");
+		mkdirSync(bin);
+		const go = join(dir, "go");
+		writeFileSync(
+			join(bin, "systemctl"),
+			`#!/bin/sh\necho "$@" > '${join(dir, "asked")}'\nmkfifo '${go}'\nread said < '${go}'\n`,
+		);
+		chmodSync(join(bin, "systemctl"), 0o755);
+		process.env.PATH = `${bin}:${path ?? ""}`;
+
+		const set = systemBuildSlice(join(dir, "cg")).setWeight(YIELD_WEIGHT);
+		await until("systemctl waits to be told", () => existsSync(go));
+		await writeFile(go, "go\n");
+
+		expect(await set, "systemctl said it set the weight").toBe(true);
+		expect(readFileSync(join(dir, "asked"), "utf8")).toBe(
+			`set-property --runtime --no-ask-password build.slice CPUWeight=${YIELD_WEIGHT}\n`,
+		);
 	});
 });
