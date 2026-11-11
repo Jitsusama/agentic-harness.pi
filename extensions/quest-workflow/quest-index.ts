@@ -56,6 +56,7 @@ import {
 	indexSessionFiles,
 	type LivenessSnapshot,
 } from "../../lib/internal/quest/session-liveness.ts";
+import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
@@ -397,6 +398,9 @@ function snapshotOf(
 		activityOf: (id) => activityFromIndex(logs, id),
 		probeProcess: (id) => probeProcess(id, processes),
 		probeTerminals: async () => new Map<string, TerminalProbe>(),
+		// A hosted session runs while its host keeps it, whatever pid its
+		// README entry names.
+		held: rosterHolds(),
 	});
 }
 

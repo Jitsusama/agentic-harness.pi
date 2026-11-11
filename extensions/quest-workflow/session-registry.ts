@@ -91,6 +91,10 @@ import {
 	windowsToReopen,
 } from "../../lib/internal/quest/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import {
+	attachWords,
+	rosterHolds,
+} from "../../lib/internal/session/host-holds.ts";
 import { sessionLogHeader } from "../../lib/internal/session/log-header.ts";
 import { moveFolder, readMoveNotes } from "../../lib/internal/session/move.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
@@ -245,14 +249,14 @@ function heartbeatSlot(): { timer?: ReturnType<typeof setInterval> } {
  * The timer is unref'd, so it never holds the process open on its
  * own: a pi that is otherwise finished must still be allowed to
  * exit. Starting twice replaces the first timer rather than running
- * two.
+ * two. In a host each conversation beats for its own record, since
+ * only it can put that record right when a reader got it wrong.
  */
 export function startHeartbeat(
 	sessionId: string,
 	intervalMs: number = HEARTBEAT_INTERVAL_MS,
 	check?: () => void,
 ): void {
-	if (hosted()) return;
 	stopHeartbeat();
 	const timer = setInterval(() => {
 		touchHeartbeat(sessionId);
@@ -387,17 +391,27 @@ export interface ObservedRecords {
  * must never read as death. Writing to another session's record is
  * safe when it is gone, and re-dating a live one races only with its
  * own heartbeat, which writes the same kind of answer.
+ *
+ * A session a host's roster keeps is never closed, whatever process
+ * its record names: the old plain pi it moved from, or a host that
+ * crashed and takes it up again as it starts. The host is its writer,
+ * and its own heartbeat puts the record right.
  */
 export function observeRecords(
 	stored: readonly StoredRecord[],
+	kept: () => ReadonlyMap<string, string> = rosterHolds,
 ): ObservedRecords {
 	const deps = localProcessDeps();
 	const repaired: SessionRecord[] = [];
 	const refreshed: string[] = [];
+	let holds: ReadonlyMap<string, string> | undefined;
 	for (const { record, heartbeatAt } of stored) {
 		if (record.closedAt || !record.process) continue;
 		const probe = probeProcess(record.process, deps);
 		if (probe === "gone") {
+			// Read once a pass, and only when something reads gone.
+			holds ??= kept();
+			if (holds.has(record.sessionId)) continue;
 			// Only a session that opened its own record had a shutdown hook
 			// to skip, so only its silence means it was taken away. An
 			// adopted one never had one, and reading its exit as a crash is
@@ -609,12 +623,13 @@ export function restorableSessions(
 	// the repairs to disk, and the reload is what makes the answer the
 	// same one a second reader would get.
 	const records = loadRecords().map((entry) => entry.record);
+	const kept = keptByHost();
 	// A session pi never saved is brought back by starting one in its
 	// place, by restore or by hand from its recipe line; once that has
 	// happened there is nothing left to offer, and its record goes.
 	return restorable(records).filter((record) => {
 		// Its host brings it back; a terminal too would be a second writer.
-		if (hostKeeps(record)) return false;
+		if (kept(record)) return false;
 		if (saved(record.sessionId) || !startedAgain(record, records)) return true;
 		forgetRecord(record.sessionId);
 		return false;
@@ -634,6 +649,7 @@ export function lastBootRestorable(
 		restorableSessions(saved).map((record) => record.sessionId),
 	);
 	const records = loadRecords().map((entry) => entry.record);
+	const hostHas = keptByHost();
 	const found = lastBootSessions(records, thisBoot, endedBoot(thisBoot));
 	const kept = (list: SessionRecord[]) =>
 		list.filter((record) => lost.has(record.sessionId));
@@ -641,8 +657,20 @@ export function lastBootRestorable(
 		...found,
 		offered: kept(found.offered),
 		older: kept(found.older),
-		parked: found.parked.filter((record) => !hostKeeps(record)),
+		parked: found.parked.filter((record) => !hostHas(record)),
 	};
+}
+
+/**
+ * Whether a host has a session, by what its record says or by a host's
+ * roster keeping it: a record can still name the plain pi the session
+ * moved from, or a host that crashed and takes it up again as it
+ * starts. Rosters are read once, when this is made.
+ */
+export function keptByHost(
+	holds: ReadonlyMap<string, string> = rosterHolds(),
+): (record: SessionRecord) => boolean {
+	return (record) => hostKeeps(record) || holds.has(record.sessionId);
 }
 
 /**
@@ -782,10 +810,11 @@ const RECENTLY_CLOSED_HOURS = 24;
  * which has already settled what the open records really are.
  */
 export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
+	const kept = keptByHost();
 	return recentlyClosed(
 		loadRecords()
 			.map((entry) => entry.record)
-			.filter((record) => !hostKeeps(record)),
+			.filter((record) => !kept(record)),
 		{ now, withinHours: RECENTLY_CLOSED_HOURS },
 	);
 }
@@ -801,9 +830,9 @@ export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
  * is what `quest reopen-sessions` does.
  */
 export function lostSessionCount(): number {
-	return loadRecords().filter(
-		({ record }) => wasLost(record) && !hostKeeps(record),
-	).length;
+	const kept = keptByHost();
+	return loadRecords().filter(({ record }) => wasLost(record) && !kept(record))
+		.length;
 }
 
 /** What happened when restore tried to reopen the lost sessions. */
@@ -822,6 +851,8 @@ export interface ReopenOutcome {
 	woken: string[];
 	/** Sessions a holder was found running, so nothing was opened. */
 	running: string[];
+	/** Sessions a host holds, so nothing was opened: how to reach each. */
+	hosted: { sessionId: string; host: string; attach: string[] }[];
 	/** The line saying what the terminals were opened through. */
 	used?: string;
 	/** What the person should know, once each. */
@@ -921,6 +952,7 @@ export async function reopenLostSessions(
 		failed: [],
 		woken: [],
 		running: [],
+		hosted: [],
 		notes: [],
 	};
 	const settled =
@@ -928,6 +960,13 @@ export async function reopenLostSessions(
 			? await settle(records.map((record) => record.sessionId))
 			: undefined;
 	if (settled) {
+		for (const { session, hold } of settled.hosted) {
+			outcome.hosted.push({
+				sessionId: session,
+				host: hold.key,
+				attach: attachWords(hold, session),
+			});
+		}
 		outcome.woken.push(...settled.woken);
 		outcome.running.push(...settled.running);
 		for (const sessionId of settled.parked) {

@@ -253,9 +253,10 @@ it("checks the host list from another reader without treating a missing list as 
 	).toBe("gone");
 });
 
-it("keeps journal authors separate and leaves process signals and timers to the host", () => {
+it("keeps journal authors and heartbeats separate and leaves process signals to the host", () => {
 	const listeners = process.listenerCount("SIGTERM");
 	const interval = vi.spyOn(globalThis, "setInterval");
+	const cleared = vi.spyOn(globalThis, "clearInterval");
 	for (const id of ["a", "b"])
 		withSession(id, () => {
 			setJournalSession(id);
@@ -267,7 +268,12 @@ it("keeps journal authors separate and leaves process signals and timers to the 
 		});
 	expect(withSession("a", journalSession)).toBe("a");
 	expect(withSession("b", journalSession)).toBe("b");
+	// Each conversation keeps its own record true, so each beats.
+	expect(interval).toHaveBeenCalledTimes(2);
+	const [a, b] = interval.mock.results.map((result) => result.value);
 	withSession("a", stopHeartbeat);
-	expect(interval).not.toHaveBeenCalled();
+	expect(cleared.mock.calls, "stopping a stops only a's").toEqual([[a]]);
+	withSession("b", stopHeartbeat);
+	expect(cleared.mock.calls.at(-1)).toEqual([b]);
 	expect(process.listenerCount("SIGTERM")).toBe(listeners);
 });

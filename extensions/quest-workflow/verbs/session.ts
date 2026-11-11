@@ -32,6 +32,7 @@ import {
 	openInSessionsKitty,
 	sessionsKittyRuns,
 } from "../../../lib/internal/quest/sessions-kitty.ts";
+import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
@@ -79,7 +80,7 @@ import {
 	spawnHeld,
 	startsPi,
 } from "./spawn-held.ts";
-import { hostTargetOf, spawnInHost } from "./spawn-host.ts";
+import { hostTargetOf, reachedInHost, spawnInHost } from "./spawn-host.ts";
 import {
 	launcherOpens,
 	launcherSession,
@@ -439,6 +440,13 @@ export async function spawn(
 		machine === undefined || isThisMachine(machine)
 			? pickResumeSession(sessions.filter((s) => s.id !== currentId))
 			: undefined;
+	// A session a host holds is reached through that host, never opened
+	// again here or adopted by another, which would give its log a second
+	// writer. A command of the caller's own resumes nothing.
+	const resuming =
+		resume && "id" in resume && !params.command?.trim() ? resume.id : undefined;
+	const hold = resuming ? await hostHold(resuming) : undefined;
+	if (resuming && hold) return reachedInHost(resuming, hold);
 	if (target.kind) {
 		// The host is this machine's, so a quest its needs place elsewhere
 		// can't be hosted here.
@@ -569,6 +577,8 @@ export async function spawn(
 	const restarting = resumedSessionId ?? resumedBy(command)?.id;
 	if (restarting && !params.dryRun) {
 		const settled = await settleHere([restarting]);
+		const hosting = settled.hosted.find((one) => one.session === restarting);
+		if (hosting) return reachedInHost(restarting, hosting.hold);
 		if (settled.running.includes(restarting)) {
 			return ok(
 				`Session ${restarting} is already running under its holder, so nothing was opened.`,

@@ -1,0 +1,120 @@
+/**
+ * Which host holds a conversation, for the readers that would otherwise
+ * judge it by the pid a record names.
+ *
+ * On 10 November the canary conversation moved into the background
+ * host, and the readers that decide whether a session is lost still
+ * looked at the pid its records named: an old plain pi's, gone, or a
+ * crashed host's. Each read it dead, and the next step was to stamp it
+ * died, drop it from the launcher's running list, or reopen it in plain
+ * pi, a second writer on its log (K7's audit, 44dfd277).
+ *
+ * A host says what it holds in two places. Its list
+ * (`hosts/<pid>-<start>.json`, lib/core/session/registry.ts) names what
+ * it has open while its process runs. Its roster
+ * (`host-rosters/<key>.json`, lib/core/session/roster.ts) names what it
+ * keeps for resume, and outlives a crash or restart: the host takes
+ * every conversation on it up again when it starts. So a conversation
+ * on a roster is the host's even while the host is down, and nothing
+ * else may open it, stamp it ended or forget it.
+ */
+
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parseRoster, rosterDir } from "../../core/session/roster.ts";
+import { type Looking, liveHolder } from "./one-writer.ts";
+
+/** A host holding a conversation. */
+export interface HostHold {
+	/** Its key, such as work-background. */
+	readonly key: string;
+	/** The realm it serves, which attaching to it names. */
+	readonly realm: string;
+	/** Open in a running host now, rather than only kept for its resume. */
+	readonly open: boolean;
+}
+
+/** Where the lists and rosters are; the machine's unless a test sets them. */
+export interface HoldsLooking extends Looking {
+	readonly rosters?: string;
+}
+
+/** A host key's realm: the key without its kind. */
+const KIND = /-(?:attended|background)$/;
+
+const ROSTER_SUFFIX = ".json";
+
+/**
+ * Every conversation the rosters keep, by session id to host key, read
+ * at once. A roster that can't be read keeps nothing here, as none is
+ * evidence of a hold.
+ */
+export function rosterHolds(dir: string = rosterDir()): Map<string, string> {
+	const holds = new Map<string, string>();
+	let names: string[];
+	try {
+		names = readdirSync(dir).filter((name) => name.endsWith(ROSTER_SUFFIX));
+	} catch {
+		// No folder: no host has kept anything on this machine.
+		return holds;
+	}
+	for (const name of names) {
+		const key = name.slice(0, -ROSTER_SUFFIX.length);
+		let text: string;
+		try {
+			text = readFileSync(join(dir, name), "utf8");
+		} catch {
+			// Gone or mid-replacement: the next read finds it.
+			continue;
+		}
+		for (const entry of parseRoster(text, key)?.sessions ?? []) {
+			holds.set(entry.sessionId, key);
+		}
+	}
+	return holds;
+}
+
+/** The hold a host key makes. */
+export function holdOf(key: string, open: boolean): HostHold {
+	return { key, realm: key.replace(KIND, ""), open };
+}
+
+/**
+ * The host holding a conversation: open in a running host, else kept on
+ * a roster for resume, else none.
+ */
+export async function hostHold(
+	sessionId: string,
+	looking: HoldsLooking = {},
+): Promise<HostHold | undefined> {
+	const live = await liveHolder(sessionId, looking);
+	if (live) return holdOf(live.key, true);
+	const key = rosterHolds(looking.rosters).get(sessionId);
+	return key === undefined ? undefined : holdOf(key, false);
+}
+
+/**
+ * The words that join a hosted conversation from a terminal here, as
+ * mycelium's attach_here gives them. Realm and key are checked names and
+ * the id a UUID, so they need no quoting.
+ */
+export function attachWords(hold: HostHold, sessionId: string): string[] {
+	return [
+		"mycelium",
+		"--realm",
+		hold.realm,
+		"attach",
+		"--host",
+		hold.key,
+		"--session",
+		sessionId,
+	];
+}
+
+/** What a reader says of a conversation a host holds, and how to reach it. */
+export function heldByHost(sessionId: string, hold: HostHold): string {
+	const where = hold.open
+		? `is open in the ${hold.key} host`
+		: `is kept by the ${hold.key} host, which takes it up again as it starts`;
+	return `Session ${sessionId} ${where}, so nothing else was opened on its log, which would give it a second writer. Reach it through its host, with the launcher's Go To or: ${attachWords(hold, sessionId).join(" ")}`;
+}

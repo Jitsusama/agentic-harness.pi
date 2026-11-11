@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
@@ -63,6 +64,7 @@ afterEach(() => {
 	if (savedHome !== undefined) process.env.HOME = savedHome;
 	else delete process.env.HOME;
 	rmSync(tmpRoot, { recursive: true, force: true });
+	rmSync(rosterDir(), { recursive: true, force: true });
 	envGuard.leave();
 });
 
@@ -96,6 +98,52 @@ describe("spawn resume", () => {
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.message).toContain("Resuming idle session idle-1");
 		expect(result.message).toContain("ago");
+	});
+
+	it("opens nothing for a session a host keeps and says how to reach it", async () => {
+		const state = buildState();
+		const ctx = fakeCtx(tmpRoot, "spawner");
+		await handle(state, fakePi(), ctx, { action: "create", title: "Alpha" });
+		const kept = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
+		await handle(state, fakePi(), ctx, {
+			action: "session-attach",
+			sessionId: kept,
+		});
+		// Its log stands still for an hour, and its record names a plain pi
+		// long gone: only the roster says it is the host's.
+		writeLog(kept, 60 * 60 * 1000);
+		mkdirSync(rosterDir(), { recursive: true });
+		writeFileSync(
+			rosterPath("work-background"),
+			JSON.stringify({
+				v: 1,
+				key: "work-background",
+				sessions: [
+					{
+						sessionId: kept,
+						file: join(tmpRoot, `${kept}.jsonl`),
+						cwd: tmpRoot,
+						attended: false,
+						since: new Date().toISOString(),
+					},
+				],
+			}),
+		);
+
+		const result = await handle(state, fakePi(), ctx, {
+			action: "spawn-tab",
+			id: state.questId as string,
+		});
+
+		expect(spawned, "a second pi on the host's log").toBeUndefined();
+		expect(result).toMatchObject({
+			ok: true,
+			details: { how: "hosted", host: "work-background", sessionId: kept },
+		});
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.message).toContain(
+			`mycelium --realm work attach --host work-background --session ${kept}`,
+		);
 	});
 
 	it("suppresses the resume note when an explicit command is given", async () => {

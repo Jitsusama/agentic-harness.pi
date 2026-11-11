@@ -12,6 +12,9 @@
  * So before a session is reopened, the machine's node is asked what it
  * holds (`mycelium held`, a JSON line a session), and the session is:
  *
+ * - left as it is, with every window it has, when a host holds it, open
+ *   or kept for its resume (lib/internal/session/host-holds.ts): its
+ *   host is its writer, and its viewer is a window with no pi under it;
  * - left as it is, when a holder runs its pi, since it is not lost;
  * - woken in its own holder and window, when it is held parked, rather
  *   than started a second time;
@@ -28,6 +31,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { realmOf } from "../../mesh/node.ts";
 import { isRecord } from "../record.ts";
+import { type HostHold, hostHold } from "../session/host-holds.ts";
 import { askWake } from "../session/park.ts";
 
 /** The kitty user variable naming the session a window was opened for. */
@@ -170,10 +174,14 @@ export interface SettleHost {
 	readonly close: (within: string, id: string) => Promise<void>;
 	/** Kitty sockets to look in beside the ones the node names. */
 	readonly sockets?: readonly string[];
+	/** The host holding a session, or none; asked first. */
+	readonly hostHold?: (session: string) => Promise<HostHold | undefined>;
 }
 
 /** What became of each session asked about. */
 export interface Settled {
+	/** Held by a host, so neither reopened nor any window closed. */
+	readonly hosted: { readonly session: string; readonly hold: HostHold }[];
 	/** Running under a holder already, so not reopened. */
 	readonly running: string[];
 	/** Parked under a holder and woken there, so not reopened. */
@@ -195,6 +203,7 @@ export async function settleBeforeReopen(
 	sessions: readonly string[],
 	host: SettleHost,
 ): Promise<Settled> {
+	const hosted: Settled["hosted"] = [];
 	const running: string[] = [];
 	const woken: string[] = [];
 	const parked: string[] = [];
@@ -217,6 +226,11 @@ export async function settleBeforeReopen(
 		return seen;
 	};
 	for (const session of sessions) {
+		const hold = await host.hostHold?.(session);
+		if (hold) {
+			hosted.push({ session, hold });
+			continue;
+		}
 		const holders = held.filter(
 			(one) => sessionOfCommand(one.command) === session,
 		);
@@ -262,7 +276,7 @@ export async function settleBeforeReopen(
 		}
 		reopen.push(session);
 	}
-	return { running, woken, parked, reopen, closed };
+	return { hosted, running, woken, parked, reopen, closed };
 }
 
 /** What the machine's node holds, by `mycelium held`. */
@@ -341,6 +355,7 @@ export function settleHere(
 ): Promise<Settled> {
 	if (process.platform !== "linux" || env.PI_SETTLE === "off") {
 		return Promise.resolve({
+			hosted: [],
 			running: [],
 			woken: [],
 			parked: [],
@@ -357,6 +372,7 @@ export function settleHere(
 		kittyWindows: kittyWindowsAt,
 		close: closeKittyWindow,
 		...(socket ? { sockets: [socket] } : {}),
+		hostHold: (session) => hostHold(session),
 	});
 }
 

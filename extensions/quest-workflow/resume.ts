@@ -1,7 +1,8 @@
 /**
  * /quest-resume: carry on a session attached to the loaded quest.
  *
- * On pi it switches this pi to the session's log, as it always has. A
+ * On pi it switches this pi to the session's log, as it always has,
+ * unless a host holds the session, when it says how to reach it there. A
  * hosted conversation can't switch its own log, which the host owns, so
  * there it asks its realm's attended host to adopt the session (or finds
  * it already held) and says how to view it. The answer goes into the
@@ -16,6 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { hosted, sessionEnv } from "../../lib/core/session/index.ts";
 import { deriveLiveness } from "../../lib/internal/quest/session-liveness.ts";
+import { heldByHost, hostHold } from "../../lib/internal/session/host-holds.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import { buildSessionSnapshot } from "./liveness.ts";
 import { showLoaded } from "./lookup.ts";
@@ -62,6 +64,13 @@ export async function resumeQuestSession(
 	}
 	if (hosted()) {
 		await resumeHosted(pi, state.questId, session, ctx);
+		return;
+	}
+	// Its host is its one writer, open or about to take it up again; this
+	// pi switching to its log would make a second.
+	const hold = await hostHold(sessionId);
+	if (hold) {
+		ctx.ui.notify(heldByHost(sessionId, hold), "warning");
 		return;
 	}
 	await switchToSession(sessionId, ctx);

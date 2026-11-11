@@ -18,11 +18,33 @@ import type {
 } from "../../../host/service/protocol.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
+import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import { createEnvGuard } from "./_helpers.ts";
 
 const SAVED = ["HOME", "MYCELIUM_REALM", "PI_HOME_REALM", "XDG_RUNTIME_DIR"];
+
+/** Keep a session on a host's roster, as that host does when it adopts. */
+function keepOnRoster(key: string, sessionId: string): void {
+	mkdirSync(rosterDir(), { recursive: true });
+	writeFileSync(
+		rosterPath(key),
+		JSON.stringify({
+			v: 1,
+			key,
+			sessions: [
+				{
+					sessionId,
+					file: join(tmpRoot, "logs", `${sessionId}.jsonl`),
+					cwd: tmpRoot,
+					attended: false,
+					since: new Date().toISOString(),
+				},
+			],
+		}),
+	);
+}
 const HOUR_MS = 60 * 60 * 1000;
 
 let tmpRoot: string;
@@ -167,6 +189,7 @@ afterEach(async () => {
 	}
 	rmSync(tmpRoot, { recursive: true, force: true });
 	rmSync(runtime, { recursive: true, force: true });
+	rmSync(rosterDir(), { recursive: true, force: true });
 	envGuard.leave();
 });
 
@@ -299,6 +322,47 @@ describe("/quest-resume in a hosted conversation", () => {
 		expect(pi.recorded.sent[0]?.content).toContain(
 			"No home-attended host is listening",
 		);
+	});
+});
+
+describe("/quest-resume of a session another host keeps", () => {
+	it("adopts nothing in a hosted conversation and says how to reach it", async () => {
+		await serveAttended("home");
+		const kept = randomUUID();
+		const quest = await questWithSession(kept, HOUR_MS);
+		keepOnRoster("work-background", kept);
+		const pi = fakePi();
+		const { ctx, switched } = fakeCtx("a");
+
+		await asHosted("home", () =>
+			resumeQuestSession(pi, quest.state, kept, ctx),
+		);
+
+		expect(switched).toEqual([]);
+		expect(received, "its own host is never asked to adopt it").toEqual([]);
+		expect(pi.recorded.sent[0]?.details).toMatchObject({
+			sessionId: kept,
+			how: "hosted",
+			host: "work-background",
+			adopted: false,
+		});
+		expect(pi.recorded.sent[0]?.content).toContain(
+			`mycelium --realm work attach --host work-background --session ${kept}`,
+		);
+	});
+
+	it("switches nothing on plain pi and says how to reach it", async () => {
+		const kept = randomUUID();
+		const quest = await questWithSession(kept, HOUR_MS);
+		keepOnRoster("work-background", kept);
+		const pi = fakePi();
+		const { ctx, notices, switched } = fakeCtx("spawner");
+
+		await resumeQuestSession(pi, quest.state, kept, ctx);
+
+		expect(switched, "a second writer on the host's log").toEqual([]);
+		expect(notices[0]?.level).toBe("warning");
+		expect(notices[0]?.text).toContain("kept by the work-background host");
 	});
 });
 

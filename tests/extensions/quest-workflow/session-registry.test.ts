@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -25,6 +25,7 @@ import {
 	stopHeartbeat,
 	touchHeartbeat,
 } from "../../../extensions/quest-workflow/session-registry.ts";
+import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness.ts";
 import {
 	closeRecord,
@@ -35,6 +36,28 @@ import { quietFor, until } from "../../support/until.ts";
 
 let stateHome: string;
 let savedStateHome: string | undefined;
+
+/** A session moved into a host; rosters hold only UUIDs. */
+const MOVED = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
+
+/** Write a host's roster keeping these sessions, as roster.ts does. */
+function keepOnRoster(key: string, sessions: string[]): void {
+	mkdirSync(rosterDir(), { recursive: true });
+	writeFileSync(
+		rosterPath(key),
+		JSON.stringify({
+			v: 1,
+			key,
+			sessions: sessions.map((sessionId) => ({
+				sessionId,
+				file: `/work/${sessionId}.jsonl`,
+				cwd: "/work",
+				attended: key.endsWith("attended"),
+				since: NOW.toISOString(),
+			})),
+		}),
+	);
+}
 
 const NOW = new Date("2026-07-28T18:00:00.000Z");
 
@@ -503,6 +526,17 @@ describe("counting what was lost, for the start-up hint", () => {
 });
 
 describe("sessions a shared host ran", () => {
+	it("are never offered when a roster keeps one whose record names a plain pi", () => {
+		saveRecord(closeRecord(openRecord(base(MOVED)), "died", NOW));
+		saveRecord(closeRecord(openRecord(base("sess-tab")), "died", NOW));
+		keepOnRoster("work-attended", [MOVED]);
+
+		expect(restorableSessions(() => true).map((r) => r.sessionId)).toEqual([
+			"sess-tab",
+		]);
+		expect(lostSessionCount()).toBe(1);
+	});
+
 	/** A session a host ran in the boot that has since ended. */
 	function hostedIn(sessionId: string) {
 		return openRecord({
@@ -683,6 +717,19 @@ describe("observing the open records", () => {
 			}),
 		);
 		expect(observeRecords(loadRecords()).repaired).toEqual([]);
+	});
+
+	it("leaves open a session a host's roster keeps, whatever process it names", () => {
+		// Moved into a host, its record can still name the plain pi it
+		// left, or a host that crashed and takes it up again as it starts.
+		saveRecord(sessionFromPreviousBoot(MOVED));
+		saveRecord(sessionFromPreviousBoot("sess-dead"));
+		keepOnRoster("work-background", [MOVED]);
+
+		const { repaired } = observeRecords(loadRecords());
+
+		expect(repaired.map((r) => r.sessionId)).toEqual(["sess-dead"]);
+		expect(readRecord(MOVED)?.closedAt).toBeUndefined();
 	});
 
 	it("leaves an already-closed record where it stands", () => {
