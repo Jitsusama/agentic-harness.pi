@@ -164,6 +164,8 @@ function fakeMachine(script: {
 	leaving?: string[][];
 	/** Sessions whose own window takes the move back before the cutover claims it. */
 	takenBack?: string[];
+	/** Sessions the target host's roster keeps though its adopt failed. */
+	kept?: string[];
 }) {
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
 	const claimed = new Map<string, MoveNote>();
@@ -197,6 +199,7 @@ function fakeMachine(script: {
 			claimed.set(session, one);
 			return one;
 		},
+		kept: async (session) => script.kept?.includes(session) ?? false,
 		giveBack: (session) => {
 			const one = claimed.get(session);
 			if (one === undefined) return;
@@ -336,6 +339,26 @@ describe("carryOut", () => {
 			[...machine.notes.keys()],
 			"the note given back for its window to take",
 		).toEqual(["a"]);
+	});
+
+	it("never gives back a note whose host rostered it before failing", async () => {
+		const machine = fakeMachine({
+			ending: [["a"]],
+			refuse: () => "the work-background host didn't answer: socket hang up",
+			kept: ["a"],
+		});
+		const report = await carryOut(
+			[move("a", "background")],
+			machine.facts,
+			60_000,
+		);
+		expect(machine.givenBack, "no note for its window to take").toEqual([]);
+		expect(machine.notes.size + machine.claimed.size).toBe(0);
+		expect(report.moved).toEqual(["A"]);
+		expect(report.refused).toEqual([]);
+		expect(machine.said).toContain(
+			"A kept by the background host, though the work-background host didn't answer: socket hang up",
+		);
 	});
 
 	it("adopts nothing its own window took back, and says so", async () => {

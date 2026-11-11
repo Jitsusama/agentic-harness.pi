@@ -156,6 +156,12 @@ export interface MoveFacts {
 	/** Give a claimed note back, as the host wouldn't adopt its log. */
 	giveBack(session: string): void;
 	/**
+	 * Whether the host of `to` keeps a session on its roster, which it
+	 * writes before it starts a conversation and resumes from when it
+	 * starts again: a host that failed or died after that has the log.
+	 */
+	kept(session: string, to: HostKind): Promise<boolean>;
+	/**
 	 * Whether what wrote a note still has its session: the pi that wrote
 	 * it, or for a note from a host, that host.
 	 */
@@ -262,6 +268,17 @@ export async function carryOut(
 				refused.delete(session);
 				moved.push(addressOf(session));
 				facts.say(`${addressOf(session)} adopted by the ${note.to} host`);
+			} else if (await facts.kept(session, claimed.to)) {
+				// Rostered before it failed or the host went: that host resumes
+				// it, so giving the note back would let its window start a
+				// second writer.
+				facts.removeNote(session);
+				goes.delete(session);
+				refused.delete(session);
+				moved.push(addressOf(session));
+				facts.say(
+					`${addressOf(session)} kept by the ${claimed.to} host, though ${why}`,
+				);
 			} else {
 				facts.giveBack(session);
 				if (refused.get(session) !== why) {

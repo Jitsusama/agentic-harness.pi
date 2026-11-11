@@ -226,6 +226,8 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 		removeNote: (session) => removeMoveNote(session, moves),
 		claim: (session) => claimMoveNote(session, claimer(), moves),
 		giveBack: (session) => giveBackMoveNote(session, claimer(), moves),
+		kept: async (session, to) =>
+			rosterHolds(places.rosters).get(session) === hostKey(places.realm, to),
 		running: async (note: MoveNote) => {
 			// A note from a host names that host's pid, which outlives the
 			// conversation: it has gone once the host neither lists it nor
