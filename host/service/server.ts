@@ -14,6 +14,12 @@ import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
 
 const MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 const SOCKET_MODE = 0o600;
+/**
+ * How long a restarting host waits for its viewers to take the frame
+ * saying so before it closes on them, well inside the 30 s a client
+ * holds keys for after it.
+ */
+const RESTART_FLUSH_MS = 2_000;
 const DIRECTORY_MODE = 0o700;
 
 /** One viewer's connection to a persistent Terminal, not the session itself. */
@@ -106,6 +112,8 @@ export async function listenControl(options: {
 		throw new Error("Host socket path must be absolute");
 	await privateDirectory(dirname(options.path));
 	const sockets = new Set<Socket>();
+	// How to reach each connection a viewer is attached on.
+	const viewing = new Map<Socket, (value: unknown) => void>();
 	let ready = false;
 	const server = createServer((socket) => {
 		if (!ready) {
@@ -128,6 +136,7 @@ export async function listenControl(options: {
 					options.report(error);
 				}
 			}
+			viewing.delete(socket);
 			sockets.delete(socket);
 		}
 		function send(value: unknown) {
@@ -215,6 +224,7 @@ export async function listenControl(options: {
 						},
 					}),
 				);
+				viewing.set(socket, send);
 			}
 		}
 		socket.on("data", (chunk) => {
@@ -261,13 +271,51 @@ export async function listenControl(options: {
 		throw error;
 	}
 	server.on("error", options.report);
+	// Stops taking connections at once; settles once every one has ended.
+	let listening: Promise<void> | undefined;
+	const stopListening = () => {
+		ready = false;
+		listening ??= new Promise<void>((resolve, reject) => {
+			server.close((error) => (error ? reject(error) : resolve()));
+		});
+		return listening;
+	};
 	return {
+		/**
+		 * Tell every attached viewer the host is about to restart, and end
+		 * its connection once the frame is out, so a client that knows the
+		 * frame joins the same conversation again once the next host
+		 * listens; an older one passes it over. Settles once each viewer has
+		 * gone, or after RESTART_FLUSH_MS, whichever comes first.
+		 */
+		async restarting(): Promise<void> {
+			// A client told of the restart joins again at once, so this host
+			// takes no more connections: one it took would end at its close,
+			// with no frame to say why.
+			// close() awaits the same promise, and reports how it ended.
+			stopListening().catch(() => undefined);
+			const leaving = [...viewing].map(
+				([socket, send]) =>
+					new Promise<void>((resolve) => {
+						if (socket.destroyed) return resolve();
+						socket.once("close", () => resolve());
+						send({ type: "restarting" });
+						socket.end();
+					}),
+			);
+			let timer: NodeJS.Timeout | undefined;
+			await Promise.race([
+				Promise.all(leaving),
+				new Promise<void>((resolve) => {
+					timer = setTimeout(resolve, RESTART_FLUSH_MS);
+				}),
+			]);
+			clearTimeout(timer);
+		},
 		async close(): Promise<void> {
-			ready = false;
+			const closed = stopListening();
 			for (const socket of sockets) socket.destroy();
-			await new Promise<void>((resolve, reject) => {
-				server.close((error) => (error ? reject(error) : resolve()));
-			});
+			await closed;
 		},
 	};
 }

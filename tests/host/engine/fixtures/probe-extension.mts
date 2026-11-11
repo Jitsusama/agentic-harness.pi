@@ -44,6 +44,7 @@ interface ProbeApi {
 	getActiveTools(): readonly string[];
 	readonly events: {
 		on(channel: string, handler: (data: { how?: string }) => void): void;
+		emit(channel: string, data: unknown): void;
 	};
 }
 
@@ -142,6 +143,22 @@ export default function probeExtension(pi: ProbeApi): void {
 	pi.events.on("agentic-harness:session-stamp", (stamp) =>
 		note({ event: "stamp", how: stamp.how }),
 	);
+	// Background work as a producer hands it off, to the job host on this
+	// conversation's bus (job-workflow, where the harness loads), left running.
+	pi.registerCommand("probe-job", {
+		description: "Start background work that runs until the session ends",
+		handler: async () => {
+			let started = false;
+			pi.events.emit("jobs:ask:v1", (host: unknown) => {
+				if (started || typeof host !== "object" || host === null) return;
+				const start: unknown = Reflect.get(host, "start");
+				if (typeof start !== "function") return;
+				Reflect.apply(start, host, [{ kind: "probe", label: "held" }]);
+				started = true;
+			});
+			note({ event: "job", started: String(started) });
+		},
+	});
 	pi.registerCommand("tools-probe", {
 		description: "Note every tool this session has",
 		handler: async () => {

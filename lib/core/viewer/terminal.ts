@@ -218,6 +218,11 @@ export class ViewerTerminal implements Terminal {
 		};
 	}
 
+	/** Whether a viewer is editing a draft in its own editor now. */
+	isEditing(): boolean {
+		return [...this.viewers].some((viewer) => viewer.editing !== undefined);
+	}
+
 	/**
 	 * Edit `text` in the external editor of the viewer that typed last, in its
 	 * own terminal, while the screen runs on for the others: that viewer is

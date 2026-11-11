@@ -17,12 +17,14 @@ import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	createEngine,
+	type HostEngine,
 	type HostPiModules,
 	loadHostPi,
 } from "../engine/index.ts";
 import { hostRealm } from "./address.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { hostProof } from "./proof.ts";
+import { followWhatStarts } from "./restart.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 
 /**
@@ -137,12 +139,13 @@ export async function startHostProgram(
 		),
 		report,
 	});
-	return runHost({
+	let engine: HostEngine | undefined;
+	const run = await runHost({
 		argv,
 		env,
 		report,
-		engine: (host) =>
-			createEngine({
+		engine: async (host) => {
+			engine = await createEngine({
 				packageDir: configured.packageDir,
 				stateDir: join(stateDir("host-engine"), host.key),
 				host,
@@ -150,9 +153,25 @@ export async function startHostProgram(
 				key: gatewayKey({ env }),
 				screens: screens.screens,
 				report,
-			}),
+			});
+			return engine;
+		},
 		viewer: () => screens.viewer,
 	});
+	// The host's own code and pi move only as it restarts, so it restarts
+	// itself once either would differ and nobody would notice.
+	const unfollow = await followWhatStarts({
+		serving: run.serving,
+		// runHost answers only once its engine is made.
+		background: () => engine?.background() ?? 0,
+		resting: () => screens.resting(),
+		report,
+	}).catch((error: unknown) => {
+		report(error);
+		return () => undefined;
+	});
+	run.stopped.then(unfollow, unfollow);
+	return run;
 }
 
 /** Everything a restart can't change, judged before the host starts. */

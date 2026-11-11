@@ -40,6 +40,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { repaintOnHeightChange } from "./panel-height.ts";
 import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
+import { DOCK_NAME } from "./screen-gates.ts";
 import { screenShared } from "./screen-slot.ts";
 import { isTyped } from "./terminal-reports.ts";
 
@@ -82,9 +83,6 @@ export interface HopPlace {
 	 */
 	readonly next: string | undefined;
 }
-
-/** The name every copy looks for. The string is the contract; keep it. */
-const DOCK_NAME = "agentic-harness.dock";
 
 /** The protocol version this copy installs. */
 const PROTOCOL_VERSION = 1;

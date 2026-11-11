@@ -1,6 +1,7 @@
 /** A host's life: refuse before listening, resume what it holds, keep holds on stop. */
 import { randomUUID } from "node:crypto";
 import { access, mkdtemp, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -171,6 +172,53 @@ describe("serveHost", () => {
 		} finally {
 			await host.stop();
 		}
+	});
+
+	it.each([
+		[
+			"tells an attached viewer it restarts as it stops, once a restart is coming",
+			true,
+		],
+		[
+			"tells an attached viewer nothing as it stops for any other reason",
+			false,
+		],
+	])("%s", async (_case, coming) => {
+		const served = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+			viewer: () => ({
+				attach: () => ({ input() {}, resize() {}, detach() {} }),
+			}),
+		});
+		const reply = await opened(served.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		const socket = createConnection(served.path);
+		let heard = "";
+		const attached = new Promise<void>((resolve) =>
+			socket.on("data", (chunk) => {
+				heard += String(chunk);
+				if (heard.includes('"id":"view"')) resolve();
+			}),
+		);
+		const closed = new Promise<void>((resolve) => socket.on("close", resolve));
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId, rows: 20, columns: 80 })}\n`,
+		);
+		await attached;
+
+		served.restartComing(coming);
+		await served.stop();
+		await closed;
+		const frames = heard
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => JSON.parse(line));
+		expect(
+			frames.some((frame) => frame.type === "restarting"),
+			"whether the viewer heard the host is restarting",
+		).toBe(coming);
 	});
 
 	it("keeps every hold across stop and resumes them at the next start", async () => {

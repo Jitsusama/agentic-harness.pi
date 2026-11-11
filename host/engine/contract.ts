@@ -125,4 +125,10 @@ export interface HostEngine extends ConversationEngine {
 	view(sessionId: string): HostedView | undefined;
 	/** Say to the service each conversation ending or becoming another on its own; set once, before any start. */
 	watch(events: ConversationEvents): void;
+	/**
+	 * How much background work every running conversation holds: commands,
+	 * fleets and rounds still running, and results not yet said, which a
+	 * host restart would end or lose.
+	 */
+	background(): number;
 }

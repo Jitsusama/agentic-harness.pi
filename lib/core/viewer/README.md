@@ -9,6 +9,8 @@ Attach a sink with rows, columns, write and disconnect. Its attachment
 accepts input, resize and detach. The sink's write must enqueue without
 blocking; H2 bounds that queue to 4 MiB. Detach leaves pi and pending panels
 running. Dispose releases viewer buffers when the conversation closes.
+`isEditing` says whether a viewer has a draft out in its own editor,
+which a host waits out before restarting.
 
 The repaint callback must request a full pi render, including on a
 same-size join. It and pi's input and resize callbacks run inside
