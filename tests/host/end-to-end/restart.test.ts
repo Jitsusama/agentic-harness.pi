@@ -25,6 +25,7 @@ import {
 	steerInbox,
 	textOf,
 	toolAnswer,
+	turnEnded,
 	untilAnswered,
 } from "./support/hosted-case.ts";
 import { launcherOffers, nextBootRestore } from "./support/reopen.ts";
@@ -76,8 +77,13 @@ it(
 				first: STORE,
 			});
 			const cited = () => HANDLE.exec(toolAnswer(a.file, "spend") ?? "")?.[0];
-			await untilAnswered("the first conversation cites a handle", async () =>
-				Boolean(cited()),
+			// Killed before its turn's last reply, the log stops on spend's
+			// result, which the restart's cut-off reads as a run to give again:
+			// it re-sends `store`, and the steered query below lands in that
+			// same turn. Only the kill is under test, so it waits for the turn.
+			await untilAnswered(
+				"the first conversation cites a handle and ends its turn",
+				async () => Boolean(cited()) && turnEnded(a.file),
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\na: ${textOf(a.file)}`);
 			});
