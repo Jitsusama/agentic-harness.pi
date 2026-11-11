@@ -291,7 +291,7 @@ describe("the fence's guarded git folders", () => {
 
 	afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-	it("are told apart one at a time as the walk would list them", () => {
+	it("are the ones the walk lists in src and world, told apart one at a time", () => {
 		const places = [
 			"top",
 			".hidden-top",
@@ -317,9 +317,19 @@ describe("the fence's guarded git folders", () => {
 			...places.map((where) => join(home, where, ".git")),
 			bareRepository,
 		];
+		// A repository in another entry of the home folder is guarded by
+		// the fence but counts for nothing: a command can make one there.
+		const kept = (git: string) =>
+			["src", "world"].some((top) => git.startsWith(join(home, top, "/")));
 		for (const git of candidates) {
-			expect(guardsGitFolder(git, home), git).toBe(listed.has(git));
+			expect(guardsGitFolder(git, home), git).toBe(
+				listed.has(git) && kept(git),
+			);
 		}
+		expect(
+			[...listed],
+			"the walk still finds one in the home folder",
+		).toContain(join(home, "top/.git"));
 		expect(listed.size, "the walk found some and missed some").toBeLessThan(
 			candidates.length,
 		);

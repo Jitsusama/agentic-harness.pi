@@ -16,7 +16,10 @@
  * told that folder outright, so a `.git` file changed later counts for
  * nothing. The repository must also be one the fence guards for a tree
  * where the work tool cuts them, and for anything at all when this
- * session's own commands run fenced.
+ * session's own commands run fenced. A repository's git folder that
+ * holds a `commondir` of its own is refused, since git would read its
+ * settings from wherever that names, and every git that runs has
+ * `core.fsmonitor` off.
  */
 
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -163,6 +166,32 @@ function kindOf(path: string): "file" | "folder" | "link" | undefined {
 	}
 }
 
+/**
+ * What every git pi runs outside the fence is given first: no
+ * filesystem monitor, the one setting that starts a program on every
+ * status, whatever the repository's own settings say.
+ */
+const OUTSIDE_SETTINGS = ["-c", "core.fsmonitor=false"] as const;
+
+/** `args` as git runs them outside the fence. */
+function outside(args: readonly string[]): GitRun {
+	return { args: [...OUTSIDE_SETTINGS, ...args] };
+}
+
+/**
+ * Why git won't run with `git` as a repository's git folder, when it
+ * holds a `commondir`: git would read the settings of the folder that
+ * names, which needn't be one the fence guards. Only a worktree's own
+ * git folder has one.
+ */
+function redirected(top: string, git: string): GitRun | undefined {
+	return kindOf(join(git, "commondir")) === undefined
+		? undefined
+		: {
+				refused: `${top}'s git folder ${git} holds a commondir, which would have git read the settings of another folder, so git won't run there.`,
+			};
+}
+
 /** What a fenced session is told to do instead of naming an unguarded repository. */
 const CUT_ELSEWHERE =
 	"Cut the tree from a checkout under ~/src, whose settings the fence keeps read-only (`work tree`).";
@@ -179,16 +208,18 @@ export function gitRun(
 	rules: GitRules,
 ): GitRun {
 	if (args.some((arg) => arg === "--git-dir" || arg.startsWith("--git-dir="))) {
-		return { args };
+		return outside(args);
 	}
 	const found = foundGit(folder);
-	if (found.kind === "none") return { args };
+	if (found.kind === "none") return outside(args);
 	if (found.kind === "link") {
 		return {
 			refused: `${found.top}'s .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to.`,
 		};
 	}
 	if (found.kind === "repository") {
+		const elsewhere = redirected(found.top, found.git);
+		if (elsewhere) return elsewhere;
 		if (within(found.top, rules.trees)) {
 			return {
 				refused: `${found.top} lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there. Release it and cut it again.`,
@@ -202,7 +233,7 @@ export function gitRun(
 				refused: `${found.top} is a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${CUT_ELSEWHERE}`,
 			};
 		}
-		return { args };
+		return outside(args);
 	}
 	const tree = treeGit(found.top, rules.home);
 	if (!tree) {
@@ -214,6 +245,8 @@ export function gitRun(
 	// session: any session's sandboxed commands can write its `.git` file,
 	// and a repository's `worktrees` folder outside the fence's guard can
 	// be laid out to agree with it.
+	const elsewhere = redirected(found.top, tree.common);
+	if (elsewhere) return elsewhere;
 	const cut = within(found.top, rules.trees);
 	if (
 		(rules.fenced || cut) &&
@@ -223,9 +256,11 @@ export function gitRun(
 			refused: `${found.top} is a worktree of ${tree.common}, which the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${CUT_ELSEWHERE}`,
 		};
 	}
-	return {
-		args: [`--git-dir=${tree.gitDir}`, `--work-tree=${found.top}`, ...args],
-	};
+	return outside([
+		`--git-dir=${tree.gitDir}`,
+		`--work-tree=${found.top}`,
+		...args,
+	]);
 }
 
 /** The exit code a refused git answers with, as a shell's for a command it won't run. */

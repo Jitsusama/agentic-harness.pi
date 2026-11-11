@@ -290,7 +290,7 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 	const home = "/home/someone";
 	const tree = `${home}/trees/thing`;
 	const own = `${home}/src/repo/.git/worktrees/thing`;
-	const disk = diskOf([
+	const paths = [
 		`${home}/.ssh/config`,
 		`${home}/.ssh/known_hosts`,
 		`${home}/.ssh/agent-signing.pub`,
@@ -310,8 +310,12 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		`${home}/world/git/objects/`,
 		`${home}/world/git/worktrees/zone/config.worktree`,
 		`${home}/world/git/worktrees/zone/index`,
+		`${home}/notes/.git/config`,
+		`${home}/notes/.git/hooks/`,
+		`${home}/notes/.git/objects/`,
 		`${tree}/.git`,
-	]);
+	];
+	const disk = diskOf(paths);
 	const args = fenceArgs(
 		{ home, runtimeDir: "/run/user/1000", cwd: tree, ownGitFolder: own },
 		disk,
@@ -340,26 +344,41 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(args.join(" ")).toContain(`--remount-ro ${ssh}`);
 	});
 
-	it("makes what runs code in each git folder read-only, and leaves its objects and index writable", () => {
+	it("keeps src and world read-only, each git folder there but what a commit writes", () => {
+		const at = (flag: string, path: string) =>
+			args.findIndex((arg, index) => arg === flag && args[index + 1] === path);
+		for (const top of [`${home}/src`, `${home}/world`]) {
+			expect(
+				at("--ro-bind", top),
+				`${top} is read-only over the home's writable bind`,
+			).toBeGreaterThan(at("--bind", top));
+		}
+		for (const objects of [
+			`${home}/src/repo/.git/objects`,
+			`${home}/src/github.com/org/deep/.git/objects`,
+			`${home}/world/git/objects`,
+		]) {
+			expect(
+				at("--bind", objects),
+				`${objects} is bound back writable over src's read-only bind`,
+			).toBeGreaterThan(at("--ro-bind", `${home}/src`));
+		}
+		expect(
+			args.filter((arg) => arg.startsWith(`${home}/src/repo/.git`)),
+			"nothing else of a git folder in src is bound back",
+		).not.toContain(`${home}/src/repo/.git/config`);
+	});
+
+	it("makes what runs code in a git folder elsewhere read-only, and leaves its objects writable", () => {
 		for (const path of [
-			`${home}/src/repo/.git/config`,
-			`${home}/src/repo/.git/hooks`,
-			`${home}/src/repo/.git/info`,
-			`${home}/src/repo/.git/worktrees`,
-			`${home}/src/github.com/org/deep/.git/config`,
-			`${home}/world/git/config`,
-			`${home}/world/git/worktrees`,
+			`${home}/notes/.git/config`,
+			`${home}/notes/.git/hooks`,
 		]) {
 			expect(readOnly, `${path} is writable`).toContain(path);
 		}
-		for (const path of [
-			`${home}/src/github.com/org/deep/.git/objects`,
-			`${home}/src/repo/.git/objects`,
-			`${home}/world/git/worktrees/zone/index`,
-			`${own}/HEAD`,
-		]) {
-			expect(readOnly, `${path} is read-only`).not.toContain(path);
-		}
+		expect(readOnly, "its objects are read-only").not.toContain(
+			`${home}/notes/.git/objects`,
+		);
 	});
 
 	it("keeps the session's own tree pointed at its own git folder", () => {
@@ -370,7 +389,41 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			(arg, at) => arg === "--bind" && args[at + 1] === own,
 		);
 		expect(back, "the own worktree folder isn't bound back").toBeGreaterThan(
-			args.indexOf(`${home}/src/repo/.git/worktrees`),
+			args.findIndex(
+				(arg, at) => arg === "--ro-bind" && args[at + 1] === `${home}/src`,
+			),
+		);
+	});
+
+	it("binds the session's own tree in src back writable, its .git file read-only, for commands and file tools alike", () => {
+		const inSrc = `${home}/src/repo/.worktrees/thing`;
+		const place = {
+			home,
+			runtimeDir: "/run/user/1000",
+			cwd: inSrc,
+			ownGitFolder: own,
+		};
+		const withTree = diskOf([...paths, `${inSrc}/.git`]);
+		const given = fenceArgs(place, withTree);
+		const at = (flag: string, path: string) =>
+			given.findIndex(
+				(arg, index) => arg === flag && given[index + 1] === path,
+			);
+		expect(
+			at("--bind", inSrc),
+			"the tree is bound back over src's read-only bind",
+		).toBeGreaterThan(at("--ro-bind", `${home}/src`));
+		expect(
+			at("--ro-bind", `${inSrc}/.git`),
+			"its .git file stays read-only",
+		).toBeGreaterThan(at("--bind", inSrc));
+
+		const refuses = (path: string) => fenceRefusesWrite(path, place, withTree);
+		expect(refuses(`${inSrc}/file.ts`), "the tree's files").toBe(false);
+		expect(refuses(`${inSrc}/.git`), "the tree's .git file").toBe(true);
+		expect(refuses(`${home}/src/repo/file.ts`), "the checkout").toBe(true);
+		expect(refuses(`${home}/src/new/.git/config`), "a new repository").toBe(
+			true,
 		);
 	});
 
@@ -389,10 +442,10 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			inWorld.findIndex(
 				(arg, index) => arg === flag && inWorld[index + 1] === path,
 			);
-		const worktrees = at("--ro-bind", `${home}/world/git/worktrees`);
+		const worktrees = at("--ro-bind", `${home}/world`);
 		const back = at("--bind", zone);
 		const settings = at("--ro-bind", `${zone}/config.worktree`);
-		expect(worktrees, "the worktrees folder is writable").toBeGreaterThan(-1);
+		expect(worktrees, "world is writable").toBeGreaterThan(-1);
 		expect(back > worktrees, "the own folder isn't bound back").toBe(true);
 		expect(settings > back, "the own settings are writable").toBe(true);
 	});

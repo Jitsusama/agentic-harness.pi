@@ -80,12 +80,16 @@ through landrun:
   security key.
 - **No private keys.** `~/.ssh` shows only public keys, its settings
   and the known hosts.
-- **No git that runs later.** In each repository in the home folder,
-  under `src` four levels down, and in `world`, the settings, hooks,
-  `info` and other trees' git folders are read-only. Objects, refs and
-  the index stay writable, so commits still work in the session's own
-  tree, but not from a command in any other. The tree's `.git` file
-  and its links back are read-only too. Other quests' scratch folders
+- **No git that runs later.** `~/src` and `~/world` are read-only, so
+  a command makes no repository there and changes no checkout's files;
+  work in a tree the work tool cuts. Each git folder there is
+  read-only but for `objects`, `refs`, `logs`, `lfs` and `rr-cache`,
+  so a commit still works in the session's own tree, which is bound
+  back writable, but nothing can plant a `commondir`, a submodule's
+  git folder or a setting. In a repository elsewhere in the home
+  folder the settings, hooks, `info` and trees' git folders are
+  read-only. The tree's `.git` file and its links back are read-only
+  too. Other quests' scratch folders
   are read-only, the session's own quest's bound back, since clones
   there run git outside the fence for their own sessions.
 - **No git of its making run outside.** pi runs git outside the fence
@@ -95,9 +99,11 @@ through landrun:
   the folder it names, in its repository's `worktrees`, names it back,
   and git is then told both folders outright. A tree where the work
   tool cuts them must come from a repository the fence guards, in every
-  session; a fenced session's git runs only in such repositories. Cut a
-  tree from a checkout under `~/src`, not from a clone in a scratch
-  folder.
+  session; a fenced session's git runs only in such repositories, which
+  are those under `~/src` and `~/world`. Cut a tree from a checkout
+  there, not from a clone in a scratch folder. Every such git runs
+  with `core.fsmonitor=false`, and refuses a git folder holding a
+  `commondir`, which would have git read another folder's settings.
 - **No desktop.** The runtime folder is an empty one of its own, with
   only the Nix daemon's door for sandboxes bound back, and `NIX_REMOTE`
   points there. Landlock refuses every other socket, an abstract one

@@ -18,7 +18,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawnExec } from "../../../lib/core/exec/index.ts";
-import { gitFolders, guardsGitFolder } from "../../../lib/internal/fence.ts";
 import {
 	type GitRules,
 	gitRun,
@@ -41,6 +40,9 @@ afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 	disposeRepo(template);
 });
+
+/** What every git pi runs outside the fence is given first. */
+const NO_MONITOR = ["-c", "core.fsmonitor=false"];
 
 const rules = (over: Partial<GitRules> = {}): GitRules => ({
 	home,
@@ -71,6 +73,7 @@ describe("git that pi runs outside the sandbox", () => {
 
 		expect(gitRun(cut, ["status"], rules())).toEqual({
 			args: [
+				...NO_MONITOR,
 				`--git-dir=${join(repo, ".git/worktrees/t")}`,
 				`--work-tree=${cut}`,
 				"status",
@@ -130,6 +133,42 @@ describe("git that pi runs outside the sandbox", () => {
 		});
 	});
 
+	it("won't run where a repository's git folder holds a commondir sending git elsewhere", async () => {
+		const repo = repository("src/r");
+		// git reads a main repository's commondir too, and takes that
+		// folder's settings, whatever the fence keeps read-only here.
+		const forged = join(home, ".cache/forged");
+		cpSync(join(repo, ".git"), forged, { recursive: true });
+		const ran = join(home, "ran");
+		const monitor = join(home, "monitor.sh");
+		writeFileSync(monitor, `#!/bin/sh\ntouch ${ran}\n`);
+		chmodSync(monitor, 0o755);
+		writeFileSync(
+			join(forged, "config"),
+			`[core]\n\trepositoryformatversion = 0\n\tfsmonitor = ${monitor}\n`,
+		);
+		writeFileSync(join(repo, ".git/commondir"), `${forged}\n`);
+		const cut = join(trees, "t");
+		mkdirSync(join(repo, ".git/worktrees/t"), { recursive: true });
+		mkdirSync(cut);
+		writeFileSync(join(cut, ".git"), `gitdir: ${repo}/.git/worktrees/t\n`);
+		writeFileSync(join(repo, ".git/worktrees/t/gitdir"), `${cut}/.git\n`);
+		writeFileSync(join(repo, ".git/worktrees/t/commondir"), "../..\n");
+
+		const answer = await guardedExec(spawnExec(), () => rules())("git", [
+			"-C",
+			repo,
+			"status",
+		]);
+
+		expect(answer.code, answer.stderr).toBe(126);
+		expect(answer.stderr).toContain("holds a commondir");
+		expect(existsSync(ran), "the forged monitor never ran").toBe(false);
+		expect(gitRun(cut, ["status"], rules())).toMatchObject({
+			refused: expect.stringContaining("holds a commondir"),
+		});
+	});
+
 	it("won't run in a repository of its own where trees are cut", () => {
 		const own = join(trees, "made");
 		mkdirSync(own);
@@ -156,7 +195,13 @@ describe("git that pi runs outside the sandbox", () => {
 		const scratchTree = await tree(scratch, "s");
 		const fenced = rules({ fenced: true });
 
-		expect(gitRun(guarded, ["status"], fenced)).toEqual({ args: ["status"] });
+		expect(gitRun(guarded, ["status"], fenced)).toEqual({
+			args: [...NO_MONITOR, "status"],
+		});
+		expect(
+			gitRun(repository("notes"), ["status"], fenced),
+			"a repository in another entry of the home folder, which a command can make",
+		).toMatchObject({ refused: expect.stringContaining("doesn't keep") });
 		expect(gitRun(scratch, ["status"], fenced)).toMatchObject({
 			refused: expect.stringContaining("doesn't keep read-only"),
 		});
@@ -166,7 +211,7 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(
 			gitRun(scratch, ["status"], rules()),
 			"an unsandboxed session's commands could do anything anyway",
-		).toEqual({ args: ["status"] });
+		).toEqual({ args: [...NO_MONITOR, "status"] });
 		expect(
 			gitRun(scratchTree, ["status"], rules()),
 			"a cut tree is held to the guard in every session",
@@ -178,58 +223,10 @@ describe("git that pi runs outside the sandbox", () => {
 		mkdirSync(plain);
 
 		expect(gitRun(plain, ["ls-remote", "x"], rules())).toEqual({
-			args: ["ls-remote", "x"],
+			args: [...NO_MONITOR, "ls-remote", "x"],
 		});
 		expect(
 			gitRun(plain, ["--git-dir=/x", "status"], rules({ fenced: true })),
-		).toEqual({ args: ["--git-dir=/x", "status"] });
-	});
-});
-
-describe("the fence's guarded git folders", () => {
-	it("are told apart one at a time as the walk would list them", () => {
-		for (const where of [
-			"top",
-			".hidden-top",
-			"src/a",
-			"src/github.com/org/repo",
-			"src/w/x/y/z",
-			"src/v/w/x/y/z",
-			"src/.hidden/r",
-			"src/a/inner",
-			"world/r",
-			"world/r2/deeper",
-			"elsewhere/r",
-		]) {
-			mkdirSync(join(home, where, ".git"), { recursive: true });
-		}
-		const bare = join(home, "src/bare.git");
-		mkdirSync(join(bare, "objects"), { recursive: true });
-		writeFileSync(join(bare, "HEAD"), "ref: refs/heads/main\n");
-
-		const listed = new Set(gitFolders(home));
-		const candidates = [
-			...[
-				"top",
-				".hidden-top",
-				"src/a",
-				"src/github.com/org/repo",
-				"src/w/x/y/z",
-				"src/v/w/x/y/z",
-				"src/.hidden/r",
-				"src/a/inner",
-				"world/r",
-				"world/r2/deeper",
-				"elsewhere/r",
-			].map((where) => join(home, where, ".git")),
-			bare,
-		];
-		for (const git of candidates) {
-			expect(guardsGitFolder(git, home), git).toBe(listed.has(git));
-		}
-		expect(listed.size, "the walk found some and missed some").toBeLessThan(
-			candidates.length,
-		);
-		expect([...listed]).toContain(join(home, "src/a/.git"));
+		).toEqual({ args: [...NO_MONITOR, "--git-dir=/x", "status"] });
 	});
 });

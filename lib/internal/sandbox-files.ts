@@ -31,7 +31,7 @@ import {
 	STRICT,
 	unfencedFolder,
 } from "./sandbox.ts";
-import { within, worktreeRepository } from "./tree-git.ts";
+import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
@@ -192,6 +192,8 @@ function fenceRefusal(
 	const fence = {
 		home: place.home,
 		runtimeDir: place.env.XDG_RUNTIME_DIR,
+		cwd: place.cwd,
+		ownGitFolder: treeGit(place.cwd, place.home)?.gitDir,
 		scratch: questScratch(place.env.TMPDIR),
 	};
 	for (const candidate of candidates) {
@@ -205,7 +207,7 @@ function fenceRefusal(
 			use === "write" &&
 			(fenceRefusesWrite(candidate, fence) || fenceRefusesWrite(real, fence))
 		) {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Change settings through core and a switch, and another quest's files through its sessions.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
 		}
 		if (fenceRefusesRead(real, fence)) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run.`;
