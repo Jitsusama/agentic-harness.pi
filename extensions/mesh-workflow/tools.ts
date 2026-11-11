@@ -64,6 +64,12 @@ import {
 import type { WantKind } from "../../lib/mesh/want.ts";
 import { count } from "../../lib/ui/count.ts";
 import { leasesText } from "./leases.ts";
+import {
+	type Refusal,
+	refusedMark,
+	refusedNotes,
+	refusedSection,
+} from "./refusals.ts";
 import { type Waiting, waitOnPerson } from "./wait.ts";
 
 /** The most messages one mesh_read hands back. */
@@ -450,7 +456,7 @@ export function registerTools(
 		execute: using(async (at) => {
 			const standing = await peers(at);
 			return answer(
-				`${groupsText(standing, at.peer)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}`,
+				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}`,
 				{ groups: at.peer.groups },
 			);
 		}),
@@ -908,7 +914,13 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		notes: reachNotes,
 		reached,
 		gone,
-	} = reach(message, standing, at.peer, at.transport.read);
+	} = reach(
+		message,
+		standing,
+		at.peer,
+		at.transport.read,
+		at.presences.refusal,
+	);
 	notes.unshift(...reachNotes);
 	const glancing = stops
 		.filter(({ stopper }) => reaches(message, stopper, -1))
@@ -1015,6 +1027,7 @@ function reach(
 	standing: Census,
 	peer: Peer,
 	read: Reader,
+	refusal: Refusal,
 ): { notes: string[]; reached: string[]; gone: string[] } {
 	const everyone = standing.present;
 	const reached = everyone
@@ -1042,6 +1055,14 @@ function reach(
 			: [],
 	);
 	const idle = idleAddressed(message, everyone, peer, addressed, read);
+	const refused = refusedNotes(
+		everyone.filter(
+			(one) =>
+				one.session !== peer.session &&
+				one.addresses.some((address) => addressed.includes(homeOf(address))),
+		),
+		refusal,
+	);
 	const notes = [
 		reached.length > 0
 			? `It goes to ${reached.join(", ")}; mesh_read says when each has it.`
@@ -1056,6 +1077,7 @@ function reach(
 			? `${waiting.join(" and ")} ${waiting.length === 1 ? "is waiting on its person, so it" : "are waiting on their people, so they"} may be slow to take this up.`
 			: "",
 		idle.length > 0 ? idleText(idle, message.intent) : "",
+		...refused,
 	].filter(Boolean);
 	return { notes, reached, gone };
 }
@@ -1242,7 +1264,11 @@ async function openText(at: Local, now = Date.now()): Promise<string> {
 	const lines = open.slice(-MOST_READ).map(({ message, waitingOn }) => {
 		const minutes = Math.round((now - Date.parse(message.at)) / 60_000);
 		const who = waitingOn
-			.map((address) => (present.has(address) ? address : `${address} (gone)`))
+			.map((address) => {
+				if (!present.has(address)) return `${address} (gone)`;
+				const one = everyone.find((each) => each.addresses.includes(address));
+				return `${address}${refusedMark(one && at.presences.refusal(one))}`;
+			})
 			.join(", ");
 		const text = message.text.replace(/\s+/g, " ").trim();
 		const cut =
@@ -1484,7 +1510,13 @@ async function join(
 		invite: group,
 	});
 	at.sent(message);
-	const { notes } = reach(message, standing, at.peer, at.transport.read);
+	const { notes } = reach(
+		message,
+		standing,
+		at.peer,
+		at.transport.read,
+		at.presences.refusal,
+	);
 	const skipped =
 		notHomes.length > 0
 			? ` Not invited, since they name no other peer: ${notHomes.join(", ")}.`
@@ -1667,6 +1699,7 @@ function peersText(
  * request, since the session's file says nothing until the call ends.
  */
 function runText(one: Presence, now: number): string {
+	if (one.state === "parked") return "parked";
 	if (!one.busy) return "idle";
 	const step = one.stepDetail;
 	const lasted = step ? now - Date.parse(step.since) : Number.NaN;

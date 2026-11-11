@@ -35,6 +35,11 @@ import { parsedFiles } from "../internal/quest/parsed-file.ts";
 import { isRecord } from "../internal/record.ts";
 import { isLanding, type Landing } from "../internal/session/landings.ts";
 import { isMoveTarget, type MoveTarget } from "../internal/session/move.ts";
+import {
+	type RefusedWake,
+	readRefusedWake,
+	refusedWakePath,
+} from "../internal/session/refused-wake.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
@@ -249,6 +254,12 @@ export interface Presences {
 	publish(presence: Presence): void;
 	/** Every peer's presence. */
 	all(): Presence[];
+	/**
+	 * Why its host refused the last wake of a peer that says it is parked,
+	 * while the refusal is kept beside its wake file
+	 * (internal/session/refused-wake.ts); none for a peer not parked.
+	 */
+	refusal(presence: Presence): RefusedWake | undefined;
 	/** Let go of a peer's presence, once it has ended. */
 	forget(session: string): void;
 	/** Let go of what nothing has touched since this time. */
@@ -476,29 +487,18 @@ function commonGitDir(checkout: string): string {
 export function createPresences(dir: string): Presences {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
-	const kept = new Map<string, Kept>();
+	const kept = new Map<string, Kept<Presence>>();
 	// Each file's parse, kept while the file is the one it was read from:
 	// a publish renames a new file in, so its inode says a change, and
 	// mtime and size say one written in place. Every pi lists every
 	// presence three times a minute (the peer refresh, the live count and
 	// the steer look), and a hundred parses each time were most of what
 	// an idle pi allocated.
-	const readKept = (path: string): Presence | undefined => {
-		let stamp: string;
-		try {
-			const stat = statSync(path);
-			stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
-		} catch {
-			// Gone since it was listed, or never there: nothing to read.
-			kept.delete(path);
-			return undefined;
-		}
-		const was = kept.get(path);
-		if (was?.stamp === stamp) return was.presence;
-		const presence = read(path);
-		kept.set(path, { stamp, presence });
-		return presence;
-	};
+	const readKept = (path: string): Presence | undefined =>
+		readStamped(kept, path, read);
+	// A parked peer's refused wake, by the file it is kept in, read the
+	// same way, so a listing costs a stat for each parked peer.
+	const refusals = new Map<string, Kept<RefusedWake>>();
 	return {
 		of: (session) => readKept(file(session)),
 		publish(presence) {
@@ -520,6 +520,12 @@ export function createPresences(dir: string): Presences {
 				.map(readKept)
 				.filter((one): one is Presence => one !== undefined);
 		},
+		refusal({ state, wake }) {
+			if (state !== "parked" || wake === undefined) return undefined;
+			return readStamped(refusals, refusedWakePath(wake), () =>
+				readRefusedWake(wake),
+			);
+		},
 		forget: (session) => removeQuietly(file(session)),
 		// A presence is current while its peer is, so only what a publish
 		// staged and never renamed is old here; ended peers are forgotten.
@@ -527,10 +533,35 @@ export function createPresences(dir: string): Presences {
 	};
 }
 
-/** A presence file's parse, and the file it came from. */
-interface Kept {
+/** A file's parse, and the file it came from, by its stat. */
+interface Kept<T> {
 	readonly stamp: string;
-	readonly presence: Presence | undefined;
+	readonly value: T | undefined;
+}
+
+/**
+ * The file at `path` as `read` parses it, kept in `kept` while its inode,
+ * mtime and size stay as they were; a file gone is forgotten.
+ */
+function readStamped<T>(
+	kept: Map<string, Kept<T>>,
+	path: string,
+	read: (path: string) => T | undefined,
+): T | undefined {
+	let stamp: string;
+	try {
+		const stat = statSync(path);
+		stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		// Gone since it was listed, or never there: nothing to read.
+		kept.delete(path);
+		return undefined;
+	}
+	const was = kept.get(path);
+	if (was?.stamp === stamp) return was.value;
+	const value = read(path);
+	kept.set(path, { stamp, value });
+	return value;
 }
 
 function read(path: string): Presence | undefined {
