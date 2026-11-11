@@ -49,6 +49,7 @@ import {
 } from "../../../lib/internal/session/left.ts";
 import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 import { PARK_ASK, SESSION_WOKEN } from "../../../lib/internal/session/park.ts";
+import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -2285,6 +2286,53 @@ describe("groups", () => {
 			`WCJQSG (held at an approval since ${at}) is waiting on its person, so it may be slow to take this up.`,
 		);
 		expect(await sentTo("#optimus")).not.toContain("waiting on");
+	});
+
+	it("says a parked peer's host refused its last wake, and why, wherever it is named", async () => {
+		// Today, so each says the time alone.
+		const refusedAt = new Date().toISOString();
+		const at = new Date(refusedAt).toTimeString().slice(0, 5);
+		const wake = join(paths.mesh, "parked-r", "wake");
+		mkdirSync(join(paths.mesh, "parked-r"), { recursive: true });
+		writeRefusedWake(wake, {
+			messageId: "2f95756a",
+			reason: "the host is stopping",
+			at: refusedAt,
+		});
+		createPresences(join(paths.mesh, "presence")).publish({
+			session: "session-r",
+			addresses: ["REFUSD"],
+			groups: ["#optimus"],
+			state: "parked",
+			wake,
+			worksOn: "the launcher",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		const sent = await send(tools, "REFUSD", "question", "Which qemu?");
+		expect(sent, "the send says it").toContain(
+			`REFUSD is parked, and its host refused its last wake at ${at}: the host is stopping. If that still holds, it reads this at its next start.`,
+		);
+
+		const listed =
+			(await tools.get("mesh_groups")?.execute("call-g", {}))?.content[0]
+				?.text ?? "";
+		expect(listed, "mesh_groups names it parked").toContain(
+			"REFUSD, parked: the launcher",
+		);
+		expect(listed, "mesh_groups says why it sleeps on").toContain(
+			`Parked, their last wake refused:\nREFUSD at ${at}: the host is stopping`,
+		);
+
+		const open =
+			(await tools.get("mesh_read")?.execute("call-u", { unanswered: true }))
+				?.content[0]?.text ?? "";
+		expect(open, "the unanswered list says it").toContain(
+			`waiting on REFUSD (parked, its last wake refused at ${at}): Which qemu?`,
+		);
 	});
 
 	it("says an fyi or finding to an idle peer starts no turn, and what would", async () => {
