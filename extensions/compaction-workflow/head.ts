@@ -7,7 +7,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { keepHead, keptHeadOf } from "../../lib/internal/session/first-head.ts";
+import { keepHead } from "../../lib/internal/session/first-head.ts";
+import { keptHeadAt } from "../../lib/internal/session/kept-head.ts";
 
 /** The variable that turns keeping the first head off. */
 export const KEEP_HEAD_ENV = "PI_COMPACTION_KEEP_HEAD";
@@ -16,7 +17,9 @@ export const KEEP_HEAD_ENV = "PI_COMPACTION_KEEP_HEAD";
 export function registerFirstHead(pi: ExtensionAPI): void {
 	pi.on("context_with_system", async (event, ctx) => {
 		if (process.env[KEEP_HEAD_ENV] === "off") return undefined;
-		const kept = keptHeadOf(ctx.sessionManager.getBranch());
+		// Told from what the branch gained since the last request, since
+		// walking all of it before each request held pi's main thread.
+		const kept = keptHeadAt(ctx.sessionManager);
 		if (kept === undefined) return undefined;
 		const messages = keepHead(kept, event.messages);
 		return messages === undefined ? undefined : { messages };

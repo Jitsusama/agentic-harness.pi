@@ -52,26 +52,38 @@ export const MOVE_SHARE = 0.25;
  * walked from the branch alone so every request in a cycle agrees.
  */
 export function keptHeadOf(
-	entries: readonly {
-		readonly type: string;
-		readonly message?: unknown;
-		readonly systemMessage?: unknown;
-	}[],
+	entries: readonly HeadEntry[],
 ): SystemMessage | undefined {
 	let kept: SystemMessage | undefined;
-	for (const entry of entries) {
-		if (kept === undefined) {
-			if (entry.type === "message" && isSystemMessage(entry.message)) {
-				kept = entry.message;
-			}
-			continue;
-		}
-		if (entry.type !== "compaction" || !isSystemMessage(entry.systemMessage)) {
-			continue;
-		}
-		if (outgrown(kept, entry.systemMessage)) kept = entry.systemMessage;
-	}
+	for (const entry of entries) kept = keptHeadAfter(kept, entry);
 	return kept;
+}
+
+/** What a branch's entries are read for, to tell its kept head. */
+export interface HeadEntry {
+	readonly type: string;
+	readonly message?: unknown;
+	readonly systemMessage?: unknown;
+}
+
+/**
+ * The kept head once `entry` follows a branch that kept `kept`: one step
+ * of `keptHeadOf`, so a branch that grows can be told from what it
+ * gained alone.
+ */
+export function keptHeadAfter(
+	kept: SystemMessage | undefined,
+	entry: HeadEntry,
+): SystemMessage | undefined {
+	if (kept === undefined) {
+		return entry.type === "message" && isSystemMessage(entry.message)
+			? entry.message
+			: undefined;
+	}
+	if (entry.type !== "compaction" || !isSystemMessage(entry.systemMessage)) {
+		return kept;
+	}
+	return outgrown(kept, entry.systemMessage) ? entry.systemMessage : kept;
 }
 
 /** Whether the patch from `kept` to `head` has reached `MOVE_SHARE` of `kept`, or can't be said. */
