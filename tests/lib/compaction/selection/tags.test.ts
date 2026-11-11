@@ -15,10 +15,13 @@ import { unitsOf } from "../../../../lib/compaction/selection/units.ts";
 /** What reading the whole branch says, to hold the fold to. */
 function wholeBranch(manager: SessionManager) {
 	const branch = manager.getBranch();
-	const last = branch.findLastIndex((entry) => entry.type === "compaction");
+	let start = 0;
+	branch.forEach((entry, at) => {
+		if (entry.type === "compaction") start = at + 1;
+	});
 	return {
 		recorded: readTags(branch),
-		live: branch.slice(last + 1).map((entry) => entry.id),
+		live: branch.slice(start).map((entry) => entry.id),
 	};
 }
 
