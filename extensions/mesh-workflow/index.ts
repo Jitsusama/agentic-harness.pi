@@ -94,7 +94,6 @@ import {
 	type NoModelEvent,
 	onNoModel,
 } from "../../lib/internal/session/no-model.ts";
-import { liveHolder } from "../../lib/internal/session/one-writer.ts";
 import {
 	askWake,
 	isParkAsk,
@@ -110,6 +109,7 @@ import {
 } from "../../lib/internal/session/rollover.ts";
 import { isWakersAsk, WAKERS_ASK } from "../../lib/internal/session/wakers.ts";
 import { onWants, showWants } from "../../lib/internal/session/wants.ts";
+import { writerHold } from "../../lib/internal/session/writer-hold.ts";
 import { onJobFinished } from "../../lib/jobs/host.ts";
 import { loadedQuest, type QuestRecords } from "../../lib/mesh/address.ts";
 import {
@@ -1546,11 +1546,11 @@ export function meshWorkflow(
 			// peer: on 3 November one caught up on 13 messages the live
 			// session it had become never got (lib/internal/session/left.ts).
 			if (sessionLeft(started.sessionManager.getSessionId())) return;
-			// A plain pi on a log a live host holds ends at once, and its peer
-			// is the host's: on 10 November one wrote its pid over it.
+			// A plain pi on a log a host holds ends at once, and its peer is
+			// the host's: on 10 November one wrote its pid over it.
 			if (
 				!hosted() &&
-				(await liveHolder(started.sessionManager.getSessionId()))
+				(await writerHold(started.sessionManager.getSessionId()))
 			)
 				return;
 			ctx = started;

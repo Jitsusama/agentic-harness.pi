@@ -11,10 +11,7 @@ import {
 	type TickedOwner,
 	tickedOwnerNow,
 } from "../../../../lib/internal/process-ticks.ts";
-import {
-	heldElsewhere,
-	liveHolder,
-} from "../../../../lib/internal/session/one-writer.ts";
+import { liveHolder } from "../../../../lib/internal/session/one-writer.ts";
 
 const held = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
 const other = "019e0c11-2b2c-7bd5-9e04-1c3c0a5b7a10";
@@ -67,7 +64,7 @@ describe("the live host holding a conversation", () => {
 
 		expect(
 			await liveHolder(held, { dir, standing }),
-			"a crashed host's list holds nothing",
+			"a crashed host's list holds nothing; its roster is writer-hold.ts's",
 		).toBeUndefined();
 	});
 
@@ -103,11 +100,5 @@ describe("the live host holding a conversation", () => {
 			await liveHolder(held, { dir }),
 			"a pid whose start differs from the list's is another process",
 		).toBeUndefined();
-	});
-
-	it("is said by its key and pid", () => {
-		expect(heldElsewhere(held, { key: "work-background", pid: 4100 })).toBe(
-			`Conversation ${held} is open in the work-background host (pid 4100), so plain pi won't open it as a second writer on its log. Reach it through that host, or move it to pi first. Nothing was written.`,
-		);
 	});
 });
