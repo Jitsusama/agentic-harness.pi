@@ -16,11 +16,13 @@ import {
 	recentlyClosedSessions,
 	recordSession,
 	recordSessionEnd,
+	releasedHome,
 	restorableSessions,
 	saveRecord,
 	seedLiveSessions,
 	sessionRegistryDir,
 	setSignalStampSession,
+	settleMoveNote,
 	startHeartbeat,
 	stopHeartbeat,
 	touchHeartbeat,
@@ -32,6 +34,11 @@ import {
 	markSignalled,
 	openRecord,
 } from "../../../lib/internal/quest/session-registry.ts";
+import {
+	type MoveNote,
+	readMoveNote,
+	writeMoveNote,
+} from "../../../lib/internal/session/move.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 let stateHome: string;
@@ -737,5 +744,61 @@ describe("observing the open records", () => {
 		recordSessionEnd("sess-dead", "quit", new Date("2026-07-28T19:00:00.000Z"));
 		expect(observeRecords(loadRecords()).repaired).toEqual([]);
 		expect(readRecord("sess-dead")?.endReason).toBe("quit");
+	});
+});
+
+describe("releasedHome", () => {
+	const RELEASED = "01a1be5c-fff0-70a1-9301-f505d5634b00";
+
+	/** A note a conversation left as its host let it go to plain pi. */
+	const released = (session: string): MoveNote => ({
+		session,
+		sessionFile: `/work/${session}.jsonl`,
+		cwd: "/work",
+		to: "pi",
+		at: NOW.toISOString(),
+		addresses: ["RELEAS"],
+		from: "work-background",
+		pid: 4242,
+	});
+
+	it("offers back what a host let go, but not one a host keeps again", () => {
+		const moves = join(stateHome, "moves");
+		writeMoveNote(released(RELEASED), moves);
+		writeMoveNote(released(MOVED), moves);
+		keepOnRoster("work-attended", [MOVED]);
+
+		expect(
+			releasedHome(join(stateHome, "quests"), moves).map((entry) => entry.id),
+		).toEqual([RELEASED]);
+	});
+});
+
+describe("settleMoveNote", () => {
+	const note = (session: string, to: MoveNote["to"]): MoveNote => ({
+		session,
+		sessionFile: `/work/${session}.jsonl`,
+		cwd: "/work",
+		to,
+		at: NOW.toISOString(),
+		addresses: ["NOTEDD"],
+		pid: 4242,
+	});
+
+	it("takes any note away once plain pi has the session", () => {
+		const moves = join(stateHome, "moves");
+		writeMoveNote(note("plain", "attended"), moves);
+		settleMoveNote("plain", false, moves);
+		expect(readMoveNote("plain", moves)).toBeUndefined();
+	});
+
+	it("in a host, takes a release's note away but leaves one for a host", () => {
+		const moves = join(stateHome, "moves");
+		writeMoveNote(note("released", "pi"), moves);
+		writeMoveNote(note("arriving", "attended"), moves);
+		settleMoveNote("released", true, moves);
+		settleMoveNote("arriving", true, moves);
+		expect(readMoveNote("released", moves)).toBeUndefined();
+		expect(readMoveNote("arriving", moves)?.to).toBe("attended");
 	});
 });
