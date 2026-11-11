@@ -198,6 +198,32 @@ describe("reaching a held conversation", () => {
 			"is open in the work-background host",
 		);
 	});
+
+	it("says a conversation its running host parked wakes at a key in its window or a message", () => {
+		const said = heldByHost(kept, {
+			...holdOf("work-background", false),
+			parked: true,
+		});
+
+		expect(said).toContain(
+			"is parked in the work-background host, and a key in its window or a message to it wakes it",
+		);
+		expect(said, "no start is waited on").not.toContain("as it starts");
+	});
+
+	it("says one its running host keeps but can't run waits on that host's next start", () => {
+		const said = heldByHost(kept, {
+			...holdOf("work-background", false),
+			stranded: true,
+		});
+
+		expect(said).toContain(
+			"is held but not running in the work-background host, since its last start or park failed",
+		);
+		expect(said).toContain(
+			"systemctl --user restart pi-host-work-background.service starts it now, and restarts every conversation it hosts",
+		);
+	});
 });
 
 describe("viewing a hosted conversation in a window", () => {

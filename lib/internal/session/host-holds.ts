@@ -36,6 +36,10 @@ export interface HostHold {
 	readonly realm: string;
 	/** Open in a running host now, rather than only kept for its resume. */
 	readonly open: boolean;
+	/** Kept, not open, by a running host that parked it while idle, so a wake takes it up rather than a start. */
+	readonly parked?: boolean;
+	/** Kept, not open, by a running host that couldn't run it, so only the host's next start takes it up. */
+	readonly stranded?: boolean;
 }
 
 /** Where the lists and rosters are; the machine's unless a test sets them. */
@@ -199,8 +203,15 @@ export function viewingWords(
 
 /** What a reader says of a conversation a host holds, and how to reach it. */
 export function heldByHost(sessionId: string, hold: HostHold): string {
+	if (hold.stranded)
+		// Not running, it hears no release, and has no presence to end: only
+		// its host's next start, or a close sent to its socket, lets it go.
+		// core.nix names each host's unit after its key.
+		return `Session ${sessionId} is held but not running in the ${hold.key} host, since its last start or park failed, so nothing else was opened on its log, which would give it a second writer. The host tries it again as it next starts; systemctl --user restart pi-host-${hold.key}.service starts it now, and restarts every conversation it hosts.`;
 	const where = hold.open
 		? `is open in the ${hold.key} host`
-		: `is kept by the ${hold.key} host, which takes it up again as it starts`;
+		: hold.parked
+			? `is parked in the ${hold.key} host, and a key in its window or a message to it wakes it`
+			: `is kept by the ${hold.key} host, which takes it up again as it starts`;
 	return `Session ${sessionId} ${where}, so nothing else was opened on its log, which would give it a second writer. Reach it through its host, with the launcher's Go To or: ${attachWords(hold, sessionId).join(" ")}`;
 }

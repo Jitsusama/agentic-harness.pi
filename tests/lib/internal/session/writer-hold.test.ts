@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HostRegistry } from "../../../../lib/core/session/host.ts";
 import type { TickedOwner } from "../../../../lib/internal/process-ticks.ts";
 import { hostRunning } from "../../../../lib/internal/session/one-writer.ts";
+import { writeParked } from "../../../../lib/internal/session/park.ts";
 import { writerHold } from "../../../../lib/internal/session/writer-hold.ts";
 
 const kept = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
@@ -30,6 +31,8 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
+/** A settle long enough that waiting it out shows, and short enough to fit a case. */
+const SLOW_SETTLE_MS = 2000;
 const running = { pid: 4100, startedAt: 1_794_370_632_830, startTicks: 141 };
 const dead = { pid: 4300, startedAt: 1_794_360_000_000, startTicks: 90 };
 const standing = async (owner: TickedOwner) =>
@@ -93,13 +96,56 @@ describe("the hold that keeps plain pi off a log", () => {
 		});
 	});
 
-	it("is a running host's roster that keeps what it couldn't resume", async () => {
+	it("is a running host's roster that keeps what it couldn't resume, said as stranded", async () => {
 		list("work-background", running, [open]);
 		roster("work-background", [open, kept]);
 
 		expect(
 			await writerHold(kept, { dir, standing, rosters, settleMs: 300 }),
-		).toEqual({ key: "work-background", realm: "work", open: false });
+		).toEqual({
+			key: "work-background",
+			realm: "work",
+			open: false,
+			stranded: true,
+		});
+	});
+
+	it("is a running host that parked it, said at once rather than after the settle", async () => {
+		list("work-background", running, [open]);
+		roster("work-background", [open, kept]);
+		const parks = join(root, "park-workflow");
+		writeParked(
+			{
+				session: kept,
+				sessionFile: `/home/someone/.pi/sessions/${kept}.jsonl`,
+				cwd: "/home/someone/src/core.nix",
+				addresses: ["1H56ZJ"],
+				parkedAt: "2026-11-11T07:18:12.000Z",
+				pid: running.pid,
+				wake: join(root, "wake"),
+			},
+			parks,
+		);
+		const asked = Date.now();
+
+		const hold = await writerHold(kept, {
+			dir,
+			standing,
+			rosters,
+			parks,
+			settleMs: SLOW_SETTLE_MS,
+		});
+
+		expect(hold).toEqual({
+			key: "work-background",
+			realm: "work",
+			open: false,
+			parked: true,
+		});
+		expect(
+			Date.now() - asked,
+			"a parked one is never waited on as one the host is letting go",
+		).toBeLessThan(SLOW_SETTLE_MS);
 	});
 
 	it("is nothing once a running host drops from its roster what it let go", async () => {

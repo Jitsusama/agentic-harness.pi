@@ -185,7 +185,7 @@ describe("waking a parked conversation", () => {
 		).not.toContain(sessionId);
 	});
 
-	it("says a wake of one whose start failed can't, and that a close lets it go", async () => {
+	it("says a wake of one held but not running can't, since its start or its park failed, and that a close lets it go", async () => {
 		const fake = engine();
 		const backend = backendWith(fake);
 		const { sessionId } = parseOpenResult(await backend.execute(open));
@@ -194,7 +194,9 @@ describe("waking a parked conversation", () => {
 		await expect(
 			backend.wake(sessionId),
 			"the wake says why it can't",
-		).rejects.toThrow(/failed as it started; close it and open it again/);
+		).rejects.toThrow(
+			/is held but not running, since its last start or park failed; close it and open it again/,
+		);
 		expect(fake.resume, "nothing resumed").not.toHaveBeenCalled();
 	});
 

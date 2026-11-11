@@ -320,6 +320,49 @@ describe("serveHost", () => {
 		).toBe("held");
 	});
 
+	it("refuses a wake that comes once the host is stopping, saying the next start takes it up", async () => {
+		let sessionHost: SessionHost | undefined;
+		let events: ConversationEvents | undefined;
+		let resumes = 0;
+		const serving = await serveHost({
+			...places(),
+			engine: async (h) => {
+				sessionHost = h;
+				const plain = engine(h);
+				return {
+					...plain,
+					watch: (given) => {
+						events = given;
+					},
+					resume: async (entry) => {
+						resumes += 1;
+						await plain.resume(entry);
+					},
+				};
+			},
+		});
+		const reply = await opened(serving.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await sessionHost?.stop(sessionId, "parked while idle");
+
+		const stopped = serving.stop();
+		const woke = events?.wake?.(sessionId);
+
+		await expect(
+			woke,
+			"the wake says why nothing wakes it, so its window can say so",
+		).rejects.toThrow(
+			"the host is stopping, and takes the conversation up again as it starts",
+		);
+		await stopped;
+		expect(resumes, "nothing resumed in the stopping host").toBe(0);
+		expect(
+			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
+			"it stays held for the next start",
+		).toBe("held");
+	});
+
 	it("watches the engine before it resumes, so a conversation that ends inside pi is dropped", async () => {
 		const first = await serveHost({
 			...places(),

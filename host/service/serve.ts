@@ -105,9 +105,10 @@ export async function serveHost(options: {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		await options.starting?.({ step: "engine" });
 		const engine = await options.engine(host);
-		// What wakes a parked conversation, once the host listens and until it
-		// stops: a wake racing the stop does nothing, and the next start
-		// resumes it anyway.
+		// What wakes a parked conversation, once the host listens: before then a
+		// wake does nothing, since the start resumes what the roster holds, and
+		// once it stops a wake says why it can't, so a window that asked says so
+		// rather than waiting on a wake that never comes.
 		let wakes: HostBackend["wake"] | undefined;
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
@@ -155,7 +156,12 @@ export async function serveHost(options: {
 			},
 			stop() {
 				stopping ??= (async () => {
-					wakes = undefined;
+					wakes = () =>
+						Promise.reject(
+							new Error(
+								"the host is stopping, and takes the conversation up again as it starts",
+							),
+						);
 					if (restarting) await listener.restarting();
 					await listener.close();
 					// A wake already resuming finishes first, so it is parked with
