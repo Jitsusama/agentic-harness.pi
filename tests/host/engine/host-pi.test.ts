@@ -32,6 +32,8 @@ interface FakeSeams {
 	readonly agent?: boolean;
 	readonly turn?: boolean;
 	readonly screen?: boolean;
+	/** Whether the screen's lifecycle patch has its hosted quit; it does unless said. */
+	readonly quit?: boolean;
 	readonly auth?: boolean;
 }
 
@@ -47,7 +49,10 @@ function fakeInstall(
 	directories.push(dir);
 	const files = hostPiFiles(dir);
 	const agent = seams.agent ? "static hostAgentInterfaceVersion = 1;" : "";
-	const screen = seams.screen ? "static hostedLifecycleVersion = 1;" : "";
+	const lifecycle = seams.screen ? "static hostedLifecycleVersion = 1;" : "";
+	const quit =
+		seams.screen && seams.quit !== false ? " static hostedQuit = true;" : "";
+	const screen = lifecycle + quit;
 	const auth = seams.auth ? "static hostAuthContextVersion = 2;" : "";
 	const phases = seams.turn
 		? "{ committedTurn() {}, turnBoundary() {} }"
@@ -164,9 +169,27 @@ it("refuses a pi that names no version", async () => {
 	const { codingAgent } = hostPiFiles(dir);
 	writeFileSync(
 		codingAgent,
-		"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; }\nexport class ModelRuntime { static hostAuthContextVersion = 2; }\n",
+		"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; static hostedQuit = true; }\nexport class ModelRuntime { static hostAuthContextVersion = 2; }\n",
 	);
 	await expect(loadHostPi(dir)).rejects.toThrow("names no version");
+});
+
+it("refuses a pi whose screens would quit without asking the host", async () => {
+	const error = await refusal(
+		fakeInstall({
+			agent: true,
+			turn: true,
+			screen: true,
+			auth: true,
+			quit: false,
+		}),
+	);
+	expect(error.missing.map((seam) => seam.patch)).toEqual([
+		"pi-host-interactive-lifecycle.patch",
+	]);
+	expect(error.message).toContain(
+		"pi-host-interactive-lifecycle.patch: without it a quit typed while other windows watch would end the conversation",
+	);
 });
 
 it("names only the patch a pi is missing", async () => {

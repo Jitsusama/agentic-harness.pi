@@ -546,41 +546,28 @@ export function hostScreens(options: {
 
 /**
  * Adapt the InteractiveMode class a host's pi exports, refusing one without
- * the hosted lifecycle, whose screens would own the host's process exit.
+ * the hosted lifecycle, whose screens would own the host's process exit, or
+ * without its hosted quit, whose screens would quit without asking the host.
  */
 export function hostedModeOf(interactiveMode: unknown): HostedModeFactory {
 	if (!isHostedModeClass(interactiveMode))
 		throw new Error(
 			"pi's InteractiveMode lacks the hosted lifecycle (pi-host-interactive-lifecycle.patch)",
 		);
-	const asksItsHost = Reflect.get(interactiveMode, "hostedQuit") === true;
-	return (runtime, options) => {
-		const mode = new interactiveMode(runtime, options);
-		if (!asksItsHost) askBeforeQuitting(mode, options.hosted.quit);
-		return mode;
-	};
-}
-
-// A pi whose hosted quit asks its host first (hosted.quit, marked by
-// InteractiveMode.hostedQuit, in pi-host-interactive-lifecycle.patch)
-// needs nothing more. Until every host's pi has it, the screen's own
-// shutdown, private to pi and where each of its quits goes, asks first
-// here. Drop this once the runtime has the hook.
-function askBeforeQuitting(
-	mode: HostedMode,
-	quit: () => Promise<boolean>,
-): void {
-	const shutdown: unknown = Reflect.get(mode, "shutdown");
-	if (typeof shutdown !== "function") return;
-	Reflect.set(mode, "shutdown", async (...args: unknown[]) => {
-		if (await quit()) return Reflect.apply(shutdown, mode, args);
-	});
+	if (interactiveMode.hostedQuit !== true)
+		throw new Error(
+			"pi's InteractiveMode lacks the hosted quit, which asks the host before a screen quits (pi-host-interactive-lifecycle.patch)",
+		);
+	return (runtime, options) => new interactiveMode(runtime, options);
 }
 
 type HostedModeClass = (new (
 	runtime: unknown,
 	options: HostedModeOptions,
-) => HostedMode) & { readonly hostedLifecycleVersion: number };
+) => HostedMode) & {
+	readonly hostedLifecycleVersion: number;
+	readonly hostedQuit?: unknown;
+};
 
 function isHostedModeClass(value: unknown): value is HostedModeClass {
 	return (

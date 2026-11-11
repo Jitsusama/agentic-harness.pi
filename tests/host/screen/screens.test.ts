@@ -20,6 +20,7 @@ import { keepOnScreen } from "../../../lib/ui/screen-slot.ts";
 /** A stand-in for pi's hosted InteractiveMode: it starts, then runs until it quits. */
 class FakeMode implements HostedMode {
 	static readonly hostedLifecycleVersion = 1;
+	static readonly hostedQuit = true;
 	readonly ui = { requestRender: vi.fn() };
 	/** Set to hold startup until a test lets it finish, or fail it. */
 	static startup: Promise<void> = Promise.resolve();
@@ -534,6 +535,16 @@ describe("the host's pi screen", () => {
 			"pi's InteractiveMode lacks the hosted lifecycle (pi-host-interactive-lifecycle.patch)",
 		);
 		expect(() => hostedModeOf(undefined)).toThrow("lacks the hosted lifecycle");
+	});
+
+	it("refuses a pi whose screen would quit without asking the host", () => {
+		// A class with the lifecycle's version and no hosted quit.
+		const Unasking = Object.assign(() => undefined, {
+			hostedLifecycleVersion: 1,
+		});
+		expect(() => hostedModeOf(Unasking)).toThrow(
+			"pi's InteractiveMode lacks the hosted quit, which asks the host before a screen quits (pi-host-interactive-lifecycle.patch)",
+		);
 	});
 });
 
