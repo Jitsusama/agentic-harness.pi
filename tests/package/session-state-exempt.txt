@@ -79,6 +79,7 @@ lib/internal/sandbox.ts:pid 1 Names a sandbox by pid only when PI_SESSION_ID is 
 lib/internal/session/left.ts:global 1 Holds the ids of the sessions this process has left, keyed by session id, so one conversation's leaving is never another's (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/session/repo-rules.ts:global 1 Caches each session's repo rules in a map keyed by its session id (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/session/rollover.ts:global 1 Holds the custom entry types every load declares, the same for every conversation (2QZBX9 with 85PKB2, 2026-11-10).
+lib/internal/shell/spawner.ts:pid 1 Finds the idle pi-spawners an earlier load of plain pi left among this process's children; a host passes its own reap that stops none, since there its children are other conversations' (85PKB2, 2026-11-11).
 lib/internal/stray/guard.ts:global 1 Guards the process's own console, which every conversation in a host writes through (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/write-whole.ts:pid 1 Names a whole write's temporary file by pid and random bytes, so two conversations in a host never share one (2QZBX9 with 85PKB2, 2026-11-10).
 lib/slack/auth/browser-extract.ts:pid 1 Re-raises a terminating signal at the process after cleaning up the browser it started (2QZBX9 with 85PKB2, 2026-11-10).

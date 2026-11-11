@@ -30,7 +30,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
-import { agentBash, type ShellSettings } from "./agent-bash.ts";
+import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
 
 type BashDefinition = ReturnType<typeof createBashToolDefinition>;
@@ -64,7 +64,13 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	const shape = createBashToolDefinition(SHAPE_ONLY);
 	// Asked for when the session starts, by its environment (sandbox.ts).
 	const sandbox = sandboxFor();
-	let bash: BashDefinition | undefined;
+	let bash: AgentBash | undefined;
+	// A bash given up closes its pi-spawner once its commands end, so a
+	// reload or a new session leaves none running behind it.
+	const retireBash = () => {
+		bash?.retire();
+		bash = undefined;
+	};
 
 	const bashFor = (ctx: ExtensionContext): BashDefinition => {
 		bash ??= agentBash(
@@ -77,10 +83,11 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		bash = undefined;
+		retireBash();
 		bashFor(ctx);
 		askTheCloudAhead(sandbox);
 	});
+	pi.on("session_shutdown", retireBash);
 
 	pi.registerTool({
 		...shape,

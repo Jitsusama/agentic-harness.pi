@@ -15,10 +15,18 @@
  * exit. An end by a signal counts as 128 and the signal's number. Where
  * pi-spawner isn't asked for (PI_SPAWNER=on), isn't on the PATH or has
  * stopped, pi's own spawn starts the command, as before.
+ *
+ * One pi-spawner serves one load of the extension. When the load ends, at
+ * a reload or a new session, its spawner is retired: it takes no more
+ * commands and is closed once the last it runs ends, so a background job
+ * running across a reload isn't killed. A load from before retiring was
+ * possible left its spawner running, idle, for good: on 11 November one pi
+ * had two after one reload. So before a load starts its own, it stops each
+ * pi-spawner its pi started that runs nothing.
  */
 
 import { spawn } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, readdirSync, readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
 import {
@@ -82,6 +90,20 @@ export interface SpawnerOptions {
 	start?: (program: string) => Started;
 	/** Kill a command's process group, as pi's stop does. */
 	kill?: (pid: number) => void;
+	/**
+	 * Stop what earlier loads left, before this one starts its own; by
+	 * default each idle pi-spawner this pi started (stopIdleSpawners).
+	 */
+	reap?: () => void;
+}
+
+/** pi's bash operations, and a way to retire the spawner behind them. */
+export interface SpawnerOperations extends BashOperations {
+	/**
+	 * Take no more commands through pi-spawner, and close it once the
+	 * commands it runs have ended. Later commands start as pi's own.
+	 */
+	retire(): void;
 }
 
 /** How a command ended, as pi-spawner reports it. */
@@ -105,18 +127,25 @@ interface Link {
 		env: NodeJS.ProcessEnv,
 		onData: (data: Buffer) => void,
 	): Run;
+	/** Close the program once the commands it runs have ended. */
+	retire(): void;
 }
 
 /**
  * pi's bash operations with each command started by pi-spawner, or
- * `fallback` itself where it isn't asked for.
+ * `fallback`'s where it isn't asked for.
  */
 export function spawnedBy(
 	fallback: BashOperations,
 	options: SpawnerOptions = {},
-): BashOperations {
+): SpawnerOperations {
 	const env = options.env ?? process.env;
-	if (env[SPAWNER_VARIABLE] !== "on") return fallback;
+	if (env[SPAWNER_VARIABLE] !== "on") {
+		return {
+			exec: (command, cwd, settings) => fallback.exec(command, cwd, settings),
+			retire: () => undefined,
+		};
+	}
 	const kill = options.kill ?? killGroup;
 	let link: Link | undefined;
 	let lost = false;
@@ -130,6 +159,7 @@ export function spawnedBy(
 			lost = true;
 			return undefined;
 		}
+		(options.reap ?? stopIdleSpawners)();
 		try {
 			link = connect((options.start ?? startProgram)(program), kill, () => {
 				lost = true;
@@ -156,7 +186,62 @@ export function spawnedBy(
 			if (through === undefined) return fallback.exec(command, cwd, settings);
 			return runThrough(through, shell, command, cwd, settings, kill);
 		},
+		retire: () => {
+			lost = true;
+			link?.retire();
+			link = undefined;
+		},
 	};
+}
+
+/** The name a pi-spawner goes by in /proc, as its comm. */
+const SPAWNER_COMM = SPAWNER_PROGRAM;
+
+/**
+ * Stop each pi-spawner `parent` started that runs no command, as an
+ * earlier load of this extension left it; on Linux only, where /proc
+ * says which processes a process started.
+ */
+export function stopIdleSpawners(
+	parent: number = process.pid,
+	proc = "/proc",
+	stop: (pid: number) => void = (pid) => process.kill(pid, "SIGTERM"),
+): void {
+	if (process.platform !== "linux" && proc === "/proc") return;
+	for (const child of childrenOf(parent, proc)) {
+		if (commOf(child, proc) !== SPAWNER_COMM) continue;
+		if (childrenOf(child, proc).length > 0) continue;
+		try {
+			stop(child);
+		} catch {
+			// One that ended since it was read needs no stopping.
+		}
+	}
+}
+
+/** The processes `pid` started, from each of its threads. */
+function childrenOf(pid: number, proc: string): number[] {
+	try {
+		return readdirSync(`${proc}/${pid}/task`).flatMap((task) =>
+			readFileSync(`${proc}/${pid}/task/${task}/children`, "utf8")
+				.split(/\s+/)
+				.filter((word) => word !== "")
+				.map(Number),
+		);
+	} catch {
+		// A process that ended, or a kernel that doesn't say, started none.
+		return [];
+	}
+}
+
+/** The process's command name, or nothing once it has ended. */
+function commOf(pid: number, proc: string): string | undefined {
+	try {
+		return readFileSync(`${proc}/${pid}/comm`, "utf8").trim();
+	} catch {
+		// It ended since its parent named it.
+		return undefined;
+	}
 }
 
 /** One command through pi-spawner, held to what pi's own spawn does. */
@@ -291,6 +376,14 @@ function connect(
 	const pending = new Map<number, Pending>();
 	let next = 1;
 	let held: Buffer = Buffer.alloc(0);
+	let retiring = false;
+	// The end of its input tells pi-spawner to stop; with nothing running,
+	// it kills nothing.
+	const closeOnceIdle = () => {
+		if (retiring && pending.size === 0 && !started.input.writableEnded) {
+			started.input.end();
+		}
+	};
 	started.input.on("error", () => {
 		// A program that stopped says so through ended, below.
 	});
@@ -335,6 +428,7 @@ function connect(
 				pending.delete(id);
 				if (closed < STREAMS) send(started.input, ["drop", `${id}`]);
 				if (exited) end?.ok(exited);
+				closeOnceIdle();
 			};
 			const settleSoon = () => {
 				clearTimeout(idle);
@@ -348,6 +442,7 @@ function connect(
 					} else if (kind === FAILED) {
 						pending.delete(id);
 						begin?.no(new Error(payload.toString("utf8")));
+						closeOnceIdle();
 					} else if (kind === OUTPUT) {
 						onData(payload.subarray(1));
 						if (exited) settleSoon();
@@ -394,6 +489,10 @@ function connect(
 				throw refused;
 			}
 			return { started: startedRun, done };
+		},
+		retire() {
+			retiring = true;
+			closeOnceIdle();
 		},
 	};
 }

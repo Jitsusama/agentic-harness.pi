@@ -3,7 +3,13 @@
  * two streams and an end, takes the requests and sends frames, so what
  * pi's bash sees is checked without starting anything.
  */
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -13,6 +19,7 @@ import {
 	SPAWNER_VARIABLE,
 	type SpawnerOptions,
 	spawnedBy,
+	stopIdleSpawners,
 } from "../../../../lib/internal/shell/spawner.ts";
 import {
 	systemFolders,
@@ -72,6 +79,8 @@ function standIn() {
 			frame("x", id, int32s(code, signal)),
 		failed: (id: number, why: string) => frame("e", id, Buffer.from(why)),
 		stop: () => stopped?.(),
+		/** Whether pi ended its input, which tells the program to stop. */
+		hungUp: () => input.writableEnded,
 	};
 }
 
@@ -98,6 +107,7 @@ function through(over: Partial<SpawnerOptions> = {}) {
 		program: "/run/pi-spawner",
 		start: program.start,
 		kill,
+		reap: () => undefined,
 		...over,
 	});
 	return { program, own, kill, operations };
@@ -114,10 +124,15 @@ async function askedFor(program: ReturnType<typeof standIn>, count: number) {
 }
 
 describe("the agent's commands through pi-spawner", () => {
-	it("leaves pi's own spawn in place unless it is asked for", () => {
+	it("leaves pi's own spawn in place unless it is asked for", async () => {
 		const own = fallback();
 
-		expect(spawnedBy(own, { env: {} })).toBe(own);
+		await spawnedBy(own, { env: {} }).exec("true", "/", {
+			onData: () => {},
+			env: {},
+		});
+
+		expect(own.calls).toEqual(["true"]);
 	});
 
 	it("falls back to pi's own spawn where the system's profile has no program", async () => {
@@ -289,5 +304,108 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(kill).toHaveBeenCalledWith(77);
 		await operations.exec("true", "/", { onData: () => {}, env: {} });
 		expect(own.calls).toEqual(["true"]);
+	});
+});
+
+/** End command `id` on the stand-in, as pi-spawner would. */
+function ends(program: ReturnType<typeof standIn>, id: number, pid: number) {
+	program.started(id, pid);
+	program.closed(id, 1);
+	program.closed(id, 2);
+	program.exited(id, 0);
+}
+
+describe("a load's pi-spawner once the load is over", () => {
+	it("is closed at once when it runs nothing", async () => {
+		const { program, operations } = through();
+		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+		await askedFor(program, 1);
+		ends(program, 1, 10);
+		await ran;
+
+		operations.retire();
+
+		expect(program.hungUp(), "its input was ended").toBe(true);
+	});
+
+	it("lasts through a reload until the command it runs ends", async () => {
+		const earlier = through();
+		const job = earlier.operations.exec("sleep 60", "/", {
+			onData: () => {},
+			env: {},
+		});
+		await askedFor(earlier.program, 1);
+		earlier.program.started(1, 20);
+		await delivered();
+
+		// The reload: the earlier load is over, and the next one starts its own.
+		earlier.operations.retire();
+		const reap = vi.fn<() => void>();
+		const later = through({ reap });
+		const next = later.operations.exec("true", "/", {
+			onData: () => {},
+			env: {},
+		});
+		await askedFor(later.program, 1);
+
+		expect(earlier.program.hungUp(), "closed under its job").toBe(false);
+		expect(
+			reap,
+			"the later load looked for what was left",
+		).toHaveBeenCalledOnce();
+		earlier.program.closed(1, 1);
+		earlier.program.closed(1, 2);
+		earlier.program.exited(1, 0);
+		await expect(job).resolves.toEqual({ exitCode: 0 });
+		expect(earlier.program.hungUp(), "closed once its job ended").toBe(true);
+		ends(later.program, 1, 21);
+		await next;
+		expect(later.program.hungUp(), "the later load's own").toBe(false);
+	});
+
+	it("starts later commands as pi's own", async () => {
+		const { program, operations, own } = through();
+
+		operations.retire();
+		await operations.exec("true", "/", { onData: () => {}, env: {} });
+
+		expect(own.calls).toEqual(["true"]);
+		expect(program.asked, "nothing is asked of the program").toEqual([]);
+	});
+});
+
+describe("the pi-spawners an earlier load left", () => {
+	/** A /proc of processes, each with its command name and children. */
+	function procOf(
+		processes: Record<number, { comm: string; children: number[] }>,
+	): string {
+		const root = mkdtempSync(join(tmpdir(), "proc-"));
+		for (const [pid, { comm, children }] of Object.entries(processes)) {
+			mkdirSync(join(root, pid, "task", pid), { recursive: true });
+			writeFileSync(join(root, pid, "comm"), `${comm}\n`);
+			writeFileSync(
+				join(root, pid, "task", pid, "children"),
+				children.map((child) => `${child} `).join(""),
+			);
+		}
+		return root;
+	}
+
+	it("are stopped when they run nothing, and only they", () => {
+		const proc = procOf({
+			100: { comm: "node", children: [200, 300, 400, 500] },
+			200: { comm: "pi-spawner", children: [] },
+			300: { comm: "pi-spawner", children: [301] },
+			301: { comm: "bash", children: [] },
+			400: { comm: "bash", children: [] },
+		});
+		const stopped: number[] = [];
+		try {
+			stopIdleSpawners(100, proc, (pid) => stopped.push(pid));
+		} finally {
+			rmSync(proc, { recursive: true, force: true });
+		}
+
+		expect(stopped).toEqual([200]);
 	});
 });
