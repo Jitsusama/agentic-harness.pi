@@ -31,6 +31,12 @@
  * a spawn that stays, telling its pi why in QUEST_WORKFLOW_SPAWN_STAYED so
  * it doesn't ask again. The launcher's side is core.nix's Sessions.qml
  * (KP0L6A [10b5128e]).
+ *
+ * The launcher's own Start a Session and Orchestrate ask the same way
+ * (decideStart), under startHost rather than spawnHost, since Joel's own
+ * sessions move only by his choice: with it on, the start opens in the
+ * attended host idle on its quest, told nothing, and the launcher opens
+ * its viewer at once (OSPHT4 [27ca7454]).
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -50,7 +56,8 @@ import {
 	takeFirstWords,
 } from "../../lib/internal/quest/first-words.ts";
 import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
-import { spawnHostSetting } from "./config.ts";
+import type { StartHostSetting } from "../../lib/core/quest/config.ts";
+import { spawnHostSetting, startHostSetting } from "./config.ts";
 import { agentCommand } from "./verbs/spawn-held.ts";
 import {
 	type ControlCall,
@@ -324,13 +331,145 @@ export function noteHanded(
 		? `went to the ${handed.host} host as session ${handed.sessionId}`
 		: `stayed in its window${handed.note ? `: ${handed.note}` : ""}`;
 	const by = how ? ` (${how})` : "";
+	noteLine(
+		`spawn ${spawn.sessionId} for ${spawn.questId} ${said}${by}`,
+		log,
+	);
+}
+
+/** Keep `line` in the launched spawns' log, dated. Never fails. */
+function noteLine(line: string, log: string): void {
 	try {
 		mkdirSync(log, { recursive: true });
 		appendFileSync(
 			join(log, "launched-spawns.log"),
-			`${new Date().toISOString()} spawn ${spawn.sessionId} for ${spawn.questId} ${said}${by}\n`,
+			`${new Date().toISOString()} ${line}\n`,
 		);
 	} catch {
-		// The record is only for a person looking back; the spawn went either way.
+		// The record is only for a person looking back; it went either way.
 	}
+}
+
+/**
+ * The launcher's own Start a Session or Orchestrate, which it asks about
+ * before opening a window when Joel starts a session on a quest: no
+ * spawn's id and no first words, since he types them himself.
+ */
+export interface LaunchedStart {
+	readonly questId: string;
+	readonly cwd: string;
+	/** Whether it orchestrates its quest, as Orchestrate starts it. */
+	readonly orchestrate: boolean;
+	readonly model?: { readonly provider: string; readonly id: string };
+	readonly thinkingLevel?: string;
+}
+
+/**
+ * The launcher's start the decider's `argv` names, with `--start` and,
+ * for Orchestrate, `--orchestrate`, in the quest's folder with the quest
+ * to load; undefined for anything else.
+ */
+export function launchedStart(
+	argv: readonly string[],
+	env: Readonly<Record<string, string | undefined>>,
+	cwd: string,
+): LaunchedStart | undefined {
+	const questId = env[AUTOLOAD_VARIABLE]?.trim();
+	if (!(questId && argv.includes("--start"))) return undefined;
+	return {
+		questId,
+		cwd,
+		orchestrate: argv.includes("--orchestrate"),
+		...modelOf(flagValue(argv, "--model")),
+	};
+}
+
+/** What deciding the launcher's start needs: its own setting, apart from spawnHost. */
+export interface StartFacts extends Omit<HandFacts, "setting" | "dir"> {
+	/** quest-workflow's startHost, read now. */
+	readonly setting: () => Promise<{
+		setting?: StartHostSetting;
+		unreadable?: string;
+	}>;
+}
+
+/**
+ * Decide, headless, where the launcher's own start goes, for it to open
+ * a window only when it stays. With startHost on and its host listening,
+ * says `opening <host>` once the open is sent, then `hosted <host>
+ * <session>` and answers SPAWN_HOSTED, the session opened idle on its
+ * quest, told nothing, for the launcher to open its viewer. Otherwise
+ * says why it stays, if anything, and answers SPAWN_STAYS.
+ */
+export async function decideStart(
+	start: LaunchedStart,
+	facts: StartFacts,
+	say: (line: string) => void,
+	log: string = stateDir("quest-workflow"),
+): Promise<number> {
+	const began = Date.now();
+	const what = `start for ${start.questId}${start.orchestrate ? ", orchestrating," : ""}`;
+	const stays = (note: string | undefined) => {
+		if (note) {
+			say(note.replace(/\s+/g, " "));
+			noteLine(`${what} stayed in its window: ${note}`, log);
+		}
+		return SPAWN_STAYS;
+	};
+	const choice = await hostBySetting(
+		{
+			...(await facts.setting()),
+			named: "startHost",
+			params: { action: "spawn" },
+			placedHere: true,
+			agent: facts.agent,
+			env: facts.env,
+		},
+		facts.call,
+	);
+	if (choice.kind !== "attended")
+		return stays(choice.kind ? undefined : choice.note);
+	const host = hostKey(hostRealm(facts.env), choice.kind);
+	say(`opening ${host}`);
+	const carried = carriedEnvironment({ ...facts.env });
+	const opened = await spawnInHost(
+		{
+			kind: choice.kind,
+			questId: start.questId,
+			cwd: start.cwd,
+			chosenBy: "the quest's folder, as the launcher started it",
+			untold: true,
+			...(start.orchestrate ? { orchestrate: true } : {}),
+			...(start.model ? { model: start.model } : {}),
+			...(start.thinkingLevel ? { thinkingLevel: start.thinkingLevel } : {}),
+			...(carried ? { carried } : {}),
+			env: facts.env,
+		},
+		facts.call,
+	);
+	const sessionId = opened.ok ? opened.details?.sessionId : undefined;
+	if (typeof sessionId !== "string") {
+		const why = opened.ok ? opened.message : opened.guidance;
+		return stays(
+			`quest-workflow.startHost is ${choice.kind}, but this start stayed in its window: ${why}`,
+		);
+	}
+	say(`hosted ${host} ${sessionId}`);
+	noteLine(
+		`${what} went to the ${host} host as session ${sessionId} (headless, ${Date.now() - began} ms)`,
+		log,
+	);
+	return SPAWN_HOSTED;
+}
+
+/** The facts the launcher's start is decided by on this machine, read as it is now. */
+export function liveStartFacts(
+	env: Readonly<Record<string, string | undefined>>,
+): StartFacts {
+	const machine = hostname().split(".")[0] ?? "";
+	return {
+		setting: startHostSetting,
+		agent: () => agentCommand("pi", machine),
+		env,
+	};
 }

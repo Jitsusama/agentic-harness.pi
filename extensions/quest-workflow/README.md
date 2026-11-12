@@ -277,6 +277,18 @@ shipped and tested.
   host loads pi and the harness for the conversation before it answers;
   a spawn's open waits that long anywhere, rather than leave its
   outcome unknown. Its log lines end `(headless, N ms)`.
+- **Start into a host**: `startHost` in the same section (`off`, the
+  default, or `attended`) sends the launcher's own Start a Session and
+  Orchestrate to the attended host, apart from `spawnHost`, since a
+  person's own sessions move only by their choice. The launcher asks
+  `scripts/spawn-decide.ts --start [--orchestrate] [--model M]` in the
+  quest's folder with the quest to load, with the same lines and exits
+  as a spawn's. A start goes to the host only with the setting on and
+  the host listening; the conversation opens idle on its quest,
+  orchestrating for Orchestrate, told nothing, since the person types
+  first. On `hosted <host> <session>` the launcher opens its viewer at
+  once (`mycelium --realm <realm> attach --host <host> --session
+  <session>`). Otherwise it opens the window as ever.
 - **Resume in a host**: `/quest-resume <id>` switches pi to a
   session attached to the loaded quest. A hosted conversation can't
   switch its log, which its host owns, so there it asks the realm's
@@ -536,8 +548,9 @@ is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
 (per XDG); override it by setting `questsRoot` in the
 `quest-workflow` section of the package config file at
 `~/.config/pi/agentic-harness.pi/config.json`. The same section
-takes `spawnHost` (see Spawn into a host by default):
+takes `spawnHost` (see Spawn into a host by default) and
+`startHost` (see Start into a host):
 
 ```json
-{ "sections": { "quest-workflow": { "spawnHost": "background" } } }
+{ "sections": { "quest-workflow": { "spawnHost": "background", "startHost": "attended" } } }
 ```

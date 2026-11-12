@@ -46,6 +46,8 @@ const request = z.discriminatedUnion("op", [
 			.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
 			.optional(),
 		first: text.optional(),
+		// Whether it orchestrates its quest, as the launcher's Orchestrate asks.
+		orchestrate: z.boolean().optional(),
 		env: carried,
 	}),
 	z.strictObject({

@@ -123,6 +123,8 @@ export function hostTargetOf(
 export interface SettingSpawn {
 	/** quest-workflow's spawnHost, undefined when unset. */
 	readonly setting?: SpawnHostSetting;
+	/** The setting's name, as its notes say it: spawnHost unless named. */
+	readonly named?: string;
 	/** Why the setting couldn't be read, when it couldn't. */
 	readonly unreadable?: string;
 	readonly params: QuestToolParams;
@@ -149,14 +151,15 @@ export async function hostBySetting(
 	call: ControlCall = controlRequest,
 ): Promise<{ kind?: HostKind; note?: string }> {
 	const { setting, params } = spawn;
+	const named = `quest-workflow.${spawn.named ?? "spawnHost"}`;
 	if (!plainSpawn(params)) return {};
 	if (spawn.unreadable) {
 		return {
-			note: `quest-workflow.spawnHost was left off, since the config says what it can't read: ${spawn.unreadable}.`,
+			note: `${named} was left off, since the config says what it can't read: ${spawn.unreadable}.`,
 		};
 	}
 	if (setting === undefined || setting === "off") return {};
-	const said = `quest-workflow.spawnHost is ${setting}`;
+	const said = `${named} is ${setting}`;
 	if (!spawn.placedHere) {
 		return {
 			note: `${said}, but this quest's needs place it on another machine, where no host of this one's runs it, so it opens there in a terminal.`,
@@ -283,6 +286,13 @@ export interface HostSpawn {
 	 * for a launched spawn handing itself on (launched-spawn.ts).
 	 */
 	readonly first?: string;
+	/**
+	 * Opened told nothing, for the person to type its first words, as the
+	 * launcher's own start is.
+	 */
+	readonly untold?: boolean;
+	/** Whether a fresh session orchestrates its quest. */
+	readonly orchestrate?: boolean;
 	/** How a fresh session runs its commands, as the pi it stands for did. */
 	readonly carried?: CarriedEnvironment;
 	/** The session to adopt, as the spawn picked it, with its liveness. */
@@ -323,7 +333,7 @@ export async function spawnInHost(
 	const what =
 		request.op === "adopt"
 			? `adopt session ${spawn.resume?.id} from ${request.sessionFile}`
-			: `open a fresh session in ${spawn.cwd} (${spawn.chosenBy}), told to carry on with ${spawn.questId}`;
+			: `open a fresh session in ${spawn.cwd} (${spawn.chosenBy}), ${spawn.untold ? "loading" : "told to carry on with"} ${spawn.questId}`;
 	if (spawn.dryRun) {
 		return ok(`Would ask the ${key} host at ${socket} to ${what}.`, {
 			how: "host",
@@ -369,7 +379,7 @@ export async function spawnInHost(
 	const said =
 		request.op === "adopt"
 			? `The ${key} host adopted session ${held.sessionId}, which picks up its own history in ${held.cwd}; it isn't told anything, so it waits where its log stopped. ${screen}`
-			: `The ${key} host opened session ${held.sessionId} in ${held.cwd} (${spawn.chosenBy}), which loads ${spawn.questId} and was told to carry on. ${screen}`;
+			: `The ${key} host opened session ${held.sessionId} in ${held.cwd} (${spawn.chosenBy}), which loads ${spawn.questId} and ${spawn.untold ? "waits for its first words" : "was told to carry on"}. ${screen}`;
 	return ok(said, {
 		how: "host",
 		host: key,
@@ -554,7 +564,10 @@ function requestFor(
 			cwd: spawn.cwd,
 			attended,
 			quest: spawn.questId,
-			first: spawn.first ?? spawnedWords(spawn.questId, spawn.note),
+			...(spawn.untold
+				? {}
+				: { first: spawn.first ?? spawnedWords(spawn.questId, spawn.note) }),
+			...(spawn.orchestrate ? { orchestrate: true } : {}),
 			...(spawn.carried ? { env: spawn.carried } : {}),
 			...(spawn.model
 				? { model: { provider: spawn.model.provider, id: spawn.model.id } }

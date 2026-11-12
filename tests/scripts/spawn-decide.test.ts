@@ -3,6 +3,8 @@
  * its own, before it opens a window for a fresh spawn: what isn't a spawn
  * stays, saying nothing, and a spawn spawnHost sends to a host that isn't
  * listening stays, saying why, with its words left for its window's pi.
+ * The launcher's own start stays, saying nothing, while startHost is
+ * off, and saying why when its host isn't listening.
  * Where a host takes it is handToHost's, in the extension's own tests, and
  * E14's on a real host.
  */

@@ -119,6 +119,8 @@ describe("summarizeQuestConfig", () => {
 			sessionRetentionDaysSource: "default",
 			spawnHost: "off",
 			spawnHostSource: "default",
+			startHost: "off",
+			startHostSource: "default",
 		});
 	});
 

@@ -60,5 +60,8 @@ export function hintsFor(
 		...(request.op === "open" && request.first !== undefined
 			? { firstWords: request.first }
 			: {}),
+		...(request.op === "open" && request.orchestrate === true
+			? { orchestrate: true }
+			: {}),
 	};
 }
