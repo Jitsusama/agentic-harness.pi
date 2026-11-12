@@ -775,22 +775,19 @@ class SqliteTurnStore implements TurnStore {
 	): Promise<RecordOutcome> {
 		// Keyed on session, entry and tool, so a grown log read again in
 		// full inserts nothing it already gave.
-		const inserted = await this.inTransactions(
-			declarations,
-			async (chunk) => {
-				let written = 0;
-				for (const d of chunk) {
-					const { changes } = await this.db.run(
-						`INSERT OR IGNORE INTO declarations (
+		const inserted = await this.inTransactions(declarations, async (chunk) => {
+			let written = 0;
+			for (const d of chunk) {
+				const { changes } = await this.db.run(
+					`INSERT OR IGNORE INTO declarations (
 							session_id, entry_id, timestamp, tool, change, chars
 						) VALUES (?, ?, ?, ?, ?, ?)`,
-						[d.sessionId, d.entryId, d.timestamp, d.tool, d.change, d.chars],
-					);
-					written += changes;
-				}
-				return written;
-			},
-		);
+					[d.sessionId, d.entryId, d.timestamp, d.tool, d.change, d.chars],
+				);
+				written += changes;
+			}
+			return written;
+		});
 		return { inserted, duplicates: declarations.length - inserted };
 	}
 

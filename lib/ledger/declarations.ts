@@ -23,8 +23,11 @@ export function declarationsOf(
 	// One row a tool: a tool taken away and added back in one message,
 	// as a changed schema is, is held at its new size.
 	const rows = new Map<string, DeclarationRecord>();
-	const row = (tool: string, change: DeclarationRecord["change"], chars: number) =>
-		rows.set(tool, { sessionId, entryId, timestamp, tool, change, chars });
+	const row = (
+		tool: string,
+		change: DeclarationRecord["change"],
+		chars: number,
+	) => rows.set(tool, { sessionId, entryId, timestamp, tool, change, chars });
 	for (const tool of listOf(message.toolsRemoved)) {
 		const name = nameOf(tool);
 		if (name) row(name, "removed", 0);

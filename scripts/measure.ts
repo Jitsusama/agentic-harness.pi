@@ -86,9 +86,7 @@ export async function measure(opts: {
 		});
 		audit = formatAudit(input, opts.top ?? 12);
 		oneCall = formatOneCall(await oneCallTurns(query, opts.now));
-		declared = formatDeclaredCalled(
-			await declaredCalled(query, opts.now),
-		);
+		declared = formatDeclaredCalled(await declaredCalled(query, opts.now));
 		theVoid = formatVoidCost(await voidCost(voidDay, query, opts.now));
 		start = Date.parse(input.period.from);
 		from = input.period.from.slice(0, 10);
