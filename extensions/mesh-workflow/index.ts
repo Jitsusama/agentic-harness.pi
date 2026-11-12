@@ -2180,6 +2180,11 @@ export function meshWorkflow(
 		});
 		pi.events?.on(PARK_ASK, (data: unknown) => {
 			if (!isParkAsk(data) || !peer || data.session !== peer.session) return;
+			// A restart comes back in seconds as the same peer, and what was
+			// sent meanwhile waits in files it reads as it starts; refused for
+			// its sessions at work, an orchestrator of thirty never took a new
+			// install (WCJQSG, 11 November 2026).
+			if (data.restart === true) return;
 			// An orchestrator with sessions at work under it has their findings
 			// coming, and passing them on is its work.
 			const working = ledAtWork(peer);
@@ -2219,17 +2224,22 @@ export function meshWorkflow(
 		 */
 		const ledAtWork = (one: Peer): string | undefined => {
 			if (one.orchestrates === undefined) return undefined;
+			// Only sessions still there, as last counted: a presence outlives
+			// a pi that crashed or a boot, and on 11 November one of a quest's
+			// two and a quest concluded the day before were named at work.
 			const working = presences
 				.all()
 				.filter(
 					(other) =>
 						other.session !== one.session &&
+						(live?.has(other.session) ?? true) &&
 						ledBy(other, one.addresses) &&
 						other.state !== "parked" &&
 						other.state !== "paused",
 				);
 			if (working.length === 0) return undefined;
-			return `sessions it leads are at work (${working.map((other) => other.addresses[0]).join(", ")})`;
+			const names = new Set(working.map((other) => other.addresses[0]));
+			return `sessions it leads are at work (${[...names].join(", ")})`;
 		};
 
 		// A message's file never changes once it is written, so each is read

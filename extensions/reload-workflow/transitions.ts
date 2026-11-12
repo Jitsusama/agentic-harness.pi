@@ -37,6 +37,10 @@ import {
 	type ReloadRequest,
 	reloadSlot,
 } from "../../lib/internal/reload/slot.ts";
+import {
+	RESTART_ASK,
+	type RestartAsk,
+} from "../../lib/internal/session/park.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
 import { hostReloads, reloadThroughHost } from "./hosted.ts";
 import { canonical, PACKAGE_NAME } from "./lifecycle.ts";
@@ -88,6 +92,46 @@ export async function untilStill(
 /** The command the request is handed to, and its argument for a reload. */
 export const COMMAND = "harness";
 export const RELOAD_ARG = "reload";
+/** Its argument for starting the session again, in place, now. */
+export const RESTART_ARG = "restart";
+
+/** What a restart its person asked for says back. */
+export const RESTARTING_NOW =
+	"Starting again on this session, in place; back in a few seconds with the install as it stands.";
+
+/**
+ * Start this session again in place, now, because its person asked: the
+ * one way an orchestrator its person always watches takes a new install
+ * while the extension links have moved, since a reload would load their
+ * extensions half from where they pointed first. The park watch still
+ * refuses mid-turn, with jobs running, or with no holder; only its
+ * person's being at the window is waived, since they chose the moment.
+ * Answers whether it is starting again, and the line that says so or
+ * why not.
+ */
+export function restartByHand(
+	events: { emit(channel: string, data: unknown): void },
+	session: string,
+	sessionFile: string | undefined,
+): { readonly restarting: boolean; readonly said: string } {
+	const refused = (said: string) => ({ restarting: false, said });
+	if (hosted()) return refused(HOSTED_RESTART);
+	if (sessionFile === undefined) {
+		return refused("Can't start again: it has no log.");
+	}
+	const ask: RestartAsk = { session, sessionFile, asked: true };
+	events.emit(RESTART_ASK, ask);
+	if (ask.restarting === true) {
+		return { restarting: true, said: RESTARTING_NOW };
+	}
+	return refused(
+		`Can't start again: ${ask.why ?? "nothing here starts it again (no park watch)"}.`,
+	);
+}
+
+/** What a hosted conversation's restart says: its host owns its process. */
+export const HOSTED_RESTART =
+	"Can't start again here: a hosted conversation's process is its host's; reload it instead.";
 
 /** A `~/` path made absolute; anything else resolved against `cwd`. */
 function expand(path: string, cwd: string, home: string): string {

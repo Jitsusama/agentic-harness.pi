@@ -453,13 +453,13 @@ export function watch(
 	};
 	// Not a park: no marker, since it starts again at once, in place, or
 	// else through its holder, on the wake it writes itself.
-	const restartInto = (fresh: string): string | undefined => {
+	const restartInto = (fresh: string, asked: boolean): string | undefined => {
 		if (parked) return "parking already";
 		if (hosted()) return HOST_PARKS;
 		if (parkAfterMs(session, options.env, options.switchPath) === undefined) {
 			return "parking is off";
 		}
-		const ask: ParkAsk = { session, refusals: [] };
+		const ask: ParkAsk = { session, refusals: [], restart: true };
 		bus.emit(PARK_ASK, ask);
 		const why = whatHolds(holding()) ?? ask.refusals[0] ?? unheld();
 		if (why !== undefined) return why;
@@ -469,7 +469,8 @@ export function watch(
 		if (again === "") return "its holder would start it on the log it left";
 		const lost = flagsLost(args);
 		if (lost.length > 0) return `starting again would drop ${lost.join(", ")}`;
-		const seen = watched();
+		// Its person asking is the settled moment a restart waits for.
+		const seen = asked ? undefined : watched();
 		if (seen !== undefined) return seen;
 		const throughHolder = () => {
 			try {
@@ -496,7 +497,7 @@ export function watch(
 	};
 	const unasked = bus.on(RESTART_ASK, (data) => {
 		if (!isRestartAsk(data) || data.session !== session) return;
-		const why = restartInto(data.sessionFile);
+		const why = restartInto(data.sessionFile, data.asked === true);
 		if (why === undefined) data.restarting = true;
 		else data.why = why;
 	});

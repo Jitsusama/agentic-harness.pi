@@ -3254,6 +3254,45 @@ describe("a message that names no group", () => {
 		expect(later.refusals).toEqual([]);
 	});
 
+	// WCJQSG, 11 November [0de9accb]: an orchestrator of thirty sessions
+	// is never without one at work, so it never took a new install.
+	it("lets an orchestrator start again in place while sessions it leads work", async () => {
+		leading();
+		const { emit } = await startSession();
+		const ask = { session, refusals: [] as string[], restart: true };
+
+		emit(PARK_ASK, ask);
+		expect(ask.refusals, "a restart loses none of their findings").toEqual([]);
+	});
+
+	// The same evening it named RCTRF8 twice, one of its two sessions long
+	// crashed, and 6TMMZY, a quest concluded before that morning's boot.
+	it("names only the sessions it leads that still run, each once", async () => {
+		leading();
+		const publish = (name: string, ended: boolean) =>
+			createPresences(join(paths.mesh, "presence")).publish({
+				session: name,
+				addresses: [ended ? "6TMMZY" : "85PKB2"],
+				groups: ["#orchestration/7m6jkg"],
+				orchestratedBy: "7M6JKG",
+				state: "listening",
+				worksOn: "",
+				owns: [],
+				busy: false,
+				at: new Date().toISOString(),
+				...(ended ? { owner: { pid: process.pid, startedAt: 1 } } : {}),
+			});
+		publish("session-l2", false);
+		publish("session-gone", true);
+		const { emit } = await startSession();
+		const ask = { session, refusals: [] as string[] };
+
+		emit(PARK_ASK, ask);
+		expect(ask.refusals, "one live address, named once").toEqual([
+			"sessions it leads are at work (85PKB2)",
+		]);
+	});
+
 	it("names, as an orchestrator, the sessions it leads at work as what will wake it", async () => {
 		leading();
 		const { emit } = await startSession();

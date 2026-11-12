@@ -71,7 +71,7 @@ import {
 	retellHostedReload,
 } from "./hosted.ts";
 import { canonical } from "./lifecycle.ts";
-import { COMMAND, RELOAD_ARG } from "./transitions.ts";
+import { COMMAND, RELOAD_ARG, RESTART_ARG } from "./transitions.ts";
 
 /**
  * How often a reload that is waiting on an install looks again, and how
@@ -359,7 +359,7 @@ export async function follow(
 		sayWhy(why, { links });
 		try {
 			ctx.ui.notify(
-				`${why.charAt(0).toUpperCase()}${why.slice(1)}. It keeps the code it runs; start it again by hand to load them afresh.`,
+				`${why.charAt(0).toUpperCase()}${why.slice(1)}. It keeps the code it runs; /${COMMAND} ${RESTART_ARG} starts it again to load them afresh.`,
 				"warning",
 			);
 		} catch {
