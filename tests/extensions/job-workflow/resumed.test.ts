@@ -65,7 +65,10 @@ describe("a resumed session", () => {
 			.start({ kind: "shell", label: "pnpm test" })
 			.finish({ summary: "exited 0" });
 		const [said = ""] = back.said;
-		const turned = await back.fire("input", { text: said, source: "extension" });
+		const turned = await back.fire("input", {
+			text: said,
+			source: "extension",
+		});
 		expect(turned, "the report goes to the model").toBeUndefined();
 		await back.fire("message_end", { message: message(said) });
 		expect(host.pending?.(), "the job leaves once said").toBe(0);

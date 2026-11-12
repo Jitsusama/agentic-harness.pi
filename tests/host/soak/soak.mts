@@ -52,11 +52,7 @@ import {
 	parityOf,
 	spreadOf,
 } from "./report.ts";
-import {
-	type SoakProvider,
-	soakProvider,
-	textOf,
-} from "./soak-provider.ts";
+import { type SoakProvider, soakProvider, textOf } from "./soak-provider.ts";
 import {
 	acknowledged,
 	checkpointsOf,
