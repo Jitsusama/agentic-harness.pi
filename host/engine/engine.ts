@@ -16,6 +16,8 @@
  */
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
+import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
 import {
 	type LaunchHints,
 	SESSION_STAMP_EVENT,
@@ -30,8 +32,6 @@ import {
 	warmingCarryDir,
 } from "../../lib/internal/warming-carry.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
-import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
-import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
 import type {
 	AdoptRequest,
 	ConversationEvents,
@@ -175,13 +175,12 @@ export async function createEngine(
 		pending: pendingWarmsDir(),
 		send: async (carry, signal) => {
 			const agentDir = agentDirs.get(carry.sessionId);
-			if (!agentDir) return { ok: false, reason: "its agent folder is unknown" };
+			if (!agentDir)
+				return { ok: false, reason: "its agent folder is unknown" };
 			const runtime = await sessions.ModelRuntime.create({
 				authPath: join(agentDir, "auth.json"),
 				modelsPath: join(agentDir, "models.json"),
-				authContext: conversationAuthContext(() =>
-					requestEnv(carry.sessionId),
-				),
+				authContext: conversationAuthContext(() => requestEnv(carry.sessionId)),
 			});
 			return warmThrough(runtime, carry, signal);
 		},
