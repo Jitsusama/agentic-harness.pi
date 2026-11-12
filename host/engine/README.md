@@ -164,9 +164,9 @@ parked (lib/internal/warming-carry.ts): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
 A resume stops it before the session starts and takes the carry, and a
-warm out then is dropped rather than holding the wake up. Given screens, the engine hands each built conversation to
-them; without, it binds extensions with no
-interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
+warm out then is dropped rather than holding the wake up. Given
+screens, the engine hands each built conversation to them; without, it
+binds extensions with no interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.
 
 A conversation's environment is the realm's, then its launch, then what
