@@ -3341,6 +3341,37 @@ describe("a message that names no group", () => {
 		expect(later.refusals).toEqual([]);
 	});
 
+	// A parked void took 11 s to wake for each line (QCXZEB, 12 November).
+	describe("standing at the launcher's top", () => {
+		const standing = () => {
+			mkdirSync(join(paths.quests, "QEST-20261021-7M6JKG"), {
+				recursive: true,
+			});
+			writeFileSync(
+				join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+				"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nstands-at-top: {name: The Void, keywords: [void]}\n---\n# QEST-20261021-7M6JKG\n",
+			);
+		};
+
+		it("refuses to park, so a line said to it never waits for a wake", async () => {
+			standing();
+			const { emit } = await startSession();
+			const ask = { session, refusals: [] as string[] };
+
+			emit(PARK_ASK, ask);
+			expect(ask.refusals).toEqual(["it stands at the launcher's top"]);
+		});
+
+		it("still starts again in place for a new install", async () => {
+			standing();
+			const { emit } = await startSession();
+			const ask = { session, refusals: [] as string[], restart: true };
+
+			emit(PARK_ASK, ask);
+			expect(ask.refusals).toEqual([]);
+		});
+	});
+
 	// WCJQSG, 11 November [0de9accb]: an orchestrator of thirty sessions
 	// is never without one at work, so it never took a new install.
 	it("lets an orchestrator start again in place while sessions it leads work", async () => {
