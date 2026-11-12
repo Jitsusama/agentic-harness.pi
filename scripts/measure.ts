@@ -7,7 +7,8 @@
  * rewrites, the always-on context each repository pays for, the tools
  * that failed most and how much of the quest files sessions read. Then
  * come the turns that made one tool call, a row a day for the week,
- * and each tool declared against whether it was called that day. Its
+ * each tool declared against whether it was called that day, and what
+ * each line said into the void cost to route. Its
  * sensor counts the refusals, guard blocks and habits that recurred
  * over the last seven days, day by day, so a harness change shows as
  * a bend in the days after it lands rather than a week later. A
@@ -29,7 +30,8 @@
  *   node scripts/measure.ts [--week] [--out <file>] [--top N]
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { formatAudit, type Span } from "../extensions/spend-workflow/audit.ts";
 import { gatherAudit } from "../extensions/spend-workflow/audit-input.ts";
@@ -49,6 +51,7 @@ import { stateDir } from "../lib/internal/paths.ts";
 import { declaredCalled, formatDeclaredCalled } from "./declared-called.ts";
 import { renderReport, sense } from "./learning-sensor.ts";
 import { formatOneCall, oneCallTurns } from "./one-call.ts";
+import { formatVoidCost, voidCost } from "./void-cost.ts";
 
 /** How far back a day's sensor looks, so each day reads beside six more. */
 const SENSED_DAYS = 7;
@@ -74,6 +77,7 @@ export async function measure(opts: {
 	let audit: string;
 	let oneCall: string;
 	let declared: string;
+	let theVoid: string;
 	let start: number;
 	let from: string;
 	let to: string;
@@ -89,6 +93,7 @@ export async function measure(opts: {
 		declared = formatDeclaredCalled(
 			await declaredCalled(await startsOfTheDay(opts.now), query, opts.now),
 		);
+		theVoid = formatVoidCost(await voidCost(voidDay, query, opts.now));
 		start = Date.parse(input.period.from);
 		from = input.period.from.slice(0, 10);
 		to = input.period.to.slice(0, 10);
@@ -119,6 +124,8 @@ export async function measure(opts: {
 		"",
 		declared.trimEnd(),
 		"",
+		theVoid.trimEnd(),
+		"",
 		sensed.trimEnd(),
 		"",
 	].join("\n");
@@ -135,6 +142,14 @@ async function startsOfTheDay(now: number) {
 	return (await Promise.all(logs.map((path) => standingOf(path)))).filter(
 		(one) => one !== undefined,
 	);
+}
+
+/** The void's day file for `date`, kept in the user's state folder, if it wrote one. */
+function voidDay(date: string): string | undefined {
+	const state =
+		process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+	const path = join(state, "void", `${date}.md`);
+	return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }
 
 /** How many times a measure meeting a locked ledger is run in all. */
