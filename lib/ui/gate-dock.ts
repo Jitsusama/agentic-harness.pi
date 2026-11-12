@@ -72,14 +72,14 @@ const SETTLE_TICK_MS = 100;
 const REFIT_TRIES = 3;
 
 /**
- * The share of the terminal a waiting gate keeps whatever grows beside
- * it. The dock keeps every row that can still change on screen, and a
- * sibling tool's output can change for as long as it streams: a gate
- * that gave up a row to each new line lost its question to the one row
- * that says it waits, which is how its text vanished as output came in.
- * Half leaves the output's newest rows on screen above it.
+ * The share of the terminal a waiting gate may keep whole however much
+ * grows beside it. Output appended beside it changes only its newest
+ * rows, which half leaves on screen above the gate. A gate taller than
+ * that takes no more than the dock once gave it: more pushes the turn's
+ * own rows, which still change, above the screen, and pi redraws the
+ * whole transcript for each change it can't reach.
  */
-export const GATE_KEEPS_SHARE = 0.5;
+export const WHOLE_SHARE = 0.5;
 
 /** A disposable panel, as the primitives build one. */
 type Panel = Component & { dispose?(): void };
@@ -147,6 +147,18 @@ export function dockGate<T>(
 	let width = 0;
 	let held = 0;
 	let lastRoom = -1;
+	/**
+	 * The most room the dock has given this gate at the terminal's height
+	 * now, and that height. The dock keeps every row that can still change
+	 * on screen, and a sibling tool's output can change for as long as it
+	 * streams: a gate that gave up a row to each new line lost its question
+	 * to the one row that says it waits, which is how its text vanished as
+	 * output came in. So a gate keeps what it was given until the terminal
+	 * itself changes height, and one that fits in {@link WHOLE_SHARE} of
+	 * it keeps itself whole.
+	 */
+	let most = 0;
+	let mostAt = -1;
 	let shape: Shape = { ask: Number.POSITIVE_INFINITY, oneRow: false, floor: 0 };
 	let editing: string | undefined;
 
@@ -262,10 +274,16 @@ export function dockGate<T>(
 		width = at;
 		const natural = draw(at, Number.POSITIVE_INFINITY);
 		const rows = docked?.tui?.terminal.rows ?? 0;
-		const room = Math.max(
-			given,
-			Math.min(natural.length, Math.floor(rows * GATE_KEEPS_SHARE)),
-		);
+		if (rows !== mostAt) {
+			most = 0;
+			mostAt = rows;
+		}
+		most = Math.max(most, given);
+		const keeps =
+			natural.length <= Math.floor(rows * WHOLE_SHARE)
+				? natural.length
+				: Math.min(most, natural.length);
+		const room = Math.max(given, keeps);
 		if (lastRoom >= 0 && room < lastRoom)
 			held = Math.max(0, held - (lastRoom - room));
 		lastRoom = room;
