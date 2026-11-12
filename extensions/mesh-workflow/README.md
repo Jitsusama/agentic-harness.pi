@@ -348,7 +348,8 @@ that names no group goes back to whoever asked ([`lib/mesh/unanswered.ts`](../..
 A quest whose README says `stands-at-top: {name, keywords}`
 puts `standsAtTop` in its session's presence, so the launcher's
 Agents shows that session at its top under the name, never
-folded, found by the keywords. Presence leaves the key out
+folded, found by the keywords; an optional `what`, a sentence,
+says in its drawer what it is for. Presence leaves the key out
 otherwise.
 
 A quest marked `hears: addressed` (set with the quest tool's
@@ -824,7 +825,9 @@ then `replied` with the whole reply or `failed` with why: the
 run was stopped or wrote nothing. A talk read into a run
 already working is replied by the first text written after it,
 since what follows is the run's own work; one that starts its
-run is replied by the last text that run writes. A reply so far
+run is replied by its first text too, then again by the last
+text that run writes when that differs, and a reader takes the
+last. A reply so far
 is said again only once it changes. A quest or document that ends
 afterwards, before the next talk opens, adds `came`, such as
 `{"stage": "came", "what": "plan concluded", "ref": "PLAN-..."}`.
