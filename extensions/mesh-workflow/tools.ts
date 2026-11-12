@@ -37,6 +37,7 @@ import {
 } from "../../lib/mesh/looks.ts";
 import {
 	clock,
+	heading,
 	INTENTS,
 	line,
 	type Message,
@@ -166,7 +167,7 @@ export function registerTools(
 		promptSnippet:
 			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, and mesh_end lets an orchestrator end a session of its own.",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Only a question or a hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or a finding wakes nobody and is read with whatever turn comes next. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. Realms are kept apart: an address no session in this realm goes by is left out, and a send left with nowhere to go is refused. Pass realm only to reach peers by address in another realm this one's node has a flow to; a refusal names those realms. mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself (re) when work may resume; a reboot ends it too. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave `to` out and the mesh picks, saying where. mesh_groups lists the groups.",
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -176,7 +177,7 @@ export function registerTools(
 			),
 			intent: StringEnum(INTENTS, {
 				description:
-					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against, read with their next turn; fyi: context only, read with their next turn; pivot: change what they are doing, sent only by an orchestrator to the sessions it orchestrates, each answering once it has changed course",
+					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against; fyi: context only; pivot: an orchestrator changing what its sessions do, each answering once it has",
 			}),
 			text: Type.String({
 				description: "The message, plain and short, standing on its own",
@@ -190,19 +191,19 @@ export function registerTools(
 			supersedes: Type.Optional(
 				Type.String({
 					description:
-						"The id of a message this peer sent earlier that this one replaces, to withdraw or correct it; it also goes wherever that one went, so everyone who heard it hears this",
+						"The id of a message this peer sent that this one withdraws or corrects; it goes wherever that one went",
 				}),
 			),
 			endsHold: Type.Optional(
 				Type.Boolean({
 					description:
-						"true only when the person has told you that the hold another peer sent, named by re, is over: it ends that hold for every peer waiting on it, once the person confirms. Never on your own judgement",
+						"true only when the person has told you the hold named by re, another peer's, is over; it ends it for every peer once they confirm. Never on your own judgement",
 				}),
 			),
 			realm: Type.Optional(
 				Type.String({
 					description:
-						"Another realm to send it into, such as work, through this machine's node, which allows only the realms it has a flow to: to peers there by address, as an fyi, finding or question, and nothing there can answer back. Leave it out for this realm",
+						"Another realm to send into by address, such as work, as an fyi, finding or question; only realms this node has a flow to, and nothing there can answer back. Leave it out for this realm",
 				}),
 			),
 		}),
@@ -958,7 +959,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	return answer(
-		`Sent as ${message.from}: ${line(message)}\n${notes.join(" ")}`,
+		`Sent as ${message.from}: ${heading(message)}.\n${notes.join(" ")}`,
 		{
 			sent: true,
 			message,

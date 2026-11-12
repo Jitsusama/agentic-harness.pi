@@ -1675,6 +1675,27 @@ describe("sending", () => {
 		});
 	});
 
+	it("answers with the message's id and where it went, not its text again", async () => {
+		// The sender wrote the text a moment ago, and it is still in its
+		// context; said back, it cost about 830 characters a send, 9.3
+		// million a day on 10 November 2026.
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		const answer = await send(
+			tools,
+			"p9r1ki",
+			"fyi",
+			"the long text the sender already holds",
+		);
+
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const [id] = transport.ids();
+		const short = id?.slice(id.lastIndexOf("-") + 1);
+		expect(answer).toContain(`[${short}] fyi from 7M6JKG to @P9R1KI.`);
+		expect(answer).not.toContain("the long text the sender already holds");
+	});
+
 	it("signs as its session while another live peer has its quest, and both are told", async () => {
 		// Two sessions on one quest both signed with its address, so each
 		// took the other's messages for its own and heard none of them.

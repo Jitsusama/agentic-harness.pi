@@ -19,6 +19,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-format.ts";
@@ -104,6 +105,31 @@ function heldByName(held: readonly HeldTree[], name: string) {
 
 /** Who a tree another holder claims was cut by, as far as this tool knows. */
 const CLAIMED_PROVIDER = "claimed";
+
+/** What the work tool does, one action a call. */
+const WORK_ACTIONS = [
+	"tree",
+	"snapshot",
+	"trees",
+	"release",
+	"status",
+	"tidy",
+	"reclaim",
+	"record",
+	"branch",
+	"push",
+	"carry",
+	"rebase",
+	"resume",
+	"abandon",
+	"stack",
+	"track",
+	"untrack",
+	"reparent",
+	"reorder",
+	"restack",
+	"sync",
+] as const;
 
 /**
  * The longest commit subject core's commit format accepts, and a length
@@ -524,36 +550,13 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			"Never call git worktree yourself. A tree cut outside the broker is one nothing will clean up.",
 		],
 		parameters: Type.Object({
+			// An enum rather than a union of literals: the same choices, said in
+			// a third of the characters every session sends every turn.
 			action: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("tree"),
-						Type.Literal("snapshot"),
-						Type.Literal("trees"),
-						Type.Literal("release"),
-						Type.Literal("status"),
-						Type.Literal("tidy"),
-						Type.Literal("reclaim"),
-						Type.Literal("record"),
-						Type.Literal("branch"),
-						Type.Literal("push"),
-						Type.Literal("carry"),
-						Type.Literal("rebase"),
-						Type.Literal("resume"),
-						Type.Literal("abandon"),
-						Type.Literal("stack"),
-						Type.Literal("track"),
-						Type.Literal("untrack"),
-						Type.Literal("reparent"),
-						Type.Literal("reorder"),
-						Type.Literal("restack"),
-						Type.Literal("sync"),
-					],
-					{
-						description:
-							"tree: cut a worktree at a branch; snapshot: pin one at a commit; trees: list what is held (the default); release: give one back; status: what changed in it. tidy: report what is spent, removing nothing; reclaim: take back the unowned trees tidy found. record: stage and commit; branch: make and check out a branch; push: publish it; carry: on a machine that is leaving and can't push, bundle what it couldn't push, with this session's file, into the quest's scratch handover/ folder for the share to take home. rebase onto a ref, halting on a conflict; resume or abandon a halted one. stack: what sits on what; track, untrack, reparent and reorder (lowest first) shape it; restack replays it onto trunk; sync fetches trunk first.",
-					},
-				),
+				StringEnum(WORK_ACTIONS, {
+					description:
+						"tree: cut a worktree at a branch; snapshot: pin one at a commit; trees: list what is held (the default); release: give one back; status: what changed in it. tidy: report what is spent, removing nothing; reclaim: take back the unowned trees tidy found. record: stage and commit; branch: make and check out a branch; push: publish it; carry: bundle what a leaving machine can't push into the quest's scratch handover/. rebase onto a ref, halting on a conflict; resume or abandon a halted one. stack: what sits on what; track, untrack, reparent and reorder (lowest first) shape it; restack replays it onto trunk; sync fetches trunk first.",
+				}),
 			),
 			repo: Type.Optional(
 				Type.String({
