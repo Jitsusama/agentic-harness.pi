@@ -71,6 +71,16 @@ const SETTLE_TICK_MS = 100;
 /** Times a panel is asked to lay itself out in fewer rows before giving up. */
 const REFIT_TRIES = 3;
 
+/**
+ * The share of the terminal a waiting gate keeps whatever grows beside
+ * it. The dock keeps every row that can still change on screen, and a
+ * sibling tool's output can change for as long as it streams: a gate
+ * that gave up a row to each new line lost its question to the one row
+ * that says it waits, which is how its text vanished as output came in.
+ * Half leaves the output's newest rows on screen above it.
+ */
+export const GATE_KEEPS_SHARE = 0.5;
+
 /** A disposable panel, as the primitives build one. */
 type Panel = Component & { dispose?(): void };
 
@@ -248,9 +258,14 @@ export function dockGate<T>(
 	 * out again in fewer, else one row. It never shows fewer rows than it
 	 * held unless the room itself shrank, and fills what it is dealt.
 	 */
-	const layout = (room: number, at: number, focused: boolean): string[] => {
+	const layout = (given: number, at: number, focused: boolean): string[] => {
 		width = at;
 		const natural = draw(at, Number.POSITIVE_INFINITY);
+		const rows = docked?.tui?.terminal.rows ?? 0;
+		const room = Math.max(
+			given,
+			Math.min(natural.length, Math.floor(rows * GATE_KEEPS_SHARE)),
+		);
 		if (lastRoom >= 0 && room < lastRoom)
 			held = Math.max(0, held - (lastRoom - room));
 		lastRoom = room;
