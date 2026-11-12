@@ -308,7 +308,13 @@ it(
 			expect(await host.list(), "the host lets it go").toEqual([]);
 			expect(
 				alive(follow),
-				"the host spared the command as the conversation closed",
+				[
+					"the host spared the command as the conversation closed",
+					`kept: ${keptIn(sealed).join(", ") || "nothing"}`,
+					`the log records a carry: ${textOf(file).includes('"job-carried"')}`,
+					`the release said: ${released.out}`,
+					said(),
+				].join("\n"),
 			).toBe(true);
 
 			// Reopen Them All: plain pi, from the same file.
