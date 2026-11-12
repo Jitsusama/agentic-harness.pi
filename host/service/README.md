@@ -61,8 +61,13 @@ input pipeline or screen. No unit or running host is installed yet.
   WatchdogSec, a ready host pings it from its own loop four times in
   each timeout, until every conversation is parked: a loop that stops
   turning goes quiet and systemd restarts the host, while a long turn,
-  which the host awaits, never stops the pings. The engine is passed
-  in by the program that starts it.
+  which the host awaits, never stops the pings. A beat more than 5 s
+  late, or half the timeout when that is less, says in the journal
+  how long the loop held and how many conversations were mid-turn,
+  so a stall short of a kill leaves a trace. One that kills leaves
+  systemd's own "Watchdog timeout" line in the unit's journal
+  instead, and the host's core with systemd-coredump.
+  The engine is passed in by the program that starts it.
   Given the process's faults, it backstops an uncaught exception: one
   thrown inside a conversation goes to that conversation's screen, and
   one it can't tie to a screen parks every conversation and fails the
