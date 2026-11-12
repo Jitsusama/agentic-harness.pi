@@ -47,7 +47,10 @@ import {
 	hostKey,
 	hostRealm,
 } from "../../host/service/address.ts";
-import type { SpawnHostSetting } from "../../lib/core/quest/config.ts";
+import type {
+	SpawnHostSetting,
+	StartHostSetting,
+} from "../../lib/core/quest/config.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	firstWordsDir,
@@ -56,7 +59,6 @@ import {
 	takeFirstWords,
 } from "../../lib/internal/quest/first-words.ts";
 import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
-import type { StartHostSetting } from "../../lib/core/quest/config.ts";
 import { spawnHostSetting, startHostSetting } from "./config.ts";
 import { agentCommand } from "./verbs/spawn-held.ts";
 import {
@@ -331,10 +333,7 @@ export function noteHanded(
 		? `went to the ${handed.host} host as session ${handed.sessionId}`
 		: `stayed in its window${handed.note ? `: ${handed.note}` : ""}`;
 	const by = how ? ` (${how})` : "";
-	noteLine(
-		`spawn ${spawn.sessionId} for ${spawn.questId} ${said}${by}`,
-		log,
-	);
+	noteLine(`spawn ${spawn.sessionId} for ${spawn.questId} ${said}${by}`, log);
 }
 
 /** Keep `line` in the launched spawns' log, dated. Never fails. */
