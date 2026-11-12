@@ -14,7 +14,7 @@
  * why without one.
  */
 
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { takeBackMove } from "../../../lib/internal/session/move.ts";
@@ -182,8 +182,10 @@ it(
 				admitsOne: true,
 			});
 			// The one conversation it admits, so it refuses the next.
+			const admitted = join(sealed.home, "admitted");
+			await mkdir(admitted, { recursive: true });
+			await host.open(admitted, { model: SCRIPTED });
 			const work = join(sealed.home, "w");
-			await host.open(work, { model: SCRIPTED });
 			const { file, held } = await fleetInPlainPi(pi, "e22");
 			const session = plain?.sessionId ?? "";
 
