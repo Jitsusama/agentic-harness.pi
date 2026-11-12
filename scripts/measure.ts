@@ -46,8 +46,8 @@ import {
 	openTurnStore,
 } from "../lib/core/observability/index.ts";
 import { stateDir } from "../lib/internal/paths.ts";
-import { renderReport, sense } from "./learning-sensor.ts";
 import { declaredCalled, formatDeclaredCalled } from "./declared-called.ts";
+import { renderReport, sense } from "./learning-sensor.ts";
 import { formatOneCall, oneCallTurns } from "./one-call.ts";
 
 /** How far back a day's sensor looks, so each day reads beside six more. */

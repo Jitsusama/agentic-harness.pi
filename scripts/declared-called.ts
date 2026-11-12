@@ -12,8 +12,8 @@
  * the ledger, counted in `declared-called.sql`, a row a session.
  */
 
-import { sqlFile } from "../lib/core/internal/sqlite/sql-file.ts";
 import type { StandingPrompt } from "../extensions/spend-workflow/standing.ts";
+import { sqlFile } from "../lib/core/internal/sqlite/sql-file.ts";
 import type { LedgerQuery } from "./one-call.ts";
 
 /** One tool's declarations and calls over the last day. */
@@ -48,6 +48,15 @@ const TOOLS_SHOWN = 15;
 const CHARS_PER_TOKEN = 4;
 const THOUSAND = 1_000;
 
+/** A tool's running count while the sessions are read. */
+interface Tally {
+	sessions: number;
+	sizes: number[];
+	calledIn: number;
+	calls: number;
+	unusedCost: number;
+}
+
 /** One session's day in the ledger. */
 interface SessionDay {
 	readonly turns: number;
@@ -73,10 +82,7 @@ export async function declaredCalled(
 	const days = new Map(
 		rows.map((row) => [uuidOf(String(row.session)), dayOf(row)]),
 	);
-	const weights = new Map<
-		string,
-		{ sessions: number; sizes: number[]; calledIn: number; calls: number; unusedCost: number }
-	>();
+	const weights = new Map<string, Tally>();
 	const declared: number[] = [];
 	for (const prompt of prompts) {
 		const day = days.get(prompt.session);
@@ -94,8 +100,11 @@ export async function declaredCalled(
 			weight.sessions += 1;
 			weight.sizes.push(size);
 			weight.calls += calls;
-			if (calls > 0) weight.calledIn += 1;
-			else weight.unusedCost += (size / CHARS_PER_TOKEN) * day.turns * day.price;
+			if (calls > 0) {
+				weight.calledIn += 1;
+			} else {
+				weight.unusedCost += (size / CHARS_PER_TOKEN) * day.turns * day.price;
+			}
 			weights.set(tool, weight);
 		}
 	}
@@ -108,7 +117,7 @@ export async function declaredCalled(
 			calls: weight.calls,
 			unusedCost: weight.unusedCost,
 		}))
-		.sort((a, b) => b.unusedCost - a.unusedCost || a.tool.localeCompare(b.tool));
+		.sort(byUnusedCost);
 	return {
 		sessions: declared.length,
 		medianDeclared: median(declared),
@@ -157,7 +166,13 @@ function dayOf(row: Record<string, unknown>): SessionDay {
 
 /** The session's id from its log's name, `<started>_<id>.jsonl`. */
 function uuidOf(file: string): string {
-	return file.replace(/\.jsonl$/, "").split("_").at(-1) ?? file;
+	const name = file.replace(/\.jsonl$/, "");
+	return name.slice(name.lastIndexOf("_") + 1);
+}
+
+/** Dearest unused first, then by name. */
+function byUnusedCost(a: ToolWeight, b: ToolWeight): number {
+	return b.unusedCost - a.unusedCost || a.tool.localeCompare(b.tool);
 }
 
 /** A query file without its leading comment, since the ledger takes only a statement that opens with SELECT or WITH. */

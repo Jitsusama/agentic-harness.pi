@@ -2,13 +2,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { StandingPrompt } from "../../extensions/spend-workflow/standing.ts";
 import {
 	openLedgerReader,
 	openTurnStore,
 	type ToolCallRecord,
 	type TurnRecord,
 } from "../../lib/core/observability/ledger/index.ts";
-import type { StandingPrompt } from "../../extensions/spend-workflow/standing.ts";
 import {
 	declaredCalled,
 	formatDeclaredCalled,
