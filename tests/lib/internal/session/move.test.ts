@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { whatHolds } from "../../../../lib/internal/session/free.ts";
+import { jobsOut, whatHolds } from "../../../../lib/internal/session/free.ts";
 import {
 	claimMoveNote,
 	giveBackMoveNote,
@@ -191,6 +191,26 @@ describe("what holds a session from ending", () => {
 		expect(whatHolds({ ...free, prompting: true })).toBe("a prompt is open");
 		expect(whatHolds({ ...free, typed: true })).toBe(
 			"text is typed and unsent",
+		);
+	});
+
+	it("names the jobs that hold by kind and id, in the words /host and a wave print", () => {
+		expect(
+			whatHolds({
+				...free,
+				jobs: 1,
+				heldBy: [{ id: "j3", kind: "subagent", label: "k7-read" }],
+			}),
+		).toBe("a fleet is out (j3: k7-read)");
+		expect(
+			jobsOut([
+				{ id: "j1", kind: "shell", label: "make" },
+				{ id: "j2", kind: "shell", label: "test" },
+				{ id: "j4", kind: "review", label: "CI" },
+				{ id: "j5", kind: "probe", label: "x" },
+			]),
+		).toBe(
+			"2 commands, a review watch and a probe job are out (j1: make; j2: test; j4: CI; j5: x)",
 		);
 	});
 });

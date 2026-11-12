@@ -8,8 +8,10 @@
  * out as a prompt of its own. `/jobs` lists what is running and stops
  * one for the person; the deferred `jobs` tool does the same for the
  * agent. A reload hands the jobs to the runtime it starts, still running,
- * and a rollover to the fresh session carrying the conversation on; any
- * other end of the session stops them.
+ * and a rollover to the fresh session carrying the conversation on. A
+ * move to a host hands it the jobs that can be carried, still running,
+ * through the session's log (moved.ts); any other end of the session
+ * stops them.
  */
 
 import type {
@@ -20,6 +22,7 @@ import { hosted, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
+import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
 	CUT_OFF_ENTRY,
@@ -32,6 +35,7 @@ import {
 	watchStamps,
 } from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
+import { carriedIn, carryAway, movingToHost, takeUp } from "./moved.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 
@@ -136,6 +140,47 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 	});
 }
 
+/**
+ * Hand a session moving to a host the jobs that can go with it, written
+ * in its log as it ends (moved.ts).
+ */
+function carryIfMoving(
+	pi: ExtensionAPI,
+	session: JobSession,
+	ctx: ExtensionContext,
+): void {
+	if (!movingToHost(sessionIdOf(ctx))) return;
+	carryAway(
+		session.jobs,
+		session.outbox,
+		(type, data) => pi.appendEntry(type, data),
+		Date.now(),
+	);
+}
+
+/** Take up the jobs a move carried into this session, if any wait. */
+function takeUpIfCarried(
+	pi: ExtensionAPI,
+	session: JobSession,
+	ctx: ExtensionContext,
+): void {
+	let branch: readonly unknown[];
+	try {
+		branch = ctx.sessionManager.getBranch();
+	} catch {
+		// No history to read: nothing was carried into it.
+		return;
+	}
+	const carried = carriedIn(branch);
+	if (carried === undefined) return;
+	takeUp(carried, {
+		jobs: session.jobs,
+		outbox: session.outbox,
+		session: sessionKeyOf(ctx),
+		append: (type, data) => pi.appendEntry(type, data),
+	});
+}
+
 /** The session's key for its crash writer, or one for the process when it can't say. */
 function crashKeyOf(ctx: ExtensionContext): string {
 	try {
@@ -190,16 +235,22 @@ export default function jobWorkflow(
 			: recordCrashes(`job-workflow:${crashKeyOf(ctx)}`, () =>
 					recordCutOff(pi, session, ctx),
 				);
-		if (RETURNS.has(event.reason)) resumeIfCutOff(session, ctx);
+		if (RETURNS.has(event.reason)) {
+			takeUpIfCarried(pi, session, ctx);
+			resumeIfCutOff(session, ctx);
+		}
 	});
 
 	pi.on("session_shutdown", async (event, ctx) => {
+		// A quit with no signal is the session's own end, which a move is.
+		let ownQuit = false;
 		if (event.reason === "quit") {
 			// pi's own signal listener starts the shutdown before the rest
 			// are called, so the signal is heard only once this yields. pi
 			// awaits this handler before it aborts the run.
 			await new Promise((resolve) => setImmediate(resolve));
 			if (signals?.signalled()) recordCutOff(pi, session, ctx);
+			else ownQuit = true;
 		}
 		signals?.stop();
 		signals = undefined;
@@ -211,7 +262,11 @@ export default function jobWorkflow(
 				: undefined;
 		if (event.reason === "reload") session?.park();
 		else if (successor) session?.park(undefined, successor);
-		else session?.close();
+		else {
+			// A signalled pi kills what it started, so only its own quit carries.
+			if (ownQuit && session) carryIfMoving(pi, session, ctx);
+			session?.close();
+		}
 		session = undefined;
 	});
 

@@ -203,6 +203,36 @@ reason `resume`. A resume into any other log stops them, as before.
 The mesh lets go of a session's heavy-work leases as it shuts down,
 reload or rollover, so a carried job runs on without one.
 
+## Through a Move
+
+A move to a host (`/host`, or a wave) ends the pi and has the host
+open its log, and a job used to die with the pi. So a move waited out
+every job, and on 12 November a wave moved none of seven sessions,
+each always running a command of its own.
+
+Now a producer whose work lives outside the pi says how another
+process takes it up, through its spec's `carry`, and only the jobs
+without one hold a move. `/host` and a wave name those by kind and id:
+`waiting first, as a fleet is out (j3: k7-read)`. When the pi quits
+with a move note naming itself and a host, the jobs that can be
+carried are let go unstopped, and a `job-carried` entry in its log
+names each, with the results not yet said. The host starts the
+conversation as `startup`, takes each job up under its own id, says
+the waiting results, and leaves a `job-carried-taken` entry so a later
+start doesn't take them again. A job taken up can be carried again.
+
+- **Carried:** bash calls pi started itself, which keep their output,
+  status and pid on disk (see
+  [shell-workflow](../shell-workflow/#through-a-move)). The host says
+  each one's end in the words its own pi would have. A call whose
+  shell is gone with no status is said as lost, with its last lines,
+  and is never run again.
+- **Holding:** calls `pi-spawner` started, and calls started before
+  this ran; fleets; review and CI watches; a model retry; a reload.
+- A signal ends the pi without its children, so a pi signalled during
+  its move carries nothing. A move back to a window (`pi`) holds as
+  before.
+
 ## When the Machine Ends a Session
 
 pi resumes nothing on its own. A session restored after a reboot sits
@@ -246,7 +276,7 @@ on with.
 ## Limits
 
 - **Nothing else outlives the session.** A new session, a resume of
-  another log, a fork and a quit stop every job, with the reason
+  another log, a fork and a quit that isn't a move stop every job, with the reason
   `session`, and drop whatever was waiting, since a result belongs to
   the conversation it was started in. A job's work should write its
   output somewhere durable if it matters beyond the session.
