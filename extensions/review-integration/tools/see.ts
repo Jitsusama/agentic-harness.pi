@@ -11,6 +11,7 @@
  * Read-only, so no gate anywhere in here.
  */
 
+import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -95,19 +96,21 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 			"A derived stack can be wrong at the edges: a merged parent or a renamed branch ends the chain early. Pass that caveat on when it matters.",
 		],
 		parameters: Type.Object({
-			action: Type.Union(
+			// An enum rather than a union of literals, as review_offer's: the
+			// same choices in a third of the characters sent every turn.
+			action: StringEnum(
 				[
-					Type.Literal("change"),
-					Type.Literal("diff"),
-					Type.Literal("checks"),
-					Type.Literal("stack"),
-					Type.Literal("changes"),
-					Type.Literal("threads"),
-					Type.Literal("reviews"),
-					Type.Literal("messages"),
-					Type.Literal("findings"),
-					Type.Literal("followup"),
-				],
+					"change",
+					"diff",
+					"checks",
+					"stack",
+					"changes",
+					"threads",
+					"reviews",
+					"messages",
+					"findings",
+					"followup",
+				] as const,
 				{
 					description:
 						"What to read. change: the change itself and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody. followup: where your own remarks stand now the change has moved on, worst first.",
@@ -134,14 +137,9 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 				}),
 			),
 			state: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("open"),
-						Type.Literal("merged"),
-						Type.Literal("closed"),
-					],
-					{ description: "For changes: which ones." },
-				),
+				StringEnum(["open", "merged", "closed"] as const, {
+					description: "For changes: which ones.",
+				}),
 			),
 			limit: Type.Optional(
 				Type.Number({ description: "For changes: how many." }),
