@@ -2,7 +2,10 @@ import { type Db, openDb } from "../../internal/sqlite/db.ts";
 import { sqlFile } from "../../internal/sqlite/sql-file.ts";
 import type {
 	CallScope,
+	DeclarationRecord,
 	DroppedCallRecord,
+	InnerCallRecord,
+	InnerCallVia,
 	PaybackReplay,
 	QueryAnswer,
 	RegretReport,
@@ -58,6 +61,16 @@ export interface TurnStore {
 	repeatedCalls(scope?: CallScope): Promise<RepeatedCall[]>;
 	recordDropped(dropped: readonly DroppedCallRecord[]): Promise<RecordOutcome>;
 	queryDropped(): Promise<DroppedCallRecord[]>;
+	/** Record the calls tools made to other tools, once each. */
+	recordInnerCalls(inner: readonly InnerCallRecord[]): Promise<RecordOutcome>;
+	/** Every call a tool made to another, oldest first. */
+	queryInnerCalls(): Promise<InnerCallRecord[]>;
+	/** Record what system messages declared or took away, once each. */
+	recordDeclarations(
+		declarations: readonly DeclarationRecord[],
+	): Promise<RecordOutcome>;
+	/** Every declaration change, oldest first. */
+	queryDeclarations(): Promise<DeclarationRecord[]>;
 	/** Dropped calls asked again after the drop, with how many could have been. */
 	regret(scope?: CallScope): Promise<RegretReport>;
 	/** Pass, fail and unknown counts per verifier kind that ran at all. */
@@ -205,6 +218,17 @@ function booked(value: string | null | undefined): string | null {
  */
 function questOf(turns: string, sessions: string): string {
 	return `CASE WHEN ${turns}.quest IS NULL THEN ${sessions}.quest ELSE NULLIF(${turns}.quest, '') END`;
+}
+
+/**
+ * What carried an inner call, refusing one this store doesn't know, so
+ * a carrier added later is never counted as a script without a word.
+ */
+function carrier(via: string): InnerCallVia {
+	if (via === "codemode" || via === "tool_gateway_run_tool") return via;
+	throw new Error(
+		`An inner call says it went through "${via}", which the ledger doesn't know.`,
+	);
 }
 
 /** SQLite has no boolean; unknown stays null rather than reading as false. */
@@ -697,6 +721,117 @@ class SqliteTurnStore implements TurnStore {
 		return { inserted, duplicates: dropped.length - inserted };
 	}
 
+	async recordInnerCalls(
+		inner: readonly InnerCallRecord[],
+	): Promise<RecordOutcome> {
+		const fresh = new Map<string, InnerCallRecord>();
+		for (const call of inner) {
+			if (!fresh.has(call.digest)) fresh.set(call.digest, call);
+		}
+		const known = await this.alreadyHeld("inner_calls", [...fresh.keys()]);
+		const unknown = [...fresh.values()].filter((c) => !known.has(c.digest));
+		const inserted = await this.inTransactions(unknown, async (chunk) => {
+			let written = 0;
+			for (const c of chunk) {
+				const { changes } = await this.db.run(
+					`INSERT OR IGNORE INTO inner_calls (
+						digest, session_id, entry_id, outer_call_id, timestamp, name,
+						via, status, duration_ms
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					[
+						c.digest,
+						c.sessionId,
+						c.entryId,
+						c.outerCallId,
+						c.timestamp,
+						c.name,
+						c.via,
+						c.status,
+						c.durationMs,
+					],
+				);
+				written += changes;
+			}
+			return written;
+		});
+		return { inserted, duplicates: inner.length - inserted };
+	}
+
+	async queryInnerCalls(): Promise<InnerCallRecord[]> {
+		const rows = await this.db.all<{
+			digest: string;
+			session_id: string;
+			entry_id: string;
+			outer_call_id: string;
+			timestamp: string;
+			name: string;
+			via: string;
+			status: string;
+			duration_ms: number | null;
+		}>("SELECT * FROM inner_calls ORDER BY timestamp ASC, digest ASC");
+		return rows.map((row) => ({
+			digest: row.digest,
+			sessionId: row.session_id,
+			entryId: row.entry_id,
+			outerCallId: row.outer_call_id,
+			timestamp: row.timestamp,
+			name: row.name,
+			via: carrier(row.via),
+			status: row.status,
+			durationMs: row.duration_ms,
+		}));
+	}
+
+	async recordDeclarations(
+		declarations: readonly DeclarationRecord[],
+	): Promise<RecordOutcome> {
+		// Keyed on session, entry and tool, so a grown log read again in
+		// full inserts nothing it already gave.
+		const inserted = await this.inTransactions(declarations, async (chunk) => {
+			let written = 0;
+			for (const d of chunk) {
+				const { changes } = await this.db.run(
+					`INSERT OR IGNORE INTO declarations (
+							session_id, entry_id, seq, timestamp, tool, change, chars
+						) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					[
+						d.sessionId,
+						d.entryId,
+						d.seq,
+						d.timestamp,
+						d.tool,
+						d.change,
+						d.chars,
+					],
+				);
+				written += changes;
+			}
+			return written;
+		});
+		return { inserted, duplicates: declarations.length - inserted };
+	}
+
+	async queryDeclarations(): Promise<DeclarationRecord[]> {
+		const rows = await this.db.all<{
+			session_id: string;
+			entry_id: string;
+			seq: number;
+			timestamp: string;
+			tool: string;
+			change: string;
+			chars: number;
+		}>("SELECT * FROM declarations ORDER BY session_id, timestamp, seq, tool");
+		return rows.map((row) => ({
+			sessionId: row.session_id,
+			entryId: row.entry_id,
+			seq: row.seq,
+			timestamp: row.timestamp,
+			tool: row.tool,
+			change: row.change === "removed" ? "removed" : "added",
+			chars: row.chars,
+		}));
+	}
+
 	async queryDropped(): Promise<DroppedCallRecord[]> {
 		const rows = await this.db.all<{
 			digest: string;
@@ -889,7 +1024,7 @@ class SqliteTurnStore implements TurnStore {
 	 * corpus-sized batch stays inside SQLite's bound-variable ceiling.
 	 */
 	private async alreadyHeld(
-		table: "turns" | "tool_calls" | "dropped_calls",
+		table: "turns" | "tool_calls" | "dropped_calls" | "inner_calls",
 		digests: readonly string[],
 	): Promise<Set<string>> {
 		const found = new Set<string>();

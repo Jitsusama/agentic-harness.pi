@@ -1,41 +1,43 @@
 /**
- * Declared, called: each tool a session declared as it started, held
- * against whether it called it in the last day, for the daily measure.
+ * Declared, called: each tool sessions held over the last day, against
+ * whether they called it, for the daily measure.
  *
  * Every turn re-reads every declaration in the prefix, so a tool a
- * session never calls costs its whole declaration on each of that
- * session's turns. Pricing that at each session's own cache-read rate
- * says which tools are worth loading on demand instead, and lets a PR
- * that defers them show its saving the next day. A session's
- * declarations come from the first system message of its log, as the
- * audit's always-on context reads them; its turns and calls come from
- * the ledger, counted in `declared-called.sql`, a row a session.
+ * session never calls costs its whole declaration on each turn it was
+ * held. Pricing that at each session's own cache-read rate says which
+ * tools are worth loading on demand instead, and lets a PR that defers
+ * them show its saving the next day. What a session held at each turn
+ * is the fold of its system messages, which the ledger keeps tool by
+ * tool (`declarations`), so a session that reloaded onto other tools is
+ * priced by what it held then, not what it started with. Its turns and
+ * calls come from the ledger too, all counted in `declared-called.sql`.
  *
- * Every figure is a floor. The ledger holds a log's own tool calls, not
- * those a codemode script or the gateway's runner makes, so a session
- * that ran either may have called any tool through it: such sessions
- * are counted apart and never priced. Declarations are read as each
- * session started, and a rewrite of the prefix pays the dearer write
- * rate, which this leaves out.
+ * Every figure is a floor. A script's calls and the tool each gateway
+ * call ran count under those tools, from `inner_calls`. A session that
+ * ran a script with none of its calls held may have called any tool
+ * through it, so it is counted apart and never priced. A session whose
+ * log last grew before the ledger kept declarations isn't counted at
+ * all, and a rewrite of the prefix pays the dearer write rate, which
+ * this leaves out.
  */
 
-import type { StandingPrompt } from "../extensions/spend-workflow/standing.ts";
 import { sqlFile } from "../lib/core/internal/sqlite/sql-file.ts";
 import type { LedgerQuery } from "./one-call.ts";
 
 /** One tool's declarations and calls over the last day. */
 export interface ToolWeight {
 	readonly tool: string;
-	/** Sessions that declared it as they started and worked that day. */
+	/** Sessions that held it during a turn of the day. */
 	readonly sessions: number;
-	/** Its declaration's median size in characters. */
+	/** Its declaration's median size in characters, as each last held it. */
 	readonly chars: number;
 	/** Of those, the sessions that called it. */
 	readonly calledIn: number;
 	readonly calls: number;
 	/**
-	 * Sessions that didn't call it but ran a script, which may have: their
-	 * reads of it are left out of `unusedCost`.
+	 * Sessions that didn't call it but ran a script whose calls the
+	 * ledger doesn't hold, which may have: their reads of it are left out
+	 * of `unusedCost`.
 	 */
 	readonly scripted: number;
 	/** What re-reading it cost in the sessions that never called it. */
@@ -44,9 +46,15 @@ export interface ToolWeight {
 
 /** What the measure says about declared tools against called ones. */
 export interface DeclaredCalledReport {
-	/** Sessions with a declaration read and a turn in the last day. */
+	/** Sessions with declarations held and a turn in the last day. */
 	readonly sessions: number;
-	/** Their median characters of declarations. */
+	/**
+	 * Sessions that worked in the last day with none of their declarations
+	 * held yet, since the ledger began keeping them after their log last
+	 * grew: the section's count rises as they fill in.
+	 */
+	readonly unread: number;
+	/** Their median characters of declarations held, a turn. */
 	readonly medianDeclared: number;
 	/** What every declaration a session never called cost to re-read. */
 	readonly unusedCost: number;
@@ -60,32 +68,9 @@ const TOOLS_SHOWN = 15;
 const CHARS_PER_TOKEN = 4;
 const THOUSAND = 1_000;
 const HALF = 2;
-/** Tools whose calls run other tools, which the ledger doesn't see. */
-const SCRIPTING = ["codemode", "tool_gateway_run_tool"];
 
-/** A tool's running count while the sessions are read. */
-interface Tally {
-	sessions: number;
-	sizes: number[];
-	calledIn: number;
-	calls: number;
-	scripted: number;
-	unusedCost: number;
-}
-
-/** One session's day in the ledger. */
-interface SessionDay {
-	readonly turns: number;
-	/** Dollars a cache-read token cost this session. */
-	readonly price: number;
-	readonly calls: ReadonlyMap<string, number>;
-	/** Whether it ran a script, whose own calls the ledger doesn't hold. */
-	readonly scripted: boolean;
-}
-
-/** Hold each session's declared tools against its calls of the day before `now`. */
+/** Hold each tool sessions declared against their calls of the day before `now`. */
 export async function declaredCalled(
-	prompts: readonly StandingPrompt[],
 	query: LedgerQuery,
 	now: number,
 ): Promise<DeclaredCalledReport> {
@@ -97,35 +82,23 @@ export async function declaredCalled(
 			}),
 		),
 	);
-	const days = new Map(
-		rows.map((row) => [uuidOf(String(row.session)), dayOf(row)]),
-	);
-	const weights = new Map<string, Tally>();
-	const declared: number[] = [];
-	for (const prompt of prompts) {
-		const day = days.get(prompt.session);
-		if (day === undefined) continue;
-		declared.push(prompt.pieces.declarations ?? 0);
-		for (const [tool, size] of Object.entries(prompt.byTool)) {
-			const weight = weights.get(tool) ?? emptyTally();
-			addSession(weight, size, day.calls.get(tool) ?? 0, day);
-			weights.set(tool, weight);
-		}
-	}
-	const tools = [...weights]
-		.map(([tool, weight]) => ({
-			tool,
-			sessions: weight.sessions,
-			chars: median(weight.sizes),
-			calledIn: weight.calledIn,
-			calls: weight.calls,
-			scripted: weight.scripted,
-			unusedCost: weight.unusedCost,
+	const summary = rows.find((row) => row.kind === "sessions");
+	const tools = rows
+		.filter((row) => row.kind === "tool")
+		.map((row) => ({
+			tool: String(row.tool),
+			sessions: count(row.sessions),
+			chars: median(sizesOf(row.sizes)),
+			calledIn: count(row.calledIn),
+			calls: count(row.calls),
+			scripted: count(row.scripted),
+			unusedCost: count(row.unusedCharCost) / CHARS_PER_TOKEN,
 		}))
 		.sort(byUnusedCost);
 	return {
-		sessions: declared.length,
-		medianDeclared: median(declared),
+		sessions: count(summary?.sessions),
+		unread: count(summary?.calledIn),
+		medianDeclared: median(sizesOf(summary?.sizes)),
 		unusedCost: tools.reduce((sum, tool) => sum + tool.unusedCost, 0),
 		tools: tools.slice(0, TOOLS_SHOWN),
 	};
@@ -134,14 +107,21 @@ export async function declaredCalled(
 /** The measure's section on declared tools against called ones. */
 export function formatDeclaredCalled(report: DeclaredCalledReport): string {
 	const lines = ["## Declared, Called", ""];
+	const unread =
+		report.unread > 0
+			? ` ${report.unread} more sessions worked whose declarations the ledger doesn't hold yet, because their logs haven't grown since it began keeping them, so this count rises as they fill in.`
+			: "";
 	if (report.sessions === 0) {
-		lines.push("No session with a readable start worked in the last day.", "");
+		lines.push(
+			`No session with its declarations in the ledger worked in the last day.${unread}`,
+			"",
+		);
 		return lines.join("\n");
 	}
 	lines.push(
-		`${report.sessions} sessions worked in the last day, starting with a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations, as each started. Re-reading the declarations of tools a session never called cost at least ${dollars(report.unusedCost)} over the day, at each session's cache-read price and four characters a token.`,
+		`${report.sessions} sessions worked in the last day, holding a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations a turn.${unread} Re-reading the declarations of tools a session never called cost at least ${dollars(report.unusedCost)} over the day, for the turns each was held, at each session's cache-read price and four characters a token.`,
 		"",
-		"A call made inside a codemode script or through the gateway's runner isn't in the ledger, so a session that ran one is counted under Maybe in a script and left out of the price. Rewriting the prefix pays the dearer write rate, which isn't counted either. The tools whose unused declarations cost most, where loading on demand would save:",
+		"A call made inside a codemode script counts under the tool it ran, and a gateway call under the gateway's runner. A session that ran a script whose calls the ledger doesn't hold is counted under Maybe in a script and left out of the price. Rewriting the prefix pays the dearer write rate, which isn't counted either. The tools whose unused declarations cost most, where loading on demand would save:",
 		"",
 		"| Tool | Declared in | Characters | Called in | Calls | Maybe in a script | Unused reads |",
 		"|---|---|---|---|---|---|---|",
@@ -154,56 +134,13 @@ export function formatDeclaredCalled(report: DeclaredCalledReport): string {
 	return lines.join("\n");
 }
 
-/** A ledger row as the day of one session. */
-function dayOf(row: Record<string, unknown>): SessionDay {
-	const tokens = count(row.readTokens);
-	const calls = new Map<string, number>();
-	for (const pair of String(row.called ?? "").split(",")) {
-		const at = pair.lastIndexOf("=");
-		if (at > 0) calls.set(pair.slice(0, at), count(pair.slice(at + 1)));
-	}
-	return {
-		turns: count(row.turns),
-		price: tokens === 0 ? 0 : count(row.readCost) / tokens,
-		calls,
-		scripted: SCRIPTING.some((tool) => calls.has(tool)),
-	};
-}
-
-function emptyTally(): Tally {
-	return {
-		sessions: 0,
-		sizes: [],
-		calledIn: 0,
-		calls: 0,
-		scripted: 0,
-		unusedCost: 0,
-	};
-}
-
-/** Add one session's declaration of a tool, `size` characters, called `calls` times. */
-function addSession(
-	weight: Tally,
-	size: number,
-	calls: number,
-	day: SessionDay,
-): void {
-	weight.sessions += 1;
-	weight.sizes.push(size);
-	weight.calls += calls;
-	if (calls > 0) {
-		weight.calledIn += 1;
-	} else if (day.scripted) {
-		weight.scripted += 1;
-	} else {
-		weight.unusedCost += (size / CHARS_PER_TOKEN) * day.turns * day.price;
-	}
-}
-
-/** The session's id from its log's name, `<started>_<id>.jsonl`. */
-function uuidOf(file: string): string {
-	const name = file.replace(/\.jsonl$/, "");
-	return name.slice(name.lastIndexOf("_") + 1);
+/** The sizes a row joined with commas. */
+function sizesOf(value: unknown): number[] {
+	if (value === null || value === undefined) return [];
+	return String(value)
+		.split(",")
+		.map(count)
+		.filter((size) => size > 0);
 }
 
 /** Dearest unused first, then by name. */

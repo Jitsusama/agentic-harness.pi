@@ -24,7 +24,9 @@ export {
 export type {
 	CallScope,
 	CompactionFacts,
+	DeclarationRecord,
 	DroppedCallRecord,
+	InnerCallRecord,
 	PaybackReplay,
 	QueryAnswer,
 	RegretReport,

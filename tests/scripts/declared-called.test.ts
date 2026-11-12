@@ -2,8 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { StandingPrompt } from "../../extensions/spend-workflow/standing.ts";
 import {
+	type DeclarationRecord,
+	type InnerCallRecord,
 	openLedgerReader,
 	openTurnStore,
 	type ToolCallRecord,
@@ -75,35 +76,78 @@ function step(
 	return { turn, calls };
 }
 
+/**
+ * A system message in session `uuid` `hoursAgo` before the measure
+ * (by default before the day began), declaring tools of these sizes in
+ * characters, a size of 0 taking the tool away.
+ */
+function declared(
+	uuid: string,
+	byTool: Readonly<Record<string, number>>,
+	hoursAgo = 30,
+): DeclarationRecord[] {
+	sequence += 1;
+	return Object.entries(byTool).map(([tool, chars]) => ({
+		sessionId: `2026-11-12T00-00-00-000Z_${uuid}.jsonl`,
+		entryId: `s${sequence}`,
+		seq: sequence,
+		timestamp: new Date(NOW - hoursAgo * HOUR_MS).toISOString(),
+		tool,
+		change: chars > 0 ? "added" : "removed",
+		chars,
+	}));
+}
+
 /** A session that started declaring tools of these sizes, in characters. */
 function started(
-	session: string,
+	uuid: string,
 	byTool: Readonly<Record<string, number>>,
-): StandingPrompt {
-	const declarations = Object.values(byTool).reduce((a, b) => a + b, 0);
+): DeclarationRecord[] {
+	return declared(uuid, byTool);
+}
+
+/** The calls a step's first call made to other tools, as the scan keeps them. */
+function through(
+	one: { turn: TurnRecord; calls: ToolCallRecord[] },
+	via: InnerCallRecord["via"],
+	names: readonly string[],
+): { turn: TurnRecord; calls: ToolCallRecord[]; inner: InnerCallRecord[] } {
+	const outer = one.calls.at(0);
+	if (!outer) throw new Error("a step with no call made none through it");
 	return {
-		session,
-		repo: "r",
-		tools: Object.keys(byTool).length,
-		pieces: { declarations },
-		byTool,
-		redeclared: 0,
+		...one,
+		inner: names.map((name, index) => ({
+			digest: `${outer.digest}/${index}`,
+			sessionId: outer.sessionId,
+			entryId: outer.entryId,
+			outerCallId: outer.callId,
+			timestamp: outer.timestamp,
+			name,
+			via,
+			status: "ok",
+			durationMs: null,
+		})),
 	};
 }
 
 async function reportOf(
-	prompts: readonly StandingPrompt[],
-	steps: readonly { turn: TurnRecord; calls: ToolCallRecord[] }[],
+	held: readonly DeclarationRecord[][],
+	steps: readonly {
+		turn: TurnRecord;
+		calls: ToolCallRecord[];
+		inner?: InnerCallRecord[];
+	}[],
 ) {
 	const path = join(mkdtempSync(join(tmpdir(), "declared-")), "ledger.db");
 	const store = await openTurnStore(path);
 	await store.recordTurns(steps.map((one) => one.turn));
 	await store.recordCalls(steps.flatMap((one) => one.calls));
+	await store.recordInnerCalls(steps.flatMap((one) => one.inner ?? []));
+	await store.recordDeclarations(held.flat());
 	await store.close();
 	const reader = await openLedgerReader(path);
 	try {
 		return await declaredCalled(
-			prompts,
 			async (sql) => (await reader.query(sql)).rows,
 			NOW,
 		);
@@ -173,6 +217,134 @@ describe("tools declared against tools called", () => {
 		).toEqual([1, 0.0005]);
 	});
 
+	it("prices a tool only for the turns a session held it", async () => {
+		// a took slack away between its two turns, then b's and its own
+		// turn came after slack came back at twice the size.
+		const report = await reportOf(
+			[
+				started("a", { slack: 4_000 }),
+				declared("a", { slack: 0 }, 1.5),
+				declared("a", { slack: 8_000 }, 0.75),
+			],
+			[step("a", 2, []), step("a", 1, []), step("a", 0.5, [])],
+		);
+		const slack = report.tools.find(({ tool }) => tool === "slack");
+		expect(
+			[
+				slack?.chars,
+				report.medianDeclared,
+				Number(slack?.unusedCost.toFixed(6)),
+			],
+			"held at 8,000 last; 12,000 over 3 turns; 1,000 then 2,000 tokens",
+		).toEqual([8_000, 4_000, 0.0015]);
+	});
+
+	it("folds two messages at one moment by their place in the log", async () => {
+		// Entry ids don't sort: "a" came after "z" here, taking slack away.
+		const at = new Date(NOW - 30 * HOUR_MS).toISOString();
+		const row = (
+			entryId: string,
+			seq: number,
+			tool: string,
+			chars: number,
+		): DeclarationRecord => ({
+			sessionId: "2026-11-12T00-00-00-000Z_a.jsonl",
+			entryId,
+			seq,
+			timestamp: at,
+			tool,
+			change: chars > 0 ? "added" : "removed",
+			chars,
+		});
+		const report = await reportOf(
+			[
+				[
+					row("z", 0, "bash", 400),
+					row("z", 0, "slack", 4_000),
+					row("a", 1, "slack", 0),
+				],
+			],
+			[step("a", 1, ["bash"])],
+		);
+		expect(
+			report.tools.map(({ tool }) => tool),
+			"slack taken away after it came",
+		).toEqual(["bash"]);
+	});
+
+	it("keeps a script whose calls weren't held out of the price", async () => {
+		// One script's calls are held and another's aren't, as when pi
+		// began keeping them partway through the day.
+		const report = await reportOf(
+			[started("a", { codemode: 400, read: 400, slack: 4_000 })],
+			[
+				through(step("a", 1, ["codemode"]), "codemode", ["read"]),
+				step("a", 2, ["codemode"]),
+			],
+		);
+		const slack = report.tools.find(({ tool }) => tool === "slack");
+		expect(
+			[slack?.scripted, slack?.unusedCost],
+			"maybe in the unheld script, so unpriced",
+		).toEqual([1, 0]);
+	});
+
+	it("says how many sessions worked whose declarations aren't held", async () => {
+		const report = await reportOf(
+			[started("a", { bash: 400 })],
+			[step("a", 1, ["bash"]), step("c", 1, ["bash"])],
+		);
+		expect([report.sessions, report.unread], "a read, c not yet").toEqual([
+			1, 1,
+		]);
+	});
+
+	it("counts the tools a script called, and prices those it didn't", async () => {
+		const report = await reportOf(
+			[started("a", { codemode: 400, read: 400, slack: 4_000 })],
+			[through(step("a", 1, ["codemode"]), "codemode", ["read", "read"])],
+		);
+		const row = (name: string) =>
+			report.tools
+				.filter(({ tool }) => tool === name)
+				.map(({ calledIn, calls, scripted, unusedCost }) => [
+					calledIn,
+					calls,
+					scripted,
+					unusedCost,
+				]);
+		expect(
+			[row("read"), row("slack")],
+			"read called twice in the script, slack unread and priced",
+		).toEqual([[[1, 2, 0, 0]], [[0, 0, 0, 0.0005]]]);
+	});
+
+	it("counts a gateway call once, from a script or not", async () => {
+		const report = await reportOf(
+			[
+				started("a", { codemode: 400, tool_gateway_run_tool: 400 }),
+				started("b", { tool_gateway_run_tool: 400 }),
+			],
+			[
+				through(step("a", 1, ["codemode"]), "tool_gateway_run_tool", [
+					"slack_search",
+				]),
+				through(
+					step("b", 1, ["tool_gateway_run_tool"]),
+					"tool_gateway_run_tool",
+					["incident_list"],
+				),
+			],
+		);
+		const gateway = report.tools.find(
+			({ tool }) => tool === "tool_gateway_run_tool",
+		);
+		expect(
+			[gateway?.sessions, gateway?.calledIn, gateway?.calls],
+			"called in both, once each",
+		).toEqual([2, 2, 2]);
+	});
+
 	it("takes the middle of two sizes as their mean", async () => {
 		const report = await reportOf(
 			[started("a", { bash: 400 }), started("b", { bash: 600 })],
@@ -198,6 +370,7 @@ describe("tools declared against tools called", () => {
 	it("says the median declarations and a row a tool, dearest unused first", () => {
 		const text = formatDeclaredCalled({
 			sessions: 120,
+			unread: 7,
 			medianDeclared: 151_000,
 			unusedCost: 412.5,
 			tools: [
@@ -215,6 +388,7 @@ describe("tools declared against tools called", () => {
 		expect(text).toContain("## Declared, Called");
 		expect(text).toContain("120 sessions");
 		expect(text).toContain("151k characters");
+		expect(text).toContain("7 more sessions worked");
 		expect(text).toContain("at least $412.50");
 		expect(text).toContain("| slack | 120 | 9,800 | 3 | 11 | 40 | $96.25 |");
 	});
@@ -223,6 +397,7 @@ describe("tools declared against tools called", () => {
 		expect(
 			formatDeclaredCalled({
 				sessions: 0,
+				unread: 0,
 				medianDeclared: 0,
 				unusedCost: 0,
 				tools: [],
