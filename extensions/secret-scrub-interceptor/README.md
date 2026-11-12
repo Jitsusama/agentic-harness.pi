@@ -39,6 +39,23 @@ replaced:
   16 characters or more, with a letter and a digit, and not start with
   `$`, so a variable passed on or a function's name is left alone.
 
+- **A command that prints the environment:** `env` or `printenv` on
+  their own, a shell's `export -p`, `declare -x` or `set`, systemd's
+  `show-environment`, `launchctl print`, `getenv` or `export`, a
+  process's `environ` and `ps eww`, over SSH or not. Every value in its
+  answer long and mixed enough to be a credential is scrubbed, whatever
+  its variable is called, and the mark names the variable. On 12
+  November a `launchctl print` over SSH put two of another machine's
+  work tokens into an agent's context and log: neither name was one the
+  places knew, and the session didn't hold either value. A path or an
+  address reads as it did, and `env FOO=1 cargo test` is a command run,
+  not a dump.
+
+The places take a name and its value however a tool sets them apart:
+`NAME=value`, `NAME => value` as launchctl prints it, or `NAME: value`
+and `"NAME": "value"` in YAML and JSON, for names ending in TOKEN,
+SECRET, PASSWORD, AUTH_HEADER or `_KEY` (a PUBLIC_KEY aside).
+
 A picture is handed on as it is, and an answer with nothing to hide is
 handed on untouched.
 

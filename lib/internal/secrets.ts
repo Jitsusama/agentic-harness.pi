@@ -91,14 +91,86 @@ const SHAPES: readonly SecretShape[] = [
 		keeps: 2,
 	},
 	{
+		// A shell's assignment, env's line, launchctl print's `NAME => value`
+		// and a JSON or YAML field all put the name before the value, so the
+		// name says what the value is, whatever sits between them. A public
+		// key is no secret.
 		kind: "credential",
 		pattern: new RegExp(
-			String.raw`(\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|ACCESS_KEY)\s*=\s*['"]?)${CREDENTIAL_VALUE}`,
+			String.raw`(\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|AUTH_HEADER|APIKEY|(?<!PUBLIC)_KEY)['"]?\s*(?:=>?|:)\s*['"]?)${CREDENTIAL_VALUE}`,
 			"g",
 		),
 		keeps: 1,
 	},
 ];
+
+/**
+ * Whether a shell command prints the environment: env or printenv on their
+ * own, a shell's export, declare or set listing, systemd's or launchd's
+ * environment, a process's environ, or ps with its e flag. A command run
+ * under env, as `env FOO=1 cargo test`, prints only what it prints.
+ */
+export function dumpsEnvironment(command: string): boolean {
+	return ENVIRONMENT_DUMPS.some((dump) => dump.test(command));
+}
+
+/** The commands that print the environment, as `dumpsEnvironment` says. */
+const ENVIRONMENT_DUMPS: readonly RegExp[] = [
+	/(?:^|[\s;&|('"`])env(?:\s+-[0-9A-Za-z-]+)*\s*(?:$|[|;&)>'"`])/,
+	/(?:^|[\s;&|('"`])printenv\b/,
+	/(?:^|[\s;&|('"`])(?:export|declare|typeset)\s+-[px]\b/,
+	/(?:^|[;&|('"`]\s*|^\s*)set\s*(?:$|[|;&)>'"`])/,
+	/\bshow-environment\b/,
+	/\blaunchctl\s+(?:print|getenv|export|procinfo)\b/,
+	/\/proc\/[^\s/]+\/environ\b/,
+	/(?:^|[\s;&|('"`])ps\s+(?:-\S*e\S*\s+-\S*w|\S*e\S*w|\S*w\S*e)/,
+];
+
+/** A variable's line in a dump: its name, what sits between, its value. */
+const DUMPED_VARIABLE =
+	/^(\s*(?:export\s+|declare\s+-x\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=>|=)\s*['"]?)([^\s'"]+)/gm;
+
+/**
+ * A mark already standing where a secret was, kept as it is, or a word
+ * long enough to be a credential anywhere in a line, a variable's name
+ * before its value aside.
+ */
+const DUMPED_WORD =
+	/\[secret scrubbed: [^\]]*\]|(?<![^\s'"=])[^\s'"=]{16,}(?![^\s'"])(?!\s*=)/g;
+
+/**
+ * The dump with every value that could be a credential put out of sight,
+ * whatever its variable is called: a dump holds what no shape knows, as a
+ * proxy's key under a name of its maker's choosing. A variable's value is
+ * named by the variable, and a bare value, as launchctl getenv prints, as
+ * an environment value. Paths and addresses read as they did.
+ */
+function scrubDump(text: string, kinds: string[]): string {
+	const named = text.replace(
+		DUMPED_VARIABLE,
+		(whole: string, before: string, name: string, value: string) => {
+			if (!looksLikeSecret(value)) return whole;
+			kinds.push(name);
+			return `${before}${scrubbedMark(name)}`;
+		},
+	);
+	return named.replace(DUMPED_WORD, (word: string) => {
+		if (word.startsWith("[secret scrubbed: ") || !looksLikeSecret(word)) {
+			return word;
+		}
+		kinds.push(ENVIRONMENT_VALUE);
+		return scrubbedMark(ENVIRONMENT_VALUE);
+	});
+}
+
+/** What a dump's bare value is called where it was scrubbed. */
+const ENVIRONMENT_VALUE = "environment value";
+
+/** How a text is read: as any output, or as a dump of the environment. */
+export interface ScrubOptions {
+	/** The text is a command's printing of the environment. */
+	readonly environment?: boolean;
+}
 
 /** The words that stand where a secret was, naming what it was. */
 export function scrubbedMark(kind: string): string {
@@ -159,6 +231,7 @@ function looksLikeSecret(value: string): boolean {
 export function scrubSecrets(
 	text: string,
 	known: readonly KnownSecret[] = knownSecrets(),
+	options: ScrubOptions = {},
 ): { text: string; kinds: string[] } {
 	const kinds: string[] = [];
 	let scrubbed = text;
@@ -177,6 +250,7 @@ export function scrubSecrets(
 			return `${before}${scrubbedMark(shape.kind)}${after}`;
 		});
 	}
+	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
 	return { text: scrubbed, kinds };
 }
 
@@ -190,8 +264,9 @@ export function scrubSecrets(
 export function scrubDeep<T>(
 	value: T,
 	known: readonly KnownSecret[] = knownSecrets(),
+	options: ScrubOptions = {},
 ): { value: T; kinds: string[] } {
-	const scrubbed = scrubAny(value, known);
+	const scrubbed = scrubAny(value, known, options);
 	return { value: scrubbed.value as T, kinds: scrubbed.kinds };
 }
 
@@ -199,15 +274,16 @@ export function scrubDeep<T>(
 function scrubAny(
 	value: unknown,
 	known: readonly KnownSecret[],
+	options: ScrubOptions,
 ): { value: unknown; kinds: string[] } {
 	if (typeof value === "string") {
-		const { text, kinds } = scrubSecrets(value, known);
+		const { text, kinds } = scrubSecrets(value, known, options);
 		return { value: kinds.length > 0 ? text : value, kinds };
 	}
 	if (Array.isArray(value)) {
 		const kinds: string[] = [];
 		const items = value.map((item) => {
-			const scrubbed = scrubAny(item, known);
+			const scrubbed = scrubAny(item, known, options);
 			kinds.push(...scrubbed.kinds);
 			return scrubbed.value;
 		});
@@ -216,7 +292,7 @@ function scrubAny(
 	if (isPlainObject(value)) {
 		const kinds: string[] = [];
 		const entries = Object.entries(value).map(([key, item]) => {
-			const scrubbed = scrubAny(item, known);
+			const scrubbed = scrubAny(item, known, options);
 			kinds.push(...scrubbed.kinds);
 			return [key, scrubbed.value] as const;
 		});

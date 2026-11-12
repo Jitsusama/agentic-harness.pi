@@ -14,7 +14,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import secretScrubInterceptor from "../../extensions/secret-scrub-interceptor/index.ts";
 import { savedOutputFile } from "../../extensions/secret-scrub-interceptor/output-file.ts";
-import { knownSecrets, scrubSecrets } from "../../lib/internal/secrets.ts";
+import {
+	dumpsEnvironment,
+	knownSecrets,
+	scrubSecrets,
+} from "../../lib/internal/secrets.ts";
 
 const mixed = (length: number) =>
 	"a1B2c3D4e5".repeat(Math.ceil(length / 10)).slice(0, length);
@@ -68,6 +72,29 @@ describe("a credential where a file or a shell keeps it", () => {
 		expect(scrubSecrets(line).text).toBe(
 			"export BITRISE_TOKEN=[secret scrubbed: credential]",
 		);
+	});
+
+	it("keeps the name whatever a dump sets between it and its value", () => {
+		const value = mixed(60);
+		const lines = [
+			`\t\tSHOPIFY_PROXY${"_KEY"} => ${value}`,
+			`TOOL_GATEWAY${"_TOKEN"}=${value}`,
+			`"PI_PROXY_AUTH${"_HEADER"}": "${value}"`,
+			`DEPLOY_KEY: ${value}`,
+		].join("\n");
+		expect(scrubSecrets(lines, []).text).toBe(
+			[
+				"\t\tSHOPIFY_PROXY_KEY => [secret scrubbed: credential]",
+				"TOOL_GATEWAY_TOKEN=[secret scrubbed: credential]",
+				'"PI_PROXY_AUTH_HEADER": "[secret scrubbed: credential]"',
+				"DEPLOY_KEY: [secret scrubbed: credential]",
+			].join("\n"),
+		);
+	});
+
+	it("leaves a public key's value where it sits", () => {
+		const line = `KITTY_PUBLIC${"_KEY"}=${mixed(40)}`;
+		expect(scrubSecrets(line, []).text).toBe(line);
 	});
 
 	it("keeps an npmrc line's registry and key", () => {
@@ -172,6 +199,78 @@ describe("a credential the session holds in a variable", () => {
 			HOME: value,
 		});
 		expect(known).toEqual([]);
+	});
+});
+
+describe("a command that prints the environment", () => {
+	const dumps = [
+		"env",
+		"env | sort",
+		"env -0 > out",
+		"printenv",
+		"printenv SHOPIFY_PROXY_KEY",
+		"export -p",
+		"declare -x",
+		"set | less",
+		"systemctl --user show-environment",
+		"launchctl getenv SOME_NAME",
+		"launchctl print gui/501/org.example.agent | grep -A3 state",
+		"launchctl export",
+		"ssh -n equilibrius 'launchctl print gui/501/x'",
+		"cat /proc/1234/environ | tr '\\0' '\\n'",
+		"ps eww 1234",
+	];
+	for (const command of dumps) {
+		it(`is known as one: ${command}`, () => {
+			expect(dumpsEnvironment(command)).toBe(true);
+		});
+	}
+
+	const runs = [
+		"env FOO=1 cargo test",
+		"nix-env -q",
+		"set -euo pipefail; make",
+		"direnv exec . nix fmt",
+		"grep -rn printenvironment src",
+		"ps aux",
+	];
+	for (const command of runs) {
+		it(`is not one: ${command}`, () => {
+			expect(dumpsEnvironment(command)).toBe(false);
+		});
+	}
+
+	it("has every value that could be a credential scrubbed, whatever its name", () => {
+		const value = mixed(60);
+		const dump = [
+			"\tinherited environment = {",
+			`\t\tOP_SESSION_ab12 => ${value}`,
+			"\t\tHOME => /Users/someone",
+			"\t}",
+			`DEV_ACCESS=${value}`,
+			"SHELL=/bin/zsh",
+			"LANG=en_CA.UTF-8",
+			value,
+		].join("\n");
+		const { text } = scrubSecrets(dump, [], { environment: true });
+		expect(text.includes(value)).toBe(false);
+		expect(text).toBe(
+			[
+				"\tinherited environment = {",
+				"\t\tOP_SESSION_ab12 => [secret scrubbed: OP_SESSION_ab12]",
+				"\t\tHOME => /Users/someone",
+				"\t}",
+				"DEV_ACCESS=[secret scrubbed: DEV_ACCESS]",
+				"SHELL=/bin/zsh",
+				"LANG=en_CA.UTF-8",
+				"[secret scrubbed: environment value]",
+			].join("\n"),
+		);
+	});
+
+	it("leaves the same words alone in any other command's output", () => {
+		const line = `DEV_ACCESS=${mixed(60)}`;
+		expect(scrubSecrets(line, []).text).toBe(line);
 	});
 });
 
@@ -291,6 +390,15 @@ describe("a tool's answer", () => {
 				}
 			});
 		}
+	});
+
+	it("from a command printing the environment has every value scrubbed", async () => {
+		const value = mixed(60);
+		const result = await answer({
+			input: { command: "ssh -n far 'launchctl print gui/501/x'" },
+			content: [{ type: "text", text: `\t\tOP_SESSION_ab12 => ${value}` }],
+		});
+		expect(JSON.stringify(result).includes(value)).toBe(false);
 	});
 
 	it("is handed on untouched when it holds no secret", async () => {

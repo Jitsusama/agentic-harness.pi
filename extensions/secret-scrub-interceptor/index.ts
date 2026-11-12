@@ -22,6 +22,13 @@
  * saved to, by pi or by a host's pi-durable bash, is scrubbed too
  * (`output-file.ts`), and so is each payload the
  * result store keeps, as it is written (`lib/core/result/spill.ts`).
+ *
+ * A command that prints the environment, env, printenv or launchctl print
+ * among them, has every value in its answer that could be a credential
+ * scrubbed, whatever its variable is called: on 12 November a launchctl
+ * print over SSH put two of another machine's work tokens, whose names no
+ * shape knew and whose values the session didn't hold, into an agent's
+ * context and log.
  */
 
 import type {
@@ -29,8 +36,10 @@ import type {
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
+	dumpsEnvironment,
 	type KnownSecret,
 	knownSecrets,
+	type ScrubOptions,
 	scrubDeep,
 	scrubSecrets,
 } from "../../lib/internal/secrets.ts";
@@ -42,6 +51,7 @@ type Content = ToolResultEvent["content"];
 function scrubContent(
 	content: Content,
 	known: readonly KnownSecret[],
+	options: ScrubOptions,
 ): {
 	content: Content;
 	changed: boolean;
@@ -49,7 +59,7 @@ function scrubContent(
 	let changed = false;
 	const scrubbed = content.map((part) => {
 		if (part.type !== "text") return part;
-		const { text, kinds } = scrubSecrets(part.text, known);
+		const { text, kinds } = scrubSecrets(part.text, known, options);
 		if (kinds.length === 0) return part;
 		changed = true;
 		return { ...part, text };
@@ -57,9 +67,18 @@ function scrubContent(
 	return { content: scrubbed, changed };
 }
 
+/** Whether the answer is a shell command's that prints the environment. */
+function printsEnvironment(event: ToolResultEvent): boolean {
+	const input: unknown = event.input;
+	if (typeof input !== "object" || input === null) return false;
+	const command: unknown = Reflect.get(input, "command");
+	return typeof command === "string" && dumpsEnvironment(command);
+}
+
 /** Wires the scrub onto every tool's answer. */
 export default function secretScrubInterceptor(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event) => {
+		const options = { environment: printsEnvironment(event) };
 		// Before anything else, and whatever the answer holds: a credential
 		// can sit in the part of the output the answer left out.
 		// pi names it in the details, pi-durable in the structured answer.
@@ -68,11 +87,11 @@ export default function secretScrubInterceptor(pi: ExtensionAPI) {
 				savedOutputFile(naming),
 			),
 		);
-		for (const file of saved) if (file) scrubOutputFile(file);
+		for (const file of saved) if (file) scrubOutputFile(file, options);
 		const known = knownSecrets();
-		const content = scrubContent(event.content, known);
-		const details = scrubDeep(event.details, known);
-		const structured = scrubDeep(event.structuredContent, known);
+		const content = scrubContent(event.content, known, options);
+		const details = scrubDeep(event.details, known, options);
+		const structured = scrubDeep(event.structuredContent, known, options);
 		if (
 			!content.changed &&
 			details.kinds.length === 0 &&
