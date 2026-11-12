@@ -11,10 +11,11 @@
  * audit's always-on context reads them; its turns and calls come from
  * the ledger, counted in `declared-called.sql`, a row a session.
  *
- * Every figure is a floor. The ledger holds a log's own tool calls, not
- * those a codemode script or the gateway's runner makes, so a session
- * that ran either may have called any tool through it: such sessions
- * are counted apart and never priced. Declarations are read as each
+ * Every figure is a floor. A script's calls and the tool each gateway
+ * call ran count under those tools, from `inner_calls`. A session that
+ * ran a script with none of its calls held (its log last grew before
+ * the ledger kept them) may have called any tool through it, so it is
+ * counted apart and never priced. Declarations are read as each
  * session started, and a rewrite of the prefix pays the dearer write
  * rate, which this leaves out.
  */
@@ -60,8 +61,8 @@ const TOOLS_SHOWN = 15;
 const CHARS_PER_TOKEN = 4;
 const THOUSAND = 1_000;
 const HALF = 2;
-/** Tools whose calls run other tools, which the ledger doesn't see. */
-const SCRIPTING = ["codemode", "tool_gateway_run_tool"];
+/** The tool whose calls run other tools from a script. */
+const SCRIPTING = "codemode";
 
 /** A tool's running count while the sessions are read. */
 interface Tally {
@@ -79,7 +80,7 @@ interface SessionDay {
 	/** Dollars a cache-read token cost this session. */
 	readonly price: number;
 	readonly calls: ReadonlyMap<string, number>;
-	/** Whether it ran a script, whose own calls the ledger doesn't hold. */
+	/** Whether it ran a script with none of its calls held. */
 	readonly scripted: boolean;
 }
 
@@ -141,7 +142,7 @@ export function formatDeclaredCalled(report: DeclaredCalledReport): string {
 	lines.push(
 		`${report.sessions} sessions worked in the last day, starting with a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations, as each started. Re-reading the declarations of tools a session never called cost at least ${dollars(report.unusedCost)} over the day, at each session's cache-read price and four characters a token.`,
 		"",
-		"A call made inside a codemode script or through the gateway's runner isn't in the ledger, so a session that ran one is counted under Maybe in a script and left out of the price. Rewriting the prefix pays the dearer write rate, which isn't counted either. The tools whose unused declarations cost most, where loading on demand would save:",
+		"A call made inside a codemode script counts under the tool it ran, and a gateway call under the gateway's runner. A session that ran a script whose calls the ledger doesn't hold is counted under Maybe in a script and left out of the price. Rewriting the prefix pays the dearer write rate, which isn't counted either. The tools whose unused declarations cost most, where loading on demand would save:",
 		"",
 		"| Tool | Declared in | Characters | Called in | Calls | Maybe in a script | Unused reads |",
 		"|---|---|---|---|---|---|---|",
@@ -166,7 +167,7 @@ function dayOf(row: Record<string, unknown>): SessionDay {
 		turns: count(row.turns),
 		price: tokens === 0 ? 0 : count(row.readCost) / tokens,
 		calls,
-		scripted: SCRIPTING.some((tool) => calls.has(tool)),
+		scripted: calls.has(SCRIPTING) && count(row.seen) === 0,
 	};
 }
 
