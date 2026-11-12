@@ -150,6 +150,10 @@ function longestGap(at: readonly number[]): number {
 // A watchdog timeout of a second, so pings come every 250 ms.
 const WATCHED = { WATCHDOG_USEC: "1000000" };
 const TIMEOUT_MS = 1000;
+// Twice that for the long turn, so a starved lender's late timer isn't
+// read as a gap.
+const LONG_WATCHED = { WATCHDOG_USEC: "2000000" };
+const LONG_TIMEOUT_MS = 2000;
 
 describe("runHost's watchdog", () => {
 	it("keeps pinging through a turn twice the timeout's length", async () => {
@@ -162,7 +166,9 @@ describe("runHost's watchdog", () => {
 				...inner,
 				start: async (prepared, request) => {
 					// The turn itself, which the host awaits as it would a model's.
-					await new Promise((resolve) => setTimeout(resolve, 2 * TIMEOUT_MS));
+					await new Promise((resolve) =>
+						setTimeout(resolve, 2 * LONG_TIMEOUT_MS),
+					);
 					await inner.start(prepared, request);
 				},
 			};
@@ -171,7 +177,7 @@ describe("runHost's watchdog", () => {
 		const signals = new EventEmitter();
 		const run = await runHost({
 			argv: ["background"],
-			env: { ...env(), ...WATCHED },
+			env: { ...env(), ...LONG_WATCHED },
 			engine: slow,
 			signals,
 			ready: async () => {},
@@ -201,6 +207,50 @@ describe("runHost's watchdog", () => {
 		expect(
 			longestGap(pings.at),
 			`the longest wait between pings: ${pings.at.join(", ")}`,
+		).toBeLessThan(LONG_TIMEOUT_MS);
+	});
+
+	it("lets a ping that never comes back hold back only the next one", async () => {
+		const at: number[] = [];
+		const within: number[] = [];
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: { ...env(), ...WATCHED },
+			engine,
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			// The first ping hangs, as a systemd-notify that never ends would.
+			alive: (_env, given) => {
+				at.push(performance.now());
+				within.push(given);
+				return at.length === 1 ? new Promise(() => {}) : Promise.resolve();
+			},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		try {
+			await vi.waitFor(
+				() => {
+					expect(at.length, "pings after the one that hung").toBeGreaterThan(
+						2,
+					);
+				},
+				{ timeout: 2 * TIMEOUT_MS },
+			);
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+		expect(
+			within.every((given) => given === TIMEOUT_MS / 4),
+			`each ping given a beat: ${within.join(", ")}`,
+		).toBe(true);
+		expect(
+			(at[1] ?? 0) - (at[0] ?? 0),
+			"the hung ping held back one beat, not every beat after it",
 		).toBeLessThan(TIMEOUT_MS);
 	});
 
