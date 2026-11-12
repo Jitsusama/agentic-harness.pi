@@ -227,10 +227,12 @@ export interface Presence {
 	readonly at: string;
 }
 
-/** How a session stands at the launcher's top: its name and its words. */
+/** How a session stands at the launcher's top: its name, words and what. */
 export interface StandsAtTop {
 	readonly name: string;
 	readonly keywords: readonly string[];
+	/** A sentence saying what it is for, when its quest gives one. */
+	readonly what?: string;
 }
 
 /** A move waiting for its session to be free, as presence says it. */
@@ -388,7 +390,7 @@ export function workOf(
 	};
 }
 
-/** A `stands-at-top` as `{name, keywords}`, or nothing with no name. */
+/** A `stands-at-top` as `{name, keywords, what?}`, or nothing unnamed. */
 function standingAtTop(said: unknown): { standsAtTop?: StandsAtTop } {
 	const standsAtTop = standsAtTopFrom(said);
 	return standsAtTop ? { standsAtTop } : {};
@@ -405,7 +407,8 @@ function standsAtTopFrom(said: unknown): StandsAtTop | undefined {
 				.map((word) => word.trim())
 				.filter((word) => word !== "")
 		: [];
-	return { name, keywords };
+	const what = typeof said.what === "string" ? said.what.trim() : "";
+	return { name, keywords, ...(what ? { what } : {}) };
 }
 
 /**

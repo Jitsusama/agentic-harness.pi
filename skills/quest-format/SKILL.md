@@ -187,7 +187,9 @@ Field semantics:
 - `stands-at-top`: optional, `{name: The Void, keywords:
   [void]}` when the quest's session stands at the top of the
   launcher's Agents under that name, never folded, found by
-  those words. Only a front door such as the void sets it.
+  those words, with an optional `what`, a sentence its
+  drawer says it is for. Only a front door such as the void
+  sets it.
 - `context-stands`: optional, `true` when the quest's own
   Context section stands in its sessions' prompts after any
   orchestrator's rules, and an edit to it is said once. For a
