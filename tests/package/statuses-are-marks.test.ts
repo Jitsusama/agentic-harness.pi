@@ -75,7 +75,7 @@ const drawn: Record<string, string | undefined> = {
 
 /**
  * The files that set a status, and the entry above that draws it. The
- * quest's own line and a tabbed prompt's progress only ever clear theirs.
+ * quest's own line only ever clears its own.
  */
 const SETTERS: Record<string, readonly string[]> = {
 	"extensions/away-workflow/index.ts": ["away"],
@@ -87,7 +87,6 @@ const SETTERS: Record<string, readonly string[]> = {
 	"extensions/reload-workflow/lifecycle.ts": ["swapped"],
 	"extensions/spend-workflow/budget-item.ts": ["budget"],
 	"extensions/verification-workflow/index.ts": ["failed"],
-	"lib/ui/prompt-tabbed.ts": [],
 };
 
 function sources(dir: string): string[] {
