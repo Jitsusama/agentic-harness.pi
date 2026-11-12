@@ -400,6 +400,8 @@ export interface BootOptions {
 	 */
 	readonly tuiMode?: TuiMode;
 	readonly extensions?: readonly InlineExtension[];
+	/** How fast the faux model streams its answers; at once when left out. */
+	readonly tokensPerSecond?: number;
 }
 
 /**
@@ -425,6 +427,9 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	const faux = fauxProvider({
 		provider: "faux",
 		models: [{ id: "faux-1" }],
+		...(options.tokensPerSecond === undefined
+			? {}
+			: { tokensPerSecond: options.tokensPerSecond }),
 	});
 	let seen: ExtensionContext | undefined;
 	const harness: InlineExtension = {
