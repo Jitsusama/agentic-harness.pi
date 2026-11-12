@@ -90,6 +90,7 @@ function declared(
 	return Object.entries(byTool).map(([tool, chars]) => ({
 		sessionId: `2026-11-12T00-00-00-000Z_${uuid}.jsonl`,
 		entryId: `s${sequence}`,
+		seq: sequence,
 		timestamp: new Date(NOW - hoursAgo * HOUR_MS).toISOString(),
 		tool,
 		change: chars > 0 ? "added" : "removed",
@@ -238,6 +239,67 @@ describe("tools declared against tools called", () => {
 		).toEqual([8_000, 4_000, 0.0015]);
 	});
 
+	it("folds two messages at one moment by their place in the log", async () => {
+		// Entry ids don't sort: "a" came after "z" here, taking slack away.
+		const at = new Date(NOW - 30 * HOUR_MS).toISOString();
+		const row = (
+			entryId: string,
+			seq: number,
+			tool: string,
+			chars: number,
+		): DeclarationRecord => ({
+			sessionId: "2026-11-12T00-00-00-000Z_a.jsonl",
+			entryId,
+			seq,
+			timestamp: at,
+			tool,
+			change: chars > 0 ? "added" : "removed",
+			chars,
+		});
+		const report = await reportOf(
+			[
+				[
+					row("z", 0, "bash", 400),
+					row("z", 0, "slack", 4_000),
+					row("a", 1, "slack", 0),
+				],
+			],
+			[step("a", 1, ["bash"])],
+		);
+		expect(
+			report.tools.map(({ tool }) => tool),
+			"slack taken away after it came",
+		).toEqual(["bash"]);
+	});
+
+	it("keeps a script whose calls weren't held out of the price", async () => {
+		// One script's calls are held and another's aren't, as when pi
+		// began keeping them partway through the day.
+		const report = await reportOf(
+			[started("a", { codemode: 400, read: 400, slack: 4_000 })],
+			[
+				through(step("a", 1, ["codemode"]), "codemode", ["read"]),
+				step("a", 2, ["codemode"]),
+			],
+		);
+		const slack = report.tools.find(({ tool }) => tool === "slack");
+		expect(
+			[slack?.scripted, slack?.unusedCost],
+			"maybe in the unheld script, so unpriced",
+		).toEqual([1, 0]);
+	});
+
+	it("says how many sessions worked whose declarations aren't held", async () => {
+		const report = await reportOf(
+			[started("a", { bash: 400 })],
+			[step("a", 1, ["bash"]), step("c", 1, ["bash"])],
+		);
+		expect(
+			[report.sessions, report.unread],
+			"a read, c not yet",
+		).toEqual([1, 1]);
+	});
+
 	it("counts the tools a script called, and prices those it didn't", async () => {
 		const report = await reportOf(
 			[started("a", { codemode: 400, read: 400, slack: 4_000 })],
@@ -309,6 +371,7 @@ describe("tools declared against tools called", () => {
 	it("says the median declarations and a row a tool, dearest unused first", () => {
 		const text = formatDeclaredCalled({
 			sessions: 120,
+			unread: 7,
 			medianDeclared: 151_000,
 			unusedCost: 412.5,
 			tools: [
@@ -326,6 +389,7 @@ describe("tools declared against tools called", () => {
 		expect(text).toContain("## Declared, Called");
 		expect(text).toContain("120 sessions");
 		expect(text).toContain("151k characters");
+		expect(text).toContain("7 more sessions worked");
 		expect(text).toContain("at least $412.50");
 		expect(text).toContain("| slack | 120 | 9,800 | 3 | 11 | 40 | $96.25 |");
 	});
@@ -334,6 +398,7 @@ describe("tools declared against tools called", () => {
 		expect(
 			formatDeclaredCalled({
 				sessions: 0,
+				unread: 0,
 				medianDeclared: 0,
 				unusedCost: 0,
 				tools: [],

@@ -194,4 +194,26 @@ describe("the calls a tool made to other tools", () => {
 			"written once, read back",
 		).toEqual([1, 0, [["quest", "codemode"]]]);
 	});
+
+	it("refuses to read a carrier it doesn't know as a script", async () => {
+		const store = await openTurnStore(":memory:");
+		await store.recordInnerCalls([
+			{
+				digest: "d1",
+				sessionId: "s1",
+				entryId: "a1",
+				outerCallId: "t1",
+				timestamp: "2026-11-12T08:00:00.000Z",
+				name: "read",
+				via: "a_third_runner" as never,
+				status: "ok",
+				durationMs: null,
+			},
+		]);
+		const read = store.queryInnerCalls();
+		await expect(read, "named, not taken for codemode").rejects.toThrow(
+			"a_third_runner",
+		);
+		await store.close();
+	});
 });

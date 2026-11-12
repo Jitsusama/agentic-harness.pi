@@ -44,13 +44,19 @@ describe("the tools each system message declared", () => {
 	it("adds the first set, then each change, at its own size", () => {
 		const scan = readTurns("log-1", LOG);
 		expect(
-			scan.declarations.map((d) => [d.entryId, d.tool, d.change, d.chars]),
-			"bash and slack, slack taken away, slack back wider",
+			scan.declarations.map((d) => [
+				d.entryId,
+				d.seq,
+				d.tool,
+				d.change,
+				d.chars,
+			]),
+			"bash and slack, slack taken away, slack back wider, in log order",
 		).toEqual([
-			["s1", "bash", "added", JSON.stringify(BASH).length],
-			["s1", "slack", "added", JSON.stringify(SLACK).length],
-			["s2", "slack", "removed", 0],
-			["s3", "slack", "added", JSON.stringify(SLACK_WIDER).length],
+			["s1", 0, "bash", "added", JSON.stringify(BASH).length],
+			["s1", 0, "slack", "added", JSON.stringify(SLACK).length],
+			["s2", 1, "slack", "removed", 0],
+			["s3", 2, "slack", "added", JSON.stringify(SLACK_WIDER).length],
 		]);
 	});
 
