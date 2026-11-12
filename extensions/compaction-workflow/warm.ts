@@ -23,7 +23,11 @@
  * after each warm, at most four times (`MAX_IDLE_WARMS`). A timer that
  * runs so late that the entry has probably expired gives up rather
  * than paying for a full write (`warmDeadline`); a failed warm is tried
- * once more if its deadline allows.
+ * once more if its deadline allows. No warm goes while a call is on
+ * (lib/internal/calls.ts), since each sends the whole conversation up
+ * the line the call needs: one due during a call looks again every 15
+ * seconds and goes once the call ends, if its deadline allows, and
+ * otherwise warming ends, saying so.
  *
  * What stops it: anything real. A typed prompt, a run starting for any
  * reason, a compaction (under way when a warm falls due, since pi then
@@ -85,6 +89,7 @@ import {
 	loadPackageConfig,
 	type SectionParse,
 } from "../../lib/internal/config/loader.ts";
+import { CALL_LOOK_MS, callIsOn } from "../../lib/internal/calls.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { scrubSecrets } from "../../lib/internal/secrets.ts";
@@ -138,6 +143,8 @@ interface Run {
 	refreshedAt: number;
 	/** When the next warm falls due, for the status line. */
 	dueAt: number;
+	/** When a call first held the next warm back. */
+	heldSince?: number;
 }
 
 /** Ways for the rest of the workflow to follow warming. */
@@ -268,6 +275,17 @@ export function registerIdleWarming(
 			stop("the session is busy");
 			return;
 		}
+		if (await callIsOn()) {
+			if (run !== current) return;
+			if (Date.now() + CALL_LOOK_MS > deadline) {
+				end(current, "a call was on until the cache entry expired", true);
+				return;
+			}
+			current.heldSince ??= Date.now();
+			schedule(current, Date.now() + CALL_LOOK_MS, deadline);
+			return;
+		}
+		if (run !== current) return;
 		const sentAt = Date.now();
 		const reply = await send(current);
 		if (current.controller.signal.aborted) return;
@@ -276,6 +294,7 @@ export function registerIdleWarming(
 			current.warms += 1;
 			current.refreshedAt = sentAt;
 			record(pi, WARM_ENTRY, warmRecord(reply.message, current, sentAt));
+			current.heldSince = undefined;
 			options.onWarmed?.(current.held.payload, sentAt);
 		}
 		// Something real happened while it was out: its cost is recorded,
@@ -599,6 +618,9 @@ function warmRecord(
 		usage: message.usage,
 		warm: current.warms,
 		sinceRequestMs: sentAt - current.held.at,
+		...(current.heldSince === undefined
+			? {}
+			: { heldForCallMs: sentAt - current.heldSince }),
 	};
 }
 
