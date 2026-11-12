@@ -159,8 +159,7 @@ export function createTalks(host: TalksHost): Talks {
 			for (const talk of taken()) {
 				if (
 					talk.said === text ||
-					(talk.replying !== undefined &&
-						moment - talk.replying < REPLYING_MS)
+					(talk.replying !== undefined && moment - talk.replying < REPLYING_MS)
 				) {
 					continue;
 				}
