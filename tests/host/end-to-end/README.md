@@ -206,9 +206,11 @@ under its addresses, and answers.
 release-parked.test.ts is E18: the release of a conversation its host
 holds parked, as an hour idle leaves most overnight. Nothing else in
 the seal runs, so no other pi's mesh look wakes it to read the move:
-the release wakes it, it closes with its note, restore.json offers it,
-and reopened from its file in plain pi it keeps its addresses and
-answers.
+the release wakes it, it closes with its note, its log keeps what it
+held, and restore.json offers it. It runs on the screen host, since
+only a conversation with a screen parks, with the mesh loaded beside
+the fixture's extensions (`startScreenHost`'s third argument). E12
+reopens a released one in plain pi.
 
 early-attach.test.ts attaches a viewer to a conversation the screen
 host lists but hasn't yet given a screen, its folder's own extension
