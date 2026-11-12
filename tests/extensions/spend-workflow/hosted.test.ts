@@ -51,7 +51,8 @@ beforeEach(() => {
 					HOME: root,
 					XDG_RUNTIME_DIR: root,
 					TMPDIR: root,
-					PI_BUDGET: `budget-${id}`,
+					// Only a's chooses one, so the footer tells the two apart.
+					...(id === "a" ? { PI_BUDGET: "budget-a" } : {}),
 				};
 				env = {
 					get: (key) => values[key],
@@ -242,7 +243,7 @@ it("reads each footer's budget from its conversation, even under another ambient
 		await withSession(id === "a" ? "b" : "a", () =>
 			fire(pi, "session_start", ctx),
 		);
-		expect(statuses[0]).toBe(`${FOOTER_GLYPH.budget} budget-${id}`);
+		expect(statuses[0]).toBe(id === "a" ? FOOTER_GLYPH.budget : undefined);
 		await fire(pi, "session_shutdown", ctx);
 	}
 });

@@ -8,8 +8,9 @@
  * session that I can steer that is focused only on me and doesn't show
  * a bunch of background shit." So a session can be made quiet: a
  * delivery that only tells (fyis and findings, starting no turn) draws
- * nothing, and the footer counts what it kept off; expanding the screen
- * (ctrl+o, as for tool output) opens them. What asks something
+ * nothing, and the footer's mark counts what it kept off; expanding the
+ * screen (ctrl+o, as for tool output) opens them, and the session's own
+ * mesh_send calls with them. What asks something
  * still shows: a question, a hold, a pivot, an answer to this peer, and
  * anything that starts a turn. Only the screen changes; what the model
  * is sent stays the same, and mesh_read has every message.
@@ -18,9 +19,9 @@
  * restart in place finds it as it was left.
  */
 
-import type { Theme } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { Message } from "../../lib/mesh/message.ts";
+import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
 import { NOTED } from "./delivery.ts";
 
 /** The customType of the log entry that records the setting. */
@@ -129,11 +130,10 @@ export function quietSaid(on: boolean): string {
 		: "Mesh quiet off: other sessions' messages show here again.";
 }
 
-/** The footer's line while quiet: how many peer notes it kept off. */
-export function quietStatus(held: number, theme: Theme): string {
-	const notes = held === 1 ? "1 peer note" : `${held} peer notes`;
-	return theme.fg(
-		"dim",
-		`mesh quiet · ${notes} kept off screen · ctrl+o opens`,
-	);
+/**
+ * The footer's mark while quiet, with how many peer notes it kept off
+ * once there is more than one; ctrl+o and `/mesh quiet` say the rest.
+ */
+export function quietStatus(held: number, theme: MarkTheme): string {
+	return footerMark("quiet", "muted", theme, held);
 }

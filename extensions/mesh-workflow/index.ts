@@ -2488,6 +2488,7 @@ export function meshWorkflow(
 						...(waiting ? { waiting } : {}),
 					}
 				: undefined,
+			() => quiet,
 		);
 	};
 }

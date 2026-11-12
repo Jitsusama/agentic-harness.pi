@@ -1,0 +1,98 @@
+/**
+ * mesh_send draws as pi draws a tool of no drawing of its own, and under
+ * /mesh quiet draws no line at all until the person expands the screen.
+ */
+import type {
+	Theme,
+	ToolRenderContext,
+} from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
+import { sendDrawing } from "../../../extensions/mesh-workflow/send-drawing.ts";
+
+const theme = {
+	fg: (_colour: string, text: string) => text,
+	bg: (_colour: string, text: string) => text,
+	bold: (text: string) => text,
+} as unknown as Theme;
+
+const args = { to: "orchestrator", intent: "fyi", text: "merged #1373" };
+const answer = {
+	content: [{ type: "text" as const, text: "Sent as QCXZEB: 21:10 [abc] fyi." }],
+	details: undefined,
+};
+
+/** A row as pi keeps one: its state shared by the call and the result. */
+function row(expanded = false): ToolRenderContext<{ result?: boolean }> {
+	return {
+		args,
+		toolCallId: "call-1",
+		invalidate: () => {},
+		lastComponent: undefined,
+		state: {},
+		cwd: "/",
+		executionStarted: true,
+		argsComplete: true,
+		isPartial: false,
+		expanded,
+		showImages: false,
+		isError: false,
+		durationMs: 12,
+		outputPad: 1,
+		keyText: () => "ctrl+o",
+		keyHint: (_key: string, words: string) => `ctrl+o ${words}`,
+	} as unknown as ToolRenderContext<{ result?: boolean }>;
+}
+
+/** The row's lines, call then result, as pi stacks them. */
+function lines(quiet: () => boolean, expanded = false): string[] {
+	const drawing = sendDrawing(quiet);
+	const context = row(expanded);
+	const call = drawing.renderCall(args, theme, context);
+	const result = drawing.renderResult(
+		answer,
+		{ expanded, isPartial: false },
+		theme,
+		context,
+	);
+	return [...call.render(60), ...result.render(60)].map((line) =>
+		line.trimEnd(),
+	);
+}
+
+describe("a mesh_send row", () => {
+	it("draws the frame pi draws: a blank line, the call, the answer, a blank line", () => {
+		expect(lines(() => false)).toEqual([
+			"",
+			` mesh_send to="orchestrator" intent="fyi" text="merged #1373"`,
+			" Sent as QCXZEB: 21:10 [abc] fyi.",
+			"",
+		]);
+	});
+
+	it("draws no line while the session is quiet", () => {
+		expect(lines(() => true)).toEqual([]);
+	});
+
+	it("opens under quiet when the person expands the screen", () => {
+		expect(lines(() => true, true)).toContain("   text: merged #1373");
+	});
+
+	it("follows quiet as it is drawn, so turning it on hides sends already shown", () => {
+		let quiet = false;
+		const drawing = sendDrawing(() => quiet);
+		const call = drawing.renderCall(args, theme, row());
+		expect(call.render(60)).not.toEqual([]);
+		quiet = true;
+		expect(call.render(60)).toEqual([]);
+	});
+
+	it("keeps the frame open below a call still waiting for its answer", () => {
+		const drawing = sendDrawing(() => false);
+		const call = drawing.renderCall(args, theme, row());
+		expect(call.render(60).map((line) => line.trimEnd())).toEqual([
+			"",
+			` mesh_send to="orchestrator" intent="fyi" text="merged #1373"`,
+			"",
+		]);
+	});
+});

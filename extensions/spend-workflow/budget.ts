@@ -2,17 +2,19 @@
  * The session's budget on the footer, and every budget in `/budget`.
  *
  * A budget is whose money a request spends: a Claude plan, the AI
- * proxy's cap, a team's token. The footer says the one this session
+ * proxy's cap, a team's token. `/budget` says the one this session
  * draws on and how near its nearest allowance stands, in that
  * allowance's own unit ("62% of 5 h", "$184 of $300"), never converted:
- * a share of a plan's window has no price. spend-watch knows every
+ * a share of a plan's window has no price. The footer carries only its
+ * mark, and the share once it warns (Joel, 11 November 2026: words
+ * there were "way too much text in the status bar"). spend-watch knows every
  * budget's standing; under the Claude Code provider the plan's windows
  * come fresher from what the provider said after the last turn, so the
  * figure moves with each turn rather than each time spend-watch is
  * asked.
  *
  * The item follows the design's ruling (VKCF3Z, 6 Nov 2026): one mark,
- * AI spend's, coloured by the nearest allowance, the words always dim.
+ * AI spend's, coloured by the nearest allowance.
  * A budget the session chose (its quest's, an inherited one, or the one
  * that claims its provider) always shows; the machine's default shows
  * only once it warns, since it is what every session spends and saying
@@ -90,26 +92,26 @@ export function sessionBudget(inputs: BudgetInputs): SessionBudget | undefined {
 	return fallback ? told(fallback, false) : undefined;
 }
 
+/** The footer's mark for a budget: its tone, and its share once it warns. */
+export interface BudgetMark {
+	readonly tone: BudgetTone;
+	/** The nearest allowance's share used, in percent, past its warning. */
+	readonly percent?: number;
+}
+
 /**
- * The footer's words for a budget and the tone its mark takes, or
- * undefined while it has nothing to say: a default budget well within
- * its allowances.
+ * The footer's mark for a budget, or undefined while it has nothing to
+ * say: a default budget well within its allowances. A calm budget is
+ * the mark alone; one past its warning adds the share used, the one
+ * number that changes what to do. Its name, standing and reset are
+ * `/budget`'s.
  */
-export function budgetLine(
-	budget: SessionBudget,
-	clock: (at: number) => string,
-): { tone: BudgetTone; text: string } | undefined {
+export function budgetMark(budget: SessionBudget): BudgetMark | undefined {
 	const near = nearest(budget.allowances);
 	const tone = near ? toneOf(near) : "dim";
 	if (!budget.chosen && tone === "dim") return undefined;
-	// With no allowance, spend-watch's standing is what it spent lately.
-	const standing = near ? standingOf(near, budget.standing) : budget.standing;
-	const words = standing ? `${budget.name} ${standing}` : budget.name;
-	const resets =
-		tone !== "dim" && near?.resets !== undefined
-			? ` · resets ${clock(near.resets)}`
-			: "";
-	return { tone, text: `${words}${resets}` };
+	if (!near || tone === "dim") return { tone };
+	return { tone, percent: Math.round(near.used * 100) };
 }
 
 /** The allowance nearest its end, by share. */

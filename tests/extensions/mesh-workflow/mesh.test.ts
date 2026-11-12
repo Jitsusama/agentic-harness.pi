@@ -791,6 +791,27 @@ describe("quiet", () => {
 		expect(drawn(renderers, sent[0]).join("\n")).toContain("merged #950");
 	});
 
+	it("keeps the session's own sends off the screen too", async () => {
+		// Joel, 11 November 2026: "mesh quiet is still showing me mesh
+		// messages you send."
+		const { tools } = await startSession({}, { isIdle: () => true }, quietLog);
+		const meshSend = tools.get("mesh_send") as unknown as {
+			renderShell?: string;
+			renderCall: (
+				args: unknown,
+				theme: unknown,
+				context: unknown,
+			) => { render: (width: number) => string[] };
+		};
+		const theme = { ...plainTheme, bg: plainTheme.fg, bold: (t: string) => t };
+		const context = { expanded: false, state: {}, outputPad: 1 };
+
+		expect(meshSend.renderShell).toBe("self");
+		expect(
+			meshSend.renderCall({ text: "merged" }, theme, context).render(80),
+		).toEqual([]);
+	});
+
 	it("turns on and off with /mesh quiet, kept in the session's log", async () => {
 		const notices: string[] = [];
 		const ui = { notify: (text: string) => notices.push(text) };

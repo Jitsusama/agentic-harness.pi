@@ -32,10 +32,10 @@ import {
 	askBudgets,
 	type Budgets,
 } from "../../lib/internal/spend-watch-budgets.ts";
-import { footerMark } from "../../lib/ui/footer-mark.ts";
+import { footerMark, footerShare } from "../../lib/ui/footer-mark.ts";
 import { view } from "../../lib/ui/panel.ts";
 import {
-	budgetLine,
+	budgetMark,
 	budgetReport,
 	type ReportLine,
 	sessionBudget,
@@ -96,11 +96,10 @@ export function registerBudgetItem(
 		const ctx = withUI();
 		if (!ctx) return;
 		const budget = current();
-		const line = budget && budgetLine(budget, hourMinute);
+		const mark = budget && budgetMark(budget);
 		try {
-			const theme = ctx.ui.theme;
-			const text = line
-				? `${footerMark("budget", line.tone, theme)} ${theme.fg("dim", line.text)}`
+			const text = mark
+				? footerShare("budget", mark.tone, ctx.ui.theme, mark.percent)
 				: undefined;
 			if (text === said) return;
 			ctx.ui.setStatus(STATUS_KEY, text);

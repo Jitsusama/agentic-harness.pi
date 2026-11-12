@@ -5,7 +5,11 @@
  */
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { FOOTER_GLYPH, footerMark } from "../../../lib/ui/footer-mark.ts";
+import {
+	FOOTER_GLYPH,
+	footerMark,
+	footerShare,
+} from "../../../lib/ui/footer-mark.ts";
 
 const plain = { fg: (_colour: string, text: string) => text };
 
@@ -19,6 +23,16 @@ describe("the footer's marks", () => {
 		expect(footerMark("failed", "error", plain, 1)).toBe(FOOTER_GLYPH.failed);
 		expect(footerMark("failed", "error", plain, 3)).toBe(
 			`${FOOTER_GLYPH.failed} 3`,
+		);
+	});
+
+	it("shows a share only when given one, and never past all of it", () => {
+		expect(footerShare("budget", "dim", plain)).toBe(FOOTER_GLYPH.budget);
+		expect(footerShare("budget", "warning", plain, 84)).toBe(
+			`${FOOTER_GLYPH.budget} 84%`,
+		);
+		expect(footerShare("budget", "error", plain, 312)).toBe(
+			`${FOOTER_GLYPH.budget} 100%`,
 		);
 	});
 });
