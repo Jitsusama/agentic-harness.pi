@@ -84,9 +84,7 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 		}
 		const pinned = await pinnedChildEnvironment();
 		const extra =
-			config.piInstall.packageDir ||
-			given ||
-			Object.keys(pinned).length > 0;
+			config.piInstall.packageDir || given || Object.keys(pinned).length > 0;
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const child = spawnFn(
 				config.piInstall.node,
