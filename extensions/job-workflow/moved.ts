@@ -31,12 +31,12 @@ import {
 	stopCarried,
 	watchCarried,
 } from "../../lib/internal/shell/carried.ts";
+import { removeKept } from "../../lib/internal/shell/kept.ts";
 import {
 	finishedSummary,
 	keepInTemp,
 	spoken,
-} from "../../lib/internal/shell/finished.ts";
-import { removeKept } from "../../lib/internal/shell/kept.ts";
+} from "../../lib/jobs/hand-off.ts";
 import type { JobOutcome } from "../../lib/jobs/index.ts";
 import type { CarriedJob, Jobs } from "./jobs.ts";
 import type { JobResult, Outbox } from "./outbox.ts";
@@ -251,7 +251,7 @@ function outcomeOf(
 			status,
 			output,
 			`${session}-${work.startedAt}-${job.id}`,
-			keepInTemp(session),
+			keepInTemp(session, "pi-bash"),
 		);
 	switch (end.how) {
 		case "exited":
