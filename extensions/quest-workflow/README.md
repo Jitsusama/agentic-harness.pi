@@ -484,15 +484,17 @@ while it waits its turn leaves without running.
   a compaction resets it so a changed state is said again.
 - What's on top: a few quests the person put first, why in
   their words, and until when, read from
-  `$XDG_STATE_HOME/mission/top.json` (`on-top.ts`). The
-  orchestrator writes the file, as `{"quests": [{"id", "title"}],
+  `$XDG_STATE_HOME/mission/top.json` (`on-top.ts`). Nothing
+  here writes it yet: the orchestrator writes it by hand until a
+  `quest top` action lands, as `{"quests": [{"id", "title"}],
   "why", "until": "YYYY-MM-DD" or null, "at", "by"}`, and every
   session hears it as a standing context at its next turn, so
   telling them costs no turn of its own. It lapses after its
   `until` day, and a file that doesn't parse leaves the last
-  one standing. Each session that reads a top leaves its id
-  under `mission/top-reads/<at>/`, so the count is the
-  receipt.
+  one standing, while a whole file naming no quest takes it
+  down. Each session that reads a top leaves its id under
+  `mission/top-reads/<at>/`, so the count is the receipt; a new
+  top takes the older tops' reads away.
 
 ## What It Doesn't Own
 

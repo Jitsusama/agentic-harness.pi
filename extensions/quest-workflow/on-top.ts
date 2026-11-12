@@ -29,6 +29,7 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
@@ -105,6 +106,9 @@ export function onTopReader(places: OnTopPlaces): () => string | null {
 		if (changed !== mtime) {
 			const read = readTop(places.file);
 			if (read !== undefined) {
+				if (read !== null && read.at !== top?.at) {
+					forgetOlderReads(places.reads, read.at);
+				}
 				top = read;
 				mtime = changed;
 			}
@@ -151,7 +155,11 @@ function missionFolder(
 	return join(env.XDG_STATE_HOME || join(home, ".local", "state"), "mission");
 }
 
-/** The top in the file: null when there's none, undefined when it doesn't parse. */
+/**
+ * The top in the file: null when there's none, or when the file is
+ * whole and names no quest, which is how a top is taken down; undefined
+ * only when it doesn't parse, which may be a write still under way.
+ */
 function readTop(file: string): OnTop | null | undefined {
 	if (!existsSync(file)) return null;
 	let parsed: unknown;
@@ -161,7 +169,7 @@ function readTop(file: string): OnTop | null | undefined {
 		// Half written, or gone between the look and the read: keep the last.
 		return undefined;
 	}
-	return isRecord(parsed) ? topOf(parsed) : undefined;
+	return (isRecord(parsed) ? topOf(parsed) : undefined) ?? null;
 }
 
 function topOf(value: Record<string, unknown>): OnTop | undefined {
@@ -227,6 +235,26 @@ function leaveRead(reads: string, at: string, session: string): void {
 }
 
 /** A folder name for a top, from when it was written. */
+/**
+ * Take away the reads of every top but the one written at `at`, so the
+ * folder holds one top's count rather than growing with each.
+ */
+function forgetOlderReads(reads: string, at: string): void {
+	let folders: string[];
+	try {
+		folders = readdirSync(reads);
+	} catch {
+		// No reads yet, so nothing older to take away.
+		return;
+	}
+	const keep = keyOf(at);
+	for (const folder of folders) {
+		if (folder === keep) continue;
+		// force: another session may take the same folder away first.
+		rmSync(join(reads, folder), { recursive: true, force: true });
+	}
+}
+
 function keyOf(at: string): string {
 	return at.replace(/[^0-9A-Za-z]/g, "-");
 }
