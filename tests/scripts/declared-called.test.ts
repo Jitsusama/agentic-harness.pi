@@ -156,6 +156,34 @@ describe("tools declared against tools called", () => {
 		);
 	});
 
+	// A script's own calls aren't in the ledger (85PKB2 on #1395), so a
+	// session that ran one may have called any tool through it.
+	it("never prices a tool a session may have called through a script", async () => {
+		const report = await reportOf(
+			[
+				started("a", { codemode: 400, slack: 4_000 }),
+				started("b", { slack: 4_000 }),
+			],
+			[step("a", 1, ["codemode"]), step("b", 1, [])],
+		);
+		const slack = report.tools.find((tool) => tool.tool === "slack");
+		expect(
+			[slack?.scripted, slack?.unusedCost],
+			"slack maybe in a's script, unread in b",
+		).toEqual([1, 0.0005]);
+	});
+
+	it("takes the middle of two sizes as their mean", async () => {
+		const report = await reportOf(
+			[started("a", { bash: 400 }), started("b", { bash: 600 })],
+			[step("a", 1, ["bash"]), step("b", 1, ["bash"])],
+		);
+		expect(
+			[report.medianDeclared, report.tools.at(0)?.chars],
+			"the median of 400 and 600",
+		).toEqual([500, 500]);
+	});
+
 	it("leaves out sessions with no turn in the last day", async () => {
 		const report = await reportOf(
 			[started("a", { bash: 400 }), started("old", { bash: 400 })],
@@ -179,6 +207,7 @@ describe("tools declared against tools called", () => {
 					chars: 9_800,
 					calledIn: 3,
 					calls: 11,
+					scripted: 40,
 					unusedCost: 96.25,
 				},
 			],
@@ -186,8 +215,8 @@ describe("tools declared against tools called", () => {
 		expect(text).toContain("## Declared, Called");
 		expect(text).toContain("120 sessions");
 		expect(text).toContain("151k characters");
-		expect(text).toContain("$412.50");
-		expect(text).toContain("| slack | 120 | 9,800 | 3 | 11 | $96.25 |");
+		expect(text).toContain("at least $412.50");
+		expect(text).toContain("| slack | 120 | 9,800 | 3 | 11 | 40 | $96.25 |");
 	});
 
 	it("says so when no session worked in the last day", () => {
