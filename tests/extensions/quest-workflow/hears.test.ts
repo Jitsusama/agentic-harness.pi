@@ -3,13 +3,16 @@
  * through restarts and respawns and every session on it hears the same.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import {
+	parseQuestFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../../lib/internal/quest/frontmatter.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers.ts";
 
@@ -84,6 +87,47 @@ describe("how a quest's sessions hear the mesh", () => {
 			false,
 			expect.stringContaining("hears=addressed or hears=all"),
 			undefined,
+		]);
+	});
+
+	// 85PKB2 on #1405: the router is the quest someone will open and
+	// edit, so a slip by hand has to show rather than vanish.
+	it("keeps a way of hearing written by hand it can't read, and says so", async () => {
+		const id = await made();
+		const path = join(questsRoot(), id, "README.md");
+		const readme = readFileSync(path, "utf8");
+		writeFileSync(path, readme.replace(/^id: .*$/m, "$&\nhears: adressed"));
+		const parsed = parseQuestFrontMatter(readFileSync(path, "utf8"));
+		const kept = parsed ? serializeQuestFrontMatter(parsed.frontMatter) : "";
+		const report = await run({ action: "config", id });
+		await run({ action: "config", id, ref: "hears=addressed" });
+		expect(
+			[
+				kept.includes("hears: adressed"),
+				report.ok ? report.message : report.guidance,
+				hearsOf(id),
+				readFileSync(path, "utf8").includes("adressed"),
+			],
+			"kept through a rewrite, reported, then set right",
+		).toEqual([
+			true,
+			expect.stringContaining('"adressed" isn\'t a way of hearing'),
+			"addressed",
+			false,
+		]);
+	});
+
+	it("says how a named quest hears", async () => {
+		const id = await made();
+		const before = await run({ action: "config", id });
+		await run({ action: "config", id, ref: "hears=addressed" });
+		const after = await run({ action: "config", id });
+		expect(
+			[before, after].map((r) => (r.ok ? r.message : r.guidance)),
+			"as every peer, then only what is put to them",
+		).toEqual([
+			expect.stringContaining("hear as every peer does"),
+			expect.stringContaining("hear only what is put to them"),
 		]);
 	});
 
