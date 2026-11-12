@@ -116,9 +116,9 @@ describe("review state in two hosted conversations of one folder", () => {
 			kind: "cut",
 			path: "/trees/a",
 		});
-		expect(
-			await withSession("b", () => treeStandingFor(REPO, COMMIT)),
-		).toEqual({ kind: "cut", path: "/trees/b" });
+		expect(await withSession("b", () => treeStandingFor(REPO, COMMIT))).toEqual(
+			{ kind: "cut", path: "/trees/b" },
+		);
 	});
 
 	it("names each conversation's attachments by its own session", async () => {
