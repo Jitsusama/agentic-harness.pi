@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	EXIT_ABORTED,
+	EXIT_SAID_TOO_MUCH,
 	EXIT_TIMED_OUT,
 	NONINTERACTIVE_ENV,
 	spawnExec,
@@ -149,6 +150,48 @@ describe("a command that will not finish", () => {
 			"the shell that ignored the polite stop to be killed",
 			() => !alive(shell),
 			GONE_WITHIN_MS,
+		);
+	});
+
+	it("is stopped with everything it started once its output passes the ceiling", async () => {
+		// The clock is only a backstop: without the ceiling this child never
+		// ends, and the case should fail on how it ended, not on its own timeout.
+		const result = await spawnExec({ timeoutMs: 5_000, maxOutputChars: 1_000 })(
+			"sh",
+			["-c", "echo $$ >&2; yes"],
+		);
+		const shell = Number(result.stderr.split("\n")[0]);
+
+		expect(
+			result.code,
+			"a child that floods its stdout is stopped for it",
+		).toBe(EXIT_SAID_TOO_MUCH);
+		expect(
+			result.stdout.length,
+			"no more than the ceiling is held",
+		).toBeLessThanOrEqual(1_000);
+		expect(result.stderr, "the stop says why").toContain(
+			"its stdout passed 1000 characters",
+		);
+		await until(
+			"the shell that flooded its stdout to be gone",
+			() => !alive(shell),
+			GONE_WITHIN_MS,
+		);
+	});
+
+	it("is stopped once its stderr passes the ceiling too", async () => {
+		const result = await spawnExec({ timeoutMs: 5_000, maxOutputChars: 1_000 })(
+			"sh",
+			["-c", "yes >&2"],
+		);
+
+		expect(
+			result.code,
+			"a child that floods its stderr is stopped for it",
+		).toBe(EXIT_SAID_TOO_MUCH);
+		expect(result.stderr, "the stop says why").toContain(
+			"its stderr passed 1000 characters",
 		);
 	});
 

@@ -15,6 +15,7 @@ export {
 } from "./exec.ts";
 export {
 	EXIT_ABORTED,
+	EXIT_SAID_TOO_MUCH,
 	EXIT_TIMED_OUT,
 	NONINTERACTIVE_ENV,
 	type SpawnExecOptions,
