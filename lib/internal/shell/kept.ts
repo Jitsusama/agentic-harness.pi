@@ -132,34 +132,60 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
 	}
 }
 
-/** Mark the call handed to another process, which says its end. */
-export function markCarried(path: string): void {
+/**
+ * Mark the call handed to another process, which says its end, with the
+ * call's own mark (`PI_BASH_CALL`) when it has one.
+ */
+export function markCarried(path: string, mark = ""): void {
 	try {
-		writeFileSync(`${path}${CARRIED}`, "", { mode: FILE_MODE });
+		writeFileSync(`${path}${CARRIED}`, mark, { mode: FILE_MODE });
 	} catch {
 		// Removed under it, as its call ended: nothing left to spare.
 	}
 }
 
+/** The calls handed to another process, as a reaper tells them apart. */
+export interface CarriedCalls {
+	/** Their marks, which every process a call starts inherits. */
+	readonly marks: ReadonlySet<string>;
+	/** Their shells' process groups: each shell leads its own. */
+	readonly groups: ReadonlySet<number>;
+}
+
 /**
- * The process groups of calls in `folder` handed to another process:
- * each one's shell leads its own group, so its pid names it.
+ * The calls in `folder` handed to another process. A call's mark reaches
+ * what it started in a group of its own, as `timeout` and `setsid` make;
+ * its shell's group covers a call run without one.
  */
-export function carriedGroups(folder: string = keptFolder()): Set<number> {
+export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
+	const marks = new Set<string>();
 	const groups = new Set<number>();
 	let names: string[];
 	try {
 		names = readdirSync(folder);
 	} catch {
 		// No folder yet: nothing was ever kept, so nothing is carried.
-		return groups;
+		return { marks, groups };
 	}
 	for (const name of names) {
 		if (!name.endsWith(CARRIED)) continue;
-		const pid = pidOf(join(folder, name.slice(0, -CARRIED.length)));
+		const path = join(folder, name.slice(0, -CARRIED.length));
+		const pid = pidOf(path);
 		if (pid !== undefined) groups.add(pid);
+		const mark = textOf(`${path}${CARRIED}`).trim();
+		if (mark !== "") marks.add(mark);
 	}
-	return groups;
+	return { marks, groups };
+}
+
+/** What a kept file holds, or nothing once it is gone. */
+function textOf(file: string): string {
+	try {
+		return readFileSync(file, "utf8");
+	} catch {
+		// Removed as its call's end was said: nothing left to spare.
+		return "";
+	}
 }
 
 /** Remove everything a call kept. */

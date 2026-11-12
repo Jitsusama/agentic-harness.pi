@@ -20,6 +20,12 @@ import {
 	reapLeftBehind,
 	reapToolChildren,
 } from "../../../host/engine/tool-children.ts";
+import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
+
+/** Calls handed on: none by mark, and the groups named. */
+function groupsCarried(...groups: number[]) {
+	return { marks: new Set<string>(), groups: new Set(groups) };
+}
 
 interface FakeProcess {
 	group: number;
@@ -98,13 +104,37 @@ describe("reaping a conversation's tool children", () => {
 			10: { group: 10, env: conversationMarker("a", HOST) },
 			20: { group: 20, env: conversationMarker("a", HOST) },
 		});
-		expect(reapToolChildren("a", table, new Set([10]))).toEqual({
+		expect(reapToolChildren("a", table, groupsCarried(10))).toEqual({
 			groups: [20],
 			pids: [],
 		});
 		expect([...table.pids()].sort(), "the carried call runs on").toEqual([
 			1, 10,
 		]);
+	});
+
+	it("spares what a handed-on call started in a group of its own, as timeout does, by the call's mark", () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: {
+				group: 10,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-1" },
+			},
+			11: {
+				group: 11,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-1" },
+			},
+			20: {
+				group: 20,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-2" },
+			},
+		});
+		const carried = { marks: new Set(["call-1"]), groups: new Set([10]) };
+		expect(reapToolChildren("a", table, carried).groups).toEqual([20]);
+		expect(
+			[...table.pids()].sort(),
+			"the carried call and what it started run on",
+		).toEqual([1, 10, 11]);
 	});
 
 	it("answers nothing when no process carries the marker", () => {
@@ -151,9 +181,9 @@ describe("reaping what a dead host left behind", () => {
 			10: { group: 10, env: conversationMarker("released", EARLIER) },
 			20: { group: 20, env: conversationMarker("held", EARLIER) },
 		});
-		expect(reapLeftBehind("test-host", table, new Set([10])).groups).toEqual([
-			20,
-		]);
+		expect(
+			reapLeftBehind("test-host", table, groupsCarried(10)).groups,
+		).toEqual([20]);
 	});
 
 	it("takes a reused pid for a host that no longer runs", () => {

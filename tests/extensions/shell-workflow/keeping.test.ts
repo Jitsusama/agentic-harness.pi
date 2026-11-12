@@ -114,6 +114,10 @@ describe("a kept call", () => {
 			existsSync(`${work.keep}.carried`),
 			"marked carried, so a host's reaper spares it",
 		).toBe(true);
+		expect(
+			readFileSync(`${work.keep}.carried`, "utf8"),
+			"by the call's mark, which all it starts inherits",
+		).toBe("mark-1");
 		expect((await running).code).toBe(4);
 		expect(endOf(work.keep), "its status is on disk").toBe(4);
 		expect(outputOf(work.keep)).toBe("started\nbye\n");

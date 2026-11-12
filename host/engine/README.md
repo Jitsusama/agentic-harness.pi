@@ -179,8 +179,9 @@ runs: the conversations it will resume, and those it won't, such as one
 the dead host was closing. A host holds its key alone, so a live host's
 children are never touched. Neither reap touches a command a
 conversation carried on, released to plain pi with it running: the
-shell marks its kept files `.carried`, and the group its pid leads is
-spared until the plain pi says its end.
+shell marks its kept files `.carried` with the call's own mark, and
+every process carrying that mark, whatever group it moved to as
+`timeout` does, is spared until the plain pi says its end.
 
 A conversation can become another, by pi's /new, /fork, /resume or
 import (replacement.ts). pi disposes the old session before it builds

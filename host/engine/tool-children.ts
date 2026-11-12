@@ -16,11 +16,17 @@
  * process with that pid shares. Linux's /proc is the process table.
  *
  * A command a move or a release handed to another process runs on under
- * the marks of the conversation that started it, so its group is spared
- * (`carriedGroups`, lib/internal/shell/kept.ts) until its end is said.
+ * the marks of the conversation that started it, so it is spared until
+ * its end is said (`carriedCalls`, lib/internal/shell/kept.ts): every
+ * process carrying the call's own mark, whatever group it moved to, as
+ * `timeout` does, and its shell's group.
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { carriedGroups } from "../../lib/internal/shell/kept.ts";
+import {
+	type CarriedCalls,
+	carriedCalls,
+} from "../../lib/internal/shell/kept.ts";
+import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 
 /** The variable naming the conversation a process was started for. */
 export const CONVERSATION_MARKER = "PI_HOST_CONVERSATION";
@@ -95,7 +101,7 @@ export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 export function reapToolChildren(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
-	spared: ReadonlySet<number> = carriedGroups(),
+	spared: CarriedCalls = carriedCalls(),
 ): Reaped {
 	return reapWhere(
 		(environ) => environ[CONVERSATION_MARKER] === sessionId,
@@ -112,7 +118,7 @@ export function reapToolChildren(
 export function reapLeftBehind(
 	key: string,
 	table: ProcessTable = linuxProcessTable(),
-	spared: ReadonlySet<number> = carriedGroups(),
+	spared: CarriedCalls = carriedCalls(),
 ): Reaped {
 	return reapWhere(
 		(environ) => {
@@ -147,7 +153,7 @@ function runs(owner: string, table: ProcessTable): boolean {
 function reapWhere(
 	chosen: (environ: Readonly<Record<string, string>>) => boolean,
 	table: ProcessTable,
-	spared: ReadonlySet<number>,
+	spared: CarriedCalls,
 ): Reaped {
 	const own = table.group(table.self);
 	const groups = new Set<number>();
@@ -158,7 +164,7 @@ function reapWhere(
 		for (const pid of found) {
 			const group = table.group(pid);
 			// Gone meanwhile, or handed on and said elsewhere.
-			if (group === undefined || spared.has(group)) continue;
+			if (group === undefined || handedOn(pid, group, table, spared)) continue;
 			if (group === own) {
 				pids.add(pid);
 				table.kill({ pid });
@@ -169,6 +175,18 @@ function reapWhere(
 		}
 	}
 	return { groups: [...groups], pids: [...pids] };
+}
+
+/** Whether a process belongs to a call handed on, by its call's mark or its shell's group. */
+function handedOn(
+	pid: number,
+	group: number,
+	table: ProcessTable,
+	spared: CarriedCalls,
+): boolean {
+	if (spared.groups.has(group)) return true;
+	const mark = table.environ(pid)?.[CALL_VARIABLE];
+	return mark !== undefined && spared.marks.has(mark);
 }
 
 function markedWhere(

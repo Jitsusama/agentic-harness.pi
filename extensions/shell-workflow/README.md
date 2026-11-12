@@ -289,8 +289,8 @@ moved pi leaves.
 - **For how long:** a call that ends in its own pi removes its files as
   it ends. A carried one's go once its end is said where it was
   carried, or once it is stopped. Handing one on marks it with a
-  `.carried` file, so a host reaping what a released conversation
-  started spares the group its shell leads. Files left a week, by a pi killed outright, are swept
+  `.carried` file holding the call's own mark, so a host reaping what a
+  released conversation started spares everything carrying that mark. Files left a week, by a pi killed outright, are swept
   as a session starts.
 - **Where not:** commands `pi-spawner` starts, and any where `tee`
   lacks `-p` or the shell isn't bash, run as before and hold a move.

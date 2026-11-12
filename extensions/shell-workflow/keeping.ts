@@ -123,7 +123,7 @@ export function keepsOnDisk(
 					if (!kept) return;
 					kept.handed = true;
 					// A host's reaper spares it until its end is said elsewhere.
-					markCarried(kept.path);
+					markCarried(kept.path, kept.mark);
 				},
 			};
 		},
