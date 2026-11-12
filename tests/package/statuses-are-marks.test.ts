@@ -113,9 +113,7 @@ describe("the footer's statuses", () => {
 	it("draws each from the one table of marks", () => {
 		const glyphs = new Set<string>(Object.values(FOOTER_GLYPH));
 		const firsts = Object.values(drawn).map((one) => [...(one ?? "")][0]);
-		expect(firsts.filter((glyph) => !glyph || !glyphs.has(glyph))).toEqual(
-			[],
-		);
+		expect(firsts.filter((glyph) => !glyph || !glyphs.has(glyph))).toEqual([]);
 	});
 
 	it("knows every place that sets a status", () => {
