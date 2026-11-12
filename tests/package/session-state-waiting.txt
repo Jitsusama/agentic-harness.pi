@@ -18,6 +18,7 @@ lib/core/process/process.ts:module 2
 lib/core/result/spill.ts:module 1
 lib/core/web/mermaid.ts:module 1
 lib/google/apis/client.ts:module 1
+lib/internal/calls.ts:module 1
 lib/internal/offload-exemption.ts:module 1
 lib/internal/paths.ts:module 1
 lib/internal/people/resolvers/slack.ts:module 1
