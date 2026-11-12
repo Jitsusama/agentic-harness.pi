@@ -35,7 +35,7 @@ const LABEL = "[Habit]";
 
 /** The line the trial half hears. */
 export const BATCHING_LINE =
-	"Before a step that only looks (reads a file, a log, a status, a search), list what else you'll need to look at before acting, and send all of it in that step. Wait for a result only when the next call needs it.";
+	"Before a step that only looks (reads a file, a log, a status, a search), work out what else you'll need to look at before acting, and send all of it in that step. Wait for a result only when the next call needs it.";
 
 /** How the habit is said, and unsaid once the session leaves the trial. */
 export const BATCHING_TRIAL: StandingContextWording = {
@@ -58,8 +58,10 @@ export interface TrialPlan {
 }
 
 /**
- * WCJQSG's builders, all but WCJQSG and 16V6F4, from Saturday 14 to
- * Monday 16 November 2026, when it is read (WCJQSG's yes of 12 November).
+ * WCJQSG's builders, all but WCJQSG and 16V6F4, from the install that
+ * carries it until Monday 16 November 2026, when it is read (WCJQSG's yes
+ * of 12 November). The read takes the day before the install as each
+ * one's baseline.
  */
 export const BATCHING_PLAN: TrialPlan = {
 	orchestration: "QEST-20261007-WCJQSG",
@@ -84,7 +86,12 @@ export function batchingOutFile(env: NodeJS.ProcessEnv = process.env): string {
 	return join(state, "mission", "trials", "batching-out");
 }
 
-/** Whether a session, by its id or its log's name, is in the trial half. */
+/**
+ * Whether a session, by its id or its log's name, is in the trial half.
+ * The unit is the log, not the session: a session that rolls over to a
+ * new log takes a new id and may cross halves, so the read compares
+ * only logs that worked both before and during the trial.
+ */
 export function inTrialHalf(session: string): boolean {
 	const id = session.replace(/\.jsonl$/, "");
 	const digit = Number.parseInt(id.at(-2) ?? "", 16);
@@ -102,6 +109,9 @@ export function batchingTrial(
 ): (quest: string | null) => string | null {
 	const zone = places.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const out = outList(places.out);
+	// Each quest's orchestrator is read once for the life of the process,
+	// so a quest reparented mid-trial keeps its first answer until pi
+	// restarts: fine for a trial of four days.
 	const under = new Map<string, boolean>();
 	return (quest) => {
 		if (!quest || plan.except.includes(quest)) return null;
@@ -119,23 +129,29 @@ export function batchingTrial(
 
 /**
  * Say the habit to a session in the trial, as standing context, for the
- * quest `questId` names at each turn.
+ * quest `questId` names at each turn. Nothing is said until the session
+ * starts, since its id decides its half.
  */
 export function registerBatchingTrial(
 	pi: ExtensionAPI,
 	questsRoot: () => string,
 	questId: () => string | null,
+	plan: TrialPlan = BATCHING_PLAN,
+	now: () => number = Date.now,
 ): void {
 	let session = "";
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		session = ctx.sessionManager.getSessionId();
 	});
-	const habitFor = batchingTrial({
-		questsRoot,
-		out: batchingOutFile(),
-		session: () => session,
-		now: Date.now,
-	});
+	const habitFor = batchingTrial(
+		{
+			questsRoot,
+			out: batchingOutFile(),
+			session: () => session,
+			now,
+		},
+		plan,
+	);
 	registerStandingContext(pi, BATCHING_TRIAL, () => habitFor(questId()));
 }
 
