@@ -184,6 +184,10 @@ Field semantics:
   hear in full only what the mesh puts to them, glancing at
   the rest. Set with the quest tool's `config` (`ref`
   `hears=addressed`, cleared with `hears=all`), never by hand.
+- `stands-at-top`: optional, `{name: The Void, keywords:
+  [void]}` when the quest's session stands at the top of the
+  launcher's Agents under that name, never folded, found by
+  those words. Only a front door such as the void sets it.
 - `realm`: optional, the realm the quest was made in, such
   as `work`. `quest create` writes it from the session's
   `MYCELIUM_REALM`, or a subquest from its parent's.

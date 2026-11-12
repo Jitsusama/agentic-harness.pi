@@ -345,6 +345,12 @@ have gone. An answer anywhere in a question's thread counts, and an
 asker's own follow-up question closes the one it answers. An answer
 that names no group goes back to whoever asked ([`lib/mesh/unanswered.ts`](../../lib/mesh/unanswered.ts)).
 
+A quest whose README says `stands-at-top: {name, keywords}`
+puts `standsAtTop` in its session's presence, so the launcher's
+Agents shows that session at its top under the name, never
+folded, found by the keywords. Presence leaves the key out
+otherwise.
+
 A quest marked `hears: addressed` (set with the quest tool's
 `config`, `ref` `hears=addressed`, and cleared with `hears=all`)
 hears in full only what is put to its sessions: what is sent to
