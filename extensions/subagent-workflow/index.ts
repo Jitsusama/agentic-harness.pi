@@ -639,6 +639,10 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "subagent",
+		// The largest declaration after review_offer, quest and work, wanted
+		// only for a fleet: loaded on demand, and by reading the
+		// subagent-fleet-guide skill, which names it.
+		exposure: "deferred",
 		label: "Subagent Fleet",
 		description:
 			"Fan N pi subagents out concurrently. Each gets its own pi " +

@@ -112,6 +112,7 @@ async function start(
 		cols: 100,
 		rows: options.rows ?? 30,
 		extensions: [subagentWorkflow, gateTool, panelLifecycle],
+		loaded: ["subagent"],
 	});
 	pi = session;
 	session.faux.setResponses([
