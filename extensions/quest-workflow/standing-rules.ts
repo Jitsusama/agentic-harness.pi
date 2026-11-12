@@ -11,6 +11,10 @@
  * to the section, or a session loading a quest under another
  * orchestrator, is said once as a message. The orchestrator's own
  * session reads its README itself and gets nothing here.
+ *
+ * A quest whose README says `context-stands: true` carries its own
+ * Context after them, for a session whose whole work is its Context,
+ * such as a router: read once by hand, an edit would never reach it.
  */
 
 import { readFileSync, statSync } from "node:fs";
@@ -38,22 +42,33 @@ export type ReadmeReader = (quest: string) => string | undefined;
 
 /**
  * The standing rules for a session on this quest: the Context section
- * of the orchestrator quest above it, or null when none is above it or
- * its section is empty.
+ * of the orchestrator quest above it, then the quest's own when its
+ * README says it stands, or null when neither has any.
  */
 export function standingRulesFor(
 	quest: string,
 	read: ReadmeReader,
 ): string | null {
-	const by = orchestratorOf(quest, read);
-	return by === undefined ? null : rulesIn(by, read(by));
+	return rulesOf(quest, orchestratorOf(quest, read), read);
+}
+
+function rulesOf(
+	quest: string,
+	by: string | undefined,
+	read: ReadmeReader,
+): string | null {
+	const parts = [
+		by === undefined ? null : rulesIn(by, read(by)),
+		ownContextOf(quest, read(quest)),
+	].filter((part) => part !== null);
+	return parts.length === 0 ? null : parts.join("\n\n");
 }
 
 /**
  * The standing rules for whichever quest is loaded, read again only
- * when the loaded quest, its own README (a reparent, a moved mark) or
- * its orchestrator's README changes, since the prompt asks on every
- * turn.
+ * when the loaded quest, its own README (a reparent, a moved mark, its
+ * own Context) or its orchestrator's README changes, since the prompt
+ * asks on every turn.
  */
 export function standingRules(
 	questsRoot: () => string,
@@ -71,14 +86,14 @@ export function standingRules(
 		if (!quest) return null;
 		const read = readmeIn(questsRoot());
 		const own = modified(join(questsRoot(), quest, "README.md"));
-		if (last?.quest !== quest || last.own !== own) {
-			const by = orchestratorOf(quest, read);
-			last = { quest, own, by, mtime: undefined, rules: null };
-		}
-		if (last.by === undefined) return null;
-		const mtime = modified(join(questsRoot(), last.by, "README.md"));
-		if (mtime !== last.mtime) {
-			last = { ...last, mtime, rules: rulesIn(last.by, read(last.by)) };
+		const same = last?.quest === quest && last.own === own;
+		const by = same ? last?.by : orchestratorOf(quest, read);
+		const mtime =
+			by === undefined
+				? undefined
+				: modified(join(questsRoot(), by, "README.md"));
+		if (!same || last === undefined || last.mtime !== mtime) {
+			last = { quest, own, by, mtime, rules: rulesOf(quest, by, read) };
 		}
 		return last.rules;
 	};
@@ -108,6 +123,17 @@ function rulesIn(by: string, readme: string | undefined): string | null {
 	const context = body ? extractSection(body, "context").join("\n").trim() : "";
 	if (!context) return null;
 	return `The quest orchestrating this one, ${by}, sets these for every quest below it, from its README's Context section, so its README need not be read for them:\n\n${context}`;
+}
+
+function ownContextOf(
+	quest: string,
+	readme: string | undefined,
+): string | null {
+	const parsed = readme ? parseQuestFrontMatter(readme) : undefined;
+	if (parsed?.frontMatter._extra?.["context-stands"] !== true) return null;
+	const context = extractSection(parsed.body, "context").join("\n").trim();
+	if (!context) return null;
+	return `This quest, ${quest}, sets these in its own README's Context section, so its README need not be read for them:\n\n${context}`;
 }
 
 /** A reader of each quest's README under a quests root. */

@@ -188,6 +188,10 @@ Field semantics:
   [void]}` when the quest's session stands at the top of the
   launcher's Agents under that name, never folded, found by
   those words. Only a front door such as the void sets it.
+- `context-stands`: optional, `true` when the quest's own
+  Context section stands in its sessions' prompts after any
+  orchestrator's rules, and an edit to it is said once. For a
+  session whose whole work is its Context, such as the void.
 - `realm`: optional, the realm the quest was made in, such
   as `work`. `quest create` writes it from the session's
   `MYCELIUM_REALM`, or a subquest from its parent's.
