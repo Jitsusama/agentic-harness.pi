@@ -1,12 +1,9 @@
 ---
 name: code-style-standard
 description: >
-  Code design and style rules applied to all code.
-  Readability, naming, structure, abstraction, testing and
-  domain-driven design. Use when writing, modifying or
-  reviewing code in any language. Follow the person's writing
-  voice and prose style guides for code comments and doc
-  comments.
+  Design and style rules for all code: readability, naming,
+  structure, abstraction, testing and domain-driven design. Use
+  when writing, changing or reviewing code in any language.
 ---
 
 # Code Style

@@ -1,14 +1,10 @@
 ---
 name: work-guide
 description: >
-  Get somewhere to work and move the work along with the
-  `work` tool: worktrees and snapshots, branches, commits,
-  pushes, rebases and stacks of branches. Use when asked to
-  "get me a worktree", "make a branch", "commit that", "push
-  it", "rebase onto main", "the rebase stopped", "stack this
-  on top of that", "reorder the stack", "restack
-  everything", "what does my stack look like", or to work on
-  code rather than review it.
+  Get somewhere to work and move the work along with the `work`
+  tool: worktrees, snapshots, branches, commits, pushes, rebases
+  and stacks. Use when asked for a worktree or branch, to
+  commit, push, rebase or restack, or to work on code.
 ---
 
 # Working on Code

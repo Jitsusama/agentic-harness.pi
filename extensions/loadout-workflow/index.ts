@@ -48,6 +48,7 @@ import {
 	parseLoadoutSettings,
 	type SkillPlaces,
 	skillsHere,
+	withPackagePlaces,
 } from "./skills.ts";
 
 /** pi's built-in tool that finds and declares undeclared tools. */
@@ -70,14 +71,15 @@ function isSkillRead(event: {
 
 /**
  * Where each skill applies, from the package config's `loadout`
- * section; nothing, and so every skill everywhere, when the config is
- * missing or its section does not parse.
+ * section over the package's own places; only the package's when the
+ * config is missing or its section does not parse.
  */
 async function skillPlaces(): Promise<SkillPlaces> {
 	const loaded = await loadPackageConfig();
-	if (!loaded.ok) return {};
-	return getSection(loaded.config, LOADOUT_SLUG, parseLoadoutSettings).value
-		.skills;
+	if (!loaded.ok) return withPackagePlaces({});
+	return withPackagePlaces(
+		getSection(loaded.config, LOADOUT_SLUG, parseLoadoutSettings).value.skills,
+	);
 }
 
 /** The package config section this extension reads. */

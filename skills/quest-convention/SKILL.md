@@ -1,14 +1,10 @@
 ---
 name: quest-convention
 description: >
-  Operational conventions for the quest system: when to use
-  a quest versus a subquest versus a sidequest, when to
-  draft a plan or research document, how to reorder
-  priorities, when to add optional sections, when to
-  conclude versus retire, the resuscitate pattern. Use
-  when driving the quest tool, deciding kind, promoting or
-  parking work, or organising a project as quests. Pairs
-  with quest-format for the on-disk shape.
+  When to use a quest, subquest or sidequest, draft a plan or
+  research, reorder, conclude or retire. Use when driving the
+  quest tool, choosing a kind, promoting or parking work, or
+  organising a project as quests.
 ---
 
 # Quest Convention

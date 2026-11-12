@@ -1,6 +1,10 @@
 ---
 name: google-workspace-guide
-description: Gmail, Calendar, Drive, Docs, Sheets and Slides through the `google` tool. Use when asked to "check email", "read inbox", "emails from [person]", "send email", "reply to", "what's on my schedule", "schedule meeting", "cancel meeting", "find in drive", "read doc", "open spreadsheet", "show slides", or anything about the person's Google account.
+description: >
+  Gmail, Calendar, Drive, Docs, Sheets and Slides through the
+  `google` tool. Use when asked about email, the schedule or a
+  meeting, a file in Drive, a doc, sheet or slides, or anything
+  in the person's Google account.
 ---
 
 # Google Workspace

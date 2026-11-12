@@ -1,12 +1,11 @@
 ---
 name: repo-quality-standard
 description: >
-  The quality bar for a whole repository: a note for every
-  folder, one gate, a short true guide, strictest lint, tests
-  at the cheapest level, no dead code. Use when setting up or
-  reviewing a repository or its AGENTS.md, adding a linter,
-  check, test level or folder, judging a sleep, suppression,
-  embedded script or long file, or cleaning up after merges.
+  The quality bar for a repository: a note for every folder, one
+  gate, a true guide, strictest lint, the cheapest tests, no
+  dead code. Use when setting up or reviewing a repository or
+  its AGENTS.md, or adding a linter, check, test level or
+  folder.
 ---
 
 # Repository Quality Standard

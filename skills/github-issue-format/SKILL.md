@@ -1,12 +1,9 @@
 ---
 name: github-issue-format
 description: >
-  Issue body structure and narrative. The closed three-section
-  body (Situation, Outcome, Acceptance), URI indexing and title
-  conventions. Use when writing or editing a GitHub issue.
-  Pairs with github-cli-convention for command syntax and
-  markdown-standard for markdown structure. Follow the person's
-  writing voice and prose style guides for issue text.
+  GitHub issue bodies: the three sections (Situation, Outcome,
+  Acceptance), URI indexing and titles. Use when writing or
+  editing a GitHub issue.
 ---
 
 # Issue Writing

@@ -1,14 +1,10 @@
 ---
 name: planning-guide
 description: >
-  The single planning skill: how to plan collaboratively and how
-  to structure the living plan document. Covers the staged plan
-  workflow (think, draft, build), debating before deciding, the
-  front-matter contract, the recommended sections, checkbox
-  progress and deviation. Use when planning, designing before
-  building, driving the plan tool, or writing a plan file. Works
-  for code, investigation, writing and ops plans alike. Follow
-  the person's prose standard for any text in the plan.
+  How to plan with the person and keep the living plan: the
+  think, draft and build stages, debating before deciding, its
+  sections and checkboxes. Use when planning, designing before
+  building, or writing a plan.
 ---
 
 # Planning

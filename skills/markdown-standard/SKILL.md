@@ -1,14 +1,10 @@
 ---
 name: markdown-standard
 description: >
-  Markdown structure rules: Title Case headings with their
-  exceptions, the line-width target and its legitimate
-  exceptions, reference-style links, fenced code blocks with
-  language tags, tables and lists. Use when writing or editing
-  any markdown file (README, AGENTS, docs, plans, skill files),
-  or when adding a heading, link, table or code block. Owns
-  markdown structure; pairs with prose-standard, which owns
-  voice, grammar, spelling and punctuation.
+  Markdown structure: Title Case headings, line width, reference
+  links, fenced code with a language, tables and lists. Use when
+  writing or editing any markdown file, or adding a heading,
+  link, table or code block.
 ---
 
 # Markdown Standard

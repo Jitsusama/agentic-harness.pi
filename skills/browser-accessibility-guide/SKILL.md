@@ -1,13 +1,11 @@
 ---
 name: browser-accessibility-guide
 description: >
-  Audit a web page for accessibility with browser_check and
-  browser_see, and report without overstating. Use when asked
-  "is this accessible", "check accessibility", "run an a11y
-  audit", "will a screen reader work", "can you use this with
-  a keyboard", "check the contrast", "is this WCAG
-  compliant", or when reviewing a change to markup, focus,
-  colour or interaction.
+  Audit a page's accessibility with the browser tools and report
+  without overstating. Use when asked whether a page is
+  accessible, works with a keyboard or a screen reader, has
+  enough contrast or meets WCAG, or when markup, focus or colour
+  changes.
 ---
 
 # Auditing a Page for Accessibility

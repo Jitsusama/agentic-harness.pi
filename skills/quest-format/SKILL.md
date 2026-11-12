@@ -1,14 +1,10 @@
 ---
 name: quest-format
 description: >
-  Structure of a quest README and the documents that live
-  under it: frontmatter shape, the four core and four
-  optional body sections, emoji, ID format,
-  alias notation, Cast bullets and Journey entries. Use
-  when writing or editing a quest README, a plan, research,
-  brief or report document under a quest. Pairs with
-  quest-convention for choices like kind, promotion and
-  reordering. Follow the prose-standard for voice.
+  The shape of a quest README and its documents: frontmatter,
+  sections, emoji, ids, aliases, Cast and Journey. Use when
+  writing or editing a quest README, or a plan, research, brief
+  or report under one.
 ---
 
 # Quest Format

@@ -1,10 +1,9 @@
 ---
 name: code-review-standard
 description: >
-  Evaluation criteria for code review: test quality,
-  implementation quality, naming, consistency, scope and PR
-  descriptions. Use when reviewing code or a pull request.
-  Pairs with comment-format for review comment structure.
+  What to judge in a code review: tests, implementation, naming,
+  consistency, scope and the PR description. Use when reviewing
+  code or a pull request.
 ---
 
 # Code Review Criteria

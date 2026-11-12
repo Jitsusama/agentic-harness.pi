@@ -13,8 +13,9 @@
  *
  * A key is a skill's name, or the start of names ending in `*`; its
  * folders are where a session must run for the skill to be listed.
- * The most specific key wins, and a skill no key names is listed
- * everywhere, as before. A skill left out can still be read by its
+ * The most specific key wins, a key with no folders lists its skills
+ * nowhere, and a skill no key names is listed everywhere, as before.
+ * The package names its review rounds' contracts so (PACKAGE_PLACES). A skill left out can still be read by its
  * path; only its line in the list goes.
  */
 
@@ -55,6 +56,25 @@ export function parseLoadoutSettings(
 		places[key] = folders;
 	}
 	return { ok: true, value: { skills: places } };
+}
+
+/**
+ * Where this package's own skills apply, before the person says.
+ *
+ * A review round's output contract is attached by path to the round's
+ * isolated pi, where this extension never runs, so it is listed there
+ * and needs listing nowhere else.
+ */
+const PACKAGE_PLACES: SkillPlaces = Object.fromEntries(
+	["audit", "council", "critique", "judge", "stack"].map((round) => [
+		`review-${round}-format`,
+		[],
+	]),
+);
+
+/** The person's places over the package's own, theirs winning. */
+export function withPackagePlaces(places: SkillPlaces): SkillPlaces {
+	return { ...PACKAGE_PLACES, ...places };
 }
 
 /** The skills to list for a session running in this folder. */

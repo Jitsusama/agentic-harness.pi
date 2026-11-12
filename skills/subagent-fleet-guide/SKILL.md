@@ -1,14 +1,10 @@
 ---
 name: subagent-fleet-guide
 description: >
-  Run N pi processes at once with the `subagent` tool:
-  persona sweeps of one artifact, one bug from several
-  angles, or N personas on one question, all on one model.
-  Use when asked to "examine from various angles", "get
-  multiple perspectives", "fan out across personas",
-  "parallel investigation", "brainstorm this several
-  ways", or for anything that gains from independent
-  passes.
+  Run several pi processes at once with the `subagent` tool, on
+  one model with a persona each. Use when asked for several
+  angles or perspectives, a fan-out or parallel investigation,
+  or anything that gains from independent passes.
 ---
 
 # Subagent Fleet Guide

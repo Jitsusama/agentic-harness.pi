@@ -1,12 +1,10 @@
 ---
 name: prose-standard
 description: >
-  Voice and style rules for all written output. Spelling
-  (Canadian English), punctuation, tone and sentence structure.
-  Use when writing or editing commit messages, PR descriptions,
-  issue bodies, review comments, code comments, markdown, skill
-  files, agent instructions or any other prose for people or
-  language models.
+  Voice and style for all written output: Canadian spelling,
+  punctuation, tone and sentences. Use when writing prose for
+  people or models: commits, PRs, issues, comments, markdown,
+  skills or instructions.
 ---
 
 # Writing Voice

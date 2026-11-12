@@ -55,9 +55,18 @@ session must run under for them to be listed:
 ```
 
 The most specific key wins, so `shopify-vault-guide` can be listed
-everywhere beside `shopify-*` listed in one place. A skill no key
-names is listed everywhere, as is every skill when the section is
-missing. The config is read when a session starts.
+everywhere beside `shopify-*` listed in one place. A key with no
+folders lists its skills nowhere, and a skill no key names is listed
+everywhere. The config is read when a session starts.
+
+The package lists five of its own skills nowhere, under the person's
+keys: `review-audit-format`, `review-council-format`,
+`review-critique-format`, `review-judge-format` and
+`review-stack-format`. They are a review round's output
+contracts, attached by path to the round's own isolated pi, where this
+extension doesn't run, so the round still lists its contract. Listed in
+every other session they cost about 2,300 characters a turn. A person's
+key for them wins over the package's.
 
 ## Making a Tool Load on Demand
 
