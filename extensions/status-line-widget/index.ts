@@ -30,6 +30,7 @@ import {
 	sessionText,
 } from "../../lib/internal/cost-meter/index.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import {
 	getPanelHeightGlyph,
 	getPanelHeightMode,
@@ -133,7 +134,7 @@ export default function statusLine(pi: ExtensionAPI) {
 	> | null = null;
 	const changed = async () => usage?.stale();
 	pi.on("message_end", changed);
-	pi.on("turn_end", changed);
+	onTurnEnd(pi, changed);
 	pi.on("agent_end", changed);
 	pi.on("tool_result", changed);
 	pi.on("session_compact", changed);

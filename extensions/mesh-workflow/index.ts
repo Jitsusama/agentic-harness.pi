@@ -114,6 +114,7 @@ import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { isWakersAsk, WAKERS_ASK } from "../../lib/internal/session/wakers.ts";
 import { onWants, showWants } from "../../lib/internal/session/wants.ts";
 import { writerHold } from "../../lib/internal/session/writer-hold.ts";
@@ -2016,7 +2017,7 @@ export function meshWorkflow(
 		// step while a run goes on, where pi appends it after the step's
 		// tool results, or with the start of the next run while idle. A
 		// pause asked for mid-run lands here too, the turn's tools done.
-		pi.on("turn_end", async () => {
+		onTurnEnd(pi, async () => {
 			leasing.stillAnswering();
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });

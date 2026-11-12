@@ -42,6 +42,7 @@ import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts"
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
 import { isParking, PARKING } from "../../lib/internal/session/park.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
 import { registerBuiltinPersonResolvers } from "../../lib/people/resolve.ts";
@@ -665,7 +666,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		};
 	});
 
-	pi.on("turn_end", async (_event, ctx) => {
+	onTurnEnd(pi, async (_event, ctx) => {
 		// Re-read the loaded quest's README so a title, status
 		// or priority edited in place (not through a verb that
 		// already updates state) is reflected in the status line

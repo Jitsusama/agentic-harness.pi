@@ -67,7 +67,8 @@ may import from here, and any of it may change without notice.
   whether a person drives it; the variables saying how a session's
   commands run, which every way back into it hands on; and the
   context's usage, worked out once per leaf however many extensions
-  ask.
+  ask; and the one listener every extension hears a turn's end
+  through, since pi rebuilds the whole context after each listener.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
   pi never forks itself to start one; what a bash call keeps of

@@ -135,7 +135,10 @@ describe("a peer's hand", () => {
 	it("has the subagents it starts work as the same peer's hands", async () => {
 		const { emitted } = await startHand();
 
-		expect(emitted).toEqual([
+		const registered = emitted.filter(
+			([channel]) => channel === SUBAGENT_REGISTER_DEFAULT_EXTENSION,
+		);
+		expect(registered, "the hand registers itself for subagents").toEqual([
 			[SUBAGENT_REGISTER_DEFAULT_EXTENSION, HAND_EXTENSION],
 		]);
 	});

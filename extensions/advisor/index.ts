@@ -51,6 +51,7 @@ import {
 	runRecordFrom,
 } from "../../lib/core/observability/recorder.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { entriesToTurns } from "../../lib/internal/transcript.ts";
 import { asText, renderToolCall } from "../../lib/ui/tool-call.ts";
 
@@ -222,7 +223,7 @@ export default function advisor(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.on("turn_end", async (_event, ctx: ExtensionContext) => {
+	onTurnEnd(pi, async (_event, ctx: ExtensionContext) => {
 		// Skip while a prior review is still in flight: single-flight
 		// reviews keep the shared context from being mutated by two
 		// runs at once. The skipped turn is picked up by the next

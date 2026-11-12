@@ -41,6 +41,7 @@ import { SUMMARY_CONTRIBUTIONS } from "../../lib/compaction/contributions.ts";
 import { SELECTION_HOLDS_ENTRY } from "../../lib/compaction/selection/holds.ts";
 import { answerCompactionStatus } from "../../lib/compaction/status.ts";
 import { leaveInParentLog } from "../../lib/internal/session/rollover.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { classifierStatus } from "./classifier.ts";
 import { excerptTokens, selectionContributor } from "./contribution.ts";
 import { selectionSection } from "./status.ts";
@@ -94,7 +95,7 @@ export default function compactionSelectionProvider(pi: ExtensionAPI) {
 		tagging.schedule(ctx);
 	});
 	pi.on("session_compact", async () => store.compacted());
-	pi.on("turn_end", async (_event, ctx) => {
+	onTurnEnd(pi, async (_event, ctx) => {
 		session = ctx;
 		tagging.schedule(ctx);
 	});
