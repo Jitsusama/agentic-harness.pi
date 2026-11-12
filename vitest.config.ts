@@ -91,6 +91,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/spawn.test.ts",
 	"tests/host/end-to-end/steer.test.ts",
 	"tests/host/end-to-end/subagents.test.ts",
+	"tests/host/end-to-end/subagent-key.test.ts",
 	"tests/host/end-to-end/attach-client.test.ts",
 	"tests/host/end-to-end/follow-install.test.ts",
 	"tests/host/end-to-end/screen-reload.test.ts",
