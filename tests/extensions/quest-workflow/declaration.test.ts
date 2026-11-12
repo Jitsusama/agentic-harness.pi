@@ -21,7 +21,7 @@ describe("the quest tool's declaration", () => {
 		).toBeLessThanOrEqual(MOST_DECLARED);
 	});
 
-	it("still tells the agent what a spawn and a forced release risk", () => {
+	it("says what a spawn, a forced release and a conclude risk", () => {
 		const said = (name: keyof typeof QUEST_PARAMETERS.properties) => {
 			const property: object = QUEST_PARAMETERS.properties[name];
 			return "description" in property ? String(property.description) : "";
@@ -30,5 +30,6 @@ describe("the quest tool's declaration", () => {
 		expect(said("command")).toContain("past every guard");
 		expect(said("force")).toContain("confirm with the person first");
 		expect(said("dryRun")).toContain("doing nothing");
+		expect(said("id")).toContain("trees pruned");
 	});
 });

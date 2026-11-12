@@ -140,7 +140,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	id: Type.Optional(
 		Type.String({
 			description:
-				"The quest or document, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document's id ends just that. locate: any quest, document, alias or session id. undo: reverses this session's newest change.",
+				"The quest or document, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it, trees pruned; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document's id ends just that. locate: any quest, document, alias or session id. undo: reverses this session's newest change.",
 		}),
 	),
 	url: Type.Optional(

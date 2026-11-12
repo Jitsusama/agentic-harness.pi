@@ -74,7 +74,7 @@ function sharedActionLists(toolFile: string): string[] {
  * typebox literals; others give a string enum a constant list (`[...] as const`), inline
  * or above the tool, a third of the characters a union of literals declares; quest keeps
  * a shared list in its own module and passes it to a string enum, so that list is read
- * too. Missing the second spelling made every real quest verb look
+ * too. Missing quest's spelling made every real quest verb look
  * invented, which is the failure mode a loose gate has: it does not go quiet, it goes off
  * constantly and gets deleted.
  */
@@ -90,6 +90,10 @@ export function registered(): Map<string, Set<string>> {
 			)) {
 				actions.add(act);
 			}
+			// Every constant list in the file, not only its actions: review_offer's
+			// labelMode ("add", "set") counts as its verbs too. That errs towards
+			// passing, the safe side; narrowing it to one list would miss work's,
+			// which sits above the tool rather than inside it.
 			for (const [, list = ""] of source.matchAll(
 				/\[([^\]]*)\]\s*as const/g,
 			)) {
