@@ -12,6 +12,7 @@ import {
 	type ReviewerRunPaths,
 	type ReviewerTerminalState,
 } from "../artifacts.ts";
+import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { ReviewerError } from "../reviewer-error.ts";
 import type { RunPi, RunPiResult } from "../subagent.ts";
@@ -201,13 +202,14 @@ export function createSupervisorStartPi(
 
 	return async function startPi(options) {
 		const { paths, runId, reviewerId } = await told(config, options, true);
+		const env = await supervisorEnvironment(config, options.env);
 
 		const supervisor = spawnFn(
 			where.nodeBinary,
 			[where.script, paths.requestPath],
 			{
 				cwd: options.cwd,
-				env: supervisorEnvironment(config, options.env),
+				env,
 				// Its own process group. A child in the session's group
 				// takes the session's signals, so the interrupt that ends a
 				// pi session would end the round with it, which is the
@@ -254,20 +256,23 @@ export function createSupervisorStartPi(
  * and what the session offers its commands, such as the loaded quest.
  * A subagent does its session's work, so the machine counts it for the
  * same quest. A runner that names a cache retention gives it in place of
- * the session's. The run's own variables go on top, on the supervisor
- * rather than in its request, since the reviewer takes the supervisor's
- * environment and a request on disk outlives the run that wrote it.
+ * the session's. What the process pinned for its children, such as a
+ * host's gateway key, goes over those. The run's own variables go on top,
+ * on the supervisor rather than in its request, since the reviewer takes
+ * the supervisor's environment and a request on disk outlives the run
+ * that wrote it.
  */
-function supervisorEnvironment(
+async function supervisorEnvironment(
 	config: SupervisorRunPiConfig,
 	given: Readonly<Record<string, string>> | undefined,
-): NodeJS.ProcessEnv {
+): Promise<NodeJS.ProcessEnv> {
 	return {
 		...process.env,
 		...offeredShellEnvironment(),
 		...(config.cacheRetention === undefined
 			? {}
 			: { PI_CACHE_RETENTION: config.cacheRetention }),
+		...(await pinnedChildEnvironment()),
 		...given,
 	};
 }
@@ -378,6 +383,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			runId: effectiveRunId,
 			reviewerId: effectiveReviewerId,
 		} = await told(config, options, false);
+		const env = await supervisorEnvironment(config, options.env);
 
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const supervisor = spawnFn(
@@ -385,7 +391,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				[supervisorPath, paths.requestPath],
 				{
 					cwd,
-					env: supervisorEnvironment(config, options.env),
+					env,
 					detached: false,
 					stdio: ["ignore", "pipe", "pipe"],
 				},

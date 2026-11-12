@@ -1,6 +1,8 @@
-/** The pi a hosted conversation's subagents run: the host's own install, pinned before any extension loads. */
+/** The pi a hosted conversation's subagents run, and the key they run on: the host's own, pinned before any extension loads. */
 import { realpathSync } from "node:fs";
+import { pinChildEnvironment } from "../../lib/subagent/child-env.ts";
 import type { PiInstall } from "../../lib/subagent/install.ts";
+import type { EngineKey } from "./contract.ts";
 import type { HostPi } from "./host-pi.ts";
 
 /**
@@ -34,4 +36,22 @@ export function hostedSubagentInstall(
  */
 export function pinSubagentInstall(install: PiInstall): void {
 	Reflect.set(globalThis, STARTUP_INSTALL_KEY, install);
+}
+
+/**
+ * Hand every conversation's subagents the host's current gateway key,
+ * under each of `names`, the variables the work provider reads it from.
+ * A terminal pi's children inherit the key its launcher exported; the
+ * host's own environment holds none, so without this a subagent refuses
+ * with "No API key found" before it answers. Each start asks the key
+ * afresh, so a child never starts on one the host has since renewed.
+ */
+export function pinSubagentKey(
+	key: Pick<EngineKey, "current">,
+	names: readonly string[],
+): void {
+	pinChildEnvironment(async () => {
+		const current = await key.current();
+		return Object.fromEntries(names.map((name) => [name, current]));
+	});
 }

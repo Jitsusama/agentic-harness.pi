@@ -152,6 +152,10 @@ companion skill.
   written before anything is spawned, so that window is
   the beginning of every run, and reading it as gone
   cancels a job another session dispatched moments ago.
+- `child-env.ts`: variables a process pins for every
+  subagent it starts, read afresh at each start. A host
+  pins its gateway key here, since its own environment
+  holds none for a child to inherit.
 - `runpi/`: the two runners that start pi as a child, and
   the supervisor process with the readers it shares with
   the parent:
