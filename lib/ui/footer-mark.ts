@@ -41,8 +41,10 @@ export const FOOTER_GLYPH = {
 	budget: "\u{f06a9}",
 	// A model call failed for a moment, and the session will ask again.
 	retrying: "\u21bb",
-	// Other sessions' news is kept off this screen (`/mesh quiet`).
-	quiet: "\u25cc",
+	// Other sessions' news is kept off this screen (`/mesh quiet`): the
+	// Nerd Font's bell turned off, since every geometric shape is some
+	// family's already.
+	quiet: "\u{f009b}",
 } as const;
 
 /** What a footer mark is called. */

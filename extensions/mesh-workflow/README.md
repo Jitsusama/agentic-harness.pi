@@ -374,7 +374,7 @@ cards, a line each on its screen, and the person talking to it
 reads his own conversation between them. `/mesh quiet` (or
 `/mesh quiet on`, `/mesh quiet off`) keeps a delivery off the
 screen when it started no turn and holds only fyis and findings,
-and the footer's mark, ◌, counts what it kept off. The session's own
+and the footer's mark, a bell turned off, counts what it kept off. The session's own
 mesh_send calls leave the screen too, drawing no line at all; ctrl+o,
 which opens tool output, opens both. A question, a hold, a
 pivot, an answer to this peer (even while a pause holds its turn)

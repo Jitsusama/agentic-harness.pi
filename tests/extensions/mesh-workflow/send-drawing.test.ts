@@ -34,6 +34,7 @@ function row(expanded = false): SendContext {
 		expanded,
 		isError: false,
 		outputPad: 1,
+		lastComponent: undefined,
 	};
 }
 
@@ -78,6 +79,16 @@ describe("a mesh_send row", () => {
 		expect(call.render(WIDTH)).not.toEqual([]);
 		quiet = true;
 		expect(call.render(WIDTH)).toEqual([]);
+	});
+
+	it("draws again into the row pi kept, so no old drawing is left beside it", () => {
+		const drawing = sendDrawing(() => false);
+		const first = drawing.renderCall(args, theme, row());
+		const kept = { ...row(), lastComponent: first };
+		const later = { ...args, text: "merged #1374" };
+		const again = drawing.renderCall(later, theme, kept);
+		expect(again).toBe(first);
+		expect(first.render(WIDTH).join("\n")).toContain("merged #1374");
 	});
 
 	it("keeps the frame open below a call still waiting for its answer", () => {

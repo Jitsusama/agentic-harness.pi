@@ -35,6 +35,14 @@ export interface SendContext {
 	readonly isPartial: boolean;
 	readonly isError: boolean;
 	readonly outputPad: number;
+	/** What this slot drew last time, handed back to be drawn again. */
+	readonly lastComponent: Component | undefined;
+}
+
+/** What a slot's component draws, replaced each time pi asks again. */
+interface Slot {
+	render: (width: number) => string[];
+	boxes: readonly Box[];
 }
 
 /** The call's arguments shown collapsed, past which they are cut. */
@@ -65,6 +73,32 @@ export function sendDrawing(quiet: () => boolean): SendDrawing {
 		(context: SendContext, draw: (width: number) => string[]) =>
 		(width: number): string[] =>
 			quiet() && !context.expanded ? [] : draw(width);
+	const slots = new WeakMap<Component, Slot>();
+	/**
+	 * The slot's component, the one pi kept when it is ours, so a row drawn
+	 * again stays one row rather than leaving its old drawing beside it.
+	 */
+	const drawn = (
+		lastComponent: Component | undefined,
+		render: (width: number) => string[],
+		boxes: readonly Box[],
+	): Component => {
+		const kept = lastComponent && slots.get(lastComponent);
+		if (lastComponent && kept) {
+			kept.render = render;
+			kept.boxes = boxes;
+			return lastComponent;
+		}
+		const slot: Slot = { render, boxes };
+		const component: Component = {
+			render: (width) => slot.render(width),
+			invalidate: () => {
+				for (const box of slot.boxes) box.invalidate();
+			},
+		};
+		slots.set(component, slot);
+		return component;
+	};
 	return {
 		renderShell: "self",
 		renderCall(args, theme, context) {
@@ -75,6 +109,7 @@ export function sendDrawing(quiet: () => boolean): SendDrawing {
 			const foot = new Box(context.outputPad, 0, bg);
 			foot.addChild(new Spacer(1));
 			return drawn(
+				context.lastComponent,
 				shown(context, (width) =>
 					context.state.result
 						? head.render(width)
@@ -90,22 +125,10 @@ export function sendDrawing(quiet: () => boolean): SendDrawing {
 			if (text !== "") body.addChild(new Text(text, 0, 0));
 			body.addChild(new Spacer(1));
 			return drawn(
+				context.lastComponent,
 				shown(context, (width) => body.render(width)),
 				[body],
 			);
-		},
-	};
-}
-
-/** A component drawing by `render`, its boxes' caches cleared together. */
-function drawn(
-	render: (width: number) => string[],
-	boxes: readonly Box[],
-): Component {
-	return {
-		render,
-		invalidate: () => {
-			for (const box of boxes) box.invalidate();
 		},
 	};
 }
