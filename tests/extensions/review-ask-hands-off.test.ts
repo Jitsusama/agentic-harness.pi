@@ -15,7 +15,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerAskTool } from "../../extensions/review-integration/tools/ask.ts";
+import { registerAskTool } from "../../extensions/review-integration/tools/ask-tool.ts";
 import {
 	announceJobHost,
 	type JobOutcome,

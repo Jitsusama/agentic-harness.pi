@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Answer } from "../../extensions/review-integration/tools/shared.ts";
-import { renderAnswer } from "../../extensions/review-integration/tools/shared.ts";
+import { renderAnswer } from "../../extensions/review-integration/tools/view.ts";
 import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 /** `count` numbered lines. */

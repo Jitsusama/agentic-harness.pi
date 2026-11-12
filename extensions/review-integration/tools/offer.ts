@@ -13,11 +13,16 @@
  * answer is no, the refusal carries what to do instead, because a
  * caller told only that something is unsupported has to go and read a
  * CLI's help to find the door that is open.
+ *
+ * What a call does, loaded on its first call; the registration is
+ * `offer-tool.ts`.
  */
 
-import { StringEnum } from "@earendil-works/pi-ai";
-import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type {
+	EventBus,
+	ExtensionAPI,
+	ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import type {
 	AuthoringIntent,
@@ -78,9 +83,7 @@ import {
 import {
 	revised,
 	type SectionFields,
-	sectionParameters,
 	sectionsOf,
-	stackSections,
 	withNote,
 } from "./sections.ts";
 import {
@@ -92,8 +95,6 @@ import {
 	messageOf,
 	refuse,
 	refuseFailure,
-	renderAnswer,
-	renderInvocation,
 	say,
 } from "./shared.ts";
 
@@ -279,528 +280,349 @@ function intentFor(params: OfferParams): AuthoringIntent["kind"] {
 	return movesBase ? "retarget" : "edit";
 }
 
-/** Register the `review_offer` tool. */
-export function registerOfferTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "review_offer",
-		label: "Review Offer",
-		description:
-			"Put work up for review and move it along: propose a change from a branch, edit it, mark it ready or draft, ask reviewers, close, reopen and merge it. Reading a change is review_see. This is how a pull request is opened on any host, also when asked to cut, raise or submit one: `gh pr create` reaches GitHub only, and elsewhere opens a change on a mirror nothing reads.",
-		promptSnippet:
-			"Put work up for review: propose, edit, ready, draft, reviewers, close, reopen, merge.",
-		promptGuidelines: [
-			"Say whether a new change is a draft. It is required, because the backends disagree about what silence means and the same call otherwise produces a live change on one and an invisible one on the other.",
-			"Proposing takes the head, base, title and body from the checkout when you do not name them, and the gate names everything it took. Read that line back rather than approving past it.",
-			"When an action is refused, pass on what it says to do instead rather than reporting a generic failure. The refusal names the door that is open.",
-			"Never retarget, ready or draft a change that is queued to merge without saying what that costs: on a queue-backed backend it ejects the change and everything batched with it.",
-		],
-		parameters: Type.Object({
-			// An enum rather than a union of literals: the same choices, said in
-			// a third of the characters every session sends every turn.
-			action: StringEnum(
-				[
-					"propose",
-					"propose-stack",
-					"edit",
-					"ready",
-					"unready",
-					"close",
-					"reopen",
-					"merge",
-					"reviewers",
-					"rerun",
-					"retarget-stack",
-				] as const,
-				{
-					description:
-						"What to do. propose: put a branch up as a change; propose-stack: several, each on the one before. edit: its title, body or base. ready, or unready back to a draft. reviewers: ask people to look. close, reopen, merge. rerun: CI again. retarget-stack: after a local restack, point each change at the branch it now sits on.",
-				},
-			),
-			change: Type.Optional(
-				Type.String({
-					description: "The hosted change. Omit to act on the attached change.",
-				}),
-			),
-			repo: Type.Optional(
-				Type.String({
-					description:
-						"Checkout path, for propose; for merge, where the repo's merge gate runs.",
-				}),
-			),
-			base: Type.Optional(
-				Type.String({
-					description:
-						"For propose: what it merges into, defaulting to the repo's trunk. For edit: retarget.",
-				}),
-			),
-			head: Type.Optional(
-				Type.String({
-					description:
-						"For propose: the branch holding the work, defaulting to the one checked out.",
-				}),
-			),
-			heads: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"For propose-stack: the branches in dependency order, root first. Each is proposed onto the one before it, the first onto base.",
-				}),
-			),
-			bodies: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"For propose-stack: one body per branch, in the order of heads, when not given as sections. Give one for every branch, or none.",
-				}),
-			),
-			sections: Type.Optional(
-				Type.Array(Type.Object(stackSections()), {
-					description:
-						"For propose-stack: each branch's four sections, in the order of heads, held to the same contract as propose's. Preferred over bodies.",
-				}),
-			),
-			title: Type.Optional(
-				Type.String({
-					description:
-						"For propose and edit: the title. On propose it defaults to the last commit's subject.",
-				}),
-			),
-			...sectionParameters(),
-			body: Type.Optional(
-				Type.String({
-					description:
-						"For propose and edit: the whole description, when not given as the four sections, which are preferred. Held to the same format.",
-				}),
-			),
-			draft: Type.Optional(
-				Type.Boolean({
-					description:
-						"For propose: whether it opens as a draft. Required for propose, since the backends default opposite ways.",
-				}),
-			),
-			comment: Type.Optional(
-				Type.String({ description: "For close: why, said on the change." }),
-			),
-			which: Type.Optional(
-				Type.String({
-					description:
-						"For rerun: one pipeline, as the backend names it. Omit to rerun everything on the head commit.",
-				}),
-			),
-			method: Type.Optional(
-				Type.String({
-					description:
-						"For merge: the strategy, in the provider's vocabulary. Omit to let the repo's own policy decide.",
-				}),
-			),
-			expectedHead: Type.Optional(
-				Type.String({
-					description:
-						"For merge: refuse unless the head is still this commit. The only guard against merging work nobody saw.",
-				}),
-			),
-			person: Type.Optional(
-				Type.String({
-					description:
-						"For merge: what the change means to the session's person, in one line, kept in the landing their launcher shows, e.g. what to try. Say it only where a check supports it.",
-				}),
-			),
-			reviewers: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "For reviewers: who to ask.",
-				}),
-			),
-			labels: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"For propose and edit: labels to add; an edit keeps the others unless labelMode is set.",
-				}),
-			),
-			labelMode: Type.Optional(
-				StringEnum(["add", "set"] as const, {
-					description:
-						"For edit: add (the default), or set to replace the labels already there.",
-				}),
-			),
-			unlabels: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "For edit: labels to take off the change.",
-				}),
-			),
-			assignees: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"For propose and edit: who to assign, as the backend names people (logins on GitHub, emails on some). Added, like labels.",
-				}),
-			),
-			unassignees: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "For edit: who to unassign.",
-				}),
-			),
-			clear: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"For edit: fields to empty, e.g. body, labels, assignees.",
-				}),
-			),
-		}),
-
-		renderCall(args, theme, context) {
-			const params = args as { action?: string; change?: string };
-			return renderInvocation(
-				theme,
-				"review_offer",
-				params.action,
-				params.change,
-				context?.lastComponent,
+/** Do what a `review_offer` call asks, once the tool is first called. */
+export async function runOffer(
+	pi: ExtensionAPI,
+	params: OfferParams,
+	ctx: ExtensionToolContext,
+): Promise<Answer> {
+	// Held outside the try so a failure can say which provider was
+	// asked. Most of what fails here fails against a backend, and the
+	// backend's own message is about its own request.
+	let bound: BoundTarget | undefined;
+	try {
+		// Before the bind, because none of it needs a provider and a
+		// refusal should leave nothing behind. Binding remembers what it
+		// resolved for the rest of the session, so a call that was never
+		// going to be sent has no business recording a decision, and a
+		// convention refusal now costs no backend round trip either.
+		//
+		// The four sections become the body here, so everything after
+		// this sees one description however it arrived. An edit naming
+		// only some sections has to read the change first, so its body is
+		// checked once the change is known.
+		let revising: SectionFields | undefined;
+		let deferredBody = false;
+		if (params.action === "propose") params = resubmitted(params);
+		if (params.title !== undefined) {
+			params = { ...params, title: inTitleCase(params.title) };
+		}
+		if (params.action === "propose" || params.action === "edit") {
+			const sections = sectionsOf(params.action, params);
+			if (sections.kind === "refuse") return refuse(sections.reason);
+			const asSections =
+				sections.kind === "body" ? sectionsGiven(params) : undefined;
+			if (sections.kind === "body") params = { ...params, body: sections.body };
+			if (sections.kind === "revise") revising = sections.fields;
+			// A body that goes deeper is held to the room its change's size
+			// gives it. A proposal's size is the checkout's, read here; an
+			// edit's is the backend's, so its body waits for the change.
+			const deep =
+				params.body !== undefined && usesDepth(params.body, PR_SHAPE);
+			deferredBody = deep && params.action === "edit";
+			const size =
+				deep && params.action === "propose"
+					? await proposalSize(params, sessionCwd(ctx))
+					: undefined;
+			const complaint = proposalComplaint(
+				params.title,
+				deferredBody ? undefined : params.body,
+				size,
 			);
-		},
-
-		renderResult(result, options, theme, context) {
-			return renderAnswer(result, theme, options, context?.lastComponent);
-		},
-
-		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			// Held outside the try so a failure can say which provider was
-			// asked. Most of what fails here fails against a backend, and the
-			// backend's own message is about its own request.
-			let bound: BoundTarget | undefined;
-			try {
-				// Before the bind, because none of it needs a provider and a
-				// refusal should leave nothing behind. Binding remembers what it
-				// resolved for the rest of the session, so a call that was never
-				// going to be sent has no business recording a decision, and a
-				// convention refusal now costs no backend round trip either.
-				//
-				// The four sections become the body here, so everything after
-				// this sees one description however it arrived. An edit naming
-				// only some sections has to read the change first, so its body is
-				// checked once the change is known.
-				let revising: SectionFields | undefined;
-				let deferredBody = false;
-				if (params.action === "propose") params = resubmitted(params);
-				if (params.title !== undefined) {
-					params = { ...params, title: inTitleCase(params.title) };
-				}
-				if (params.action === "propose" || params.action === "edit") {
-					const sections = sectionsOf(params.action, params);
-					if (sections.kind === "refuse") return refuse(sections.reason);
-					const asSections =
-						sections.kind === "body" ? sectionsGiven(params) : undefined;
-					if (sections.kind === "body")
-						params = { ...params, body: sections.body };
-					if (sections.kind === "revise") revising = sections.fields;
-					// A body that goes deeper is held to the room its change's size
-					// gives it. A proposal's size is the checkout's, read here; an
-					// edit's is the backend's, so its body waits for the change.
-					const deep =
-						params.body !== undefined && usesDepth(params.body, PR_SHAPE);
-					deferredBody = deep && params.action === "edit";
-					const size =
-						deep && params.action === "propose"
-							? await proposalSize(params, sessionCwd(ctx))
-							: undefined;
-					const complaint = proposalComplaint(
+			if (complaint) {
+				const said = sayRefusal(complaint, params.title, params.body);
+				// A refused proposal's sections are kept, so its resubmission
+				// need send only what changes.
+				if (params.action === "propose" && asSections !== undefined) {
+					keepRefusedDraft(
+						draftKey(params.repo, params.head),
 						params.title,
-						deferredBody ? undefined : params.body,
-						size,
+						asSections,
 					);
-					if (complaint) {
-						const said = sayRefusal(complaint, params.title, params.body);
-						// A refused proposal's sections are kept, so its resubmission
-						// need send only what changes.
-						if (params.action === "propose" && asSections !== undefined) {
-							keepRefusedDraft(
-								draftKey(params.repo, params.head),
-								params.title,
-								asSections,
-							);
-							return refuse(`${said}\n\n${RESUBMIT_ONLY_CHANGES}`);
-						}
-						return refuse(said);
-					}
+					return refuse(`${said}\n\n${RESUBMIT_ONLY_CHANGES}`);
 				}
-
-				bound = await boundFor(
-					pi,
-					params.action === "propose"
-						? await withCheckoutEnds(params, sessionCwd(ctx))
-						: params,
-					sessionCwd(ctx),
-				);
-				const authoring = bound.provider.authoring;
-
-				// Proposing takes its repo from the checkout whenever the call
-				// names a base and a head, since `boundFor` prefers that over the
-				// attachment, and from the attachment only when it names neither.
-				// The checkout winning is right: the branch being proposed exists
-				// only in the repo it was committed in.
-				//
-				// This is why the attachment path needs the refusal below.
-				// Reading a change on one backend and then proposing from a
-				// checkout of another would offer the local branch to the attached
-				// repo, and nothing said so: the gate named a head and a base and
-				// never a repo, so the only clue was a base branch that looked
-				// ordinary.
-				//
-				// Note what the checkout resolves to now. `fromLocal` mints a
-				// `local:` key for the target and hands the probe to every
-				// provider, so a provider that claims the checkout answers with
-				// its own hosted key and that is what gets bound. It used to be
-				// read back as the `local:` key on every call after the first,
-				// which is what sent a hosted repo to plain git and lost the
-				// authoring facet with it.
-				//
-				// Refused rather than quietly corrected, since the right answer
-				// is not available here to substitute.
-				if (params.action === "propose" || params.action === "propose-stack") {
-					const elsewhere = await proposingElsewhere(
-						REVIEW_COMMANDS,
-						params.repo ?? sessionCwd(ctx),
-						bound,
-					);
-					if (elsewhere) return refuse(elsewhere);
-				}
-
-				// Where the change stands with a merge queue, read from the
-				// provider rather than taken on the caller's word. This is the
-				// line that was missing: the refusal below has always been able
-				// to fire on a queued change, and nothing ever told it one was.
-				const intent = intentFor(params);
-
-				const queue =
-					ASKS_THE_QUEUE.has(params.action) &&
-					bound.capabilities.authoring?.refusesWhileEnqueued &&
-					bound.target.kind === "change"
-						? (await bound.provider.changes?.fetch(bound.target.change))?.queue
-						: undefined;
-
-				// Asked before anything is sent, and asked of this repo
-				// rather than of the provider in general, since a provider
-				// can be able to do something everywhere but here.
-				const allowed = offerable(
-					{
-						kind: intent,
-						...(params.action === "propose" && params.reviewers?.length
-							? { withReviewers: true }
-							: {}),
-						...(queue ? { queue } : {}),
-					},
-					bound.capabilities.authoring,
-					bound.provider.id,
-				);
-				if (!allowed.ok) {
-					return refuse(
-						allowed.instead
-							? `${allowed.reason}\n\n${allowed.instead}`
-							: allowed.reason,
-					);
-				}
-
-				// Permitted, but with something the approver needs to know: a
-				// backend that has a merge queue and could not say where this
-				// change sits in it. Carried to the gate rather than logged,
-				// because the gate is the only place a person is looking.
-				const caution = allowed.caution;
-				if (!authoring) {
-					return refuse(
-						`The ${bound.provider.id} provider says it can author changes but exposes no way to, which is a bug in that provider rather than in what you asked.`,
-					);
-				}
-
-				// The title and body were checked before the bind: whatever text
-				// is about to become a proposal is held to the same conventions
-				// the guardian enforces on `gh pr create`, or authoring through a
-				// tool is a way around every rule the shell path cannot be talked
-				// past.
-				//
-				// Named people are held to the form this backend names people
-				// in, here rather than in each action, since assignees and
-				// reviewers reach three of them. Before anything is sent: a
-				// backend that refuses an assignee refuses it on the request
-				// that creates the change, so finding out later means finding
-				// out with the change already up.
-				const misnamed = peopleComplaint(bound, params);
-				if (misnamed) return refuse(misnamed);
-				// A stack's titles come from commit subjects rather than from
-				// the caller, and those are already held to the standard by the
-				// commit guardian, so there is nothing here to check ahead of
-				// the gate that shows them.
-
-				if (params.action === "propose") {
-					return propose(ctx, bound, authoring, params);
-				}
-
-				if (params.action === "propose-stack") {
-					return proposeStack(ctx, bound, authoring, params);
-				}
-
-				const change = hostedChange(bound);
-				if (!change) {
-					return refuse(
-						"Nothing hosts this target, so there is no change to act on. Propose it first.",
-					);
-				}
-
-				switch (params.action) {
-					case "edit": {
-						if (revising === undefined && !deferredBody) {
-							return edit(ctx, change, authoring, params, caution);
-						}
-						const current = await bound.provider.changes?.fetch(change);
-						if (revising === undefined) {
-							const size =
-								current === undefined
-									? {
-											unknown: `the ${bound.provider.id} provider cannot read this change`,
-										}
-									: await hostedSize(
-											current,
-											bound.provider.id,
-											bound.provider.changes,
-										);
-							const complaint = proposalComplaint(undefined, params.body, size);
-							if (complaint) {
-								return refuse(sayRefusal(complaint, undefined, params.body));
-							}
-							return edit(ctx, change, authoring, params, caution);
-						}
-						if (current === undefined) {
-							return refuse(
-								`The ${bound.provider.id} provider cannot read this change's description, so there is nothing to keep the other sections from. Give all four sections to replace it.`,
-							);
-						}
-						const next = revised(current.body, revising);
-						if ("refusal" in next) return refuse(next.refusal);
-						const complaint = proposalComplaint(
-							undefined,
-							next.body,
-							usesDepth(next.body, PR_SHAPE)
-								? await hostedSize(
-										current,
-										bound.provider.id,
-										bound.provider.changes,
-									)
-								: undefined,
-						);
-						if (complaint) {
-							return refuse(sayRefusal(complaint, undefined, next.body));
-						}
-						return edit(
-							ctx,
-							change,
-							authoring,
-							{ ...params, body: next.body },
-							caution,
-						);
-					}
-					case "ready":
-					case "unready": {
-						const wanted = params.action === "unready";
-						const decision = await confirmWrite(
-							ctx,
-							`Move ${change.label} to ${wanted ? "Draft" : "Ready"}`,
-							cautioned(`${GLYPH.target} ${change.label}`, caution),
-						);
-						if (!decision.approved)
-							return declined(decision, "Left as it was.");
-						if (authoring.setDraft === undefined) {
-							return refuse(
-								missingMethod(
-									bound.provider.id,
-									"move a change between draft and ready",
-								),
-							);
-						}
-						await authoring.setDraft(change, wanted);
-						return say(
-							`${GLYPH.lands} ${change.label} is now ${wanted ? "a draft" : "ready for review"}.`,
-						);
-					}
-					case "close": {
-						const decision = await confirmWrite(
-							ctx,
-							`Close ${change.label}`,
-							closePanel({
-								label: change.label,
-								...(params.comment ? { comment: params.comment } : {}),
-							}),
-						);
-						if (!decision.approved) return declined(decision, "Left open.");
-						await authoring.close(
-							change,
-							...(params.comment === undefined ? [] : [params.comment]),
-						);
-						await sayChangeClosed(pi.events, bound);
-						return say(`${GLYPH.lands} ${change.label} closed.`);
-					}
-					case "reopen": {
-						const decision = await confirmWrite(
-							ctx,
-							`Reopen ${change.label}`,
-							`${GLYPH.target} ${change.label}`,
-						);
-						if (!decision.approved) return declined(decision, "Left closed.");
-						if (authoring.reopen === undefined) {
-							return refuse(
-								missingMethod(bound.provider.id, "reopen a closed change"),
-							);
-						}
-						await authoring.reopen(change);
-						return say(`${GLYPH.lands} ${change.label} reopened.`);
-					}
-					case "rerun": {
-						const decision = await confirmWrite(
-							ctx,
-							`Run CI Again on ${change.label}`,
-							[
-								`${GLYPH.target} ${change.label}`,
-								params.which
-									? `\nJust ${params.which}.`
-									: "\nEverything on its head commit, which on a large repo is not free.",
-							].join("\n"),
-						);
-						if (!decision.approved) return declined(decision, "Left alone.");
-						if (authoring.rerun === undefined) {
-							return refuse(
-								missingMethod(bound.provider.id, "ask CI to run again"),
-							);
-						}
-						const outcome = await authoring.rerun(
-							change,
-							...(params.which === undefined ? [] : [params.which]),
-						);
-						// Declined is reported as plainly as started. A backend that
-						// understood and said no is not a failure, and narrating it
-						// as success is how somebody ends up waiting on a build that
-						// was never queued.
-						return outcome.kind === "started"
-							? say(
-									`${GLYPH.queued} CI asked to run again on ${change.label}${outcome.which ? `, ${outcome.which} only` : ""}. Results arrive later; read them with review_see checks.`,
-								)
-							: refuse(
-									`${bound.provider.id} declined to rerun CI on ${change.label}: ${outcome.reason}.`,
-								);
-					}
-					case "retarget-stack":
-						return retargetStack(ctx, bound, change, authoring);
-					case "merge":
-						return merge(ctx, bound, change, authoring, params, pi.events, {
-							review: await reviewSection(),
-							cwd: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
-							run: (line, cwd) =>
-								pi.exec("bash", ["-c", line], {
-									cwd,
-									timeout: GATE_TIMEOUT_MS,
-								}),
-						});
-					case "reviewers":
-						return reviewers(ctx, change, authoring, params);
-				}
-			} catch (error) {
-				return refuseFailure(error, bound);
+				return refuse(said);
 			}
-		},
-	});
+		}
+
+		bound = await boundFor(
+			pi,
+			params.action === "propose"
+				? await withCheckoutEnds(params, sessionCwd(ctx))
+				: params,
+			sessionCwd(ctx),
+		);
+		const authoring = bound.provider.authoring;
+
+		// Proposing takes its repo from the checkout whenever the call
+		// names a base and a head, since `boundFor` prefers that over the
+		// attachment, and from the attachment only when it names neither.
+		// The checkout winning is right: the branch being proposed exists
+		// only in the repo it was committed in.
+		//
+		// This is why the attachment path needs the refusal below.
+		// Reading a change on one backend and then proposing from a
+		// checkout of another would offer the local branch to the attached
+		// repo, and nothing said so: the gate named a head and a base and
+		// never a repo, so the only clue was a base branch that looked
+		// ordinary.
+		//
+		// Note what the checkout resolves to now. `fromLocal` mints a
+		// `local:` key for the target and hands the probe to every
+		// provider, so a provider that claims the checkout answers with
+		// its own hosted key and that is what gets bound. It used to be
+		// read back as the `local:` key on every call after the first,
+		// which is what sent a hosted repo to plain git and lost the
+		// authoring facet with it.
+		//
+		// Refused rather than quietly corrected, since the right answer
+		// is not available here to substitute.
+		if (params.action === "propose" || params.action === "propose-stack") {
+			const elsewhere = await proposingElsewhere(
+				REVIEW_COMMANDS,
+				params.repo ?? sessionCwd(ctx),
+				bound,
+			);
+			if (elsewhere) return refuse(elsewhere);
+		}
+
+		// Where the change stands with a merge queue, read from the
+		// provider rather than taken on the caller's word. This is the
+		// line that was missing: the refusal below has always been able
+		// to fire on a queued change, and nothing ever told it one was.
+		const intent = intentFor(params);
+
+		const queue =
+			ASKS_THE_QUEUE.has(params.action) &&
+			bound.capabilities.authoring?.refusesWhileEnqueued &&
+			bound.target.kind === "change"
+				? (await bound.provider.changes?.fetch(bound.target.change))?.queue
+				: undefined;
+
+		// Asked before anything is sent, and asked of this repo
+		// rather than of the provider in general, since a provider
+		// can be able to do something everywhere but here.
+		const allowed = offerable(
+			{
+				kind: intent,
+				...(params.action === "propose" && params.reviewers?.length
+					? { withReviewers: true }
+					: {}),
+				...(queue ? { queue } : {}),
+			},
+			bound.capabilities.authoring,
+			bound.provider.id,
+		);
+		if (!allowed.ok) {
+			return refuse(
+				allowed.instead
+					? `${allowed.reason}\n\n${allowed.instead}`
+					: allowed.reason,
+			);
+		}
+
+		// Permitted, but with something the approver needs to know: a
+		// backend that has a merge queue and could not say where this
+		// change sits in it. Carried to the gate rather than logged,
+		// because the gate is the only place a person is looking.
+		const caution = allowed.caution;
+		if (!authoring) {
+			return refuse(
+				`The ${bound.provider.id} provider says it can author changes but exposes no way to, which is a bug in that provider rather than in what you asked.`,
+			);
+		}
+
+		// The title and body were checked before the bind: whatever text
+		// is about to become a proposal is held to the same conventions
+		// the guardian enforces on `gh pr create`, or authoring through a
+		// tool is a way around every rule the shell path cannot be talked
+		// past.
+		//
+		// Named people are held to the form this backend names people
+		// in, here rather than in each action, since assignees and
+		// reviewers reach three of them. Before anything is sent: a
+		// backend that refuses an assignee refuses it on the request
+		// that creates the change, so finding out later means finding
+		// out with the change already up.
+		const misnamed = peopleComplaint(bound, params);
+		if (misnamed) return refuse(misnamed);
+		// A stack's titles come from commit subjects rather than from
+		// the caller, and those are already held to the standard by the
+		// commit guardian, so there is nothing here to check ahead of
+		// the gate that shows them.
+
+		if (params.action === "propose") {
+			return propose(ctx, bound, authoring, params);
+		}
+
+		if (params.action === "propose-stack") {
+			return proposeStack(ctx, bound, authoring, params);
+		}
+
+		const change = hostedChange(bound);
+		if (!change) {
+			return refuse(
+				"Nothing hosts this target, so there is no change to act on. Propose it first.",
+			);
+		}
+
+		switch (params.action) {
+			case "edit": {
+				if (revising === undefined && !deferredBody) {
+					return edit(ctx, change, authoring, params, caution);
+				}
+				const current = await bound.provider.changes?.fetch(change);
+				if (revising === undefined) {
+					const size =
+						current === undefined
+							? {
+									unknown: `the ${bound.provider.id} provider cannot read this change`,
+								}
+							: await hostedSize(
+									current,
+									bound.provider.id,
+									bound.provider.changes,
+								);
+					const complaint = proposalComplaint(undefined, params.body, size);
+					if (complaint) {
+						return refuse(sayRefusal(complaint, undefined, params.body));
+					}
+					return edit(ctx, change, authoring, params, caution);
+				}
+				if (current === undefined) {
+					return refuse(
+						`The ${bound.provider.id} provider cannot read this change's description, so there is nothing to keep the other sections from. Give all four sections to replace it.`,
+					);
+				}
+				const next = revised(current.body, revising);
+				if ("refusal" in next) return refuse(next.refusal);
+				const complaint = proposalComplaint(
+					undefined,
+					next.body,
+					usesDepth(next.body, PR_SHAPE)
+						? await hostedSize(
+								current,
+								bound.provider.id,
+								bound.provider.changes,
+							)
+						: undefined,
+				);
+				if (complaint) {
+					return refuse(sayRefusal(complaint, undefined, next.body));
+				}
+				return edit(
+					ctx,
+					change,
+					authoring,
+					{ ...params, body: next.body },
+					caution,
+				);
+			}
+			case "ready":
+			case "unready": {
+				const wanted = params.action === "unready";
+				const decision = await confirmWrite(
+					ctx,
+					`Move ${change.label} to ${wanted ? "Draft" : "Ready"}`,
+					cautioned(`${GLYPH.target} ${change.label}`, caution),
+				);
+				if (!decision.approved) return declined(decision, "Left as it was.");
+				if (authoring.setDraft === undefined) {
+					return refuse(
+						missingMethod(
+							bound.provider.id,
+							"move a change between draft and ready",
+						),
+					);
+				}
+				await authoring.setDraft(change, wanted);
+				return say(
+					`${GLYPH.lands} ${change.label} is now ${wanted ? "a draft" : "ready for review"}.`,
+				);
+			}
+			case "close": {
+				const decision = await confirmWrite(
+					ctx,
+					`Close ${change.label}`,
+					closePanel({
+						label: change.label,
+						...(params.comment ? { comment: params.comment } : {}),
+					}),
+				);
+				if (!decision.approved) return declined(decision, "Left open.");
+				await authoring.close(
+					change,
+					...(params.comment === undefined ? [] : [params.comment]),
+				);
+				await sayChangeClosed(pi.events, bound);
+				return say(`${GLYPH.lands} ${change.label} closed.`);
+			}
+			case "reopen": {
+				const decision = await confirmWrite(
+					ctx,
+					`Reopen ${change.label}`,
+					`${GLYPH.target} ${change.label}`,
+				);
+				if (!decision.approved) return declined(decision, "Left closed.");
+				if (authoring.reopen === undefined) {
+					return refuse(
+						missingMethod(bound.provider.id, "reopen a closed change"),
+					);
+				}
+				await authoring.reopen(change);
+				return say(`${GLYPH.lands} ${change.label} reopened.`);
+			}
+			case "rerun": {
+				const decision = await confirmWrite(
+					ctx,
+					`Run CI Again on ${change.label}`,
+					[
+						`${GLYPH.target} ${change.label}`,
+						params.which
+							? `\nJust ${params.which}.`
+							: "\nEverything on its head commit, which on a large repo is not free.",
+					].join("\n"),
+				);
+				if (!decision.approved) return declined(decision, "Left alone.");
+				if (authoring.rerun === undefined) {
+					return refuse(
+						missingMethod(bound.provider.id, "ask CI to run again"),
+					);
+				}
+				const outcome = await authoring.rerun(
+					change,
+					...(params.which === undefined ? [] : [params.which]),
+				);
+				// Declined is reported as plainly as started. A backend that
+				// understood and said no is not a failure, and narrating it
+				// as success is how somebody ends up waiting on a build that
+				// was never queued.
+				return outcome.kind === "started"
+					? say(
+							`${GLYPH.queued} CI asked to run again on ${change.label}${outcome.which ? `, ${outcome.which} only` : ""}. Results arrive later; read them with review_see checks.`,
+						)
+					: refuse(
+							`${bound.provider.id} declined to rerun CI on ${change.label}: ${outcome.reason}.`,
+						);
+			}
+			case "retarget-stack":
+				return retargetStack(ctx, bound, change, authoring);
+			case "merge":
+				return merge(ctx, bound, change, authoring, params, pi.events, {
+					review: await reviewSection(),
+					cwd: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
+					run: (line, cwd) =>
+						pi.exec("bash", ["-c", line], {
+							cwd,
+							timeout: GATE_TIMEOUT_MS,
+						}),
+				});
+			case "reviewers":
+				return reviewers(ctx, change, authoring, params);
+		}
+	} catch (error) {
+		return refuseFailure(error, bound);
+	}
 }
 
 /**

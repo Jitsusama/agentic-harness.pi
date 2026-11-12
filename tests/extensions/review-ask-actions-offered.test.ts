@@ -14,23 +14,26 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const ASK = join(
+const TOOLS = join(
 	import.meta.dirname,
 	"..",
 	"..",
 	"extensions",
 	"review-integration",
 	"tools",
-	"ask.ts",
 );
 
-const source = readFileSync(ASK, "utf8");
+/** What a call does, loaded on the tool's first call. */
+const source = readFileSync(join(TOOLS, "ask.ts"), "utf8");
+
+/** The tool's registration, where its schema is. */
+const schema = readFileSync(join(TOOLS, "ask-tool.ts"), "utf8");
 
 /** What the parameter schema will accept. */
 function offered(): Set<string> {
-	const union = source.slice(
-		source.indexOf("action: Type.Optional("),
-		source.indexOf("intent:"),
+	const union = schema.slice(
+		schema.indexOf("action: Type.Optional("),
+		schema.indexOf("intent:"),
 	);
 	return new Set(
 		[...union.matchAll(/Type\.Literal\("([a-z-]+)"\)/g)].map(([, a]) => a),

@@ -40,22 +40,22 @@ const SURFACES: readonly {
 	universal: readonly string[];
 }[] = [
 	{
-		file: "extensions/review-integration/tools/offer.ts",
+		file: "extensions/review-integration/tools/offer-tool.ts",
 		universal: ["action", "change", "repo"],
 	},
 	{
-		file: "extensions/review-integration/tools/see.ts",
+		file: "extensions/review-integration/tools/see-tool.ts",
 		universal: ["action", "change", "repo", "base", "head", "refs"],
 	},
 	// `items` is universal in the sense that matters here: it is the plural
 	// form of the whole tool rather than a parameter belonging to some of its
 	// actions, and every entry inside it names its own.
 	{
-		file: "extensions/review-integration/tools/say.ts",
+		file: "extensions/review-integration/tools/say-tool.ts",
 		universal: ["action", "change", "repo", "items"],
 	},
 	{
-		file: "extensions/review-integration/tools/draft.ts",
+		file: "extensions/review-integration/tools/draft-tool.ts",
 		universal: ["action", "change", "repo", "draft", "base", "head", "refs"],
 	},
 	{
@@ -83,18 +83,22 @@ const NAMES_ITS_ACTIONS = /^For [a-z][a-zA-Z-]*(?:[ ,:]|$)/;
 function parametersOf(source: string): { name: string; description: string }[] {
 	const found: { name: string; description: string }[] = [];
 	// A property, then the first description string that follows it
-	// before the next property begins.
-	const property = /^\t\t\t([a-zA-Z][a-zA-Z0-9]*): Type\./gm;
+	// before the next property begins. A schema held in a constant of
+	// its own sits one tab in; one written inside registerTool, three.
+	const property = /^(\t|\t\t\t)([a-zA-Z][a-zA-Z0-9]*): Type\./gm;
 	let match: RegExpExecArray | null = property.exec(source);
 	for (; match !== null; match = property.exec(source)) {
-		const name = match[1];
-		if (name === undefined) continue;
+		const indent = match[1];
+		const name = match[2];
+		if (indent === undefined || name === undefined) continue;
 		const next = property.lastIndex;
 		// The next property at this depth, found by pattern rather than by
-		// indexOf on the indent: a deeper line starts with the same three
+		// indexOf on the indent: a deeper line starts with the same
 		// tabs and would cut every block off at its first nested call,
 		// which reported the whole surface as undescribed.
-		const sibling = /\n\t\t\t[a-zA-Z]/.exec(source.slice(next));
+		const sibling = new RegExp(`\\n${indent}[a-zA-Z]`).exec(
+			source.slice(next),
+		);
 		const block =
 			sibling === null
 				? source.slice(next)

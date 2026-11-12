@@ -24,10 +24,11 @@ import { describe, expect, it } from "vitest";
 import { schemaActions as actionsOf } from "./schema-actions.ts";
 
 /**
- * The tool modules, and the tool each one registers.
+ * The tools' registrations, where each schema is, and the tool each
+ * one registers.
  *
  * The file name and the tool name differ, so the mapping is explicit:
- * `read.ts` registers `review` itself.
+ * `read-tool.ts` registers `review` itself.
  */
 const TOOLS: ReadonlyArray<readonly [file: string, tool: string]> = [
 	["read", "review"],
@@ -49,7 +50,7 @@ describe("every action is written down somewhere", () => {
 
 	for (const [file, tool] of TOOLS) {
 		it(`documents every action ${tool} offers`, () => {
-			const source = read(`extensions/review-integration/tools/${file}.ts`);
+			const source = read(`extensions/review-integration/tools/${file}-tool.ts`);
 			const actions = actionsOf(source);
 			// A tool with no actions would make this vacuous, and one of
 			// these growing a union is exactly when the gate matters.
@@ -73,7 +74,7 @@ describe("every action is written down somewhere", () => {
 	it("finds the actions it claims to be checking", () => {
 		// Guards against the scoping regex silently matching nothing,
 		// which would make every case above pass by having no work.
-		const source = read("extensions/review-integration/tools/see.ts");
+		const source = read("extensions/review-integration/tools/see-tool.ts");
 
 		expect(actionsOf(source).length).toBeGreaterThanOrEqual(8);
 	});
@@ -96,7 +97,7 @@ describe("every action is written down somewhere", () => {
 		for (const [file, tool] of TOOLS) {
 			const stem = tool.replace("review_", "");
 			for (const action of actionsOf(
-				read(`extensions/review-integration/tools/${file}.ts`),
+				read(`extensions/review-integration/tools/${file}-tool.ts`),
 			)) {
 				if (action === stem) repeats.push(`${tool} ${action}`);
 			}
@@ -115,7 +116,7 @@ describe("every action is written down somewhere", () => {
 		for (const [file, tool] of TOOLS) {
 			const stem = tool.replace("review_", "");
 			for (const action of actionsOf(
-				read(`extensions/review-integration/tools/${file}.ts`),
+				read(`extensions/review-integration/tools/${file}-tool.ts`),
 			)) {
 				if (action !== stem && tools.has(`review_${action}`)) {
 					misdirecting.push(`${tool} ${action} collides with review_${action}`);

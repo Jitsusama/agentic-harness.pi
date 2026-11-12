@@ -31,9 +31,9 @@ import {
 } from "../../extensions/review-integration/progress.ts";
 import {
 	type Answer,
-	renderAnswer,
 	say,
 } from "../../extensions/review-integration/tools/shared.ts";
+import { renderAnswer } from "../../extensions/review-integration/tools/view.ts";
 import type { AskRound } from "../../lib/core/review/index.ts";
 import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
 

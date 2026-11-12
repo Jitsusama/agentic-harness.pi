@@ -8,10 +8,15 @@
  * publishing would do; `publish` does it behind a gate; and
  * `render` covers the case where nothing hosts the target at
  * all.
+ *
+ * What a call does, loaded on its first call; the registration is
+ * `draft-tool.ts`.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type {
+	ExtensionAPI,
+	ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type Anchor,
 	type BoundTarget,
@@ -61,6 +66,7 @@ import {
 	proseComplaint,
 } from "../render.ts";
 import { treeForFixing } from "../work.ts";
+import type { DraftParams } from "./draft-tool.ts";
 import { publishTabs } from "./publish-gate.ts";
 import type { Settle } from "./settle.ts";
 import {
@@ -72,8 +78,6 @@ import {
 	namesTarget,
 	refuse,
 	refuseFailure,
-	renderAnswer,
-	renderInvocation,
 	reviewedChange,
 	say,
 	threadsOf,
@@ -126,480 +130,307 @@ function firstLine(body: string): string {
 	return opener.length > 60 ? `${opener.slice(0, 59)}\u2026` : opener;
 }
 
-/** Register the `review_draft` tool. */
-export function registerDraftTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "review_draft",
-		// Used in 15 of 80 sessions from 8 October, and review-guide names
-		// it, so reading that skill loads it: loaded on demand.
-		exposure: "deferred",
-		label: "Review Draft",
-		description:
-			"Compose a review and land it in one go: add anchored findings, replies into existing threads, resolutions, reactions and a verdict; see exactly what publishing will do, including what degrades and why; then publish, or render the review as a document when nothing hosts the target.",
-		promptSnippet:
-			"Compose a review as a draft, see what publishing would do, then publish or render it.",
-		promptGuidelines: [
-			"Always plan before publishing, and tell the user what will degrade and why rather than letting them discover it afterwards.",
-			"A draft persists, so a review can be built up across a session and picked back up by id.",
-			"When the target has nowhere to post, render the draft as a document instead of reporting failure.",
-			"Publishing keeps whatever did not land, so a retry sends only the remainder. Say so if something fails.",
-		],
-		parameters: Type.Object({
-			action: Type.Union(
-				[
-					Type.Literal("open"),
-					Type.Literal("show"),
-					Type.Literal("finding"),
-					Type.Literal("decide"),
-					Type.Literal("reply"),
-					Type.Literal("resolve"),
-					Type.Literal("unresolve"),
-					Type.Literal("react"),
-					Type.Literal("verdict"),
-					Type.Literal("drop"),
-					Type.Literal("plan"),
-					Type.Literal("publish"),
-					Type.Literal("publish-stack"),
-					Type.Literal("render"),
-					Type.Literal("fix-next"),
-					Type.Literal("fix-done"),
-					Type.Literal("fix-skip"),
-					Type.Literal("fix-answered"),
-					Type.Literal("fixes"),
-					Type.Literal("take-threads"),
-				],
-				{ description: "What to do with the draft." },
-			),
-			change: Type.Optional(
-				Type.String({ description: "The hosted change under review." }),
-			),
-			repo: Type.Optional(Type.String({ description: "Checkout path." })),
-			base: Type.Optional(Type.String({ description: "Base of a range." })),
-			head: Type.Optional(Type.String({ description: "Head of a range." })),
-			refs: Type.Optional(
-				Type.Array(Type.String(), { description: "Refs of a local stack." }),
-			),
-			draft: Type.Optional(
-				Type.String({ description: "Draft id, to resume a specific one." }),
-			),
-			path: Type.Optional(
-				Type.String({
-					description: "For finding: the file the remark is about.",
-				}),
-			),
-			line: Type.Optional(
-				Type.Number({
-					description:
-						"For finding: the line it points at; omit for a whole-file remark.",
-				}),
-			),
-			startLine: Type.Optional(
-				Type.Number({
-					description: "For finding: the first line of a range.",
-				}),
-			),
-			side: Type.Optional(
-				Type.Union([Type.Literal("old"), Type.Literal("new")], {
-					description: "For finding: which side of the diff. Defaults to new.",
-				}),
-			),
-			body: Type.Optional(
-				Type.String({
-					description:
-						"For finding, reply, verdict, decide and fix-answered: the text. The remark for finding, the answer for reply, the summary for verdict, the finding in your own words for decide, and what you said for fix-answered.",
-				}),
-			),
-			thread: Type.Optional(
-				Type.Number({
-					description:
-						"For reply, resolve and unresolve: the 1-based [T#] index of a thread.",
-				}),
-			),
-			// Not `settle`, which this tool already uses for what becomes of a
-			// finding. One word, one meaning: a parameter bag where `settle`
-			// means two things depending on the action is a bag nobody can read.
-			settleThread: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("resolve"),
-						Type.Literal("unresolve"),
-						Type.Literal("leave"),
-					],
-					{
-						description:
-							"For reply: what to do with the thread once the reply lands, queued as its own item beside the reply. Defaults to leaving it as it is.",
-					},
-				),
-			),
-			reaction: Type.Optional(
-				Type.String({ description: "For react: the reaction name." }),
-			),
-			comment: Type.Optional(
-				Type.String({
-					description:
-						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
-				}),
-			),
-			verdict: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("approve"),
-						Type.Literal("request-changes"),
-						Type.Literal("comment"),
-					],
-					{
-						description:
-							"For verdict: what to say about the change as a whole.",
-					},
-				),
-			),
-			commit: Type.Optional(
-				Type.String({
-					description:
-						"For fix-done: the commit that landed the fix. Required, since a fix recorded without one cannot be checked.",
-				}),
-			),
-			item: Type.Optional(
-				Type.String({
-					description: "For drop: the item id to take out of the draft.",
-				}),
-			),
-			finding: Type.Optional(
-				Type.Number({
-					description:
-						"For decide, fix-done, fix-skip and fix-answered: the [F#] number of the item, as review_see findings and review_draft fixes list them.",
-				}),
-			),
-			settle: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("promote"),
-						Type.Literal("dismiss"),
-						Type.Literal("fix"),
-					],
-					{
-						description:
-							"For decide: promote puts the finding into this draft as a remark, dismiss drops it, fix queues it as work to do rather than something to say. Pass body with promote to say it in your own words, or with fix to note how you mean to fix it.",
-					},
-				),
-			),
-		}),
-
-		renderCall(args, theme, context) {
-			const params = args as { action?: string; change?: string };
-			return renderInvocation(
-				theme,
-				"review_draft",
-				params.action,
-				params.change,
-				context?.lastComponent,
-			);
-		},
-
-		renderResult(result, options, theme, context) {
-			return renderAnswer(result, theme, options, context?.lastComponent);
-		},
-
-		async execute(_id, params, signal, _onUpdate, ctx): Promise<Answer> {
-			// Held outside the try so a failure can say which provider was asked.
-			let bound: BoundTarget | undefined;
-			const store = createDraftStore(draftDir());
-			try {
-				let target: ReviewTarget;
-				if (params.draft) {
-					const found = await resumeDraft(params.draft, { store });
-					if (!found) {
-						return refuse(`There is no draft called ${params.draft}.`);
-					}
-					target = found.state.target;
-					// A draft is opened against a change and keeps it, so its id
-					// stands for that change. Without this every action that reads
-					// the conversation refused a draft id, and naming the change as
-					// well, as the refusal said, was ignored and refused again.
-					if (namesTarget(params)) {
-						bound = await boundFor(pi, params, sessionCwd(ctx));
-						if (targetKey(bound.target) !== targetKey(target)) {
-							return refuse(
-								`Draft ${params.draft} is for ${targetLabel(target)}, not ${targetLabel(bound.target)}. Name one or the other.`,
-							);
-						}
-					} else {
-						bound = await boundForTarget(pi, target).catch(() => undefined);
-					}
-				} else {
-					bound = await boundFor(pi, params, sessionCwd(ctx));
-					target = bound.target;
+/** Do what a `review_draft` call asks, once the tool is first called. */
+export async function runDraft(
+	pi: ExtensionAPI,
+	params: DraftParams,
+	signal: AbortSignal | undefined,
+	ctx: ExtensionToolContext,
+): Promise<Answer> {
+	// Held outside the try so a failure can say which provider was asked.
+	let bound: BoundTarget | undefined;
+	const store = createDraftStore(draftDir());
+	try {
+		let target: ReviewTarget;
+		if (params.draft) {
+			const found = await resumeDraft(params.draft, { store });
+			if (!found) {
+				return refuse(`There is no draft called ${params.draft}.`);
+			}
+			target = found.state.target;
+			// A draft is opened against a change and keeps it, so its id
+			// stands for that change. Without this every action that reads
+			// the conversation refused a draft id, and naming the change as
+			// well, as the refusal said, was ignored and refused again.
+			if (namesTarget(params)) {
+				bound = await boundFor(pi, params, sessionCwd(ctx));
+				if (targetKey(bound.target) !== targetKey(target)) {
+					return refuse(
+						`Draft ${params.draft} is for ${targetLabel(target)}, not ${targetLabel(bound.target)}. Name one or the other.`,
+					);
 				}
-				const keys = await turnsFor(params.action, target, bound);
-				return await inTurns(keys, signal, async () => {
-					// Opened inside the turn, so it reads what the call before
-					// this one saved rather than what was there when both began.
-					const reopened = params.draft
-						? await resumeDraft(params.draft, { store })
-						: await (await reviewEngine(pi)).engine.openDraft(target);
-					if (!reopened) {
-						return refuse(`There is no draft called ${params.draft}.`);
-					}
-					return act(reopened);
+			} else {
+				bound = await boundForTarget(pi, target).catch(() => undefined);
+			}
+		} else {
+			bound = await boundFor(pi, params, sessionCwd(ctx));
+			target = bound.target;
+		}
+		const keys = await turnsFor(params.action, target, bound);
+		return await inTurns(keys, signal, async () => {
+			// Opened inside the turn, so it reads what the call before
+			// this one saved rather than what was there when both began.
+			const reopened = params.draft
+				? await resumeDraft(params.draft, { store })
+				: await (await reviewEngine(pi)).engine.openDraft(target);
+			if (!reopened) {
+				return refuse(`There is no draft called ${params.draft}.`);
+			}
+			return act(reopened);
+		});
+	} catch (error) {
+		return refuseFailure(error, bound);
+	}
+
+	async function act(draft: ReviewDraft): Promise<Answer> {
+		try {
+			if (params.action === "open" || params.action === "show") {
+				return say(draftLines(draft), {
+					ok: true,
+					id: draft.id,
+					items: draft.state.items.length,
 				});
-			} catch (error) {
-				return refuseFailure(error, bound);
 			}
 
-			async function act(draft: ReviewDraft): Promise<Answer> {
-				try {
-					if (params.action === "open" || params.action === "show") {
-						return say(draftLines(draft), {
-							ok: true,
-							id: draft.id,
-							items: draft.state.items.length,
-						});
-					}
+			if (params.action === "decide") {
+				return decideFinding(bound, draft, params);
+			}
 
-					if (params.action === "decide") {
-						return decideFinding(bound, draft, params);
-					}
-
-					if (
-						params.action === "fix-next" ||
-						params.action === "fix-done" ||
-						params.action === "fix-skip" ||
-						params.action === "fix-answered" ||
-						params.action === "fixes" ||
-						params.action === "take-threads"
-					) {
-						const change = bound && reviewedChange(bound);
-						if (!bound || !change) {
-							return refuse(
-								"The fix queue belongs to a change, and this draft's could not be found again. Name the change on this call.",
-							);
-						}
-						return walkFixes(bound, change, params);
-					}
-
-					if (params.action === "publish-stack") {
-						if (!bound) {
-							return refuse(
-								"Publishing a stack needs the stack read, and this draft's could not be found again. Name a change in it on this call.",
-							);
-						}
-						return publishStack(pi, bound, store, ctx, signal);
-					}
-
-					if (params.action === "finding") {
-						if (!params.path || !params.body) {
-							return refuse("A finding needs a path and a body.");
-						}
-						const anchor: Anchor =
-							params.line === undefined
-								? { subject: "file", path: params.path }
-								: {
-										subject: "line",
-										path: params.path,
-										blob: (params.side ?? "new") as DiffSide,
-										line: params.line,
-										...(params.startLine !== undefined
-											? { startLine: params.startLine }
-											: {}),
-									};
-						const id = await draft.addFinding({ anchor, body: params.body });
-						return say(
-							`${GLYPH.finding} #${id} noted at ${anchorLabel(anchor)}`,
-							{
-								ok: true,
-								item: id,
-							},
-						);
-					}
-
-					if (params.action === "verdict") {
-						if (!params.verdict) return refuse("Name the verdict.");
-						await draft.setVerdict(params.verdict as Verdict, params.body);
-						return say(
-							`${GLYPH.verdict} ${params.verdict} recorded in the draft. Nothing has been sent yet.`,
-						);
-					}
-
-					if (params.action === "drop") {
-						if (!params.item) return refuse("Name the item to drop.");
-						await draft.remove(params.item);
-						return say(`dropped #${params.item}.`);
-					}
-
-					if (params.action === "react") {
-						if (!params.reaction || !params.comment) {
-							return refuse(
-								"Reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.",
-							);
-						}
-						// The same reason replying needs it: an address is resolved
-						// against the conversation, and a draft id alone cannot say
-						// which conversation.
-						if (!bound) {
-							return refuse(
-								"Reacting needs the change itself, so the comment can be found, and this draft's could not be found again. Name the change on this call.",
-							);
-						}
-						const found = await findReactableOn(bound, params.comment);
-						if (isReactableRefusal(found)) return refuse(found.reason);
-						// The whole comment goes into the draft, not an id typed into
-						// it. A draft outlives the call that filled it, so an
-						// unresolved id here would be a wrong reaction published later
-						// by somebody reading a plan that looked right.
-						const id = await draft.react(
-							found.message,
-							params.reaction as Reaction,
-						);
-						return say(
-							`${GLYPH.reaction} #${id} queued in the draft, on ${found.label} ${found.message.author.id}.`,
-						);
-					}
-
-					if (params.action === "render") {
-						const document = draft.render();
-						return say(`${GLYPH.document} ${document.markdown}`);
-					}
-
-					if (
-						params.action === "reply" ||
-						params.action === "resolve" ||
-						params.action === "unresolve"
-					) {
-						if (!bound) {
-							return refuse(
-								"Replying, resolving or reopening needs the change's threads, and this draft's change could not be found again. Name the change on this call.",
-							);
-						}
-						const threads = await threadsOf(bound);
-						const thread = threads[(params.thread ?? 0) - 1];
-						if (!thread) {
-							return refuse(
-								`There is no [T${params.thread ?? "?"}]. Read the threads first.`,
-							);
-						}
-						if (params.action === "resolve") {
-							const id = await draft.resolveThread(thread);
-							return say(`${GLYPH.resolved} #${id} queued in the draft.`);
-						}
-						if (params.action === "unresolve") {
-							const id = await draft.reopenThread(thread);
-							return say(`${GLYPH.unresolved} #${id} queued in the draft.`);
-						}
-						if (!params.body) return refuse("A reply needs a body.");
-						const id = await draft.replyTo(thread, params.body);
-						// Two items rather than one, appended in the order they will
-						// happen. A combined item would be a second kind of reply that
-						// only the draft knows about, and dropping the settling would
-						// mean editing the reply.
-						const settle = params.settleThread as Settle | undefined;
-						const also =
-							settle === "resolve"
-								? await draft.resolveThread(thread)
-								: settle === "unresolve"
-									? await draft.reopenThread(thread)
-									: undefined;
-						return say(
-							[
-								`${GLYPH.thread} #${id} queued in the draft.`,
-								...(also
-									? [
-											`${settle === "resolve" ? GLYPH.resolved : GLYPH.unresolved} #${also} queued too, ${settle === "resolve" ? "resolving" : "reopening"} the same thread.`,
-										]
-									: []),
-							].join("\n"),
-						);
-					}
-
-					// Planning and publishing both need the provider's
-					// capabilities, and the diff to judge anchors against.
-					if (!bound) {
-						return refuse(
-							"Planning needs the target's provider, and this draft's target could not be found again. Name the change on this call.",
-						);
-					}
-					const diff = await bound.diffModel().catch(() => undefined);
-					const plan = draft.plan({
-						capabilities: bound.capabilities,
-						...(diff ? { diff } : {}),
-					});
-
-					if (params.action === "plan") {
-						return say(planNarration(plan), {
-							ok: true,
-							ops: plan.ops.length,
-							degraded: plan.degraded.length,
-							refused: plan.refused.length,
-						});
-					}
-
-					if (plan.ops.length === 0) {
-						return refuse(
-							"There is nothing in this draft that can be published. Plan it to see why.",
-						);
-					}
-					// Before the gate, not after: the text about to go on
-					// somebody else's change is mostly written by models, and
-					// models emit emdashes and curly quotes by default.
-					const prose = proseComplaint(plan);
-					if (prose) return refuse(prose);
-
-					const destination = `${hostedChange(bound)?.label ?? "this target"} \u00b7 ${bound.provider.id}`;
-					const tabs = publishTabs(plan, destination, diff);
-					const decision = await confirmBatch(
-						ctx,
-						"Publish This Review",
-						tabs.map((tab) => tab.item),
-						GUARDS.reviewPublish.name,
+			if (
+				params.action === "fix-next" ||
+				params.action === "fix-done" ||
+				params.action === "fix-skip" ||
+				params.action === "fix-answered" ||
+				params.action === "fixes" ||
+				params.action === "take-threads"
+			) {
+				const change = bound && reviewedChange(bound);
+				if (!bound || !change) {
+					return refuse(
+						"The fix queue belongs to a change, and this draft's could not be found again. Name the change on this call.",
 					);
-					if (!decision.proceed) {
-						return decision.redirect
-							? refuse(decision.redirect)
-							: say("Left in the draft. Nothing was sent.");
-					}
+				}
+				return walkFixes(bound, change, params);
+			}
 
-					// A tab is a draft item, not a request: rejecting one drops what
-					// it came from and the plan is compiled again without it. That is
-					// what makes the gate the last chance to drop a remark, rather
-					// than something you run review_draft drop for beforehand and
-					// then cannot see what you dropped.
-					const dropped = tabs
-						.filter((_tab, at) => decision.rejected.includes(at))
-						.flatMap((tab) => tab.itemIds);
-					let sending = plan;
-					if (dropped.length > 0) {
-						for (const id of dropped) await draft.remove(id);
-						sending = draft.plan({
-							capabilities: bound.capabilities,
-							...(diff ? { diff } : {}),
-						});
-						if (sending.ops.length === 0) {
-							return say(
-								`${GLYPH.refused} everything in the draft was dropped at the gate. Nothing was sent.`,
-							);
-						}
-					}
-					// Stopped between operations, it sends nothing more, and what
-					// it did not send stays in the draft.
-					const outcome = await draft.publish(
-						sending,
-						bound.provider,
-						signal ? { signal } : {},
+			if (params.action === "publish-stack") {
+				if (!bound) {
+					return refuse(
+						"Publishing a stack needs the stack read, and this draft's could not be found again. Name a change in it on this call.",
 					);
-					// Record where the change stood, so coming back to it later can say
-					// whether it has moved. Recorded after publishing rather than
-					// before: a review that failed to land is not a review of anything,
-					// and claiming otherwise would mark work as seen that nobody said.
-					if (outcome.ok) await noteVisit(bound);
-					return say(outcomeNarration(outcome), {
-						ok: outcome.ok,
-						landed: outcome.outcomes.filter((entry) => entry.ok).length,
-					});
-				} catch (error) {
-					return refuseFailure(error, bound);
+				}
+				return publishStack(pi, bound, store, ctx, signal);
+			}
+
+			if (params.action === "finding") {
+				if (!params.path || !params.body) {
+					return refuse("A finding needs a path and a body.");
+				}
+				const anchor: Anchor =
+					params.line === undefined
+						? { subject: "file", path: params.path }
+						: {
+								subject: "line",
+								path: params.path,
+								blob: (params.side ?? "new") as DiffSide,
+								line: params.line,
+								...(params.startLine !== undefined
+									? { startLine: params.startLine }
+									: {}),
+							};
+				const id = await draft.addFinding({ anchor, body: params.body });
+				return say(`${GLYPH.finding} #${id} noted at ${anchorLabel(anchor)}`, {
+					ok: true,
+					item: id,
+				});
+			}
+
+			if (params.action === "verdict") {
+				if (!params.verdict) return refuse("Name the verdict.");
+				await draft.setVerdict(params.verdict as Verdict, params.body);
+				return say(
+					`${GLYPH.verdict} ${params.verdict} recorded in the draft. Nothing has been sent yet.`,
+				);
+			}
+
+			if (params.action === "drop") {
+				if (!params.item) return refuse("Name the item to drop.");
+				await draft.remove(params.item);
+				return say(`dropped #${params.item}.`);
+			}
+
+			if (params.action === "react") {
+				if (!params.reaction || !params.comment) {
+					return refuse(
+						"Reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.",
+					);
+				}
+				// The same reason replying needs it: an address is resolved
+				// against the conversation, and a draft id alone cannot say
+				// which conversation.
+				if (!bound) {
+					return refuse(
+						"Reacting needs the change itself, so the comment can be found, and this draft's could not be found again. Name the change on this call.",
+					);
+				}
+				const found = await findReactableOn(bound, params.comment);
+				if (isReactableRefusal(found)) return refuse(found.reason);
+				// The whole comment goes into the draft, not an id typed into
+				// it. A draft outlives the call that filled it, so an
+				// unresolved id here would be a wrong reaction published later
+				// by somebody reading a plan that looked right.
+				const id = await draft.react(
+					found.message,
+					params.reaction as Reaction,
+				);
+				return say(
+					`${GLYPH.reaction} #${id} queued in the draft, on ${found.label} ${found.message.author.id}.`,
+				);
+			}
+
+			if (params.action === "render") {
+				const document = draft.render();
+				return say(`${GLYPH.document} ${document.markdown}`);
+			}
+
+			if (
+				params.action === "reply" ||
+				params.action === "resolve" ||
+				params.action === "unresolve"
+			) {
+				if (!bound) {
+					return refuse(
+						"Replying, resolving or reopening needs the change's threads, and this draft's change could not be found again. Name the change on this call.",
+					);
+				}
+				const threads = await threadsOf(bound);
+				const thread = threads[(params.thread ?? 0) - 1];
+				if (!thread) {
+					return refuse(
+						`There is no [T${params.thread ?? "?"}]. Read the threads first.`,
+					);
+				}
+				if (params.action === "resolve") {
+					const id = await draft.resolveThread(thread);
+					return say(`${GLYPH.resolved} #${id} queued in the draft.`);
+				}
+				if (params.action === "unresolve") {
+					const id = await draft.reopenThread(thread);
+					return say(`${GLYPH.unresolved} #${id} queued in the draft.`);
+				}
+				if (!params.body) return refuse("A reply needs a body.");
+				const id = await draft.replyTo(thread, params.body);
+				// Two items rather than one, appended in the order they will
+				// happen. A combined item would be a second kind of reply that
+				// only the draft knows about, and dropping the settling would
+				// mean editing the reply.
+				const settle = params.settleThread as Settle | undefined;
+				const also =
+					settle === "resolve"
+						? await draft.resolveThread(thread)
+						: settle === "unresolve"
+							? await draft.reopenThread(thread)
+							: undefined;
+				return say(
+					[
+						`${GLYPH.thread} #${id} queued in the draft.`,
+						...(also
+							? [
+									`${settle === "resolve" ? GLYPH.resolved : GLYPH.unresolved} #${also} queued too, ${settle === "resolve" ? "resolving" : "reopening"} the same thread.`,
+								]
+							: []),
+					].join("\n"),
+				);
+			}
+
+			// Planning and publishing both need the provider's
+			// capabilities, and the diff to judge anchors against.
+			if (!bound) {
+				return refuse(
+					"Planning needs the target's provider, and this draft's target could not be found again. Name the change on this call.",
+				);
+			}
+			const diff = await bound.diffModel().catch(() => undefined);
+			const plan = draft.plan({
+				capabilities: bound.capabilities,
+				...(diff ? { diff } : {}),
+			});
+
+			if (params.action === "plan") {
+				return say(planNarration(plan), {
+					ok: true,
+					ops: plan.ops.length,
+					degraded: plan.degraded.length,
+					refused: plan.refused.length,
+				});
+			}
+
+			if (plan.ops.length === 0) {
+				return refuse(
+					"There is nothing in this draft that can be published. Plan it to see why.",
+				);
+			}
+			// Before the gate, not after: the text about to go on
+			// somebody else's change is mostly written by models, and
+			// models emit emdashes and curly quotes by default.
+			const prose = proseComplaint(plan);
+			if (prose) return refuse(prose);
+
+			const destination = `${hostedChange(bound)?.label ?? "this target"} \u00b7 ${bound.provider.id}`;
+			const tabs = publishTabs(plan, destination, diff);
+			const decision = await confirmBatch(
+				ctx,
+				"Publish This Review",
+				tabs.map((tab) => tab.item),
+				GUARDS.reviewPublish.name,
+			);
+			if (!decision.proceed) {
+				return decision.redirect
+					? refuse(decision.redirect)
+					: say("Left in the draft. Nothing was sent.");
+			}
+
+			// A tab is a draft item, not a request: rejecting one drops what
+			// it came from and the plan is compiled again without it. That is
+			// what makes the gate the last chance to drop a remark, rather
+			// than something you run review_draft drop for beforehand and
+			// then cannot see what you dropped.
+			const dropped = tabs
+				.filter((_tab, at) => decision.rejected.includes(at))
+				.flatMap((tab) => tab.itemIds);
+			let sending = plan;
+			if (dropped.length > 0) {
+				for (const id of dropped) await draft.remove(id);
+				sending = draft.plan({
+					capabilities: bound.capabilities,
+					...(diff ? { diff } : {}),
+				});
+				if (sending.ops.length === 0) {
+					return say(
+						`${GLYPH.refused} everything in the draft was dropped at the gate. Nothing was sent.`,
+					);
 				}
 			}
-		},
-	});
+			// Stopped between operations, it sends nothing more, and what
+			// it did not send stays in the draft.
+			const outcome = await draft.publish(
+				sending,
+				bound.provider,
+				signal ? { signal } : {},
+			);
+			// Record where the change stood, so coming back to it later can say
+			// whether it has moved. Recorded after publishing rather than
+			// before: a review that failed to land is not a review of anything,
+			// and claiming otherwise would mark work as seen that nobody said.
+			if (outcome.ok) await noteVisit(bound);
+			return say(outcomeNarration(outcome), {
+				ok: outcome.ok,
+				landed: outcome.outcomes.filter((entry) => entry.ok).length,
+			});
+		} catch (error) {
+			return refuseFailure(error, bound);
+		}
+	}
 }
 
 /**

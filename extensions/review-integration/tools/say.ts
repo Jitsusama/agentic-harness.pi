@@ -13,28 +13,30 @@
  * Reading the conversation belongs to `review_see`. This tool
  * only writes, so every action here asks first.
  *
- * Registration only. What each action does, and what its gate shows,
+ * What a call does, loaded on its first call; the registration is
+ * `say-tool.ts`. What each action does, and what its gate shows,
  * lives in `batch.ts`, because the singular parameters are read as a
  * batch of one and both go down the same road.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type {
+	ExtensionAPI,
+	ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { MERGE_COMMAND, noteQueued } from "../queued.ts";
 import { batchRefusal, runBatch, type SayItem } from "./batch.ts";
+import type { SayParams } from "./say-tool.ts";
 import {
 	type Answer,
 	boundFor,
 	hostedChange,
-	isRefusal,
 	refuse,
 	refuseFailure,
-	renderAnswer,
-	renderInvocation,
 	threadsOf,
 } from "./shared.ts";
+import { isRefusal } from "./view.ts";
 
 /** The action a `/merge` comment is said through. */
 const COMMENTING = "comment";
@@ -44,192 +46,61 @@ function asksToMerge(item: SayItem): boolean {
 	return item.action === COMMENTING && MERGE_COMMAND.test(item.body ?? "");
 }
 
-/** Register the `review_say` tool. */
-export function registerSayTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "review_say",
-		// Called in 16 of 69 sessions from 18 October, and the review-guide
-		// skill names it, so it loads when that is read.
-		exposure: "deferred",
-		label: "Review Say",
-		description:
-			"Say something on a change, straight away: reply into a thread, resolve or reopen one, react to a comment, start a thread on a line, or post a top-level message. Several at once through items, behind one gate. Reading the conversation is review_see.",
-		promptSnippet:
-			"Say something on a change now: reply, comment, annotate, resolve, unresolve, react, or several at once.",
-		promptGuidelines: [
-			"Read the threads with review_see first, and refer to a thread by the [T#] index that listing shows. Never invent or guess a thread id.",
-			"React by the address a listing prints: [C#] for a remark inside a thread, [M#] for a top-level message. A bare number is refused, since it does not say which of the two.",
-			"Answering several threads is one call: put them in items, which opens one gate with a tab each rather than one gate per reply.",
-			"Set settleThread to resolve when the reply answers what the thread asked for, so answering and closing cost one call rather than two. The gate prints the decision either way, so say it rather than leaving it to be guessed.",
-			"Use this to answer remarks. To compose several remarks and a verdict as one review, use review_draft.",
-		],
-		parameters: Type.Object({
-			action: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("reply"),
-						Type.Literal("comment"),
-						Type.Literal("annotate"),
-						Type.Literal("resolve"),
-						Type.Literal("unresolve"),
-						Type.Literal("react"),
-					],
-					{
-						description:
-							"What to say. reply: answer one thread. comment: a top-level remark on the change. annotate: start a thread on a line. resolve and unresolve: close or reopen a thread. react: put a reaction on one comment. Omit it when using items, where every entry names its own.",
-					},
-				),
-			),
-			change: Type.Optional(
-				Type.String({
-					description:
-						"The hosted change. Omit to speak on the attached change.",
-				}),
-			),
-			thread: Type.Optional(
-				Type.Number({
-					description:
-						"For reply, resolve and unresolve: 1-based [T#] index from the threads listing.",
-				}),
-			),
-			body: Type.Optional(
-				Type.String({
-					description: "For reply, comment and annotate: the text to post.",
-				}),
-			),
-			reaction: Type.Optional(
-				Type.String({ description: "For react: the reaction, e.g. rocket." }),
-			),
-			comment: Type.Optional(
-				Type.String({
-					description:
-						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
-				}),
-			),
-			path: Type.Optional(
-				Type.String({
-					description: "For annotate: the file the remark is about.",
-				}),
-			),
-			line: Type.Optional(
-				Type.Number({ description: "For annotate: the line it points at." }),
-			),
-			startLine: Type.Optional(
-				Type.Number({
-					description: "For annotate: the first line of a range.",
-				}),
-			),
-			side: Type.Optional(
-				Type.Union([Type.Literal("old"), Type.Literal("new")], {
-					description: "For annotate: which side of the diff. Defaults to new.",
-				}),
-			),
-			// Named the same as review_draft's, since it is the same decision on
-			// the same thing, and that tool's plain `settle` was already spoken
-			// for by what becomes of a finding.
-			settleThread: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("resolve"),
-						Type.Literal("unresolve"),
-						Type.Literal("leave"),
-					],
-					{
-						description:
-							"For reply: what to do with the thread once the reply lands. Defaults to leave, since resolving closes somebody else's conversation.",
-					},
-				),
-			),
-			items: Type.Optional(
-				Type.Array(
-					Type.Object({
-						action: Type.String(),
-						thread: Type.Optional(Type.Number()),
-						body: Type.Optional(Type.String()),
-						settleThread: Type.Optional(Type.String()),
-						comment: Type.Optional(Type.String()),
-						reaction: Type.Optional(Type.String()),
-						path: Type.Optional(Type.String()),
-						line: Type.Optional(Type.Number()),
-						startLine: Type.Optional(Type.Number()),
-						side: Type.Optional(Type.String()),
-					}),
-					{
-						description:
-							"Several things to say at once behind one gate, each shaped like the singular parameters with its own action. Not alongside the singular ones.",
-					},
-				),
-			),
-		}),
-
-		renderCall(args, theme, context) {
-			const params = args as {
-				action?: string;
-				change?: string;
-				items?: SayItem[];
-			};
-			return renderInvocation(
-				theme,
-				"review_say",
-				params.items ? `${params.items.length} things` : params.action,
-				params.change,
-				context?.lastComponent,
+/**
+ * Do what a `review_say` call asks: read the singular parameters as
+ * a batch of one and send the batch down the one road (`batch.ts`).
+ */
+export async function saySomething(
+	pi: ExtensionAPI,
+	params: SayParams,
+	ctx: ExtensionToolContext,
+): Promise<Answer> {
+	// Held outside the try so a failure can say which provider was asked.
+	let bound: BoundTarget | undefined;
+	try {
+		bound = await boundFor(pi, params, sessionCwd(ctx));
+		const conversation = bound.conversation;
+		const change = hostedChange(bound);
+		if (!conversation || !change) {
+			return refuse(
+				"Nothing hosts this target, so it has no conversation. Compose a review with review_draft and render it as a document.",
 			);
-		},
+		}
 
-		renderResult(result, options, theme, context) {
-			return renderAnswer(result, theme, options, context?.lastComponent);
-		},
+		const cannot = batchRefusal(params as Record<string, unknown>);
+		if (cannot) return refuse(cannot);
+		if (!params.action && !params.items) {
+			return refuse("Say what to do: an action, or a batch of items.");
+		}
 
-		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			// Held outside the try so a failure can say which provider was asked.
-			let bound: BoundTarget | undefined;
-			try {
-				bound = await boundFor(pi, params, sessionCwd(ctx));
-				const conversation = bound.conversation;
-				const change = hostedChange(bound);
-				if (!conversation || !change) {
-					return refuse(
-						"Nothing hosts this target, so it has no conversation. Compose a review with review_draft and render it as a document.",
-					);
-				}
+		// The singular parameters are read as a batch of one, so there is
+		// one road through this tool rather than two that agree today.
+		const items = (params.items as SayItem[] | undefined) ?? [
+			params as SayItem,
+		];
 
-				const cannot = batchRefusal(params as Record<string, unknown>);
-				if (cannot) return refuse(cannot);
-				if (!params.action && !params.items) {
-					return refuse("Say what to do: an action, or a batch of items.");
-				}
+		// One read of the conversation for the whole call, so [T26] cannot
+		// mean two different threads inside one gate. Skipped entirely
+		// when nothing in the batch refers to a thread.
+		const threads = items.some((one) => one.thread !== undefined)
+			? await threadsOf(bound)
+			: [];
 
-				// The singular parameters are read as a batch of one, so there is
-				// one road through this tool rather than two that agree today.
-				const items = (params.items as SayItem[] | undefined) ?? [
-					params as SayItem,
-				];
-
-				// One read of the conversation for the whole call, so [T26] cannot
-				// mean two different threads inside one gate. Skipped entirely
-				// when nothing in the batch refers to a thread.
-				const threads = items.some((one) => one.thread !== undefined)
-					? await threadsOf(bound)
-					: [];
-
-				const answer = await runBatch(
-					ctx,
-					bound,
-					conversation,
-					change,
-					threads,
-					items,
-				);
-				// A `/merge` comment sends the change to World's queue, which
-				// merges it later, so it is watched until it lands (queued.ts).
-				if (!isRefusal(answer.details) && items.some(asksToMerge)) {
-					noteQueued(change);
-				}
-				return answer;
-			} catch (error) {
-				return refuseFailure(error, bound);
-			}
-		},
-	});
+		const answer = await runBatch(
+			ctx,
+			bound,
+			conversation,
+			change,
+			threads,
+			items,
+		);
+		// A `/merge` comment sends the change to World's queue, which
+		// merges it later, so it is watched until it lands (queued.ts).
+		if (!isRefusal(answer.details) && items.some(asksToMerge)) {
+			noteQueued(change);
+		}
+		return answer;
+	} catch (error) {
+		return refuseFailure(error, bound);
+	}
 }
