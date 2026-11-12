@@ -28,5 +28,20 @@ mycelium's holder replays the modes it saw a program enter to each
 terminal that joins, which is the lasting fix; this reaches the
 sessions held before that, and agrees with it.
 
+## Counting Full Redraws
+
+As a session starts in a terminal, it turns on pi-tui's log of full
+redraws (`PI_TUI_DEBUG_REDRAW=1`) unless the person set that
+themselves, `0` included (`redraws.ts`). pi-tui writes a line to
+`~/.pi/agent/pi-tui-debug.log` at each one, saying why, and reads the
+setting at every render. `node scripts/redraw-tally.ts [--since
+<ISO>]`, run from this repository, counts them by reason, so the fix for ask dialogs losing
+their text while a reply streams in (Joel, 11 November) starts from
+what happens most. The log names no session, so the count is every
+pi's together. Past 8 MB it is set aside as `pi-tui-debug.log.1`,
+keeping one older copy. Hosted conversations aren't counted: their
+screens share the host's process, whose environment this leaves
+alone.
+
 It draws nothing: its widget is only how it is handed pi's TUI. Where
 pi draws to no terminal, it does nothing.
