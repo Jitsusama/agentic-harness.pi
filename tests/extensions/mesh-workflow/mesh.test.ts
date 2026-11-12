@@ -761,7 +761,9 @@ describe("quiet", () => {
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });
-		expect(drawn(renderers, sent[0]).join("\n")).toContain("I do, until 03:00.");
+		expect(drawn(renderers, sent[0]).join("\n")).toContain(
+			"I do, until 03:00.",
+		);
 	});
 
 	it("shows everything while it is off, as it is by default", async () => {
