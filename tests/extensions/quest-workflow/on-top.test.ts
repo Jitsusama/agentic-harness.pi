@@ -3,7 +3,7 @@
  * counted as each one reads it.
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -78,6 +78,37 @@ describe("what is on top", () => {
 		expect([before === null, read() === before], "the last whole file").toEqual(
 			[false, true],
 		);
+	});
+
+	// 85PKB2 on #1404: a whole file that names no quest takes the top
+	// down; only one that doesn't parse is plausibly half written.
+	it("takes the top down when a whole file names no quest", () => {
+		const where = folder();
+		writeFileSync(where.file, JSON.stringify(TOP));
+		const read = reader(where, "s1");
+		const before = read();
+		writeFileSync(where.file, JSON.stringify({ ...TOP, quests: [] }));
+		expect([before === null, read()], "said, then nothing").toEqual([
+			false,
+			null,
+		]);
+	});
+
+	it("keeps only the newest top's reads", () => {
+		const where = folder();
+		writeFileSync(where.file, JSON.stringify(TOP));
+		const read = reader(where, "s1");
+		read();
+		const next = { ...TOP, at: "2026-11-15T12:00:00.000Z" };
+		writeFileSync(where.file, JSON.stringify(next));
+		read();
+		expect(
+			[
+				existsSync(join(where.reads, "2026-11-14T14-12-00-000Z")),
+				readsOf(where.reads, next.at),
+			],
+			"the old top's folder gone, the new one read once",
+		).toEqual([false, 1]);
 	});
 
 	it("counts each session once as it reads, for the receipt", () => {
