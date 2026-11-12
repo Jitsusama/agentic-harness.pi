@@ -7,6 +7,12 @@
  * read on every turn in 17 of 72 sessions long after the work that
  * loaded them (QCXZEB). One compaction's span with no call is the sign
  * the work has moved on; loading it again is one `tool_search` away.
+ *
+ * A tool loaded again after it was put down is kept for the rest of the
+ * session: it has shown it comes back. On 12 November 216 of 560 tools
+ * put down in a day were loaded again in the same session (`jobs` 105
+ * times), and each coming and going made pi re-send the whole rules and
+ * tools sections, which every later turn then carried.
  */
 
 import type { LoadableTool } from "./loadable.ts";
@@ -24,6 +30,8 @@ export interface IdleTools {
 	/**
 	 * The deferred tools among `deferred` declared and neither called nor
 	 * loaded since the last time this was asked, which starts a new span.
+	 * A tool that came back after an earlier answer named it is never
+	 * named again.
 	 */
 	since(deferred: readonly LoadableTool[]): string[];
 }
@@ -32,6 +40,8 @@ export interface IdleTools {
 export function idleTools(): IdleTools {
 	const declared = new Set<string>();
 	let touched = new Set<string>();
+	const putDown = new Set<string>();
+	const kept = new Set<string>();
 	let looked = false;
 	return {
 		used(name) {
@@ -40,7 +50,9 @@ export function idleTools(): IdleTools {
 		saw(active) {
 			if (looked) {
 				for (const name of active) {
-					if (!declared.has(name)) touched.add(name);
+					if (declared.has(name)) continue;
+					touched.add(name);
+					if (putDown.has(name)) kept.add(name);
 				}
 			}
 			looked = true;
@@ -50,8 +62,13 @@ export function idleTools(): IdleTools {
 		since(deferred) {
 			const idle = deferred
 				.map((tool) => tool.name)
-				.filter((name) => declared.has(name) && !touched.has(name));
-			for (const name of idle) declared.delete(name);
+				.filter(
+					(name) => declared.has(name) && !touched.has(name) && !kept.has(name),
+				);
+			for (const name of idle) {
+				declared.delete(name);
+				putDown.add(name);
+			}
 			touched = new Set();
 			return idle;
 		},

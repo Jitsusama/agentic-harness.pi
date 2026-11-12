@@ -27,6 +27,12 @@ declaration.
 - **Loads what a skill names.** When the model reads a `SKILL.md` that
   names a deferred tool by its whole name, that tool, and the rest of
   its namespace, is declared, and the read says so.
+- **Puts down what a session stopped using.** At a compaction, a
+  loaded tool nothing called or loaded since the compaction before is
+  declared no more. A tool loaded again after being put down is kept
+  for the rest of the session, since each coming and going makes pi
+  re-send the whole rules and tools sections: on 12 November, 216 of
+  560 tools put down came back, `jobs` 105 times.
 - **Lists a skill or a tool only where it applies**, when the package
   config says where. A skill left out of the list can still be read by
   its path, and a tool left out of the index can still be found with
