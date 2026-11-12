@@ -22,17 +22,21 @@ import {
 	closeSync,
 	mkdirSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	readSync,
-	readdirSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { askWake } from "../../../lib/internal/session/park.ts";
 import { type Folders, folders } from "../end-to-end/support/folders.ts";
-import { hostPackageDir, hostPiMissing } from "../end-to-end/support/host-pi.ts";
+import {
+	hostPackageDir,
+	hostPiMissing,
+} from "../end-to-end/support/host-pi.ts";
 import {
 	type ScreenHost,
 	startScreenHost,
@@ -69,6 +73,8 @@ const LOOK_EVERY_MS = 100;
 const TAIL_BYTES = 64 * 1024;
 /** A run with more faults than this stops, as its turns no longer say anything. */
 const MOST_FAULTS = 20;
+/** How much of what the host wrote a fault quotes. */
+const SAID_CHARACTERS = 2000;
 const ROWS = 30;
 const COLUMNS = 100;
 const ENTER = "\r";
@@ -117,7 +123,7 @@ const counts = (values.turns ?? "")
 const checkpoints = Number(values.checkpoints);
 if (counts.length === 0 || counts.some((n) => !(n >= checkpoints)))
 	throw new Error(
-		`usage: soak.mts --turns N,N,... with each N at least --checkpoints (${checkpoints})`,
+		`usage: soak.mts --turns N,N,... each at least --checkpoints, ${checkpoints}`,
 	);
 const packageDir = hostPackageDir();
 if (!packageDir) throw new Error(hostPiMissing());
@@ -139,7 +145,9 @@ const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
 	.filter((entry) => entry.isDirectory() && !FIXTURE_LOADS.has(entry.name))
 	.map((entry) => entry.name)
 	.sort();
-say(`${counts.length} conversations, ${sum(counts)} turns, ${also.length + 3} extensions`);
+say(
+	`${counts.length} conversations, ${sum(counts)} turns, ${also.length + 3} extensions`,
+);
 
 const hostSeal = await seal();
 const hosted = await runHosted(hostSeal);
@@ -148,19 +156,18 @@ const plainSeal = await seal();
 const plain = await runPlain(plainSeal);
 say("plain side done");
 
+const parkedWeights = hosted.checkpoints.flatMap((one) =>
+	one.parked ? [one.parked] : [],
+);
 const report = {
 	conversations: counts.length,
 	turns: sum(counts),
 	checkpoints: hosted.checkpoints,
 	heap: {
-		parked: growthOf(
-			hosted.checkpoints.flatMap((one) => (one.parked ? [one.parked.heapKb] : [])),
-		),
+		parked: growthOf(parkedWeights.map((one) => one.heapKb)),
 		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
-		rssParked: growthOf(
-			hosted.checkpoints.flatMap((one) => (one.parked ? [one.parked.rss] : [])),
-		),
-		heldWhileParked: hosted.checkpoints.map((one) => one.parked?.sessions.length ?? 0),
+		rssParked: growthOf(parkedWeights.map((one) => one.rss)),
+		heldWhileParked: parkedWeights.map((one) => one.sessions.length),
 	},
 	latency: {
 		hosted: spreadOf(hosted.logs.flatMap(latencies).map((one) => one.ms)),
@@ -231,7 +238,8 @@ async function runHosted(sealed: Seal): Promise<{
 	for (const [index, count] of counts.entries()) {
 		const cwd = workingFolder(work);
 		const { sessionId, file } = await host.open(cwd);
-		conversations.push({ index, cwd, sessionId, file, turns: turnsOf(index, count) });
+		const turns = turnsOf(index, count);
+		conversations.push({ index, cwd, sessionId, file, turns });
 	}
 	const parkFolder = join(
 		sealed.env.XDG_STATE_HOME ?? "",
@@ -245,19 +253,23 @@ async function runHosted(sealed: Seal): Promise<{
 	const byKey = new Set<string>();
 	const barrier = barrierOf(conversations.length, async (done) => {
 		const awake = await host.weigh();
-		const recordBytes = conversations.reduce((all, one) => all + sizeOf(one.file), 0);
+		const recordBytes = sum(conversations.map((one) => sizeOf(one.file)));
+		const atMs = () => Date.now() - started;
 		if (values["no-park"]) {
-			weighings.push({ turnsDone: done, atMs: Date.now() - started, awake, recordBytes });
+			weighings.push({ turnsDone: done, atMs: atMs(), awake, recordBytes });
 			return;
 		}
 		mkdirSync(parkFolder, { recursive: true });
 		const switchFile = join(parkFolder, "switch");
-		writeFileSync(switchFile, `${conversations.map((one) => one.sessionId).join("\n")}\n`);
+		const ids = conversations.map((one) => one.sessionId);
+		writeFileSync(switchFile, `${ids.join("\n")}\n`);
 		const parking = Date.now();
-		for (const one of conversations)
-			await host.parked(one.sessionId, PARK_MS).catch((error: unknown) =>
-				fault(`${one.sessionId} didn't park at ${done} turns: ${String(error)}`),
-			);
+		for (const id of ids)
+			await host
+				.parked(id, PARK_MS)
+				.catch((error: unknown) =>
+					fault(`${id} didn't park at ${done} turns: ${String(error)}`),
+				);
 		const parkMs = Date.now() - parking;
 		const parked = await host.weigh();
 		writeFileSync(switchFile, "");
@@ -268,19 +280,21 @@ async function runHosted(sealed: Seal): Promise<{
 		);
 		weighings.push({
 			turnsDone: done,
-			atMs: Date.now() - started,
+			atMs: atMs(),
 			awake,
 			parked,
 			recordBytes,
 			parkMs,
 			wakeMs,
 		});
-		say(`checkpoint ${weighings.length}: heap ${awake.heapKb} kB awake, ${parked.heapKb} kB parked`);
+		say(
+			`checkpoint ${weighings.length}: heap ${awake.heapKb} kB awake, ${parked.heapKb} kB parked`,
+		);
 	});
 	await Promise.all(
 		conversations.map((one) => drive(host, one, barrier, byKey)),
 	);
-	const logs = conversations.map((one) => entriesOf(readFileSync(one.file, "utf8")));
+	const logs = conversations.map((one) => entriesOf(readOr(one.file)));
 	const errors = host.errors();
 	await host.stop();
 	return { checkpoints: weighings, logs, errors };
@@ -391,7 +405,8 @@ async function typed(
 	const until = Date.now() + TURN_MS;
 	while (!tailOf(one.file).includes(ack)) {
 		if (Date.now() > until) {
-			fault(`${turn.tag} wasn't answered in ${TURN_MS} ms: ${host.errors().slice(-2000)}`);
+			const said = host.errors().slice(-SAID_CHARACTERS);
+			fault(`${turn.tag} wasn't answered in ${TURN_MS} ms: ${said}`);
 			return;
 		}
 		// The log says a turn ended only when read, so this waits between reads.
@@ -413,12 +428,17 @@ async function runPlain(sealed: Seal): Promise<{
 		join(agentDir, "models.json"),
 		JSON.stringify({ providers: agent.providers }),
 	);
-	writeFileSync(join(agentDir, "settings.json"), JSON.stringify(agent.settings));
-	for (const extension of [...FIXTURE_LOADS, ...also])
+	writeFileSync(
+		join(agentDir, "settings.json"),
+		JSON.stringify(agent.settings),
+	);
+	for (const extension of [...FIXTURE_LOADS, ...also]) {
+		const entry = join(HARNESS, "extensions", extension, "index.ts");
 		writeFileSync(
 			join(agentDir, "extensions", `${extension}.ts`),
-			`export { default } from ${JSON.stringify(join(HARNESS, "extensions", extension, "index.ts"))};\n`,
+			`export { default } from ${JSON.stringify(entry)};\n`,
 		);
+	}
 	const work = folders(sealed);
 	const env = Object.fromEntries(
 		Object.entries({ ...sealed.env, PI_OFFLINE: "1" }).filter(
@@ -442,8 +462,8 @@ async function runPlain(sealed: Seal): Promise<{
 				await client.prompt(turn.prompt).catch((error: unknown) =>
 					fault(`plain ${turn.tag}: ${String(error)}`),
 				);
-			const state = await client.request({ type: "get_state" });
-			const file: unknown = Reflect.get(Object(state.data), "sessionFile");
+			const { data } = await client.request({ type: "get_state" });
+			const file = isRecord(data) ? data.sessionFile : undefined;
 			await client.close();
 			return {
 				entries:
@@ -482,7 +502,9 @@ function barrierOf(
 		gate = new Promise<void>((open) => {
 			release = open;
 		});
-		await then(most).catch((error: unknown) => fault(`checkpoint: ${String(error)}`));
+		await then(most).catch((error: unknown) =>
+			fault(`checkpoint: ${String(error)}`),
+		);
 		most = 0;
 		opening();
 		return waiting;

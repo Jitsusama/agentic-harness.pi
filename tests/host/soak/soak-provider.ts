@@ -10,6 +10,7 @@
  * no credential.
  */
 import { createServer, type ServerResponse } from "node:http";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { acknowledged, asked, type TurnKind } from "./turns.ts";
 
 /** The provider, while it listens. */
@@ -45,11 +46,13 @@ export async function soakProvider(): Promise<SoakProvider> {
 		let raw = "";
 		for await (const chunk of request) raw += String(chunk);
 		const body: unknown = JSON.parse(raw);
-		const messages = Array.isArray(Reflect.get(Object(body), "messages"))
-			? Array.from(Reflect.get(Object(body), "messages"))
-			: [];
+		const messages: unknown = isRecord(body) ? body.messages : undefined;
 		answered += 1;
-		stream(response, answerTo(messages), answered);
+		stream(
+			response,
+			answerTo(Array.isArray(messages) ? messages : []),
+			answered,
+		);
 	});
 	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
 	const address = server.address();
@@ -108,28 +111,28 @@ function blockFor(kind: TurnKind, tag: string, ack: string): Block {
 /** Whether a message is one the person said, rather than a tool's result. */
 function said(message: unknown): boolean {
 	return (
-		Reflect.get(Object(message), "role") === "user" && !isToolResult(message)
+		isRecord(message) && message.role === "user" && !isToolResult(message)
 	);
 }
 
 /** Whether a message carries a tool's result, as Anthropic's API sends one. */
 function isToolResult(message: unknown): boolean {
-	const content: unknown = Reflect.get(Object(message), "content");
+	const content = isRecord(message) ? message.content : undefined;
 	return (
 		Array.isArray(content) &&
-		content.some((part) => Reflect.get(Object(part), "type") === "tool_result")
+		content.some((part) => isRecord(part) && part.type === "tool_result")
 	);
 }
 
-function textOf(message: unknown): string {
-	const content: unknown = Reflect.get(Object(message), "content");
+/** A message's words: its content, or the text of its parts joined. */
+export function textOf(message: unknown): string {
+	const content = isRecord(message) ? message.content : undefined;
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
-		.map((part) => {
-			const text: unknown = Reflect.get(Object(part), "text");
-			return typeof text === "string" ? text : "";
-		})
+		.map((part) =>
+			isRecord(part) && typeof part.text === "string" ? part.text : "",
+		)
 		.join("");
 }
 

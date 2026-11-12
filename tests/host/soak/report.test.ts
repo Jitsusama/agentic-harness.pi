@@ -74,12 +74,16 @@ describe("a spread", () => {
 
 describe("a series of weighings", () => {
 	it("settles when its later half stops climbing", () => {
-		const growth = growthOf([90_000, 100_000, 104_000, 105_000, 105_100, 105_050]);
+		const growth = growthOf([
+			90_000, 100_000, 104_000, 105_000, 105_100, 105_050,
+		]);
 		expect(growth.verdict, JSON.stringify(growth)).toBe("settles");
 	});
 
 	it("grows when it keeps climbing past a MB a checkpoint", () => {
-		const growth = growthOf([90_000, 100_000, 103_000, 106_000, 109_000, 112_000]);
+		const growth = growthOf([
+			90_000, 100_000, 103_000, 106_000, 109_000, 112_000,
+		]);
 		expect(growth, "three MB a checkpoint to the end").toEqual({
 			verdict: "grows",
 			grewKb: 12_000,
@@ -167,7 +171,11 @@ describe("the soak's provider", () => {
 
 	it("acknowledges a tool's result with the turn's tag", () => {
 		expect(
-			answerTo([user("soak c2-t0 read, please"), { role: "assistant" }, result]),
+			answerTo([
+				user("soak c2-t0 read, please"),
+				{ role: "assistant" },
+				result,
+			]),
 			"after the read",
 		).toEqual({ type: "text", text: "done, ack c2-t0." });
 	});
