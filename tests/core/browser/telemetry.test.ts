@@ -438,7 +438,7 @@ describe("a session whose tab crashed", () => {
 		const session = await BrowserSession.open("crash-navigate");
 		try {
 			await session.navigate(fixture.url("/offers"));
-			await session.navigate("chrome://crash");
+			await session.navigate("chrome://kill");
 			const after = await session.navigate(fixture.url("/offers"));
 
 			// The navigation lands rather than being delivered to the
@@ -477,7 +477,7 @@ describe("a session whose tab crashed", () => {
 		process.on("unhandledRejection", listen);
 		try {
 			await session.navigate(fixture.url("/offers"));
-			await inner.page.goto("chrome://crash").catch(() => {});
+			await inner.page.goto("chrome://kill").catch(() => {});
 			await until(
 				"a replacement tab to be asked for",
 				() => attempts > 0,
@@ -511,7 +511,7 @@ describe("a session whose tab crashed", () => {
 				"a session that loaded a page and never crashed is not stranded",
 			).toBe(false);
 
-			await session.navigate("chrome://crash");
+			await session.navigate("chrome://kill");
 			// The abort comes back in about a millisecond and Chrome
 			// announces the crash a second or so later, so the reading
 			// has to wait for the announcement rather than assume it.
@@ -556,7 +556,7 @@ describe("a session whose tab crashed", () => {
 
 			// Killing the renderer is the whole point. The navigation
 			// that does it answers with the abort rather than throwing.
-			await session.navigate("chrome://crash");
+			await session.navigate("chrome://kill");
 
 			await fetchOnce();
 			await until(

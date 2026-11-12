@@ -35,6 +35,7 @@ export {
 export {
 	diedWithTheTab,
 	failureText,
+	wasAborted,
 } from "./failure.ts";
 export { toHar } from "./har.ts";
 export {

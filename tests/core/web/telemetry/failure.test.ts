@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
 	diedWithTheTab,
 	failureText,
+	wasAborted,
 } from "../../../../lib/core/web/telemetry/failure.ts";
 
 describe("recognizing a tab that died under the operation", () => {
@@ -35,6 +36,19 @@ describe("recognizing a tab that died under the operation", () => {
 			expect(
 				diedWithTheTab(failure),
 				`${JSON.stringify(failure)} is an ordinary failure, not the tab dying`,
+			).toBe(false);
+		}
+	});
+
+	it("knows an abort, which leaves the tab to say whether it died", () => {
+		expect(wasAborted("net::ERR_ABORTED"), "an abort reads as one").toBe(true);
+		for (const failure of [
+			"net::ERR_FAILED",
+			"Navigating frame was detached",
+		]) {
+			expect(
+				wasAborted(failure),
+				`${JSON.stringify(failure)} is not an abort`,
 			).toBe(false);
 		}
 	});
