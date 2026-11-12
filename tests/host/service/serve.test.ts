@@ -265,6 +265,7 @@ describe("serveHost", () => {
 				id: "c",
 				op: "close",
 				sessionId: gone,
+				expectedHost: second.identity,
 			});
 			if (!closed.ok) throw new Error(closed.error.message);
 			expect(second.stillUnresumed(), "once it is closed").toBe(0);

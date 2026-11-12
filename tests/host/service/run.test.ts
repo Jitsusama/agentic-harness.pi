@@ -287,8 +287,9 @@ describe("runHost", () => {
 		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
 		expect(said[2]).toMatch(/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s$/);
+		// This engine's resume registers nothing, so the host serves none.
 		expect(said[3]).toMatch(
-			/^\d+\.\d s: ready, serving 1 conversation, listening on /,
+			/^\d+\.\d s: ready, serving no conversations, listening on /,
 		);
 		second.emit("SIGTERM");
 		await run.stopped;
