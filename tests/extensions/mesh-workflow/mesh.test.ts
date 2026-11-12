@@ -145,6 +145,14 @@ type Sent = {
 	options: unknown;
 };
 type Handler = (event: unknown, ctx: unknown) => unknown;
+type Command = {
+	handler: (args: string, ctx: unknown) => Promise<void>;
+};
+type Renderer = (
+	message: Sent["message"],
+	options: { expanded: boolean },
+	theme: unknown,
+) => { render: (width: number) => string[] };
 
 /** Start a session on the extension, with just enough of pi to run it. */
 async function startSession(
@@ -162,6 +170,8 @@ async function startSession(
 	const bus = new Map<string, ((data: unknown) => void)[]>();
 	const entries: { type: string; data: unknown }[] = [];
 	const lifecycle = new Map<string, Handler>();
+	const commands = new Map<string, Command>();
+	const renderers = new Map<string, Renderer>();
 	const tools = new Map<
 		string,
 		{
@@ -176,6 +186,10 @@ async function startSession(
 			sent.push({ message, options }),
 		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 		registerEntryRenderer: () => {},
+		registerMessageRenderer: (type: string, renderer: Renderer) =>
+			renderers.set(type, renderer),
+		registerCommand: (name: string, command: Command) =>
+			commands.set(name, command),
 		events: {
 			on: (channel: string, handler: (data: unknown) => void) =>
 				bus.set(channel, [...(bus.get(channel) ?? []), handler]),
@@ -207,7 +221,16 @@ async function startSession(
 	});
 	const fire = (event: string, payload: unknown = {}, at: unknown = {}) =>
 		lifecycle.get(event)?.(payload, at);
-	return { sent, tools, entries, fire, emit: pi.events.emit, emitted };
+	return {
+		sent,
+		tools,
+		entries,
+		fire,
+		emit: pi.events.emit,
+		emitted,
+		commands,
+		renderers,
+	};
 }
 
 /**
@@ -656,6 +679,93 @@ describe("a glance", () => {
 		expect(JSON.stringify(sent[0]?.message)).toContain(
 			"about this peer's work",
 		);
+	});
+});
+
+describe("quiet", () => {
+	// Joel, 11 November 2026: a session he steers "that is focused only on
+	// me and doesn't show a bunch of background shit."
+	const plainTheme = { fg: (_colour: string, text: string) => text };
+	const quietLog = [{ type: "custom", customType: "mesh-quiet", data: { on: true } }];
+	const drawn = (
+		renderers: Map<string, Renderer>,
+		one: Sent | undefined,
+	): string[] => {
+		const render = renderers.get("mesh");
+		if (!render || !one) return ["(nothing to draw)"];
+		return render(one.message, { expanded: false }, plainTheme).render(120);
+	};
+
+	it("keeps peers' fyis and findings off the screen, and hands the model them whole", async () => {
+		const { sent, renderers } = await startSession(
+			{},
+			{ isIdle: () => true },
+			quietLog,
+		);
+
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+
+		expect(drawn(renderers, sent[0])).toEqual([]);
+		expect(drawn(renderers, sent[1])).toEqual([]);
+		expect(sent[0]?.message.content).toContain("merged #950");
+		expect(sent[1]?.message.content).toContain("your bug");
+	});
+
+	it("still shows a question, a hold and a pivot", async () => {
+		const { sent, renderers } = await startSession(
+			{},
+			{ isIdle: () => true },
+			quietLog,
+		);
+
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		fromElsewhere({ intent: "hold", to: ["@7M6JKG"], text: "hold builds" });
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		fromElsewhere({ intent: "pivot", to: ["@7M6JKG"], text: "take up X" });
+		await vi.waitFor(() => expect(sent).toHaveLength(3));
+
+		const lines = sent.map((one) => drawn(renderers, one).join("\n"));
+		expect(lines[0]).toContain("why?");
+		expect(lines[1]).toContain("hold builds");
+		expect(lines[2]).toContain("take up X");
+	});
+
+	it("shows everything while it is off, as it is by default", async () => {
+		const { sent, renderers } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		expect(drawn(renderers, sent[0]).join("\n")).toContain("merged #950");
+	});
+
+	it("turns on and off with /mesh quiet, kept in the session's log", async () => {
+		const notices: string[] = [];
+		const ui = { notify: (text: string) => notices.push(text) };
+		const { sent, renderers, commands, entries } = await startSession(
+			{},
+			{ isIdle: () => true },
+		);
+		const mesh = commands.get("mesh");
+
+		await mesh?.handler("quiet", { ui });
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(drawn(renderers, sent[0])).toEqual([]);
+
+		await mesh?.handler("quiet off", { ui });
+		expect(drawn(renderers, sent[0]).join("\n")).toContain("merged #950");
+		expect(entries.filter(({ type }) => type === "mesh-quiet")).toEqual([
+			{ type: "mesh-quiet", data: { on: true } },
+			{ type: "mesh-quiet", data: { on: false } },
+		]);
+
+		await mesh?.handler("loud", { ui });
+		expect(notices.at(-1)).toContain("Usage: /mesh quiet [on|off]");
 	});
 });
 

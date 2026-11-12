@@ -250,6 +250,16 @@ import {
 } from "./leases.ts";
 import { createMoving, holdsOf, moveNoteOf } from "./moving.ts";
 import { createPausing, RESUMED_TEXT } from "./pausing.ts";
+import {
+	type Folding,
+	folds,
+	QUIET,
+	QUIET_STATUS,
+	quietIn,
+	quietSaid,
+	quietStatus,
+	quietWanted,
+} from "./quiet.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
@@ -670,6 +680,17 @@ export function meshWorkflow(
 		const awaiting = createAwaiting();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
+		// Whether this session keeps peers' news off its screen, and how many
+		// messages it has kept off since it started (see quiet.ts).
+		let quiet = false;
+		let keptOff = 0;
+		const showQuiet = () => {
+			if (!ctx?.hasUI) return;
+			ctx.ui.setStatus(
+				QUIET_STATUS,
+				quiet ? quietStatus(keptOff, ctx.ui.theme) : undefined,
+			);
+		};
 		// Woken from parking, this session reads what waited once its
 		// catch-up is done; either can come first, since parking says so
 		// from its own start (see readWhatWaited).
@@ -1209,6 +1230,10 @@ export function meshWorkflow(
 				},
 				{ triggerTurn: turn && !putOff },
 			);
+			if (quiet && folds({ messages, turn })) {
+				keptOff += messages.length;
+				showQuiet();
+			}
 			handedOver(messages);
 			damper.handed(messages);
 		};
@@ -1444,17 +1469,37 @@ export function meshWorkflow(
 
 		// A glance is the model's: on screen it is nothing (see render.ts).
 		pi.registerEntryRenderer?.(GLANCE, () => NOTHING_SHOWN);
-		pi.registerMessageRenderer?.<Shown>(NOTED, (message, options, theme) =>
-			expandable(message, options.expanded, (width, expanded) =>
-				meshLines(
-					textOf(message.content),
-					message.details,
-					theme,
-					width,
-					expanded,
-				),
-			),
+		// While quiet, a delivery that only tells draws nothing (see quiet.ts).
+		pi.registerMessageRenderer?.<Shown & Folding>(
+			NOTED,
+			(message, options, theme) =>
+				quiet && folds(message.details)
+					? NOTHING_SHOWN
+					: expandable(message, options.expanded, (width, expanded) =>
+							meshLines(
+								textOf(message.content),
+								message.details,
+								theme,
+								width,
+								expanded,
+							),
+						),
 		);
+		pi.registerCommand?.("mesh", {
+			description:
+				"/mesh quiet [on|off]: keep other sessions' fyis and findings off this screen; questions, holds and pivots still show, and the model reads them all.",
+			handler: async (args, at) => {
+				const wanted = quietWanted(args, quiet);
+				if (wanted === undefined) {
+					at.ui.notify("Usage: /mesh quiet [on|off]", "warning");
+					return;
+				}
+				quiet = wanted;
+				pi.appendEntry(QUIET, { on: quiet });
+				showQuiet();
+				at.ui.notify(quietSaid(quiet), "info");
+			},
+		});
 
 		/**
 		 * Holds this peer waited on that are over: a turn to carry on while
@@ -1621,6 +1666,9 @@ export function meshWorkflow(
 			untellAwaited = tellAwaited(awaited);
 			// Said already before a reload is not said again.
 			leftTo = leftToIn(branch);
+			quiet = quietIn(branch);
+			keptOff = 0;
+			showQuiet();
 			signed = undefined;
 			const host = hosted();
 			hostKey = host?.key;

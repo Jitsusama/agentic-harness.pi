@@ -358,6 +358,20 @@ Jev put four unrelated "merging core" fyis at 0.73 to 0.81
 "another peer's", where without them it stayed under 0.6 and
 noted each in full.
 
+## Quiet
+
+Attention decides what the model reads; quiet decides only what
+the person sees. An orchestrator hears every peer's landings and
+cards, a line each on its screen, and the person talking to it
+reads his own conversation between them. `/mesh quiet` (or
+`/mesh quiet on`, `/mesh quiet off`) keeps a delivery off the
+screen when it started no turn and holds only fyis and findings,
+and the footer counts what it kept off. A question, a hold, a
+pivot, an answer to this peer and the mesh speaking for itself
+still show. The model is sent the same either way, and mesh_read
+has every message. The setting is the session's, kept in its log,
+so a reload or a restart in place finds it as it was left.
+
 ## Damping
 
 What a message is worth is held to what the receiving peer can
