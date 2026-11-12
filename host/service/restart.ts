@@ -15,6 +15,14 @@
  * systemd has it now, and viewers hear of it only once systemd has it
  * queued, as the host stops (serve.ts).
  *
+ * Conversations that take turns may never all rest at once for long: on
+ * 12 November the background host's three shared one pause in 14.5
+ * hours, of 10 s, and it ran code its install had moved past all that
+ * time (OSPHT4 07d3baff). So once a restart has waited the ceiling for
+ * them to settle, it takes the first moment none has a turn running,
+ * with still no background work held and every screen at rest, and its
+ * journal line says it restarted under that rule.
+ *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
@@ -46,6 +54,23 @@ export const LOOK_MS = 60_000;
 export const SETTLED_MS = 2 * 60_000;
 
 /**
+ * How long a restart waits for every conversation to settle at once
+ * before it takes any moment with no turn running. On 12 November each
+ * of the background host's conversations paused about every 20 to 30
+ * minutes, mostly for under a minute, so half an hour gives the settled
+ * rule longer than one conversation's usual spacing between pauses.
+ */
+export const SETTLE_CEILING_MS = 30 * 60_000;
+
+/**
+ * How often a host past the ceiling looks for a gap. The one shared
+ * pause on 12 November lasted 10 s, which a look a minute would most
+ * often miss; each look reads only what the host holds in memory, and
+ * asks what it would start only once a gap has come.
+ */
+export const GAP_LOOK_MS = 1000;
+
+/**
  * How long a host runs before it restarts again for a change, so one
  * that came up on a version still settling isn't moved twice at once.
  */
@@ -67,6 +92,14 @@ export interface Held {
 	readonly since: string;
 }
 
+/**
+ * The rule a restart came under: every conversation settled, or past the
+ * ceiling, at a moment none had a turn running, after waiting this long.
+ */
+export type RestartRule =
+	| { readonly rule: "settled" }
+	| { readonly rule: "ceiling"; readonly waitedMs: number };
+
 /** What the restart loop asks of the host and the machine; tests give their own. */
 export interface RestartFacts {
 	/** Why the host would start differently now, or nothing when it wouldn't. */
@@ -80,7 +113,7 @@ export interface RestartFacts {
 	/** Say whether a restart is coming, so stopping tells every viewer to join again after. */
 	expect(coming: boolean): void;
 	/** Have systemd restart the host's unit, without waiting for it. */
-	restart(why: string): Promise<void>;
+	restart(why: string, under: RestartRule): Promise<void>;
 	report(error: unknown): void;
 	/** Epoch milliseconds. */
 	now(): number;
@@ -101,7 +134,9 @@ export function settled(
 /**
  * Look every `lookMs` whether the host would start differently, and once
  * it would and everything it holds has settled, ask systemd for the
- * restart, once; a refused one is reported and looked at again later,
+ * restart, once. Once it has differed for `ceilingMs`, look every
+ * `gapLookMs` and take the first moment no conversation runs instead. A
+ * refused one is reported and looked at again later,
  * with nothing said to any viewer, and so is one systemd queued but
  * never ran within `restartDueMs`. Answers the function that stops
  * looking.
@@ -111,6 +146,8 @@ export function restartWhenSettled(
 	options: {
 		lookMs?: number;
 		settledMs?: number;
+		ceilingMs?: number;
+		gapLookMs?: number;
 		firstLookMs?: number;
 		restartDueMs?: number;
 		/** Starts a timer; setTimeout by default. */
@@ -119,6 +156,7 @@ export function restartWhenSettled(
 ): () => void {
 	const lookMs = options.lookMs ?? LOOK_MS;
 	const settledMs = options.settledMs ?? SETTLED_MS;
+	const ceilingMs = options.ceilingMs ?? SETTLE_CEILING_MS;
 	const after =
 		options.after ??
 		((ms, run) => {
@@ -127,20 +165,26 @@ export function restartWhenSettled(
 			return () => clearTimeout(timer);
 		});
 	let stopped = false;
+	// Since when the host has differed from what it would start, unbroken.
+	let differingSince: number | undefined;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
 		if (stopped) return;
-		let restarting = false;
+		let next: Next = "look";
 		try {
-			restarting = await consider();
+			next = await consider();
 		} catch (error) {
 			facts.report(error);
 		}
 		if (stopped) return;
-		cancel = restarting
-			? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
-			: after(lookMs, () => void look());
+		cancel =
+			next === "restarting"
+				? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
+				: after(
+						next === "gap" ? (options.gapLookMs ?? GAP_LOOK_MS) : lookMs,
+						() => void look(),
+					);
 	}
 
 	async function dropped(): Promise<void> {
@@ -154,24 +198,43 @@ export function restartWhenSettled(
 		await look();
 	}
 
-	async function consider(): Promise<boolean> {
+	function pastCeiling(): boolean {
+		return (
+			differingSince !== undefined && facts.now() - differingSince >= ceilingMs
+		);
+	}
+
+	// The rule a restart may come under now, or nothing while it may not.
+	function mayRestart(): RestartRule | undefined {
+		if (facts.background() > 0 || !facts.resting()) return undefined;
+		const held = facts.held();
+		if (settled(held, facts.now(), settledMs)) return { rule: "settled" };
+		if (!pastCeiling() || held.some(({ state }) => state === "busy"))
+			return undefined;
+		return { rule: "ceiling", waitedMs: facts.now() - (differingSince ?? 0) };
+	}
+
+	async function consider(): Promise<Next> {
+		// Past the ceiling, a look with no gap asks nothing more.
+		if (pastCeiling() && mayRestart() === undefined) return "gap";
 		const why = await facts.differs();
-		if (why === undefined || stopped) return false;
-		if (
-			!settled(facts.held(), facts.now(), settledMs) ||
-			facts.background() > 0 ||
-			!facts.resting()
-		)
-			return false;
+		if (stopped) return "look";
+		if (why === undefined) {
+			differingSince = undefined;
+			return "look";
+		}
+		differingSince ??= facts.now();
+		const under = mayRestart();
+		if (under === undefined) return pastCeiling() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
 		facts.expect(true);
 		try {
-			await facts.restart(why);
+			await facts.restart(why, under);
 		} catch (error) {
 			facts.expect(false);
 			throw error;
 		}
-		return true;
+		return "restarting";
 	}
 
 	return () => {
@@ -179,6 +242,9 @@ export function restartWhenSettled(
 		cancel();
 	};
 }
+
+/** What a look leads to: a restart asked for, the next look, or the next look for a gap. */
+type Next = "restarting" | "look" | "gap";
 
 /** What a running host gives the restart loop, and where to look. */
 export interface Following {
@@ -244,6 +310,7 @@ export async function followWhatStarts(
 		return `systemd has a new ${unit}, such as one naming a new pi`;
 	}
 
+	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
 	return restartWhenSettled(
 		{
 			differs: async () => (await installMoved()) ?? (await unitChanged()),
@@ -251,8 +318,10 @@ export async function followWhatStarts(
 			background: options.background,
 			resting: options.resting,
 			expect: (coming) => options.serving.restartComing(coming),
-			restart: async (why) => {
-				options.report(`Restarting once every conversation settled, as ${why}`);
+			restart: async (why, under) => {
+				options.report(
+					`Restarting ${restartedUnder(under, settledMs)}, as ${why}`,
+				);
 				await systemctl(["--no-block", "restart", unit]);
 			},
 			report: options.report,
@@ -260,4 +329,14 @@ export async function followWhatStarts(
 		},
 		options.timing,
 	);
+}
+
+const MINUTE_MS = 60_000;
+
+/** The journal's words for the rule a restart came under. */
+function restartedUnder(under: RestartRule, settledMs: number): string {
+	if (under.rule === "settled") return "once every conversation settled";
+	const waited = Math.round(under.waitedMs / MINUTE_MS);
+	const settle = Math.round(settledMs / MINUTE_MS);
+	return `at a moment no conversation had a turn or a job, having waited ${waited} min for every one to settle ${settle} min at once`;
 }

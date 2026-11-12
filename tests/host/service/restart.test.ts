@@ -17,6 +17,7 @@ import {
 	RESTART_DUE_MS,
 	type RestartFacts,
 	restartWhenSettled,
+	SETTLE_CEILING_MS,
 	settled,
 } from "../../../host/service/restart.ts";
 import type { Systemctl } from "../../../host/service/what-starts.ts";
@@ -46,9 +47,13 @@ function manualTimers() {
 			const timer = waiting.shift();
 			if (!timer) throw new Error("No timer is waiting");
 			if (!timer.cancelled) timer.run();
-			await vi.waitFor(() => {
-				if (!over()) throw new Error("The look hasn't finished");
-			});
+			await vi.waitFor(
+				() => {
+					if (!over()) throw new Error("The look hasn't finished");
+				},
+				// A look awaits only promises the test resolves at once.
+				{ interval: 1 },
+			);
 		},
 	};
 }
@@ -174,6 +179,70 @@ describe("restartWhenSettled", () => {
 		expect(timers.pending(), "it looks again").toHaveLength(1);
 	});
 
+	// The background host on 12 November: its conversations took turns for
+	// 14.5 hours and were never all idle 2 minutes at once, so it never
+	// restarted onto the code its install had moved to (OSPHT4 07d3baff).
+	it("restarts in a gap between turns once it has waited past the ceiling, never mid-turn", async () => {
+		const TURN_MS = 90_000;
+		const GAP_MS = 5000;
+		const CYCLE_MS = 2 * (TURN_MS + GAP_MS);
+		let clock = NOW;
+		// One runs 90 s, both rest 5 s, the other runs 90 s, both rest 5 s.
+		const one = (start: number): Held => {
+			const at = (((clock - NOW - start) % CYCLE_MS) + CYCLE_MS) % CYCLE_MS;
+			return at < TURN_MS
+				? { state: "busy", since: new Date(clock - at).toISOString() }
+				: {
+						state: "idle",
+						since: new Date(clock - (at - TURN_MS)).toISOString(),
+					};
+		};
+		const held = (): readonly Held[] => [one(0), one(TURN_MS + GAP_MS)];
+		const timers = manualTimers();
+		const seen: Held[][] = [];
+		const { facts: given, said } = facts({ held, now: () => clock });
+		given.restart = async (why, under) => {
+			seen.push([...held()]);
+			said.push(`restart under ${under.rule}: ${why}`);
+		};
+		restartWhenSettled(given, { after: timers.after });
+		const giveUp = NOW + 2 * 60 * 60_000;
+		while (!said.some((line) => line.startsWith("restart")) && clock < giveUp) {
+			clock += timers.pending()[0]?.ms ?? 0;
+			await timers.fire();
+		}
+
+		expect(
+			said.filter((line) => line.startsWith("restart")),
+			"it restarted once, saying the rule it restarted under",
+		).toEqual(["restart under ceiling: the install moved"]);
+		expect(
+			clock - NOW,
+			"not before it had waited the ceiling for every one to settle",
+		).toBeGreaterThanOrEqual(SETTLE_CEILING_MS);
+		expect(
+			seen[0]?.map(({ state }) => state),
+			"in a gap, with no conversation running",
+		).toEqual(["idle", "idle"]);
+	});
+
+	it("still waits past the ceiling while background work is held or a screen is in use", async () => {
+		for (const overrides of [
+			{ background: () => 1 },
+			{ resting: () => false },
+		]) {
+			const timers = manualTimers();
+			const { facts: given, said } = facts({
+				held: () => [{ state: "idle", since: lately }],
+				...overrides,
+			});
+			restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
+			await timers.fire();
+			await timers.fire();
+			expect(said, "nothing restarted").toEqual([]);
+		}
+	});
+
 	it("reports a look that failed and looks again", async () => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts({
@@ -287,6 +356,34 @@ describe("followWhatStarts", () => {
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
 		expect(String(report.mock.calls[0]?.[0])).toContain(
 			"the install's two changes the host's own code",
+		);
+	});
+
+	it("says in its journal when it restarts under the ceiling rather than once all settled", async () => {
+		const { systemctl, calls } = systemd();
+		const timers = manualTimers();
+		const report = vi.fn();
+		await followWhatStarts({
+			serving: {
+				// It changed just now, by the clock the host reads.
+				held: () => [
+					{ state: "idle" as const, since: new Date().toISOString() },
+				],
+				restartComing: vi.fn(),
+			},
+			background: () => 0,
+			resting: () => true,
+			report,
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			timing: { after: timers.after, ceilingMs: 0 },
+		});
+		await moveTo("two");
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restarting at a moment no conversation had a turn or a job, having waited 0 min for every one to settle 2 min at once, as the install's two changes the host's own code",
 		);
 	});
 
