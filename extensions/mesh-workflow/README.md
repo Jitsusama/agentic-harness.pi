@@ -366,7 +366,8 @@ cards, a line each on its screen, and the person talking to it
 reads his own conversation between them. `/mesh quiet` (or
 `/mesh quiet on`, `/mesh quiet off`) keeps a delivery off the
 screen when it started no turn and holds only fyis and findings,
-and the footer counts what it kept off. A question, a hold, a
+and the footer counts what it kept off; ctrl+o, which opens tool
+output, opens those too. A question, a hold, a
 pivot, an answer to this peer (even while a pause holds its turn)
 and the mesh speaking for itself still show. The model is sent the
 same either way, and mesh_read has every message. The setting is

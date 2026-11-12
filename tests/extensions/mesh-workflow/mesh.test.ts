@@ -692,10 +692,11 @@ describe("quiet", () => {
 	const drawn = (
 		renderers: Map<string, Renderer>,
 		one: Sent | undefined,
+		expanded = false,
 	): string[] => {
 		const render = renderers.get("mesh");
 		if (!render || !one) return ["(nothing to draw)"];
-		return render(one.message, { expanded: false }, plainTheme).render(120);
+		return render(one.message, { expanded }, plainTheme).render(120);
 	};
 
 	it("keeps peers' fyis and findings off the screen, and hands the model them whole", async () => {
@@ -714,6 +715,20 @@ describe("quiet", () => {
 		expect(drawn(renderers, sent[1])).toEqual([]);
 		expect(sent[0]?.message.content).toContain("merged #950");
 		expect(sent[1]?.message.content).toContain("your bug");
+	});
+
+	it("opens what it kept off when the person expands the screen", async () => {
+		// ctrl+o rebuilds a custom message expanded, as it opens tool output.
+		const { sent, renderers } = await startSession(
+			{},
+			{ isIdle: () => true },
+			quietLog,
+		);
+
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		expect(drawn(renderers, sent[0], true).join("\n")).toContain("merged #950");
 	});
 
 	it("still shows a question, a hold and a pivot", async () => {

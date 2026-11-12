@@ -1478,8 +1478,9 @@ export function meshWorkflow(
 		// While quiet, a delivery that only tells draws nothing (see quiet.ts).
 		pi.registerMessageRenderer?.<Shown & Folding>(
 			NOTED,
+			// Expanded (ctrl+o, as for tool output), quiet keeps nothing off.
 			(message, options, theme) =>
-				quiet && folds(message.details)
+				quiet && !options.expanded && folds(message.details)
 					? NOTHING_SHOWN
 					: expandable(message, options.expanded, (width, expanded) =>
 							meshLines(
