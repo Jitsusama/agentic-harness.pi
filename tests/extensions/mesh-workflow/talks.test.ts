@@ -108,6 +108,56 @@ describe("a talk a session follows", () => {
 		]);
 	});
 
+	it("into a busy run, is replied by the first text written after it, before the run ends", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "hello", from: "joel", id: "t1", file: "f" });
+		following.writing("Hi Joel, the");
+		following.wrote("Hi Joel, the build is next.");
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "Hi Joel, the build is next.",
+		});
+
+		following.step("bash");
+		following.writing("Build");
+		following.wrote("Build passed.");
+		following.settled(false);
+		expect(stages("t1").map(({ stage }) => stage)).toEqual([
+			"delivered",
+			"replying",
+			"replied",
+		]);
+	});
+
+	it("into an idle session, is replied by the last text its run writes", () => {
+		const following = talks();
+		take(following, { text: "status?", id: "t1", file: "f" });
+		following.wrote("Let me look.");
+		following.step("bash");
+		following.wrote("All green.");
+		expect(stages("t1").map(({ stage }) => stage)).toEqual(["delivered"]);
+		following.settled(false);
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "All green.",
+		});
+	});
+
+	it("says a reply so far only when it has changed", () => {
+		const following = talks();
+		take(following, { text: "a", id: "t1", file: "f" });
+		for (let second = 0; second < 3; second++) {
+			following.writing("Now the tests:");
+			clock += 1_000;
+		}
+		following.writing("Now the tests: all");
+		expect(stages("t1").filter(({ stage }) => stage === "replying")).toEqual([
+			{ stage: "replying", text: "Now the tests:" },
+			{ stage: "replying", text: "Now the tests: all" },
+		]);
+	});
+
 	it("fails when the run is stopped or writes nothing", () => {
 		const following = talks();
 		take(following, { text: "a", id: "t1", file: "f" });
