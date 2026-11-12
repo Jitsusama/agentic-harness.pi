@@ -102,10 +102,12 @@ function warmer(
 	options: {
 		send?: (carry: WarmingCarry) => Promise<WarmSent>;
 		enabled?: boolean;
+		call?: { on: boolean };
 	} = {},
 ) {
 	const sent: WarmingCarry[] = [];
 	const report = vi.fn();
+	const held = vi.fn();
 	const warming = parkedWarming({
 		carries,
 		pending,
@@ -114,9 +116,11 @@ function warmer(
 			return (options.send ?? (async () => reply()))(carry);
 		},
 		enabled: async () => options.enabled ?? true,
+		callOn: async () => options.call?.on ?? false,
+		held,
 		report,
 	});
-	return { warming, sent, report };
+	return { warming, sent, report, held };
 }
 
 const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms);
@@ -289,5 +293,33 @@ describe("warming a parked conversation", () => {
 			readdirSync(join(carries, WRITING)),
 			statSync(join(carries, "s2.json.gz")).mode & 0o777,
 		]).toEqual([[WRITING, "s2.json.gz"], [], 0o600]);
+	});
+});
+
+describe("warming a parked conversation while a call is on", () => {
+	it("sends nothing during the call, and warms once it ends while the entry lives", async () => {
+		parkedCarry({ warms: 1 });
+		const call = { on: true };
+		const { warming, sent, held } = warmer({ call });
+
+		warming.start("s2");
+		await wait(WARM_EVERY + MINUTE);
+		const during = sent.length;
+		call.on = false;
+		await wait(MINUTE / 2);
+
+		expect([during, sent.length, held.mock.calls.length]).toEqual([0, 1, 0]);
+		expect(readWarmingCarry(carries, "s2")).toMatchObject({ warms: 2 });
+	});
+
+	it("stops, noting the warm it held, when the call outlasts the entry", async () => {
+		parkedCarry({ warms: 1 });
+		const { warming, sent, held } = warmer({ call: { on: true } });
+
+		warming.start("s2");
+		await wait(3 * WARM_EVERY);
+
+		expect([sent.length, held.mock.calls]).toEqual([0, [["s2"]]]);
+		expect(takePendingWarms(pending, "s2")).toEqual([]);
 	});
 });
