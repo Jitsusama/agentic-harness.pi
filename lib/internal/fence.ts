@@ -111,6 +111,9 @@ export const NEVER_THROUGH = [
 	"agent-signing.sock",
 	"github-broker.sock",
 	"gcloud-broker",
+	// The sessions kitty's remote control, which reads and types into
+	// every session window (core's modules/quickshell/home.nix).
+	"pi-sessions*",
 	// The keeper of nix-offload's passes: only the exempted call outside
 	// the fence records one, so nothing inside can claim a check it ran.
 	"/run/nix-offload-keep.sock",
