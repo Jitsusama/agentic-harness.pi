@@ -17,12 +17,13 @@
  * rather than reaching its neighbours, though its reads still come from
  * the host.
  *
- * The host runtime's own tools are read but never listed. Its unit
- * names the ai-proxy-headers and worktrail it was built with, which
- * code in the host reads; a command a conversation starts never gets
- * them, since a newer pi it runs needs its own newer tools, found on
- * PATH. A conversation that names one for itself reads and hands on
- * its own.
+ * What only the host's own process is (HOST_READS) is read but never
+ * listed. Its unit names the ai-proxy-headers and worktrail it was built
+ * with, and the program names the viewers' kitty terminal for pi-tui;
+ * code in the host reads them, but a command a conversation starts never
+ * gets them, since a newer pi it runs needs its own newer tools, found
+ * on PATH, and its terminal is not a viewer's. A conversation that names
+ * one for itself reads and hands on its own.
  *
  * Work a conversation left running after the host released it still
  * carries that conversation's ambient id. Its reads see the host's env,
@@ -44,12 +45,17 @@ const CREDENTIALS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The host runtime's own tools, which code in the host reads from the
- * host's environment and no conversation's env holds or hands on.
+ * What only the host's own process is, which code in the host reads
+ * from the host's environment and no conversation's env holds or hands
+ * on: the runtime's own tools, and the viewers' terminal as pi-tui is
+ * told it.
  */
 export const HOST_READS: readonly string[] = [
 	"AI_PROXY_HEADERS_BIN",
 	"WORKTRAIL_BIN",
+	"PI_IMAGE_PROTOCOL",
+	"PI_TRUE_COLOR",
+	"PI_HYPERLINKS",
 ];
 
 /** Install the view, returning what puts the host's own env back. */

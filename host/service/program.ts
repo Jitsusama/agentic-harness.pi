@@ -42,9 +42,10 @@ export const EXIT_MISCONFIGURED = 78;
  * systemd's notify, watchdog and socket hand-over, which a tool's child
  * would otherwise answer for the host, and the host's own pi install,
  * which would point an ordinary pi a tool starts at the patched one.
- * The runtime's own tools (HOST_READS) are kept from them too: code in
- * the host still reads them, but a newer pi a command starts runs its
- * own, as its PATH finds them.
+ * The runtime's own tools and the viewers' terminal (HOST_READS) are
+ * kept from them too: code in the host still reads them, but a newer pi
+ * a command starts runs its own tools, as its PATH finds them, and
+ * judges its own terminal.
  */
 const HOST_ONLY = [
 	"NOTIFY_SOCKET",

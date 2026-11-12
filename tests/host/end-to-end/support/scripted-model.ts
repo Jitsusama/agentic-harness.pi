@@ -173,6 +173,8 @@ const ACCOUNTING = [
 		' "$PI_BUDGET" "$E3_KEY" "$PI_SESSION_ID" "$PI_CO_AUTHOR"',
 	"printf 'AI_PROXY_HEADERS_BIN=%s\\nWORKTRAIL_BIN=%s\\nPI_PACKAGE_DIR=%s\\n'" +
 		' "$AI_PROXY_HEADERS_BIN" "$WORKTRAIL_BIN" "$PI_PACKAGE_DIR"',
+	"printf 'PI_IMAGE_PROTOCOL=%s\\nPI_TRUE_COLOR=%s\\nPI_HYPERLINKS=%s\\n'" +
+		' "$PI_IMAGE_PROTOCOL" "$PI_TRUE_COLOR" "$PI_HYPERLINKS"',
 	"git commit --quiet --allow-empty -m 'test(e3): credit this model'",
 	"git log -1 --format=%B",
 ].join("; ");

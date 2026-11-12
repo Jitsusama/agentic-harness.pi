@@ -104,8 +104,9 @@ export class SessionHost implements Host {
 	}
 
 	/**
-	 * The host runtime's own tools its environment names, which a
-	 * conversation's requests read when it names none of its own.
+	 * What only the host's process is (HOST_READS), as its environment
+	 * names it, which a conversation's requests read when it names none
+	 * of its own.
 	 */
 	hostReads(): Readonly<Record<string, string>> {
 		const reads: Record<string, string> = {};

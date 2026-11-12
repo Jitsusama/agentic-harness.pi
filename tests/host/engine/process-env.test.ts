@@ -26,11 +26,20 @@ const CLEARED = [
 	"K4_DEFINED",
 	"AI_PROXY_HEADERS_BIN",
 	"WORKTRAIL_BIN",
+	"PI_IMAGE_PROTOCOL",
+	"PI_TRUE_COLOR",
+	"PI_HYPERLINKS",
 ];
 /** Stand-ins for the tools a host runtime pins for itself. */
 const RUNTIME_TOOLS = {
 	AI_PROXY_HEADERS_BIN: "/runtime/libexec/ai-proxy-headers",
 	WORKTRAIL_BIN: "/runtime/libexec/worktrail",
+} as const;
+/** The viewers' terminal, as the host program names it for pi-tui. */
+const VIEWERS_TERMINAL = {
+	PI_IMAGE_PROTOCOL: "kitty",
+	PI_TRUE_COLOR: "1",
+	PI_HYPERLINKS: "1",
 } as const;
 const saved = Object.fromEntries(
 	[...Object.keys(CREDENTIALS), ...CLEARED].map((name) => [name, own[name]]),
@@ -155,13 +164,14 @@ it("hands a child started with no env the conversation's", () => {
 	expect(said).toBe("inv-a");
 });
 
-it("reads the runtime's own tools in the host, but never hands them to a child", () => {
-	Object.assign(own, RUNTIME_TOOLS);
+it("reads the runtime's tools and the viewers' terminal in the host, but never hands them to a child", () => {
+	Object.assign(own, RUNTIME_TOOLS, VIEWERS_TERMINAL);
 	const started = twoConversations();
 	expect(
 		started.run("a", () => process.env.AI_PROXY_HEADERS_BIN),
 		"read in the host's own process",
 	).toBe(RUNTIME_TOOLS.AI_PROXY_HEADERS_BIN);
+	expect(started.run("a", () => process.env.PI_TRUE_COLOR)).toBe("1");
 	expect(started.run("a", () => process.env.WORKTRAIL_BIN)).toBe(
 		RUNTIME_TOOLS.WORKTRAIL_BIN,
 	);
@@ -169,19 +179,22 @@ it("reads the runtime's own tools in the host, but never hands them to a child",
 		keys: Object.keys(process.env),
 		spread: { ...process.env },
 	}));
-	for (const name of Object.keys(RUNTIME_TOOLS)) {
+	for (const name of Object.keys({ ...RUNTIME_TOOLS, ...VIEWERS_TERMINAL })) {
 		expect(listed.keys).not.toContain(name);
 		expect(listed.spread).not.toHaveProperty(name);
 	}
 	const handed = started.run("a", () =>
 		execFileSync(
 			"sh",
-			["-c", 'printf %s "$AI_PROXY_HEADERS_BIN$WORKTRAIL_BIN"'],
+			["-c", 'printf %s "$AI_PROXY_HEADERS_BIN$WORKTRAIL_BIN$PI_TRUE_COLOR"'],
 			{ encoding: "utf8" },
 		),
 	);
 	expect(handed, "a child finds its own on PATH").toBe("");
-	expect(started.hostReads()).toEqual(RUNTIME_TOOLS);
+	expect(started.hostReads()).toEqual({
+		...RUNTIME_TOOLS,
+		...VIEWERS_TERMINAL,
+	});
 });
 
 it("keeps a tool a conversation names for itself, and hands it on", () => {

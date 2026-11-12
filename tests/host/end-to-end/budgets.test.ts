@@ -30,14 +30,28 @@ import { ACCOUNT, SCRIPTED, SCRIPTED_TOO } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
-/** Stand-ins for the tools the host's runtime pins, as its unit sets them. */
-const RUNTIME_TOOLS = {
+/**
+ * What only the host's process is: stand-ins for the tools its runtime
+ * pins, as its unit sets them, and the viewers' terminal, as the host
+ * program names it.
+ */
+const HOST_PROCESS = {
 	AI_PROXY_HEADERS_BIN: "/nix/store/e3-host-runtime/libexec/ai-proxy-headers",
 	WORKTRAIL_BIN: "/nix/store/e3-host-runtime/libexec/worktrail",
+	PI_IMAGE_PROTOCOL: "kitty",
+	PI_TRUE_COLOR: "1",
+	PI_HYPERLINKS: "1",
 } as const;
 /** What `account` prints, by name. */
-const ACCOUNTED =
-	/^(PI_BUDGET|E3_KEY|PI_SESSION_ID|PI_CO_AUTHOR|AI_PROXY_HEADERS_BIN|WORKTRAIL_BIN|PI_PACKAGE_DIR)=(.*)$/;
+const PRINTED = [
+	"PI_BUDGET",
+	"E3_KEY",
+	"PI_SESSION_ID",
+	"PI_CO_AUTHOR",
+	"PI_PACKAGE_DIR",
+	...Object.keys(HOST_PROCESS),
+];
+const ACCOUNTED = new RegExp(`^(${PRINTED.join("|")})=(.*)$`);
 
 let sealed: Seal;
 let host: HostProcess | undefined;
@@ -111,7 +125,7 @@ it(
 				seal: sealed,
 				engine: PI_ENGINE,
 				// The host's pi and tools, as its unit names them.
-				env: { PI_HOST_PACKAGE_DIR: pi, PI_PACKAGE_DIR: pi, ...RUNTIME_TOOLS },
+				env: { PI_HOST_PACKAGE_DIR: pi, PI_PACKAGE_DIR: pi, ...HOST_PROCESS },
 			});
 			const a = await host.open(await repository("a"), {
 				model: SCRIPTED,
@@ -153,9 +167,10 @@ it(
 					Object.fromEntries(one.env),
 					"a command finds its own tools and pi",
 				).toMatchObject({
-					AI_PROXY_HEADERS_BIN: "",
-					WORKTRAIL_BIN: "",
 					PI_PACKAGE_DIR: "",
+					...Object.fromEntries(
+						Object.keys(HOST_PROCESS).map((name) => [name, ""]),
+					),
 				});
 			}
 			expect(seen.a.env.get("PI_CO_AUTHOR")).toContain("Faux 1");
