@@ -208,10 +208,10 @@ export function attend(message: Message, at: Standing): Heed {
 					why: "a pivot from this peer's orchestrator",
 					addressed: true,
 				}
-			: overheard(at.receiver) ?? {
+			: (overheard(at.receiver) ?? {
 					attention: "note",
 					why: "a pivot from another orchestrator",
-				};
+				});
 	}
 	const home = isHomeTo(message, at.receiver.addresses);
 	if (at.answers || home || at.askedEach) {
