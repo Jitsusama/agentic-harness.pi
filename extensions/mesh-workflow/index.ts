@@ -180,6 +180,7 @@ import {
 } from "../../lib/mesh/owed.ts";
 import { wakeParked, wakeSteered } from "../../lib/mesh/parked.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
+import { inboxOf } from "../../lib/mesh/steer.ts";
 import {
 	createPresences,
 	type Presence,
@@ -804,8 +805,18 @@ export function meshWorkflow(
 			return true;
 		};
 		let steering: Steering | undefined;
+		/** Where the steer inboxes are, once the mesh says. */
+		let steerRoot: string | undefined;
 		// What became of each steer that asked to be followed (talks.ts).
-		const talks = createTalks({ session: () => peer?.session ?? "" });
+		const talks = createTalks({
+			session: () => peer?.session ?? "",
+			inboxes: () =>
+				steerRoot === undefined
+					? []
+					: (peer?.addresses ?? []).map((address) =>
+							inboxOf(steerRoot ?? "", address),
+						),
+		});
 		// Pause, Resume, Stop, Close and Carry from outside the window (pausing.ts).
 		const pausing = createPausing({
 			idle: () => ctx?.isIdle?.() ?? true,
@@ -914,6 +925,7 @@ export function meshWorkflow(
 		const steer = (root: string | undefined) => {
 			steering?.stop();
 			steering = undefined;
+			steerRoot = root;
 			if (root === undefined) return;
 			steering = createSteering({
 				root,
@@ -1976,6 +1988,9 @@ export function meshWorkflow(
 			if (waiting && !(peer && isParked(peer.session))) {
 				markOwnerRunning(waiting, false);
 			}
+			// Ending for good moves on from its replies; a reload or a park
+			// comes back to them.
+			if (peer && !reloading(event) && !isParked(peer.session)) talks.ended();
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;

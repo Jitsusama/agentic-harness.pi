@@ -16,10 +16,21 @@
  * CAME_MS of the reply, before the next talk, is added as what came
  * of it; that is loose, since a conclusion in that hour need not be
  * the one the talk asked for.
+ *
+ * A replied talk is over once the session moves on from it: when a
+ * newer talk to it is replied, even one answered after a reload, since
+ * the files say which are replied, or when the session ends for good.
+ * Its own work carrying on is not moving on, or the desktop's sign of
+ * an unread answer would go as soon as it came.
  */
 
 import type { Steer } from "../../lib/mesh/steer.ts";
-import { pruneTalks, sayTalk, type TalkEvent } from "../../lib/mesh/talk.ts";
+import {
+	overTalks,
+	pruneTalks,
+	sayTalk,
+	type TalkEvent,
+} from "../../lib/mesh/talk.ts";
 
 /** How often a talk says which step it is on, at most. */
 export const READING_MS = 30_000;
@@ -27,6 +38,11 @@ export const READING_MS = 30_000;
 export const REPLYING_MS = 1_000;
 /** How long after its reply a talk hears what came of it. */
 export const CAME_MS = 60 * 60 * 1000;
+
+/** Why a replied talk is over once a newer one is replied. */
+const NEWER = "a newer talk was answered";
+/** Why a replied talk is over once its session ends for good. */
+const ENDED = "the session ended";
 
 /** What following talks needs from its session. */
 export interface TalksHost {
@@ -95,10 +111,24 @@ export function createTalks(host: TalksHost): Talks {
 	let working = false;
 	const taken = () => open.filter((talk) => talk.taken);
 
+	/** The inboxes talks were delivered from, here or before a reload. */
+	const inboxes = new Set<string>();
+
 	const close = (closing: readonly Open[]) => {
 		const at = now();
 		answered = [...answered, ...closing.map((talk) => ({ talk, at }))];
 		open = open.filter((talk) => !closing.includes(talk));
+	};
+
+	/** Reply to a talk, which ends the talks its session replied before. */
+	const reply = (talk: Open, text: string) => {
+		say(talk, { stage: "replied", text });
+		try {
+			overTalks(talk.inbox, host.session(), NEWER, talk.id, new Date(now()));
+		} catch {
+			// An earlier talk left as replied is the desktop's sign kept a while
+			// longer; the next reply or the session's end tries again.
+		}
 	};
 
 	const say = (talk: Open, event: TalkEvent) => {
@@ -129,12 +159,14 @@ export function createTalks(host: TalksHost): Talks {
 			};
 			open = [...open.filter((one) => one.id !== talk.id), talk];
 			answered = [];
+			inboxes.add(inbox);
 			say(talk, {
 				stage: "delivered",
 				session: host.session(),
 				text: steer.text,
 				...(steer.from ? { from: steer.from } : {}),
 				...(steer.at ? { sentAt: steer.at } : {}),
+				...(steer.re ? { re: steer.re } : {}),
 			});
 		},
 		heard(text) {
@@ -177,13 +209,13 @@ export function createTalks(host: TalksHost): Talks {
 			}
 		},
 		wrote(text) {
-			const reply = text.trim();
-			if (reply === "") return;
+			const said = text.trim();
+			if (said === "") return;
 			working = true;
 			const first = taken().filter((talk) => talk.intoWork);
-			for (const talk of first) say(talk, { stage: "replied", text: reply });
+			for (const talk of first) reply(talk, said);
 			if (first.length > 0) close(first);
-			for (const talk of taken()) talk.reply = reply;
+			for (const talk of taken()) talk.reply = said;
 		},
 		settled(aborted) {
 			working = false;
@@ -192,7 +224,7 @@ export function createTalks(host: TalksHost): Talks {
 			if (closing.length === 0) return;
 			for (const talk of closing) {
 				if (aborted) say(talk, { stage: "failed", why: "stopped" });
-				else if (talk.reply) say(talk, { stage: "replied", text: talk.reply });
+				else if (talk.reply) reply(talk, talk.reply);
 				else say(talk, { stage: "failed", why: "the run wrote no reply" });
 			}
 			close(closing);
@@ -207,7 +239,15 @@ export function createTalks(host: TalksHost): Talks {
 			}
 		},
 		ended() {
-			// Red first: nothing ends yet.
+			const at = new Date(now());
+			for (const inbox of new Set([...inboxes, ...(host.inboxes?.() ?? [])])) {
+				try {
+					overTalks(inbox, host.session(), ENDED, undefined, at);
+				} catch {
+					// An inbox that can't be read keeps its sign; nothing here can
+					// try again, and the launcher still reads the talk as replied.
+				}
+			}
 		},
 	};
 }
