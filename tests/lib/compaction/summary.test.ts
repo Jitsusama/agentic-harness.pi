@@ -73,6 +73,18 @@ describe("summaryInstruction", () => {
 			]).toEqual([true, true]);
 		});
 
+		it("never holds a summary under its floor, whatever ceiling is named", () => {
+			const text = summaryInstruction({
+				hasPreviousSummary: false,
+				length: {
+					replacedTokens: 150_000,
+					maxOutputTokens: 51_200,
+					ceilingTokens: 50,
+				},
+			});
+			expect(text).toContain("Make it about 2,000 tokens long");
+		});
+
 		it("counts the earlier summary in what a fold replaces", () => {
 			const text = summaryInstruction({
 				hasPreviousSummary: true,

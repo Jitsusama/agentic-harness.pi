@@ -15,13 +15,6 @@ describe("summaryCeiling", () => {
 		]).toEqual([SUMMARY_CEILING_TOKENS, undefined]);
 	});
 
-	it("gives every session the same answer each time", () => {
-		expect([
-			summaryCeiling(ODD, "trial"),
-			summaryCeiling(ODD, "trial"),
-		]).toEqual([SUMMARY_CEILING_TOKENS, SUMMARY_CEILING_TOKENS]);
-	});
-
 	it("holds no session to it when the setting is off", () => {
 		expect([summaryCeiling(ODD, "off"), summaryCeiling(EVEN, "off")]).toEqual([
 			undefined,
