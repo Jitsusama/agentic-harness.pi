@@ -94,9 +94,7 @@ export function registered(): Map<string, Set<string>> {
 			// labelMode ("add", "set") counts as its verbs too. That errs towards
 			// passing, the safe side; narrowing it to one list would miss work's,
 			// which sits above the tool rather than inside it.
-			for (const [, list = ""] of source.matchAll(
-				/\[([^\]]*)\]\s*as const/g,
-			)) {
+			for (const [, list = ""] of source.matchAll(/\[([^\]]*)\]\s*as const/g)) {
 				for (const [, act] of list.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
 					actions.add(act);
 				}
