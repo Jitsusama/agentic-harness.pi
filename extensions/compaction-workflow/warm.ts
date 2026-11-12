@@ -497,11 +497,7 @@ function restarted(
 	}
 	if (Date.now() - refreshedAt > LONG_CACHE_LIFETIME_MS) return undefined;
 	const model = ctx.model;
-	if (
-		!model ||
-		model.provider !== kept.provider ||
-		model.id !== kept.modelId
-	) {
+	if (!model || model.provider !== kept.provider || model.id !== kept.modelId) {
 		return undefined;
 	}
 	return {
