@@ -3,7 +3,9 @@
  * budget and on its own model, each see only their own in what their
  * bash runs: the budget's name and the variable it lays, their session
  * id, and the commit credit their model earns, which a commit in each
- * one's repository then carries (keying.md 4's done-means).
+ * one's repository then carries (keying.md 4's done-means). Neither is
+ * handed the tools and pi the host's runtime pins for itself, which a
+ * newer pi a command starts would otherwise run instead of its own.
  *
  * The budgets come from the harness's own file provider, sealed under
  * XDG_CONFIG_HOME, and each lays a plain variable rather than a model
@@ -28,6 +30,28 @@ import { ACCOUNT, SCRIPTED, SCRIPTED_TOO } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
+/**
+ * What only the host's process is: stand-ins for the tools its runtime
+ * pins, as its unit sets them, and the viewers' terminal, as the host
+ * program names it.
+ */
+const HOST_PROCESS = {
+	AI_PROXY_HEADERS_BIN: "/nix/store/e3-host-runtime/libexec/ai-proxy-headers",
+	WORKTRAIL_BIN: "/nix/store/e3-host-runtime/libexec/worktrail",
+	PI_IMAGE_PROTOCOL: "kitty",
+	PI_TRUE_COLOR: "1",
+	PI_HYPERLINKS: "1",
+} as const;
+/** What `account` prints, by name. */
+const PRINTED = [
+	"PI_BUDGET",
+	"E3_KEY",
+	"PI_SESSION_ID",
+	"PI_CO_AUTHOR",
+	"PI_PACKAGE_DIR",
+	...Object.keys(HOST_PROCESS),
+];
+const ACCOUNTED = new RegExp(`^(${PRINTED.join("|")})=(.*)$`);
 
 let sealed: Seal;
 let host: HostProcess | undefined;
@@ -82,9 +106,7 @@ function accounted(answer: string): {
 	const env = new Map<string, string>();
 	const rest: string[] = [];
 	for (const line of answer.split("\n")) {
-		const set = /^(PI_BUDGET|E3_KEY|PI_SESSION_ID|PI_CO_AUTHOR)=(.*)$/.exec(
-			line,
-		);
+		const set = ACCOUNTED.exec(line);
 		if (set?.[1]) env.set(set[1], set[2] ?? "");
 		else rest.push(line);
 	}
@@ -102,7 +124,8 @@ it(
 			host = await startHost({
 				seal: sealed,
 				engine: PI_ENGINE,
-				env: { PI_HOST_PACKAGE_DIR: pi },
+				// The host's pi and tools, as its unit names them.
+				env: { PI_HOST_PACKAGE_DIR: pi, PI_PACKAGE_DIR: pi, ...HOST_PROCESS },
 			});
 			const a = await host.open(await repository("a"), {
 				model: SCRIPTED,
@@ -139,6 +162,17 @@ it(
 				E3_KEY: "key-b",
 				PI_SESSION_ID: b.sessionId,
 			});
+			for (const one of [seen.a, seen.b]) {
+				expect(
+					Object.fromEntries(one.env),
+					"a command finds its own tools and pi",
+				).toMatchObject({
+					PI_PACKAGE_DIR: "",
+					...Object.fromEntries(
+						Object.keys(HOST_PROCESS).map((name) => [name, ""]),
+					),
+				});
+			}
 			expect(seen.a.env.get("PI_CO_AUTHOR")).toContain("Faux 1");
 			expect(seen.b.env.get("PI_CO_AUTHOR")).toContain("Faux 2");
 			expect(seen.a.commit).toContain("Co-Authored-By: AI (Faux 1 via Pi)");

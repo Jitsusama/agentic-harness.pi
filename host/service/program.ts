@@ -18,6 +18,7 @@ import { stateDir } from "../../lib/internal/paths.ts";
 import { sayLoaded } from "../../lib/internal/reload/said.ts";
 import {
 	createEngine,
+	HOST_READS,
 	type HostEngine,
 	type HostPiModules,
 	loadHostPi,
@@ -41,6 +42,10 @@ export const EXIT_MISCONFIGURED = 78;
  * systemd's notify, watchdog and socket hand-over, which a tool's child
  * would otherwise answer for the host, and the host's own pi install,
  * which would point an ordinary pi a tool starts at the patched one.
+ * The runtime's own tools and the viewers' terminal (HOST_READS) are
+ * kept from them too: code in the host still reads them, but a newer pi
+ * a command starts runs its own tools, as its PATH finds them, and
+ * judges its own terminal.
  */
 const HOST_ONLY = [
 	"NOTIFY_SOCKET",
@@ -111,7 +116,7 @@ export function nameViewerTerminal(env: NodeJS.ProcessEnv): void {
 /** The environment every conversation starts from: the host's, less what only the host may see. */
 export function conversationBase(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const base = { ...env };
-	for (const name of HOST_ONLY) delete base[name];
+	for (const name of [...HOST_ONLY, ...HOST_READS]) delete base[name];
 	return base;
 }
 

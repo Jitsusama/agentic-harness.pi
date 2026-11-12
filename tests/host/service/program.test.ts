@@ -69,8 +69,8 @@ describe("conversationLaunch", () => {
 });
 
 describe("conversationBase", () => {
-	it("keeps the realm's environment but not systemd's hand-over, the host's pi or its proof", () => {
-		const host = {
+	it("keeps the realm's environment but not systemd's hand-over, the host's pi, its proof, its tools or its viewers' terminal", () => {
+		const host: NodeJS.ProcessEnv = {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
 			SHOPIFY_PROXY_ORIGIN: "https://proxy.example",
@@ -79,7 +79,10 @@ describe("conversationBase", () => {
 			LISTEN_FDS: "1",
 			PI_PACKAGE_DIR: "/nix/store/host-pi",
 			PI_HOST_PROOF: "/nix/store/host-pi-proof.json",
+			AI_PROXY_HEADERS_BIN: "/nix/store/host-runtime/libexec/ai-proxy-headers",
+			WORKTRAIL_BIN: "/nix/store/host-runtime/libexec/worktrail",
 		};
+		nameViewerTerminal(host);
 		expect(conversationBase(host)).toEqual({
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",

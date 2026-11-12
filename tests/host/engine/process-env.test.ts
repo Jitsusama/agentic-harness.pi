@@ -19,7 +19,28 @@ const CREDENTIALS = {
 	PI_PROXY_AUTH_HEADER: "host-auth-header",
 } as const;
 /** Host variables the tests write or expect absent, which the runner's own env may hold. */
-const CLEARED = ["PI_WORKTRAIL_RUN", "PORT", "K4_HOST_ONLY", "K4_DEFINED"];
+const CLEARED = [
+	"PI_WORKTRAIL_RUN",
+	"PORT",
+	"K4_HOST_ONLY",
+	"K4_DEFINED",
+	"AI_PROXY_HEADERS_BIN",
+	"WORKTRAIL_BIN",
+	"PI_IMAGE_PROTOCOL",
+	"PI_TRUE_COLOR",
+	"PI_HYPERLINKS",
+];
+/** Stand-ins for the tools a host runtime pins for itself. */
+const RUNTIME_TOOLS = {
+	AI_PROXY_HEADERS_BIN: "/runtime/libexec/ai-proxy-headers",
+	WORKTRAIL_BIN: "/runtime/libexec/worktrail",
+} as const;
+/** The viewers' terminal, as the host program names it for pi-tui. */
+const VIEWERS_TERMINAL = {
+	PI_IMAGE_PROTOCOL: "kitty",
+	PI_TRUE_COLOR: "1",
+	PI_HYPERLINKS: "1",
+} as const;
 const saved = Object.fromEntries(
 	[...Object.keys(CREDENTIALS), ...CLEARED].map((name) => [name, own[name]]),
 );
@@ -141,6 +162,57 @@ it("hands a child started with no env the conversation's", () => {
 		}),
 	);
 	expect(said).toBe("inv-a");
+});
+
+it("reads the runtime's tools and the viewers' terminal in the host, but never hands them to a child", () => {
+	Object.assign(own, RUNTIME_TOOLS, VIEWERS_TERMINAL);
+	const started = twoConversations();
+	expect(
+		started.run("a", () => process.env.AI_PROXY_HEADERS_BIN),
+		"read in the host's own process",
+	).toBe(RUNTIME_TOOLS.AI_PROXY_HEADERS_BIN);
+	expect(started.run("a", () => process.env.PI_TRUE_COLOR)).toBe("1");
+	expect(started.run("a", () => process.env.WORKTRAIL_BIN)).toBe(
+		RUNTIME_TOOLS.WORKTRAIL_BIN,
+	);
+	const listed = started.run("a", () => ({
+		keys: Object.keys(process.env),
+		spread: { ...process.env },
+	}));
+	for (const name of Object.keys({ ...RUNTIME_TOOLS, ...VIEWERS_TERMINAL })) {
+		expect(listed.keys).not.toContain(name);
+		expect(listed.spread).not.toHaveProperty(name);
+	}
+	const handed = started.run("a", () =>
+		execFileSync(
+			"sh",
+			["-c", 'printf %s "$AI_PROXY_HEADERS_BIN$WORKTRAIL_BIN$PI_TRUE_COLOR"'],
+			{ encoding: "utf8" },
+		),
+	);
+	expect(handed, "a child finds its own on PATH").toBe("");
+	expect(started.hostReads()).toEqual({
+		...RUNTIME_TOOLS,
+		...VIEWERS_TERMINAL,
+	});
+});
+
+it("keeps a tool a conversation names for itself, and hands it on", () => {
+	Object.assign(own, RUNTIME_TOOLS);
+	const started = start();
+	started.register(
+		registration("a", { AI_PROXY_HEADERS_BIN: "/launcher/ai-proxy-headers" }),
+	);
+	expect(started.run("a", () => process.env.AI_PROXY_HEADERS_BIN)).toBe(
+		"/launcher/ai-proxy-headers",
+	);
+	expect(
+		started.run("a", () =>
+			execFileSync("sh", ["-c", 'printf %s "$AI_PROXY_HEADERS_BIN"'], {
+				encoding: "utf8",
+			}),
+		),
+	).toBe("/launcher/ai-proxy-headers");
 });
 
 it("never serves a proxy key from a conversation's env", () => {

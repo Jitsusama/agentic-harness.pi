@@ -186,7 +186,9 @@ export async function createEngine(
 	async function requestEnv(
 		sessionId: string,
 	): Promise<Readonly<Record<string, string>>> {
-		const values: Record<string, string> = {};
+		// The runtime's own tools, as code in the host reads them, under
+		// what the conversation names for itself.
+		const values: Record<string, string> = { ...host.hostReads() };
 		for (const [name, value] of Object.entries(
 			host.env(sessionId).snapshot(),
 		)) {
