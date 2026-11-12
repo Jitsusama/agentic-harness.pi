@@ -119,15 +119,18 @@ describe("host-gate.sh", () => {
 		"extensions/subagent-workflow/index.ts",
 		"extensions/job-workflow/outbox.ts",
 		"lib/mesh/address.ts",
-	])("refuses a change to %s, which the host cases drive, with no run", async (file) => {
-		const on = await harness();
-		const sha = await change(on, file);
+	])(
+		"refuses a change to %s, which the host cases drive, with no run",
+		async (file) => {
+			const on = await harness();
+			const sha = await change(on, file);
 
-		const answer = await gate(on, sha);
+			const answer = await gate(on, sha);
 
-		expect(answer.code).toBe(1);
-		expect(answer.said).toContain(`nothing ran test:host at ${sha}`);
-	});
+			expect(answer.code).toBe(1);
+			expect(answer.said).toContain(`nothing ran test:host at ${sha}`);
+		},
+	);
 
 	it("lets a change to an extension no host case drives merge without a run", async () => {
 		const on = await harness();
