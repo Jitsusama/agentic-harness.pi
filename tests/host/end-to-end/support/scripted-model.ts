@@ -163,13 +163,16 @@ const FIFTY_ROWS = `SELECT value FROM json_each('${JSON.stringify(
 
 /**
  * What bash runs for `account`: the budget and its variable, the
- * session, and the commit credit, then a commit in the conversation's
- * repository and the message it was given. Each variable is printed by
- * name, not read out of `env`, whose whole dump the secret scrub blanks.
+ * session, the commit credit and the host runtime's own tools and pi,
+ * then a commit in the conversation's repository and the message it was
+ * given. Each variable is printed by name, not read out of `env`, whose
+ * whole dump the secret scrub blanks.
  */
 const ACCOUNTING = [
 	"printf 'PI_BUDGET=%s\\nE3_KEY=%s\\nPI_SESSION_ID=%s\\nPI_CO_AUTHOR=%s\\n'" +
 		' "$PI_BUDGET" "$E3_KEY" "$PI_SESSION_ID" "$PI_CO_AUTHOR"',
+	"printf 'AI_PROXY_HEADERS_BIN=%s\\nWORKTRAIL_BIN=%s\\nPI_PACKAGE_DIR=%s\\n'" +
+		' "$AI_PROXY_HEADERS_BIN" "$WORKTRAIL_BIN" "$PI_PACKAGE_DIR"',
 	"git commit --quiet --allow-empty -m 'test(e3): credit this model'",
 	"git log -1 --format=%B",
 ].join("; ");

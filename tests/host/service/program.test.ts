@@ -69,7 +69,7 @@ describe("conversationLaunch", () => {
 });
 
 describe("conversationBase", () => {
-	it("keeps the realm's environment but not systemd's hand-over, the host's pi or its proof", () => {
+	it("keeps the realm's environment but not systemd's hand-over, the host's pi, its proof or its tools", () => {
 		const host = {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
@@ -79,6 +79,8 @@ describe("conversationBase", () => {
 			LISTEN_FDS: "1",
 			PI_PACKAGE_DIR: "/nix/store/host-pi",
 			PI_HOST_PROOF: "/nix/store/host-pi-proof.json",
+			AI_PROXY_HEADERS_BIN: "/nix/store/host-runtime/libexec/ai-proxy-headers",
+			WORKTRAIL_BIN: "/nix/store/host-runtime/libexec/worktrail",
 		};
 		expect(conversationBase(host)).toEqual({
 			HOME: "/home/someone",
