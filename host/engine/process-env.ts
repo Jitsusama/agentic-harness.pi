@@ -70,9 +70,7 @@ export function installConversationEnv(host: Host): () => void {
 		const env = current();
 		if (!env || CREDENTIALS.has(name)) return own[name];
 		const value = env.get(name);
-		return value === undefined && HOST_READS.includes(name)
-			? own[name]
-			: value;
+		return value === undefined && HOST_READS.includes(name) ? own[name] : value;
 	};
 	const keys = (env: SessionEnvironment): string[] => [
 		...Object.keys(env.snapshot()).filter((name) => !CREDENTIALS.has(name)),
