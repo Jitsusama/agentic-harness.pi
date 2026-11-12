@@ -14,11 +14,11 @@
  * already on the screen.
  */
 
-import type {
-	AgentToolResult,
-	Theme,
-	ToolRenderContext,
-	ToolRenderResultOptions,
+import {
+	type AgentToolResult,
+	keyHint,
+	type Theme,
+	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { Box, type Component, Spacer, Text } from "@earendil-works/pi-tui";
 
@@ -26,6 +26,15 @@ import { Box, type Component, Spacer, Text } from "@earendil-works/pi-tui";
 interface Row {
 	/** Whether the result has been drawn, which closes the frame. */
 	result?: boolean;
+}
+
+/** The slice of pi's ToolRenderContext the drawing reads. */
+export interface SendContext {
+	readonly state: Row;
+	readonly expanded: boolean;
+	readonly isPartial: boolean;
+	readonly isError: boolean;
+	readonly outputPad: number;
 }
 
 /** The call's arguments shown collapsed, past which they are cut. */
@@ -40,20 +49,20 @@ export interface SendDrawing {
 	renderCall(
 		args: Readonly<Record<string, unknown>>,
 		theme: Theme,
-		context: ToolRenderContext<Row>,
+		context: SendContext,
 	): Component;
 	renderResult(
 		result: AgentToolResult<unknown>,
 		options: ToolRenderResultOptions,
 		theme: Theme,
-		context: ToolRenderContext<Row>,
+		context: SendContext,
 	): Component;
 }
 
 /** mesh_send's drawing, hidden while `quiet` says so and the row is collapsed. */
 export function sendDrawing(quiet: () => boolean): SendDrawing {
 	const shown =
-		(context: ToolRenderContext<Row>, draw: (width: number) => string[]) =>
+		(context: SendContext, draw: (width: number) => string[]) =>
 		(width: number): string[] =>
 			quiet() && !context.expanded ? [] : draw(width);
 	return {
@@ -77,7 +86,7 @@ export function sendDrawing(quiet: () => boolean): SendDrawing {
 		renderResult(result, options, theme, context) {
 			context.state.result = true;
 			const body = new Box(context.outputPad, 0, background(context, theme));
-			const text = resultText(result, options.expanded, theme, context);
+			const text = resultText(result, options.expanded, theme);
 			if (text !== "") body.addChild(new Text(text, 0, 0));
 			body.addChild(new Spacer(1));
 			return drawn(
@@ -103,7 +112,7 @@ function drawn(
 
 /** The row's background, as pi picks it for its own frame. */
 function background(
-	context: ToolRenderContext<Row>,
+	context: SendContext,
 	theme: Theme,
 ): (text: string) => string {
 	let colour: "toolPendingBg" | "toolErrorBg" | "toolSuccessBg" =
@@ -148,7 +157,6 @@ function resultText(
 	result: AgentToolResult<unknown>,
 	expanded: boolean,
 	theme: Theme,
-	context: ToolRenderContext<Row>,
 ): string {
 	const output = result.content
 		.flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -160,5 +168,5 @@ function resultText(
 	const text = kept.map((line) => theme.fg("toolOutput", line)).join("\n");
 	const remaining = lines.length - kept.length;
 	if (remaining === 0) return text;
-	return `${text}${theme.fg("muted", `\n... (${remaining} more lines,`)} ${context.keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+	return `${text}${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
 }

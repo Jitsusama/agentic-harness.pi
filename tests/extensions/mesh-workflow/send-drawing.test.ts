@@ -2,9 +2,12 @@
  * mesh_send draws as pi draws a tool of no drawing of its own, and under
  * /mesh quiet draws no line at all until the person expands the screen.
  */
-import type { Theme, ToolRenderContext } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { sendDrawing } from "../../../extensions/mesh-workflow/send-drawing.ts";
+import {
+	type SendContext,
+	sendDrawing,
+} from "../../../extensions/mesh-workflow/send-drawing.ts";
 
 const theme = {
 	fg: (_colour: string, text: string) => text,
@@ -21,25 +24,14 @@ const answer = {
 };
 
 /** A row as pi keeps one: its state shared by the call and the result. */
-function row(expanded = false): ToolRenderContext<{ result?: boolean }> {
+function row(expanded = false): SendContext {
 	return {
-		args,
-		toolCallId: "call-1",
-		invalidate: () => {},
-		lastComponent: undefined,
 		state: {},
-		cwd: "/",
-		executionStarted: true,
-		argsComplete: true,
 		isPartial: false,
 		expanded,
-		showImages: false,
 		isError: false,
-		durationMs: 12,
 		outputPad: 1,
-		keyText: () => "ctrl+o",
-		keyHint: (_key: string, words: string) => `ctrl+o ${words}`,
-	} as unknown as ToolRenderContext<{ result?: boolean }>;
+	};
 }
 
 /** The row's lines, call then result, as pi stacks them. */
