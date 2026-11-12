@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { StandingPrompt } from "../../extensions/spend-workflow/standing.ts";
 import {
+	type InnerCallRecord,
 	openLedgerReader,
 	openTurnStore,
 	type ToolCallRecord,
@@ -91,14 +92,43 @@ function started(
 	};
 }
 
+/** The calls a step's first call made to other tools, as the scan keeps them. */
+function through(
+	one: { turn: TurnRecord; calls: ToolCallRecord[] },
+	via: InnerCallRecord["via"],
+	names: readonly string[],
+): { turn: TurnRecord; calls: ToolCallRecord[]; inner: InnerCallRecord[] } {
+	const outer = one.calls.at(0);
+	if (!outer) throw new Error("a step with no call made none through it");
+	return {
+		...one,
+		inner: names.map((name, index) => ({
+			digest: `${outer.digest}/${index}`,
+			sessionId: outer.sessionId,
+			entryId: outer.entryId,
+			outerCallId: outer.callId,
+			timestamp: outer.timestamp,
+			name,
+			via,
+			status: "ok",
+			durationMs: null,
+		})),
+	};
+}
+
 async function reportOf(
 	prompts: readonly StandingPrompt[],
-	steps: readonly { turn: TurnRecord; calls: ToolCallRecord[] }[],
+	steps: readonly {
+		turn: TurnRecord;
+		calls: ToolCallRecord[];
+		inner?: InnerCallRecord[];
+	}[],
 ) {
 	const path = join(mkdtempSync(join(tmpdir(), "declared-")), "ledger.db");
 	const store = await openTurnStore(path);
 	await store.recordTurns(steps.map((one) => one.turn));
 	await store.recordCalls(steps.flatMap((one) => one.calls));
+	await store.recordInnerCalls(steps.flatMap((one) => one.inner ?? []));
 	await store.close();
 	const reader = await openLedgerReader(path);
 	try {
@@ -171,6 +201,50 @@ describe("tools declared against tools called", () => {
 			[slack?.scripted, slack?.unusedCost],
 			"slack maybe in a's script, unread in b",
 		).toEqual([1, 0.0005]);
+	});
+
+	it("counts the tools a script called, and prices those it didn't", async () => {
+		const report = await reportOf(
+			[started("a", { codemode: 400, read: 400, slack: 4_000 })],
+			[through(step("a", 1, ["codemode"]), "codemode", ["read", "read"])],
+		);
+		const row = (name: string) =>
+			report.tools
+				.filter(({ tool }) => tool === name)
+				.map(({ calledIn, calls, scripted, unusedCost }) => [
+					calledIn,
+					calls,
+					scripted,
+					unusedCost,
+				]);
+		expect(
+			[row("read"), row("slack")],
+			"read called twice in the script, slack unread and priced",
+		).toEqual([[[1, 2, 0, 0]], [[0, 0, 0, 0.0005]]]);
+	});
+
+	it("counts a gateway call once, from a script or not", async () => {
+		const report = await reportOf(
+			[
+				started("a", { codemode: 400, tool_gateway_run_tool: 400 }),
+				started("b", { tool_gateway_run_tool: 400 }),
+			],
+			[
+				through(step("a", 1, ["codemode"]), "tool_gateway_run_tool", [
+					"slack_search",
+				]),
+				through(step("b", 1, ["tool_gateway_run_tool"]), "tool_gateway_run_tool", [
+					"incident_list",
+				]),
+			],
+		);
+		const gateway = report.tools.find(
+			({ tool }) => tool === "tool_gateway_run_tool",
+		);
+		expect(
+			[gateway?.sessions, gateway?.calledIn, gateway?.calls],
+			"called in both, once each",
+		).toEqual([2, 2, 2]);
 	});
 
 	it("takes the middle of two sizes as their mean", async () => {
