@@ -265,11 +265,10 @@ async function runHosted(sealed: Seal): Promise<{
 		writeFileSync(switchFile, `${ids.join("\n")}\n`);
 		const parking = Date.now();
 		for (const id of ids)
-			await host
-				.parked(id, PARK_MS)
-				.catch((error: unknown) =>
-					fault(`${id} didn't park at ${done} turns: ${String(error)}`),
-				);
+			await tried(
+				host.parked(id, PARK_MS),
+				`${id} didn't park at ${done} turns`,
+			);
 		const parkMs = Date.now() - parking;
 		const parked = await host.weigh();
 		writeFileSync(switchFile, "");
@@ -328,14 +327,16 @@ async function wake(
 	if (how === 1) {
 		if (!askWake(one.sessionId, `soak-${checkpoint}`, parkFolder))
 			fault(`${one.sessionId} had no marker to wake it by`);
-		await host.idle(one.sessionId, TURN_MS).catch((error: unknown) =>
-			fault(`${one.sessionId} didn't wake by the mesh: ${String(error)}`),
+		await tried(
+			host.idle(one.sessionId, TURN_MS),
+			`${one.sessionId} didn't wake by the mesh`,
 		);
 		return Date.now() - started;
 	}
 	const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
-	await host.idle(one.sessionId, TURN_MS).catch((error: unknown) =>
-		fault(`${one.sessionId} didn't wake by a window: ${String(error)}`),
+	await tried(
+		host.idle(one.sessionId, TURN_MS),
+		`${one.sessionId} didn't wake by a window`,
 	);
 	await window.leave();
 	return Date.now() - started;
@@ -368,8 +369,9 @@ async function drive(
 			done += 1;
 			if (at === 0 && visit.joined) {
 				const second = await attach(host.path, one.sessionId, ROWS, COLUMNS);
-				await second.sent(/\S/, DRAWN_MS).catch(() =>
-					fault(`a second viewer of ${one.sessionId} drew nothing`),
+				await tried(
+					second.sent(/\S/, DRAWN_MS),
+					`a second viewer of ${one.sessionId} drew nothing`,
 				);
 				await second.leave();
 			}
@@ -387,8 +389,9 @@ async function opened(
 ): Promise<Viewer> {
 	const viewer = await attach(host.path, one.sessionId, ROWS, COLUMNS);
 	if (byKey.delete(one.sessionId)) return viewer;
-	await viewer.sent(/\S/, DRAWN_MS).catch(() =>
-		fault(`a viewer of ${one.sessionId} drew nothing`),
+	await tried(
+		viewer.sent(/\S/, DRAWN_MS),
+		`a viewer of ${one.sessionId} drew nothing`,
 	);
 	return viewer;
 }
@@ -412,8 +415,9 @@ async function typed(
 		// The log says a turn ended only when read, so this waits between reads.
 		await new Promise((done) => setTimeout(done, LOOK_EVERY_MS));
 	}
-	await host.idle(one.sessionId, TURN_MS).catch((error: unknown) =>
-		fault(`${turn.tag} answered but never went idle: ${String(error)}`),
+	await tried(
+		host.idle(one.sessionId, TURN_MS),
+		`${turn.tag} answered but never went idle`,
 	);
 }
 
@@ -459,9 +463,7 @@ async function runPlain(sealed: Seal): Promise<{
 				log,
 			);
 			for (const turn of turnsOf(index, count))
-				await client.prompt(turn.prompt).catch((error: unknown) =>
-					fault(`plain ${turn.tag}: ${String(error)}`),
-				);
+				await tried(client.prompt(turn.prompt), `plain ${turn.tag}`);
 			const { data } = await client.request({ type: "get_state" });
 			const file = isRecord(data) ? data.sessionFile : undefined;
 			await client.close();
@@ -502,13 +504,16 @@ function barrierOf(
 		gate = new Promise<void>((open) => {
 			release = open;
 		});
-		await then(most).catch((error: unknown) =>
-			fault(`checkpoint: ${String(error)}`),
-		);
+		await tried(then(most), "checkpoint");
 		most = 0;
 		opening();
 		return waiting;
 	};
+}
+
+/** Wait for `work`, counting its failure as a fault saying `what`. */
+async function tried(work: Promise<unknown>, what: string): Promise<void> {
+	await work.catch((error: unknown) => fault(`${what}: ${String(error)}`));
 }
 
 /** The end of a log, or nothing while it isn't written yet. */

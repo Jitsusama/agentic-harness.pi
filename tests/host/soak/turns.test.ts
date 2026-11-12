@@ -19,10 +19,8 @@ describe("the soak's turns", () => {
 		expect(turns, "the script doesn't change between runs").toEqual(
 			turnsOf(3, 40),
 		);
-		expect(
-			new Set(turns.map((turn) => turn.tag)).size,
-			"no tag repeats",
-		).toBe(40);
+		const tags = new Set(turns.map((turn) => turn.tag));
+		expect(tags.size, "no tag repeats").toBe(40);
 	});
 
 	it("ask for every kind of turn, mostly echoes", () => {

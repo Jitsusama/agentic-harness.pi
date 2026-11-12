@@ -110,9 +110,7 @@ function blockFor(kind: TurnKind, tag: string, ack: string): Block {
 
 /** Whether a message is one the person said, rather than a tool's result. */
 function said(message: unknown): boolean {
-	return (
-		isRecord(message) && message.role === "user" && !isToolResult(message)
-	);
+	return isRecord(message) && message.role === "user" && !isToolResult(message);
 }
 
 /** Whether a message carries a tool's result, as Anthropic's API sends one. */
