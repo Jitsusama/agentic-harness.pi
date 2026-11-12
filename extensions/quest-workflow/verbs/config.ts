@@ -165,6 +165,7 @@ async function configReport(): Promise<QuestResult> {
 		`Quests root: ${summary.questsRoot} (${summary.questsRootSource})`,
 		`Auto-load from cwd: ${summary.autoloadFromCwd} (${summary.autoloadFromCwdSource})`,
 		`Spawn into a host: ${summary.spawnHost} (${summary.spawnHostSource})`,
+		`Start into a host: ${summary.startHost} (${summary.startHostSource})`,
 	];
 	if (section.warning) lines.push(`Warning: ${section.warning}`);
 	lines.push(`A quest's own: ${HEARS_USAGE}`);

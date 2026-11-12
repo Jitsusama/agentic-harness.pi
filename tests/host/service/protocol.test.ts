@@ -97,6 +97,16 @@ describe("wire validation", () => {
 				attended: true,
 				env: { PI_SANDBOX: "fence" },
 			},
+			// The launcher's Orchestrate, started in a host, told nothing.
+			{
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: "/repo",
+				attended: true,
+				quest: "QEST-20261112-ABCDEF",
+				orchestrate: true,
+			},
 			...["release", "close", "abort"].map((op) => ({ ...close, op })),
 			{ ...close, op: "attach", rows: 24, columns: 80 },
 			// A newer client may say it can do what this host doesn't know yet.

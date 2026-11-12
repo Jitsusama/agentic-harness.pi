@@ -46,6 +46,14 @@ export interface QuestWorkflowConfig {
 	 * a terminal, a layout or another machine goes as it says.
 	 */
 	spawnHost?: SpawnHostSetting;
+	/**
+	 * Where the launcher's own Start a Session and Orchestrate open a
+	 * session: `off`, the default, in a window of its own as ever;
+	 * `attended`, in the realm's attended host, with its viewer opened at
+	 * once. Apart from spawnHost, since a person's own sessions move only
+	 * by their choice. The background host has no screen to type into.
+	 */
+	startHost?: StartHostSetting;
 }
 
 /** The choices `spawnHost` takes. */
@@ -56,6 +64,16 @@ export type SpawnHostSetting = (typeof SPAWN_HOST_SETTINGS)[number];
 
 function isSpawnHostSetting(value: unknown): value is SpawnHostSetting {
 	return (SPAWN_HOST_SETTINGS as readonly unknown[]).includes(value);
+}
+
+/** The choices `startHost` takes. */
+export const START_HOST_SETTINGS = ["off", "attended"] as const;
+
+/** Where the launcher's own start opens: in a window (`off`), or the attended host. */
+export type StartHostSetting = (typeof START_HOST_SETTINGS)[number];
+
+function isStartHostSetting(value: unknown): value is StartHostSetting {
+	return (START_HOST_SETTINGS as readonly unknown[]).includes(value);
 }
 
 /**
@@ -105,11 +123,16 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 			error: "spawnHost must be off, attended or background",
 		};
 	}
+	const startHost = record.startHost;
+	if (startHost !== undefined && !isStartHostSetting(startHost)) {
+		return { ok: false, error: "startHost must be off or attended" };
+	}
 	const parsed: QuestWorkflowConfig = {};
 	if (questsRoot !== undefined) parsed.questsRoot = questsRoot;
 	if (autoloadFromCwd !== undefined) parsed.autoloadFromCwd = autoloadFromCwd;
 	if (retention !== undefined) parsed.sessionRetentionDays = retention;
 	if (spawnHost !== undefined) parsed.spawnHost = spawnHost;
+	if (startHost !== undefined) parsed.startHost = startHost;
 	return { ok: true, value: parsed };
 };
 
@@ -135,6 +158,8 @@ export interface QuestConfigSummary {
 	sessionRetentionDaysSource: "config" | "default";
 	spawnHost: SpawnHostSetting;
 	spawnHostSource: "config" | "default";
+	startHost: StartHostSetting;
+	startHostSource: "config" | "default";
 }
 
 /**
@@ -162,5 +187,7 @@ export function summarizeQuestConfig(opts: {
 			opts.config.sessionRetentionDays !== undefined ? "config" : "default",
 		spawnHost: opts.config.spawnHost ?? "off",
 		spawnHostSource: opts.config.spawnHost !== undefined ? "config" : "default",
+		startHost: opts.config.startHost ?? "off",
+		startHostSource: opts.config.startHost !== undefined ? "config" : "default",
 	};
 }
