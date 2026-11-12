@@ -322,4 +322,23 @@ describe("warming a parked conversation while a call is on", () => {
 		expect([sent.length, held.mock.calls]).toEqual([0, [["s2"]]]);
 		expect(takePendingWarms(pending, "s2")).toEqual([]);
 	});
+
+	it("holds up no restart, and the host after one carries the held warm on", async () => {
+		parkedCarry({ warms: 1 });
+		const before = warmer({ call: { on: true } });
+		before.warming.start("s2");
+		await wait(WARM_EVERY + MINUTE);
+		const outDuringCall = before.warming.inFlight();
+		// The host stops; the next one takes the parked conversation up
+		// again from its carry, with the call over.
+		before.warming.stop("s2");
+		const after = warmer({ call: { on: false } });
+		after.warming.start("s2");
+		await wait(1);
+
+		expect([outDuringCall, before.sent.length, after.sent.length]).toEqual([
+			0, 0, 1,
+		]);
+		expect(readWarmingCarry(carries, "s2")).toMatchObject({ warms: 2 });
+	});
 });
