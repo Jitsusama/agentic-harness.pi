@@ -269,6 +269,13 @@ export interface HostSpawn {
 	readonly chosenBy: string;
 	/** What the new session is told first, when it is fresh. */
 	readonly note?: string;
+	/**
+	 * The first words as a spawn already left them, in place of the note's,
+	 * for a launched spawn handing itself on (launched-spawn.ts).
+	 */
+	readonly first?: string;
+	/** How a fresh session runs its commands, as the pi it stands for did. */
+	readonly carried?: CarriedEnvironment;
 	/** The session to adopt, as the spawn picked it, with its liveness. */
 	readonly resume?: SessionView;
 	/** The asking session's model, carried to a fresh one. */
@@ -538,7 +545,8 @@ function requestFor(
 			cwd: spawn.cwd,
 			attended,
 			quest: spawn.questId,
-			first: spawnedWords(spawn.questId, spawn.note),
+			first: spawn.first ?? spawnedWords(spawn.questId, spawn.note),
+			...(spawn.carried ? { env: spawn.carried } : {}),
 			...(spawn.model
 				? { model: { provider: spawn.model.provider, id: spawn.model.id } }
 				: {}),

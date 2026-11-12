@@ -72,6 +72,7 @@ import {
 	watchFirstTurn,
 } from "./first-turn-watch.ts";
 import { adoptTree, applyQuestGuards } from "./guard.ts";
+import { settleLaunchedSpawn } from "./launched-spawn.ts";
 import {
 	attachCurrentSession,
 	captureSessionIdentity,
@@ -336,6 +337,10 @@ export const QUEST_PARAMETERS = Type.Object({
 });
 
 export default async function questWorkflow(pi: ExtensionAPI) {
+	// First, before pi draws: a plain spawn the launcher started goes to
+	// the host spawnHost names, whatever code its spawner ran, and this pi
+	// ends; one that stays says why once it is up.
+	let stayedBecause = await settleLaunchedSpawn();
 	declareGuards(
 		GUARDS.questRecord,
 		GUARDS.questOwnedFields,
@@ -682,6 +687,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	let stopHostStamp: (() => void) | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
+		stayedBecause = undefined;
 		// What this session journals is its own, for its own undo.
 		setJournalSession(currentSessionId(ctx, undefined));
 		// A park said before this start is over: it parked, or never did.
