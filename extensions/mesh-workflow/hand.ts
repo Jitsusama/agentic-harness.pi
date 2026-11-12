@@ -24,6 +24,7 @@ import {
 import { machineBooted } from "../../lib/internal/booted.ts";
 import { kindOf, whatOf } from "../../lib/internal/priority/queue.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
 import {
 	handIn,
@@ -173,7 +174,7 @@ export function meshHand(
 					}
 				: undefined;
 		});
-		pi.on("turn_end", async () => {
+		onTurnEnd(pi, async () => {
 			tell();
 		});
 

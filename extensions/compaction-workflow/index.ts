@@ -108,6 +108,7 @@ import {
 } from "../../lib/compaction/trigger.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { whileCurrent } from "../../lib/internal/stale.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerFirstHead } from "./head.ts";
@@ -500,7 +501,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		if (enabled() && RESUMABLE_MODES.has(ctx.mode)) idle.start(ctx);
 	});
 
-	pi.on("turn_end", async (event, ctx) => {
+	onTurnEnd(pi, async (event, ctx) => {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
 		if (didNotComplete(event)) return;
 		// Shared with the status line and the mesh, which ask at the same

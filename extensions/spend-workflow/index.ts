@@ -69,6 +69,7 @@ import {
 	ROLLOVER_CARRY,
 	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import {
 	askBill,
 	BILL_PERIODS,
@@ -341,7 +342,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	// What the machine did for each turn, which no log records. Only a
 	// session with a person at it on plain pi, since a subagent's use
 	// already lands in its parent. A host records once for the process.
-	pi.on("turn_end", (_event, ctx) => {
+	onTurnEnd(pi, (_event, ctx) => {
 		if (!ctx.hasUI && !hosted()) return;
 		const log = ctx.sessionManager.getSessionFile();
 		if (!log) return;

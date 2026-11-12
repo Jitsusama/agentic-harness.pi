@@ -39,6 +39,7 @@ import { resolveLspBackend } from "../../lib/core/lsp/registry.ts";
 import { findProject } from "../../lib/core/verify/project.ts";
 import { runVerify } from "../../lib/core/verify/run.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import {
 	provideVerificationCheck,
@@ -151,7 +152,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	// the turn returns to the user. It is the harness speaking, so
 	// it is not a user message: the transcript, the cost ledger and
 	// the compaction quotes would all read one as the person.
-	pi.on("turn_end", async (event, ctx) => {
+	onTurnEnd(pi, async (event, ctx) => {
 		ctxRef = ctx;
 		// A turn that executed tools loops again on its own; only
 		// verify when the assistant is about to stop. An errored or
