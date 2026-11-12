@@ -4,7 +4,13 @@
  * second run with `write` changes a file.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,15 +21,15 @@ import {
 
 let root: string;
 
+/** A quest's README, in its own folder, as quests are kept: flat, a subquest too. */
 function quest(
 	quests: string,
-	path: string,
+	id: string,
 	fields: { parent?: string; status?: string; realm?: string } = {},
 ) {
-	const id = path.split("/").at(-1) ?? path;
-	mkdirSync(join(quests, path), { recursive: true });
+	mkdirSync(join(quests, id), { recursive: true });
 	writeFileSync(
-		join(quests, path, "README.md"),
+		join(quests, id, "README.md"),
 		[
 			"---",
 			`id: ${id}`,
@@ -41,7 +47,6 @@ function quest(
 			"",
 		].join("\n"),
 	);
-	return join(quests, path, "README.md");
 }
 
 const HOME = () => join(root, "quest-workflow", "quests");
@@ -50,7 +55,7 @@ const OTHER = () => join(root, "realms", "home", "quest-workflow", "quests");
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "stamp-"));
 	quest(HOME(), "QEST-20261101-AAAAAA");
-	quest(HOME(), "QEST-20261101-AAAAAA/QEST-20261101-BBBBBB", {
+	quest(HOME(), "QEST-20261101-BBBBBB", {
 		parent: "QEST-20261101-AAAAAA",
 	});
 	quest(HOME(), "QEST-20261101-CCCCCC", { status: "concluded" });
@@ -102,7 +107,7 @@ describe("stamping open quests with their realm", () => {
 		const again = stampQuestRealms({ roots, write: true });
 		const readme = (quests: string, path: string) =>
 			readFileSync(join(quests, path, "README.md"), "utf8");
-		const sub = readme(HOME(), "QEST-20261101-AAAAAA/QEST-20261101-BBBBBB");
+		const sub = readme(HOME(), "QEST-20261101-BBBBBB");
 		expect(
 			[
 				/^realm: work$/m.test(sub),
