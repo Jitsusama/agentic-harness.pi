@@ -48,6 +48,7 @@ import {
 	type Presence,
 	type Presences,
 	type QuestInfo,
+	type StandsAtTop,
 	workOf,
 } from "./presence.ts";
 import { type StepDetail, stepName } from "./step.ts";
@@ -351,6 +352,7 @@ export function localPeer(at: Surroundings): Peer {
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
 	let quest: string | undefined;
 	let questInfo: QuestInfo | undefined;
+	let standsAtTop: StandsAtTop | undefined;
 	let repo: string | undefined;
 	let busy = false;
 	// When the run in progress began, and the step it was last said on.
@@ -437,6 +439,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
 			...(questInfo ? { questInfo } : {}),
+			...(standsAtTop ? { standsAtTop } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
 			...(moving ? { moving } : {}),
@@ -491,6 +494,7 @@ export function localPeer(at: Surroundings): Peer {
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
 		quest = work.quest;
 		questInfo = work.questInfo;
+		standsAtTop = work.standsAtTop;
 		repo = work.repo;
 		publish();
 	};

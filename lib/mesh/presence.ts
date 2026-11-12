@@ -218,8 +218,19 @@ export interface Presence {
 	 * doesn't say.
 	 */
 	readonly driven?: boolean;
+	/**
+	 * The name Agents shows it under at the launcher's top, never folded,
+	 * and the words that find it, as its README's `stands-at-top` says.
+	 */
+	readonly standsAtTop?: StandsAtTop;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
+}
+
+/** How a session stands at the launcher's top: its name and its words. */
+export interface StandsAtTop {
+	readonly name: string;
+	readonly keywords: readonly string[];
 }
 
 /** A move waiting for its session to be free, as presence says it. */
@@ -308,6 +319,8 @@ export interface PeerWork {
 	readonly orchestration: Orchestration;
 	/** Its quest hears only what is put to it (see attention.ts). */
 	readonly hears?: "addressed";
+	/** Its quest stands at the launcher's top (see Presence). */
+	readonly standsAtTop?: StandsAtTop;
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -371,7 +384,28 @@ export function workOf(
 		}),
 		orchestration,
 		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
+		...standingAtTop(parsed.frontMatter._extra?.["stands-at-top"]),
 	};
+}
+
+/** A `stands-at-top` as `{name, keywords}`, or nothing with no name. */
+function standingAtTop(said: unknown): { standsAtTop?: StandsAtTop } {
+	const standsAtTop = standsAtTopFrom(said);
+	return standsAtTop ? { standsAtTop } : {};
+}
+
+/** A standing at the top read from outside, or nothing. */
+function standsAtTopFrom(said: unknown): StandsAtTop | undefined {
+	if (!isRecord(said) || typeof said.name !== "string") return undefined;
+	const name = said.name.trim();
+	if (name === "") return undefined;
+	const keywords = Array.isArray(said.keywords)
+		? said.keywords
+				.filter((word): word is string => typeof word === "string")
+				.map((word) => word.trim())
+				.filter((word) => word !== "")
+		: [];
+	return { name, keywords };
 }
 
 /**
@@ -657,6 +691,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(isUsage(one.usage) ? { usage: one.usage } : {}),
 		...(movingFrom(one.moving) ? { moving: movingFrom(one.moving) } : {}),
 		...(typeof one.driven === "boolean" ? { driven: one.driven } : {}),
+		...standingAtTop(one.standsAtTop),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }

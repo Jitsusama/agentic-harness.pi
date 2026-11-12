@@ -15,6 +15,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	parseQuestFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../../lib/internal/quest/frontmatter.ts";
+import {
 	clearRefusedWake,
 	writeRefusedWake,
 } from "../../../lib/internal/session/refused-wake.ts";
@@ -772,6 +776,69 @@ describe("this session's peer", () => {
 				[before, peer.receiver.hears, peer.orchestratedBy],
 				"everything, then only what is put to it, still orchestrated",
 			).toEqual([undefined, "addressed", "WCJQSG"]);
+		});
+
+		it("stands at the launcher's top while its quest says so, under the name it gives", () => {
+			write([[LOOP, readme(LOOP, "null")]], LOOP);
+			const peer = localPeer(surroundings());
+			const kept = createPresences(join(root, "presence"));
+			const before = Object.keys(kept.of(session) ?? {});
+			writeFileSync(
+				join(root, "quests", LOOP, "README.md"),
+				readme(LOOP, "null").replace(
+					"---\n#",
+					"stands-at-top: {name: The Void, keywords: [void]}\n---\n#",
+				),
+			);
+			peer.refresh();
+
+			expect(
+				[before.includes("standsAtTop"), kept.of(session)?.standsAtTop],
+				"left out until its quest says it, then kept as said",
+			).toEqual([false, { name: "The Void", keywords: ["void"] }]);
+		});
+
+		it("still stands at the top after the workflow rewrites its README", () => {
+			const said = readme(LOOP, "null").replace(
+				"---\n#",
+				"stands-at-top: {name: The Void, keywords: [void]}\n---\n#",
+			);
+			const parsed = parseQuestFrontMatter(said);
+			if (!parsed) throw new Error("the README should parse");
+			write(
+				[
+					[
+						LOOP,
+						`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+					],
+				],
+				LOOP,
+			);
+			localPeer(surroundings());
+
+			expect(
+				createPresences(join(root, "presence")).of(session)?.standsAtTop,
+			).toEqual({ name: "The Void", keywords: ["void"] });
+		});
+
+		it("stands nowhere when its quest names no one to stand as", () => {
+			write(
+				[
+					[
+						LOOP,
+						readme(LOOP, "null").replace(
+							"---\n#",
+							"stands-at-top: {keywords: [void]}\n---\n#",
+						),
+					],
+				],
+				LOOP,
+			);
+			localPeer(surroundings());
+
+			expect(
+				Object.keys(createPresences(join(root, "presence")).of(session) ?? {}),
+			).not.toContain("standsAtTop");
 		});
 
 		it("says the quest it has loaded, by id, and none while it has none", () => {
