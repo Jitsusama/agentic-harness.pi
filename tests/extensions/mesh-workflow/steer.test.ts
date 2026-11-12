@@ -7,21 +7,37 @@ import { describe, expect, it } from "vitest";
 import { steerText } from "../../../extensions/mesh-workflow/steer.ts";
 
 describe("a steer as the session reads it", () => {
-	it("is the person's word when the person, or nobody named, wrote it", () => {
-		expect(steerText({ text: "pivot", from: "joel", file: "f" })).toMatch(
-			/^\[Steered by joel from outside this window/,
+	it("is the person asking, to be answered first, when they or nobody named wrote it", () => {
+		expect(
+			steerText({ text: "hello", from: "joel", file: "f" }, { busy: true }),
+		).toBe(
+			"[Joel is asking from outside this window while this session works: answer first, in a line or two, then carry on.]\n\nhello",
 		);
-		expect(steerText({ text: "pivot", file: "f" })).toMatch(
-			/^\[Steered by the person/,
+		expect(steerText({ text: "hello", file: "f" }, { busy: false })).toBe(
+			"[The person is asking from outside this window: answer first, in a line or two, then do what is asked.]\n\nhello",
 		);
+		expect(
+			steerText({ text: "hi", from: "person", file: "f" }, { busy: false }),
+		).toMatch(/^\[The person is asking/);
+	});
+
+	it("never says a reply may go unread", () => {
+		for (const busy of [true, false]) {
+			expect(
+				steerText({ text: "hello", from: "joel", file: "f" }, { busy }),
+			).not.toMatch(/unread/);
+		}
 	});
 
 	it("says a machine's words aren't the person's", () => {
-		const said = steerText({
-			text: "this machine leaves at 17:00",
-			from: "machine",
-			file: "f",
-		});
+		const said = steerText(
+			{
+				text: "this machine leaves at 17:00",
+				from: "machine",
+				file: "f",
+			},
+			{ busy: true },
+		);
 		expect(said).toMatch(
 			/^\[Said by this machine's mycelium node, not by the person/,
 		);
@@ -29,12 +45,15 @@ describe("a steer as the session reads it", () => {
 	});
 
 	it("names the machine's program that wrote it, when it says", () => {
-		const said = steerText({
-			text: "no builder answers",
-			from: "machine",
-			by: "nix-offload",
-			file: "f",
-		});
+		const said = steerText(
+			{
+				text: "no builder answers",
+				from: "machine",
+				by: "nix-offload",
+				file: "f",
+			},
+			{ busy: false },
+		);
 		expect(said).toMatch(
 			/^\[Said by this machine's nix-offload, not by the person/,
 		);

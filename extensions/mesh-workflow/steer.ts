@@ -12,6 +12,7 @@
 import { type FSWatcher, watch } from "node:fs";
 import {
 	FROM_MACHINE,
+	FROM_PERSON,
 	inboxOf,
 	type Steer,
 	takeSteers,
@@ -90,15 +91,33 @@ export function createSteering(host: SteeringHost): Steering {
 	};
 }
 
+/** What the session is doing as a steer reaches it. */
+export interface SteeredInto {
+	/** Whether a run is under way, which the steer is read into. */
+	readonly busy: boolean;
+}
+
 /**
- * What the session reads: the person's words, saying where they came
- * from, or the machine's, saying they aren't the person's.
+ * What the session reads: the person asking, to be answered first and
+ * briefly, or the machine's words, saying they aren't the person's.
+ *
+ * The person's words are a question put from the launcher or another
+ * window, where the talk shows the first answer; framed as mere
+ * context, a busy session read them as a note and never answered.
  */
-export function steerText(steer: Steer): string {
+export function steerText(steer: Steer, into: SteeredInto): string {
 	if (steer.from === FROM_MACHINE) {
 		const who = steer.by ?? "mycelium node";
 		return `[Said by this machine's ${who}, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
 	}
-	const who = steer.from ?? "the person";
-	return `[Steered by ${who} from outside this window, so a reply here may go unread until they come to it.]\n\n${steer.text}`;
+	const then = into.busy
+		? " while this session works: answer first, in a line or two, then carry on."
+		: ": answer first, in a line or two, then do what is asked.";
+	return `[${asker(steer.from)} is asking from outside this window${then}]\n\n${steer.text}`;
+}
+
+/** Who a steer's writer reads as: Joel by name, else the person. */
+function asker(from: string | undefined): string {
+	if (!from || from === FROM_PERSON) return "The person";
+	return `${from.charAt(0).toUpperCase()}${from.slice(1)}`;
 }
