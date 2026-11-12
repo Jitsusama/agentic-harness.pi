@@ -141,6 +141,11 @@ export interface Watch {
 	 * person asked for it, so their being at its window doesn't hold it.
 	 */
 	restartInto(sessionFile: string, asked?: boolean): string | undefined;
+	/**
+	 * Whether this watch ended pi's process for its holder to start again,
+	 * parked or restarting, rather than a host's conversation.
+	 */
+	endedItsProcess(): boolean;
 	/** Stop watching, as the session ends. */
 	stop(): void;
 }
@@ -153,8 +158,8 @@ export interface WatchOptions {
 	readonly now?: () => number;
 	/** pi's own arguments, which a holder naming no restart runs again. */
 	readonly args?: readonly string[];
-	/** Set the code pi exits with, and the line it leaves, once it exits. */
-	readonly exitWith?: (code: number, line: string) => void;
+	/** Set the code pi exits with, once it exits. */
+	readonly exitWith?: (code: number) => void;
 	/** Look on a clock; false for tests that look by hand. */
 	readonly clock?: boolean;
 	/** This process, which its holder's record must name to park. */
@@ -176,10 +181,6 @@ export interface WatchOptions {
  * Joel has focused, nor one he was in within ten minutes.
  */
 export const UNWATCHED_MS = 10 * 60_000;
-
-/** What a window shows once its session has parked. */
-export const PARKED_LINE =
-	"Parked while idle, holding no memory. A key or a message wakes it.";
 
 /** What a window shows as its session starts again on a fresh log. */
 export const RESTART_LINE =
@@ -267,12 +268,26 @@ function shownIn(wake: string): string[] | undefined {
  * Say to the process that, whatever pi exits with, it exits with this,
  * leaving `line` in its window.
  */
-function exitWith(code: number, line: string): void {
+function exitWith(code: number): void {
 	// pi ends a quit with process.exit(0); an exit listener's code wins.
+	// The window stays with its holder, which says it parked, so this
+	// writes nothing: a line of its own said it twice (KP0L6A, 11 November).
 	process.once("exit", () => {
 		process.exitCode = code;
-		// The window stays with its holder, so it says why it is quiet.
-		process.stdout.write(`\r\n${line}\r\n`);
+	});
+}
+
+/**
+ * Leave out pi's "To resume this session" hint as a pi its holder will
+ * start again exits: the holder brings the session back itself, and says
+ * so in the window, so the hint only pushed his last screen up. pi prints
+ * it only while stdout is a terminal, and asks once its screen has stopped
+ * and every session_shutdown handler has run, so nothing after reads it.
+ */
+export function hideResumeHint(): void {
+	Object.defineProperty(process.stdout, "isTTY", {
+		value: false,
+		configurable: true,
 	});
 }
 
@@ -362,6 +377,8 @@ export function watch(
 	let last = woke ? now() : Math.min(now(), lastMessageAt(ctx) ?? now());
 	let prompts = 0;
 	let parked = false;
+	// Ended pi's own process, as a host's conversation never does.
+	let endedProcess = false;
 	// Its person was last at its window, as far as this process saw.
 	let presentAt = Number.NEGATIVE_INFINITY;
 	const holding = (): Holding => ({
@@ -380,7 +397,7 @@ export function watch(
 		}
 		return undefined;
 	};
-	const end = (line: string) => {
+	const end = () => {
 		parked = true;
 		// A host parks this conversation alone, keeping its window and wake.
 		const host = parkingHost();
@@ -388,7 +405,8 @@ export function watch(
 			host.park(session);
 			return;
 		}
-		(options.exitWith ?? exitWith)(PARKED_EXIT, line);
+		endedProcess = true;
+		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
 	const decide = (): string | undefined => {
@@ -432,7 +450,7 @@ export function watch(
 			},
 			folder,
 		);
-		end(PARKED_LINE);
+		end();
 		return undefined;
 	};
 	// Whether its person may be looking: the blank a restart leaves for
@@ -492,6 +510,7 @@ export function watch(
 			setCode(PARKED_EXIT);
 		};
 		parked = true;
+		endedProcess = true;
 		(options.restartWith ?? restartWith)(fresh, throughHolder);
 		void ctx.shutdown();
 		return undefined;
@@ -551,6 +570,7 @@ export function watch(
 		},
 		look,
 		restartInto,
+		endedItsProcess: () => endedProcess,
 		stop() {
 			unasked();
 			clearInterval(clock);

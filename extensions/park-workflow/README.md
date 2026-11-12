@@ -86,10 +86,11 @@ conversation alone, it never parks, and its awake note says
    `park-workflow/parked/<session-id>.json`, naming its log, its
    folder, its addresses, its quest, when it parked and, as `wake`,
    the file its holder wakes it on.
-3. pi shuts down as `/quit` would, leaves a line in its window saying
-   it is parked and that a key or a message wakes it, and exits with
-   code 75 (EX_TEMPFAIL), which tells its holder this is a park, not
-   an end.
+3. pi shuts down as `/quit` would and exits with code 75
+   (EX_TEMPFAIL), which tells its holder this is a park, not an end.
+   It writes nothing of its own and leaves out pi's "To resume this
+   session" hint: the holder says in the window that it parked and
+   that a key or a message wakes it, and once was enough.
 
 A message that would give the parked peer a turn (a question or hold
 sent to it, an answer to it, a pivot, and for an orchestrator a

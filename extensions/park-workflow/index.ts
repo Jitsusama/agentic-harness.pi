@@ -11,7 +11,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clearAwake } from "../../lib/internal/session/park.ts";
 import { meansPresence } from "../../lib/ui/terminal-reports.ts";
-import { mayPark, noteNeverParks, type Watch, watch } from "./watch.ts";
+import {
+	hideResumeHint,
+	mayPark,
+	noteNeverParks,
+	type Watch,
+	watch,
+} from "./watch.ts";
 
 export default function parkWorkflow(pi: ExtensionAPI) {
 	let watching: Watch | undefined;
@@ -50,6 +56,8 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		unlisten?.();
 		unlisten = undefined;
+		// Its holder starts it again and says so; pi's hint would repeat it.
+		if (watching?.endedItsProcess()) hideResumeHint();
 		watching?.stop();
 		watching = undefined;
 		unnote();

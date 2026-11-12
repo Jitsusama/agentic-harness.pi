@@ -15,6 +15,7 @@ import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	HOST_PARKS,
+	hideResumeHint,
 	mayPark,
 	noteNeverParks,
 	type Parkable,
@@ -120,8 +121,10 @@ describe("parking a session", () => {
 		const watched = watching();
 		clock = NAMED_PARK_AFTER_MS - 1;
 		expect(watched.look()).toBe("not idle long enough");
+		expect(watched.endedItsProcess(), "awake, it ended nothing").toBe(false);
 		clock = NAMED_PARK_AFTER_MS;
 		expect(watched.look()).toBeUndefined();
+		expect(watched.endedItsProcess(), "parked, it ended pi").toBe(true);
 		expect(readParked(SESSION, folder)).toMatchObject({
 			session: SESSION,
 			sessionFile: logOf(),
@@ -694,6 +697,9 @@ describe("why a session stays awake", () => {
 				{ shutdowns, exits, parked: readParked(SESSION, folder) },
 				"a hosted session never ends its process",
 			).toEqual({ shutdowns: 0, exits: [], parked: undefined });
+			expect(watched.endedItsProcess(), "a host's process is left to it").toBe(
+				false,
+			);
 			expect(awake()?.why).toBe(HOST_PARKS);
 
 			expect(
@@ -779,5 +785,26 @@ describe("why a session stays awake", () => {
 			why: "no holder would wake it",
 			since: new Date(5000).toISOString(),
 		});
+	});
+});
+
+// KP0L6A, 11 November: a parked window ended with three lines saying the
+// same thing, pushing Joel's last screen up.
+describe("what a parked window is left showing", () => {
+	it("leaves out pi's resume hint, which pi prints only to a terminal", () => {
+		const was = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+		try {
+			Object.defineProperty(process.stdout, "isTTY", {
+				value: true,
+				configurable: true,
+			});
+			hideResumeHint();
+			expect(process.stdout.isTTY, "pi reads no terminal to hint at").toBe(
+				false,
+			);
+		} finally {
+			if (was) Object.defineProperty(process.stdout, "isTTY", was);
+			else Reflect.deleteProperty(process.stdout, "isTTY");
+		}
 	});
 });
