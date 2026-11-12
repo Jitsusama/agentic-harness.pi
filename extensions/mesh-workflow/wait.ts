@@ -22,6 +22,7 @@ import { existsSync } from "node:fs";
 import {
 	addWaiting,
 	applyVerdicts,
+	claimEnded,
 	isKnowing,
 	type Knowing,
 	markOwner,
@@ -155,16 +156,20 @@ export interface WaitOutcome {
 /**
  * Say whether this session still runs for what it raised: ended as it
  * ends, so the launcher doesn't send the person into a session that's
- * gone, and running again as it starts. A file that can't be written
- * now is told at the next start or end.
+ * gone, and running again as it starts, when it also takes up what its
+ * quest has waiting from a session that ended, so the launcher sends
+ * the person here. A file that can't be written now is told at the
+ * next start or end.
  */
 export function markOwnerRunning(waiting: Waiting, running: boolean): void {
 	const quest = waiting.quest();
 	const owner = waiting.owner?.();
 	if (!quest || !owner) return;
 	try {
-		const change = () =>
+		const change = () => {
 			markOwner(waiting.folder, quest, owner.session, !running);
+			if (running) claimEnded(waiting.folder, quest, owner);
+		};
 		if (waiting.locked) waiting.locked(quest, change);
 		else change();
 	} catch {

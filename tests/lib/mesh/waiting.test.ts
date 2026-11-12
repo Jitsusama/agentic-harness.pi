@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addWaiting,
 	applyVerdicts,
+	claimEnded,
 	clearWaiting,
 	isKnowing,
 	markOwner,
@@ -134,6 +135,33 @@ describe("what waits on the person", () => {
 			"starting again unmarks it",
 		).toBe(true);
 		expect(waitingOf(folder, QUEST)[0]?.owner).toEqual(owner);
+	});
+
+	// 2RCBOJ, 11 November: four asks read "session ended" on For You
+	// after a new session had taken their quest up.
+	it("passes an ended session's items, and unowned ones, to the session taking its quest up", () => {
+		const gone = { session: "S1", address: "WJATIN", state: "ended" as const };
+		const running = { session: "S2", address: "X" };
+		const taker = {
+			session: "S3",
+			address: "85PKB2",
+			sandbox: "none" as const,
+		};
+		addWaiting(folder, item({ id: "gone", owner: gone }), at);
+		addWaiting(folder, item({ id: "running", owner: running }), at);
+		addWaiting(folder, item({ id: "unowned" }), at);
+
+		expect(claimEnded(folder, QUEST, taker, at), "it takes some up").toBe(true);
+		expect(
+			Object.fromEntries(
+				waitingOf(folder, QUEST).map((one) => [one.id, one.owner]),
+			),
+			"a running session's item stays its own",
+		).toEqual({ gone: taker, running, unowned: taker });
+		expect(
+			claimEnded(folder, QUEST, taker, at),
+			"taking them up again changes nothing",
+		).toBe(false);
 	});
 
 	it("goes with its quest", () => {
