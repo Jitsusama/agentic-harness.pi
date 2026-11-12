@@ -13,8 +13,9 @@
  * `ctx.modelRegistry.streamSimple`, pi's own model runtime, which
  * resolves the model's base URL and credentials the way the turn did,
  * so the replay reaches the same endpoint and the same cache, and
- * credentials never pass through here. The headers are held in memory
- * and nowhere else. The reply joins nothing: it is not a message, only
+ * credentials never pass through here. The headers are held in memory,
+ * and written down across a restart only without any that could hold a
+ * credential (see below). The reply joins nothing: it is not a message, only
  * a custom entry recording what it cost.
  *
  * When: once the run settles, at 54 minutes after the last real
@@ -84,6 +85,7 @@ import {
 } from "../../lib/internal/config/loader.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import { scrubSecrets } from "../../lib/internal/secrets.ts";
 import { isStaleContext } from "../../lib/internal/stale.ts";
 import {
 	keepingRequests,
@@ -449,7 +451,10 @@ function plan(ctx: ExtensionContext, held: HeldRequest | null): Planned {
 	return { ok: true, held, lifetimeMs, delayMs };
 }
 
-/** A header whose name says it may carry a credential, never written down. */
+/**
+ * A header whose name says it may carry a credential, never written down;
+ * one whose value is shaped like a credential is left out as well.
+ */
 const CREDENTIAL_HEADER =
 	/authorization|api[-_]?key|cookie|token|secret|password/i;
 
@@ -457,7 +462,9 @@ const CREDENTIAL_HEADER =
 function onDisk(sessionId: string, going: Carried): Record<string, unknown> {
 	const headers = Object.fromEntries(
 		Object.entries(going.held.headers).filter(
-			([name]) => !CREDENTIAL_HEADER.test(name),
+			([name, value]) =>
+				!CREDENTIAL_HEADER.test(name) &&
+				scrubSecrets(value).kinds.length === 0,
 		),
 	);
 	return {
