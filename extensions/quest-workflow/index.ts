@@ -87,6 +87,7 @@ import {
 	sayFirstWords,
 } from "./lifecycle.ts";
 import { recentSessionHints } from "./lookup.ts";
+import { registerOnTop } from "./on-top.ts";
 import { sayPeersOnStartup } from "./peers.ts";
 import { keepDesktopListsCurrent } from "./quest-index.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
@@ -893,6 +894,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// quest's whole README.
 	const rulesFor = standingRules(() => state.questsRoot);
 	registerStandingContext(pi, STANDING_RULES, () => rulesFor(state.questId));
+
+	// What Joel put on top, said to every session as it next works.
+	registerOnTop(pi);
 }
 
 /** The minimal render component pi's setWidget callback form returns. */
