@@ -75,10 +75,9 @@ describe("what is on top", () => {
 		const read = reader(where, "s1");
 		const before = read();
 		writeFileSync(where.file, '{"quests": [');
-		expect(
-			[before === null, read() === before],
-			"the last whole file",
-		).toEqual([false, true]);
+		expect([before === null, read() === before], "the last whole file").toEqual(
+			[false, true],
+		);
 	});
 
 	it("counts each session once as it reads, for the receipt", () => {
