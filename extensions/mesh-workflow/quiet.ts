@@ -60,7 +60,9 @@ export function folds(delivery: Folding | undefined): boolean {
 /**
  * How many messages a session's log shows quiet kept off its screen
  * since it last went on, so the footer says after a reload what the
- * screen still hides rather than starting again at none.
+ * screen still hides rather than starting again at none. A delivery
+ * logged before deliveries said forThisPeer counts as kept off if it
+ * only told, so for a while the number may run one or two high.
  */
 export function keptOffIn(entries: readonly unknown[]): number {
 	let kept = 0;
