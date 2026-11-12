@@ -44,7 +44,7 @@ import {
 } from "../end-to-end/support/screen-host.ts";
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
-import { rpcClient } from "../parity/rpc-client.ts";
+import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
 import {
 	entriesOf,
 	growthOf,
@@ -52,7 +52,12 @@ import {
 	parityOf,
 	spreadOf,
 } from "./report.ts";
-import { type SoakProvider, soakProvider, textOf } from "./soak-provider.ts";
+import {
+	JOB_SAYS,
+	type SoakProvider,
+	soakProvider,
+	textOf,
+} from "./soak-provider.ts";
 import {
 	acknowledged,
 	checkpointsOf,
@@ -487,8 +492,18 @@ async function runPlain(sealed: Seal): Promise<{
 				env,
 				log,
 			);
-			for (const turn of turnsOf(index, count))
+			for (const turn of turnsOf(index, count)) {
+				// A job's report starts a turn of its own once the job ends, so
+				// the next prompt waits for that turn too, as the hosted side
+				// waits for the host to list the conversation idle.
+				const reported =
+					turn.kind === "job" ? client.wait(reportSettled()) : undefined;
+				// Awaited below; a failure before then is its to report.
+				reported?.catch(() => undefined);
 				await tried(client.prompt(turn.prompt), `plain ${turn.tag}`);
+				if (reported)
+					await tried(reported, `plain ${turn.tag}'s job report never settled`);
+			}
 			const { data } = await client.request({ type: "get_state" });
 			const file = isRecord(data) ? data.sessionFile : undefined;
 			await client.close();
@@ -502,6 +517,27 @@ async function runPlain(sealed: Seal): Promise<{
 	return {
 		logs: ran.map((one) => one.entries),
 		errors: ran.map((one) => one.errors),
+	};
+}
+
+/**
+ * A match for the first settling after a job's report is heard: the
+ * report is a message neither the model's nor a tool's, holding what
+ * the job printed.
+ */
+function reportSettled(): (event: RpcEvent) => boolean {
+	let heard = false;
+	return (event) => {
+		const message = isRecord(event.message) ? event.message : undefined;
+		if (
+			event.type === "message_end" &&
+			message !== undefined &&
+			message.role !== "assistant" &&
+			message.role !== "toolResult" &&
+			JSON.stringify(message).includes(JOB_SAYS)
+		)
+		heard = true;
+		return heard && event.type === "agent_settled";
 	};
 }
 
