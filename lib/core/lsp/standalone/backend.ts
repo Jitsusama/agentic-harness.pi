@@ -67,6 +67,8 @@ export interface StandaloneBackendOptions {
 	readonly env?: NodeJS.ProcessEnv;
 	/** How long a server may sit unused before it is stopped. */
 	readonly idleMs?: number;
+	/** How often the pool looks for servers whose project folder is gone. */
+	readonly goneCheckMs?: number;
 	/** How long one call may wait on its servers before it is given up on. */
 	readonly requestMs?: number;
 }
