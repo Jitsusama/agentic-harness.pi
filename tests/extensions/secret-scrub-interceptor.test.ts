@@ -222,7 +222,10 @@ describe("a command that prints the environment", () => {
 	];
 	for (const command of dumps) {
 		it(`is known as one: ${command}`, () => {
-			expect(dumpsEnvironment(command)).toBe(true);
+			expect(
+				dumpsEnvironment(command),
+				`${command} prints the environment`,
+			).toBe(true);
 		});
 	}
 
@@ -236,7 +239,10 @@ describe("a command that prints the environment", () => {
 	];
 	for (const command of runs) {
 		it(`is not one: ${command}`, () => {
-			expect(dumpsEnvironment(command)).toBe(false);
+			expect(
+				dumpsEnvironment(command),
+				`${command} prints only its own output`,
+			).toBe(false);
 		});
 	}
 
@@ -253,7 +259,7 @@ describe("a command that prints the environment", () => {
 			value,
 		].join("\n");
 		const { text } = scrubSecrets(dump, [], { environment: true });
-		expect(text.includes(value)).toBe(false);
+		expect(text).not.toContain(value);
 		expect(text).toBe(
 			[
 				"\tinherited environment = {",
@@ -398,7 +404,7 @@ describe("a tool's answer", () => {
 			input: { command: "ssh -n far 'launchctl print gui/501/x'" },
 			content: [{ type: "text", text: `\t\tOP_SESSION_ab12 => ${value}` }],
 		});
-		expect(JSON.stringify(result).includes(value)).toBe(false);
+		expect(JSON.stringify(result)).not.toContain(value);
 	});
 
 	it("is handed on untouched when it holds no secret", async () => {
