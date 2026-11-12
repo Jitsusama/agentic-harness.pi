@@ -4,14 +4,17 @@
  * The void is one small session that takes a line Joel says once and
  * sends it where it belongs. It writes each line to a day file first,
  * as `- HH:MM <his words> → <where it went>`, in local time. Its turns
- * are booked in the ledger to its quest, so each turn that came within
- * minutes of a line is that line's cost, and the rest (starting, a
- * cold wake, anything between lines) is the void's upkeep. Measured
+ * are booked in the ledger to its quest (`void-cost.sql`), so each turn
+ * that came within minutes of a line, or within minutes of the turn
+ * before it on that line, is that line's cost, and the rest (starting,
+ * a cold wake, anything between lines) is the void's upkeep. Measured
  * rather than estimated, as asked of it from its first day (WCJQSG,
  * 12 November 2026). The measure says where each line went, never
- * his words.
+ * his words: what follows the arrow, and of a line left for him only
+ * that it was.
  */
 
+import { sqlFile } from "../lib/core/internal/sqlite/sql-file.ts";
 import type { LedgerQuery } from "./one-call.ts";
 
 /** The void's quest, which every one of its turns is booked to. */
@@ -38,8 +41,10 @@ export interface VoidCostReport {
 
 const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
-/** How long after a line a turn still counts as routing it. */
+/** How long after a line, or after its last turn, a turn still counts as routing it. */
 const LINE_MINUTES = 10;
+/** What a line left for him is noted as, before what it asks of him. */
+const FOR_HIM = "for you";
 /** Cost is kept to a hundredth of a cent, so sums read as they add. */
 const COST_PLACES = 10_000;
 const ARROW = " → ";
@@ -60,21 +65,28 @@ export async function voidCost(
 		.flatMap((day) => linesOf(day, readDay(day) ?? ""))
 		.filter((line) => line.stamp >= from.stamp && line.stamp <= to.stamp);
 	const rows = await query(
-		`SELECT timestamp, cost_total AS cost FROM turns WHERE quest = '${VOID_QUEST}' AND timestamp >= '${new Date(since).toISOString()}' AND timestamp < '${new Date(now).toISOString()}' ORDER BY timestamp`,
+		statement(
+			sqlFile(new URL("./void-cost.sql", import.meta.url), {
+				since_ms: since,
+				until_ms: now,
+			}),
+		),
 	);
 	const booked = lines.map(() => ({ turns: 0, cost: 0 }));
 	let upkeep = 0;
+	let last: { index: number; at: number } | undefined;
 	for (const row of rows) {
 		const at = Date.parse(String(row.timestamp));
 		const cost = Number(row.cost);
 		const spent = Number.isFinite(cost) ? cost : 0;
-		const index = lineBefore(lines, clock, at);
+		const index = lineBefore(lines, clock, at) ?? stillRouting(last, at);
 		const tally = index === undefined ? undefined : booked[index];
-		if (tally === undefined) {
+		if (index === undefined || tally === undefined) {
 			upkeep += spent;
 		} else {
 			tally.turns += 1;
 			tally.cost += spent;
+			last = { index, at };
 		}
 	}
 	return {
@@ -132,7 +144,7 @@ function linesOf(day: string, text: string): DayLine[] {
 		if (at === undefined) continue;
 		const arrow = raw.lastIndexOf(ARROW);
 		const went = arrow < 0 ? "not yet noted" : raw.slice(arrow + ARROW.length);
-		lines.push({ day, at, went: went.trim(), stamp: `${day} ${at}` });
+		lines.push({ day, at, went: placeOf(went.trim()), stamp: `${day} ${at}` });
 	}
 	return lines;
 }
@@ -150,6 +162,25 @@ function lineBefore(
 		if (line.stamp <= now && line.stamp >= soon) found = index;
 	});
 	return found;
+}
+
+/** The line the turn before was on, when this one came within minutes of it. */
+function stillRouting(
+	last: { index: number; at: number } | undefined,
+	at: number,
+): number | undefined {
+	if (last === undefined) return undefined;
+	return at - last.at <= LINE_MINUTES * MINUTE_MS ? last.index : undefined;
+}
+
+/** Where a line went, without what a line left for him asks of him. */
+function placeOf(went: string): string {
+	return went.startsWith(`${FOR_HIM}:`) ? FOR_HIM : went;
+}
+
+/** A query file without its leading comment, since the ledger takes only a statement that opens with SELECT or WITH. */
+function statement(text: string): string {
+	return text.replace(/^(?:--.*\n)+/, "");
 }
 
 /** A clock reading instants as a day and a minute in `zone`. */
