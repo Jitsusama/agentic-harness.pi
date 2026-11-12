@@ -12,9 +12,12 @@
  * session, such as bash after bash. A codemode script counts as one
  * call, since running several looks as one is what it is for.
  *
- * The counting runs in SQL, since a ledger query answers at most a few
+ * The counting runs in SQL, in `one-call-days.sql` and
+ * `one-call-tools.sql`, since a ledger query answers at most a few
  * thousand rows and a day holds over a hundred thousand turns.
  */
+
+import { sqlFile } from "../lib/core/internal/sqlite/sql-file.ts";
 
 /** Runs one read-only query against the ledger and answers its rows. */
 export type LedgerQuery = (
@@ -56,43 +59,23 @@ export async function oneCallTurns(
 	query: LedgerQuery,
 	now: number,
 ): Promise<OneCallReport> {
-	const until = new Date(now).toISOString();
-	const week = new Date(now - DAYS * DAY_MS).toISOString();
-	const day = new Date(now - DAY_MS).toISOString();
-	const shaped = await query(`
-		WITH calls AS (
-			SELECT session_id, entry_id, count(*) AS n
-			FROM tool_calls WHERE timestamp >= '${week}'
-			GROUP BY session_id, entry_id
-		)
-		SELECT
-			cast(julianday('${until}') - julianday(t.timestamp) AS integer) AS ago,
-			count(*) AS turns,
-			sum(coalesce(c.n, 0) = 0) AS none,
-			sum(c.n = 1) AS one,
-			sum(c.n > 1) AS several
-		FROM turns t
-		LEFT JOIN calls c ON c.session_id = t.session_id AND c.entry_id = t.entry_id
-		WHERE t.kind = 'assistant' AND t.timestamp >= '${week}' AND t.timestamp < '${until}'
-		GROUP BY ago`);
-	const tools = await query(`
-		WITH calls AS (
-			SELECT session_id, entry_id, count(*) AS n, min(name) AS tool
-			FROM tool_calls WHERE timestamp >= '${day}'
-			GROUP BY session_id, entry_id
+	const shaped = await query(
+		statement(
+			sqlFile(new URL("./one-call-days.sql", import.meta.url), {
+				since_ms: now - DAYS * DAY_MS,
+				until_ms: now,
+			}),
 		),
-		steps AS (
-			SELECT
-				CASE WHEN c.n = 1 THEN c.tool END AS tool,
-				lag(CASE WHEN c.n = 1 THEN c.tool END)
-					OVER (PARTITION BY t.session_id ORDER BY t.timestamp) AS before
-			FROM turns t
-			LEFT JOIN calls c ON c.session_id = t.session_id AND c.entry_id = t.entry_id
-			WHERE t.kind = 'assistant' AND t.timestamp >= '${day}' AND t.timestamp < '${until}'
-		)
-		SELECT tool, count(*) AS turns, sum(coalesce(before = tool, 0)) AS afterItself
-		FROM steps WHERE tool IS NOT NULL
-		GROUP BY tool ORDER BY turns DESC, tool LIMIT ${TOOLS_SHOWN}`);
+	);
+	const tools = await query(
+		statement(
+			sqlFile(new URL("./one-call-tools.sql", import.meta.url), {
+				since_ms: now - DAY_MS,
+				until_ms: now,
+				shown: TOOLS_SHOWN,
+			}),
+		),
+	);
 	const byAgo = new Map(shaped.map((row) => [count(row.ago), row]));
 	const days = Array.from({ length: DAYS }, (_, ago) => {
 		const row = byAgo.get(ago);
@@ -149,6 +132,11 @@ export function formatOneCall(report: OneCallReport): string {
 		"",
 	);
 	return lines.join("\n");
+}
+
+/** A query file without its leading comment, since the ledger takes only a statement that opens with SELECT or WITH. */
+function statement(text: string): string {
+	return text.replace(/^(?:--.*\n)+/, "");
 }
 
 function perHundred(part: number, whole: number): number {
