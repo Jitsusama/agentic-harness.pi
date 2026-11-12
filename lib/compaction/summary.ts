@@ -149,6 +149,27 @@ const FOLD_PREVIOUS = `The conversation above begins with a summary of earlier h
 - UPDATE "Next Steps" based on what was accomplished
 - If something is no longer relevant, you may remove it`;
 
+/** What a sized fold says in its own way; the rest both folds share, so an edit can't split the trial's halves by accident. */
+interface FoldWords {
+	readonly how: string;
+	readonly carry: string;
+	readonly finished: string;
+	readonly remove: string;
+}
+
+/** A sized fold's instruction, from the words that set it apart. */
+function sizedFold(words: FoldWords): string {
+	return [
+		`The conversation above begins with a summary of earlier history. It describes the state at the point it was written, not now. Fold it into the new summary ${words.how}:`,
+		"- Check each item in it against the messages after it before carrying it.",
+		`- ${words.carry}`,
+		"- When the messages after it changed, corrected, replaced or reversed something, write only the latest state as current. Mention the earlier one, if at all, only as what it replaced. Never leave an earlier blocker, plan, stance or instruction standing in In Progress, Blocked, Next Steps or Critical Context once a later message superseded it.",
+		`- When something it lists has since been finished, ${words.finished}.`,
+		`- ${words.remove}`,
+		"- ADD the new progress, decisions and context from the messages after it, and give the user's latest instructions in their own terms.",
+	].join("\n");
+}
+
 /**
  * How a sized summary folds the one before it. pi's words let each fold
  * compress what it carries again, so a specific kept twice is lost on
@@ -160,13 +181,13 @@ const FOLD_PREVIOUS = `The conversation above begins with a summary of earlier h
  * excerpts, it answered 0.727 against 0.684 for pi's words with the
  * same sizing, with 10 answers wrong against 17.5.
  */
-const FOLD_CARRY = `The conversation above begins with a summary of earlier history. It describes the state at the point it was written, not now. Fold it into the new summary without compressing it again:
-- Check each item in it against the messages after it before carrying it.
-- CARRY every specific that still holds forward in its own words: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. Do not shorten or merge them; a later fold cannot recover what this one drops.
-- When the messages after it changed, corrected, replaced or reversed something, write only the latest state as current. Mention the earlier one, if at all, only as what it replaced. Never leave an earlier blocker, plan, stance or instruction standing in In Progress, Blocked, Next Steps or Critical Context once a later message superseded it.
-- When something it lists has since been finished, move it to Done and keep how it ended.
-- Remove only what is now clearly irrelevant to the work ahead.
-- ADD the new progress, decisions and context from the messages after it, and give the user's latest instructions in their own terms.`;
+const FOLD_CARRY = sizedFold({
+	how: "without compressing it again",
+	carry:
+		"CARRY every specific that still holds forward in its own words: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. Do not shorten or merge them; a later fold cannot recover what this one drops.",
+	finished: "move it to Done and keep how it ended",
+	remove: "Remove only what is now clearly irrelevant to the work ahead.",
+});
 
 /**
  * How a fold under a ceiling that binds carries the summary before it.
@@ -175,13 +196,13 @@ const FOLD_CARRY = `The conversation above begins with a summary of earlier hist
  * under a ceiling a fold keeps what the work ahead depends on, and
  * shortens what is finished before what is open.
  */
-const FOLD_HELD = `The conversation above begins with a summary of earlier history. It describes the state at the point it was written, not now. Fold it into the new summary within the limit below:
-- Check each item in it against the messages after it before carrying it.
-- CARRY forward, in their own words, the specifics the work ahead still depends on: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. When the limit forces a choice, shorten what is finished before what is open, and never drop a standing instruction.
-- When the messages after it changed, corrected, replaced or reversed something, write only the latest state as current. Mention the earlier one, if at all, only as what it replaced. Never leave an earlier blocker, plan, stance or instruction standing in In Progress, Blocked, Next Steps or Critical Context once a later message superseded it.
-- When something it lists has since been finished, move it to Done in one line saying how it ended.
-- Remove what the work ahead no longer needs.
-- ADD the new progress, decisions and context from the messages after it, and give the user's latest instructions in their own terms.`;
+const FOLD_HELD = sizedFold({
+	how: "within the limit below",
+	carry:
+		"CARRY forward, in their own words, the specifics the work ahead still depends on: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. When the limit forces a choice, shorten what is finished before what is open, and never drop a standing instruction.",
+	finished: "move it to Done in one line saying how it ended",
+	remove: "Remove what the work ahead no longer needs.",
+});
 
 /** The instruction that closes the conversation and asks for its summary. */
 export function summaryInstruction(options: SummaryInstructionOptions): string {
