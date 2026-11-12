@@ -83,6 +83,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"jobs:finished:v1",
 			"jobs:steer-waiting:v1",
 			"jobs:steered:v1",
+			"jobs:take-up:v1",
 			"jobs:yield:v1",
 			"mesh:lease:v1",
 			"quest:concluded:v1",

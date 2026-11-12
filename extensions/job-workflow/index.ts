@@ -25,6 +25,7 @@ import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { answerSteerWaiting, saySteered } from "../../lib/jobs/steer.ts";
+import { offerCarried } from "../../lib/jobs/take-up.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
@@ -182,6 +183,7 @@ function takeUpIfCarried(
 		outbox: session.outbox,
 		session: sessionKeyOf(ctx),
 		append: (type, data) => pi.appendEntry(type, data),
+		offer: (work) => offerCarried(pi.events, work),
 	});
 }
 

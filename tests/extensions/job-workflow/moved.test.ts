@@ -279,4 +279,44 @@ describe("taking up", () => {
 		);
 		expect(said.at(-1)?.text).toMatch(/can't take up a review job/);
 	});
+
+	it("hands another kind to whoever answers for it, under its id, carried on again", () => {
+		const { jobs, said } = registry();
+		const offered: unknown[] = [];
+		const started: string[] = [];
+		const again = { kind: "review-checks", again: true };
+		takeUp(
+			{
+				at: 1,
+				jobs: [
+					{
+						id: "j4",
+						kind: "review",
+						label: "checks on shop/app#7",
+						work: { kind: "review-checks" },
+					},
+				],
+				results: [],
+			},
+			{
+				jobs,
+				outbox: { post: () => {} },
+				session: "s1",
+				append: () => {},
+				offer: (work) => {
+					offered.push(work);
+					return {
+						carry: { what: () => again, handed: () => {} },
+						start: (job) => started.push(job.id),
+					};
+				},
+			},
+		);
+		expect(offered).toEqual([{ kind: "review-checks" }]);
+		expect(started, "started under the id it had").toEqual(["j4"]);
+		expect(said, "nothing said while it runs").toEqual([]);
+		expect(jobs.carryOut().map((job) => [job.id, job.work])).toEqual([
+			["j4", again],
+		]);
+	});
 });

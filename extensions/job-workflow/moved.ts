@@ -37,7 +37,8 @@ import {
 	keepInTemp,
 	spoken,
 } from "../../lib/jobs/hand-off.ts";
-import type { JobOutcome } from "../../lib/jobs/index.ts";
+import type { CarriedWork, JobOutcome } from "../../lib/jobs/index.ts";
+import type { Taking } from "../../lib/jobs/take-up.ts";
 import type { CarriedJob, Jobs } from "./jobs.ts";
 import type { JobResult, Outbox } from "./outbox.ts";
 
@@ -177,6 +178,11 @@ export interface TakingUp {
 	readonly now?: () => number;
 	/** Watch a carried call, for tests to stand in for. */
 	readonly watch?: typeof watchCarried;
+	/**
+	 * Who runs carried work of another kind than the shell's: the
+	 * extension that started it, asked on the bus (lib/jobs/take-up.ts).
+	 */
+	readonly offer?: (work: CarriedWork) => Taking | undefined;
 }
 
 /** Take up what a move carried here, under the ids it had. */
@@ -193,6 +199,17 @@ export function takeUp(carried: Carried, into: TakingUp): void {
 	for (const job of carried.jobs) {
 		if (isCarriedShell(job.work)) {
 			takeUpShell(job, job.work, into, now);
+			continue;
+		}
+		const taking = into.offer?.(job.work);
+		if (taking) {
+			const adopted = into.jobs.adopt(job.id, {
+				kind: job.kind,
+				label: job.label,
+				...(job.toolCallId !== undefined ? { toolCallId: job.toolCallId } : {}),
+				...(taking.carry ? { carry: taking.carry } : {}),
+			});
+			taking.start(adopted);
 			continue;
 		}
 		// Nothing here can take this kind up: said, never dropped.

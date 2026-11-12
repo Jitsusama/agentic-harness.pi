@@ -43,7 +43,9 @@ barrel, never from a file behind it.
   its tool returns and the host that says its result, and
   `jobs/hand-off.ts`, which moves a tool call still running after
   a minute to a job, or soon after the person types a line, as
-  `jobs/steer.ts` says on the bus.
+  `jobs/steer.ts` says on the bus, and `jobs/take-up.ts`, which
+  hands work a move carried to the extension that answers for its
+  kind.
 - **[`mcp/`](mcp/)**: a server-agnostic MCP client mapping a
   server's tools onto pi's, with seams for server-specific
   behaviour.

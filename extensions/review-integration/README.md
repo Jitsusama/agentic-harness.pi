@@ -139,6 +139,24 @@ its tools turn up is scrubbed before a finding could quote it
 onto the change. The setting is given to each run, wrap-up and
 resume as it starts, never read from a run saved before.
 
+## Waiting Through a Move
+
+A detached round and a `review_see checks` watch both wait on work
+outside the pi, so a move to a host (`/host`, or a wave) carries
+them rather than waiting them out. The old pi stops looking and says
+nothing; the host's review-integration takes each up under the job
+id it had, on the `jobs:take-up:v1` bus (`lib/jobs/take-up.ts`).
+
+- **A checks watch** is carried as its target, and the host binds
+  it again through the provider that serves it. It keeps the start
+  it had, so the two-hour cap holds across the move. When nothing
+  there serves the change, the watch ends saying so.
+- **A round** is carried as its run id and its reviewers, whose
+  supervisors already outlive the session. The host watches the
+  same run record and says when to collect.
+- A watch from a caller that names no target, or a round with no
+  reviewers named, still holds a move, as "a review watch".
+
 ## Configuration
 
 The `review` section of
