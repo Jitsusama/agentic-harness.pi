@@ -58,6 +58,21 @@ describe("a custom message on pi's screen", () => {
 		expect(empty.render(WIDTH)).toEqual([]);
 	});
 
+	it("draws its renderer's component once a frame, reading pi's layout", () => {
+		// pi keeps each child's rows as `mouseLayout`; should it rename that,
+		// the wrap would draw every message twice a frame, and this fails.
+		let draws = 0;
+		const counted = new CustomMessageComponent(message, () => ({
+			render: () => {
+				draws += 1;
+				return ["merged #1379"];
+			},
+			invalidate: () => {},
+		}));
+		counted.render(WIDTH);
+		expect(draws).toBe(1);
+	});
+
 	it("wraps pi's drawing once, however many times it loads", () => {
 		dropEmptyMessages();
 		dropEmptyMessages();
