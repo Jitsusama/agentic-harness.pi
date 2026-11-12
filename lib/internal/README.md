@@ -96,6 +96,8 @@ may import from here, and any of it may change without notice.
 - **`cache-warming.ts`**: the rules for keeping an idle session's
   hour-long cache entry warm: when a warm falls due, which requests
   may be replayed, and when a warm missed its prefix.
+- **`calls.ts`**: whether a call is on, as `a-call-is-on` says, for
+  work that would cut into one, such as a warm's upload.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
