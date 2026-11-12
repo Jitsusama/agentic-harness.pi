@@ -217,6 +217,14 @@ it started has the background host adopt the log: the host lists the
 same session, its log keeps what the pi held, and it answers there
 under the same address.
 
+launched-spawn.test.ts is E14, a spawn from a spawner on code from
+before spawnHost: the old spawner's first words are left under a
+fresh id, and a terminal pi starts as the launcher's window starts
+one, with `--session-id` and the quest to load, under spawnHost
+`background`. It ends cleanly before drawing anything, the background
+host lists a conversation in its folder that was told those words and
+answered, and the words are recorded as taken by that conversation.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
