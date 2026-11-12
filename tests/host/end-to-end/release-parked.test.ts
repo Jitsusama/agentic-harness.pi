@@ -25,7 +25,10 @@ import { hostKey } from "../../../host/service/address.ts";
 import { restoreFilePath } from "../../../lib/internal/quest/restore-file.ts";
 import { sessionRealm } from "../../../lib/internal/realm.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
-import { NAMED_PARK_AFTER_MS } from "../../../lib/internal/session/park.ts";
+import {
+	awakePath,
+	NAMED_PARK_AFTER_MS,
+} from "../../../lib/internal/session/park.ts";
 import { saysParked } from "../../../lib/mesh/parked.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
@@ -170,7 +173,13 @@ it(
 					(await host.list()).find((held) => held.sessionId === one.sessionId)
 						?.state === "parked",
 				PARK_MS,
-			);
+			).catch(async (error: unknown) => {
+				const awake = await readFile(
+					awakePath(one.sessionId, parkFolder),
+					"utf8",
+				).catch(() => "nothing");
+				throw new Error(`${String(error)}; it said it stays awake: ${awake}`);
+			});
 			const resting = presences().of(one.sessionId);
 			expect(
 				resting !== undefined && saysParked(resting),
