@@ -2,6 +2,7 @@ import { type Db, openDb } from "../../internal/sqlite/db.ts";
 import { sqlFile } from "../../internal/sqlite/sql-file.ts";
 import type {
 	CallScope,
+	DeclarationRecord,
 	DroppedCallRecord,
 	InnerCallRecord,
 	PaybackReplay,
@@ -63,6 +64,12 @@ export interface TurnStore {
 	recordInnerCalls(inner: readonly InnerCallRecord[]): Promise<RecordOutcome>;
 	/** Every call a tool made to another, oldest first. */
 	queryInnerCalls(): Promise<InnerCallRecord[]>;
+	/** Record what system messages declared or took away, once each. */
+	recordDeclarations(
+		declarations: readonly DeclarationRecord[],
+	): Promise<RecordOutcome>;
+	/** Every declaration change, oldest first. */
+	queryDeclarations(): Promise<DeclarationRecord[]>;
 	/** Dropped calls asked again after the drop, with how many could have been. */
 	regret(scope?: CallScope): Promise<RegretReport>;
 	/** Pass, fail and unknown counts per verifier kind that ran at all. */
@@ -760,6 +767,49 @@ class SqliteTurnStore implements TurnStore {
 			via: row.via === "tool_gateway_run_tool" ? row.via : "codemode",
 			status: row.status,
 			durationMs: row.duration_ms,
+		}));
+	}
+
+	async recordDeclarations(
+		declarations: readonly DeclarationRecord[],
+	): Promise<RecordOutcome> {
+		// Keyed on session, entry and tool, so a grown log read again in
+		// full inserts nothing it already gave.
+		const inserted = await this.inTransactions(
+			declarations,
+			async (chunk) => {
+				let written = 0;
+				for (const d of chunk) {
+					const { changes } = await this.db.run(
+						`INSERT OR IGNORE INTO declarations (
+							session_id, entry_id, timestamp, tool, change, chars
+						) VALUES (?, ?, ?, ?, ?, ?)`,
+						[d.sessionId, d.entryId, d.timestamp, d.tool, d.change, d.chars],
+					);
+					written += changes;
+				}
+				return written;
+			},
+		);
+		return { inserted, duplicates: declarations.length - inserted };
+	}
+
+	async queryDeclarations(): Promise<DeclarationRecord[]> {
+		const rows = await this.db.all<{
+			session_id: string;
+			entry_id: string;
+			timestamp: string;
+			tool: string;
+			change: string;
+			chars: number;
+		}>("SELECT * FROM declarations ORDER BY timestamp ASC, entry_id, tool");
+		return rows.map((row) => ({
+			sessionId: row.session_id,
+			entryId: row.entry_id,
+			timestamp: row.timestamp,
+			tool: row.tool,
+			change: row.change === "removed" ? "removed" : "added",
+			chars: row.chars,
 		}));
 	}
 

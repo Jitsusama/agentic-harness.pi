@@ -21,6 +21,7 @@ export {
 	type CompactionFacts,
 	type CostDimension,
 	type CostSlice,
+	type DeclarationRecord,
 	type DroppedCallRecord,
 	type InnerCallRecord,
 	type LedgerReader,

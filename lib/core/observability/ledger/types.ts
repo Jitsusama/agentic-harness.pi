@@ -217,6 +217,24 @@ export interface ToolCallRecord {
 	readonly isError: boolean | null;
 }
 
+/**
+ * A tool a session's system message declared or took away. pi sends a
+ * session's first tools whole and every later change as a delta, so the
+ * first message's tools are rows like any other and the set held at a
+ * turn is a plain fold from empty, newest row per tool winning. Never
+ * the declaration itself, only its size.
+ */
+export interface DeclarationRecord {
+	readonly sessionId: string;
+	/** The system message's entry. */
+	readonly entryId: string;
+	readonly timestamp: string;
+	readonly tool: string;
+	readonly change: "added" | "removed";
+	/** The declaration's own size at this entry, in characters; 0 when taken away. */
+	readonly chars: number;
+}
+
 /** What carried a call one tool made to another. */
 export type InnerCallVia = "codemode" | "tool_gateway_run_tool";
 

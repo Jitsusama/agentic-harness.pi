@@ -40,10 +40,6 @@ import {
 	sessionsDir,
 } from "../extensions/spend-workflow/indexer.ts";
 import {
-	logsSince,
-	standingOf,
-} from "../extensions/spend-workflow/standing.ts";
-import {
 	openLedgerReader,
 	openTurnStore,
 } from "../lib/core/observability/index.ts";
@@ -91,7 +87,7 @@ export async function measure(opts: {
 		audit = formatAudit(input, opts.top ?? 12);
 		oneCall = formatOneCall(await oneCallTurns(query, opts.now));
 		declared = formatDeclaredCalled(
-			await declaredCalled(await startsOfTheDay(opts.now), query, opts.now),
+			await declaredCalled(query, opts.now),
 		);
 		theVoid = formatVoidCost(await voidCost(voidDay, query, opts.now));
 		start = Date.parse(input.period.from);
@@ -134,14 +130,6 @@ export async function measure(opts: {
 	mkdirSync(dirname(out), { recursive: true });
 	writeFileSync(out, report);
 	return out;
-}
-
-/** How every session written to in the day before `now` started. */
-async function startsOfTheDay(now: number) {
-	const logs = logsSince(sessionsDir(), now - DAY_MS);
-	return (await Promise.all(logs.map((path) => standingOf(path)))).filter(
-		(one) => one !== undefined,
-	);
 }
 
 /** The void's day file for `date`, kept in the user's state folder, if it wrote one. */

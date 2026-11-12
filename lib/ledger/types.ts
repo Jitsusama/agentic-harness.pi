@@ -1,4 +1,5 @@
 import type {
+	DeclarationRecord,
 	DroppedCallRecord,
 	InnerCallRecord,
 	SessionRecord,
@@ -40,6 +41,8 @@ export interface LedgerScan {
 	readonly calls: ToolCallRecord[];
 	/** The calls those calls made to other tools, kept apart from them. */
 	readonly inner: InnerCallRecord[];
+	/** What its system messages declared or took away, tool by tool. */
+	readonly declarations: DeclarationRecord[];
 	readonly dropped: DroppedCallRecord[];
 	readonly coverage: ScanCoverage;
 	readonly session: SessionRecord;

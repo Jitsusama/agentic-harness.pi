@@ -68,6 +68,15 @@ CREATE TABLE IF NOT EXISTS inner_calls (
 	duration_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS inner_calls_session ON inner_calls (session_id, name);
+CREATE TABLE IF NOT EXISTS declarations (
+	session_id TEXT NOT NULL,
+	entry_id TEXT NOT NULL,
+	timestamp TEXT NOT NULL,
+	tool TEXT NOT NULL,
+	change TEXT NOT NULL,
+	chars INTEGER NOT NULL,
+	PRIMARY KEY (session_id, entry_id, tool)
+);
 CREATE TABLE IF NOT EXISTS dropped_calls (
 	digest TEXT PRIMARY KEY,
 	session_id TEXT NOT NULL,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type {
+	DeclarationRecord,
 	InnerCallRecord,
 	RunCost,
 	RunTokens,
@@ -8,6 +9,7 @@ import type {
 	TurnRecord,
 } from "../core/observability/index.ts";
 import { BranchWalk } from "./branch.ts";
+import { declarationsOf } from "./declarations.ts";
 import { GATEWAY_TOOL, gatewayTarget, innerCallsOf } from "./inner.ts";
 import { SessionCollector } from "./session.ts";
 import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.ts";
@@ -35,8 +37,8 @@ const DIGEST_CHARS = 24;
  * new tool declarations caused is told from one a tool loaded mid-run
  * caused.
  *
- * The calls a script or a gateway call made to other tools are read
- * without a bump: a log that grows is read again in full anyway, so
+ * The calls a script or a gateway call made to other tools, and what
+ * each system message declared, are read without a bump: a log that grows is read again in full anyway, so
  * every session working when they landed has them from then on. A bump
  * would read all of a machine's finished logs again (16 GB on 12
  * November 2026) to fill in days nothing measures any more.
@@ -76,6 +78,7 @@ export function readTurns(
 	// is made since its arguments are digested away then.
 	const targets = new Map<string, string>();
 	const inner: InnerCallRecord[] = [];
+	const declarations: DeclarationRecord[] = [];
 	// The order every entry with an id was seen in, which is what makes a
 	// compaction's firstKeptEntryId comparable to a call's own entry:
 	// entry ids are not sortable strings, but the log's own line order is
@@ -154,6 +157,10 @@ export function readTurns(
 			inner.push(...innerOf(calls, targets, message));
 			continue;
 		}
+		if (message?.role === "system") {
+			declarations.push(...declarationsOf(sessionId, entry, message));
+			continue;
+		}
 
 		const read = turnFrom(sessionId, entry, lastModel, level);
 		if (!read) continue;
@@ -189,6 +196,7 @@ export function readTurns(
 		turns,
 		calls: [...calls.values()],
 		inner,
+		declarations,
 		dropped: droppedCallsOf(sessionId, calls, entryOrder, boundaries),
 		coverage: { lines: count, parsed, unparseable, billable, unmetered },
 		session: session.record(),

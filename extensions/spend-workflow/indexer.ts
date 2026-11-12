@@ -169,6 +169,7 @@ export async function indexSessionLogs(
 			insertedCalls += callOutcome.inserted;
 			duplicateCalls += callOutcome.duplicates;
 			await store.recordInnerCalls(scan.inner);
+			await store.recordDeclarations(scan.declarations);
 			const droppedOutcome = await store.recordDropped(scan.dropped);
 			insertedDropped += droppedOutcome.inserted;
 			marks[path] = size;
