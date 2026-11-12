@@ -10,6 +10,13 @@
  * declarations come from the first system message of its log, as the
  * audit's always-on context reads them; its turns and calls come from
  * the ledger, counted in `declared-called.sql`, a row a session.
+ *
+ * Every figure is a floor. The ledger holds a log's own tool calls, not
+ * those a codemode script or the gateway's runner makes, so a session
+ * that ran either may have called any tool through it: such sessions
+ * are counted apart and never priced. Declarations are read as each
+ * session started, and a rewrite of the prefix pays the dearer write
+ * rate, which this leaves out.
  */
 
 import type { StandingPrompt } from "../extensions/spend-workflow/standing.ts";
@@ -26,6 +33,11 @@ export interface ToolWeight {
 	/** Of those, the sessions that called it. */
 	readonly calledIn: number;
 	readonly calls: number;
+	/**
+	 * Sessions that didn't call it but ran a script, which may have: their
+	 * reads of it are left out of `unusedCost`.
+	 */
+	readonly scripted: number;
 	/** What re-reading it cost in the sessions that never called it. */
 	readonly unusedCost: number;
 }
@@ -47,6 +59,9 @@ const TOOLS_SHOWN = 15;
 /** Characters a token, as pi estimates them. */
 const CHARS_PER_TOKEN = 4;
 const THOUSAND = 1_000;
+const HALF = 2;
+/** Tools whose calls run other tools, which the ledger doesn't see. */
+const SCRIPTING = ["codemode", "tool_gateway_run_tool"];
 
 /** A tool's running count while the sessions are read. */
 interface Tally {
@@ -54,6 +69,7 @@ interface Tally {
 	sizes: number[];
 	calledIn: number;
 	calls: number;
+	scripted: number;
 	unusedCost: number;
 }
 
@@ -63,6 +79,8 @@ interface SessionDay {
 	/** Dollars a cache-read token cost this session. */
 	readonly price: number;
 	readonly calls: ReadonlyMap<string, number>;
+	/** Whether it ran a script, whose own calls the ledger doesn't hold. */
+	readonly scripted: boolean;
 }
 
 /** Hold each session's declared tools against its calls of the day before `now`. */
@@ -89,22 +107,8 @@ export async function declaredCalled(
 		if (day === undefined) continue;
 		declared.push(prompt.pieces.declarations ?? 0);
 		for (const [tool, size] of Object.entries(prompt.byTool)) {
-			const weight = weights.get(tool) ?? {
-				sessions: 0,
-				sizes: [],
-				calledIn: 0,
-				calls: 0,
-				unusedCost: 0,
-			};
-			const calls = day.calls.get(tool) ?? 0;
-			weight.sessions += 1;
-			weight.sizes.push(size);
-			weight.calls += calls;
-			if (calls > 0) {
-				weight.calledIn += 1;
-			} else {
-				weight.unusedCost += (size / CHARS_PER_TOKEN) * day.turns * day.price;
-			}
+			const weight = weights.get(tool) ?? emptyTally();
+			addSession(weight, size, day.calls.get(tool) ?? 0, day);
 			weights.set(tool, weight);
 		}
 	}
@@ -115,6 +119,7 @@ export async function declaredCalled(
 			chars: median(weight.sizes),
 			calledIn: weight.calledIn,
 			calls: weight.calls,
+			scripted: weight.scripted,
 			unusedCost: weight.unusedCost,
 		}))
 		.sort(byUnusedCost);
@@ -134,15 +139,15 @@ export function formatDeclaredCalled(report: DeclaredCalledReport): string {
 		return lines.join("\n");
 	}
 	lines.push(
-		`${report.sessions} sessions worked in the last day, starting with a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations. Re-reading the declarations of tools a session never called cost about ${dollars(report.unusedCost)} over the day, at each session's cache-read price and four characters a token.`,
+		`${report.sessions} sessions worked in the last day, starting with a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations, as each started. Re-reading the declarations of tools a session never called cost at least ${dollars(report.unusedCost)} over the day, at each session's cache-read price and four characters a token.`,
 		"",
-		"The tools whose unused declarations cost most, where loading on demand would save:",
+		"A call made inside a codemode script or through the gateway's runner isn't in the ledger, so a session that ran one is counted under Maybe in a script and left out of the price. Rewriting the prefix pays the dearer write rate, which isn't counted either. The tools whose unused declarations cost most, where loading on demand would save:",
 		"",
-		"| Tool | Declared in | Characters | Called in | Calls | Unused reads |",
-		"|---|---|---|---|---|---|",
+		"| Tool | Declared in | Characters | Called in | Calls | Maybe in a script | Unused reads |",
+		"|---|---|---|---|---|---|---|",
 		...report.tools.map(
 			(tool) =>
-				`| ${tool.tool} | ${tool.sessions} | ${tool.chars.toLocaleString("en-CA")} | ${tool.calledIn} | ${tool.calls} | ${dollars(tool.unusedCost)} |`,
+				`| ${tool.tool} | ${tool.sessions} | ${tool.chars.toLocaleString("en-CA")} | ${tool.calledIn} | ${tool.calls} | ${tool.scripted} | ${dollars(tool.unusedCost)} |`,
 		),
 		"",
 	);
@@ -161,7 +166,38 @@ function dayOf(row: Record<string, unknown>): SessionDay {
 		turns: count(row.turns),
 		price: tokens === 0 ? 0 : count(row.readCost) / tokens,
 		calls,
+		scripted: SCRIPTING.some((tool) => calls.has(tool)),
 	};
+}
+
+function emptyTally(): Tally {
+	return {
+		sessions: 0,
+		sizes: [],
+		calledIn: 0,
+		calls: 0,
+		scripted: 0,
+		unusedCost: 0,
+	};
+}
+
+/** Add one session's declaration of a tool, `size` characters, called `calls` times. */
+function addSession(
+	weight: Tally,
+	size: number,
+	calls: number,
+	day: SessionDay,
+): void {
+	weight.sessions += 1;
+	weight.sizes.push(size);
+	weight.calls += calls;
+	if (calls > 0) {
+		weight.calledIn += 1;
+	} else if (day.scripted) {
+		weight.scripted += 1;
+	} else {
+		weight.unusedCost += (size / CHARS_PER_TOKEN) * day.turns * day.price;
+	}
 }
 
 /** The session's id from its log's name, `<started>_<id>.jsonl`. */
@@ -180,10 +216,13 @@ function statement(text: string): string {
 	return text.replace(/^(?:--.*\n)+/, "");
 }
 
+/** The middle value, the mean of the two middle ones for an even count, or 0 for none. */
 function median(values: readonly number[]): number {
-	if (values.length === 0) return 0;
 	const sorted = [...values].sort((a, b) => a - b);
-	return sorted[Math.floor(sorted.length / 2)] ?? 0;
+	const upper = sorted[Math.floor(sorted.length / HALF)] ?? 0;
+	if (sorted.length % HALF === 1) return upper;
+	const lower = sorted[sorted.length / HALF - 1] ?? upper;
+	return (lower + upper) / HALF;
 }
 
 function dollars(value: number): string {
