@@ -28,7 +28,7 @@ import type {
 import { sessionEnv } from "../core/session/index.ts";
 import { count, verb } from "../ui/count.ts";
 import { firstText } from "../ui/tool-result.ts";
-import { findJobHost } from "./host.ts";
+import { findJobHost, type JobCarry } from "./host.ts";
 
 /** How long a call may hold the session before it is handed off. */
 export const HAND_OFF_MS = 60 * 1000;
@@ -89,13 +89,18 @@ export interface HandOff<T> {
 	 * session's key is unique across processes, so the name needs no pid.
 	 */
 	readonly session: string;
+	/**
+	 * How a move carries the work run under `signal` to another process,
+	 * when its work lives outside this one; otherwise it holds a move.
+	 */
+	readonly carryOf?: (signal: AbortSignal) => JobCarry | undefined;
 }
 
 /**
  * Write output to the conversation's temp directory. Read when the call
  * starts, since on a host only the call knows its conversation.
  */
-function keepInTemp(session: string, prefix: string) {
+export function keepInTemp(session: string, prefix: string) {
 	const dir = sessionEnv(session).get("TMPDIR") || tmpdir();
 	return (name: string, text: string): string => {
 		const resultPath = join(dir, `${prefix}-${name}.log`);
@@ -199,10 +204,12 @@ export async function runOrHandOff<T>(
 
 	handedOff = true;
 	call.signal?.removeEventListener("abort", followCall);
+	const carry = call.carryOf?.(owned.signal);
 	const job = host.start({
 		kind: call.kind,
 		label: call.label,
 		...(call.toolCallId !== undefined ? { toolCallId: call.toolCallId } : {}),
+		...(carry ? { carry } : {}),
 	});
 	if (job.signal.aborted) owned.abort(job.signal.reason);
 	else {
@@ -313,8 +320,12 @@ function saidBy(result: AgentToolResult<unknown>): string {
 	return `${text.replace(/\n+$/, "")}\n${left}`;
 }
 
-/** What the job says once the work has ended. */
-function finishedSummary(
+/**
+ * What the job says once the work has ended: its status, its last lines,
+ * and where the rest is kept when there's more. A job carried to another
+ * process by a move says its end there in the same words.
+ */
+export function finishedSummary(
 	label: string,
 	status: string,
 	output: string,

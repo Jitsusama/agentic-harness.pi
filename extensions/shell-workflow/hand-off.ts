@@ -14,8 +14,9 @@
  * them while waiting in the machine queue.
  *
  * What is the shell's own is said here: a command is named by its first
- * line, and a command piped through tail or head is told why it showed
- * nothing.
+ * line, a command piped through tail or head is told why it showed
+ * nothing, and a command that keeps itself on disk (keeping.ts) says how
+ * a move carries its job to a host.
  */
 
 import type {
@@ -24,6 +25,7 @@ import type {
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
 import { runOrHandOff as handOff } from "../../lib/jobs/hand-off.ts";
+import type { JobCarry } from "../../lib/jobs/index.ts";
 
 /** Longest label a job is given, from the command's first line. */
 const LABEL_CHARS = 60;
@@ -54,6 +56,8 @@ export interface Call<T> {
 	readonly keep?: (name: string, text: string) => string;
 	/** The conversation calling, whose output files are named for it. */
 	readonly session: string;
+	/** How a move carries the command run under `signal`, if it can. */
+	readonly carryOf?: (signal: AbortSignal) => JobCarry | undefined;
 }
 
 /** A command, named in a line. */
