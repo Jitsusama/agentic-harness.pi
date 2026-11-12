@@ -14,9 +14,11 @@ export {
 } from "./heap.ts";
 export {
 	foldLayers,
+	LAYER_ROUNDS,
 	LAYER_SETTLE_MS,
 	type LayerReport,
 	nameNode,
+	namesAnElement,
 	type RawLayer,
 	renderLayers,
 } from "./layers.ts";

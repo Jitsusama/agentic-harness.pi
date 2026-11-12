@@ -3,6 +3,7 @@ import {
 	BYTES_PER_PIXEL,
 	foldLayers,
 	type LayerFacts,
+	namesAnElement,
 	renderLayers,
 } from "../../../../lib/core/web/perf/layers.ts";
 
@@ -181,5 +182,18 @@ describe("renderLayers", () => {
 		);
 
 		expect(text).toContain("No composited layers");
+	});
+});
+
+describe("namesAnElement", () => {
+	it("takes a tree that says which element any layer is for", () => {
+		expect(namesAnElement(FACTS.layers), "the captured tree").toBe(true);
+	});
+
+	it("refuses a tree Chrome built before it tracked elements", () => {
+		const unnamed = FACTS.layers.map(({ backendNodeId: _, ...layer }) => layer);
+
+		expect(namesAnElement(unnamed), "every layer without a node").toBe(false);
+		expect(namesAnElement([]), "no tree yet").toBe(false);
 	});
 });
