@@ -173,6 +173,14 @@ the same restart once idle, whether or not the install moved: that is
 how the first swap after this change reaches pis whose follower
 predates it.
 
+`/harness restart` is the same restart, now, at a moment its person
+chose, so it goes even while they are at the window: the one way an
+orchestrator they always watch takes such an install. It is still
+refused mid-turn, with background jobs out or with no holder, and
+says why. An orchestrator's sessions at work don't hold a restart
+back as they hold a park: it comes back in seconds as the same peer,
+and what they send meanwhile waits in files it reads as it starts.
+
 ## In a Host
 
 `loaded/<pid>` is one per process, and a tree is swapped in through

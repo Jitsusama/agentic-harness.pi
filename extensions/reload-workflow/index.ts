@@ -66,7 +66,9 @@ import {
 	INSTALLED,
 	performReload,
 	RELOAD_ARG,
+	RESTART_ARG,
 	requestReload,
+	restartByHand,
 	takeForDispatch,
 	treeToLoad,
 } from "./transitions.ts";
@@ -164,10 +166,19 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.registerCommand(COMMAND, {
 		description:
-			"Say which harness code this session runs. `/harness reload` reloads onto it again, so a tree stays a tree.",
+			"Say which harness code this session runs. `/harness reload` reloads onto it again, so a tree stays a tree; `/harness restart` starts the session again in place now, to take a new install.",
 		handler: async (args, ctx) => {
 			if (args.trim() === RELOAD_ARG) {
 				await performReload(ctx, running, settings, run);
+				return;
+			}
+			if (args.trim() === RESTART_ARG) {
+				const { restarting, said } = restartByHand(
+					pi.events,
+					ctx.sessionManager.getSessionId(),
+					ctx.sessionManager.getSessionFile(),
+				);
+				ctx.ui.notify(said, restarting ? "info" : "warning");
 				return;
 			}
 			running = await whatRuns(settings);

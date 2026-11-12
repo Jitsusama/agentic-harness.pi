@@ -362,8 +362,12 @@ describe("parking a session", () => {
 
 describe("starting again on a fresh log", () => {
 	const fresh = () => join(folder, "fresh.jsonl");
-	const asked = (): RestartAsk => {
-		const ask: RestartAsk = { session: SESSION, sessionFile: fresh() };
+	const asked = (byHand = false): RestartAsk => {
+		const ask: RestartAsk = {
+			session: SESSION,
+			sessionFile: fresh(),
+			...(byHand ? { asked: true } : {}),
+		};
 		events.emit(RESTART_ASK, ask);
 		return ask;
 	};
@@ -486,6 +490,34 @@ describe("starting again on a fresh log", () => {
 		});
 		clock += 1;
 		expect(asked()).toMatchObject({ restarting: true });
+	});
+
+	// WCJQSG, 11 November [0de9accb]: an orchestrator Joel is always at
+	// never found a moment nobody watched, so it never took an install.
+	it("starts again while its person watches, when they asked for it", () => {
+		shownIn("pi-session.3");
+		const watched = restarting();
+		watched.present();
+		expect(asked(), "a restart nobody asked for waits").toMatchObject({
+			why: "its person was at its window in the last ten minutes",
+		});
+		expect(asked(true), "the one they asked for goes").toMatchObject({
+			restarting: true,
+		});
+		expect(restarts, "it starts again on the log it was given").toEqual([
+			fresh(),
+		]);
+	});
+
+	it("asks the others as a restart, not a park", () => {
+		restarting();
+		const heard: unknown[] = [];
+		const unhear = events.on(PARK_ASK, (data) => heard.push(data));
+		asked();
+		unhear();
+		expect(heard, "the ask says it is for a restart").toEqual([
+			{ session: SESSION, refusals: [], restart: true },
+		]);
 	});
 
 	it("stays for a background job, typed text or what another extension holds", () => {

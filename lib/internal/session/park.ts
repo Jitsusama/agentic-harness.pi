@@ -263,6 +263,11 @@ export interface RestartAsk {
 	readonly session: string;
 	/** The fresh log to start again on. */
 	readonly sessionFile: string;
+	/**
+	 * Its person asked for it (`/harness restart`), at a moment they
+	 * chose, so their being at its window doesn't hold it back.
+	 */
+	readonly asked?: boolean;
 	restarting?: boolean;
 	why?: string;
 }
@@ -278,6 +283,12 @@ export function isRestartAsk(data: unknown): data is RestartAsk {
 export interface ParkAsk {
 	readonly session: string;
 	readonly refusals: string[];
+	/**
+	 * Asked for a restart, not a park: the same process comes back in
+	 * seconds on the same session, so what only a park would lose (its
+	 * sessions' findings, a hold it sent) doesn't refuse it.
+	 */
+	readonly restart?: boolean;
 }
 
 /** What {@link PARKING} carries. */
