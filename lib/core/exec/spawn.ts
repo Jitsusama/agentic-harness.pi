@@ -14,9 +14,17 @@
  * when its signal fires or its clock runs out. Signing through an agent
  * or a helper still works, since neither needs a terminal: every commit
  * made through pi's own bash tool, which runs the same way, is signed.
+ *
+ * What a child says is held in memory, so each stream has a ceiling too.
+ * A string can't grow past V8's limit, and the throw from a stream's
+ * handler has no caller to reach: it ended whole pi sessions mid-call,
+ * twice on 12 November, on a diff that kept streaming. Past the ceiling
+ * the child is stopped and the call fails saying why, rather than
+ * answering with part of its output as though it were all of it.
  */
 
 import { spawn } from "node:child_process";
+import { count } from "../../ui/count.ts";
 import { callSignal } from "./call-signal.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 
@@ -25,6 +33,18 @@ export const EXIT_TIMED_OUT = 124;
 
 /** The exit code of a command its signal stopped, as a shell reports SIGINT. */
 export const EXIT_ABORTED = 130;
+
+/**
+ * The exit code of a command stopped for saying too much, as a shell
+ * reports a writer whose reader stopped listening (SIGPIPE).
+ */
+export const EXIT_SAID_TOO_MUCH = 141;
+
+/**
+ * How much of each stream is held, in characters. A quarter of V8's
+ * longest string, so a caller can still copy or join what it gets.
+ */
+const MAX_OUTPUT_CHARS = 128 * 1024 * 1024;
 
 /** How long a stopped command has to exit before it is killed outright. */
 const KILL_GRACE_MS = 2000;
@@ -48,6 +68,8 @@ export interface SpawnExecOptions {
 	timeoutMs?: number;
 	/** How long a stopped command may take to exit before it is killed. */
 	killGraceMs?: number;
+	/** How much of each stream may be held before the command is stopped. */
+	maxOutputChars?: number;
 	/** Laid over this process's environment and the non-interactive defaults. */
 	env?: Readonly<Record<string, string>>;
 	/** Where the command runs. This process's directory when absent. */
@@ -58,7 +80,8 @@ export interface SpawnExecOptions {
  * An `Exec` whose commands cannot prompt and cannot outlive their signal
  * or clock. Never throws: a command that could not start reports a failed
  * exit with the reason on stderr, and a stopped one reports
- * `EXIT_ABORTED` or `EXIT_TIMED_OUT` with what it had said so far.
+ * `EXIT_ABORTED`, `EXIT_TIMED_OUT` or `EXIT_SAID_TOO_MUCH` with what it
+ * had said so far.
  */
 export function spawnExec(options: SpawnExecOptions = {}): Exec {
 	// The call is read when the command starts, not when the exec is
@@ -107,11 +130,23 @@ function runUnattended(
 		let stderr = "";
 		let stopped: { code: number; why: string } | undefined;
 		let killer: NodeJS.Timeout | undefined;
+		const ceiling = options.maxOutputChars ?? MAX_OUTPUT_CHARS;
+		// What fits under the ceiling is kept; the first chunk past it stops
+		// the command, and anything after is let go.
+		const held = (said: string, chunk: string, stream: string): string => {
+			const room = ceiling - said.length;
+			if (chunk.length <= room) return said + chunk;
+			stop(
+				EXIT_SAID_TOO_MUCH,
+				`${command} was stopped: its ${stream} passed ${count(ceiling, "character")}`,
+			);
+			return room > 0 ? said + chunk.slice(0, room) : said;
+		};
 		child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-			stdout += chunk;
+			stdout = held(stdout, chunk, "stdout");
 		});
 		child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-			stderr += chunk;
+			stderr = held(stderr, chunk, "stderr");
 		});
 
 		const stop = (code: number, why: string): void => {
