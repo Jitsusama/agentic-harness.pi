@@ -38,6 +38,12 @@ It never rings for:
 Dozens of sessions can run at once, and only the one you were talking
 to rings.
 
+Each ring heard writes a line to the system's log (the journal on
+Linux, the unified log on macOS, as `pi`), such as `pi: done ding,
+session <id>, 42 s after the person typed`, so the dings a day can be
+counted. A ring nothing heard, for a missing player or Do Not Disturb,
+writes none.
+
 ## What It Sounds Like
 
 Where a machine names a voice, the session is named by its name, which

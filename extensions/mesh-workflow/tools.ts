@@ -422,7 +422,7 @@ export function registerTools(
 		promptSnippet:
 			"Point the person at something to look at (a PR, a page, a file, a diff, a terminal): it goes on their look list, never opened for them.",
 		description:
-			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. Pointing at the same thing again from this session brings it to the top rather than adding it twice. Use it whenever you would otherwise tell them a link or a path to go and find. Write title, why and ask for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
+			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that asks nothing back (an ask of 'Nothing, just to see', and no choices) leaves once they open it, or a day on, and you are told. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find. Write title, why and ask for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
 		parameters: Type.Object({
 			kind: StringEnum([...LOOK_KINDS], {
 				description:
@@ -453,10 +453,16 @@ export function registerTools(
 						"When the ask wants a word back, its answers as short labels (at most 4, a few words each), e.g. ['Keep it', 'Roll it back']: the person picks one where they are, and it comes back to this session, or the one on its quest, as a message",
 				}),
 			),
+			thread: Type.Optional(
+				Type.String({
+					description:
+						"A label of yours that folds looks whatever they open, e.g. the mesh question's id they serve: a later look on the same thread replaces the earlier one. Never shown to the person",
+				}),
+			),
 			withdraw: Type.Optional(
 				Type.Boolean({
 					description:
-						"true to take back this session's look at kind and target, since it no longer applies; title, why and ask are then left out",
+						"true to take back the look at kind and target that this session, or an earlier one on its quest, put up, opened or not, since it no longer applies; title, why and ask are then left out",
 				}),
 			),
 		}),
@@ -466,17 +472,18 @@ export function registerTools(
 					"Nothing was kept: this pi keeps no folder for the person's look list.",
 				);
 			}
+			const quest = at.presences.of(at.peer.session)?.quest;
 			if (params.withdraw === true) {
 				const took = withdrawLook(
 					at.looks,
-					at.peer.session,
+					{ session: at.peer.session, ...(quest ? { quest } : {}) },
 					params.kind,
 					params.target,
 				);
 				return answer(
 					took
 						? "Taken back: it's off the person's look list."
-						: "Nothing to take back: this session has no waiting look at that.",
+						: "Nothing to take back: neither this session nor its quest has a look standing at that.",
 					{ withdrawn: took },
 				);
 			}
@@ -487,17 +494,17 @@ export function registerTools(
 				why: params.why ?? "",
 				ask: params.ask ?? "",
 				...(params.choices ? { choices: params.choices } : {}),
+				...(params.thread ? { thread: params.thread } : {}),
 			};
 			const refused = refusalOf(pointing);
 			if (refused) return answer(`⊘ ${refused} Nothing was added.`);
-			const quest = at.presences.of(at.peer.session)?.quest;
 			const look = pointAt(at.looks, pointing, {
 				session: at.peer.session,
 				address: at.peer.signature,
 				...(quest ? { quest } : {}),
 			});
 			return answer(
-				`On the person's look list: ${look.title}. It stays there until they open or clear it, or this session takes it back with withdraw once it no longer applies.${look.choices ? " What they pick comes back as a message." : ""}`,
+				`On the person's look list: ${look.title}. ${look.asks ? "It stays there until they answer or clear it, its quest ends, or this session takes it back with withdraw once it no longer applies." : "It asks nothing back, so it leaves once they open it, or in a day."}${look.choices ? " What they pick comes back as a message." : ""}`,
 				{ look },
 			);
 		}),
@@ -529,6 +536,7 @@ interface ShowPersonParams {
 	readonly why?: string;
 	readonly ask?: string;
 	readonly choices?: readonly string[];
+	readonly thread?: string;
 	readonly withdraw?: boolean;
 }
 

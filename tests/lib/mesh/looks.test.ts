@@ -1,15 +1,25 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLook,
+	expireLooks,
+	type LookState,
+	leaveSeenLooks,
 	looksIn,
 	MOST_CHOICES,
 	pointAt,
 	refusalOf,
 	resolveLooks,
 	resolveLooksOfQuests,
+	SHOWING_LASTS_MS,
 	withdrawLook,
 } from "../../../lib/mesh/looks.ts";
 import { questEnded } from "../../../lib/mesh/presence.ts";
@@ -28,6 +38,13 @@ const pr = {
 	ask: "Nothing, just to see.",
 };
 const who = { session: "S1", address: "85PKB2", quest: "QEST-1" };
+
+/** The launcher marking look `id` as the person left it. */
+function mark(id: string, state: LookState): void {
+	const file = join(dir, `${id}.json`);
+	const look: Record<string, unknown> = JSON.parse(readFileSync(file, "utf8"));
+	writeFileSync(file, JSON.stringify({ ...look, state }));
+}
 
 // Joel, 8 November: "make sure they don't time out and don't get
 // confused with other things".
@@ -60,7 +77,7 @@ describe("the person's look list", () => {
 		});
 	});
 
-	it("brings a look pointed at again to the top rather than adding it twice", () => {
+	it("keeps a look pointed at again in its place rather than adding it twice", () => {
 		pointAt(dir, pr, who, new Date("2026-11-08T09:00:00Z"));
 		pointAt(
 			dir,
@@ -72,7 +89,7 @@ describe("the person's look list", () => {
 		expect(looksIn(dir)).toHaveLength(1);
 		expect(looksIn(dir)[0]).toMatchObject({
 			title: "Quest carry, merged",
-			at: "2026-11-08T10:00:00.000Z",
+			at: "2026-11-08T09:00:00.000Z",
 		});
 		// Another session pointing at the same thing is a look of its own.
 		pointAt(dir, pr, { session: "S2" }, new Date("2026-11-08T10:01:00Z"));
@@ -117,7 +134,15 @@ describe("the person's look list", () => {
 		expect(newest?.state).toBe("waiting");
 	});
 
-	it("leaves a look the person opened, or one at a file, as it is", () => {
+	it("resolves a look the person opened once its change merges", () => {
+		const look = pointAt(dir, pr, who);
+		mark(look.id, "opened");
+
+		expect(resolveLooks(dir, pr.target, "merged"), "the opened look").toBe(1);
+		expect(looksIn(dir)[0]?.state).toBe("resolved");
+	});
+
+	it("leaves a look at a file as it is", () => {
 		const file = {
 			kind: "file" as const,
 			target: "/home/joel/notes.md",
@@ -207,9 +232,10 @@ describe("a look written for the person", () => {
 		pointAt(dir, pr, who);
 		pointAt(dir, pr, { session: "S2" });
 
-		expect(withdrawLook(dir, "S1", "pr", pr.target, at), "S1's look").toBe(
-			true,
-		);
+		expect(
+			withdrawLook(dir, { session: "S1" }, "pr", pr.target, at),
+			"S1's look",
+		).toBe(true);
 		const mine = looksIn(dir).find((look) => look.session === "S1");
 		const theirs = looksIn(dir).find((look) => look.session === "S2");
 		expect(mine).toMatchObject({
@@ -219,13 +245,46 @@ describe("a look written for the person", () => {
 		});
 		expect(theirs?.state, "another session's look stays").toBe("waiting");
 		expect(
-			withdrawLook(dir, "S1", "pr", pr.target, at),
+			withdrawLook(dir, { session: "S1" }, "pr", pr.target, at),
 			"nothing left to take back",
 		).toBe(false);
 	});
 
-	it("goes when the quest it was for ends, and only then", () => {
+	// 2RCBOJ, 12 November: 5SQB3O's withdraw found nothing once Joel had
+	// opened the look, and a quest's later session couldn't take back what
+	// an earlier one raised.
+	it("is taken back once opened, by a later session on its quest, at any of its tabs", () => {
+		const look = pointAt(dir, pr, who);
+		mark(look.id, "opened");
+
+		expect(
+			withdrawLook(
+				dir,
+				{ session: "S9", quest: "QEST-1" },
+				"pr",
+				`${pr.target}/checks`,
+			),
+			"a later session of QEST-1",
+		).toBe(true);
+		expect(looksIn(dir)[0]).toMatchObject({
+			state: "resolved",
+			how: "taken back",
+		});
+	});
+
+	it("isn't taken back by another quest's session", () => {
 		pointAt(dir, pr, who);
+
+		expect(
+			withdrawLook(dir, { session: "S9", quest: "QEST-2" }, "pr", pr.target),
+			"QEST-2's session",
+		).toBe(false);
+		expect(looksIn(dir)[0]?.state).toBe("waiting");
+	});
+
+	it("goes when the quest it was for ends, and only then", () => {
+		const opened = pointAt(dir, pr, who);
+		mark(opened.id, "opened");
 		pointAt(
 			dir,
 			{ ...pr, target: `${pr.target}2` },
@@ -289,7 +348,7 @@ describe("a look answered where the person is", () => {
 		const look = pointAt(dir, asking, who);
 		expect(answerLook(dir, look.id, "Maybe"), "no such choice").toBeUndefined();
 		expect(answerLook(dir, "0000", "Posted"), "no such look").toBeUndefined();
-		withdrawLook(dir, who.session, look.kind, look.target);
+		withdrawLook(dir, who, look.kind, look.target);
 		expect(answerLook(dir, look.id, "Posted"), "taken back").toBeUndefined();
 		expect(looksIn(dir)[0]?.how, "left as taken back").toBe("taken back");
 	});
@@ -309,6 +368,158 @@ describe("a look answered where the person is", () => {
 			expect(refusalOf({ ...asking, choices }), why).toBeDefined();
 		}
 		expect(refusalOf(asking), "two short labels").toBeUndefined();
+	});
+});
+
+// WCJQSG, 12 November, after Joel at 15:42: "look at my to look at, how
+// many of those are actually useful to me as a human?" It held 45.
+describe("a look list that keeps only what's useful", () => {
+	const t0 = new Date("2026-11-12T09:00:00Z");
+	const later = new Date("2026-11-12T09:30:00Z");
+
+	it("folds one quest's looks at a change, its tabs and diffs, into the newest, in the older's place", () => {
+		pointAt(dir, pr, who, t0);
+		pointAt(
+			dir,
+			{
+				...pr,
+				kind: "diff",
+				target: `${pr.target}/files#diff-1`,
+				title: "Quest carry's diff",
+			},
+			{ session: "S2", quest: "QEST-1" },
+			later,
+		);
+
+		expect(looksIn(dir), "one look for the change").toHaveLength(1);
+		expect(looksIn(dir)[0]).toMatchObject({
+			title: "Quest carry's diff",
+			session: "S2",
+			kind: "diff",
+			target: `${pr.target}/files#diff-1`,
+			at: t0.toISOString(),
+		});
+		pointAt(dir, pr, { session: "S3", quest: "QEST-2" }, later);
+		expect(looksIn(dir), "another quest's look stands apart").toHaveLength(2);
+	});
+
+	it("folds a page with its fragment, and looks on one thread whatever their targets, never by title", () => {
+		const page = {
+			...pr,
+			kind: "page" as const,
+			target: "https://example.com/design",
+			title: "The design",
+		};
+		pointAt(dir, page, who, t0);
+		pointAt(dir, { ...page, target: `${page.target}#colours` }, who, later);
+		expect(looksIn(dir), "a page and its fragment").toHaveLength(1);
+
+		pointAt(dir, { ...pr, title: "The design" }, who, later);
+		expect(looksIn(dir), "the same title folds nothing").toHaveLength(2);
+
+		pointAt(dir, { ...pr, thread: "the ask" }, who, later);
+		pointAt(
+			dir,
+			{ ...page, target: "https://example.com/other", thread: "the ask" },
+			who,
+			later,
+		);
+		expect(
+			looksIn(dir).map((look) => look.target),
+			"the thread folds the PR into the other page",
+		).toEqual(["https://example.com/other", `${page.target}#colours`]);
+	});
+
+	it("says whether it asks for something back, and a look that only shows lasts a day", () => {
+		const shows = pointAt(dir, pr, who, t0);
+		const picks = pointAt(
+			dir,
+			{
+				...pr,
+				target: `${pr.target}1`,
+				ask: "Nothing, just to see whether it posted.",
+				choices: ["Posted", "Not yet"],
+			},
+			who,
+			t0,
+		);
+		const says = pointAt(
+			dir,
+			{ ...pr, target: `${pr.target}2`, ask: "Say whether it reads right." },
+			who,
+			t0,
+		);
+
+		expect(shows, "only to see").toMatchObject({
+			asks: false,
+			expiresAt: new Date(t0.getTime() + SHOWING_LASTS_MS).toISOString(),
+		});
+		expect(picks.asks, "choices ask").toBe(true);
+		expect(says.asks, "an ask in words").toBe(true);
+		expect(picks.expiresAt, "a look that asks has no time").toBeUndefined();
+		expect(says.expiresAt, "nor one asking in words").toBeUndefined();
+	});
+
+	it("expires what its owner holds once past its time, and answers those it expired", () => {
+		const mine = pointAt(dir, pr, who, t0);
+		pointAt(dir, pr, { session: "S5", quest: "QEST-5" }, t0);
+		pointAt(
+			dir,
+			{ ...pr, target: `${pr.target}9`, ask: "Say whether to merge." },
+			who,
+			t0,
+		);
+		const day = new Date(t0.getTime() + SHOWING_LASTS_MS);
+		const ownedHere = (look: { quest?: string }) => look.quest === "QEST-1";
+
+		expect(
+			expireLooks(dir, ownedHere, new Date(day.getTime() - 1)),
+			"a moment early",
+		).toEqual([]);
+		const expired = expireLooks(dir, ownedHere, day);
+
+		expect(
+			expired.map((look) => look.id),
+			"only this quest's showing look",
+		).toEqual([mine.id]);
+		const states = looksIn(dir).map((look) => `${look.quest} ${look.state}`);
+		expect(states.sort(), "what each became").toEqual([
+			"QEST-1 expired",
+			"QEST-1 waiting",
+			"QEST-5 waiting",
+		]);
+		expect(expireLooks(dir, ownedHere, day), "expired once").toEqual([]);
+	});
+
+	it("lets an opened look that only shows leave, and keeps one that asks", () => {
+		const shows = pointAt(dir, pr, who, t0);
+		const asks = pointAt(
+			dir,
+			{ ...pr, target: `${pr.target}1`, ask: "Say whether to merge." },
+			who,
+			t0,
+		);
+		mark(shows.id, "opened");
+		mark(asks.id, "opened");
+
+		expect(leaveSeenLooks(dir, later), "the showing look").toBe(1);
+		const byId = Object.fromEntries(looksIn(dir).map((one) => [one.id, one]));
+		expect(byId[shows.id]).toMatchObject({ state: "resolved", how: "seen" });
+		expect(byId[asks.id]?.state, "the asking look stays opened").toBe("opened");
+	});
+
+	it("reads a look kept before it said whether it asks as asking", () => {
+		const look = pointAt(dir, pr, who, t0);
+		const file = join(dir, `${look.id}.json`);
+		const {
+			asks: _asks,
+			expiresAt: _expires,
+			...older
+		} = JSON.parse(readFileSync(file, "utf8"));
+		writeFileSync(file, JSON.stringify({ ...older, state: "opened" }));
+
+		expect(leaveSeenLooks(dir, later), "an older look stays").toBe(0);
+		expect(expireLooks(dir, () => true, new Date("2027-01-01"))).toEqual([]);
 	});
 });
 

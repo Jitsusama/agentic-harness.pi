@@ -17,13 +17,18 @@
  * The ring (`ring.ts`) plays the machine's ding, and speaks with its local
  * voice where it names one, as `sound.json` describes them (`sound.ts`):
  * pw-play and piper, lowered by sox, on Linux; afplay and say on macOS. A missing tool is
- * silence, and `PI_NOTIFY=off` silences it whole.
+ * silence, and `PI_NOTIFY=off` silences it whole. Each ring heard says
+ * so in the system's log, so the dings a day can be counted.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isAway } from "../../lib/internal/away/state.ts";
+import {
+	journalCommand,
+	sayInJournal,
+} from "../../lib/internal/session/journal.ts";
 import { doneLine, ring, spokenName } from "./ring.ts";
-import { heardAt, rings } from "./when.ts";
+import { dingLine, heardAt, rings } from "./when.ts";
 
 export default function doneChimeWidget(pi: ExtensionAPI) {
 	// When the person last typed into the run under way, while it is theirs.
@@ -49,7 +54,12 @@ export default function doneChimeWidget(pi: ExtensionAPI) {
 		};
 		heard = undefined;
 		if (!rings(run)) return;
+		const session = ctx.sessionManager.getSessionId();
 		// Never waited on, so a slow speaker holds nothing up.
-		void ring(doneLine(spokenName(pi.getSessionName(), ctx.cwd)));
+		void ring(doneLine(spokenName(pi.getSessionName(), ctx.cwd))).then(
+			(heard) => {
+				if (heard) sayInJournal(dingLine(session, run), journalCommand("info"));
+			},
+		);
 	});
 }
