@@ -15,6 +15,10 @@
  * the hand-off that signal follows the call's, so Escape stops the work
  * as it always has; after it, it follows the job's, so `/jobs`, the
  * jobs tool and the session ending do.
+ *
+ * A line the person types during the run moves the call a moment later
+ * rather than at the minute (steer.ts), since pi reads the line only
+ * once every call of the turn has ended.
  */
 
 import { writeFileSync } from "node:fs";
@@ -29,9 +33,17 @@ import { sessionEnv } from "../core/session/index.ts";
 import { count, verb } from "../ui/count.ts";
 import { firstText } from "../ui/tool-result.ts";
 import { findJobHost, type JobCarry } from "./host.ts";
+import { onSteered, steerWaiting } from "./steer.ts";
 
 /** How long a call may hold the session before it is handed off. */
 export const HAND_OFF_MS = 60 * 1000;
+
+/**
+ * How long a call runs on once the person has typed a line: long enough
+ * that a quick call still answers for itself, short enough that the line
+ * is read at once.
+ */
+const STEERED_MS = 2 * 1000;
 
 /**
  * Whether a run in pi's `mode` ends once its prompts are done, as print
@@ -81,6 +93,8 @@ export interface HandOff<T> {
 		onUpdate: AgentToolUpdateCallback<T>,
 	) => Promise<AgentToolResult<T>>;
 	readonly afterMs?: number;
+	/** How long it runs on once the person types, if not `STEERED_MS`. */
+	readonly steeredMs?: number;
 	readonly now?: () => number;
 	/** Keep a finished call's output somewhere the model can read it. */
 	readonly keep?: (name: string, text: string) => string;
@@ -180,9 +194,21 @@ export async function runOrHandOff<T>(
 
 	const delay = call.background === true ? 0 : (call.afterMs ?? HAND_OFF_MS);
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let steered = false;
+	let move: () => void = () => {};
 	const due = new Promise<"due">((resolve) => {
-		timer = setTimeout(() => resolve("due"), delay);
+		move = () => resolve("due");
+		timer = setTimeout(move, delay);
 	});
+	const moveSoon = () => {
+		if (steered) return;
+		steered = true;
+		const left = delay - (now() - startedAt);
+		clearTimeout(timer);
+		timer = setTimeout(move, Math.min(left, call.steeredMs ?? STEERED_MS));
+	};
+	if (steerWaiting(call.bus)) moveSoon();
+	const unhear = onSteered(call.bus, moveSoon);
 	const first = await Promise.race([
 		running.then(
 			(result) => ({ result }),
@@ -191,6 +217,7 @@ export async function runOrHandOff<T>(
 		due,
 	]);
 	clearTimeout(timer);
+	unhear();
 	if (first !== "due") {
 		call.signal?.removeEventListener("abort", followCall);
 		if ("error" in first) throw first.error;
@@ -262,7 +289,8 @@ export async function runOrHandOff<T>(
 				type: "text",
 				text: handOffText(call, {
 					jobId: job.id,
-					afterMs: delay,
+					afterMs: steered ? now() - startedAt : delay,
+					steered,
 					output: latest,
 					silentForMs: now() - lastOutputAt,
 				}),
@@ -278,14 +306,18 @@ function handOffText<T>(
 	handed: {
 		jobId: string;
 		afterMs: number;
+		steered: boolean;
 		output: string;
 		silentForMs: number;
 	},
 ): string {
 	const background = call.background === true;
+	const moved = `it now runs as ${call.noun} ${handed.jobId}`;
 	const opening = background
 		? `Running as ${call.noun} ${handed.jobId}.`
-		: `Still running after ${spoken(handed.afterMs)}, so it now runs as ${call.noun} ${handed.jobId}.`;
+		: handed.steered
+			? `Moved after ${spoken(handed.afterMs)} so the person's new message can be read: ${moved}.`
+			: `Still running after ${spoken(handed.afterMs)}, so ${moved}.`;
 	const lines = [
 		`${opening} Its result will arrive as a message of its own when it ends.`,
 		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on.",
