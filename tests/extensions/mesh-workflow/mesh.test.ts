@@ -3740,6 +3740,7 @@ describe("a message that names no group", () => {
 			intent: "fyi",
 			text: "The reboot is done.",
 			re: hold?.id.slice(-8),
+			endsHold: true,
 		});
 		expect(over?.content[0]?.text).not.toContain("Not sent");
 		expect(last()?.to).toEqual([ALL]);
@@ -4364,8 +4365,8 @@ describe("a lease", () => {
 		const messages = folderTransport(join(paths.mesh, "messages"));
 		const [hold = ""] = messages.ids();
 
-		const said = await tools.get("mesh_send")?.execute("call-2", {
-			to: "all",
+		const toPeer = await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
 			intent: "fyi",
 			text: "a small git push is fine during the hold",
 			re: hold,
@@ -4376,8 +4377,20 @@ describe("a lease", () => {
 			messages.read(note)?.re,
 			"a note on a hold its holder keeps answers nothing, so no peer reads it as the end",
 		).toBeUndefined();
-		expect(said?.content[0]?.text).toContain("it still holds");
-		expect(said?.content[0]?.text).toContain("endsHold");
+		expect(toPeer?.content[0]?.text).toContain("it still holds");
+		expect(toPeer?.content[0]?.text).toContain("endsHold");
+
+		// Everyone it parked hears only holds and their ends, so there the
+		// note is refused, saying why.
+		const toAll = await tools.get("mesh_send")?.execute("call-3", {
+			to: "all",
+			intent: "fyi",
+			text: "a small git push is fine during the hold",
+			re: hold,
+		});
+		expect(toAll?.content[0]?.text).toMatch(/^Not sent: .*it still holds/);
+		expect(toAll?.content[0]?.text).toContain("endsHold");
+		expect(messages.ids(), "nothing more was written").toHaveLength(2);
 		expect(ownBoard(), "the holder still holds it").toMatchObject([
 			{ kind: "hold", subject: hold },
 		]);

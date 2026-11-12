@@ -569,6 +569,12 @@ function endedOnWord(
 	return { hold };
 }
 
+/** Why a note on this peer's own hold went answering nothing. */
+function keptSaid(kept: Message): string {
+	const id = shortId(kept);
+	return `[${id}] is this peer's own hold, and answering it ends it for every peer it parked, so re was left out and it still holds: to end it, answer it with endsHold true; to change what it holds, replace [${id}] with supersedes`;
+}
+
 /**
  * This peer's own hold that a send answers without saying it ends it.
  * Answering its own hold ends it for every peer it parked, so that is
@@ -793,9 +799,7 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 			? `${unnamed.join(", ")} cannot be a group, so it was left out`
 			: "",
 		ended.why ?? "",
-		kept
-			? `[${shortId(kept)}] is this peer's own hold, and answering it ends it for every peer it parked, so re was left out and it still holds: to end it, answer it with endsHold true; to change what it holds, replace it with supersedes`
-			: "",
+		kept ? keptSaid(kept) : "",
 		intent.why ?? "",
 	].filter(Boolean);
 	const notes: string[] =
@@ -907,7 +911,9 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 			: "the peers it is for by address, or a group they share";
 	const machineText = `${MACHINE} takes only holds and the answers that end them, since every session on the machine hears it, those on other work too. Send it to ${instead}.`;
 	if (machineRefused && wanted.length === 0) {
-		return answer(`Not sent: ${machineText}`, {
+		// Without re a holder's note is no end, so say why it went.
+		const why = kept ? `${capitalized(keptSaid(kept))}. ` : "";
+		return answer(`Not sent: ${why}${machineText}`, {
 			sent: false,
 			refused: [ALL],
 		} satisfies SendDetails);
