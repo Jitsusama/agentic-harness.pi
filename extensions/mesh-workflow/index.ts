@@ -180,7 +180,6 @@ import {
 } from "../../lib/mesh/owed.ts";
 import { wakeParked, wakeSteered } from "../../lib/mesh/parked.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
-import { inboxOf } from "../../lib/mesh/steer.ts";
 import {
 	createPresences,
 	type Presence,
@@ -190,6 +189,7 @@ import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
+import { inboxOf } from "../../lib/mesh/steer.ts";
 import { toolDetail } from "../../lib/mesh/step.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
