@@ -20,6 +20,11 @@ import {
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import {
+	CustomMessageComponent,
+	initTheme,
+	type MessageRenderer,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ADVISORY,
@@ -716,6 +721,32 @@ describe("quiet", () => {
 		expect(drawn(renderers, sent[1])).toEqual([]);
 		expect(sent[0]?.message.content).toContain("merged #950");
 		expect(sent[1]?.message.content).toContain("your bug");
+	});
+
+	it("leaves no row on pi's screen for what it keeps off", async () => {
+		// Joel, 11 November 2026: "for mesh quiet, it is still printing blank
+		// lines to my pi terminal." Drawn through pi's own component, which
+		// puts a blank line above each message.
+		initTheme();
+		const { sent, renderers } = await startSession(
+			{},
+			{ isIdle: () => true },
+			quietLog,
+		);
+
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		const one = sent[0]?.message;
+		const render = renderers.get("mesh");
+		if (!one || !render) throw new Error("no delivery to draw");
+		const row = new CustomMessageComponent(
+			{ role: "custom", timestamp: 0, display: true, ...one },
+			render as MessageRenderer,
+		);
+		expect(row.render(120)).toEqual([]);
+		row.setExpanded(true);
+		expect(row.render(120).join("\n")).toContain("merged #950");
 	});
 
 	it("opens what it kept off when the person expands the screen", async () => {

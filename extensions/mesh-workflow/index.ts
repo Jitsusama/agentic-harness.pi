@@ -231,6 +231,7 @@ import {
 import { identifyCurrentTerminal } from "../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../lib/terminal/types.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
+import { dropEmptyMessages } from "../../lib/ui/no-empty-messages.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import { carryThisSession } from "./carrying.ts";
 import {
@@ -628,6 +629,8 @@ export function meshWorkflow(
 	return (pi: ExtensionAPI) => {
 		// Not a peer: a subagent is its parent's hands (see hand.ts).
 		if (isSubagent(env)) return;
+		// A delivery /mesh quiet hides draws nothing, and so takes no row.
+		dropEmptyMessages();
 		// A realm name no folder may carry would put this peer where no
 		// node and no other session looks: say so, and stay off the mesh.
 		const refused = meshRefusal(sessionRealm(env));
