@@ -8,7 +8,10 @@
  *   node scripts/pi-verbs.ts told USE accepted|undone|dismissed
  *
  * `serve` listens on the socket systemd holds for it, or its own in the
- * login's runtime folder, and serves until a stop signal. The others ask
+ * login's runtime folder, and serves until a stop signal or, handed its
+ * socket, until five minutes pass with no connection open: systemd holds
+ * the socket meanwhile and starts it again on the next ask, so a node
+ * process isn't kept all day for a menu used now and then. The others ask
  * it one line and print the answer as JSON. It exits 78 when there is no
  * runtime folder to find the socket in, and 1 when an ask is refused.
  */
@@ -26,6 +29,9 @@ import {
 /** The status a unit reads as a configuration no restart would change. */
 const EXIT_MISCONFIGURED = 78;
 
+/** How long a handed server serves with no connection open. */
+const REST_AFTER_MS = 5 * 60 * 1000;
+
 const USAGE =
 	"usage: pi-verbs serve | list | ask VERB [NAME=WORDS ...] < selection | told USE OUTCOME\n";
 
@@ -39,19 +45,23 @@ if (!socket) {
 const [command, ...rest] = process.argv.slice(2);
 
 if (command === "serve") {
-	const server = verbServer({
-		folders: [join(import.meta.dirname, "..", "verbs"), configDir("verbs")],
-		uses: join(stateDir("verbs"), "uses.jsonl"),
-	});
-	// systemd says it handed the socket over, and to which process.
+	// systemd says it handed the socket over, and to which process. Only a
+	// handed server rests, since one listening on its own socket would
+	// leave nothing to answer the next ask.
 	const handed =
 		process.env.LISTEN_FDS === "1" &&
 		process.env.LISTEN_PID === String(process.pid);
+	const end = (): void => {
+		server.stop().then(() => process.exit(0));
+	};
+	const server = verbServer({
+		folders: [join(import.meta.dirname, "..", "verbs"), configDir("verbs")],
+		uses: join(stateDir("verbs"), "uses.jsonl"),
+		...(handed ? { restAfterMs: REST_AFTER_MS, onRest: end } : {}),
+	});
 	await listenForVerbs(server.server, socket, handed);
 	for (const signal of ["SIGTERM", "SIGINT"] as const) {
-		process.once(signal, () => {
-			server.stop().then(() => process.exit(0));
-		});
+		process.once(signal, end);
 	}
 } else {
 	const line = asked(command, rest);

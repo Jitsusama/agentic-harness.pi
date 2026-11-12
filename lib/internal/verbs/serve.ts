@@ -49,6 +49,13 @@ interface VerbServerOptions {
 	readonly settleMs?: number;
 	/** Where what goes wrong is said; standard error unless given. */
 	readonly log?: (line: string) => void;
+	/**
+	 * How long it serves with no connection open before `onRest` is told,
+	 * so a server systemd starts on the first ask holds no memory all day
+	 * between uses; it serves on while any connection is open.
+	 */
+	readonly restAfterMs?: number;
+	readonly onRest?: () => void;
 }
 
 /** A verbs server, not yet listening, and how to stop it. */
@@ -271,7 +278,18 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 		}
 	}
 
+	// Waits out the while with no connection open, from the start too,
+	// since systemd starts it on an ask whose connection is already queued.
+	let resting: NodeJS.Timeout | undefined;
+	function restLater(): void {
+		const { restAfterMs, onRest } = options;
+		if (restAfterMs === undefined || !onRest) return;
+		clearTimeout(resting);
+		resting = setTimeout(onRest, restAfterMs);
+	}
+
 	function serve(socket: Socket): void {
+		clearTimeout(resting);
 		sockets.add(socket);
 		let pending = "";
 		socket.setEncoding("utf8");
@@ -296,6 +314,7 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 		socket.on("close", () => {
 			sockets.delete(socket);
 			unwatch(socket);
+			if (sockets.size === 0) restLater();
 		});
 	}
 
@@ -340,11 +359,13 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 	}
 
 	const server = createServer(serve);
+	restLater();
 	return {
 		server,
 		stop: () =>
 			new Promise<void>((done) => {
 				clearTimeout(settling);
+				clearTimeout(resting);
 				for (const watcher of watchers) watcher.close();
 				for (const socket of sockets) socket.destroy();
 				if (!server.listening) {
