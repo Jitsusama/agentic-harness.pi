@@ -154,6 +154,9 @@ const TIMEOUT_MS = 1000;
 // read as a gap.
 const LONG_WATCHED = { WATCHDOG_USEC: "2000000" };
 const LONG_TIMEOUT_MS = 2000;
+// The journal's line for a loop held past a beat: how long, of how long.
+const HELD =
+	/^the loop held (\d+\.\d) s past a watchdog beat, of the (\d+\.\d) s systemd waits$/;
 
 describe("runHost's watchdog", () => {
 	it("keeps pinging through a turn twice the timeout's length", async () => {
@@ -290,6 +293,48 @@ describe("runHost's watchdog", () => {
 			longestGap(pings.at),
 			`no ping while blocked: ${pings.at.join(", ")}`,
 		).toBeGreaterThanOrEqual(1.5 * TIMEOUT_MS);
+	});
+
+	it("says in the journal how long its loop held past a beat", async () => {
+		const said: string[] = [];
+		const pings = pingTimes();
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: { ...env(), ...WATCHED },
+			engine,
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			alive: pings.alive,
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		try {
+			await vi.waitFor(() => {
+				expect(pings.at.length, "a ping before the block").toBeGreaterThan(0);
+			});
+			const until = performance.now() + 1.5 * TIMEOUT_MS;
+			while (performance.now() < until) {
+				// Spinning, as a loop held by synchronous work is.
+			}
+			await vi.waitFor(() => {
+				expect(said.join("\n")).toMatch(/loop held/);
+			});
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+		const held = said
+			.map((line) => HELD.exec(line))
+			.find((match) => match !== null);
+		expect(held, `a held line: ${said.join(" | ")}`).toBeDefined();
+		expect(
+			Number(held?.[1]),
+			"held for about the block, less the beat it was due in",
+		).toBeGreaterThanOrEqual(TIMEOUT_MS / 1000);
+		expect(held?.[2], "the watchdog's own timeout").toBe("1.0");
 	});
 
 	it("doesn't ping without a watchdog, nor once stopped", async () => {
