@@ -1,12 +1,9 @@
 ---
 name: commit-format
 description: >
-  Conventional commit message structure: types, scopes,
-  subject and body rules, and how to get the message into
-  git. Use when writing a commit message. Pairs with
-  git-commit-convention for when to commit and what belongs
-  in one. Follow the person's writing voice and prose style
-  guides for body text.
+  Conventional commit messages: type, scope, subject and body,
+  and how to get one into git. Use when writing a commit
+  message.
 ---
 
 # Conventional Commits

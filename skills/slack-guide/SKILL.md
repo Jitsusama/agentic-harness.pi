@@ -3,11 +3,8 @@ name: slack-guide
 description: >
   Read and write Slack: search, threads, messages, edits,
   uploads, users, channels and reactions. Use when asked to
-  "check Slack", "search Slack", "send a message", "post a
-  thread", "edit that message", "update what I said",
-  "upload a file", "share this file", "what did X say",
-  "show me the thread", "who is", "react to", or anything
-  about Slack messages, channels or users.
+  check, search or post in Slack, what someone said there, who
+  someone is, or anything about Slack.
 ---
 
 # Slack

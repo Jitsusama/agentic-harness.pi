@@ -1,12 +1,10 @@
 ---
 name: result-query-guide
 description: >
-  Read a tool answer that cites a stored handle by querying it
-  with result_query rather than running the tool again. Use
-  when a tool answer says part of its payload is stored, when
-  asked to "query that result", "get the rest of it", "how
-  many of those were there", or when an answer looks
-  truncated.
+  Read a stored tool answer with result_query rather than
+  running the tool again. Use when an answer cites a handle or
+  looks truncated, or when asked for the rest of a result or how
+  many it held.
 ---
 
 # Querying a Stored Tool Output

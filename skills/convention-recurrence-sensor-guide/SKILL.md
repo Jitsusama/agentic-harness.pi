@@ -1,11 +1,9 @@
 ---
 name: convention-recurrence-sensor-guide
 description: >
-  Measure whether convention corrections recur in the pi
-  session logs, by category and week, before and after a gate,
-  and run the learning sensor, which counts recurring refusals,
-  guard blocks and broken standing rules. Use to pick a harness
-  change and to check it bent the count down.
+  Count whether convention corrections recur in pi's session
+  logs before and after a gate, and run the learning sensor. Use
+  to pick a harness change and to check it bent the count down.
 ---
 
 # Convention Recurrence Sensor
