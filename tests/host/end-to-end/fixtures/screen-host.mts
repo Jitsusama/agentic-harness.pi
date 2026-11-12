@@ -247,6 +247,23 @@ function weigh(): void {
 		for (const [id, ref] of seen)
 			if (ref instanceof WeakRef && ref.deref() !== undefined)
 				sessions.push(id);
+	const sessionHost = Reflect.get(
+		globalThis,
+		Symbol.for("agentic-harness.host.v1"),
+	);
+	const held = sessionHost ? Reflect.get(sessionHost, "conversations") : undefined;
+	const table: unknown[] = [];
+	if (held instanceof Map)
+		for (const [id, one] of held)
+			table.push({
+				id,
+				state: one.state,
+				accepting: one.accepting,
+				disposed: one.disposed,
+				stamped: one.stamped,
+				ending: one.ending,
+				closing: one.closing !== undefined,
+			});
 	const weighed = join(home, "weighed.json");
 	writeFileSync(
 		`${weighed}.part`,
@@ -256,6 +273,7 @@ function weigh(): void {
 			swapPss: kb("SwapPss"),
 			heapKb: Math.round(process.memoryUsage().heapUsed / BYTES_PER_KB),
 			sessions,
+			table: { found: sessionHost !== undefined, held: table },
 		}),
 	);
 	const snapshots = process.env.SCREEN_HOST_SNAPSHOTS;

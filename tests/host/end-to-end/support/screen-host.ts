@@ -49,6 +49,8 @@ export interface Weight {
 	readonly heapKb: number;
 	/** The conversations whose sessions are still in its memory. */
 	readonly sessions: readonly string[];
+	/** Scratch: the session host's own table as the host saw it. */
+	readonly table?: unknown;
 }
 
 /** A running screen host and the control requests a test makes of it. */
@@ -233,6 +235,7 @@ function weight(said: unknown): Weight {
 		swapPss: said.swapPss,
 		heapKb: said.heapKb,
 		sessions,
+		table: said.table,
 	};
 }
 

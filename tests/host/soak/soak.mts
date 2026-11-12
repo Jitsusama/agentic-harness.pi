@@ -288,12 +288,12 @@ async function runHosted(sealed: Seal): Promise<{
 		const parkMs = Date.now() - parking;
 		const early = await host.weigh();
 		process.stdout.write(
-			`=== EARLY held ${JSON.stringify(early.sessions)} heap ${early.heapKb}\n`,
+			`=== EARLY held ${JSON.stringify(early.sessions)} heap ${early.heapKb} ids ${JSON.stringify(ids)} table ${JSON.stringify(early.table)}\n`,
 		);
 		await new Promise((done) => setTimeout(done, 15_000));
 		const parked = await host.weigh();
 		process.stdout.write(
-			`=== LATE held ${JSON.stringify(parked.sessions)} heap ${parked.heapKb}\n`,
+			`=== LATE held ${JSON.stringify(parked.sessions)} heap ${parked.heapKb} table ${JSON.stringify(parked.table)}\n`,
 		);
 		writeFileSync(switchFile, "");
 		const wakeMs = await Promise.all(
