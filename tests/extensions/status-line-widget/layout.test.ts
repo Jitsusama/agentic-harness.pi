@@ -360,7 +360,7 @@ describe("pi's status line in Joel's windows", () => {
 	// and one at 134. At 76, with the budget's and mesh quiet's words, the
 	// line was the word dotfiles alone.
 	const his = facts({
-		place: { lead: "", parts: ["dotfiles"], first: "strong" },
+		place: { lead: "", parts: ["dotfiles"], first: "text" },
 		git: { ...CLEAN, branch: "main", unstaged: true },
 		statuses: [
 			"⚑",
