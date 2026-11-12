@@ -73,12 +73,7 @@ afterEach(() => {
 });
 
 /** Run every handler pi was given for `event`, answering the last answer. */
-async function fire(
-	pi: FakePi,
-	event: string,
-	payload: unknown,
-	ctx: unknown,
-) {
+async function fire(pi: FakePi, event: string, payload: unknown, ctx: unknown) {
 	let answer: unknown;
 	for (const handler of pi.recorded.handlers.get(event) ?? []) {
 		answer = (await handler(payload as never, ctx as never)) ?? answer;
