@@ -35,7 +35,7 @@ import {
 	sessionsKittyRuns,
 } from "../../../lib/internal/quest/sessions-kitty.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
-import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
 	describePlan,

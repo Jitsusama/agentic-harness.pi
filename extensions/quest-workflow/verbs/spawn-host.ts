@@ -43,7 +43,7 @@ import {
 	holdOf,
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
-import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { spawnHostSetting } from "../config.ts";
 import { readRecord } from "../session-registry.ts";
 import {
