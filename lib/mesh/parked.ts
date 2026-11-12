@@ -12,12 +12,15 @@
  * leads. Judged as attention.ts judges for a receiver, without a
  * classifier, so a message noted or glanced at waits for its next start.
  *
- * A steer waits in its inbox the same way, read as the peer starts. One
- * that closes it or carries its work to another machine can only be done
- * by the peer running, and whoever asked is waiting on it: mycelium
- * waits for a carried session's done file before it carries the rest.
- * So a peer that looks about it wakes a parked peer whose inbox holds
- * one, through the same holder.
+ * A steer is read as the peer starts. A talk wakes it, since a running
+ * peer would answer at once and the person is waiting: a parked void
+ * left Joel's lines in its inbox until something else started it (12
+ * Nov 2026). One that closes it or carries its work to another machine
+ * can only be done by the peer running, and whoever asked is waiting on
+ * it: mycelium waits for a carried session's done file before it
+ * carries the rest. So a peer that looks about it wakes a parked peer
+ * whose inbox holds either, through the same holder. A pause or stop
+ * does nothing to a peer that isn't running, so it waits.
  */
 
 import { attend } from "./attention.ts";
@@ -73,12 +76,15 @@ export function wakes(
 }
 
 /**
- * Whether a steer waits on its parked peer running: a close, a carry or
- * a move, which only a running session can make, or a fill, since the
- * person is coming to its window to send it.
+ * Whether a steer waits on its parked peer running: a talk, or a resume
+ * with words, which a running peer answers; a close, a carry or a move,
+ * which only a running session can make; or a fill, since the person is
+ * coming to its window to send it.
  */
 function steerWakes(steer: Steer): boolean {
 	return (
+		steer.act === undefined ||
+		(steer.act === "resume" && steer.text !== "") ||
 		steer.act === "close" ||
 		steer.act === "carry" ||
 		steer.act === "move" ||
@@ -88,7 +94,8 @@ function steerWakes(steer: Steer): boolean {
 
 /**
  * Ask the holder of every parked peer whose steer inbox under `root`
- * holds a close, a carry, a move or a fill to wake it, the steer's file named as why;
+ * holds a talk, a close, a carry, a move or a fill to wake it, the
+ * steer's file named as why;
  * answers the sessions asked for. The steer stays where it is, for the
  * peer to take as it starts.
  */
