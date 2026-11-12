@@ -267,10 +267,54 @@ sessions skip the board and just return results.
   activity summarizer.
 - `progress-render.ts`: production status line, docked
   board and result card.
+- `carry.ts`, `carried-member.ts`: a background fleet
+  carried through its session's move (see
+  [Through a Move](#through-a-move)), and one subagent
+  of it read back from what its supervisor left on disk.
 - `cancellation.ts`: fleet-shaped cancellation
   registry. A review-shaped sibling once lived beside it;
   the review substrate now derives each participant's
   signal from the one pi hands a tool's execute.
+
+## Through a Move
+
+A move into a host (`/host`, or a wave) ends the pi, and
+until 12 November it waited out a background fleet, or
+would have stopped every subagent of it. Now the fleet's
+job carries it (job-workflow's
+[Through a Move](../job-workflow/#through-a-move)):
+
+- **Let go:** once handed, the fleet no longer follows
+  its job's signal, so the pi's end stops nothing. The
+  run's `parent.json` says it is being handed on, and
+  each supervisor keeps its subagent while the move note
+  is out, at most 60 minutes, the take-up's own deadline,
+  then 120 s past it, the time a host is given to open a
+  session (`lib/subagent/handing.ts`).
+- **Taken up:** the conversation that takes the session
+  up, the host's or plain pi's after a failed move,
+  writes itself into `parent.json` as the owner and into
+  the ledger record. It reads each subagent's result as
+  it lands and says the summary under the same job id
+  and run id. `parent.json` goes once that is said.
+- **Nothing lost quietly:** a subagent its supervisor
+  stopped for want of a taker is said as cut off in the
+  move, and one whose supervisor went with no result as
+  lost, each with its last activity and transcript. A
+  fleet nobody took up is cut off as its owner gone by
+  the sweep, which tells the conversation when it
+  returns.
+- **Spend once:** each subagent's run is recorded by the
+  process that sees it end, in the conversation, whose
+  session id a move keeps. The moving pi stops recording
+  once it hands the fleet on, and the carry names the
+  subagents it recorded, so the taker records only the
+  rest.
+
+A fleet a session with no id dispatched can't be taken
+up, so it still holds a move. Releasing a hosted
+conversation with a fleet running, back to plain pi, is
+not carried yet.
 
 ## What Is Kept, and What Reclaims It
 

@@ -271,6 +271,18 @@ the mesh loaded, lets the viewer go told the conversation closed; the
 host keeps no screen or session of it, refuses a new attach to it, and
 its other conversation still answers its viewer.
 
+fleet-carry.test.ts is E21, E17 for a background fleet: a held plain
+pi dispatches two subagents in the background, one that ends within
+the move and one 50 s on, and /host moves it while both run. The
+background host lists the session and says the fleet's summary in its
+log under the same job id and run id, both subagents complete.
+
+E22, in the same file, is the move that fails: the host admits only
+the conversation it already holds (`startHost`'s `admitsOne`), so it
+refuses the log. The case does what the window's join does, waiting
+its grace and taking the move back, then opens plain pi on the same
+log, which says the fleet's summary the same way.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 

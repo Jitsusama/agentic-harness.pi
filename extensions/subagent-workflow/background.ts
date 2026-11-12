@@ -5,7 +5,7 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
-import { findJobHost, type Job } from "../../lib/jobs/index.ts";
+import { findJobHost, type Job, type JobCarry } from "../../lib/jobs/index.ts";
 import { count } from "../../lib/ui/count.ts";
 
 /** What the fleet hands back, as far as its summary goes. */
@@ -17,7 +17,12 @@ interface FleetAnswer {
  * Start the job a background fleet runs under, or refuse when no host
  * could say its result, since that fleet's answer would go nowhere.
  */
-export function startFleetJob(bus: EventBus, runId: string, size: number): Job {
+export function startFleetJob(
+	bus: EventBus,
+	runId: string,
+	size: number,
+	carry?: JobCarry,
+): Job {
 	const host = findJobHost(bus);
 	if (!host) {
 		throw new Error(
@@ -27,6 +32,7 @@ export function startFleetJob(bus: EventBus, runId: string, size: number): Job {
 	return host.start({
 		kind: "subagent",
 		label: `${count(size, "subagent")} in ${runId}`,
+		...(carry ? { carry } : {}),
 	});
 }
 

@@ -20,6 +20,7 @@ import {
 	recordRunEverywhere,
 	runRecordFrom,
 } from "../../lib/core/observability/recorder.ts";
+import type { RunRecord } from "../../lib/core/observability/types.ts";
 import { count as grouped } from "../../lib/core/result/counts.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import { UNFINISHED } from "../../lib/subagent/reviewer-error.ts";
@@ -196,6 +197,11 @@ export interface DispatchFleetOptions {
 	readonly cancellations: FleetCancellationRegistry;
 	readonly progress?: FleetProgress;
 	readonly signal?: AbortSignal;
+	/**
+	 * Where a settled subagent's run is recorded, the run store unless
+	 * said: a fleet handed on by a move leaves it to the taker (carry.ts).
+	 */
+	readonly recordRun?: (record: RunRecord) => void;
 }
 
 /**
@@ -278,7 +284,7 @@ async function runOneAssignment(
 		// (both success and non-zero exit); cancellations throw
 		// above and are not worth a row. Best-effort: the sink
 		// swallows its own errors.
-		recordRunEverywhere(
+		(opts.recordRun ?? recordRunEverywhere)(
 			runRecordFrom({
 				runId: opts.runId,
 				subagentId: assignment.spec.id,
@@ -424,7 +430,8 @@ function formatSuccess(result: SubagentRunResult): FleetSubagentResult {
 	};
 }
 
-function aggregateUsage(
+/** The usage of every subagent that said its own, summed. */
+export function aggregateUsage(
 	results: readonly FleetSubagentResult[],
 ): SubagentUsage | undefined {
 	const tallied = results.reduce<SubagentUsage | null>((acc, r) => {

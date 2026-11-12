@@ -28,12 +28,15 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import {
-	isTickedOwner,
-	type TickedOwner,
-} from "../internal/process-ticks.ts";
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { isTickedOwner, type TickedOwner } from "../internal/process-ticks.ts";
 import { isRecord } from "../internal/record.ts";
 import { noteState } from "../internal/session/move.ts";
 
@@ -97,11 +100,18 @@ export function parentPath(runDir: string): string {
 	return join(runDir, PARENT_FILE);
 }
 
-/** Write a run's `parent.json` whole, readable by this user alone. */
+/**
+ * Write a run's `parent.json` whole, readable by this user alone.
+ *
+ * The run's folder is made if it isn't there yet, since a move can come
+ * before any supervisor has started: one starting later must still find
+ * the fleet being handed on, or it stops as its parent goes.
+ */
 export function writeParent(runDir: string, parent: Parent): void {
 	const path = parentPath(runDir);
-	const staged = `${path}.${process.pid}.${randomBytes(4).toString("hex")}`;
+	const staged = `${path}.${randomBytes(8).toString("hex")}`;
 	try {
+		mkdirSync(runDir, { recursive: true, mode: 0o700 });
 		writeFileSync(staged, `${JSON.stringify(parent)}\n`, { mode: 0o600 });
 		renameSync(staged, path);
 	} catch (error) {
@@ -178,8 +188,7 @@ export function answersTo(
 	const { handing } = parent;
 	// Not knowing when the note went, it is given the whole of both.
 	const since = Date.parse(handing.since);
-	return out(handing.note) ||
-		now - since < handing.mostMs + handing.marginMs
+	return out(handing.note) || now - since < handing.mostMs + handing.marginMs
 		? "handing"
 		: undefined;
 }

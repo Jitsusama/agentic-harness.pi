@@ -128,6 +128,22 @@ export const CARRIED_END = "carried-job-ended";
  */
 export const CARRYING = `timeout 45 tail -f /dev/null; echo ${CARRIED_END}`;
 
+/** The run id of the fleet `fleet-carry` dispatches, so its summary can be found. */
+export const CARRIED_FLEET = "e21-fleet";
+
+/** What a subagent is told to end soon, as a move is under way. */
+export const NAP = "nap";
+
+/** What a subagent is told to end only well after a move has landed. */
+export const LONG_NAP = "long nap";
+
+/**
+ * What bash runs for `nap` and `long nap`: the endless follow, ended by
+ * `timeout` within a move's time or well past it.
+ */
+const NAPPING = "timeout 10 tail -f /dev/null; echo napped";
+const LONG_NAPPING = "timeout 50 tail -f /dev/null; echo napped";
+
 /** What a conversation is told to list the sessions it would reopen. */
 export const REOPEN = "reopen";
 
@@ -314,6 +330,23 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		return toolCall(faux, "bash", { command: LINGERING, background: true });
 	if (toldTo(words, CARRY))
 		return toolCall(faux, "bash", { command: CARRYING, background: true });
+	if (toldTo(words, NAP)) return toolCall(faux, "bash", { command: NAPPING });
+	if (toldTo(words, LONG_NAP))
+		return toolCall(faux, "bash", { command: LONG_NAPPING });
+	const carried = /^fleet-carry (\S+) (\S+)$/m.exec(words);
+	if (carried?.[1] && carried[2])
+		return toolCall(faux, "subagent", {
+			runId: CARRIED_FLEET,
+			background: true,
+			jobs: [
+				{ id: "one", userPrompt: NAP },
+				{ id: "two", userPrompt: LONG_NAP },
+			].map((job) => ({
+				...job,
+				cwd: carried[1],
+				extraExtensions: [carried[2]],
+			})),
+		});
 	if (toldTo(words, REOPEN))
 		return toolCall(faux, "quest", { action: "reopen-sessions" });
 	// subagent is deferred, so it is loaded first, as a model would.

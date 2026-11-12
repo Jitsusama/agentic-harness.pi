@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { hosted, sessionOwner } from "../core/session/index.ts";
 import {
 	askedOnceWithTicks,
+	isTickedOwner,
 	type TickedOwner,
 	type TickFacts,
 	tickedOwnerNow,
@@ -163,6 +164,8 @@ export function stillHeld(runs: readonly FleetRun[], since: Date): Set<string> {
 export async function abandonedFleets(
 	runs: readonly FleetRun[],
 	facts: TickFacts,
+	handedTo: (run: FleetRun) => "handing" | TickedOwner | undefined = () =>
+		undefined,
 ): Promise<readonly FleetRun[]> {
 	const abandoned: FleetRun[] = [];
 	// Asked once per session rather than once per fleet. Every fleet
@@ -179,7 +182,12 @@ export async function abandonedFleets(
 	const once = askedOnceWithTicks(facts);
 	for (const run of runs) {
 		if (run.open !== true) continue;
-		const owner = run.owner;
+		// A fleet carried by a move answers to its run's parent.json
+		// (handing.ts): nobody's while it is being handed on, which is no
+		// more abandoned than a fleet whose owner runs, then its taker's.
+		const handed = handedTo(run);
+		if (handed === "handing") continue;
+		const owner = handed ?? run.owner;
 		if (owner === undefined) continue;
 		// Only a decisive "gone" counts. Undecidable means the machine
 		// would not say when the pid started, so liveness is the only
@@ -254,6 +262,11 @@ export interface FleetLedger {
 	cutOff(id: string, why: CutOff["why"]): Promise<void>;
 	/** Note that the conversation a cut-off fleet belongs to has heard. */
 	told(id: string): Promise<void>;
+	/**
+	 * Name the conversation a move carried an open fleet to as the one
+	 * waiting on it. A fleet settled or cut off is left as it is.
+	 */
+	handTo(id: string, owner: TickedOwner): Promise<void>;
 	/**
 	 * Every fleet on the ledger, beside what would not read.
 	 *
@@ -451,6 +464,12 @@ export function createFleetLedger(root: string): FleetLedger {
 			await put({ ...run, cutOff: { ...run.cutOff, told: true } });
 		},
 
+		async handTo(id, owner) {
+			const run = await recordOf(id, "handed on");
+			if (run?.open !== true) return;
+			await put({ ...run, owner });
+		},
+
 		async everyFleet() {
 			const { runs, unreadable } = await readAll();
 			return { runs: runs.map((held) => held.run), unreadable };
@@ -604,27 +623,5 @@ function ownerIsWellFormed(value: unknown): boolean {
 	// Null as well as undefined, since null is what JSON says when
 	// something writes the field out empty, and refusing the record
 	// over a spelling of "nobody" wedges the sweep for no reason.
-	if (value === undefined || value === null) return true;
-	if (typeof value !== "object") return false;
-	const owner = value as Record<string, unknown>;
-	return (
-		typeof owner.pid === "number" &&
-		// Positive, like the two sibling gates that decide whether to
-		// signal something. A zero or negative pid names a process
-		// group or nothing at all, and it must not reach a comparison
-		// that concludes a session is still alive.
-		owner.pid > 0 &&
-		typeof owner.startedAt === "number" &&
-		(owner.bootId === undefined || typeof owner.bootId === "string") &&
-		((owner.session === undefined && owner.host === undefined) ||
-			(typeof owner.session === "string" &&
-				owner.session.length > 0 &&
-				typeof owner.host === "string" &&
-				owner.host.length > 0)) &&
-		// Ticks decide over the start time when they are there, so a
-		// malformed count is refused for the same reason a pid is.
-		(owner.startTicks === undefined ||
-			(typeof owner.startTicks === "number" &&
-				Number.isSafeInteger(owner.startTicks)))
-	);
+	return value === undefined || value === null || isTickedOwner(value);
 }

@@ -15,10 +15,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
-import {
-	type Parent,
-	writeParent,
-} from "../../../../lib/subagent/handing.ts";
+import { type Parent, writeParent } from "../../../../lib/subagent/handing.ts";
 import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.ts";
 import { gone, noSuchProcess } from "../../../support/processes.ts";
 
@@ -105,11 +102,15 @@ async function startHandedOver(
 	const store = new ReviewerArtifactsStore(root);
 	const { resultPath, leasePath, runDir } = store.paths("run", "one");
 	writeParent(runDir, await parent(root));
-	const supervisor = spawn(process.execPath, [supervisorPath, started.requestPath], {
-		cwd: root,
-		detached: false,
-		stdio: "ignore",
-	});
+	const supervisor = spawn(
+		process.execPath,
+		[supervisorPath, started.requestPath],
+		{
+			cwd: root,
+			detached: false,
+			stdio: "ignore",
+		},
+	);
 	const lease = await appears<{ childPid?: number }>(
 		leasePath,
 		(value) => typeof value.childPid === "number",
@@ -155,7 +156,10 @@ describe("a supervisor handed over as its session moved", () => {
 			});
 			// Watched for many of the watchdog's looks, past the margin.
 			await new Promise((resolve) => setTimeout(resolve, KEPT_FOR_MS));
-			expect(running(started.child)).toBe(true);
+			expect(
+				running(started.child),
+				"its subagent is kept while the move note is out",
+			).toBe(true);
 
 			await rm(join(folder, "moving.adopting-1"));
 			const result = await appears<{ state: string }>(started.resultPath);
@@ -172,7 +176,10 @@ describe("a supervisor handed over as its session moved", () => {
 			started = await startHandedOver(async (root) => ({
 				handing: {
 					since: new Date().toISOString(),
-					note: { session: "moving", folder: await claimedNote(root, "moving") },
+					note: {
+						session: "moving",
+						folder: await claimedNote(root, "moving"),
+					},
 					mostMs: 600_000,
 					marginMs: 600_000,
 				},
@@ -180,7 +187,10 @@ describe("a supervisor handed over as its session moved", () => {
 			started.supervisor.kill("SIGHUP");
 			// Long enough for a hang-up taken as a stop to have stopped it.
 			await new Promise((resolve) => setTimeout(resolve, KEPT_FOR_MS));
-			expect(running(started.child)).toBe(true);
+			expect(
+				running(started.child),
+				"a hang-up does not stop a fleet being handed on",
+			).toBe(true);
 		} finally {
 			await stop(started);
 		}
@@ -194,7 +204,10 @@ describe("a supervisor handed over as its session moved", () => {
 			started = await startHandedOver(async () => ({ owner }));
 			// Watched for many of the watchdog's looks.
 			await new Promise((resolve) => setTimeout(resolve, KEPT_FOR_MS));
-			expect(running(started.child)).toBe(true);
+			expect(
+				running(started.child),
+				"its supervisor runs on under the conversation that took it up",
+			).toBe(true);
 
 			writeParent(started.runDir, {
 				owner: { pid: noSuchProcess(), startedAt: owner.startedAt },

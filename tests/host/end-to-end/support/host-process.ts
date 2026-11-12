@@ -6,7 +6,10 @@
  * one now, H1's createEngine once it lands.
  *
  * The host is given an open rollout gate, since it runs from a tree and
- * has no install to read one from; the gate has tests of its own.
+ * has no install to read one from; the gate has tests of its own. One
+ * asked to admit a single conversation is given a gate that refuses
+ * every other, as a gate over stale harnesses does, for a case that
+ * needs a host to refuse an adopt (E22).
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -24,6 +27,10 @@ import { gone } from "../../../support/processes.ts";
 import type { Seal } from "./seal.ts";
 
 const RUN = resolve(import.meta.dirname, "../../../../host/service/run.ts");
+const DISPATCH = resolve(
+	import.meta.dirname,
+	"../../../../host/service/dispatch.ts",
+);
 
 /** How long a host may take to go once told to. */
 const HOST_WAIT_MS = 20_000;
@@ -77,16 +84,22 @@ export async function startHost(options: {
 	engine: string;
 	kind?: HostKind;
 	env?: Readonly<Record<string, string>>;
+	/** Refuse every conversation but the first it holds. */
+	admitsOne?: boolean;
 }): Promise<HostProcess> {
+	const rollout = options.admitsOne
+		? `() => Promise.reject(hostRefusal("rollout_refused", "this host admits one conversation"))`
+		: "() => Promise.resolve()";
 	const source = `
 const { runHost } = await import(${JSON.stringify(RUN)});
+const { hostRefusal } = await import(${JSON.stringify(DISPATCH)});
 const { engine } = await import(${JSON.stringify(options.engine)});
 const run = await runHost({
 	argv: [${JSON.stringify(options.kind ?? "attended")}],
 	env: process.env,
 	engine,
 	ready: async () => {},
-	places: { rollout: () => Promise.resolve() },
+	places: { rollout: ${rollout} },
 });
 process.stdout.write(JSON.stringify({ path: run.serving.path }) + "\\n");
 await run.stopped;
