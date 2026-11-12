@@ -6,6 +6,7 @@ import {
 	openLedgerReader,
 	openTurnStore,
 	type ToolCallRecord,
+	type TurnPrecedent,
 	type TurnRecord,
 } from "../../lib/core/observability/ledger/index.ts";
 import { formatOneCall, oneCallTurns } from "../../scripts/one-call.ts";
@@ -15,11 +16,15 @@ const HOUR_MS = 3_600_000;
 
 let sequence = 0;
 
-/** An assistant turn `hoursAgo` before the measure, with these tool calls. */
+/**
+ * An assistant turn `hoursAgo` before the measure, with these tool calls,
+ * that followed what `precededBy` names: tool results, unless said.
+ */
 function step(
 	sessionId: string,
 	hoursAgo: number,
 	tools: readonly string[],
+	precededBy: TurnPrecedent = "results",
 ): { turn: TurnRecord; calls: ToolCallRecord[] } {
 	sequence += 1;
 	const id = String(sequence).padStart(6, "0");
@@ -49,6 +54,17 @@ function step(
 		droppedBefore: null,
 		firstKeptEntryId: null,
 		digest: `d${id}`,
+		facts: {
+			precededBy,
+			reloaded: false,
+			gapMs: null,
+			newTokens: null,
+			stopReason: null,
+			thinkingChars: null,
+			textChars: null,
+			runId: null,
+			runTurn: null,
+		},
 	};
 	const calls = tools.map((name, index) => ({
 		digest: `c${id}-${index}`,
@@ -102,7 +118,7 @@ describe("turns doing one thing", () => {
 			step("s1", 4, ["edit"]),
 			step("s2", 30, ["bash"]),
 		]);
-		expect(report.days.slice(0, 2)).toEqual([
+		expect(report.days.slice(0, 2), "the last two days' turns").toEqual([
 			{ ending: "2026-11-12", turns: 4, none: 1, one: 2, several: 1 },
 			{ ending: "2026-11-11", turns: 1, none: 0, one: 1, several: 0 },
 		]);
@@ -116,7 +132,10 @@ describe("turns doing one thing", () => {
 			{ ...compaction, turn: { ...compaction.turn, kind: "compaction" } },
 			step("s1", 2, ["bash"]),
 		]);
-		expect(report.days.reduce((sum, day) => sum + day.turns, 0)).toBe(1);
+		expect(
+			report.days.reduce((sum, day) => sum + day.turns, 0),
+			"the week's turns",
+		).toBe(1);
 	});
 
 	it("names each tool's one-call turns and how many came right after another of its own", async () => {
@@ -128,9 +147,33 @@ describe("turns doing one thing", () => {
 			step("s2", 4.5, ["bash"]),
 			step("s1", 30, ["read"]),
 		]);
-		expect(report.tools).toEqual([
+		expect(report.tools, "bash's run in s1").toEqual([
 			{ tool: "bash", turns: 4, afterItself: 2 },
 			{ tool: "read", turns: 1, afterItself: 0 },
+		]);
+	});
+
+	it("never counts a turn that followed a typed message as following its own", async () => {
+		const report = await reportOf([
+			step("s1", 3, ["bash"]),
+			step("s1", 2, ["bash"], "typed"),
+			step("s1", 1, ["bash"], "reload"),
+		]);
+		expect(report.tools, "bash after a person and a reload").toEqual([
+			{ tool: "bash", turns: 3, afterItself: 0 },
+		]);
+	});
+
+	it("reads a count it can't parse as none", async () => {
+		const report = await oneCallTurns(
+			async (sql) =>
+				sql.includes("afterItself")
+					? [{ tool: "bash", turns: "many", afterItself: null }]
+					: [],
+			NOW,
+		);
+		expect(report.tools, "a row the ledger garbled").toEqual([
+			{ tool: "bash", turns: 0, afterItself: 0 },
 		]);
 	});
 
@@ -146,5 +189,6 @@ describe("turns doing one thing", () => {
 		expect(text).toContain("79 of 100 turns made exactly one tool call");
 		expect(text).toContain("| 2026-11-11 | 100 | 80 | 10 | 10 |");
 		expect(text).toContain("| bash | 100 | 65 |");
+		expect(text).toContain("At most");
 	});
 });
