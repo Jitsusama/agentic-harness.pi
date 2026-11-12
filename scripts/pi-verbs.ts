@@ -45,6 +45,9 @@ if (!socket) {
 const [command, ...rest] = process.argv.slice(2);
 
 if (command === "serve") {
+	// Node names its main thread MainThread, which is all `ps -e` and
+	// systemctl showed of it; a daemon is shown by its own name.
+	process.title = "pi-verbs";
 	// systemd says it handed the socket over, and to which process. Only a
 	// handed server rests, since one listening on its own socket would
 	// leave nothing to answer the next ask.
