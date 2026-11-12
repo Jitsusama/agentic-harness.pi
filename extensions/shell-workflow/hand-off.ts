@@ -3,62 +3,30 @@
  *
  * A bash call holds the session until the command ends, and the session
  * logs show what that costs: commands that ran for half an hour with
- * nothing on screen, until the person aborted them. A short timeout is
- * no answer, since it killed real builds. So a command still running
- * after a while is not killed but moved: its lifetime passes from the
- * call to a job, the call returns saying so, and the job says how the
- * command ended once it has.
+ * nothing on screen, until the person aborted them. So a command still
+ * running after a minute moves to a job, as the shared hand-off
+ * (`lib/jobs/hand-off.ts`) moves any tool's call.
  *
- * A session in a bash call hears neither the person nor the mesh until
- * the call returns, since pi steers messages in only between tool calls.
- * So the wait is a minute, not the five it once was, and `background:
+ * The wait is a minute, not the five it once was, and `background:
  * false` no longer means never: on 2026-10-25 sessions passed it on
  * 1,210 of 1,381 bash calls since 19:00, and the three that went deaf
  * to the orchestrator for 20 to 31 minutes had all passed it, two of
  * them while waiting in the machine queue.
  *
- * The command itself is pi's, run by pi's own bash under a signal this
- * module owns. Until the hand-off that signal follows the call's, so
- * Escape kills the command as it always has; after it, it follows the
- * job's, so `/jobs` and the session ending do.
+ * What is the shell's own is said here: a command is named by its first
+ * line, and a command piped through tail or head is told why it showed
+ * nothing.
  */
 
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
-import { sessionEnv } from "../../lib/core/session/index.ts";
-import { findJobHost } from "../../lib/jobs/index.ts";
-import { firstText } from "../../lib/ui/tool-result.ts";
-
-/** How long a command may hold the call before it is handed off. */
-export const HAND_OFF_MS = 60 * 1000;
-
-/**
- * Whether a run in pi's `mode` ends once its prompts are done, as print
- * (`pi -p`) and JSON runs exit then. A command handed off there would be
- * killed as the run ended, its result never heard, so it is not handed
- * off at all.
- */
-export function endsWithItsPrompts(mode: string | undefined): boolean {
-	return mode === "print" || mode === "json";
-}
-
-/** Lines of output the hand-off shows, so the model can see where it was. */
-export const HAND_OFF_LINES = 20;
-
-/** Lines of output the finished job says before pointing at the rest. */
-export const FINISHED_LINES = 40;
+import { runOrHandOff as handOff } from "../../lib/jobs/hand-off.ts";
 
 /** Longest label a job is given, from the command's first line. */
 const LABEL_CHARS = 60;
-
-const MS_PER_SECOND = 1000;
-const SECONDS_PER_MINUTE = 60;
 
 /** What running one bash call needs. */
 export interface Call<T> {
@@ -84,25 +52,8 @@ export interface Call<T> {
 	readonly now?: () => number;
 	/** Keep a finished command's output somewhere the model can read it. */
 	readonly keep?: (name: string, text: string) => string;
-	/**
-	 * The conversation calling, whose output files are named for it. A
-	 * session's key is unique across processes, so the name needs no pid.
-	 */
+	/** The conversation calling, whose output files are named for it. */
 	readonly session: string;
-}
-
-/**
- * Write output to the conversation's temp directory, as pi's bash keeps
- * it in the system's. Read when the call starts, since on a host only
- * the call knows its conversation.
- */
-function keepInTemp(session: string) {
-	const dir = sessionEnv(session).get("TMPDIR") || tmpdir();
-	return (name: string, text: string): string => {
-		const resultPath = join(dir, `pi-bash-${name}.log`);
-		writeFileSync(resultPath, text);
-		return resultPath;
-	};
 }
 
 /** A command, named in a line. */
@@ -113,41 +64,9 @@ export function labelOf(command: string): string {
 	return `${line.slice(0, LABEL_CHARS - 3)}...`;
 }
 
-/** A span of time, in the words a person would use. */
-export function spoken(ms: number): string {
-	const seconds = Math.max(0, Math.round(ms / MS_PER_SECOND));
-	if (seconds < SECONDS_PER_MINUTE) {
-		return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
-	}
-	const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
-	const rest = seconds % SECONDS_PER_MINUTE;
-	const said = `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
-	return rest === 0 ? said : `${said} ${rest}s`;
-}
-
-/** The last lines of some output. */
-function lastLines(text: string, count: number): string {
-	const lines = text.replace(/\n+$/, "").split("\n");
-	return lines.slice(-count).join("\n");
-}
-
 /** Whether the command holds its output back until it ends. */
-export function holdsOutputBack(command: string): boolean {
+function holdsOutputBack(command: string): boolean {
 	return /\|\s*(tail|head)\b/.test(command);
-}
-
-/** The exit code a finished bash result reports, when it says one. */
-function exitCodeOf(result: AgentToolResult<unknown>): number | undefined {
-	const structured = result.structuredContent;
-	if (
-		typeof structured !== "object" ||
-		structured === null ||
-		!("exit_code" in structured)
-	) {
-		return undefined;
-	}
-	const code = structured.exit_code;
-	return typeof code === "number" ? code : undefined;
 }
 
 /**
@@ -157,181 +76,19 @@ function exitCodeOf(result: AgentToolResult<unknown>): number | undefined {
 export async function runOrHandOff<T>(
 	call: Call<T>,
 ): Promise<AgentToolResult<T | undefined>> {
-	const host = call.nested ? undefined : findJobHost(call.bus);
-	const passThrough: AgentToolUpdateCallback<T> = (partial) =>
-		call.onUpdate?.(partial);
-	if (!host) {
-		return await call.run(
-			call.signal ?? new AbortController().signal,
-			passThrough,
-		);
-	}
-
-	const now = call.now ?? Date.now;
-	const startedAt = now();
-	const owned = new AbortController();
-	const followCall = () => owned.abort(call.signal?.reason);
-	if (call.signal?.aborted) owned.abort(call.signal.reason);
-	else call.signal?.addEventListener("abort", followCall, { once: true });
-
-	let handedOff = false;
-	let latest = "";
-	let lastOutputAt = startedAt;
-	const running = call.run(owned.signal, (partial) => {
-		const text = firstText(partial);
-		if (text !== latest) {
-			latest = text;
-			lastOutputAt = now();
-		}
-		// The call has returned once handed off; its row is not ours to draw.
-		if (!handedOff) call.onUpdate?.(partial);
-	});
-
-	const delay = call.background === true ? 0 : (call.afterMs ?? HAND_OFF_MS);
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const due = new Promise<"due">((resolve) => {
-		timer = setTimeout(() => resolve("due"), delay);
-	});
-	const first = await Promise.race([
-		running.then(
-			(result) => ({ result }),
-			(error: unknown) => ({ error }),
-		),
-		due,
-	]);
-	clearTimeout(timer);
-	if (first !== "due") {
-		call.signal?.removeEventListener("abort", followCall);
-		if ("error" in first) throw first.error;
-		return first.result;
-	}
-	// Stopped in the instant the time came: it is ending, not moving.
-	if (owned.signal.aborted) {
-		call.signal?.removeEventListener("abort", followCall);
-		return await running;
-	}
-
-	handedOff = true;
-	call.signal?.removeEventListener("abort", followCall);
-	const label = labelOf(call.command);
-	const job = host.start({
+	const { command, ...rest } = call;
+	return await handOff({
+		...rest,
 		kind: "shell",
-		label,
-		...(call.toolCallId !== undefined ? { toolCallId: call.toolCallId } : {}),
-	});
-	if (job.signal.aborted) owned.abort(job.signal.reason);
-	else {
-		job.signal.addEventListener("abort", () => owned.abort(job.signal.reason), {
-			once: true,
-		});
-	}
-
-	const keep = call.keep ?? keepInTemp(call.session);
-	// Job ids start again in every conversation, several of which a host
-	// runs in one process, and the file outlives them all.
-	const fileName = `${call.session}-${startedAt}-${job.id}`;
-	running.then(
-		(result) => {
-			const took = spoken(now() - startedAt);
-			const code = exitCodeOf(result);
-			const status =
-				code === undefined
-					? `${result.isError ? "failed" : "finished"} after ${took}`
-					: `exited ${code} after ${took}`;
-			job.finish({
-				summary: finishedSummary(
-					label,
-					status,
-					firstText(result),
-					fileName,
-					keep,
-				),
-				...(result.isError ? { failed: true } : {}),
-			});
-		},
-		(error: unknown) => {
-			const said = error instanceof Error ? error.message : String(error);
-			job.finish({
-				summary: finishedSummary(
-					label,
-					`stopped after ${spoken(now() - startedAt)}`,
-					said,
-					fileName,
-					keep,
-				),
-				failed: true,
-			});
-		},
-	);
-
-	return {
-		content: [
-			{
-				type: "text",
-				text: handOffText({
-					jobId: job.id,
-					background: call.background === true,
-					afterMs: delay,
-					output: latest,
-					silentForMs: now() - lastOutputAt,
-					holdsBack: holdsOutputBack(call.command),
-				}),
-			},
-		],
-		details: undefined,
-	};
-}
-
-/** What the call answers once the command has moved to a job. */
-function handOffText(handed: {
-	jobId: string;
-	background: boolean;
-	afterMs: number;
-	output: string;
-	silentForMs: number;
-	holdsBack: boolean;
-}): string {
-	const opening = handed.background
-		? `Running as background command ${handed.jobId}.`
-		: `Still running after ${spoken(handed.afterMs)}, so it now runs as background command ${handed.jobId}.`;
-	const lines = [
-		`${opening} Its result will arrive as a message of its own when it ends.`,
-		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on.",
+		label: labelOf(command),
+		noun: "background command",
+		filePrefix: "pi-bash",
 		// Killing the shell by hand left a grandchild nix build running on
 		// 23 October, and the machine queue counted its place free.
-		`To stop it, call the jobs tool's stop with ${handed.jobId} (load it with tool_search), which kills everything the command started; never kill its shell by hand, which leaves the command's children running. The person can stop it with /jobs.`,
-	];
-	if (handed.output.trim() !== "") {
-		lines.push(
-			`Last output, ${spoken(handed.silentForMs)} ago:`,
-			lastLines(handed.output, HAND_OFF_LINES),
-		);
-	} else if (!handed.background) {
-		lines.push(
-			handed.holdsBack
-				? "It has printed nothing. It pipes through tail or head, which holds everything back until it ends; pi already keeps the end of a command's output and saves the rest to a file, so let the output through next time."
-				: "It has printed nothing yet.",
-		);
-	}
-	return lines.join("\n");
-}
-
-/** What the job says once the command has ended. */
-function finishedSummary(
-	label: string,
-	status: string,
-	output: string,
-	fileName: string,
-	keep: (name: string, text: string) => string,
-): string {
-	const lines = [`\`${label}\` ${status}.`];
-	const trimmed = output.replace(/\n+$/, "");
-	if (trimmed === "") return lines[0] ?? "";
-	const all = trimmed.split("\n");
-	lines.push(lastLines(trimmed, FINISHED_LINES));
-	// pi names its own file when it cut the output; otherwise keep it here.
-	if (all.length > FINISHED_LINES && !/Full output: /.test(trimmed)) {
-		lines.push(`Full output: ${keep(fileName, trimmed)}`);
-	}
-	return lines.join("\n");
+		stopping: (jobId) =>
+			`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which kills everything the command started; never kill its shell by hand, which leaves the command's children running. The person can stop it with /jobs.`,
+		quiet: holdsOutputBack(command)
+			? "It has printed nothing. It pipes through tail or head, which holds everything back until it ends; pi already keeps the end of a command's output and saves the rest to a file, so let the output through next time."
+			: "It has printed nothing yet.",
+	});
 }

@@ -91,7 +91,13 @@ const ANSWER_WITH_PATHS = [
 	// pi's bash keeps the end of the output and saves the rest to a file;
 	// a handed-off command's job names that file, or one of its own.
 	"shell-workflow",
+	// pi's codemode cuts its output and saves the rest to a file; a
+	// handed-off script's job names that file, or one of its own.
+	"codemode-workflow",
 ] as const;
+
+/** The shared hand-off, whose finished job names a file for long output. */
+const HAND_OFF = "lib/jobs/hand-off.ts";
 
 /** Every TypeScript source file under a directory. */
 function sourceFiles(dir: string): string[] {
@@ -147,6 +153,7 @@ describe("tools that can answer big must bound their answers", () => {
 			const pointsSomewhere = sources.some(
 				(source) =>
 					importsResultLibrary(source) ||
+					source.includes(HAND_OFF) ||
 					/\b(resultPath|runDir|bundle|manifest)\b/.test(source),
 			);
 			expect(
