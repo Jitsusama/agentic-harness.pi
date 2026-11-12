@@ -473,7 +473,7 @@ describe("the host's engine", () => {
 					expect.objectContaining({ name: "tool_search", declared: true }),
 					expect.objectContaining({ name: "codemode" }),
 					expect.objectContaining({ name: "spend", exposure: "deferred" }),
-					expect.objectContaining({ name: "subagent", declared: true }),
+					expect.objectContaining({ name: "subagent", exposure: "deferred" }),
 					expect.objectContaining({ name: "review_see", declared: true }),
 				]),
 			);
