@@ -11,7 +11,9 @@
  * and a rollover to the fresh session carrying the conversation on. A
  * move to a host hands it the jobs that can be carried, still running,
  * through the session's log (moved.ts); any other end of the session
- * stops them.
+ * stops them. A line the person types during a run is said on the bus
+ * for calls that can move, and pi's working line says what it waits on
+ * (typed-line.ts).
  */
 
 import type {
@@ -22,6 +24,7 @@ import { hosted, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
+import { answerSteerWaiting, saySteered } from "../../lib/jobs/steer.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
@@ -38,6 +41,7 @@ import { type JobSession, openSession } from "./lifecycle.ts";
 import { carriedIn, carryAway, movingToHost, takeUp } from "./moved.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
+import { type TypedLine, typedLine } from "./typed-line.ts";
 
 /** The text of a user message, however pi carried it. */
 function textOf(message: unknown): string | undefined {
@@ -192,6 +196,27 @@ function crashKeyOf(ctx: ExtensionContext): string {
 	}
 }
 
+/** Whether pi holds a typed line until the turn's calls have ended. */
+function steersTheRun(event: {
+	source: string;
+	streamingBehavior?: string;
+}): boolean {
+	return event.source === "interactive" && event.streamingBehavior === "steer";
+}
+
+/** Say on pi's working line what a typed line waits on, or give it back. */
+function showWaiting(line: TypedLine, ctx: ExtensionContext): void {
+	if (!ctx.hasUI) return;
+	ctx.ui.setWorkingMessage(line.words());
+}
+
+/** Mark a typed line read, giving pi back its working line if one waited. */
+function lineRead(line: TypedLine, ctx: ExtensionContext): void {
+	if (!line.waiting()) return;
+	line.read();
+	showWaiting(line, ctx);
+}
+
 /** Why a session started, when it may be one the machine cut off. */
 const RETURNS = new Set(["startup", "resume"]);
 
@@ -216,8 +241,12 @@ export default function jobWorkflow(
 	let shown: ShownReports = shownReports([]);
 	let signals: EndWatch | undefined;
 	let crashes: (() => void) | undefined;
+	const line = typedLine();
+	let answering: (() => void) | undefined;
 
 	pi.on("session_start", (event, ctx) => {
+		answering?.();
+		answering = answerSteerWaiting(pi.events, () => line.waiting());
 		session?.close();
 		session = openSession(pi, ctx, event.reason);
 		shown = shownReports(userTexts(ctx));
@@ -256,6 +285,8 @@ export default function jobWorkflow(
 		signals = undefined;
 		crashes?.();
 		crashes = undefined;
+		answering?.();
+		answering = undefined;
 		const successor =
 			event.reason === "resume"
 				? carriedOnIn(event.targetSessionFile, sessionFileOf(ctx))
@@ -272,12 +303,27 @@ export default function jobWorkflow(
 
 	// A prompt typed during a run is queued by pi, not submitted; the
 	// outbox tells the two apart by whether the session is idle.
-	pi.on("input", (event) => {
+	pi.on("input", (event, ctx) => {
 		// A report already shown, sent again by a runtime pi left running
 		// (see shown.ts): dropped, so it costs no turn.
 		if (shown.again(event.text)) return { action: "handled" as const };
 		session?.outbox.promptSubmitted();
+		if (steersTheRun(event)) {
+			line.typed();
+			showWaiting(line, ctx);
+			saySteered(pi.events);
+		}
 		return undefined;
+	});
+
+	pi.on("tool_execution_start", (event, ctx) => {
+		line.started(event.toolCallId, event.toolName);
+		if (line.waiting()) showWaiting(line, ctx);
+	});
+
+	pi.on("tool_execution_end", (event, ctx) => {
+		line.ended(event.toolCallId);
+		if (line.waiting()) showWaiting(line, ctx);
 	});
 
 	pi.on("agent_start", () => {
@@ -285,7 +331,14 @@ export default function jobWorkflow(
 		session?.outbox.runStarted();
 	});
 
-	pi.on("agent_settled", (event) => session?.outbox.runSettled(event.aborted));
+	pi.on("agent_settled", (event, ctx) => {
+		session?.outbox.runSettled(event.aborted);
+		lineRead(line, ctx);
+	});
+
+	pi.on("message_start", (event, ctx) => {
+		if (event.message.role === "user") lineRead(line, ctx);
+	});
 
 	pi.on("message_end", (event) => {
 		const text = textOf(event.message);

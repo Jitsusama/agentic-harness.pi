@@ -42,6 +42,19 @@ waited on moves into one of kind `subagent`, and the work tool's push,
 rebase, resume, restack and sync into one of kind `work`. All five
 share the wait in `lib/jobs/hand-off.ts`.
 
+## A Line Typed During a Run
+
+pi reads a line the person types during a run only once the reply has
+streamed and every call in it has ended, so on 11 November such lines
+waited up to 101.6 s. While one waits, pi's working line says what it
+waits on ("Your message is read once bash ends"), and the extension
+says on the bus that a line was typed (`lib/jobs/steer.ts`). A call
+running through the shared wait then moves to a job two seconds later
+rather than at the minute, so a quick call still answers for itself.
+pi's own working line comes back once the line is read or the run
+ends. A line queued to follow the run, or one an extension sends, such
+as a mesh message, changes nothing.
+
 ## When a Result Is Said
 
 A result goes out as a prompt, through `pi.sendUserMessage`, and only
