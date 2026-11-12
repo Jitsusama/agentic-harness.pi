@@ -19,7 +19,7 @@ import {
 	QUIET_MS,
 	QUIET_REST_MS,
 } from "../../../extensions/mesh-workflow/moving.ts";
-import type { Moving } from "../../../lib/mesh/presence.ts";
+import type { Moving } from "../../../lib/mesh/moving.ts";
 
 let folder: string;
 let wake: string;

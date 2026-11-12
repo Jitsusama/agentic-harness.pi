@@ -12,6 +12,11 @@
  * the note the move is taken up by and ends as Close does. Its presence
  * says where it is moving and what holds it meanwhile.
  *
+ * A move never waits forever: one still held {@link MOVE_WAIT_MOST_MS}
+ * after it was asked, counted through a reload, calls itself off and
+ * stays plain pi, saying so on screen. Its presence says why any move
+ * was called off rather than made (`moveOff`), until another is asked.
+ *
  * The person resuming it or sending it a message from its window calls
  * a move off, as it ends a pause: they are at the desk. A move to `pi` is
  * for a hosted conversation only; asked of a pi, it is said and dropped.
@@ -44,11 +49,19 @@ import type { CarriedEnvironment } from "../../lib/internal/session/carried-envi
 import { whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
-import type { Moving } from "../../lib/mesh/presence.ts";
+import type { MoveOff, Moving } from "../../lib/mesh/moving.ts";
 import type { HandOver } from "./in-place.ts";
 
 /** How often a waiting move looks again at what holds the session. */
 export const MOVE_LOOK_MS = 2_000;
+
+/**
+ * How long a move waits for its session to be free before it calls
+ * itself off: the cutover's default deadline for giving back what
+ * didn't move (scripts/host-cutover.ts), so a move waits no longer
+ * than whoever asked it watches.
+ */
+export const MOVE_WAIT_MOST_MS = 45 * 60_000;
 
 /** How long a window goes with no key pressed before it moves in place. */
 export const QUIET_MS = 5_000;
@@ -69,6 +82,12 @@ export interface MovingHost {
 	readonly moving: () => Moving | undefined;
 	/** Keep the move it waits to make, or none, in its peer. */
 	readonly setMoving: (moving: Moving | undefined) => void;
+	/**
+	 * Keep that the move waiting is off rather than made, and why; the
+	 * move it waits to make is then none. Without it, only the move is
+	 * dropped.
+	 */
+	readonly calledOff?: (off: MoveOff) => void;
 	/** Leave the note the move is taken up by; throws when it can't. */
 	readonly note: (to: MoveTarget) => void;
 	/**
@@ -191,7 +210,25 @@ export function createMoving(host: MovingHost): MovingSession {
 		unwatch?.();
 		unwatch = undefined;
 	};
+	/** Call the move waiting off, saying `told` on screen and `why` in presence. */
+	const callOff = (moving: Moving, why: string, told: string) => {
+		unlook();
+		const off = {
+			to: moving.to,
+			since: moving.since,
+			at: now().toISOString(),
+			why,
+		};
+		if (host.calledOff) host.calledOff(off);
+		else host.setMoving(undefined);
+		host.tell(told);
+	};
 	const wait = (moving: Moving, holds: string) => {
+		if (now().getTime() - Date.parse(moving.since) >= MOVE_WAIT_MOST_MS) {
+			const why = `it waited ${MOVE_WAIT_MOST_MS / 60_000} minutes and is still held: ${holds}`;
+			callOff(moving, why, `The move to ${whereTo(moving.to)} is off: ${why}.`);
+			return;
+		}
 		if (holds !== moving.holds) host.setMoving({ ...moving, holds });
 		unwatch ??= every(MOVE_LOOK_MS, look);
 	};
@@ -229,9 +266,11 @@ export function createMoving(host: MovingHost): MovingSession {
 		try {
 			host.note(moving.to);
 		} catch (error) {
-			host.setMoving(undefined);
-			host.tell(
-				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${error instanceof Error ? error.message : String(error)}`,
+			const why = error instanceof Error ? error.message : String(error);
+			callOff(
+				moving,
+				`its note couldn't be written: ${why}`,
+				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${why}`,
 			);
 			return;
 		}
@@ -247,10 +286,13 @@ export function createMoving(host: MovingHost): MovingSession {
 		host.close(by);
 	};
 	const cancel = () => {
-		if (ended || host.moving() === undefined) return;
-		unlook();
-		host.setMoving(undefined);
-		host.tell("The move is off: the person is at the desk.");
+		const moving = host.moving();
+		if (ended || moving === undefined) return;
+		callOff(
+			moving,
+			"the person is at the desk",
+			"The move is off: the person is at the desk.",
+		);
 	};
 	return {
 		move(to, asked = "outside") {

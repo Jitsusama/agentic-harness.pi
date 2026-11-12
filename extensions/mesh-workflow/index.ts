@@ -968,6 +968,7 @@ export function meshWorkflow(
 			hosted: () => hostKey !== undefined,
 			moving: () => peer?.moving,
 			setMoving: (one) => peer?.setMoving(one),
+			calledOff: (off) => peer?.callOffMove(off),
 			note: (to) => {
 				if (!ctx || !peer) throw new Error("the session isn't there to move.");
 				const said = presences.of(peer.session);
