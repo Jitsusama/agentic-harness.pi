@@ -44,11 +44,13 @@ const KEPT = [
 	"QS_SAYS",
 	"QS_LOCKED",
 	"PI_SESSIONS_KITTY",
+	"XDG_RUNTIME_DIR",
 ];
 
-// The sessions kitty is opened through systemd-run, so a stand-in writes
+// The sessions kitty is opened through kitten over its socket, or through
+// systemd-run before that kitty listens, so a stand-in for each writes
 // down what it was asked to start, one word a line.
-const FAKE_SYSTEMD_RUN = `#!/bin/sh
+const FAKE_STARTER = `#!/bin/sh
 printf '%s\\n' "$@" > "$HOME/started"
 `;
 
@@ -115,8 +117,11 @@ beforeEach(() => {
 	mkdirSync(bin);
 	writeFileSync(join(bin, "qs"), FAKE_QS);
 	chmodSync(join(bin, "qs"), 0o755);
-	writeFileSync(join(bin, "systemd-run"), FAKE_SYSTEMD_RUN);
-	chmodSync(join(bin, "systemd-run"), 0o755);
+	for (const starter of ["systemd-run", "kitten"]) {
+		writeFileSync(join(bin, starter), FAKE_STARTER);
+		chmodSync(join(bin, starter), 0o755);
+	}
+	process.env.XDG_RUNTIME_DIR = join(tmpRoot, "run");
 	process.env.PATH = `${bin}:${process.env.PATH}`;
 	process.env.QS_ASKED = join(tmpRoot, "asked");
 	process.env.QS_SAYS = "taken";
@@ -491,16 +496,19 @@ describe("spawn through the desktop's launcher", () => {
 		expect(handed()).toBeDefined();
 		expect(opened).toBeUndefined();
 		const words = started() ?? [];
-		const at = words.indexOf("kitty");
-		const windowClass = words[at + 5] ?? "";
-		expect(words.slice(at - 2, at + 5)).toEqual([
-			"env",
+		const windowClass = words[6] ?? "";
+		expect(words.slice(0, 11)).toEqual([
+			"@",
+			"--to",
+			`unix:${join(tmpRoot, "run", "pi-sessions", "kitty.sock")}`,
+			"launch",
+			"--type=os-window",
+			"--os-window-class",
+			windowClass,
+			"--cwd",
+			tmpRoot,
+			"--env",
 			`MYCELIUM_APP_ID=${windowClass}`,
-			"kitty",
-			"-1",
-			"--instance-group",
-			"pi-sessions",
-			"--class",
 		]);
 		expect(
 			windowClass,

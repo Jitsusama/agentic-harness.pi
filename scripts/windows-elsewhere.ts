@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { refreshRestoreFile } from "../extensions/quest-workflow/session-registry.ts";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
 import { currentBootToken } from "../lib/internal/quest/process-liveness.ts";
+import { sessionsKittyDoor } from "../lib/internal/quest/sessions-kitty.ts";
 import {
 	nextNote,
 	readWindowsNote,
@@ -46,15 +47,21 @@ function asked(program: string, args: readonly string[]): unknown {
 	}
 }
 
-/** Each kitty's remote-control socket here, `@kitty-<pid>` in the abstract namespace. */
+/**
+ * Each kitty's remote-control socket here: `@kitty-<pid>` in the abstract
+ * namespace, as kitty.conf names Joel's own, and the sessions kitty's in
+ * the runtime folder, since its command line names that one instead.
+ */
 function kittySockets(): string[] {
+	const door = sessionsKittyDoor();
+	const sessions = door?.kind === "socket" ? [door.path] : [];
 	let table: string;
 	try {
 		table = readFileSync("/proc/net/unix", "utf8");
 	} catch {
-		return [];
+		return sessions;
 	}
-	return [...new Set(table.match(/@kitty-\d+(?=\s*$)/gm) ?? [])];
+	return [...new Set(table.match(/@kitty-\d+(?=\s*$)/gm) ?? []), ...sessions];
 }
 
 const boot = currentBootToken();
