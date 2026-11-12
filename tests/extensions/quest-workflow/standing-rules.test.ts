@@ -21,6 +21,11 @@ const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";
 const GRANDCHILD = "QEST-20260101-GRANDC";
 const LONER = "QEST-20260101-LONERQ";
+const ROUTER = "QEST-20260101-ROUTER";
+const HERMIT = "QEST-20260101-HERMIT";
+const KEEPER = "QEST-20260101-KEEPER";
+
+const ROUTER_BODY = "\n## 🏰 Context\n\nRoute each line to its owner.\n";
 
 function readme(
 	id: string,
@@ -53,6 +58,13 @@ const store: Record<string, string> = {
 	[CHILD]: readme(CHILD, { parent: MISSION }),
 	[GRANDCHILD]: readme(GRANDCHILD, { parent: CHILD }),
 	[LONER]: readme(LONER, {}, "\n## 🏰 Context\n\nMine alone.\n"),
+	[ROUTER]: readme(
+		ROUTER,
+		{ parent: MISSION, "context-stands": true },
+		ROUTER_BODY,
+	),
+	[HERMIT]: readme(HERMIT, { "context-stands": true }, ROUTER_BODY),
+	[KEEPER]: readme(KEEPER, { parent: MISSION }, ROUTER_BODY),
 };
 const read = (id: string) => store[id];
 
@@ -69,6 +81,27 @@ describe("the standing rules a quest's session starts with", () => {
 	it("are none for a quest with no orchestrator, or the orchestrator itself", () => {
 		expect(standingRulesFor(LONER, read)).toBeNull();
 		expect(standingRulesFor(MISSION, read)).toBeNull();
+	});
+
+	it("carry the quest's own Context after them when its README says it stands", () => {
+		const rules = standingRulesFor(ROUTER, read) ?? "";
+
+		expect([
+			rules.includes("Canadian spelling."),
+			rules.includes("Route each line to its owner."),
+			rules.indexOf("Canadian") < rules.indexOf("Route each"),
+		]).toEqual([true, true, true]);
+	});
+
+	it("carry its own Context alone when it stands with no orchestrator above", () => {
+		const rules = standingRulesFor(HERMIT, read) ?? "";
+
+		expect(rules).toContain("Route each line to its owner.");
+		expect(rules).not.toContain("Canadian spelling.");
+	});
+
+	it("leave its own Context out when its README doesn't say it stands", () => {
+		expect(standingRulesFor(KEEPER, read)).not.toContain("Route each line");
 	});
 });
 
@@ -100,6 +133,25 @@ describe("the standing rules for the loaded quest", () => {
 		utimesSync(path, later, later);
 
 		expect(rulesFor(CHILD)).toContain("British spelling.");
+	});
+
+	it("follow an edit to the quest's own standing Context", () => {
+		const rulesFor = standingRules(() => root);
+		expect(rulesFor(ROUTER)).toContain("Route each line to its owner.");
+
+		const path = join(root, ROUTER, "README.md");
+		writeFileSync(
+			path,
+			readme(
+				ROUTER,
+				{ parent: MISSION, "context-stands": true },
+				ROUTER_BODY.replace("its owner", "whoever owns it"),
+			),
+		);
+		const later = new Date(Date.now() + 5_000);
+		utimesSync(path, later, later);
+
+		expect(rulesFor(ROUTER)).toContain("Route each line to whoever owns it.");
 	});
 
 	it("follow the quest moving out from under its orchestrator", () => {
