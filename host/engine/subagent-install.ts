@@ -51,7 +51,12 @@ export function pinSubagentKey(
 	names: readonly string[],
 ): void {
 	pinChildEnvironment(async () => {
-		const current = await key.current();
+		const current = await key.current().catch((error: unknown) => {
+			throw new Error(
+				`The host couldn't resolve its gateway key for a subagent: ${error instanceof Error ? error.message : String(error)}`,
+				{ cause: error },
+			);
+		});
 		return Object.fromEntries(names.map((name) => [name, current]));
 	});
 }

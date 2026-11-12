@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { pinChildEnvironment } from "../../../../lib/subagent/child-env.ts";
+import {
+	pinChildEnvironment,
+	unpinChildEnvironment,
+} from "../../../../lib/subagent/child-env.ts";
 import { createSpawnRunPi } from "../../../../lib/subagent/runpi/spawn.ts";
 
 /**
@@ -195,7 +198,7 @@ describe("createSpawnRunPi", () => {
 		try {
 			await runPi({ args: [], cwd: "/tmp", env: { PI_SANDBOX: "strict" } });
 		} finally {
-			pinChildEnvironment(async () => ({}));
+			unpinChildEnvironment();
 		}
 		expect(captured?.SHOPIFY_PROXY_KEY).toBe("host-key");
 		expect(captured?.PI_SANDBOX).toBe("strict");

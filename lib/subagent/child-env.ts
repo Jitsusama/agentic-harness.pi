@@ -27,6 +27,11 @@ export function pinChildEnvironment(source: ChildEnvironment): void {
 	Reflect.set(globalThis, CHILD_ENV_KEY, source);
 }
 
+/** Take back what was pinned, so later starts add nothing. */
+export function unpinChildEnvironment(): void {
+	Reflect.deleteProperty(globalThis, CHILD_ENV_KEY);
+}
+
 /** The variables the pinned source gives now, or none when nothing is pinned. */
 export async function pinnedChildEnvironment(): Promise<
 	Readonly<Record<string, string>>
