@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
 	resolveLooksOfQuests,
 	withdrawLook,
 } from "../../../lib/mesh/looks.ts";
+import { questEnded } from "../../../lib/mesh/presence.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -245,5 +246,32 @@ describe("a look written for the person", () => {
 			"waiting",
 		);
 		expect(byQuest.none?.state, "a look for no quest stays").toBe("waiting");
+	});
+});
+
+// The looks clock asks this each minute, so a look outlives no quest
+// that ended in another session.
+describe("whether a look's quest has ended", () => {
+	/** A quest under `dir` standing at `status`. */
+	function quest(id: string, status: string): void {
+		mkdirSync(join(dir, id), { recursive: true });
+		writeFileSync(
+			join(dir, id, "README.md"),
+			`---\nid: ${id}\nkind: quest\nparent: null\nstatus: ${status}\npriority: active\nrank: 1\nstarted: 2026-11-11\nupdated: 2026-11-11\n---\n# ${id}\n`,
+		);
+	}
+
+	it("says so of a concluded or retired quest, and not of a live one", () => {
+		quest("QEST-20261111-AAAAAA", "concluded");
+		quest("QEST-20261111-BBBBBB", "retired");
+		quest("QEST-20261111-CCCCCC", "active");
+
+		expect(questEnded(dir, "QEST-20261111-AAAAAA"), "concluded").toBe(true);
+		expect(questEnded(dir, "QEST-20261111-BBBBBB"), "retired").toBe(true);
+		expect(questEnded(dir, "QEST-20261111-CCCCCC"), "active").toBe(false);
+	});
+
+	it("doesn't call a quest it can't read ended", () => {
+		expect(questEnded(dir, "QEST-20261111-DDDDDD"), "no README").toBe(false);
 	});
 });
