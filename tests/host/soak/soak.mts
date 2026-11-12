@@ -286,7 +286,15 @@ async function runHosted(sealed: Seal): Promise<{
 				`${id} didn't park at ${done} turns`,
 			);
 		const parkMs = Date.now() - parking;
+		const early = await host.weigh();
+		process.stdout.write(
+			`=== EARLY held ${JSON.stringify(early.sessions)} heap ${early.heapKb}\n`,
+		);
+		await new Promise((done) => setTimeout(done, 15_000));
 		const parked = await host.weigh();
+		process.stdout.write(
+			`=== LATE held ${JSON.stringify(parked.sessions)} heap ${parked.heapKb}\n`,
+		);
 		writeFileSync(switchFile, "");
 		const wakeMs = await Promise.all(
 			conversations.map((one) =>
