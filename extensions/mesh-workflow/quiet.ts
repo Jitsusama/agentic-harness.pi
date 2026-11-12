@@ -8,7 +8,8 @@
  * session that I can steer that is focused only on me and doesn't show
  * a bunch of background shit." So a session can be made quiet: a
  * delivery that only tells (fyis and findings, starting no turn) draws
- * nothing, and the footer counts what it kept off. What asks something
+ * nothing, and the footer counts what it kept off; expanding the screen
+ * (ctrl+o, as for tool output) opens them. What asks something
  * still shows: a question, a hold, a pivot, an answer to this peer, and
  * anything that starts a turn. Only the screen changes; what the model
  * is sent stays the same, and mesh_read has every message.
@@ -124,12 +125,15 @@ export function quietWanted(args: string, now: boolean): boolean | undefined {
 /** What the person is told when they turn quiet on or off. */
 export function quietSaid(on: boolean): string {
 	return on
-		? "Mesh quiet: other sessions' fyis and findings stay off this screen from now on; questions, holds and pivots still show. /mesh quiet again shows everything."
+		? "Mesh quiet: other sessions' fyis and findings stay off this screen from now on; questions, holds and pivots still show. ctrl+o opens what it kept off, and /mesh quiet again shows everything."
 		: "Mesh quiet off: other sessions' messages show here again.";
 }
 
 /** The footer's line while quiet: how many peer notes it kept off. */
 export function quietStatus(held: number, theme: Theme): string {
 	const notes = held === 1 ? "1 peer note" : `${held} peer notes`;
-	return theme.fg("dim", `mesh quiet · ${notes} kept off screen`);
+	return theme.fg(
+		"dim",
+		`mesh quiet · ${notes} kept off screen · ctrl+o opens`,
+	);
 }
