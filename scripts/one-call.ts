@@ -9,7 +9,9 @@
  * that could have gone out together. This counts the first and names
  * where the second may hide: each tool's one-call turns, and how many
  * came right after a one-call turn of the same tool in the same
- * session, such as bash after bash. A codemode script counts as one
+ * session with only tool results between, such as bash after bash.
+ * That is a ceiling: the ledger holds no mesh message, so a turn a
+ * message started can still count. A codemode script counts as one
  * call, since running several looks as one is what it is for.
  *
  * The counting runs in SQL, in `one-call-days.sql` and
@@ -122,7 +124,7 @@ export function formatOneCall(report: OneCallReport): string {
 				`| ${day.ending} | ${day.turns} | ${day.one} | ${day.none} | ${day.several} |`,
 		),
 		"",
-		"The last day's one-call turns by tool, with how many came right after a one-call turn of the same tool in the same session, where looks that could have gone out together hide:",
+		"The last day's one-call turns by tool, with how many came right after a one-call turn of the same tool in the same session, where looks that could have gone out together hide. At most: a turn a mesh message started leaves no mark in the ledger, so it can count too.",
 		"",
 		"| Tool | One-call turns | Right after its own |",
 		"|---|---|---|",
@@ -143,7 +145,8 @@ function perHundred(part: number, whole: number): number {
 	return whole === 0 ? 0 : Math.round((PER_HUNDRED * part) / whole);
 }
 
-/** A count from a row, where SQLite may answer null for an empty sum. */
+/** A count from a row, where SQLite may answer null for an empty sum; what isn't a number reads as none. */
 function count(value: unknown): number {
-	return typeof value === "number" ? value : Number(value ?? 0);
+	const parsed = typeof value === "number" ? value : Number(value ?? 0);
+	return Number.isFinite(parsed) ? parsed : 0;
 }
