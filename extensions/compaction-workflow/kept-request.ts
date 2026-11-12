@@ -16,8 +16,9 @@
  * session starts. `PI_COMPACTION_KEEP_REQUEST=off` keeps nothing on
  * disk at all.
  *
- * Idle warming keeps what it would carry across a reload here too, in
- * a folder of its own, by the same rules (see `warm.ts`).
+ * Idle warming keeps what it would carry across a restart by the same
+ * rules, in a folder of its own (`lib/internal/warming-carry.ts`), and
+ * sweeps it with `sweepKeptRequests`.
  */
 
 import {
@@ -52,11 +53,6 @@ export function keptRequestDir(): string {
 	return join(stateDir("compaction-workflow"), "requests");
 }
 
-/** Where idle warming keeps what a restart carries. */
-export function keptWarmingDir(): string {
-	return join(stateDir("compaction-workflow"), "warming");
-}
-
 /** Whether keeping requests on disk is switched on. */
 export function keepingRequests(env: NodeJS.ProcessEnv = process.env): boolean {
 	return env.PI_COMPACTION_KEEP_REQUEST?.toLowerCase() !== "off";
@@ -83,7 +79,7 @@ export function saveKeptRequest(
  * Write `value` for a session to `dir`, compressed and readable only by
  * its owner. A failure costs only a cheaper start, so it is swallowed.
  */
-export function saveKept(dir: string, sessionId: string, value: unknown): void {
+function saveKept(dir: string, sessionId: string, value: unknown): void {
 	try {
 		mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR });
 		writeFileSync(fileFor(dir, sessionId), gzipSync(JSON.stringify(value)), {
@@ -99,7 +95,7 @@ export function saveKept(dir: string, sessionId: string, value: unknown): void {
  * Take what was kept for a session back, removing its file, or nothing
  * when there is none or it will not read. The caller checks its shape.
  */
-export function takeKept(dir: string, sessionId: string): unknown {
+function takeKept(dir: string, sessionId: string): unknown {
 	const file = fileFor(dir, sessionId);
 	let raw: Buffer;
 	try {

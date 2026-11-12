@@ -43,11 +43,13 @@
  *
  * A restart is not real work either: a pi host restarts itself when the
  * install moves, and a session parks after an hour idle. On any other
- * shutdown the same carry is written to disk beside the kept requests
- * (`kept-request.ts`), with no header that could hold a credential,
- * and the next start of the session takes it back, once, while the
- * entry it warmed can still be warm. `PI_COMPACTION_KEEP_REQUEST=off`
- * keeps nothing on disk.
+ * shutdown the same carry is written to disk by the kept requests'
+ * rules (`lib/internal/warming-carry.ts`), with no header that could
+ * hold a credential, and the next start of the session takes it back,
+ * once, while the entry it warmed can still be warm. A pi host warms a
+ * parked session's carry on (`host/engine/parked-warming.ts`), keeping
+ * each warm it sends for that next start to record here.
+ * `PI_COMPACTION_KEEP_REQUEST=off` keeps nothing on disk.
  *
  * After the fact, a warm that wrote more than 2,000 tokens to the cache
  * did not find its prefix there: warming that session stops and a
@@ -88,12 +90,15 @@ import { isRecord } from "../../lib/internal/record.ts";
 import { scrubSecrets } from "../../lib/internal/secrets.ts";
 import { isStaleContext } from "../../lib/internal/stale.ts";
 import {
-	keepingRequests,
-	keptWarmingDir,
-	saveKept,
-	sweepKeptRequests,
-	takeKept,
-} from "./kept-request.ts";
+	pendingWarmsDir,
+	sweepPendingWarms,
+	takePendingWarms,
+	takeWarmingCarry,
+	type WarmingCarry,
+	warmingCarryDir,
+	writeWarmingCarry,
+} from "../../lib/internal/warming-carry.ts";
+import { keepingRequests, sweepKeptRequests } from "./kept-request.ts";
 
 /** A warm, with its usage and cost, for the spend ledger to count. */
 export const WARM_ENTRY = "compaction-cache-warm";
@@ -405,8 +410,7 @@ export function registerIdleWarming(
 		carried().delete(id);
 		if (!going) return;
 		if (event.reason === "reload") carried().set(id, going);
-		else if (keepingRequests())
-			saveKept(keptWarmingDir(), id, onDisk(id, going));
+		else if (keepingRequests()) keep(onDisk(id, going));
 	});
 
 	return {
@@ -459,7 +463,7 @@ const CREDENTIAL_HEADER =
 	/authorization|api[-_]?key|cookie|token|secret|password/i;
 
 /** What a restart carries, as written to disk: the model by name alone. */
-function onDisk(sessionId: string, going: Carried): Record<string, unknown> {
+function onDisk(sessionId: string, going: Carried): WarmingCarry {
 	const headers = Object.fromEntries(
 		Object.entries(going.held.headers).filter(
 			([name, value]) =>
@@ -489,39 +493,42 @@ function restarted(
 	sessionId: string,
 ): Carried | undefined {
 	if (!keepingRequests()) return undefined;
-	const dir = keptWarmingDir();
-	const kept = takeKept(dir, sessionId);
+	const dir = warmingCarryDir();
+	const kept = takeWarmingCarry(dir, sessionId);
 	sweepKeptRequests(dir);
-	if (!isRecord(kept) || kept.sessionId !== sessionId) return undefined;
+	if (!kept) return undefined;
 	const { at, refreshedAt, warms, headers } = kept;
-	if (
-		typeof at !== "number" ||
-		typeof refreshedAt !== "number" ||
-		typeof warms !== "number" ||
-		!isRecord(headers)
-	) {
-		return undefined;
-	}
 	if (Date.now() - refreshedAt > LONG_CACHE_LIFETIME_MS) return undefined;
 	const model = ctx.model;
 	if (!model || model.provider !== kept.provider || model.id !== kept.modelId) {
 		return undefined;
 	}
 	return {
-		held: { payload: kept.payload, headers: stringHeaders(headers), model, at },
+		held: { payload: kept.payload, headers: { ...headers }, model, at },
 		refreshedAt,
 		warms,
 	};
 }
 
-function stringHeaders(
-	headers: Record<string, unknown>,
-): Record<string, string | null> {
-	return Object.fromEntries(
-		Object.entries(headers).flatMap(([name, value]) =>
-			typeof value === "string" || value === null ? [[name, value]] : [],
-		),
-	);
+/** Write a restart's carry; a failure costs only a dearer wake, so it is swallowed. */
+function keep(carry: WarmingCarry): void {
+	try {
+		writeWarmingCarry(warmingCarryDir(), carry);
+	} catch {
+		// Deliberately dropped: shutting down must not fail over a cache
+		// the next start can do without.
+	}
+}
+
+/**
+ * Record the warms a pi host sent while this session was parked, as
+ * its own warms are recorded, so the spend ledger counts them.
+ */
+function recordParkedWarms(pi: ExtensionAPI, sessionId: string): void {
+	const dir = pendingWarmsDir();
+	for (const warm of takePendingWarms(dir, sessionId))
+		record(pi, WARM_ENTRY, warm);
+	sweepPendingWarms(dir);
 }
 
 /** The session's id, or nothing from a context that can no longer say. */
@@ -624,7 +631,7 @@ const parseCompactionSettings: SectionParse<CompactionSettings> = (value) => {
 };
 
 /** Whether the package config leaves warming on, as it is by default. */
-async function warmingSwitchedOn(): Promise<boolean> {
+export async function warmingSwitchedOn(): Promise<boolean> {
 	const loaded = await loadPackageConfig();
 	if (!loaded.ok) return true;
 	return getSection(loaded.config, CONFIG_SECTION, parseCompactionSettings)
