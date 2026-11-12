@@ -46,8 +46,9 @@ const desktop = vi.hoisted(() => [] as Notice[]);
 vi.mock("../../../lib/internal/notify.ts", () => ({
 	notify: async (notice: Notice) => {
 		desktop.push(notice);
-		return true;
+		return { id: desktop.length };
 	},
+	withdrawNotice: async ({ id = 0 }) => Reflect.deleteProperty(desktop, id - 1),
 }));
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -363,6 +364,8 @@ describe("reaching the person", () => {
 		for (let i = 0; i < 3; i++) await pi.runEnds("Hmm.", 0);
 
 		expect(desktop.map((n) => n.urgency)).toEqual(["low"]);
+		await pi.fire("agent_start");
+		expect(desktop.filter(Boolean), "a run took it back").toEqual([]);
 	});
 
 	it("reaches nobody while the person is here", async () => {

@@ -73,6 +73,16 @@ launcher posts the notice for each, so the session sends none of its
 own for held calls, `Blocked:` or a question; only the quiet note
 that it rests is still its own.
 
+A notice leaves your screen once it no longer applies, so none sends
+you to a session that has moved past it. Typing in the session takes
+all of its notices back; coming back takes back what the absence
+held; a run starting takes back the note that it rests; a call held
+no longer takes back its notice; and the session ending, other than
+by a reload, takes back everything it raised. This works where the
+desktop gives each notice an id (`notify-send` 0.7.10 or later, with
+`busctl` or `gdbus` to close it); on macOS a notice stays until you
+clear it.
+
 Each session also says what it is waiting on you for, so a launcher
 can mark it: calls held, a run ended `Blocked:`, a run that ended
 asking you something, or a panel left unanswered for five seconds.
