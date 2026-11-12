@@ -285,6 +285,14 @@ async function runHosted(sealed: Seal): Promise<{
 				host.parked(id, PARK_MS),
 				`${id} didn't park at ${done} turns`,
 			);
+		// Parked is said before the host has closed the conversation's
+		// runtime and let its session go, so a weighing taken then still
+		// counts the last one parked as held. Weighed once each is gone.
+		for (const id of ids)
+			await tried(
+				host.gone(id, PARK_MS),
+				`${id} parked but wasn't let go at ${done} turns`,
+			);
 		const parkMs = Date.now() - parking;
 		const parked = await host.weigh();
 		writeFileSync(switchFile, "");
