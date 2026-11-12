@@ -121,3 +121,43 @@ for (const one of grown.slice(0, 8)) {
 		console.log("--");
 	}
 }
+
+// The shortest path from the snapshot's root to each InteractiveMode still
+// alive while every conversation is parked: what holds a parked session.
+const firstEdge: number[] = new Array(nodeCount).fill(0);
+for (let at = 0, e = 0; at < nodeCount; at++) {
+	firstEdge[at] = e;
+	e += last.nodes[at * nf + edgeCountAt] ?? 0;
+}
+const parentNode = new Int32Array(nodeCount).fill(-1);
+const parentEdge = new Int32Array(nodeCount).fill(-1);
+parentNode[0] = 0;
+const queue = [0];
+for (let head = 0; head < queue.length; head++) {
+	const at = queue[head] ?? 0;
+	const count = last.nodes[at * nf + edgeCountAt] ?? 0;
+	for (let i = 0; i < count; i++) {
+		const e = (firstEdge[at] ?? 0) + i;
+		const kind = last.edgeTypes[last.edges[e * ef + typeAt] ?? 0];
+		if (kind === "weak") continue;
+		const to = (last.edges[e * ef + toAt] ?? 0) / nf;
+		if (parentNode[to] !== -1) continue;
+		parentNode[to] = at;
+		parentEdge[to] = e;
+		queue.push(to);
+	}
+}
+console.log("=== HELD FROM ROOT");
+for (let at = 0; at < nodeCount; at++) {
+	if (keyOf(last, at) !== "object:InteractiveMode") continue;
+	const path: string[] = [];
+	for (let on = at; on !== 0 && path.length < 60; on = parentNode[on] ?? 0) {
+		if (parentNode[on] === -1) {
+			path.push("(unreachable)");
+			break;
+		}
+		path.push(`${keyOf(last, on).slice(0, 90)} <-${edgeName(parentEdge[on] ?? 0)}-`);
+	}
+	console.log(path.join("\n   "));
+	console.log("--");
+}
