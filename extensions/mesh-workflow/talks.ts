@@ -10,9 +10,11 @@
  * hears the run's steps and reply. One taken into a run already
  * working closes at the first text written after it, since the person
  * asked to be answered first and what follows is the run's own work.
- * One that starts its run closes when that run settles: replied with
- * the last text written since, or failed when the run was stopped or
- * wrote nothing. What concludes within
+ * One that starts its run is replied by its first text too, at once,
+ * and closes when that run settles: replied again with the last text
+ * written since when the run went on past its first reply, or failed
+ * when the run was stopped or wrote nothing. A reader takes a talk's
+ * last reply. What concludes within
  * CAME_MS of the reply, before the next talk, is added as what came
  * of it; that is loose, since a conclusion in that hour need not be
  * the one the talk asked for.
@@ -92,6 +94,9 @@ interface Open {
 	/** Taken into a run already working, so its first text replies. */
 	intoWork: boolean;
 	reply: string;
+	/** The last stage said of it, and the last reply, so none is said twice. */
+	last?: TalkEvent["stage"];
+	replied?: string;
 	/** The reply so far last said, so the same text is said once. */
 	said?: string;
 	reading?: number;
@@ -133,6 +138,8 @@ export function createTalks(host: TalksHost): Talks {
 	};
 
 	const say = (talk: Open, event: TalkEvent) => {
+		talk.last = event.stage;
+		if (event.stage === "replied") talk.replied = event.text;
 		try {
 			sayTalk(talk.inbox, talk.id, event, new Date(now()));
 		} catch {
@@ -216,7 +223,10 @@ export function createTalks(host: TalksHost): Talks {
 			const first = taken().filter((talk) => talk.intoWork);
 			for (const talk of first) reply(talk, said);
 			if (first.length > 0) close(first);
-			for (const talk of taken()) talk.reply = said;
+			for (const talk of taken()) {
+				if (!talk.reply) reply(talk, said);
+				talk.reply = said;
+			}
 		},
 		settled(aborted) {
 			working = false;
@@ -225,7 +235,11 @@ export function createTalks(host: TalksHost): Talks {
 			if (closing.length === 0) return;
 			for (const talk of closing) {
 				if (aborted) say(talk, { stage: "failed", why: "stopped" });
-				else if (talk.reply) reply(talk, talk.reply);
+				else if (talk.reply) {
+					if (talk.last !== "replied" || talk.replied !== talk.reply) {
+						reply(talk, talk.reply);
+					}
+				}
 				else say(talk, { stage: "failed", why: "the run wrote no reply" });
 			}
 			close(closing);
