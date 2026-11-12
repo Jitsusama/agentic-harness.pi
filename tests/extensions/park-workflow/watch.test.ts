@@ -120,8 +120,10 @@ describe("parking a session", () => {
 		const watched = watching();
 		clock = NAMED_PARK_AFTER_MS - 1;
 		expect(watched.look()).toBe("not idle long enough");
+		expect(watched.endedItsProcess(), "awake, it ended nothing").toBe(false);
 		clock = NAMED_PARK_AFTER_MS;
 		expect(watched.look()).toBeUndefined();
+		expect(watched.endedItsProcess(), "parked, it ended pi").toBe(true);
 		expect(readParked(SESSION, folder)).toMatchObject({
 			session: SESSION,
 			sessionFile: logOf(),
@@ -694,6 +696,9 @@ describe("why a session stays awake", () => {
 				{ shutdowns, exits, parked: readParked(SESSION, folder) },
 				"a hosted session never ends its process",
 			).toEqual({ shutdowns: 0, exits: [], parked: undefined });
+			expect(watched.endedItsProcess(), "a host's process is left to it").toBe(
+				false,
+			);
 			expect(awake()?.why).toBe(HOST_PARKS);
 
 			expect(
