@@ -160,6 +160,7 @@ import {
 	type LookResolution,
 	looksIn,
 	resolveLooks,
+	resolveLooksOfQuests,
 } from "../../lib/mesh/looks.ts";
 import {
 	ASK_EVERY_MS,
@@ -194,6 +195,7 @@ import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import {
 	createPresences,
 	type Presence,
+	questEnded,
 	windowTitle,
 } from "../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
@@ -530,6 +532,24 @@ async function hostedStateOf(change: string): Promise<HostedState | undefined> {
 		setTimeout(() => settle(undefined), LOOKS_ASK_TIMEOUT_MS).unref();
 	});
 	return (await Promise.race([fetched, late]))?.state;
+}
+
+/**
+ * Mark the person's waiting looks for a quest that `ended` says has
+ * ended resolved, so nothing it asked of him outlives it (Joel, 11
+ * November: "if it is no longer applicable ... it should disappear").
+ * A look list that can't be written now is tried again on the next tick.
+ */
+function endLooksOfQuests(
+	dir: string | undefined,
+	ended: (quest: string) => boolean,
+): void {
+	if (!dir) return;
+	try {
+		resolveLooksOfQuests(dir, ended);
+	} catch {
+		// The looks stay waiting until the next tick.
+	}
 }
 
 /**
@@ -1901,10 +1921,12 @@ export function meshWorkflow(
 			const looksDir = paths.looks;
 			if (looksDir) {
 				const asking = peer.session;
-				looksClock = setInterval(
-					() => void askAboutLooks(pi, looksDir, asking),
-					LOOKS_CHECK_MS,
-				);
+				const questsDir = paths.quests;
+				looksClock = setInterval(() => {
+					// A quest ended in another session, or before this one began.
+					endLooksOfQuests(looksDir, (quest) => questEnded(questsDir, quest));
+					void askAboutLooks(pi, looksDir, asking);
+				}, LOOKS_CHECK_MS);
 				looksClock.unref?.();
 			}
 			const since =
@@ -2276,6 +2298,8 @@ export function meshWorkflow(
 				if (message) seen.add(message.id);
 				// And the talk that asked for it hears what came of it.
 				for (const ref of event.ids) talks.came(ended(ref, event.how), ref);
+				// What the quest asked of the person ends with it.
+				endLooksOfQuests(paths.looks, (quest) => event.ids.includes(quest));
 			});
 		}
 

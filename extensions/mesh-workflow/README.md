@@ -225,10 +225,18 @@ and can answer a question or a gate left open on screen.
   request, a page, a file, a diff, a terminal) rather than open it.
   Each look is a file of its own in
   `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks.ts`),
-  naming its session, what it is and why, which the launcher shows
-  and marks opened or cleared. Nothing here removes one. A look at a
+  naming its session, what it is, why and what the person is asked
+  (`ask`, with the choices, or that it is only to see), which the
+  launcher shows and marks opened or cleared. A look is refused that
+  names a message's or quest's id, a session's address, a path or
+  code, or runs past a sentence, since he reads it hours later
+  without the agents' context. Nothing here removes one. A look at a
   change resolves itself, with `how` and `resolvedAt`, when a session
-  merges or closes that change through `review_offer`.
+  merges or closes that change through `review_offer`; its session
+  takes it back with `withdraw` once it no longer applies ("taken
+  back"); and it goes when its quest concludes or retires ("its quest
+  ended"), as that session ends it or, from any session, within a
+  minute.
 
 ## Context, Not a Prompt
 
