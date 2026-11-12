@@ -145,7 +145,10 @@ async function open(path: string, id: string): Promise<string> {
 
 // SIGKILL as an out-of-memory kill sends it, and SIGABRT as systemd's
 // watchdog sends it to a host whose loop stopped turning.
-describe.each(["SIGKILL", "SIGABRT"] as const)("a host killed with %s", (signal) => {
+describe.each([
+	"SIGKILL",
+	"SIGABRT",
+] as const)("a host killed with %s", (signal) => {
 	it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
 		const killed = await hostInAChild();
 		const ids = [await open(killed.path, "a"), await open(killed.path, "b")];

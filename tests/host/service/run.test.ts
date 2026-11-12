@@ -160,9 +160,9 @@ describe("runHost's watchdog", () => {
 			const inner = await engine(host);
 			return {
 				...inner,
-				start: async (conversation) => {
+				start: async (prepared, request) => {
 					await new Promise((resolve) => setTimeout(resolve, 2 * TIMEOUT_MS));
-					await inner.start(conversation);
+					await inner.start(prepared, request);
 				},
 			};
 		};
@@ -245,39 +245,43 @@ describe("runHost's watchdog", () => {
 	});
 
 	it("doesn't ping without a watchdog, nor once stopped", async () => {
-		const unwatched = pingTimes();
-		const watched = pingTimes();
-		const runs = await Promise.all(
-			[
-				{ kind: "attended", extra: {}, pings: unwatched },
-				{ kind: "background", extra: WATCHED, pings: watched },
-			].map(async ({ kind, extra, pings }) => {
-				const signals = new EventEmitter();
-				const run = await runHost({
-					argv: [kind],
-					env: { ...env(), ...extra },
-					engine,
-					signals,
-					ready: async () => {},
-					status: async () => {},
-					alive: pings.alive,
-					say: () => {},
-					report: () => {},
-					places: places(),
-				});
-				return { run, signals };
-			}),
-		);
-		try {
-			await vi.waitFor(() => {
-				expect(watched.at.length, "the watched host pings").toBeGreaterThan(1);
+		// One host at a time, as a process installs only one.
+		const serve = async (
+			extra: NodeJS.ProcessEnv,
+			pings: ReturnType<typeof pingTimes>,
+			during: () => Promise<void>,
+		) => {
+			const signals = new EventEmitter();
+			const run = await runHost({
+				argv: ["background"],
+				env: { ...env(), ...extra },
+				engine,
+				signals,
+				ready: async () => {},
+				status: async () => {},
+				alive: pings.alive,
+				say: () => {},
+				report: () => {},
+				places: places(),
 			});
-		} finally {
-			for (const { run, signals } of runs) {
+			try {
+				await during();
+			} finally {
 				signals.emit("SIGTERM");
 				await run.stopped;
 			}
-		}
+		};
+		const unwatched = pingTimes();
+		// Two pings' worth of a timeout, had it one.
+		await serve({}, unwatched, async () => {
+			await new Promise((resolve) => setTimeout(resolve, TIMEOUT_MS / 2));
+		});
+		const watched = pingTimes();
+		await serve(WATCHED, watched, async () => {
+			await vi.waitFor(() => {
+				expect(watched.at.length, "the watched host pings").toBeGreaterThan(1);
+			});
+		});
 		const stopped = watched.at.length;
 		// Two pings' worth, to show none comes once the host has stopped.
 		await new Promise((resolve) => setTimeout(resolve, TIMEOUT_MS / 2));
