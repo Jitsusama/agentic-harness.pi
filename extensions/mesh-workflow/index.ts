@@ -45,6 +45,7 @@ import {
 	type FoundClassifier,
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
+import { resolveReference } from "../../lib/core/review/index.ts";
 import {
 	hosted,
 	sessionCwd,
@@ -157,12 +158,18 @@ import {
 	resolveLooks,
 } from "../../lib/mesh/looks.ts";
 import {
+	ASK_EVERY_MS,
 	askable,
 	markResolved,
 	queryFor,
 	resolutionsFrom,
 	takeTurnToAsk,
 } from "../../lib/mesh/looks-github.ts";
+import {
+	askableElsewhere,
+	type HostedState,
+	resolutionsElsewhere,
+} from "../../lib/mesh/looks-hosted.ts";
 import {
 	asksEach,
 	clock,
@@ -430,10 +437,11 @@ const LOOKS_CHECK_MS = 60_000;
 const LOOKS_ASK_TIMEOUT_MS = 30_000;
 
 /**
- * Ask GitHub about the pull requests the person's waiting looks point at,
- * when it's this session's turn, and mark what merged, closed or got
- * their review resolved. A GitHub that can't be asked now leaves them
- * waiting for the next turn.
+ * Ask the hosts of the changes the person's waiting looks point at about
+ * them, when it's this session's turn, and mark what merged, closed or
+ * got their review resolved: GitHub in one query, and every other host
+ * through the review provider that claims the look's URL. A host that
+ * can't be asked now leaves its looks waiting for the next turn.
  */
 async function askAboutLooks(
 	pi: Pick<ExtensionAPI, "exec">,
@@ -441,9 +449,29 @@ async function askAboutLooks(
 	session: string,
 ): Promise<void> {
 	try {
-		const asked = askable(looksIn(dir));
-		if (asked.length === 0) return;
-		if (!takeTurnToAsk(dir, session, Date.now())) return;
+		const looks = looksIn(dir);
+		const now = Date.now();
+		const asked = askable(looks);
+		const elsewhere = askableElsewhere(looks, Math.floor(now / ASK_EVERY_MS));
+		if (asked.length === 0 && elsewhere.length === 0) return;
+		if (!takeTurnToAsk(dir, session, now)) return;
+		await Promise.all([
+			askGitHubAboutLooks(pi, dir, asked),
+			askHostsAboutLooks(dir, elsewhere),
+		]);
+	} catch {
+		// The looks unreadable now: asked again next turn.
+	}
+}
+
+/** Ask GitHub, in one query, about the looks at its pull requests. */
+async function askGitHubAboutLooks(
+	pi: Pick<ExtensionAPI, "exec">,
+	dir: string,
+	asked: ReturnType<typeof askable>,
+): Promise<void> {
+	if (asked.length === 0) return;
+	try {
 		const ran = await pi.exec(
 			"gh",
 			[
@@ -462,6 +490,34 @@ async function askAboutLooks(
 	} catch {
 		// GitHub unreachable or its answer unreadable: asked again next turn.
 	}
+}
+
+/** Ask each other host, through its review provider, about the looks at its changes. */
+async function askHostsAboutLooks(
+	dir: string,
+	asked: ReturnType<typeof askableElsewhere>,
+): Promise<void> {
+	if (asked.length === 0) return;
+	try {
+		markResolved(dir, await resolutionsElsewhere(asked, hostedStateOf));
+	} catch {
+		// The looks unwritable now: asked again next turn.
+	}
+}
+
+/**
+ * Where a change stands on the host whose review provider claims its
+ * URL, or none when no provider claims it. A host slower than
+ * {@link LOOKS_ASK_TIMEOUT_MS} counts as unanswered.
+ */
+async function hostedStateOf(change: string): Promise<HostedState | undefined> {
+	const found = resolveReference(change);
+	if (!found.resolved || !found.provider.changes) return undefined;
+	const fetched = found.provider.changes.fetch(found.change);
+	const late = new Promise<undefined>((settle) => {
+		setTimeout(() => settle(undefined), LOOKS_ASK_TIMEOUT_MS).unref();
+	});
+	return (await Promise.race([fetched, late]))?.state;
 }
 
 /**
