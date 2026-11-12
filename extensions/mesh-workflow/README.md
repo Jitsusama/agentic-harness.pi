@@ -876,6 +876,19 @@ A steer may instead carry an `act`, with no text needed
   A move with no valid `to` is no act. A pi in a terminal ends the moment it asks, as a host's
   conversation does; one over RPC ends when its client next
   sends it a command, as pi's RPC mode holds every shutdown for.
+- `answer`, with `want` naming a want by its id and either
+  `value`, one of its choices, or `other`, the person's own
+  words, answers the open ask the want stands for, as if picked
+  or typed in the window: the prompt comes down, its record says
+  the answer came from outside the window, and the want ends. It
+  is how Needs You answers a question where Joel is, as he
+  asked on 11 November. Only a question asked through one prompt
+  says its choices on its want (`ask`, with `choices`,
+  `recommended` and `allowOther`); a tabbed one says only its
+  words. An answer for a want that has ended, with a value it
+  doesn't offer, or with words where it takes none answers
+  nothing, and the window says so in a line. An answer without
+  a `want`, or with neither a `value` nor `other`, is no act.
 
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.

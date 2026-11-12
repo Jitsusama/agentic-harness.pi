@@ -15,7 +15,9 @@
  * talk.ts), with `re` naming the earlier talk it answers in place. An `act` of `pause`, `resume`, `stop`, `close`, `carry` or
  * `move` needs no text, a `carry` names the machine it goes to as `to`,
  * a `move` names where it goes as `to` (`attended`, `background` or
- * `pi`), and a `fill` puts its `text` in the prompt without sending it. A
+ * `pi`), and a `fill` puts its `text` in the prompt without sending it.
+ * An `answer` answers the open ask the session's want `want` names, with
+ * one of its choices as `value` or the person's words as `other`. A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. The
  * session going by that address takes it by renaming it again, so two
@@ -37,6 +39,7 @@ import {
 import { join } from "node:path";
 import { isMachineName } from "../internal/machine.ts";
 import { isMoveTarget } from "../internal/session/move.ts";
+import { type GivenAnswer, givenFrom } from "../internal/session/wants.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import { isTalkId } from "./talk.ts";
 
@@ -59,6 +62,7 @@ export const STEER_ACTS = [
 	"close",
 	"carry",
 	"move",
+	"answer",
 ] as const;
 
 /** One of STEER_ACTS. */
@@ -122,6 +126,10 @@ export interface Steer {
 	readonly id?: string;
 	/** The earlier talk it answers in place, when the writer said. */
 	readonly re?: string;
+	/** The want an `answer` answers, by its id (lib/mesh/want.ts). */
+	readonly want?: string;
+	/** What an `answer` gives the ask: a choice's value, or words. */
+	readonly given?: GivenAnswer;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
 }
@@ -183,10 +191,17 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		"text" in parsed && typeof parsed.text === "string"
 			? parsed.text.trim()
 			: "";
-	// A carry or move goes nowhere without a to, nor a fill without words.
+	const want =
+		asked === "answer" && "want" in parsed && typeof parsed.want === "string"
+			? parsed.want
+			: undefined;
+	const given = asked === "answer" ? givenFrom(parsed) : undefined;
+	// A carry or move goes nowhere without a to, nor a fill without words,
+	// nor an answer without the want it answers and what it gives.
 	const act =
 		((asked === "carry" || asked === "move") && to === undefined) ||
-		(asked === "fill" && said === "")
+		(asked === "fill" && said === "") ||
+		(asked === "answer" && (want === undefined || given === undefined))
 			? undefined
 			: asked;
 	// Words would start the run a pause, stop or close is ending.
@@ -211,6 +226,7 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		...(by ? { by } : {}),
 		...(id ? { id } : {}),
 		...(re ? { re } : {}),
+		...(act === "answer" && want && given ? { want, given } : {}),
 		file,
 	};
 }

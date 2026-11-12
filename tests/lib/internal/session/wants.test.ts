@@ -7,9 +7,12 @@
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	answerWant,
 	createOwnWants,
 	createWants,
 	forgetWants,
+	type GivenAnswer,
+	givenFrom,
 	onWants,
 	ownWants,
 	SAID_CHARS,
@@ -17,6 +20,7 @@ import {
 	showWants,
 	type WantEvent,
 	waitedOn,
+	wantId,
 	wantsShown,
 } from "../../../../lib/internal/session/wants.ts";
 
@@ -214,6 +218,111 @@ describe("a panel waited on", () => {
 
 		await expect(waited).rejects.toThrow("session ended");
 		expect(heard.at(-1)).toEqual({ kind: "approval", said: null });
+	});
+});
+
+describe("an ask answered from away", () => {
+	const CHOICES = {
+		choices: [
+			{ value: "keep", label: "Keep it", description: "As it reads now" },
+			{ value: "back", label: "Roll it back" },
+		],
+		recommended: "keep",
+		allowOther: true,
+	};
+
+	/** An ask raised on fresh wants, and every answer its panel took. */
+	function asked(allowOther = true) {
+		const { heard, wants } = bound();
+		const taken: GivenAnswer[] = [];
+		const lower = wants.raise("question", "Keep the bar?", AT, {
+			...CHOICES,
+			allowOther,
+			take: (given) => taken.push(given),
+		});
+		return { heard, lower, taken, wants };
+	}
+	const ID = wantId("question", AT.toISOString());
+
+	it("says its choices, without what takes the answer", () => {
+		const { heard } = asked();
+
+		expect(heard, "the want says the ask's choices as they are").toEqual([
+			{
+				kind: "question",
+				since: AT.toISOString(),
+				said: "Keep the bar?",
+				ask: CHOICES,
+			},
+		]);
+	});
+
+	it("reaches its panel with a choice it offers, or words it allows", () => {
+		const { taken, wants } = asked();
+
+		expect(answerWant(ID, { value: "back" }, wants), "a choice").toBe(true);
+		expect(answerWant(ID, { other: "Shorter" }, wants), "words").toBe(true);
+		expect(taken, "the panel took both as given").toEqual([
+			{ value: "back" },
+			{ other: "Shorter" },
+		]);
+	});
+
+	it("takes nothing it doesn't offer, nor for a want gone or never raised", () => {
+		const { lower, taken, wants } = asked(false);
+
+		expect(answerWant(ID, { value: "maybe" }, wants), "no such choice").toBe(
+			false,
+		);
+		expect(answerWant(ID, { other: "Shorter" }, wants), "no words").toBe(false);
+		expect(
+			answerWant(wantId("question", LATER.toISOString()), { value: "keep" }),
+			"another want's id",
+		).toBe(false);
+		lower();
+		expect(answerWant(ID, { value: "keep" }, wants), "its want ended").toBe(
+			false,
+		);
+		expect(taken, "the panel took nothing").toEqual([]);
+	});
+
+	it("drops its choices once its own panel goes while the want stands", () => {
+		const { heard, wants } = bound();
+		const plain = wants.raise("question", "Keep the bar?", AT);
+		const lower = wants.raise("question", "Keep the bar?", AT, {
+			...CHOICES,
+			take: () => {},
+		});
+		lower();
+
+		expect(heard.at(-1), "the want stands without choices").toEqual({
+			kind: "question",
+			since: AT.toISOString(),
+			said: "Keep the bar?",
+		});
+		expect(answerWant(ID, { value: "keep" }, wants), "nothing takes it").toBe(
+			false,
+		);
+		plain();
+	});
+
+	it("is answered by nothing on wants from before answers were kept", () => {
+		const { answer: _gone, ...old } = createWants();
+
+		expect(answerWant(ID, { value: "keep" }, old), "an old copy's wants").toBe(
+			false,
+		);
+	});
+
+	it("reads an answer given from outside, and nothing that is none", () => {
+		expect(givenFrom({ value: "keep" }), "a choice").toEqual({
+			value: "keep",
+		});
+		expect(givenFrom({ other: "Shorter" }), "words").toEqual({
+			other: "Shorter",
+		});
+		expect(givenFrom({ value: 3 }), "not words").toBeUndefined();
+		expect(givenFrom("keep"), "not an answer").toBeUndefined();
 	});
 });
 

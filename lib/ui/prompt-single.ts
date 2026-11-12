@@ -327,6 +327,7 @@ function createSingleController(
 export async function showSinglePrompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
+	answered?: AnsweredElsewhere,
 ): Promise<PromptResult | null> {
 	return mountGate<PromptResult | null>(
 		ctx,
@@ -334,9 +335,28 @@ export async function showSinglePrompt(
 		{
 			cancelled: null,
 			title: config.title ?? "A decision",
-			verdict: (result) => singleVerdict(config, result),
+			verdict: (result) => answered?.verdict() ?? singleVerdict(config, result),
+			...(answered ? { dismiss: answered.signal } : {}),
 		},
 	);
+}
+
+/**
+ * A prompt the person may answer from elsewhere: it comes down when
+ * `signal` fires, and its record then says what `verdict` says.
+ */
+export interface AnsweredElsewhere {
+	readonly signal: AbortSignal;
+	/** What its record says once answered elsewhere; nothing until then. */
+	verdict(): string | undefined;
+}
+
+/** The record of a prompt answered elsewhere with `result`. */
+export function elsewhereVerdict(
+	config: SinglePromptConfig,
+	result: PromptResult,
+): string {
+	return `${singleVerdict(config, result)}, from outside this window`;
 }
 
 /** The key conventionally bound to rejecting, across every gate here. */

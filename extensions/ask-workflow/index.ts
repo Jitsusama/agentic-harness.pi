@@ -19,6 +19,7 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { decide, isAway } from "../../lib/internal/away/state.ts";
+import type { WantAsk } from "../../lib/internal/session/wants.ts";
 import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
 import { count } from "../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
@@ -141,6 +142,22 @@ export function answerWhileAway(questions: Question[]): string {
 	return lines.join("\n");
 }
 
+/**
+ * The question's choices as its want says them, so the launcher can show
+ * them and answer it where the person is.
+ */
+function wantAsk(q: Question): WantAsk {
+	return {
+		choices: q.options.map((o) => ({
+			value: o.value,
+			label: o.label,
+			...(o.description === undefined ? {} : { description: o.description }),
+		})),
+		...(q.recommended === undefined ? {} : { recommended: q.recommended }),
+		allowOther: q.allowOther,
+	};
+}
+
 /** Build options for a question, including the "Type something" option. */
 function buildOptions(q: Question): ListChoice[] {
 	const opts: ListChoice[] = q.options.map((o) => ({
@@ -208,7 +225,7 @@ export default function ask(pi: ExtensionAPI) {
 					content: (theme: Theme, width: number) =>
 						renderMarkdown(q.prompt, theme, width),
 					options: buildOptions(q),
-					want: { kind: "question", said: q.prompt },
+					want: { kind: "question", said: q.prompt, ask: wantAsk(q) },
 				});
 
 				if (!result) {

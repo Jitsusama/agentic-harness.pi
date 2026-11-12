@@ -20,6 +20,12 @@
  * A want is said when it starts, when what it says changes, and when it
  * ends. Raising one already standing keeps when it started, so "since"
  * means how long the person has been waited on.
+ *
+ * A question an open ask waits on carries its choices, so a launcher can
+ * show them and let the person answer where they are (KP0L6A, 12
+ * November). An answer given there reaches the panel that raised the
+ * want by the want's id, through {@link Wants.answer}, and the panel
+ * takes it as if it were typed.
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
@@ -45,8 +51,74 @@ export type WantEvent =
 			readonly since: string;
 			/** One short line saying what is wanted. */
 			readonly said: string;
+			/** The choices it can be answered with, when it is an ask. */
+			readonly ask?: WantAsk;
 	  }
 	| { readonly kind: WantKind; readonly said: null };
+
+/** One answer an ask offers. */
+export interface WantChoice {
+	readonly value: string;
+	readonly label: string;
+	readonly description?: string;
+}
+
+/** The choices an ask offers, as the ask tool has them. */
+export interface WantAsk {
+	readonly choices: readonly WantChoice[];
+	/** The value the asker recommends, when it names one. */
+	readonly recommended?: string;
+	/** Whether an answer in the person's own words is taken. */
+	readonly allowOther?: boolean;
+}
+
+/** An answer given away from the panel: one of its choices, or words. */
+export type GivenAnswer =
+	| { readonly value: string }
+	| { readonly other: string };
+
+/** An ask's choices read from outside, or nothing when they are not. */
+export function askFrom(value: unknown): WantAsk | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { choices, recommended, allowOther } = value as Record<string, unknown>;
+	if (!Array.isArray(choices)) return undefined;
+	const read: WantChoice[] = [];
+	for (const one of choices) {
+		if (typeof one !== "object" || one === null) return undefined;
+		const {
+			value: chosen,
+			label,
+			description,
+		} = one as Record<string, unknown>;
+		if (typeof chosen !== "string" || typeof label !== "string") {
+			return undefined;
+		}
+		read.push({
+			value: chosen,
+			label,
+			...(typeof description === "string" ? { description } : {}),
+		});
+	}
+	return {
+		choices: read,
+		...(typeof recommended === "string" ? { recommended } : {}),
+		...(typeof allowOther === "boolean" ? { allowOther } : {}),
+	};
+}
+
+/** An answer given away from a panel, read from outside. */
+export function givenFrom(value: unknown): GivenAnswer | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { value: chosen, other } = value as Record<string, unknown>;
+	if (typeof chosen === "string") return { value: chosen };
+	if (typeof other === "string") return { other };
+	return undefined;
+}
+
+/** The id a want of this kind, begun then, goes by. */
+export function wantId(kind: WantKind, since: string): string {
+	return `${kind}@${since}`;
+}
 
 const KINDS: ReadonlySet<string> = new Set(["question", "approval", "blocked"]);
 
@@ -87,19 +159,54 @@ export interface Wants {
 	 * The answer lowers this raising; the want ends once every raising of
 	 * its kind is lowered, or when {@link Wants.end} ends it.
 	 */
-	raise(kind: WantKind, said: string, now?: Date): () => void;
+	raise(kind: WantKind, said: string, now?: Date, ask?: AskedWant): () => void;
 	/** End every raising of this kind, as the person's answer does. */
 	end(kind: WantKind): void;
+	/**
+	 * Give the want `id` names an answer from away from its panel,
+	 * answering whether a panel took it. Nothing takes one for a want
+	 * that has ended, that is no ask, or whose ask offers no such answer.
+	 */
+	answer?(id: string, given: GivenAnswer): boolean;
 	/** Say the wants on this bus from now on, and say those standing on it. */
 	bind(bus: EventBus): void;
 	/** Stop saying anything on this bus, if it is the one bound. */
 	unbind(bus: EventBus): void;
 }
 
+/** An ask's choices, and what takes an answer given away from it. */
+export interface AskedWant extends WantAsk {
+	take(given: GivenAnswer): void;
+}
+
 interface Standing {
 	readonly since: string;
 	said: string;
 	raised: number;
+	ask?: AskedWant;
+}
+
+/** The ask's choices as said on the bus, without what takes an answer. */
+function choicesOf(ask: AskedWant): WantAsk {
+	return {
+		choices: ask.choices.map((one) => ({
+			value: one.value,
+			label: one.label,
+			...(one.description === undefined
+				? {}
+				: { description: one.description }),
+		})),
+		...(ask.recommended === undefined ? {} : { recommended: ask.recommended }),
+		...(ask.allowOther === undefined ? {} : { allowOther: ask.allowOther }),
+	};
+}
+
+/** Whether `ask` takes `given`: a choice it offers, or words it allows. */
+function offers(ask: WantAsk, given: GivenAnswer): boolean {
+	if ("value" in given) {
+		return ask.choices.some((one) => one.value === given.value);
+	}
+	return ask.allowOther === true && given.other.trim() !== "";
 }
 
 /**
@@ -110,23 +217,33 @@ export function createWants(): Wants {
 	const standing = new Map<WantKind, Standing>();
 	let bus: EventBus | undefined;
 	const say = (event: WantEvent) => bus?.emit(SESSION_WANTS, event);
+	const sayStanding = (kind: WantKind, want: Standing) =>
+		say({
+			kind,
+			since: want.since,
+			said: want.said,
+			...(want.ask ? { ask: choicesOf(want.ask) } : {}),
+		});
 	const end = (kind: WantKind) => {
 		if (standing.delete(kind)) say({ kind, said: null });
 	};
 	return {
-		raise(kind, said, now = new Date()) {
+		raise(kind, said, now = new Date(), ask = undefined) {
 			const line = oneLine(said);
 			const current = standing.get(kind);
-			const want = current ?? {
+			const want: Standing = current ?? {
 				since: now.toISOString(),
 				said: line,
 				raised: 0,
 			};
 			want.raised += 1;
-			if (current === undefined || current.said !== line) {
+			// The newest ask is the one an answer from away goes to.
+			const asks = ask !== undefined && ask !== want.ask;
+			if (current === undefined || current.said !== line || asks) {
 				want.said = line;
+				if (ask) want.ask = ask;
 				standing.set(kind, want);
-				say({ kind, since: want.since, said: line });
+				sayStanding(kind, want);
 			}
 			let lowered = false;
 			return () => {
@@ -135,15 +252,30 @@ export function createWants(): Wants {
 				// A want ended meanwhile, and perhaps raised afresh, is not this one.
 				if (standing.get(kind) !== want) return;
 				want.raised -= 1;
-				if (want.raised <= 0) end(kind);
+				if (want.raised <= 0) {
+					end(kind);
+					return;
+				}
+				// Its panel is gone, so its choices answer nothing any more.
+				if (ask && want.ask === ask) {
+					delete want.ask;
+					sayStanding(kind, want);
+				}
 			};
 		},
 		end,
+		answer(id, given) {
+			for (const [kind, want] of standing) {
+				if (wantId(kind, want.since) !== id) continue;
+				if (!(want.ask && offers(want.ask, given))) return false;
+				want.ask.take(given);
+				return true;
+			}
+			return false;
+		},
 		bind(next) {
 			bus = next;
-			for (const [kind, want] of standing) {
-				say({ kind, since: want.since, said: want.said });
-			}
+			for (const [kind, want] of standing) sayStanding(kind, want);
 		},
 		unbind(gone) {
 			if (bus === gone) bus = undefined;
@@ -287,7 +419,8 @@ export const WANT_AFTER_MS = 5_000;
 /**
  * Wait for an answer, raising a want of this kind if it has not come
  * within {@link WANT_AFTER_MS}. The want dates from when the wait began,
- * and is lowered however the wait ends.
+ * and is lowered however the wait ends. An `ask` says its choices with
+ * the want, and takes an answer given away from the panel.
  */
 export async function waitedOn<T>(
 	kind: WantKind,
@@ -295,11 +428,12 @@ export async function waitedOn<T>(
 	answer: Promise<T>,
 	wants: Wants = sessionWants(),
 	afterMs: number = WANT_AFTER_MS,
+	ask: AskedWant | undefined = undefined,
 ): Promise<T> {
 	const began = new Date();
 	let lower: (() => void) | undefined;
 	const timer = setTimeout(() => {
-		lower = wants.raise(kind, said, began);
+		lower = wants.raise(kind, said, began, ask);
 	}, afterMs);
 	timer.unref?.();
 	try {
@@ -308,4 +442,17 @@ export async function waitedOn<T>(
 		clearTimeout(timer);
 		lower?.();
 	}
+}
+
+/**
+ * Give the session's want `id` an answer from away from its panel,
+ * answering whether a panel took it. Wants a copy from before answers
+ * existed still hold after a reload take none.
+ */
+export function answerWant(
+	id: string,
+	given: GivenAnswer,
+	wants: Wants = sessionWants(),
+): boolean {
+	return wants.answer?.(id, given) ?? false;
 }
