@@ -628,6 +628,7 @@ describe("warming across a restart", () => {
 					"pi-session-id": "s1",
 					Authorization: "Bearer sekrit-1",
 					"x-api-key": "sekrit-2",
+					"x-forwarded-for": `sk-ant-${"a".repeat(24)}`,
 				},
 			},
 			ctx,
@@ -642,7 +643,8 @@ describe("warming across a restart", () => {
 		expect([
 			written.includes("pi-session-id"),
 			written.includes("sekrit"),
-		]).toEqual([true, false]);
+			written.includes("sk-ant-"),
+		]).toEqual([true, false, false]);
 	});
 
 	it("keeps nothing on disk when kept requests are switched off", async () => {
