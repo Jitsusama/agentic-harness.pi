@@ -5097,6 +5097,36 @@ describe("the person's look list, from show_person", () => {
 		expect(again?.content[0]?.text).toContain("Nothing to take back");
 	});
 
+	// WCJQSG, 12 November: a look that asks nothing back is gone once seen,
+	// and one quest's looks at one thing are one look.
+	it("says a look that only shows leaves once seen, and folds looks on one thread", async () => {
+		onQuest();
+		paths = { ...paths, looks: join(root, "looks") };
+		const { tools } = await startSession();
+		const show = (params: Record<string, unknown>) =>
+			tools.get("show_person")?.execute("call-s", params);
+
+		const shown = await show({
+			...pr,
+			ask: "Nothing, just to see.",
+			thread: "the bar",
+		});
+		await show({
+			...pr,
+			kind: "page",
+			target: "https://example.com/bar",
+			thread: "the bar",
+		});
+
+		expect(shown?.content[0]?.text, "what it says of a showing look").toContain(
+			"leaves once they open it",
+		);
+		expect(
+			looksIn(join(root, "looks")).map((look) => look.target),
+			"the later look on the thread in its place",
+		).toEqual(["https://example.com/bar"]);
+	});
+
 	it("resolves the looks of a quest as it ends, and leaves another's", async () => {
 		onQuest();
 		paths = { ...paths, looks: join(root, "looks") };

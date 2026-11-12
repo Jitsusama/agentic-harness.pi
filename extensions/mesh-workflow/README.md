@@ -233,13 +233,26 @@ and can answer a question or a gate left open on screen.
   launcher shows and marks opened or cleared. A look is refused that
   names a message's or quest's id, a session's address, a path or
   code, or runs past a sentence, since he reads it hours later
-  without the agents' context. Nothing here removes one. A look at a
-  change resolves itself, with `how` and `resolvedAt`, when a session
-  merges or closes that change through `review_offer`; its session
-  takes it back with `withdraw` once it no longer applies ("taken
-  back"); and it goes when its quest concludes or retires ("its quest
-  ended"), as that session ends it or, from any session, within a
-  minute. A look that asks for a word back names its `choices`, at
+  without the agents' context. Nothing here removes one. A look says
+  whether it `asks` for something back: it does when it has choices
+  or an ask other than only to see, and a look kept without the
+  field counts as asking. Pointing again at the same thing, from the
+  session or another on its quest, replaces the look in its place,
+  the older one's id and time kept: a pull request's tabs, a diff of
+  it and a fragment fold to the pull request, a page's fragment to
+  the page, and looks given the same `thread` fold whatever they
+  open; titles never fold, and any other look folded resolves as
+  "replaced". A look standing, waiting or opened, at a change
+  resolves itself, with `how` and `resolvedAt`, when a session
+  merges or closes that change through `review_offer`; its session,
+  or a later one on its quest, takes it back with `withdraw` once it
+  no longer applies ("taken back"); and it goes when its quest
+  concludes or retires ("its quest ended"), as that session ends it
+  or, from any session, within a minute. A look that asks nothing
+  back resolves as "seen" within a minute of the person opening it,
+  and carries an `expiresAt` a day after it was pointed at: past it,
+  a session of its own or of its quest marks it `expired` and tells
+  its agent which went (`looks-clock.ts`). A look that asks for a word back names its `choices`, at
   most four short labels, kept as `choices: [{value, label}]`; the
   launcher answers it with the steer act `answer` below, and the
   session resolves it ("answered: <label>", with `answer` and

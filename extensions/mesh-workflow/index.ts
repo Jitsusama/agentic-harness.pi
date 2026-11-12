@@ -265,6 +265,7 @@ import {
 	reloading,
 	takeHeavyCalls,
 } from "./leases.ts";
+import { expiredText, keepLooks } from "./looks-clock.ts";
 import { createMoving, holdsOf, moveNoteOf } from "./moving.ts";
 import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import {
@@ -543,8 +544,27 @@ async function hostedStateOf(change: string): Promise<HostedState | undefined> {
 	return (await Promise.race([fetched, late]))?.state;
 }
 
+/** What the agent reads when looks of its own expired off the person's list. */
+const LOOKS_EXPIRED = "mesh-looks-expired";
+
 /**
- * Mark the person's waiting looks for a quest that `ended` says has
+ * Tell the agent, with its next turn, which of its looks expired off the
+ * person's list, so it doesn't count on him having seen them.
+ */
+function tellLooksExpired(
+	pi: Pick<ExtensionAPI, "sendMessage">,
+	expired: Parameters<typeof expiredText>[0],
+): void {
+	const content = expiredText(expired);
+	if (content === undefined) return;
+	pi.sendMessage(
+		{ customType: LOOKS_EXPIRED, content, display: true },
+		{ triggerTurn: false },
+	);
+}
+
+/**
+ * Mark the person's standing looks for a quest that `ended` says has
  * ended resolved, so nothing it asked of him outlives it (Joel, 11
  * November: "if it is no longer applicable ... it should disappear").
  * A look list that can't be written now is tried again on the next tick.
@@ -1978,6 +1998,14 @@ export function meshWorkflow(
 					// A quest ended in another session, or before this one began.
 					endLooksOfQuests(looksDir, (quest) => questEnded(questsDir, quest));
 					void askAboutLooks(pi, looksDir, asking);
+					const quest = loadedQuest(asking, paths.sessions);
+					tellLooksExpired(
+						pi,
+						keepLooks(looksDir, {
+							session: asking,
+							...(quest ? { quest } : {}),
+						}),
+					);
 					// Asks a session of this quest left as it ended come here, so
 					// Needs You sends the person to one that runs.
 					if (waiting) markOwnerRunning(waiting, true);

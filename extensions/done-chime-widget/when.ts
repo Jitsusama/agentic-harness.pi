@@ -88,3 +88,13 @@ export function rings(run: Settled): boolean {
 	if (run.heardAt === undefined) return false;
 	return run.at - run.heardAt >= LOOKED_AWAY_MS;
 }
+
+/**
+ * The system log's line for a ring heard in `session`, so the dings a
+ * day can be counted (2RCBOJ, 12 November), with how long the person
+ * had waited, to the second.
+ */
+export function dingLine(session: string, run: Settled): string {
+	const waited = Math.round((run.at - (run.heardAt ?? run.at)) / 1000);
+	return `pi: done ding, session ${session}, ${waited} s after the person typed`;
+}

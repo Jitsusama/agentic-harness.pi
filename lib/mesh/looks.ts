@@ -12,8 +12,19 @@
  * it is, what it is and why he should look.
  *
  * One file a look, so sessions pointing at once never race on a shared
- * file. A look at the same thing from the same session replaces its
- * first, so pointing again brings it to the top rather than doubling it.
+ * file. A look at the same thing from the same session, or another on
+ * its quest, replaces the first in its place rather than doubling it: a
+ * change's tabs and diffs are the change, a page's fragment is the page,
+ * and looks a session sets on one thread fold whatever they open. Titles
+ * never fold, since sessions reword them (2RCBOJ, 12 November).
+ *
+ * Joel, 12 November, of a list that had held 45: "how many of those are
+ * actually useful to me as a human?" So a look says whether it asks for
+ * something back. One that only shows leaves once he has opened it, and
+ * expires a day after it was pointed at, its owner told; one that asks
+ * lasts until it is answered, taken back, or its quest ends. Its owner
+ * takes it back whether he has opened it or not, and so can any later
+ * session on its quest.
  *
  * Joel, 11 November: "anything that is going to fight for my attention
  * is easy for me to engage with, even if i engage with it later. if it
@@ -46,7 +57,22 @@ export type LookKind = (typeof LOOK_KINDS)[number];
  * Where a look stands: waiting for the person, done with by them, or
  * resolved without them, since what it pointed at merged or closed.
  */
-export type LookState = "waiting" | "opened" | "cleared" | "resolved";
+export type LookState =
+	| "waiting"
+	| "opened"
+	| "cleared"
+	| "resolved"
+	| "expired";
+
+/** The states in which a look still stands on the person's list. */
+const STANDING: readonly LookState[] = ["waiting", "opened"];
+
+/** How long a look that asks nothing back stays on the list. */
+export const SHOWING_LASTS_MS = 24 * 60 * 60 * 1000;
+
+/** An ask that wants nothing back: "Nothing, just to see". */
+const ONLY_TO_SEE =
+	/^\s*(?:nothing|none|no action|fyi|for your information)\b|\b(?:just|only) (?:to|so you) (?:see|read|know|look)\b/i;
 
 /**
  * How a look was resolved without the person: its change merged or
@@ -58,6 +84,8 @@ export type LookResolution =
 	| "closed"
 	| `reviewed by ${string}`
 	| "taken back"
+	| "replaced"
+	| "seen"
 	| "its quest ended"
 	| `answered: ${string}`;
 
@@ -108,6 +136,15 @@ export interface Look {
 	readonly ask?: string;
 	/** The answers it offers, for a look that asks for a word back. */
 	readonly choices?: readonly LookChoice[];
+	/**
+	 * Whether it wants something back from the person; a look kept before
+	 * looks said counts as asking.
+	 */
+	readonly asks?: boolean;
+	/** When it stops being worth his time, as an ISO time; none, never. */
+	readonly expiresAt?: string;
+	/** The thread its session set, folding its looks whatever they open. */
+	readonly thread?: string;
 	/** Waiting until the launcher says the person opened or cleared it. */
 	readonly state: LookState;
 	/** How it resolved, and when, once its change merged or closed. */
@@ -127,6 +164,8 @@ export interface Pointing {
 	readonly ask: string;
 	/** The labels of the answers it offers, when it asks for a word back. */
 	readonly choices?: readonly string[];
+	/** A thread of the session's, such as a question's id, to fold on. */
+	readonly thread?: string;
 }
 
 /** Whose a look is. */
@@ -141,16 +180,45 @@ export function isLookKind(value: unknown): value is LookKind {
 	return typeof value === "string" && LOOK_KINDS.some((kind) => kind === value);
 }
 
-/** The id one session's look at one thing keeps. */
-export function lookId(
-	session: string,
-	kind: LookKind,
-	target: string,
-): string {
+/** The id a new look keeps: its quest's, or else its session's, at what it folds on. */
+function lookId(pointer: Pointer, fold: string): string {
 	return createHash("sha256")
-		.update(`${session}\0${kind}\0${target}`)
+		.update(`${pointer.quest ?? pointer.session}\0${fold}`)
 		.digest("hex")
 		.slice(0, 16);
+}
+
+/**
+ * What a look at `kind` and `target` folds on: a change's own URL for a
+ * look at it or its diff, tabs and fragments aside; a page without its
+ * fragment; anything else as it opens.
+ */
+function foldOf(kind: LookKind, target: string): string {
+	const trimmed = target.trim();
+	const url = /^https?:\/\//.test(trimmed);
+	if (url && (kind === "pr" || kind === "diff"))
+		return `change ${changeKey(trimmed)}`;
+	if (url && kind === "page")
+		return `page ${trimmed.replace(/#.*$/, "").replace(/\/+$/, "")}`;
+	return `${kind} ${trimmed}`;
+}
+
+/** Whether `look` is `pointer`'s to replace, take back or expire: its session's, or its quest's. */
+export function heldBy(look: Look, pointer: Pointer): boolean {
+	return (
+		look.session === pointer.session ||
+		(pointer.quest !== undefined && look.quest === pointer.quest)
+	);
+}
+
+/** Whether `look` still stands on the person's list. */
+function stands(look: Look): boolean {
+	return STANDING.includes(look.state);
+}
+
+/** Whether a pointing wants something back: choices, or an ask beyond seeing. */
+function asksBack(pointing: Pointing): boolean {
+	return (pointing.choices?.length ?? 0) > 0 || !ONLY_TO_SEE.test(pointing.ask);
 }
 
 /** Why a pointing can't be kept, or nothing when it can. */
@@ -235,8 +303,10 @@ function wordsIn(text: string): number {
 }
 
 /**
- * Keep a look for the person in `dir`, in place of this session's
- * earlier look at the same thing; answers the look kept.
+ * Keep a look for the person in `dir`, in the place of the earliest look
+ * standing that this session or its quest pointed at the same thing or
+ * on the same thread; any other such look resolves as replaced. Answers
+ * the look kept.
  */
 export function pointAt(
 	dir: string,
@@ -244,10 +314,24 @@ export function pointAt(
 	pointer: Pointer,
 	now: Date = new Date(),
 ): Look {
+	const fold = foldOf(pointing.kind, pointing.target);
+	const thread = pointing.thread?.trim() || undefined;
+	const folded = looksIn(dir).filter(
+		(one) =>
+			stands(one) &&
+			heldBy(one, pointer) &&
+			(foldOf(one.kind, one.target) === fold ||
+				(thread !== undefined && one.thread === thread)),
+	);
+	// Newest first, so the earliest place is the last.
+	const place = folded.at(-1);
+	for (const one of folded.slice(0, -1))
+		markResolvedLook(dir, one, "replaced", now);
+	const asks = asksBack(pointing);
 	const look: Look = {
 		v: 1,
-		id: lookId(pointer.session, pointing.kind, pointing.target),
-		at: now.toISOString(),
+		id: place?.id ?? lookId(pointer, thread ? `thread ${thread}` : fold),
+		at: place?.at ?? now.toISOString(),
 		session: pointer.session,
 		...(pointer.address ? { address: pointer.address } : {}),
 		...(pointer.quest ? { quest: pointer.quest } : {}),
@@ -264,6 +348,13 @@ export function pointAt(
 					})),
 				}
 			: {}),
+		asks,
+		...(asks
+			? {}
+			: {
+					expiresAt: new Date(now.getTime() + SHOWING_LASTS_MS).toISOString(),
+				}),
+		...(thread ? { thread } : {}),
 		state: "waiting",
 	};
 	writeWhole(
@@ -305,10 +396,10 @@ function changeKey(target: string): string {
 }
 
 /**
- * Mark every waiting look at the change at `url` resolved, since it
+ * Mark every standing look at the change at `url` resolved, since it
  * merged or closed, so the person isn't asked to look at what no longer
  * needs them (Joel, 8 November). Answers how many it marked. A look the
- * person already opened or cleared is left as they left it.
+ * person cleared is left as they left it.
  */
 export function resolveLooks(
 	dir: string,
@@ -320,7 +411,7 @@ export function resolveLooks(
 	if (key === "") return 0;
 	let marked = 0;
 	for (const look of looksIn(dir)) {
-		if (look.state !== "waiting") continue;
+		if (!stands(look)) continue;
 		if (look.kind !== "pr" && look.kind !== "diff") continue;
 		if (changeKey(look.target) !== key) continue;
 		markResolvedLook(dir, look, how, now);
@@ -330,26 +421,72 @@ export function resolveLooks(
 }
 
 /**
- * Take back this session's waiting look at `kind` and `target`, since it
- * no longer applies; answers whether there was one to take back. A look
- * the person already opened or cleared is left as they left it.
+ * Take back every standing look of `pointer`'s session or quest at what
+ * `kind` and `target` fold on, since it no longer applies, opened or not;
+ * answers whether there was one to take back. A look the person cleared
+ * is left as they left it.
  */
 export function withdrawLook(
 	dir: string,
-	session: string,
+	pointer: Pointer,
 	kind: LookKind,
 	target: string,
 	now: Date = new Date(),
 ): boolean {
-	const id = lookId(session, kind, target.trim());
-	const look = looksIn(dir).find((one) => one.id === id);
-	if (look?.state !== "waiting") return false;
-	markResolvedLook(dir, look, "taken back", now);
-	return true;
+	const fold = foldOf(kind, target);
+	const taken = looksIn(dir).filter(
+		(one) =>
+			stands(one) &&
+			heldBy(one, pointer) &&
+			foldOf(one.kind, one.target) === fold,
+	);
+	for (const one of taken) markResolvedLook(dir, one, "taken back", now);
+	return taken.length > 0;
 }
 
 /**
- * Mark every waiting look for a quest `ended` says has ended resolved,
+ * Mark every standing look past its time that `owns` says is this
+ * session's to expire, so what no longer needs the person leaves his
+ * list; answers the looks it expired, for their owner to be told.
+ */
+export function expireLooks(
+	dir: string,
+	owns: (look: Look) => boolean,
+	now: Date = new Date(),
+): Look[] {
+	const due = looksIn(dir).filter(
+		(one) =>
+			stands(one) &&
+			one.expiresAt !== undefined &&
+			Date.parse(one.expiresAt) <= now.getTime() &&
+			owns(one),
+	);
+	return due.map((one) => {
+		const expired: Look = {
+			...one,
+			state: "expired",
+			resolvedAt: now.toISOString(),
+		};
+		writeLook(dir, expired);
+		return expired;
+	});
+}
+
+/**
+ * Mark every look the person has opened that asks nothing back resolved,
+ * since opening it was all it wanted; answers how many it marked. A
+ * look kept before looks said whether they ask stays, as asking.
+ */
+export function leaveSeenLooks(dir: string, now: Date = new Date()): number {
+	const seen = looksIn(dir).filter(
+		(one) => one.state === "opened" && one.asks === false,
+	);
+	for (const one of seen) markResolvedLook(dir, one, "seen", now);
+	return seen.length;
+}
+
+/**
+ * Mark every standing look for a quest `ended` says has ended resolved,
  * since what a quest asked of the person ends with it. Answers how many
  * it marked.
  */
@@ -360,7 +497,7 @@ export function resolveLooksOfQuests(
 ): number {
 	let marked = 0;
 	for (const look of looksIn(dir)) {
-		if (look.state !== "waiting" || look.quest === undefined) continue;
+		if (!stands(look) || look.quest === undefined) continue;
 		if (!ended(look.quest)) continue;
 		markResolvedLook(dir, look, "its quest ended", now);
 		marked++;
@@ -369,10 +506,10 @@ export function resolveLooksOfQuests(
 }
 
 /**
- * Answer the waiting look `id` with the choice whose value is `value`,
+ * Answer the standing look `id` with the choice whose value is `value`,
  * as the person picked it from the launcher: it resolves, saying what he
  * answered. Answers the look as answered, or nothing when it is gone,
- * no longer waiting, or offers no such choice.
+ * no longer standing, or offers no such choice.
  */
 export function answerLook(
 	dir: string,
@@ -381,7 +518,7 @@ export function answerLook(
 	now: Date = new Date(),
 ): Look | undefined {
 	const look = looksIn(dir).find((one) => one.id === id);
-	if (look?.state !== "waiting") return undefined;
+	if (!look || !stands(look)) return undefined;
 	const choice = look.choices?.find((one) => one.value === value);
 	if (!choice) return undefined;
 	return markResolvedLook(dir, look, `answered: ${choice.label}`, now, {
@@ -405,11 +542,16 @@ function markResolvedLook(
 		how,
 		resolvedAt: now.toISOString(),
 	};
+	writeLook(dir, resolved);
+	return resolved;
+}
+
+/** Write `look` whole to its file in `dir`. */
+function writeLook(dir: string, look: Look): void {
 	writeWhole(
 		join(dir, `${look.id}.json`),
-		`${JSON.stringify(resolved, null, 2)}\n`,
+		`${JSON.stringify(look, null, 2)}\n`,
 	);
-	return resolved;
 }
 
 /** Every look kept in `dir`, newest first; none for a folder not there. */

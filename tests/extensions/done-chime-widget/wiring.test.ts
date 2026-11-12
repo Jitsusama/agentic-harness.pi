@@ -19,6 +19,18 @@ vi.mock("../../../extensions/done-chime-widget/ring.ts", async (original) => ({
 	},
 }));
 
+/** What went to the system's log. */
+const logged = vi.hoisted(() => [] as string[]);
+vi.mock("../../../lib/internal/session/journal.ts", async (original) => ({
+	...(await original<object>()),
+	sayInJournal: (text: string) => logged.push(text),
+}));
+
+/** Let the ring's promise settle, as the widget doesn't wait on it. */
+async function rungOut(): Promise<void> {
+	for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+}
+
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
 function loaded({ hasUI = true, name = "Done chime" } = {}) {
@@ -28,7 +40,11 @@ function loaded({ hasUI = true, name = "Done chime" } = {}) {
 		getSessionName: () => name,
 	};
 	doneChimeWidget(pi as unknown as ExtensionAPI);
-	const ctx = { hasUI, cwd: "/work/tree" };
+	const ctx = {
+		hasUI,
+		cwd: "/work/tree",
+		sessionManager: { getSessionId: () => "S1" },
+	};
 	const fire = (event: string, payload: object = {}) =>
 		handlers.get(event)?.({ type: event, ...payload }, ctx);
 	return {
@@ -45,6 +61,7 @@ const passes = (ms: number) => vi.advanceTimersByTime(ms);
 beforeEach(() => {
 	vi.useFakeTimers();
 	rung.length = 0;
+	logged.length = 0;
 });
 
 afterEach(() => {
@@ -62,6 +79,26 @@ describe("the done chime", () => {
 		await session.settled();
 
 		expect(rung).toEqual(["Done chime is ready."]);
+	});
+
+	// 2RCBOJ, 12 November: 86 dings in a day, counted only from session
+	// logs, since a ding left no line of its own.
+	it("says in the system's log each time it rings, and nothing when it doesn't", async () => {
+		const session = loaded();
+		await session.typed();
+		passes(LOOKED_AWAY_MS - 1);
+		await session.settled();
+		await rungOut();
+		expect(logged, "a run he still watched").toEqual([]);
+
+		await session.typed();
+		passes(LOOKED_AWAY_MS);
+		await session.settled();
+		await rungOut();
+
+		expect(logged).toEqual([
+			`pi: done ding, session S1, ${LOOKED_AWAY_MS / 1000} s after the person typed`,
+		]);
 	});
 
 	it("stays quiet for a run that ends while the person still watches", async () => {
