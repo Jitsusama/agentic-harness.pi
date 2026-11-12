@@ -143,6 +143,8 @@ for (let head = 0; head < queue.length; head++) {
 		if (kind === "weak") continue;
 		// A WeakRef read this job keeps its target only until the job ends.
 		if (edgeName(e) === "weak_refs_keep_during_job") continue;
+		// A WeakMap's value lives only while its key does: follow the key.
+		if (edgeName(e).includes("pair in WeakMap")) continue;
 		const to = (last.edges[e * ef + toAt] ?? 0) / nf;
 		if (parentNode[to] !== -1) continue;
 		parentNode[to] = at;
@@ -156,7 +158,8 @@ for (let at = 0; at < nodeCount; at++) {
 	if (
 		key !== "object:InteractiveMode" &&
 		key !== "object:SessionManager" &&
-		key !== "object:AgentSession"
+		key !== "object:AgentSession" &&
+		key !== "object:HarnessImpl"
 	)
 		continue;
 	console.log(`held ${key}`);
