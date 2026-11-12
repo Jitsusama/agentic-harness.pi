@@ -53,6 +53,7 @@ import { count } from "../../lib/ui/count.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
+import { registerBatchingTrial } from "./batching-trial.ts";
 import { keepQuestBudget } from "./budget.ts";
 import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
 import {
@@ -897,6 +898,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	// What Joel put on top, said to every session as it next works.
 	registerOnTop(pi);
+
+	// Half of WCJQSG's builders try sending independent looks together.
+	registerBatchingTrial(
+		pi,
+		() => state.questsRoot,
+		() => state.questId,
+	);
 }
 
 /** The minimal render component pi's setWidget callback form returns. */

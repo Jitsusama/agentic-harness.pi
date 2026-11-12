@@ -56,7 +56,14 @@ shipped and tested.
   presence as `orchestratedBy`, with nothing else wired. Each
   of those sessions starts with the marked quest's Context
   section in its prompt, as its standing rules, and is told
-  once when that section changes. Every
+  once when that section changes. Until Monday 16 November
+  2026, half of WCJQSG's builders (an odd second-to-last hex
+  digit in the session id, all but WCJQSG and 16V6F4) also hear
+  one habit line, sending independent looks in one step, as a
+  trial (`batching-trial.ts`). A quest id on its own line in
+  `mission/trials/batching-out` under the state folder takes
+  that quest's sessions out at their next turn, and
+  `PI_BATCHING_TRIAL=off` ends it everywhere. Every
   open marked quest is listed, parents first, in
   `orchestrators.json` in quest-workflow's state folder (its
   id, address, short name, title and parent), looked at again
