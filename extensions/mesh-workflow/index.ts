@@ -279,8 +279,10 @@ import {
 } from "./quiet.ts";
 import { meshLines, type Shown } from "./render.ts";
 import {
+	answerLookSteered,
 	answerSteered,
 	createSteering,
+	LOOK_GONE,
 	type Steering,
 	steerText,
 } from "./steer.ts";
@@ -1020,15 +1022,32 @@ export function meshWorkflow(
 		};
 
 		/**
-		 * An answer the person gave an open ask from the launcher: the ask
-		 * takes it as typed, or, when it has moved on, the window says so.
+		 * An answer the person gave from the launcher: an open ask takes it
+		 * as typed, a look resolves and its answer goes to the agent, or,
+		 * when either has moved on, the window says so.
 		 */
 		const answerFromAway = (one: Steer) => {
 			const at = ctx;
 			if (!at) return;
-			answerSteered(one, sessionKeyOf(at), (text) => {
+			const tell = (text: string) => {
 				if (at.hasUI) at.ui.notify(text, "info");
-			});
+			};
+			if (one.look === undefined) {
+				answerSteered(one, sessionKeyOf(at), tell);
+				return;
+			}
+			if (!(paths.looks && peer)) {
+				tell(LOOK_GONE);
+				return;
+			}
+			const quest = loadedQuest(peer.session, paths.sessions);
+			answerLookSteered(
+				one,
+				paths.looks,
+				{ session: peer.session, ...(quest ? { quest } : {}) },
+				(text) => steered(text, at.isIdle?.() ?? true),
+				tell,
+			);
 		};
 
 		/** Steering for this session's addresses, when the mesh has inboxes. */

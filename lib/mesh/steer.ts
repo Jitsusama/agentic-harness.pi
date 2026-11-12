@@ -17,7 +17,8 @@
  * a `move` names where it goes as `to` (`attended`, `background` or
  * `pi`), and a `fill` puts its `text` in the prompt without sending it.
  * An `answer` answers the open ask the session's want `want` names, with
- * one of its choices as `value` or the person's words as `other`. A
+ * one of its choices as `value` or the person's words as `other`, or the
+ * look `look` names with one of its choices as `value`. A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. The
  * session going by that address takes it by renaming it again, so two
@@ -128,6 +129,8 @@ export interface Steer {
 	readonly re?: string;
 	/** The want an `answer` answers, by its id (lib/mesh/want.ts). */
 	readonly want?: string;
+	/** The look an `answer` answers instead, by its id (lib/mesh/looks.ts). */
+	readonly look?: string;
 	/** What an `answer` gives the ask: a choice's value, or words. */
 	readonly given?: GivenAnswer;
 	/** The file it came in, for what is said about it on screen. */
@@ -195,13 +198,24 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		asked === "answer" && "want" in parsed && typeof parsed.want === "string"
 			? parsed.want
 			: undefined;
+	const look =
+		asked === "answer" &&
+		want === undefined &&
+		"look" in parsed &&
+		typeof parsed.look === "string"
+			? parsed.look
+			: undefined;
 	const given = asked === "answer" ? givenFrom(parsed) : undefined;
 	// A carry or move goes nowhere without a to, nor a fill without words,
-	// nor an answer without the want it answers and what it gives.
+	// nor an answer without what it answers and what it gives; a look
+	// takes only one of its choices.
 	const act =
 		((asked === "carry" || asked === "move") && to === undefined) ||
 		(asked === "fill" && said === "") ||
-		(asked === "answer" && (want === undefined || given === undefined))
+		(asked === "answer" &&
+			(given === undefined ||
+				(want === undefined && look === undefined) ||
+				(look !== undefined && !("value" in given))))
 			? undefined
 			: asked;
 	// Words would start the run a pause, stop or close is ending.
@@ -226,7 +240,9 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		...(by ? { by } : {}),
 		...(id ? { id } : {}),
 		...(re ? { re } : {}),
-		...(act === "answer" && want && given ? { want, given } : {}),
+		...(act === "answer" && want ? { want } : {}),
+		...(act === "answer" && look ? { look } : {}),
+		...(act === "answer" && given ? { given } : {}),
 		file,
 	};
 }

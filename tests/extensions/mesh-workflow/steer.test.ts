@@ -3,10 +3,15 @@
  * came from, or a machine's, saying they aren't the person's.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	ANSWER_GONE,
+	answerLookSteered,
 	answerSteered,
+	LOOK_GONE,
 	steerText,
 } from "../../../extensions/mesh-workflow/steer.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
@@ -16,6 +21,8 @@ import {
 	sessionWants,
 	wantId,
 } from "../../../lib/internal/session/wants.ts";
+import { looksIn, pointAt } from "../../../lib/mesh/looks.ts";
+import type { Steer } from "../../../lib/mesh/steer.ts";
 
 const AT = new Date("2026-11-12T06:00:00.000Z");
 const WANT = wantId("question", AT.toISOString());
@@ -75,6 +82,98 @@ describe("an answer steered from the launcher", () => {
 
 		expect(taken, "nothing was taken").toEqual([]);
 		expect(told, "the window says why").toEqual([ANSWER_GONE]);
+	});
+});
+
+describe("a look answered from the launcher", () => {
+	let looks: string;
+	afterEach(() => rmSync(looks, { recursive: true, force: true }));
+
+	/** A look session `s1` on quest `Q1` put up, asking for a word back. */
+	function asking(): string {
+		looks = mkdtempSync(join(tmpdir(), "looks-"));
+		return pointAt(
+			looks,
+			{
+				kind: "page",
+				target: "https://example.com/draft",
+				title: "The reply to Sam",
+				why: "A reply is drafted for the thread you asked about.",
+				ask: "Say whether you posted it.",
+				choices: ["Posted", "Not yet"],
+			},
+			{ session: "s1", address: "85PKB2", quest: "Q1" },
+		).id;
+	}
+
+	const answer = (look: string, value: string): Steer => ({
+		text: "",
+		act: "answer",
+		from: "joel",
+		look,
+		given: { value },
+		file: "f",
+	});
+
+	it("resolves it and tells the agent, in the session now on its quest too", () => {
+		const id = asking();
+		const said: string[] = [];
+		const told: string[] = [];
+
+		answerLookSteered(
+			answer(id, "Posted"),
+			looks,
+			{ session: "s2", quest: "Q1" },
+			(text) => said.push(text),
+			(text) => told.push(text),
+		);
+
+		expect(looksIn(looks)[0]?.how, "off his list, answered").toBe(
+			"answered: Posted",
+		);
+		expect(said, "the agent hears what he picked, and of what").toEqual([
+			expect.stringMatching(
+				/Joel answered .*"The reply to Sam".*Say whether you posted it\..*They picked: Posted\./,
+			),
+		]);
+		expect(told, "nothing said on screen").toEqual([]);
+	});
+
+	it("answers nothing for another quest's look, or one no longer waiting", () => {
+		const id = asking();
+		const said: string[] = [];
+		const told: string[] = [];
+		const tell = (text: string) => told.push(text);
+
+		answerLookSteered(
+			answer(id, "Posted"),
+			looks,
+			{ session: "s3", quest: "Q2" },
+			(text) => said.push(text),
+			tell,
+		);
+		expect(looksIn(looks)[0]?.state, "still his to answer").toBe("waiting");
+		answerLookSteered(
+			answer(id, "Posted"),
+			looks,
+			{ session: "s1" },
+			(text) => said.push(text),
+			tell,
+		);
+		answerLookSteered(
+			answer(id, "Not yet"),
+			looks,
+			{ session: "s1" },
+			(text) => said.push(text),
+			tell,
+		);
+
+		expect(said.length, "only the first answer reached the agent").toBe(1);
+		expect(told, "the window says why, each time").toEqual([
+			LOOK_GONE,
+			LOOK_GONE,
+		]);
+		expect(looksIn(looks)[0]?.answer, "the first answer stands").toBe("Posted");
 	});
 });
 

@@ -15,6 +15,7 @@
 import { type FSWatcher, watch } from "node:fs";
 import { withSession } from "../../lib/core/session/index.ts";
 import { answerWant } from "../../lib/internal/session/wants.ts";
+import { answerLook, type Look, looksIn } from "../../lib/mesh/looks.ts";
 import {
 	FROM_MACHINE,
 	FROM_PERSON,
@@ -141,6 +142,56 @@ export function answerSteered(
 		given !== undefined &&
 		withSession(session, () => answerWant(want, given));
 	if (!taken) tell(ANSWER_GONE);
+}
+
+/** What the window says of an answer that came for a look now gone. */
+export const LOOK_GONE =
+	"An answer from outside this window came for something on the person's look list that no longer waits, so nothing was answered.";
+
+/** The session a look's answer reaches, and its quest. */
+export interface Answering {
+	readonly session: string;
+	readonly quest?: string;
+}
+
+/**
+ * Give an `answer` steer to the look it names, kept in `looks`: the look
+ * resolves with what the person picked, and `say` hands it to the agent.
+ * A look of this session's, or of its quest's, since a session gone is
+ * answered by the one on its quest now. When the look no longer waits
+ * or isn't this session's to answer, `tell` says so on screen.
+ */
+export function answerLookSteered(
+	steer: Steer,
+	looks: string,
+	answering: Answering,
+	say: (text: string) => void,
+	tell: (text: string) => void,
+): void {
+	const { look: id, given } = steer;
+	const look = looksIn(looks).find((one) => one.id === id);
+	const ours =
+		look !== undefined &&
+		(look.session === answering.session ||
+			(look.quest !== undefined && look.quest === answering.quest));
+	const answered =
+		ours && given !== undefined && "value" in given
+			? answerLook(looks, look.id, given.value)
+			: undefined;
+	if (!answered) {
+		tell(LOOK_GONE);
+		return;
+	}
+	say(lookAnswerText(answered, steer.from));
+}
+
+/** What the agent reads of the person's answer to a look. */
+export function lookAnswerText(look: Look, from?: string): string {
+	const label =
+		look.choices?.find((one) => one.value === look.answer)?.label ??
+		look.answer;
+	const asked = look.ask ? ` It asked: ${look.ask}` : "";
+	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} They picked: ${label}. Act on it, and take nothing back: the look is already off their list.]`;
 }
 
 /** Who a steer's writer reads as: Joel by name, else the person. */

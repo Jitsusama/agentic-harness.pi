@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	answerLook,
 	looksIn,
+	MOST_CHOICES,
 	pointAt,
 	refusalOf,
 	resolveLooks,
@@ -251,6 +253,65 @@ describe("a look written for the person", () => {
 
 // The looks clock asks this each minute, so a look outlives no quest
 // that ended in another session.
+// 2RCBOJ, 12 November: most looks ask for a word back, and the only way
+// to give it was to find the session, which may have moved on.
+describe("a look answered where the person is", () => {
+	const asking = {
+		...pr,
+		ask: "Say whether you posted it.",
+		choices: ["Posted", "Not yet"],
+	};
+
+	it("keeps its choices, and resolves saying what he picked", () => {
+		const look = pointAt(dir, asking, who, new Date("2026-11-12T06:00:00Z"));
+		expect(look.choices, "each choice its own value").toEqual([
+			{ value: "Posted", label: "Posted" },
+			{ value: "Not yet", label: "Not yet" },
+		]);
+
+		const answered = answerLook(
+			dir,
+			look.id,
+			"Not yet",
+			new Date("2026-11-12T07:00:00Z"),
+		);
+
+		expect(looksIn(dir)[0], "resolved with his answer").toMatchObject({
+			state: "resolved",
+			how: "answered: Not yet",
+			answer: "Not yet",
+			answeredAt: "2026-11-12T07:00:00.000Z",
+		});
+		expect(answered, "answers the look as kept").toEqual(looksIn(dir)[0]);
+	});
+
+	it("answers nothing it doesn't offer, nor a look no longer waiting", () => {
+		const look = pointAt(dir, asking, who);
+		expect(answerLook(dir, look.id, "Maybe"), "no such choice").toBeUndefined();
+		expect(answerLook(dir, "0000", "Posted"), "no such look").toBeUndefined();
+		withdrawLook(dir, who.session, look.kind, look.target);
+		expect(answerLook(dir, look.id, "Posted"), "taken back").toBeUndefined();
+		expect(looksIn(dir)[0]?.how, "left as taken back").toBe("taken back");
+	});
+
+	it("refuses choices past a row's room, repeated, or not his words", () => {
+		const many = Array.from(
+			{ length: MOST_CHOICES + 1 },
+			(_, n) => `Pick ${n}`,
+		);
+		for (const [choices, why] of [
+			[many, "too many"],
+			[["Posted", "posted"], "the same twice"],
+			[["Posted", " "], "one without words"],
+			[["Posted it to the channel today"], "a sentence"],
+			[["Ask 85PKB2"], "a session's address"],
+		] as const) {
+			expect(refusalOf({ ...asking, choices }), why).toBeDefined();
+		}
+		expect(refusalOf(asking), "two short labels").toBeUndefined();
+	});
+});
+
 describe("whether a look's quest has ended", () => {
 	/** A quest under `dir` standing at `status`. */
 	function quest(id: string, status: string): void {
