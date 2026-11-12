@@ -84,7 +84,11 @@ export function standingRules(
 	};
 }
 
-function orchestratorOf(quest: string, read: ReadmeReader): string | undefined {
+/** The quest orchestrating `quest`, by id, as its READMEs say, if any. */
+export function orchestratorOf(
+	quest: string,
+	read: ReadmeReader,
+): string | undefined {
 	const seen = new Map<string, QuestFrontMatter | undefined>();
 	const frontMatter = (id: string) => {
 		if (!seen.has(id)) {
@@ -106,7 +110,8 @@ function rulesIn(by: string, readme: string | undefined): string | null {
 	return `The quest orchestrating this one, ${by}, sets these for every quest below it, from its README's Context section, so its README need not be read for them:\n\n${context}`;
 }
 
-function readmeIn(questsRoot: string): ReadmeReader {
+/** A reader of each quest's README under a quests root. */
+export function readmeIn(questsRoot: string): ReadmeReader {
 	return (quest) => {
 		try {
 			return readFileSync(join(questsRoot, quest, "README.md"), "utf8");
