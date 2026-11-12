@@ -224,6 +224,12 @@ one, with `--session-id` and the quest to load, under spawnHost
 `background`. It ends cleanly before drawing anything, the background
 host lists a conversation in its folder that was told those words and
 answered, and the words are recorded as taken by that conversation.
+The same file holds E15, the launcher's headless decider,
+`scripts/spawn-decide.ts`, run in the spawn's folder and environment:
+with no host up it exits 3 saying why and leaves the words waiting;
+once the background host is up it prints `opening` and `hosted` with
+the session the host opened, exits 0, and that session is told the
+words and answers.
 
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.

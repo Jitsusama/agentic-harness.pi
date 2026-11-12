@@ -254,6 +254,18 @@ shipped and tested.
   away, the pi stays in its window, says why, and starts as usual;
   each one leaves a line in `launched-spawns.log` in the extension's
   state folder.
+- **Decide before any window opens**: to take out that blink, the
+  launcher first runs `scripts/spawn-decide.ts --session-id ID
+  [--model M]` headless, in the spawn's folder and environment. It
+  loads no pi, and prints only on stdout. It prints `opening <host>`
+  once the open is sent, from when the launcher waits for its answer
+  rather than open a window that would start a second session. It
+  exits 0 with `hosted <host> <session>`, and nothing opens; or 3 with
+  why it stays, empty when `spawnHost` is off or it isn't a spawn, and
+  the launcher opens the window with `QUEST_WORKFLOW_SPAWN_STAYED` set
+  to that, which its pi says once up rather than decide again. Any
+  other exit, or none within 3 s before `opening`, opens the window as
+  before, whose pi decides itself. Its log lines end `(headless, N ms)`.
 - **Resume in a host**: `/quest-resume <id>` switches pi to a
   session attached to the loaded quest. A hosted conversation can't
   switch its log, which its host owns, so there it asks the realm's
