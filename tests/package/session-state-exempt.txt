@@ -88,6 +88,7 @@ lib/internal/stray/guard.ts:global 1 Guards the process's own console, which eve
 lib/internal/tree-git.ts:cwd 1 Checks the folder git itself runs in when a call names none, which is the process's own; the work and review tools name theirs with -C (85PKB2, 2026-11-11).
 lib/internal/write-whole.ts:pid 1 Names a whole write's temporary file by pid and random bytes, so two conversations in a host never share one (2QZBX9 with 85PKB2, 2026-11-10).
 lib/slack/auth/browser-extract.ts:pid 1 Re-raises a terminating signal at the process after cleaning up the browser it started (2QZBX9 with 85PKB2, 2026-11-10).
+lib/subagent/child-env.ts:global 1 Keeps what the process pins for every subagent it starts, the host's gateway key, which is one per process and pinned by the engine from outside any conversation (5KBYD7, 2026-11-12).
 lib/subagent/fleet.ts:pid 2 Names a fleet's owner, which is the host's owner when hosted and this pi otherwise, and a staging file that random bytes keep apart from another conversation's copy of the module (2QZBX9 with 85PKB2, 2026-11-10).
 lib/subagent/install.ts:global 1 Keeps the pi install the process started from, so every reload and every conversation spawns subagents from the install the process runs (2QZBX9 with 85PKB2, 2026-11-10).
 lib/subagent/runpi/supervisor.mjs:pid 6 The supervisor is a process of its own, one per run, naming its own start and files (2QZBX9 with 85PKB2, 2026-11-10).

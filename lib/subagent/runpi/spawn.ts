@@ -14,6 +14,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
+import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { RunPi, RunPiResult } from "../subagent.ts";
 
@@ -81,6 +82,9 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 				`idleTimeoutMs (${idleTimeoutMs}ms) ignored: the spawn-backed RunPi is wall-clock only. Only timeoutMs (${timeoutMs}ms) applies.`,
 			);
 		}
+		const pinned = await pinnedChildEnvironment();
+		const extra =
+			config.piInstall.packageDir || given || Object.keys(pinned).length > 0;
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const child = spawnFn(
 				config.piInstall.node,
@@ -96,15 +100,17 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 					// upgrade deletes, so override it with the immutable
 					// store path captured at startup. Left untouched when
 					// the parent had no PI_PACKAGE_DIR (self-locating
-					// installs need no override). The caller's own variables
-					// go on top.
-					...(config.piInstall.packageDir || given
+					// installs need no override). What the process pinned for
+					// its children, such as a host's gateway key, goes over
+					// that, and the caller's own variables on top.
+					...(extra
 						? {
 								env: {
 									...process.env,
 									...(config.piInstall.packageDir
 										? { PI_PACKAGE_DIR: config.piInstall.packageDir }
 										: {}),
+									...pinned,
 									...given,
 								},
 							}

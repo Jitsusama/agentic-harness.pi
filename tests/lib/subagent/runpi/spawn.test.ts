@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+	pinChildEnvironment,
+	unpinChildEnvironment,
+} from "../../../../lib/subagent/child-env.ts";
 import { createSpawnRunPi } from "../../../../lib/subagent/runpi/spawn.ts";
 
 /**
@@ -165,6 +169,39 @@ describe("createSpawnRunPi", () => {
 		expect(captured?.PI_PACKAGE_DIR).toBe(
 			"/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
 		);
+	});
+
+	it("gives the child what the process pinned, under the run's own variables", async () => {
+		// A host holds no gateway key in its own environment, so it pins
+		// one for its children; the run's own variables still win.
+		const fake = makeFakeChild();
+		let captured: NodeJS.ProcessEnv | undefined;
+		const runPi = createSpawnRunPi({
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
+			spawn: (_command, _args, opts) => {
+				captured = opts.env;
+				queueMicrotask(() => {
+					fake.stdout.end("");
+					fake.stderr.end("");
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		pinChildEnvironment(async () => ({
+			SHOPIFY_PROXY_KEY: "host-key",
+			PI_SANDBOX: "pinned",
+		}));
+		try {
+			await runPi({ args: [], cwd: "/tmp", env: { PI_SANDBOX: "strict" } });
+		} finally {
+			unpinChildEnvironment();
+		}
+		expect(captured?.SHOPIFY_PROXY_KEY).toBe("host-key");
+		expect(captured?.PI_SANDBOX).toBe("strict");
 	});
 
 	it("leaves the child env untouched when no package dir was captured", async () => {

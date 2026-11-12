@@ -78,6 +78,7 @@ import { loaderOptions } from "./resources.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
+	pinSubagentKey,
 } from "./subagent-install.ts";
 import {
 	conversationMarker,
@@ -140,6 +141,7 @@ export async function createEngine(
 	const pi = await loadHostPi(options.packageDir);
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
+	if (options.key) pinSubagentKey(options.key, KEY_VARIABLES);
 	const sessions = piSessions(pi.modules);
 	const builtIns = piBuiltInExtensions(pi.modules);
 	const trust = projectTrust(pi.modules);

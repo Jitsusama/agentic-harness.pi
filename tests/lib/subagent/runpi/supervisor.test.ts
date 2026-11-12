@@ -14,6 +14,10 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
+import {
+	pinChildEnvironment,
+	unpinChildEnvironment,
+} from "../../../../lib/subagent/child-env.ts";
 import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
 // biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
@@ -506,6 +510,37 @@ describe("createSupervisorRunPi", () => {
 			const path = join(stateDir, name);
 			if (!(await stat(path)).isFile()) continue;
 			expect(await readFile(path, "utf8")).not.toContain("PI_SANDBOX");
+		}
+	});
+
+	it("gives the child what the process pinned, under the run's own variables", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:process.env.SHOPIFY_PROXY_KEY+" "+process.env.PI_SANDBOX}]}})+"\\n");`,
+		);
+		pinChildEnvironment(async () => ({
+			SHOPIFY_PROXY_KEY: "host-key",
+			PI_SANDBOX: "pinned",
+		}));
+		try {
+			const result = await createSupervisorRunPi({
+				piInstall: { node: process.execPath, entry: childPath },
+				stateDir,
+				idleTimeoutMs: GENEROUS_MS,
+				timeoutMs: GENEROUS_MS,
+			})({
+				args: [],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: "keyed",
+				env: { PI_SANDBOX: "strict" },
+			});
+			expectRan(result);
+			expect(result.finalAssistantText).toBe("host-key strict");
+		} finally {
+			unpinChildEnvironment();
 		}
 	});
 
