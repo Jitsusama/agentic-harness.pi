@@ -37,9 +37,10 @@ rounds, CI checks being watched, away mode's nudges and
 running after a minute into a job of kind `shell`.
 [codemode-workflow](../codemode-workflow/) moves a codemode script the
 same way into a job of kind `codemode`, `review_ask` moves a round it
-waits on, a council or a judge, into one of kind `review`, and a fleet
-waited on moves into one of kind `subagent`. All four share the wait
-in `lib/jobs/hand-off.ts`.
+waits on, a council or a judge, into one of kind `review`, a fleet
+waited on moves into one of kind `subagent`, and the work tool's push,
+rebase, resume, restack and sync into one of kind `work`. All five
+share the wait in `lib/jobs/hand-off.ts`.
 
 ## When a Result Is Said
 

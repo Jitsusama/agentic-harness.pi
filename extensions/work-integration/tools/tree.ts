@@ -26,7 +26,7 @@ import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-form
 import { runProseGate } from "../../../lib/core/internal/guardian/prose-gate.ts";
 import { citeListing } from "../../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
-import { sessionCwd } from "../../../lib/core/session/index.ts";
+import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { treeRequestFrom } from "../../../lib/core/work/ask.ts";
 import {
 	createGitAuthor,
@@ -78,6 +78,10 @@ import {
 import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
 import { repoRulesNote } from "../../../lib/internal/session/repo-rules.ts";
 import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
+import {
+	endsWithItsPrompts,
+	runOrHandOff,
+} from "../../../lib/jobs/hand-off.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
@@ -548,6 +552,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			"Always say what the tree is for. The purpose names it, which is how it is recognised later and how a second caller avoids cutting a duplicate.",
 			"Read status before repointing or discarding a tree. An untracked file is work, and overwriting one cannot be undone.",
 			"Never call git worktree yourself. A tree cut outside the broker is one nothing will clean up.",
+			"A push, rebase, resume, restack or sync still running after a minute moves to the background, its result arriving later as a message of its own; do not repeat it, or change that tree, until then.",
 		],
 		parameters: Type.Object({
 			// An enum rather than a union of literals: the same choices, said in
@@ -651,527 +656,35 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 		// falls to its default. That shipped: `work` answered the tree listing
 		// whatever action it was given.
 		execute: async (
-			_toolCallId,
+			toolCallId,
 			rawArgs,
 			signal,
 			_onUpdate,
 			ctx,
 		): Promise<Answer> => {
-			const args = rawArgs as {
-				action?:
-					| "tree"
-					| "snapshot"
-					| "trees"
-					| "release"
-					| "status"
-					| "tidy"
-					| "reclaim"
-					| "record"
-					| "branch"
-					| "push"
-					| "carry"
-					| "rebase"
-					| "resume"
-					| "abandon"
-					| "stack"
-					| "track"
-					| "untrack"
-					| "reparent"
-					| "reorder"
-					| "restack"
-					| "sync";
-				repo?: string;
-				checkout?: string;
-				remote?: string;
-				purpose?: string;
-				branch?: string;
-				commit?: string;
-				paths?: string[];
-				tree?: string;
-				subject?: string;
-				body?: string;
-				name?: string;
-				from?: string;
-				onto?: string;
-				replace?: boolean;
-				trunk?: string;
-				order?: string[];
-			};
+			const args = rawArgs as WorkArgs;
 			const action = args.action ?? "trees";
-			const broker = treeBroker();
-			// Built once per call and carrying the caller's signal, so pressing
-			// escape reaches the git child rather than only the promise waiting on
-			// it. Without it a blocked command outlives the request that started
-			// it, which is how a hung rebase became unstoppable. Unattended, so
-			// a credential or passphrase prompt fails rather than being drawn
-			// over pi's interface.
-			const exec = unattendedExec(signal);
-
-			try {
-				if (action === "trees") {
-					const held = broker.held();
-					if (held.length === 0) {
-						return say(
-							`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.`,
-							{ ok: true, held: 0 },
-						);
-					}
-					return say(
-						citeListing(openSessionStore(ctx), {
-							view: held
-								.map((one) => treeLine(one, broker.cutHere(one.path)))
-								.join("\n"),
-							records: [...held],
-							unit: "trees",
-							narrowing: "Query the stored result for the trees you need.",
-						}),
-						{ ok: true, held: held.length },
-					);
-				}
-
-				if (action === "tree" || action === "snapshot") {
-					if (!args.repo) {
-						return refuse(
-							`${GLYPH.refused} Name the repo to cut from, as a repo key like github:Shopify/world.`,
-						);
-					}
-					const outcome = treeRequestFrom({
-						intent: action === "tree" ? "worktree" : "snapshot",
-						repo: {
-							key: args.repo,
-							...(args.checkout ? { localPath: args.checkout } : {}),
-							...(args.remote ? { remoteUrl: args.remote } : {}),
-						},
-						purpose: args.purpose ?? "",
-						...(args.branch ? { branch: args.branch } : {}),
-						...(args.commit ? { commit: args.commit } : {}),
-						...(args.paths ? { paths: args.paths } : {}),
-					});
-					if ("refusal" in outcome) {
-						return refuse(`${GLYPH.refused} ${outcome.refusal}`);
-					}
-					const held = await broker.ensure(
-						outcome.request,
-						signal ? { signal } : {},
-					);
-					const glyph = action === "snapshot" ? GLYPH.snapshot : GLYPH.tree;
-					// A worktree is where a build happens, so a Rust one starts from a
-					// sibling's target/ rather than compiling every dependency again.
-					// A snapshot is read, not built, and is left as cut.
-					const warmedFrom =
-						action === "tree"
-							? await warmStart(
-									held.path,
-									candidatesFor(held.path, args.checkout),
-									machineSeams(exec),
-								)
-							: undefined;
-					const warmed = warmedFrom
-						? `\n   target/ cloned from ${displayPath(warmedFrom)}`
-						: "";
-					// pi read AGENTS.md only where this session started, so a tree
-					// in another repo comes with that repo's rules, once a repo.
-					const rules = repoRulesNote({
-						tree: held.path,
-						cwd: sessionCwd(ctx),
-						session: ctx.sessionManager?.getSessionId?.() ?? "",
-					});
-					// Named, as a branch's start is, so a tree cut from a stale base
-					// shows at once; a head that will not read is left out.
-					const head = await exec("git", [
-						"-C",
-						held.path,
-						"rev-parse",
-						"--short=12",
-						"HEAD",
-					]);
-					const at =
-						head.code === 0 && head.stdout.trim() !== ""
-							? ` · at ${head.stdout.trim()}`
-							: "";
-					return say(
-						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${at}${warmed}${rules ? `\n\n${rules}` : ""}`,
-						// The details keep the absolute path on purpose. A tilde is a
-						// courtesy for a reader, not something a caller can open, and
-						// this is the value another call gets fed.
-						{ ok: true, path: held.path, key: held.identity.key },
-					);
-				}
-
-				// tidy and reclaim survey a repository rather than operate on a
-				// tree, and the checkout a person naturally asks from is the main
-				// one, which the broker never holds. Routing them past the
-				// held-tree gate is what lets the question be asked where it
-				// actually comes up. The verbs below this stay gated: they
-				// commit, push and replay.
-				if (action === "tidy" || action === "reclaim") {
-					const target = surveyTarget({
-						...(args.tree ? { tree: args.tree } : {}),
-						held: broker
-							.held()
-							.map((one) => ({ key: one.identity.key, path: one.path })),
-						// Where the person asking stands, which is the conversation's
-						// folder: on a host the process's is the host's, shared by
-						// every conversation it runs.
-						cwd: sessionCwd(ctx),
-						gitRootOf: gitTreeRootOf,
-					});
-					if (!target.ok) {
-						return refuse(`${GLYPH.refused} ${target.refusal}`);
-					}
-					return await surveyRepo(
-						pi,
-						exec,
-						target,
-						action,
-						args.trunk ?? "main",
-						ctx,
-						signal,
-					);
-				}
-
-				const held = broker.held();
-				// A session holding one tree should not have to name it fifteen times.
-				// Several stay a question rather than resolving by recency, which is
-				// where this parts company with the change version: these actions
-				// commit, push and replay, and nothing here states which tree you
-				// meant the way attaching a change does.
-				const inPlay = treeInPlay(
-					args.tree,
-					held.map((h) => h.identity.key),
-				);
-				if ("candidates" in inPlay) {
-					return refuse(`${GLYPH.refused} ${chooseTree(inPlay.candidates)}`);
-				}
-				const found =
-					heldByName(held, inPlay.key) ?? claimedTree(pi, inPlay.key);
-				if (!found) {
-					// Naming what is held turns a typo into a correction
-					// rather than a second guess.
-					const names = heldNames(
-						held.map((h) => ({ key: h.identity.key })),
-						inPlay.key,
-					);
-					return refuse(
-						`${GLYPH.refused} No held tree called ${inPlay.key}: ${names}.`,
-					);
-				}
-
-				const history = createGitHistory({ exec });
-
-				if (action === "record") {
-					if (!args.subject) {
-						return refuse(
-							`${GLYPH.refused} Say what the commit is for, as a subject. Conventional form: type(scope): subject.`,
-						);
-					}
-					// The same prose gate a commit typed into a shell meets. That one is
-					// reached by intercepting the command, and this path never runs a
-					// command: it commits through the exec seam directly, so it arrived
-					// behind the guardian rather than in front of it. A convention
-					// enforced on one road into the same repository and not the other is
-					// not enforced, it is just inconvenient in one place.
-					//
-					// Only the gate is shared, not the review panel. Approving a message
-					// is what a human does to a command they did not write; here the
-					// subject and body are arguments in a tool call they can already see.
-					//
-					// The body is wrapped to 72 before either gate reads it, so a line
-					// that is merely too wide is fixed rather than refused.
-					const message = recordMessage(args.subject, args.body);
-					const proposed = message.proposed;
-					// A guardian result may also ask for a rewrite, which is a shell
-					// concept: there is no command here to substitute. Narrowed by asking
-					// what the value has rather than asserting what it is, so a third arm
-					// added later is a type error here instead of a silent skip.
-					const objection = runProseGate(sessionGateDeps(ctx, pi), proposed);
-					if (objection !== undefined && "block" in objection) {
-						return refuse(`${GLYPH.refused} ${objection.reason}`);
-					}
-
-					// The shape rules the guardian holds a shell commit to. It
-					// shows them as warnings beside a panel and lets the person
-					// decide, which works because somebody is looking. Nobody is
-					// looking here, so the same rules have to refuse: a warning
-					// returned after the commit has landed is a note about
-					// history, and rewriting history is the expensive way to fix
-					// a subject nobody had to accept in the first place.
-					const shape = complaintsAbout(proposed);
-					if (shape.length > 0) {
-						return refuse(
-							`${GLYPH.refused} That message does not meet the commit format: ${shape.join("; ")}.`,
-						);
-					}
-
-					const author = createGitAuthor({ exec });
-					const before = await history.status(found.path);
-					if (before.changed.length === 0) {
-						// Committing nothing succeeds at the git level and
-						// leaves the caller believing work was recorded.
-						return refuse(
-							`${GLYPH.clean} Nothing to record in ${found.identity.key}: the tree is clean.`,
-						);
-					}
-					const paths =
-						args.paths && args.paths.length > 0 ? args.paths : undefined;
-					// Only a sweep is checked: naming paths says what is meant.
-					const swept = paths ? undefined : sweepObjection(before.changed);
-					if (swept !== undefined) {
-						return refuse(`${GLYPH.refused} ${swept}`);
-					}
-					await author.stage(found.path, paths);
-					await author.commit(found.path, {
-						subject: args.subject,
-						...(message.body ? { body: message.body } : {}),
-					});
-					const head = await history.head(found.path);
-					// What the commit holds, not what was changed before it: with paths
-					// named, the rest stays uncommitted and was counted as recorded.
-					const recorded = paths
-						? before.changed.length -
-							(await history.status(found.path)).changed.length
-						: before.changed.length;
-					const rewrapped = message.wrapped
-						? " The body ran past 72 columns, so it was wrapped to fit."
-						: "";
-					return say(
-						`${GLYPH.clean} Recorded ${count(recorded, "path")} in ${found.identity.key} at ${head.commit.slice(0, 12)}.${rewrapped}`,
-						{
-							ok: true,
-							commit: head.commit,
-							recorded,
-						},
-					);
-				}
-
-				if (action === "branch") {
-					if (!args.name) {
-						return refuse(`${GLYPH.refused} Name the branch to make.`);
-					}
-					const author = createGitAuthor({ exec });
-					// A remote's branch is wanted as the remote holds it, not as the
-					// last fetch left it; on a shorter clock than the call's, since
-					// the branch can still be made from what is here. New work takes
-					// a start a fetch moved lately as it stands (fresh-start.ts).
-					const fresh = args.from
-						? await refreshStart(
-								spawnExec({
-									...(signal ? { signal } : {}),
-									timeoutMs: FETCH_MS,
-								}),
-								found.path,
-								args.from,
-								signal,
-								{ fetchedWithin: FETCHED_LATELY_MS },
-							)
-						: undefined;
-					const stale = fresh?.stale;
-					const lately = fresh?.lately;
-					try {
-						await author.branch(
-							found.path,
-							args.name,
-							fresh ? { from: fresh.start } : undefined,
-						);
-					} catch (error) {
-						// A start point never fetched before has nothing to fall back
-						// on, and git's "not a commit" alone hides that the fetch is
-						// what went wrong.
-						if (!stale) throw error;
-						throw new Error(
-							`${error instanceof Error ? error.message : String(error)}\n${stale}`,
-						);
-					}
-					// Named, so a branch cut from the wrong base shows at once
-					// rather than after the work on it is built. A head that cannot
-					// be read now is left out rather than reported as a failure,
-					// since the branch exists and a retry would be refused for it.
-					const commit = await history
-						.head(found.path)
-						.then((head) => head.commit)
-						.catch(() => undefined);
-					const where = `${commit ? `, at ${commit.slice(0, 12)}` : ""}${args.from ? ` from ${args.from}` : ""}`;
-					// Said after the branch exists, because the name is workable
-					// and the convention is a preference rather than a rule git
-					// enforces. Refusing here would make a repo with its own
-					// habits unusable through the tool.
-					const naming = namingComplaints(args.name);
-					return say(
-						[
-							`${GLYPH.tree} ${found.identity.key} is on ${args.name}${where}.`,
-							...(stale ? [`   ${stale}`] : []),
-							...(lately ? [`   ${lately}`] : []),
-							...(naming.length === 0
-								? []
-								: [`   Against the convention: ${naming.join("; ")}.`]),
-						].join("\n"),
-						{
-							ok: true,
-							branch: args.name,
-							...(commit ? { commit } : {}),
-							...(args.from
-								? { fresh: stale === undefined && lately === undefined }
-								: {}),
-						},
-					);
-				}
-
-				if (action === "carry") {
-					return await carryHome(exec, found, ctx.sessionManager);
-				}
-
-				if (action === "push") {
-					// Ask before publishing, because the reason not to is often a
-					// fact this layer cannot see. On a backend with a merge queue,
-					// pushing to an enqueued branch ejects it and everything batched
-					// with it, and that is knowledge the hosting layer holds.
-					const head = await history.head(found.path);
-					let cautions: readonly string[] = [];
-					if (head.branch !== undefined) {
-						const objected = await objectionsTo(pi, {
-							repoKey: found.identity.key,
-							branch: head.branch,
-							treePath: found.path,
-							replacing: args.replace === true,
-						});
-						const blocked = refusalFrom(objected);
-						if (blocked !== undefined) {
-							return refuse(`${GLYPH.refused} ${blocked}`);
-						}
-						// Kept for after the push. A caution decorates what
-						// happened rather than becoming what happened.
-						cautions = cautionsFrom(objected);
-					}
-					const publisher = createGitPublisher({ exec });
-					const outcome = await publisher.push(
-						found.path,
-						args.replace ? { replace: true } : undefined,
-					);
-					if (outcome.kind === "refused") {
-						return refuse(`${GLYPH.refused} ${outcome.reason}`);
-					}
-					if (outcome.kind === "already-there") {
-						// Said rather than dressed as a push, because "published"
-						// about a no-op is how somebody concludes their commit went
-						// up when it did not.
-						return say(
-							`${GLYPH.clean} ${outcome.remote}/${outcome.branch} already has this. Nothing to publish.`,
-							{ ok: true, branch: outcome.branch, published: false },
-						);
-					}
-					const notes = [
-						outcome.tracked ? "tracking it from now on" : undefined,
-						outcome.replaced ? "replacing what was there" : undefined,
-					].filter((note) => note !== undefined);
-					return say(
-						[
-							`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
-							...cautions.map((caution) => `   ${GLYPH.dirty} ${caution}`),
-						].join("\n"),
-						{
-							ok: true,
-							branch: outcome.branch,
-							published: true,
-							...(cautions.length > 0 ? { cautions } : {}),
-						},
-					);
-				}
-
-				if (
-					action === "rebase" ||
-					action === "resume" ||
-					action === "abandon"
-				) {
-					return await replay(exec, found, action, args.onto, signal);
-				}
-
-				if (
-					action === "stack" ||
-					action === "track" ||
-					action === "untrack" ||
-					action === "reparent" ||
-					action === "reorder" ||
-					action === "restack" ||
-					action === "sync"
-				) {
-					// Already built above with the caller's signal on it.
-					const stacks = createGitStacks({
-						exec,
-						rebaser: createGitRebaser({ exec }),
-					});
-					// Which branch is checked out is what marks "you are here" in a
-					// listing, and a stack you cannot locate yourself in is a
-					// diagram rather than a tool.
-					const head = await history.head(found.path);
-					return await runStackAction(pi, stacks, found, action, {
-						...(args.name === undefined ? {} : { name: args.name }),
-						...(args.onto === undefined ? {} : { onto: args.onto }),
-						...(args.order === undefined ? {} : { order: args.order }),
-						...(args.trunk === undefined ? {} : { trunk: args.trunk }),
-						...(head.branch === undefined ? {} : { on: head.branch }),
-					});
-				}
-
-				if (action === "status") {
-					const state = await history.status(found.path);
-					const head = await history.head(found.path);
-					const at = head.branch
-						? `on ${head.branch}`
-						: `detached at ${head.commit.slice(0, 12)}`;
-					if (state.changed.length === 0) {
-						return say(
-							`${GLYPH.clean} ${found.identity.key} is clean, ${at}.`,
-							{ ok: true, clean: true },
-						);
-					}
-					const lines = state.changed.map((c) => `   ${c.kind} ${c.path}`);
-					return say(
-						citeListing(openSessionStore(ctx), {
-							view: `${GLYPH.dirty} ${found.identity.key} has ${state.changed.length} changed paths, ${at}.\n${lines.join("\n")}`,
-							records: [...state.changed],
-							unit: "paths",
-							narrowing: "Query the stored result for the paths you need.",
-						}),
-						{ ok: true, clean: false, changed: state.changed.length },
-					);
-				}
-
-				// A tree a quest holds goes back through the quest, which
-				// keeps its record and knows what pruning it means.
-				if (found.providerId === CLAIMED_PROVIDER) {
-					return refuse(
-						`${GLYPH.refused} ${found.path} is held by a quest, not by this tool. Give it back with quest tree-release, passing it as cwd.`,
-					);
-				}
-
-				// Release. The work inside is the caller's, and losing it
-				// is not recoverable, so the same sentence that guards a
-				// repoint guards this.
-				const state = await history.status(found.path);
-				const blocked = blocksRepoint(state);
-				if (blocked) {
-					return refuse(`${GLYPH.refused} ${blocked}`);
-				}
-				const gone = await broker.release(found, signal ? { signal } : {});
-				if (gone.kind === "no-provider") {
-					// Said as a refusal because nothing happened. This used to
-					// report success, leaving a tree on disk, tracked by git, with
-					// its record dropped and nothing able to name it again.
-					const who =
-						gone.registered.length === 0
-							? "none are registered"
-							: gone.registered.join(", ");
-					return refuse(
-						`${GLYPH.refused} ${found.identity.key} was cut by ${gone.wanted}, which is not registered here, so nothing can remove it. Registered: ${who}. The tree is still at ${displayPath(gone.path)} and still listed, so this can be retried once that provider loads.`,
-					);
-				}
-				return say(`${GLYPH.named} Released ${found.identity.key}.`, {
-					ok: true,
-					released: found.identity.key,
-				});
-			} catch (error) {
-				return refuse(`${GLYPH.refused} ${messageOf(error)}`);
+			if (!WAITS_ON_GIT.has(action)) {
+				return await answerWork(pi, args, signal, ctx);
 			}
+			// Git and the network can take minutes here, and while a call runs
+			// it holds the turn, deaf to the person and the mesh, so one still
+			// going after a minute moves to a job, as a long command does.
+			return await runOrHandOff<unknown>({
+				kind: "work",
+				label: `${action} in ${args.tree ?? "the held tree"}`,
+				noun: "background work",
+				filePrefix: "pi-work",
+				stopping: (jobId) =>
+					`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which stops git where it is; a replay stopped part-way is resumed or abandoned with work. The person can stop it with /jobs.`,
+				toolCallId,
+				session: sessionKeyOf(ctx),
+				nested: endsWithItsPrompts(ctx.mode),
+				signal,
+				onUpdate: undefined,
+				bus: pi.events,
+				run: (owned) => answerWork(pi, args, owned, ctx),
+			});
 		},
 		renderCall(args, theme, context) {
 			return renderInvocation(args, theme, context?.lastComponent);
@@ -1180,6 +693,540 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			return renderAnswer(result, theme, context?.lastComponent);
 		},
 	});
+}
+
+/** What `work` was asked, as pi hands it over. */
+interface WorkArgs {
+	action?:
+		| "tree"
+		| "snapshot"
+		| "trees"
+		| "release"
+		| "status"
+		| "tidy"
+		| "reclaim"
+		| "record"
+		| "branch"
+		| "push"
+		| "carry"
+		| "rebase"
+		| "resume"
+		| "abandon"
+		| "stack"
+		| "track"
+		| "untrack"
+		| "reparent"
+		| "reorder"
+		| "restack"
+		| "sync";
+	repo?: string;
+	checkout?: string;
+	remote?: string;
+	purpose?: string;
+	branch?: string;
+	commit?: string;
+	paths?: string[];
+	tree?: string;
+	subject?: string;
+	body?: string;
+	name?: string;
+	from?: string;
+	onto?: string;
+	replace?: boolean;
+	trunk?: string;
+	order?: string[];
+}
+
+/**
+ * The actions that wait on git and the network, which a call hands off
+ * once it has run a minute. A record is left out, since its gate can wait
+ * on the person, and a panel left open behind a job answers nobody.
+ */
+const WAITS_ON_GIT: ReadonlySet<string> = new Set([
+	"push",
+	"rebase",
+	"resume",
+	"restack",
+	"sync",
+]);
+
+/** Answer one call of `work`, under the signal that may stop it. */
+async function answerWork(
+	pi: ExtensionAPI,
+	args: WorkArgs,
+	signal: AbortSignal | undefined,
+	ctx: ExtensionContext,
+): Promise<Answer> {
+	const action = args.action ?? "trees";
+	const broker = treeBroker();
+	// Built once per call and carrying the caller's signal, so pressing
+	// escape reaches the git child rather than only the promise waiting on
+	// it. Without it a blocked command outlives the request that started
+	// it, which is how a hung rebase became unstoppable. Unattended, so
+	// a credential or passphrase prompt fails rather than being drawn
+	// over pi's interface.
+	const exec = unattendedExec(signal);
+
+	try {
+		if (action === "trees") {
+			const held = broker.held();
+			if (held.length === 0) {
+				return say(
+					`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.`,
+					{ ok: true, held: 0 },
+				);
+			}
+			return say(
+				citeListing(openSessionStore(ctx), {
+					view: held
+						.map((one) => treeLine(one, broker.cutHere(one.path)))
+						.join("\n"),
+					records: [...held],
+					unit: "trees",
+					narrowing: "Query the stored result for the trees you need.",
+				}),
+				{ ok: true, held: held.length },
+			);
+		}
+
+		if (action === "tree" || action === "snapshot") {
+			if (!args.repo) {
+				return refuse(
+					`${GLYPH.refused} Name the repo to cut from, as a repo key like github:Shopify/world.`,
+				);
+			}
+			const outcome = treeRequestFrom({
+				intent: action === "tree" ? "worktree" : "snapshot",
+				repo: {
+					key: args.repo,
+					...(args.checkout ? { localPath: args.checkout } : {}),
+					...(args.remote ? { remoteUrl: args.remote } : {}),
+				},
+				purpose: args.purpose ?? "",
+				...(args.branch ? { branch: args.branch } : {}),
+				...(args.commit ? { commit: args.commit } : {}),
+				...(args.paths ? { paths: args.paths } : {}),
+			});
+			if ("refusal" in outcome) {
+				return refuse(`${GLYPH.refused} ${outcome.refusal}`);
+			}
+			const held = await broker.ensure(
+				outcome.request,
+				signal ? { signal } : {},
+			);
+			const glyph = action === "snapshot" ? GLYPH.snapshot : GLYPH.tree;
+			// A worktree is where a build happens, so a Rust one starts from a
+			// sibling's target/ rather than compiling every dependency again.
+			// A snapshot is read, not built, and is left as cut.
+			const warmedFrom =
+				action === "tree"
+					? await warmStart(
+							held.path,
+							candidatesFor(held.path, args.checkout),
+							machineSeams(exec),
+						)
+					: undefined;
+			const warmed = warmedFrom
+				? `\n   target/ cloned from ${displayPath(warmedFrom)}`
+				: "";
+			// pi read AGENTS.md only where this session started, so a tree
+			// in another repo comes with that repo's rules, once a repo.
+			const rules = repoRulesNote({
+				tree: held.path,
+				cwd: sessionCwd(ctx),
+				session: ctx.sessionManager?.getSessionId?.() ?? "",
+			});
+			// Named, as a branch's start is, so a tree cut from a stale base
+			// shows at once; a head that will not read is left out.
+			const head = await exec("git", [
+				"-C",
+				held.path,
+				"rev-parse",
+				"--short=12",
+				"HEAD",
+			]);
+			const at =
+				head.code === 0 && head.stdout.trim() !== ""
+					? ` · at ${head.stdout.trim()}`
+					: "";
+			return say(
+				`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${at}${warmed}${rules ? `\n\n${rules}` : ""}`,
+				// The details keep the absolute path on purpose. A tilde is a
+				// courtesy for a reader, not something a caller can open, and
+				// this is the value another call gets fed.
+				{ ok: true, path: held.path, key: held.identity.key },
+			);
+		}
+
+		// tidy and reclaim survey a repository rather than operate on a
+		// tree, and the checkout a person naturally asks from is the main
+		// one, which the broker never holds. Routing them past the
+		// held-tree gate is what lets the question be asked where it
+		// actually comes up. The verbs below this stay gated: they
+		// commit, push and replay.
+		if (action === "tidy" || action === "reclaim") {
+			const target = surveyTarget({
+				...(args.tree ? { tree: args.tree } : {}),
+				held: broker
+					.held()
+					.map((one) => ({ key: one.identity.key, path: one.path })),
+				// Where the person asking stands, which is the conversation's
+				// folder: on a host the process's is the host's, shared by
+				// every conversation it runs.
+				cwd: sessionCwd(ctx),
+				gitRootOf: gitTreeRootOf,
+			});
+			if (!target.ok) {
+				return refuse(`${GLYPH.refused} ${target.refusal}`);
+			}
+			return await surveyRepo(
+				pi,
+				exec,
+				target,
+				action,
+				args.trunk ?? "main",
+				ctx,
+				signal,
+			);
+		}
+
+		const held = broker.held();
+		// A session holding one tree should not have to name it fifteen times.
+		// Several stay a question rather than resolving by recency, which is
+		// where this parts company with the change version: these actions
+		// commit, push and replay, and nothing here states which tree you
+		// meant the way attaching a change does.
+		const inPlay = treeInPlay(
+			args.tree,
+			held.map((h) => h.identity.key),
+		);
+		if ("candidates" in inPlay) {
+			return refuse(`${GLYPH.refused} ${chooseTree(inPlay.candidates)}`);
+		}
+		const found = heldByName(held, inPlay.key) ?? claimedTree(pi, inPlay.key);
+		if (!found) {
+			// Naming what is held turns a typo into a correction
+			// rather than a second guess.
+			const names = heldNames(
+				held.map((h) => ({ key: h.identity.key })),
+				inPlay.key,
+			);
+			return refuse(
+				`${GLYPH.refused} No held tree called ${inPlay.key}: ${names}.`,
+			);
+		}
+
+		const history = createGitHistory({ exec });
+
+		if (action === "record") {
+			if (!args.subject) {
+				return refuse(
+					`${GLYPH.refused} Say what the commit is for, as a subject. Conventional form: type(scope): subject.`,
+				);
+			}
+			// The same prose gate a commit typed into a shell meets. That one is
+			// reached by intercepting the command, and this path never runs a
+			// command: it commits through the exec seam directly, so it arrived
+			// behind the guardian rather than in front of it. A convention
+			// enforced on one road into the same repository and not the other is
+			// not enforced, it is just inconvenient in one place.
+			//
+			// Only the gate is shared, not the review panel. Approving a message
+			// is what a human does to a command they did not write; here the
+			// subject and body are arguments in a tool call they can already see.
+			//
+			// The body is wrapped to 72 before either gate reads it, so a line
+			// that is merely too wide is fixed rather than refused.
+			const message = recordMessage(args.subject, args.body);
+			const proposed = message.proposed;
+			// A guardian result may also ask for a rewrite, which is a shell
+			// concept: there is no command here to substitute. Narrowed by asking
+			// what the value has rather than asserting what it is, so a third arm
+			// added later is a type error here instead of a silent skip.
+			const objection = runProseGate(sessionGateDeps(ctx, pi), proposed);
+			if (objection !== undefined && "block" in objection) {
+				return refuse(`${GLYPH.refused} ${objection.reason}`);
+			}
+
+			// The shape rules the guardian holds a shell commit to. It
+			// shows them as warnings beside a panel and lets the person
+			// decide, which works because somebody is looking. Nobody is
+			// looking here, so the same rules have to refuse: a warning
+			// returned after the commit has landed is a note about
+			// history, and rewriting history is the expensive way to fix
+			// a subject nobody had to accept in the first place.
+			const shape = complaintsAbout(proposed);
+			if (shape.length > 0) {
+				return refuse(
+					`${GLYPH.refused} That message does not meet the commit format: ${shape.join("; ")}.`,
+				);
+			}
+
+			const author = createGitAuthor({ exec });
+			const before = await history.status(found.path);
+			if (before.changed.length === 0) {
+				// Committing nothing succeeds at the git level and
+				// leaves the caller believing work was recorded.
+				return refuse(
+					`${GLYPH.clean} Nothing to record in ${found.identity.key}: the tree is clean.`,
+				);
+			}
+			const paths =
+				args.paths && args.paths.length > 0 ? args.paths : undefined;
+			// Only a sweep is checked: naming paths says what is meant.
+			const swept = paths ? undefined : sweepObjection(before.changed);
+			if (swept !== undefined) {
+				return refuse(`${GLYPH.refused} ${swept}`);
+			}
+			await author.stage(found.path, paths);
+			await author.commit(found.path, {
+				subject: args.subject,
+				...(message.body ? { body: message.body } : {}),
+			});
+			const head = await history.head(found.path);
+			// What the commit holds, not what was changed before it: with paths
+			// named, the rest stays uncommitted and was counted as recorded.
+			const recorded = paths
+				? before.changed.length -
+					(await history.status(found.path)).changed.length
+				: before.changed.length;
+			const rewrapped = message.wrapped
+				? " The body ran past 72 columns, so it was wrapped to fit."
+				: "";
+			return say(
+				`${GLYPH.clean} Recorded ${count(recorded, "path")} in ${found.identity.key} at ${head.commit.slice(0, 12)}.${rewrapped}`,
+				{
+					ok: true,
+					commit: head.commit,
+					recorded,
+				},
+			);
+		}
+
+		if (action === "branch") {
+			if (!args.name) {
+				return refuse(`${GLYPH.refused} Name the branch to make.`);
+			}
+			const author = createGitAuthor({ exec });
+			// A remote's branch is wanted as the remote holds it, not as the
+			// last fetch left it; on a shorter clock than the call's, since
+			// the branch can still be made from what is here. New work takes
+			// a start a fetch moved lately as it stands (fresh-start.ts).
+			const fresh = args.from
+				? await refreshStart(
+						spawnExec({
+							...(signal ? { signal } : {}),
+							timeoutMs: FETCH_MS,
+						}),
+						found.path,
+						args.from,
+						signal,
+						{ fetchedWithin: FETCHED_LATELY_MS },
+					)
+				: undefined;
+			const stale = fresh?.stale;
+			const lately = fresh?.lately;
+			try {
+				await author.branch(
+					found.path,
+					args.name,
+					fresh ? { from: fresh.start } : undefined,
+				);
+			} catch (error) {
+				// A start point never fetched before has nothing to fall back
+				// on, and git's "not a commit" alone hides that the fetch is
+				// what went wrong.
+				if (!stale) throw error;
+				throw new Error(
+					`${error instanceof Error ? error.message : String(error)}\n${stale}`,
+				);
+			}
+			// Named, so a branch cut from the wrong base shows at once
+			// rather than after the work on it is built. A head that cannot
+			// be read now is left out rather than reported as a failure,
+			// since the branch exists and a retry would be refused for it.
+			const commit = await history
+				.head(found.path)
+				.then((head) => head.commit)
+				.catch(() => undefined);
+			const where = `${commit ? `, at ${commit.slice(0, 12)}` : ""}${args.from ? ` from ${args.from}` : ""}`;
+			// Said after the branch exists, because the name is workable
+			// and the convention is a preference rather than a rule git
+			// enforces. Refusing here would make a repo with its own
+			// habits unusable through the tool.
+			const naming = namingComplaints(args.name);
+			return say(
+				[
+					`${GLYPH.tree} ${found.identity.key} is on ${args.name}${where}.`,
+					...(stale ? [`   ${stale}`] : []),
+					...(lately ? [`   ${lately}`] : []),
+					...(naming.length === 0
+						? []
+						: [`   Against the convention: ${naming.join("; ")}.`]),
+				].join("\n"),
+				{
+					ok: true,
+					branch: args.name,
+					...(commit ? { commit } : {}),
+					...(args.from
+						? { fresh: stale === undefined && lately === undefined }
+						: {}),
+				},
+			);
+		}
+
+		if (action === "carry") {
+			return await carryHome(exec, found, ctx.sessionManager);
+		}
+
+		if (action === "push") {
+			// Ask before publishing, because the reason not to is often a
+			// fact this layer cannot see. On a backend with a merge queue,
+			// pushing to an enqueued branch ejects it and everything batched
+			// with it, and that is knowledge the hosting layer holds.
+			const head = await history.head(found.path);
+			let cautions: readonly string[] = [];
+			if (head.branch !== undefined) {
+				const objected = await objectionsTo(pi, {
+					repoKey: found.identity.key,
+					branch: head.branch,
+					treePath: found.path,
+					replacing: args.replace === true,
+				});
+				const blocked = refusalFrom(objected);
+				if (blocked !== undefined) {
+					return refuse(`${GLYPH.refused} ${blocked}`);
+				}
+				// Kept for after the push. A caution decorates what
+				// happened rather than becoming what happened.
+				cautions = cautionsFrom(objected);
+			}
+			const publisher = createGitPublisher({ exec });
+			const outcome = await publisher.push(
+				found.path,
+				args.replace ? { replace: true } : undefined,
+			);
+			if (outcome.kind === "refused") {
+				return refuse(`${GLYPH.refused} ${outcome.reason}`);
+			}
+			if (outcome.kind === "already-there") {
+				// Said rather than dressed as a push, because "published"
+				// about a no-op is how somebody concludes their commit went
+				// up when it did not.
+				return say(
+					`${GLYPH.clean} ${outcome.remote}/${outcome.branch} already has this. Nothing to publish.`,
+					{ ok: true, branch: outcome.branch, published: false },
+				);
+			}
+			const notes = [
+				outcome.tracked ? "tracking it from now on" : undefined,
+				outcome.replaced ? "replacing what was there" : undefined,
+			].filter((note) => note !== undefined);
+			return say(
+				[
+					`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
+					...cautions.map((caution) => `   ${GLYPH.dirty} ${caution}`),
+				].join("\n"),
+				{
+					ok: true,
+					branch: outcome.branch,
+					published: true,
+					...(cautions.length > 0 ? { cautions } : {}),
+				},
+			);
+		}
+
+		if (action === "rebase" || action === "resume" || action === "abandon") {
+			return await replay(exec, found, action, args.onto, signal);
+		}
+
+		if (
+			action === "stack" ||
+			action === "track" ||
+			action === "untrack" ||
+			action === "reparent" ||
+			action === "reorder" ||
+			action === "restack" ||
+			action === "sync"
+		) {
+			// Already built above with the caller's signal on it.
+			const stacks = createGitStacks({
+				exec,
+				rebaser: createGitRebaser({ exec }),
+			});
+			// Which branch is checked out is what marks "you are here" in a
+			// listing, and a stack you cannot locate yourself in is a
+			// diagram rather than a tool.
+			const head = await history.head(found.path);
+			return await runStackAction(pi, stacks, found, action, {
+				...(args.name === undefined ? {} : { name: args.name }),
+				...(args.onto === undefined ? {} : { onto: args.onto }),
+				...(args.order === undefined ? {} : { order: args.order }),
+				...(args.trunk === undefined ? {} : { trunk: args.trunk }),
+				...(head.branch === undefined ? {} : { on: head.branch }),
+			});
+		}
+
+		if (action === "status") {
+			const state = await history.status(found.path);
+			const head = await history.head(found.path);
+			const at = head.branch
+				? `on ${head.branch}`
+				: `detached at ${head.commit.slice(0, 12)}`;
+			if (state.changed.length === 0) {
+				return say(`${GLYPH.clean} ${found.identity.key} is clean, ${at}.`, {
+					ok: true,
+					clean: true,
+				});
+			}
+			const lines = state.changed.map((c) => `   ${c.kind} ${c.path}`);
+			return say(
+				citeListing(openSessionStore(ctx), {
+					view: `${GLYPH.dirty} ${found.identity.key} has ${state.changed.length} changed paths, ${at}.\n${lines.join("\n")}`,
+					records: [...state.changed],
+					unit: "paths",
+					narrowing: "Query the stored result for the paths you need.",
+				}),
+				{ ok: true, clean: false, changed: state.changed.length },
+			);
+		}
+
+		// A tree a quest holds goes back through the quest, which
+		// keeps its record and knows what pruning it means.
+		if (found.providerId === CLAIMED_PROVIDER) {
+			return refuse(
+				`${GLYPH.refused} ${found.path} is held by a quest, not by this tool. Give it back with quest tree-release, passing it as cwd.`,
+			);
+		}
+
+		// Release. The work inside is the caller's, and losing it
+		// is not recoverable, so the same sentence that guards a
+		// repoint guards this.
+		const state = await history.status(found.path);
+		const blocked = blocksRepoint(state);
+		if (blocked) {
+			return refuse(`${GLYPH.refused} ${blocked}`);
+		}
+		const gone = await broker.release(found, signal ? { signal } : {});
+		if (gone.kind === "no-provider") {
+			// Said as a refusal because nothing happened. This used to
+			// report success, leaving a tree on disk, tracked by git, with
+			// its record dropped and nothing able to name it again.
+			const who =
+				gone.registered.length === 0
+					? "none are registered"
+					: gone.registered.join(", ");
+			return refuse(
+				`${GLYPH.refused} ${found.identity.key} was cut by ${gone.wanted}, which is not registered here, so nothing can remove it. Registered: ${who}. The tree is still at ${displayPath(gone.path)} and still listed, so this can be retried once that provider loads.`,
+			);
+		}
+		return say(`${GLYPH.named} Released ${found.identity.key}.`, {
+			ok: true,
+			released: found.identity.key,
+		});
+	} catch (error) {
+		return refuse(`${GLYPH.refused} ${messageOf(error)}`);
+	}
 }
 
 /**
