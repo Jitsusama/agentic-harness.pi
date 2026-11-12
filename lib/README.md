@@ -40,7 +40,9 @@ barrel, never from a file behind it.
 - **[`guardian/`](guardian/)**: the guardian contract,
   registration, the guard policy and reports.
 - **[`jobs/`](jobs/)**: the seam between work that runs on after
-  its tool returns and the host that says its result.
+  its tool returns and the host that says its result, and
+  `jobs/hand-off.ts`, which moves a tool call still running after
+  a minute to a job.
 - **[`mcp/`](mcp/)**: a server-agnostic MCP client mapping a
   server's tools onto pi's, with seams for server-specific
   behaviour.

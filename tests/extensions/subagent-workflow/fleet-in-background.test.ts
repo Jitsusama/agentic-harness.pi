@@ -291,3 +291,51 @@ describe("a fleet in the background", () => {
 		expect(ran, "no job runs when nobody could say the result").toBe(false);
 	});
 });
+
+/**
+ * How long a handed-off fleet's job gets to end. Short of the test's own
+ * timeout, so a job that never ends fails naming what was waited on.
+ */
+const ENDS_WITHIN_MS = 2_000;
+
+describe("a fleet waited on", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("still running after a minute moves to a job, which says how it ended", async () => {
+		let release: (() => void) | undefined;
+		answer = () =>
+			new Promise((resolve) => {
+				release = () =>
+					resolve({ exitCode: 0, finalAssistantText: "done", warnings: [] });
+			});
+		const { host, outcomes } = recordingHost();
+		const tool = await subagentTool(host);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const returned = tool.execute(
+			"call-1",
+			{
+				runId: "fleet-fg",
+				jobs: [{ id: "one", cwd: root, userPrompt: "go" }],
+			},
+			undefined,
+			undefined,
+			{ hasUI: false },
+		) as Promise<{ content: { text: string }[] }>;
+		// Sizing the fleet reads files and runs ps before the minute starts,
+		// so the clock moves only once the subagent has been asked, which is
+		// after. Waited on by I/O turns, since the timers are the test's.
+		const deadline = Date.now() + ENDS_WITHIN_MS;
+		while (release === undefined && Date.now() < deadline) {
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+		expect(release, "the subagent was asked").toBeDefined();
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(textOf(await returned)).toContain("now runs as background fleet j7");
+		vi.useRealTimers();
+		release?.();
+		await until("the job to finish", () => outcomes.length > 0, ENDS_WITHIN_MS);
+		expect(outcomes[0]?.summary).toContain("Fleet fleet-fg: 1/1 complete");
+	});
+});

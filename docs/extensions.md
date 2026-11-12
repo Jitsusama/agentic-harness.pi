@@ -34,7 +34,7 @@ it does:
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
   `reload-workflow`, `rollover-workflow`, `park-workflow`,
-  `one-writer-workflow`, `shell-workflow`,
+  `one-writer-workflow`, `shell-workflow`, `codemode-workflow`,
   `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
   `model-retry-workflow`, `crash-record-workflow`.
 
@@ -126,6 +126,14 @@ it does:
   kills, because the session logs show short timeouts killing
   real builds. A codemode script's calls never move, since the
   script reads their structured result.
+
+  `codemode-workflow` does the same for a whole codemode script:
+  pi's own codemode, registered under its name ahead of pi's
+  built-in, whose script moves to a background script once it has
+  run for a minute. On 11 November 270 scripts held their sessions
+  past a minute, most of them loops of short bash calls waiting on
+  something, which slip past bash's hand-off. Both hand off through
+  `lib/jobs/hand-off.ts`.
 
   `image-budget-workflow` scales images down at the
   `tool_result` seam, on the one ground that makes a silent

@@ -31,13 +31,13 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
-import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import {
 	endsWithItsPrompts,
 	HAND_OFF_MS,
-	runOrHandOff,
 	spoken,
-} from "./hand-off.ts";
+} from "../../lib/jobs/hand-off.ts";
+import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
+import { runOrHandOff } from "./hand-off.ts";
 
 type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 

@@ -13,13 +13,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	FINISHED_LINES,
-	HAND_OFF_MS,
 	labelOf,
 	runOrHandOff,
-	spoken,
 } from "../../../extensions/shell-workflow/hand-off.ts";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
+import {
+	FINISHED_LINES,
+	HAND_OFF_MS,
+	spoken,
+} from "../../../lib/jobs/hand-off.ts";
 import {
 	announceJobHost,
 	type JobOutcome,
