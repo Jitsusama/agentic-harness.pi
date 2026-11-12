@@ -34,7 +34,9 @@
  * harness's many extensions do, then draws its own. A `/host-reload`
  * command asks the host to reload the conversation, as the harness's
  * follower does once its install moves. The harness's own park-workflow
- * parks a conversation the park switch names, by plain pi's rule. At
+ * parks a conversation the park switch names, by plain pi's rule, and
+ * SCREEN_HOST_ALSO names more of the harness's extensions, by folder,
+ * for a case that needs them, such as the mesh a release steers by. At
  * SIGHUP it collects its garbage and weighs itself into `weighed.json` in
  * HOME: its PSS and swapped PSS, and how many conversations' sessions
  * are still in memory. A stand-in `wl-paste`
@@ -581,10 +583,16 @@ export default function (pi) {
 }
 `,
 	);
+	// A case may ask for more of the harness, such as the mesh a release
+	// steers by, by folder in SCREEN_HOST_ALSO.
+	const also = (process.env.SCREEN_HOST_ALSO ?? "")
+		.split(",")
+		.filter((one) => one !== "");
 	for (const extension of [
 		"panel-lifecycle-workflow",
 		"panel-zoom-widget",
 		"park-workflow",
+		...also,
 	])
 		writeFileSync(
 			join(agentDir, "extensions", `${extension}.ts`),

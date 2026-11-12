@@ -160,6 +160,9 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 				from: "joel",
 			});
 		},
+		wake: (session) => {
+			askWake(session, `release-${Date.now()}`);
+		},
 		note: (session) => readMoveNote(session, moves),
 		holds: async (session) => presences.of(session)?.moving?.holds,
 		refreshRestore: () => refreshRestoreFile(quests),

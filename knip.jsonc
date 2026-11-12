@@ -49,6 +49,7 @@
 		"perl",
 		"pgrep",
 		"pkill",
+		"prlimit",
 		"qs",
 		"script",
 		"session-backup",

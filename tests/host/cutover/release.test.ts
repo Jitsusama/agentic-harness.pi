@@ -25,6 +25,7 @@ function fakeRealm(
 	let looks = 0;
 	let clock = 0;
 	const told: string[] = [];
+	const woken: string[] = [];
 	const journals: { quest: string; prose: string }[] = [];
 	const said: string[] = [];
 	let refreshed = 0;
@@ -41,6 +42,7 @@ function fakeRealm(
 				? (ADDRESSES[session] ?? [])
 				: [],
 		tell: (address) => told.push(address),
+		wake: (session) => woken.push(session),
 		note: (session): MoveNote | undefined =>
 			closes[session]?.note === false
 				? undefined
@@ -73,6 +75,7 @@ function fakeRealm(
 	return {
 		facts,
 		told,
+		woken,
 		journals,
 		said,
 		refreshes: () => refreshed,
@@ -164,6 +167,16 @@ describe("releaseBack", () => {
 
 		expect(realm.told).toEqual(["BBBBBB"]);
 		expect(report.released.map((one) => one.session)).toEqual(["s2"]);
+	});
+
+	it("wakes each it tells, so one parked takes the move it was told", async () => {
+		const realm = fakeRealm({ s1: { after: 0 }, s2: { after: 0 } });
+		await releaseBack("all", realm.facts, 60_000);
+
+		expect(realm.woken, "each told one is woken, by session").toEqual([
+			"s1",
+			"s2",
+		]);
 	});
 });
 
