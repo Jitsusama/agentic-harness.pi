@@ -4335,7 +4335,7 @@ describe("a lease", () => {
 		);
 	});
 
-	it("holds what this peer holds until it answers its own hold", async () => {
+	it("holds what this peer holds until it ends its own hold", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		const { tools } = await startSession();
 
@@ -4344,13 +4344,43 @@ describe("a lease", () => {
 
 		expect(said).toContain("It holds for two hours at most");
 		expect(ownBoard()).toMatchObject([{ kind: "hold", subject: hold }]);
-		await tools.get("mesh_send")?.execute("call-2", {
+		const ended = await tools.get("mesh_send")?.execute("call-2", {
 			to: "all",
 			intent: "fyi",
 			text: "builds may run again",
 			re: hold,
+			endsHold: true,
 		});
+		expect(ended?.content[0]?.text).toContain("this peer's own hold");
 		expect(ownBoard()).toEqual([]);
+	});
+
+	// On 12 November a holder's note that a small push was fine during its
+	// hold answered it with re, and every waiting peer was told to carry on.
+	it("keeps its own hold when a note answers it without ending it", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { tools } = await startSession();
+		await send(tools, "all", "hold", "hold heavy builds");
+		const messages = folderTransport(join(paths.mesh, "messages"));
+		const [hold = ""] = messages.ids();
+
+		const said = await tools.get("mesh_send")?.execute("call-2", {
+			to: "all",
+			intent: "fyi",
+			text: "a small git push is fine during the hold",
+			re: hold,
+		});
+		const note = messages.ids().find((id) => id !== hold) ?? "";
+
+		expect(
+			messages.read(note)?.re,
+			"a note on a hold its holder keeps answers nothing, so no peer reads it as the end",
+		).toBeUndefined();
+		expect(said?.content[0]?.text).toContain("it still holds");
+		expect(said?.content[0]?.text).toContain("endsHold");
+		expect(ownBoard(), "the holder still holds it").toMatchObject([
+			{ kind: "hold", subject: hold },
+		]);
 	});
 
 	it("ends its own hold with an fyi even when the end is sent as a hold", async () => {
@@ -4365,12 +4395,14 @@ describe("a lease", () => {
 			intent: "hold",
 			text: "the hold is over; carry on",
 			re: hold,
+			endsHold: true,
 		});
 		const end = messages.ids().find((id) => id !== hold) ?? "";
 
 		expect(messages.read(end)?.intent).toBe("fyi");
+		expect(messages.read(end)?.re).toBe(hold);
 		expect(said?.content[0]?.text).toContain(
-			"this peer's own hold, which answering ends, so it went as an fyi",
+			"this peer's own hold, so it went as an fyi",
 		);
 		expect(said?.content[0]?.text).not.toContain("It holds for two hours");
 		expect(ownBoard()).toEqual([]);
