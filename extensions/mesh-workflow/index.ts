@@ -1206,7 +1206,11 @@ export function meshWorkflow(
 			);
 			const concerns = await Promise.all(
 				messages.map((message, at) =>
-					stopped[at] || answeringAt(answering, at)
+					// A peer hearing only what is put to it glances at the rest
+					// whatever the classifier says, so it isn't asked.
+					stopped[at] ||
+					answeringAt(answering, at) ||
+					receiver.hears === "addressed"
 						? undefined
 						: judge(message, receiver),
 				),

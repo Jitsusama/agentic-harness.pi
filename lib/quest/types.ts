@@ -199,6 +199,13 @@ export interface QuestFrontMatter {
 	 * from outside its tree. It wins over the walk up `parent`.
 	 */
 	orchestratedBy?: string;
+	/**
+	 * How its sessions hear the mesh. `addressed` hears in full only what
+	 * is put to them (their address, an answer, a hold, their
+	 * orchestrator's pivot) and glances at the rest, as Joel's router
+	 * does; unset, they hear as every peer does.
+	 */
+	hears?: "addressed";
 	kind: QuestKind;
 	parent: string | null;
 	status: QuestStatus;

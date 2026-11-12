@@ -184,6 +184,10 @@ Field semantics:
 - `orchestratedBy`: optional quest id, for a quest outside
   an orchestrator's tree that it has taken on. It wins over
   the nearest orchestrating quest above.
+- `hears`: optional, `addressed` when the quest's sessions
+  hear in full only what the mesh puts to them, glancing at
+  the rest. Set with the quest tool's `config` (`ref`
+  `hears=addressed`, cleared with `hears=all`), never by hand.
 - `kind`: `quest`, `subquest` or `sidequest`. See
   quest-convention for choosing.
 - `parent`: the id of the parent quest when this is a

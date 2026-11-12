@@ -76,6 +76,12 @@ export type Concern = "receiver" | "machine" | "other";
 export type Receiver = Pick<Presence, "addresses" | "worksOn" | "owns"> & {
 	/** What it is changing now, as its change leases name it (`repo:path`). */
 	readonly changing?: readonly string[];
+	/**
+	 * Its quest hears only what is put to it: what is sent to its address,
+	 * answers it, names it, holds or is its orchestrator's pivot. The rest
+	 * is a glance, however it is judged.
+	 */
+	readonly hears?: "addressed";
 };
 
 /** Where the receiving peer stands when a message arrives. */
@@ -202,7 +208,10 @@ export function attend(message: Message, at: Standing): Heed {
 					why: "a pivot from this peer's orchestrator",
 					addressed: true,
 				}
-			: { attention: "note", why: "a pivot from another orchestrator" };
+			: (overheard(at.receiver) ?? {
+					attention: "note",
+					why: "a pivot from another orchestrator",
+				});
 	}
 	const home = isHomeTo(message, at.receiver.addresses);
 	if (at.answers || home || at.askedEach) {
@@ -222,6 +231,12 @@ export function attend(message: Message, at: Standing): Heed {
 			? { attention: "turn", why }
 			: { attention: "note", why };
 	}
+	// Joel's router, in an orchestration by lineage, would otherwise
+	// carry every other session's landings into each line he says. A hold
+	// still counts, as for every peer, and so does a message naming it.
+	const aside = message.intent !== "hold" && !names(message, at.receiver);
+	const passed = aside ? overheard(at.receiver) : undefined;
+	if (passed) return passed;
 	const concern =
 		at.concern ?? (mentions(message, at.receiver) ? "receiver" : undefined);
 	// A hold is noted whatever it is judged, since what it holds is
@@ -269,6 +284,21 @@ export function mentions(
 		) ||
 		paths.some((path) => path.includes("/") && text.includes(path))
 	);
+}
+
+/** Whether the message names the peer by one of its addresses, as a word. */
+function names(
+	message: Pick<Message, "text">,
+	receiver: Pick<Receiver, "addresses">,
+): boolean {
+	return mentions(message, { addresses: receiver.addresses, owns: [] });
+}
+
+/** The glance a peer hearing only what is put to it gives the rest. */
+function overheard(receiver: Receiver): Heed | undefined {
+	return receiver.hears === "addressed"
+		? { attention: "glance", why: "its quest hears only what is put to it" }
+		: undefined;
 }
 
 function escapeRegExp(text: string): string {

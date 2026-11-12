@@ -752,6 +752,28 @@ describe("this session's peer", () => {
 			);
 		});
 
+		it("hears only what is put to it while its quest says so", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const peer = localPeer(surroundings());
+			const before = peer.receiver.hears;
+			writeFileSync(
+				join(root, "quests", LOOP, "README.md"),
+				readme(LOOP, MISSION).replace("---\n#", "hears: addressed\n---\n#"),
+			);
+			peer.refresh();
+
+			expect(
+				[before, peer.receiver.hears, peer.orchestratedBy],
+				"everything, then only what is put to it, still orchestrated",
+			).toEqual([undefined, "addressed", "WCJQSG"]);
+		});
+
 		it("says the quest it has loaded, by id, and none while it has none", () => {
 			write([[LOOP, readme(LOOP, "null")]], LOOP);
 			const at = surroundings();

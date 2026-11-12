@@ -336,6 +336,7 @@ const KNOWN_QUEST_KEYS = new Set<string>([
 	"short",
 	"orchestrator",
 	"orchestratedBy",
+	"hears",
 	"kind",
 	"parent",
 	"status",
@@ -375,6 +376,23 @@ function captureExtras(
 		extras[key] = raw[key];
 	}
 	return extras;
+}
+
+/**
+ * A way of hearing written by hand that the parser can't read, kept
+ * among the extras, so a rewrite doesn't erase the slip and the quest
+ * tool's config can name it. `all` is how every peer hears, so it
+ * needs no keeping.
+ */
+function withUnreadHearing(
+	extras: Record<string, unknown> | undefined,
+	hears: unknown,
+): Record<string, unknown> | undefined {
+	const said = typeof hears === "string" ? hears.trim() : hears;
+	if (said === undefined || said === "addressed" || said === "all") {
+		return extras;
+	}
+	return { ...extras, hears };
 }
 
 /** Parse the quest README front-matter from raw text. */
@@ -444,11 +462,17 @@ export function parseQuestFrontMatter(
 	if (raw.orchestrator === true) frontMatter.orchestrator = true;
 	const orchestratedBy = asString(raw.orchestratedBy)?.trim();
 	if (orchestratedBy) frontMatter.orchestratedBy = orchestratedBy;
+	if (asString(raw.hears)?.trim() === "addressed") {
+		frontMatter.hears = "addressed";
+	}
 	const primaryPlanId = asString(raw.primaryPlanId);
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
 	const verify = asString(raw.verify);
 	if (verify) frontMatter.verify = verify;
-	const extras = captureExtras(raw, KNOWN_QUEST_KEYS);
+	const extras = withUnreadHearing(
+		captureExtras(raw, KNOWN_QUEST_KEYS),
+		raw.hears,
+	);
 	if (extras) frontMatter._extra = extras;
 
 	return { frontMatter, body: split.body };
@@ -617,6 +641,7 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	if (fm.short) payload.short = fm.short;
 	if (fm.orchestrator) payload.orchestrator = true;
 	if (fm.orchestratedBy) payload.orchestratedBy = fm.orchestratedBy;
+	if (fm.hears) payload.hears = fm.hears;
 	Object.assign(payload, {
 		kind: fm.kind,
 		parent: fm.parent,

@@ -345,6 +345,23 @@ have gone. An answer anywhere in a question's thread counts, and an
 asker's own follow-up question closes the one it answers. An answer
 that names no group goes back to whoever asked ([`lib/mesh/unanswered.ts`](../../lib/mesh/unanswered.ts)).
 
+A quest marked `hears: addressed` (set with the quest tool's
+`config`, `ref` `hears=addressed`, and cleared with `hears=all`)
+hears in full only what is put to its sessions: what is sent to
+their address, answers them, names them, holds, or is their own
+orchestrator's pivot. Everything else, group fyis, findings and
+questions included, is a glance, and the classifier isn't asked.
+So a finding about its own work reaches it in full only when it
+is sent to it or names its address; one sent to a group about
+what it owns, without naming it, is a glance. `config` with only
+the quest's `id` says how it hears, naming a value written by hand
+that it can't read. It is for Joel's router (QEST-20261112-8GYNJ6), which is in an
+orchestration by lineage: in the six hours to 02:45 on 12 November,
+93 messages and 65k characters went to that orchestration's group,
+and each would sit in its context to be read again with every line
+he says. It is set on the quest rather than by environment, so it
+holds through restarts and respawns.
+
 An fyi other than an awaited answer, more than an hour old when it
 reaches a peer, as after a reload, is a glance wherever it
 went, since what it told has moved on (Skynet's register gives
