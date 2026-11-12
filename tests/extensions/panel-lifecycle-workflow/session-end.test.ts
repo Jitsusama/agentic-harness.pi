@@ -28,18 +28,15 @@ function activate() {
 afterEach(() => closeEveryPanel());
 
 describe("a session ending", () => {
-	it.each([
-		"quit",
-		"reload",
-		"new",
-		"resume",
-		"fork",
-	])("closes every panel on %s", async (reason) => {
-		const fire = activate();
-		const stop = vi.fn();
-		trackPanel(stop);
+	it.each(["quit", "reload", "new", "resume", "fork"])(
+		"closes every panel on %s",
+		async (reason) => {
+			const fire = activate();
+			const stop = vi.fn();
+			trackPanel(stop);
 
-		await fire("session_shutdown", { type: "session_shutdown", reason });
-		expect(stop).toHaveBeenCalledOnce();
-	});
+			await fire("session_shutdown", { type: "session_shutdown", reason });
+			expect(stop).toHaveBeenCalledOnce();
+		},
+	);
 });

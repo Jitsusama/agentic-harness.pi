@@ -107,7 +107,7 @@
 	},
 	"devDependencies": {
 		"@babel/parser": "^7.29.7",
-		"@biomejs/biome": "2.5.3",
+		"@biomejs/biome": "2.5.15",
 		"@earendil-works/pi-ai": "1.4.0",
 		"@earendil-works/pi-coding-agent": "1.4.0",
 		"@earendil-works/pi-tui": "1.4.0",

@@ -116,13 +116,14 @@ describe("a write that waits on the person's yes, with no screen", () => {
 		});
 	});
 
-	it.each(
-		writes,
-	)("lets %s through once the person turned its guard off", async (_what, raise, guard) => {
-		setSessionMode(guard, "off");
+	it.each(writes)(
+		"lets %s through once the person turned its guard off",
+		async (_what, raise, guard) => {
+			setSessionMode(guard, "off");
 
-		expect(await raise()).toMatchObject({ approved: true });
-	});
+			expect(await raise()).toMatchObject({ approved: true });
+		},
+	);
 
 	it("still lets an event nobody else is invited to through, telling nobody", async () => {
 		const alone = { ...INVITED, attendees: [] };

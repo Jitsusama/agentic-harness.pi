@@ -67,73 +67,74 @@ const calls = [
 ];
 
 describe("review checkout resolution", () => {
-	it.each(
-		calls,
-	)("$tool uses each hosted conversation's cwd", async (params) => {
-		const a = join(root, "a");
-		const b = join(root, "b");
-		const stub = withSession("a", () =>
-			activate({
-				[`-C ${a} rev-parse --show-toplevel`]: { stdout: `${a}\n` },
-				[`-C ${b} rev-parse --show-toplevel`]: { stdout: `${b}\n` },
-			}),
-		);
-		const tool = toolNamed(stub, params.tool);
-		const call = (id: string, cwd: string) =>
-			withSession(id, () =>
-				tool.execute(
-					"cwd",
-					{ ...params, base: "main", head: "topic" },
-					undefined,
-					undefined,
-					{
-						...HEADLESS,
-						cwd,
-						sessionManager: { getSessionId: () => id },
-					},
-				),
+	it.each(calls)(
+		"$tool uses each hosted conversation's cwd",
+		async (params) => {
+			const a = join(root, "a");
+			const b = join(root, "b");
+			const stub = withSession("a", () =>
+				activate({
+					[`-C ${a} rev-parse --show-toplevel`]: { stdout: `${a}\n` },
+					[`-C ${b} rev-parse --show-toplevel`]: { stdout: `${b}\n` },
+				}),
 			);
-		await Promise.all([call("a", a), call("b", b)]);
+			const tool = toolNamed(stub, params.tool);
+			const call = (id: string, cwd: string) =>
+				withSession(id, () =>
+					tool.execute(
+						"cwd",
+						{ ...params, base: "main", head: "topic" },
+						undefined,
+						undefined,
+						{
+							...HEADLESS,
+							cwd,
+							sessionManager: { getSessionId: () => id },
+						},
+					),
+				);
+			await Promise.all([call("a", a), call("b", b)]);
 
-		const probes = stub.commands.filter((argv) =>
-			argv.includes("--show-toplevel"),
-		);
-		expect(probes).toContainEqual([
-			"git",
-			"-C",
-			a,
-			"rev-parse",
-			"--show-toplevel",
-		]);
-		expect(probes).toContainEqual([
-			"git",
-			"-C",
-			b,
-			"rev-parse",
-			"--show-toplevel",
-		]);
-		expect(
-			probes.some((argv) => argv.includes(process.cwd())),
-			"no probe reads the process's own folder, only each conversation's checkout",
-		).toBe(false);
-		open.delete("a");
-		releaseSession("a");
-		stub.commands.length = 0;
+			const probes = stub.commands.filter((argv) =>
+				argv.includes("--show-toplevel"),
+			);
+			expect(probes).toContainEqual([
+				"git",
+				"-C",
+				a,
+				"rev-parse",
+				"--show-toplevel",
+			]);
+			expect(probes).toContainEqual([
+				"git",
+				"-C",
+				b,
+				"rev-parse",
+				"--show-toplevel",
+			]);
+			expect(
+				probes.some((argv) => argv.includes(process.cwd())),
+				"no probe reads the process's own folder, only each conversation's checkout",
+			).toBe(false);
+			open.delete("a");
+			releaseSession("a");
+			stub.commands.length = 0;
 
-		await call("b", b);
+			await call("b", b);
 
-		expect(stub.commands).toContainEqual([
-			"git",
-			"-C",
-			b,
-			"rev-parse",
-			"--show-toplevel",
-		]);
-		expect(
-			stub.commands.some((argv) => argv.includes(a)),
-			"once a's conversation is released, b's call reads nothing of a's checkout",
-		).toBe(false);
-	});
+			expect(stub.commands).toContainEqual([
+				"git",
+				"-C",
+				b,
+				"rev-parse",
+				"--show-toplevel",
+			]);
+			expect(
+				stub.commands.some((argv) => argv.includes(a)),
+				"once a's conversation is released, b's call reads nothing of a's checkout",
+			).toBe(false);
+		},
+	);
 
 	it("an explicitly named checkout outranks the conversation cwd", async () => {
 		const elsewhere = join(root, "elsewhere");

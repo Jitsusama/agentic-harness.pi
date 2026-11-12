@@ -118,39 +118,41 @@ describe("an lsp call whose server never answers", () => {
 		clearLspBackends();
 	});
 
-	it.each(
-		OPERATIONS,
-	)("ends when its caller stops a %s, and tells the backend", async (operation, params) => {
-		const controller = new AbortController();
-		const call = lspTool().execute(
-			"call",
-			{ operation, ...params },
-			controller.signal,
-		);
-		setTimeout(() => controller.abort(), 50);
-		expect(await outcome(call)).toBe("failed: AbortError");
-		expect(handed).toHaveLength(1);
-		expect(
-			handed[0]?.aborted,
-			"the backend's signal is stopped with the call",
-		).toBe(true);
-	});
+	it.each(OPERATIONS)(
+		"ends when its caller stops a %s, and tells the backend",
+		async (operation, params) => {
+			const controller = new AbortController();
+			const call = lspTool().execute(
+				"call",
+				{ operation, ...params },
+				controller.signal,
+			);
+			setTimeout(() => controller.abort(), 50);
+			expect(await outcome(call)).toBe("failed: AbortError");
+			expect(handed).toHaveLength(1);
+			expect(
+				handed[0]?.aborted,
+				"the backend's signal is stopped with the call",
+			).toBe(true);
+		},
+	);
 
-	it.each(
-		OPERATIONS,
-	)("gives up on a %s at its clock, says so, and tells the backend", async (operation, params) => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const call = lspTool().execute("call", { operation, ...params });
-		// Handled now, so a rejection while the clock is wound on is not
-		// reported as unhandled before outcome listens.
-		const watched = call.then((result) => result);
-		watched.catch(() => {});
-		await vi.advanceTimersByTimeAsync(LSP_CALL_WALL_MS);
-		vi.useRealTimers();
-		expect(await outcome(watched)).toMatch(/^answered: .*given up on/);
-		expect(
-			handed[0]?.aborted,
-			"the backend's signal is stopped at the call's clock",
-		).toBe(true);
-	});
+	it.each(OPERATIONS)(
+		"gives up on a %s at its clock, says so, and tells the backend",
+		async (operation, params) => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const call = lspTool().execute("call", { operation, ...params });
+			// Handled now, so a rejection while the clock is wound on is not
+			// reported as unhandled before outcome listens.
+			const watched = call.then((result) => result);
+			watched.catch(() => {});
+			await vi.advanceTimersByTimeAsync(LSP_CALL_WALL_MS);
+			vi.useRealTimers();
+			expect(await outcome(watched)).toMatch(/^answered: .*given up on/);
+			expect(
+				handed[0]?.aborted,
+				"the backend's signal is stopped at the call's clock",
+			).toBe(true);
+		},
+	);
 });

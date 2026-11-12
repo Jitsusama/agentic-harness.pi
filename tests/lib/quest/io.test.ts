@@ -166,25 +166,28 @@ describe("withQuestLock", () => {
 	it.each([
 		["its own", join(WRITING, "quest.lock")],
 		["an older session's", ".quest.lock"],
-	])("steals %s ownerless lock once it is older than any write takes", (_, lockName) => {
-		const questDir = join(dir, "QEST-20260603-DDD444");
-		mkdirSync(join(questDir, WRITING), { recursive: true });
-		const lock = join(questDir, lockName);
-		writeFileSync(lock, "");
-		const old = new Date(Date.now() - 60_000);
-		utimesSync(lock, old, old);
+	])(
+		"steals %s ownerless lock once it is older than any write takes",
+		(_, lockName) => {
+			const questDir = join(dir, "QEST-20260603-DDD444");
+			mkdirSync(join(questDir, WRITING), { recursive: true });
+			const lock = join(questDir, lockName);
+			writeFileSync(lock, "");
+			const old = new Date(Date.now() - 60_000);
+			utimesSync(lock, old, old);
 
-		withQuestLock(questDir, () => {
-			atomicWriteFile(join(questDir, "ok.txt"), "y");
-		});
+			withQuestLock(questDir, () => {
+				atomicWriteFile(join(questDir, "ok.txt"), "y");
+			});
 
-		expect(
-			existsSync(join(questDir, "ok.txt")),
-			`${join(questDir, "ok.txt")} exists`,
-		).toBe(true);
-		expect(readdirSync(questDir).sort()).toEqual([WRITING, "ok.txt"]);
-		expect(readdirSync(join(questDir, WRITING))).toEqual([]);
-	});
+			expect(
+				existsSync(join(questDir, "ok.txt")),
+				`${join(questDir, "ok.txt")} exists`,
+			).toBe(true);
+			expect(readdirSync(questDir).sort()).toEqual([WRITING, "ok.txt"]);
+			expect(readdirSync(join(questDir, WRITING))).toEqual([]);
+		},
+	);
 
 	it("steals an obviously stale lock from a dead owner", () => {
 		const questDir = join(dir, "QEST-20260603-BBB222");

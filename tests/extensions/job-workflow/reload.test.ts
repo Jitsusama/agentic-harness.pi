@@ -320,16 +320,14 @@ describe("a runtime a reload replaced", () => {
 });
 
 describe("any other end of the session", () => {
-	it.each([
-		"new",
-		"resume",
-		"fork",
-		"quit",
-	])("stops its jobs on %s", async (reason) => {
-		const events = createEventBus();
-		const { first, host } = await startedOn(events);
-		const job = host.start({ kind: "shell", label: "nix build" });
-		await first.fire("session_shutdown", { reason });
-		expect(jobStopOf(job.signal)).toBe("session");
-	});
+	it.each(["new", "resume", "fork", "quit"])(
+		"stops its jobs on %s",
+		async (reason) => {
+			const events = createEventBus();
+			const { first, host } = await startedOn(events);
+			const job = host.start({ kind: "shell", label: "nix build" });
+			await first.fire("session_shutdown", { reason });
+			expect(jobStopOf(job.signal)).toBe("session");
+		},
+	);
 });
