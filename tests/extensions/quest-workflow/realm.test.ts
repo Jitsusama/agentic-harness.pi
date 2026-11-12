@@ -4,7 +4,7 @@
  * unmarked quest never does.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,19 +27,29 @@ function fakeCtx() {
 }
 
 /** The front matter of a quest made by a session in `realm`, if any. */
-async function madeIn(realm: string | undefined) {
+async function madeIn(realm: string | undefined, parent?: string) {
 	if (realm !== undefined) vi.stubEnv("MYCELIUM_REALM", realm);
 	const questsRoot = join(tmpRoot, "quests");
 	const result = await handle(
 		createQuestState({ questsRoot }),
 		fakePi(),
 		fakeCtx(),
-		{ action: "create", title: "Somewhere" },
+		parent === undefined
+			? { action: "create", title: "Somewhere" }
+			: { action: "create", title: "Below", kind: "subquest", parent },
 	);
 	if (!result.ok) throw new Error(result.guidance);
 	const id = (result.details as { id: string }).id;
-	const readme = readFileSync(join(questsRoot, id, "README.md"), "utf8");
-	return { readme, frontMatter: parseQuestFrontMatter(readme)?.frontMatter };
+	const path = readdirSync(questsRoot, { recursive: true })
+		.map(String)
+		.find((one) => one.endsWith(join(id, "README.md")));
+	if (path === undefined) throw new Error(`no README for ${id}`);
+	const readme = readFileSync(join(questsRoot, path), "utf8");
+	return {
+		id,
+		readme,
+		frontMatter: parseQuestFrontMatter(readme)?.frontMatter,
+	};
 }
 
 const envGuard = createEnvGuard();
@@ -82,6 +92,18 @@ describe("the realm a quest was made in", () => {
 		expect(frontMatter?.realm, "an unnamed realm marks nothing").toBe(
 			undefined,
 		);
+	});
+
+	it("is its parent's for a subquest, when the parent has one", async () => {
+		const marked = await madeIn("work");
+		const below = await madeIn("home", marked.id);
+		vi.stubEnv("MYCELIUM_REALM", "");
+		const unmarked = await madeIn(undefined);
+		const belowUnmarked = await madeIn("home", unmarked.id);
+		expect(
+			[below.frontMatter?.realm, belowUnmarked.frontMatter?.realm],
+			"the parent's realm, else the session's",
+		).toEqual(["work", "home"]);
 	});
 
 	it("survives a rewrite of the front matter", async () => {
