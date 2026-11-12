@@ -42,8 +42,8 @@ import {
 import type { Receiver } from "./attention.ts";
 import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
+import type { MoveOff, Moving } from "./moving.ts";
 import {
-	type Moving,
 	type PeerState,
 	type Presence,
 	type Presences,
@@ -122,8 +122,13 @@ export interface Peer {
 	setBusy(busy: boolean): void;
 	/** Say whether its person paused it. */
 	setPaused(paused: boolean): void;
-	/** Say the move it waits to make and what holds it, or that none waits. */
+	/**
+	 * Say the move it waits to make and what holds it, or that none waits;
+	 * a move asked passes over why the last was called off.
+	 */
 	setMoving(moving: Moving | undefined): void;
+	/** Say the move waiting is off rather than made, and why. */
+	callOffMove(off: MoveOff): void;
 	/** Say a person has written in its session; it stays said. */
 	setDriven(): void;
 	/**
@@ -332,6 +337,13 @@ export function localPeer(at: Surroundings): Peer {
 		before.owner.pid === at.owner?.pid
 			? before.moving
 			: undefined;
+	// Why its last move was called off, kept as its move would be.
+	let moveOff =
+		before?.moveOff !== undefined &&
+		before.owner !== undefined &&
+		before.owner.pid === at.owner?.pid
+			? before.moveOff
+			: undefined;
 	// Words a person wrote stay in its log, whichever process holds it,
 	// but never pass to another session, as a carried presence would.
 	let driven = at.presences.of(at.session)?.driven === true;
@@ -443,6 +455,7 @@ export function localPeer(at: Surroundings): Peer {
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
 			...(moving ? { moving } : {}),
+			...(moveOff ? { moveOff } : {}),
 			driven,
 		};
 		const text = JSON.stringify(said);
@@ -606,6 +619,12 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		setMoving(now) {
 			moving = now;
+			if (now !== undefined) moveOff = undefined;
+			publish();
+		},
+		callOffMove(off) {
+			moving = undefined;
+			moveOff = off;
 			publish();
 		},
 		setDriven() {

@@ -36,7 +36,7 @@ import {
 	heldDirectly,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
-import type { Moving } from "../../lib/mesh/presence.ts";
+import type { Moving } from "../../lib/mesh/moving.ts";
 import type { HandOver } from "./in-place.ts";
 
 /** The script that takes a /host move up once its pi has gone. */

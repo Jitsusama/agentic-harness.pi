@@ -35,7 +35,6 @@ import { parsedFiles } from "../internal/quest/parsed-file.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
 import { isLanding, type Landing } from "../internal/session/landings.ts";
-import { isMoveTarget, type MoveTarget } from "../internal/session/move.ts";
 import {
 	type RefusedWake,
 	readRefusedWake,
@@ -45,6 +44,12 @@ import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import { loadedQuest, type QuestRecords, questAddress } from "./address.ts";
+import {
+	type MoveOff,
+	type Moving,
+	moveOffFrom,
+	movingFrom,
+} from "./moving.ts";
 import { scopesOf } from "./scope.ts";
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
@@ -213,6 +218,11 @@ export interface Presence {
 	 */
 	readonly moving?: Moving;
 	/**
+	 * The last move that was called off rather than made, and why, until
+	 * another is asked (extensions/mesh-workflow/moving.ts).
+	 */
+	readonly moveOff?: MoveOff;
+	/**
 	 * Whether its log holds words a person wrote, so a person drives it
 	 * (lib/internal/session/driven.ts); missing from a peer whose harness
 	 * doesn't say.
@@ -233,15 +243,6 @@ export interface StandsAtTop {
 	readonly keywords: readonly string[];
 	/** A sentence saying what it is for, when its quest gives one. */
 	readonly what?: string;
-}
-
-/** A move waiting for its session to be free, as presence says it. */
-export interface Moving {
-	readonly to: MoveTarget;
-	/** When it was asked, as an ISO time. */
-	readonly since: string;
-	/** What holds the session now; missing once nothing does. */
-	readonly holds?: string;
 }
 
 /** A want standing, and whether it is the person's to answer. */
@@ -693,18 +694,11 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(isStepDetail(one.stepDetail) ? { stepDetail: one.stepDetail } : {}),
 		...(isUsage(one.usage) ? { usage: one.usage } : {}),
 		...(movingFrom(one.moving) ? { moving: movingFrom(one.moving) } : {}),
+		...(moveOffFrom(one.moveOff) ? { moveOff: moveOffFrom(one.moveOff) } : {}),
 		...(typeof one.driven === "boolean" ? { driven: one.driven } : {}),
 		...standingAtTop(one.standsAtTop),
 		at: typeof one.at === "string" ? one.at : "",
 	};
-}
-
-/** A move a presence says waits, or nothing when it says none this reads. */
-function movingFrom(value: unknown): Moving | undefined {
-	if (!isRecord(value)) return undefined;
-	const { to, since, holds } = value;
-	if (!isMoveTarget(to) || typeof since !== "string") return undefined;
-	return { to, since, ...(typeof holds === "string" ? { holds } : {}) };
 }
 
 /** Whether a presence names a hosted conversation. */

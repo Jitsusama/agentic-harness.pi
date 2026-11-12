@@ -544,6 +544,33 @@ describe("this session's peer", () => {
 		expect(at.presences.of(session)?.moving).toBeUndefined();
 	});
 
+	it("says why a move was called off, until another is asked", () => {
+		const at = { ...surroundings(), owner: { pid: 4100, startedAt: 1000 } };
+		const peer = localPeer(at);
+		peer.setMoving({ to: "attended", since: "2026-11-10T09:00:00.000Z" });
+		const off = {
+			to: "attended" as const,
+			since: "2026-11-10T09:00:00.000Z",
+			at: "2026-11-10T09:45:00.000Z",
+			why: "it waited 45 minutes and is still held: a fleet is out",
+		};
+		peer.callOffMove(off);
+		expect(at.presences.of(session)?.moving).toBeUndefined();
+		expect(at.presences.of(session)?.moveOff).toEqual(off);
+		const reloaded = localPeer(at);
+		reloaded.refresh();
+		expect(
+			at.presences.of(session)?.moveOff,
+			"a reload still says why",
+		).toEqual(off);
+
+		reloaded.setMoving({
+			to: "background",
+			since: "2026-11-10T10:00:00.000Z",
+		});
+		expect(at.presences.of(session)?.moveOff).toBeUndefined();
+	});
+
 	it("says a person drives it, kept for its own session in any process and passed to no other", () => {
 		const at = { ...surroundings(), owner: { pid: 4100, startedAt: 1000 } };
 		const peer = localPeer(at);
@@ -571,9 +598,13 @@ describe("this session's peer", () => {
 			JSON.stringify({
 				...presence(),
 				moving: { to: "penelope", since: "2026-11-10T09:00:00.000Z" },
+				moveOff: { to: "attended", since: "2026-11-10T09:00:00.000Z" },
 			}),
 		);
 		expect(presences.of("s-1")).not.toHaveProperty("moving");
+		expect(presences.of("s-1"), "one saying no why").not.toHaveProperty(
+			"moveOff",
+		);
 	});
 
 	it("is waiting when idle with a want standing, and busy while it runs", () => {

@@ -97,6 +97,17 @@ function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * What holds a session still waiting to move, as its presence says, or
+ * why its move was called off once none waits (moving.ts).
+ */
+function holdsSaid(presence: Presence | undefined): string | undefined {
+	if (presence?.moving) return presence.moving.holds;
+	return presence?.moveOff
+		? `called itself off: ${presence.moveOff.why}`
+		: undefined;
+}
+
 /** Every conversation the realm's two hosts hold; one not listening holds none. */
 async function listHeld(
 	realm: string,
@@ -164,7 +175,7 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 			askWake(session, `release-${Date.now()}`);
 		},
 		note: (session) => readMoveNote(session, moves),
-		holds: async (session) => presences.of(session)?.moving?.holds,
+		holds: async (session) => holdsSaid(presences.of(session)),
 		refreshRestore: () => refreshRestoreFile(quests),
 		journal: (quest, prose) => {
 			const dir = discoverQuests(quests).index.quests.get(quest)?.dir;
@@ -312,7 +323,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 				return `the ${key} host didn't answer: ${messageOf(error)}`;
 			}
 		},
-		holds: async (session) => presences.of(session)?.moving?.holds,
+		holds: async (session) => holdsSaid(presences.of(session)),
 		now: () => Date.now(),
 		pause,
 		say,

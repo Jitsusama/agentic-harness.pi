@@ -11,11 +11,14 @@ import {
 	createMoving,
 	holdsOf,
 	MOVE_LOOK_MS,
+	MOVE_WAIT_MOST_MS,
 	type MovingSession,
 } from "../../../extensions/mesh-workflow/moving.ts";
 import type { MoveTarget } from "../../../lib/internal/session/move.ts";
 import { announceJobHost, type JobHold } from "../../../lib/jobs/index.ts";
-import type { Moving } from "../../../lib/mesh/presence.ts";
+import type { MoveOff, Moving } from "../../../lib/mesh/moving.ts";
+
+const ASKED = Date.parse("2026-11-10T09:00:00.000Z");
 
 interface Session {
 	holds: string | undefined;
@@ -27,6 +30,10 @@ interface Session {
 	/** Who each close or release said asked for it. */
 	readonly asked: string[];
 	readonly said: (Moving | undefined)[];
+	/** Why each move it called off went, as its presence says. */
+	readonly offs: MoveOff[];
+	/** Its clock, in ms since the epoch. */
+	time: number;
 	/** The look the clock would make, while one is set. */
 	tick?: () => void;
 	readonly clocks: number[];
@@ -45,6 +52,8 @@ function session(
 		told: [],
 		asked: [],
 		said: [],
+		offs: [],
+		time: ASKED,
 		clocks: [],
 		move: createMoving({
 			holds: () => at.holds,
@@ -53,6 +62,10 @@ function session(
 			setMoving: (now) => {
 				at.moving = now;
 				at.said.push(now);
+			},
+			calledOff: (off) => {
+				at.moving = undefined;
+				at.offs.push(off);
 			},
 			note: (to: MoveTarget) => {
 				if (at.noteFails) throw new Error("the disk is full");
@@ -72,7 +85,7 @@ function session(
 						},
 					}
 				: {}),
-			now: () => new Date("2026-11-10T09:00:00.000Z"),
+			now: () => new Date(at.time),
 			every: (ms, look) => {
 				at.clocks.push(ms);
 				at.tick = look;
@@ -155,7 +168,8 @@ describe("moving a session", () => {
 
 	it("goes on with a move a reload carried, once looked at", () => {
 		const one = session("a run is under way");
-		one.moving = { to: "background", since: "2026-11-10T08:00:00.000Z" };
+		// Asked half an hour before, inside the bound a move waits for.
+		one.moving = { to: "background", since: "2026-11-10T08:30:00.000Z" };
 		one.move.look();
 		expect(one.clocks).toEqual([MOVE_LOOK_MS]);
 		one.holds = undefined;
@@ -235,6 +249,91 @@ describe("moving a session", () => {
 			"Moving to the attended host in this window; waiting first, as a run is under way.",
 		]);
 		expect(one.did).toEqual([]);
+	});
+
+	it("calls itself off once what holds it outlasts its bound, saying why, and stays plain", () => {
+		const one = session("a fleet is out (j2: k7-read)");
+		one.move.move("attended");
+		one.time = ASKED + MOVE_WAIT_MOST_MS - 1;
+		one.tick?.();
+		expect(one.moving?.holds).toBe("a fleet is out (j2: k7-read)");
+		one.time = ASKED + MOVE_WAIT_MOST_MS;
+		one.tick?.();
+		expect(one.moving).toBeUndefined();
+		expect(one.tick).toBeUndefined();
+		expect(one.offs).toEqual([
+			{
+				to: "attended",
+				since: "2026-11-10T09:00:00.000Z",
+				at: "2026-11-10T09:45:00.000Z",
+				why: "it waited 45 minutes and is still held: a fleet is out (j2: k7-read)",
+			},
+		]);
+		expect(one.told.at(-1)).toBe(
+			"The move to the attended host is off: it waited 45 minutes and is still held: a fleet is out (j2: k7-read).",
+		);
+		one.holds = undefined;
+		one.move.look();
+		expect(one.did, "nothing moves once it is off").toEqual([]);
+	});
+
+	it("counts its bound from when the move was asked, through a reload", () => {
+		const one = session("background jobs are out");
+		one.moving = { to: "background", since: "2026-11-10T08:00:00.000Z" };
+		one.move.look();
+		expect(one.moving).toBeUndefined();
+		expect(one.offs[0]?.why).toMatch(/waited 45 minutes/);
+		expect(one.did).toEqual([]);
+	});
+
+	it("bounds a move in place that finds no quiet moment as well", () => {
+		const one = session();
+		const keyed = { at: ASKED };
+		const waiting = createMoving({
+			holds: () => undefined,
+			hosted: () => false,
+			moving: () => one.moving,
+			setMoving: (now) => {
+				one.moving = now;
+			},
+			calledOff: (off) => {
+				one.moving = undefined;
+				one.offs.push(off);
+			},
+			note: (to) => one.did.push(`note ${to}`),
+			handOver: () => ({ end: () => one.did.push("handed") }),
+			keyedAt: () => keyed.at,
+			tell: (text) => one.told.push(text),
+			close: () => one.did.push("close"),
+			now: () => new Date(one.time),
+			every: (_ms, look) => {
+				one.tick = look;
+				return () => {
+					one.tick = undefined;
+				};
+			},
+		});
+		waiting.move("background", "here");
+		one.time = ASKED + MOVE_WAIT_MOST_MS;
+		keyed.at = one.time;
+		one.tick?.();
+		expect(one.did).toEqual([]);
+		expect(one.offs[0]?.why).toMatch(/waited 45 minutes and is still held/);
+	});
+
+	it("says why a move the person called off went", () => {
+		const one = session("a run is under way");
+		one.move.move("background");
+		one.time = ASKED + 60_000;
+		one.move.cancel();
+		expect(one.offs).toEqual([
+			{
+				to: "background",
+				since: "2026-11-10T09:00:00.000Z",
+				at: "2026-11-10T09:01:00.000Z",
+				why: "the person is at the desk",
+			},
+		]);
 	});
 
 	it("ends once, however often it is asked after", () => {

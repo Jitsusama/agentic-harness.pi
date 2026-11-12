@@ -11,7 +11,7 @@ import {
 	moveIntoHost,
 } from "../../../extensions/mesh-workflow/host-command.ts";
 import type { HostKind } from "../../../host/service/address.ts";
-import type { Moving } from "../../../lib/mesh/presence.ts";
+import type { Moving } from "../../../lib/mesh/moving.ts";
 
 let folder: string;
 let wake: string;

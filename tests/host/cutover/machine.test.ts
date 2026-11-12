@@ -86,6 +86,39 @@ function root(knows: boolean): string {
 	return folder;
 }
 
+describe("machineFacts' holds", () => {
+	it("says what holds a move waiting, or why one called itself off", async () => {
+		const folder = mkdtempSync(join(tmpdir(), "cutover-presence-"));
+		const said = (session: string, over: Partial<Presence>) =>
+			writeFileSync(
+				join(folder, `${session}.json`),
+				JSON.stringify(presence({ session, ...over })),
+			);
+		said("waits", {
+			moving: {
+				to: "attended",
+				since: "2026-11-12T15:00:00.000Z",
+				holds: "a fleet is out (j2: k7-read)",
+			},
+		});
+		said("gave-up", {
+			moveOff: {
+				to: "attended",
+				since: "2026-11-12T15:00:00.000Z",
+				at: "2026-11-12T15:45:00.000Z",
+				why: "it waited 45 minutes and is still held: a fleet is out (j2: k7-read)",
+			},
+		});
+		said("plain", {});
+		const facts = machineFacts({ realm: "work", presence: folder });
+		expect(await facts.holds("waits")).toBe("a fleet is out (j2: k7-read)");
+		expect(await facts.holds("gave-up")).toBe(
+			"called itself off: it waited 45 minutes and is still held: a fleet is out (j2: k7-read)",
+		);
+		expect(await facts.holds("plain")).toBeUndefined();
+	});
+});
+
 describe("machineFacts' knowsMove", () => {
 	it("takes a presence's word, which only a harness with the move says", async () => {
 		const facts = machineFacts({ realm: "work" });
