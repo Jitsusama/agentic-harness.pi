@@ -123,8 +123,7 @@ describe.skipIf(!packageDir)(
 				await started.idle(sessionId, TURN_MS);
 				await untilAnswered(
 					"the conversation signs in to the mesh",
-					async () =>
-						(presences().of(sessionId)?.addresses ?? []).length > 0,
+					async () => (presences().of(sessionId)?.addresses ?? []).length > 0,
 				).catch((error: unknown) => {
 					throw new Error(`${String(error)}; ${said()}`);
 				});
@@ -142,17 +141,17 @@ describe.skipIf(!packageDir)(
 				);
 				await mkdir(parkFolder, { recursive: true });
 				await writeFile(join(parkFolder, "switch"), `${sessionId}\n`);
-				await started
-					.parked(sessionId, PARK_MS)
-					.catch(async (error: unknown) => {
-						const awake = await readFile(
-							awakePath(sessionId, parkFolder),
-							"utf8",
-						).catch(() => "nothing");
-						throw new Error(
-							`${String(error)}; it said it stays awake: ${awake}; ${said()}`,
-						);
-					});
+				try {
+					await started.parked(sessionId, PARK_MS);
+				} catch (error: unknown) {
+					const awake = await readFile(
+						awakePath(sessionId, parkFolder),
+						"utf8",
+					).catch(() => "nothing");
+					throw new Error(
+						`${String(error)}; it said it stays awake: ${awake}; ${said()}`,
+					);
+				}
 				const resting = presences().of(sessionId);
 				expect(
 					resting !== undefined && saysParked(resting),

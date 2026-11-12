@@ -234,9 +234,10 @@ describe("parsing what the machine prints", () => {
 			true,
 		);
 		expect(parseScreenless("{}"), "no output at all").toBe(true);
-		expect(parseScreenless(JSON.stringify({ "eDP-1": on })), "a screen on").toBe(
-			false,
-		);
+		expect(
+			parseScreenless(JSON.stringify({ "eDP-1": on })),
+			"a screen on",
+		).toBe(false);
 		expect(
 			parseScreenless(
 				JSON.stringify({ "eDP-1": { ...on, powered_off: true } }),
