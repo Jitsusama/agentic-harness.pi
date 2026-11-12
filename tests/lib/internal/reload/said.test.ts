@@ -7,13 +7,15 @@ import {
 	realpathSync,
 	rmSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	LOADED_FOLDER,
 	packageFolderOf,
+	runningPi,
 	sayLoaded,
 	sayLoadedIn,
 	unsayLoaded,
@@ -29,8 +31,13 @@ beforeEach(() => {
 	version = join(install, "versions", "57be3af7");
 	mkdirSync(version, { recursive: true });
 	symlinkSync(join("versions", "57be3af7"), join(install, "current"));
+	// A host sets it; the tests here say which pi runs where they mean to.
+	vi.stubEnv("PI_PACKAGE_DIR", "");
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => {
+	vi.unstubAllEnvs();
+	rmSync(root, { recursive: true, force: true });
+});
 
 /** The file a pi said it loaded in, which a test needs it to have said. */
 function written(file: string | undefined): string {
@@ -97,11 +104,73 @@ describe("what a pi says it loaded", () => {
 		expect(readdirSync(join(install, LOADED_FOLDER))).toEqual(["4242"]);
 	});
 
+	it("says which pi runs it, so pi-packages can warm that pi's cache", () => {
+		const pi = {
+			bundle: "/store/pi/dist/bundle",
+			node: "/store/node/bin/node",
+			tmp: "/tmp",
+		};
+
+		const file = sayLoaded(version, undefined, 4242, pi);
+
+		expect(said(file)).toEqual({ root: version, pi });
+	});
+
 	it("takes it back as the pi ends", () => {
 		const file = written(sayLoaded(version, undefined, 4242));
 
 		unsayLoaded(file);
 
 		expect(existsSync(file), `${file} goes as the pi ends`).toBe(false);
+	});
+});
+
+// 12 November: jiti names its cache entries by each file's path, and
+// every swap moves the harness to a new one, so the first start of each
+// pi after a swap transpiled all 1,120 files again: 15 s cold against
+// 1.4 s warm. pi-packages warms the cache through each pi that runs.
+describe("which pi runs", () => {
+	const node = "/store/node/bin/node";
+
+	it("is the bundle whose command line started the process", () => {
+		const pi = runningPi({
+			argv: [node, "/store/pi/lib/node_modules/pi-monorepo/dist/bundle/cli.js"],
+			env: {},
+			node,
+			tmp: "/tmp",
+		});
+
+		expect(pi).toEqual({
+			bundle: "/store/pi/lib/node_modules/pi-monorepo/dist/bundle",
+			node,
+			tmp: "/tmp",
+		});
+	});
+
+	it("is the runtime a host names, which runs a script of its own", () => {
+		const runtime = join(root, "pi-host-runtime");
+		const bundle = join(runtime, "lib/node_modules/pi-monorepo/dist/bundle");
+		mkdirSync(bundle, { recursive: true });
+		writeFileSync(join(bundle, "cli.js"), "");
+
+		const pi = runningPi({
+			argv: [node, join(version, "scripts/pi-host.ts"), "attended"],
+			env: { PI_PACKAGE_DIR: runtime },
+			node,
+			tmp: "/tmp",
+		});
+
+		expect(pi).toEqual({ bundle, node, tmp: "/tmp" });
+	});
+
+	it("is nothing when neither says where pi's bundle is", () => {
+		const pi = runningPi({
+			argv: [node, "/somewhere/vitest.mjs"],
+			env: { PI_PACKAGE_DIR: join(root, "no-runtime") },
+			node,
+			tmp: "/tmp",
+		});
+
+		expect(pi, "no pi is named without a bundle to start").toBeUndefined();
 	});
 });

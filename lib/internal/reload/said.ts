@@ -8,20 +8,78 @@
  * harness's versions, 8.5 GiB, and none went. So each pi writes
  * `<package>/loaded/<pid>`, holding the root it loaded, at every load,
  * and removes it as it ends; pi-packages trusts that over the maps.
+ *
+ * The file also names the pi that runs it. jiti names its cache entries
+ * by each file's path, and each swap moves the package to a new one, so
+ * on 12 November the first start of each pi after a swap transpiled all
+ * 1,120 files again: 15 s cold against 1.4 s warm. pi-packages warms the
+ * cache before a swap through each pi a file names, since another pi's
+ * jiti may name or tag its entries differently.
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	realpathSync,
 	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { installOfVersion } from "./loaded.ts";
 
 /** The folder of a package's install that its pis say what they loaded in. */
 export const LOADED_FOLDER = "loaded";
+
+/** Where pi's bundle sits in a runtime a host names by `PI_PACKAGE_DIR`. */
+const RUNTIME_BUNDLE = "lib/node_modules/pi-monorepo/dist/bundle";
+
+/** The command that starts pi, in its bundle. */
+const PI_COMMAND = "cli.js";
+
+/** The pi a process runs, so another program can start the same one. */
+export interface RunningPi {
+	/** The folder of pi's bundle, holding the `cli.js` that starts it. */
+	readonly bundle: string;
+	/** The node that runs it. */
+	readonly node: string;
+	/** Its temporary folder, under which jiti keeps its cache. */
+	readonly tmp: string;
+}
+
+/** What a process says of how it was started. */
+interface Started {
+	readonly argv: readonly string[];
+	readonly env: Readonly<Record<string, string | undefined>>;
+	readonly node: string;
+	readonly tmp: string;
+}
+
+/**
+ * The pi this process runs: the bundle whose `cli.js` started it, or else
+ * the runtime a host names in `PI_PACKAGE_DIR`, since a host starts a
+ * script of its own. Nothing when neither names a bundle.
+ */
+export function runningPi(
+	started: Started = {
+		argv: process.argv,
+		env: process.env,
+		node: process.execPath,
+		tmp: tmpdir(),
+	},
+): RunningPi | undefined {
+	const { node, tmp } = started;
+	const script = started.argv[1];
+	if (script !== undefined && basename(script) === PI_COMMAND)
+		return { bundle: dirname(script), node, tmp };
+	const runtime = started.env.PI_PACKAGE_DIR;
+	if (!runtime) return undefined;
+	const bundle = join(runtime, RUNTIME_BUNDLE);
+	return existsSync(join(bundle, PI_COMMAND))
+		? { bundle, node, tmp }
+		: undefined;
+}
 
 /**
  * The install folder pi-packages keeps the package in: the one above the
@@ -54,10 +112,11 @@ export function sayLoaded(
 	root: string,
 	install: string | undefined,
 	pid: number = process.pid,
+	pi: RunningPi | undefined = runningPi(),
 ): string | undefined {
 	const folder = packageFolderOf(root, install);
 	if (folder === undefined) return undefined;
-	return sayLoadedIn(join(folder, LOADED_FOLDER, String(pid)), root);
+	return sayLoadedIn(join(folder, LOADED_FOLDER, String(pid)), root, pi);
 }
 
 /**
@@ -68,12 +127,16 @@ export function sayLoaded(
  * left alone it would go on naming the version the pi left. Answers
  * the file, or nothing when it couldn't be written.
  */
-export function sayLoadedIn(file: string, root: string): string | undefined {
+export function sayLoadedIn(
+	file: string,
+	root: string,
+	pi: RunningPi | undefined = runningPi(),
+): string | undefined {
 	const dir = dirname(file);
 	const writing = join(dir, `.${basename(file)}.new`);
 	try {
 		mkdirSync(dir, { recursive: true });
-		writeFileSync(writing, `${JSON.stringify({ root })}\n`);
+		writeFileSync(writing, `${JSON.stringify(pi ? { root, pi } : { root })}\n`);
 		renameSync(writing, file);
 		return file;
 	} catch {
