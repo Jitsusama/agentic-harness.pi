@@ -128,8 +128,10 @@ describe("a gate beside a tool whose output streams in", () => {
 		const lost: number[] = [];
 		while (release === undefined) {
 			if (!(await session.onScreen("MARK-body-0"))) lost.push(written);
+			// Twice a line, so every line's frame is looked at while it's up.
 			await sleep(LINE_MS / 2);
 		}
+		// A few frames past the last line, when the dock has dealt its room.
 		await sleep(100);
 		if (!(await session.onScreen("MARK-body-0"))) lost.push(written);
 
