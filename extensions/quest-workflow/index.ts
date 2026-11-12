@@ -295,8 +295,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	),
 	refType: Type.Optional(
 		Type.String({
-			description:
-				"find: quests with an alias of this type (e.g. github-pr).",
+			description: "find: quests with an alias of this type (e.g. github-pr).",
 		}),
 	),
 	pattern: Type.Optional(
@@ -324,15 +323,13 @@ export const QUEST_PARAMETERS = Type.Object({
 	),
 	limit: Type.Optional(
 		Type.Integer({
-			description:
-				"list/find/who: most rows (default 25).",
+			description: "list/find/who: most rows (default 25).",
 			minimum: 1,
 		}),
 	),
 	offset: Type.Optional(
 		Type.Integer({
-			description:
-				"list/find/who: rows to skip, to page with limit.",
+			description: "list/find/who: rows to skip, to page with limit.",
 			minimum: 0,
 		}),
 	),
