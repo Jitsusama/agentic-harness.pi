@@ -120,6 +120,7 @@ async function startFleet(
 		cols: options.cols ?? 100,
 		rows: options.rows ?? 30,
 		extensions: [subagentWorkflow, panelLifecycle],
+		loaded: ["subagent"],
 	});
 	pi = session;
 	for (let turn = 0; turn < (options.history ?? 0); turn++) {

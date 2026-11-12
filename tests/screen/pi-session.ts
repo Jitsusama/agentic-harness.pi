@@ -400,6 +400,11 @@ export interface BootOptions {
 	 */
 	readonly tuiMode?: TuiMode;
 	readonly extensions?: readonly InlineExtension[];
+	/**
+	 * Deferred tools to declare from the start, as a session does once
+	 * `tool_search` has loaded them, so a scripted call to one reaches it.
+	 */
+	readonly loaded?: readonly string[];
 	/** How fast the faux model streams its answers; at once when left out. */
 	readonly tokensPerSecond?: number;
 }
@@ -488,6 +493,12 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	mode.run().catch((error: unknown) => errors.push(`run: ${String(error)}`));
 	await waitFor(() => seen !== undefined, "the extension to load", 15000);
 	await runtime.session.setModel(faux.getModel());
+	if (options.loaded) {
+		runtime.session.setActiveToolsByName([
+			...runtime.session.getActiveToolNames(),
+			...options.loaded,
+		]);
+	}
 
 	const tui: unknown = Reflect.get(mode, "ui");
 	// The regular renderer is measured frame by frame. Fullscreen draws
