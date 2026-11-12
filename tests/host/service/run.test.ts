@@ -154,9 +154,10 @@ const TIMEOUT_MS = 1000;
 // read as a gap.
 const LONG_WATCHED = { WATCHDOG_USEC: "2000000" };
 const LONG_TIMEOUT_MS = 2000;
-// The journal's line for a loop held past a beat: how long, of how long.
+// The journal's line for a loop held past a beat: how long, of how long,
+// and how many conversations were mid-turn.
 const HELD =
-	/^the loop held (\d+\.\d) s past a watchdog beat, of the (\d+\.\d) s systemd waits$/;
+	/^the loop held (\d+\.\d) s past a watchdog beat, of the (\d+\.\d) s systemd waits, with (\d+) of (\d+) conversations mid-turn$/;
 
 describe("runHost's watchdog", () => {
 	it("keeps pinging through a turn twice the timeout's length", async () => {
@@ -335,6 +336,7 @@ describe("runHost's watchdog", () => {
 			"held for about the block, less the beat it was due in",
 		).toBeGreaterThanOrEqual(TIMEOUT_MS / 1000);
 		expect(held?.[2], "the watchdog's own timeout").toBe("1.0");
+		expect(held?.slice(3), "none mid-turn, of none held").toEqual(["0", "0"]);
 	});
 
 	it("doesn't ping without a watchdog, nor once stopped", async () => {

@@ -208,7 +208,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 					ping: (within) => (options.alive ?? notifyAlive)(options.env, within),
 					every,
 					report,
-					held: (late) => say(heldLine(late, every * PINGS_PER_TIMEOUT)),
+					held: (late) =>
+						say(heldLine(late, every * PINGS_PER_TIMEOUT, serving.held())),
 				});
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
@@ -430,10 +431,19 @@ function keepAlive(options: {
 	return () => clearInterval(beat);
 }
 
-/** Say how long the loop held past a beat, of the watchdog's `timeout`. */
-function heldLine(late: number, timeout: number): string {
+/**
+ * Say how long the loop held past a beat, of the watchdog's `timeout`,
+ * and how many of the conversations `held` were mid-turn, so a stall
+ * can be laid beside what those turns ran.
+ */
+function heldLine(
+	late: number,
+	timeout: number,
+	held: readonly { readonly state: string }[],
+): string {
 	const seconds = (ms: number) => (ms / MS_PER_SECOND).toFixed(1);
-	return `the loop held ${seconds(late)} s past a watchdog beat, of the ${seconds(timeout)} s systemd waits`;
+	const busy = held.filter(({ state }) => state === "busy").length;
+	return `the loop held ${seconds(late)} s past a watchdog beat, of the ${seconds(timeout)} s systemd waits, with ${busy} of ${held.length} conversations mid-turn`;
 }
 
 /** Show what the host serves as the unit's status, once it changes. */
