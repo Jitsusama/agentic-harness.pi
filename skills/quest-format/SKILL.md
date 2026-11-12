@@ -188,6 +188,12 @@ Field semantics:
   hear in full only what the mesh puts to them, glancing at
   the rest. Set with the quest tool's `config` (`ref`
   `hears=addressed`, cleared with `hears=all`), never by hand.
+
+- `realm`: optional, the realm the quest was made in, such
+  as `work`. `quest create` writes it from the session's
+  `MYCELIUM_REALM`. What reads quests across realms lets
+  only a quest marked for it cross; an unmarked quest
+  never does. Never set it by hand.
 - `kind`: `quest`, `subquest` or `sidequest`. See
   quest-convention for choosing.
 - `parent`: the id of the parent quest when this is a

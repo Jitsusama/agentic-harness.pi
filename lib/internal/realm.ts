@@ -46,6 +46,17 @@ export function sessionRealm(
 }
 
 /**
+ * The name of the realm the session is in, home or not, or undefined
+ * when it names none a folder could carry.
+ */
+export function sessionRealmName(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	const own = env.MYCELIUM_REALM?.trim();
+	return own && REALM_NAME.test(own) ? own : undefined;
+}
+
+/**
  * The folders inside a root that hold the session's realm's own: none
  * for its home realm, `realms/<name>` for another.
  */
