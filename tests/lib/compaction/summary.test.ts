@@ -57,6 +57,22 @@ describe("summaryInstruction", () => {
 			);
 		});
 
+		it("holds a long summary to its ceiling", () => {
+			const capped = (replacedTokens: number) =>
+				summaryInstruction({
+					hasPreviousSummary: false,
+					length: {
+						replacedTokens,
+						maxOutputTokens: 51_200,
+						ceilingTokens: 6_000,
+					},
+				});
+			expect([
+				capped(150_000).includes("Make it about 6,000 tokens long"),
+				capped(40_000).includes("Make it about 4,000 tokens long"),
+			]).toEqual([true, true]);
+		});
+
 		it("counts the earlier summary in what a fold replaces", () => {
 			const text = summaryInstruction({
 				hasPreviousSummary: true,

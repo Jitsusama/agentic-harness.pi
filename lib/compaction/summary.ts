@@ -55,6 +55,8 @@ export interface SummaryLength {
 	readonly replacedTokens: number;
 	/** The most output the summary may take, thinking included. */
 	readonly maxOutputTokens: number;
+	/** The most the summary is asked for, however much it replaces. */
+	readonly ceilingTokens?: number;
 }
 
 /**
@@ -189,11 +191,13 @@ export function summaryInstruction(options: SummaryInstructionOptions): string {
 	return parts.join("\n\n");
 }
 
-/** The size a summary is asked for: a share of what it replaces, within the floor and the output limit. */
+/** The size a summary is asked for: a share of what it replaces, within the floor, the output limit and any ceiling. */
 function summaryTarget(length: SummaryLength): number {
-	const ceiling =
+	const ceiling = Math.min(
 		Math.floor((TARGET_SHARE_OF_OUTPUT * length.maxOutputTokens) / ROUNDING) *
-		ROUNDING;
+			ROUNDING,
+		length.ceilingTokens ?? Number.POSITIVE_INFINITY,
+	);
 	const wanted = Math.max(
 		MIN_SUMMARY_TARGET_TOKENS,
 		roundToHundred(SUMMARY_SHARE_OF_REPLACED * length.replacedTokens),
