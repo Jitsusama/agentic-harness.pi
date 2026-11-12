@@ -15,8 +15,8 @@
  * CLI's help to find the door that is open.
  */
 
-import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import type {

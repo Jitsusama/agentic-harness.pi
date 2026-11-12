@@ -192,8 +192,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	),
 	status: Type.Optional(
 		Type.String({
-			description:
-				"find: active, paused, blocked, concluded or retired.",
+			description: "find: active, paused, blocked, concluded or retired.",
 		}),
 	),
 	target: Type.Optional(
@@ -215,8 +214,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	),
 	since: Type.Optional(
 		Type.String({
-			description:
-				"find: on or after this date (YYYY-MM-DD or ISO).",
+			description: "find: on or after this date (YYYY-MM-DD or ISO).",
 		}),
 	),
 	until: Type.Optional(
@@ -286,8 +284,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	),
 	sessionId: Type.Optional(
 		Type.String({
-			description:
-				"session-*: another session than this one.",
+			description: "session-*: another session than this one.",
 		}),
 	),
 	field: Type.Optional(
