@@ -61,8 +61,12 @@ describe("what is on top", () => {
 	it("lapses the day after its end", () => {
 		const where = folder();
 		writeFileSync(where.file, JSON.stringify(TOP));
+		const friday = reader(where, "s1", () => SATURDAY + 6 * DAY_MS);
 		const later = reader(where, "s1", () => SATURDAY + 7 * DAY_MS);
-		expect(later(), "a week on, past Friday").toBeNull();
+		expect(
+			[friday() === null, later()],
+			"said on its last day, gone the day after",
+		).toEqual([false, null]);
 	});
 
 	it("holds what it last read while the file is half written", () => {
@@ -71,7 +75,10 @@ describe("what is on top", () => {
 		const read = reader(where, "s1");
 		const before = read();
 		writeFileSync(where.file, '{"quests": [');
-		expect(read(), "the last whole file").toBe(before);
+		expect(
+			[before === null, read() === before],
+			"the last whole file",
+		).toEqual([false, true]);
 	});
 
 	it("counts each session once as it reads, for the receipt", () => {
