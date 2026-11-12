@@ -785,6 +785,18 @@ run is replied by the last text that run writes. A reply so far
 is said again only once it changes. A quest or document that ends
 afterwards, before the next talk opens, adds `came`, such as
 `{"stage": "came", "what": "plan concluded", "ref": "PLAN-..."}`.
+A replied talk gets `over`, with `why`, once the session moves
+on from it: a newer talk to its address is replied (`a newer
+talk was answered`), even after a reload or a rollover, or it
+ends for good (`the session ended`), when pi quits with no park
+or restart in place to bring it back. Its own work carrying on
+doesn't count, nor does a reload, a park or a rollover. The
+desktop appends `{"stage": "read", "by": "..."}` once the person
+has read the reply; no session writes it. A steer that answers
+an earlier talk in place carries `re` with that talk's id, and
+its `delivered` keeps it. Each line is one object tagged by
+`stage`; fields are only added, never renamed or retyped, so a
+reader passes over what it doesn't know.
 An inbox keeps its talks for 90 days or its newest 500,
 whichever keeps more, pruned as each opens
 ([`lib/mesh/talk.ts`](../../lib/mesh/talk.ts)).

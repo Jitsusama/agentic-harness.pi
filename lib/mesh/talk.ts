@@ -10,7 +10,24 @@
  * - `reading`: the session is working on it, and on which step;
  * - `replying`: the reply so far, while it is written;
  * - `replied`: the whole reply, or `failed` with why there is none;
- * - `came`: what came of it later, such as a plan concluded.
+ * - `came`: what came of it later, such as a plan concluded;
+ * - `read`: the person has read the reply, appended by the desktop
+ *   (the agents daemon, for the launcher) with who read it as `by`;
+ *   no session writes it;
+ * - `over`: the session has moved on from a reply, with `why`: a
+ *   newer talk to it was replied, or it ended for good. Carrying on
+ *   with its own work is not moving on.
+ *
+ * A `delivered` keeps `re` when its steer answers an earlier talk in
+ * place, so the desktop can show the two as one thread.
+ *
+ * The shape holds for a reader in another language, such as a Rust
+ * one with serde, without a change of schema later: each line is one
+ * object tagged by `stage`, with `at` an ISO time; fields are only
+ * ever added, never renamed or given another type; a field not said
+ * is left out rather than null; and a reader passes over a stage or
+ * field it doesn't know. The file is only ever
+ * appended to, by the session and by the desktop's `read`.
  *
  * Talks are kept for RETAIN_DAYS or the newest RETAIN_TALKS of an
  * inbox, whichever keeps more, and pruned when a talk is opened.
@@ -20,6 +37,7 @@ import {
 	appendFileSync,
 	mkdirSync,
 	readdirSync,
+	readFileSync,
 	statSync,
 	unlinkSync,
 } from "node:fs";
@@ -29,6 +47,9 @@ import { join } from "node:path";
 export const RETAIN_DAYS = 90;
 /** How many of an inbox's newest talks are kept, however old. */
 export const RETAIN_TALKS = 500;
+
+/** How many of an inbox's newest talks a session looks at to end them. */
+const OVER_LOOKS = 50;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REPLIES = "replies";
@@ -42,11 +63,14 @@ export type TalkEvent =
 			readonly text: string;
 			readonly from?: string;
 			readonly sentAt?: string;
+			readonly re?: string;
 	  }
 	| { readonly stage: "reading"; readonly after: string }
 	| { readonly stage: "replying"; readonly text: string }
 	| { readonly stage: "replied"; readonly text: string }
 	| { readonly stage: "failed"; readonly why: string }
+	| { readonly stage: "read"; readonly by: string }
+	| { readonly stage: "over"; readonly why: string }
 	| {
 			readonly stage: "came";
 			readonly what: string;
@@ -82,6 +106,96 @@ export function sayTalk(
 		talkFile(inbox, id),
 		`${JSON.stringify({ ...event, at: at.toISOString() })}\n`,
 	);
+}
+
+/** One line of a talk as read back: its stage, its time and the rest. */
+export interface TalkLine {
+	readonly stage: string;
+	readonly at: string;
+	readonly [field: string]: unknown;
+}
+
+/**
+ * A talk's events, read back in the order they were said. A line that
+ * is not an object with a `stage` and an `at`, such as one torn by a
+ * writer that died mid-line, is passed over; a stage this reader
+ * doesn't know is kept, as its writer said it.
+ */
+export function talkEvents(inbox: string, id: string): TalkLine[] {
+	let raw: string;
+	try {
+		raw = readFileSync(talkFile(inbox, id), "utf8");
+	} catch {
+		// No such talk: it has no events.
+		return [];
+	}
+	return raw.split("\n").flatMap((line) => {
+		const event = lineOf(line);
+		return event ? [event] : [];
+	});
+}
+
+/**
+ * Say each replied talk in an inbox that isn't over yet is over, with
+ * why; `except` names the talk just answered, which stays as it is.
+ * An inbox is one address's, and an address carries across a
+ * rollover where a session's id doesn't, so the inbox alone says whose
+ * talks they are. Looks at the newest OVER_LOOKS talks only, since
+ * each reply ends those before it. Answers the talks it ended.
+ */
+export function overTalks(
+	inbox: string,
+	why: string,
+	except?: string,
+	at: Date = new Date(),
+): string[] {
+	const ended: string[] = [];
+	for (const id of newestTalks(inbox, OVER_LOOKS)) {
+		if (id === except) continue;
+		const stages = new Set(talkEvents(inbox, id).map(({ stage }) => stage));
+		if (!stages.has("replied") || stages.has("over")) continue;
+		try {
+			sayTalk(inbox, id, { stage: "over", why }, at);
+			ended.push(id);
+		} catch {
+			// A talk that can't be written stays as it was; the next look tries.
+		}
+	}
+	return ended;
+}
+
+/** An inbox's talks, newest first, at most `count` of them. */
+function newestTalks(inbox: string, count: number): string[] {
+	const folder = join(inbox, REPLIES);
+	let names: string[];
+	try {
+		names = readdirSync(folder).filter((name) => name.endsWith(TALK));
+	} catch {
+		// No talks yet.
+		return [];
+	}
+	return names
+		.map((name) => ({ name, at: modified(join(folder, name)) }))
+		.sort((a, b) => b.at - a.at)
+		.slice(0, count)
+		.map(({ name }) => name.slice(0, -TALK.length));
+}
+
+function lineOf(line: string): TalkLine | undefined {
+	if (line.trim() === "") return undefined;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch {
+		// Torn or not JSON: not an event.
+		return undefined;
+	}
+	if (typeof parsed !== "object" || parsed === null) return undefined;
+	if (!("stage" in parsed && typeof parsed.stage === "string")) {
+		return undefined;
+	}
+	if (!("at" in parsed && typeof parsed.at === "string")) return undefined;
+	return { ...parsed, stage: parsed.stage, at: parsed.at };
 }
 
 /**

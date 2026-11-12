@@ -3,6 +3,7 @@
  * newest talks and the recent ones, whichever keeps more.
  */
 import {
+	appendFileSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -15,10 +16,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	overTalks,
 	pruneTalks,
 	RETAIN_DAYS,
 	RETAIN_TALKS,
 	sayTalk,
+	talkEvents,
 	talkFile,
 } from "../../../lib/mesh/talk.ts";
 
@@ -61,6 +64,51 @@ describe("a talk file", () => {
 			},
 			{ stage: "replied", text: "done", at: "2026-10-26T06:01:00.000Z" },
 		]);
+	});
+
+	it("reads back as its events, passing over a torn line and keeping a stage it doesn't know", () => {
+		sayTalk(inbox, "t1", { stage: "delivered", session: "s", text: "go" });
+		sayTalk(inbox, "t1", { stage: "replied", text: "done" });
+		sayTalk(inbox, "t1", { stage: "read", by: "launcher" });
+		appendFileSync(talkFile(inbox, "t1"), '{"stage":"later","at":"x"}\n{"sta');
+
+		expect(talkEvents(inbox, "t1").map(({ stage }) => stage)).toEqual([
+			"delivered",
+			"replied",
+			"read",
+			"later",
+		]);
+		expect(talkEvents(inbox, "none")).toEqual([]);
+	});
+
+	it("is over, once, when its address moves on from a reply, and only then", () => {
+		const other = join(inbox, "..", "OTHER");
+		sayTalk(inbox, "mine", { stage: "delivered", session: "s1", text: "a" });
+		sayTalk(inbox, "mine", { stage: "replied", text: "done" });
+		sayTalk(inbox, "read", { stage: "delivered", session: "s1", text: "b" });
+		sayTalk(inbox, "read", { stage: "replied", text: "done" });
+		sayTalk(inbox, "read", { stage: "read", by: "launcher" });
+		sayTalk(inbox, "open", { stage: "delivered", session: "s1", text: "c" });
+		sayTalk(inbox, "rolled", { stage: "delivered", session: "s0", text: "d" });
+		sayTalk(inbox, "rolled", { stage: "replied", text: "done" });
+		sayTalk(other, "theirs", { stage: "delivered", session: "s2", text: "f" });
+		sayTalk(other, "theirs", { stage: "replied", text: "done" });
+		sayTalk(inbox, "now", { stage: "delivered", session: "s1", text: "e" });
+		sayTalk(inbox, "now", { stage: "replied", text: "done" });
+
+		const ended = overTalks(inbox, "the session ended", "now");
+
+		expect(ended.sort()).toEqual(["mine", "read", "rolled"]);
+		expect(talkEvents(inbox, "mine").at(-1)).toMatchObject({
+			stage: "over",
+			why: "the session ended",
+		});
+		for (const id of ["open", "now"]) {
+			expect(talkEvents(inbox, id).at(-1)?.stage, id).not.toBe("over");
+		}
+		expect(talkEvents(other, "theirs").at(-1)?.stage).toBe("replied");
+		expect(overTalks(inbox, "again")).toEqual(["now"]);
+		expect(overTalks(join(inbox, "..", "nobody"), "none")).toEqual([]);
 	});
 
 	it("is pruned only once it is both old and past the newest kept", () => {

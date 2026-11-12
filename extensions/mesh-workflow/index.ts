@@ -102,8 +102,11 @@ import {
 	isParkAsk,
 	isParked,
 	isParking,
+	isRestartAsk,
 	PARK_ASK,
 	PARKING,
+	RESTART_ASK,
+	type RestartAsk,
 	SESSION_WOKEN,
 } from "../../lib/internal/session/park.ts";
 import {
@@ -196,6 +199,7 @@ import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
+import { inboxOf } from "../../lib/mesh/steer.ts";
 import { toolDetail } from "../../lib/mesh/step.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
@@ -270,7 +274,13 @@ import {
 } from "./quiet.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
-import { assistantText, createTalks, ended, userText } from "./talks.ts";
+import {
+	assistantText,
+	createTalks,
+	ended,
+	endsForGood,
+	userText,
+} from "./talks.ts";
 import { tellOnNoModel, tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
 import {
@@ -860,8 +870,20 @@ export function meshWorkflow(
 			return true;
 		};
 		let steering: Steering | undefined;
+		/** Where the steer inboxes are, once the mesh says. */
+		let steerRoot: string | undefined;
+		/** The last restart in place asked of this session, if any. */
+		let restartAsked: RestartAsk | undefined;
 		// What became of each steer that asked to be followed (talks.ts).
-		const talks = createTalks({ session: () => peer?.session ?? "" });
+		const talks = createTalks({
+			session: () => peer?.session ?? "",
+			inboxes: () =>
+				steerRoot === undefined
+					? []
+					: (peer?.addresses ?? []).map((address) =>
+							inboxOf(steerRoot ?? "", address),
+						),
+		});
 		// Pause, Resume, Stop, Close and Carry from outside the window (pausing.ts).
 		const pausing = createPausing({
 			idle: () => ctx?.isIdle?.() ?? true,
@@ -970,6 +992,7 @@ export function meshWorkflow(
 		const steer = (root: string | undefined) => {
 			steering?.stop();
 			steering = undefined;
+			steerRoot = root;
 			if (root === undefined) return;
 			steering = createSteering({
 				root,
@@ -2033,6 +2056,17 @@ export function meshWorkflow(
 			if (waiting && !(peer && isParked(peer.session))) {
 				markOwnerRunning(waiting, false);
 			}
+			// Ending for good moves on from its replies; a reload, a park, a
+			// restart in place or a rollover carries on with them (85PKB2).
+			if (
+				peer &&
+				endsForGood(event, {
+					parked: isParked(peer.session),
+					restarting: restartAsked?.restarting === true,
+				})
+			) {
+				talks.ended();
+			}
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;
@@ -2218,6 +2252,14 @@ export function meshWorkflow(
 				for (const ref of event.ids) talks.came(ended(ref, event.how), ref);
 			});
 		}
+
+		// A restart in place is asked on the bus before its quit, and its
+		// ask says by the shutdown whether it restarts (park-workflow).
+		pi.events?.on(RESTART_ASK, (data: unknown) => {
+			if (isRestartAsk(data) && peer && data.session === peer.session) {
+				restartAsked = data;
+			}
+		});
 
 		// A session parking says so in its presence, so senders keep what
 		// they send it and wake it; one that holds others off stays.

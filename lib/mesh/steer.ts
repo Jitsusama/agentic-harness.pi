@@ -12,7 +12,7 @@
  * file there under a temporary name and renames it to end in `.json`,
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
- * talk.ts). An `act` of `pause`, `resume`, `stop`, `close`, `carry` or
+ * talk.ts), with `re` naming the earlier talk it answers in place. An `act` of `pause`, `resume`, `stop`, `close`, `carry` or
  * `move` needs no text, a `carry` names the machine it goes to as `to`,
  * a `move` names where it goes as `to` (`attended`, `background` or
  * `pi`), and a `fill` puts its `text` in the prompt without sending it. A
@@ -120,6 +120,8 @@ export interface Steer {
 	readonly by?: string;
 	/** The talk it opens, when the writer gave one (see talk.ts). */
 	readonly id?: string;
+	/** The earlier talk it answers in place, when the writer said. */
+	readonly re?: string;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
 }
@@ -192,6 +194,7 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (!act && text === "") return undefined;
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
+	const re = "re" in parsed && isTalkId(parsed.re) ? parsed.re : undefined;
 	const by =
 		from === FROM_MACHINE &&
 		"by" in parsed &&
@@ -207,6 +210,7 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		...(from ? { from } : {}),
 		...(by ? { by } : {}),
 		...(id ? { id } : {}),
+		...(re ? { re } : {}),
 		file,
 	};
 }

@@ -93,6 +93,12 @@ describe("the steer inbox", () => {
 		expect(steerFrom('{"text":"go","id":7}', "f")?.id).toBeUndefined();
 	});
 
+	it("keeps the talk a steer answers only when it can name a talk", () => {
+		expect(steerFrom('{"text":"go","id":"t2","re":"t1"}', "f")?.re).toBe("t1");
+		expect(steerFrom('{"text":"go","re":"../x"}', "f")?.re).toBeUndefined();
+		expect(steerFrom('{"text":"go","re":7}', "f")?.re).toBeUndefined();
+	});
+
 	it("reads an act with no text, and keeps words only beside resume", () => {
 		expect(steerFrom('{"act":"pause"}', "f")).toEqual({
 			text: "",
