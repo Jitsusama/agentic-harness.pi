@@ -1,5 +1,5 @@
 /**
- * E15: a hosted conversation's subagents answer on the host's gateway
+ * E16: a hosted conversation's subagents answer on the host's gateway
  * key. A host holds no key in its own environment: its engine resolves
  * one per request. A subagent is a pi of its own, whose providers read
  * the key from the environment it starts with, as Shopify's proxy
@@ -64,7 +64,7 @@ afterEach(async () => {
 });
 
 it(
-	"E15: a hosted conversation's subagents answer on the host's gateway key",
+	"E16: a hosted conversation's subagents answer on the host's gateway key",
 	async ({ skip }) => {
 		await onHostPi(
 			skip,

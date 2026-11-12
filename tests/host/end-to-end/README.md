@@ -231,7 +231,7 @@ once the background host is up it prints `opening` and `hosted` with
 the session the host opened, exits 0, and that session is told the
 words and answers.
 
-subagent-key.test.ts is E15: a hosted conversation's subagents answer
+subagent-key.test.ts is E16: a hosted conversation's subagents answer
 on the host's gateway key. Each child loads the scripted model on
 `$SHOPIFY_PROXY_KEY` (support/keyed-provider.ts), as Shopify's proxy
 extension registers its providers, while the host holds no key in its

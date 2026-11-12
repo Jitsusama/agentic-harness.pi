@@ -3,7 +3,7 @@
  * Shopify's proxy extension registers its providers: its key is
  * `$SHOPIFY_PROXY_KEY`, which pi reads from the environment, so a pi
  * started without that variable refuses every request with "No API key
- * found". E15 hands it to a hosted conversation's subagents, whose host
+ * found". E16 hands it to a hosted conversation's subagents, whose host
  * holds no key in its own environment.
  */
 
