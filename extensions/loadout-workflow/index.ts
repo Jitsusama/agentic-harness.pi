@@ -45,9 +45,9 @@ import {
 	untilServersReturn,
 } from "./servers.ts";
 import {
+	type LoadoutSettings,
 	parseLoadoutSettings,
-	type SkillPlaces,
-	skillsHere,
+	placedHere,
 	withPackagePlaces,
 } from "./skills.ts";
 
@@ -70,16 +70,20 @@ function isSkillRead(event: {
 }
 
 /**
- * Where each skill applies, from the package config's `loadout`
- * section over the package's own places; only the package's when the
- * config is missing or its section does not parse.
+ * Where each skill and tool applies, from the package config's
+ * `loadout` section, the skills' over the package's own places; only
+ * the package's when the config is missing or its section does not
+ * parse.
  */
-async function skillPlaces(): Promise<SkillPlaces> {
+async function loadoutPlaces(): Promise<LoadoutSettings> {
 	const loaded = await loadPackageConfig();
-	if (!loaded.ok) return withPackagePlaces({});
-	return withPackagePlaces(
-		getSection(loaded.config, LOADOUT_SLUG, parseLoadoutSettings).value.skills,
-	);
+	if (!loaded.ok) return { skills: withPackagePlaces({}), tools: {} };
+	const said = getSection(
+		loaded.config,
+		LOADOUT_SLUG,
+		parseLoadoutSettings,
+	).value;
+	return { skills: withPackagePlaces(said.skills), tools: said.tools };
 }
 
 /** The package config section this extension reads. */
@@ -91,8 +95,9 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	// Every deferred tool, loaded or not, so the section stays the same
 	// after a tool is loaded.
 	let index: string | undefined;
-	// Where each skill applies, read once at start from the package config.
-	let places: SkillPlaces = {};
+	// Where each skill and tool applies, read once at start from the
+	// package config.
+	let places: LoadoutSettings = { skills: {}, tools: {} };
 	// Whether this runtime's first run has waited for the session's servers.
 	let waited = false;
 	const idle = idleTools();
@@ -103,16 +108,25 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 			await serversBack(ctx?.sessionManager?.getBranch?.() ?? []);
 		}
 		// pi offers every tool's snippet and rules here, declared or not.
-		index ??= loadableIndex(loadable(pi.getAllTools(), new Set()), {
-			snippets: event.systemPromptOptions.toolSnippets ?? {},
-			guidelines: event.systemPromptOptions.toolGuidelines ?? {},
-		});
+		// A tool placed elsewhere is left out of the index, though
+		// tool_search still finds it.
+		index ??= loadableIndex(
+			placedHere(
+				loadable(pi.getAllTools(), new Set()),
+				places.tools,
+				event.systemPromptOptions.cwd,
+			),
+			{
+				snippets: event.systemPromptOptions.toolSnippets ?? {},
+				guidelines: event.systemPromptOptions.toolGuidelines ?? {},
+			},
+		);
 		if (index) event.systemPromptOptions.sections[INDEX_SECTION] = index;
 		const skills = event.systemPromptOptions.skills;
 		if (skills) {
-			event.systemPromptOptions.skills = skillsHere(
+			event.systemPromptOptions.skills = placedHere(
 				skills,
-				places,
+				places.skills,
 				event.systemPromptOptions.cwd,
 			);
 		}
@@ -141,7 +155,7 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async () => {
-		places = await skillPlaces();
+		places = await loadoutPlaces();
 		const active = pi.getActiveTools();
 		idle.saw(active);
 		const registered = pi

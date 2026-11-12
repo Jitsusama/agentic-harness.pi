@@ -27,9 +27,10 @@ declaration.
 - **Loads what a skill names.** When the model reads a `SKILL.md` that
   names a deferred tool by its whole name, that tool, and the rest of
   its namespace, is declared, and the read says so.
-- **Lists a skill only where it applies**, when the package config
-  says where. A skill left out of the list can still be read by its
-  path.
+- **Lists a skill or a tool only where it applies**, when the package
+  config says where. A skill left out of the list can still be read by
+  its path, and a tool left out of the index can still be found with
+  `tool_search` or loaded by a skill that names it.
 - **Waits for the session's MCP servers after a reload.** The first
   run after a reload or a restart waits, for at most 10 seconds, until
   every MCP server the session had has registered its tools again.
@@ -38,7 +39,7 @@ declaration.
   in the index dropped out, and came back later, rewriting the cache
   each time. A session that had no MCP server never waits.
 
-## Listing Skills Where They Apply
+## Listing Skills and Tools Where They Apply
 
 The skills list is read again on every turn too: 25,668 characters,
 a fifth of a fresh session, on 25 October. The `loadout` section of
@@ -49,14 +50,21 @@ session must run under for them to be listed:
 ```json
 {
   "sections": {
-    "loadout": { "skills": { "shopify-world-*": ["~/world"] } }
+    "loadout": {
+      "skills": { "shopify-world-*": ["~/world"] },
+      "tools": { "mastery_*": ["~/src/joel.gerber.pi"] }
+    }
   }
 }
 ```
 
+`tools` places the on-demand tools' lines in the index the same way:
+the mastery tools' line is about 545 characters a turn, and they serve
+only one checkout.
+
 The most specific key wins, so `shopify-vault-guide` can be listed
 everywhere beside `shopify-*` listed in one place. A key with no
-folders lists its skills nowhere, and a skill no key names is listed
+folders lists its names nowhere, and a name no key names is listed
 everywhere. The config is read when a session starts.
 
 The package lists five of its own skills nowhere, under the person's
