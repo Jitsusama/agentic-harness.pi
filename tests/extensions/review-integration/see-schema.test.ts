@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { registerSeeTool } from "../../../extensions/review-integration/tools/see.ts";
+import { registerSeeTool } from "../../../extensions/review-integration/tools/see-tool.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 
 /** The declared schema of one review_see parameter. */

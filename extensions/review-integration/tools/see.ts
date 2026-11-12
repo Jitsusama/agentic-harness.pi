@@ -9,14 +9,15 @@
  * you want to know.
  *
  * Read-only, so no gate anywhere in here.
+ *
+ * What a call does, loaded on its first call; the registration is
+ * `see-tool.ts`.
  */
 
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import { citeListing } from "../../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
 import {
@@ -27,6 +28,7 @@ import type {
 	BoundTarget,
 	Decision,
 	Finding,
+	ReviewTarget,
 } from "../../../lib/core/review/index.ts";
 import {
 	createDecisionLedger,
@@ -42,12 +44,10 @@ import {
 	sinceLastVisit,
 	tallyReceptions,
 } from "../../../lib/core/review/index.ts";
-import { takesUpCarried } from "../../../lib/jobs/take-up.ts";
 import { count } from "../../../lib/ui/count.ts";
 import {
 	CHECKS_POLL_MS,
-	CHECKS_WORK,
-	takeUpChecks,
+	type ChecksReading,
 	unsettled,
 	watchChecks,
 } from "../checks-job.ts";
@@ -60,6 +60,7 @@ import {
 	stackLines,
 	threadLines,
 } from "../render.ts";
+import type { SeeParams } from "./see-tool.ts";
 import {
 	type Answer,
 	boundFor,
@@ -68,14 +69,26 @@ import {
 	hostedChange,
 	refuse,
 	refuseFailure,
-	renderAnswer,
-	renderInvocation,
 	repoToList,
 	reviewedChange,
 	say,
 	type TargetParams,
 	threadsOf,
 } from "./shared.ts";
+
+/**
+ * How a watch a move carried in reads its change's checks, once the
+ * change is bound here; nothing when it can't be.
+ */
+export async function checksReading(
+	pi: ExtensionAPI,
+	target: ReviewTarget,
+): Promise<ChecksReading | undefined> {
+	const bound = await boundForTarget(pi, target);
+	return bound
+		? { read: () => bound.checks(), render: checksLines }
+		: undefined;
+}
 
 /** What `review_see` can be asked for. */
 type SeeAction =
@@ -90,130 +103,31 @@ type SeeAction =
 	| "findings"
 	| "followup";
 
-/** Register the `review_see` tool. */
-export function registerSeeTool(pi: ExtensionAPI): void {
-	// A watch a move carried into this session watches on here.
-	takesUpCarried(pi.events, CHECKS_WORK, (work) =>
-		takeUpChecks(work, {
-			reading: async (target) => {
-				const bound = await boundForTarget(pi, target);
-				return bound
-					? { read: () => bound.checks(), render: checksLines }
-					: undefined;
-			},
-		}),
-	);
-	pi.registerTool({
-		name: "review_see",
-		label: "Review See",
-		description:
-			"Read a change under review, whatever hosts it: the change itself, its diff, its checks, the stack it sits in, sibling changes in the repo, and the conversation on it as threads, reviews or plain messages. Works for hosted changes and for local ranges and stacks that nothing hosts.",
-		promptSnippet:
-			"Read a change under review: the change, its diff, checks, stack, sibling changes, and its conversation.",
-		promptGuidelines: [
-			"Name a change to read it without disturbing the attachment.",
-			"A derived stack can be wrong at the edges: a merged parent or a renamed branch ends the chain early. Pass that caveat on when it matters.",
-		],
-		parameters: Type.Object({
-			// An enum rather than a union of literals, as review_offer's: the
-			// same choices in a third of the characters sent every turn.
-			action: StringEnum(
-				[
-					"change",
-					"diff",
-					"checks",
-					"stack",
-					"changes",
-					"threads",
-					"reviews",
-					"messages",
-					"findings",
-					"followup",
-				] as const,
-				{
-					description:
-						"What to read. change: the change itself and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody. followup: where your own remarks stand now the change has moved on, worst first.",
-				},
-			),
-			change: Type.Optional(
-				Type.String({
-					description:
-						"Reference to a hosted change: URL, short form or number. Omit to read the attached change.",
-				}),
-			),
-			repo: Type.Optional(
-				Type.String({ description: "Checkout path for a local review." }),
-			),
-			base: Type.Optional(
-				Type.String({ description: "Base ref, with head, for a local range." }),
-			),
-			head: Type.Optional(
-				Type.String({ description: "Head ref, with base, for a local range." }),
-			),
-			refs: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "Ordered refs to read as one stack.",
-				}),
-			),
-			state: Type.Optional(
-				StringEnum(["open", "merged", "closed"] as const, {
-					description: "For changes: which ones.",
-				}),
-			),
-			limit: Type.Optional(
-				Type.Number({ description: "For changes: how many." }),
-			),
-			mine: Type.Optional(
-				Type.Boolean({
-					description:
-						"For reviews: only your own, to check whether you already gave a verdict. Refused where the backend will not say who you are.",
-				}),
-			),
-			watch: Type.Optional(
-				Type.Boolean({
-					description:
-						"For checks: when unsettled, return at once and send the result later as its own message, so you carry on rather than poll.",
-				}),
-			),
-		}),
+/** Do what a `review_see` call asks, once the tool is first called. */
+export async function runSee(
+	pi: ExtensionAPI,
+	params: SeeParams,
+	ctx: ExtensionContext,
+): Promise<Answer> {
+	// Held outside the try so a failure can say which provider was asked.
+	let bound: BoundTarget | undefined;
+	try {
+		// Siblings are the one read that is about a repo rather
+		// than a change, so it resolves differently.
+		if (params.action === "changes") return seeChanges(pi, params, ctx);
 
-		renderCall(args, theme, context) {
-			const params = args as { action?: string; change?: string };
-			return renderInvocation(
-				theme,
-				"review_see",
-				params.action,
-				params.change,
-				context?.lastComponent,
-			);
-		},
-
-		renderResult(result, options, theme, context) {
-			return renderAnswer(result, theme, options, context?.lastComponent);
-		},
-
-		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			// Held outside the try so a failure can say which provider was asked.
-			let bound: BoundTarget | undefined;
-			try {
-				// Siblings are the one read that is about a repo rather
-				// than a change, so it resolves differently.
-				if (params.action === "changes") return seeChanges(pi, params, ctx);
-
-				bound = await boundFor(pi, params, ctx.cwd);
-				if (params.action === "checks" && params.watch === true)
-					return await watchFor(pi, bound);
-				return await readFrom(
-					bound,
-					params.action as Exclude<SeeAction, "changes">,
-					(params as { mine?: boolean }).mine === true,
-					ctx,
-				);
-			} catch (error) {
-				return refuseFailure(error, bound);
-			}
-		},
-	});
+		bound = await boundFor(pi, params, ctx.cwd);
+		if (params.action === "checks" && params.watch === true)
+			return await watchFor(pi, bound);
+		return await readFrom(
+			bound,
+			params.action as Exclude<SeeAction, "changes">,
+			(params as { mine?: boolean }).mine === true,
+			ctx,
+		);
+	} catch (error) {
+		return refuseFailure(error, bound);
+	}
 }
 
 /** Dispatch one read against an already-bound change. */

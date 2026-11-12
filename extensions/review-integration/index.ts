@@ -52,7 +52,6 @@ import {
 } from "./engine.ts";
 import { guardPublishes } from "./guard-publish.ts";
 import { watchQueued } from "./queued.ts";
-import { collectSettled } from "./tools/ask.ts";
 import {
 	registerAskTool,
 	registerDraftTool,
@@ -110,6 +109,9 @@ type TellModel = (text: string) => void;
 async function settleRounds(rounds: string, tell: TellModel): Promise<void> {
 	const { rounds: open } = await createRunStore(rounds).openRunIds();
 	if (open.length === 0) return;
+	// Loaded only when a round is open, since it is the whole of
+	// review_ask's work and a session with none never needs it.
+	const { collectSettled } = await import("./tools/ask.ts");
 	const { leftMine } = await collectSettled(open);
 	if (leftMine.length === 0) return;
 	const named = leftMine.map(

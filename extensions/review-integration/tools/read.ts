@@ -8,10 +8,15 @@
  * Capabilities lives here rather than with the reads because it
  * is a question about the binding, not about the change: what
  * can be done to this thing, given who is hosting it.
+ *
+ * What a call does, loaded on its first call; the registration is
+ * `read-tool.ts`.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type {
+	ExtensionAPI,
+	ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type BoundTarget,
 	changeInPlay,
@@ -25,14 +30,13 @@ import { displayPath } from "../../../lib/ui/path.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import { GLYPH } from "../render.ts";
 import { treeStandingFor } from "../work.ts";
+import type { ReviewParams } from "./read-tool.ts";
 import {
 	type Answer,
 	boundFor,
 	hostedChange,
 	refuse,
 	refuseFailure,
-	renderAnswer,
-	renderInvocation,
 	say,
 	type TargetParams,
 } from "./shared.ts";
@@ -56,117 +60,42 @@ async function asksAboutCheckout(params: TargetParams): Promise<boolean> {
 	return attached.length === 0;
 }
 
-/** Register the `review` tool. */
-export function registerReviewTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "review",
-		// Called in 14 of 66 sessions from 18 October, and the review-guide
-		// skill names it, so it loads when that is read.
-		exposure: "deferred",
-		label: "Review",
-		description:
-			"Say what you are working on, so no other call has to repeat it: attach a change, detach it, step up or down the stack it sits in, or ask what its provider can do. Call with no action to report what is attached.",
-		promptSnippet:
-			"Say what you are working on: attach, detach, next, prev, capabilities.",
-		promptGuidelines: [
-			"Attach a change once and every later call can leave it out. Use review_see to read, review_say to answer a remark, review_draft to compose a whole review.",
-			// Said once here for every review tool, rather than once on each:
-			// every tool's rules are read on every turn.
-			"A change can be a URL, an owner/repo#number short form or a bare number; or pass base and head, or refs, for something nobody has proposed. Leave it out to use the attached change.",
-			"Never assume GitHub. The provider is resolved from config, then provider claims, then the reference's shape.",
-			"When a stack or a capability is missing, say which provider was asked rather than reporting a generic failure.",
-			"review_say and review_offer open a confirmation gate for every action, so describe what you are about to do before calling them.",
-		],
-		parameters: Type.Object({
-			action: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("attach"),
-						Type.Literal("detach"),
-						Type.Literal("next"),
-						Type.Literal("prev"),
-						Type.Literal("capabilities"),
-					],
-					{
-						description:
-							"What to do. attach: work on this change, so later calls can leave it out. detach: stop working on it. next and prev: move the attachment up or down the stack it sits in. capabilities: what this change's provider can do. Omit entirely to report what is attached.",
-					},
+/** Do what a `review` call asks, once the tool is first called. */
+export async function runReview(
+	pi: ExtensionAPI,
+	params: ReviewParams,
+	ctx: ExtensionToolContext,
+): Promise<Answer> {
+	// Held outside the try so a failure can say which provider was asked.
+	let bound: BoundTarget | undefined;
+	try {
+		if (params.action === undefined) return reportAttached();
+		if (params.action === "attach")
+			return attachChange(pi, params, sessionCwd(ctx));
+		if (params.action === "detach")
+			return detachChange(pi, params, sessionCwd(ctx));
+		if (params.action === "next" || params.action === "prev") {
+			return stepAttachment(pi, params, params.action, sessionCwd(ctx));
+		}
+
+		// A checkout on its own is a fair thing to ask about, and it is
+		// what somebody asks before they have a change: naming neither a
+		// change nor a range used to be refused with "Name a change...",
+		// which answers a question nobody asked.
+		if (await asksAboutCheckout(params)) {
+			const { engine } = await reviewEngine(pi);
+			return say(
+				describeCapabilities(
+					await engine.serving(params.repo ?? sessionCwd(ctx)),
 				),
-			),
-			change: Type.Optional(
-				Type.String({
-					description:
-						"Reference to a hosted change: URL, short form or number.",
-				}),
-			),
-			repo: Type.Optional(
-				Type.String({ description: "Checkout path for a local review." }),
-			),
-			base: Type.Optional(
-				Type.String({
-					description: "Base ref, with head, for a local range.",
-				}),
-			),
-			head: Type.Optional(
-				Type.String({
-					description: "Head ref, with base, for a local range.",
-				}),
-			),
-			refs: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "Ordered refs to review as one stack.",
-				}),
-			),
-		}),
-
-		renderCall(args, theme, context) {
-			const params = args as { action?: string; change?: string };
-			return renderInvocation(
-				theme,
-				"review",
-				params.action,
-				params.change,
-				context?.lastComponent,
 			);
-		},
+		}
 
-		renderResult(result, options, theme, context) {
-			return renderAnswer(result, theme, options, context?.lastComponent);
-		},
-
-		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			// Held outside the try so a failure can say which provider was asked.
-			let bound: BoundTarget | undefined;
-			try {
-				if (params.action === undefined) return reportAttached();
-				if (params.action === "attach")
-					return attachChange(pi, params, sessionCwd(ctx));
-				if (params.action === "detach")
-					return detachChange(pi, params, sessionCwd(ctx));
-				if (params.action === "next" || params.action === "prev") {
-					return stepAttachment(pi, params, params.action, sessionCwd(ctx));
-				}
-
-				// A checkout on its own is a fair thing to ask about, and it is
-				// what somebody asks before they have a change: naming neither a
-				// change nor a range used to be refused with "Name a change...",
-				// which answers a question nobody asked.
-				if (await asksAboutCheckout(params)) {
-					const { engine } = await reviewEngine(pi);
-					return say(
-						describeCapabilities(
-							await engine.serving(params.repo ?? sessionCwd(ctx)),
-						),
-					);
-				}
-
-				bound = await boundFor(pi, params, sessionCwd(ctx));
-				return say(describeCapabilities(bound));
-			} catch (error) {
-				return refuseFailure(error, bound);
-			}
-		},
-	});
+		bound = await boundFor(pi, params, sessionCwd(ctx));
+		return say(describeCapabilities(bound));
+	} catch (error) {
+		return refuseFailure(error, bound);
+	}
 }
 
 /**

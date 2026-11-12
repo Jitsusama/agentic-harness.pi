@@ -24,11 +24,19 @@ import { describe, expect, it } from "vitest";
 
 const TOOLS = ["read", "see", "say", "ask", "draft", "offer"] as const;
 
+/**
+ * A tool's registration, where its schema is, then what a call does,
+ * which reads the parameters, loaded on the tool's first call.
+ */
 function source(tool: string): string {
-	return readFileSync(
-		join("extensions", "review-integration", "tools", `${tool}.ts`),
-		"utf-8",
-	);
+	return [`${tool}-tool.ts`, `${tool}.ts`]
+		.map((file) =>
+			readFileSync(
+				join("extensions", "review-integration", "tools", file),
+				"utf-8",
+			),
+		)
+		.join("\n");
 }
 
 /** Every `params.x` the implementation reads. */
@@ -41,9 +49,10 @@ function readParams(text: string): Set<string> {
 /** Every property the schema declares, with its description text. */
 function declared(text: string): Map<string, string> {
 	const found = new Map<string, string>();
-	// A typebox type, or a string enum, which offer's action is (#1370).
+	// A typebox type, or a string enum, which offer's action is (#1370),
+	// one level into the schema's `Type.Object`.
 	for (const match of text.matchAll(
-		/^\t{3}([a-zA-Z]+): (?:Type\.|StringEnum\()/gm,
+		/^\t([a-zA-Z]+): (?:Type\.|StringEnum\()/gm,
 	)) {
 		const name = match[1];
 		if (name === undefined) continue;

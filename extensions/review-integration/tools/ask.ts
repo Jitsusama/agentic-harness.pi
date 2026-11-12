@@ -25,10 +25,7 @@ import type {
 	EventBus,
 	ExtensionAPI,
 	ExtensionContext,
-	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Text } from "@earendil-works/pi-tui";
-import { Type } from "@sinclair/typebox";
 import { withFileLock } from "../../../lib/core/internal/file-lock.ts";
 import { lensFor } from "../../../lib/core/review/ask/prompt.ts";
 import {
@@ -93,10 +90,7 @@ import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { SANDBOX_VARIABLE, STRICT } from "../../../lib/internal/sandbox.ts";
-import {
-	personsWords,
-	refusedModel,
-} from "../../../lib/internal/session/asked-models.ts";
+import { refusedModel } from "../../../lib/internal/session/asked-models.ts";
 import {
 	endsWithItsPrompts,
 	runOrHandOff,
@@ -114,7 +108,6 @@ import {
 	WRAP_UP_SUFFIX,
 } from "../../../lib/subagent/index.ts";
 import { fromScript } from "../../../lib/subagent/runpi/fresh.ts";
-import { THINKING_LEVELS } from "../../../lib/thinking/index.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import {
@@ -153,18 +146,17 @@ import {
 	tooMany,
 } from "../roster.ts";
 import { watchStartedRound } from "../round-job.ts";
-import { roundReading, takesUpCarriedRounds } from "../round-reading.ts";
+import { roundReading } from "../round-reading.ts";
 import { roundToRead } from "../round-to-read.ts";
 import { askedInRound, roundDispatched, roundOpened } from "../run-records.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
+import { person } from "./heard.ts";
 import {
 	type Answer,
 	boundFor,
 	hostedChange,
 	messageOf,
 	refuse,
-	renderAnswer,
-	renderInvocation,
 	reviewedChange,
 	say,
 	type TargetParams,
@@ -195,7 +187,8 @@ type AskAction =
  */
 const ledger = createIdentityLedger();
 
-interface AskParams extends TargetParams {
+/** What a call of `review_ask` passes. */
+export interface AskParams extends TargetParams {
 	action?: AskAction;
 	intent?: string;
 	participant?: string;
@@ -240,309 +233,109 @@ async function seatFor(
 }
 
 /**
- * What the person typed to this session, held for the process like the
- * identity ledger above: one review_ask tool is registered per process.
+ * Do what a `review_ask` call asks, once the tool is first called: a
+ * round still going after a minute moves to a job.
  */
-const person = personsWords();
-
-/** Register the `review_ask` tool. */
-export function registerAskTool(pi: ExtensionAPI): void {
-	takesUpCarriedRounds(pi.events);
-	pi.on("input", (event) => {
-		if (event.source === "interactive") person.heard(event.text);
+export async function runAsk(
+	pi: ExtensionAPI,
+	toolCallId: string,
+	params: AskParams,
+	callSignal: AbortSignal | undefined,
+	ctx: ExtensionContext,
+): Promise<Answer> {
+	const action = params.action ?? "runs";
+	// A round runs for minutes, deaf to the person and the mesh while
+	// it holds the turn, so one still going after a minute moves to a
+	// job, as a long command does.
+	return await runOrHandOff<unknown>({
+		kind: "review",
+		label: `${action} on ${params.change ?? "the attached change"}`,
+		noun: "background round",
+		filePrefix: "pi-review-ask",
+		stopping: (jobId) =>
+			`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which stops every reviewer and keeps what they wrote. The person can stop it with /jobs.`,
+		quiet: "Its board shows how far each reviewer has got.",
+		toolCallId,
+		session: sessionKeyOf(ctx),
+		nested: endsWithItsPrompts(ctx.mode),
+		signal: callSignal,
+		onUpdate: undefined,
+		bus: pi.events,
+		run: (signal) => answerAsk(signal),
 	});
-	pi.registerTool({
-		name: "review_ask",
-		// Called in 16 of 70 sessions from 18 October, and the review-guide
-		// skill names it, so it loads when that is read.
-		exposure: "deferred",
-		label: "Review Ask",
-		description:
-			"Put a change to other models and keep what they say: a council of reviewers reading it independently, a judge consolidating what they found, the rounds already run, and a retry of one participant whose run failed. Produces findings; read them with review_see findings and decide them with review_draft decide.",
-		promptSnippet:
-			"Ask other models about a change: a council, a judge over it, the rounds so far, or a retry of one participant.",
-		promptGuidelines: [
-			"Run a council, which shows its progress and, still running after a minute, moves to the background with its result arriving later as a message of its own; use start only when the person asked for a round in the background, and say that it is running there.",
-			"The roster is chosen, first match winning: the set this round names, the set the loaded quest names (review.ask.quests), the set the project names (review.ask.projects), the review.ask roster, then a built-in roster of four reviewers and a judge. Name a set only when the person asked for one; the answer says which layer chose. A participant with no model runs on the session's model, at high thinking unless it says otherwise.",
-			"When a judge is done, check each of its findings against the source yourself before deciding it, then group what holds up by root cause and fix causes rather than symptoms.",
-			"A council is the discovery pass and a judge consolidates it, so run a council first; a judge with no council to read is refused rather than asked to invent one.",
-			"An id that has raised findings is held to the model, thinking level, tools and persona it meant. Reconfiguring one is refused, and the refusal names both ways out: another id, or release this one and accept that its findings no longer identify who raised them.",
-			"A round reads a snapshot pinned to the commit under review. When none can be cut it reads the checkout only if that checkout is at the commit, and otherwise refuses, naming what to fetch or which checkout to pass as repo: a round against the wrong commit or the wrong repository returns findings that read plausibly and are about other code. Only when the provider reports no commit does the answer carry a caveat naming what was read instead: pass that on.",
-			"Reading findings is review_see findings and deciding them is review_draft decide. This tool only produces them.",
-			"A round runs on one model and gets its spread from personas, never from other models. A model in who other than the one that participant runs on without it is refused, unless the person asked for that model by name.",
-		],
-		parameters: Type.Object({
-			action: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("council"),
-						Type.Literal("judge"),
-						Type.Literal("critique"),
-						Type.Literal("audit"),
-						Type.Literal("stack"),
-						Type.Literal("start"),
-						Type.Literal("stop"),
-						Type.Literal("runs"),
-						Type.Literal("roster"),
-						Type.Literal("collect"),
-						Type.Literal("retry"),
-						Type.Literal("release"),
-					],
-					{
-						description:
-							"What to do. council: ask the whole roster and wait; start: the same in the background, finished with collect; stop: end a started round, keeping what was written. judge: consolidate the latest council; critique: the roster pushes back on the judge. audit: judge each unresolved inbound thread. stack: the whole stack at once. runs (the default): the rounds so far. collect: finish a round from what its reviewers left on disk. retry: ask one participant again. release: free an id to mean another model.",
-					},
-				),
-			),
-			change: Type.Optional(
-				Type.String({
-					description:
-						"Reference to a hosted change: URL, short form or number. Omit to use the attached change.",
-				}),
-			),
-			base: Type.Optional(
-				Type.String({
-					description:
-						"Base ref, with head, to ask about a local range nobody has proposed. Its rounds and findings are held under base..head, so name it the same way each time.",
-				}),
-			),
-			head: Type.Optional(
-				Type.String({ description: "Head ref, with base, for a local range." }),
-			),
-			repo: Type.Optional(
-				Type.String({
-					description:
-						"Checkout path: the repo for a local review, and for a hosted change a checkout of its repo to cut the round's snapshot from, when the session is not sitting in one.",
-				}),
-			),
-			intent: Type.Optional(
-				Type.String({
-					description:
-						"Extra direction for this round only, e.g. 'look hardest at the error paths'. Not persisted: the standing lens belongs in a participant's persona.",
-				}),
-			),
-			participant: Type.Optional(
-				Type.String({
-					description: "Which participant to ask again. Required for retry.",
-				}),
-			),
-			run: Type.Optional(
-				Type.String({
-					description:
-						"Which round, by id: for judge, the council to consolidate; for critique, the judge to push back on; for retry, the round to retry into. Defaults to the latest council, or for critique the latest judge.",
-				}),
-			),
-			set: Type.Optional(
-				Type.String({
-					description:
-						"A named roster from review.ask.sets to ask this round, or 'built-in' for the package's own. Only when the person asked for one: otherwise the quest's, the project's or the configured roster is chosen.",
-				}),
-			),
-			// Last, and deliberately after every other parameter: the gate
-			// that checks the actions offered against the actions handled
-			// reads the file from the action union to the next parameter, so
-			// a union of literals in between reads as six more actions.
-			who: Type.Optional(
-				Type.Record(
-					Type.String(),
-					Type.Object({
-						model: Type.Optional(
-							Type.String({
-								description:
-									"The model, written with a slash, e.g. anthropic/claude-opus-5.",
-							}),
-						),
-						thinkingLevel: Type.Optional(
-							Type.Union(
-								// The shared list, so this schema and the fan-out
-								// tool's cannot drift apart about what pi takes.
-								THINKING_LEVELS.map((level) => Type.Literal(level)),
-								{ description: "How hard this one thinks." },
-							),
-						),
-						tools: Type.Optional(
-							Type.Array(Type.String(), {
-								description: "The tool palette this one is given.",
-							}),
-						),
-						persona: Type.Optional(
-							Type.String({
-								description:
-									"The lens to read through, by id; action roster lists them.",
-							}),
-						),
-						backstopMs: Type.Optional(
-							Type.Number({
-								description:
-									"Wall clock for this one, in milliseconds, so a slow reviewer gets longer without the rest.",
-							}),
-						),
-						idleMs: Type.Optional(
-							Type.Number({
-								description:
-									"How long this one may be silent before it counts as wedged, in milliseconds.",
-							}),
-						),
-						answerMs: Type.Optional(
-							Type.Number({
-								description:
-									"How much of its wall is kept back to ask it for what it has, in milliseconds; zero runs it to the wall.",
-							}),
-						),
-					}),
-					{
-						description:
-							"Settings for this round only, by participant id, overriding the roster; action roster shows who it has. Not accepted on a retry.",
-					},
-				),
-			),
-		}),
 
-		renderCall(
-			args: unknown,
-			theme: Theme,
-			context?: { lastComponent?: unknown },
-		): Text {
-			const params = args as AskParams;
-			return renderInvocation(
-				theme,
-				"review_ask",
-				params.action ?? "runs",
-				params.participant ?? params.change,
-				context?.lastComponent,
-			);
-		},
+	// One watch per call rather than one per round helper, so the
+	// board and the signal are the same objects everything sees, and
+	// every board this call opens comes down as its answer is handed
+	// back, including the answer to a round that threw.
+	function answerAsk(signal: AbortSignal): Promise<Answer> {
+		return answerWatching(ctx, signal, async (watch) => {
+			try {
+				// Before the change is bound, because this one is about the
+				// roster and not about any change. Binding first made the
+				// listing refuse from exactly the position it exists to be
+				// reachable from: deciding who to ask, before attaching
+				// anything to ask them about.
+				if (action === "roster") {
+					return await reportRoster(await seatFor(ctx, params));
+				}
 
-		renderResult(
-			result: Answer,
-			options: { expanded?: boolean },
-			theme: Theme,
-			context?: { lastComponent?: unknown },
-		): Text {
-			return renderAnswer(result, theme, options, context?.lastComponent);
-		},
+				const bound = await boundFor(pi, params, sessionCwd(ctx));
+				const change = reviewedChange(bound);
+				if (change === undefined) {
+					return refuse(
+						"A list of refs is put to the roster all together with action stack. Every other round takes a hosted change, or a local range as base and head.",
+					);
+				}
 
-		// Pi passes (toolCallId, params, signal, onUpdate, ctx). Reading the
-		// first as the payload was a real bug: the id is a string, so every
-		// field came back undefined and no council could ever run, because
-		// every action arrived as `runs`. The signal and the context were lost
-		// the same way, and three comments in this extension claimed pi
-		// provided neither.
-		async execute(
-			toolCallId: string,
-			args: unknown,
-			callSignal: AbortSignal | undefined,
-			_onUpdate: unknown,
-			ctx: ExtensionContext,
-		): Promise<Answer> {
-			const params = args as AskParams;
-			const action = params.action ?? "runs";
-			// A round runs for minutes, deaf to the person and the mesh while
-			// it holds the turn, so one still going after a minute moves to a
-			// job, as a long command does.
-			return await runOrHandOff<unknown>({
-				kind: "review",
-				label: `${action} on ${params.change ?? "the attached change"}`,
-				noun: "background round",
-				filePrefix: "pi-review-ask",
-				stopping: (jobId) =>
-					`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which stops every reviewer and keeps what they wrote. The person can stop it with /jobs.`,
-				quiet: "Its board shows how far each reviewer has got.",
-				toolCallId,
-				session: sessionKeyOf(ctx),
-				nested: endsWithItsPrompts(ctx.mode),
-				signal: callSignal,
-				onUpdate: undefined,
-				bus: pi.events,
-				run: (signal) => answerAsk(signal),
-			});
-
-			// One watch per call rather than one per round helper, so the
-			// board and the signal are the same objects everything sees, and
-			// every board this call opens comes down as its answer is handed
-			// back, including the answer to a round that threw.
-			function answerAsk(signal: AbortSignal): Promise<Answer> {
-				return answerWatching(ctx, signal, async (watch) => {
-					try {
-						// Before the change is bound, because this one is about the
-						// roster and not about any change. Binding first made the
-						// listing refuse from exactly the position it exists to be
-						// reachable from: deciding who to ask, before attaching
-						// anything to ask them about.
-						if (action === "roster") {
-							return await reportRoster(await seatFor(ctx, params));
-						}
-
-						const bound = await boundFor(pi, params, sessionCwd(ctx));
-						const change = reviewedChange(bound);
-						if (change === undefined) {
-							return refuse(
-								"A list of refs is put to the roster all together with action stack. Every other round takes a hosted change, or a local range as base and head.",
-							);
-						}
-
-						const seat = await seatFor(ctx, params, change);
-						switch (action) {
-							case "runs":
-								return await reportRuns(change);
-							case "collect":
-								return await collectOne(change, params);
-							case "council":
-								return await askCouncil(
-									bound,
-									change,
-									params,
-									seat,
-									watch("council"),
-								);
-							case "start":
-								return await startRound(pi.events, bound, change, params, seat);
-							case "stop":
-								return await stopRound(change, params);
-							case "judge":
-								return await askJudge(
-									bound,
-									change,
-									params,
-									seat,
-									watch("judge"),
-								);
-							case "critique":
-								return await askCritique(
-									bound,
-									change,
-									params,
-									seat,
-									watch("critique"),
-								);
-							case "audit":
-								return await askAudit(
-									bound,
-									change,
-									params,
-									seat,
-									watch("audit"),
-								);
-							case "stack":
-								return await askStack(pi, bound, params, seat, watch("stack"));
-							case "retry":
-								return await retryOne(
-									bound,
-									change,
-									params,
-									seat,
-									watch("council"),
-								);
-							case "release":
-								return releaseIdentity(params);
-						}
-					} catch (error) {
-						return refuse(messageOf(error));
-					}
-				});
+				const seat = await seatFor(ctx, params, change);
+				switch (action) {
+					case "runs":
+						return await reportRuns(change);
+					case "collect":
+						return await collectOne(change, params);
+					case "council":
+						return await askCouncil(
+							bound,
+							change,
+							params,
+							seat,
+							watch("council"),
+						);
+					case "start":
+						return await startRound(pi.events, bound, change, params, seat);
+					case "stop":
+						return await stopRound(change, params);
+					case "judge":
+						return await askJudge(bound, change, params, seat, watch("judge"));
+					case "critique":
+						return await askCritique(
+							bound,
+							change,
+							params,
+							seat,
+							watch("critique"),
+						);
+					case "audit":
+						return await askAudit(bound, change, params, seat, watch("audit"));
+					case "stack":
+						return await askStack(pi, bound, params, seat, watch("stack"));
+					case "retry":
+						return await retryOne(
+							bound,
+							change,
+							params,
+							seat,
+							watch("council"),
+						);
+					case "release":
+						return releaseIdentity(params);
+				}
+			} catch (error) {
+				return refuse(messageOf(error));
 			}
-		},
-	});
+		});
+	}
 }
 
 /** What has been asked about this change so far. */

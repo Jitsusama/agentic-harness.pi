@@ -5,12 +5,10 @@
  * in reads the round the same way the one that started it did.
  */
 
-import type { EventBus } from "@earendil-works/pi-coding-agent";
-import { takesUpCarried } from "../../lib/jobs/take-up.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.ts";
 import { runArtifactDir } from "./engine.ts";
 import { whyNotYet } from "./reviewer.ts";
-import { ROUND_WORK, type RoundReading, takeUpRound } from "./round-job.ts";
+import type { RoundReading } from "./round-job.ts";
 
 /** A run as its record names it: its id and its reviewers'. */
 interface RunNamed {
@@ -33,16 +31,17 @@ export function roundReading(
 	};
 }
 
-/** Watch on here any round's watch a move carries into this session. */
-export function takesUpCarriedRounds(bus: EventBus): () => void {
-	return takesUpCarried(bus, ROUND_WORK, (work) =>
-		takeUpRound(work, (id, participants) =>
-			roundReading(new ReviewerArtifactsStore(runArtifactDir()), {
-				id,
-				participants: participants.map((participant) => ({
-					id: participant,
-				})),
-			}),
-		),
-	);
+/**
+ * How a round's watch a move carried into this session reads its
+ * round, named by its id and its reviewers' (`ask-tool.ts` takes it
+ * up).
+ */
+export function carriedRoundReading(
+	id: string,
+	participants: readonly string[],
+): RoundReading {
+	return roundReading(new ReviewerArtifactsStore(runArtifactDir()), {
+		id,
+		participants: participants.map((participant) => ({ id: participant })),
+	});
 }
