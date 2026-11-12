@@ -428,7 +428,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// Seeded from the session's own log, not from this process: a resumed
 	// session's first turn here is its whole resumed context, which read
 	// as the fixed prompt made nothing look droppable.
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		idle.cancel();
 		const history = compactionHistory(ctx.sessionManager.getBranch());
 		firstTurnTokens = history.firstPromptTokens;
@@ -453,6 +453,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 					0,
 				)
 			: 0;
+		// Last, since it may start the idle timer cancelled above: a reload
+		// carries an idle session's warming on (see warm.ts).
+		if (event.reason === "reload") warming.resume(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
