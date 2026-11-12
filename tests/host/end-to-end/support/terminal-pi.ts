@@ -58,6 +58,47 @@ export interface TerminalPi {
 	errors(): string;
 }
 
+/** How a plain pi is started in its terminal. */
+interface TerminalStart {
+	seal: Seal;
+	packageDir: string;
+	file?: string;
+	cwd: string;
+	env?: NodeJS.ProcessEnv;
+	bare?: boolean;
+	/** Flags beside those, as the launcher's `--session-id` for a spawn. */
+	args?: readonly string[];
+}
+
+/** A pi that ran in a terminal until it ended, as it left that terminal. */
+export interface EndedTerminalPi {
+	/** How it exited, or null when a signal ended it. */
+	readonly code: number | null;
+	/** Every line its terminal shows. */
+	readonly screen: readonly string[];
+	/** What its terminal shows and what script(1) wrote, for a failure. */
+	readonly errors: string;
+}
+
+/**
+ * Run a plain pi as {@link startTerminalPi} starts one, for a pi that
+ * ends on its own, answering once it has, or failing after `withinMs`.
+ */
+export async function runTerminalPi(
+	options: TerminalStart & { withinMs: number },
+): Promise<EndedTerminalPi> {
+	const run = inTerminal(options);
+	const timer = setTimeout(() => run.child.kill("SIGKILL"), options.withinMs);
+	const [code, signal] = (await run.exited) as [number | null, string | null];
+	clearTimeout(timer);
+	if (signal === "SIGKILL") {
+		throw new Error(
+			`pi didn't end within ${options.withinMs} ms\n${run.errors()}`,
+		);
+	}
+	return { code, screen: run.drawing.screen(), errors: run.errors() };
+}
+
 /**
  * Start a plain pi under `seal` on the pi in `packageDir`, in `cwd`, in a
  * terminal: resuming the session `file`, or on a fresh session without
@@ -66,52 +107,15 @@ export interface TerminalPi {
  * again takes none it would lose (lib/internal/session/park.ts
  * flagsLost), so the seal's settings must load {@link SCRIPTED_PROVIDER}.
  */
-export async function startTerminalPi(options: {
-	seal: Seal;
-	packageDir: string;
-	file?: string;
-	cwd: string;
-	env?: NodeJS.ProcessEnv;
-	bare?: boolean;
-}): Promise<TerminalPi> {
-	const words = [
-		process.execPath,
-		join(options.packageDir, "dist/bundle/cli.js"),
-		...(options.file ? ["--session", options.file] : []),
-		...(options.bare ? [] : ["--extension", SCRIPTED_PROVIDER]),
-	].map(quoted);
-	// script(1) reads no window from a pipe, so the terminal is told its
-	// size before pi starts in it; exec keeps the pid pi runs as.
-	const child = spawn(
-		"script",
-		[
-			"-qfec",
-			`stty rows ${ROWS} cols ${COLUMNS}; exec ${words.join(" ")}`,
-			"/dev/null",
-		],
-		{
-			cwd: options.cwd,
-			env: {
-				...options.seal.env,
-				...options.env,
-				TERM: "xterm-256color",
-				PI_HOST_PACKAGE_DIR: options.packageDir,
-			},
-			stdio: ["pipe", "pipe", "pipe"],
-		},
-	);
-	const drawing: Drawn = drawn(ROWS, COLUMNS);
-	child.stdout.on("data", (chunk) => drawing.draw(String(chunk)));
-	let stderr = "";
-	child.stderr.on("data", (chunk: Buffer) => {
-		stderr += chunk.toString("utf8");
-	});
+export async function startTerminalPi(
+	options: TerminalStart,
+): Promise<TerminalPi> {
+	const started = inTerminal(options);
+	const { child, errors } = started;
 	let gone = false;
-	const exited = once(child, "exit").then(() => {
+	const exited = started.exited.then(() => {
 		gone = true;
 	});
-	const errors = () =>
-		[`Its terminal shows:\n${drawing.screen().join("\n")}`, stderr].join("\n");
 	const fail = (error: unknown): never => {
 		throw new Error(`${String(error)}\n${errors()}`);
 	};
@@ -180,6 +184,48 @@ export async function startTerminalPi(options: {
 		},
 		errors,
 	};
+}
+
+/** Pi started in a terminal of its own, drawn as it draws. */
+function inTerminal(options: TerminalStart) {
+	const words = [
+		process.execPath,
+		join(options.packageDir, "dist/bundle/cli.js"),
+		...(options.file ? ["--session", options.file] : []),
+		...(options.bare ? [] : ["--extension", SCRIPTED_PROVIDER]),
+		...(options.args ?? []),
+	].map(quoted);
+	// script(1) reads no window from a pipe, so the terminal is told its
+	// size before pi starts in it; exec keeps the pid pi runs as.
+	const child = spawn(
+		"script",
+		[
+			"-qfec",
+			`stty rows ${ROWS} cols ${COLUMNS}; exec ${words.join(" ")}`,
+			"/dev/null",
+		],
+		{
+			cwd: options.cwd,
+			env: {
+				...options.seal.env,
+				...options.env,
+				TERM: "xterm-256color",
+				PI_HOST_PACKAGE_DIR: options.packageDir,
+			},
+			stdio: ["pipe", "pipe", "pipe"],
+		},
+	);
+	const drawing: Drawn = drawn(ROWS, COLUMNS);
+	child.stdout.on("data", (chunk) => drawing.draw(String(chunk)));
+	let stderr = "";
+	child.stderr.on("data", (chunk: Buffer) => {
+		stderr += chunk.toString("utf8");
+	});
+	// Listened for at once, so an exit before anyone waits isn't missed.
+	const exited = once(child, "exit");
+	const errors = () =>
+		[`Its terminal shows:\n${drawing.screen().join("\n")}`, stderr].join("\n");
+	return { child, drawing, errors, exited };
 }
 
 /** `word` quoted for sh. */
