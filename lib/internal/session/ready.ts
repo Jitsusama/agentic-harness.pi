@@ -6,24 +6,61 @@
  * session after it. Ready is when its extensions are bound, its
  * session started and its history drawn: the person can type before
  * then, but nothing they send is acted on.
+ *
+ * After the session come the parts an extension can see, so health can
+ * tell a long log's start from a slow one:
+ *
+ * - `log B bytes`: the size of the session's log, which pi reads whole
+ *   before it loads any extension;
+ * - `loaded by L ms`: when crash-record loaded, part way through the
+ *   extensions, so after the log was read;
+ * - `bound by T ms`: when the session started, every extension bound.
+ *
+ * pi times its own phases, the log's read among them, only under
+ * `PI_TIMING`, so the read itself can't be told apart from here.
  */
 
-/** The line a pi says once it is ready, `readyAt - startedAt` after it started. */
-export function readyLine(
-	startedAt: number,
-	readyAt: number,
-	session: string,
-): string {
-	const ms = Math.max(0, Math.round(readyAt - startedAt));
-	return `pi: ready in ${ms} ms, session ${session}`;
+/** What the line says of one start, in milliseconds since the process began. */
+export interface ReadyParts {
+	readonly session: string;
+	readonly readyMs: number;
+	readonly logBytes?: number;
+	readonly loadedMs?: number;
+	readonly boundMs?: number;
+}
+
+/** The line a pi says once it is ready. */
+export function readyLine(parts: ReadyParts): string {
+	const said = [
+		`pi: ready in ${whole(parts.readyMs)} ms`,
+		`session ${parts.session}`,
+	];
+	if (parts.logBytes !== undefined) said.push(`log ${parts.logBytes} bytes`);
+	if (parts.loadedMs !== undefined) {
+		said.push(`loaded by ${whole(parts.loadedMs)} ms`);
+	}
+	if (parts.boundMs !== undefined) {
+		said.push(`bound by ${whole(parts.boundMs)} ms`);
+	}
+	return said.join(", ");
+}
+
+/** Whole milliseconds, never less than nothing when a clock steps back. */
+function whole(ms: number): number {
+	return Math.max(0, Math.round(ms));
+}
+
+/** What the start the line times saw. */
+export interface StartSeen {
+	readonly boundMs: number;
 }
 
 /** What the session's starts say, so only the process's first is timed. */
 export interface ReadyWatch {
-	/** A session started, for `reason`. */
-	started(reason: string): void;
-	/** Its resources are found: the line to say now, if this was the first. */
-	discovered(): boolean;
+	/** A session started, for `reason`, `atMs` after the process began. */
+	started(reason: string, atMs: number): void;
+	/** Its resources are found: what its start saw, if this was the first. */
+	discovered(): StartSeen | undefined;
 }
 
 /**
@@ -33,14 +70,14 @@ export interface ReadyWatch {
  * none of them is timed.
  */
 export function watchReady(): ReadyWatch {
-	let starting = false;
+	let starting: StartSeen | undefined;
 	return {
-		started(reason) {
-			starting = reason === "startup";
+		started(reason, atMs) {
+			starting = reason === "startup" ? { boundMs: atMs } : undefined;
 		},
 		discovered() {
 			const first = starting;
-			starting = false;
+			starting = undefined;
 			return first;
 		},
 	};

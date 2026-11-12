@@ -6,8 +6,9 @@
  *
  * Once its first session has started and its history is drawn, a pi
  * writes `pi: ready in N ms` to the system's log, timed from the
- * process's start, without waiting on the write. See
- * `lib/internal/session/ready.ts`.
+ * process's start, with its log's size and how far the start had got
+ * when this loaded and when the session started, without waiting on
+ * the write. See `lib/internal/session/ready.ts`.
  *
  * A pi that an uncaught error ends says why where somebody will look:
  * in its session's log, as a `crash` entry, and in the system's log
@@ -19,6 +20,7 @@
  * `lib/internal/session/crash-record.ts`.
  */
 
+import { statSync } from "node:fs";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -46,11 +48,12 @@ export const CRASH_ENTRY = "crash";
  */
 export default function crashRecord(pi: ExtensionAPI): void {
 	if (hosted()) return;
+	const loadedMs = performance.now();
 	const journal = journalCommand("err");
 	const ready = watchReady();
 	let stop: (() => void) | undefined;
 	pi.on("session_start", (event, ctx) => {
-		if (ctx.hasUI) ready.started(event.reason);
+		if (ctx.hasUI) ready.started(event.reason, performance.now());
 		stop?.();
 		const session = sessionOf(ctx);
 		stop = recordCrashes(
@@ -59,16 +62,25 @@ export default function crashRecord(pi: ExtensionAPI): void {
 		);
 	});
 	pi.on("resources_discover", (_event, ctx) => {
-		if (!ready.discovered()) return;
+		const seen = ready.discovered();
+		if (!seen) return;
 		const session = sessionOf(ctx);
+		const log = logOf(ctx);
 		// pi draws the session's history once every handler here has
 		// answered, so the next turn of the loop comes after it.
-		setImmediate(() =>
+		setImmediate(() => {
+			const readyMs = performance.now();
 			sayInJournal(
-				readyLine(performance.timeOrigin, Date.now(), session),
+				readyLine({
+					session,
+					readyMs,
+					logBytes: log ? sizeOf(log) : undefined,
+					loadedMs,
+					boundMs: seen.boundMs,
+				}),
 				journalCommand("info"),
-			),
-		);
+			);
+		});
 	});
 	pi.on("session_shutdown", () => {
 		stop?.();
@@ -91,6 +103,27 @@ function writerFor(
 		}
 		writeJournal(crashText(crash, who), journal);
 	};
+}
+
+/** The session's log, if it has one on disk. */
+function logOf(ctx: ExtensionContext): string | undefined {
+	try {
+		return ctx.sessionManager.getSessionFile();
+	} catch {
+		// A context the session already replaced: the line goes without
+		// the log's size rather than not at all.
+		return undefined;
+	}
+}
+
+/** How large `file` is, if it can still be read. */
+function sizeOf(file: string): number | undefined {
+	try {
+		return statSync(file).size;
+	} catch {
+		// A log not written yet, or moved: the line leaves the size out.
+		return undefined;
+	}
 }
 
 function sessionOf(ctx: ExtensionContext): string {
