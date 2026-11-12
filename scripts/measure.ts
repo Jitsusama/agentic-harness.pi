@@ -5,7 +5,8 @@
  * It measures a day unless `--week` asks for a week. A day's audit
  * holds the last 24 hours against the 24 before: spend, cache
  * rewrites, the always-on context each repository pays for, the tools
- * that failed most and how much of the quest files sessions read. Its
+ * that failed most and how much of the quest files sessions read. Then
+ * come the turns that made one tool call, a row a day for the week. Its
  * sensor counts the refusals, guard blocks and habits that recurred
  * over the last seven days, day by day, so a harness change shows as
  * a bend in the days after it lands rather than a week later. A
@@ -41,6 +42,7 @@ import {
 } from "../lib/core/observability/index.ts";
 import { stateDir } from "../lib/internal/paths.ts";
 import { renderReport, sense } from "./learning-sensor.ts";
+import { formatOneCall, oneCallTurns } from "./one-call.ts";
 
 /** How far back a day's sensor looks, so each day reads beside six more. */
 const SENSED_DAYS = 7;
@@ -64,15 +66,19 @@ export async function measure(opts: {
 	}
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
+	let oneCall: string;
 	let start: number;
 	let from: string;
 	let to: string;
 	try {
-		const input = await gatherAudit(
-			async (sql) => (await reader.query(sql)).rows,
-			{ now: opts.now, span: opts.span, sessionsDir: sessionsDir() },
-		);
+		const query = async (sql: string) => (await reader.query(sql)).rows;
+		const input = await gatherAudit(query, {
+			now: opts.now,
+			span: opts.span,
+			sessionsDir: sessionsDir(),
+		});
 		audit = formatAudit(input, opts.top ?? 12);
+		oneCall = formatOneCall(await oneCallTurns(query, opts.now));
 		start = Date.parse(input.period.from);
 		from = input.period.from.slice(0, 10);
 		to = input.period.to.slice(0, 10);
@@ -98,6 +104,8 @@ export async function measure(opts: {
 		"## Audit",
 		"",
 		audit.trimEnd(),
+		"",
+		oneCall.trimEnd(),
 		"",
 		sensed.trimEnd(),
 		"",
