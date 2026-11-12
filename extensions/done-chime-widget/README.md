@@ -31,6 +31,8 @@ It never rings for:
 - a run you stopped with Escape, since you're right there
 - anything while you're away (`away-workflow`), so a night's work
   doesn't wake the house
+- anything while the desktop's Do Not Disturb is on, where the machine
+  names its file (`quiet` below)
 - the test suite, which sets `PI_NOTIFY=off`
 
 Dozens of sessions can run at once, and only the one you were talking
@@ -67,7 +69,8 @@ session without a restart.
   "voice": "/path/to/en_GB-alan-medium.onnx",
   "piper": "/path/to/piper",
   "sox": "/path/to/sox",
-  "pitch": -300
+  "pitch": -300,
+  "quiet": "quiet"
 }
 ```
 
@@ -80,6 +83,11 @@ session without a restart.
   found on the PATH by default.
 - `pitch`: how far the line is moved, in cents; negative is lower, and
   0, the default, leaves the voice as it is.
+- `quiet`: the file the desktop keeps its Do Not Disturb in, under
+  `$XDG_RUNTIME_DIR` when relative. It reads `<since> <until>` in
+  milliseconds since 1970, an until of 0 meaning until it's ended, and
+  nothing rings while the until is 0 or still ahead. Empty or missing,
+  it isn't quiet.
 
 Without the file, a Mac rings with the Submarine sound and the Ralph
 voice, the lowest of each that macOS ships. Linux has no sound or voice

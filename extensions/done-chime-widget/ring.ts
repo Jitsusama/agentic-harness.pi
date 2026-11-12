@@ -13,13 +13,15 @@
  * whether anything was heard, never throws, and stays quiet where a tool
  * is missing or fails, since a machine with no speakers or no voice is
  * an answer, not an error. `PI_NOTIFY=off` silences it, as it silences
- * the desktop's notifications, so no test run makes a sound.
+ * the desktop's notifications, so no test run makes a sound, and so does
+ * the desktop's Do Not Disturb, where the machine names its file.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
+import { isQuiet, quietFile } from "./quiet.ts";
 import { readSound, type Sound } from "./sound.ts";
 
 /** One program to run, with its arguments. */
@@ -49,6 +51,8 @@ export interface RingDeps {
 	env?: NodeJS.ProcessEnv;
 	/** Defaults to the machine's own description (`sound.ts`). */
 	sound?: Sound;
+	/** Defaults to the clock, for whether a Do Not Disturb has ended. */
+	now?: () => number;
 }
 
 /**
@@ -121,7 +125,8 @@ export function ringPlan(
  * The ding plays while the line is made, and the line is spoken once
  * both are done; a step that fails ends the voice there and leaves the
  * ding alone. Never throws, and answers false when nothing could play,
- * on a platform it doesn't know, and when `PI_NOTIFY=off`.
+ * on a platform it doesn't know, when `PI_NOTIFY=off`, and while the
+ * desktop's Do Not Disturb is on.
  */
 export async function ring(
 	line: string,
@@ -131,6 +136,8 @@ export async function ring(
 	if (env.PI_NOTIFY === "off") return false;
 	const platform = deps.platform ?? process.platform;
 	const sound = deps.sound ?? readSound(platform);
+	const quiet = sound.quiet ? quietFile(sound.quiet, env) : undefined;
+	if (quiet && isQuiet(quiet, (deps.now ?? Date.now)())) return false;
 	const exec = deps.exec ?? spawnExec({ timeoutMs: STEP_LIMIT_MS });
 	const scratch = mkdtempSync(join(tmpdir(), "pi-done-chime-"));
 	try {
