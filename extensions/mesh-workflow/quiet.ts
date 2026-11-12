@@ -20,6 +20,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { Message } from "../../lib/mesh/message.ts";
+import { NOTED } from "./delivery.ts";
 
 /** The customType of the log entry that records the setting. */
 export const QUIET = "mesh-quiet";
@@ -31,6 +32,12 @@ export const QUIET_STATUS = "mesh-quiet";
 export interface Folding {
 	readonly messages?: readonly Pick<Message, "intent">[];
 	readonly turn?: boolean;
+	/**
+	 * Whether it answers this peer or asks something of it, whatever became
+	 * of its turn: a session its person paused is handed such a message
+	 * with no turn, and quiet must still show it.
+	 */
+	readonly forThisPeer?: boolean;
 }
 
 /** The intents that only tell, and ask nothing of anyone. */
@@ -38,14 +45,52 @@ const TELLING: ReadonlySet<string> = new Set(["fyi", "finding"]);
 
 /**
  * Whether a quiet session keeps a delivery off its screen: one that
- * started no turn and holds only fyis and findings. A delivery with no
- * messages is the mesh speaking for itself (a hold over, another session
- * on this quest), which the person should see.
+ * started no turn, holds only fyis and findings, and answers nothing
+ * this peer asked. A delivery with no messages is the mesh speaking for
+ * itself (a hold over, another session on this quest), which the person
+ * should see.
  */
 export function folds(delivery: Folding | undefined): boolean {
 	const messages = delivery?.messages ?? [];
-	if (delivery?.turn === true || messages.length === 0) return false;
+	if (delivery?.turn === true || delivery?.forThisPeer === true) return false;
+	if (messages.length === 0) return false;
 	return messages.every((message) => TELLING.has(message.intent));
+}
+
+/**
+ * How many messages a session's log shows quiet kept off its screen
+ * since it last went on, so the footer says after a reload what the
+ * screen still hides rather than starting again at none. A delivery
+ * logged before deliveries said forThisPeer counts as kept off if it
+ * only told, so for a while the number may run one or two high.
+ */
+export function keptOffIn(entries: readonly unknown[]): number {
+	let kept = 0;
+	for (let at = entries.length - 1; at >= 0; at--) {
+		const entry = entries.at(at);
+		if (!isRecord(entry)) continue;
+		if (entry.type === "custom" && entry.customType === QUIET) {
+			return isRecord(entry.data) && entry.data.on === true ? kept : 0;
+		}
+		if (entry.type !== "custom_message" || entry.customType !== NOTED) continue;
+		const delivery = foldingOf(entry.details);
+		if (folds(delivery)) kept += delivery?.messages?.length ?? 0;
+	}
+	return 0;
+}
+
+/** What a logged delivery's details say, as far as quiet reads them. */
+function foldingOf(details: unknown): Folding | undefined {
+	if (!isRecord(details) || !Array.isArray(details.messages)) return undefined;
+	const messages = details.messages.filter(
+		(one): one is Pick<Message, "intent"> =>
+			isRecord(one) && typeof one.intent === "string",
+	);
+	return {
+		messages,
+		turn: details.turn === true,
+		forThisPeer: details.forThisPeer === true,
+	};
 }
 
 /** Whether the latest setting in a session's log is quiet. */

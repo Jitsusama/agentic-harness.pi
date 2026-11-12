@@ -77,6 +77,11 @@ export interface Delivered {
 	readonly at?: number;
 	/** Whether it started a turn, which counts against the peer's hour. */
 	readonly turn?: boolean;
+	/**
+	 * Whether it answers this peer or asked for a turn, though a pause may
+	 * have held the turn back, so a quiet screen still shows it (quiet.ts).
+	 */
+	readonly forThisPeer?: boolean;
 	/** Why each message got the attention it did, for the screen. */
 	readonly why?: readonly string[];
 	/**

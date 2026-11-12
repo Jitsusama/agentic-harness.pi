@@ -736,6 +736,36 @@ describe("quiet", () => {
 		expect(lines[2]).toContain("take up X");
 	});
 
+	it("still shows an answer to this peer while its person has paused it", async () => {
+		// Paused, the answer is handed over with no turn, like any fyi.
+		createPresences(join(paths.mesh, "presence")).publish({
+			session,
+			addresses: [],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			state: "paused",
+			at: new Date().toISOString(),
+		});
+		const { sent, renderers, tools } = await startSession(
+			{},
+			{ isIdle: () => true },
+			quietLog,
+		);
+		peer("session-w", ["WCJQSG"], []);
+		await send(tools, "#optimus", "question", "who has qemu?");
+		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
+
+		fromElsewhere({ intent: "fyi", re: asked, text: "I do, until 03:00." });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(drawn(renderers, sent[0]).join("\n")).toContain(
+			"I do, until 03:00.",
+		);
+	});
+
 	it("shows everything while it is off, as it is by default", async () => {
 		const { sent, renderers } = await startSession({}, { isIdle: () => true });
 
