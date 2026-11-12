@@ -45,6 +45,7 @@ import { Type } from "@sinclair/typebox";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { tickFacts } from "../../lib/internal/process-ticks.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
+import { endsWithItsPrompts, runOrHandOff } from "../../lib/jobs/hand-off.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
 	registerSubagentDefaultExtension,
@@ -812,7 +813,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				context?.isError ? theme.fg("error", text) : text,
 			);
 		},
-		async execute(_toolCallId, params, toolSignal, _onUpdate, ctx) {
+		async execute(toolCallId, params, toolSignal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
 			const say = asideFor(ctx);
 			// The conversation waiting on this fleet, so that if this process
@@ -841,23 +842,44 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				params.background === true
 					? startFleetJob(pi.events, runId, assignments.length)
 					: undefined;
-			const signal = job?.signal ?? toolSignal;
 			const progress = createFleetProgressReporter(ctx, controls(runId), runId);
 			if (job !== undefined) {
-				finishInBackground(job, runFleet(), progress, runId);
+				finishInBackground(job, runFleet(job.signal), progress, runId);
 				return saidFirst(ranOn, startedAnswer(job, runId, assignments.length));
 			}
-			// The board comes down as the tool returns, after the bookkeeping
-			// below, and not when the fleet finishes: pi draws the result card
-			// in the frame after the return, so the board leaving any earlier
-			// leaves its rows blank for as long as the bookkeeping takes.
-			try {
-				return await runFleet();
-			} finally {
-				progress.close();
-			}
+			// A fleet waited on holds its turn, deaf to the person and the
+			// mesh, so one still running after a minute moves to a job, as a
+			// long command does.
+			return await runOrHandOff<unknown>({
+				kind: "subagent",
+				label: `${count(assignments.length, "subagent")} in ${runId}`,
+				noun: "background fleet",
+				filePrefix: "pi-fleet",
+				stopping: (jobId) =>
+					`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search); the person can stop it with /jobs or from its board.`,
+				quiet: "Its board shows how far each subagent has got.",
+				toolCallId,
+				// Names the file a long result is kept in; the run's id is as
+				// unique where no conversation is known.
+				session: session ?? runId,
+				nested: endsWithItsPrompts(ctx.mode),
+				signal: toolSignal,
+				onUpdate: undefined,
+				bus: pi.events,
+				run: async (owned) => {
+					// The board comes down after the bookkeeping below, not when
+					// the fleet finishes: pi draws the result card in the frame
+					// after the return, so the board leaving any earlier leaves
+					// its rows blank for as long as the bookkeeping takes.
+					try {
+						return await runFleet(owned);
+					} finally {
+						progress.close();
+					}
+				},
+			});
 
-			async function runFleet() {
+			async function runFleet(signal: AbortSignal) {
 				// Both up front, for the reason the sweep resolves its paths up
 				// front: these read the environment on every call, and a fleet
 				// can run for hours, so a lookup after the dispatch is a lookup
