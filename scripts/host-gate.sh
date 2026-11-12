@@ -26,6 +26,13 @@ record=$state/agentic-harness.pi/host-tests/$sha
 # program, its screens and the session seam its conversations go through,
 # the host tests themselves, and the lockfile and config they run under.
 hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|scripts/pi-host|scripts/host-|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
+# The extensions whose tools and turns the host cases drive, and the
+# libraries under them: background jobs, tool_search's loadout, the mesh,
+# parking, quests, reloads, stored results, spend and subagents. A host
+# loads every extension, but pnpm check's load check already proves the
+# rest load; only these have behaviour a host case would catch. #1441
+# changed subagent-workflow and merged with no run, breaking 3 cases.
+driven='^(extensions/(job|loadout|mesh|park|quest|reload|result-store|spend|subagent)-workflow/|lib/(mesh|jobs|subagent)/|lib/internal/(session|reload|quest)/)'
 
 git fetch -q origin main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
@@ -33,7 +40,7 @@ base=$(git merge-base origin/main "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
 # than passing as a change that touches nothing.
 changed=$(git diff --name-only "$base" "$sha")
-touched=$(echo "$changed" | grep -E "$hosted" || true)
+touched=$(echo "$changed" | grep -E "$hosted|$driven" || true)
 if [[ -z $touched ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0
