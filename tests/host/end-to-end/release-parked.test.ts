@@ -1,5 +1,5 @@
 /**
- * E17: item 11's release of a conversation its host holds parked. An
+ * E18: item 11's release of a conversation its host holds parked. An
  * hour idle parks a hosted conversation, and overnight most are, so the
  * drill's release meets them: the move it asks for waits in an inbox
  * only a running conversation reads. Here the seal holds nothing else
@@ -127,7 +127,7 @@ async function release(
 }
 
 it(
-	"E17: a release wakes a parked conversation and hands it back to plain pi",
+	"E18: a release wakes a parked conversation and hands it back to plain pi",
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
 			const host = await startHost({

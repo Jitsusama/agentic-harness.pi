@@ -203,7 +203,7 @@ empty and restore.json offers all four. Each log is whole and keeps
 what it held, and reopened from its file each runs in one plain pi
 under its addresses, and answers.
 
-release-parked.test.ts is E17: the release of a conversation its host
+release-parked.test.ts is E18: the release of a conversation its host
 holds parked, as an hour idle leaves most overnight. Nothing else in
 the seal runs, so no other pi's mesh look wakes it to read the move:
 the release wakes it, it closes with its note, restore.json offers it,
