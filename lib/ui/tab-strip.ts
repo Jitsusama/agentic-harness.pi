@@ -25,9 +25,6 @@ import { GLYPH, type TabStatus } from "./types.ts";
 /** Width of ellipsis segment including spacing. */
 const ELLIPSIS_WIDTH = 3;
 
-/** Width of a single progress bar character. */
-const PROGRESS_BAR_WIDTH = 5;
-
 /** Map a tab status to its glyph and theme color. */
 function statusGlyph(status: TabStatus, theme: Theme): string {
 	switch (status) {
@@ -55,26 +52,6 @@ function renderTab(
 	if (!label) return `${glyph} ${num}`;
 	const text = isCurrent ? theme.underline(label) : label;
 	return `${glyph} ${num} ${text}`;
-}
-
-/**
- * Progress through a batch, as a bar and a count: ▓▓░░░ 2/7
- *
- * Plain rather than themed, because it is written to the session status
- * line rather than into a panel, and that line owns its own colouring.
- * No brackets either: they held the bar apart from the tabs when it lived
- * inside the strip, and the status line's separators already do that.
- */
-export function renderProgressBar(completed: number, total: number): string {
-	const barWidth = Math.min(total, PROGRESS_BAR_WIDTH);
-	const filled =
-		total <= PROGRESS_BAR_WIDTH
-			? completed
-			: Math.round((completed / total) * barWidth);
-	const bar =
-		GLYPH.scrollFilled.repeat(filled) +
-		GLYPH.scrollEmpty.repeat(barWidth - filled);
-	return `${bar} ${completed}/${total}`;
 }
 
 /**

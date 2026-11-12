@@ -28,7 +28,7 @@ each reads with its own.
 
 **Right:**
 
-- Each extension's status, whole.
+- Each extension's mark, whole, never cut.
 - The panel's height, only while it isn't the usual one.
 - Context, marginal cost and session total, as one meter.
 - The branch, muted, then git's notation, as its short status and the
@@ -76,9 +76,11 @@ is pi's own, with no notation.
 
 ## What an Extension Puts Here
 
-The line never shortens an extension's status: it goes in whole, or
-the line falls back to the folder's name. So each status costs the
-columns it asks for, on a line every extension shares.
+The line never cuts an extension's status: each goes in whole, or
+gives way whole, in the order below. So each status costs the columns
+it asks for, on a line every extension shares. A status wider than a
+mark (six columns: a glyph, a space and a short count) is words, and
+gives way before anything of the line's own.
 
 A status here is therefore a mark, from the one table in
 `lib/ui/footer-mark.ts`: a glyph in the colour of how much it wants
@@ -101,20 +103,30 @@ since its board is docked for as long as a summary would show.
 ## Degradation Order
 
 As the terminal narrows, each step is taken in turn, keeping the ones
-before, until the line fits:
+before, until the line fits. Joel, 11 November, at 76 columns: "only
+the text dotfiles shows in my status bar. early on i defined the
+requirement of gracefully handling small screen widths. this is not
+that." Statuses written as words, and marks never given up, had left
+nothing to take but the whole line.
 
-1. The session total goes.
-2. The branch keeps its start and end, the more mark between.
-3. The folders between the root and the folder become the more mark.
-4. Context in tokens becomes a share (`45.2k` to `23%`).
-5. The model takes its short name (`claude-sonnet-4-20250514` to
+1. Any extension's status written as words goes.
+2. The session total goes.
+3. The branch keeps its start and end, the more mark between.
+4. The folders between the root and the folder become the more mark.
+5. Context in tokens becomes a share (`45.2k` to `23%`).
+6. The model takes its short name (`claude-sonnet-4-20250514` to
    `sonnet-4`).
-6. How hard it thinks goes.
-7. The branch goes to its mark, keeping git's notation after it.
-8. What git is in the middle of goes to its mark.
-9. The path goes to the folder's name.
-10. The model goes.
-11. The folder's name keeps its start and end.
+7. How hard it thinks goes.
+8. The branch goes to its mark, keeping git's notation after it.
+9. What git is in the middle of goes to its mark.
+10. The path goes to the folder's name.
+11. The model goes.
+12. The extensions' marks go, one at a time, the last first.
+13. The panel's height goes.
+14. The branch goes, with git's notation.
+15. The folder's name keeps its start and end.
 
 The rate is never given up: it is the one reading here that changes what
-to do next. When nothing else fits, the folder's name is all that's left.
+to do next. When nothing else fits, the folder's name stands beside it,
+kept to the room by its middle; only where the two can't share the line
+is the name all that's left.

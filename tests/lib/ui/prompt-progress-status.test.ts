@@ -1,15 +1,14 @@
 /**
- * The batch progress is set and cleared by the prompt, not by its callers.
+ * A batch's progress stays in its panel, off the status line.
  *
- * A status line entry nobody clears is worse than no status line entry: it
- * says the session is halfway through a batch that finished ten minutes
- * ago. Putting both halves inside `showTabbedPrompt` means no caller can
- * forget, and putting the clear in a `finally` covers every way out at
- * once, including the ones nobody thought to enumerate.
+ * The status line is kept for marks, and a bar with a count ("▓▓░░░ 2/7")
+ * there was words beside them (Joel, 11 November: "way too much text in
+ * the status bar"). The panel's tab strip already marks each item done,
+ * active or pending, so the prompt says nothing on the status line.
  *
  * These tests drive the real function with a fake `ctx.ui`, because what
- * is being checked is the lifecycle around the panel rather than anything
- * the panel draws.
+ * is being checked is what the panel's life writes outside it rather than
+ * anything the panel draws.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -41,41 +40,30 @@ const CONFIG = {
 	],
 } as unknown as TabbedPromptConfig;
 
-describe("batch progress on the status line", () => {
-	it("says nothing has been decided yet when the panel opens", async () => {
-		const { ctx, writes } = context(async () => null);
-		await showTabbedPrompt(ctx, CONFIG);
-		expect(writes[0]?.text).toContain("0/2");
-	});
-
-	it("clears it when the panel is submitted", async () => {
+describe("a batch's progress", () => {
+	it("writes nothing to the status line while the panel is up or once it's answered", async () => {
 		const { ctx, writes } = context(async () => ({
 			items: new Map(),
 			userItems: [],
 		}));
 		await showTabbedPrompt(ctx, CONFIG);
-		expect(writes.at(-1)?.text).toBeUndefined();
+
+		expect(writes, "the status line is kept for marks").toEqual([]);
 	});
 
-	it("clears it when the panel is cancelled", async () => {
-		const { ctx, writes } = context(async () => null);
-		await showTabbedPrompt(ctx, CONFIG);
-		expect(writes.at(-1)?.text).toBeUndefined();
-	});
-
-	it("clears it even when the panel throws, which nothing else would", async () => {
-		const { ctx, writes } = context(async () => {
+	it("writes nothing to the status line when the panel is cancelled or throws", async () => {
+		const cancelled = context(async () => null);
+		await showTabbedPrompt(cancelled.ctx, CONFIG);
+		const thrown = context(async () => {
 			throw new Error("the terminal went away");
 		});
-		await expect(showTabbedPrompt(ctx, CONFIG)).rejects.toThrow(
+		await expect(showTabbedPrompt(thrown.ctx, CONFIG)).rejects.toThrow(
 			"the terminal went away",
 		);
-		expect(writes.at(-1)?.text).toBeUndefined();
-	});
 
-	it("writes every update under one key, so nothing is orphaned", async () => {
-		const { ctx, writes } = context(async () => null);
-		await showTabbedPrompt(ctx, CONFIG);
-		expect(new Set(writes.map((one) => one.key)).size).toBe(1);
+		expect(
+			[...cancelled.writes, ...thrown.writes],
+			"no way out leaves a mark behind",
+		).toEqual([]);
 	});
 });
