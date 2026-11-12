@@ -43,6 +43,7 @@ import {
 	openTerminal,
 } from "../../../lib/terminal/index.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { spawnHostSetting } from "../config.ts";
 import { offerReopen } from "../first-turn-watch.ts";
 import {
 	attachSessionInQuestDir,
@@ -82,7 +83,12 @@ import {
 	spawnHeld,
 	startsPi,
 } from "./spawn-held.ts";
-import { hostTargetOf, reachedInHost, spawnInHost } from "./spawn-host.ts";
+import {
+	hostBySetting,
+	hostTargetOf,
+	reachedInHost,
+	spawnInHost,
+} from "./spawn-host.ts";
 import {
 	launcherOpens,
 	launcherSession,
@@ -449,7 +455,21 @@ export async function spawn(
 		resume && "id" in resume && !params.command?.trim() ? resume.id : undefined;
 	const hold = resuming ? await hostHold(resuming) : undefined;
 	if (resuming && hold) return reachedInHost(resuming, hold);
-	if (target.kind) {
+	const here = machine ?? hostname().split(".")[0] ?? "";
+	// A plain spawn goes where quest-workflow's spawnHost says, read now so
+	// turning it on or off takes at the next spawn.
+	const bySetting = target.kind
+		? {}
+		: await hostBySetting({
+				...(await spawnHostSetting()),
+				params,
+				placedHere: machine === undefined || isThisMachine(machine),
+				agent: () => agentCommand("pi", here),
+				env: sessionEnv(ctx).snapshot(),
+			});
+	const settingNote = bySetting.note ? ` ${bySetting.note}` : "";
+	const hostKind = target.kind ?? bySetting.kind;
+	if (hostKind) {
 		// The host is this machine's, so a quest its needs place elsewhere
 		// can't be hosted here.
 		if (machine !== undefined && !isThisMachine(machine)) {
@@ -461,8 +481,8 @@ export async function spawn(
 			resume && "id" in resume
 				? sessions.find((s) => s.id === resume.id)
 				: undefined;
-		return spawnInHost({
-			kind: target.kind,
+		const hosted = await spawnInHost({
+			kind: hostKind,
 			questId: questIdForSpawn,
 			cwd,
 			chosenBy,
@@ -475,6 +495,10 @@ export async function spawn(
 			env: sessionEnv(ctx).snapshot(),
 			...(params.dryRun ? { dryRun: true } : {}),
 		});
+		if (!settingNote) return hosted;
+		return hosted.ok
+			? { ...hosted, message: `${hosted.message}${settingNote}` }
+			: { ...hosted, guidance: `${hosted.guidance}${settingNote}` };
 	}
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
@@ -497,10 +521,7 @@ export async function spawn(
 	// as Joel's personal one declares pi-claude, starts that instead.
 	const spawnsPi = !params.command?.trim();
 	const agents = spawnsPi
-		? await agentCommand(
-				spawned.command,
-				machine ?? hostname().split(".")[0] ?? "",
-			)
+		? await agentCommand(spawned.command, here)
 		: spawned.command;
 	// The pi it starts runs on the asking session's model. Another agent a
 	// realm declares keeps its own, since its models aren't this one's.
@@ -514,7 +535,9 @@ export async function spawn(
 		startsPi(command) &&
 		(machine === undefined || isThisMachine(machine)) &&
 		trustPromptWaits(cwd, command);
-	const trustNote = trustWaits ? trustPromptNote(cwd) : "";
+	// Every answer ends with what holds it up and, under spawnHost, why it
+	// opened in a terminal rather than the host.
+	const trustNote = `${trustWaits ? trustPromptNote(cwd) : ""}${settingNote}`;
 	const trusting = trustWaits ? { trustWaits: cwd } : {};
 
 	// Pass the target quest id through to the spawned

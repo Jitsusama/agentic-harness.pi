@@ -39,6 +39,23 @@ export interface QuestWorkflowConfig {
 	 * since a tab that outlives the window is still a tab.
 	 */
 	sessionRetentionDays?: number;
+	/**
+	 * Where a plain `quest spawn` opens its session: `off`, the default,
+	 * in a terminal as ever; `attended` or `background`, in the realm's
+	 * shared host of that kind, with no window. A spawn that names a host,
+	 * a terminal, a layout or another machine goes as it says.
+	 */
+	spawnHost?: SpawnHostSetting;
+}
+
+/** The choices `spawnHost` takes. */
+export const SPAWN_HOST_SETTINGS = ["off", "attended", "background"] as const;
+
+/** Where a plain spawn opens: in a terminal (`off`), or a host of a kind. */
+export type SpawnHostSetting = (typeof SPAWN_HOST_SETTINGS)[number];
+
+function isSpawnHostSetting(value: unknown): value is SpawnHostSetting {
+	return (SPAWN_HOST_SETTINGS as readonly unknown[]).includes(value);
 }
 
 /**
@@ -81,10 +98,18 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 			error: "sessionRetentionDays must be a positive number of days",
 		};
 	}
+	const spawnHost = record.spawnHost;
+	if (spawnHost !== undefined && !isSpawnHostSetting(spawnHost)) {
+		return {
+			ok: false,
+			error: "spawnHost must be off, attended or background",
+		};
+	}
 	const parsed: QuestWorkflowConfig = {};
 	if (questsRoot !== undefined) parsed.questsRoot = questsRoot;
 	if (autoloadFromCwd !== undefined) parsed.autoloadFromCwd = autoloadFromCwd;
 	if (retention !== undefined) parsed.sessionRetentionDays = retention;
+	if (spawnHost !== undefined) parsed.spawnHost = spawnHost;
 	return { ok: true, value: parsed };
 };
 
@@ -108,6 +133,8 @@ export interface QuestConfigSummary {
 	autoloadFromCwdSource: "config" | "default";
 	sessionRetentionDays: number;
 	sessionRetentionDaysSource: "config" | "default";
+	spawnHost: SpawnHostSetting;
+	spawnHostSource: "config" | "default";
 }
 
 /**
@@ -133,5 +160,7 @@ export function summarizeQuestConfig(opts: {
 			opts.config.sessionRetentionDays ?? DEFAULT_SESSION_RETENTION_DAYS,
 		sessionRetentionDaysSource:
 			opts.config.sessionRetentionDays !== undefined ? "config" : "default",
+		spawnHost: opts.config.spawnHost ?? "off",
+		spawnHostSource: opts.config.spawnHost !== undefined ? "config" : "default",
 	};
 }
