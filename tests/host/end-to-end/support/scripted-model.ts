@@ -92,6 +92,19 @@ export const DAWDLE = "dawdle";
  */
 export const DAWDLING = "tail -f /dev/null";
 
+/** What a conversation is told to start a tool that ends by itself, after a while. */
+export const WAIT_A_WHILE = "wait a while";
+
+/** What that tool prints once it has waited, so its end can be told from a cut. */
+export const WAITED = "waited-out";
+
+/**
+ * What bash runs for `wait a while`: the endless follow, ended by
+ * `timeout` after long enough for a case to act on its neighbour while
+ * it runs, then a word its result shows.
+ */
+export const WAITING = `timeout 20 tail -f /dev/null; echo ${WAITED}`;
+
 /** What a conversation is told to leave a background job running past its turn. */
 export const LINGER = "linger";
 
@@ -289,6 +302,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
 	if (toldTo(words, DAWDLE))
 		return toolCall(faux, "bash", { command: DAWDLING });
+	if (toldTo(words, WAIT_A_WHILE))
+		return toolCall(faux, "bash", { command: WAITING });
 	if (toldTo(words, LINGER))
 		return toolCall(faux, "bash", { command: LINGERING, background: true });
 	if (toldTo(words, CARRY))

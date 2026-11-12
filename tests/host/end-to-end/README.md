@@ -262,6 +262,15 @@ closes the conversation, and a plain pi opened on the same file, as
 Reopen Them All opens it, says the command's end under the same job
 id, leaving nothing kept.
 
+launcher-verbs.test.ts is E20, the launcher's Stop and Close where E8
+leaves them unproved. A Stop sent while both conversations are
+mid-turn cuts only the one it names: its neighbour's tool, which ends
+by itself, is still running when the Stop lands and runs to its own
+end. A Close sent while a viewer is attached, on the screen host with
+the mesh loaded, lets the viewer go told the conversation closed; the
+host keeps no screen or session of it, refuses a new attach to it, and
+its other conversation still answers its viewer.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
