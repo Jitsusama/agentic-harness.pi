@@ -23,7 +23,10 @@ type Render = (this: CustomMessageComponent, width: number) => string[];
 type Prototype = { render: Render; [PI_RENDER]?: Render };
 
 /** A child's rows from pi's last layout of its container. */
-type Layout = { width: number; children: { component: unknown; height: number }[] };
+type Layout = {
+	width: number;
+	children: { component: unknown; height: number }[];
+};
 
 /** Makes a custom message that its renderer drew nothing for take no row. */
 export function dropEmptyMessages(): void {
@@ -45,21 +48,31 @@ function drewNothing(message: CustomMessageComponent, width: number): boolean {
 	const drawn: unknown = Reflect.get(message, "customComponent");
 	if (!isComponent(drawn)) return false;
 	const layout: unknown = Reflect.get(message, "mouseLayout");
-	const kept = isLayout(layout) && layout.width === width
-		? layout.children.find((child) => child.component === drawn)
-		: undefined;
+	const kept =
+		isLayout(layout) && layout.width === width
+			? layout.children.find((child) => child.component === drawn)
+			: undefined;
 	return (kept?.height ?? drawn.render(width).length) === 0;
 }
 
 /** Whether `value` can be drawn. */
 function isComponent(value: unknown): value is Component {
-	return typeof value === "object" && value !== null && "render" in value &&
-		typeof value.render === "function";
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"render" in value &&
+		typeof value.render === "function"
+	);
 }
 
 /** Whether `value` is the layout pi's container keeps of its last render. */
 function isLayout(value: unknown): value is Layout {
-	return typeof value === "object" && value !== null && "width" in value &&
-		typeof value.width === "number" && "children" in value &&
-		Array.isArray(value.children);
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"width" in value &&
+		typeof value.width === "number" &&
+		"children" in value &&
+		Array.isArray(value.children)
+	);
 }
