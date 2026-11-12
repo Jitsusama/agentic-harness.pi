@@ -219,7 +219,11 @@ process.once("SIGUSR2", () => {
 	serving.restartComing(true);
 	stop();
 });
-process.on("SIGHUP", weigh);
+// Scratch: weigh on a fresh task, so no WeakRef read in an earlier job
+// keeps its target through the collection.
+process.on("SIGHUP", () => {
+	setImmediate(() => setTimeout(weigh, 0));
+});
 
 /**
  * Collect the garbage, then write what this process weighs to

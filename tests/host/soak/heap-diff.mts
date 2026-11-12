@@ -141,6 +141,8 @@ for (let head = 0; head < queue.length; head++) {
 		const e = (firstEdge[at] ?? 0) + i;
 		const kind = last.edgeTypes[last.edges[e * ef + typeAt] ?? 0];
 		if (kind === "weak") continue;
+		// A WeakRef read this job keeps its target only until the job ends.
+		if (edgeName(e) === "weak_refs_keep_during_job") continue;
 		const to = (last.edges[e * ef + toAt] ?? 0) / nf;
 		if (parentNode[to] !== -1) continue;
 		parentNode[to] = at;
