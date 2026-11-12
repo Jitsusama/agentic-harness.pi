@@ -12,6 +12,10 @@
  * more time from that moment and says where it is, and the journal keeps
  * how long each step took.
  *
+ * Once ready, when the unit sets a watchdog, the host pings it from its
+ * own loop, so a host whose loop stops turning is restarted with what it
+ * holds, while one busy with long turns, which it awaits, never is.
+ *
  * What one conversation throws where nothing caught it is contained to
  * that conversation; anything else stops the host the same way, and its
  * stop then fails. The engine is passed in, so the program that starts
@@ -43,6 +47,14 @@ export const STEP_ALLOWANCE_MS = 120_000;
  */
 const STATUS_EVERY_MS = 15_000;
 
+/**
+ * How many times the host pings systemd's watchdog in each of its
+ * timeouts. systemd advises two; four leaves room for a systemd-notify
+ * that starts late on a starved machine, as on 11 November, when 13 s of
+ * work took 96 s.
+ */
+const PINGS_PER_TIMEOUT = 4;
+
 const MICROSECONDS_PER_MS = 1000;
 const MS_PER_SECOND = 1000;
 
@@ -71,6 +83,11 @@ export interface HostRunOptions {
 	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
 	statusEvery?: number;
+	/**
+	 * Says the host's loop still turns, when systemd's watchdog watches it,
+	 * given how many ms the saying may take; systemd's notify by default.
+	 */
+	alive?: (env: NodeJS.ProcessEnv, within: number) => Promise<void>;
 	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
@@ -174,15 +191,26 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const tell = (now: string) =>
 		(options.status ?? notifyStatus)(options.env, now);
 	const signals = options.signals ?? process;
+	const every = watchdogEvery(options.env);
+	const unwatch =
+		every === undefined
+			? undefined
+			: keepAlive({
+					ping: (within) => (options.alive ?? notifyAlive)(options.env, within),
+					every,
+					report,
+				});
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
 	const stop = () => {
 		if (stopping) return stopping;
 		following?.();
-		// Parking many can take a while; the status says so meanwhile.
+		// Parking many can take a while; the status says so meanwhile, and
+		// the watchdog hears the loop still turns until every one is parked.
 		stopping = tell(stoppingStatus(serving.held().length))
 			.catch(report)
-			.then(() => serving.stop());
+			.then(() => serving.stop())
+			.finally(() => unwatch?.());
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -221,6 +249,22 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	resumed();
 	say(`${since()}: ${status()}, listening on ${serving.path}`);
 	return { serving, stopped };
+}
+
+/**
+ * How often, in ms, to tell systemd's watchdog the loop still turns, when
+ * it watches this process; undefined when it doesn't.
+ */
+export function watchdogEvery(
+	env: NodeJS.ProcessEnv,
+	pid: number = process.pid,
+): number | undefined {
+	const timeout = Number(env.WATCHDOG_USEC);
+	if (!Number.isFinite(timeout) || timeout <= 0) return undefined;
+	// A child given the host's environment isn't the process systemd watches.
+	if (env.WATCHDOG_PID !== undefined && Number(env.WATCHDOG_PID) !== pid)
+		return undefined;
+	return timeout / MICROSECONDS_PER_MS / PINGS_PER_TIMEOUT;
 }
 
 /** A ready host's status in words, as systemd's status and the journal show it. */
@@ -265,15 +309,19 @@ function notifyProgress(env: NodeJS.ProcessEnv, status: string): Promise<void> {
  * writes every child this process spawns into jobs.service: on 11
  * November the background host's ready went to jobs.service whenever the
  * move landed first, and systemd stopped the host at its start timeout.
+ * Given `within` ms, a systemd-notify still running then is killed and
+ * the telling fails.
  */
 function tellSystemd(
 	env: NodeJS.ProcessEnv,
 	args: readonly string[],
+	within?: number,
 ): Promise<void> {
 	if (!env.NOTIFY_SOCKET) return Promise.resolve();
+	const timeout = within === undefined ? {} : { timeout: within };
 	return new Promise((resolve, reject) => {
 		withPi(() =>
-			execFile("systemd-notify", args, { env }, (error) =>
+			execFile("systemd-notify", args, { env, ...timeout }, (error) =>
 				error ? reject(error) : resolve(),
 			),
 		);
@@ -313,6 +361,52 @@ function uncontained(
  */
 function notifyReady(env: NodeJS.ProcessEnv, status: string): Promise<void> {
 	return tellSystemd(env, ["--ready", `STATUS=${status}`]);
+}
+
+/**
+ * Tell systemd's watchdog the host's loop still turns, killing a
+ * systemd-notify that hasn't ended `within` ms on.
+ */
+function notifyAlive(env: NodeJS.ProcessEnv, within: number): Promise<void> {
+	return tellSystemd(env, ["WATCHDOG=1"], within);
+}
+
+/**
+ * Ping every `every` ms from the host's own loop, until the answer is
+ * called. A conversation's work is awaited rather than run on the loop,
+ * so a turn of any length leaves it free to ping, and only a loop that
+ * stops turning goes quiet, for systemd to restart. Each ping is given
+ * one beat. One still on its way when the next is due is let be for that
+ * beat rather than joined by another, and the beat after pings anyway,
+ * so a systemd-notify that never ends can't silence a healthy host.
+ */
+function keepAlive(options: {
+	ping: (within: number) => Promise<void>;
+	every: number;
+	report: (error: unknown) => void;
+}): () => void {
+	// The newest ping, and whether it's still on its way and has had its beat.
+	let newest = 0;
+	let pinging = false;
+	let waited = false;
+	const beat = setInterval(() => {
+		if (pinging && !waited) {
+			waited = true;
+			return;
+		}
+		newest += 1;
+		const ping = newest;
+		pinging = true;
+		waited = false;
+		options
+			.ping(options.every)
+			.catch(options.report)
+			.finally(() => {
+				if (ping === newest) pinging = false;
+			});
+	}, options.every);
+	beat.unref();
+	return () => clearInterval(beat);
 }
 
 /** Show what the host serves as the unit's status, once it changes. */

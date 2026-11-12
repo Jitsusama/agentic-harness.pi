@@ -57,8 +57,12 @@ input pipeline or screen. No unit or running host is installed yet.
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
   SIGINT. Its unit's status says each start step, then "ready,
   serving N conversations" and any held but not resumed, looked at
-  every 15 s and told only when it changes. The engine is passed in
-  by the program that starts it.
+  every 15 s and told only when it changes. When the unit sets
+  WatchdogSec, a ready host pings it from its own loop four times in
+  each timeout, until every conversation is parked: a loop that stops
+  turning goes quiet and systemd restarts the host, while a long turn,
+  which the host awaits, never stops the pings. The engine is passed
+  in by the program that starts it.
   Given the process's faults, it backstops an uncaught exception: one
   thrown inside a conversation goes to that conversation's screen, and
   one it can't tie to a screen parks every conversation and fails the
