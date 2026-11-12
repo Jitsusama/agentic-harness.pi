@@ -200,8 +200,7 @@ export function restartWhenSettled(
 
 	function pastCeiling(): boolean {
 		return (
-			differingSince !== undefined &&
-			facts.now() - differingSince >= ceilingMs
+			differingSince !== undefined && facts.now() - differingSince >= ceilingMs
 		);
 	}
 
@@ -320,7 +319,9 @@ export async function followWhatStarts(
 			resting: options.resting,
 			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why, under) => {
-				options.report(`Restarting ${restartedUnder(under, settledMs)}, as ${why}`);
+				options.report(
+					`Restarting ${restartedUnder(under, settledMs)}, as ${why}`,
+				);
 				await systemctl(["--no-block", "restart", unit]);
 			},
 			report: options.report,

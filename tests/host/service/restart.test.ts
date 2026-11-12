@@ -366,7 +366,9 @@ describe("followWhatStarts", () => {
 		await followWhatStarts({
 			serving: {
 				// It changed just now, by the clock the host reads.
-				held: () => [{ state: "idle" as const, since: new Date().toISOString() }],
+				held: () => [
+					{ state: "idle" as const, since: new Date().toISOString() },
+				],
 				restartComing: vi.fn(),
 			},
 			background: () => 0,
