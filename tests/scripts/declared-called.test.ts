@@ -294,10 +294,9 @@ describe("tools declared against tools called", () => {
 			[started("a", { bash: 400 })],
 			[step("a", 1, ["bash"]), step("c", 1, ["bash"])],
 		);
-		expect(
-			[report.sessions, report.unread],
-			"a read, c not yet",
-		).toEqual([1, 1]);
+		expect([report.sessions, report.unread], "a read, c not yet").toEqual([
+			1, 1,
+		]);
 	});
 
 	it("counts the tools a script called, and prices those it didn't", async () => {

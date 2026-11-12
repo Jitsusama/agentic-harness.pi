@@ -820,9 +820,7 @@ class SqliteTurnStore implements TurnStore {
 			tool: string;
 			change: string;
 			chars: number;
-		}>(
-			"SELECT * FROM declarations ORDER BY session_id, timestamp, seq, tool",
-		);
+		}>("SELECT * FROM declarations ORDER BY session_id, timestamp, seq, tool");
 		return rows.map((row) => ({
 			sessionId: row.session_id,
 			entryId: row.entry_id,
