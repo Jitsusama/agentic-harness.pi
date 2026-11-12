@@ -25,8 +25,12 @@ reaches what every other conversation falls back on. The proxy keys
 (SHOPIFY_PROXY_KEY, PI_PROXY_API_KEY, PI_PROXY_AUTH_HEADER) always read
 from the host's environment, since the engine resolves credentials per
 request. A conversation that writes one keeps it in its own
-environment, though its reads still come from the host. Dispose puts
-process.env back.
+environment, though its reads still come from the host. The runtime's
+own tools (HOST_READS: AI_PROXY_HEADERS_BIN, WORKTRAIL_BIN) are read
+from the host's environment, and sent with each request, when the
+conversation names none, but never listed or spread, so a command a
+conversation starts finds its own on PATH rather than the runtime's
+older ones. Dispose puts process.env back.
 
 harnessSettings builds each conversation's SHOPIFY_HARNESS_SETTINGS,
 which ai-proxy-headers copies into every request's attribution. It

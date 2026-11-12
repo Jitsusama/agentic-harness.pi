@@ -16,7 +16,7 @@ import {
 	type SessionOwner,
 	withSession,
 } from "../../lib/core/session/index.ts";
-import { installConversationEnv } from "./process-env.ts";
+import { HOST_READS, installConversationEnv } from "./process-env.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
 export interface ConversationRegistration {
@@ -71,6 +71,7 @@ export class SessionHost implements Host {
 	readonly registryPath: string;
 	private readonly conversations = new Map<string, Conversation>();
 	private readonly uninstall: () => void;
+	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
 
 	constructor(options: {
@@ -100,6 +101,19 @@ export class SessionHost implements Host {
 			this.uninstall();
 			throw error;
 		}
+	}
+
+	/**
+	 * The host runtime's own tools its environment names, which a
+	 * conversation's requests read when it names none of its own.
+	 */
+	hostReads(): Readonly<Record<string, string>> {
+		const reads: Record<string, string> = {};
+		for (const name of HOST_READS) {
+			const value = this.own[name];
+			if (value !== undefined) reads[name] = value;
+		}
+		return reads;
 	}
 
 	/** Publish identity before the caller loads extensions or advertises leases. */

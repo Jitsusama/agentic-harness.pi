@@ -17,6 +17,13 @@
  * rather than reaching its neighbours, though its reads still come from
  * the host.
  *
+ * The host runtime's own tools are read but never listed. Its unit
+ * names the ai-proxy-headers and worktrail it was built with, which
+ * code in the host reads; a command a conversation starts never gets
+ * them, since a newer pi it runs needs its own newer tools, found on
+ * PATH. A conversation that names one for itself reads and hands on
+ * its own.
+ *
  * Work a conversation left running after the host released it still
  * carries that conversation's ambient id. Its reads see the host's env,
  * but its writes and deletes are dropped, so a late write can't reach
@@ -36,6 +43,15 @@ const CREDENTIALS: ReadonlySet<string> = new Set([
 	"PI_PROXY_AUTH_HEADER",
 ]);
 
+/**
+ * The host runtime's own tools, which code in the host reads from the
+ * host's environment and no conversation's env holds or hands on.
+ */
+export const HOST_READS: readonly string[] = [
+	"AI_PROXY_HEADERS_BIN",
+	"WORKTRAIL_BIN",
+];
+
 /** Install the view, returning what puts the host's own env back. */
 export function installConversationEnv(host: Host): () => void {
 	const own = process.env;
@@ -52,7 +68,11 @@ export function installConversationEnv(host: Host): () => void {
 	};
 	const read = (name: string): string | undefined => {
 		const env = current();
-		return env && !CREDENTIALS.has(name) ? env.get(name) : own[name];
+		if (!env || CREDENTIALS.has(name)) return own[name];
+		const value = env.get(name);
+		return value === undefined && HOST_READS.includes(name)
+			? own[name]
+			: value;
 	};
 	const keys = (env: SessionEnvironment): string[] => [
 		...Object.keys(env.snapshot()).filter((name) => !CREDENTIALS.has(name)),
@@ -97,8 +117,12 @@ export function installConversationEnv(host: Host): () => void {
 			return env ? keys(env) : Reflect.ownKeys(target);
 		},
 		getOwnPropertyDescriptor: (target, name) => {
-			if (typeof name !== "string" || !current())
+			const env = current();
+			if (typeof name !== "string" || !env)
 				return Reflect.getOwnPropertyDescriptor(target, name);
+			// A host read the conversation never set is read, never listed.
+			if (HOST_READS.includes(name) && env.get(name) === undefined)
+				return undefined;
 			const value = read(name);
 			return value === undefined
 				? undefined

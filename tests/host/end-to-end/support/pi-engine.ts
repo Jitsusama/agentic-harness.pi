@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 import { createEngine } from "../../../../host/engine/engine.ts";
 import type { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { ConversationEngine } from "../../../../host/service/backend.ts";
+import { conversationBase } from "../../../../host/service/program.ts";
 import {
 	fauxOf,
 	SCRIPTED,
@@ -103,7 +104,9 @@ export async function engine(host: SessionHost): Promise<ConversationEngine> {
 		packageDir,
 		stateDir: join(homedir(), ".local", "state", "host-engine"),
 		host,
-		env: { ...process.env },
+		// What the host program gives every conversation, less what only
+		// the host may see.
+		env: conversationBase(process.env),
 		key: {
 			inherited: false,
 			current: async () => "sealed-key",
