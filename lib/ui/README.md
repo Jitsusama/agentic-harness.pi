@@ -143,6 +143,11 @@ and the screen neither jumps nor leaves blank rows.
   own tool results do, while pi's expand key still sets them
   all. Every collapsed transcript entry uses it, so a click
   works the same on each.
+- **`dropEmptyMessages`** (`no-empty-messages.ts`): a custom
+  message its renderer drew nothing for takes no row, where
+  pi would leave the blank line it puts above each one. The
+  mesh workflow sets it, so a delivery /mesh quiet hides
+  leaves the transcript as it was.
 
 ### What the panels tell you about themselves
 
