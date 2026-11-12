@@ -774,6 +774,46 @@ describe("this session's peer", () => {
 			).toEqual([undefined, "addressed", "WCJQSG"]);
 		});
 
+		it("stands at the launcher's top while its quest says so, under the name it gives", () => {
+			write([[LOOP, readme(LOOP, "null")]], LOOP);
+			const peer = localPeer(surroundings());
+			const kept = createPresences(join(root, "presence"));
+			const before = Object.keys(kept.of(session) ?? {});
+			writeFileSync(
+				join(root, "quests", LOOP, "README.md"),
+				readme(LOOP, "null").replace(
+					"---\n#",
+					"stands-at-top: {name: The Void, keywords: [void]}\n---\n#",
+				),
+			);
+			peer.refresh();
+
+			expect(
+				[before.includes("standsAtTop"), kept.of(session)?.standsAtTop],
+				"left out until its quest says it, then kept as said",
+			).toEqual([false, { name: "The Void", keywords: ["void"] }]);
+		});
+
+		it("stands nowhere when its quest names no one to stand as", () => {
+			write(
+				[
+					[
+						LOOP,
+						readme(LOOP, "null").replace(
+							"---\n#",
+							"stands-at-top: {keywords: [void]}\n---\n#",
+						),
+					],
+				],
+				LOOP,
+			);
+			localPeer(surroundings());
+
+			expect(
+				Object.keys(createPresences(join(root, "presence")).of(session) ?? {}),
+			).not.toContain("standsAtTop");
+		});
+
 		it("says the quest it has loaded, by id, and none while it has none", () => {
 			write([[LOOP, readme(LOOP, "null")]], LOOP);
 			const at = surroundings();
