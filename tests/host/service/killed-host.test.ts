@@ -1,7 +1,7 @@
 /** A host killed outright comes back with what it held, at the same address. */
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { lstat, mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,15 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 }));
 
 const serve = resolve(import.meta.dirname, "../../../host/service/serve.ts");
+
+/**
+ * A killed host's core limit, in bytes. SIGABRT, as the watchdog sends it,
+ * dumps a core, and on a machine piping cores to systemd-coredump even a
+ * limit of 0 is listed there as a crash (coredumpctl's COREFILE none),
+ * which a health tally counts. The kernel keeps 1 to mean no dump at all,
+ * so nothing reaches systemd-coredump; it logs one line saying so.
+ */
+const NO_CORE = "1";
 
 /**
  * The same fake engine both hosts run: a conversation is a registration
@@ -104,9 +113,18 @@ const host = await serveHost({
 });
 process.stdout.write(host.path + "\\n");
 setInterval(() => {}, 1000);`;
+	// prlimit sets the limit and execs node, so the pid is node's own.
 	const started = spawn(
-		process.execPath,
-		["--no-warnings", "--input-type=module", "-e", source],
+		"prlimit",
+		[
+			`--core=${NO_CORE}`,
+			"--",
+			process.execPath,
+			"--no-warnings",
+			"--input-type=module",
+			"-e",
+			source,
+		],
 		{
 			env: { PATH: process.env.PATH ?? "", PLACES: JSON.stringify(places()) },
 			stdio: ["ignore", "pipe", "pipe"],
@@ -151,6 +169,11 @@ describe.each(["SIGKILL", "SIGABRT"] as const)(
 		it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
 			const killed = await hostInAChild();
 			const ids = [await open(killed.path, "a"), await open(killed.path, "b")];
+			const limits = await readFile(`/proc/${killed.pid}/limits`, "utf8");
+			expect(
+				limits.match(/^Max core file size\s+(\S+)\s+(\S+)/m)?.slice(1),
+				"a host the test kills leaves no core for systemd-coredump to count",
+			).toEqual([NO_CORE, NO_CORE]);
 
 			process.kill(killed.pid, signal);
 			await gone(killed.pid, 5_000);
