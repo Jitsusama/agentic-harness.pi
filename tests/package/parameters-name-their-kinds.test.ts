@@ -96,9 +96,7 @@ function parametersOf(source: string): { name: string; description: string }[] {
 		// indexOf on the indent: a deeper line starts with the same
 		// tabs and would cut every block off at its first nested call,
 		// which reported the whole surface as undescribed.
-		const sibling = new RegExp(`\\n${indent}[a-zA-Z]`).exec(
-			source.slice(next),
-		);
+		const sibling = new RegExp(`\\n${indent}[a-zA-Z]`).exec(source.slice(next));
 		const block =
 			sibling === null
 				? source.slice(next)

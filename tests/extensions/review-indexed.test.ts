@@ -50,7 +50,9 @@ describe("every action is written down somewhere", () => {
 
 	for (const [file, tool] of TOOLS) {
 		it(`documents every action ${tool} offers`, () => {
-			const source = read(`extensions/review-integration/tools/${file}-tool.ts`);
+			const source = read(
+				`extensions/review-integration/tools/${file}-tool.ts`,
+			);
 			const actions = actionsOf(source);
 			// A tool with no actions would make this vacuous, and one of
 			// these growing a union is exactly when the gate matters.
