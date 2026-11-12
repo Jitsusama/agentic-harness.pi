@@ -26,7 +26,7 @@ const LISTEN_MS = 60_000;
 /** How often a wait asks the host how a conversation stands. */
 const ASK_EVERY_MS = 50;
 /** How long the host may take to collect its garbage and weigh itself. */
-const WEIGH_MS = 10_000;
+const WEIGH_MS = 300_000;
 /**
  * How long an open may take: it loads every extension for the new
  * conversation, past the client's own 30 s on a loaded lender.
