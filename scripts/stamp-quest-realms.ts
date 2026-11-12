@@ -18,12 +18,12 @@
  */
 
 import { basename, dirname, join } from "node:path";
+import { everyRealmsDir } from "../lib/internal/paths.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
 } from "../lib/internal/quest/discovery.ts";
 import { mutateQuestFrontMatter } from "../lib/internal/quest/mutate.ts";
-import { everyRealmsDir } from "../lib/internal/paths.ts";
 import { sessionRealmName } from "../lib/internal/realm.ts";
 
 /** One realm's quest folder. */
@@ -137,7 +137,9 @@ export function formatStamp(report: StampReport): string {
 			`${m.id} is kept in ${m.realm} but already marked ${m.marked}; left as it is.`,
 		);
 	}
-	for (const r of report.refused) lines.push(`${r.id} wasn't written: ${r.why}`);
+	for (const r of report.refused) {
+		lines.push(`${r.id} wasn't written: ${r.why}`);
+	}
 	if (!report.write) lines.push("Nothing was written; run with --write to.");
 	return `${lines.join("\n")}\n`;
 }
