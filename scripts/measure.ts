@@ -6,7 +6,8 @@
  * holds the last 24 hours against the 24 before: spend, cache
  * rewrites, the always-on context each repository pays for, the tools
  * that failed most and how much of the quest files sessions read. Then
- * come the turns that made one tool call, a row a day for the week. Its
+ * come the turns that made one tool call, a row a day for the week,
+ * and each tool declared against whether it was called that day. Its
  * sensor counts the refusals, guard blocks and habits that recurred
  * over the last seven days, day by day, so a harness change shows as
  * a bend in the days after it lands rather than a week later. A
@@ -37,11 +38,16 @@ import {
 	sessionsDir,
 } from "../extensions/spend-workflow/indexer.ts";
 import {
+	logsSince,
+	standingOf,
+} from "../extensions/spend-workflow/standing.ts";
+import {
 	openLedgerReader,
 	openTurnStore,
 } from "../lib/core/observability/index.ts";
 import { stateDir } from "../lib/internal/paths.ts";
 import { renderReport, sense } from "./learning-sensor.ts";
+import { declaredCalled, formatDeclaredCalled } from "./declared-called.ts";
 import { formatOneCall, oneCallTurns } from "./one-call.ts";
 
 /** How far back a day's sensor looks, so each day reads beside six more. */
@@ -67,6 +73,7 @@ export async function measure(opts: {
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
 	let oneCall: string;
+	let declared: string;
 	let start: number;
 	let from: string;
 	let to: string;
@@ -79,6 +86,9 @@ export async function measure(opts: {
 		});
 		audit = formatAudit(input, opts.top ?? 12);
 		oneCall = formatOneCall(await oneCallTurns(query, opts.now));
+		declared = formatDeclaredCalled(
+			await declaredCalled(await startsOfTheDay(opts.now), query, opts.now),
+		);
 		start = Date.parse(input.period.from);
 		from = input.period.from.slice(0, 10);
 		to = input.period.to.slice(0, 10);
@@ -107,6 +117,8 @@ export async function measure(opts: {
 		"",
 		oneCall.trimEnd(),
 		"",
+		declared.trimEnd(),
+		"",
 		sensed.trimEnd(),
 		"",
 	].join("\n");
@@ -115,6 +127,14 @@ export async function measure(opts: {
 	mkdirSync(dirname(out), { recursive: true });
 	writeFileSync(out, report);
 	return out;
+}
+
+/** How every session written to in the day before `now` started. */
+async function startsOfTheDay(now: number) {
+	const logs = logsSince(sessionsDir(), now - DAY_MS);
+	return (await Promise.all(logs.map((path) => standingOf(path)))).filter(
+		(one) => one !== undefined,
+	);
 }
 
 /** How many times a measure meeting a locked ledger is run in all. */

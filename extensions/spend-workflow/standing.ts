@@ -32,6 +32,12 @@ export interface StandingPrompt {
 	 */
 	readonly pieces: Readonly<Record<string, number>>;
 	/**
+	 * Each tool's declaration, in characters, by the tool's name, as the
+	 * first system message sent them: what holding a tool costs every
+	 * turn whether or not it is called.
+	 */
+	readonly byTool: Readonly<Record<string, number>>;
+	/**
 	 * Characters later system messages declared again while the session
 	 * was still starting, before its third answer: a tool under a name
 	 * already declared, or a section that replaces one already sent. The
@@ -61,6 +67,16 @@ function toolName(tool: unknown): string | undefined {
 		return undefined;
 	}
 	return typeof tool.name === "string" ? tool.name : undefined;
+}
+
+/** Each named tool's declaration, in characters. */
+function sizesOf(tools: readonly unknown[]): Record<string, number> {
+	const sizes: Record<string, number> = {};
+	for (const tool of tools) {
+		const name = toolName(tool);
+		if (name !== undefined) sizes[name] = JSON.stringify(tool).length;
+	}
+	return sizes;
 }
 
 /** The longest a log is read looking for its system message. */
@@ -140,6 +156,7 @@ export async function standingOf(
 			repo: repoOf(cwd) ?? cwd,
 			tools: first.tools.length,
 			pieces: first.pieces,
+			byTool: sizesOf(first.tools),
 			redeclared,
 		};
 	try {
