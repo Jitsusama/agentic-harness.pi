@@ -302,6 +302,24 @@ describe("putting down what a session stopped using", () => {
 		expect(declared()).toEqual(["bash", "tool_search"]);
 	});
 
+	// 12 November: of 560 tools put down in a day, 216 were loaded again
+	// later in the same session (jobs 105 times), and each coming and going
+	// re-sent the whole rules and tools sections.
+	it("keeps a tool for good once it came back after being put down", async () => {
+		const { fire, search, declared } = activate(["bash", "render_mermaid"]);
+		await fire("session_start", {});
+
+		await fire("session_compact", {});
+		expect(declared(), "put down at first").not.toContain("render_mermaid");
+
+		await search(["render_mermaid"]);
+		await fire("tool_result", called("bash"));
+		await fire("session_compact", {});
+		await fire("session_compact", {});
+
+		expect(declared(), "kept after it came back").toContain("render_mermaid");
+	});
+
 	it("counts a skill's loading as a use", async () => {
 		const { fire, declared } = activate(["bash", "read"]);
 		await fire("session_start", {});
