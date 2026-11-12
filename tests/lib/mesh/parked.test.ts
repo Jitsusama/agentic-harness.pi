@@ -206,10 +206,7 @@ describe("waking a parked peer for a steer", () => {
 				(session) => asked.push(session),
 			);
 
-			expect([woken, asked], said.text).toEqual([
-				["s-parked"],
-				["s-parked"],
-			]);
+			expect([woken, asked], said.text).toEqual([["s-parked"], ["s-parked"]]);
 		}
 	});
 
