@@ -34,6 +34,12 @@ export interface Weight {
 	readonly pss: number;
 	/** Its proportional share of swap, in kB. */
 	readonly swapPss: number;
+	/**
+	 * The heap V8 still uses once its garbage is collected, in kB: what a
+	 * conversation let go lowers, where PSS keeps any page V8 hasn't yet
+	 * given back to the kernel.
+	 */
+	readonly heapKb: number;
 	/** The conversations whose sessions are still in its memory. */
 	readonly sessions: readonly string[];
 }
@@ -188,13 +194,19 @@ function weight(said: unknown): Weight {
 		!isRecord(said) ||
 		typeof said.pss !== "number" ||
 		typeof said.swapPss !== "number" ||
+		typeof said.heapKb !== "number" ||
 		!Array.isArray(said.sessions)
 	)
 		throw new Error(`the host weighed itself as ${JSON.stringify(said)}`);
 	const sessions = said.sessions.filter(
 		(id): id is string => typeof id === "string",
 	);
-	return { pss: said.pss, swapPss: said.swapPss, sessions };
+	return {
+		pss: said.pss,
+		swapPss: said.swapPss,
+		heapKb: said.heapKb,
+		sessions,
+	};
 }
 
 /** The socket the host prints once it listens, or why it never did. */

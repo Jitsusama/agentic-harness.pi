@@ -124,6 +124,8 @@ const HELD = /hold until (\S+)/;
 const LONG_TAG = /long answer (\w+)/;
 /** More answers than any run of the proofs asks for. */
 const ANSWERS = 200;
+/** Bytes in a kB, as /proc counts them. */
+const BYTES_PER_KB = 1024;
 const home = homedir();
 const agentDir = join(home, ".pi", "agent");
 const report = (error: unknown) => {
@@ -216,8 +218,9 @@ process.on("SIGHUP", weigh);
 /**
  * Collect the garbage, then write what this process weighs to
  * `weighed.json` in HOME, whole, for a test to read: its PSS and swapped
- * PSS in kB, as the kernel counts them, and how many sessions the agent
- * folder's weigh extension saw start are still in memory.
+ * PSS in kB, as the kernel counts them, the heap V8 still uses in kB, and
+ * how many sessions the agent folder's weigh extension saw start are
+ * still in memory.
  */
 function weigh(): void {
 	const collect = Reflect.get(globalThis, "gc");
@@ -241,7 +244,12 @@ function weigh(): void {
 	const weighed = join(home, "weighed.json");
 	writeFileSync(
 		`${weighed}.part`,
-		JSON.stringify({ pss: kb("Pss"), swapPss: kb("SwapPss"), sessions }),
+		JSON.stringify({
+			pss: kb("Pss"),
+			swapPss: kb("SwapPss"),
+			heapKb: Math.round(process.memoryUsage().heapUsed / BYTES_PER_KB),
+			sessions,
+		}),
 	);
 	renameSync(`${weighed}.part`, weighed);
 }
