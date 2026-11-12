@@ -27,6 +27,11 @@ const LISTEN_MS = 60_000;
 const ASK_EVERY_MS = 50;
 /** How long the host may take to collect its garbage and weigh itself. */
 const WEIGH_MS = 10_000;
+/**
+ * How long an open may take: it loads every extension for the new
+ * conversation, past the client's own 30 s on a loaded lender.
+ */
+const OPEN_MS = 120_000;
 
 /** What the host weighs, as it says once it has collected its garbage. */
 export interface Weight {
@@ -112,8 +117,8 @@ export async function startScreenHost(
 	);
 	const path = await listening(child, exited, () => errors);
 	let asked = 0;
-	const ask = async (request: ControlRequest) => {
-		const reply = await controlRequest(path, request);
+	const ask = async (request: ControlRequest, ms?: number) => {
+		const reply = await controlRequest(path, request, ms);
 		if (!reply.ok) throw new Error(reply.error.message);
 		return reply.result;
 	};
@@ -159,14 +164,17 @@ export async function startScreenHost(
 		path,
 		open: async (cwd, first) =>
 			parseOpenResult(
-				await ask({
-					v: 1,
-					id: id(),
-					op: "open",
-					cwd,
-					attended: true,
-					...(first === undefined ? {} : { first }),
-				}),
+				await ask(
+					{
+						v: 1,
+						id: id(),
+						op: "open",
+						cwd,
+						attended: true,
+						...(first === undefined ? {} : { first }),
+					},
+					OPEN_MS,
+				),
 			),
 		list,
 		close: (sessionId, by) => end("close", sessionId, by),
