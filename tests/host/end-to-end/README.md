@@ -246,6 +246,13 @@ on. The background host lists the session, the command's end is said
 in its log under the same job id, and nothing the shell kept of the
 command is left in its state once that's said.
 
+E19, in the same file, goes the other way: a conversation the
+background host holds starts the same command, and `host-release.ts
+--all` releases it without waiting. The host spares the command as it
+closes the conversation, and a plain pi opened on the same file, as
+Reopen Them All opens it, says the command's end under the same job
+id, leaving nothing kept.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 

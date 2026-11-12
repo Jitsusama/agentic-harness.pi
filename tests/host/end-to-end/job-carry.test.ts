@@ -6,13 +6,20 @@
  * left once it is said. Before this a move waited out every job, so a
  * session that always had one never moved (OSPHT4, 12 November).
  *
+ * E19 goes the other way: a hosted conversation whose command runs is
+ * released to plain pi, as item 11's rollback releases every one. The
+ * host spares the command when the conversation closes, and the plain
+ * pi opened on the same file says its end.
+ *
  * Runs on the host's pi, as support/host-pi.ts finds it, skipped saying
  * why without one.
  */
 
+import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
@@ -23,7 +30,12 @@ import {
 	turnEnded,
 	untilAnswered,
 } from "./support/hosted-case.ts";
-import { CARRIED_END, CARRY, CARRYING } from "./support/scripted-model.ts";
+import {
+	CARRIED_END,
+	CARRY,
+	CARRYING,
+	SCRIPTED,
+} from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import {
 	SCRIPTED_PROVIDER,
@@ -32,6 +44,11 @@ import {
 } from "./support/terminal-pi.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
+const ROOT = resolve(import.meta.dirname, "../../..");
+const run = promisify(execFile);
+
+/** How long the release may wait on what holds a conversation, in minutes. */
+const RELEASE_MINUTES = 1;
 
 /**
  * How long the move may take once asked: its 5 s with no key pressed, a
@@ -208,6 +225,101 @@ it(
 
 			await untilAnswered(
 				"the command's end is said in the host, under its job id",
+				async () => {
+					const there = saidAfter(file, held.length);
+					return there.includes(CARRIED_END) && there.includes("[j1]");
+				},
+				CARRIED_MS,
+			);
+			await untilAnswered(
+				"nothing the shell kept of the command is left once its end is said",
+				async () => keptIn(sealed).length === 0,
+				ROUND_TRIP_MS,
+			).catch((failed: unknown) => {
+				throw new Error(
+					`${String(failed)}; left: ${keptIn(sealed).join(", ")}`,
+				);
+			});
+		});
+	},
+	ROUND_TRIP_MS * 3 + MOVE_MS * 2 + CARRIED_MS,
+);
+
+/** Release every hosted conversation as item 11's rollback does, answering its exit and output. */
+async function releaseAll(): Promise<{ code: number; out: string }> {
+	try {
+		const { stdout } = await run(
+			process.execPath,
+			[
+				"--no-warnings",
+				join(ROOT, "scripts", "host-release.ts"),
+				"--all",
+				"--deadline",
+				String(RELEASE_MINUTES),
+			],
+			{ cwd: ROOT, env: sealed.env, timeout: MOVE_MS * 2 },
+		);
+		return { code: 0, out: stdout };
+	} catch (error: unknown) {
+		// execFile fails on a non-zero exit, carrying what the script wrote.
+		if (!isRecord(error)) throw error;
+		return {
+			code: typeof error.code === "number" ? error.code : 1,
+			out: `${String(error.stdout ?? "")}${String(error.stderr ?? "")}`,
+		};
+	}
+}
+
+it(
+	"E19: a hosted conversation released to plain pi with its command running, and the command's end is said in plain pi",
+	async ({ skip }) => {
+		await onHostPi(skip, said, async (pi) => {
+			host = await startHost({
+				seal: sealed,
+				engine: PI_ENGINE,
+				kind: "background",
+				env: { PI_HOST_PACKAGE_DIR: pi },
+			});
+			// Trusted as Joel's own folders are, for the plain pi after.
+			await mkdir(join(sealed.home, ".pi", "agent"), { recursive: true });
+			await writeFile(
+				join(sealed.home, ".pi", "agent", "trust.json"),
+				JSON.stringify({ [await realpath(sealed.home)]: true }),
+			);
+			const cwd = join(sealed.home, "w");
+			await mkdir(cwd, { recursive: true });
+			const one = await host.open(cwd, { model: SCRIPTED, first: CARRY });
+			const file = one.file ?? "";
+			await untilAnswered(
+				"the hosted turn that started the command to end",
+				async () => textOf(file).includes(CARRYING) && turnEnded(file),
+				ROUND_TRIP_MS,
+			);
+			const follow = followIn(sealed.home);
+			if (follow === undefined)
+				throw new Error(`the carried command isn't running; ${said()}`);
+			const held = await readFile(file, "utf8");
+
+			const released = await releaseAll();
+			expect(released.code, released.out).toBe(0);
+			expect(released.out, "released without waiting it out").toContain(
+				"1 released",
+			);
+			expect(await host.list(), "the host lets it go").toEqual([]);
+			expect(
+				alive(follow),
+				"the host spared the command as the conversation closed",
+			).toBe(true);
+
+			// Reopen Them All: plain pi, from the same file.
+			plain = await startTerminalPi({
+				seal: sealed,
+				packageDir: pi,
+				file,
+				cwd,
+			});
+			await untilAnswered(
+				"the command's end is said in plain pi, under its job id",
 				async () => {
 					const there = saidAfter(file, held.length);
 					return there.includes(CARRIED_END) && there.includes("[j1]");
