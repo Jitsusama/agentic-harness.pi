@@ -71,7 +71,8 @@ function writeDurably(
 ): void {
 	const fd = openSync(path, "w", mode);
 	try {
-		writeSync(fd, content);
+		if (typeof content === "string") writeSync(fd, content);
+		else writeSync(fd, content);
 		fsyncSync(fd);
 	} finally {
 		closeSync(fd);
