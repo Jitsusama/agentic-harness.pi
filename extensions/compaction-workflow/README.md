@@ -157,6 +157,12 @@ of Opus 5.5.
   one that had already ended hands idle compaction its remaining time.
   What is carried stays in memory. Should the reload change what the
   next request sends, a carried warm only reads the old entry.
+- **Across a restart:** a pi host restarts itself when the install
+  moves, and a session parks after an hour idle. Any shutdown but a
+  reload writes the same carry to disk beside the kept requests, with
+  no header that could hold a credential, and the session's next start
+  takes it back once while its entry can still be warm.
+  `PI_COMPACTION_KEEP_REQUEST=off` keeps nothing on disk.
 - **The safety stop:** a warm that writes more than 2,000 tokens to the
   cache did not find its prefix there. Warming that session stops and
   a `compaction-cache-warm-stopped` entry says why, as it does for a

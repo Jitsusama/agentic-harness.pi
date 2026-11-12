@@ -5,6 +5,10 @@
  * real stops it. Fake timers stand in for the hours.
  */
 
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -535,6 +539,122 @@ describe("warming across a reload", () => {
 		await wait(4 * WARM_EVERY);
 
 		expect(sent).toHaveLength(0);
+	});
+});
+
+describe("warming across a restart", () => {
+	// A pi host restarts itself when the install moves, about 25 times a
+	// day on 11 November, and each restart ended every idle session's
+	// warming: 61 of the day's idle hours went unwarmed, and every one
+	// came back to write its whole context to the cache again.
+	let state: string;
+	beforeEach(() => {
+		state = mkdtempSync(join(tmpdir(), "warm-restart-"));
+		vi.stubEnv("XDG_STATE_HOME", state);
+		vi.stubEnv("PI_COMPACTION_KEEP_REQUEST", "on");
+	});
+	afterEach(() => rmSync(state, { recursive: true, force: true }));
+
+	const restart = async (
+		fire: (name: string, event: unknown, ctx: unknown) => Promise<void>,
+		ctx: unknown,
+		after = 0,
+	) => {
+		await fire("session_shutdown", { reason: "quit" }, ctx);
+		await wait(after);
+		const fresh = activate();
+		await fresh.fire("session_start", { reason: "resume" }, ctx);
+		return fresh;
+	};
+
+	/** Every file under the state folder, read back as text. */
+	const onDisk = (dir: string): string[] =>
+		readdirSync(dir, { recursive: true, withFileTypes: true })
+			.filter((entry) => entry.isFile())
+			.map((entry) => {
+				const raw = readFileSync(join(entry.parentPath, entry.name));
+				return entry.name.endsWith(".gz")
+					? gunzipSync(raw).toString("utf8")
+					: raw.toString("utf8");
+			});
+
+	it("keeps warming on time once pi starts the session again", async () => {
+		const { fire, sent, ctx } = await idleSession();
+		await wait(10 * MINUTE);
+
+		const fresh = await restart(fire, ctx);
+		await wait(WARM_EVERY - 10 * MINUTE - 1);
+		expect(sent).toHaveLength(0);
+		await wait(1);
+
+		expect(sent).toHaveLength(1);
+		expect(sent[0]?.body).toEqual({ ...payload, max_tokens: 1 });
+		expect(sent[0]?.options).toMatchObject({
+			headers: { "pi-session-id": "s1" },
+			maxTokens: 1,
+		});
+		expect(warms(fresh.entries)).toHaveLength(1);
+	});
+
+	it("counts the warms before the restart toward the four", async () => {
+		const { fire, sent, ctx } = await idleSession();
+		await wait(2 * WARM_EVERY + MINUTE);
+
+		await restart(fire, ctx);
+		await wait(10 * WARM_EVERY);
+
+		expect(sent).toHaveLength(4);
+	});
+
+	it("takes nothing back once the cache it warmed has expired", async () => {
+		const { fire, sent, ctx } = await idleSession();
+
+		await restart(fire, ctx, 61 * MINUTE);
+		await wait(4 * WARM_EVERY);
+
+		expect(sent).toHaveLength(0);
+	});
+
+	it("writes no credential to disk", async () => {
+		const { fire } = activate();
+		const { ctx } = session();
+		await fire("session_start", { reason: "startup" }, ctx);
+		await fire("agent_start", {}, ctx);
+		await fire("context", { messages: [] }, ctx);
+		await fire(
+			"before_provider_headers",
+			{
+				headers: {
+					"pi-session-id": "s1",
+					Authorization: "Bearer sekrit-1",
+					"x-api-key": "sekrit-2",
+					"x-forwarded-for": `sk-ant-${"a".repeat(24)}`,
+				},
+			},
+			ctx,
+		);
+		await fire("before_provider_request", { payload }, ctx);
+		await fire("agent_end", { messages: [] }, ctx);
+		await fire("agent_settled", { aborted: false }, ctx);
+
+		await fire("session_shutdown", { reason: "quit" }, ctx);
+		const written = onDisk(state).join("\n");
+
+		expect([
+			written.includes("pi-session-id"),
+			written.includes("sekrit"),
+			written.includes("sk-ant-"),
+		]).toEqual([true, false, false]);
+	});
+
+	it("keeps nothing on disk when kept requests are switched off", async () => {
+		vi.stubEnv("PI_COMPACTION_KEEP_REQUEST", "off");
+		const { fire, sent, ctx } = await idleSession();
+
+		await restart(fire, ctx);
+		await wait(4 * WARM_EVERY);
+
+		expect([sent.length, onDisk(state).length]).toEqual([0, 0]);
 	});
 });
 

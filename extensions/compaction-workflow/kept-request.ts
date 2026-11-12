@@ -15,6 +15,9 @@
  * cache that could still answer for it: anything older is swept when a
  * session starts. `PI_COMPACTION_KEEP_REQUEST=off` keeps nothing on
  * disk at all.
+ *
+ * Idle warming keeps what it would carry across a reload here too, in
+ * a folder of its own, by the same rules (see `warm.ts`).
  */
 
 import {
@@ -49,6 +52,11 @@ export function keptRequestDir(): string {
 	return join(stateDir("compaction-workflow"), "requests");
 }
 
+/** Where idle warming keeps what a restart carries. */
+export function keptWarmingDir(): string {
+	return join(stateDir("compaction-workflow"), "warming");
+}
+
 /** Whether keeping requests on disk is switched on. */
 export function keepingRequests(env: NodeJS.ProcessEnv = process.env): boolean {
 	return env.PI_COMPACTION_KEEP_REQUEST?.toLowerCase() !== "off";
@@ -68,16 +76,44 @@ export function saveKeptRequest(
 	sessionId: string,
 	sent: SentRequest,
 ): void {
+	saveKept(dir, sessionId, { sessionId, sent });
+}
+
+/**
+ * Write `value` for a session to `dir`, compressed and readable only by
+ * its owner. A failure costs only a cheaper start, so it is swallowed.
+ */
+export function saveKept(dir: string, sessionId: string, value: unknown): void {
 	try {
 		mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR });
-		writeFileSync(
-			fileFor(dir, sessionId),
-			gzipSync(JSON.stringify({ sessionId, sent })),
-			{ mode: OWNER_ONLY },
-		);
+		writeFileSync(fileFor(dir, sessionId), gzipSync(JSON.stringify(value)), {
+			mode: OWNER_ONLY,
+		});
 	} catch {
 		// Deliberately dropped: shutting down must not fail over a cache
-		// the next compaction can do without.
+		// the next start can do without.
+	}
+}
+
+/**
+ * Take what was kept for a session back, removing its file, or nothing
+ * when there is none or it will not read. The caller checks its shape.
+ */
+export function takeKept(dir: string, sessionId: string): unknown {
+	const file = fileFor(dir, sessionId);
+	let raw: Buffer;
+	try {
+		raw = readFileSync(file);
+	} catch {
+		// No file is the usual case: nothing was kept for this session.
+		return null;
+	}
+	rmSync(file, { force: true });
+	try {
+		return JSON.parse(gunzipSync(raw).toString("utf8"));
+	} catch {
+		// A file that will not read is one we cannot use; it is gone now.
+		return null;
 	}
 }
 
@@ -91,28 +127,13 @@ export function takeKeptRequest(
 	sessionId: string,
 	now: number = Date.now(),
 ): SentRequest | null {
-	const file = fileFor(dir, sessionId);
-	let raw: Buffer;
-	try {
-		raw = readFileSync(file);
-	} catch {
-		// No file is the usual case: the session never shut down with a
-		// request in hand.
-		return null;
-	}
-	rmSync(file, { force: true });
-	try {
-		const kept: unknown = JSON.parse(gunzipSync(raw).toString("utf8"));
-		if (!isKept(kept) || kept.sessionId !== sessionId) return null;
-		if (now - kept.sent.at > KEPT_REQUEST_LIFETIME_MS) return null;
-		return kept.sent;
-	} catch {
-		// A file that will not read is one we cannot use; it is gone now.
-		return null;
-	}
+	const kept = takeKept(dir, sessionId);
+	if (!isKept(kept) || kept.sessionId !== sessionId) return null;
+	if (now - kept.sent.at > KEPT_REQUEST_LIFETIME_MS) return null;
+	return kept.sent;
 }
 
-/** Remove every kept request older than any cache that could use it. */
+/** Remove every kept file older than any cache that could use it. */
 export function sweepKeptRequests(dir: string, now: number = Date.now()): void {
 	let names: string[];
 	try {
