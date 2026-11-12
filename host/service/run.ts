@@ -84,10 +84,10 @@ export interface HostRunOptions {
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
 	statusEvery?: number;
 	/**
-	 * Says the host's loop still turns, when systemd's watchdog watches it;
-	 * systemd's notify by default.
+	 * Says the host's loop still turns, when systemd's watchdog watches it,
+	 * given how many ms the saying may take; systemd's notify by default.
 	 */
-	alive?: (env: NodeJS.ProcessEnv) => Promise<void>;
+	alive?: (env: NodeJS.ProcessEnv, within: number) => Promise<void>;
 	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
@@ -196,7 +196,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		every === undefined
 			? undefined
 			: keepAlive({
-					ping: () => (options.alive ?? notifyAlive)(options.env),
+					ping: (within) => (options.alive ?? notifyAlive)(options.env, within),
 					every,
 					report,
 				});
@@ -309,15 +309,19 @@ function notifyProgress(env: NodeJS.ProcessEnv, status: string): Promise<void> {
  * writes every child this process spawns into jobs.service: on 11
  * November the background host's ready went to jobs.service whenever the
  * move landed first, and systemd stopped the host at its start timeout.
+ * Given `within` ms, a systemd-notify still running then is killed and
+ * the telling fails.
  */
 function tellSystemd(
 	env: NodeJS.ProcessEnv,
 	args: readonly string[],
+	within?: number,
 ): Promise<void> {
 	if (!env.NOTIFY_SOCKET) return Promise.resolve();
+	const timeout = within === undefined ? {} : { timeout: within };
 	return new Promise((resolve, reject) => {
 		withPi(() =>
-			execFile("systemd-notify", args, { env }, (error) =>
+			execFile("systemd-notify", args, { env, ...timeout }, (error) =>
 				error ? reject(error) : resolve(),
 			),
 		);
@@ -359,32 +363,46 @@ function notifyReady(env: NodeJS.ProcessEnv, status: string): Promise<void> {
 	return tellSystemd(env, ["--ready", `STATUS=${status}`]);
 }
 
-/** Tell systemd's watchdog the host's loop still turns. */
-function notifyAlive(env: NodeJS.ProcessEnv): Promise<void> {
-	return tellSystemd(env, ["WATCHDOG=1"]);
+/**
+ * Tell systemd's watchdog the host's loop still turns, killing a
+ * systemd-notify that hasn't ended `within` ms on.
+ */
+function notifyAlive(env: NodeJS.ProcessEnv, within: number): Promise<void> {
+	return tellSystemd(env, ["WATCHDOG=1"], within);
 }
 
 /**
  * Ping every `every` ms from the host's own loop, until the answer is
  * called. A conversation's work is awaited rather than run on the loop,
  * so a turn of any length leaves it free to ping, and only a loop that
- * stops turning goes quiet, for systemd to restart. A ping still on its
- * way when the next is due is let be rather than joined by another.
+ * stops turning goes quiet, for systemd to restart. Each ping is given
+ * one beat. One still on its way when the next is due is let be for that
+ * beat rather than joined by another, and the beat after pings anyway,
+ * so a systemd-notify that never ends can't silence a healthy host.
  */
 function keepAlive(options: {
-	ping: () => Promise<void>;
+	ping: (within: number) => Promise<void>;
 	every: number;
 	report: (error: unknown) => void;
 }): () => void {
+	// The newest ping, and whether it's still on its way and has had its beat.
+	let newest = 0;
 	let pinging = false;
+	let waited = false;
 	const beat = setInterval(() => {
-		if (pinging) return;
+		if (pinging && !waited) {
+			waited = true;
+			return;
+		}
+		newest += 1;
+		const ping = newest;
 		pinging = true;
+		waited = false;
 		options
-			.ping()
+			.ping(options.every)
 			.catch(options.report)
 			.finally(() => {
-				pinging = false;
+				if (ping === newest) pinging = false;
 			});
 	}, options.every);
 	beat.unref();
