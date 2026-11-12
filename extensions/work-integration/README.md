@@ -140,6 +140,13 @@ on a five-hour clock that counts the wait
 (`lib/internal/priority/queued-exec.ts`). Everything else runs as
 it did.
 
+A push, rebase, resume, restack or sync still running after a minute
+moves to a job of kind `work`, as a long bash command does, since on
+11 November 21 such calls held their turn, the longest 301 seconds,
+while the person's typed lines waited. Its result arrives as a message
+of its own. A record never moves: its gate can wait on the person, and
+a panel left open behind a job would answer nobody.
+
 ## Trees It Did Not Cut
 
 A quest cuts its own trees and records them in its own front
