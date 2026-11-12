@@ -351,7 +351,11 @@ hears in full only what is put to its sessions: what is sent to
 their address, answers them, names them, holds, or is their own
 orchestrator's pivot. Everything else, group fyis, findings and
 questions included, is a glance, and the classifier isn't asked.
-It is for Joel's router (QEST-20261112-8GYNJ6), which is in an
+So a finding about its own work reaches it in full only when it
+is sent to it or names its address; one sent to a group about
+what it owns, without naming it, is a glance. `config` with only
+the quest's `id` says how it hears, naming a value written by hand
+that it can't read. It is for Joel's router (QEST-20261112-8GYNJ6), which is in an
 orchestration by lineage: in the six hours to 02:45 on 12 November,
 93 messages and 65k characters went to that orchestration's group,
 and each would sit in its context to be read again with every line

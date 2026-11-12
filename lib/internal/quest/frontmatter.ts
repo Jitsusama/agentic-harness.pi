@@ -378,6 +378,23 @@ function captureExtras(
 	return extras;
 }
 
+/**
+ * A way of hearing written by hand that the parser can't read, kept
+ * among the extras, so a rewrite doesn't erase the slip and the quest
+ * tool's config can name it. `all` is how every peer hears, so it
+ * needs no keeping.
+ */
+function withUnreadHearing(
+	extras: Record<string, unknown> | undefined,
+	hears: unknown,
+): Record<string, unknown> | undefined {
+	const said = typeof hears === "string" ? hears.trim() : hears;
+	if (said === undefined || said === "addressed" || said === "all") {
+		return extras;
+	}
+	return { ...extras, hears };
+}
+
 /** Parse the quest README front-matter from raw text. */
 export function parseQuestFrontMatter(
 	text: string,
@@ -452,7 +469,10 @@ export function parseQuestFrontMatter(
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
 	const verify = asString(raw.verify);
 	if (verify) frontMatter.verify = verify;
-	const extras = captureExtras(raw, KNOWN_QUEST_KEYS);
+	const extras = withUnreadHearing(
+		captureExtras(raw, KNOWN_QUEST_KEYS),
+		raw.hears,
+	);
 	if (extras) frontMatter._extra = extras;
 
 	return { frontMatter, body: split.body };
