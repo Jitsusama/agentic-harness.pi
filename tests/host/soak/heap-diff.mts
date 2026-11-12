@@ -6,8 +6,9 @@ const dir = process.argv[2] ?? "";
 const files = readdirSync(dir)
 	.filter((name) => name.endsWith(".heapsnapshot"))
 	.sort();
-// Weighed awake then parked at each checkpoint: the odd ones are parked.
-const parked = files.filter((_, at) => at % 2 === 1);
+// Weighed awake, parked at once and parked 15 s on at each checkpoint: the
+// last of each three is the settled park.
+const parked = files.filter((_, at) => at % 3 === 2);
 console.log(`snapshots ${files.join(" ")}; parked ${parked.join(" ")}`);
 
 type Snap = {
@@ -149,7 +150,14 @@ for (let head = 0; head < queue.length; head++) {
 }
 console.log("=== HELD FROM ROOT");
 for (let at = 0; at < nodeCount; at++) {
-	if (keyOf(last, at) !== "object:InteractiveMode") continue;
+	const key = keyOf(last, at);
+	if (
+		key !== "object:InteractiveMode" &&
+		key !== "object:SessionManager" &&
+		key !== "object:AgentSession"
+	)
+		continue;
+	console.log(`held ${key}`);
 	const path: string[] = [];
 	for (let on = at; on !== 0 && path.length < 60; on = parentNode[on] ?? 0) {
 		if (parentNode[on] === -1) {
