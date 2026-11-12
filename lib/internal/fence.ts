@@ -50,9 +50,26 @@ export const FENCE = "fence";
  * daemon's door for sandboxes, which takes its caller as untrusted, and
  * the SSH agent's proxy, which signs only logins to the hosts it's told
  * of, each proved by the host's own signature over the session (core's
- * `modules/pi/agent-proxy`).
+ * `modules/pi/agent-proxy`), and the jobs broker, which puts only the
+ * process asking, as the kernel names it, into a scope of its own in
+ * its quest's work, and says how named units stand (core's
+ * `modules/jobs-broker`). The broker stands in for the user's bus,
+ * which stays shut.
  */
-const LET_THROUGH = ["nix-untrusted.sock", "pi-agent.sock"] as const;
+const LET_THROUGH = [
+	"nix-untrusted.sock",
+	"pi-agent.sock",
+	"daemons/jobs-broker.sock",
+] as const;
+
+/**
+ * The cgroup tree, bound read-only inside: a fenced command may read
+ * where it and its machine stand, but never move a process or change a
+ * limit. Every move pi makes (its children's work slice, a queue's turn,
+ * a World walk's shared slice) happens outside the fence, before the
+ * command starts, and a command's own scope goes through the broker.
+ */
+const CGROUPS = "/sys/fs/cgroup";
 
 /** The SSH agent's proxy, in the runtime folder. */
 const AGENT_PROXY = "pi-agent.sock";
@@ -302,6 +319,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...gitArgs(place, disk),
 		...scratchArgs(place, disk),
 		...hiddenArgs(place.home, disk),
+		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
 }
 

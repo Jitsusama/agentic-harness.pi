@@ -56,14 +56,25 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes and the SSH agent's proxy in the runtime folder", () => {
+	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy and the jobs broker in the runtime folder", () => {
 		const bound = pairs("--bind").filter((path) =>
 			path?.startsWith(place.runtimeDir),
 		);
 		expect(bound).toEqual([
 			"/run/user/1000/nix-untrusted.sock",
 			"/run/user/1000/pi-agent.sock",
+			"/run/user/1000/daemons/jobs-broker.sock",
 		]);
+	});
+
+	it("makes the cgroup tree read-only, so a command moves no process and sets no limit", () => {
+		const at = args.lastIndexOf("/sys/fs/cgroup");
+		expect(args.slice(at - 2, at + 1), "bound read-only over itself").toEqual([
+			"--ro-bind",
+			"/sys/fs/cgroup",
+			"/sys/fs/cgroup",
+		]);
+		expect(pairs("--bind"), "never writable").not.toContain("/sys/fs/cgroup");
 	});
 
 	it("binds the copy of the system's SSH settings over them, read-only, once it's made", () => {
@@ -213,7 +224,7 @@ describe("the fence's arguments", () => {
 		expect(bound, "only the root is bound").toEqual(["/"]);
 	});
 
-	it("tells Landlock of only nscd's socket and the door, never every scope", () => {
+	it("tells Landlock of only nscd's socket and the doors, never every scope", () => {
 		const sockets = rules.flatMap((rule, at) =>
 			rule === "--unix" ? [rules[at + 1]] : [],
 		);
@@ -221,6 +232,7 @@ describe("the fence's arguments", () => {
 			"/run/nscd/socket",
 			"/run/user/1000/nix-untrusted.sock",
 			"/run/user/1000/pi-agent.sock",
+			"/run/user/1000/daemons/jobs-broker.sock",
 		]);
 		expect(rules).not.toContain("--unrestricted-scoped");
 		expect(rules).not.toContain("--unrestricted-filesystem");
