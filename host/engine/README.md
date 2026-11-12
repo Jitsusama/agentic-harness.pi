@@ -158,9 +158,15 @@ and why (lib/internal/session/refused-wake.ts), so the mesh can say why
 it sleeps on; the conversation's next start or its close clears it. A
 resume as the host starts, rather than a wake, clears plain pi's marker,
 so the conversation counts idle from its log and parks again at its
-first look. Given screens, the engine hands each built conversation to
-them; without, it binds extensions with no
-interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
+first look. While a conversation is parked, parked-warming.ts keeps its
+cache entry warm from the carry its session's warming wrote as it
+parked (lib/internal/warming-carry.ts): on the session's schedule, at
+most four warms in all, through pi's model runtime with the
+conversation's key, each kept for the session's next start to record.
+A resume stops it before the session starts and takes the carry, and a
+warm out then is dropped rather than holding the wake up. Given
+screens, the engine hands each built conversation to them; without, it
+binds extensions with no interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.
 
 A conversation's environment is the realm's, then its launch, then what

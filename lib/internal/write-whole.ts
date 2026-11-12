@@ -38,12 +38,14 @@ export interface WriteWholeOptions {
 	 * written again within seconds does not.
 	 */
 	readonly durable?: boolean;
+	/** The file's mode, for one only its owner may read. */
+	readonly mode?: number;
 }
 
 /** Replace `file` whole with `content`, through its folder's `.writing`. */
 export function writeWhole(
 	file: string,
-	content: string,
+	content: string | Uint8Array,
 	options: WriteWholeOptions = {},
 ): void {
 	const writing = join(dirname(file), WRITING);
@@ -53,8 +55,8 @@ export function writeWhole(
 		`${basename(file)}.${process.pid}.${randomBytes(4).toString("hex")}`,
 	);
 	try {
-		if (options.durable) writeDurably(staged, content);
-		else writeFileSync(staged, content);
+		if (options.durable) writeDurably(staged, content, options.mode);
+		else writeFileSync(staged, content, { mode: options.mode });
 		renameSync(staged, file);
 	} catch (error) {
 		rmSync(staged, { force: true });
@@ -62,10 +64,15 @@ export function writeWhole(
 	}
 }
 
-function writeDurably(path: string, content: string): void {
-	const fd = openSync(path, "w");
+function writeDurably(
+	path: string,
+	content: string | Uint8Array,
+	mode: number | undefined,
+): void {
+	const fd = openSync(path, "w", mode);
 	try {
-		writeSync(fd, content);
+		if (typeof content === "string") writeSync(fd, content);
+		else writeSync(fd, content);
 		fsyncSync(fd);
 	} finally {
 		closeSync(fd);
