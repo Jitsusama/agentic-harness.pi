@@ -52,7 +52,11 @@ import {
 	parityOf,
 	spreadOf,
 } from "./report.ts";
-import { type SoakProvider, soakProvider } from "./soak-provider.ts";
+import {
+	type SoakProvider,
+	soakProvider,
+	textOf,
+} from "./soak-provider.ts";
 import {
 	acknowledged,
 	checkpointsOf,
@@ -75,6 +79,10 @@ const TAIL_BYTES = 64 * 1024;
 const MOST_FAULTS = 20;
 /** How much of what the host wrote a fault quotes. */
 const SAID_CHARACTERS = 2000;
+/** How many of a log's last entries a fault names. */
+const LAST_ENTRIES = 6;
+/** How much of each named entry's words a fault quotes. */
+const LAST_WORDS = 80;
 const ROWS = 30;
 const COLUMNS = 100;
 const ENTER = "\r";
@@ -220,6 +228,8 @@ function agentOf(listening: SoakProvider): {
 			quietStartup: true,
 			compaction: { enabled: false },
 			retry: { enabled: false },
+			// As on optimus: the harness's codemode stands in for pi's own.
+			extensions: ["-builtin:codemode"],
 		},
 	};
 }
@@ -422,8 +432,22 @@ async function typed(
 	}
 	await tried(
 		host.idle(one.sessionId, TURN_MS),
-		`${turn.tag} answered but never went idle`,
+		`${turn.tag} answered but never went idle, its log ending ${lastOf(one.file)}`,
 	);
+}
+
+/** The kinds of a log's last entries, to say where a conversation stopped. */
+function lastOf(file: string): string {
+	const kinds = entriesOf(readOr(file))
+		.slice(-LAST_ENTRIES)
+		.map((entry) => {
+			const message = isRecord(entry.message) ? entry.message : {};
+			const words = textOf(message).slice(0, LAST_WORDS);
+			return [entry.type, entry.customType, message.role, words]
+				.filter((part) => typeof part === "string" && part !== "")
+				.join(" ");
+		});
+	return kinds.join(" | ");
 }
 
 /** The plain side: one plain pi a conversation, all at once. */
