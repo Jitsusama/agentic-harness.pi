@@ -32,9 +32,12 @@ a rule covers.
 - `scripts/`: programs run by hand, by `pnpm`, by a user
   service or by the machine: the load check, the sensors, the
   launcher's restore file, `pi-carry`, which mycelium runs to
-  carry a quest to another machine, and `pi-host`, the shared pi
-  host a user unit starts. A one-shot migrator goes once
+  carry a quest to another machine, `pi-host`, the shared pi
+  host a user unit starts, and `pi-verbs`, the verbs server the
+  launcher keeps a connection to. A one-shot migrator goes once
   its run is done
+- `verbs/`: what the launcher offers to ask of a model over a
+  selection, a markdown file a verb, which `pi-verbs` serves
 - `tests/`: the tests, mirroring the source;
   [`tests/README.md`](./tests/README.md) says which folders
   don't
