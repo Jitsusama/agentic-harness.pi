@@ -15,7 +15,7 @@ import {
 	type StandaloneBackend,
 } from "../../../../lib/core/lsp/index.ts";
 
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 const serverBin = join(repoRoot, "node_modules", ".bin", "tsc");
 const hasServer = existsSync(serverBin);
 
