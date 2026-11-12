@@ -15,6 +15,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	parseQuestFrontMatter,
+	serializeQuestFrontMatter,
+} from "../../../lib/internal/quest/frontmatter.ts";
+import {
 	clearRefusedWake,
 	writeRefusedWake,
 } from "../../../lib/internal/session/refused-wake.ts";
@@ -792,6 +796,29 @@ describe("this session's peer", () => {
 				[before.includes("standsAtTop"), kept.of(session)?.standsAtTop],
 				"left out until its quest says it, then kept as said",
 			).toEqual([false, { name: "The Void", keywords: ["void"] }]);
+		});
+
+		it("still stands at the top after the workflow rewrites its README", () => {
+			const said = readme(LOOP, "null").replace(
+				"---\n#",
+				"stands-at-top: {name: The Void, keywords: [void]}\n---\n#",
+			);
+			const parsed = parseQuestFrontMatter(said);
+			if (!parsed) throw new Error("the README should parse");
+			write(
+				[
+					[
+						LOOP,
+						`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+					],
+				],
+				LOOP,
+			);
+			localPeer(surroundings());
+
+			expect(
+				createPresences(join(root, "presence")).of(session)?.standsAtTop,
+			).toEqual({ name: "The Void", keywords: ["void"] });
 		});
 
 		it("stands nowhere when its quest names no one to stand as", () => {
