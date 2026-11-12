@@ -85,6 +85,13 @@ const nobody: ControlCall = async () => {
 	throw Object.assign(new Error("connect ENOENT"), { code: "ENOENT" });
 };
 
+/** What is left of the spawn's words: waiting, taken, or both. */
+function leftOf(): string[] {
+	return [".json", ".taken"].filter((end) =>
+		existsSync(join(dir, `${sessionId}${end}`)),
+	);
+}
+
 function spawned(): LaunchedSpawn {
 	const spawn = launchedSpawn(argvOf(), envOf(), root, dir);
 	if (!spawn) throw new Error("the launched spawn wasn't recognised");
@@ -167,7 +174,7 @@ describe("handing a launched spawn to its host", () => {
 			model: { provider: "proxy", id: "claude-opus" },
 			env: { PI_SANDBOX: "fenced" },
 		});
-		expect(existsSync(join(dir, `${sessionId}.json`))).toBe(false);
+		expect(leftOf(), "the words are taken, not waiting").toEqual([".taken"]);
 		expect(
 			JSON.parse(readFileSync(join(dir, `${sessionId}.taken`), "utf8")),
 		).toMatchObject({ sessionId: hosted, said: true });
@@ -183,7 +190,7 @@ describe("handing a launched spawn to its host", () => {
 			await handToHost(spawned(), factsOf(undefined, opening("x"))),
 		).toEqual({ hosted: false });
 		expect(sent).toEqual([]);
-		expect(existsSync(join(dir, `${sessionId}.json`))).toBe(true);
+		expect(leftOf(), "the words still wait").toEqual([".json"]);
 	});
 
 	it("stays, saying why, in a realm whose agent no host runs", async () => {
@@ -199,7 +206,7 @@ describe("handing a launched spawn to its host", () => {
 			note: expect.stringContaining("starts pi-claude"),
 		});
 		expect(sent).toEqual([]);
-		expect(existsSync(join(dir, `${sessionId}.json`))).toBe(true);
+		expect(leftOf(), "the words still wait").toEqual([".json"]);
 	});
 
 	it("stays, saying why, when no host is listening", async () => {
@@ -211,7 +218,7 @@ describe("handing a launched spawn to its host", () => {
 			hosted: false,
 			note: expect.stringContaining("no work-background host is listening"),
 		});
-		expect(existsSync(join(dir, `${sessionId}.json`))).toBe(true);
+		expect(leftOf(), "the words still wait").toEqual([".json"]);
 	});
 
 	it("stays with its words put back when the host turns it away", async () => {
@@ -229,8 +236,7 @@ describe("handing a launched spawn to its host", () => {
 			hosted: false,
 			note: expect.stringContaining("too many conversations"),
 		});
-		expect(existsSync(join(dir, `${sessionId}.json`))).toBe(true);
-		expect(existsSync(join(dir, `${sessionId}.taken`))).toBe(false);
+		expect(leftOf(), "the words are put back, untaken").toEqual([".json"]);
 	});
 });
 

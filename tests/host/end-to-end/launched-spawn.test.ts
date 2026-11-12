@@ -117,8 +117,13 @@ it(
 			ran = ended.errors;
 
 			expect(ended.code, "the launched pi ends cleanly").toBe(0);
+			// pi warns of a fresh --session-id before any extension loads, as
+			// every window the launcher opens for a spawn shows; nothing after.
 			expect(
-				ended.screen.join("").trim(),
+				ended.screen
+					.filter((line) => !line.startsWith("Warning: No project session"))
+					.join("")
+					.trim(),
 				"it ends before it draws a frame",
 			).toBe("");
 			const listed = ((await host.list()) ?? []).find((one) => one.cwd === cwd);

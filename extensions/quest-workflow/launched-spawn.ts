@@ -216,6 +216,9 @@ export async function settleLaunchedSpawn(
 	end: () => void = () => process.exit(0),
 	call?: ControlCall,
 ): Promise<string | undefined> {
+	// A host's conversations never start with --session-id, so a host
+	// goes no further and never reads the process's folder.
+	if (!flagValue(argv, "--session-id")) return undefined;
 	const spawn = launchedSpawn(argv, env, process.cwd());
 	if (!spawn) return undefined;
 	const machine = hostname().split(".")[0] ?? "";
