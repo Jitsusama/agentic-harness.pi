@@ -60,7 +60,11 @@ const drawn: Record<string, string | undefined> = {
 	),
 	quiet: quietStatus(MOST, plain),
 	budget: (() => {
-		const mark = budgetMark({ name: "delta", chosen: true, allowances: [spent] });
+		const mark = budgetMark({
+			name: "delta",
+			chosen: true,
+			allowances: [spent],
+		});
 		return mark && footerShare("budget", mark.tone, plain, mark.percent);
 	})(),
 	retrying: footerMark("retrying", "warning", plain, MOST),

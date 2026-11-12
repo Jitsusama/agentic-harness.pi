@@ -177,9 +177,7 @@ describe("the budget item", () => {
 				],
 			},
 		});
-		expect(item.statuses.at(-1)).toBe(
-			`${FOOTER_GLYPH.budget} 91%`,
-		);
+		expect(item.statuses.at(-1)).toBe(`${FOOTER_GLYPH.budget} 91%`);
 	});
 
 	it("asks spend-watch after a reply at most once a minute", async () => {

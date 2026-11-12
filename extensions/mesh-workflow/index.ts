@@ -2447,7 +2447,7 @@ export function meshWorkflow(
 				});
 		};
 
-		registerTools(pi, (): Local | undefined =>
+		const local = (): Local | undefined =>
 			peer
 				? {
 						peer,
@@ -2487,9 +2487,8 @@ export function meshWorkflow(
 						...(paths.looks ? { looks: paths.looks } : {}),
 						...(waiting ? { waiting } : {}),
 					}
-				: undefined,
-			() => quiet,
-		);
+				: undefined;
+		registerTools(pi, local, () => quiet);
 	};
 }
 

@@ -2,10 +2,7 @@
  * mesh_send draws as pi draws a tool of no drawing of its own, and under
  * /mesh quiet draws no line at all until the person expands the screen.
  */
-import type {
-	Theme,
-	ToolRenderContext,
-} from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolRenderContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { sendDrawing } from "../../../extensions/mesh-workflow/send-drawing.ts";
 
@@ -17,7 +14,9 @@ const theme = {
 
 const args = { to: "orchestrator", intent: "fyi", text: "merged #1373" };
 const answer = {
-	content: [{ type: "text" as const, text: "Sent as QCXZEB: 21:10 [abc] fyi." }],
+	content: [
+		{ type: "text" as const, text: "Sent as QCXZEB: 21:10 [abc] fyi." },
+	],
 	details: undefined,
 };
 
