@@ -65,6 +65,7 @@ import { registerHooks } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { writeHeapSnapshot } from "node:v8";
 import type { EngineKey } from "../../../../host/engine/index.ts";
 import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 
@@ -257,6 +258,9 @@ function weigh(): void {
 			sessions,
 		}),
 	);
+	const snapshots = process.env.SCREEN_HOST_SNAPSHOTS;
+	if (snapshots)
+		writeHeapSnapshot(join(snapshots, `weighed-${Date.now()}.heapsnapshot`));
 	renameSync(`${weighed}.part`, weighed);
 }
 

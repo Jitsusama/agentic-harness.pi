@@ -102,6 +102,9 @@ export async function startScreenHost(
 			env: {
 				...seal.env,
 				PI_OFFLINE: "1",
+				...(process.env.SCREEN_HOST_SNAPSHOTS
+					? { SCREEN_HOST_SNAPSHOTS: process.env.SCREEN_HOST_SNAPSHOTS }
+					: {}),
 				...(also.length > 0 ? { SCREEN_HOST_ALSO: also.join(",") } : {}),
 				...(agent === undefined ? {} : { SCREEN_HOST_AGENT: agent }),
 			},
