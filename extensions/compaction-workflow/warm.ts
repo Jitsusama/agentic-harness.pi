@@ -27,9 +27,18 @@
  * What stops it: anything real. A typed prompt, a run starting for any
  * reason, a compaction (under way when a warm falls due, since pi then
  * counts the session as busy, or landed), a model or thinking change,
- * moving in the session tree, a reload, a shutdown, the session ending,
- * a new request replacing the one held, or the package config
- * switching it off (`compaction.warmWhileIdle: false`).
+ * moving in the session tree, a shutdown, the session ending, a new
+ * request replacing the one held, or the package config switching it
+ * off (`compaction.warmWhileIdle: false`).
+ *
+ * A reload is not real work: an install move reloads every idle
+ * session, and ending its warming there left the next wake to write
+ * the whole conversation to the cache again. The warming, or its end,
+ * is carried in memory across the reload, keyed by the session, and the
+ * reloaded extension takes it up when `resume` is called, with its
+ * warms so far counted toward the four. If the reload changed what the
+ * next request will send, the old entry is still warm, so a carried warm
+ * reads it for a few cents rather than writing anything.
  * After the fact, a warm that wrote more than 2,000 tokens to the cache
  * did not find its prefix there: warming that session stops and a
  * custom entry says why.
@@ -64,6 +73,7 @@ import {
 	loadPackageConfig,
 	type SectionParse,
 } from "../../lib/internal/config/loader.ts";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { isStaleContext } from "../../lib/internal/stale.ts";
 
@@ -126,7 +136,26 @@ export interface IdleWarmingOptions {
 /** What warming is doing, for `/compaction-status`. */
 export interface IdleWarming {
 	describe(): string;
+	/**
+	 * Take up what a reload of this session carried, after the session's
+	 * own `session_start` work, which may cancel what this starts.
+	 */
+	resume(ctx: ExtensionContext): void;
 }
+
+/** Warming, or its end, as a reload carries it to the next extension. */
+interface Carried {
+	readonly held: HeldRequest;
+	readonly refreshedAt: number;
+	readonly warms: number;
+}
+
+/**
+ * What each reloading session carried, by its id. A reload evaluates this
+ * module afresh, so it lives on the process, and is taken once.
+ */
+const carried = (): Map<string, Carried> =>
+	processGlobal("agentic-harness.pi/compaction-warm-carried", () => new Map());
 
 /** Keep idle sessions' cache entries warm; see the module comment. */
 export function registerIdleWarming(
@@ -138,10 +167,15 @@ export function registerIdleWarming(
 	let turnPending = false;
 	let turnHeaders: Record<string, string | null> | undefined;
 	let run: Run | null = null;
+	/** Warming that ended with the session still idle, for a reload to carry. */
+	let ended: Carried | null = null;
+	/** What a reload carried here, until `resume` takes it up. */
+	let inherited: Carried | undefined;
 	let last = "waiting for a request";
 
 	/** Leave the run where it is, saying why; nothing real calls `onEnd`. */
 	const stop = (reason: string) => {
+		ended = null;
 		if (!run) return;
 		if (run.timer !== undefined) clearTimeout(run.timer);
 		run = null;
@@ -159,11 +193,22 @@ export function registerIdleWarming(
 	const end = (current: Run, reason: string, recorded: boolean) => {
 		if (run !== current) return;
 		stop(reason);
+		ended = {
+			held: current.held,
+			refreshedAt: current.refreshedAt,
+			warms: MAX_IDLE_WARMS,
+		};
 		if (recorded) {
 			record(pi, WARM_STOPPED_ENTRY, { reason, warms: current.warms });
 		}
 		options.onEnd?.(current.ctx, current.refreshedAt);
 	};
+
+	/** What a reload now would carry: the run under way, or its end. */
+	const carry = (): Carried | null =>
+		run
+			? { held: run.held, refreshedAt: run.refreshedAt, warms: run.warms }
+			: ended;
 
 	const schedule = (current: Run, dueAt: number, deadline: number) => {
 		if (Date.now() > deadline) {
@@ -240,10 +285,13 @@ export function registerIdleWarming(
 		schedule(current, dueAt, warmDeadline(dueAt, current.lifetimeMs));
 	};
 
-	/** Start warming once a run has settled, when there is something to warm. */
-	const settle = (ctx: ExtensionContext) => {
-		stop("a new run settled");
-		const planned = plan(ctx, held);
+	/**
+	 * Warm `from` on: the request held, refreshed at `refreshedAt`, with
+	 * `warms` done. A run settling starts from nothing done; a reload
+	 * carries on from where the last extension was.
+	 */
+	const begin = (ctx: ExtensionContext, from: Carried) => {
+		const planned = plan(ctx, from.held);
 		if (!planned.ok) {
 			last = `not warming: ${planned.reason}`;
 			return;
@@ -254,15 +302,29 @@ export function registerIdleWarming(
 			lifetimeMs: planned.lifetimeMs,
 			delayMs: planned.delayMs,
 			controller: new AbortController(),
-			warms: 0,
+			warms: from.warms,
 			retried: false,
-			refreshedAt: planned.held.at,
+			refreshedAt: from.refreshedAt,
 			dueAt: 0,
 		};
 		run = current;
-		const dueAt = planned.held.at + planned.delayMs;
+		if (current.warms >= MAX_IDLE_WARMS) {
+			end(current, `all ${MAX_IDLE_WARMS} warms done`, false);
+			return;
+		}
+		const dueAt = from.refreshedAt + planned.delayMs;
 		options.onStart?.(ctx);
 		schedule(current, dueAt, warmDeadline(dueAt, planned.lifetimeMs));
+	};
+
+	/** Start warming once a run has settled, when there is something to warm. */
+	const settle = (ctx: ExtensionContext) => {
+		stop("a new run settled");
+		if (!held) {
+			last = "not warming: nothing sent yet";
+			return;
+		}
+		begin(ctx, { held, refreshedAt: held.at, warms: 0 });
 	};
 
 	// The session's own turns, told apart by `context`, which pi fires
@@ -309,10 +371,33 @@ export function registerIdleWarming(
 		stop("the thinking level changed"),
 	);
 	pi.on("session_tree", async () => stop("the session moved in its tree"));
-	pi.on("session_start", async () => abandon("the session started"));
-	pi.on("session_shutdown", async () => abandon("the session shut down"));
+	pi.on("session_start", async (event, ctx) => {
+		abandon("the session started");
+		const id = sessionIdOf(ctx);
+		if (id === undefined) return;
+		const kept = carried().get(id);
+		carried().delete(id);
+		inherited = event.reason === "reload" ? kept : undefined;
+	});
+	pi.on("session_shutdown", async (event, ctx) => {
+		const going = event.reason === "reload" ? carry() : null;
+		abandon("the session shut down");
+		const id = sessionIdOf(ctx);
+		if (id === undefined) return;
+		if (going) carried().set(id, going);
+		else carried().delete(id);
+	});
 
-	return { describe: () => last };
+	return {
+		describe: () => last,
+		resume: (ctx) => {
+			const from = inherited;
+			inherited = undefined;
+			if (!from) return;
+			held = from.held;
+			begin(ctx, from);
+		},
+	};
 }
 
 type Planned =
@@ -343,6 +428,16 @@ function plan(ctx: ExtensionContext, held: HeldRequest | null): Planned {
 		return { ok: false, reason: "the cache lifetime is too short" };
 	}
 	return { ok: true, held, lifetimeMs, delayMs };
+}
+
+/** The session's id, or nothing from a context that can no longer say. */
+function sessionIdOf(ctx: ExtensionContext): string | undefined {
+	try {
+		return ctx.sessionManager.getSessionId();
+	} catch {
+		// A context the session replaced throws on use; it carries nothing.
+		return undefined;
+	}
 }
 
 /** Whether nothing is running or waiting to, on a context still current. */

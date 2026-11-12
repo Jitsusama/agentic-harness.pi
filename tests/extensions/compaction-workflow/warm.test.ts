@@ -475,6 +475,69 @@ describe("what stops warming", () => {
 	});
 });
 
+describe("warming across a reload", () => {
+	// An install move reloads every idle session; ending its warming there
+	// left the next wake to write its whole context to the cache again.
+	const reload = async (
+		fire: (name: string, event: unknown, ctx: unknown) => Promise<void>,
+		ctx: unknown,
+	) => {
+		await fire("session_shutdown", { reason: "reload" }, ctx);
+		const fresh = activate();
+		await fresh.fire("session_start", { reason: "reload" }, ctx);
+		return fresh;
+	};
+
+	it("keeps warming on time in the reloaded extension", async () => {
+		const { fire, sent, ctx } = await idleSession();
+		await wait(WARM_EVERY + 10 * MINUTE);
+		expect(sent).toHaveLength(1);
+
+		const fresh = await reload(fire, ctx);
+		await wait(WARM_EVERY - 10 * MINUTE - 1);
+		expect(sent).toHaveLength(1);
+		await wait(1);
+
+		expect(sent).toHaveLength(2);
+		expect(sent[1]?.body).toEqual({ ...payload, max_tokens: 1 });
+		expect(warms(fresh.entries)).toEqual([
+			expect.objectContaining({ data: expect.objectContaining({ warm: 2 }) }),
+		]);
+	});
+
+	it("counts the warms before the reload toward the four", async () => {
+		const { fire, sent, ctx } = await idleSession();
+		await wait(3 * WARM_EVERY);
+
+		await reload(fire, ctx);
+		await wait(10 * WARM_EVERY);
+
+		expect(sent).toHaveLength(4);
+	});
+
+	it("compacts on time after its warms end, across the reload", async () => {
+		const { fire, state, ctx } = await idleSession();
+		state.tokens = 280_000;
+		await wait(4 * WARM_EVERY + MINUTE);
+
+		await reload(fire, ctx);
+		await wait(54 * MINUTE - 1);
+		expect(state.compactions).toBe(0);
+		await wait(1);
+		expect(state.compactions).toBe(1);
+	});
+
+	it("carries nothing into a session started any other way", async () => {
+		const { fire, sent, ctx } = await idleSession();
+		await fire("session_shutdown", { reason: "reload" }, ctx);
+		const fresh = activate();
+		await fresh.fire("session_start", { reason: "resume" }, ctx);
+		await wait(4 * WARM_EVERY);
+
+		expect(sent).toHaveLength(0);
+	});
+});
+
 describe("warming and compacting while idle", () => {
 	it("holds idle compaction off while warming, then compacts five minutes before the last warm expires", async () => {
 		const { state } = await idleSession();

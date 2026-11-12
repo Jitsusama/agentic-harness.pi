@@ -147,10 +147,16 @@ of Opus 5.5.
   The headers stay in memory. The reply joins nothing.
 - **What stops it:** anything real. A typed prompt, a run starting, a
   compaction (under way when a warm falls due, or landed), a model or
-  thinking change, moving in the session tree, a reload, a shutdown,
-  or another session starting. A timer that runs so late that the
-  entry has probably expired (three minutes past due, as after the
-  laptop slept) gives up rather than pay for a full write.
+  thinking change, moving in the session tree, a shutdown, or another
+  session starting. A timer that runs so late that the entry has
+  probably expired (three minutes past due, as after the laptop slept)
+  gives up rather than pay for a full write.
+- **Across a reload:** an install move reloads every idle session,
+  which is not work, so warming carries on in the reloaded extension,
+  on its old timing and with its warms so far counted toward the four;
+  one that had already ended hands idle compaction its remaining time.
+  What is carried stays in memory. Should the reload change what the
+  next request sends, a carried warm only reads the old entry.
 - **The safety stop:** a warm that writes more than 2,000 tokens to the
   cache did not find its prefix there. Warming that session stops and
   a `compaction-cache-warm-stopped` entry says why, as it does for a
