@@ -75,17 +75,26 @@ export interface ScreenHost {
 	errors(): string;
 }
 
-/** Start a screen host under `seal` on the pi at `packageDir`. */
+/**
+ * Start a screen host under `seal` on the pi at `packageDir`, its
+ * conversations loading the harness's extensions `also` names, by folder,
+ * beside the fixture's own.
+ */
 export async function startScreenHost(
 	seal: Seal,
 	packageDir: string,
+	also: readonly string[] = [],
 ): Promise<ScreenHost> {
 	const child = spawn(
 		process.execPath,
 		// Exposed so it can collect its garbage before it weighs itself.
 		["--no-warnings", "--expose-gc", FIXTURE, packageDir],
 		{
-			env: { ...seal.env, PI_OFFLINE: "1" },
+			env: {
+				...seal.env,
+				PI_OFFLINE: "1",
+				...(also.length > 0 ? { SCREEN_HOST_ALSO: also.join(",") } : {}),
+			},
 			stdio: ["ignore", "pipe", "pipe"],
 		},
 	);
