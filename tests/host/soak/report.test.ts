@@ -137,6 +137,9 @@ describe("a parity report", () => {
 			[entry("user", "soak c0-t0 long, please", 0)],
 			{ hosted: "/h", plain: "/p" },
 		);
+		expect(parity.where, "counted by place").toEqual({
+			"events[:message].message.content": 1,
+		});
 		expect(parity.first, "the one difference").toEqual([
 			{
 				path: "events[0:message].message.content",
@@ -144,6 +147,22 @@ describe("a parity report", () => {
 				actual: "soak c0-t0 echo, please",
 			},
 		]);
+	});
+});
+
+describe("a soak's parity, past the provider's numbering", () => {
+	it("leaves out the id the provider numbers its answers by", () => {
+		const answered = (id: string) => ({
+			...entry("assistant", "heard, ack c0-t0.", 1),
+			message: { role: "assistant", content: "heard", responseId: id },
+		});
+		expect(
+			parityOf([answered("msg_soak_2")], [answered("msg_soak_76")], {
+				hosted: "/h",
+				plain: "/p",
+			}).differences,
+			"the same answer, numbered apart",
+		).toBe(0);
 	});
 });
 

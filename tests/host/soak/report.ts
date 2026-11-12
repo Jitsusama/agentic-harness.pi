@@ -41,6 +41,8 @@ export interface Growth {
 export interface Parity {
 	readonly entries: { readonly hosted: number; readonly plain: number };
 	readonly differences: number;
+	/** How many differ at each place, its entry's index left out. */
+	readonly where: Readonly<Record<string, number>>;
 	/** The first few, for the report. */
 	readonly first: readonly Difference[];
 }
@@ -173,17 +175,29 @@ export function parityOf(
 		comparable(plain, roots.plain),
 		comparable(hosted, roots.hosted),
 	);
+	const where: Record<string, number> = {};
+	for (const { path } of found) {
+		const place = path.replace(/\[\d+(:|\])/g, "[$1");
+		where[place] = (where[place] ?? 0) + 1;
+	}
 	return {
 		entries: { hosted: hosted.length, plain: plain.length },
 		differences: found.length,
+		where,
 		first: found.slice(0, FIRST_DIFFERENCES),
 	};
 }
 
-/** An entry without its id, its parent's id and its time. */
+/**
+ * An entry without its id, its parent's id and its time, and a message
+ * without the id the soak's provider numbers its answers by, which runs
+ * on across both sides.
+ */
 function withoutPlace(
 	entry: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
 	const { id: _id, parentId: _parent, timestamp: _time, ...rest } = entry;
-	return rest;
+	if (!isRecord(rest.message)) return rest;
+	const { responseId: _response, ...message } = rest.message;
+	return { ...rest, message };
 }
