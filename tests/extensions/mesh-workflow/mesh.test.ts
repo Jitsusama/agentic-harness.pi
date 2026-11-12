@@ -1541,6 +1541,24 @@ describe("a withdrawal", () => {
 		await fire("turn_end");
 		expect(sent).toHaveLength(1);
 	});
+
+	it("stays a glance for a peer whose quest hears only what is put to it", async () => {
+		mkdirSync(join(paths.quests, "QEST-20261021-7M6JKG"), { recursive: true });
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nhears: addressed\n---\n# QEST-20261021-7M6JKG\n",
+		);
+		const { sent, entries } = await startSession();
+		const glanced = () =>
+			entries.filter((entry) => entry.type === "mesh-glance").length;
+
+		const said = fromElsewhere({ text: "merging core.nix#330 now" });
+		await vi.waitFor(() => expect(glanced()).toBe(1));
+		fromElsewhere({ text: "not merging after all", supersedes: said.id });
+
+		await vi.waitFor(() => expect(glanced()).toBe(2));
+		expect(sent).toHaveLength(0);
+	});
 });
 
 describe("damping", () => {
