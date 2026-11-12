@@ -71,6 +71,7 @@ CREATE INDEX IF NOT EXISTS inner_calls_session ON inner_calls (session_id, name)
 CREATE TABLE IF NOT EXISTS declarations (
 	session_id TEXT NOT NULL,
 	entry_id TEXT NOT NULL,
+	seq INTEGER NOT NULL,
 	timestamp TEXT NOT NULL,
 	tool TEXT NOT NULL,
 	change TEXT NOT NULL,

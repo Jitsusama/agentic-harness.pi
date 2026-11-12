@@ -228,6 +228,11 @@ export interface DeclarationRecord {
 	readonly sessionId: string;
 	/** The system message's entry. */
 	readonly entryId: string;
+	/**
+	 * The entry's place in its log, since entry ids don't sort and two
+	 * messages can share a timestamp, as a reload's pair can.
+	 */
+	readonly seq: number;
 	readonly timestamp: string;
 	readonly tool: string;
 	readonly change: "added" | "removed";

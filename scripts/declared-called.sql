@@ -5,7 +5,8 @@
 -- into, and what re-reading it cost where it was never called, in
 -- characters times dollars a cache-read token (divided by characters a
 -- token in the script). A last row, kind 'sessions', counts the sessions
--- and joins each one's characters of declarations held a turn.
+-- and joins each one's characters of declarations held a turn, and
+-- counts those that worked with no declarations held yet.
 --
 -- What a session held comes from `declarations`, a fold of its system
 -- messages: each row starts a span that the tool's next row ends. A
@@ -40,7 +41,7 @@ spans AS (
 			coalesce(
 				lead(d.timestamp) OVER (
 					PARTITION BY d.session_id, d.tool
-					ORDER BY d.timestamp, d.entry_id
+					ORDER BY d.timestamp, d.seq
 				),
 				bounds.until
 			),
@@ -115,11 +116,18 @@ calls AS (
 	GROUP BY session_id, name
 ),
 unseen AS (
-	-- Ran a script, and the ledger holds none of its calls.
-	SELECT DISTINCT o.session_id
-	FROM own o
-	WHERE o.name = 'codemode'
-		AND NOT EXISTS (SELECT 1 FROM nested n WHERE n.session_id = o.session_id)
+	-- Ran a script the ledger holds none of the calls of, judged script
+	-- by script: one that called nothing reads so too, keeping the
+	-- figure a floor.
+	SELECT DISTINCT t.session_id
+	FROM tool_calls t, bounds
+	WHERE t.name = 'codemode'
+		AND t.timestamp >= bounds.since
+		AND t.timestamp < bounds.until
+		AND NOT EXISTS (
+			SELECT 1 FROM inner_calls i
+			WHERE i.session_id = t.session_id AND i.outer_call_id = t.call_id
+		)
 ),
 judged AS (
 	SELECT
@@ -152,7 +160,10 @@ SELECT
 	NULL AS tool,
 	count(*) AS sessions,
 	group_concat(held) AS sizes,
-	NULL,
+	(
+		SELECT count(*) FROM steps
+		WHERE session_id NOT IN (SELECT session_id FROM declarations)
+	) AS calledIn,
 	NULL,
 	NULL,
 	NULL

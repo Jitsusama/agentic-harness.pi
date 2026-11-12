@@ -48,6 +48,12 @@ export interface ToolWeight {
 export interface DeclaredCalledReport {
 	/** Sessions with declarations held and a turn in the last day. */
 	readonly sessions: number;
+	/**
+	 * Sessions that worked in the last day with none of their declarations
+	 * held yet, since the ledger began keeping them after their log last
+	 * grew: the section's count rises as they fill in.
+	 */
+	readonly unread: number;
 	/** Their median characters of declarations held, a turn. */
 	readonly medianDeclared: number;
 	/** What every declaration a session never called cost to re-read. */
@@ -91,6 +97,7 @@ export async function declaredCalled(
 		.sort(byUnusedCost);
 	return {
 		sessions: count(summary?.sessions),
+		unread: count(summary?.calledIn),
 		medianDeclared: median(sizesOf(summary?.sizes)),
 		unusedCost: tools.reduce((sum, tool) => sum + tool.unusedCost, 0),
 		tools: tools.slice(0, TOOLS_SHOWN),
@@ -100,15 +107,19 @@ export async function declaredCalled(
 /** The measure's section on declared tools against called ones. */
 export function formatDeclaredCalled(report: DeclaredCalledReport): string {
 	const lines = ["## Declared, Called", ""];
+	const unread =
+		report.unread > 0
+			? ` ${report.unread} more sessions worked whose declarations the ledger doesn't hold yet, because their logs haven't grown since it began keeping them, so this count rises as they fill in.`
+			: "";
 	if (report.sessions === 0) {
 		lines.push(
-			"No session with its declarations in the ledger worked in the last day.",
+			`No session with its declarations in the ledger worked in the last day.${unread}`,
 			"",
 		);
 		return lines.join("\n");
 	}
 	lines.push(
-		`${report.sessions} sessions worked in the last day, holding a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations a turn. Re-reading the declarations of tools a session never called cost at least ${dollars(report.unusedCost)} over the day, for the turns each was held, at each session's cache-read price and four characters a token.`,
+		`${report.sessions} sessions worked in the last day, holding a median of ${Math.round(report.medianDeclared / THOUSAND)}k characters of tool declarations a turn.${unread} Re-reading the declarations of tools a session never called cost at least ${dollars(report.unusedCost)} over the day, for the turns each was held, at each session's cache-read price and four characters a token.`,
 		"",
 		"A call made inside a codemode script counts under the tool it ran, and a gateway call under the gateway's runner. A session that ran a script whose calls the ledger doesn't hold is counted under Maybe in a script and left out of the price. Rewriting the prefix pays the dearer write rate, which isn't counted either. The tools whose unused declarations cost most, where loading on demand would save:",
 		"",

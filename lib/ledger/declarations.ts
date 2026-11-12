@@ -12,9 +12,13 @@
 import type { DeclarationRecord } from "../core/observability/index.ts";
 import { isRecord } from "../internal/record.ts";
 
-/** The rows a system message gives: what it took away, then what it added. */
+/**
+ * The rows a system message gives: what it took away, then what it
+ * added, at `seq`, the entry's place in its log.
+ */
 export function declarationsOf(
 	sessionId: string,
+	seq: number,
 	entry: Record<string, unknown>,
 	message: Record<string, unknown>,
 ): DeclarationRecord[] {
@@ -27,7 +31,16 @@ export function declarationsOf(
 		tool: string,
 		change: DeclarationRecord["change"],
 		chars: number,
-	) => rows.set(tool, { sessionId, entryId, timestamp, tool, change, chars });
+	) =>
+		rows.set(tool, {
+			sessionId,
+			entryId,
+			seq,
+			timestamp,
+			tool,
+			change,
+			chars,
+		});
 	for (const tool of listOf(message.toolsRemoved)) {
 		const name = nameOf(tool);
 		if (name) row(name, "removed", 0);

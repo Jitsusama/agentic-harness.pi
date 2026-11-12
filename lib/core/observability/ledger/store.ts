@@ -5,6 +5,7 @@ import type {
 	DeclarationRecord,
 	DroppedCallRecord,
 	InnerCallRecord,
+	InnerCallVia,
 	PaybackReplay,
 	QueryAnswer,
 	RegretReport,
@@ -217,6 +218,17 @@ function booked(value: string | null | undefined): string | null {
  */
 function questOf(turns: string, sessions: string): string {
 	return `CASE WHEN ${turns}.quest IS NULL THEN ${sessions}.quest ELSE NULLIF(${turns}.quest, '') END`;
+}
+
+/**
+ * What carried an inner call, refusing one this store doesn't know, so
+ * a carrier added later is never counted as a script without a word.
+ */
+function carrier(via: string): InnerCallVia {
+	if (via === "codemode" || via === "tool_gateway_run_tool") return via;
+	throw new Error(
+		`An inner call says it went through "${via}", which the ledger doesn't know.`,
+	);
 }
 
 /** SQLite has no boolean; unknown stays null rather than reading as false. */
@@ -764,7 +776,7 @@ class SqliteTurnStore implements TurnStore {
 			outerCallId: row.outer_call_id,
 			timestamp: row.timestamp,
 			name: row.name,
-			via: row.via === "tool_gateway_run_tool" ? row.via : "codemode",
+			via: carrier(row.via),
 			status: row.status,
 			durationMs: row.duration_ms,
 		}));
@@ -780,9 +792,17 @@ class SqliteTurnStore implements TurnStore {
 			for (const d of chunk) {
 				const { changes } = await this.db.run(
 					`INSERT OR IGNORE INTO declarations (
-							session_id, entry_id, timestamp, tool, change, chars
-						) VALUES (?, ?, ?, ?, ?, ?)`,
-					[d.sessionId, d.entryId, d.timestamp, d.tool, d.change, d.chars],
+							session_id, entry_id, seq, timestamp, tool, change, chars
+						) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					[
+						d.sessionId,
+						d.entryId,
+						d.seq,
+						d.timestamp,
+						d.tool,
+						d.change,
+						d.chars,
+					],
 				);
 				written += changes;
 			}
@@ -795,14 +815,18 @@ class SqliteTurnStore implements TurnStore {
 		const rows = await this.db.all<{
 			session_id: string;
 			entry_id: string;
+			seq: number;
 			timestamp: string;
 			tool: string;
 			change: string;
 			chars: number;
-		}>("SELECT * FROM declarations ORDER BY timestamp ASC, entry_id, tool");
+		}>(
+			"SELECT * FROM declarations ORDER BY session_id, timestamp, seq, tool",
+		);
 		return rows.map((row) => ({
 			sessionId: row.session_id,
 			entryId: row.entry_id,
+			seq: row.seq,
 			timestamp: row.timestamp,
 			tool: row.tool,
 			change: row.change === "removed" ? "removed" : "added",

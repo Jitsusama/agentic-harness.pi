@@ -158,7 +158,11 @@ export function readTurns(
 			continue;
 		}
 		if (message?.role === "system") {
-			declarations.push(...declarationsOf(sessionId, entry, message));
+			const seq =
+				typeof entry.id === "string"
+					? (entryOrder.get(entry.id) ?? entryOrder.size)
+					: entryOrder.size;
+			declarations.push(...declarationsOf(sessionId, seq, entry, message));
 			continue;
 		}
 
