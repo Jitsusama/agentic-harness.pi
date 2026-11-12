@@ -196,13 +196,19 @@ function summaryTarget(length: SummaryLength): number {
 	const ceiling = Math.min(
 		Math.floor((TARGET_SHARE_OF_OUTPUT * length.maxOutputTokens) / ROUNDING) *
 			ROUNDING,
-		length.ceilingTokens ?? Number.POSITIVE_INFINITY,
+		namedCeiling(length.ceilingTokens),
 	);
 	const wanted = Math.max(
 		MIN_SUMMARY_TARGET_TOKENS,
 		roundToHundred(SUMMARY_SHARE_OF_REPLACED * length.replacedTokens),
 	);
 	return Math.max(ROUNDING, Math.min(ceiling, wanted));
+}
+
+/** A named ceiling held to the floor and rounded, so a slip in a setting can't gut a summary; none is no ceiling. */
+function namedCeiling(tokens: number | undefined): number {
+	if (tokens === undefined) return Number.POSITIVE_INFINITY;
+	return Math.max(MIN_SUMMARY_TARGET_TOKENS, roundToHundred(tokens));
 }
 
 function roundToHundred(n: number): number {
