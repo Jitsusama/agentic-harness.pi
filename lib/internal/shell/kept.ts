@@ -18,6 +18,11 @@
  * on disk. Bytes written in the instant of that move can be lost. The
  * files go when the call ends in its pi, or once a carried call's end is
  * said; any left a week are swept.
+ *
+ * A call handed to another process is marked `<path>.carried` until its
+ * end is said, so a host that reaps what its conversations started
+ * (host/engine/tool-children.ts) spares it: its shell still carries the
+ * marks of the host that started it, which no longer answers for it.
  */
 
 import { spawnSync } from "node:child_process";
@@ -46,7 +51,10 @@ const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
 /** The files a kept call writes, by the suffix each adds to its path. */
-const SUFFIXES = [".out", ".old", ".end", ".pid"] as const;
+const SUFFIXES = [".out", ".old", ".end", ".pid", ".carried"] as const;
+
+/** The suffix marking a call handed to another process. */
+const CARRIED = ".carried";
 
 /** Where kept calls go: shell-workflow's state, under XDG_STATE_HOME. */
 export function keptFolder(): string {
@@ -121,6 +129,62 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
 		truncateSync(out, 0);
 	} catch {
 		// Removed under it, as its call ended: nothing left to keep short.
+	}
+}
+
+/**
+ * Mark the call handed to another process, which says its end, with the
+ * call's own mark (`PI_BASH_CALL`) when it has one.
+ */
+export function markCarried(path: string, mark = ""): void {
+	try {
+		writeFileSync(`${path}${CARRIED}`, mark, { mode: FILE_MODE });
+	} catch {
+		// Removed under it, as its call ended: nothing left to spare.
+	}
+}
+
+/** The calls handed to another process, as a reaper tells them apart. */
+export interface CarriedCalls {
+	/** Their marks, which every process a call starts inherits. */
+	readonly marks: ReadonlySet<string>;
+	/** Their shells' process groups: each shell leads its own. */
+	readonly groups: ReadonlySet<number>;
+}
+
+/**
+ * The calls in `folder` handed to another process. A call's mark reaches
+ * what it started in a group of its own, as `timeout` and `setsid` make;
+ * its shell's group covers a call run without one.
+ */
+export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
+	const marks = new Set<string>();
+	const groups = new Set<number>();
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// No folder yet: nothing was ever kept, so nothing is carried.
+		return { marks, groups };
+	}
+	for (const name of names) {
+		if (!name.endsWith(CARRIED)) continue;
+		const path = join(folder, name.slice(0, -CARRIED.length));
+		const pid = pidOf(path);
+		if (pid !== undefined) groups.add(pid);
+		const mark = textOf(`${path}${CARRIED}`).trim();
+		if (mark !== "") marks.add(mark);
+	}
+	return { marks, groups };
+}
+
+/** What a kept file holds, or nothing once it is gone. */
+function textOf(file: string): string {
+	try {
+		return readFileSync(file, "utf8");
+	} catch {
+		// Removed as its call's end was said: nothing left to spare.
+		return "";
 	}
 }
 

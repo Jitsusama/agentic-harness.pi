@@ -153,6 +153,7 @@ import {
 	tooMany,
 } from "../roster.ts";
 import { watchStartedRound } from "../round-job.ts";
+import { roundReading, takesUpCarriedRounds } from "../round-reading.ts";
 import { roundToRead } from "../round-to-read.ts";
 import { askedInRound, roundDispatched, roundOpened } from "../run-records.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
@@ -246,6 +247,7 @@ const person = personsWords();
 
 /** Register the `review_ask` tool. */
 export function registerAskTool(pi: ExtensionAPI): void {
+	takesUpCarriedRounds(pi.events);
 	pi.on("input", (event) => {
 		if (event.source === "interactive") person.heard(event.text);
 	});
@@ -1008,13 +1010,8 @@ async function startRound(
 					bus,
 					runId: run.id,
 					label: `council ${run.id} on ${change.label}`,
-					isRunning: async () =>
-						(await whyNotYet(artifacts, run)) !== undefined,
-					stop: () =>
-						artifacts.requestRunCancellation(
-							run.id,
-							`Stopped from the job list on ${new Date().toISOString()}.`,
-						),
+					participants: run.participants.map((participant) => participant.id),
+					...roundReading(artifacts, run),
 				});
 
 	// Through the same composition as every other answer. This built

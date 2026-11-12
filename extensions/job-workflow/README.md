@@ -240,11 +240,23 @@ start doesn't take them again. A job taken up can be carried again.
   each one's end in the words its own pi would have. A call whose
   shell is gone with no status is said as lost, with its last lines,
   and is never run again.
+- **Handed on:** review rounds and CI watches. Any other kind is
+  offered on the `jobs:take-up:v1` bus (`lib/jobs/take-up.ts`) to
+  the extension that answers for it, which watches on under the
+  job's id (see
+  [review-integration](../review-integration/#waiting-through-a-move)).
+  A kind nobody answers for ends saying it can't be taken up.
 - **Holding:** calls `pi-spawner` started, and calls started before
-  this ran; fleets; review and CI watches; a model retry; a reload.
+  this ran; fleets; a review watch that names no target; a model
+  retry; a reload.
 - A signal ends the pi without its children, so a pi signalled during
-  its move carries nothing. A move back to a window (`pi`) holds as
-  before.
+  its move carries nothing.
+- **Released:** a hosted conversation moving back to plain pi (a
+  release, or item 11's rollback) carries the same way: in a host its
+  note names the host's process, and its close is its own quit. The
+  host spares each carried command as it reaps what the conversation
+  started, by a `.carried` mark beside the command's kept files, and
+  the plain pi opened on the log says its end.
 
 ## When the Machine Ends a Session
 

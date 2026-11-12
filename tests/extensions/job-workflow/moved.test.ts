@@ -18,7 +18,7 @@ import {
 	type Carried,
 	carriedIn,
 	carryAway,
-	movingToHost,
+	movingOn,
 	TAKEN_ENTRY,
 	takeUp,
 } from "../../../extensions/job-workflow/moved.ts";
@@ -83,25 +83,22 @@ const settled = () => new Promise((resolve) => setImmediate(resolve));
 describe("a pi that is ending", () => {
 	const note = (to: string, pid: number) => () => ({ to, pid });
 
-	it("is moving to a host when its note names a host and this process", () => {
-		expect(movingToHost("s1", note("attended", 7), 7), "to attended").toBe(
+	it("is moving on when its note names this process and where it goes", () => {
+		expect(movingOn("s1", note("attended", 7), 7), "to attended").toBe(true);
+		expect(movingOn("s1", note("background", 7), 7), "to background").toBe(
 			true,
 		);
-		expect(movingToHost("s1", note("background", 7), 7), "to background").toBe(
-			true,
-		);
+		expect(movingOn("s1", note("pi", 7), 7), "released to plain pi").toBe(true);
 	});
 
-	it("is not when the note is another process's, goes to plain pi, or is missing", () => {
-		expect(movingToHost("s1", note("attended", 8), 7), "another pid").toBe(
-			false,
-		);
-		expect(movingToHost("s1", note("pi", 7), 7), "a release").toBe(false);
+	it("is not when the note is another process's, names nowhere it knows, or is missing", () => {
+		expect(movingOn("s1", note("attended", 8), 7), "another pid").toBe(false);
+		expect(movingOn("s1", note("mars", 7), 7), "nowhere known").toBe(false);
 		expect(
-			movingToHost("s1", () => undefined, 7),
+			movingOn("s1", () => undefined, 7),
 			"no note",
 		).toBe(false);
-		expect(movingToHost(undefined, note("attended", 7), 7), "no session").toBe(
+		expect(movingOn(undefined, note("attended", 7), 7), "no session").toBe(
 			false,
 		);
 	});
@@ -278,5 +275,45 @@ describe("taking up", () => {
 			},
 		);
 		expect(said.at(-1)?.text).toMatch(/can't take up a review job/);
+	});
+
+	it("hands another kind to whoever answers for it, under its id, carried on again", () => {
+		const { jobs, said } = registry();
+		const offered: unknown[] = [];
+		const started: string[] = [];
+		const again = { kind: "review-checks", again: true };
+		takeUp(
+			{
+				at: 1,
+				jobs: [
+					{
+						id: "j4",
+						kind: "review",
+						label: "checks on shop/app#7",
+						work: { kind: "review-checks" },
+					},
+				],
+				results: [],
+			},
+			{
+				jobs,
+				outbox: { post: () => {} },
+				session: "s1",
+				append: () => {},
+				offer: (work) => {
+					offered.push(work);
+					return {
+						carry: { what: () => again, handed: () => {} },
+						start: (job) => started.push(job.id),
+					};
+				},
+			},
+		);
+		expect(offered).toEqual([{ kind: "review-checks" }]);
+		expect(started, "started under the id it had").toEqual(["j4"]);
+		expect(said, "nothing said while it runs").toEqual([]);
+		expect(jobs.carryOut().map((job) => [job.id, job.work])).toEqual([
+			["j4", again],
+		]);
 	});
 });

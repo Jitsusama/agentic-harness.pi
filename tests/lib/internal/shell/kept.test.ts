@@ -16,8 +16,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	carriedCalls,
 	endOf,
 	makeKept,
+	markCarried,
 	outputOf,
 	pidOf,
 	removeKept,
@@ -84,10 +86,32 @@ describe("a kept call", () => {
 		expect(outputOf(path)).toBe("short\n");
 	});
 
-	it("leaves nothing once removed", () => {
+	it("names the group of each call handed on, and only those", () => {
+		const where = folder();
+		const carried = makeKept(where);
+		const kept = makeKept(where);
+		writeFileSync(`${carried}.pid`, "4242\n");
+		writeFileSync(`${kept}.pid`, "4343\n");
+		markCarried(carried, "call-1");
+		expect(
+			statSync(`${carried}.carried`).mode & PERMISSIONS,
+			"the mark is the owner's alone",
+		).toBe(PRIVATE);
+		const found = carriedCalls(where);
+		expect([...found.groups]).toEqual([4242]);
+		expect([...found.marks], "by the call's own mark too").toEqual(["call-1"]);
+	});
+
+	it("names no group before there is a folder", () => {
+		const found = carriedCalls(folder());
+		expect(found.groups.size + found.marks.size).toBe(0);
+	});
+
+	it("leaves nothing once removed, its mark included", () => {
 		const where = folder();
 		const path = makeKept(where);
 		rollIfFull(path, 0);
+		markCarried(path);
 		removeKept(path);
 		expect(readdirSync(where)).toEqual([]);
 	});

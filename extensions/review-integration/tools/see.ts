@@ -42,8 +42,15 @@ import {
 	sinceLastVisit,
 	tallyReceptions,
 } from "../../../lib/core/review/index.ts";
+import { takesUpCarried } from "../../../lib/jobs/take-up.ts";
 import { count } from "../../../lib/ui/count.ts";
-import { CHECKS_POLL_MS, unsettled, watchChecks } from "../checks-job.ts";
+import {
+	CHECKS_POLL_MS,
+	CHECKS_WORK,
+	takeUpChecks,
+	unsettled,
+	watchChecks,
+} from "../checks-job.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.ts";
 import {
@@ -56,6 +63,7 @@ import {
 import {
 	type Answer,
 	boundFor,
+	boundForTarget,
 	checkoutElsewhere,
 	hostedChange,
 	refuse,
@@ -84,6 +92,17 @@ type SeeAction =
 
 /** Register the `review_see` tool. */
 export function registerSeeTool(pi: ExtensionAPI): void {
+	// A watch a move carried into this session watches on here.
+	takesUpCarried(pi.events, CHECKS_WORK, (work) =>
+		takeUpChecks(work, {
+			reading: async (target) => {
+				const bound = await boundForTarget(pi, target);
+				return bound
+					? { read: () => bound.checks(), render: checksLines }
+					: undefined;
+			},
+		}),
+	);
 	pi.registerTool({
 		name: "review_see",
 		label: "Review See",
@@ -319,6 +338,7 @@ async function watchFor(pi: ExtensionAPI, bound: BoundTarget): Promise<Answer> {
 		bus: pi.events,
 		key: `${bound.provider.id}:${label}`,
 		label,
+		target: bound.target,
 		read: () => bound.checks(),
 		render: checksLines,
 	});

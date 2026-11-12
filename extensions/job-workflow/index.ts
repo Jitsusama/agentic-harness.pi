@@ -25,6 +25,7 @@ import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { answerSteerWaiting, saySteered } from "../../lib/jobs/steer.ts";
+import { offerCarried } from "../../lib/jobs/take-up.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
@@ -38,7 +39,7 @@ import {
 	watchStamps,
 } from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
-import { carriedIn, carryAway, movingToHost, takeUp } from "./moved.ts";
+import { carriedIn, carryAway, movingOn, takeUp } from "./moved.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 import { type TypedLine, typedLine } from "./typed-line.ts";
@@ -145,15 +146,15 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 }
 
 /**
- * Hand a session moving to a host the jobs that can go with it, written
- * in its log as it ends (moved.ts).
+ * Hand a session moving on, to a host or out of one, the jobs that can
+ * go with it, written in its log as it ends (moved.ts).
  */
 function carryIfMoving(
 	pi: ExtensionAPI,
 	session: JobSession,
 	ctx: ExtensionContext,
 ): void {
-	if (!movingToHost(sessionIdOf(ctx))) return;
+	if (!movingOn(sessionIdOf(ctx))) return;
 	carryAway(
 		session.jobs,
 		session.outbox,
@@ -182,6 +183,7 @@ function takeUpIfCarried(
 		outbox: session.outbox,
 		session: sessionKeyOf(ctx),
 		append: (type, data) => pi.appendEntry(type, data),
+		offer: (work) => offerCarried(pi.events, work),
 	});
 }
 
