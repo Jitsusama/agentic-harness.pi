@@ -1,49 +1,132 @@
 import { describe, expect, it } from "vitest";
+import { fenceArgs } from "../../../../lib/internal/fence.ts";
 import {
 	openInSessionsKitty,
+	SESSIONS_SOCKET,
+	type SessionsKittyDoor,
 	type SessionsKittyStart,
+	sessionsKittyDoor,
 	sessionsKittyRuns,
 	sessionsKittyStart,
 } from "../../../../lib/internal/quest/sessions-kitty.ts";
 
-const SOCKETS = [
-	"Num       RefCount Protocol Flags    Type St Inode Path",
-	"0000000000000000: 00000002 00000000 00010000 0001 01 41234 @kitty-2684",
-	"0000000000000000: 00000002 00000000 00010000 0001 01 41235 @kitty-ipc-1000-pi-sessions",
-].join("\n");
+const SOCKET = "/run/user/1000/pi-sessions/kitty.sock";
+const BY_SOCKET: SessionsKittyDoor = { kind: "socket", path: SOCKET };
+const BY_INSTANCE: SessionsKittyDoor = { kind: "instance" };
+const UNIT =
+	"/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/agents.slice/sessions-kitty.service";
+
+/** A machine where the socket is or isn't there, and the unit runs or not. */
+function machine(socket: boolean, running: boolean) {
+	return {
+		env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+		uid: 1000,
+		isSocket: (path: string) => socket && path === SOCKET,
+		processesIn: (cgroup: string) =>
+			running && cgroup === UNIT ? "3272\n" : "",
+	};
+}
 
 describe("the desktop's sessions kitty", () => {
-	it("runs where kitty's one instance listens for the pi-sessions group", () => {
-		const probe = { PI_SESSIONS_KITTY: undefined };
+	it("is reached by its socket in the runtime folder whenever the socket is there", () => {
+		expect(sessionsKittyDoor(machine(true, true))).toEqual(BY_SOCKET);
 		expect(
-			sessionsKittyRuns(() => SOCKETS, 1000, probe),
-			"its socket is listed for this user",
-		).toBe(true);
+			sessionsKittyDoor(machine(true, false)),
+			"the socket alone says where it listens",
+		).toEqual(BY_SOCKET);
+		expect(SESSIONS_SOCKET).toBe("pi-sessions/kitty.sock");
+	});
+
+	it("is reached through its single instance only while its unit runs without a socket", () => {
 		expect(
-			sessionsKittyRuns(() => SOCKETS, 1001, probe),
-			"another user's socket says nothing of this one's",
-		).toBe(false);
+			sessionsKittyDoor(machine(false, true)),
+			"a kitty started before the socket holds the instance's name",
+		).toEqual(BY_INSTANCE);
 		expect(
-			sessionsKittyRuns(
-				() => {
-					throw new Error("no /proc");
-				},
-				1000,
-				probe,
-			),
-			"with no /proc there is none",
-		).toBe(false);
+			sessionsKittyDoor(machine(false, false)),
+			"with its unit stopped, whoever holds the name could be anyone",
+		).toBeUndefined();
+		expect(sessionsKittyRuns(machine(false, false)), "no window opens").toBe(
+			false,
+		);
+	});
+
+	it("is said outright by PI_SESSIONS_KITTY", () => {
 		expect(
-			sessionsKittyRuns(() => SOCKETS, 1000, { PI_SESSIONS_KITTY: "off" }),
+			sessionsKittyRuns({
+				...machine(true, true),
+				env: { PI_SESSIONS_KITTY: "off" },
+			}),
 			"PI_SESSIONS_KITTY=off says there is none",
 		).toBe(false);
 		expect(
-			sessionsKittyRuns(() => "", 1000, { PI_SESSIONS_KITTY: "on" }),
-			"PI_SESSIONS_KITTY=on says there is one",
-		).toBe(true);
+			sessionsKittyDoor({
+				...machine(false, false),
+				env: { XDG_RUNTIME_DIR: "/run/user/1000", PI_SESSIONS_KITTY: "on" },
+			}),
+		).toEqual(BY_SOCKET);
 	});
 
-	it("opens a window there unfocused, under the agents' slice, held by the realm", () => {
+	it("keeps its socket from every fenced command", () => {
+		const args = fenceArgs(
+			{ home: "/home/someone", runtimeDir: "/run/user/1000" },
+			{ kind: () => "folder", entries: () => [] },
+		);
+		expect(
+			args.join(" "),
+			"the runtime folder goes in empty, with no way to the sessions kitty",
+		).not.toContain("pi-sessions");
+		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
+	});
+
+	it("opens a window by its socket, told only its class, never the asker's variables", () => {
+		const start = sessionsKittyStart(
+			{
+				command: "pi",
+				cwd: "/work/one",
+				env: { QUEST_WORKFLOW_AUTOLOAD_ID: "QEST-1" },
+			},
+			{
+				SHELL: "/bin/zsh",
+				MYCELIUM_REALM: "work",
+				PI_QUEST: "QEST-2",
+				GITHUB_TOKEN: "ghp_secret",
+				XDG_ACTIVATION_TOKEN: "token",
+				PATH: "/bin",
+			},
+			BY_SOCKET,
+		);
+		expect(start.binary).toBe("kitten");
+		expect(start.args.slice(0, 15)).toEqual([
+			"@",
+			"--to",
+			`unix:${SOCKET}`,
+			"launch",
+			"--type=os-window",
+			"--os-window-class",
+			start.windowClass,
+			"--cwd",
+			"/work/one",
+			"--env",
+			`MYCELIUM_APP_ID=${start.windowClass}`,
+			"/bin/zsh",
+			"-l",
+			"-i",
+			"-c",
+		]);
+		const told = start.args.filter((_, at) => start.args[at - 1] === "--env");
+		expect(told, "the window is told its class and nothing else").toEqual([
+			`MYCELIUM_APP_ID=${start.windowClass}`,
+		]);
+		const said = start.args.join(" ");
+		expect(said, "the asker's quest stays its own").not.toContain("QEST-2");
+		expect(said, "the asker's token stays its own").not.toContain("ghp_secret");
+		const line = start.args.at(-1) ?? "";
+		expect(line).toContain("QUEST_WORKFLOW_AUTOLOAD_ID=");
+		expect(line).toContain("mycelium --realm 'work' hold -- pi");
+	});
+
+	it("opens a window through the single instance unfocused, under the agents' slice, held by the realm", () => {
 		const start = sessionsKittyStart(
 			{
 				command: "pi",
@@ -57,6 +140,7 @@ describe("the desktop's sessions kitty", () => {
 				DESKTOP_STARTUP_ID: "startup",
 				PATH: "/bin",
 			},
+			BY_INSTANCE,
 		);
 		expect(start.binary).toBe("systemd-run");
 		expect(start.args.slice(0, 18)).toEqual([
@@ -88,8 +172,8 @@ describe("the desktop's sessions kitty", () => {
 
 	it("gives each window a class of its own that niri opens unfocused", () => {
 		const window = { command: "pi", cwd: "/work/one" };
-		const first = sessionsKittyStart(window, { SHELL: "/bin/sh" });
-		const second = sessionsKittyStart(window, { SHELL: "/bin/sh" });
+		const first = sessionsKittyStart(window, { SHELL: "/bin/sh" }, BY_SOCKET);
+		const second = sessionsKittyStart(window, { SHELL: "/bin/sh" }, BY_SOCKET);
 		// core.nix's modules/niri/config.kdl opens these without the focus.
 		const unfocused = /^pi-spawned(\.[0-9]+)?$/;
 		expect(first.windowClass, "niri's rule matches the class").toMatch(
@@ -108,10 +192,12 @@ describe("the desktop's sessions kitty", () => {
 		const held = sessionsKittyStart(
 			{ command: "pi", cwd: "/work/one" },
 			{ SHELL: "/bin/sh", MYCELIUM_REALM: "work" },
+			BY_SOCKET,
 		);
 		const unheld = sessionsKittyStart(
 			{ command: "pi", cwd: "/work/one" },
 			{ SHELL: "/bin/sh" },
+			BY_SOCKET,
 		);
 		expect(
 			unheld.args.at(-1),
@@ -131,11 +217,27 @@ describe("the desktop's sessions kitty", () => {
 			async (start) => {
 				starts.push(start);
 			},
+			() => BY_SOCKET,
 		);
 		expect(where).toBe(
 			"a window in the desktop's sessions kitty, in /work/two",
 		);
 		expect(starts[0]?.args.at(-1)).not.toContain("mycelium");
 		expect(starts[0]?.args.at(-1)).toContain("pi --session abc");
+	});
+
+	it("opens nothing when there is no sessions kitty", async () => {
+		const starts: SessionsKittyStart[] = [];
+		await expect(
+			openInSessionsKitty(
+				{ command: "pi", cwd: "/work/two" },
+				{ SHELL: "/bin/sh" },
+				async (start) => {
+					starts.push(start);
+				},
+				() => undefined,
+			),
+		).rejects.toThrow("there is no sessions kitty to open a window in");
+		expect(starts, "no kitty -1 was started").toEqual([]);
 	});
 });
