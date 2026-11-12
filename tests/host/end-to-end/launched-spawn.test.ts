@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { OPEN_PATIENCE_MS } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
 import { leaveFirstWords } from "../../../lib/internal/quest/first-words.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
@@ -59,8 +60,8 @@ const QUEST = "QEST-20261112-L4UNCH";
 /** How long the launched pi may take to load the harness and hand itself on. */
 const HAND_MS = 120_000;
 
-/** How long the decider may take to answer, the host's admission included. */
-const DECIDE_MS = 60_000;
+/** How long the decider may take to answer: the open's own patience, and its start. */
+const DECIDE_MS = OPEN_PATIENCE_MS + 30_000;
 
 let sealed: Seal;
 let host: HostProcess | undefined;

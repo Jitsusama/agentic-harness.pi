@@ -13,7 +13,10 @@ import {
 	STAYED_VARIABLE,
 	settleLaunchedSpawn,
 } from "../../../extensions/quest-workflow/launched-spawn.ts";
-import type { ControlCall } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
+import {
+	type ControlCall,
+	OPEN_PATIENCE_MS,
+} from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
 import { leaveFirstWords } from "../../../lib/internal/quest/first-words.ts";
 
@@ -25,6 +28,7 @@ let runtime: string;
 let dir: string;
 let sessionId: string;
 let sent: ControlRequest[];
+let patience: Map<string, number | undefined>;
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "launched-spawn-"));
@@ -33,6 +37,7 @@ beforeEach(() => {
 	dir = join(root, "first-words");
 	sessionId = randomUUID();
 	sent = [];
+	patience = new Map();
 });
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
@@ -59,8 +64,9 @@ function argvOf(...more: string[]) {
 function hostThat(
 	open: (request: ControlRequest) => Awaited<ReturnType<ControlCall>>,
 ): ControlCall {
-	return async (_socket, request) => {
+	return async (_socket, request, timeoutMs) => {
 		sent.push(request);
+		patience.set(request.op, timeoutMs);
 		if (request.op === "list") {
 			return { v: 1, id: request.id, ok: true, result: { sessions: [] } };
 		}
@@ -272,6 +278,10 @@ describe("deciding a launched spawn headless, for the launcher", () => {
 			lines: ["opening work-attended", `hosted work-attended ${hosted}`],
 		});
 		expect(leftOf(), "the words are taken by the host").toEqual([".taken"]);
+		expect(
+			patience.get("open"),
+			"the open waits as long as a host takes to load a conversation",
+		).toBe(OPEN_PATIENCE_MS);
 		expect(logged()).toMatch(
 			new RegExp(
 				`spawn ${sessionId} for ${QUEST} went to the work-attended host as session ${hosted} \\(headless, \\d+ ms\\)`,

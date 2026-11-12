@@ -264,8 +264,12 @@ shipped and tested.
   why it stays, empty when `spawnHost` is off or it isn't a spawn, and
   the launcher opens the window with `QUEST_WORKFLOW_SPAWN_STAYED` set
   to that, which its pi says once up rather than decide again. Any
-  other exit, or none within 3 s before `opening`, opens the window as
-  before, whose pi decides itself. Its log lines end `(headless, N ms)`.
+  other exit opens the window as before, whose pi decides itself, and
+  so does no `opening` within 3 s, once the launcher has ended the
+  decider. After `opening` the answer can take up to 120 s, since the
+  host loads pi and the harness for the conversation before it answers;
+  a spawn's open waits that long anywhere, rather than leave its
+  outcome unknown. Its log lines end `(headless, N ms)`.
 - **Resume in a host**: `/quest-resume <id>` switches pi to a
   session attached to the loaded quest. A hosted conversation can't
   switch its log, which its host owns, so there it asks the realm's
