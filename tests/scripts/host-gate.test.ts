@@ -115,6 +115,32 @@ describe("host-gate.sh", () => {
 		expect(answer.said).toContain(`git checkout ${sha} && bash ${RUNNER}`);
 	});
 
+	it.each([
+		"extensions/subagent-workflow/index.ts",
+		"extensions/job-workflow/outbox.ts",
+		"lib/mesh/address.ts",
+	])("refuses a change to %s, which the host cases drive, with no run", async (file) => {
+		const on = await harness();
+		const sha = await change(on, file);
+
+		const answer = await gate(on, sha);
+
+		expect(answer.code).toBe(1);
+		expect(answer.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
+	it("lets a change to an extension no host case drives merge without a run", async () => {
+		const on = await harness();
+		const sha = await change(on, "extensions/mermaid-widget/index.ts");
+
+		const answer = await gate(on, sha);
+
+		expect(answer).toEqual({
+			code: 0,
+			said: expect.stringContaining("touches nothing pi hosts run"),
+		});
+	});
+
 	it("lets a change to the host merge once test:host passed at it", async () => {
 		const on = await harness();
 		const sha = await change(on, "lib/ui/panel-screen.ts");
