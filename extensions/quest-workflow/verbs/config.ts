@@ -37,6 +37,7 @@ export async function configReport(): Promise<QuestResult> {
 		`Config file: ${summary.configPath}`,
 		`Quests root: ${summary.questsRoot} (${summary.questsRootSource})`,
 		`Auto-load from cwd: ${summary.autoloadFromCwd} (${summary.autoloadFromCwdSource})`,
+		`Spawn into a host: ${summary.spawnHost} (${summary.spawnHostSource})`,
 	];
 	if (section.warning) lines.push(`Warning: ${section.warning}`);
 

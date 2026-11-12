@@ -114,7 +114,9 @@ realm's attended host. The child's first words arrive, its presence and
 the node show it as the orchestration's, the orchestrator's `mesh_end`
 closes it alone through the host's socket, and `/quest-resume`, the
 first words of a conversation opened on the child quest, has the host
-adopt it again under the same id.
+adopt it again under the same id. Beside E6, a plain `quest spawn` that
+names no host, under the quest-workflow spawnHost setting, lands in the
+realm's background host's list, its first words arriving.
 
 subagents.test.ts is E7: a hosted conversation runs two subagents, each
 with the scripted model loaded, and each answers with the pid, node and

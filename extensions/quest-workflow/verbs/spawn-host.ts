@@ -3,9 +3,11 @@
  * host opens a fresh conversation for a quest, or adopts the quest's
  * resumable session from its log, over the host's control socket.
  *
- * It is an explicit target, chosen by `host`, never a terminal driver and
- * never a fallback: a host that refuses, or whose answer never arrives,
- * opens nothing else, since a second pi on the same work would split it.
+ * It is a target chosen by `host`, or for a plain spawn by quest-workflow's
+ * spawnHost setting; never a terminal driver and never a fallback: a host
+ * that refuses, or whose answer never arrives, opens nothing else, since a
+ * second pi on the same work would split it. Only a host that isn't there
+ * at all, under the setting, leaves the spawn to its terminal.
  *
  * /quest-resume in a hosted conversation goes this way too, through
  * resumeInHost, since a host's conversation can't switch its own log.
@@ -26,6 +28,7 @@ import {
 	parseOpenResult,
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
+import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";
 import { spawnedWords } from "../../../lib/internal/quest/first-words.ts";
 import {
@@ -41,6 +44,7 @@ import {
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { spawnHostSetting } from "../config.ts";
 import { readRecord } from "../session-registry.ts";
 import {
 	ok,
@@ -104,6 +108,156 @@ export function hostTargetOf(
 		};
 	}
 	return { ok: true, kind: asked };
+}
+
+/** What a plain spawn needs to know to follow the spawnHost setting. */
+export interface SettingSpawn {
+	/** quest-workflow's spawnHost, undefined when unset. */
+	readonly setting?: SpawnHostSetting;
+	/** Why the setting couldn't be read, when it couldn't. */
+	readonly unreadable?: string;
+	readonly params: QuestToolParams;
+	/** Whether the spawn starts on this machine, the only one a host is on. */
+	readonly placedHere: boolean;
+	/** The agent command this machine's realm starts its sessions with. */
+	readonly agent: () => Promise<string>;
+	/** The asking conversation's environment, never the host process's. */
+	readonly env: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * The host the spawnHost setting sends a plain spawn to, with a note for
+ * its answer either way. A spawn that names a terminal, a layout, a
+ * machine, needs or a command, or a suffixed verb, goes as it says, and
+ * so does one placed on another machine or in a realm whose sessions
+ * start an agent other than pi, which no host runs. A host that isn't
+ * there, with no realm or socket or nothing listening on it, leaves the
+ * spawn to its terminal and says so; any other answer counts as there,
+ * so a host that then refuses opens nothing else.
+ */
+export async function hostBySetting(
+	spawn: SettingSpawn,
+	call: ControlCall = controlRequest,
+): Promise<{ kind?: HostKind; note?: string }> {
+	const { setting, params } = spawn;
+	if (!plainSpawn(params)) return {};
+	if (spawn.unreadable) {
+		return {
+			note: `quest-workflow.spawnHost was left off, since the config says what it can't read: ${spawn.unreadable}.`,
+		};
+	}
+	if (setting === undefined || setting === "off") return {};
+	const said = `quest-workflow.spawnHost is ${setting}`;
+	if (!spawn.placedHere) {
+		return {
+			note: `${said}, but this quest's needs place it on another machine, where no host of this one's runs it, so it opens there in a terminal.`,
+		};
+	}
+	const agent = (await spawn.agent()).split(" ")[0] ?? "pi";
+	if (agent !== "pi") {
+		return {
+			note: `${said}, but this realm starts ${agent} for its sessions, which no host runs, so it opens in a terminal.`,
+		};
+	}
+	let key: string;
+	let socket: string;
+	try {
+		const realm = hostRealm(spawn.env);
+		key = hostKey(realm, setting);
+		socket = hostSocketPath(realm, setting, spawn.env.XDG_RUNTIME_DIR);
+	} catch (error) {
+		return {
+			note: `${said}, but there's no host here (${messageOf(error)}), so it opens in a terminal.`,
+		};
+	}
+	try {
+		await call(socket, { v: 1, id: uuidv7(), op: "list" });
+	} catch (error) {
+		if (neverSent(error)) {
+			return {
+				note: `${said}, but no ${key} host is listening at ${socket}, so it opens in a terminal.`,
+			};
+		}
+		// Anything else, such as a host too busy to list in time, is a host
+		// that is there, so its own answer to the spawn decides.
+	}
+	return {
+		kind: setting,
+		note: `${said}, so it went to the host; name a terminal or a layout, or use spawn-tab, to open a window instead.`,
+	};
+}
+
+/** What spawn has resolved, for the host it may go to. */
+export interface HostChoice {
+	/** The host the call named, if it named one. */
+	readonly asked?: HostKind;
+	readonly params: QuestToolParams;
+	/** The machine the quest's needs place it on, when not this one. */
+	readonly elsewhere?: string;
+	/** The agent command this machine's realm starts its sessions with. */
+	readonly agent: () => Promise<string>;
+	/** The spawn to send, once a host is chosen. */
+	readonly spawn: Omit<HostSpawn, "kind">;
+}
+
+/**
+ * Spawn in the host the call names, or the one spawnHost sends a plain
+ * spawn to, with the setting's note on its answer; or, when neither
+ * chooses one, the note a terminal answer ends with, empty or saying
+ * why the setting's host didn't take it.
+ */
+export async function spawnByHost(
+	choice: HostChoice,
+	call: ControlCall = controlRequest,
+): Promise<{ result: QuestResult } | { terminalNote: string }> {
+	const { spawn } = choice;
+	if (choice.asked) {
+		// The host is this machine's, so a quest its needs place elsewhere
+		// can't be hosted here.
+		if (choice.elsewhere) {
+			return {
+				result: refuse(
+					`${spawn.questId}'s needs place it on ${choice.elsewhere}, and a host spawn opens here only; spawn it without host to start it there.`,
+				),
+			};
+		}
+		return {
+			result: await spawnInHost({ ...spawn, kind: choice.asked }, call),
+		};
+	}
+	// Read now, so turning it on or off takes at the next spawn.
+	const bySetting = await hostBySetting(
+		{
+			...(await spawnHostSetting()),
+			params: choice.params,
+			placedHere: choice.elsewhere === undefined,
+			agent: choice.agent,
+			env: spawn.env,
+		},
+		call,
+	);
+	const note = bySetting.note ? ` ${bySetting.note}` : "";
+	if (!bySetting.kind) return { terminalNote: note };
+	const hosted = await spawnInHost({ ...spawn, kind: bySetting.kind }, call);
+	return {
+		result: hosted.ok
+			? { ...hosted, message: `${hosted.message}${note}` }
+			: { ...hosted, guidance: `${hosted.guidance}${note}` },
+	};
+}
+
+/** A bare spawn that names nothing a host spawn refuses beside it. */
+function plainSpawn(params: QuestToolParams): boolean {
+	return (
+		params.action === "spawn" &&
+		!params.host?.trim() &&
+		!params.terminal?.trim() &&
+		!params.layout?.trim() &&
+		!params.nesting?.trim() &&
+		!params.machine?.trim() &&
+		params.needs === undefined &&
+		!params.command?.trim()
+	);
 }
 
 /** What a host spawn needs from the spawn that resolved it. */

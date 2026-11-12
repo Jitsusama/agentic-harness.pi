@@ -10,13 +10,17 @@
  * opened on the child quest, has the host adopt it again under the same
  * id, from its log.
  *
+ * Beside it, a plain `quest spawn` that names no host, under the
+ * quest-workflow spawnHost setting, lands in the realm's background
+ * host's list, with no window (OSPHT4 [219c3477]).
+ *
  * Runs on the host's pi, as support/host-pi.ts finds it, both for the
  * host and as the plain pi, and on mycelium for the node; skipped
  * saying why without either.
  */
 
 import { readFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
@@ -256,4 +260,63 @@ it(
 	},
 	// The host's and node's starts, two opens, a plain pi, a spawn, an end and a resume.
 	ROUND_TRIP_MS * 4,
+);
+
+it(
+	"a plain spawn under the spawnHost setting lands in the background host's list",
+	async ({ skip }) => {
+		await onHostPi(skip, said, async (pi) => {
+			await sealQuest(sealed, { id: CHILD, title: "Be hosted" });
+			const config = join(
+				sealed.env.XDG_CONFIG_HOME ?? "",
+				"pi",
+				"agentic-harness.pi",
+			);
+			await mkdir(config, { recursive: true });
+			await writeFile(
+				join(config, "config.json"),
+				JSON.stringify({
+					version: 1,
+					sections: { "quest-workflow": { spawnHost: "background" } },
+				}),
+			);
+			host = await startHost({
+				seal: sealed,
+				engine: PI_ENGINE,
+				kind: "background",
+				env: { PI_HOST_PACKAGE_DIR: pi },
+			});
+			const asking = join(sealed.home, "asking");
+			await mkdir(asking, { recursive: true });
+			const opened = startPlainPi({
+				seal: sealed,
+				packageDir: pi,
+				cwd: asking,
+			});
+			plain = opened;
+			const spawner = await opened.session();
+			const answer = () => toolAnswer(spawner.file, "quest") ?? "";
+
+			await opened.prompt(`plain spawn ${CHILD}`);
+			const spawnedId = () =>
+				/host opened session (\S+) in /.exec(answer())?.[1];
+			await untilAnswered(
+				"the plain spawn opens the child's session in the background host",
+				async () => spawnedId() !== undefined,
+			).catch((error: unknown) => {
+				throw new Error(`${String(error)}\n${textOf(spawner.file)}`);
+			});
+			expect(answer()).toContain("quest-workflow.spawnHost is background");
+			expect(answer()).toContain("It runs in the background, with no screen.");
+			const listed = (await host.list()).find(
+				(one) => one.sessionId === spawnedId(),
+			);
+			expect(listed, "the host lists the spawned session").toBeDefined();
+			await untilAnswered("the child's first words arrive", async () =>
+				textOf(listed?.file).includes(`Carry on with ${CHILD}`),
+			);
+		});
+	},
+	// The host's start, a plain pi, and a spawn whose first turn runs.
+	ROUND_TRIP_MS * 3,
 );

@@ -6,17 +6,27 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { saveRecord } from "../../../extensions/quest-workflow/session-registry.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
-import { spawnInHost } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
+import {
+	hostBySetting,
+	spawnInHost,
+} from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
 import { hostSocketPath } from "../../../host/service/address.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
+import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { openRecord } from "../../../lib/internal/quest/session-registry.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import { createEnvGuard } from "./_helpers.ts";
 
-const SAVED = ["HOME", "MYCELIUM_REALM", "PI_HOME_REALM", "XDG_RUNTIME_DIR"];
+const SAVED = [
+	"HOME",
+	"MYCELIUM_REALM",
+	"PI_HOME_REALM",
+	"XDG_CONFIG_HOME",
+	"XDG_RUNTIME_DIR",
+];
 
 let tmpRoot: string;
 let runtime: string;
@@ -63,6 +73,21 @@ async function serveHost(realm: string, kind: "attended" | "background") {
 	});
 }
 
+/** Set quest-workflow's spawnHost in the package config the spawn reads. */
+function setSpawnHost(value: unknown) {
+	const path = packageConfigPath();
+	mkdirSync(join(path, ".."), { recursive: true });
+	writeFileSync(
+		path,
+		JSON.stringify({ sections: { "quest-workflow": { spawnHost: value } } }),
+	);
+}
+
+/** What a result says, whichever way it went. */
+function said(result: Awaited<ReturnType<typeof handle>>): string {
+	return result.ok ? result.message : result.guidance;
+}
+
 async function questNamed(title: string, spawner = "spawner") {
 	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 	const created = await handle(state, fakePi(), fakeCtx(spawner), {
@@ -102,6 +127,7 @@ beforeEach(() => {
 	process.env.HOME = tmpRoot;
 	process.env.MYCELIUM_REALM = "home";
 	delete process.env.PI_HOME_REALM;
+	delete process.env.XDG_CONFIG_HOME;
 	process.env.XDG_RUNTIME_DIR = runtime;
 	received = [];
 	answer = async (request) => identityFor(request);
@@ -407,6 +433,141 @@ describe("spawn into a host", () => {
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.guidance).toContain("is unknown");
 		expect(result.guidance).toContain("timed out");
+	});
+
+	it("sends a plain spawn to the host quest-workflow.spawnHost names, with no window", async () => {
+		setSpawnHost("background");
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			note: "Write the tests.",
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			details: { how: "host", host: "home-background" },
+		});
+		expect(received.map((r) => r.op)).toEqual(["list", "open"]);
+		expect(received[1]).toMatchObject({ op: "open", quest: id });
+		expect(said(result)).toContain("quest-workflow.spawnHost is background");
+	});
+
+	it("leaves a spawn to its terminal when spawnHost is off or unset", async () => {
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		for (const setting of [undefined, "off"]) {
+			if (setting) setSpawnHost(setting);
+			const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+				action: "spawn",
+				id,
+				dryRun: true,
+			});
+			expect(result, String(setting)).not.toMatchObject({
+				details: { how: "host" },
+			});
+			expect(said(result)).not.toContain("spawnHost");
+		}
+		expect(received, "no host is asked anything").toEqual([]);
+	});
+
+	it("keeps a spawn that names a terminal, a layout or a command off the host", async () => {
+		setSpawnHost("background");
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		for (const chosen of [
+			{ action: "spawn", terminal: "kitty" },
+			{ action: "spawn", layout: "tab" },
+			{ action: "spawn-tab" },
+			{ action: "spawn", command: "pi --model x" },
+		]) {
+			const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+				id,
+				dryRun: true,
+				...chosen,
+			});
+			expect(result, JSON.stringify(chosen)).not.toMatchObject({
+				details: { how: "host" },
+			});
+		}
+		expect(received).toEqual([]);
+	});
+
+	it("opens in a terminal, saying why, when no host of the kind is listening", async () => {
+		setSpawnHost("attended");
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			dryRun: true,
+		});
+		expect(result).not.toMatchObject({ details: { how: "host" } });
+		expect(said(result)).toContain(
+			"quest-workflow.spawnHost is attended, but no home-attended host is listening",
+		);
+		expect(received).toEqual([]);
+	});
+
+	it("opens nothing else when the host the setting chose refuses", async () => {
+		setSpawnHost("background");
+		await serveHost("home", "background");
+		answer = async (request) => {
+			if (request.op === "list") return { sessions: [] };
+			throw new Error("engine failed");
+		};
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+		});
+		expect(result).toMatchObject({ ok: false });
+		expect(said(result)).toContain("refused");
+		expect(said(result)).toContain("Nothing else was opened");
+		expect(received.map((r) => r.op)).toEqual(["list", "open"]);
+	});
+
+	it("says a spawnHost it can't read, and opens as if it were off", async () => {
+		setSpawnHost("kitty");
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			dryRun: true,
+		});
+		expect(result).not.toMatchObject({ details: { how: "host" } });
+		expect(said(result)).toContain(
+			"spawnHost must be off, attended or background",
+		);
+		expect(received).toEqual([]);
+	});
+
+	it("keeps a realm whose agent isn't pi on its terminals, asking no host", async () => {
+		await serveHost("home", "background");
+		const chosen = await hostBySetting({
+			setting: "background",
+			params: { action: "spawn" },
+			placedHere: true,
+			agent: async () => "pi-claude",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+		});
+		expect(chosen.kind).toBeUndefined();
+		expect(chosen.note).toContain("starts pi-claude");
+		expect(received).toEqual([]);
+	});
+
+	it("keeps a quest its needs place on another machine on its terminals", async () => {
+		await serveHost("home", "background");
+		const chosen = await hostBySetting({
+			setting: "background",
+			params: { action: "spawn" },
+			placedHere: false,
+			agent: async () => "pi",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+		});
+		expect(chosen.kind).toBeUndefined();
+		expect(received).toEqual([]);
 	});
 
 	it("refuses when the conversation names no realm", async () => {

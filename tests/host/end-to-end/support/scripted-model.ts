@@ -22,6 +22,8 @@
  * - told `load <quest>`, it loads that quest;
  * - told `spawn <quest>`, it spawns that quest's session into the
  *   realm's attended host;
+ * - told `plain spawn <quest>`, it spawns that quest's session naming
+ *   no host, so the spawnHost setting decides where it opens;
  * - told `end <address>`, it loads mesh_end, which is deferred, through
  *   tool_search, then ends that peer;
  * - told `fleet <cwd> <extension>`, it runs two subagents in that folder,
@@ -283,6 +285,9 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 				extraExtensions: [fleet[2]],
 			})),
 		});
+	const plainly = /^plain spawn (QEST-[0-9]{8}-[0-9A-Z]{6})$/m.exec(words);
+	if (plainly?.[1])
+		return toolCall(faux, "quest", { action: "spawn", id: plainly[1] });
 	const quest = /^(load|spawn) (QEST-[0-9]{8}-[0-9A-Z]{6})$/m.exec(words);
 	if (quest?.[1] === "load")
 		return toolCall(faux, "quest", { action: "load", id: quest[2] });

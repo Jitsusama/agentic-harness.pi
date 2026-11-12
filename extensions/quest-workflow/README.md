@@ -231,6 +231,18 @@ shipped and tested.
   refuses `host`. An attended host's answer gives the words that
   view the session: `mycelium --realm <realm> attach --host <key>
   --session <id>`.
+- **Spawn into a host by default**: `spawnHost` in the config's
+  `quest-workflow` section (`off`, the default, `attended` or
+  `background`) sends a plain `spawn` to that host as if it named
+  `host`, read at each spawn, so it takes with no reload. A spawn
+  naming a host, `terminal`, `layout`, `nesting`, `machine`, `needs`
+  or `command`, or a `spawn-*` verb, goes as it says. It opens in a
+  terminal, and says why, when the quest's needs place it on another
+  machine, the realm starts an agent other than pi (a personal realm's
+  pi-claude), or no host of the kind is there: no realm, no socket, or
+  nothing listening, which a `list` asks, in a dry run too. A host
+  that is there and refuses opens nothing else, as with `host`. A
+  setting it can't read is said and left off.
 - **Resume in a host**: `/quest-resume <id>` switches pi to a
   session attached to the loaded quest. A hosted conversation can't
   switch its log, which its host owns, so there it asks the realm's
@@ -476,4 +488,9 @@ Quest directories live under the `questsRoot`. The default
 is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
 (per XDG); override it by setting `questsRoot` in the
 `quest-workflow` section of the package config file at
-`~/.config/pi/agentic-harness.pi/config.json`.
+`~/.config/pi/agentic-harness.pi/config.json`. The same section
+takes `spawnHost` (see Spawn into a host by default):
+
+```json
+{ "sections": { "quest-workflow": { "spawnHost": "background" } } }
+```

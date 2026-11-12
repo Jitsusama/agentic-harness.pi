@@ -45,6 +45,25 @@ describe("parseQuestWorkflowConfig", () => {
 		});
 	});
 
+	it("accepts each spawnHost choice", () => {
+		for (const spawnHost of ["off", "attended", "background"] as const) {
+			expect(parseQuestWorkflowConfig({ spawnHost })).toEqual({
+				ok: true,
+				value: { spawnHost },
+			});
+		}
+	});
+
+	it("rejects a spawnHost that names no host", () => {
+		for (const spawnHost of ["kitty", true, 1]) {
+			const result = parseQuestWorkflowConfig({ spawnHost });
+			expect(result).toEqual({
+				ok: false,
+				error: "spawnHost must be off, attended or background",
+			});
+		}
+	});
+
 	it("rejects a non-boolean autoloadFromCwd", () => {
 		const result = parseQuestWorkflowConfig({ autoloadFromCwd: "no" });
 		expect(result).toMatchObject({ ok: false });
@@ -80,6 +99,20 @@ describe("summarizeQuestConfig", () => {
 			autoloadFromCwdSource: "default",
 			sessionRetentionDays: 30,
 			sessionRetentionDaysSource: "default",
+			spawnHost: "off",
+			spawnHostSource: "default",
+		});
+	});
+
+	it("marks a configured spawnHost as sourced from config", () => {
+		const summary = summarizeQuestConfig({
+			config: { spawnHost: "background" },
+			configPath: "/cfg/config.json",
+			dataDir: "/data",
+		});
+		expect(summary).toMatchObject({
+			spawnHost: "background",
+			spawnHostSource: "config",
 		});
 	});
 
