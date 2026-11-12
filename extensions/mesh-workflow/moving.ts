@@ -282,8 +282,9 @@ export function createMoving(host: MovingHost): MovingSession {
 
 /**
  * What holds a pi session now, as a move asks: its run, queued messages,
- * jobs, the prompts open for its person (`prompts`, counted from pi's
- * prompt events) and its editor's text.
+ * the jobs that can't be carried with it, named, the prompts open for
+ * its person (`prompts`, counted from pi's prompt events) and its
+ * editor's text. A job host from before carrying holds on every job.
  */
 export function holdsOf(
 	ctx: ExtensionContext | undefined,
@@ -297,10 +298,13 @@ export function holdsOf(
 	} catch {
 		// A screen with no editor to read holds no typed words.
 	}
+	const host = events ? findJobHost(events) : undefined;
+	const heldBy = host?.holds?.();
 	return whatHolds({
 		agentIdle: ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
-		jobs: (events ? findJobHost(events)?.pending?.() : undefined) ?? 0,
+		jobs: heldBy ? heldBy.length : (host?.pending?.() ?? 0),
+		...(heldBy ? { heldBy } : {}),
 		prompting: prompts > 0,
 		typed,
 	});

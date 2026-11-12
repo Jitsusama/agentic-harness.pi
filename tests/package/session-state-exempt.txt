@@ -3,6 +3,7 @@
 # Each line is `path:kind count reason`; a line without a reason, or a
 # count the file has outgrown, fails session-state-is-keyed.test.ts.
 extensions/compaction-workflow/warm.ts:global 1 Carries an idle session's cache warming across a reload, which evaluates the module afresh; the map is keyed by session id, written at that session's reload shutdown and taken once at its next start, so conversations in one host never see each other's (QCXZEB for 85PKB2, 2026-11-11).
+extensions/job-workflow/moved.ts:pid 1 Asks whether a move note names the process that is ending, since only a pi handing its conversation on carries its jobs; a host never writes one for itself (2QZBX9, 2026-11-12).
 extensions/mesh-workflow/steer.ts:pid 1 Names the claim file takeSteers renames a steer to; the rename, read and unlink run synchronously, so of two conversations in one host the first takes a steer whole and the second finds it gone, as between two processes (8CCK38, 2026-11-09).
 extensions/park-workflow/watch.ts:pid 2 Parking ends pi's own process, whose holder's record names that pid; it never arms in a host (mayPark and decide answer "its host parks it"), so the pid is always plain pi's (MDRIRB, 2026-11-09).
 extensions/quest-workflow/launched-spawn.ts:cwd 1 Reads the folder a launcher-started pi was opened in, in quest-workflow's factory before any session exists; only a pi started with --session-id reaches it, which a host never is, so the process is that one session's (2QZBX9, 2026-11-12).
@@ -15,7 +16,6 @@ extensions/reload-workflow/lifecycle.ts:global 1 Marks which loaded/<pid> file t
 extensions/review-integration/engine.ts:pid 1 Names a session pi has not yet reported, with a random tail; pi loads each extension as a fresh module, so each conversation in a host has its own name (MDRIRB, 2026-11-09).
 extensions/spend-workflow/keeper.ts:pid 3 The ledger is one per machine, so its pass lease and stamp name the process that holds them; conversations in one host share it, and a lease naming its own pid is taken as held, so a host runs one pass at a time (85PKB2, 2026-11-10).
 extensions/spend-workflow/resources.ts:global 3 CPU, I/O and memory counters are process totals, so one baseline per process keeps them from being counted twice; a host writes them to its own file and row, never apportioned to a conversation or quest (85PKB2, 2026-11-09).
-extensions/shell-workflow/reap.ts:pid 1 The reaper spares the process running it, which on a host is the host itself: no conversation's stop may kill it (85PKB2, 2026-11-09).
 host/engine/subagent-install.ts:global 1 Pins the install every subagent of the host runs, the host's node and pi, which is one per process; the library reads it where the entry script isn't pi's (H1 for 85PKB2, 2026-11-10).
 host/engine/tool-children.ts:pid 1 The host's own pid, which the child census skips so no conversation's stop kills the host (H1 for 85PKB2, 2026-11-10).
 host/service/program.ts:pid 1 The host's own pid, which names the loaded file saying which harness version the host runs, so pi-packages keeps that version while the host lives; a conversation's own file overwrites the same pid's, and when it names a tree after a reload the host's version stays kept, as it retires after the host's pid started (H1 for 85PKB2, 2026-11-11).
@@ -83,6 +83,7 @@ lib/internal/sandbox.ts:pid 1 Names a sandbox by pid only when PI_SESSION_ID is 
 lib/internal/session/left.ts:global 1 Holds the ids of the sessions this process has left, keyed by session id, so one conversation's leaving is never another's (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/session/repo-rules.ts:global 1 Caches each session's repo rules in a map keyed by its session id (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/session/rollover.ts:global 1 Holds the custom entry types every load declares, the same for every conversation (2QZBX9 with 85PKB2, 2026-11-10).
+lib/internal/shell/reap.ts:pid 1 The reaper spares the process running it, which on a host is the host itself: no conversation's stop may kill it (85PKB2, 2026-11-09; moved to lib by 2QZBX9, 2026-11-12).
 lib/internal/shell/spawner.ts:pid 1 Finds the idle pi-spawners an earlier load of plain pi left among this process's children; a host passes its own reap that stops none, since there its children are other conversations' (85PKB2, 2026-11-11).
 lib/internal/stray/guard.ts:global 1 Guards the process's own console, which every conversation in a host writes through (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/tree-git.ts:cwd 1 Checks the folder git itself runs in when a call names none, which is the process's own; the work and review tools name theirs with -C (85PKB2, 2026-11-11).

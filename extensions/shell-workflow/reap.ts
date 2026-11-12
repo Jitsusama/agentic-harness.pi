@@ -13,72 +13,19 @@
  * Each command's environment carries a mark of its own, which every
  * process it starts inherits whatever group or session it moves to.
  * When the command is stopped or runs out of time, every process still
- * carrying the mark is killed as well. A command that ends by itself
- * keeps what it left running, since a server started with `&` is often
- * the point of it. Linux only: elsewhere there is no /proc to read, and
- * a stop is pi's group kill, as it was.
+ * carrying the mark is killed as well (lib/internal/shell/reap.ts). A
+ * command that ends by itself keeps what it left running, since a server
+ * started with `&` is often the point of it. Linux only: elsewhere there
+ * is no /proc to read, and a stop is pi's group kill, as it was.
  */
 
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-
-/** The variable each command's environment carries its mark in. */
-export const CALL_VARIABLE = "PI_BASH_CALL";
-
-/** Where to look and how to kill, for tests to stand in for. */
-export interface ReapOptions {
-	procRoot?: string;
-	/** The process doing the reaping, which is never killed. */
-	self?: number;
-	kill?: (pid: number) => void;
-}
-
-/** How often to look again, for what forked while the last pass killed. */
-const PASSES = 3;
-
-/** Kill every process whose environment carries `mark`. */
-export function reap(mark: string, options: ReapOptions = {}): void {
-	const procRoot = options.procRoot ?? "/proc";
-	const self = options.self ?? process.pid;
-	const kill =
-		options.kill ??
-		((pid: number) => {
-			try {
-				process.kill(pid, "SIGKILL");
-			} catch {
-				// Gone already, or never ours to kill.
-			}
-		});
-	const marked = `${CALL_VARIABLE}=${mark}`;
-	const killed = new Set<number>();
-	for (let pass = 0; pass < PASSES; pass++) {
-		let pids: string[];
-		try {
-			pids = readdirSync(procRoot);
-		} catch {
-			return;
-		}
-		let found = 0;
-		for (const name of pids) {
-			const pid = Number(name);
-			if (!Number.isInteger(pid) || pid === self || killed.has(pid)) continue;
-			let environ: string;
-			try {
-				environ = readFileSync(join(procRoot, name, "environ"), "latin1");
-			} catch {
-				// Gone, or somebody else's.
-				continue;
-			}
-			if (!environ.split("\0").includes(marked)) continue;
-			kill(pid);
-			killed.add(pid);
-			found++;
-		}
-		if (found === 0) return;
-	}
-}
+import {
+	CALL_VARIABLE,
+	type ReapOptions,
+	reap,
+} from "../../lib/internal/shell/reap.ts";
 
 /** Whether a failed run is pi's own time limit ending it. */
 function timedOut(error: unknown): boolean {

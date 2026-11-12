@@ -239,6 +239,13 @@ extension registers its providers, while the host holds no key in its
 own environment, so a child the host hands no key refuses with "No
 API key found".
 
+job-carry.test.ts is E17, a move that doesn't wait for a session's own
+background command: a plain pi, held as in E13, starts a command that
+runs for 45 s, and /host moves it within 30 s while the command runs
+on. The background host lists the session, the command's end is said
+in its log under the same job id, and nothing the shell kept of the
+command is left in its state once that's said.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 

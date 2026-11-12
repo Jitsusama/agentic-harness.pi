@@ -70,7 +70,10 @@ may import from here, and any of it may change without notice.
   ask.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
-  pi never forks itself to start one.
+  pi never forks itself to start one; what a bash call keeps of
+  itself on disk, so a move can carry it to a host, which watches it
+  there and says its end in the words its own pi would have; and the
+  reaper that kills what a call left, by its mark.
 - **`stray/`**: catching writes that would land behind pi's screen.
 - **`verification/`**: a process-global check another extension can
   ask whether the code is failing.

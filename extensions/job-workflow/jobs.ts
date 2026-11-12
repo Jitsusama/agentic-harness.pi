@@ -9,8 +9,10 @@
  */
 
 import {
+	type CarriedWork,
 	type Job,
 	type JobFinished,
+	type JobHold,
 	type JobHost,
 	type JobOutcome,
 	type JobSpec,
@@ -32,6 +34,15 @@ export interface JobEntry {
 	readonly state: "running" | "finished";
 }
 
+/** A running job handed to another process, as that process takes it up. */
+export interface CarriedJob {
+	readonly id: string;
+	readonly kind: string;
+	readonly label: string;
+	readonly toolCallId?: string;
+	readonly work: CarriedWork;
+}
+
 /** The registry, which is also the host producers are handed. */
 export interface Jobs extends JobHost {
 	list(): readonly JobEntry[];
@@ -46,6 +57,17 @@ export interface Jobs extends JobHost {
 	delivered(isWaiting: (id: string) => boolean): void;
 	/** The session ended: stop everything and accept nothing more. */
 	close(): void;
+	/** A job under the id `id`, as another process carried it here. */
+	adopt(id: string, spec: JobSpec): Job;
+	/** Ids another process gave, which new jobs pass so none is said twice. */
+	reserve(ids: readonly string[]): void;
+	/**
+	 * The session moves to another process: hand on every running job that
+	 * can be carried, letting it go unstopped, and say what each was.
+	 */
+	carryOut(): readonly CarriedJob[];
+	/** The running jobs that hold a move, since they can't be carried. */
+	holds(): readonly JobHold[];
 }
 
 /** What came of an agent's stop. */
@@ -99,31 +121,75 @@ export function createJobs(
 		changed();
 	};
 
+	const reserve = (ids: readonly string[]) => {
+		for (const id of ids) {
+			const number = Number(/^j(\d+)$/.exec(id)?.[1]);
+			if (Number.isInteger(number)) next = Math.max(next, number + 1);
+		}
+	};
+
+	const open = (id: string, spec: JobSpec): Job => {
+		const controller = new AbortController();
+		const job: Held = { spec, controller, listeners: [], finished: false };
+		if (closed) controller.abort(jobStopReason("session"));
+		else held.set(id, job);
+		changed();
+		return {
+			id,
+			signal: controller.signal,
+			finish: (outcome) => finish(id, outcome),
+			onDelivered: (listener) => {
+				job.listeners.push(listener);
+			},
+			withdraw: () => {
+				if (!job.finished || !held.has(id) || !retract(id)) return false;
+				held.delete(id);
+				// Nothing will be said, so whatever showed it waiting can go.
+				for (const listener of job.listeners.splice(0)) listener();
+				changed();
+				return true;
+			},
+		};
+	};
+
 	return {
-		start(spec): Job {
-			const id = `j${next++}`;
-			const controller = new AbortController();
-			const job: Held = { spec, controller, listeners: [], finished: false };
-			if (closed) controller.abort(jobStopReason("session"));
-			else held.set(id, job);
-			changed();
-			return {
-				id,
-				signal: controller.signal,
-				finish: (outcome) => finish(id, outcome),
-				onDelivered: (listener) => {
-					job.listeners.push(listener);
-				},
-				withdraw: () => {
-					if (!job.finished || !held.has(id) || !retract(id)) return false;
-					held.delete(id);
-					// Nothing will be said, so whatever showed it waiting can go.
-					for (const listener of job.listeners.splice(0)) listener();
-					changed();
-					return true;
-				},
-			};
+		start: (spec) => open(`j${next++}`, spec),
+		adopt(id, spec) {
+			reserve([id]);
+			return open(id, spec);
 		},
+		reserve,
+		carryOut() {
+			const carried: CarriedJob[] = [];
+			for (const [id, job] of held) {
+				if (job.finished) continue;
+				const work = job.spec.carry?.what();
+				if (work === undefined) continue;
+				job.spec.carry?.handed();
+				// Let go unstopped and unended: its end is said where it went.
+				held.delete(id);
+				const { kind, label, toolCallId } = job.spec;
+				carried.push({
+					id,
+					kind,
+					label,
+					...(toolCallId !== undefined ? { toolCallId } : {}),
+					work,
+				});
+			}
+			if (carried.length > 0) changed();
+			return carried;
+		},
+		holds: () =>
+			[...held]
+				.filter(
+					([, job]) => !job.finished && job.spec.carry?.what() === undefined,
+				)
+				.map(([id, job]) => ({
+					id,
+					kind: job.spec.kind,
+					label: job.spec.label,
+				})),
 		// Held covers both: a job leaves only once its result is said.
 		pending: () => held.size,
 		list: () =>

@@ -11,12 +11,15 @@
 
 export {
 	announceJobHost,
+	type CarriedWork,
 	findJobHost,
 	JOBS_ASK,
 	JOBS_FINISHED,
 	JOBS_YIELD,
 	type Job,
+	type JobCarry,
 	type JobFinished,
+	type JobHold,
 	type JobHost,
 	type JobOutcome,
 	type JobSpec,

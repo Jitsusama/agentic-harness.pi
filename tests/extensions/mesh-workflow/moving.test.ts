@@ -2,13 +2,19 @@
  * Move from outside a session's window: it ends the first moment
  * nothing of its own is out, leaving the note its move is taken up by.
  */
+import {
+	createEventBus,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
 	createMoving,
+	holdsOf,
 	MOVE_LOOK_MS,
 	type MovingSession,
 } from "../../../extensions/mesh-workflow/moving.ts";
 import type { MoveTarget } from "../../../lib/internal/session/move.ts";
+import { announceJobHost, type JobHold } from "../../../lib/jobs/index.ts";
 import type { Moving } from "../../../lib/mesh/presence.ts";
 
 interface Session {
@@ -237,5 +243,39 @@ describe("moving a session", () => {
 		one.move.move("attended");
 		one.move.look();
 		expect(one.did).toEqual(["note background", "close"]);
+	});
+});
+
+describe("what holds a move", () => {
+	/** An idle session whose job host has `pending` jobs, `held` of them holding. */
+	function holding(pending: number, held?: readonly JobHold[]) {
+		const events = createEventBus();
+		announceJobHost(events, {
+			start: () => {
+				throw new Error("nothing starts here");
+			},
+			pending: () => pending,
+			...(held ? { holds: () => held } : {}),
+		});
+		const ctx = {
+			hasUI: false,
+			isIdle: () => true,
+			hasPendingMessages: () => false,
+		};
+		return holdsOf(ctx as unknown as ExtensionContext, events, 0);
+	}
+
+	it("names only the jobs that can't be carried, by kind and id", () => {
+		expect(holding(2, [{ id: "j2", kind: "subagent", label: "k7-read" }])).toBe(
+			"a fleet is out (j2: k7-read)",
+		);
+	});
+
+	it("is nothing when every running job can be carried", () => {
+		expect(holding(1, [])).toBeUndefined();
+	});
+
+	it("counts every job out when the host can't say which hold", () => {
+		expect(holding(1)).toBe("background jobs are out");
 	});
 });

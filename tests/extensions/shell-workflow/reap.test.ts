@@ -14,11 +14,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-	CALL_VARIABLE,
-	reap,
-	reapsWhatItLeft,
-} from "../../../extensions/shell-workflow/reap.ts";
+import { reapsWhatItLeft } from "../../../extensions/shell-workflow/reap.ts";
+import { CALL_VARIABLE, reap } from "../../../lib/internal/shell/reap.ts";
 import { until } from "../../support/until.ts";
 
 const made: string[] = [];

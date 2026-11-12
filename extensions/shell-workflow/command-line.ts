@@ -33,6 +33,27 @@ export const COMMAND_VARIABLE = "PI_BASH_COMMAND";
 /** What the shell's command line holds instead of the command. */
 export const COMMAND_STUB = `eval "unset ${COMMAND_VARIABLE}; $${COMMAND_VARIABLE}"`;
 
+/** The variable a kept call's path travels in (lib/internal/shell/kept.ts). */
+export const KEEP_VARIABLE = "PI_BASH_KEEP";
+
+/**
+ * The stub of a call that keeps itself on disk, so another process can
+ * say how it ended once pi has gone. It writes its shell's pid first,
+ * runs the command in a subshell, so the command's own `exit` and traps
+ * can't skip what follows, and sends its output through `tee -p`, which
+ * pi reads as before and which writes on to the file when pi's pipe
+ * closes. Then it writes the command's status and exits with it. Still
+ * one line, so a failing command's line numbers are what they were.
+ */
+export const KEEPING_STUB = [
+	`printf '%s\\n' "$$" > "$${KEEP_VARIABLE}.pid"`,
+	`( eval "unset ${COMMAND_VARIABLE} ${KEEP_VARIABLE}; $${COMMAND_VARIABLE}" ) > >(trap '' PIPE; exec tee -p -a "$${KEEP_VARIABLE}.out") 2>&1`,
+	"s=$?",
+	"wait $! 2>/dev/null",
+	`printf '%s\\n' "$s" > "$${KEEP_VARIABLE}.end"`,
+	"exit $s",
+].join("; ");
+
 /** A spawn hook that moves the command off the shell's command line. */
 export function offCommandLine(context: BashSpawnContext): BashSpawnContext {
 	return {

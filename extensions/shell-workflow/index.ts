@@ -15,7 +15,9 @@
  * are a print or JSON run's, which exits as its prompts end. A
  * session started with `PI_SANDBOX=strict` runs each command under
  * Landlock, with no credentials and no sockets but name lookups and
- * Nix's untrusted door (sandbox.ts).
+ * Nix's untrusted door (sandbox.ts). Each command keeps its output and
+ * end on disk while it runs, so a session moving to a host can hand a
+ * running one on rather than wait for it (keeping.ts).
  *
  * Everything else, the output truncation, the saved full output, the
  * rendering and the structured result codemode reads, is pi's.
@@ -31,6 +33,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
+import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
 	endsWithItsPrompts,
 	HAND_OFF_MS,
@@ -38,8 +41,6 @@ import {
 } from "../../lib/jobs/hand-off.ts";
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import { runOrHandOff } from "./hand-off.ts";
-
-type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 
 /** The settings pi builds its own bash with, as this project sees them. */
 function shellSettings(ctx: ExtensionContext): ShellSettings {
@@ -78,7 +79,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		bash = undefined;
 	};
 
-	const bashFor = (ctx: ExtensionContext): BashDefinition => {
+	const bashFor = (ctx: ExtensionContext): AgentBash => {
 		bash ??= agentBash(
 			sessionCwd(ctx),
 			shellSettings(ctx),
@@ -92,6 +93,8 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		retireBash();
 		bashFor(ctx);
 		askTheCloudAhead(sandbox);
+		// What a call kept and nobody took up, a week on (kept.ts).
+		sweepKept();
 	});
 	pi.on("session_shutdown", retireBash);
 
@@ -149,6 +152,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 				signal,
 				onUpdate,
 				bus: pi.events,
+				carryOf: (owned) => definition.carryOf(owned),
 				run: (owned, update) =>
 					definition.execute(
 						toolCallId,

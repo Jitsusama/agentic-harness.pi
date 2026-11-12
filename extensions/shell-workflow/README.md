@@ -266,6 +266,33 @@ command keeps running, and its result arrives in the reloaded session
 (see [job-workflow](../job-workflow/#through-a-reload)). A timeout the
 agent passed still applies in the background.
 
+## Through a Move
+
+A command's output reaches pi through a pipe, and a running process's
+output can't be sent elsewhere once it has started. So each command pi
+starts itself keeps itself on disk from its start, ready for a move to
+carry it to a host (see
+[job-workflow](../job-workflow/#through-a-move)). `keeping.ts` runs it
+under a stub that writes its shell's pid, copies its output through
+`tee -p` into a file beside what pi reads, and writes its exit status
+as it ends. The command runs in a subshell, so its own `exit` or exit
+trap can't skip the status line, and `tee` ignores the broken pipe a
+moved pi leaves.
+
+- **Where:** a folder of the owner's alone, under
+  `$XDG_STATE_HOME/pi/agentic-harness.pi/shell-workflow/kept`, each
+  file 0600, never in `/tmp`, since they hold what commands printed.
+- **How much:** once the output passes 1 MiB its tail is rolled into an
+  `.old` file and the copy starts again, so at most 2 MiB are kept,
+  the tail as pi's own bash keeps it. A few bytes written in the
+  instant of a roll can be lost.
+- **For how long:** a call that ends in its own pi removes its files as
+  it ends. A carried one's go once its end is said in the host, or once
+  it is stopped. Files left a week, by a pi killed outright, are swept
+  as a session starts.
+- **Where not:** commands `pi-spawner` starts, and any where `tee`
+  lacks `-p` or the shell isn't bash, run as before and hold a move.
+
 ## Limits
 
 - Calls a codemode script makes are never moved, since the script needs

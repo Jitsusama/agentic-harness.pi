@@ -17,6 +17,39 @@ export interface JobSpec {
 	 * lease, a row) can tell when the work behind it ends.
 	 */
 	readonly toolCallId?: string;
+	/**
+	 * How the job goes on in another process when its session moves there,
+	 * for work that lives outside this one. A job without it holds a move
+	 * until it ends.
+	 */
+	readonly carry?: JobCarry;
+}
+
+/**
+ * What another process needs to take a job's work up, as plain data the
+ * session's log can hold: its `kind` says who reads the rest.
+ */
+export interface CarriedWork {
+	readonly kind: string;
+	readonly [field: string]: unknown;
+}
+
+/** How a job's work is handed to another process. */
+export interface JobCarry {
+	/**
+	 * What the other process takes the work up from, or nothing when it
+	 * can't be carried now. Asking changes nothing.
+	 */
+	what(): CarriedWork | undefined;
+	/** It has been handed over: let it run on, and say nothing of it here. */
+	handed(): void;
+}
+
+/** A running job that holds its session's move, named. */
+export interface JobHold {
+	readonly id: string;
+	readonly kind: string;
+	readonly label: string;
 }
 
 /** How a job ended, bounded, with the path or handle for the rest. */
@@ -78,6 +111,11 @@ export interface JobHost {
 	 * Optional, so a host from before it reads as having none to say.
 	 */
 	pending?(): number;
+	/**
+	 * The running jobs that hold a move, since they can't be carried.
+	 * Optional, so a host from before it holds a move on all `pending`.
+	 */
+	holds?(): readonly JobHold[];
 }
 
 /**
