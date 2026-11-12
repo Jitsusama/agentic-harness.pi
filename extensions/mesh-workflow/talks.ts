@@ -53,7 +53,11 @@ export interface Talks {
 	wrote(text: string): void;
 	/** The run settled, stopped or not. */
 	settled(aborted: boolean): void;
-	/** Something came of the talks just answered, such as a plan concluded. */
+	/**
+	 * Something came of the talks answered since the last one opened,
+	 * within CAME_MS, such as a plan concluded: one answered early in a
+	 * run and those its run's end closed alike.
+	 */
 	came(what: string, ref?: string): void;
 }
 
