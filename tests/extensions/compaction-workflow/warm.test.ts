@@ -27,6 +27,9 @@ vi.mock("../../../lib/internal/config/loader.ts", async (original) => ({
 }));
 
 const { readTurns } = await import("../../../lib/ledger/index.ts");
+const { addPendingWarm, pendingWarmsDir } = await import(
+	"../../../lib/internal/warming-carry.ts"
+);
 const { default: compactionWorkflow } = await import(
 	"../../../extensions/compaction-workflow/index.ts"
 );
@@ -645,6 +648,32 @@ describe("warming across a restart", () => {
 			written.includes("sekrit"),
 			written.includes("sk-ant-"),
 		]).toEqual([true, false, false]);
+	});
+
+	it("records the warms its host sent while it was parked, once it starts again", async () => {
+		const { provider, model, usage } = warmReply();
+		addPendingWarm(pendingWarmsDir(), "s1", {
+			provider,
+			model,
+			usage,
+			sentAt: 1,
+			parked: true,
+		});
+		const { ctx } = session();
+
+		const fresh = activate();
+		await fresh.fire("session_start", { reason: "resume" }, ctx);
+		const again = activate();
+		await again.fire("session_start", { reason: "resume" }, ctx);
+
+		expect([warms(fresh.entries), warms(again.entries)]).toEqual([
+			[
+				expect.objectContaining({
+					data: expect.objectContaining({ sentAt: 1, parked: true }),
+				}),
+			],
+			[],
+		]);
 	});
 
 	it("keeps nothing on disk when kept requests are switched off", async () => {
