@@ -59,8 +59,12 @@ export interface HostRunOptions {
 	viewer?: (host: SessionHost) => ViewerBridge;
 	/** Where the process hears its stop signals; the process by default. */
 	signals?: { once(signal: string, listener: () => void): unknown };
-	/** Says the host is ready; systemd's notify by default. */
-	ready?: (env: NodeJS.ProcessEnv) => Promise<void>;
+	/** Says the host is ready, with its status; systemd's notify by default. */
+	ready?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
+	/** Says the host's status once it changes; systemd's notify by default. */
+	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
+	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
+	statusEvery?: number;
 	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
@@ -184,7 +188,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		});
 	});
 	try {
-		await (options.ready ?? notifyReady)(options.env);
+		await (options.ready ?? notifyReady)(options.env, "");
 	} catch (error) {
 		// systemd waits for readiness until its own timeout and stops the
 		// unit then; the host keeps serving what it can until it does.
@@ -198,6 +202,11 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 				: ""),
 	);
 	return { serving, stopped };
+}
+
+/** A ready host's status in words, as systemd's status shows it. */
+export function readyStatus(_serving: number, _unresumed: number): string {
+	return "";
 }
 
 /** A start step in words, as the journal and systemd's status show it. */
