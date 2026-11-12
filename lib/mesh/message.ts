@@ -240,7 +240,15 @@ export function clock(
 
 /** A message on one line, for listings and glances. */
 export function line(message: Message): string {
-	return `${clock(message)} [${shortId(message)}] ${message.intent} from ${sender(message)} to ${message.to.join(", ")}: ${message.text}`;
+	return `${heading(message)}: ${message.text}`;
+}
+
+/**
+ * A message's when, id, intent, sender and groups, without its text: what
+ * a sender is told of what it sent, since the text is already before it.
+ */
+export function heading(message: Message): string {
+	return `${clock(message)} [${shortId(message)}] ${message.intent} from ${sender(message)} to ${message.to.join(", ")}`;
 }
 
 /** Who sent a message, with the realm it crossed from when it did. */

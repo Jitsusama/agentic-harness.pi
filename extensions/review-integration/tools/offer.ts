@@ -15,6 +15,7 @@
  * CLI's help to find the door that is open.
  */
 
+import { StringEnum } from "@earendil-works/pi-ai";
 import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { Exec } from "../../../lib/core/exec/index.ts";
@@ -294,20 +295,22 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			"Never retarget, ready or draft a change that is queued to merge without saying what that costs: on a queue-backed backend it ejects the change and everything batched with it.",
 		],
 		parameters: Type.Object({
-			action: Type.Union(
+			// An enum rather than a union of literals: the same choices, said in
+			// a third of the characters every session sends every turn.
+			action: StringEnum(
 				[
-					Type.Literal("propose"),
-					Type.Literal("propose-stack"),
-					Type.Literal("edit"),
-					Type.Literal("ready"),
-					Type.Literal("unready"),
-					Type.Literal("close"),
-					Type.Literal("reopen"),
-					Type.Literal("merge"),
-					Type.Literal("reviewers"),
-					Type.Literal("rerun"),
-					Type.Literal("retarget-stack"),
-				],
+					"propose",
+					"propose-stack",
+					"edit",
+					"ready",
+					"unready",
+					"close",
+					"reopen",
+					"merge",
+					"reviewers",
+					"rerun",
+					"retarget-stack",
+				] as const,
 				{
 					description:
 						"What to do. propose: put a branch up as a change; propose-stack: several, each on the one before. edit: its title, body or base. ready, or unready back to a draft. reviewers: ask people to look. close, reopen, merge. rerun: CI again. retarget-stack: after a local restack, point each change at the branch it now sits on.",
@@ -412,7 +415,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				}),
 			),
 			labelMode: Type.Optional(
-				Type.Union([Type.Literal("add"), Type.Literal("set")], {
+				StringEnum(["add", "set"] as const, {
 					description:
 						"For edit: add (the default), or set to replace the labels already there.",
 				}),

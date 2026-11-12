@@ -70,9 +70,11 @@ function sharedActionLists(toolFile: string): string[] {
  * tool's own source is a name that tool knows about, and the question here is only
  * whether a skill invented one.
  *
- * Two spellings, because the tools disagree. Most declare their actions inline as typebox
- * literals; quest keeps a shared list in its own module and passes it to a string enum,
- * so that list is read too. Missing the second spelling made every real quest verb look
+ * Three spellings, because the tools disagree. Some declare their actions inline as
+ * typebox literals; others give a string enum a constant list (`[...] as const`), inline
+ * or above the tool, a third of the characters a union of literals declares; quest keeps
+ * a shared list in its own module and passes it to a string enum, so that list is read
+ * too. Missing quest's spelling made every real quest verb look
  * invented, which is the failure mode a loose gate has: it does not go quiet, it goes off
  * constantly and gets deleted.
  */
@@ -87,6 +89,16 @@ export function registered(): Map<string, Set<string>> {
 				/Type\.Literal\("([a-z][a-zA-Z-]*)"\)/g,
 			)) {
 				actions.add(act);
+			}
+			// Every constant list in the file, not only its actions: review_offer's
+			// labelMode ("add", "set") counts as its verbs too. That errs towards
+			// passing, the safe side; narrowing it to one list would miss work's,
+			// which sits above the tool rather than inside it.
+			for (const [, list = ""] of source.matchAll(/\[([^\]]*)\]\s*as const/g)) {
+				for (const quoted of list.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
+					const act = quoted.at(1);
+					if (act !== undefined) actions.add(act);
+				}
 			}
 			for (const shared of sharedActionLists(file)) actions.add(shared);
 			tools.set(name, actions);
