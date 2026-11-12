@@ -5,7 +5,6 @@ import {
 	type Crash,
 	crashOf,
 	crashText,
-	journalCommand,
 	recordCrashes,
 } from "../../../../lib/internal/session/crash-record.ts";
 
@@ -114,30 +113,5 @@ describe("crashText", () => {
 		expect(text).toBe(
 			"pi session 01a1 in /src/x is ending on an uncaught error (unhandledRejection) at 2026-11-11T08:36:11.224Z: gone\nError: gone\n    at write",
 		);
-	});
-});
-
-describe("journalCommand", () => {
-	it("writes to the journal where systemd-cat is", () => {
-		const command = journalCommand((program) =>
-			program === "systemd-cat" ? "/store/systemd-cat" : "/usr/bin/logger",
-		);
-		expect(command).toEqual({
-			program: "/store/systemd-cat",
-			args: ["-t", "pi", "-p", "err"],
-		});
-	});
-
-	it("writes through logger where there is no journal", () => {
-		const command = journalCommand((program, folders) =>
-			program === "logger" && folders.includes("/usr/bin")
-				? "/usr/bin/logger"
-				: undefined,
-		);
-		expect(command?.program).toBe("/usr/bin/logger");
-	});
-
-	it("writes nowhere when neither is the system's", () => {
-		expect(journalCommand(() => undefined)).toBeUndefined();
 	});
 });

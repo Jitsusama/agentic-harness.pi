@@ -1,8 +1,8 @@
 # Crash Record Workflow
 
-Has a pi that an uncaught error ends say why where somebody will
-look: in its session's log, as a `crash` entry, and in the system's
-log, with the stack.
+What the system's log hears of a pi: how long it took to be ready,
+and why it ended when an uncaught error ends it, in its session's
+log too, as a `crash` entry, with the stack.
 
 ## Why It Exists
 
@@ -14,8 +14,18 @@ added it to `~/.pi/agent/crashes.json`, which nothing reads. The
 cause, an unhandled write refusal, was found only by thinking to open
 that file.
 
+Health holds pi to starting in 3 seconds, and on 12 November the 42
+pis started since midnight had taken a median of about 5, with some
+over 30. Nothing in the journal said how long any one took, so each
+figure had to be pieced together from session logs.
+
 ## What It Does
 
+- Writes `pi: ready in N ms, session <id>` to the system's log at
+  info, once, when the process's first session has started and its
+  history is drawn, timed from the process's start. A reload, a new
+  session or a resume isn't timed, nor a pi with no screen, such as a
+  subagent. The write doesn't wait.
 - Writes each uncaught throw, and each rejection nothing handled, to
   the session's log as a `crash` entry before pi's handler exits.
 - Writes the same error, naming the session and its folder, to the
@@ -34,4 +44,5 @@ the newer one's state. The work is in
 `lib/internal/session/crash-record.ts`.
 
 Find a crash with `journalctl --user -t pi -p err`, or the entry in
-the session's log.
+the session's log, and the starts with
+`journalctl --user -t pi -g 'ready in'`.

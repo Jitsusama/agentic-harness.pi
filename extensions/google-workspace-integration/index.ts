@@ -4,6 +4,11 @@
  * Provides AI-friendly access to Gmail, Calendar, Drive, Docs, Sheets,
  * and Slides through a single `google` tool. Handles OAuth2 authentication,
  * token refresh, and renders content as markdown.
+ *
+ * The router, the sign-in and the setup commands load on first use,
+ * since most sessions never call Google: only what renders a call and
+ * its result loads at start, because a resumed session draws its
+ * history before any tool runs, and a draw can't wait on an import.
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -11,19 +16,17 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { isAbort } from "../../lib/clock/index.ts";
-import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
-import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
-import { clearAllConfig, formatAuthError } from "../../lib/google/index.ts";
+import { clearAllConfig } from "../../lib/google/auth/credentials.ts";
+import type { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
+import { formatAuthError } from "../../lib/google/auth/errors.ts";
 import {
 	signInFailure,
 	unattended,
 } from "../../lib/internal/away/unattended.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { singleFlight } from "../../lib/internal/single-flight.ts";
-import { handleGoogleAuthCommand } from "./auth-command.ts";
 import { renderGoogleCall } from "./render-call.ts";
 import { renderGoogleResult } from "./render-result.ts";
-import { routeAction } from "./router.ts";
 
 // OAuth2 configuration from environment variables.
 const ENV_OAUTH_CONFIG = {
@@ -52,6 +55,9 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 
 		return login(key, async () => {
 			try {
+				const { ensureAuthenticated } = await import(
+					"../../lib/google/auth/ensure-auth.ts"
+				);
 				const client = await ensureAuthenticated(
 					unattended(ctx),
 					ENV_OAUTH_CONFIG,
@@ -222,6 +228,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			// router's own return sites.
 			try {
 				const auth = await getClient(ctx, accountName as string | undefined);
+				const { routeAction } = await import("./router.ts");
 				const result = await routeAction(
 					action as string,
 					params,
@@ -255,6 +262,9 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 	pi.registerCommand("google-setup", {
 		description: "Set up Google OAuth credentials (interactive)",
 		handler: async (_args, ctx) => {
+			const { ensureOAuthApp } = await import(
+				"../../lib/google/auth/setup-wizard.ts"
+			);
 			await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 		},
 	});
@@ -263,6 +273,11 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Google Workspace. Usage: google-auth [--account name] [--list] [--default name]",
 		handler: async (args, ctx) => {
+			const [{ ensureOAuthApp }, { handleGoogleAuthCommand }] =
+				await Promise.all([
+					import("../../lib/google/auth/setup-wizard.ts"),
+					import("./auth-command.ts"),
+				]);
 			const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 			if (!oauthConfig) return;
 			await handleGoogleAuthCommand(args, ctx, oauthConfig);
