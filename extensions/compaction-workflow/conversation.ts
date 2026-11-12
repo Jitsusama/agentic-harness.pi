@@ -57,6 +57,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { isTransientFailure } from "../../lib/internal/model-failure.ts";
+import { summaryCeiling } from "./ceiling.ts";
 import {
 	keepingRequests,
 	keptRequestDir,
@@ -318,11 +319,21 @@ async function writeFrom(
 		planned.room ?? Number.POSITIVE_INFINITY,
 	);
 	const replacedTokens = request.replacedTokens;
+	const ceilingTokens = summaryCeiling(
+		ctx.sessionManager.getSessionId(),
+		process.env.PI_COMPACTION_SUMMARY_CEILING,
+	);
 	const instruction = summaryInstruction({
 		hasPreviousSummary: request.hasPreviousSummary,
 		customInstructions: combinedFocus(request.focus),
 		...(replacedTokens !== undefined
-			? { length: { replacedTokens, maxOutputTokens: maxTokens } }
+			? {
+					length: {
+						replacedTokens,
+						maxOutputTokens: maxTokens,
+						...(ceilingTokens !== undefined ? { ceilingTokens } : {}),
+					},
+				}
 			: {}),
 	});
 	const messages = convertToLlm([

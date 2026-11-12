@@ -265,12 +265,13 @@ describe("the conversation summariser", () => {
 		expect(seen[0]).toMatchObject({ handled: true });
 	});
 
-	it("sizes the summary to pi's estimate of what it replaces", async () => {
+	/** The closing instruction a long conversation is summarised under, in a session of this id. */
+	async function closingOfLongSession(sessionId: string): Promise<string> {
 		const { fire } = activate();
 		// 400,000 characters is 100,000 tokens by pi's estimate; less the
 		// 20,000 pi keeps verbatim, the summary replaces about 80,000.
 		const long = "x".repeat(400_000);
-		const ctx = context([
+		const base = context([
 			{
 				...userEntry,
 				message: {
@@ -280,6 +281,10 @@ describe("the conversation summariser", () => {
 			},
 			replyEntry,
 		]);
+		const ctx = {
+			...base,
+			sessionManager: { ...base.sessionManager, getSessionId: () => sessionId },
+		};
 		await fire("before_provider_request", { payload: sentPayload }, ctx);
 		let closing = "";
 		completeSimple.mockImplementation(async (_m, c) => {
@@ -291,9 +296,20 @@ describe("the conversation summariser", () => {
 			};
 		});
 		await fire("session_before_compact", compactEvent(), ctx);
+		return closing;
+	}
+
+	it("sizes the summary to pi's estimate of what it replaces", async () => {
+		// An even last digit puts the session outside the ceiling's trial.
+		const closing = await closingOfLongSession("s2");
 		expect(closing).toContain("replaces about 80,000 tokens of conversation");
 		expect(closing).toContain("Make it about 8,000 tokens long");
 		expect(closing).not.toContain("Keep each section concise");
+	});
+
+	it("holds a session in the ceiling's trial to the ceiling", async () => {
+		const closing = await closingOfLongSession("s1");
+		expect(closing).toContain("Make it about 6,000 tokens long");
 	});
 
 	it("says a focus once when it arrives both by hand and as a contribution", async () => {

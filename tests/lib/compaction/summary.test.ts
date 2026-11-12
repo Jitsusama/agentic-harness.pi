@@ -57,6 +57,34 @@ describe("summaryInstruction", () => {
 			);
 		});
 
+		it("holds a long summary to its ceiling", () => {
+			const capped = (replacedTokens: number) =>
+				summaryInstruction({
+					hasPreviousSummary: false,
+					length: {
+						replacedTokens,
+						maxOutputTokens: 51_200,
+						ceilingTokens: 6_000,
+					},
+				});
+			expect([
+				capped(150_000).includes("Make it about 6,000 tokens long"),
+				capped(40_000).includes("Make it about 4,000 tokens long"),
+			]).toEqual([true, true]);
+		});
+
+		it("never holds a summary under its floor, whatever ceiling is named", () => {
+			const text = summaryInstruction({
+				hasPreviousSummary: false,
+				length: {
+					replacedTokens: 150_000,
+					maxOutputTokens: 51_200,
+					ceilingTokens: 50,
+				},
+			});
+			expect(text).toContain("Make it about 2,000 tokens long");
+		});
+
 		it("counts the earlier summary in what a fold replaces", () => {
 			const text = summaryInstruction({
 				hasPreviousSummary: true,

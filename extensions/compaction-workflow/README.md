@@ -375,6 +375,24 @@ summary text nearly doubles, from a median of about 3.6k tokens to
 6.6k, and the output with its thinking from 5.6k to 12.6k, which is
 about $0.14 more a compaction at Opus 5.5 list.
 
+A ceiling on that size is on trial. Sessions grew past what the share
+was measured on: on 11 November 2026 a compaction's output, thinking
+included, had a median of 21k tokens and its p90 34k, over 1,166 compactions costing
+$530 in output alone, and one session's summary grew from 5k to 22k
+tokens over four days of folds. A long summary is paid three times:
+as output, as the cache write after the compaction, and as a read on
+every turn until the next one, about a hundred. So sessions whose id
+ends in an odd hex digit are held to 6,000 tokens, the size the share
+was measured at (`ceiling.ts`), and the rest are the control. The
+ceiling goes to every session only if the capped half fetches back no
+more after a compaction, in `session_recall` calls and re-reads, at a
+lower cost a turn. The trial is read from the ledger on 16 November
+2026: for each half, those two counts over the 30 turns after a
+compaction (with a session's first compaction under the ceiling apart,
+since it folds the longest summary), output per compaction with its
+thinking, and cost a turn. Then the ceiling goes to every session or
+comes out.
+
 A sized summary also folds the summary before it differently. pi's
 words let each fold compress what it carries again, so a specific kept
 through two folds can be lost on the third. The sized fold says the
@@ -553,6 +571,9 @@ and keeps sessions its own way:
 - `PI_CACHE_RETENTION=long` is what compacting while idle runs under.
 - `PI_COMPACTION_KEEP_REQUEST=off` keeps no request on disk across a
   restart.
+- `PI_COMPACTION_SUMMARY_CEILING=off` holds no summary to a ceiling,
+  and a number of tokens holds every session's to that one, never under
+  the 2,000 floor; unset, the trial runs.
 - `PI_COMPACTION_KEEP_HEAD=off` leaves pi's own head after a
   compaction.
 - `compaction.warmWhileIdle`, in the package config at
@@ -576,6 +597,8 @@ and keeps sessions its own way:
   a compaction.
 - `conversation.ts`: the `conversation` provider, the summary written
   from the cached conversation.
+- `ceiling.ts`: which sessions hold their summary to a ceiling, while
+  it is on trial.
 - `kept-request.ts`: the last request, kept on disk across a restart.
 - `head.ts`: the session's first head, put back ahead of each request,
   with what changed in `lib/internal/session/first-head.ts`.
