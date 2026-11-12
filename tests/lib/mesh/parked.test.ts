@@ -190,18 +190,41 @@ describe("waking a parked peer for a steer", () => {
 		}
 	});
 
-	it("lets a pause or stop wait for its next start, as it does nothing parked", () => {
-		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
-		steer(root, "85PKB2", { act: "pause" });
+	it("wakes it for a talk, which a running peer would answer at once", () => {
+		for (const said of [
+			{ text: "put the void's card on top", id: "talk-1" },
+			{ act: "resume", text: "carry on, and say where it went" },
+		]) {
+			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+			steer(root, "85PKB2", said);
+			const asked: string[] = [];
 
-		expect(
-			wakeSteered(
+			const woken = wakeSteered(
 				[parked],
 				root,
 				() => true,
-				() => {},
-			),
-		).toEqual([]);
+				(session) => asked.push(session),
+			);
+
+			expect([woken, asked], said.text).toEqual([["s-parked"], ["s-parked"]]);
+		}
+	});
+
+	it("lets a pause, a stop or a bare resume wait for its next start, as each does nothing parked", () => {
+		for (const act of ["pause", "stop", "resume"]) {
+			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+			steer(root, "85PKB2", { act });
+
+			expect(
+				wakeSteered(
+					[parked],
+					root,
+					() => true,
+					() => {},
+				),
+				act,
+			).toEqual([]);
+		}
 	});
 
 	it("asks only for peers parked now, whose marker stands", () => {
