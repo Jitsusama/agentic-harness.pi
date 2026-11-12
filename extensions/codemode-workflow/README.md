@@ -19,9 +19,13 @@ makes has to answer the script.
 
 The tool is pi's own codemode, built the way pi's built-in extension
 builds it, so its sandbox, loadout, description and rendering are pi's.
-It is registered under the name `codemode` from this package, which
-loads before pi's built-in extensions, and pi takes the first tool
-registered under a name.
+It is registered under the name `codemode` from this package, so pi
+leaves its built-in codemode extension out.
+
+pi says so at every start, as a warning, unless the settings file turns
+the built-in off with `"extensions": ["-builtin:codemode"]`. A package
+can't say it replaces a built-in, so whoever loads this package sets
+that once; core.nix's pi module does it for Joel.
 
 What it adds is the wait. A script that ends within a minute answers as
 it always did. One still running then becomes a job of kind `codemode`
