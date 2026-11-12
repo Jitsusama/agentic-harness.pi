@@ -463,7 +463,8 @@ function onDisk(sessionId: string, going: Carried): Record<string, unknown> {
 	const headers = Object.fromEntries(
 		Object.entries(going.held.headers).filter(
 			([name, value]) =>
-				!CREDENTIAL_HEADER.test(name) && scrubSecrets(value).kinds.length === 0,
+				!CREDENTIAL_HEADER.test(name) &&
+				scrubSecrets(value ?? "").kinds.length === 0,
 		),
 	);
 	return {
