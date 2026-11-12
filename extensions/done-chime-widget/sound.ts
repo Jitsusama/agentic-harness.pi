@@ -15,6 +15,9 @@
  *   Linux.
  * - `pitch`: how far the spoken line is moved, in cents; negative is
  *   lower, and zero leaves the voice as it is.
+ * - `quiet`: the file the desktop keeps its Do Not Disturb in, under the
+ *   runtime folder when relative; no ring sounds while it reads as
+ *   quiet (`quiet.ts`).
  *
  * Without the file a Mac still rings, with its own low Submarine sound,
  * which comes with macOS. Linux has no sound every machine is sure to
@@ -43,6 +46,8 @@ export interface Sound {
 	readonly sox: string;
 	/** How far the spoken line moves, in cents. */
 	readonly pitch: number;
+	/** The desktop's Do Not Disturb file, or none where it keeps none. */
+	readonly quiet?: string;
 }
 
 /** The tools Linux's sound runs, by the names they go by on the PATH. */
@@ -90,6 +95,7 @@ export function readSound(
 	};
 	const ding = named("ding") ?? defaults.ding;
 	const voice = named("voice") ?? defaults.voice;
+	const quiet = named("quiet");
 	return {
 		...(ding ? { ding } : {}),
 		player: named("player") ?? defaults.player,
@@ -97,5 +103,6 @@ export function readSound(
 		piper: named("piper") ?? defaults.piper,
 		sox: named("sox") ?? defaults.sox,
 		pitch: Number.isFinite(raw.pitch) ? Number(raw.pitch) : defaults.pitch,
+		...(quiet ? { quiet } : {}),
 	};
 }
