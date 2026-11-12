@@ -1,12 +1,14 @@
 /**
  * The verbs server: what the launcher keeps a connection open to, so it
  * lists the verbs ready and builds a verb's prompt without starting a
- * program for either. It speaks the launcher's daemon interface, one
- * JSON object a line:
+ * program for either. It speaks version 1 of the interface every daemon
+ * the launcher reads speaks (core's docs/daemons.md), one JSON object a
+ * line: `hello`, `get`, `list`, `watch` (by kind or keys), `unwatch` and
+ * `health` as daemon-serve answers them, over one kind of record, `verb`,
+ * keyed `verb:<id>`. A watch is answered `{id, records}` whole, then told
+ * under its id only the records a verb file changed and the keys `gone`.
+ * Two asks are its own:
  *
- * - `{id, ask: "watch"}` answers `{id, changed}` with every verb's record,
- *   then again under the same id with only the records a verb file
- *   changed and the keys `gone`, as each folder moves.
  * - `{id, ask: "verb", verb, args, selection}` answers `{id, ok, use,
  *   system, prompt}`, or for a verb that hands on, `{id, ok, use, text}`;
  *   the launcher's own warm pi asks the model. A selection or argument
@@ -55,10 +57,17 @@ export interface VerbServer {
 	stop(): Promise<void>;
 }
 
-/** One watch a connection holds. */
+/** The server's name as the interface says it, its socket's and its unit's. */
+const DOMAIN = "pi-verbs";
+
+/** The one kind of record it holds. */
+const KIND = "verb";
+
+/** One watch a connection holds, of every verb or of the keys it names. */
 interface Watch {
 	readonly socket: Socket;
 	readonly id: unknown;
+	readonly keys: ReadonlySet<string> | undefined;
 }
 
 /** The answer to one line, without the id it's answered under. */
@@ -116,6 +125,7 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 	const sockets = new Set<Socket>();
 	const watches: Watch[] = [];
 	const verbsOfUses = new Map<string, string>();
+	const since = now().getTime();
 	let verbs = new Map<string, Verb>();
 	let records = new Map<string, string>();
 
@@ -136,31 +146,79 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 		const gone = [...records.keys()].filter((key) => !next.has(key));
 		records = next;
 		if (changed.length === 0 && gone.length === 0) return;
-		for (const { socket, id } of watches) {
+		for (const { socket, id, keys } of watches) {
+			const theirs = changed.filter(([key]) => !keys || keys.has(key));
+			const went = gone.filter((key) => !keys || keys.has(key));
+			if (theirs.length === 0 && went.length === 0) continue;
 			write(socket, {
 				id,
-				changed: changed.map(([, text]) => JSON.parse(text)),
-				...(gone.length > 0 ? { gone } : {}),
+				changed: theirs.map(([, text]) => JSON.parse(text)),
+				...(went.length > 0 ? { gone: went } : {}),
 			});
 		}
 	}
 
+	/** The records held, of the keys named or of every verb. */
+	function held(keys?: ReadonlySet<string>): unknown[] {
+		return [...records]
+			.filter(([key]) => !keys || keys.has(key))
+			.map(([, text]) => JSON.parse(text));
+	}
+
 	function answer(line: Record<string, unknown>, socket: Socket): Answer {
-		switch (line.ask) {
-			case "watch":
-				watches.push({ socket, id: line.id });
+		const ask = typeof line.ask === "string" ? line.ask : "";
+		const stranger = strangeKind(line.kind);
+		if ((ask === "watch" || ask === "list") && stranger !== undefined) {
+			return failed("unknown-kind", `no kind ${stranger} here`);
+		}
+		switch (ask) {
+			case "hello":
 				return {
-					changed: [...records.values()].map((text) => JSON.parse(text)),
+					version: 1,
+					domain: DOMAIN,
+					state: "answering",
+					since,
+					sources: {},
 				};
+			case "health":
+				return {
+					version: 1,
+					domain: DOMAIN,
+					state: "answering",
+					since,
+					sources: {},
+					watches: watches.length,
+					records: records.size,
+				};
+			case "get":
+				return { records: held(keysOf(line.keys) ?? new Set()) };
+			case "list":
+				return { records: held() };
+			case "watch": {
+				const keys = keysOf(line.keys);
+				unwatch(socket, line.id);
+				watches.push({ socket, id: line.id, keys });
+				return { records: held(keys) };
+			}
+			case "unwatch":
+				unwatch(socket, line.id);
+				return { unwatched: true };
 			case "verb":
 				return askVerb(line);
 			case "told":
 				return told(line);
 			default:
-				return {
-					ok: false,
-					refused: `there is no ask named ${String(line.ask)}`,
-				};
+				return failed("unknown-ask", `no ask ${JSON.stringify(ask)} here`);
+		}
+	}
+
+	/** Ends the watches a connection holds under `id`, or all of them. */
+	function unwatch(socket: Socket, id?: unknown): void {
+		for (let at = watches.length - 1; at >= 0; at--) {
+			const one = watches[at];
+			if (one?.socket === socket && (id === undefined || one.id === id)) {
+				watches.splice(at, 1);
+			}
 		}
 	}
 
@@ -215,28 +273,29 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 
 	function serve(socket: Socket): void {
 		sockets.add(socket);
-		let held = "";
+		let pending = "";
 		socket.setEncoding("utf8");
 		socket.on("data", (data: string) => {
-			held += data;
-			let end = held.indexOf("\n");
+			pending += data;
+			let end = pending.indexOf("\n");
 			while (end >= 0) {
-				const text = held.slice(0, end);
-				held = held.slice(end + 1);
+				const text = pending.slice(0, end);
+				pending = pending.slice(end + 1);
 				if (text.trim()) one(text, socket);
-				end = held.indexOf("\n");
+				end = pending.indexOf("\n");
 			}
-			if (held.length > MOST_LINE) {
-				write(socket, { ok: false, refused: "that line is too long" });
+			if (pending.length > MOST_LINE) {
+				write(socket, {
+					id: null,
+					...failed("too-long", "that line is too long"),
+				});
 				socket.destroy();
 			}
 		});
 		socket.on("error", () => socket.destroy());
 		socket.on("close", () => {
 			sockets.delete(socket);
-			for (let at = watches.length - 1; at >= 0; at--) {
-				if (watches[at]?.socket === socket) watches.splice(at, 1);
-			}
+			unwatch(socket);
 		});
 	}
 
@@ -247,11 +306,17 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 		} catch {
 			// The asker said something that isn't a line of the interface;
 			// it hears so and the connection goes on.
-			write(socket, { ok: false, refused: "that line is not JSON" });
+			write(socket, {
+				id: null,
+				...failed("unknown-ask", "that line is not JSON"),
+			});
 			return;
 		}
 		if (!isRecord(line)) {
-			write(socket, { ok: false, refused: "that line is no object" });
+			write(socket, {
+				id: null,
+				...failed("unknown-ask", "that line is no object"),
+			});
 			return;
 		}
 		write(socket, { id: line.id, ...answer(line, socket) });
@@ -289,6 +354,25 @@ export function verbServer(options: VerbServerOptions): VerbServer {
 				server.close(() => done());
 			}),
 	};
+}
+
+/** An answer refusing an ask, by the interface's codes. */
+function failed(code: string, message: string): Answer {
+	return { error: { code, message } };
+}
+
+/** The first kind an ask names that isn't a verb, or none. */
+function strangeKind(kind: unknown): string | undefined {
+	if (kind === undefined || kind === null) return undefined;
+	const named = Array.isArray(kind) ? kind : [kind];
+	const stranger = named.find((one) => one !== KIND);
+	return stranger === undefined ? undefined : String(stranger);
+}
+
+/** The keys an ask names, or none when it names none. */
+function keysOf(keys: unknown): Set<string> | undefined {
+	if (!Array.isArray(keys)) return undefined;
+	return new Set(keys.filter((key): key is string => typeof key === "string"));
 }
 
 /** Words by name, as a verb's arguments are given; none given is none. */

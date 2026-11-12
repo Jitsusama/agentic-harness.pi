@@ -19,6 +19,27 @@ import {
 const TOKEN = "[secret scrubbed: GitHub token]";
 const AT = new Date("2026-11-12T13:00:00Z");
 
+const EXPLAIN_RECORD = {
+	key: "verb:explain",
+	kind: "verb",
+	id: "explain",
+	words: "Explain",
+	says: "",
+	result: "say",
+	disruptive: false,
+	args: [],
+};
+const HAND_RECORD = {
+	key: "verb:hand",
+	kind: "verb",
+	id: "hand",
+	words: "Hand to an agent",
+	says: "",
+	result: "hand",
+	disruptive: true,
+	args: [{ name: "note", words: "What to ask" }],
+};
+
 const EXPLAIN = "---\nwords: Explain\nresult: say\n---\nExplain it plainly.\n";
 const HAND = `---
 words: Hand to an agent
@@ -122,32 +143,8 @@ describe("the verbs server", () => {
 	}
 
 	it("tells a watch every verb, then only the verbs a file changed and the ones gone", async () => {
-		const first = await ask({ id: 1, ask: "watch" });
-		expect(first).toEqual({
-			id: 1,
-			changed: [
-				{
-					key: "verb:explain",
-					kind: "verb",
-					id: "explain",
-					words: "Explain",
-					says: "",
-					result: "say",
-					disruptive: false,
-					args: [],
-				},
-				{
-					key: "verb:hand",
-					kind: "verb",
-					id: "hand",
-					words: "Hand to an agent",
-					says: "",
-					result: "hand",
-					disruptive: true,
-					args: [{ name: "note", words: "What to ask" }],
-				},
-			],
-		});
+		const first = await ask({ id: 1, ask: "watch", kind: "verb" });
+		expect(first).toEqual({ id: 1, records: [EXPLAIN_RECORD, HAND_RECORD] });
 
 		writeFileSync(
 			join(folder, "explain.md"),
@@ -275,16 +272,102 @@ describe("the verbs server", () => {
 			},
 			"explain takes no argument named tone",
 		],
-		[{ id: 8, ask: "dance" }, "there is no ask named dance"],
 	])("refuses %j", async (line, refused) => {
 		expect(await ask(line)).toEqual({ id: 8, ok: false, refused });
+	});
+
+	it("greets as the launcher's other daemons do, and says its health", async () => {
+		const hello = {
+			version: 1,
+			domain: "pi-verbs",
+			state: "answering",
+			since: AT.getTime(),
+			sources: {},
+		};
+		expect(
+			await ask({ id: "hello", ask: "hello", version: 1, client: "shell" }),
+		).toEqual({ id: "hello", ...hello });
+		await ask({ id: 1, ask: "watch", kind: "verb" });
+		expect(await ask({ id: 2, ask: "health" })).toEqual({
+			id: 2,
+			...hello,
+			watches: 1,
+			records: 2,
+		});
+	});
+
+	it("gets the records it is asked for by key, and lists them all", async () => {
+		expect(
+			await ask({ id: 1, ask: "get", keys: ["verb:hand", "verb:sing"] }),
+		).toEqual({ id: 1, records: [HAND_RECORD] });
+		expect(await ask({ id: 2, ask: "list", kind: "verb" })).toEqual({
+			id: 2,
+			records: [EXPLAIN_RECORD, HAND_RECORD],
+		});
+	});
+
+	it("tells a watch of keys only what changed among them", async () => {
+		await ask({ id: "all", ask: "watch", kind: "verb" });
+		expect(
+			await ask({
+				id: "ahead",
+				ask: "watch",
+				kind: "verb",
+				keys: ["verb:hand"],
+			}),
+		).toEqual({ id: "ahead", records: [HAND_RECORD] });
+
+		writeFileSync(
+			join(folder, "explain.md"),
+			EXPLAIN.replace("Explain\n", "Explain this\n"),
+		);
+		expect(await asker?.next()).toMatchObject({
+			id: "all",
+			changed: [{ key: "verb:explain" }],
+		});
+
+		unlinkSync(join(folder, "hand.md"));
+		expect(await asker?.next()).toEqual({
+			id: "all",
+			changed: [],
+			gone: ["verb:hand"],
+		});
+		expect(
+			await asker?.next(),
+			"the keyed watch heard of its own key, and not of explain",
+		).toEqual({ id: "ahead", changed: [], gone: ["verb:hand"] });
+	});
+
+	it("stops telling a watch once it is unwatched", async () => {
+		await ask({ id: "a", ask: "watch", kind: "verb" });
+		await ask({ id: "b", ask: "watch", kind: "verb" });
+		expect(await ask({ id: "a", ask: "unwatch" })).toEqual({
+			id: "a",
+			unwatched: true,
+		});
+		unlinkSync(join(folder, "hand.md"));
+		expect(
+			await asker?.next(),
+			"the change reached only the watch still held",
+		).toMatchObject({ id: "b", gone: ["verb:hand"] });
+	});
+
+	it.each([
+		[
+			{ id: 10, ask: "watch", kind: "session" },
+			"unknown-kind",
+			"no kind session here",
+		],
+		[{ id: 10, ask: "dance" }, "unknown-ask", 'no ask "dance" here'],
+	])("answers %j with the interface's error", async (line, code, message) => {
+		expect(await ask(line)).toEqual({ id: 10, error: { code, message } });
 	});
 
 	it("refuses a line that isn't JSON, and goes on answering", async () => {
 		asker?.sendRaw("not json\n");
 		expect(await asker?.next()).toEqual({
-			ok: false,
-			refused: "that line is not JSON",
+			id: null,
+			error: { code: "unknown-ask", message: "that line is not JSON" },
 		});
 		expect(
 			await ask({ id: 9, ask: "dance" }),

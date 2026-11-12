@@ -69,9 +69,9 @@ describe("a client of the verbs server", () => {
 			known: [],
 		});
 		await listenForVerbs(server.server, socket, false);
-		expect(await askVerbs(socket, { ask: "watch" })).toEqual({
+		expect(await askVerbs(socket, { ask: "list" })).toEqual({
 			id: 1,
-			changed: [],
+			records: [],
 		});
 	});
 
