@@ -54,6 +54,18 @@ export function diedWithTheTab(failure: string): boolean {
 }
 
 /**
+ * Whether a navigation was aborted, which says nothing of the tab.
+ *
+ * Chrome aborts a navigation the page turned away, one that ended
+ * its own renderer, and one whose renderer was killed under it, as
+ * the OOM killer kills one. Only the tab can say which, so a caller
+ * that gets an abort asks it.
+ */
+export function wasAborted(failure: string): boolean {
+	return failure === "net::ERR_ABORTED";
+}
+
+/**
  * The one line worth showing for a thrown navigation failure.
  *
  * Chrome's error code wins when there is one, since it is the

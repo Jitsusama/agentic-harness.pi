@@ -308,6 +308,7 @@ import {
 	requestStatus,
 	type SocketRecord,
 	toHar,
+	wasAborted,
 } from "./telemetry/index.ts";
 
 /**
@@ -482,6 +483,16 @@ const READY_POLL_MS = 100;
  */
 const CRASH_NOTICE_BUDGET_MS = 2000;
 const CRASH_NOTICE_POLL_MS = 25;
+
+/**
+ * How long a tab has to answer whether it lives, after an abort.
+ *
+ * A live tab answers in a millisecond or two and a dead one is
+ * refused as closed within 20 ms, as measured on 12 November. A tab
+ * busy in a long script answers only once it is free, so past this
+ * it counts as alive and the abort stands.
+ */
+const ALIVE_BUDGET_MS = 500;
 
 /**
  * Whether an action arrives by pointer.
@@ -800,7 +811,10 @@ export class BrowserSession {
 			// healthy, and leave it parked on the replacement's blank
 			// page: measured, a crash made a session permanently
 			// unnavigable while every later call reported success.
-			if (!diedWithTheTab(failure) || !(await this.awaitReplacement())) {
+			if (
+				!(await this.tabDiedUnder(failure)) ||
+				!(await this.awaitReplacement())
+			) {
 				return { failure };
 			}
 			try {
@@ -1115,6 +1129,34 @@ export class BrowserSession {
 	 * some other reason is not left waiting on a tab nobody is
 	 * replacing.
 	 */
+	/**
+	 * Whether the tab died under a call that failed with `failure`.
+	 *
+	 * A detached frame says so. An abort doesn't: a renderer killed
+	 * outright, as the OOM killer kills one, aborts the navigation it
+	 * was loading before Chrome announces the crash, about half the
+	 * time when measured. So an abort asks the tab, and only a tab
+	 * refused as closed counts as dead. One that answers is alive, so
+	 * an abort the page itself caused stands and isn't retried.
+	 */
+	private async tabDiedUnder(failure: string): Promise<boolean> {
+		if (diedWithTheTab(failure)) return true;
+		if (!wasAborted(failure)) return false;
+		const asked = this.cdp.send("Runtime.evaluate", { expression: "0" }).then(
+			() => false,
+			(error: unknown) => diedWithTheTab(failureText(error)),
+		);
+		let timer: NodeJS.Timeout | undefined;
+		const busy = new Promise<boolean>((answer) => {
+			timer = setTimeout(() => answer(false), ALIVE_BUDGET_MS);
+		});
+		try {
+			return await Promise.race([asked, busy]);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
 	private async awaitReplacement(): Promise<boolean> {
 		const deadline = Date.now() + CRASH_NOTICE_BUDGET_MS;
 		while (!this.recovery && Date.now() < deadline) {
@@ -3109,6 +3151,7 @@ export class BrowserSession {
 		// Closing the context disposes its pages along with the
 		// cookies, storage and cache they accumulated. Chrome
 		// answers that only after the tabs are gone, so the wait is
+
 		// claimed, or nothing would be holding the event loop for it.
 		await holdWhile(() => this.context.close());
 	}
