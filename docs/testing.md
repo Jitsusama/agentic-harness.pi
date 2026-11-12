@@ -84,7 +84,9 @@ clears no merge. `scripts/host-gate.sh` is the harness's
 `review.merge.gates` entry: a change that touches nothing a host runs
 (`host/`, `lib/ui/`, `lib/core/session/`, `lib/core/viewer/`,
 `tests/host/`, the host scripts, `package.json`, the lockfile and the
-vitest config) merges as before; one that does merges only once a whole
+vitest config, and the extensions and libraries whose tools the host
+cases drive: jobs, loadout, mesh, park, quest, reload, result store,
+spend and subagent) merges as before; one that does merges only once a whole
 run at that very commit, on that runtime, passed. A refusal names the
 command that clears it. A merge outside `review_offer`, on GitHub's page,
 skips it, as it skips core.nix's `merge-net ready`.
