@@ -111,6 +111,9 @@ export const WARM_ENTRY = "compaction-cache-warm";
 /** Warming stopped for a reason somebody reading the log should see. */
 export const WARM_STOPPED_ENTRY = "compaction-cache-warm-stopped";
 
+/** Nothing here can say whether a call is on, so warms go regardless. */
+export const WARM_CALLS_UNSEEN_ENTRY = "compaction-cache-warm-calls-unseen";
+
 /** The package config section, and its key that switches warming off. */
 export const CONFIG_SECTION = "compaction";
 export const WARM_KEY = "warmWhileIdle";
@@ -275,7 +278,9 @@ export function registerIdleWarming(
 			stop("the session is busy");
 			return;
 		}
-		if (await callIsOn()) {
+		const missing = (reason: string) =>
+			record(pi, WARM_CALLS_UNSEEN_ENTRY, { reason });
+		if (await callIsOn({ missing })) {
 			if (run !== current) return;
 			if (Date.now() + CALL_LOOK_MS > deadline) {
 				end(current, "a call was on until the cache entry expired", true);

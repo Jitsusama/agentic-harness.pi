@@ -29,7 +29,9 @@
  * call looks again every 15 seconds and goes once the call ends, if
  * its entry still lives; a call that outlasts the entry ends the
  * warming, said through `held`, since a later warm would only pay the
- * rewrite early.
+ * rewrite early. A held warm has sent nothing, so it isn't in flight
+ * and holds up no restart; the next host finds it still due in the
+ * carry and sends it once the call ends.
  */
 
 import {

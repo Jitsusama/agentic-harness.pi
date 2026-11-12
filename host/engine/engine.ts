@@ -186,7 +186,7 @@ export async function createEngine(
 			return warmThrough(runtime, carry, signal);
 		},
 		enabled: async () => keepingRequests() && (await warmingSwitchedOn()),
-		callOn: () => callIsOn(),
+		callOn: () => callIsOn({ missing: report }),
 		held: (sessionId) =>
 			report(
 				`Parked warm of ${sessionId} held for a call until its entry expired`,
