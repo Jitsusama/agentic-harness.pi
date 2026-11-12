@@ -61,6 +61,13 @@ describe("the machine's sound", () => {
 		});
 	});
 
+	it("takes the desktop's quiet file where the machine names one, and none otherwise", () => {
+		const named = described(JSON.stringify({ quiet: "quiet" }));
+		expect(readSound("linux", named).quiet).toBe("quiet");
+		const unnamed = described(JSON.stringify({ ding: "/d.wav" }));
+		expect(readSound("linux", unnamed).quiet).toBeUndefined();
+	});
+
 	it("has no ding and no voice on Linux until the machine names them", () => {
 		const sound = readSound("linux", join(tmpdir(), "no-such-sound.json"));
 		expect(sound.ding).toBeUndefined();

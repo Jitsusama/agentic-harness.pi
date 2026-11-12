@@ -1,5 +1,7 @@
-import { existsSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	doneLine,
 	ring,
@@ -216,5 +218,77 @@ describe("what the ring says", () => {
 
 	it("never opens with a dash a speaker could read as an option", () => {
 		expect(spokenName("--verbose", "/w")).toBe("verbose");
+	});
+});
+
+describe("a ring under the desktop's Do Not Disturb", () => {
+	let runtime: string;
+	const NOW = 2_000;
+
+	beforeEach(() => {
+		runtime = mkdtempSync(join(tmpdir(), "done-chime-quiet-"));
+	});
+	afterEach(() => {
+		rmSync(runtime, { recursive: true, force: true });
+	});
+
+	/** Ring with the desktop's quiet file reading `kept`, or missing. */
+	async function ringWhileQuiet(kept?: string): Promise<{
+		rang: boolean;
+		calls: [string, string[]][];
+	}> {
+		if (kept !== undefined) writeFileSync(join(runtime, "quiet"), kept);
+		const { exec, calls } = recording();
+		const rang = await ring("Ready.", {
+			platform: "linux",
+			exec,
+			env: { XDG_RUNTIME_DIR: runtime },
+			sound: { ...LINUX, quiet: "quiet" },
+			now: () => NOW,
+		});
+		return { rang, calls };
+	}
+
+	it("holds the ring while the quiet has no end", async () => {
+		const { rang, calls } = await ringWhileQuiet("100 0\n");
+		expect(rang, "a ring under an endless quiet answers it did not ring").toBe(
+			false,
+		);
+		expect(calls, "a ring under quiet runs nothing").toEqual([]);
+	});
+
+	it("holds the ring while the quiet's end is still ahead", async () => {
+		const { calls } = await ringWhileQuiet(`100 ${NOW + 1}\n`);
+		expect(calls, "a ring before the quiet ends runs nothing").toEqual([]);
+	});
+
+	it("rings once the quiet's end has passed", async () => {
+		const { rang } = await ringWhileQuiet(`100 ${NOW - 1}\n`);
+		expect(rang, "a ring after the quiet ended plays").toBe(true);
+	});
+
+	it("rings when the quiet is empty, missing or unreadable", async () => {
+		expect((await ringWhileQuiet("")).rang, "an empty quiet").toBe(true);
+		expect((await ringWhileQuiet("soon")).rang, "an unreadable quiet").toBe(
+			true,
+		);
+		rmSync(join(runtime, "quiet"));
+		expect((await ringWhileQuiet()).rang, "no quiet file").toBe(true);
+	});
+
+	it("reads an absolute quiet file where it's named", async () => {
+		const file = join(runtime, "elsewhere");
+		writeFileSync(file, "100 0\n");
+		const { exec, calls } = recording();
+		await ring("Ready.", {
+			platform: "linux",
+			exec,
+			env: {},
+			sound: { ...LINUX, quiet: file },
+			now: () => NOW,
+		});
+		expect(calls, "a ring under an absolute quiet file runs nothing").toEqual(
+			[],
+		);
 	});
 });
