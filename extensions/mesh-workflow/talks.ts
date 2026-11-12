@@ -239,8 +239,7 @@ export function createTalks(host: TalksHost): Talks {
 					if (talk.last !== "replied" || talk.replied !== talk.reply) {
 						reply(talk, talk.reply);
 					}
-				}
-				else say(talk, { stage: "failed", why: "the run wrote no reply" });
+				} else say(talk, { stage: "failed", why: "the run wrote no reply" });
 			}
 			close(closing);
 		},
