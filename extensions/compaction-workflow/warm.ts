@@ -403,7 +403,8 @@ export function registerIdleWarming(
 		carried().delete(id);
 		if (!going) return;
 		if (event.reason === "reload") carried().set(id, going);
-		else if (keepingRequests()) saveKept(keptWarmingDir(), id, onDisk(id, going));
+		else if (keepingRequests())
+			saveKept(keptWarmingDir(), id, onDisk(id, going));
 	});
 
 	return {
@@ -449,7 +450,8 @@ function plan(ctx: ExtensionContext, held: HeldRequest | null): Planned {
 }
 
 /** A header whose name says it may carry a credential, never written down. */
-const CREDENTIAL_HEADER = /authorization|api[-_]?key|cookie|token|secret|password/i;
+const CREDENTIAL_HEADER =
+	/authorization|api[-_]?key|cookie|token|secret|password/i;
 
 /** What a restart carries, as written to disk: the model by name alone. */
 function onDisk(sessionId: string, going: Carried): Record<string, unknown> {

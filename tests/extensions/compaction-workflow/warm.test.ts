@@ -639,10 +639,10 @@ describe("warming across a restart", () => {
 		await fire("session_shutdown", { reason: "quit" }, ctx);
 		const written = onDisk(state).join("\n");
 
-		expect([written.includes("pi-session-id"), written.includes("sekrit")]).toEqual([
-			true,
-			false,
-		]);
+		expect([
+			written.includes("pi-session-id"),
+			written.includes("sekrit"),
+		]).toEqual([true, false]);
 	});
 
 	it("keeps nothing on disk when kept requests are switched off", async () => {

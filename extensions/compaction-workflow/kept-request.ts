@@ -83,11 +83,7 @@ export function saveKeptRequest(
  * Write `value` for a session to `dir`, compressed and readable only by
  * its owner. A failure costs only a cheaper start, so it is swallowed.
  */
-export function saveKept(
-	dir: string,
-	sessionId: string,
-	value: unknown,
-): void {
+export function saveKept(dir: string, sessionId: string, value: unknown): void {
 	try {
 		mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR });
 		writeFileSync(fileFor(dir, sessionId), gzipSync(JSON.stringify(value)), {
