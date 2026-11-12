@@ -24,12 +24,14 @@ import { until } from "../../support/until.ts";
 
 /** The script pi's codemode is running in a test, ended by the test. */
 const script = vi.hoisted(() => ({
-	end: (_text: string): void => undefined,
+	end: (_text: string, _image?: boolean): void => undefined,
 	seen: undefined as AbortSignal | undefined,
 }));
 
 // pi's codemode with its sandbox swapped for a script the test ends, so
-// its shape (name, exposure, loadout, rendering) is pi's real one.
+// its shape (name, exposure, loadout, rendering) is pi's real one. The
+// script answers as pi's does: a header, then what the script said, each
+// image it showed its own block.
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
 	const pi =
 		await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
@@ -45,9 +47,24 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
 							execute: (_id, _params, signal) =>
 								new Promise<AgentToolResult<unknown>>((resolve) => {
 									script.seen = signal;
-									script.end = (text) =>
+									script.end = (text, image) =>
 										resolve({
-											content: [{ type: "text", text }],
+											content: [
+												{
+													type: "text",
+													text: "Script completed\nWall time 1 seconds\nOutput:\n",
+												},
+												{ type: "text", text },
+												...(image === true
+													? [
+															{
+																type: "image" as const,
+																data: "",
+																mimeType: "image/png",
+															},
+														]
+													: []),
+											],
 											details: undefined,
 										});
 								}),
@@ -144,7 +161,7 @@ describe("a script", () => {
 		const answer = run("return 1");
 		await until("the script to start", () => script.seen !== undefined);
 		script.end("1");
-		expect(textOf(await answer)).toBe("1");
+		expect(textOf(await answer)).toContain("Output:\n1");
 		expect(specs, "no job for a script that ended in time").toEqual([]);
 	});
 
@@ -165,7 +182,22 @@ describe("a script", () => {
 		script.end("done");
 		await until("the job to finish", () => outcomes.length > 0, ENDS_WITHIN_MS);
 		expect(outcomes[0]?.summary).toContain("finished after");
-		expect(outcomes[0]?.summary).toContain("done");
+		expect(
+			outcomes[0]?.summary,
+			"the job says what the script said, not only pi's header",
+		).toContain("Output:\ndone");
+	});
+
+	it("that moved says an image it showed is left out of its result", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const answer = run("image(shot)");
+		await vi.advanceTimersByTimeAsync(60_000);
+		await answer;
+		vi.useRealTimers();
+		script.end("shot taken", true);
+		await until("the job to finish", () => outcomes.length > 0, ENDS_WITHIN_MS);
+		expect(outcomes[0]?.summary).toContain("shot taken");
+		expect(outcomes[0]?.summary).toContain("1 image");
 	});
 
 	it("never moves in a run that ends with its prompts", async () => {
@@ -173,7 +205,7 @@ describe("a script", () => {
 		const answer = run("return 2", "json");
 		await vi.advanceTimersByTimeAsync(120_000);
 		script.end("2");
-		expect(textOf(await answer)).toBe("2");
+		expect(textOf(await answer)).toContain("Output:\n2");
 		expect(specs, "nobody would hear a job's result").toEqual([]);
 	});
 });

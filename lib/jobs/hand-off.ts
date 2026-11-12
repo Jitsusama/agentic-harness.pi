@@ -226,7 +226,7 @@ export async function runOrHandOff<T>(
 				summary: finishedSummary(
 					call.label,
 					status,
-					firstText(result),
+					saidBy(result),
 					fileName,
 					keep,
 				),
@@ -292,6 +292,24 @@ function handOffText<T>(
 		lines.push(call.quiet ?? "It has shown nothing yet.");
 	}
 	return lines.join("\n");
+}
+
+/**
+ * Everything a result says, in words. A command's answer is one block;
+ * a script's is pi's header and then each thing it said, so reading only
+ * the first would drop the script's own output. A job's result is text,
+ * so an image is named rather than carried.
+ */
+function saidBy(result: AgentToolResult<unknown>): string {
+	const text = result.content
+		.map((block) => (block.type === "text" ? block.text : ""))
+		.join("");
+	const images = result.content.filter(
+		(block) => block.type === "image",
+	).length;
+	if (images === 0) return text;
+	const left = `${images} image${images === 1 ? "" : "s"} it showed ${images === 1 ? "is" : "are"} left out, since a background result carries only text.`;
+	return `${text.replace(/\n+$/, "")}\n${left}`;
 }
 
 /** What the job says once the work has ended. */
