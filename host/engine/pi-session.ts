@@ -31,9 +31,31 @@ export interface EventBus {
 	emit(channel: string, data: unknown): void;
 }
 
-/** pi's model runtime, as the engine asks it for a model. */
+/** What one model call answered, as far as a cache warm reads it. */
+export interface CompletedCall {
+	readonly provider: string;
+	readonly model: string;
+	readonly responseModel?: string;
+	readonly stopReason: string;
+	readonly errorMessage?: string;
+	readonly usage: { readonly cacheWrite: number } & Record<string, unknown>;
+}
+
+/** pi's model runtime, as the engine asks it for a model and a warm's call. */
 export interface ModelRuntime {
 	getModel(provider: string, id: string): Model | undefined;
+	completeSimple(
+		model: Model,
+		context: { readonly messages: readonly unknown[] },
+		options: {
+			readonly headers: Readonly<Record<string, string | null>>;
+			readonly sessionId: string;
+			readonly maxTokens: number;
+			readonly maxRetries: number;
+			readonly signal: AbortSignal;
+			readonly onPayload: () => unknown;
+		},
+	): Promise<CompletedCall>;
 }
 
 /** How pi builds a model runtime, with the host patch's auth context. */

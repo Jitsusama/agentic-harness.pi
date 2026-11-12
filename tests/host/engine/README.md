@@ -5,6 +5,8 @@ Fake cleanup callbacks stand in for pi runner disposal; no provider or live
 host is started by these tests. tool-round-scrub.test.ts drives two
 conversations' tool rounds directly, holding that a printed credential
 is scrubbed from each streamed update and from the committed result.
+parked-warming.test.ts warms a parked conversation's carry on fake
+timers with a scripted send, over real files.
 
 hosted-agent.test.ts and engine.test.ts are the exceptions. The first runs
 fixtures/hosted-session.mts in child node processes, beside pi's own agent,

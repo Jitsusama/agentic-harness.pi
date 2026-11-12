@@ -79,6 +79,8 @@ export function parking(options: {
 	readonly stop: (sessionId: string, why: string) => Promise<void>;
 	readonly asking: () => ((sessionId: string) => Promise<void>) | undefined;
 	readonly report: (error: unknown) => void;
+	/** It parked: said before its wake is watched, so any wake comes after. */
+	readonly parked?: (sessionId: string) => void;
 }): Parking {
 	const { stateDir, report } = options;
 	// Parked conversations, each watching its wake file until it wakes or is closed.
@@ -158,6 +160,7 @@ export function parking(options: {
 	async function park(sessionId: string, asked: Settling["asked"]) {
 		try {
 			await options.stop(sessionId, PARKED);
+			options.parked?.(sessionId);
 			watchWake(sessionId);
 		} catch (error) {
 			// Stopped but unwatched, only a viewer or an attach wakes it; not

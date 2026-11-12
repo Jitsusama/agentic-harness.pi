@@ -401,6 +401,7 @@ export function registerIdleWarming(
 		const kept = carried().get(id);
 		carried().delete(id);
 		inherited = event.reason === "reload" ? kept : restarted(ctx, id);
+		if (event.reason !== "reload") recordParkedWarms(pi, id);
 	});
 	pi.on("session_shutdown", async (event, ctx) => {
 		const going = carry();

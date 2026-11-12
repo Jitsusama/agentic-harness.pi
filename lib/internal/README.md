@@ -181,5 +181,8 @@ may import from here, and any of it may change without notice.
 - **`work-records.ts`**: where the work broker writes down the trees
   it cut, and which trees each session holds, for the work extension
   and for carrying a session's work.
+- **`warming-carry.ts`**: an idle session's warming as kept on disk
+  while no pi runs it, which a pi host warms on while the session is
+  parked, and the warms it sent for the session's next start to record.
 - **`write-whole.ts`**: replacing a file whole through a `.writing`
   subfolder, so a watcher of its folder hears one event a write.

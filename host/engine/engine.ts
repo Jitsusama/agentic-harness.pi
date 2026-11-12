@@ -7,7 +7,8 @@
  * which owns who holds what. A conversation that becomes another (pi's
  * /new, /fork, /resume or import) is held under its new id before pi builds
  * it, and the one it was ends with it. A conversation left idle parks,
- * freeing its session while it stays held, and wakes in place (parking.ts).
+ * freeing its session while it stays held, and wakes in place (parking.ts);
+ * while it is parked, the host keeps its cache warm (parked-warming.ts).
  *
  * Long because a conversation's steps (register, build, begin, end, park,
  * resume) meet here in the order each relies on, every one of them
@@ -24,7 +25,13 @@ import {
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
 import { clearParked, WAKE_ENV } from "../../lib/internal/session/park.ts";
+import {
+	pendingWarmsDir,
+	warmingCarryDir,
+} from "../../lib/internal/warming-carry.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
+import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
+import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
 import type {
 	AdoptRequest,
 	ConversationEvents,
@@ -50,6 +57,7 @@ import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
+import { parkedWarming, warmThrough } from "./parked-warming.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
@@ -160,11 +168,32 @@ export async function createEngine(
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
 	let watched: ConversationEvents | undefined;
+	// Each conversation's agent folder, where its model runtime reads auth and models.
+	const agentDirs = new Map<string, string>();
+	const warming = parkedWarming({
+		carries: warmingCarryDir(),
+		pending: pendingWarmsDir(),
+		send: async (carry, signal) => {
+			const agentDir = agentDirs.get(carry.sessionId);
+			if (!agentDir) return { ok: false, reason: "its agent folder is unknown" };
+			const runtime = await sessions.ModelRuntime.create({
+				authPath: join(agentDir, "auth.json"),
+				modelsPath: join(agentDir, "models.json"),
+				authContext: conversationAuthContext(() =>
+					requestEnv(carry.sessionId),
+				),
+			});
+			return warmThrough(runtime, carry, signal);
+		},
+		enabled: async () => keepingRequests() && (await warmingSwitchedOn()),
+		report,
+	});
 	const parked = parking({
 		stateDir: options.stateDir,
 		stop: (sessionId, why) => host.stop(sessionId, why),
 		asking: () => watched?.wake,
 		report,
+		parked: (sessionId) => warming.start(sessionId),
 	});
 
 	function held(sessionId: string, file: string): boolean {
@@ -311,6 +340,7 @@ export async function createEngine(
 		const { sessionId } = record.traits;
 		const { request } = building;
 		const env = () => requestEnv(sessionId);
+		agentDirs.set(sessionId, target.agentDir);
 		const modelRuntime = await sessions.ModelRuntime.create({
 			authPath: join(target.agentDir, "auth.json"),
 			modelsPath: join(target.agentDir, "models.json"),
@@ -715,7 +745,8 @@ export async function createEngine(
 		},
 
 		background() {
-			let held = 0;
+			// A warm of a parked conversation is out too.
+			let held = warming.inFlight();
 			for (const record of live.values()) held += backgroundIn(record);
 			return held;
 		},
@@ -771,6 +802,8 @@ export async function createEngine(
 		async resume(entry: RosterEntry, woken = false) {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
+			// Before its session starts and takes the carry, so nothing warms twice.
+			warming.stop(entry.sessionId);
 			// A host starting resumes what it held; a conversation parked
 			// before then isn't woken, so it counts idle from its log and parks
 			// again within a look, rather than an hour from now.
@@ -798,6 +831,8 @@ export async function createEngine(
 		parkSettled: (sessionId) => parked.settled(sessionId),
 
 		async dropped(sessionId, why) {
+			warming.stop(sessionId);
+			agentDirs.delete(sessionId);
 			parked.closed(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},
