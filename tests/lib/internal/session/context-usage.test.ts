@@ -140,8 +140,10 @@ function whatPiSays(manager: SessionManager) {
 		if (!answered)
 			return { tokens: null, contextWindow: WINDOW, percent: null };
 	}
-	let last = messages.length - 1;
-	while (last >= 0 && !usable(messages[last])) last -= 1;
+	let last = -1;
+	messages.forEach((message, index) => {
+		if (usable(message)) last = index;
+	});
 	const lastMessage = messages[last];
 	let tokens =
 		lastMessage?.role === "assistant"
