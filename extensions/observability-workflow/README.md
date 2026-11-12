@@ -19,6 +19,22 @@ from real data rather than by re-parsing CLI args.
   summarize one run; omit it for a recent-runs digest plus
   the weekly per-model and per-persona trend rollups. No
   slash command; the agent calls the tool when asked.
+- Keeps each model call's timing and each typed message in
+  the session's own log, as entries the model is never sent
+  (`timing.ts`). After each assistant message, a
+  `harness-call` entry names the call by its request's start
+  (`of`, the message's `timestamp`) and says when its turn
+  began (`turnAt`), how long the harness took to ask
+  (`preparedMs`), and from the request to its first token
+  (`firstTokenMs`) and to its end (`durationMs`). pi hands
+  extensions the message before it saves it, so the entry
+  lands just before the message it times. At each message
+  the person types, in the terminal or over RPC, a
+  `harness-typed` entry says when Enter was pressed (`at`),
+  how it was queued mid-run (`queued`, steer or followUp) and
+  its length (`chars`), to match it to the user message pi
+  saves on delivery. A message an extension sends, from the
+  mesh, a steer or the launcher, is never marked.
 - Rolls rows older than the 30-day retention window into
   weekly summaries lazily at session start, so long-term
   trends survive while per-run detail ages out.
