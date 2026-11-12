@@ -32,6 +32,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
+import { jobsBroker } from "../../lib/internal/fence.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
@@ -60,6 +61,10 @@ function shellSettings(ctx: ExtensionContext): ShellSettings {
 		return {};
 	}
 }
+
+/** Whether this machine runs the jobs broker a fenced command may ask. */
+const hasJobsBroker = (): boolean =>
+	jobsBroker(process.env.XDG_RUNTIME_DIR) !== undefined;
 
 /** The folder pi's bash is built with when only its shape is wanted. */
 const SHAPE_ONLY = "";
@@ -113,6 +118,11 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			...(sandbox.kind === "fence"
 				? [
 						"Commands run in the agent fence: their own processes only, no display, compositor, session or system bus, sound, keyring, password, clipboard or SSH agent, settings and startup files (~/.config, shell rc files, ~/.ssh, ~/.pi/agent) read-only, and Nix as an untrusted user. The work, the network and the environment are as they were. A `nix-offload there ...` call on its own, with nothing chained on, runs outside the fence. A refusal there is the fence, not a fault: do the work another way (commit and push with the work tool), or say what needs the person.",
+						...(hasJobsBroker()
+							? [
+									"Inside the agent fence the cgroup tree is read-only and systemctl and systemd-run can't reach the account's systemd. For how a unit stands, run `jobs-broker status UNIT...` rather than `systemctl --user status`; for a command that wants a scope of its own, run `jobs-broker run -- COMMAND` rather than `systemd-run --user --scope`.",
+								]
+							: []),
 					]
 				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere

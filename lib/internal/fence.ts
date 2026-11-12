@@ -74,6 +74,9 @@ const CGROUPS = "/sys/fs/cgroup";
 /** The SSH agent's proxy, in the runtime folder. */
 const AGENT_PROXY = "pi-agent.sock";
 
+/** The jobs broker, in the runtime folder. */
+const JOBS_BROKER = "daemons/jobs-broker.sock";
+
 /** Where the system's SSH settings are, which the fence's copy stands in for. */
 export const SYSTEM_SSH_CONFIG = "/etc/ssh/ssh_config";
 
@@ -567,6 +570,19 @@ export function agentProxy(
 ): string | undefined {
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, AGENT_PROXY);
+	return disk.kind(path) === undefined ? undefined : path;
+}
+
+/**
+ * The jobs broker's socket, when it's there, so a fenced session is told
+ * to ask it for what systemctl and systemd-run can't reach inside.
+ */
+export function jobsBroker(
+	runtimeDir: string | undefined,
+	disk: Disk = DISK,
+): string | undefined {
+	if (!runtimeDir) return undefined;
+	const path = join(runtimeDir, JOBS_BROKER);
 	return disk.kind(path) === undefined ? undefined : path;
 }
 

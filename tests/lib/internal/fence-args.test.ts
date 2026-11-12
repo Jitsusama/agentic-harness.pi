@@ -13,6 +13,7 @@ import {
 	fenceRefusesWrite,
 	fenceRules,
 	HIDDEN,
+	jobsBroker,
 	NEVER_THROUGH,
 	READ_ONLY,
 } from "../../../lib/internal/fence.ts";
@@ -65,6 +66,22 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent.sock",
 			"/run/user/1000/daemons/jobs-broker.sock",
 		]);
+	});
+
+	it("names the jobs broker's socket only where the machine runs it", () => {
+		const socket = "/run/user/1000/daemons/jobs-broker.sock";
+		const only = (path: string): Disk => ({
+			kind: (given) => (given === path ? "file" : undefined),
+			entries: () => [],
+		});
+		expect(
+			[
+				jobsBroker(place.runtimeDir, only(socket)),
+				jobsBroker(place.runtimeDir, only("/elsewhere")),
+				jobsBroker(undefined, only(socket)),
+			],
+			"there, not there, no runtime folder",
+		).toEqual([socket, undefined, undefined]);
 	});
 
 	it("makes the cgroup tree read-only, so a command moves no process and sets no limit", () => {
