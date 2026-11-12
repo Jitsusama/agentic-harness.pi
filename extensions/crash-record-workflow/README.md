@@ -26,6 +26,13 @@ figure had to be pieced together from session logs.
   history is drawn, timed from the process's start. A reload, a new
   session or a resume isn't timed, nor a pi with no screen, such as a
   subagent. The write doesn't wait.
+- Says, after the session, what a slow start spent its time on as far
+  as an extension can see: `log B bytes`, the size of the log pi read
+  whole before loading any extension; `loaded by L ms`, when this
+  extension loaded, part way through the rest; and `bound by T ms`,
+  when the session started with every extension bound. pi times the
+  log's read itself only under `PI_TIMING`, so that stays inside
+  `loaded by`.
 - Writes each uncaught throw, and each rejection nothing handled, to
   the session's log as a `crash` entry before pi's handler exits.
 - Writes the same error, naming the session and its folder, to the
