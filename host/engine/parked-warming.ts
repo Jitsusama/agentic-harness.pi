@@ -22,6 +22,16 @@
  * late the entry has probably expired, warming switched off, or a carry
  * asking for no hour's cache. A warm still out when the conversation
  * wakes is dropped unrecorded rather than holding up the wake.
+ *
+ * No warm goes while a call is on, since each sends a whole
+ * conversation up a line the call needs: "his video this morning
+ * starved on upload" (WCJQSG, 12 November 2026). A warm due during a
+ * call looks again every 15 seconds and goes once the call ends, if
+ * its entry still lives; a call that outlasts the entry ends the
+ * warming, said through `held`, since a later warm would only pay the
+ * rewrite early. A held warm has sent nothing, so it isn't in flight
+ * and holds up no restart; the next host finds it still due in the
+ * carry and sends it once the call ends.
  */
 
 import {
@@ -34,6 +44,7 @@ import {
 	warmingDelayMs,
 	warmingPayload,
 } from "../../lib/internal/cache-warming.ts";
+import { CALL_LOOK_MS } from "../../lib/internal/calls.ts";
 import {
 	addPendingWarm,
 	readWarmingCarry,
@@ -73,6 +84,8 @@ interface Warming {
 	readonly controller: AbortController;
 	timer?: ReturnType<typeof setTimeout>;
 	retried: boolean;
+	/** When a call first held its next warm back. */
+	heldSince?: number;
 }
 
 /**
@@ -88,6 +101,9 @@ export function parkedWarming(options: {
 		signal: AbortSignal,
 	) => Promise<WarmSent>;
 	readonly enabled: () => Promise<boolean>;
+	readonly callOn: () => Promise<boolean>;
+	/** A call outlasted the entry, so its warming ended unsent. */
+	readonly held: (sessionId: string) => void;
 	readonly report: (error: unknown) => void;
 }): ParkedWarming {
 	const { carries, pending, report } = options;
@@ -137,7 +153,22 @@ export function parkedWarming(options: {
 			return;
 		}
 		if (warmings.get(sessionId) !== warming) return;
+		if (await options.callOn()) {
+			if (warmings.get(sessionId) !== warming) return;
+			if (Date.now() + CALL_LOOK_MS > next.deadline) {
+				stop(sessionId);
+				options.held(sessionId);
+				return;
+			}
+			warming.heldSince ??= Date.now();
+			schedule(sessionId, warming, Date.now() + CALL_LOOK_MS);
+			return;
+		}
+		if (warmings.get(sessionId) !== warming) return;
 		const sentAt = Date.now();
+		const heldForCallMs =
+			warming.heldSince === undefined ? undefined : sentAt - warming.heldSince;
+		warming.heldSince = undefined;
 		flying += 1;
 		let sent: WarmSent;
 		try {
@@ -174,6 +205,7 @@ export function parkedWarming(options: {
 			sinceRequestMs: sentAt - carry.at,
 			sentAt,
 			parked: true,
+			...(heldForCallMs === undefined ? {} : { heldForCallMs }),
 		});
 		const after = due(warmed);
 		if (after) schedule(sessionId, warming, after.dueAt);

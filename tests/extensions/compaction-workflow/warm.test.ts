@@ -26,6 +26,13 @@ vi.mock("../../../lib/internal/config/loader.ts", async (original) => ({
 	}),
 }));
 
+/** Whether a call is on, as a-call-is-on would say, which each test may set. */
+let callOn = false;
+vi.mock("../../../lib/internal/calls.ts", async (original) => ({
+	...(await original<object>()),
+	callIsOn: async () => callOn,
+}));
+
 const { readTurns } = await import("../../../lib/ledger/index.ts");
 const { addPendingWarm, pendingWarmsDir } = await import(
 	"../../../lib/internal/warming-carry.ts"
@@ -219,6 +226,7 @@ beforeEach(() => {
 	// Nothing here may write a session's request to the real state dir.
 	vi.stubEnv("PI_COMPACTION_KEEP_REQUEST", "off");
 	sections = {};
+	callOn = false;
 	completeSimple.mockReset();
 });
 
@@ -684,6 +692,36 @@ describe("warming across a restart", () => {
 		await wait(4 * WARM_EVERY);
 
 		expect([sent.length, onDisk(state).length]).toEqual([0, 0]);
+	});
+});
+
+describe("warming while a call is on", () => {
+	it("sends nothing during the call, and warms once it ends while the entry lives", async () => {
+		const { sent } = await idleSession();
+		callOn = true;
+
+		await wait(WARM_EVERY + MINUTE);
+		const during = sent.length;
+		callOn = false;
+		await wait(MINUTE / 2);
+
+		expect([during, sent.length]).toEqual([0, 1]);
+	});
+
+	it("stops, saying why, when the call outlasts the entry", async () => {
+		const { sent, entries } = await idleSession();
+		callOn = true;
+
+		await wait(3 * WARM_EVERY);
+
+		expect(sent).toHaveLength(0);
+		expect(stops(entries)).toEqual([
+			expect.objectContaining({
+				data: expect.objectContaining({
+					reason: expect.stringMatching(/a call was on/),
+				}),
+			}),
+		]);
 	});
 });
 

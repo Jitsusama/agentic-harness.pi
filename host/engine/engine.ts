@@ -25,6 +25,7 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { callIsOn } from "../../lib/internal/calls.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
 import { clearParked, WAKE_ENV } from "../../lib/internal/session/park.ts";
 import {
@@ -185,6 +186,11 @@ export async function createEngine(
 			return warmThrough(runtime, carry, signal);
 		},
 		enabled: async () => keepingRequests() && (await warmingSwitchedOn()),
+		callOn: () => callIsOn({ missing: report }),
+		held: (sessionId) =>
+			report(
+				`Parked warm of ${sessionId} held for a call until its entry expired`,
+			),
 		report,
 	});
 	const parked = parking({
