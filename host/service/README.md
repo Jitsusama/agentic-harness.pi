@@ -55,7 +55,10 @@ input pipeline or screen. No unit or running host is installed yet.
 - run.ts: a host as systemd runs it: kind from the command line, realm
   from the unit's environment, ready (systemd-notify, so the unit needs
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
-  SIGINT. The engine is passed in by the program that starts it.
+  SIGINT. Its unit's status says each start step, then "ready,
+  serving N conversations" and any held but not resumed, looked at
+  every 15 s and told only when it changes. The engine is passed in
+  by the program that starts it.
   Given the process's faults, it backstops an uncaught exception: one
   thrown inside a conversation goes to that conversation's screen, and
   one it can't tie to a screen parks every conversation and fails the

@@ -127,20 +127,22 @@ describe("runHost", () => {
 			report: () => {},
 			places: places(),
 		});
-		const reply = await controlRequest(run.serving.path, {
-			v: 1,
-			id: "o",
-			op: "open",
-			cwd: dir,
-			attended: false,
-		});
-		if (!reply.ok) throw new Error(reply.error.message);
-		await vi.waitFor(() => {
-			expect(statuses.at(-1)).toBe("ready, serving 1 conversation");
-		});
-
-		signals.emit("SIGTERM");
-		await run.stopped;
+		try {
+			const reply = await controlRequest(run.serving.path, {
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			if (!reply.ok) throw new Error(reply.error.message);
+			await vi.waitFor(() => {
+				expect(statuses.at(-1)).toBe("ready, serving 1 conversation");
+			});
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
 		const after = statuses.length;
 		// Five checks' worth, to show none comes once the host has stopped.
 		await new Promise((resolve) => setTimeout(resolve, 50));
