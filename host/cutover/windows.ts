@@ -17,7 +17,9 @@
  * niri shows, since a shared kitty gives every window one pid and old
  * windows share app ids; the title tells apart windows of one class,
  * and the class a standalone kitty showing the same title. Where that
- * can't say, the window counts as unplaced, and a wave spares it.
+ * can't say, the window counts as unplaced, and a wave spares it. With
+ * no output on, as most nights with the lid shut, nothing is in sight and
+ * nothing focused, so every window counts as away (OSPHT4, 12 November).
  */
 
 import { execFile } from "node:child_process";
@@ -64,6 +66,11 @@ export interface MachineWindows {
 	readonly niri: readonly NiriWindow[];
 	/** The workspace Joel has focused, by niri's id. */
 	readonly focused: number | undefined;
+	/**
+	 * Whether no output is on, as with the lid shut and nothing docked, so
+	 * no window can be seen and no workspace is focused.
+	 */
+	readonly screenless?: boolean;
 	/** Each kitty instance's OS windows, by the address mycelium names it by. */
 	readonly kitties: ReadonlyMap<string, readonly KittyWindow[]>;
 	/** Each hold's holder, by the hold's id. */
@@ -124,7 +131,9 @@ export function standingOf(
 			loud,
 		);
 	if (machine.focused === undefined)
-		return unplaced("niri has no workspace focused", loud);
+		return machine.screenless === true
+			? { where: "away", ...loud }
+			: unplaced("niri has no workspace focused", loud);
 	const onJoels = shown.some((one) => one.workspace === machine.focused);
 	return { where: onJoels ? "joel" : "away", ...loud };
 }
@@ -197,6 +206,19 @@ export function parseFocusedWorkspace(text: string): number | undefined {
 	return typeof focused?.id === "number" ? focused.id : undefined;
 }
 
+/**
+ * Whether no output is on, from `niri msg --json outputs`: none has a
+ * place on the desktop (`logical`). One blanked while idle keeps its
+ * place, so it still counts as a screen Joel may wake.
+ */
+export function parseScreenless(text: string): boolean {
+	const parsed: unknown = JSON.parse(text);
+	if (!isRecord(parsed)) return false;
+	return !Object.values(parsed).some(
+		(one) => isRecord(one) && isRecord(one.logical),
+	);
+}
+
 /** A kitty's OS windows, from `kitten @ ls`: each titled as its active tab. */
 export function parseKittyWindows(text: string): KittyWindow[] {
 	const parsed: unknown = JSON.parse(text);
@@ -254,9 +276,10 @@ export async function readMachineWindows(
 		if (holder) holders.set(one.held, holder);
 	}
 	try {
-		const [windows, workspaces] = await Promise.all([
+		const [windows, workspaces, outputs] = await Promise.all([
 			output("niri", ["msg", "--json", "windows"]),
 			output("niri", ["msg", "--json", "workspaces"]),
+			output("niri", ["msg", "--json", "outputs"]),
 		]);
 		const kitties = new Map<string, KittyWindow[]>();
 		for (const within of new Set(
@@ -279,6 +302,7 @@ export async function readMachineWindows(
 			holders,
 			niri: parseNiriWindows(windows),
 			focused: parseFocusedWorkspace(workspaces),
+			screenless: parseScreenless(outputs),
 			kitties,
 		};
 	} catch (error) {
