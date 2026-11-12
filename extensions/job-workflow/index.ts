@@ -40,6 +40,7 @@ import {
 } from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
 import { carriedIn, carryAway, movingOn, takeUp } from "./moved.ts";
+import { jobIdsIn } from "./outbox.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 import { type TypedLine, typedLine } from "./typed-line.ts";
@@ -251,7 +252,11 @@ export default function jobWorkflow(
 		answering = answerSteerWaiting(pi.events, () => line.waiting());
 		session?.close();
 		session = openSession(pi, ctx, event.reason);
-		shown = shownReports(userTexts(ctx));
+		const history = [...userTexts(ctx)];
+		shown = shownReports(history);
+		// A session that comes back numbers on from what it reported, so a
+		// new job's report never reads as one its history already holds.
+		session.jobs.reserve(history.flatMap(jobIdsIn));
 		signals?.stop();
 		signals = hosted()
 			? watchStamps(pi.events, sessionKeyOf(ctx))

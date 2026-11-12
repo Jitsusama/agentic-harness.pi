@@ -131,6 +131,14 @@ export function isOutboxMessage(text: string): boolean {
 	return text.startsWith(OUTBOX_HEADER) || text.startsWith(OLDER_HEADER);
 }
 
+/** The jobs an outbox message reports, by id; none for any other text. */
+export function jobIdsIn(text: string): string[] {
+	if (!isOutboxMessage(text)) return [];
+	return [...text.matchAll(/\[(?:job )?(j\d+)\]/g)].flatMap(([, id]) =>
+		id === undefined ? [] : [id],
+	);
+}
+
 /** A result's tag in the message, which is how its landing is recognised. */
 const tag = (jobId: string) => `[${jobId}]`;
 
