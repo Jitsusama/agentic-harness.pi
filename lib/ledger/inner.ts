@@ -120,8 +120,7 @@ function record(
 		via,
 		status,
 		durationMs:
-			typeof timed.durationMs === "number" &&
-			Number.isFinite(timed.durationMs)
+			typeof timed.durationMs === "number" && Number.isFinite(timed.durationMs)
 				? Math.round(timed.durationMs)
 				: null,
 	};

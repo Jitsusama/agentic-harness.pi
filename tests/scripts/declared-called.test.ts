@@ -233,9 +233,11 @@ describe("tools declared against tools called", () => {
 				through(step("a", 1, ["codemode"]), "tool_gateway_run_tool", [
 					"slack_search",
 				]),
-				through(step("b", 1, ["tool_gateway_run_tool"]), "tool_gateway_run_tool", [
-					"incident_list",
-				]),
+				through(
+					step("b", 1, ["tool_gateway_run_tool"]),
+					"tool_gateway_run_tool",
+					["incident_list"],
+				),
 			],
 		);
 		const gateway = report.tools.find(

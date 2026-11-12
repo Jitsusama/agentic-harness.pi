@@ -74,15 +74,22 @@ describe("the calls a tool made to other tools", () => {
 		]);
 
 		expect(
-			scan.inner.map((c) => [c.outerCallId, c.name, c.via, c.status, c.durationMs]),
+			scan.inner.map((c) => [
+				c.outerCallId,
+				c.name,
+				c.via,
+				c.status,
+				c.durationMs,
+			]),
 			"pi's record wins over the tool's own details",
 		).toEqual([
 			["t1", "quest", "codemode", "ok", 162],
 			["t1", "slack_search", "tool_gateway_run_tool", "error", null],
 		]);
-		expect(scan.calls.map((c) => c.name), "the log's own calls").toEqual([
-			"codemode",
-		]);
+		expect(
+			scan.calls.map((c) => c.name),
+			"the log's own calls",
+		).toEqual(["codemode"]);
 	});
 
 	it("reads a script's calls from its details when pi kept none", () => {
