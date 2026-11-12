@@ -686,7 +686,9 @@ describe("quiet", () => {
 	// Joel, 11 November 2026: a session he steers "that is focused only on
 	// me and doesn't show a bunch of background shit."
 	const plainTheme = { fg: (_colour: string, text: string) => text };
-	const quietLog = [{ type: "custom", customType: "mesh-quiet", data: { on: true } }];
+	const quietLog = [
+		{ type: "custom", customType: "mesh-quiet", data: { on: true } },
+	];
 	const drawn = (
 		renderers: Map<string, Renderer>,
 		one: Sent | undefined,

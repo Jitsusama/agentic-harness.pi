@@ -18,8 +18,8 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { Message } from "../../lib/mesh/message.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import type { Message } from "../../lib/mesh/message.ts";
 
 /** The customType of the log entry that records the setting. */
 export const QUIET = "mesh-quiet";
