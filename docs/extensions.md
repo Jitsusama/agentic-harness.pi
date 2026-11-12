@@ -36,7 +36,8 @@ it does:
   `reload-workflow`, `rollover-workflow`, `park-workflow`,
   `one-writer-workflow`, `shell-workflow`, `codemode-workflow`,
   `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
-  `model-retry-workflow`, `crash-record-workflow`.
+  `model-retry-workflow`, `crash-record-workflow`,
+  `secret-run-workflow`.
 
   `crash-record-workflow` has a pi that an uncaught error ends write
   the error and its stack to its session's log and the system's log
