@@ -36,7 +36,7 @@ import {
 	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	boundedByDetails,
@@ -111,6 +111,19 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
+ * A source file's text, and the text of each library module it imports
+ * directly, since the writing of a file may live there: shell-workflow's
+ * hand-off says a finished command's end through lib/internal/shell.
+ */
+function withLibraryItImports(file: string): string[] {
+	const source = readFileSync(file, "utf-8");
+	const imported = [...source.matchAll(/from "((?:\.\.\/)+lib\/[^"]+\.ts)"/g)]
+		.map((match) => resolve(dirname(file), match[1] ?? ""))
+		.map((path) => readFileSync(path, "utf-8"));
+	return [source, ...imported];
+}
+
+/**
  * Whether a source file imports the shared result machinery,
  * either the local library or core's, folded into `lib/core`.
  */
@@ -145,9 +158,7 @@ describe("tools that can answer big must bound their answers", () => {
 	for (const extension of ANSWER_WITH_PATHS) {
 		it(`${extension} still answers with paths on disk`, () => {
 			const dir = join("extensions", extension);
-			const sources = sourceFiles(dir).map((file) =>
-				readFileSync(file, "utf-8"),
-			);
+			const sources = sourceFiles(dir).flatMap(withLibraryItImports);
 			// Either it cites a handle or it names a file. What it must
 			// not do is inline an unbounded payload with neither.
 			const pointsSomewhere = sources.some(
