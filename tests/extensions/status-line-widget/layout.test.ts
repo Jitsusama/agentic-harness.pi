@@ -17,6 +17,7 @@ import {
 	STEPS,
 	width,
 } from "../../../extensions/status-line-widget/layout.ts";
+import { told } from "../../../extensions/status-line-widget/place.ts";
 import { DEFAULT_MARKS } from "../../../extensions/status-line-widget/where.ts";
 
 const MARKS = {
@@ -80,6 +81,43 @@ function widthAt(f: Facts, columns: number): number {
 	const { left, right } = layout(f, columns);
 	return width(left) + (right.length > 0 ? 2 : 0) + width(right);
 }
+
+describe("pi's status line in a broker's worktree", () => {
+	// Joel, 11 November: "the branch has its own area in the status bar
+	// already", of a path area that read the broker's folder name, which
+	// carries the branch too.
+	const tree =
+		"/h/trees/worktree-github-Jitsusama-agentic-harness.pi-feat-shell-edit-guard";
+	const files: Record<string, string> = {
+		[`${tree}/.git`]: "gitdir: /h/src/harness/.git/worktrees/wt\n",
+		"/h/src/harness/.git/worktrees/wt/commondir": "../..\n",
+		"/h/src/harness/.git/config":
+			'[remote "origin"]\n\turl = git@github.com:Jitsusama/agentic-harness.pi.git\n',
+	};
+	const place = told(
+		`${tree}/lib`,
+		["zone.nix", ".git"],
+		"/h",
+		(file) => file === `${tree}/.git`,
+		(file) => files[file] ?? null,
+	);
+	const line = read(
+		facts({ place, git: { ...CLEAN, branch: "feat/shell-edit-guard" } }),
+		200,
+	);
+
+	it("names the branch once, in its own area", () => {
+		expect(
+			line.split("shell-edit-guard").length - 1,
+			`how often the branch is named in "${line}"`,
+		).toBe(1);
+	});
+
+	it("names the repository, never the broker's folder", () => {
+		expect(line, "the path area").toMatch(/^agentic-harness\.pi\/lib /);
+		expect(line, "the broker's folder name").not.toContain("worktree-");
+	});
+});
 
 describe("pi's status line at its full width", () => {
 	it("says where, the model and how hard it thinks, the meter and the branch", () => {
