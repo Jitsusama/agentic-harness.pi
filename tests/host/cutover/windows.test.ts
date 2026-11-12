@@ -11,6 +11,7 @@ import {
 	parseHeldSessions,
 	parseKittyWindows,
 	parseNiriWindows,
+	parseScreenless,
 	standingOf,
 } from "../../../host/cutover/windows.ts";
 
@@ -118,6 +119,21 @@ describe("standingOf", () => {
 		});
 	});
 
+	it("puts a window away when no output is on, as with the lid shut, saying its holder still", () => {
+		const dark = machine({ focused: undefined, screenless: true });
+		expect(standingOf("s1", dark)).toEqual({ where: "away" });
+		expect(standingOf("s2", dark)).toEqual({
+			where: "away",
+			loudHolder:
+				"its holder (pid 20) runs no mycelium vouched for as carrying #121",
+		});
+		expect(
+			standingOf("s1", machine({ focused: undefined, screenless: false }))
+				?.where,
+			"an output on with nothing focused still can't say",
+		).toEqual({ unplaced: "niri has no workspace focused" });
+	});
+
 	it("spares every session when the machine couldn't be read, mycelium's list included", () => {
 		const unread = machine({
 			sessions: [],
@@ -203,6 +219,34 @@ describe("parsing what the machine prints", () => {
 			),
 		).toBe(8);
 		expect(parseFocusedWorkspace("[]")).toBeUndefined();
+	});
+
+	it("reads the machine as screenless only when no output has a place on the desktop", () => {
+		// eDP-1 as niri printed it at 05:26 on 12 November, the lid shut.
+		const shut = { name: "eDP-1", current_mode: null, logical: null };
+		const on = {
+			name: "eDP-1",
+			current_mode: 0,
+			logical: { x: 0, y: 0, width: 1440, height: 900, scale: 2 },
+			powered_off: false,
+		};
+		expect(parseScreenless(JSON.stringify({ "eDP-1": shut })), "lid shut").toBe(
+			true,
+		);
+		expect(parseScreenless("{}"), "no output at all").toBe(true);
+		expect(parseScreenless(JSON.stringify({ "eDP-1": on })), "a screen on").toBe(
+			false,
+		);
+		expect(
+			parseScreenless(
+				JSON.stringify({ "eDP-1": { ...on, powered_off: true } }),
+			),
+			"a screen blanked while idle is still a screen Joel may wake",
+		).toBe(false);
+		expect(
+			parseScreenless(JSON.stringify({ "eDP-1": shut, "DP-3": on })),
+			"the lid shut and docked",
+		).toBe(false);
 	});
 
 	it("titles each kitty OS window as its active tab, as niri shows it", () => {
