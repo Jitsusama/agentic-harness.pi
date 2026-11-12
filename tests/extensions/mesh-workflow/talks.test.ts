@@ -131,21 +131,41 @@ describe("a talk a session follows", () => {
 		]);
 	});
 
-	it("into an idle session, is replied by the last text its run writes", () => {
+	it("into an idle session, is replied by its first text at once, then by its run's last", () => {
 		const following = talks();
 		take(following, { text: "status?", id: "t1", file: "f" });
 		following.wrote("Let me look.");
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "Let me look.",
+		});
+
 		following.step("bash");
 		following.wrote("All green.");
+		following.settled(false);
 		expect(stages("t1").map(({ stage }) => stage)).toEqual([
 			"delivered",
+			"replied",
 			"reading",
+			"replied",
 		]);
-		following.settled(false);
 		expect(stages("t1").at(-1)).toEqual({
 			stage: "replied",
 			text: "All green.",
 		});
+	});
+
+	it("into an idle session, says its reply once when the run ends on the same words", () => {
+		const following = talks();
+		take(following, { text: "route this", id: "t1", file: "f" });
+		following.wrote("→ The Agentic Loop · undo");
+		following.wrote("→ The Agentic Loop · undo");
+		following.settled(false);
+
+		expect(stages("t1")).toEqual([
+			{ stage: "delivered", session: "s1", text: "route this" },
+			{ stage: "replied", text: "→ The Agentic Loop · undo" },
+		]);
 	});
 
 	it("says a reply so far only when it has changed", () => {

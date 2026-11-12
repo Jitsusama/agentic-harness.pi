@@ -821,6 +821,26 @@ describe("this session's peer", () => {
 			).toEqual({ name: "The Void", keywords: ["void"] });
 		});
 
+		it("says what it is for at the top when its quest gives a sentence", () => {
+			write(
+				[
+					[
+						LOOP,
+						readme(LOOP, "null").replace(
+							"---\n#",
+							"stands-at-top: {name: The Void, keywords: [void], what: ' Say it once. '}\n---\n#",
+						),
+					],
+				],
+				LOOP,
+			);
+			localPeer(surroundings());
+
+			expect(
+				createPresences(join(root, "presence")).of(session)?.standsAtTop,
+			).toEqual({ name: "The Void", keywords: ["void"], what: "Say it once." });
+		});
+
 		it("stands nowhere when its quest names no one to stand as", () => {
 			write(
 				[
