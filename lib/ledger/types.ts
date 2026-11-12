@@ -1,5 +1,6 @@
 import type {
 	DroppedCallRecord,
+	InnerCallRecord,
 	SessionRecord,
 	ToolCallRecord,
 	TurnRecord,
@@ -37,6 +38,8 @@ export interface ScanCoverage {
 export interface LedgerScan {
 	readonly turns: TurnRecord[];
 	readonly calls: ToolCallRecord[];
+	/** The calls those calls made to other tools, kept apart from them. */
+	readonly inner: InnerCallRecord[];
 	readonly dropped: DroppedCallRecord[];
 	readonly coverage: ScanCoverage;
 	readonly session: SessionRecord;

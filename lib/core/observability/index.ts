@@ -22,6 +22,7 @@ export {
 	type CostDimension,
 	type CostSlice,
 	type DroppedCallRecord,
+	type InnerCallRecord,
 	type LedgerReader,
 	type LedgerTotal,
 	openLedgerReader,

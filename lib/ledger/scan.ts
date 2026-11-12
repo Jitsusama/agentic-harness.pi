@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type {
+	InnerCallRecord,
 	RunCost,
 	RunTokens,
 	TurnKind,
 	TurnRecord,
 } from "../core/observability/index.ts";
 import { BranchWalk } from "./branch.ts";
+import { GATEWAY_TOOL, gatewayTarget, innerCallsOf } from "./inner.ts";
 import { SessionCollector } from "./session.ts";
 import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.ts";
 
@@ -32,6 +34,12 @@ const DIGEST_CHARS = 24;
  * 5: whether the harness reloaded before each turn, so a miss a reload's
  * new tool declarations caused is told from one a tool loaded mid-run
  * caused.
+ *
+ * The calls a script or a gateway call made to other tools are read
+ * without a bump: a log that grows is read again in full anyway, so
+ * every session working when they landed has them from then on. A bump
+ * would read all of a machine's finished logs again (16 GB on 12
+ * November 2026) to fill in days nothing measures any more.
  */
 export const SCAN_VERSION = 5;
 
@@ -64,6 +72,10 @@ export function readTurns(
 	// whose result never arrives stays in the list with an unknown
 	// result rather than being dropped: the call still happened.
 	const calls = new Map<string, MutableCall>();
+	// The tool each gateway call named, by call id, read when the call
+	// is made since its arguments are digested away then.
+	const targets = new Map<string, string>();
+	const inner: InnerCallRecord[] = [];
 	// The order every entry with an id was seen in, which is what makes a
 	// compaction's firstKeptEntryId comparable to a call's own entry:
 	// entry ids are not sortable strings, but the log's own line order is
@@ -139,6 +151,7 @@ export function readTurns(
 		const message = asRecord(entry.message);
 		if (message?.role === "toolResult") {
 			absorbResult(calls, message);
+			inner.push(...innerOf(calls, targets, message));
 			continue;
 		}
 
@@ -150,7 +163,13 @@ export function readTurns(
 		turns.push(turn);
 		if (turn.cost) billable += 1;
 		else unmetered += 1;
-		collectCalls(calls, sessionId, turn.entryId, turn.timestamp, message);
+		collectCalls(
+			{ calls, targets },
+			sessionId,
+			turn.entryId,
+			turn.timestamp,
+			message,
+		);
 		if (turn.kind === "compaction" && turn.firstKeptEntryId) {
 			const order = entryOrder.get(turn.firstKeptEntryId);
 			// An entry this scan never saw cannot be placed on the
@@ -169,6 +188,7 @@ export function readTurns(
 	return {
 		turns,
 		calls: [...calls.values()],
+		inner,
 		dropped: droppedCallsOf(sessionId, calls, entryOrder, boundaries),
 		coverage: { lines: count, parsed, unparseable, billable, unmetered },
 		session: session.record(),
@@ -509,7 +529,10 @@ function classifyVerifier(
 
 /** Take every tool call an assistant turn made. */
 function collectCalls(
-	into: Map<string, MutableCall>,
+	into: {
+		readonly calls: Map<string, MutableCall>;
+		readonly targets: Map<string, string>;
+	},
 	sessionId: string,
 	entryId: string,
 	timestamp: string,
@@ -525,7 +548,9 @@ function collectCalls(
 		const args = asRecord(b.arguments);
 		const declared = args?.[PATH_ARG];
 		const command = args?.command;
-		into.set(callId, {
+		const target = name === GATEWAY_TOOL ? gatewayTarget(args) : undefined;
+		if (target) into.targets.set(callId, target);
+		into.calls.set(callId, {
 			// The tool's name is inside the address, so the same arguments
 			// to two different tools are two different calls.
 			digest: digestText(JSON.stringify([entryId, callId, name, b.arguments])),
@@ -542,6 +567,18 @@ function collectCalls(
 			verifierKind: classifyVerifier(name, command),
 		});
 	}
+}
+
+/** The calls a result says its call made to other tools. */
+function innerOf(
+	calls: ReadonlyMap<string, MutableCall>,
+	targets: ReadonlyMap<string, string>,
+	message: Record<string, unknown>,
+): InnerCallRecord[] {
+	const callId =
+		typeof message.toolCallId === "string" ? message.toolCallId : "";
+	const outer = calls.get(callId);
+	return outer ? innerCallsOf(outer, message, targets.get(callId)) : [];
 }
 
 /** Attach a result to the call it answers. */

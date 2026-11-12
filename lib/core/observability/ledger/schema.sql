@@ -56,6 +56,18 @@ CREATE INDEX IF NOT EXISTS tool_calls_args ON tool_calls (session_id, args_diges
 CREATE INDEX IF NOT EXISTS tool_calls_path ON tool_calls (path);
 CREATE INDEX IF NOT EXISTS tool_calls_session_verifier
 	ON tool_calls (session_id, timestamp) WHERE verifier_kind IS NOT NULL;
+CREATE TABLE IF NOT EXISTS inner_calls (
+	digest TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	entry_id TEXT NOT NULL,
+	outer_call_id TEXT NOT NULL,
+	timestamp TEXT NOT NULL,
+	name TEXT NOT NULL,
+	via TEXT NOT NULL,
+	status TEXT NOT NULL,
+	duration_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS inner_calls_session ON inner_calls (session_id, name);
 CREATE TABLE IF NOT EXISTS dropped_calls (
 	digest TEXT PRIMARY KEY,
 	session_id TEXT NOT NULL,

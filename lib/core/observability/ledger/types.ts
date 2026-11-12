@@ -217,6 +217,35 @@ export interface ToolCallRecord {
 	readonly isError: boolean | null;
 }
 
+/** What carried a call one tool made to another. */
+export type InnerCallVia = "codemode" | "tool_gateway_run_tool";
+
+/**
+ * A call one tool made to another: a codemode script's, which pi keeps
+ * on the script's result, or the tool a gateway call ran, named in its
+ * arguments. Kept apart from `tool_calls`, which holds only the log's
+ * own calls, so a script still counts as one call where calls are
+ * counted, and never with its arguments, which can hold secrets.
+ */
+export interface InnerCallRecord {
+	/** Content address of the call, stable across a forked log. */
+	readonly digest: string;
+	readonly sessionId: string;
+	/** The assistant entry that made the outer call. */
+	readonly entryId: string;
+	/** The outer call's own id, as tool_calls holds it. */
+	readonly outerCallId: string;
+	readonly timestamp: string;
+	/** The tool it ran: a gateway call is named for the tool it reached. */
+	readonly name: string;
+	/** Through a gateway, wherever it was made from, or else a script. */
+	readonly via: InnerCallVia;
+	/** `ok`, `error` or `unfinished`, as pi says; a gateway call's own outcome. */
+	readonly status: string;
+	/** How long it took, to the millisecond, when it was timed. */
+	readonly durationMs: number | null;
+}
+
 /**
  * What kind of verifier a call ran. `verify` names a chained gate that
  * ran more than one kind under a single exit code, which is a category

@@ -3,6 +3,7 @@ import { sqlFile } from "../../internal/sqlite/sql-file.ts";
 import type {
 	CallScope,
 	DroppedCallRecord,
+	InnerCallRecord,
 	PaybackReplay,
 	QueryAnswer,
 	RegretReport,
@@ -58,6 +59,10 @@ export interface TurnStore {
 	repeatedCalls(scope?: CallScope): Promise<RepeatedCall[]>;
 	recordDropped(dropped: readonly DroppedCallRecord[]): Promise<RecordOutcome>;
 	queryDropped(): Promise<DroppedCallRecord[]>;
+	/** Record the calls tools made to other tools, once each. */
+	recordInnerCalls(inner: readonly InnerCallRecord[]): Promise<RecordOutcome>;
+	/** Every call a tool made to another, oldest first. */
+	queryInnerCalls(): Promise<InnerCallRecord[]>;
 	/** Dropped calls asked again after the drop, with how many could have been. */
 	regret(scope?: CallScope): Promise<RegretReport>;
 	/** Pass, fail and unknown counts per verifier kind that ran at all. */
@@ -697,6 +702,67 @@ class SqliteTurnStore implements TurnStore {
 		return { inserted, duplicates: dropped.length - inserted };
 	}
 
+	async recordInnerCalls(
+		inner: readonly InnerCallRecord[],
+	): Promise<RecordOutcome> {
+		const fresh = new Map<string, InnerCallRecord>();
+		for (const call of inner) {
+			if (!fresh.has(call.digest)) fresh.set(call.digest, call);
+		}
+		const known = await this.alreadyHeld("inner_calls", [...fresh.keys()]);
+		const unknown = [...fresh.values()].filter((c) => !known.has(c.digest));
+		const inserted = await this.inTransactions(unknown, async (chunk) => {
+			let written = 0;
+			for (const c of chunk) {
+				const { changes } = await this.db.run(
+					`INSERT OR IGNORE INTO inner_calls (
+						digest, session_id, entry_id, outer_call_id, timestamp, name,
+						via, status, duration_ms
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					[
+						c.digest,
+						c.sessionId,
+						c.entryId,
+						c.outerCallId,
+						c.timestamp,
+						c.name,
+						c.via,
+						c.status,
+						c.durationMs,
+					],
+				);
+				written += changes;
+			}
+			return written;
+		});
+		return { inserted, duplicates: inner.length - inserted };
+	}
+
+	async queryInnerCalls(): Promise<InnerCallRecord[]> {
+		const rows = await this.db.all<{
+			digest: string;
+			session_id: string;
+			entry_id: string;
+			outer_call_id: string;
+			timestamp: string;
+			name: string;
+			via: string;
+			status: string;
+			duration_ms: number | null;
+		}>("SELECT * FROM inner_calls ORDER BY timestamp ASC, digest ASC");
+		return rows.map((row) => ({
+			digest: row.digest,
+			sessionId: row.session_id,
+			entryId: row.entry_id,
+			outerCallId: row.outer_call_id,
+			timestamp: row.timestamp,
+			name: row.name,
+			via: row.via === "tool_gateway_run_tool" ? row.via : "codemode",
+			status: row.status,
+			durationMs: row.duration_ms,
+		}));
+	}
+
 	async queryDropped(): Promise<DroppedCallRecord[]> {
 		const rows = await this.db.all<{
 			digest: string;
@@ -889,7 +955,7 @@ class SqliteTurnStore implements TurnStore {
 	 * corpus-sized batch stays inside SQLite's bound-variable ceiling.
 	 */
 	private async alreadyHeld(
-		table: "turns" | "tool_calls" | "dropped_calls",
+		table: "turns" | "tool_calls" | "dropped_calls" | "inner_calls",
 		digests: readonly string[],
 	): Promise<Set<string>> {
 		const found = new Set<string>();
