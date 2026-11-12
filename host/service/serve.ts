@@ -48,6 +48,11 @@ export interface ServingHost {
 	readonly path: string;
 	/** Holds the engine could not resume at start, still held. */
 	readonly unresumed: readonly Unresumed[];
+	/**
+	 * How many of those are still held and not running now: one woken,
+	 * adopted, closed or released since no longer counts.
+	 */
+	stillUnresumed(): number;
 	/** Each conversation the host runs, with its state and when it last changed. */
 	held(): readonly Pick<SessionIdentity, "state" | "since">[];
 	/**
@@ -150,6 +155,13 @@ export async function serveHost(options: {
 			identity,
 			path,
 			unresumed,
+			stillUnresumed: () => {
+				const live = new Set(running.list().map(({ id }) => id));
+				const held = new Set(roster.entries().map((e) => e.sessionId));
+				return unresumed.filter(
+					({ sessionId }) => held.has(sessionId) && !live.has(sessionId),
+				).length;
+			},
 			held: () => running.list(),
 			restartComing: (coming) => {
 				restarting = coming;

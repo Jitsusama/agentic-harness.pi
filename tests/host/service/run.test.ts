@@ -22,6 +22,7 @@ import {
 	hostKind,
 	readyStatus,
 	runHost,
+	stoppingStatus,
 } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
@@ -104,6 +105,7 @@ describe("readyStatus", () => {
 		expect(readyStatus(3, 2)).toBe(
 			"ready, serving 3 conversations, 2 held but not resumed",
 		);
+		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
 	});
 });
 
@@ -137,7 +139,9 @@ describe("runHost", () => {
 			});
 			if (!reply.ok) throw new Error(reply.error.message);
 			await vi.waitFor(() => {
-				expect(statuses.at(-1)).toBe("ready, serving 1 conversation");
+				expect(statuses.at(-1), "the status once one opened").toBe(
+					"ready, serving 1 conversation",
+				);
 			});
 		} finally {
 			signals.emit("SIGTERM");
@@ -149,6 +153,7 @@ describe("runHost", () => {
 		expect(statuses, "said only as it changed").toEqual([
 			"ready, serving no conversations",
 			"ready, serving 1 conversation",
+			"stopping, parking 1 conversation",
 		]);
 		expect(statuses.length, "nothing said once stopped").toBe(after);
 	});
@@ -282,7 +287,9 @@ describe("runHost", () => {
 		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
 		expect(said[2]).toMatch(/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s$/);
-		expect(said[3]).toMatch(/^\d+\.\d s: ready, listening on /);
+		expect(said[3]).toMatch(
+			/^\d+\.\d s: ready, serving 1 conversation, listening on /,
+		);
 		second.emit("SIGTERM");
 		await run.stopped;
 	});
@@ -381,6 +388,7 @@ describe("runHost", () => {
 		).toEqual([
 			expect.stringContaining("STATUS=building the engine"),
 			"--ready STATUS=ready, serving no conversations",
+			"STATUS=stopping, parking no conversations",
 		]);
 		const senders = notifies.map((words) => Number(words.at(0)));
 		expect(

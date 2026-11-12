@@ -259,6 +259,16 @@ describe("serveHost", () => {
 				[kept, "idle"],
 				[gone, "parked"],
 			]);
+			expect(second.stillUnresumed(), "still held, not running").toBe(1);
+			const closed = await controlRequest(second.path, {
+				v: 1,
+				id: "c",
+				op: "close",
+				sessionId: gone,
+			});
+			if (!closed.ok) throw new Error(closed.error.message);
+			expect(second.stillUnresumed(), "once it is closed").toBe(0);
+			expect(second.unresumed, "what the start found").toHaveLength(1);
 		} finally {
 			await second.stop();
 		}

@@ -170,13 +170,19 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		runtimeDir: options.env.XDG_RUNTIME_DIR,
 	});
 	const status = () =>
-		readyStatus(serving.held().length, serving.unresumed.length);
+		readyStatus(serving.held().length, serving.stillUnresumed());
+	const tell = (now: string) =>
+		(options.status ?? notifyStatus)(options.env, now);
 	const signals = options.signals ?? process;
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
 	const stop = () => {
+		if (stopping) return stopping;
 		following?.();
-		stopping ??= serving.stop();
+		// Parking many can take a while; the status says so meanwhile.
+		stopping = tell(stoppingStatus(serving.held().length))
+			.catch(report)
+			.then(() => serving.stop());
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -208,28 +214,29 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		following = followStatus({
 			status,
 			said: status(),
-			tell: (now) => (options.status ?? notifyStatus)(options.env, now),
+			tell,
 			every: options.statusEvery ?? STATUS_EVERY_MS,
 			report,
 		});
 	resumed();
-	say(
-		`${since()}: ready, listening on ${serving.path}` +
-			(serving.unresumed.length > 0
-				? `, ${serving.unresumed.length} held but not resumed`
-				: ""),
-	);
+	say(`${since()}: ${status()}, listening on ${serving.path}`);
 	return { serving, stopped };
 }
 
-/** A ready host's status in words, as systemd's status shows it. */
+/** A ready host's status in words, as systemd's status and the journal show it. */
 export function readyStatus(serving: number, unresumed: number): string {
-	const conversations =
-		serving === 0
-			? "no conversations"
-			: `${serving} conversation${serving === 1 ? "" : "s"}`;
 	const held = unresumed > 0 ? `, ${unresumed} held but not resumed` : "";
-	return `ready, serving ${conversations}${held}`;
+	return `ready, serving ${conversations(serving)}${held}`;
+}
+
+/** A stopping host's status in words, while it parks what it runs. */
+export function stoppingStatus(parking: number): string {
+	return `stopping, parking ${conversations(parking)}`;
+}
+
+function conversations(count: number): string {
+	if (count === 0) return "no conversations";
+	return `${count} conversation${count === 1 ? "" : "s"}`;
 }
 
 /** A start step in words, as the journal and systemd's status show it. */
