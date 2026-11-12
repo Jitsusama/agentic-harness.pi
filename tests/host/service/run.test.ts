@@ -161,6 +161,7 @@ describe("runHost's watchdog", () => {
 			return {
 				...inner,
 				start: async (prepared, request) => {
+					// The turn itself, which the host awaits as it would a model's.
 					await new Promise((resolve) => setTimeout(resolve, 2 * TIMEOUT_MS));
 					await inner.start(prepared, request);
 				},
@@ -272,8 +273,8 @@ describe("runHost's watchdog", () => {
 			}
 		};
 		const unwatched = pingTimes();
-		// Two pings' worth of a timeout, had it one.
 		await serve({}, unwatched, async () => {
+			// Two pings' worth of a timeout, had it one.
 			await new Promise((resolve) => setTimeout(resolve, TIMEOUT_MS / 2));
 		});
 		const watched = pingTimes();
