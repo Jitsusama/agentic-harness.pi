@@ -127,7 +127,7 @@ describe("the warm browser and the event loop", () => {
 			for (const tab of tabs) {
 				tab.once("close", () => atClose.push(heldChildren()));
 			}
-			await session.navigate("chrome://crash");
+			await session.navigate("chrome://kill");
 			const after = await session.navigate(fixture.url("/hello"));
 			expect(after.failure).toBeUndefined();
 		} finally {
