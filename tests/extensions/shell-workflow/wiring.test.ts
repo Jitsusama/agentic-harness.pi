@@ -142,18 +142,18 @@ describe("a run that ends with its prompts", () => {
 		);
 	};
 
-	it.each([
-		"print",
-		"json",
-	])("keeps a %s run's command in the call, since its job would die as the run ends", async (mode) => {
-		const result = await run(mode);
+	it.each(["print", "json"])(
+		"keeps a %s run's command in the call, since its job would die as the run ends",
+		async (mode) => {
+			const result = await run(mode);
 
-		expect(
-			result?.content[0]?.text,
-			"the command's own result, not a hand-off",
-		).toBe("ran");
-		expect(started, "no job was started for it").toEqual([]);
-	});
+			expect(
+				result?.content[0]?.text,
+				"the command's own result, not a hand-off",
+			).toBe("ran");
+			expect(started, "no job was started for it").toEqual([]);
+		},
+	);
 
 	it("still hands a session's command to a job when the session goes on", async () => {
 		const result = await run("tui");

@@ -558,25 +558,28 @@ describe("the conversation summariser", () => {
 	it.each([
 		["short", undefined, 5 * 60_000],
 		["long", "long", 60 * 60_000],
-	])("hands back to pi once a %s-retention cache may have expired", async (_name, retention, lifetime) => {
-		vi.useFakeTimers();
-		vi.stubEnv("PI_CACHE_RETENTION", retention);
-		try {
-			const { fire, entries } = activate();
-			const ctx = context([userEntry, replyEntry]);
-			await fire("before_provider_request", { payload: sentPayload }, ctx);
-			vi.advanceTimersByTime(lifetime);
-			expect(
-				await fire("session_before_compact", compactEvent(), ctx),
-			).toBeUndefined();
-			expect(entries[0]?.[1]).toMatchObject({
-				reason: "the cached conversation may have expired",
-			});
-		} finally {
-			vi.useRealTimers();
-			vi.unstubAllEnvs();
-		}
-	});
+	])(
+		"hands back to pi once a %s-retention cache may have expired",
+		async (_name, retention, lifetime) => {
+			vi.useFakeTimers();
+			vi.stubEnv("PI_CACHE_RETENTION", retention);
+			try {
+				const { fire, entries } = activate();
+				const ctx = context([userEntry, replyEntry]);
+				await fire("before_provider_request", { payload: sentPayload }, ctx);
+				vi.advanceTimersByTime(lifetime);
+				expect(
+					await fire("session_before_compact", compactEvent(), ctx),
+				).toBeUndefined();
+				expect(entries[0]?.[1]).toMatchObject({
+					reason: "the cached conversation may have expired",
+				});
+			} finally {
+				vi.useRealTimers();
+				vi.unstubAllEnvs();
+			}
+		},
+	);
 
 	it("summarises from the cache past the hour when a warm refreshed it, and only that request's", async () => {
 		vi.useFakeTimers();

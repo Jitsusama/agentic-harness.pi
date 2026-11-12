@@ -147,17 +147,20 @@ describe("a browser tool", () => {
 		],
 		["browser_see", { kind: "profile", ms: 600_000 }],
 		["browser_check", { kind: "keyboard", maxStops: 1_000_000 }],
-	])("%s refuses an unbounded ask before touching the page (%j)", async (name, params) => {
-		const { tool, page } = await tools();
+	])(
+		"%s refuses an unbounded ask before touching the page (%j)",
+		async (name, params) => {
+			const { tool, page } = await tools();
 
-		const answered = await within(tool(name)("call", params));
-		page.answer();
+			const answered = await within(tool(name)("call", params));
+			page.answer();
 
-		expect(answered).toMatchObject({
-			content: [{ text: expect.stringMatching(/at most/) }],
-		});
-		expect(page.asked).toEqual([]);
-	});
+			expect(answered).toMatchObject({
+				content: [{ text: expect.stringMatching(/at most/) }],
+			});
+			expect(page.asked).toEqual([]);
+		},
+	);
 
 	it("waits for another call on the same session to finish", async () => {
 		const { tool, page } = await tools();

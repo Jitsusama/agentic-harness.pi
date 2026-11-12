@@ -105,49 +105,53 @@ afterEach(async () => {
 });
 
 describe("a gate beside a tool whose output streams in", () => {
-	it.each(
-		HEIGHTS,
-	)("keeps its question on screen while the output grows, %i rows", async (rows) => {
-		const session = await bootPi({
-			cols: COLS,
-			rows,
-			extensions: [gateTool, streamTool, panelLifecycle],
-		});
-		pi = session;
-		session.faux.setResponses([
-			fauxAssistantMessage([
-				fauxToolCall("ask_gate", {}),
-				fauxToolCall("stream", {}),
-			]),
-			fauxAssistantMessage("MARK-after"),
-		]);
-		session.mark("stream");
-		await session.prompt("ask while it streams");
-		await waitFor(() => session.onScreen("MARK-body-3"), "the gate's body");
+	it.each(HEIGHTS)(
+		"keeps its question on screen while the output grows, %i rows",
+		async (rows) => {
+			const session = await bootPi({
+				cols: COLS,
+				rows,
+				extensions: [gateTool, streamTool, panelLifecycle],
+			});
+			pi = session;
+			session.faux.setResponses([
+				fauxAssistantMessage([
+					fauxToolCall("ask_gate", {}),
+					fauxToolCall("stream", {}),
+				]),
+				fauxAssistantMessage("MARK-after"),
+			]);
+			session.mark("stream");
+			await session.prompt("ask while it streams");
+			await waitFor(() => session.onScreen("MARK-body-3"), "the gate's body");
 
-		const lost: number[] = [];
-		while (release === undefined) {
+			const lost: number[] = [];
+			while (release === undefined) {
+				if (!(await session.onScreen("MARK-body-0"))) lost.push(written);
+				// Twice a line, so every line's frame is looked at while it's up.
+				await sleep(LINE_MS / 2);
+			}
+			// A few frames past the last line, when the dock has dealt its room.
+			await sleep(100);
 			if (!(await session.onScreen("MARK-body-0"))) lost.push(written);
-			// Twice a line, so every line's frame is looked at while it's up.
-			await sleep(LINE_MS / 2);
-		}
-		// A few frames past the last line, when the dock has dealt its room.
-		await sleep(100);
-		if (!(await session.onScreen("MARK-body-0"))) lost.push(written);
 
-		expect(
-			lost,
-			"the lines of output written when the gate's question was off screen",
-		).toEqual([]);
-		// Pi previews a running tool's first lines and counts the rest.
-		expect(
-			await session.onScreen("more lines"),
-			"the output's preview is on screen whole, down to its count",
-		).toBe(true);
-		const verdict = await session.verdict();
-		expect(verdict.desync, "frames that drew other than pi meant").toEqual([]);
-		expect(verdict.redrawsAt, "whole-screen redraws while it streamed").toEqual(
-			[],
-		);
-	});
+			expect(
+				lost,
+				"the lines of output written when the gate's question was off screen",
+			).toEqual([]);
+			// Pi previews a running tool's first lines and counts the rest.
+			expect(
+				await session.onScreen("more lines"),
+				"the output's preview is on screen whole, down to its count",
+			).toBe(true);
+			const verdict = await session.verdict();
+			expect(verdict.desync, "frames that drew other than pi meant").toEqual(
+				[],
+			);
+			expect(
+				verdict.redrawsAt,
+				"whole-screen redraws while it streamed",
+			).toEqual([]);
+		},
+	);
 });

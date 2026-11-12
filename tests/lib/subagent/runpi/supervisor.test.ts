@@ -1989,19 +1989,25 @@ describe("a child that exits 0 partway through its run", () => {
 	it.each([
 		["arrives whole", 4096],
 		["spans chunks", 256 * 1024],
-	])("is complete when its agent_end was too large to read and %s", async (_, size) => {
-		const huge = JSON.stringify({
-			type: "agent_end",
-			messages: [{ role: "assistant", content: "x".repeat(size) }],
-		});
-		const { result, persisted } = await supervise([said("the answer"), huge], {
-			maxLineBytes: 1024,
-		});
+	])(
+		"is complete when its agent_end was too large to read and %s",
+		async (_, size) => {
+			const huge = JSON.stringify({
+				type: "agent_end",
+				messages: [{ role: "assistant", content: "x".repeat(size) }],
+			});
+			const { result, persisted } = await supervise(
+				[said("the answer"), huge],
+				{
+					maxLineBytes: 1024,
+				},
+			);
 
-		expect(result.warnings?.join(" ")).toContain("exceeded 1024 bytes");
-		expect(result.error).toBeUndefined();
-		expect(persisted.state).toBe("complete");
-	});
+			expect(result.warnings?.join(" ")).toContain("exceeded 1024 bytes");
+			expect(result.error).toBeUndefined();
+			expect(persisted.state).toBe("complete");
+		},
+	);
 
 	// A tool result can be over the cap too, and a skipped end is not a
 	// tool still running once the run itself has said it finished.

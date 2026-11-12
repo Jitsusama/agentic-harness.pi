@@ -553,122 +553,128 @@ async function stillAnswerable(session: PiSession): Promise<void> {
 	).toBe(true);
 }
 
-describe.each(
-	SCREENS.map((screen) => [named(screen), screen] as const),
-)("on %s", (_name, screen) => {
-	it("fails closed on /new typed after hopping out of a tool's gate", async () => {
-		const { ours, twin } = await judged(screen, "tool", newTyped, leftNoRecord);
-		expectNoWorseThan(ours, twin);
-	});
+describe.each(SCREENS.map((screen) => [named(screen), screen] as const))(
+	"on %s",
+	(_name, screen) => {
+		it("fails closed on /new typed after hopping out of a tool's gate", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				newTyped,
+				leftNoRecord,
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("fails closed on /new typed after hopping out of a guardian, running nothing", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"guardian",
-			newTyped,
-			leftNoRecord,
-		);
-		expect(
-			existsSync(guardedFile()),
-			`${guardedFile()} is never written, as the guarded command never ran`,
-		).toBe(false);
-		expectNoWorseThan(ours, twin);
-	});
+		it("fails closed on /new typed after hopping out of a guardian, running nothing", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"guardian",
+				newTyped,
+				leftNoRecord,
+			);
+			expect(
+				existsSync(guardedFile()),
+				`${guardedFile()} is never written, as the guarded command never ran`,
+			).toBe(false);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("fails closed on a new session from code, the gate still focused", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"tool",
-			async (session, isOurs) => {
-				// Back into the gate, so the replace finds it holding the keys.
-				if (isOurs) await session.key("ctrl+alt+n");
-				await newFromCode(session, isOurs);
-			},
-			leftNoRecord,
-		);
-		expectNoWorseThan(ours, twin);
-	});
+		it("fails closed on a new session from code, the gate still focused", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				async (session, isOurs) => {
+					// Back into the gate, so the replace finds it holding the keys.
+					if (isOurs) await session.key("ctrl+alt+n");
+					await newFromCode(session, isOurs);
+				},
+				leftNoRecord,
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("takes progress down with a /new, leaving nothing of ours", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"progress",
-			newTyped,
-			async (session) => {
-				expect(await session.viewport()).not.toContainEqual(
-					expect.stringContaining("MARK-progress"),
-				);
-				await editorTakesTyping(session);
-			},
-		);
-		expectNoWorseThan(ours, twin);
-	});
+		it("takes progress down with a /new, leaving nothing of ours", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"progress",
+				newTyped,
+				async (session) => {
+					expect(await session.viewport()).not.toContainEqual(
+						expect.stringContaining("MARK-progress"),
+					);
+					await editorTakesTyping(session);
+				},
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("fails closed on Escape after hopping out, leaving its record", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"tool",
-			escapeInEditor,
-			async (session) => {
-				expect(answers).toEqual([null]);
-				expect(await session.inBuffer(CANCELLED)).toBe(1);
-				await editorTakesTyping(session);
-			},
-		);
-		expectNoWorseThan(ours, twin);
-	});
+		it("fails closed on Escape after hopping out, leaving its record", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				escapeInEditor,
+				async (session) => {
+					expect(answers).toEqual([null]);
+					expect(await session.inBuffer(CANCELLED)).toBe(1);
+					await editorTakesTyping(session);
+				},
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("fails closed on /fork, leaving no record in the session it left", async () => {
-		const { ours, twin } = await judged(screen, "tool", fork, leftNoRecord);
-		expectNoWorseThan(ours, twin);
-	});
+		it("fails closed on /fork, leaving no record in the session it left", async () => {
+			const { ours, twin } = await judged(screen, "tool", fork, leftNoRecord);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("stays answerable when /fork is cancelled", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"tool",
-			forkCancelled,
-			stillAnswerable,
-		);
-		expectNoWorseThan(ours, twin);
-	});
+		it("stays answerable when /fork is cancelled", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				forkCancelled,
+				stillAnswerable,
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("fails closed on /tree to an earlier point", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"tool",
-			tree,
-			async (session) => {
-				expect(answers).toEqual([null]);
-				// Pi rebuilds the transcript from the branch it moved to, which
-				// holds no record, and its full redraw clears the scrollback.
-				expect(await session.inBuffer(CANCELLED)).toBe(0);
-				await editorTakesTyping(session);
-			},
-		);
-		expectNoWorseThan(ours, twin);
-	});
+		it("fails closed on /tree to an earlier point", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				tree,
+				async (session) => {
+					expect(answers).toEqual([null]);
+					// Pi rebuilds the transcript from the branch it moved to, which
+					// holds no record, and its full redraw clears the scrollback.
+					expect(await session.inBuffer(CANCELLED)).toBe(0);
+					await editorTakesTyping(session);
+				},
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("stays answerable when /tree is cancelled", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"tool",
-			treeCancelled,
-			stillAnswerable,
-		);
-		expectNoWorseThan(ours, twin);
-	});
+		it("stays answerable when /tree is cancelled", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				treeCancelled,
+				stillAnswerable,
+			);
+			expectNoWorseThan(ours, twin);
+		});
 
-	it("stays answerable when pi refuses /reload mid-turn", async () => {
-		const { ours, twin } = await judged(
-			screen,
-			"tool",
-			reloadBusy,
-			stillAnswerable,
-		);
-		expectNoWorseThan(ours, twin);
-	});
-});
+		it("stays answerable when pi refuses /reload mid-turn", async () => {
+			const { ours, twin } = await judged(
+				screen,
+				"tool",
+				reloadBusy,
+				stillAnswerable,
+			);
+			expectNoWorseThan(ours, twin);
+		});
+	},
+);
 
 const QUIT_SCREEN: Screen = { cols: 100, rows: 30, history: 1 };
 
@@ -676,26 +682,25 @@ describe.each([
 	["/quit", (session: PiSession) => command(session, "/quit")],
 	["Ctrl+D", (session: PiSession) => session.key("ctrl+d")],
 ] as const)("quitting with %s", (_name, quit) => {
-	it.each([
-		"tool",
-		"guardian",
-		"progress",
-	] as const)("exits over a %s, and the gate fails closed", async (raiser) => {
-		const session = await boot(QUIT_SCREEN);
-		await raise(session, raiser);
-		await hopOut(session, raiser);
+	it.each(["tool", "guardian", "progress"] as const)(
+		"exits over a %s, and the gate fails closed",
+		async (raiser) => {
+			const session = await boot(QUIT_SCREEN);
+			await raise(session, raiser);
+			await hopOut(session, raiser);
 
-		await quit(session);
-		await waitFor(() => session.exits().length > 0, "pi to exit");
-		await sleep(100);
+			await quit(session);
+			await waitFor(() => session.exits().length > 0, "pi to exit");
+			await sleep(100);
 
-		expect(session.exits()).toEqual([0]);
-		expect(answers).toEqual(raiser === "progress" ? [] : [null]);
-		expect(
-			existsSync(guardedFile()),
-			`${guardedFile()} is never written, as the guarded command never ran`,
-		).toBe(false);
-	});
+			expect(session.exits()).toEqual([0]);
+			expect(answers).toEqual(raiser === "progress" ? [] : [null]);
+			expect(
+				existsSync(guardedFile()),
+				`${guardedFile()} is never written, as the guarded command never ran`,
+			).toBe(false);
+		},
+	);
 });
 
 describe("the guarded command", () => {

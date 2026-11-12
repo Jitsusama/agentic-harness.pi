@@ -83,19 +83,19 @@ describe("web bundle ownership", () => {
 		});
 	});
 
-	it.each([
-		"held",
-		"unknown",
-	] as const)("preserves a dead hosted owner's bundles when the catalogue says %s", async (status) => {
-		const ctx = session();
-		host(BEFORE);
-		const file = diskSink(undefined, ctx).writeText("dom.html", "kept");
-		await reapAbandonedBundles({
-			standing: async () => "gone",
-			heldSessionStatus: async () => status,
-		});
-		expect(readFileSync(file, "utf8")).toBe("kept");
-	});
+	it.each(["held", "unknown"] as const)(
+		"preserves a dead hosted owner's bundles when the catalogue says %s",
+		async (status) => {
+			const ctx = session();
+			host(BEFORE);
+			const file = diskSink(undefined, ctx).writeText("dom.html", "kept");
+			await reapAbandonedBundles({
+				standing: async () => "gone",
+				heldSessionStatus: async () => status,
+			});
+			expect(readFileSync(file, "utf8")).toBe("kept");
+		},
+	);
 
 	it("reaps only the hosted conversation the catalogue says is unheld", async () => {
 		const a = session();

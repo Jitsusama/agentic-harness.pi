@@ -87,21 +87,21 @@ describe("session artifact ownership", () => {
 		});
 	});
 
-	it.each([
-		"held",
-		"unknown",
-	] as const)("preserves a dead hosted owner when the catalogue says %s", async (status) => {
-		const ctx = session();
-		host(BEFORE);
-		const payload = openSessionStore(ctx).put("retained");
-		await reapAbandonedResults({
-			root: RESULT_ROOT,
-			isPidAlive: () => false,
-			standing: async () => "gone",
-			heldSessionStatus: async () => status,
-		});
-		expect(openSessionStore(ctx).read(payload.handle)).toBe("retained");
-	});
+	it.each(["held", "unknown"] as const)(
+		"preserves a dead hosted owner when the catalogue says %s",
+		async (status) => {
+			const ctx = session();
+			host(BEFORE);
+			const payload = openSessionStore(ctx).put("retained");
+			await reapAbandonedResults({
+				root: RESULT_ROOT,
+				isPidAlive: () => false,
+				standing: async () => "gone",
+				heldSessionStatus: async () => status,
+			});
+			expect(openSessionStore(ctx).read(payload.handle)).toBe("retained");
+		},
+	);
 
 	it("reaps only a dead owner whose hosted conversation is definitively unheld", async () => {
 		const a = session();

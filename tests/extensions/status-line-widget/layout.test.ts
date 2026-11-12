@@ -369,19 +369,20 @@ describe("pi's status line in Joel's windows", () => {
 		],
 	});
 
-	it.each([
-		76, 134,
-	])("keeps where, the model, the rate and the branch at %i columns", (columns) => {
-		const line = read(his, columns);
+	it.each([76, 134])(
+		"keeps where, the model, the rate and the branch at %i columns",
+		(columns) => {
+			const line = read(his, columns);
 
-		for (const kept of ["dotfiles", "opus-5-5", "∂ $0.04", "B main *", "⚑"]) {
-			expect(line, `${kept} at ${columns} columns`).toContain(kept);
-		}
-		expect(
-			widthAt(his, columns),
-			"no wider than the window",
-		).toBeLessThanOrEqual(columns);
-	});
+			for (const kept of ["dotfiles", "opus-5-5", "∂ $0.04", "B main *", "⚑"]) {
+				expect(line, `${kept} at ${columns} columns`).toContain(kept);
+			}
+			expect(
+				widthAt(his, columns),
+				"no wider than the window",
+			).toBeLessThanOrEqual(columns);
+		},
+	);
 
 	it("is never the folder's name alone while the rate fits beside it", () => {
 		for (let columns = 24; columns <= 220; columns++) {

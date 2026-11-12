@@ -2,7 +2,7 @@
 // The linter runs every rule Biome has; each rule turned off below says
 // why, so a rule that isn't running is a decision, never an oversight.
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",

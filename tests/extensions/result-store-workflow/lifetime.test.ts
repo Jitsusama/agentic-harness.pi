@@ -44,18 +44,16 @@ afterEach(() => {
 });
 
 describe("a session's stored payloads", () => {
-	it.each([
-		"reload",
-		"new",
-		"resume",
-		"fork",
-	])("are kept through a %s, which leaves this process running", async (reason) => {
-		await activate().get("session_shutdown")?.(
-			{ type: "session_shutdown", reason },
-			ctx,
-		);
-		expect(existsSync(payload()), `${payload()} is kept`).toBe(true);
-	});
+	it.each(["reload", "new", "resume", "fork"])(
+		"are kept through a %s, which leaves this process running",
+		async (reason) => {
+			await activate().get("session_shutdown")?.(
+				{ type: "session_shutdown", reason },
+				ctx,
+			);
+			expect(existsSync(payload()), `${payload()} is kept`).toBe(true);
+		},
+	);
 
 	it("are removed when pi quits", async () => {
 		await activate().get("session_shutdown")?.(
