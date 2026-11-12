@@ -1077,8 +1077,9 @@ waits as any move does, saying at once what it waits for first, such as
 a run under way. Since no cutover runs to adopt the log once its pi
 ends, it first starts `scripts/host-take-up.ts` on its own, which waits
 for that session's note alone, has the host adopt the log once the pi
-has gone, and ends if the move is called off or the pi goes without a
-note; what it says goes to `take-up/<session>.log` beside the
+has gone, and ends if the move is called off, the pi goes without a
+note, or an hour passes, after which a move that goes at last is taken
+back by the join and the window runs plain pi again; what it says goes to `take-up/<session>.log` beside the
 presences. It refuses, saying why and changing nothing, a conversation
 hosted already, a move already waiting, a session with no log yet, a
 window its mycelium holder doesn't run itself (the move would close it),
