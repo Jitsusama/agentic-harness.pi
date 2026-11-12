@@ -95,8 +95,9 @@ export function registered(): Map<string, Set<string>> {
 			// passing, the safe side; narrowing it to one list would miss work's,
 			// which sits above the tool rather than inside it.
 			for (const [, list = ""] of source.matchAll(/\[([^\]]*)\]\s*as const/g)) {
-				for (const [, act] of list.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
-					actions.add(act);
+				for (const quoted of list.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
+					const act = quoted.at(1);
+					if (act !== undefined) actions.add(act);
 				}
 			}
 			for (const shared of sharedActionLists(file)) actions.add(shared);
