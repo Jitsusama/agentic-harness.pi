@@ -891,6 +891,9 @@ function writeAgentFolder(api: string, packages: readonly string[]): void {
 			defaultProvider: PROVIDER,
 			defaultModel: MODEL,
 			packages,
+			// The harness's codemode takes the built-in's place, as Joel's
+			// settings say; without this, pi warns of it at every start.
+			extensions: ["-builtin:codemode"],
 			retry: { enabled: false },
 			compaction: { enabled: false },
 		}),
