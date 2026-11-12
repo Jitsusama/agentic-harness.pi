@@ -2,8 +2,9 @@
  * Releasing hosted conversations back to plain pi, as the rollback a
  * cutover can always take.
  *
- * Each chosen conversation is told to move to `pi` (lib/mesh/steer.ts),
- * so it ends itself the moment nothing holds it and its host drops it,
+ * Each chosen conversation is told to move to `pi` (lib/mesh/steer.ts)
+ * and woken if it is parked, as a cutover wakes the ones it moves, so it
+ * ends itself the moment nothing holds it and its host drops it,
  * leaving a move note that restore.json offers back
  * (lib/internal/quest/restore-file.ts), whatever the boot, until a plain
  * pi starts it again from the same file. The release refreshes that
@@ -32,6 +33,11 @@ export interface ReleaseFacts {
 	addressesOf(session: string): readonly string[];
 	/** Ask the conversation going by `address` to move to plain pi. */
 	tell(address: string): void;
+	/**
+	 * Wake the conversation if it is parked, so it starts and reads what it
+	 * was told; nothing for one running.
+	 */
+	wake(session: string): void;
 	/** The move note a session left, if any. */
 	note(session: string): MoveNote | undefined;
 	/** What holds a conversation from ending now, as its presence says. */
@@ -135,6 +141,9 @@ export async function releaseBack(
 	const waitedFor = new Map<string, string[]>();
 	for (const one of chosen) {
 		facts.tell(addressOf(one.session));
+		// A parked one reads its inbox only once it runs, and nothing else
+		// need be running to wake it overnight.
+		facts.wake(one.session);
 		facts.say(`told ${addressOf(one.session)} to move back to pi`);
 		waitedFor.set(one.session, []);
 	}
