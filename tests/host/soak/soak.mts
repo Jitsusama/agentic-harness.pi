@@ -235,9 +235,14 @@ async function runHosted(sealed: Seal): Promise<{
 	const host = await startScreenHost(sealed, packageDir ?? "", also, agentFile);
 	const work = folders(sealed);
 	const conversations: Conversation[] = [];
+	const opening = Date.now();
 	for (const [index, count] of counts.entries()) {
 		const cwd = workingFolder(work);
-		const { sessionId, file } = await host.open(cwd);
+		const { sessionId, file } = await host.open(cwd).catch((error: unknown) => {
+			const said = host.errors().slice(-SAID_CHARACTERS);
+			throw new Error(`opening ${index}: ${String(error)}: ${said}`);
+		});
+		say(`opened ${index} at ${Date.now() - opening} ms`);
 		const turns = turnsOf(index, count);
 		conversations.push({ index, cwd, sessionId, file, turns });
 	}
