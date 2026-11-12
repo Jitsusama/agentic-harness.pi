@@ -17,8 +17,20 @@ export interface Difference {
 	readonly actual?: unknown;
 }
 
-/** Keys whose values are times, left out of every comparison. */
-const TIMING = new Set(["timestamp", "durationMs", "summaryMs", "waitedMs"]);
+/**
+ * Keys whose values are times, left out of every comparison. `of`,
+ * `preparedMs` and `firstTokenMs` are a model call's timing entry's
+ * (observability-workflow's timing.ts), `of` its start in ms.
+ */
+const TIMING = new Set([
+	"timestamp",
+	"durationMs",
+	"summaryMs",
+	"waitedMs",
+	"of",
+	"preparedMs",
+	"firstTokenMs",
+]);
 
 /** Keys whose values are generated ids, compared by where they recur. */
 const REFERENCES = new Set([
