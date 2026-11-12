@@ -84,7 +84,7 @@ import {
 	type ThreadAudit,
 	touchedBy,
 } from "../../../lib/core/review/index.ts";
-import { sessionCwd } from "../../../lib/core/session/index.ts";
+import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
 import {
 	type ConfigLoadResult,
 	loadPackageConfig,
@@ -97,6 +97,10 @@ import {
 	personsWords,
 	refusedModel,
 } from "../../../lib/internal/session/asked-models.ts";
+import {
+	endsWithItsPrompts,
+	runOrHandOff,
+} from "../../../lib/jobs/hand-off.ts";
 import { firstResponseBegun } from "../../../lib/subagent/first-response.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
@@ -256,7 +260,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 		promptSnippet:
 			"Ask other models about a change: a council, a judge over it, the rounds so far, or a retry of one participant.",
 		promptGuidelines: [
-			"Run a council, which waits and shows its progress, unless the person asked for a round in the background; only then use start, and say that it is running in the background.",
+			"Run a council, which shows its progress and, still running after a minute, moves to the background with its result arriving later as a message of its own; use start only when the person asked for a round in the background, and say that it is running there.",
 			"The roster is chosen, first match winning: the set this round names, the set the loaded quest names (review.ask.quests), the set the project names (review.ask.projects), the review.ask roster, then a built-in roster of four reviewers and a judge. Name a set only when the person asked for one; the answer says which layer chose. A participant with no model runs on the session's model, at high thinking unless it says otherwise.",
 			"When a judge is done, check each of its findings against the source yourself before deciding it, then group what holds up by root cause and fix causes rather than symptoms.",
 			"A council is the discovery pass and a judge consolidates it, so run a council first; a judge with no council to read is refused rather than asked to invent one.",
@@ -423,96 +427,118 @@ export function registerAskTool(pi: ExtensionAPI): void {
 		// the same way, and three comments in this extension claimed pi
 		// provided neither.
 		async execute(
-			_toolCallId: string,
+			toolCallId: string,
 			args: unknown,
-			signal: AbortSignal | undefined,
+			callSignal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			ctx: ExtensionContext,
 		): Promise<Answer> {
 			const params = args as AskParams;
 			const action = params.action ?? "runs";
+			// A round runs for minutes, deaf to the person and the mesh while
+			// it holds the turn, so one still going after a minute moves to a
+			// job, as a long command does.
+			return await runOrHandOff<unknown>({
+				kind: "review",
+				label: `${action} on ${params.change ?? "the attached change"}`,
+				noun: "background round",
+				filePrefix: "pi-review-ask",
+				stopping: (jobId) =>
+					`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which stops every reviewer and keeps what they wrote. The person can stop it with /jobs.`,
+				quiet: "Its board shows how far each reviewer has got.",
+				toolCallId,
+				session: sessionKeyOf(ctx),
+				nested: endsWithItsPrompts(ctx.mode),
+				signal: callSignal,
+				onUpdate: undefined,
+				bus: pi.events,
+				run: (signal) => answerAsk(signal),
+			});
+
 			// One watch per call rather than one per round helper, so the
 			// board and the signal are the same objects everything sees, and
 			// every board this call opens comes down as its answer is handed
 			// back, including the answer to a round that threw.
-			return answerWatching(ctx, signal, async (watch) => {
-				try {
-					// Before the change is bound, because this one is about the
-					// roster and not about any change. Binding first made the
-					// listing refuse from exactly the position it exists to be
-					// reachable from: deciding who to ask, before attaching
-					// anything to ask them about.
-					if (action === "roster") {
-						return await reportRoster(await seatFor(ctx, params));
-					}
+			function answerAsk(signal: AbortSignal): Promise<Answer> {
+				return answerWatching(ctx, signal, async (watch) => {
+					try {
+						// Before the change is bound, because this one is about the
+						// roster and not about any change. Binding first made the
+						// listing refuse from exactly the position it exists to be
+						// reachable from: deciding who to ask, before attaching
+						// anything to ask them about.
+						if (action === "roster") {
+							return await reportRoster(await seatFor(ctx, params));
+						}
 
-					const bound = await boundFor(pi, params, sessionCwd(ctx));
-					const change = reviewedChange(bound);
-					if (change === undefined) {
-						return refuse(
-							"A list of refs is put to the roster all together with action stack. Every other round takes a hosted change, or a local range as base and head.",
-						);
-					}
+						const bound = await boundFor(pi, params, sessionCwd(ctx));
+						const change = reviewedChange(bound);
+						if (change === undefined) {
+							return refuse(
+								"A list of refs is put to the roster all together with action stack. Every other round takes a hosted change, or a local range as base and head.",
+							);
+						}
 
-					const seat = await seatFor(ctx, params, change);
-					switch (action) {
-						case "runs":
-							return await reportRuns(change);
-						case "collect":
-							return await collectOne(change, params);
-						case "council":
-							return await askCouncil(
-								bound,
-								change,
-								params,
-								seat,
-								watch("council"),
-							);
-						case "start":
-							return await startRound(pi.events, bound, change, params, seat);
-						case "stop":
-							return await stopRound(change, params);
-						case "judge":
-							return await askJudge(
-								bound,
-								change,
-								params,
-								seat,
-								watch("judge"),
-							);
-						case "critique":
-							return await askCritique(
-								bound,
-								change,
-								params,
-								seat,
-								watch("critique"),
-							);
-						case "audit":
-							return await askAudit(
-								bound,
-								change,
-								params,
-								seat,
-								watch("audit"),
-							);
-						case "stack":
-							return await askStack(pi, bound, params, seat, watch("stack"));
-						case "retry":
-							return await retryOne(
-								bound,
-								change,
-								params,
-								seat,
-								watch("council"),
-							);
-						case "release":
-							return releaseIdentity(params);
+						const seat = await seatFor(ctx, params, change);
+						switch (action) {
+							case "runs":
+								return await reportRuns(change);
+							case "collect":
+								return await collectOne(change, params);
+							case "council":
+								return await askCouncil(
+									bound,
+									change,
+									params,
+									seat,
+									watch("council"),
+								);
+							case "start":
+								return await startRound(pi.events, bound, change, params, seat);
+							case "stop":
+								return await stopRound(change, params);
+							case "judge":
+								return await askJudge(
+									bound,
+									change,
+									params,
+									seat,
+									watch("judge"),
+								);
+							case "critique":
+								return await askCritique(
+									bound,
+									change,
+									params,
+									seat,
+									watch("critique"),
+								);
+							case "audit":
+								return await askAudit(
+									bound,
+									change,
+									params,
+									seat,
+									watch("audit"),
+								);
+							case "stack":
+								return await askStack(pi, bound, params, seat, watch("stack"));
+							case "retry":
+								return await retryOne(
+									bound,
+									change,
+									params,
+									seat,
+									watch("council"),
+								);
+							case "release":
+								return releaseIdentity(params);
+						}
+					} catch (error) {
+						return refuse(messageOf(error));
 					}
-				} catch (error) {
-					return refuse(messageOf(error));
-				}
-			});
+				});
+			}
 		},
 	});
 }

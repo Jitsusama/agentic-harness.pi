@@ -26,6 +26,7 @@ import type {
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../core/session/index.ts";
+import { count, verb } from "../ui/count.ts";
 import { firstText } from "../ui/tool-result.ts";
 import { findJobHost } from "./host.ts";
 
@@ -308,7 +309,7 @@ function saidBy(result: AgentToolResult<unknown>): string {
 		(block) => block.type === "image",
 	).length;
 	if (images === 0) return text;
-	const left = `${images} image${images === 1 ? "" : "s"} it showed ${images === 1 ? "is" : "are"} left out, since a background result carries only text.`;
+	const left = `${count(images, "image")} it showed ${verb(images, "is", "are")} left out, since a background result carries only text.`;
 	return `${text.replace(/\n+$/, "")}\n${left}`;
 }
 
