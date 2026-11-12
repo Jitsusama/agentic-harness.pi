@@ -28,6 +28,9 @@
  *   tool_search, then ends that peer;
  * - told `fleet <cwd> <extension>`, it runs two subagents in that folder,
  *   each with that extension loaded and told `whoami`;
+ * - told `fleet-carry <cwd> <extension>`, it loads subagent through
+ *   tool_search, then runs a background fleet there, one subagent told
+ *   `nap` and one `long nap`, so a move lands while it runs;
  * - told `whoami`, it says the pid, node and arguments of the pi it
  *   answers in, which for a subagent is the subagent's own;
  * - told `dawdle`, it has bash run a command that never ends by
@@ -257,6 +260,9 @@ function ownPi(): string {
 /** What `fleet <cwd> <extension>` says: run two subagents there. */
 const FLEET = /^fleet (\S+) (\S+)$/m;
 
+/** What `fleet-carry <cwd> <extension>` says: run a background fleet there. */
+const CARRIED = /^fleet-carry (\S+) (\S+)$/m;
+
 /** What `end <address>` says, naming the peer to end. */
 const ENDING = /^end ([0-9A-Z]+)$/m;
 
@@ -297,6 +303,9 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		const fleet = FLEET.exec(told);
 		if (last.toolName === "tool_search" && fleet?.[1] && fleet[2])
 			return fleetOf(faux, fleet[1], fleet[2]);
+		const carried = CARRIED.exec(told);
+		if (last.toolName === "tool_search" && carried?.[1] && carried[2])
+			return carriedFleetOf(faux, carried[1], carried[2]);
 		return faux.fauxAssistantMessage("sent");
 	}
 	const words = latestWords(heard);
@@ -333,24 +342,10 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	if (toldTo(words, NAP)) return toolCall(faux, "bash", { command: NAPPING });
 	if (toldTo(words, LONG_NAP))
 		return toolCall(faux, "bash", { command: LONG_NAPPING });
-	const carried = /^fleet-carry (\S+) (\S+)$/m.exec(words);
-	if (carried?.[1] && carried[2])
-		return toolCall(faux, "subagent", {
-			runId: CARRIED_FLEET,
-			background: true,
-			jobs: [
-				{ id: "one", userPrompt: NAP },
-				{ id: "two", userPrompt: LONG_NAP },
-			].map((job) => ({
-				...job,
-				cwd: carried[1],
-				extraExtensions: [carried[2]],
-			})),
-		});
 	if (toldTo(words, REOPEN))
 		return toolCall(faux, "quest", { action: "reopen-sessions" });
 	// subagent is deferred, so it is loaded first, as a model would.
-	if (FLEET.test(words))
+	if (FLEET.test(words) || CARRIED.test(words))
 		return toolCall(faux, "tool_search", { query: "subagent" });
 	const plainly = /^plain spawn (QEST-[0-9]{8}-[0-9A-Z]{6})$/m.exec(words);
 	if (plainly?.[1])
@@ -373,6 +368,21 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 			expression: "$[*]",
 		});
 	return faux.fauxAssistantMessage("ok");
+}
+
+/**
+ * A turn that runs a background fleet in `cwd`, each subagent loading
+ * `extension`: one that ends soon and one that outlasts a move.
+ */
+function carriedFleetOf(faux: Faux, cwd: string, extension: string): unknown {
+	return toolCall(faux, "subagent", {
+		runId: CARRIED_FLEET,
+		background: true,
+		jobs: [
+			{ id: "one", userPrompt: NAP },
+			{ id: "two", userPrompt: LONG_NAP },
+		].map((job) => ({ ...job, cwd, extraExtensions: [extension] })),
+	});
 }
 
 /** A turn that runs two subagents in `cwd`, each loading `extension`. */
