@@ -208,6 +208,15 @@ holding its start between the two. On 11 November a window moving in
 place attached that soon, was answered, found no screen and closed.
 Here the attach is answered only once the screen exists, and shows it.
 
+host-command.test.ts is E13, `/host` typed in a plain pi's own
+window: the pi runs in a terminal a stand-in holder's record says it
+runs itself, as mycelium's hold runs Joel's, with no flag a restart
+would lose, so the scripted model loads from the seal's settings. /host
+names the join as the holder's next command and ends, and the take-up
+it started has the background host adopt the log: the host lists the
+same session, its log keeps what the pi held, and it answers there
+under the same address.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 

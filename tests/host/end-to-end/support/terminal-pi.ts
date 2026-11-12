@@ -20,7 +20,10 @@ import { textOf, untilAnswered } from "./hosted-case.ts";
 import type { Seal } from "./seal.ts";
 
 /** The extension that registers the scripted model in a plain pi. */
-const SCRIPTED_PROVIDER = resolve(import.meta.dirname, "scripted-provider.ts");
+export const SCRIPTED_PROVIDER = resolve(
+	import.meta.dirname,
+	"scripted-provider.ts",
+);
 
 /** The terminal's size. */
 const ROWS = 40;
@@ -45,6 +48,8 @@ export interface TerminalPi {
 	file(): string | undefined;
 	/** Type `message` and Enter, as the person would, waiting until its log holds it. */
 	prompt(message: string): Promise<void>;
+	/** Type `line` and Enter, as a slash command, which its log never holds. */
+	type(line: string): void;
 	/** Whether it has ended. */
 	ended(): boolean;
 	/** Stop it, waiting until it has gone. */
@@ -56,20 +61,24 @@ export interface TerminalPi {
 /**
  * Start a plain pi under `seal` on the pi in `packageDir`, in `cwd`, in a
  * terminal: resuming the session `file`, or on a fresh session without
- * one. Answers once its harness has said it is there.
+ * one, with `env` beside the seal's. Answers once its harness has said it
+ * is there. A `bare` pi takes no flag, as a held pi a restart can start
+ * again takes none it would lose (lib/internal/session/park.ts
+ * flagsLost), so the seal's settings must load {@link SCRIPTED_PROVIDER}.
  */
 export async function startTerminalPi(options: {
 	seal: Seal;
 	packageDir: string;
 	file?: string;
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
+	bare?: boolean;
 }): Promise<TerminalPi> {
 	const words = [
 		process.execPath,
 		join(options.packageDir, "dist/bundle/cli.js"),
 		...(options.file ? ["--session", options.file] : []),
-		"--extension",
-		SCRIPTED_PROVIDER,
+		...(options.bare ? [] : ["--extension", SCRIPTED_PROVIDER]),
 	].map(quoted);
 	// script(1) reads no window from a pipe, so the terminal is told its
 	// size before pi starts in it; exec keeps the pid pi runs as.
@@ -84,6 +93,7 @@ export async function startTerminalPi(options: {
 			cwd: options.cwd,
 			env: {
 				...options.seal.env,
+				...options.env,
 				TERM: "xterm-256color",
 				PI_HOST_PACKAGE_DIR: options.packageDir,
 			},
@@ -152,6 +162,10 @@ export async function startTerminalPi(options: {
 			await untilAnswered(`pi takes "${message}" from its terminal`, async () =>
 				textOf(file()).includes(JSON.stringify(message).slice(1, -1)),
 			).catch(fail);
+		},
+		type(line) {
+			child.stdin.write(line);
+			child.stdin.write(ENTER);
 		},
 		ended: () => gone,
 		async stop() {

@@ -1081,6 +1081,23 @@ through the launcher or sent by a client, and read at start from the log
 pi holds, so the cutover need read no log. It stays true for that session
 in any process, and a new session starts without it.
 
+`/host`, typed in a plain pi's own window, makes the same move from
+inside it ([`host-command.ts`](host-command.ts)): into the background
+host, or with `/host attended` the attended one, in place, so the window
+stays where it is and the host's viewer takes over the same terminal. It
+waits as any move does, saying at once what it waits for first, such as
+a run under way. Since no cutover runs to adopt the log once its pi
+ends, it first starts `scripts/host-take-up.ts` on its own, which waits
+for that session's note alone, has the host adopt the log once the pi
+has gone, and ends if the move is called off, the pi goes without a
+note, or an hour passes, after which a move that goes at last is taken
+back by the join and the window runs plain pi again; what it says goes to `take-up/<session>.log` beside the
+presences. It refuses, saying why and changing nothing, a conversation
+hosted already, a move already waiting, a session with no log yet, a
+window its mycelium holder doesn't run itself (the move would close it),
+a realm whose node starts another agent than pi, as Joel's personal one
+starts pi-claude, and a host that isn't listening.
+
 ## Not Yet
 
 - A change lease covers files, not a pull request in progress.

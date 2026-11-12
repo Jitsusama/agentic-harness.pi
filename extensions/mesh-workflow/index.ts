@@ -33,6 +33,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -182,7 +183,7 @@ import {
 	senderIdentity,
 	shortId,
 } from "../../lib/mesh/message.ts";
-import { nodeSocket } from "../../lib/mesh/node.ts";
+import { agentsAt, nodeSocket } from "../../lib/mesh/node.ts";
 import {
 	ASK_AGAIN_MS,
 	createAwaiting,
@@ -247,6 +248,7 @@ import {
 	leftToIn,
 	saidIn,
 } from "./glances.ts";
+import { moveIntoHost, probeHost, startTakeUp } from "./host-command.ts";
 import { handOverOf, hostedPresence } from "./in-place.ts";
 import {
 	createEditNotes,
@@ -919,6 +921,17 @@ export function meshWorkflow(
 		let unhearKeys: (() => void) | undefined;
 		// The host this conversation runs in, by key, read where hosted() knows.
 		let hostKey: string | undefined;
+		// A host's conversation has no window of its own to hand over.
+		const handOver = () =>
+			ctx?.hasUI && peer && hostKey === undefined
+				? handOverOf({
+						env,
+						pid: senderIdentity().pid,
+						args: process.argv.slice(2),
+						session: peer.session,
+						sessionFile: ctx.sessionManager.getSessionFile(),
+					})
+				: undefined;
 		// Move into a host or out of one, from outside the window (moving.ts).
 		const moving = createMoving({
 			holds: () => holdsOf(ctx, pi.events, prompts),
@@ -952,17 +965,7 @@ export function meshWorkflow(
 					),
 				);
 			},
-			// A host's conversation has no window of its own to hand over.
-			handOver: () =>
-				ctx?.hasUI && peer && hostKey === undefined
-					? handOverOf({
-							env,
-							pid: senderIdentity().pid,
-							args: process.argv.slice(2),
-							session: peer.session,
-							sessionFile: ctx.sessionManager.getSessionFile(),
-						})
-					: undefined,
+			handOver,
 			keyedAt: () => keyedAt,
 			tell: (text) => {
 				if (ctx?.hasUI) ctx.ui.notify(text, "info");
@@ -1571,6 +1574,29 @@ export function meshWorkflow(
 							),
 						),
 		);
+		// Into a host from inside the window, in place (host-command.ts).
+		pi.registerCommand?.("host", {
+			description:
+				"/host [attended|background]: move this session into that host, the background one unless said, keeping this window; it waits for the session to settle first.",
+			handler: async (args, at) => {
+				const refusal = await moveIntoHost(args, {
+					session: () => peer?.session,
+					hostedIn: () => hostKey,
+					moving: () => peer?.moving,
+					sessionFile: () => at.sessionManager.getSessionFile(),
+					handOver,
+					env,
+					pid: senderIdentity().pid,
+					args: process.argv.slice(2),
+					machine: hostname().split(".")[0] ?? "",
+					agents: () => agentsAt(nodeSocket(env)),
+					probe: probeHost,
+					move: (to) => moving.move(to, "here"),
+					takeUp: (session, to) => startTakeUp(session, to, paths.mesh, env),
+				});
+				if (refusal !== undefined) at.ui.notify(refusal, "warning");
+			},
+		});
 		pi.registerCommand?.("mesh", {
 			description:
 				"/mesh quiet [on|off]: keep other sessions' fyis and findings off this screen; questions, holds and pivots still show, and the model reads them all.",

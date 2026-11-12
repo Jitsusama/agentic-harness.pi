@@ -5,7 +5,8 @@ an auto-discovered extension. Hosts install the session seam before loading
 extensions and dispatch every callback within its conversation.
 
 - cutover/: moving every live pi into the realm's host, each ending
-  itself once free, for `scripts/host-cutover.ts`.
+  itself once free, for `scripts/host-cutover.ts`, and taking up one
+  session's `/host` move, for `scripts/host-take-up.ts`.
 - engine/: conversation ownership and pi's durable agent adapter.
 - screen/: one persistent pi screen per conversation, which viewers join.
 - service/: socket protocol, transport and the persistent restart roster.

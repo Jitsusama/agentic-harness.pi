@@ -211,6 +211,26 @@ describe("moving a session", () => {
 		);
 	});
 
+	it("says a move asked in its own window as asked there", () => {
+		const one = session();
+		one.move.move("background", "here");
+		expect(one.told[0]).toBe(
+			"Moving to the background host in this window, once nothing of its own is out.",
+		);
+		expect(one.asked).toEqual([
+			"close by a move to the background host, asked in its window",
+		]);
+	});
+
+	it("says what a move asked in its own window waits for first", () => {
+		const one = session("a run is under way");
+		one.move.move("attended", "here");
+		expect(one.told).toEqual([
+			"Moving to the attended host in this window; waiting first, as a run is under way.",
+		]);
+		expect(one.did).toEqual([]);
+	});
+
 	it("ends once, however often it is asked after", () => {
 		const one = session();
 		one.move.move("background");
