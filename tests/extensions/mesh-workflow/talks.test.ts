@@ -316,17 +316,16 @@ describe("a session's shutdown", () => {
 	const calm = { parked: false, restarting: false };
 
 	it("ends it for good only when pi quits with nothing to bring it back", () => {
-		expect(endsForGood({ reason: "quit" }, calm)).toBe(true);
-		expect(endsForGood({ reason: "quit" }, { ...calm, parked: true })).toBe(
-			false,
-		);
-		expect(
-			endsForGood({ reason: "quit" }, { ...calm, restarting: true }),
-		).toBe(false);
+		const quit = { reason: "quit" };
+		expect(endsForGood(quit, calm), "a plain quit").toBe(true);
+		const parked = { ...calm, parked: true };
+		expect(endsForGood(quit, parked), "a park").toBe(false);
+		const restarting = { ...calm, restarting: true };
+		expect(endsForGood(quit, restarting), "a restart").toBe(false);
 		for (const reason of ["reload", "new", "resume", "fork"]) {
 			expect(endsForGood({ reason }, calm), reason).toBe(false);
 		}
-		expect(endsForGood(undefined, calm)).toBe(false);
+		expect(endsForGood(undefined, calm), "no event").toBe(false);
 	});
 });
 
