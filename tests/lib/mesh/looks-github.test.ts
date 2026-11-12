@@ -22,7 +22,17 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const PR = "https://github.com/Jitsusama/core.nix/pull/2386";
 const who = { session: "S1" };
 const look = (target: string, title: string) =>
-	pointAt(dir, { kind: "pr", target, title, why: "For you to see." }, who);
+	pointAt(
+		dir,
+		{
+			kind: "pr",
+			target,
+			title,
+			why: "For you to see.",
+			ask: "Nothing, just to see.",
+		},
+		who,
+	);
 
 // Joel, 8 November: "i shouldn't be required to mark a notice as read if
 // I looked at the slack message in slack for example."
@@ -41,7 +51,11 @@ describe("asking GitHub about the person's looks", () => {
 
 	it("asks only about waiting looks at pull requests, in one query", () => {
 		look(PR, "Agent sources");
-		pointAt(dir, { kind: "file", target: "/x", title: "x", why: "y" }, who);
+		pointAt(
+			dir,
+			{ kind: "file", target: "/x", title: "x", why: "y", ask: "z" },
+			who,
+		);
 		const asked = askable(looksIn(dir));
 
 		expect(asked.map((one) => one.pull.number)).toEqual([2386]);

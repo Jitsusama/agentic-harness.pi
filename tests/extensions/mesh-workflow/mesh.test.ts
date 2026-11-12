@@ -71,6 +71,7 @@ import {
 	LEASE_EVENT,
 	type Lease,
 } from "../../../lib/mesh/lease.ts";
+import { looksIn } from "../../../lib/mesh/looks.ts";
 import {
 	clock,
 	type Draft,
@@ -4885,5 +4886,95 @@ describe("ending another peer's hold on the person's word", () => {
 		expect(sentOut()).toHaveLength(1);
 		expect(sentOut()[0]?.endsHold).toBeUndefined();
 		expect(said).toContain("is no other peer's hold");
+	});
+});
+
+// Joel, 11 November: what fights for his attention carries its own
+// context, and disappears once it no longer applies.
+describe("the person's look list, from show_person", () => {
+	const pr = {
+		kind: "pr",
+		target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1378",
+		title: "The status bar at narrow widths",
+		why: "Your status bar showed only dotfiles at 76 columns; now it keeps the model, the cost and the branch.",
+		ask: "Say whether it reads right: keep it, or tell me what to drop.",
+	};
+
+	it("keeps what he is asked, and refuses a look written in the agents' talk", async () => {
+		onQuest();
+		paths = { ...paths, looks: join(root, "looks") };
+		const { tools } = await startSession();
+		const show = (params: Record<string, unknown>) =>
+			tools.get("show_person")?.execute("call-s", params);
+
+		const talk = await show({
+			...pr,
+			why: "Settled with WCJQSG in [4a4ae257].",
+		});
+		expect(talk?.content[0]?.text, "agent talk").toContain("can't place");
+		const terse = await show({ ...pr, ask: undefined });
+		expect(terse?.content[0]?.text, "no ask").toContain("asked to do");
+		expect(looksIn(join(root, "looks")), "neither was kept").toEqual([]);
+
+		await show(pr);
+		expect(looksIn(join(root, "looks"))[0]).toMatchObject({
+			ask: pr.ask,
+			quest: "QEST-20261021-7M6JKG",
+			state: "waiting",
+		});
+	});
+
+	it("takes a look back when its session says it no longer applies", async () => {
+		onQuest();
+		paths = { ...paths, looks: join(root, "looks") };
+		const { tools } = await startSession();
+		const show = (params: Record<string, unknown>) =>
+			tools.get("show_person")?.execute("call-s", params);
+		await show(pr);
+
+		const taken = await show({
+			kind: pr.kind,
+			target: pr.target,
+			withdraw: true,
+		});
+
+		expect(taken?.content[0]?.text).toContain("Taken back");
+		expect(looksIn(join(root, "looks"))[0]).toMatchObject({
+			state: "resolved",
+			how: "taken back",
+		});
+		const again = await show({
+			kind: pr.kind,
+			target: pr.target,
+			withdraw: true,
+		});
+		expect(again?.content[0]?.text).toContain("Nothing to take back");
+	});
+
+	it("resolves the looks of a quest as it ends, and leaves another's", async () => {
+		onQuest();
+		paths = { ...paths, looks: join(root, "looks") };
+		const { tools, emit } = await startSession();
+		await tools.get("show_person")?.execute("call-s", pr);
+
+		emit(QUEST_CONCLUDED, {
+			how: "concluded",
+			ids: ["QEST-20261021-5GV2AH"],
+			said: "Concluded.",
+		});
+		expect(
+			looksIn(join(root, "looks"))[0]?.state,
+			"another quest's ending",
+		).toBe("waiting");
+
+		emit(QUEST_CONCLUDED, {
+			how: "concluded",
+			ids: ["QEST-20261021-7M6JKG"],
+			said: "Concluded.",
+		});
+		expect(looksIn(join(root, "looks"))[0]).toMatchObject({
+			state: "resolved",
+			how: "its quest ended",
+		});
 	});
 });

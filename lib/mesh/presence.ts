@@ -32,6 +32,7 @@ import {
 	orchestrationOf,
 } from "../internal/quest/orchestration.ts";
 import { parsedFiles } from "../internal/quest/parsed-file.ts";
+import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
 import { isLanding, type Landing } from "../internal/session/landings.ts";
 import { isMoveTarget, type MoveTarget } from "../internal/session/move.ts";
@@ -732,6 +733,15 @@ function describe(body: string): string {
  * READMEs that hadn't changed.
  */
 const readmes = parsedFiles(parseQuestFrontMatter);
+
+/**
+ * Whether the quest `quest` under `quests` has ended, concluded or
+ * retired. A quest whose README can't be read hasn't, since it may only
+ * be being written.
+ */
+export function questEnded(quests: string, quest: string): boolean {
+	return isSealedStatus(parsedReadme(quests, quest)?.frontMatter.status);
+}
 
 function parsedReadme(
 	quests: string,

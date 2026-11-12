@@ -34,6 +34,7 @@ import {
 	type Pointing,
 	pointAt,
 	refusalOf,
+	withdrawLook,
 } from "../../lib/mesh/looks.ts";
 import {
 	clock,
@@ -416,7 +417,7 @@ export function registerTools(
 		promptSnippet:
 			"Point the person at something to look at (a PR, a page, a file, a diff, a terminal): it goes on their look list, never opened for them.",
 		description:
-			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. Pointing at the same thing again from this session brings it to the top rather than adding it twice. Use it whenever you would otherwise tell them a link or a path to go and find.",
+			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. Pointing at the same thing again from this session brings it to the top rather than adding it twice. Use it whenever you would otherwise tell them a link or a path to go and find. Write title, why and ask for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
 		parameters: Type.Object({
 			kind: StringEnum([...LOOK_KINDS], {
 				description:
@@ -426,27 +427,65 @@ export function registerTools(
 				description:
 					"What opens: the URL, the file's absolute path, or the session's id",
 			}),
-			title: Type.String({ description: "What it is, in a few words" }),
-			why: Type.String({
-				description: "Why they should look, in a sentence",
-			}),
+			title: Type.Optional(
+				Type.String({ description: "What it is, in a few words" }),
+			),
+			why: Type.Optional(
+				Type.String({
+					description:
+						"Why they should look, in a sentence: what happened, for him",
+				}),
+			),
+			ask: Type.Optional(
+				Type.String({
+					description:
+						"What they're asked to do, with the choices, e.g. 'Say whether the bar reads right at your width: keep it or roll it back', or 'Nothing, just to see'",
+				}),
+			),
+			withdraw: Type.Optional(
+				Type.Boolean({
+					description:
+						"true to take back this session's look at kind and target, since it no longer applies; title, why and ask are then left out",
+				}),
+			),
 		}),
-		execute: using((at, params: Pointing) => {
+		execute: using((at, params: ShowPersonParams) => {
 			if (!at.looks) {
 				return answer(
 					"Nothing was kept: this pi keeps no folder for the person's look list.",
 				);
 			}
-			const refused = refusalOf(params);
+			if (params.withdraw === true) {
+				const took = withdrawLook(
+					at.looks,
+					at.peer.session,
+					params.kind,
+					params.target,
+				);
+				return answer(
+					took
+						? "Taken back: it's off the person's look list."
+						: "Nothing to take back: this session has no waiting look at that.",
+					{ withdrawn: took },
+				);
+			}
+			const pointing: Pointing = {
+				kind: params.kind,
+				target: params.target,
+				title: params.title ?? "",
+				why: params.why ?? "",
+				ask: params.ask ?? "",
+			};
+			const refused = refusalOf(pointing);
 			if (refused) return answer(`⊘ ${refused} Nothing was added.`);
 			const quest = at.presences.of(at.peer.session)?.quest;
-			const look = pointAt(at.looks, params, {
+			const look = pointAt(at.looks, pointing, {
 				session: at.peer.session,
 				address: at.peer.signature,
 				...(quest ? { quest } : {}),
 			});
 			return answer(
-				`On the person's look list: ${look.title}. It stays there until they open or clear it.`,
+				`On the person's look list: ${look.title}. It stays there until they open or clear it, or this session takes it back with withdraw once it no longer applies.`,
 				{ look },
 			);
 		}),
@@ -469,6 +508,16 @@ export function registerTools(
 }
 
 type Answer = ReturnType<typeof answer>;
+
+/** What show_person is called with: a pointing, or a withdraw of one. */
+interface ShowPersonParams {
+	readonly kind: Pointing["kind"];
+	readonly target: string;
+	readonly title?: string;
+	readonly why?: string;
+	readonly ask?: string;
+	readonly withdraw?: boolean;
+}
 
 /**
  * Every peer, answering only to its own addresses, sorted by whether

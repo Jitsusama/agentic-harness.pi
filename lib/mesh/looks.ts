@@ -14,6 +14,15 @@
  * One file a look, so sessions pointing at once never race on a shared
  * file. A look at the same thing from the same session replaces its
  * first, so pointing again brings it to the top rather than doubling it.
+ *
+ * Joel, 11 November: "anything that is going to fight for my attention
+ * is easy for me to engage with, even if i engage with it later. if it
+ * is no longer applicable because i took too long and things have
+ * changed, it should disappear." So a look carries its own context in
+ * his words, what it is, why and what he's asked, and refuses the
+ * agents' own talk (message and quest ids, peer addresses, paths, code);
+ * and its session takes it back, or its quest's end does, once it no
+ * longer applies.
  */
 
 import { createHash } from "node:crypto";
@@ -34,10 +43,22 @@ export type LookKind = (typeof LOOK_KINDS)[number];
 export type LookState = "waiting" | "opened" | "cleared" | "resolved";
 
 /**
- * How a look's change was resolved without the person: it merged or
- * closed, or their own account reviewed it on GitHub (looks-github.ts).
+ * How a look was resolved without the person: its change merged or
+ * closed, or their own account reviewed it on GitHub (looks-github.ts);
+ * its session took it back; or the quest it was for ended.
  */
-export type LookResolution = "merged" | "closed" | `reviewed by ${string}`;
+export type LookResolution =
+	| "merged"
+	| "closed"
+	| `reviewed by ${string}`
+	| "taken back"
+	| "its quest ended";
+
+/** The most words a look's why may run to: a sentence, read at a glance. */
+export const WHY_WORDS = 40;
+
+/** The most words a look's ask may run to. */
+export const ASK_WORDS = 30;
 
 /** One thing a session points the person at. */
 export interface Look {
@@ -61,6 +82,11 @@ export interface Look {
 	readonly title: string;
 	/** Why the person should look, in a sentence. */
 	readonly why: string;
+	/**
+	 * What the person is asked to do, with the choices, or that it is
+	 * only to see; none on a look kept before looks carried one.
+	 */
+	readonly ask?: string;
 	/** Waiting until the launcher says the person opened or cleared it. */
 	readonly state: LookState;
 	/** How it resolved, and when, once its change merged or closed. */
@@ -74,6 +100,7 @@ export interface Pointing {
 	readonly target: string;
 	readonly title: string;
 	readonly why: string;
+	readonly ask: string;
 }
 
 /** Whose a look is. */
@@ -108,6 +135,11 @@ export function refusalOf(pointing: Pointing): string | undefined {
 	if (pointing.why.trim() === "") {
 		return "A look needs why the person should look, so it isn't mistaken for something else.";
 	}
+	if (pointing.ask.trim() === "") {
+		return "A look needs what the person is asked to do and the choices, or that it is only to see.";
+	}
+	const talk = agentTalkIn(pointing);
+	if (talk) return talk;
 	if (
 		(pointing.kind === "pr" || pointing.kind === "page") &&
 		!/^https?:\/\//.test(pointing.target)
@@ -118,6 +150,43 @@ export function refusalOf(pointing: Pointing): string | undefined {
 		return "A file opens by its absolute path.";
 	}
 	return undefined;
+}
+
+/**
+ * The agents' own talk in what a look says, which the person can't place
+ * when he reaches it later (Joel, 11 November: "it is too hard for me to
+ * parse"), or nothing when it reads as written for him.
+ */
+function agentTalkIn(pointing: Pointing): string | undefined {
+	const said = [pointing.title, pointing.why, pointing.ask];
+	const plain =
+		"Write it for the person, in plain words that say what it means for him.";
+	for (const [pattern, what] of AGENT_TALK) {
+		if (said.some((text) => pattern.test(text)))
+			return `A look names ${what}, which the person can't place. ${plain}`;
+	}
+	if (/(?:^|\s)(?:~\/|\/[\w.-]+\/)/.test(`${pointing.why} ${pointing.ask}`)) {
+		return `A look's why and ask name no path: what opens is its target. ${plain}`;
+	}
+	if (wordsIn(pointing.why) > WHY_WORDS)
+		return `A look's why is a sentence, at most ${WHY_WORDS} words.`;
+	if (wordsIn(pointing.ask) > ASK_WORDS)
+		return `A look's ask is at most ${ASK_WORDS} words.`;
+	return undefined;
+}
+
+/** What gives the agents' talk away, and what each is called. */
+const AGENT_TALK: readonly (readonly [RegExp, string])[] = [
+	[/\[[0-9a-f]{8}\]/, "a mesh message's id"],
+	[/\b[A-Z]{4}-\d{8}-[A-Z0-9]{6}\b/, "a quest's or document's id"],
+	// Six capitals or digits, as a session signs: WCJQSG, 85PKB2.
+	[/\b(?=[A-Z0-9]{0,5}[A-Z])[A-Z0-9]{6}\b/, "a session's address"],
+	[/`/, "code"],
+];
+
+/** How many words `text` runs to. */
+function wordsIn(text: string): number {
+	return text.split(/\s+/).filter((word) => word !== "").length;
 }
 
 /**
@@ -141,6 +210,7 @@ export function pointAt(
 		target: pointing.target.trim(),
 		title: pointing.title.trim(),
 		why: pointing.why.trim(),
+		ask: pointing.ask.trim(),
 		state: "waiting",
 	};
 	writeWhole(
@@ -200,19 +270,68 @@ export function resolveLooks(
 		if (look.state !== "waiting") continue;
 		if (look.kind !== "pr" && look.kind !== "diff") continue;
 		if (changeKey(look.target) !== key) continue;
-		const resolved: Look = {
-			...look,
-			state: "resolved",
-			how,
-			resolvedAt: now.toISOString(),
-		};
-		writeWhole(
-			join(dir, `${look.id}.json`),
-			`${JSON.stringify(resolved, null, 2)}\n`,
-		);
+		markResolvedLook(dir, look, how, now);
 		marked++;
 	}
 	return marked;
+}
+
+/**
+ * Take back this session's waiting look at `kind` and `target`, since it
+ * no longer applies; answers whether there was one to take back. A look
+ * the person already opened or cleared is left as they left it.
+ */
+export function withdrawLook(
+	dir: string,
+	session: string,
+	kind: LookKind,
+	target: string,
+	now: Date = new Date(),
+): boolean {
+	const id = lookId(session, kind, target.trim());
+	const look = looksIn(dir).find((one) => one.id === id);
+	if (look?.state !== "waiting") return false;
+	markResolvedLook(dir, look, "taken back", now);
+	return true;
+}
+
+/**
+ * Mark every waiting look for a quest `ended` says has ended resolved,
+ * since what a quest asked of the person ends with it. Answers how many
+ * it marked.
+ */
+export function resolveLooksOfQuests(
+	dir: string,
+	ended: (quest: string) => boolean,
+	now: Date = new Date(),
+): number {
+	let marked = 0;
+	for (const look of looksIn(dir)) {
+		if (look.state !== "waiting" || look.quest === undefined) continue;
+		if (!ended(look.quest)) continue;
+		markResolvedLook(dir, look, "its quest ended", now);
+		marked++;
+	}
+	return marked;
+}
+
+/** Write `look` back resolved, `how`. */
+function markResolvedLook(
+	dir: string,
+	look: Look,
+	how: LookResolution,
+	now: Date,
+): void {
+	const resolved: Look = {
+		...look,
+		state: "resolved",
+		how,
+		resolvedAt: now.toISOString(),
+	};
+	writeWhole(
+		join(dir, `${look.id}.json`),
+		`${JSON.stringify(resolved, null, 2)}\n`,
+	);
 }
 
 /** Every look kept in `dir`, newest first; none for a folder not there. */
