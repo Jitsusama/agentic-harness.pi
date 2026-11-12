@@ -18,3 +18,8 @@ host/.
 PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
   tests/host/parity/parity.test.ts
 ```
+
+- `soak/`: a week's turns through one host, then through plain pi, reporting
+  the host's memory over the run, each side's turn latency and how their
+  records differ. Its smoke test runs in `pnpm test:host`; a week's run goes
+  on a lent builder by hand, as its README says.

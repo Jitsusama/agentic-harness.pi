@@ -1,0 +1,537 @@
+// The soak: a week's turns through one host, then the same turns through plain pi, and what each side's memory, latency and records say.
+/**
+ * Run on a lent builder, never on a laptop someone uses (README.md says
+ * how). Each conversation's turns are typed through viewers that attach
+ * for a visit of a few turns and leave, a second one joining every third
+ * visit, and include reads, bash, background bash jobs and long answers.
+ * At each checkpoint every conversation stops: the host is weighed awake,
+ * the park switch names them all, the host is weighed once they have
+ * parked, and each is woken again, by a window, by the mesh or by the
+ * next key typed, in turn. Then plain pi takes the same turns, one RPC
+ * process a conversation, all at once as the host's were.
+ *
+ *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
+ *     [--no-park] [--out DIR]
+ *
+ * It needs a pi with the host's patches, as test:host does
+ * (PI_HOST_RUNTIME), and prints the report as one JSON line after
+ * `soak report:`, writing it to DIR/report.json too.
+ */
+import {
+	appendFileSync,
+	closeSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	readSync,
+	readdirSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { askWake } from "../../../lib/internal/session/park.ts";
+import { type Folders, folders } from "../end-to-end/support/folders.ts";
+import { hostPackageDir, hostPiMissing } from "../end-to-end/support/host-pi.ts";
+import {
+	type ScreenHost,
+	startScreenHost,
+	type Weight,
+} from "../end-to-end/support/screen-host.ts";
+import { type Seal, seal } from "../end-to-end/support/seal.ts";
+import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
+import { rpcClient } from "../parity/rpc-client.ts";
+import {
+	entriesOf,
+	growthOf,
+	latencies,
+	parityOf,
+	spreadOf,
+} from "./report.ts";
+import { type SoakProvider, soakProvider } from "./soak-provider.ts";
+import {
+	acknowledged,
+	checkpointsOf,
+	type Turn,
+	turnsOf,
+	visitsOf,
+} from "./turns.ts";
+
+/** How long one turn may take on a loaded builder, every extension loaded. */
+const TURN_MS = 120_000;
+/** park-workflow's two minutes for a named session, its minute between looks, and room for load. */
+const PARK_MS = 4 * 60_000;
+/** How long a viewer may take to draw its first frame. */
+const DRAWN_MS = 30_000;
+/** How often a turn's end is looked for in its log. */
+const LOOK_EVERY_MS = 100;
+/** How much of a log's end a look reads: more than any one answer. */
+const TAIL_BYTES = 64 * 1024;
+/** A run with more faults than this stops, as its turns no longer say anything. */
+const MOST_FAULTS = 20;
+const ROWS = 30;
+const COLUMNS = 100;
+const ENTER = "\r";
+/** The extensions the fixture loads in every conversation already. */
+const FIXTURE_LOADS = new Set([
+	"panel-lifecycle-workflow",
+	"panel-zoom-widget",
+	"park-workflow",
+]);
+const HARNESS = resolve(import.meta.dirname, "../../..");
+
+/** A weighing at a checkpoint. */
+interface Checkpoint {
+	readonly turnsDone: number;
+	readonly atMs: number;
+	readonly awake: Weight;
+	readonly parked?: Weight;
+	/** The bytes every conversation's log holds. */
+	readonly recordBytes: number;
+	/** How long the last conversation took to park, and each to wake. */
+	readonly parkMs?: number;
+	readonly wakeMs?: readonly number[];
+}
+
+/** A conversation of the run, on one side. */
+interface Conversation {
+	readonly index: number;
+	readonly cwd: string;
+	sessionId: string;
+	file: string;
+	readonly turns: readonly Turn[];
+}
+
+const { values } = parseArgs({
+	options: {
+		turns: { type: "string" },
+		checkpoints: { type: "string", default: "8" },
+		"no-park": { type: "boolean", default: false },
+		out: { type: "string" },
+	},
+});
+const counts = (values.turns ?? "")
+	.split(",")
+	.filter((one) => one !== "")
+	.map(Number);
+const checkpoints = Number(values.checkpoints);
+if (counts.length === 0 || counts.some((n) => !(n >= checkpoints)))
+	throw new Error(
+		`usage: soak.mts --turns N,N,... with each N at least --checkpoints (${checkpoints})`,
+	);
+const packageDir = hostPackageDir();
+if (!packageDir) throw new Error(hostPiMissing());
+const out = values.out ?? join(process.cwd(), "soak-out");
+mkdirSync(out, { recursive: true });
+const faults: string[] = [];
+const fault = (what: string) => {
+	faults.push(what);
+	appendFileSync(join(out, "faults.log"), `${what}\n`);
+	if (faults.length > MOST_FAULTS)
+		throw new Error(`more than ${MOST_FAULTS} faults: ${faults.join("; ")}`);
+};
+const say = (line: string) =>
+	process.stdout.write(`soak ${new Date().toISOString()} ${line}\n`);
+
+const provider = await soakProvider();
+const agent = agentOf(provider);
+const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
+	.filter((entry) => entry.isDirectory() && !FIXTURE_LOADS.has(entry.name))
+	.map((entry) => entry.name)
+	.sort();
+say(`${counts.length} conversations, ${sum(counts)} turns, ${also.length + 3} extensions`);
+
+const hostSeal = await seal();
+const hosted = await runHosted(hostSeal);
+say("hosted side done; plain pi next");
+const plainSeal = await seal();
+const plain = await runPlain(plainSeal);
+say("plain side done");
+
+const report = {
+	conversations: counts.length,
+	turns: sum(counts),
+	checkpoints: hosted.checkpoints,
+	heap: {
+		parked: growthOf(
+			hosted.checkpoints.flatMap((one) => (one.parked ? [one.parked.heapKb] : [])),
+		),
+		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
+		rssParked: growthOf(
+			hosted.checkpoints.flatMap((one) => (one.parked ? [one.parked.rss] : [])),
+		),
+		heldWhileParked: hosted.checkpoints.map((one) => one.parked?.sessions.length ?? 0),
+	},
+	latency: {
+		hosted: spreadOf(hosted.logs.flatMap(latencies).map((one) => one.ms)),
+		plain: spreadOf(plain.logs.flatMap(latencies).map((one) => one.ms)),
+	},
+	parity: hosted.logs.map((log, at) =>
+		parityOf(log, plain.logs[at] ?? [], {
+			hosted: hostSeal.root,
+			plain: plainSeal.root,
+		}),
+	),
+	requests: provider.answered(),
+	faults,
+	hostErrors: errorsIn(hosted.errors),
+	plainErrors: plain.errors.flatMap(errorsIn),
+};
+writeFileSync(join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+process.stdout.write(`soak report: ${JSON.stringify(report)}\n`);
+await provider.close();
+await hostSeal.dispose();
+await plainSeal.dispose();
+
+/** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
+function agentOf(listening: SoakProvider): {
+	readonly providers: object;
+	readonly settings: object;
+} {
+	return {
+		providers: {
+			soak: {
+				baseUrl: listening.endpoint,
+				api: "anthropic-messages",
+				apiKey: "local-soak-no-secret",
+				models: [
+					{
+						id: "mock",
+						name: "Soak Mock",
+						reasoning: false,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 200_000,
+						maxTokens: 8192,
+					},
+				],
+			},
+		},
+		settings: {
+			defaultProvider: "soak",
+			defaultModel: "mock",
+			quietStartup: true,
+			compaction: { enabled: false },
+			retry: { enabled: false },
+		},
+	};
+}
+
+/** The hosted side: every conversation in one host, with its checkpoints. */
+async function runHosted(sealed: Seal): Promise<{
+	readonly checkpoints: readonly Checkpoint[];
+	readonly logs: readonly Record<string, unknown>[][];
+	readonly errors: string;
+}> {
+	const agentFile = join(sealed.root, "soak-agent.json");
+	writeFileSync(agentFile, JSON.stringify(agent));
+	const host = await startScreenHost(sealed, packageDir ?? "", also, agentFile);
+	const work = folders(sealed);
+	const conversations: Conversation[] = [];
+	for (const [index, count] of counts.entries()) {
+		const cwd = workingFolder(work);
+		const { sessionId, file } = await host.open(cwd);
+		conversations.push({ index, cwd, sessionId, file, turns: turnsOf(index, count) });
+	}
+	const parkFolder = join(
+		sealed.env.XDG_STATE_HOME ?? "",
+		"pi",
+		"agentic-harness.pi",
+		"park-workflow",
+	);
+	const started = Date.now();
+	const weighings: Checkpoint[] = [];
+	/** Conversations left parked, for their next visit's first key to wake. */
+	const byKey = new Set<string>();
+	const barrier = barrierOf(conversations.length, async (done) => {
+		const awake = await host.weigh();
+		const recordBytes = conversations.reduce((all, one) => all + sizeOf(one.file), 0);
+		if (values["no-park"]) {
+			weighings.push({ turnsDone: done, atMs: Date.now() - started, awake, recordBytes });
+			return;
+		}
+		mkdirSync(parkFolder, { recursive: true });
+		const switchFile = join(parkFolder, "switch");
+		writeFileSync(switchFile, `${conversations.map((one) => one.sessionId).join("\n")}\n`);
+		const parking = Date.now();
+		for (const one of conversations)
+			await host.parked(one.sessionId, PARK_MS).catch((error: unknown) =>
+				fault(`${one.sessionId} didn't park at ${done} turns: ${String(error)}`),
+			);
+		const parkMs = Date.now() - parking;
+		const parked = await host.weigh();
+		writeFileSync(switchFile, "");
+		const wakeMs = await Promise.all(
+			conversations.map((one) =>
+				wake(host, one, weighings.length, parkFolder, byKey),
+			),
+		);
+		weighings.push({
+			turnsDone: done,
+			atMs: Date.now() - started,
+			awake,
+			parked,
+			recordBytes,
+			parkMs,
+			wakeMs,
+		});
+		say(`checkpoint ${weighings.length}: heap ${awake.heapKb} kB awake, ${parked.heapKb} kB parked`);
+	});
+	await Promise.all(
+		conversations.map((one) => drive(host, one, barrier, byKey)),
+	);
+	const logs = conversations.map((one) => entriesOf(readFileSync(one.file, "utf8")));
+	const errors = host.errors();
+	await host.stop();
+	return { checkpoints: weighings, logs, errors };
+}
+
+/** A fresh trusted folder holding the notes a read turn reads. */
+function workingFolder(work: Folders): string {
+	const cwd = work.trusted();
+	writeFileSync(join(cwd, "notes.txt"), "soak notes\n");
+	return cwd;
+}
+
+/**
+ * Wake a parked conversation, by a window opening on it, by the mesh's
+ * wake, or left for its next key, by which checkpoint this is; how long
+ * it took, or 0 for one its next key wakes.
+ */
+async function wake(
+	host: ScreenHost,
+	one: Conversation,
+	checkpoint: number,
+	parkFolder: string,
+	byKey: Set<string>,
+): Promise<number> {
+	const started = Date.now();
+	const how = (one.index + checkpoint) % 3;
+	if (how === 2) {
+		byKey.add(one.sessionId);
+		return 0;
+	}
+	if (how === 1) {
+		if (!askWake(one.sessionId, `soak-${checkpoint}`, parkFolder))
+			fault(`${one.sessionId} had no marker to wake it by`);
+		await host.idle(one.sessionId, TURN_MS).catch((error: unknown) =>
+			fault(`${one.sessionId} didn't wake by the mesh: ${String(error)}`),
+		);
+		return Date.now() - started;
+	}
+	const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+	await host.idle(one.sessionId, TURN_MS).catch((error: unknown) =>
+		fault(`${one.sessionId} didn't wake by a window: ${String(error)}`),
+	);
+	await window.leave();
+	return Date.now() - started;
+}
+
+/** Take one conversation through its turns, visit by visit, stopping at each checkpoint. */
+async function drive(
+	host: ScreenHost,
+	one: Conversation,
+	barrier: (done: number) => Promise<void>,
+	byKey: Set<string>,
+): Promise<void> {
+	const marks = checkpointsOf(one.turns.length, checkpoints);
+	let done = 0;
+	const stopsDue = async (viewer?: Viewer) => {
+		if (marks[0] !== done) return viewer;
+		await viewer?.leave();
+		while (marks[0] === done) {
+			marks.shift();
+			await barrier(done);
+		}
+		return undefined;
+	};
+	for (const visit of visitsOf(one.turns)) {
+		let viewer: Viewer | undefined;
+		for (const [at, turn] of visit.turns.entries()) {
+			viewer = await stopsDue(viewer);
+			viewer ??= await opened(host, one, byKey);
+			await typed(host, one, viewer, turn);
+			done += 1;
+			if (at === 0 && visit.joined) {
+				const second = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+				await second.sent(/\S/, DRAWN_MS).catch(() =>
+					fault(`a second viewer of ${one.sessionId} drew nothing`),
+				);
+				await second.leave();
+			}
+		}
+		await viewer?.leave();
+	}
+	await stopsDue();
+}
+
+/** A viewer attached to `one`, drawn unless its first key is to wake it. */
+async function opened(
+	host: ScreenHost,
+	one: Conversation,
+	byKey: Set<string>,
+): Promise<Viewer> {
+	const viewer = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+	if (byKey.delete(one.sessionId)) return viewer;
+	await viewer.sent(/\S/, DRAWN_MS).catch(() =>
+		fault(`a viewer of ${one.sessionId} drew nothing`),
+	);
+	return viewer;
+}
+
+/** Type one turn and wait until its answer is in the log and the host lists it idle. */
+async function typed(
+	host: ScreenHost,
+	one: Conversation,
+	viewer: Viewer,
+	turn: Turn,
+): Promise<void> {
+	viewer.type(`${turn.prompt}${ENTER}`);
+	const ack = acknowledged(turn.tag);
+	const until = Date.now() + TURN_MS;
+	while (!tailOf(one.file).includes(ack)) {
+		if (Date.now() > until) {
+			fault(`${turn.tag} wasn't answered in ${TURN_MS} ms: ${host.errors().slice(-2000)}`);
+			return;
+		}
+		// The log says a turn ended only when read, so this waits between reads.
+		await new Promise((done) => setTimeout(done, LOOK_EVERY_MS));
+	}
+	await host.idle(one.sessionId, TURN_MS).catch((error: unknown) =>
+		fault(`${turn.tag} answered but never went idle: ${String(error)}`),
+	);
+}
+
+/** The plain side: one plain pi a conversation, all at once. */
+async function runPlain(sealed: Seal): Promise<{
+	readonly logs: readonly Record<string, unknown>[][];
+	readonly errors: readonly string[];
+}> {
+	const agentDir = join(sealed.home, ".pi", "agent");
+	mkdirSync(join(agentDir, "extensions"), { recursive: true });
+	writeFileSync(
+		join(agentDir, "models.json"),
+		JSON.stringify({ providers: agent.providers }),
+	);
+	writeFileSync(join(agentDir, "settings.json"), JSON.stringify(agent.settings));
+	for (const extension of [...FIXTURE_LOADS, ...also])
+		writeFileSync(
+			join(agentDir, "extensions", `${extension}.ts`),
+			`export { default } from ${JSON.stringify(join(HARNESS, "extensions", extension, "index.ts"))};\n`,
+		);
+	const work = folders(sealed);
+	const env = Object.fromEntries(
+		Object.entries({ ...sealed.env, PI_OFFLINE: "1" }).filter(
+			(pair): pair is [string, string] => typeof pair[1] === "string",
+		),
+	);
+	const cwds = counts.map(() => workingFolder(work));
+	const ran = await Promise.all(
+		counts.map(async (count, index) => {
+			const log = join(out, `plain-${index}.rpc.log`);
+			const client = rpcClient(
+				{
+					command: process.execPath,
+					args: [join(packageDir ?? "", "dist/bundle/cli.js"), "--mode", "rpc"],
+				},
+				cwds[index] ?? "",
+				env,
+				log,
+			);
+			for (const turn of turnsOf(index, count))
+				await client.prompt(turn.prompt).catch((error: unknown) =>
+					fault(`plain ${turn.tag}: ${String(error)}`),
+				);
+			const state = await client.request({ type: "get_state" });
+			const file: unknown = Reflect.get(Object(state.data), "sessionFile");
+			await client.close();
+			return {
+				entries:
+					typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [],
+				errors: readOr(`${log}.stderr`),
+			};
+		}),
+	);
+	return {
+		logs: ran.map((one) => one.entries),
+		errors: ran.map((one) => one.errors),
+	};
+}
+
+/**
+ * A barrier for `parties`: each calls it with how many turns it has done,
+ * and all wait until the last arrives, which runs `then` first.
+ */
+function barrierOf(
+	parties: number,
+	then: (done: number) => Promise<void>,
+): (done: number) => Promise<void> {
+	let arrived = 0;
+	let most = 0;
+	let release: () => void = () => {};
+	let gate = new Promise<void>((open) => {
+		release = open;
+	});
+	return async (done) => {
+		arrived += 1;
+		most = Math.max(most, done);
+		const waiting = gate;
+		if (arrived < parties) return waiting;
+		arrived = 0;
+		const opening = release;
+		gate = new Promise<void>((open) => {
+			release = open;
+		});
+		await then(most).catch((error: unknown) => fault(`checkpoint: ${String(error)}`));
+		most = 0;
+		opening();
+		return waiting;
+	};
+}
+
+/** The end of a log, or nothing while it isn't written yet. */
+function tailOf(file: string): string {
+	let handle: number;
+	try {
+		handle = openSync(file, "r");
+	} catch {
+		// pi writes a conversation's log once its first answer comes.
+		return "";
+	}
+	try {
+		const size = statSync(file).size;
+		const length = Math.min(size, TAIL_BYTES);
+		const buffer = Buffer.alloc(length);
+		readSync(handle, buffer, 0, length, size - length);
+		return buffer.toString("utf8");
+	} finally {
+		closeSync(handle);
+	}
+}
+
+function sizeOf(file: string): number {
+	try {
+		return statSync(file).size;
+	} catch {
+		// A conversation that has had no answer yet has no log.
+		return 0;
+	}
+}
+
+function readOr(file: string): string {
+	try {
+		return readFileSync(file, "utf8");
+	} catch {
+		// A pi that wrote nothing to stderr left no file.
+		return "";
+	}
+}
+
+/** The lines of what a process wrote that say something went wrong. */
+function errorsIn(written: string): string[] {
+	return written.split("\n").filter((line) => /error|fail|warn/i.test(line));
+}
+
+function sum(values: readonly number[]): number {
+	return values.reduce((all, value) => all + value, 0);
+}

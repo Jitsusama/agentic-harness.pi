@@ -49,7 +49,7 @@
 		"test": "vitest run",
 		"test:unit": "vitest run --project unit",
 		"test:changed": "vitest run --changed origin/main",
-		"test:host": "PI_HOST_REQUIRED=1 PI_HOST_RUNTIME=\"${PI_HOST_RUNTIME:-${XDG_STATE_HOME:-$HOME/.local/state}/pi-host/runtime}\" vitest run --project process --reporter=default --reporter=./tests/host/end-to-end/support/every-case-ran.mts tests/host/end-to-end tests/host/engine tests/host/parity",
+		"test:host": "PI_HOST_REQUIRED=1 PI_HOST_RUNTIME=\"${PI_HOST_RUNTIME:-${XDG_STATE_HOME:-$HOME/.local/state}/pi-host/runtime}\" vitest run --project process --reporter=default --reporter=./tests/host/end-to-end/support/every-case-ran.mts tests/host/end-to-end tests/host/engine tests/host/parity tests/host/soak/soak.test.ts",
 		"test:browser": "vitest run --config vitest.browser.config.ts",
 		"test:browser:changed": "vitest run --config vitest.browser.config.ts --changed origin/main",
 		"test:watch": "vitest",
