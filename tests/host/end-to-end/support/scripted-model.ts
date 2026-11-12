@@ -34,6 +34,9 @@
  *   itself, so only a Stop ends it;
  * - told `linger`, it has bash run, in the background from the start, a
  *   command that ends by itself a while after the turn does;
+ * - told `carry`, it has bash run, in the background from the start, a
+ *   command that runs long enough for the session to move under it, then
+ *   says a word of its own;
  * - told `reopen`, it asks quest which lost sessions it would reopen;
  * - after any other tool's result, it says `sent`.
  *
