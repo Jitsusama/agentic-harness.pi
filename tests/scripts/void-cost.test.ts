@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -101,6 +101,29 @@ describe("what each line the void routed cost", () => {
 		).toEqual([0.02, 0.58]);
 	});
 
+	it("keeps a long routing's later turns with its line", async () => {
+		const report = await reportOf(
+			[
+				turn("2026-11-12T06:30:05.000Z", 0.02),
+				turn("2026-11-12T06:38:00.000Z", 0.02),
+				turn("2026-11-12T06:44:00.000Z", 0.02),
+				turn("2026-11-12T07:30:00.000Z", 0.3),
+			],
+			{ "2026-11-12": "- 01:30 keep this → kept" },
+		);
+		expect(
+			[report.lines.at(0)?.turns, report.upkeep],
+			"three turns a few minutes apart, then a wake an hour on",
+		).toEqual([3, 0.3]);
+	});
+
+	it("names only the place a line went for him, not what it said", async () => {
+		const report = await reportOf([], {
+			"2026-11-12": "- 01:30 renew my passport → for you: renew the passport",
+		});
+		expect(report.lines.at(0)?.went, "the place alone").toBe("for you");
+	});
+
 	it("reads only the last day's lines, across both day files", async () => {
 		const report = await reportOf([], {
 			"2026-11-11": [
@@ -113,7 +136,7 @@ describe("what each line the void routed cost", () => {
 			report.lines.map((line) => [line.day, line.at, line.went]),
 			"the two lines in the window",
 		).toEqual([
-			["2026-11-11", "22:10", "for you: renew the passport"],
+			["2026-11-11", "22:10", "for you"],
 			["2026-11-12", "00:05", "WCJQSG [ff00ee11] · undone"],
 		]);
 	});
@@ -140,6 +163,14 @@ describe("what each line the void routed cost", () => {
 			"| 2026-11-12 03:15 | Deploy v3 [ab12cd34] | 1 | $0.03 |",
 		);
 		expect(text).not.toContain("deploy v3 needs a look");
+	});
+
+	it("asks the ledger for the void's own quest", () => {
+		const sql = readFileSync(
+			new URL("../../scripts/void-cost.sql", import.meta.url),
+			"utf8",
+		);
+		expect(sql, "the query names the quest").toContain(`'${VOID_QUEST}'`);
 	});
 
 	it("says so when the void took no line", () => {
