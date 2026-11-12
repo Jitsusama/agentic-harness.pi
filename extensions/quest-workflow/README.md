@@ -436,7 +436,10 @@ while it waits its turn leaves without running.
   would change. A machine that sorts work into a cgroup per
   quest reads both; elsewhere nothing reads them. Beside it,
   `first.json` lists the open quests marked `queue: first`, which
-  the machine's queue reads (see priority-workflow).
+  the machine's queue reads (see priority-workflow), and
+  `parents.json` maps each open subquest to its parent's id, so
+  a sorter placing work by tier walks a quest up to the nearest
+  ancestor its tier map names.
 - Edits to a document's body: `journal` adds a dated
   Journey entry, to the quest `id` names or else the loaded
   one, at the head of its `JOURNEY.md` (the

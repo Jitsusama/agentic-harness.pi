@@ -18,6 +18,7 @@ import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {
 	PRIORITY_WEIGHT,
+	QUEST_PARENTS_FILE,
 	QUEST_WEIGHTS_FILE,
 	writeQuestWeights,
 } from "../../../extensions/quest-workflow/weights.ts";
@@ -120,6 +121,54 @@ describe("a quest put first in the queue", () => {
 	});
 });
 
+describe("each quest's parent", () => {
+	const parents = () =>
+		JSON.parse(readFileSync(join(jobs, QUEST_PARENTS_FILE), "utf8")) as Record<
+			string,
+			string
+		>;
+
+	it("is written for every open subquest, so a sorter can walk up to a tier", async () => {
+		const s = state();
+		const top = await act(s, { action: "create", title: "Top" });
+		const mid = await act(s, {
+			action: "create",
+			title: "Mid",
+			kind: "subquest",
+			parent: top.id,
+		});
+		const low = await act(s, {
+			action: "create",
+			title: "Low",
+			kind: "subquest",
+			parent: mid.id,
+		});
+
+		writeQuestWeights(questsRoot, jobs);
+
+		expect(parents(), "each subquest names its parent, and no other").toEqual({
+			[mid.id]: top.id,
+			[low.id]: mid.id,
+		});
+	});
+
+	it("leaves out a concluded subquest, which has no work to place", async () => {
+		const s = state();
+		const top = await act(s, { action: "create", title: "Top" });
+		const done = await act(s, {
+			action: "create",
+			title: "Done",
+			kind: "subquest",
+			parent: top.id,
+		});
+		await act(s, { action: "conclude", id: done.id });
+
+		writeQuestWeights(questsRoot, jobs);
+
+		expect(parents(), "a concluded subquest is not listed").toEqual({});
+	});
+});
+
 describe("each quest's weight", () => {
 	it("ranks driving over active over queued over bench over someday", () => {
 		expect(PRIORITY_WEIGHT.driving).toBeGreaterThan(PRIORITY_WEIGHT.active);
@@ -191,8 +240,8 @@ describe("each quest's weight", () => {
 
 		writeQuestWeights(questsRoot, jobs);
 
-		expect(readdirSync(jobs).sort()).toEqual(
-			[QUEST_WEIGHTS_FILE, QUEUE_FIRST_FILE].sort(),
+		expect(readdirSync(jobs).sort(), "only the three files are there").toEqual(
+			[QUEST_WEIGHTS_FILE, QUEUE_FIRST_FILE, QUEST_PARENTS_FILE].sort(),
 		);
 	});
 

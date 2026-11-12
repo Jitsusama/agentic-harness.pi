@@ -14,6 +14,11 @@
  * sat at driving on 25 October, most of them old, when one lab's builds
  * were to go ahead of the rest.
  *
+ * And `parents.json` maps each open subquest to its parent, so a sorter
+ * that places work by tier walks a quest up to the nearest ancestor its
+ * tier map names. It is a file of its own, so readers of `quests.json`
+ * read what they always did.
+ *
  * Every session writes the same files from the same quests on disk, and
  * only when they would change, so a reader watching them wakes for a
  * real change rather than for each session's look.
@@ -39,6 +44,9 @@ import type { QuestFrontMatter, QuestPriority } from "../../lib/quest/types.ts";
 
 /** The file in the jobs folder that holds each quest's weight. */
 export const QUEST_WEIGHTS_FILE = "quests.json";
+
+/** The file in the jobs folder that holds each open subquest's parent. */
+export const QUEST_PARENTS_FILE = "parents.json";
 
 /** The front-matter value that puts a quest's work first in the queue. */
 export const QUEUE_FIRST = "first";
@@ -80,6 +88,18 @@ function questWeights(index: QuestIndex): Record<string, number> {
 	return Object.fromEntries(weights);
 }
 
+/** Each open subquest's parent, by id, in a stable order. */
+function questParents(index: QuestIndex): Record<string, string> {
+	const parents: [string, string][] = [];
+	for (const [id, entry] of index.quests) {
+		const { status, parent } = entry.doc.frontMatter;
+		if (status === "concluded" || status === "retired") continue;
+		if (parent) parents.push([id, parent]);
+	}
+	parents.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+	return Object.fromEntries(parents);
+}
+
 /** The open quests whose work goes first, sorted. */
 function questsFirst(index: QuestIndex): string[] {
 	const first: string[] = [];
@@ -110,9 +130,10 @@ function replaceUnlessSame(
 }
 
 /**
- * Write each open quest's weight into `dir`'s weights file, and the
- * quests whose work goes first into its first file, replacing each whole
- * unless it already says the same. Whether either was written. Both
+ * Write each open quest's weight into `dir`'s weights file, the quests
+ * whose work goes first into its first file, and each open subquest's
+ * parent into its parents file, replacing each whole unless it already
+ * says the same. Whether any was written. Both
  * come from one walk of the store: on 804 quests on 3 November, two
  * walks took a median 117 ms and one took 57 ms. A caller holding an
  * index walked a moment ago passes it, and no walk is made.
@@ -135,7 +156,12 @@ export function writeQuestWeights(
 		join(dir, QUEUE_FIRST_FILE),
 		json(questsFirst(index)),
 	);
-	return weighed || first;
+	const parented = replaceUnlessSame(
+		dir,
+		join(dir, QUEST_PARENTS_FILE),
+		json(questParents(index)),
+	);
+	return weighed || first || parented;
 }
 
 /**
