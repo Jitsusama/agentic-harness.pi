@@ -64,6 +64,24 @@ describe("parseQuestWorkflowConfig", () => {
 		}
 	});
 
+	it("accepts each startHost choice", () => {
+		for (const startHost of ["off", "attended"] as const) {
+			expect(parseQuestWorkflowConfig({ startHost })).toEqual({
+				ok: true,
+				value: { startHost },
+			});
+		}
+	});
+
+	it("rejects a startHost with no screen to type into, or no host", () => {
+		for (const startHost of ["background", "kitty", true]) {
+			expect(parseQuestWorkflowConfig({ startHost })).toEqual({
+				ok: false,
+				error: "startHost must be off or attended",
+			});
+		}
+	});
+
 	it("rejects a non-boolean autoloadFromCwd", () => {
 		const result = parseQuestWorkflowConfig({ autoloadFromCwd: "no" });
 		expect(result).toMatchObject({ ok: false });

@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	decideSpawn,
+	decideStart,
 	handToHost,
+	launchedStart,
 	type LaunchedSpawn,
 	launchedSpawn,
 	SPAWN_HOSTED,
@@ -339,6 +341,135 @@ describe("deciding a launched spawn headless, for the launcher", () => {
 		]);
 		expect(leftOf(), "the words are put back, untaken").toEqual([".json"]);
 		expect(logged()).toContain("stayed in its window");
+	});
+});
+
+describe("deciding the launcher's own start headless", () => {
+	/** Decide `argv`'s start, answering the exit status and the lines said. */
+	async function started(
+		setting: string | undefined,
+		call: ControlCall,
+		...argv: string[]
+	) {
+		const start = launchedStart(["--start", ...argv], envOf(), root);
+		if (!start) throw new Error("the launcher's start wasn't recognised");
+		const lines: string[] = [];
+		const code = await decideStart(
+			start,
+			{
+				setting: async () =>
+					setting === undefined
+						? {}
+						: { setting: setting as "off" | "attended" },
+				agent: async () => "pi",
+				env: envOf({ PI_SANDBOX: "fenced" }),
+				call,
+			},
+			(line) => lines.push(line),
+			join(root, "state"),
+		);
+		return { code, lines };
+	}
+
+	it("is a start only when the launcher says so, on a quest", () => {
+		expect(
+			launchedStart(
+				["--start", "--orchestrate", "--model", "proxy/claude-opus:high"],
+				envOf(),
+				root,
+			),
+		).toEqual({
+			questId: QUEST,
+			cwd: root,
+			orchestrate: true,
+			model: { provider: "proxy", id: "claude-opus" },
+			thinkingLevel: "high",
+		});
+		expect(launchedStart(["--start"], envOf(), root)).toEqual({
+			questId: QUEST,
+			cwd: root,
+			orchestrate: false,
+		});
+		expect(launchedStart([], envOf(), root)).toBeUndefined();
+		expect(launchedStart(["--start"], {}, root)).toBeUndefined();
+	});
+
+	it("opens it in the attended host told nothing, says where, and answers hosted", async () => {
+		const hosted = randomUUID();
+
+		expect(await started("attended", opening(hosted))).toEqual({
+			code: SPAWN_HOSTED,
+			lines: ["opening work-attended", `hosted work-attended ${hosted}`],
+		});
+		const open = sent.find((one) => one.op === "open");
+		expect(open).toMatchObject({
+			op: "open",
+			cwd: root,
+			attended: true,
+			quest: QUEST,
+			env: { PI_SANDBOX: "fenced" },
+		});
+		expect(open, "Joel types its first words himself").not.toHaveProperty(
+			"first",
+		);
+		expect(open).not.toHaveProperty("orchestrate");
+		expect(patience.get("open")).toBe(OPEN_PATIENCE_MS);
+	});
+
+	it("opens an Orchestrate orchestrating, on the model it names", async () => {
+		await started(
+			"attended",
+			opening(randomUUID()),
+			"--orchestrate",
+			"--model",
+			"proxy/claude-opus",
+		);
+
+		expect(sent.find((one) => one.op === "open")).toMatchObject({
+			quest: QUEST,
+			orchestrate: true,
+			model: { provider: "proxy", id: "claude-opus" },
+		});
+	});
+
+	it("answers stays, saying nothing and asking no host, while startHost is off or unset", async () => {
+		expect(await started("off", opening("x"))).toEqual({
+			code: SPAWN_STAYS,
+			lines: [],
+		});
+		expect(await started(undefined, opening("x"))).toEqual({
+			code: SPAWN_STAYS,
+			lines: [],
+		});
+		expect(sent).toEqual([]);
+	});
+
+	it("answers stays with why, naming startHost, when no host is listening", async () => {
+		const { code, lines } = await started("attended", nobody);
+
+		expect(code).toBe(SPAWN_STAYS);
+		expect(lines).toEqual([
+			expect.stringMatching(
+				/^quest-workflow\.startHost is attended, but no work-attended host is listening/,
+			),
+		]);
+	});
+
+	it("answers stays with why when the host turns the open away", async () => {
+		const refusing = hostThat((request) => ({
+			v: 1,
+			id: request.id,
+			ok: false,
+			error: { code: "busy", message: "too many conversations" },
+		}));
+
+		const { code, lines } = await started("attended", refusing);
+
+		expect(code).toBe(SPAWN_STAYS);
+		expect(lines).toEqual([
+			"opening work-attended",
+			expect.stringContaining("too many conversations"),
+		]);
 	});
 });
 

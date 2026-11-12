@@ -52,15 +52,23 @@ function packageDir(kind: "config" | "state"): string {
 	return join(root, kind, "pi", "agentic-harness.pi");
 }
 
-/** Run the decider as the launcher does; answers its exit status and output. */
+/** Run the decider on a spawn as the launcher does; answers its exit status and output. */
 function decide(
 	sessionId: string,
+	env: Record<string, string>,
+): Promise<{ code: number; out: string }> {
+	return decideWith(["--session-id", sessionId], env);
+}
+
+/** Run the decider with `args` as the launcher does; answers its exit status and output. */
+function decideWith(
+	args: readonly string[],
 	env: Record<string, string>,
 ): Promise<{ code: number; out: string }> {
 	return new Promise((done) => {
 		execFile(
 			process.execPath,
-			["--no-warnings", SCRIPT, "--session-id", sessionId],
+			["--no-warnings", SCRIPT, ...args],
 			{
 				cwd: root,
 				timeout: PATIENCE_MS,
@@ -94,6 +102,38 @@ it("stays, saying nothing, for a pi that isn't a spawn", async () => {
 		code: SPAWN_STAYS,
 		out: "",
 	});
+});
+
+/** Write quest-workflow's config section as `section` says. */
+function configure(section: Record<string, string>): void {
+	mkdirSync(packageDir("config"), { recursive: true });
+	writeFileSync(
+		join(packageDir("config"), "config.json"),
+		JSON.stringify({ version: 1, sections: { "quest-workflow": section } }),
+	);
+}
+
+it("stays, saying nothing, for the launcher's own start while startHost is off", async () => {
+	configure({ spawnHost: "attended" });
+
+	expect(
+		await decideWith(["--start", "--orchestrate"], {
+			QUEST_WORKFLOW_AUTOLOAD_ID: QUEST,
+		}),
+	).toEqual({ code: SPAWN_STAYS, out: "" });
+});
+
+it("stays, saying why, for the launcher's own start when startHost's host isn't listening", async () => {
+	configure({ startHost: "attended" });
+
+	const { code, out } = await decideWith(["--start"], {
+		QUEST_WORKFLOW_AUTOLOAD_ID: QUEST,
+	});
+
+	expect(code).toBe(SPAWN_STAYS);
+	expect(out).toMatch(
+		/^quest-workflow\.startHost is attended, but no work-attended host is listening[^\n]*\n$/,
+	);
 });
 
 it("stays, saying why, with its words still waiting, when spawnHost's host isn't listening", async () => {
