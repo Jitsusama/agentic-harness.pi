@@ -105,8 +105,12 @@ through landrun:
   with `core.fsmonitor=false`, and refuses a git folder holding a
   `commondir`, which would have git read another folder's settings.
 - **No desktop.** The runtime folder is an empty one of its own, with
-  only the Nix daemon's door for sandboxes bound back, and `NIX_REMOTE`
-  points there. Landlock refuses every other socket, an abstract one
+  three doors bound back: the Nix daemon's door for sandboxes, which
+  `NIX_REMOTE` points at; the SSH agent's proxy, which signs only
+  logins to the hosts it's told of; and the jobs broker
+  (`daemons/jobs-broker.sock`), which puts the process asking, as the
+  kernel names it, into a scope of its own in its quest's work slice,
+  and says how named units stand, in place of the user's bus. Landlock refuses every other socket, an abstract one
   and a signal outside too, so the display, the compositor, the shell's
   ipc, the session and system buses, sound, the keyring, the password
   and clipboard daemons, SSH agents and kitty are out of reach. Name
@@ -121,6 +125,10 @@ through landrun:
   writable, since a dotfile linked into the store could otherwise be
   deleted and replaced. pi's own file tools are held to the same (see
   the sandbox file interceptor).
+- **No moves between cgroups.** `/sys/fs/cgroup` is read-only, so a
+  command reads where it stands but moves no process and changes no
+  limit. pi places a command's work, its queue's turn and a World
+  walk's shared slice outside the fence, before it starts.
 - **No new privileges.** A setgid wrapper such as 1Password's `op`
   gains nothing.
 
