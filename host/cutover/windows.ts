@@ -279,7 +279,9 @@ export async function readMachineWindows(
 		const [windows, workspaces, outputs] = await Promise.all([
 			output("niri", ["msg", "--json", "windows"]),
 			output("niri", ["msg", "--json", "workspaces"]),
-			output("niri", ["msg", "--json", "outputs"]),
+			// Outputs matter only with nothing focused, so one that won't answer
+			// leaves the machine read as it was before, a screen on.
+			output("niri", ["msg", "--json", "outputs"]).catch(() => undefined),
 		]);
 		const kitties = new Map<string, KittyWindow[]>();
 		for (const within of new Set(
@@ -302,7 +304,7 @@ export async function readMachineWindows(
 			holders,
 			niri: parseNiriWindows(windows),
 			focused: parseFocusedWorkspace(workspaces),
-			screenless: parseScreenless(outputs),
+			screenless: outputs !== undefined && parseScreenless(outputs),
 			kitties,
 		};
 	} catch (error) {
