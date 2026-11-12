@@ -150,6 +150,28 @@ describe("the host beside plain pi", () => {
 				const pi = await record({ ...options, side: "pi" });
 				didItsPart(pi, scenario);
 				const hosted = await record({ ...options, side: "hosted" });
+				for (const [side, dir] of [
+					["pi", pi.dir],
+					["hosted", hosted.dir],
+				] as const) {
+					const read = (name: string) => {
+						try {
+							return readFileSync(join(dir, name), "utf8");
+						} catch {
+							// scratch: a side that wrote none says so
+							return "(none)\n";
+						}
+					};
+					for (const line of read("requests.ndjson.headers")
+						.split("\n")
+						.filter(Boolean))
+						process.stdout.write(
+							`=== HEADERS ${scenario} ${side} ${line}\n`,
+						);
+					process.stdout.write(
+						`=== LEDGER ${scenario} ${side}\n${read("ledger.ndjson")}`,
+					);
+				}
 				const unexpected = compareRecordings(
 					pi.dir,
 					hosted.dir,

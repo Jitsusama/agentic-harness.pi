@@ -75,6 +75,10 @@ export async function mockProvider(
 			requestsFile,
 			`${JSON.stringify({ path: request.url, body: recorded })}\n`,
 		);
+		appendFileSync(
+			`${requestsFile}.headers`,
+			`${JSON.stringify({ path: request.url, headers: request.headers })}\n`,
+		);
 		if (holds && index === 0) {
 			arrived();
 			await Promise.race([

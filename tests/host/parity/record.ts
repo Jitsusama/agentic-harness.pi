@@ -78,6 +78,7 @@ export async function record(options: {
 		XDG_CACHE_HOME: join(home, ".cache"),
 		PATH: process.env.PATH ?? "",
 		LANG: "C.UTF-8",
+		WORKTRAIL_LEDGER: join(dir, "ledger.ndjson"),
 	};
 	const extensions = [...options.extensions, probe];
 	const launch =
