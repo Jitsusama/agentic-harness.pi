@@ -165,10 +165,9 @@ describe("runHost's watchdog", () => {
 			return {
 				...inner,
 				start: async (prepared, request) => {
+					const turn = 2 * LONG_TIMEOUT_MS;
 					// The turn itself, which the host awaits as it would a model's.
-					await new Promise((resolve) =>
-						setTimeout(resolve, 2 * LONG_TIMEOUT_MS),
-					);
+					await new Promise((resolve) => setTimeout(resolve, turn));
 					await inner.start(prepared, request);
 				},
 			};
@@ -234,9 +233,7 @@ describe("runHost's watchdog", () => {
 		try {
 			await vi.waitFor(
 				() => {
-					expect(at.length, "pings after the one that hung").toBeGreaterThan(
-						2,
-					);
+					expect(at.length, "pings after the one that hung").toBeGreaterThan(2);
 				},
 				{ timeout: 2 * TIMEOUT_MS },
 			);
