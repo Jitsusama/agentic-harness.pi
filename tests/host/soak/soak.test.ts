@@ -11,6 +11,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	HOST_PI_REQUIRED,
 	hostPackageDir,
@@ -68,7 +69,7 @@ describe.skipIf(!packageDir)(
 					latency: { hosted: { count: 4 }, plain: { count: 4 } },
 				});
 				expect(
-					Reflect.get(Object(report), "checkpoints"),
+					isRecord(report) ? report.checkpoints : undefined,
 					"one weighing, at the end",
 				).toHaveLength(1);
 			},

@@ -6,11 +6,13 @@
  * log differs from plain pi's of the same turns, with each side's own
  * folders, times and ids made labels first, as the parity suite does.
  */
+import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	alignedEvents,
 	type Difference,
 	normalise,
 } from "../parity/compare.ts";
+import { textOf } from "./soak-provider.ts";
 import { acknowledged, asked } from "./turns.ts";
 
 /** One turn's latency. */
@@ -84,7 +86,8 @@ export function latencies(
 		});
 		if (answer === undefined) continue;
 		const ms =
-			Date.parse(String(answer.timestamp)) - Date.parse(String(entry.timestamp));
+			Date.parse(String(answer.timestamp)) -
+			Date.parse(String(entry.timestamp));
 		found.push({ tag: turn.tag, ms });
 	}
 	return found;
@@ -94,23 +97,11 @@ export function latencies(
 function messageOf(
 	entry: Readonly<Record<string, unknown>>,
 ): { readonly role: string; readonly text: string } | undefined {
-	if (entry.type !== "message") return undefined;
-	const message: unknown = entry.message;
-	const role: unknown = Reflect.get(Object(message), "role");
+	const { message } = entry;
+	if (entry.type !== "message" || !isRecord(message)) return undefined;
+	const { role } = message;
 	if (typeof role !== "string") return undefined;
-	const content: unknown = Reflect.get(Object(message), "content");
-	const text =
-		typeof content === "string"
-			? content
-			: Array.isArray(content)
-				? content
-						.map((part) => {
-							const words: unknown = Reflect.get(Object(part), "text");
-							return typeof words === "string" ? words : "";
-						})
-						.join("")
-				: "";
-	return { role, text };
+	return { role, text: textOf(message) };
 }
 
 /** The 50th and 99th percentiles of `values`, by nearest rank. */
@@ -171,7 +162,10 @@ export function parityOf(
 	plain: readonly Record<string, unknown>[],
 	roots: { readonly hosted: string; readonly plain: string },
 ): Parity {
-	const comparable = (log: readonly Record<string, unknown>[], root: string) => {
+	const comparable = (
+		log: readonly Record<string, unknown>[],
+		root: string,
+	) => {
 		const labelled = normalise(log.map(withoutPlace), [[root, "<root>"]]);
 		return Array.isArray(labelled) ? labelled : [];
 	};
