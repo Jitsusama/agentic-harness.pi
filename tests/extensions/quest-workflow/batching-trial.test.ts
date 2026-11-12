@@ -7,13 +7,15 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	BATCHING_LINE,
 	batchingTrial,
 	inTrialHalf,
+	registerBatchingTrial,
 	type TrialPlan,
 } from "../../../extensions/quest-workflow/batching-trial.ts";
+import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const BUILDER = "QEST-20260101-BUILDR";
@@ -65,7 +67,24 @@ beforeEach(() => {
 	quest(SWITCHER, MISSION);
 	quest(LONER, null);
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => {
+	vi.unstubAllEnvs();
+	rmSync(root, { recursive: true, force: true });
+});
+
+/** Run every handler pi was given for `event`, answering the last answer. */
+async function fire(
+	pi: FakePi,
+	event: string,
+	payload: unknown,
+	ctx: unknown,
+) {
+	let answer: unknown;
+	for (const handler of pi.recorded.handlers.get(event) ?? []) {
+		answer = (await handler(payload as never, ctx as never)) ?? answer;
+	}
+	return answer;
+}
 
 describe("the batching trial", () => {
 	it("splits sessions by the second-to-last digit of their id", () => {
@@ -100,6 +119,41 @@ describe("the batching trial", () => {
 		expect([before, read(BUILDER)], "said, then not").toEqual([
 			BATCHING_LINE,
 			null,
+		]);
+	});
+
+	it("says nothing until the session starts, then the habit", async () => {
+		vi.stubEnv("XDG_STATE_HOME", root);
+		const pi = fakePi();
+		registerBatchingTrial(
+			pi,
+			() => join(root, "quests"),
+			() => BUILDER,
+			PLAN,
+			() => Date.parse("2026-11-14T15:00:00Z"),
+		);
+		const ctx = {
+			sessionManager: {
+				getEntries: () => [],
+				getBranch: () => [],
+				getSessionId: () => IN,
+			},
+		};
+		const prompt = async () => {
+			const sections: Record<string, string> = {};
+			const answer = await fire(
+				pi,
+				"before_agent_start",
+				{ systemPrompt: "base", systemPromptOptions: { sections } },
+				ctx,
+			);
+			return JSON.stringify([sections, answer]).includes(BATCHING_LINE);
+		};
+		const before = await prompt();
+		await fire(pi, "session_start", { reason: "startup" }, ctx);
+		expect([before, await prompt()], "silent, then said").toEqual([
+			false,
+			true,
 		]);
 	});
 
