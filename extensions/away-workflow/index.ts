@@ -29,7 +29,8 @@
  *
  * What needs the absent person reaches them through a desktop
  * notification (`reach.ts`): the first call held in an absence, and a
- * run that rests `Blocked:`. The session carries on with the rest.
+ * run that rests `Blocked:`. The session carries on with the rest. A
+ * notice is taken back once it no longer applies (`notices.ts`).
  *
  * A person who never said they were leaving is covered too
  * (`carry-on.ts`): when a run ends with a plan in build still open and
@@ -68,7 +69,7 @@ import {
 	snapshot,
 	takeStoppedFromOutside,
 } from "../../lib/internal/away/state.ts";
-import { type Notice, notify } from "../../lib/internal/notify.ts";
+import type { Notice } from "../../lib/internal/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
 	askWakers,
@@ -107,6 +108,12 @@ import {
 	readsLikeDeparture,
 	returnMessage,
 } from "./messages.ts";
+import {
+	EVERY_NOTICE,
+	type NoticeKind,
+	raiseNotice,
+	withdrawNotices,
+} from "./notices.ts";
 import {
 	blockedLine,
 	blockedNotice,
@@ -163,11 +170,13 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	/**
 	 * Put a notice in front of the person, from an interactive session
 	 * only: a subagent's needs reach them through the session that ran it.
-	 * Never waited on, so a slow desktop holds nothing up.
+	 * Never waited on, so a slow desktop holds nothing up. It replaces
+	 * this session's notice of the same kind, and is taken back once it
+	 * no longer applies.
 	 */
-	const reach = (notice: Notice | undefined) => {
+	const reach = (kind: NoticeKind, notice: Notice | undefined) => {
 		if (!notice || !latest?.hasUI) return;
-		void notify(notice);
+		void raiseNotice(kind, notice);
 	};
 
 	/**
@@ -175,8 +184,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	 * nothing shows them the want: where presence does, the launcher's
 	 * notice for it is the one they get.
 	 */
-	const reachUnlessWanted = (notice: Notice | undefined) => {
-		if (!wantsShown()) reach(notice);
+	const reachUnlessWanted = (kind: NoticeKind, notice: Notice | undefined) => {
+		if (!wantsShown()) reach(kind, notice);
 	};
 
 	/** The name a notice gives this session: its document, else its folder. */
@@ -193,10 +202,13 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (now.since === undefined) {
 			wanting.settle("approval");
 			wanting.settle("blocked");
+			// Over with the absence: what it held and how it ended.
+			void withdrawNotices(["held", "blocked", "resting"]);
 			return;
 		}
 		const said = heldWant(now.held);
 		if (said) wanting.say("approval", said);
+		else void withdrawNotices(["held"]);
 	};
 
 	const disposeListener = onAwayChange((now) => {
@@ -208,6 +220,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			// Keep-going speaks for an absence; one voice is enough.
 			stopWaiting();
 			reachUnlessWanted(
+				"held",
 				heldNotice(where(), now.since, now.held.length, reached),
 			);
 		}
@@ -314,12 +327,13 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (verdict.kind === "rest" && verdict.why === "blocked") {
 			wanting.say("blocked", blockedLine(finished.lastText) ?? "Blocked");
 			reachUnlessWanted(
+				"blocked",
 				blockedNotice(where(), since, finished.lastText, reached),
 			);
 			return;
 		}
 		if (verdict.kind === "stop") {
-			reach(stopNotice(where(), since, verdict.note, reached));
+			reach("resting", stopNotice(where(), since, verdict.note, reached));
 			pi.sendMessage(
 				{ customType: STOPPED_MESSAGE, content: verdict.note, display: true },
 				{ triggerTurn: false },
@@ -390,7 +404,10 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (!progress || progress.total - progress.done <= 0) return;
 		const asked = endsAsking(finished.lastText);
 		if (asked) {
-			reachUnlessWanted(askedNotice(where(), finished.lastText, carrying));
+			reachUnlessWanted(
+				"asked",
+				askedNotice(where(), finished.lastText, carrying),
+			);
 		}
 		const job = startJob(
 			"carry-on",
@@ -457,7 +474,10 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		showStatus(ctx);
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (event) => {
+		// A reload's new copy takes over what is up; any other end leaves
+		// nothing for the person to act on here.
+		if (event.reason !== "reload") await withdrawNotices(EVERY_NOTICE);
 		sessionWants().unbind(pi.events);
 		stopWaiting();
 		stopWatching();
@@ -481,6 +501,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		stopWaiting();
 		wanting.settle("question");
 		wanting.settle("blocked");
+		void withdrawNotices(EVERY_NOTICE);
 		pendingCarry?.withdraw();
 		pendingCarry = undefined;
 		Object.assign(carrying, freshCarryOn());
@@ -495,8 +516,10 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	// follow-up), so what it did is gathered until it does.
 	// Any run starting, the person's or one a message woke, answers the
 	// quiet stretch; its own settling decides whether to wait again.
+	// A run starting is a session no longer resting, so its notice goes.
 	pi.on("agent_start", async () => {
 		stopWaiting();
+		void withdrawNotices(["resting"]);
 	});
 
 	pi.on("agent_end", async (event) => {

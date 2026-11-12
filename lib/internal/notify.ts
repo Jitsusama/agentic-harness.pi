@@ -10,16 +10,21 @@
  * not need them.
  *
  * This decides how a notification is shown, never when: the mesh decides
- * when the person is reached, and what for. It answers whether the
- * notification was shown, never throws, and stays quiet where there is no
- * desktop to show it on (no notify-send or osascript, no session bus, a
- * remote shell), since a missing desktop is an answer, not an error.
+ * when the person is reached, and what for. It answers what it raised,
+ * never throws, and stays quiet where there is no desktop to show it on
+ * (no notify-send or osascript, no session bus, a remote shell), since a
+ * missing desktop is an answer, not an error.
+ *
+ * A notice that no longer applies is taken back, so the person never
+ * acts on one the session has moved past. Linux can: notify-send prints
+ * the id the desktop gave it, and the desktop's CloseNotification takes
+ * that id back. macOS can't: osascript's notices have no id to close.
  *
  * Linux uses notify-send, which talks to whatever notification daemon
  * the desktop runs (mako, dunst, GNOME's). macOS uses osascript, handing
  * it the text as arguments rather than splicing it into the script, so
  * no quote or backslash in a title can change what the script does.
- * Anything else answers false.
+ * Anything else shows nothing.
  *
  * `PI_NOTIFY=off` silences it, which the test suite sets so that no run
  * of it puts notifications on the developer's desktop.
@@ -38,6 +43,11 @@ export interface Notice {
 	body?: string;
 	/** Defaults to normal. Critical stays on screen until dismissed on Linux. */
 	urgency?: Urgency;
+}
+
+/** A notification on screen: its id, where the desktop can take it back. */
+export interface Raised {
+	readonly id?: number;
 }
 
 /** The parts of the machine a notification depends on, for tests. */
@@ -61,6 +71,9 @@ export const NOTIFY_LIMIT_MS = 5_000;
 
 /** The name notifications appear under, so the person knows who asked. */
 const APP_NAME = "pi";
+
+/** notify-send's option to print the id a notice can be taken back by. */
+const PRINT_ID = "--print-id";
 
 /**
  * The AppleScript that shows a notification from its arguments, so the
@@ -102,32 +115,123 @@ export function notifyCommand(
 		const text = body === "" ? [notice.title] : [notice.title, body];
 		return {
 			command: "notify-send",
-			args: [`--app-name=${APP_NAME}`, `--urgency=${urgency}`, "--", ...text],
+			args: [
+				`--app-name=${APP_NAME}`,
+				`--urgency=${urgency}`,
+				PRINT_ID,
+				"--",
+				...text,
+			],
 		};
 	}
 	return undefined;
 }
 
+/** The id notify-send printed, or none when it printed something else. */
+function printedId(stdout: string): number | undefined {
+	const id = /^\s*(\d+)\s*$/.exec(stdout)?.[1];
+	return id === undefined ? undefined : Number(id);
+}
+
 /**
- * Show `notice` on the desktop, answering whether it was shown.
+ * The commands that take back notice `id` on `platform`, each tried in
+ * turn, or none where nothing can: busctl comes with systemd, and gdbus
+ * with GLib where systemd is not.
+ */
+export function withdrawCommands(
+	id: number,
+	platform: NodeJS.Platform,
+): { command: string; args: string[] }[] {
+	if (platform !== "linux") return [];
+	const name = "org.freedesktop.Notifications";
+	const path = "/org/freedesktop/Notifications";
+	return [
+		{
+			command: "busctl",
+			args: [
+				"--user",
+				"call",
+				name,
+				path,
+				name,
+				"CloseNotification",
+				"u",
+				`${id}`,
+			],
+		},
+		{
+			command: "gdbus",
+			args: [
+				"call",
+				"--session",
+				"--dest",
+				name,
+				"--object-path",
+				path,
+				"--method",
+				`${name}.CloseNotification`,
+				`${id}`,
+			],
+		},
+	];
+}
+
+/**
+ * Show `notice` on the desktop, answering what it raised, with the id to
+ * take it back by where the desktop gave one.
  *
- * Never throws, and answers false wherever it could not be shown: on a
+ * Never throws, and answers nothing wherever it could not be shown: on a
  * platform with no notifier, when the tool is missing or refuses, when it
  * does not answer in time, and when `PI_NOTIFY=off`.
  */
 export async function notify(
 	notice: Notice,
 	deps: NotifyDeps = {},
-): Promise<boolean> {
+): Promise<Raised | undefined> {
 	const env = deps.env ?? process.env;
-	if (env.PI_NOTIFY === "off") return false;
+	if (env.PI_NOTIFY === "off") return undefined;
 	const shown = notifyCommand(notice, deps.platform ?? process.platform);
-	if (!shown) return false;
+	if (!shown) return undefined;
 	const exec = deps.exec ?? spawnExec({ timeoutMs: NOTIFY_LIMIT_MS });
 	try {
 		const result = await exec(shown.command, shown.args);
-		return result.code === 0;
+		if (result.code === 0) {
+			const id = printedId(result.stdout);
+			return id === undefined ? {} : { id };
+		}
+		// A notify-send older than libnotify 0.7.10 refuses --print-id;
+		// shown without it, the notice can't be taken back but still shows.
+		if (!shown.args.includes(PRINT_ID)) return undefined;
+		const plain = shown.args.filter((arg) => arg !== PRINT_ID);
+		return (await exec(shown.command, plain)).code === 0 ? {} : undefined;
 	} catch {
-		return false;
+		return undefined;
 	}
+}
+
+/**
+ * Take back a notice `notify` raised, answering whether it is gone.
+ *
+ * Never throws, and answers false where it can't be taken back: one with
+ * no id (macOS, or a notify-send too old to print one), no tool that can
+ * reach the desktop, or `PI_NOTIFY=off`.
+ */
+export async function withdrawNotice(
+	raised: Raised,
+	deps: NotifyDeps = {},
+): Promise<boolean> {
+	const env = deps.env ?? process.env;
+	if (env.PI_NOTIFY === "off" || raised.id === undefined) return false;
+	const exec = deps.exec ?? spawnExec({ timeoutMs: NOTIFY_LIMIT_MS });
+	for (const { command, args } of withdrawCommands(
+		raised.id,
+		deps.platform ?? process.platform,
+	)) {
+		try {
+			if ((await exec(command, args)).code === 0) return true;
+		} catch {
+			// This tool is missing; the next one may reach the desktop.
+		}
+	}
+	return false;
 }
