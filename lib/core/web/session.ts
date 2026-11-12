@@ -241,9 +241,11 @@ import {
 	type HeapComparison,
 	type HeapReading,
 	type Hotspots,
+	LAYER_ROUNDS,
 	LAYER_SETTLE_MS,
 	type LayerReport,
 	nameNode,
+	namesAnElement,
 	observerBootstrap,
 	type RawLayer,
 	type RawProfile,
@@ -1568,8 +1570,12 @@ export class BrowserSession {
 		this.cdp.on("LayerTree.layerTreeDidChange", onChange);
 		try {
 			await this.cdp.send("LayerTree.enable");
-			await this.cdp.send("Page.captureScreenshot", { format: "png" });
-			await this.settleLayers();
+			// Each screenshot makes Chrome compose a frame, and so send a tree.
+			for (let round = 0; round < LAYER_ROUNDS; round++) {
+				await this.cdp.send("Page.captureScreenshot", { format: "png" });
+				await this.settleLayers();
+				if (namesAnElement(latest)) break;
+			}
 		} finally {
 			this.cdp.off("LayerTree.layerTreeDidChange", onChange);
 			// Best effort: a disable that fails leaves the domain on, which

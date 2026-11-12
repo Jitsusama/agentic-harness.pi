@@ -16,6 +16,17 @@
  * into a claim the layer was not promoted at all.
  */
 
+/**
+ * Whether Chrome said which element any layer was made for.
+ *
+ * Every settled tree names some: the structural layers belong to the
+ * document node, even on a page that promotes nothing. A tree naming
+ * none is one Chrome built before it tracked nodes.
+ */
+export function namesAnElement(layers: readonly RawLayer[]): boolean {
+	return layers.some((layer) => layer.backendNodeId !== undefined);
+}
+
 /** Four bytes to a pixel, which is how a texture is sized. */
 export const BYTES_PER_PIXEL = 4;
 
@@ -30,6 +41,17 @@ const LISTED_LAYERS = 12;
  * partial tree.
  */
 export const LAYER_SETTLE_MS = 600;
+
+/**
+ * How many frames to ask for before taking a tree that names nothing.
+ *
+ * Chrome's first tree after LayerTree.enable can come before it tracks
+ * which element each layer is for, so every layer arrives without a
+ * node, the document's own included. Two builder runs in three did
+ * that on 12 November, failing the browser lane. A later frame names
+ * them, so the read asks again rather than report a tree of nobody's.
+ */
+export const LAYER_ROUNDS = 4;
 
 const BYTES_PER_KB = 1024;
 const BYTES_PER_MB = BYTES_PER_KB * BYTES_PER_KB;
