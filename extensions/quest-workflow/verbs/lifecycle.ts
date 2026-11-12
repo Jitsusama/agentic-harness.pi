@@ -31,6 +31,7 @@ import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.ts";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.ts";
+import { sessionRealmName } from "../../../lib/internal/realm.ts";
 import {
 	fetchUrlHints,
 	mintId,
@@ -263,8 +264,16 @@ export async function create(
 		);
 	}
 
+	// The realm it was made in, so a reader across realms can tell: its
+	// parent's when the parent has one, since that is where a reader
+	// looks for it, else the session's.
+	const realm =
+		(parent !== null
+			? index.quests.get(parent)?.doc.frontMatter.realm
+			: undefined) ?? sessionRealmName();
 	const frontMatter: QuestFrontMatter = {
 		id,
+		...(realm !== undefined ? { realm } : {}),
 		kind,
 		parent,
 		status: "active",

@@ -206,6 +206,12 @@ export interface QuestFrontMatter {
 	 * does; unset, they hear as every peer does.
 	 */
 	hears?: "addressed";
+	/**
+	 * The realm the quest was made in, as its session's `MYCELIUM_REALM`
+	 * named it. What reads quests across realms lets only a marked one
+	 * cross; an unmarked quest never does.
+	 */
+	realm?: string;
 	kind: QuestKind;
 	parent: string | null;
 	status: QuestStatus;
