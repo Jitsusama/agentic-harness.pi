@@ -99,6 +99,19 @@ export const LINGER = "linger";
  */
 export const LINGERING = "timeout 20 tail -f /dev/null";
 
+/** What a conversation is told to leave a job running long enough to move it. */
+export const CARRY = "carry";
+
+/** What the carried job prints as it ends, so its result can be told apart. */
+export const CARRIED_END = "carried-job-ended";
+
+/**
+ * What bash runs in the background for `carry`: the endless follow for
+ * long enough that a move under way can't wait it out, then a word its
+ * result shows.
+ */
+export const CARRYING = `timeout 45 tail -f /dev/null; echo ${CARRIED_END}`;
+
 /** What a conversation is told to list the sessions it would reopen. */
 export const REOPEN = "reopen";
 
@@ -275,6 +288,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 		return toolCall(faux, "bash", { command: DAWDLING });
 	if (toldTo(words, LINGER))
 		return toolCall(faux, "bash", { command: LINGERING, background: true });
+	if (toldTo(words, CARRY))
+		return toolCall(faux, "bash", { command: CARRYING, background: true });
 	if (toldTo(words, REOPEN))
 		return toolCall(faux, "quest", { action: "reopen-sessions" });
 	const fleet = /^fleet (\S+) (\S+)$/m.exec(words);
