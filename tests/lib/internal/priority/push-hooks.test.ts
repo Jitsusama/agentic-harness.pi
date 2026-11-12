@@ -310,6 +310,69 @@ describe("a push of a branch rebased onto a newer main", () => {
 	});
 });
 
+describe("a push replacing a branch on a remote main isn't fetched from", () => {
+	// World pushes to one remote and fetches main from another, so a
+	// rebased branch's range holds every commit of main it was rebased
+	// past, and an LFS file among them.
+	const rebasedOntoMainElsewhere = () => {
+		const delta = join(root, "delta.git");
+		execFileSync("git", ["init", "-q", "--bare", delta], { env: GIT_ENV });
+		git("remote", "add", "delta", delta);
+		git("checkout", "-q", "-b", "topic");
+		commit("notes.txt", "plain\n");
+		git("push", "-q", "delta", "topic");
+		git("checkout", "-q", "main");
+		commit("weights.bin", "binary\n");
+		git("push", "-q", "origin", "main");
+		git("checkout", "-q", "topic");
+		git("rebase", "-q", "main");
+	};
+
+	/** A folder holding a stand-in git-lfs, whose `version` exits `version`. */
+	const lfsStandIn = (version: number) => {
+		const bin = join(root, "bin");
+		mkdirSync(bin, { recursive: true });
+		hookFile(
+			join(bin, "git-lfs"),
+			`case "$1" in version) exit ${version};; pre-push) cat > /dev/null; echo "stock $2" >> "$MARK";; esac`,
+		);
+		return { PATH: `${bin}:${process.env.PATH ?? ""}` };
+	};
+
+	it("runs git-lfs's own pre-push in place of the LFS hook", () => {
+		rebasedOntoMainElsewhere();
+		const push = pushing("git push -q --force delta topic", lfsStandIn(0));
+		expect(push.status, push.stderr).toBe(0);
+		expect(ran(), "the stock pre-push ran first, then the rest").toEqual([
+			"stock delta",
+			"other unset refs/heads/topic",
+		]);
+		expect(push.stderr).toContain("ran git-lfs's own pre-push");
+	});
+
+	it("runs the repository's own pre-push whole without a git-lfs", () => {
+		rebasedOntoMainElsewhere();
+		const push = pushing("git push -q --force delta topic", lfsStandIn(1));
+		expect(push.status, push.stderr).toBe(0);
+		expect(ran(), "World's own LFS hook ran").toEqual([
+			"lfs",
+			"other unset refs/heads/topic",
+		]);
+	});
+
+	it("leaves a push that only adds to a branch to the LFS hook", () => {
+		rebasedOntoMainElsewhere();
+		git("push", "-q", "--force", "delta", "topic");
+		commit("more.bin", "binary too\n");
+		const push = pushing("git push -q delta topic", lfsStandIn(0));
+		expect(push.status, push.stderr).toBe(0);
+		expect(ran(), "World's own LFS hook ran").toEqual([
+			"lfs",
+			"other unset refs/heads/topic",
+		]);
+	});
+});
+
 describe("any other push", () => {
 	it("runs the repository's own pre-push whole for a deletion", () => {
 		git("push", "-q", "origin", "main:topic");
