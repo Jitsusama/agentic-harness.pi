@@ -15,7 +15,7 @@ import {
 	type StandaloneBackend,
 } from "../../../../lib/core/lsp/index.ts";
 
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 const serverBin = join(repoRoot, "node_modules", ".bin", "tsc");
 const hasServer = existsSync(serverBin);
 
@@ -197,6 +197,56 @@ describe.skipIf(!hasServer)("standalone backend idle shutdown", () => {
 			const again = await backend.diagnostics(file);
 			expect(backend.serverCount()).toBe(1);
 			expect(again).toEqual(first);
+		},
+		LIVE_TIMEOUT_MS,
+	);
+});
+
+// A tree given back takes its folder with it, and its server held 1.3 GB
+// for the idle window anyway (12 November), so a server whose project is
+// gone stops without waiting to go idle.
+describe.skipIf(!hasServer)("standalone backend, a project removed", () => {
+	const GONE_CHECK_MS = 200;
+	let backend: StandaloneBackend;
+	let project: string;
+
+	beforeAll(() => {
+		project = mkdtempSync(join(tmpdir(), "lsp-gone-"));
+		writeFileSync(
+			join(project, "tsconfig.json"),
+			JSON.stringify({ compilerOptions: { strict: true }, include: ["*.ts"] }),
+		);
+		writeFileSync(join(project, "package.json"), JSON.stringify({ name: "g" }));
+		writeFileSync(join(project, "a.ts"), "export default 1;\n");
+		const env = {
+			...process.env,
+			PATH: `${join(repoRoot, "node_modules", ".bin")}${delimiter}${process.env.PATH ?? ""}`,
+		};
+		backend = createStandaloneBackend({
+			env,
+			idleMs: LIVE_TIMEOUT_MS * 2,
+			goneCheckMs: GONE_CHECK_MS,
+		});
+	});
+
+	afterAll(async () => {
+		await backend?.dispose();
+		if (project) rmSync(project, { recursive: true, force: true });
+	});
+
+	it(
+		"stops the server of a project whose folder is gone, long before it would idle",
+		async () => {
+			await backend.diagnostics(join(project, "a.ts"));
+			expect(backend.serverCount(), "the call started its server").toBe(1);
+
+			rmSync(project, { recursive: true, force: true });
+			// Several checks' worth of time, far short of the idle window.
+			await new Promise((r) => setTimeout(r, GONE_CHECK_MS * 5));
+			expect(
+				backend.serverCount(),
+				"a server whose project is gone is still running",
+			).toBe(0);
 		},
 		LIVE_TIMEOUT_MS,
 	);

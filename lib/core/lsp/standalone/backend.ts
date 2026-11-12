@@ -17,6 +17,14 @@
  * session touches many roots it never returns to. A call in
  * flight keeps its servers alive however long it takes.
  *
+ * A server whose project folder is gone stops at the next look,
+ * every `goneCheckMs` while any server runs, without waiting out
+ * the idle window: a worktree given back takes its folder with it,
+ * and on 12 November a released tree's server held 1.3 GB for nine
+ * minutes. Looking for the folder catches every way a tree goes,
+ * the work tool, a quest, a sweep or another session, where an
+ * announcement would reach only the one that sent it.
+ *
  * The live server pool lives in this closure's memory for the
  * life of the process that constructs it. A stateless-per-call
  * CLI adapter that wants warm servers across invocations needs
@@ -25,6 +33,7 @@
  * session registry) -- not something this module does itself.
  */
 
+import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { bounded } from "../../../clock/bound.ts";
 import {
@@ -67,6 +76,8 @@ export interface StandaloneBackendOptions {
 	readonly env?: NodeJS.ProcessEnv;
 	/** How long a server may sit unused before it is stopped. */
 	readonly idleMs?: number;
+	/** How often the pool looks for servers whose project folder is gone. */
+	readonly goneCheckMs?: number;
 	/** How long one call may wait on its servers before it is given up on. */
 	readonly requestMs?: number;
 }
@@ -77,6 +88,12 @@ export interface StandaloneBackendOptions {
  * behind gives its memory back within the hour.
  */
 const DEFAULT_IDLE_MS = 10 * 60_000;
+
+/**
+ * Default look for gone projects. A minute is quick beside a server's
+ * memory, and one existence check per server costs nothing.
+ */
+const DEFAULT_GONE_CHECK_MS = 60_000;
 
 /**
  * Default request clock. References across a large project on a cold
@@ -107,6 +124,7 @@ export function createStandaloneBackend(
 	const servers = options.servers ?? DEFAULT_SERVERS;
 	const env = options.env ?? process.env;
 	const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
+	const goneCheckMs = options.goneCheckMs ?? DEFAULT_GONE_CHECK_MS;
 	const requestMs = options.requestMs ?? DEFAULT_REQUEST_MS;
 	const pool = new Map<string, Promise<StandaloneServer>>();
 	const roots = new Map<string, string>();
@@ -114,6 +132,8 @@ export function createStandaloneBackend(
 	// key's last call finishes.
 	const inFlight = new Map<string, number>();
 	const idleTimers = new Map<string, NodeJS.Timeout>();
+	// Armed only while a server runs, so an empty pool costs nothing.
+	let goneCheck: NodeJS.Timeout | undefined;
 
 	const poolKey = (name: string, root: string): string => `${name}|${root}`;
 
@@ -130,13 +150,14 @@ export function createStandaloneBackend(
 			return;
 		}
 		inFlight.delete(key);
-		const timer = setTimeout(() => stopIdle(key), idleMs);
+		const timer = setTimeout(() => stop(key), idleMs);
 		// An idle server must never be what keeps the process alive.
 		timer.unref();
 		idleTimers.set(key, timer);
 	};
 
-	const stopIdle = (key: string): void => {
+	const stop = (key: string): void => {
+		clearTimeout(idleTimers.get(key));
 		idleTimers.delete(key);
 		if (inFlight.has(key)) return;
 		const started = pool.get(key);
@@ -146,6 +167,27 @@ export function createStandaloneBackend(
 			(server) => server.dispose(),
 			() => {},
 		);
+	};
+
+	// A call in flight on a gone project keeps its server until it
+	// settles; the next look stops it then.
+	const stopGone = (): void => {
+		for (const [key, root] of roots) {
+			if (!existsSync(root)) stop(key);
+		}
+		if (pool.size === 0) unwatch();
+	};
+
+	const watch = (): void => {
+		if (goneCheck !== undefined) return;
+		goneCheck = setInterval(stopGone, goneCheckMs);
+		// Looking for gone projects must never keep the process alive.
+		goneCheck.unref();
+	};
+
+	const unwatch = (): void => {
+		clearInterval(goneCheck);
+		goneCheck = undefined;
 	};
 
 	const instanceFor = (
@@ -159,6 +201,7 @@ export function createStandaloneBackend(
 		const started = StandaloneServer.start(server, root, binary);
 		pool.set(key, started);
 		roots.set(key, root);
+		watch();
 		// A server that died stays dead, and its connection answers every
 		// later call with "Connection is closed." Drop it from the pool, so
 		// the next call for this root starts one afresh. Only this entry:
@@ -421,6 +464,7 @@ export function createStandaloneBackend(
 		},
 
 		async dispose(): Promise<void> {
+			unwatch();
 			for (const timer of idleTimers.values()) clearTimeout(timer);
 			idleTimers.clear();
 			const started = [...pool.values()];
