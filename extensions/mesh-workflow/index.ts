@@ -2417,6 +2417,12 @@ export function meshWorkflow(
 			// its sessions at work, an orchestrator of thirty never took a new
 			// install (WCJQSG, 11 November 2026).
 			if (data.restart === true) return;
+			// The session at the launcher's top takes his lines, and a parked
+			// one took 11 s to wake for each; awake it costs memory, not
+			// requests (WCJQSG, 12 November 2026).
+			if (presences.of(peer.session)?.standsAtTop) {
+				data.refusals.push("it stands at the launcher's top");
+			}
 			// An orchestrator with sessions at work under it has their findings
 			// coming, and passing them on is its work.
 			const working = ledAtWork(peer);
