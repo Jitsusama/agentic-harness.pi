@@ -146,7 +146,8 @@ async function startsOfTheDay(now: number) {
 
 /** The void's day file for `date`, kept in the user's state folder, if it wrote one. */
 function voidDay(date: string): string | undefined {
-	const state = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+	const state =
+		process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
 	const path = join(state, "void", `${date}.md`);
 	return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }

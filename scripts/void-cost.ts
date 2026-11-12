@@ -153,7 +153,9 @@ function lineBefore(
 }
 
 /** A clock reading instants as a day and a minute in `zone`. */
-function localClock(zone: string): (ms: number) => { day: string; stamp: string } {
+function localClock(
+	zone: string,
+): (ms: number) => { day: string; stamp: string } {
 	const format = new Intl.DateTimeFormat("en-CA", {
 		timeZone: zone,
 		year: "numeric",

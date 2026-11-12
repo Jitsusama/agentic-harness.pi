@@ -136,7 +136,9 @@ describe("what each line the void routed cost", () => {
 		expect(text).toContain("2 lines");
 		expect(text).toContain("$0.33");
 		expect(text).toContain("$0.58");
-		expect(text).toContain("| 2026-11-12 03:15 | Deploy v3 [ab12cd34] | 1 | $0.03 |");
+		expect(text).toContain(
+			"| 2026-11-12 03:15 | Deploy v3 [ab12cd34] | 1 | $0.03 |",
+		);
 		expect(text).not.toContain("deploy v3 needs a look");
 	});
 
