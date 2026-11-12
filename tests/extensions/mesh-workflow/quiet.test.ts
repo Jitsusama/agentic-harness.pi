@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type Folding,
 	folds,
+	keptOffIn,
 	quietIn,
 	quietWanted,
 } from "../../../extensions/mesh-workflow/quiet.ts";
@@ -21,6 +22,10 @@ describe("what quiet keeps off the screen", () => {
 			["a hold", { messages: [{ intent: "hold" }] }],
 			["a pivot", { messages: [{ intent: "pivot" }] }],
 			["a turn", { messages: [{ intent: "fyi" }], turn: true }],
+			[
+				"an answer to this peer, its turn held by a pause",
+				{ messages: [{ intent: "fyi" }], forThisPeer: true },
+			],
 			["no message", { messages: [] }],
 			["no details", undefined],
 		];
@@ -42,6 +47,36 @@ describe("the setting in a session's log", () => {
 			quietIn([set(true), set(false)]),
 			quietIn([{ type: "message" }]),
 		]).toEqual([true, false, false]);
+	});
+});
+
+describe("what the footer counts after a reload", () => {
+	const set = (on: boolean) => ({
+		type: "custom",
+		customType: "mesh-quiet",
+		data: { on },
+	});
+	const delivery = (intent: string, turn = false) => ({
+		type: "custom_message",
+		customType: "mesh",
+		details: { messages: [{ intent }, { intent }], turn },
+	});
+
+	it("counts the messages kept off since quiet last went on", () => {
+		const log = [
+			set(true),
+			delivery("fyi"),
+			set(false),
+			delivery("fyi"),
+			set(true),
+			delivery("finding"),
+			delivery("question"),
+			delivery("fyi", true),
+			{ type: "custom_message", customType: "other", details: {} },
+			delivery("fyi"),
+		];
+
+		expect([keptOffIn(log), keptOffIn(log.slice(0, 4))]).toEqual([4, 0]);
 	});
 });
 

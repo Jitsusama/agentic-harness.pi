@@ -367,10 +367,12 @@ reads his own conversation between them. `/mesh quiet` (or
 `/mesh quiet on`, `/mesh quiet off`) keeps a delivery off the
 screen when it started no turn and holds only fyis and findings,
 and the footer counts what it kept off. A question, a hold, a
-pivot, an answer to this peer and the mesh speaking for itself
-still show. The model is sent the same either way, and mesh_read
-has every message. The setting is the session's, kept in its log,
-so a reload or a restart in place finds it as it was left.
+pivot, an answer to this peer (even while a pause holds its turn)
+and the mesh speaking for itself still show. The model is sent the
+same either way, and mesh_read has every message. The setting is
+the session's, kept in its log, so a reload or a restart in place
+finds it as it was left, and the footer counts again what the
+screen still keeps off.
 
 ## Damping
 

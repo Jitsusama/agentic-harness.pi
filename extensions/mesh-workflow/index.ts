@@ -253,6 +253,7 @@ import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import {
 	type Folding,
 	folds,
+	keptOffIn,
 	QUIET,
 	QUIET_STATUS,
 	quietIn,
@@ -681,7 +682,7 @@ export function meshWorkflow(
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
 		// Whether this session keeps peers' news off its screen, and how many
-		// messages it has kept off since it started (see quiet.ts).
+		// messages it keeps off now (see quiet.ts).
 		let quiet = false;
 		let keptOff = 0;
 		const showQuiet = () => {
@@ -1214,6 +1215,10 @@ export function meshWorkflow(
 			}
 			const carried = glances.take();
 			const content = noted(messages, carried, peer?.orchestratedBy);
+			// What asked for a turn, or answers this peer, shows on a quiet
+			// screen though a pause held its turn back.
+			const forThisPeer =
+				asked || all.some(({ heed }) => heed.awaited || heed.addressed);
 			// pi's own first prompt, still to come, is the turn that reads it.
 			const putOff = turn && (firstPromptPending() || putOffTurn());
 			if (turn) turnAsked = true;
@@ -1226,11 +1231,12 @@ export function meshWorkflow(
 					details: delivered(messages, carried, {
 						turn,
 						why: all.map(({ heed }) => heed.why),
+						...(forThisPeer ? { forThisPeer } : {}),
 					}),
 				},
 				{ triggerTurn: turn && !putOff },
 			);
-			if (quiet && folds({ messages, turn })) {
+			if (quiet && folds({ messages, turn, forThisPeer })) {
 				keptOff += messages.length;
 				showQuiet();
 			}
@@ -1667,7 +1673,7 @@ export function meshWorkflow(
 			// Said already before a reload is not said again.
 			leftTo = leftToIn(branch);
 			quiet = quietIn(branch);
-			keptOff = 0;
+			keptOff = keptOffIn(branch);
 			showQuiet();
 			signed = undefined;
 			const host = hosted();
@@ -2377,7 +2383,7 @@ function answeringAt(answering: readonly boolean[], at: number): boolean {
 function delivered(
 	messages: readonly Message[],
 	glanced: readonly Message[],
-	more: Pick<Delivered, "turn" | "why"> = {},
+	more: Pick<Delivered, "turn" | "why" | "forThisPeer"> = {},
 ): Delivered {
 	return {
 		messages,
