@@ -57,20 +57,50 @@ describe("summaryInstruction", () => {
 			);
 		});
 
+		const capped = (replacedTokens: number, hasPreviousSummary = false) =>
+			summaryInstruction({
+				hasPreviousSummary,
+				length: {
+					replacedTokens,
+					maxOutputTokens: 51_200,
+					ceilingTokens: 6_000,
+				},
+			});
+
 		it("holds a long summary to its ceiling", () => {
-			const capped = (replacedTokens: number) =>
-				summaryInstruction({
-					hasPreviousSummary: false,
-					length: {
-						replacedTokens,
-						maxOutputTokens: 51_200,
-						ceilingTokens: 6_000,
-					},
-				});
 			expect([
-				capped(150_000).includes("Make it about 6,000 tokens long"),
+				capped(150_000).includes("Keep it to at most 6,000 tokens"),
 				capped(40_000).includes("Make it about 4,000 tokens long"),
 			]).toEqual([true, true]);
+		});
+
+		// Under the trial's ceiling, summaries on 12 November 2026 still ran
+		// 8k to 21k tokens, since the line asking for 6,000 also said a
+		// summary should grow with what it replaces.
+		it("says a ceiling that binds as a limit, not a size to grow into", () => {
+			const text = capped(150_000);
+			expect(
+				["should grow with what it replaces", "do not squeeze"].filter(
+					(words) => text.includes(words),
+				),
+				"what still asks it to grow",
+			).toEqual([]);
+			expect(text).toContain("a limit, not a target");
+		});
+
+		it("lets a fold under a binding ceiling shorten what is finished", () => {
+			const text = capped(150_000, true);
+			expect(text, "the fold under a ceiling").not.toContain(
+				"Do not shorten or merge them",
+			);
+			expect(text).toContain("shorten what is finished before what is open");
+			expect(text).toContain("write only the latest state as current");
+		});
+
+		it("keeps the full carry when the ceiling does not bind", () => {
+			const text = capped(40_000, true);
+			expect(text).toContain("Do not shorten or merge them");
+			expect(text).toContain("should grow with what it replaces");
 		});
 
 		it("never holds a summary under its floor, whatever ceiling is named", () => {
@@ -82,7 +112,7 @@ describe("summaryInstruction", () => {
 					ceilingTokens: 50,
 				},
 			});
-			expect(text).toContain("Make it about 2,000 tokens long");
+			expect(text).toContain("Keep it to at most 2,000 tokens");
 		});
 
 		it("counts the earlier summary in what a fold replaces", () => {

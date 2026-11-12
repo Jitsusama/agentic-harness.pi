@@ -149,6 +149,27 @@ const FOLD_PREVIOUS = `The conversation above begins with a summary of earlier h
 - UPDATE "Next Steps" based on what was accomplished
 - If something is no longer relevant, you may remove it`;
 
+/** What a sized fold says in its own way; the rest both folds share, so an edit can't split the trial's halves by accident. */
+interface FoldWords {
+	readonly how: string;
+	readonly carry: string;
+	readonly finished: string;
+	readonly remove: string;
+}
+
+/** A sized fold's instruction, from the words that set it apart. */
+function sizedFold(words: FoldWords): string {
+	return [
+		`The conversation above begins with a summary of earlier history. It describes the state at the point it was written, not now. Fold it into the new summary ${words.how}:`,
+		"- Check each item in it against the messages after it before carrying it.",
+		`- ${words.carry}`,
+		"- When the messages after it changed, corrected, replaced or reversed something, write only the latest state as current. Mention the earlier one, if at all, only as what it replaced. Never leave an earlier blocker, plan, stance or instruction standing in In Progress, Blocked, Next Steps or Critical Context once a later message superseded it.",
+		`- When something it lists has since been finished, ${words.finished}.`,
+		`- ${words.remove}`,
+		"- ADD the new progress, decisions and context from the messages after it, and give the user's latest instructions in their own terms.",
+	].join("\n");
+}
+
 /**
  * How a sized summary folds the one before it. pi's words let each fold
  * compress what it carries again, so a specific kept twice is lost on
@@ -160,13 +181,28 @@ const FOLD_PREVIOUS = `The conversation above begins with a summary of earlier h
  * excerpts, it answered 0.727 against 0.684 for pi's words with the
  * same sizing, with 10 answers wrong against 17.5.
  */
-const FOLD_CARRY = `The conversation above begins with a summary of earlier history. It describes the state at the point it was written, not now. Fold it into the new summary without compressing it again:
-- Check each item in it against the messages after it before carrying it.
-- CARRY every specific that still holds forward in its own words: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. Do not shorten or merge them; a later fold cannot recover what this one drops.
-- When the messages after it changed, corrected, replaced or reversed something, write only the latest state as current. Mention the earlier one, if at all, only as what it replaced. Never leave an earlier blocker, plan, stance or instruction standing in In Progress, Blocked, Next Steps or Critical Context once a later message superseded it.
-- When something it lists has since been finished, move it to Done and keep how it ended.
-- Remove only what is now clearly irrelevant to the work ahead.
-- ADD the new progress, decisions and context from the messages after it, and give the user's latest instructions in their own terms.`;
+const FOLD_CARRY = sizedFold({
+	how: "without compressing it again",
+	carry:
+		"CARRY every specific that still holds forward in its own words: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. Do not shorten or merge them; a later fold cannot recover what this one drops.",
+	finished: "move it to Done and keep how it ended",
+	remove: "Remove only what is now clearly irrelevant to the work ahead.",
+});
+
+/**
+ * How a fold under a ceiling that binds carries the summary before it.
+ * Carrying every specific unshortened outweighed the size asked: held
+ * to 6,000 tokens, folds on 12 November 2026 still wrote 8k to 21k. So
+ * under a ceiling a fold keeps what the work ahead depends on, and
+ * shortens what is finished before what is open.
+ */
+const FOLD_HELD = sizedFold({
+	how: "within the limit below",
+	carry:
+		"CARRY forward, in their own words, the specifics the work ahead still depends on: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. When the limit forces a choice, shorten what is finished before what is open, and never drop a standing instruction.",
+	finished: "move it to Done in one line saying how it ended",
+	remove: "Remove what the work ahead no longer needs.",
+});
 
 /** The instruction that closes the conversation and asks for its summary. */
 export function summaryInstruction(options: SummaryInstructionOptions): string {
@@ -174,7 +210,7 @@ export function summaryInstruction(options: SummaryInstructionOptions): string {
 		"[This message is from the harness, not the user.] The session is being compacted: the conversation above will be replaced by a summary you write now, and the most recent messages will be kept verbatim after it. Stop work on the task. Do not call any tool and do not continue the conversation. Write a structured context checkpoint summary that you will use to continue the work.",
 	];
 	if (options.hasPreviousSummary) {
-		parts.push(options.length ? FOLD_CARRY : FOLD_PREVIOUS);
+		parts.push(foldFor(options.length));
 	}
 	parts.push(
 		options.length
@@ -189,6 +225,20 @@ export function summaryInstruction(options: SummaryInstructionOptions): string {
 	}
 	parts.push("Reply with the summary only.");
 	return parts.join("\n\n");
+}
+
+/** How a fold carries the summary before it: pi's way unsized, held under a ceiling that binds, else in full. */
+function foldFor(length: SummaryLength | undefined): string {
+	if (!length) return FOLD_PREVIOUS;
+	return ceilingBinds(length) ? FOLD_HELD : FOLD_CARRY;
+}
+
+/** Whether a ceiling holds the summary under what its share of what it replaces would ask. */
+function ceilingBinds(length: SummaryLength): boolean {
+	const { ceilingTokens, ...unheld } = length;
+	return (
+		ceilingTokens !== undefined && summaryTarget(length) < summaryTarget(unheld)
+	);
 }
 
 /** The size a summary is asked for: a share of what it replaces, within the floor, the output limit and any ceiling. */
@@ -224,7 +274,11 @@ const count = (n: number) => n.toLocaleString("en-CA");
 function lengthLine(length: SummaryLength, folding: boolean): string {
 	const target = summaryTarget(length);
 	const words = roundToHundred(target * WORDS_PER_TOKEN);
-	return `This summary replaces about ${count(roundToHundred(length.replacedTokens))} tokens of conversation${folding ? ", the earlier summary included" : ""}. Make it about ${count(target)} tokens long (roughly ${count(words)} words): its length should grow with what it replaces, so do not squeeze it onto a short page. Spend that length on what a successor needs to carry on without asking: each decision and its reason, each point where the plan changed course and what replaced it, what was finished and how it ended, what is still open, standing instructions in the user's own terms, and the exact file paths, commands, numbers, names, identifiers and error messages they depend on. Do not narrate how the session went.`;
+	const replaces = `This summary replaces about ${count(roundToHundred(length.replacedTokens))} tokens of conversation${folding ? ", the earlier summary included" : ""}.`;
+	if (ceilingBinds(length)) {
+		return `${replaces} Keep it to at most ${count(target)} tokens (roughly ${count(words)} words). That is a limit, not a target to stretch toward: what it replaces would fill more, so choose what goes in. Spend it on what a successor needs to carry on without asking: each decision and its reason, what is still open, standing instructions in the user's own terms, and the exact file paths, commands, numbers, names, identifiers and error messages the open work depends on. Give each finished item one line. Do not narrate how the session went.`;
+	}
+	return `${replaces} Make it about ${count(target)} tokens long (roughly ${count(words)} words): its length should grow with what it replaces, so do not squeeze it onto a short page. Spend that length on what a successor needs to carry on without asking: each decision and its reason, each point where the plan changed course and what replaced it, what was finished and how it ended, what is still open, standing instructions in the user's own terms, and the exact file paths, commands, numbers, names, identifiers and error messages they depend on. Do not narrate how the session went.`;
 }
 
 /** Read a summary out of the model's reply, refusing one that cannot be persisted. */
