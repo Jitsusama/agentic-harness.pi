@@ -187,8 +187,13 @@ describe.skipIf(!packageDir)(
 						`${sessionId} left plain pi's marker, which the mesh wakes it by`,
 					).toBeDefined();
 				const parked = await host.weigh();
+				// PSS is kept for the record only: it holds every page V8 hasn't
+				// given back yet, and on 12 November it rose by 10 MB on a lender
+				// as four sessions went. The heap is what letting them go lowers.
 				took.awakeKb = awake.pss + awake.swapPss;
 				took.parkedKb = parked.pss + parked.swapPss;
+				took.awakeHeapKb = awake.heapKb;
+				took.parkedHeapKb = parked.heapKb;
 				expect(
 					parked.sessions,
 					"no parked conversation's session is still in the host's memory",
@@ -198,9 +203,9 @@ describe.skipIf(!packageDir)(
 					"each conversation's session was in memory while it was awake",
 				).toBeGreaterThanOrEqual(KINDS.length);
 				expect(
-					took.parkedKb,
-					`the host weighs less parked (${took.parkedKb} kB) than awake (${took.awakeKb} kB)`,
-				).toBeLessThan(took.awakeKb);
+					took.parkedHeapKb,
+					`the host's heap is smaller parked (${took.parkedHeapKb} kB) than awake (${took.awakeHeapKb} kB)`,
+				).toBeLessThan(took.awakeHeapKb);
 			},
 			PARKING_CASE_MS,
 		);
