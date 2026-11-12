@@ -1246,8 +1246,11 @@ export function meshWorkflow(
 				const replaced = replacedBy(message);
 				// A withdrawal reaches in full everyone who heard what it
 				// withdraws, and what it withdraws is never handed over after it.
+				// A peer hearing only what is put to it glanced at the original,
+				// so a glance takes its place.
 				const heard =
 					replaced !== undefined &&
+					receiver.hears !== "addressed" &&
 					reaches(replaced, listener, senderIdentity().pid);
 				if (replaced) {
 					glances.drop(replaced.id);
