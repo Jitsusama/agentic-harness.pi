@@ -70,7 +70,11 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 describe("the batching trial", () => {
 	it("splits sessions by the second-to-last digit of their id", () => {
 		expect(
-			[inTrialHalf(IN), inTrialHalf(OUT), inTrialHalf(`2026-11-08_${IN}.jsonl`)],
+			[
+				inTrialHalf(IN),
+				inTrialHalf(OUT),
+				inTrialHalf(`2026-11-08_${IN}.jsonl`),
+			],
 			"odd in, even out, a log's name read as its id",
 		).toEqual([true, false, true]);
 	});
