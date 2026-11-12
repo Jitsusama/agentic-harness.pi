@@ -884,8 +884,7 @@ export function meshWorkflow(
 		 * The person's words from outside the window, as their own message:
 		 * a turn when idle, or into the run under way, read after its tool.
 		 */
-		const steered = (text: string) => {
-			const idle = ctx?.isIdle?.() ?? true;
+		const steered = (text: string, idle: boolean) => {
 			pi.sendUserMessage(text, idle ? undefined : { deliverAs: "steer" });
 		};
 
@@ -918,9 +917,10 @@ export function meshWorkflow(
 						return;
 					}
 					pausing.talked();
-					const said = steerText(one);
+					const idle = ctx?.isIdle?.() ?? true;
+					const said = steerText(one, { busy: !idle });
 					talks.opened(one, inbox, said);
-					steered(said);
+					steered(said, idle);
 				},
 				setAside: (inbox, names) => {
 					if (!ctx?.hasUI) return;

@@ -7,9 +7,12 @@
  * steer's message reaches the conversation: a busy session hands it to
  * pi to read after its current tool, and a run in its last turn can
  * end before pi does, so pi starts a new run for it. Only a taken talk
- * hears the run's steps and reply, and it closes when that run
- * settles: replied with the last text written since, or failed when
- * the run was stopped or wrote nothing. What concludes within
+ * hears the run's steps and reply. One taken into a run already
+ * working closes at the first text written after it, since the person
+ * asked to be answered first and what follows is the run's own work.
+ * One that starts its run closes when that run settles: replied with
+ * the last text written since, or failed when the run was stopped or
+ * wrote nothing. What concludes within
  * CAME_MS of the reply, before the next talk, is added as what came
  * of it; that is loose, since a conclusion in that hour need not be
  * the one the talk asked for.
@@ -61,7 +64,11 @@ interface Open {
 	/** The message it was delivered as, to know it when it is taken. */
 	readonly message: string;
 	taken: boolean;
+	/** Taken into a run already working, so its first text replies. */
+	intoWork: boolean;
 	reply: string;
+	/** The reply so far last said, so the same text is said once. */
+	said?: string;
 	reading?: number;
 	replying?: number;
 }
@@ -76,7 +83,15 @@ export function createTalks(host: TalksHost): Talks {
 	const now = host.now ?? Date.now;
 	let open: Open[] = [];
 	let answered: Answered[] = [];
+	/** Whether the run under way has stepped or written yet. */
+	let working = false;
 	const taken = () => open.filter((talk) => talk.taken);
+
+	const close = (closing: readonly Open[]) => {
+		const at = now();
+		answered = [...answered, ...closing.map((talk) => ({ talk, at }))];
+		open = open.filter((talk) => !closing.includes(talk));
+	};
 
 	const say = (talk: Open, event: TalkEvent) => {
 		try {
@@ -101,6 +116,7 @@ export function createTalks(host: TalksHost): Talks {
 				since: now(),
 				message: message.trim(),
 				taken: false,
+				intoWork: false,
 				reply: "",
 			};
 			open = [...open.filter((one) => one.id !== talk.id), talk];
@@ -117,10 +133,13 @@ export function createTalks(host: TalksHost): Talks {
 			const said = text.trim();
 			if (said === "") return;
 			for (const talk of open) {
-				if (!talk.taken && said.includes(talk.message)) talk.taken = true;
+				if (talk.taken || !said.includes(talk.message)) continue;
+				talk.taken = true;
+				talk.intoWork = working;
 			}
 		},
 		step(step) {
+			working = true;
 			const moment = now();
 			for (const talk of taken()) {
 				if (talk.reading !== undefined && moment - talk.reading < READING_MS) {
@@ -135,23 +154,32 @@ export function createTalks(host: TalksHost): Talks {
 		},
 		writing(text) {
 			if (text.trim() === "") return;
+			working = true;
 			const moment = now();
 			for (const talk of taken()) {
 				if (
-					talk.replying !== undefined &&
-					moment - talk.replying < REPLYING_MS
+					talk.said === text ||
+					(talk.replying !== undefined &&
+						moment - talk.replying < REPLYING_MS)
 				) {
 					continue;
 				}
 				talk.replying = moment;
+				talk.said = text;
 				say(talk, { stage: "replying", text });
 			}
 		},
 		wrote(text) {
-			if (text.trim() === "") return;
-			for (const talk of taken()) talk.reply = text.trim();
+			const reply = text.trim();
+			if (reply === "") return;
+			working = true;
+			const first = taken().filter((talk) => talk.intoWork);
+			for (const talk of first) say(talk, { stage: "replied", text: reply });
+			if (first.length > 0) close(first);
+			for (const talk of taken()) talk.reply = reply;
 		},
 		settled(aborted) {
+			working = false;
 			const closing = taken();
 			// A talk its run never took waits for the run pi starts for it.
 			if (closing.length === 0) return;
@@ -160,9 +188,7 @@ export function createTalks(host: TalksHost): Talks {
 				else if (talk.reply) say(talk, { stage: "replied", text: talk.reply });
 				else say(talk, { stage: "failed", why: "the run wrote no reply" });
 			}
-			const at = now();
-			answered = closing.map((talk) => ({ talk, at }));
-			open = open.filter((talk) => !talk.taken);
+			close(closing);
 		},
 		came(what, ref) {
 			const moment = now();

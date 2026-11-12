@@ -136,7 +136,10 @@ describe("a talk a session follows", () => {
 		following.wrote("Let me look.");
 		following.step("bash");
 		following.wrote("All green.");
-		expect(stages("t1").map(({ stage }) => stage)).toEqual(["delivered"]);
+		expect(stages("t1").map(({ stage }) => stage)).toEqual([
+			"delivered",
+			"reading",
+		]);
 		following.settled(false);
 		expect(stages("t1").at(-1)).toEqual({
 			stage: "replied",

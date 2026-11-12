@@ -210,6 +210,25 @@ describe.skipIf(!packageDir)(
 		);
 
 		it(
+			"shows the next viewer what the conversation wrote while nobody watched",
+			async () => {
+				// As a talk from the launcher is answered with no window open.
+				const { sessionId } = await host.open(folder());
+				const first = await viewer(sessionId, 30, 100);
+				first.type(`hold until unwatched${ENTER}`);
+				await first.shows("Working");
+
+				await first.leave();
+				writeFileSync(join(sealed.home, "unwatched"), "");
+				await host.idle(sessionId, TURN_MS);
+				const next = await viewer(sessionId, 30, 100);
+
+				await next.shows("released: unwatched");
+			},
+			CASE_MS,
+		);
+
+		it(
 			"gives a viewer that joins late the screen's modes before its first repaint",
 			async () => {
 				const { sessionId } = await host.open(folder());

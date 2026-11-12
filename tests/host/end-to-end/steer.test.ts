@@ -89,7 +89,7 @@ it(
 				"the steer reaches the second conversation",
 				async () => textOf(b.file).includes(word),
 			);
-			expect(textOf(b.file)).toContain("[Steered by");
+			expect(textOf(b.file)).toContain("is asking from outside this window");
 			expect(textOf(a.file)).not.toContain(word);
 
 			await host.close(b.sessionId);

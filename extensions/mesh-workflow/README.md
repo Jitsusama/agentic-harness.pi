@@ -741,7 +741,11 @@ holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`
 (only `text` is needed), reaches the session going by that
 address as the person's own message. That's a turn when idle,
 and a steer into the run under way, read after its tool,
-otherwise. It isn't a mesh message, since peers read those as
+otherwise. Either way it reads as the person asking from
+outside the window, to be answered first in a line or two
+before the session carries on, since the launcher shows that
+first answer; a machine's steer says it isn't the person's.
+It isn't a mesh message, since peers read those as
 another agent's context. The session takes each file by
 renaming it, so it's delivered once, and sets one with no text
 aside as `.bad`. It settles which folders it watches at every
@@ -757,7 +761,11 @@ stages are `delivered` (with the person's words, `from` and
 `sentAt`), `reading` (its step and how long, at most every 30
 seconds), `replying` (the reply so far, at most every second),
 then `replied` with the whole reply or `failed` with why: the
-run was stopped or wrote nothing. A quest or document that ends
+run was stopped or wrote nothing. A talk read into a run
+already working is replied by the first text written after it,
+since what follows is the run's own work; one that starts its
+run is replied by the last text that run writes. A reply so far
+is said again only once it changes. A quest or document that ends
 afterwards, before the next talk opens, adds `came`, such as
 `{"stage": "came", "what": "plan concluded", "ref": "PLAN-..."}`.
 An inbox keeps its talks for 90 days or its newest 500,
