@@ -17,7 +17,13 @@ import type { SessionHost } from "../../../host/engine/index.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import { describeStep, hostKind, runHost } from "../../../host/service/run.ts";
+import {
+	describeStep,
+	hostKind,
+	readyStatus,
+	runHost,
+	stoppingStatus,
+} from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
@@ -92,7 +98,66 @@ describe("describeStep", () => {
 	});
 });
 
+describe("readyStatus", () => {
+	it("says how many conversations it serves, and any held but not resumed", () => {
+		expect(readyStatus(0, 0)).toBe("ready, serving no conversations");
+		expect(readyStatus(1, 0)).toBe("ready, serving 1 conversation");
+		expect(readyStatus(3, 2)).toBe(
+			"ready, serving 3 conversations, 2 held but not resumed",
+		);
+		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
+	});
+});
+
 describe("runHost", () => {
+	it("keeps its status current as conversations come and go", async () => {
+		const signals = new EventEmitter();
+		const statuses: string[] = [];
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals,
+			ready: async (_env, status) => {
+				statuses.push(status);
+			},
+			status: async (_env, status) => {
+				statuses.push(status);
+			},
+			statusEvery: 10,
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		try {
+			const reply = await controlRequest(run.serving.path, {
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			if (!reply.ok) throw new Error(reply.error.message);
+			await vi.waitFor(() => {
+				expect(statuses.at(-1), "the status once one opened").toBe(
+					"ready, serving 1 conversation",
+				);
+			});
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+		const after = statuses.length;
+		// Five checks' worth, to show none comes once the host has stopped.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(statuses, "said only as it changed").toEqual([
+			"ready, serving no conversations",
+			"ready, serving 1 conversation",
+			"stopping, parking 1 conversation",
+		]);
+		expect(statuses.length, "nothing said once stopped").toBe(after);
+	});
+
 	it("says it is ready only once it listens, and parks on a stop signal", async () => {
 		const signals = new EventEmitter();
 		const ready = vi.fn(async () => {
@@ -222,7 +287,10 @@ describe("runHost", () => {
 		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
 		expect(said[2]).toMatch(/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s$/);
-		expect(said[3]).toMatch(/^\d+\.\d s: ready, listening on /);
+		// This engine's resume registers nothing, so the host serves none.
+		expect(said[3]).toMatch(
+			/^\d+\.\d s: ready, serving no conversations, listening on /,
+		);
 		second.emit("SIGTERM");
 		await run.stopped;
 	});
@@ -320,7 +388,8 @@ describe("runHost", () => {
 			"what the host told systemd",
 		).toEqual([
 			expect.stringContaining("STATUS=building the engine"),
-			"--ready",
+			"--ready STATUS=ready, serving no conversations",
+			"STATUS=stopping, parking no conversations",
 		]);
 		const senders = notifies.map((words) => Number(words.at(0)));
 		expect(

@@ -37,6 +37,12 @@ const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
  */
 export const STEP_ALLOWANCE_MS = 120_000;
 
+/**
+ * How often a ready host looks whether what it serves has changed, for
+ * the unit's status: a conversation's coming or going shows within this.
+ */
+const STATUS_EVERY_MS = 15_000;
+
 const MICROSECONDS_PER_MS = 1000;
 const MS_PER_SECOND = 1000;
 
@@ -59,8 +65,12 @@ export interface HostRunOptions {
 	viewer?: (host: SessionHost) => ViewerBridge;
 	/** Where the process hears its stop signals; the process by default. */
 	signals?: { once(signal: string, listener: () => void): unknown };
-	/** Says the host is ready; systemd's notify by default. */
-	ready?: (env: NodeJS.ProcessEnv) => Promise<void>;
+	/** Says the host is ready, with its status; systemd's notify by default. */
+	ready?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
+	/** Says the host's status once it changes; systemd's notify by default. */
+	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
+	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
+	statusEvery?: number;
 	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
@@ -159,10 +169,20 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		starting,
 		runtimeDir: options.env.XDG_RUNTIME_DIR,
 	});
+	const status = () =>
+		readyStatus(serving.held().length, serving.stillUnresumed());
+	const tell = (now: string) =>
+		(options.status ?? notifyStatus)(options.env, now);
 	const signals = options.signals ?? process;
+	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
 	const stop = () => {
-		stopping ??= serving.stop();
+		if (stopping) return stopping;
+		following?.();
+		// Parking many can take a while; the status says so meanwhile.
+		stopping = tell(stoppingStatus(serving.held().length))
+			.catch(report)
+			.then(() => serving.stop());
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -184,20 +204,39 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		});
 	});
 	try {
-		await (options.ready ?? notifyReady)(options.env);
+		await (options.ready ?? notifyReady)(options.env, status());
 	} catch (error) {
 		// systemd waits for readiness until its own timeout and stops the
 		// unit then; the host keeps serving what it can until it does.
 		report(error);
 	}
+	if (stopping === undefined)
+		following = followStatus({
+			status,
+			said: status(),
+			tell,
+			every: options.statusEvery ?? STATUS_EVERY_MS,
+			report,
+		});
 	resumed();
-	say(
-		`${since()}: ready, listening on ${serving.path}` +
-			(serving.unresumed.length > 0
-				? `, ${serving.unresumed.length} held but not resumed`
-				: ""),
-	);
+	say(`${since()}: ${status()}, listening on ${serving.path}`);
 	return { serving, stopped };
+}
+
+/** A ready host's status in words, as systemd's status and the journal show it. */
+export function readyStatus(serving: number, unresumed: number): string {
+	const held = unresumed > 0 ? `, ${unresumed} held but not resumed` : "";
+	return `ready, serving ${conversations(serving)}${held}`;
+}
+
+/** A stopping host's status in words, while it parks what it runs. */
+export function stoppingStatus(parking: number): string {
+	return `stopping, parking ${conversations(parking)}`;
+}
+
+function conversations(count: number): string {
+	if (count === 0) return "no conversations";
+	return `${count} conversation${count === 1 ? "" : "s"}`;
 }
 
 /** A start step in words, as the journal and systemd's status show it. */
@@ -266,9 +305,44 @@ function uncontained(
 	);
 }
 
-/** Tell systemd the host listens, when it runs the host as a notify unit. */
-function notifyReady(env: NodeJS.ProcessEnv): Promise<void> {
-	return tellSystemd(env, ["--ready"]);
+/**
+ * Tell systemd the host listens, and what it serves as the unit's status,
+ * when it runs the host as a notify unit. Ready alone left the status at
+ * the last start step: on 12 November attended still read "building the
+ * engine" hours after it started.
+ */
+function notifyReady(env: NodeJS.ProcessEnv, status: string): Promise<void> {
+	return tellSystemd(env, ["--ready", `STATUS=${status}`]);
+}
+
+/** Show what the host serves as the unit's status, once it changes. */
+function notifyStatus(env: NodeJS.ProcessEnv, status: string): Promise<void> {
+	return tellSystemd(env, [`STATUS=${status}`]);
+}
+
+/**
+ * Look at the status every `every` ms and tell it once it has changed
+ * from what was last said, until the answer is called. A look reads a
+ * list the host already keeps, and systemd hears only a change, so
+ * conversations opened, adopted, released or ended show without each
+ * of those paths having to say so.
+ */
+function followStatus(options: {
+	status: () => string;
+	said: string;
+	tell: (status: string) => Promise<void>;
+	every: number;
+	report: (error: unknown) => void;
+}): () => void {
+	let said = options.said;
+	const look = setInterval(() => {
+		const now = options.status();
+		if (now === said) return;
+		said = now;
+		options.tell(now).catch(options.report);
+	}, options.every);
+	look.unref();
+	return () => clearInterval(look);
 }
 
 /** Write an error, and what caused it, to standard error, which systemd's journal keeps. */
