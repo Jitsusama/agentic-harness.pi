@@ -2,8 +2,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { StandingPrompt } from "../../extensions/spend-workflow/standing.ts";
 import {
+	type DeclarationRecord,
 	type InnerCallRecord,
 	openLedgerReader,
 	openTurnStore,
@@ -76,20 +76,33 @@ function step(
 	return { turn, calls };
 }
 
+/**
+ * A system message in session `uuid` `hoursAgo` before the measure
+ * (by default before the day began), declaring tools of these sizes in
+ * characters, a size of 0 taking the tool away.
+ */
+function declared(
+	uuid: string,
+	byTool: Readonly<Record<string, number>>,
+	hoursAgo = 30,
+): DeclarationRecord[] {
+	sequence += 1;
+	return Object.entries(byTool).map(([tool, chars]) => ({
+		sessionId: `2026-11-12T00-00-00-000Z_${uuid}.jsonl`,
+		entryId: `s${sequence}`,
+		timestamp: new Date(NOW - hoursAgo * HOUR_MS).toISOString(),
+		tool,
+		change: chars > 0 ? "added" : "removed",
+		chars,
+	}));
+}
+
 /** A session that started declaring tools of these sizes, in characters. */
 function started(
-	session: string,
+	uuid: string,
 	byTool: Readonly<Record<string, number>>,
-): StandingPrompt {
-	const declarations = Object.values(byTool).reduce((a, b) => a + b, 0);
-	return {
-		session,
-		repo: "r",
-		tools: Object.keys(byTool).length,
-		pieces: { declarations },
-		byTool,
-		redeclared: 0,
-	};
+): DeclarationRecord[] {
+	return declared(uuid, byTool);
 }
 
 /** The calls a step's first call made to other tools, as the scan keeps them. */
@@ -117,7 +130,7 @@ function through(
 }
 
 async function reportOf(
-	prompts: readonly StandingPrompt[],
+	held: readonly DeclarationRecord[][],
 	steps: readonly {
 		turn: TurnRecord;
 		calls: ToolCallRecord[];
@@ -129,11 +142,11 @@ async function reportOf(
 	await store.recordTurns(steps.map((one) => one.turn));
 	await store.recordCalls(steps.flatMap((one) => one.calls));
 	await store.recordInnerCalls(steps.flatMap((one) => one.inner ?? []));
+	await store.recordDeclarations(held.flat());
 	await store.close();
 	const reader = await openLedgerReader(path);
 	try {
 		return await declaredCalled(
-			prompts,
 			async (sql) => (await reader.query(sql)).rows,
 			NOW,
 		);
@@ -201,6 +214,28 @@ describe("tools declared against tools called", () => {
 			[slack?.scripted, slack?.unusedCost],
 			"slack maybe in a's script, unread in b",
 		).toEqual([1, 0.0005]);
+	});
+
+	it("prices a tool only for the turns a session held it", async () => {
+		// a took slack away between its two turns, then b's and its own
+		// turn came after slack came back at twice the size.
+		const report = await reportOf(
+			[
+				started("a", { slack: 4_000 }),
+				declared("a", { slack: 0 }, 1.5),
+				declared("a", { slack: 8_000 }, 0.75),
+			],
+			[step("a", 2, []), step("a", 1, []), step("a", 0.5, [])],
+		);
+		const slack = report.tools.find(({ tool }) => tool === "slack");
+		expect(
+			[
+				slack?.chars,
+				report.medianDeclared,
+				Number(slack?.unusedCost.toFixed(6)),
+			],
+			"held at 8,000 last; 12,000 over 3 turns; 1,000 then 2,000 tokens",
+		).toEqual([8_000, 4_000, 0.0015]);
 	});
 
 	it("counts the tools a script called, and prices those it didn't", async () => {
