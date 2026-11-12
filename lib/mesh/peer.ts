@@ -482,7 +482,12 @@ export function localPeer(at: Surroundings): Peer {
 		);
 		const work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
-		receiver = { addresses, worksOn: work.worksOn, owns: work.owns };
+		receiver = {
+			addresses,
+			worksOn: work.worksOn,
+			owns: work.owns,
+			...(work.hears ? { hears: work.hears } : {}),
+		};
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
 		quest = work.quest;
 		questInfo = work.questInfo;

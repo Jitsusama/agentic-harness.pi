@@ -29,7 +29,7 @@ import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { budget } from "./verbs/budget.ts";
-import { configReport } from "./verbs/config.ts";
+import { config } from "./verbs/config.ts";
 import {
 	checkedItem,
 	journal,
@@ -209,7 +209,7 @@ async function dispatch(
 				? read(state, params)
 				: show(state, params);
 		case "config":
-			return configReport();
+			return config(state, params);
 		case "list":
 			return list(state, params);
 		case "focus":

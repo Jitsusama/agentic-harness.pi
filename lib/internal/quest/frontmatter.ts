@@ -336,6 +336,7 @@ const KNOWN_QUEST_KEYS = new Set<string>([
 	"short",
 	"orchestrator",
 	"orchestratedBy",
+	"hears",
 	"kind",
 	"parent",
 	"status",
@@ -444,6 +445,9 @@ export function parseQuestFrontMatter(
 	if (raw.orchestrator === true) frontMatter.orchestrator = true;
 	const orchestratedBy = asString(raw.orchestratedBy)?.trim();
 	if (orchestratedBy) frontMatter.orchestratedBy = orchestratedBy;
+	if (asString(raw.hears)?.trim() === "addressed") {
+		frontMatter.hears = "addressed";
+	}
 	const primaryPlanId = asString(raw.primaryPlanId);
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
 	const verify = asString(raw.verify);
@@ -617,6 +621,7 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	if (fm.short) payload.short = fm.short;
 	if (fm.orchestrator) payload.orchestrator = true;
 	if (fm.orchestratedBy) payload.orchestratedBy = fm.orchestratedBy;
+	if (fm.hears) payload.hears = fm.hears;
 	Object.assign(payload, {
 		kind: fm.kind,
 		parent: fm.parent,

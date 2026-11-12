@@ -306,6 +306,8 @@ export interface PeerWork {
 	readonly scopes: readonly string[];
 	/** Where its quest sits among orchestrations, by quest id. */
 	readonly orchestration: Orchestration;
+	/** Its quest hears only what is put to it (see attention.ts). */
+	readonly hears?: "addressed";
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -368,6 +370,7 @@ export function workOf(
 			),
 		}),
 		orchestration,
+		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
 	};
 }
 
