@@ -66,6 +66,9 @@ function facts(over: Partial<Facts> = {}): Facts {
 	};
 }
 
+/** A status written as words, as the budget's was on 11 November. */
+const WORDS = "R claude-max 82% of 5 h · resets 14:00";
+
 function text(pieces: readonly Piece[]): string {
 	return pieces.map((piece) => piece.text).join("");
 }
@@ -260,6 +263,32 @@ describe("pi's status line as the window narrows", () => {
 			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B",
 			"…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B",
 			"…/neovim | ◑ 23% ∂ $0.04  B",
+			"…/neovim | ◑ 23% ∂ $0.04",
+			"neovim | ◑ 23% ∂ $0.04",
+			"ne…im | ◑ 23% ∂ $0.04",
+			"neovim",
+		]);
+	});
+
+	it("gives up a status written as words first, and the marks one at a time after the model", () => {
+		const marked = facts({ statuses: ["⚑", WORDS, "⧗ 2"], total: null });
+		const seen: string[] = [];
+		for (let columns = 200; columns >= 10; columns--) {
+			const line = read(marked, columns);
+			if (seen.at(-1) !== line) seen.push(line);
+		}
+
+		expect(seen.slice(0, 2), "words go before the line's own fields").toEqual([
+			`dotfiles/modules/neovim  claude-opus-5-5 T high | ⚑  ${WORDS}  ⧗ 2  ◑ 45.2k ∂ $0.04  B jitsusama/status-line-language`,
+			"dotfiles/modules/neovim  claude-opus-5-5 T high | ⚑  ⧗ 2  ◑ 45.2k ∂ $0.04  B jitsusama/status-line-language",
+		]);
+		expect(seen.slice(-7), "marks go after the model, the last first").toEqual([
+			"…/neovim | ⚑  ⧗ 2  ◑ 23% ∂ $0.04  B",
+			"…/neovim | ⚑  ◑ 23% ∂ $0.04  B",
+			"…/neovim | ◑ 23% ∂ $0.04  B",
+			"…/neovim | ◑ 23% ∂ $0.04",
+			"neovim | ◑ 23% ∂ $0.04",
+			"ne…im | ◑ 23% ∂ $0.04",
 			"neovim",
 		]);
 	});
@@ -318,8 +347,49 @@ describe("pi's status line as the window narrows", () => {
 			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04",
 			"…/neovim  opus-5-5 | ◑ 23% ∂ $0.04",
 			"…/neovim | ◑ 23% ∂ $0.04",
+			"neovim | ◑ 23% ∂ $0.04",
+			"ne…im | ◑ 23% ∂ $0.04",
 			"neovim",
 		]);
-		expect(STEPS[0]).toBe("total");
+		expect(STEPS[0], "words give way before anything else").toBe("words");
+	});
+});
+
+describe("pi's status line in Joel's windows", () => {
+	// kitty's windows on optimus at 21:05 on 11 November: 78 at 76 columns
+	// and one at 134. At 76, with the budget's and mesh quiet's words, the
+	// line was the word dotfiles alone.
+	const his = facts({
+		place: { lead: "", parts: ["dotfiles"], first: "text" },
+		git: { ...CLEAN, branch: "main", unstaged: true },
+		statuses: [
+			"⚑",
+			WORDS,
+			"mesh quiet · 3 peer notes kept off screen · ctrl+o opens",
+		],
+	});
+
+	it.each([
+		76, 134,
+	])("keeps where, the model, the rate and the branch at %i columns", (columns) => {
+		const line = read(his, columns);
+
+		for (const kept of ["dotfiles", "opus-5-5", "∂ $0.04", "B main *", "⚑"]) {
+			expect(line, `${kept} at ${columns} columns`).toContain(kept);
+		}
+		expect(
+			widthAt(his, columns),
+			"no wider than the window",
+		).toBeLessThanOrEqual(columns);
+	});
+
+	it("is never the folder's name alone while the rate fits beside it", () => {
+		for (let columns = 24; columns <= 220; columns++) {
+			expect(read(his, columns), `at ${columns} columns`).toContain("∂ $0.04");
+			expect(
+				widthAt(his, columns),
+				`at ${columns} columns`,
+			).toBeLessThanOrEqual(columns);
+		}
 	});
 });

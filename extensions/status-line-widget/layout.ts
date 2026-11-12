@@ -9,7 +9,7 @@
  * its changes and its upstream. Fields are two spaces apart and a mark sits
  * one space from its words, so each reads with its own. Each field shows
  * only while it's true, and they give way a step at a time as the window
- * narrows, the folder's name standing last. A field that gives way goes
+ * narrows, the folder's name and the rate standing last. A field that gives way goes
  * without a trace: a mark saying only that something is missing is one to
  * learn, and the wider window shows it again.
  */
@@ -61,13 +61,23 @@ export interface Facts {
 
 /**
  * The steps the line gives way by, in order, each keeping the ones before:
- * the session's total, the branch's middle, the path's middle, context to a
- * share, the model to its short name, how hard it thinks, the branch to its
- * mark, what's under way to its mark, the path to the folder's name, the
- * model, and then the name's own middle. The rate is never given up: it is
- * the one reading here that changes what to do next.
+ * an extension's status written as words rather than a mark, the session's
+ * total, the branch's middle, the path's middle, context to a share, the
+ * model to its short name, how hard it thinks, the branch to its mark,
+ * what's under way to its mark, the path to the folder's name, the model,
+ * the extensions' marks one at a time from the last, the panel's height,
+ * the branch, and then the name's own middle. The rate is never given up:
+ * it is the one reading here that changes what to do next, so when even
+ * that won't fit beside the path, the folder's name stands with it.
+ *
+ * Joel, 11 November, at 76 columns: "only the text dotfiles shows in my
+ * status bar. early on i defined the requirement of gracefully handling
+ * small screen widths. this is not that." Statuses written as words, and
+ * marks that were never given up, left nothing to take but the whole
+ * line.
  */
 export const STEPS = [
+	"words",
 	"total",
 	"branchshort",
 	"pathshort",
@@ -78,6 +88,9 @@ export const STEPS = [
 	"opshort",
 	"nameonly",
 	"model",
+	"marks",
+	"panel",
+	"branch",
 	"nameshort",
 ] as const;
 
@@ -85,6 +98,16 @@ export type Step = (typeof STEPS)[number];
 
 /** Between two fields. */
 const GAP = "  ";
+
+/**
+ * The widest a status is while it is a mark: a glyph, a space and a short
+ * count (lib/ui/footer-mark.ts). One wider is words, which the line gives
+ * up before anything of its own.
+ */
+export const MARK_COLUMNS = 6;
+
+/** The fewest columns the folder's name keeps beside the rate. */
+const NAME_BESIDE_RATE = 5;
 
 export function width(pieces: readonly Piece[]): number {
 	let total = 0;
@@ -166,10 +189,29 @@ function putOperation(
 	}
 }
 
-/** The line's two sides with the given steps taken. */
+/**
+ * The statuses still drawn: none written as words once that step is
+ * taken, then all but the last `shed`.
+ */
+function keptStatuses(
+	facts: Facts,
+	on: ReadonlySet<Step>,
+	shed: number,
+): string[] {
+	const marks = on.has("words")
+		? facts.statuses.filter((status) => visibleWidth(status) <= MARK_COLUMNS)
+		: [...facts.statuses];
+	return marks.slice(0, Math.max(0, marks.length - shed));
+}
+
+/**
+ * The line's two sides with the given steps taken, and the last `shed` of
+ * the extensions' marks given up.
+ */
 export function draw(
 	facts: Facts,
 	on: ReadonlySet<Step>,
+	shed = 0,
 ): { left: Piece[]; right: Piece[] } {
 	const { marks } = facts;
 	const left: Piece[] = [];
@@ -207,9 +249,10 @@ export function draw(
 		right.push(...pieces);
 	};
 
-	for (const status of facts.statuses)
+	for (const status of keptStatuses(facts, on, shed))
 		field([{ role: "painted", text: status }]);
-	if (facts.panel) field([{ role: "painted", text: facts.panel }]);
+	if (facts.panel && !on.has("panel"))
+		field([{ role: "painted", text: facts.panel }]);
 
 	const meter: Piece[] = [
 		...(on.has("share") ? facts.contextShare : facts.context),
@@ -220,7 +263,7 @@ export function draw(
 	field(meter);
 
 	const branch = facts.git ? facts.git.branch : facts.branch;
-	if (branch) {
+	if (branch && !on.has("branch")) {
 		const pieces: Piece[] = [];
 		const glyph = marks.branch;
 		if (glyph !== "") pieces.push({ role: "muted", text: glyph });
@@ -268,14 +311,17 @@ const BEHIND = "↓";
 
 /**
  * The line at a width: each step taken in turn until both sides fit with a
- * gap between them. When even the last step won't fit, the folder's name
- * is all that's left, kept to the width by its middle.
+ * gap between them, the marks one at a time. When even the last step won't
+ * fit, the folder's name stands beside the rate, kept to the room by its
+ * middle; and only where the two can't share the line is the name all
+ * that's left.
  */
 export function layout(
 	facts: Facts,
 	columns: number,
 ): { left: Piece[]; right: Piece[] } {
 	const on = new Set<Step>();
+	let shed = 0;
 	let drawn = draw(facts, on);
 	const fits = () =>
 		width(drawn.left) +
@@ -284,11 +330,40 @@ export function layout(
 		columns;
 	for (const step of STEPS) {
 		if (fits()) return drawn;
+		if (step === "marks") {
+			const marks = keptStatuses(facts, on, 0).length;
+			while (shed < marks && !fits()) {
+				shed++;
+				drawn = draw(facts, on, shed);
+			}
+			continue;
+		}
 		on.add(step);
-		drawn = draw(facts, on);
+		drawn = draw(facts, on, shed);
 	}
 	if (fits()) return drawn;
+	return lastStanding(facts, columns);
+}
+
+/**
+ * The folder's name and the rate, when nothing more fits: the name cut in
+ * its middle to leave the rate room, or the name alone, to the width, where
+ * there isn't room for both.
+ */
+function lastStanding(
+	facts: Facts,
+	columns: number,
+): { left: Piece[]; right: Piece[] } {
 	const name = facts.place.parts.at(-1) ?? "/";
+	const rate: Piece[] = [...facts.contextShare];
+	if (facts.rate) rate.push({ role: "muted", text: ` ${facts.rate}` });
+	const room = columns - GAP.length - width(rate);
+	if (rate.length > 0 && room >= Math.min(NAME_BESIDE_RATE, [...name].length)) {
+		return {
+			left: [{ role: "strong", text: middle(name, room, facts.marks.more) }],
+			right: rate,
+		};
+	}
 	return {
 		left: [
 			{

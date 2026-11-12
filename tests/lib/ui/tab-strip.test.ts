@@ -3,18 +3,15 @@
  *
  * It used to right-align a progress bar inside itself and reserve that
  * width plus four columns of gap, which is what pushed the tabs into an
- * ellipsis on a panel that had room for all of them. Progress through a
- * batch is a session-level fact and the session already has a line for
- * saying what it is doing, so that is where it goes.
+ * ellipsis on a panel that had room for all of them. Each tab's own mark
+ * says whether it is done, so the strip is the progress, and nothing more
+ * is drawn for it anywhere.
  *
  * These tests are about the width, because the width is the argument.
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	renderProgressBar,
-	renderTabStrip,
-} from "../../../lib/ui/tab-strip.ts";
+import { renderTabStrip } from "../../../lib/ui/tab-strip.ts";
 import { plainTheme } from "./fake-theme.ts";
 
 /**
@@ -64,34 +61,5 @@ describe("the tab strip", () => {
 	it("stays inside the width it is given", () => {
 		const labels = ["Plan", "V", "F1", "F2", "T26", "T27", "C4"];
 		expect(strip(labels, 40).length).toBeLessThanOrEqual(40);
-	});
-});
-
-describe("the progress bar, now that it lives on the status line", () => {
-	it("reads as a bar and a count", () => {
-		expect(renderProgressBar(2, 5)).toBe("\u2593\u2593\u2591\u2591\u2591 2/5");
-	});
-
-	it("fills proportionally once the batch outruns the bar", () => {
-		// Two of seven is not two fifths of the bar, and drawing it that way
-		// would say the batch was further along than it is.
-		expect(renderProgressBar(2, 7)).toBe("\u2593\u2591\u2591\u2591\u2591 2/7");
-	});
-
-	it("drops the brackets it wore inside the tab strip", () => {
-		// They held it apart from the tabs. The status line's own separators
-		// do that job, so keeping them would be a fence around nothing.
-		expect(renderProgressBar(0, 3)).not.toContain("[");
-	});
-
-	it("fills as the batch is worked through", () => {
-		expect(renderProgressBar(0, 5)).toContain("\u2591\u2591\u2591\u2591\u2591");
-		expect(renderProgressBar(5, 5)).toContain("\u2593\u2593\u2593\u2593\u2593");
-	});
-
-	it("scales a batch longer than the bar rather than overflowing", () => {
-		const drawn = renderProgressBar(50, 100);
-		expect(drawn).toContain("50/100");
-		expect(drawn.split(" ")[0]?.length).toBeLessThanOrEqual(10);
 	});
 });

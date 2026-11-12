@@ -40,11 +40,7 @@ import {
 	type ScrollState,
 } from "./scroll-region.ts";
 import { isSubmitKey } from "./submit-key.ts";
-import {
-	handleTabInput,
-	renderProgressBar,
-	renderTabStrip,
-} from "./tab-strip.ts";
+import { handleTabInput, renderTabStrip } from "./tab-strip.ts";
 import {
 	type ContentRenderer,
 	GLYPH,
@@ -88,11 +84,8 @@ function createTabbedController(
 	tui: TUI,
 	theme: Theme,
 	done: (result: TabbedResult | null) => void,
-	/** Where to report progress through the batch, when anybody is listening. */
-	onProgress?: (text: string) => void,
 ) {
 	let currentTab = 0;
-	let lastProgress = "";
 	let optionIndex = 0;
 	let userOptionIndex = 0;
 	let editorMode = false;
@@ -205,7 +198,6 @@ function createTabbedController(
 		editorMode = false;
 		editorContext = null;
 		editor.setText("");
-		reportProgress();
 
 		if (config.autoResolve && results.size === config.items.length) {
 			done({ items: results, userItems });
@@ -268,7 +260,6 @@ function createTabbedController(
 
 	function handleItemResult(result: PromptResult) {
 		results.set(currentTab, result);
-		reportProgress();
 
 		if (config.autoResolve && results.size === config.items.length) {
 			done({ items: results, userItems });
@@ -287,20 +278,6 @@ function createTabbedController(
 			}
 			return i === currentTab ? "active" : "pending";
 		});
-	}
-
-	/**
-	 * Tell the caller how far through the batch this is.
-	 *
-	 * Only on a change, and never from `render`. Writing to the status line
-	 * asks for a repaint, and a repaint that writes to the status line is a
-	 * loop.
-	 */
-	function reportProgress(): void {
-		const text = renderProgressBar(results.size, config.items.length);
-		if (text === lastProgress) return;
-		lastProgress = text;
-		onProgress?.(text);
 	}
 
 	/** User tab content: static. */
@@ -711,17 +688,13 @@ export async function showTabbedPrompt(
 	ctx: ExtensionContext,
 	config: TabbedPromptConfig,
 ): Promise<TabbedResult | null> {
-	const report = (text: string | undefined) =>
-		ctx.ui.setStatus(PROGRESS_STATUS_KEY, text);
-	// Set and cleared here rather than by the caller, so no caller can forget
-	// and leave a stale count on the status line. The finally covers every way
-	// out at once: submit, cancel, redirect, abort, and a throw from inside.
-	// Written once the panel has the screen, since the count is for the
-	// panel a person can see.
+	// How far through the batch it is shows in the panel's own tab strip, a
+	// mark for each item, and nowhere else: written to the status line too,
+	// it was words on a line kept for marks (Joel, 11 November: "way too
+	// much text in the status bar").
 	return mountGate<TabbedResult | null>(
 		ctx,
-		(tui, theme, done) =>
-			createTabbedController(config, tui, theme, done, report),
+		(tui, theme, done) => createTabbedController(config, tui, theme, done),
 		{
 			cancelled: null,
 			title: config.title ?? "A batch of decisions",
@@ -729,16 +702,6 @@ export async function showTabbedPrompt(
 				result === null
 					? `${OUTCOME_GLYPH.cancelled} cancelled`
 					: `${OUTCOME_GLYPH.done} answered ${result.items.size} of ${config.items.length}`,
-			onShow: () => report(renderProgressBar(0, config.items.length)),
-			onGone: () => report(undefined),
 		},
 	);
 }
-
-/**
- * The status-line key the batch progress is written under.
- *
- * One key, so a second panel overwrites the first rather than the two
- * fighting, and so clearing it is unambiguous.
- */
-const PROGRESS_STATUS_KEY = "prompt-progress";
