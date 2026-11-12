@@ -132,5 +132,8 @@ export function quietSaid(on: boolean): string {
 /** The footer's line while quiet: how many peer notes it kept off. */
 export function quietStatus(held: number, theme: Theme): string {
 	const notes = held === 1 ? "1 peer note" : `${held} peer notes`;
-	return theme.fg("dim", `mesh quiet · ${notes} kept off screen · ctrl+o opens`);
+	return theme.fg(
+		"dim",
+		`mesh quiet · ${notes} kept off screen · ctrl+o opens`,
+	);
 }
