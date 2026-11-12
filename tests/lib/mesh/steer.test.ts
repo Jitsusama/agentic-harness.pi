@@ -257,6 +257,31 @@ describe("the steer inbox", () => {
 		).toBeUndefined();
 	});
 
+	it("reads an answer to a look by its id, with a choice and never words", () => {
+		expect(
+			steerFrom(
+				'{"act":"answer","from":"joel","look":"ab12","value":"Posted"}',
+				"f",
+			),
+			"a look's choice",
+		).toEqual({
+			text: "",
+			act: "answer",
+			from: "joel",
+			look: "ab12",
+			given: { value: "Posted" },
+			file: "f",
+		});
+		expect(
+			steerFrom('{"act":"answer","look":"ab12","other":"Later"}', "f"),
+			"a look offers choices only",
+		).toBeUndefined();
+		expect(
+			steerFrom('{"act":"answer","look":7,"value":"Posted"}', "f"),
+			"a look named by no id",
+		).toBeUndefined();
+	});
+
 	it("reads what waits without taking it", () => {
 		const inbox = inboxOf(root, "P9R1KI");
 		takeSteers(inbox, "1");

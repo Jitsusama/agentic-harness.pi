@@ -239,7 +239,11 @@ and can answer a question or a gate left open on screen.
   takes it back with `withdraw` once it no longer applies ("taken
   back"); and it goes when its quest concludes or retires ("its quest
   ended"), as that session ends it or, from any session, within a
-  minute.
+  minute. A look that asks for a word back names its `choices`, at
+  most four short labels, kept as `choices: [{value, label}]`; the
+  launcher answers it with the steer act `answer` below, and the
+  session resolves it ("answered: <label>", with `answer` and
+  `answeredAt`) and tells its agent what he picked.
 
 ## Context, Not a Prompt
 
@@ -887,8 +891,16 @@ A steer may instead carry an `act`, with no text needed
   `recommended` and `allowOther`); a tabbed one says only its
   words. An answer for a want that has ended, with a value it
   doesn't offer, or with words where it takes none answers
-  nothing, and the window says so in a line. An answer without
-  a `want`, or with neither a `value` nor `other`, is no act.
+  nothing, and the window says so in a line. An answer with
+  `look` naming a look by its id in place of `want`, and `value`
+  one of its choices, answers that look instead: it resolves
+  with what he picked, and the agent is told what he answered and
+  to what. It goes to the look's session's inbox, or its quest's
+  when that session has ended, and a session answers only a look
+  of its own or of its quest's. A look no longer waiting answers
+  nothing, and the window says so. An answer without a `want` or
+  a `look`, with neither a `value` nor `other`, or with `other`
+  for a look, is no act.
 
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.

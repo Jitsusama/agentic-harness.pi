@@ -446,6 +446,12 @@ export function registerTools(
 						"What they're asked to do, with the choices, e.g. 'Say whether the bar reads right at your width: keep it or roll it back', or 'Nothing, just to see'",
 				}),
 			),
+			choices: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"When the ask wants a word back, its answers as short labels (at most 4, a few words each), e.g. ['Keep it', 'Roll it back']: the person picks one where they are, and it comes back to this session, or the one on its quest, as a message",
+				}),
+			),
 			withdraw: Type.Optional(
 				Type.Boolean({
 					description:
@@ -479,6 +485,7 @@ export function registerTools(
 				title: params.title ?? "",
 				why: params.why ?? "",
 				ask: params.ask ?? "",
+				...(params.choices ? { choices: params.choices } : {}),
 			};
 			const refused = refusalOf(pointing);
 			if (refused) return answer(`⊘ ${refused} Nothing was added.`);
@@ -489,7 +496,7 @@ export function registerTools(
 				...(quest ? { quest } : {}),
 			});
 			return answer(
-				`On the person's look list: ${look.title}. It stays there until they open or clear it, or this session takes it back with withdraw once it no longer applies.`,
+				`On the person's look list: ${look.title}. It stays there until they open or clear it, or this session takes it back with withdraw once it no longer applies.${look.choices ? " What they pick comes back as a message." : ""}`,
 				{ look },
 			);
 		}),
@@ -520,6 +527,7 @@ interface ShowPersonParams {
 	readonly title?: string;
 	readonly why?: string;
 	readonly ask?: string;
+	readonly choices?: readonly string[];
 	readonly withdraw?: boolean;
 }
 

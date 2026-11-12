@@ -23,6 +23,12 @@
  * agents' own talk (message and quest ids, peer addresses, paths, code);
  * and its session takes it back, or its quest's end does, once it no
  * longer applies.
+ *
+ * A look that asks for a word back names its choices, so the launcher
+ * can answer it where he is (2RCBOJ, 12 November): the launcher steers
+ * the pick to the session, which answers the look here and tells its
+ * agent. Only sessions write a look's file once it is kept, apart from
+ * the launcher marking it opened or cleared.
  */
 
 import { createHash } from "node:crypto";
@@ -52,13 +58,26 @@ export type LookResolution =
 	| "closed"
 	| `reviewed by ${string}`
 	| "taken back"
-	| "its quest ended";
+	| "its quest ended"
+	| `answered: ${string}`;
 
 /** The most words a look's why may run to: a sentence, read at a glance. */
 export const WHY_WORDS = 40;
 
 /** The most words a look's ask may run to. */
 export const ASK_WORDS = 30;
+
+/** The most choices a look offers, so its row holds them all. */
+export const MOST_CHOICES = 4;
+
+/** The most words a choice runs to: a button's label. */
+export const CHOICE_WORDS = 4;
+
+/** One answer a look offers, as the launcher shows it and steers it back. */
+export interface LookChoice {
+	readonly value: string;
+	readonly label: string;
+}
 
 /** One thing a session points the person at. */
 export interface Look {
@@ -87,11 +106,16 @@ export interface Look {
 	 * only to see; none on a look kept before looks carried one.
 	 */
 	readonly ask?: string;
+	/** The answers it offers, for a look that asks for a word back. */
+	readonly choices?: readonly LookChoice[];
 	/** Waiting until the launcher says the person opened or cleared it. */
 	readonly state: LookState;
 	/** How it resolved, and when, once its change merged or closed. */
 	readonly how?: LookResolution;
 	readonly resolvedAt?: string;
+	/** The choice's value the person answered with, and when. */
+	readonly answer?: string;
+	readonly answeredAt?: string;
 }
 
 /** What a session says to point the person at something. */
@@ -101,6 +125,8 @@ export interface Pointing {
 	readonly title: string;
 	readonly why: string;
 	readonly ask: string;
+	/** The labels of the answers it offers, when it asks for a word back. */
+	readonly choices?: readonly string[];
 }
 
 /** Whose a look is. */
@@ -140,6 +166,8 @@ export function refusalOf(pointing: Pointing): string | undefined {
 	}
 	const talk = agentTalkIn(pointing);
 	if (talk) return talk;
+	const choices = choiceRefusal(pointing.choices ?? []);
+	if (choices) return choices;
 	if (
 		(pointing.kind === "pr" || pointing.kind === "page") &&
 		!/^https?:\/\//.test(pointing.target)
@@ -172,6 +200,23 @@ function agentTalkIn(pointing: Pointing): string | undefined {
 		return `A look's why is a sentence, at most ${WHY_WORDS} words.`;
 	if (wordsIn(pointing.ask) > ASK_WORDS)
 		return `A look's ask is at most ${ASK_WORDS} words.`;
+	return undefined;
+}
+
+/** Why a look's choices can't be offered, or nothing when they can. */
+function choiceRefusal(choices: readonly string[]): string | undefined {
+	if (choices.length > MOST_CHOICES)
+		return `A look offers at most ${MOST_CHOICES} choices.`;
+	const labels = choices.map((one) => one.trim());
+	if (labels.some((one) => one === "")) return "A look's choice needs words.";
+	if (new Set(labels.map((one) => one.toLowerCase())).size < labels.length)
+		return "A look's choices each say something different.";
+	if (labels.some((one) => wordsIn(one) > CHOICE_WORDS))
+		return `A look's choice is a label, at most ${CHOICE_WORDS} words.`;
+	for (const [pattern, what] of AGENT_TALK) {
+		if (labels.some((one) => pattern.test(one)))
+			return `A look's choice names ${what}, which the person can't place.`;
+	}
 	return undefined;
 }
 
@@ -211,6 +256,14 @@ export function pointAt(
 		title: pointing.title.trim(),
 		why: pointing.why.trim(),
 		ask: pointing.ask.trim(),
+		...(pointing.choices?.length
+			? {
+					choices: pointing.choices.map((one) => ({
+						value: one.trim(),
+						label: one.trim(),
+					})),
+				}
+			: {}),
 		state: "waiting",
 	};
 	writeWhole(
@@ -315,15 +368,39 @@ export function resolveLooksOfQuests(
 	return marked;
 }
 
-/** Write `look` back resolved, `how`. */
+/**
+ * Answer the waiting look `id` with the choice whose value is `value`,
+ * as the person picked it from the launcher: it resolves, saying what he
+ * answered. Answers the look as answered, or nothing when it is gone,
+ * no longer waiting, or offers no such choice.
+ */
+export function answerLook(
+	dir: string,
+	id: string,
+	value: string,
+	now: Date = new Date(),
+): Look | undefined {
+	const look = looksIn(dir).find((one) => one.id === id);
+	if (look?.state !== "waiting") return undefined;
+	const choice = look.choices?.find((one) => one.value === value);
+	if (!choice) return undefined;
+	return markResolvedLook(dir, look, `answered: ${choice.label}`, now, {
+		answer: choice.value,
+		answeredAt: now.toISOString(),
+	});
+}
+
+/** Write `look` back resolved, `how`, with what else it now says. */
 function markResolvedLook(
 	dir: string,
 	look: Look,
 	how: LookResolution,
 	now: Date,
-): void {
+	also: Partial<Pick<Look, "answer" | "answeredAt">> = {},
+): Look {
 	const resolved: Look = {
 		...look,
+		...also,
 		state: "resolved",
 		how,
 		resolvedAt: now.toISOString(),
@@ -332,6 +409,7 @@ function markResolvedLook(
 		join(dir, `${look.id}.json`),
 		`${JSON.stringify(resolved, null, 2)}\n`,
 	);
+	return resolved;
 }
 
 /** Every look kept in `dir`, newest first; none for a folder not there. */
