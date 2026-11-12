@@ -23,6 +23,7 @@ import {
 	readyStatus,
 	runHost,
 	stoppingStatus,
+	watchdogEvery,
 } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
@@ -106,6 +107,182 @@ describe("readyStatus", () => {
 			"ready, serving 3 conversations, 2 held but not resumed",
 		);
 		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
+	});
+});
+
+describe("watchdogEvery", () => {
+	it("pings four times in each watchdog timeout, when systemd watches this process", () => {
+		expect(watchdogEvery({ WATCHDOG_USEC: "120000000" }, 7)).toBe(30_000);
+		expect(
+			watchdogEvery({ WATCHDOG_USEC: "120000000", WATCHDOG_PID: "7" }, 7),
+		).toBe(30_000);
+	});
+
+	it("doesn't ping without a watchdog, or for another process's", () => {
+		for (const env of [
+			{},
+			{ WATCHDOG_USEC: "" },
+			{ WATCHDOG_USEC: "0" },
+			{ WATCHDOG_USEC: "soon" },
+			{ WATCHDOG_USEC: "120000000", WATCHDOG_PID: "8" },
+		])
+			expect(watchdogEvery(env, 7), JSON.stringify(env)).toBeUndefined();
+	});
+});
+
+/** When each ping came, in ms since the run began. */
+function pingTimes(): { at: number[]; alive: () => Promise<void> } {
+	const began = performance.now();
+	const at: number[] = [];
+	return {
+		at,
+		alive: async () => {
+			at.push(performance.now() - began);
+		},
+	};
+}
+
+/** The longest wait between two pings. */
+function longestGap(at: readonly number[]): number {
+	return Math.max(...at.slice(1).map((time, index) => time - (at[index] ?? 0)));
+}
+
+// A watchdog timeout of a second, so pings come every 250 ms.
+const WATCHED = { WATCHDOG_USEC: "1000000" };
+const TIMEOUT_MS = 1000;
+
+describe("runHost's watchdog", () => {
+	it("keeps pinging through a turn twice the timeout's length", async () => {
+		// A conversation's work is awaited, never run on the loop, so a turn
+		// as long as it likes leaves the loop free to ping: here an open the
+		// engine takes two timeouts to start stands in for a ten-minute turn.
+		const slow = async (host: SessionHost): Promise<ConversationEngine> => {
+			const inner = await engine(host);
+			return {
+				...inner,
+				start: async (conversation) => {
+					await new Promise((resolve) => setTimeout(resolve, 2 * TIMEOUT_MS));
+					await inner.start(conversation);
+				},
+			};
+		};
+		const pings = pingTimes();
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: { ...env(), ...WATCHED },
+			engine: slow,
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			alive: pings.alive,
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		try {
+			const reply = await controlRequest(run.serving.path, {
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			if (!reply.ok) throw new Error(reply.error.message);
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+		expect(
+			pings.at.length,
+			`pinged through the turn: ${pings.at.join(", ")}`,
+		).toBeGreaterThanOrEqual(6);
+		expect(
+			longestGap(pings.at),
+			`the longest wait between pings: ${pings.at.join(", ")}`,
+		).toBeLessThan(TIMEOUT_MS);
+	});
+
+	it("stops pinging while its loop is blocked, so a wedged host is restarted", async () => {
+		const pings = pingTimes();
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: { ...env(), ...WATCHED },
+			engine,
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			alive: pings.alive,
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		try {
+			await vi.waitFor(() => {
+				expect(pings.at.length, "a ping before the block").toBeGreaterThan(0);
+			});
+			// The test shares the host's loop, so spinning here wedges it as a
+			// host stuck in a loop of its own would be.
+			const until = performance.now() + 1.5 * TIMEOUT_MS;
+			while (performance.now() < until) {
+				// Spinning, as a wedged loop does.
+			}
+			const blocked = pings.at.length;
+			await vi.waitFor(() => {
+				expect(pings.at.length, "a ping once it turns again").toBeGreaterThan(
+					blocked,
+				);
+			});
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+		expect(
+			longestGap(pings.at),
+			`no ping while blocked: ${pings.at.join(", ")}`,
+		).toBeGreaterThanOrEqual(1.5 * TIMEOUT_MS);
+	});
+
+	it("doesn't ping without a watchdog, nor once stopped", async () => {
+		const unwatched = pingTimes();
+		const watched = pingTimes();
+		const runs = await Promise.all(
+			[
+				{ kind: "attended", extra: {}, pings: unwatched },
+				{ kind: "background", extra: WATCHED, pings: watched },
+			].map(async ({ kind, extra, pings }) => {
+				const signals = new EventEmitter();
+				const run = await runHost({
+					argv: [kind],
+					env: { ...env(), ...extra },
+					engine,
+					signals,
+					ready: async () => {},
+					status: async () => {},
+					alive: pings.alive,
+					say: () => {},
+					report: () => {},
+					places: places(),
+				});
+				return { run, signals };
+			}),
+		);
+		try {
+			await vi.waitFor(() => {
+				expect(watched.at.length, "the watched host pings").toBeGreaterThan(1);
+			});
+		} finally {
+			for (const { run, signals } of runs) {
+				signals.emit("SIGTERM");
+				await run.stopped;
+			}
+		}
+		const stopped = watched.at.length;
+		// Two pings' worth, to show none comes once the host has stopped.
+		await new Promise((resolve) => setTimeout(resolve, TIMEOUT_MS / 2));
+		expect(unwatched.at, "no pings without a watchdog").toEqual([]);
+		expect(watched.at.length, "no pings once stopped").toBe(stopped);
 	});
 });
 
@@ -395,6 +572,64 @@ describe("runHost", () => {
 		expect(
 			placed.filter((pid) => senders.includes(pid)),
 			"notifies written into jobs",
+		).toEqual([]);
+	});
+
+	it("pings systemd's watchdog from its own unit too", async () => {
+		const bin = join(dir, "bin");
+		const told = join(dir, "told");
+		await mkdir(bin, { recursive: true });
+		const notify = join(bin, "systemd-notify");
+		await writeFile(notify, `#!/bin/sh\necho "$$ $*" >> '${told}'\n`);
+		await chmod(notify, 0o755);
+		const placed: number[] = [];
+		const undo = placeChildren("/jobs", (_path, pid) => {
+			placed.push(pid);
+		});
+		const said = async () => readFile(told, "utf8").catch(() => "");
+		const signals = new EventEmitter();
+		try {
+			const run = await runHost({
+				argv: ["background"],
+				env: {
+					...env(),
+					...WATCHED,
+					NOTIFY_SOCKET: join(dir, "notify"),
+					PATH: `${bin}:${process.env.PATH ?? ""}`,
+				},
+				engine,
+				signals,
+				say: () => {},
+				report: (error) => {
+					throw error;
+				},
+				places: places(),
+			});
+			try {
+				await vi.waitFor(
+					async () => {
+						expect(await said(), "a watchdog ping").toContain("WATCHDOG=1");
+					},
+					{ timeout: 2 * TIMEOUT_MS },
+				);
+			} finally {
+				signals.emit("SIGTERM");
+				await run.stopped;
+			}
+		} finally {
+			undo();
+		}
+
+		const pings = (await said())
+			.trim()
+			.split("\n")
+			.map((line) => line.split(" "))
+			.filter((words) => words.at(1) === "WATCHDOG=1");
+		const senders = pings.map((words) => Number(words.at(0)));
+		expect(senders.length, "pings heard").toBeGreaterThan(0);
+		expect(
+			placed.filter((pid) => senders.includes(pid)),
+			"pings written into jobs",
 		).toEqual([]);
 	});
 });

@@ -143,12 +143,14 @@ async function open(path: string, id: string): Promise<string> {
 	return parseOpenResult(reply.result).sessionId;
 }
 
-describe("a host killed with SIGKILL", () => {
+// SIGKILL as an out-of-memory kill sends it, and SIGABRT as systemd's
+// watchdog sends it to a host whose loop stopped turning.
+describe.each(["SIGKILL", "SIGABRT"] as const)("a host killed with %s", (signal) => {
 	it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
 		const killed = await hostInAChild();
 		const ids = [await open(killed.path, "a"), await open(killed.path, "b")];
 
-		process.kill(killed.pid, "SIGKILL");
+		process.kill(killed.pid, signal);
 		await gone(killed.pid, 5_000);
 		expect(
 			(await lstat(killed.path)).isSocket(),

@@ -72,6 +72,11 @@ export interface HostRunOptions {
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
 	statusEvery?: number;
 	/**
+	 * Says the host's loop still turns, when systemd's watchdog watches it;
+	 * systemd's notify by default.
+	 */
+	alive?: (env: NodeJS.ProcessEnv) => Promise<void>;
+	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
 	 */
@@ -221,6 +226,17 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	resumed();
 	say(`${since()}: ${status()}, listening on ${serving.path}`);
 	return { serving, stopped };
+}
+
+/**
+ * How often, in ms, to tell systemd's watchdog the loop still turns, when
+ * it watches this process; undefined when it doesn't.
+ */
+export function watchdogEvery(
+	_env: NodeJS.ProcessEnv,
+	_pid: number = process.pid,
+): number | undefined {
+	return undefined;
 }
 
 /** A ready host's status in words, as systemd's status and the journal show it. */
