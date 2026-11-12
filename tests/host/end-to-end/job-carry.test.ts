@@ -22,6 +22,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { saidAfter, startHeldPi } from "./support/held-pi.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
 	onHostPi,
@@ -37,11 +38,7 @@ import {
 	SCRIPTED,
 } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
-import {
-	SCRIPTED_PROVIDER,
-	startTerminalPi,
-	type TerminalPi,
-} from "./support/terminal-pi.ts";
+import { startTerminalPi, type TerminalPi } from "./support/terminal-pi.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -106,28 +103,6 @@ function alive(pid: number): boolean {
 	return existsSync(`/proc/${pid}`);
 }
 
-/** The words of the user messages and job results a log holds after `from`. */
-function saidAfter(file: string, from: number): string {
-	return textOf(file)
-		.slice(from)
-		.split("\n")
-		.filter((line) => line.trim() !== "")
-		.map((line): string => {
-			const entry: unknown = JSON.parse(line);
-			if (!isRecord(entry)) return "";
-			const message = isRecord(entry.message) ? entry.message : entry;
-			const content = message.content;
-			if (typeof content === "string") return content;
-			if (!Array.isArray(content)) return "";
-			return content
-				.map((part: unknown) =>
-					isRecord(part) && typeof part.text === "string" ? part.text : "",
-				)
-				.join("");
-		})
-		.join("\n");
-}
-
 /** What the shell keeps of its commands on disk, under the seal's state. */
 function keptIn(seal: Seal): string[] {
 	const folder = join(
@@ -152,41 +127,7 @@ it(
 				kind: "background",
 				env: { PI_HOST_PACKAGE_DIR: pi },
 			});
-			// A held pi takes no flag a restart would lose, so the scripted
-			// model loads from the settings the host's engine wrote.
-			const settings = join(sealed.home, ".pi", "agent", "settings.json");
-			const written: unknown = JSON.parse(await readFile(settings, "utf8"));
-			await writeFile(
-				settings,
-				JSON.stringify({
-					...(isRecord(written) ? written : {}),
-					extensions: [SCRIPTED_PROVIDER],
-				}),
-			);
-			const cwd = join(sealed.home, "w");
-			await mkdir(cwd, { recursive: true });
-			await mkdir(join(sealed.home, ".pi", "agent"), { recursive: true });
-			await writeFile(
-				join(sealed.home, ".pi", "agent", "trust.json"),
-				JSON.stringify({ [await realpath(sealed.home)]: true }),
-			);
-			// The holder's files, as mycelium's hold keeps them.
-			const hold = join(sealed.root, "hold");
-			await mkdir(hold, { recursive: true });
-			plain = await startTerminalPi({
-				seal: sealed,
-				packageDir: pi,
-				cwd,
-				env: {
-					MYCELIUM_WAKE: join(hold, "e17.wake"),
-					MYCELIUM_AGAIN: join(hold, "e17.again"),
-				},
-				bare: true,
-			});
-			await writeFile(
-				join(hold, "e17.json"),
-				JSON.stringify({ pid: plain.pid }),
-			);
+			plain = await startHeldPi(sealed, pi, "e17");
 			await plain.prompt(CARRY);
 			await untilAnswered(
 				"the turn that started the command to end",

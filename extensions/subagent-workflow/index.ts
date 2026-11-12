@@ -65,6 +65,7 @@ import {
 	stillHeld,
 	whoIsWaiting,
 } from "../../lib/subagent/fleet.ts";
+import { answersTo } from "../../lib/subagent/handing.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
 import {
 	ORPHAN_LOOK_WINDOW_MS,
@@ -85,6 +86,7 @@ import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
 } from "./cancellation.ts";
+import { fleetHandOver, takesUpCarriedFleets } from "./carry.ts";
 import { digestFleetRuns } from "./digests.ts";
 import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
@@ -445,7 +447,10 @@ async function sweepFleetRuns(
 		// record, once. Only a decisive "gone" counts: a reading the
 		// machine would not settle changes nothing, so it can never undo
 		// what another session already proved.
-		const abandoned = await abandonedFleets(before.runs, tickFacts);
+		const store = new ReviewerArtifactsStore(runs);
+		const abandoned = await abandonedFleets(before.runs, tickFacts, (run) =>
+			answersTo(store.rootPaths(run.id).runDir),
+		);
 		for (const run of abandoned) {
 			await recordOrSay(
 				() => ledger.cutOff(run.id, "owner-gone"),
@@ -542,6 +547,8 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	pi.on("input", (event) => {
 		if (event.source === "interactive") person.heard(event.text);
 	});
+	// A background fleet a move carried here, said under its own job.
+	takesUpCarriedFleets(pi.events);
 
 	// Prune old fleet run directories at session start so the raw
 	// artifacts they hold do not accumulate unbounded. A finished run
@@ -839,16 +846,39 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// Held apart, since the fleet below runs in a function of its own,
 			// where the narrowing above does not reach.
 			const ranOn = sized.ranOn;
+			// How a move carries it on into a host, its subagents running on.
+			const handover = fleetHandOver(
+				{
+					runId,
+					members: assignments.map(({ spec }) => ({
+						id: spec.id,
+						...(spec.model === undefined ? {} : { model: spec.model }),
+						...(spec.thinkingLevel === undefined
+							? {}
+							: { thinkingLevel: spec.thinkingLevel }),
+					})),
+					startedAt: Date.now(),
+					runs: stateDir(),
+					fleets: fleetDir(),
+					ranOn,
+				},
+				session,
+			);
 			// In the background the fleet answers to its job, which the person
 			// stops from /jobs and the session stops as it ends, and not to the
 			// call, which returns at once.
 			const job =
 				params.background === true
-					? startFleetJob(pi.events, runId, assignments.length)
+					? startFleetJob(pi.events, runId, assignments.length, handover.carry)
 					: undefined;
 			const progress = createFleetProgressReporter(ctx, controls(runId), runId);
 			if (job !== undefined) {
-				finishInBackground(job, runFleet(job.signal), progress, runId);
+				finishInBackground(
+					job,
+					runFleet(handover.follow(job.signal)),
+					progress,
+					runId,
+				);
 				return saidFirst(ranOn, startedAnswer(job, runId, assignments.length));
 			}
 			// A fleet waited on holds its turn, deaf to the person and the
@@ -870,13 +900,14 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				signal: toolSignal,
 				onUpdate: undefined,
 				bus: pi.events,
+				carryOf: () => handover.carry,
 				run: async (owned) => {
 					// The board comes down after the bookkeeping below, not when
 					// the fleet finishes: pi draws the result card in the frame
 					// after the return, so the board leaving any earlier leaves
 					// its rows blank for as long as the bookkeeping takes.
 					try {
-						return await runFleet(owned);
+						return await runFleet(handover.follow(owned));
 					} finally {
 						progress.close();
 					}
@@ -956,6 +987,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						runPi: getRunPi(),
 						cancellations,
 						progress,
+						recordRun: handover.recordRun,
 						...(signal ? { signal } : {}),
 					});
 					const stopped = result.results.filter(
@@ -976,6 +1008,12 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						details: { ok: true, ...located },
 					};
 				} finally {
+					// Handed on with its session, it ends where it went, which
+					// keeps its run record and settles its ledger record there.
+					if (!handover.handedOn()) await endHere();
+				}
+				async function endHere() {
+					handover.ended();
 					await record?.end();
 					// From a finally, because a failed fleet is handed back like
 					// any other: the caller has the result and can go and look.

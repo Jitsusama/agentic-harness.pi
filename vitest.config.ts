@@ -56,6 +56,7 @@ const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/supervisor.test.ts",
 	"tests/lib/subagent/runpi/detached.test.ts",
 	"tests/lib/subagent/runpi/parent-exit.test.ts",
+	"tests/lib/subagent/runpi/handed-over.test.ts",
 	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
 	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
@@ -104,6 +105,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/host-command.test.ts",
 	"tests/host/end-to-end/launched-spawn.test.ts",
 	"tests/host/end-to-end/job-carry.test.ts",
+	"tests/host/end-to-end/fleet-carry.test.ts",
 	"tests/host/end-to-end/launcher-verbs.test.ts",
 ];
 

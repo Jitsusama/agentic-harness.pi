@@ -26,6 +26,7 @@ import {
 	systemFacts,
 } from "../core/process/index.ts";
 import { hostedStanding } from "../core/session/registry.ts";
+import { isRecord } from "./record.ts";
 
 /** A process's start in ticks since boot; nothing when it cannot be read. */
 export type StartTicks = (pid: number) => Promise<number | undefined>;
@@ -35,6 +36,36 @@ export type TickFacts = ProcessFacts & { readonly startTicks?: StartTicks };
 
 /** A process recorded to check on later: core's owner and its start in ticks. */
 export type TickedOwner = Owner & { readonly startTicks?: number };
+
+/**
+ * Whether a value read from disk is an owner that can be believed.
+ *
+ * Checked rather than trusted because of which way a half-written one
+ * falls: an owner with a pid and no birthday can't be identified, so
+ * it reads as a process that has gone, and the records naming one (a
+ * fleet's, its children's parent.json) decide what is stopped or swept.
+ */
+export function isTickedOwner(value: unknown): value is TickedOwner {
+	if (!isRecord(value)) return false;
+	const { pid, startedAt, bootId, session, host, startTicks } = value;
+	return (
+		typeof pid === "number" &&
+		// Positive, like the gates that decide whether to signal something:
+		// a zero or negative pid names a process group or nothing at all.
+		pid > 0 &&
+		typeof startedAt === "number" &&
+		(bootId === undefined || typeof bootId === "string") &&
+		((session === undefined && host === undefined) ||
+			(typeof session === "string" &&
+				session.length > 0 &&
+				typeof host === "string" &&
+				host.length > 0)) &&
+		// Ticks decide over the start time when they are there, so a
+		// malformed count is refused for the same reason a pid is.
+		(startTicks === undefined ||
+			(typeof startTicks === "number" && Number.isSafeInteger(startTicks)))
+	);
+}
 
 /** Whether a recorded process still runs, as core's `ownerStanding` answers. */
 export type Standing = "running" | "gone" | "unknown";

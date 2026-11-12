@@ -61,6 +61,29 @@ describe("a fleet ledger", () => {
 		]);
 	});
 
+	it("moves an open fleet to the conversation that took it up", async () => {
+		// A move hands the fleet to the host's conversation, and its
+		// record must name that one, or the sweep reads the old pi gone.
+		const ledger = createFleetLedger(root);
+		await ledger.open({
+			...fleet("fleet-a"),
+			owner: { pid: 4242, startedAt: 1_760_000_000_000 },
+		});
+		const taker = {
+			pid: 5151,
+			startedAt: 1_760_000_100_000,
+			session: "conv-1",
+			host: "host-a",
+		};
+
+		await ledger.handTo("fleet-a", taker);
+		await ledger.handTo("fleet-unknown", taker);
+
+		expect((await ledger.everyFleet()).runs).toEqual([
+			expect.objectContaining({ id: "fleet-a", open: true, owner: taker }),
+		]);
+	});
+
 	it("marks a fleet settled without forgetting it", async () => {
 		// Kept rather than deleted, because the transcripts outlive the
 		// answer and somebody reading a summary a day later still needs

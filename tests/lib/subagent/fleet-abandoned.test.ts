@@ -74,6 +74,35 @@ describe("abandoned fleets", () => {
 		expect(abandoned).toEqual([]);
 	});
 
+	it("leaves a fleet being handed on as its session moves, though its pi has gone", async () => {
+		// The moving pi ends before the host takes the fleet up, and the
+		// host's own start sweeps: read as owner-gone, it would cut off
+		// the very fleet it is about to take up.
+		const runs = [open("fleet-moving", { pid: 4242, startedAt: BIRTHDAY })];
+
+		const abandoned = await abandonedFleets(runs, machine({}), () => "handing");
+
+		expect(abandoned).toEqual([]);
+	});
+
+	it("answers for a fleet taken up by the conversation that took it", async () => {
+		const runs = [
+			open("fleet-taken", { pid: 4242, startedAt: BIRTHDAY }),
+			open("fleet-taker-gone", { pid: 4242, startedAt: BIRTHDAY }),
+		];
+
+		const abandoned = await abandonedFleets(
+			runs,
+			machine({ 5151: BIRTHDAY }),
+			(run) =>
+				run.id === "fleet-taken"
+					? { pid: 5151, startedAt: BIRTHDAY }
+					: { pid: 6161, startedAt: BIRTHDAY },
+		);
+
+		expect(abandoned.map((one) => one.id)).toEqual(["fleet-taker-gone"]);
+	});
+
 	it("names a fleet whose pid is worn by something else now", async () => {
 		// A pid identifies nothing on its own. The session died, the
 		// number came round again, and the stranger wearing it is alive,

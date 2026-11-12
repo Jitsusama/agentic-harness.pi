@@ -118,6 +118,11 @@ companion skill.
   right now from one nobody came back for: both are open
   records, and only the second is worth mentioning or safe
   to offer to release.
+- `handing.ts`: who a run's subagents answer to, in its
+  `parent.json`: a fleet being handed on through a move,
+  for as long as the move and a margin, or the
+  conversation that took it up. Every supervisor and the
+  sweep read it before deciding a parent has gone.
 - `run-record.ts`: what a fleet or a review round is
   doing, said for the launcher under the session that
   started it: one file per run in the mesh's `runs/`
