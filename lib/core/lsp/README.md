@@ -13,5 +13,6 @@ ahead of the standalone one to take over when it is there.
 
 - `standalone/`: the backend this package ships, which spawns and
   supervises the language servers itself: the pool that routes
-  each file to its servers and stops idle ones, one server over
+  each file to its servers and stops idle ones and those whose
+  project folder is gone, one server over
   stdio, and the mapping between the tool's positions and LSP's.
