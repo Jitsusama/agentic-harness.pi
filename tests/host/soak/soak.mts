@@ -536,7 +536,7 @@ function reportSettled(): (event: RpcEvent) => boolean {
 			message.role !== "toolResult" &&
 			JSON.stringify(message).includes(JOB_SAYS)
 		)
-		heard = true;
+			heard = true;
 		return heard && event.type === "agent_settled";
 	};
 }
