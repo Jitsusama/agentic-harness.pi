@@ -143,6 +143,21 @@ export function takeFirstWords(
 	return found;
 }
 
+/**
+ * Leave the record that `taken` took the words left under `key`, when
+ * the words were taken for a session not known until after: a launched
+ * spawn learns the host's session only once the host has opened it.
+ */
+export function recordTaking(
+	key: string,
+	taken: Taken,
+	dir: string = firstWordsDir(),
+	now: number = Date.now(),
+): void {
+	if (!SAFE_KEY.test(key)) return;
+	recordTaken(join(dir, `${key}.taken`), taken, now);
+}
+
 /** Leave the record of a taking, never failing the session that took them. */
 function recordTaken(path: string, taken: Taken, now: number): void {
 	try {

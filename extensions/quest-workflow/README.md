@@ -242,7 +242,18 @@ shipped and tested.
   pi-claude), or no host of the kind is there: no realm, no socket, or
   nothing listening, which a `list` asks, in a dry run too. A host
   that is there and refuses opens nothing else, as with `host`. A
-  setting it can't read is said and left off.
+  setting it can't read is said and left off. The pi the desktop's
+  launcher starts for a spawn reads the setting again before it draws
+  (`launched-spawn.ts`), so a spawner that hasn't reloaded since the
+  setting came still lands in the host: the pi opens the conversation
+  there with the spawn's first words and ends, and its window closes
+  with no frame drawn, after a blink while the window's shell starts.
+  The host names that session itself, so the spawn's own id is
+  recorded as taken by it, which is how the spawner's look for its
+  first turn finds it started. When the host isn't there or turns it
+  away, the pi stays in its window, says why, and starts as usual;
+  each one leaves a line in `launched-spawns.log` in the extension's
+  state folder.
 - **Resume in a host**: `/quest-resume <id>` switches pi to a
   session attached to the loaded quest. A hosted conversation can't
   switch its log, which its host owns, so there it asks the realm's
