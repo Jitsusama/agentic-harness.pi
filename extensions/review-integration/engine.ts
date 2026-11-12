@@ -23,6 +23,7 @@ import {
 	type ReviewEngine,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
+import { sessionSlot } from "../../lib/core/session/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { reviewExec } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
@@ -46,7 +47,7 @@ export function attachmentDir(): string {
  * a directory by both having nothing to say.
  */
 export function sessionKey(): string {
-	return inSession;
+	return standing().inSession;
 }
 
 /**
@@ -65,8 +66,25 @@ export function sessionKey(): string {
  * living processes: the directory outlives the process by a month, and
  * a later process landing on the same number would open onto the
  * earlier one's attachments, which is this bug one directory wide.
+ *
+ * Kept with the engine in the conversation's own slot, never the
+ * module's: a shared host loads this module once for every
+ * conversation in a folder, so a module-level name was the last one
+ * started's, and every other conversation's attachments went under it.
  */
-let inSession = anonymous();
+interface Standing {
+	inSession: string;
+	session?: Session;
+}
+
+const STANDING = "agentic-harness.review.engine.v1";
+
+/** This conversation's standing, by the ambient session when hosted. */
+function standing(): Standing {
+	return sessionSlot<Standing>(STANDING, undefined, () => ({
+		inSession: anonymous(),
+	}));
+}
 
 function anonymous(): string {
 	return `process-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -91,7 +109,7 @@ export function rememberSession(sessionId: string | undefined): void {
 	// not the same as pi not having said yet. Carrying the last name
 	// forward would write this session's work into the last one's
 	// directory, so it goes back to being anonymous instead.
-	inSession =
+	standing().inSession =
 		sessionId === undefined || sessionId.trim() === ""
 			? anonymous()
 			: sessionId;
@@ -252,8 +270,6 @@ interface Session {
 	problems: string[];
 }
 
-let session: Session | undefined;
-
 /**
  * Register the providers this package ships. Idempotent, since
  * the registry survives module reimport but not a reload.
@@ -270,9 +286,10 @@ export function registerBuiltinReviewProviders(_pi: ExtensionAPI): void {
 
 /** The session's engine, built on first use. */
 export async function reviewEngine(_pi: ExtensionAPI): Promise<Session> {
-	if (session) return session;
+	const mine = standing();
+	if (mine.session) return mine.session;
 	const { config, problems } = await loadReviewConfig();
-	session = {
+	mine.session = {
 		engine: createReviewEngine({
 			exec: reviewExec,
 			store: createDraftStore(draftDir()),
@@ -280,10 +297,10 @@ export async function reviewEngine(_pi: ExtensionAPI): Promise<Session> {
 		}),
 		problems,
 	};
-	return session;
+	return mine.session;
 }
 
 /** Drop the cached engine, so the next call rereads config. */
 export function forgetReviewEngine(): void {
-	session = undefined;
+	standing().session = undefined;
 }

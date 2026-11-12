@@ -1,7 +1,7 @@
 /** Count direct process/session-state shortcuts, ignoring comments and strings. */
 import { parse } from "@babel/parser";
 
-type Site = "pid" | "cwd" | "global" | "env-write";
+type Site = "pid" | "cwd" | "global" | "env-write" | "module";
 type Node = Record<string, unknown> & { type: string };
 
 function node(value: unknown): value is Node {
@@ -40,6 +40,36 @@ function processEnv(value: unknown): boolean {
 function environmentTarget(value: unknown): boolean {
 	const prop = property(value);
 	return processEnv(value) || (!!prop && processEnv(prop.base));
+}
+
+/**
+ * A module's own state: a top-level `let`, or a top-level map or set named
+ * as a variable rather than a constant. pi caches a module by path while
+ * the folder stays the same, so every conversation a host opens in one
+ * folder shares it, and what one writes there the next reads or wipes.
+ */
+function moduleState(statement: unknown): number {
+	const declared =
+		node(statement) && statement.type === "ExportNamedDeclaration"
+			? statement.declaration
+			: statement;
+	if (!node(declared) || declared.type !== "VariableDeclaration") return 0;
+	const declarators = Array.isArray(declared.declarations)
+		? declared.declarations
+		: [];
+	if (declared.kind === "let") return declarators.length;
+	if (declared.kind !== "const") return 0;
+	return declarators.filter(
+		(declarator) =>
+			node(declarator) &&
+			node(declarator.id) &&
+			typeof declarator.id.name === "string" &&
+			/^[a-z]/.test(declarator.id.name) &&
+			node(declarator.init) &&
+			declarator.init.type === "NewExpression" &&
+			(named(declarator.init.callee, "Map") ||
+				named(declarator.init.callee, "Set")),
+	).length;
 }
 
 /** Counts per kind: new sites may not hide behind a comment or string match. */
@@ -82,5 +112,7 @@ export function processSessionSites(source: string): Map<Site, number> {
 		for (const child of Object.values(value)) visit(child);
 	}
 	visit(file);
+	for (const statement of file.program.body)
+		for (let n = moduleState(statement); n > 0; n -= 1) add("module");
 	return counts;
 }
