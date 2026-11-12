@@ -119,6 +119,10 @@ export default function secretRunWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: SECRET_RUN_TOOL,
+		// Called once in the 295 logs from 9 November: loaded on demand. Its
+		// "Use secret_run" rule stays in the on-demand list, and the
+		// description's first line is what a search for a secret finds.
+		exposure: "deferred",
 		label: "Secret Run",
 		description:
 			"Ask Joel to release one work secret from 1Password to one command, which runs with the value in one environment variable. He sees the item, why, the whole command and the folder it runs in as a line in his launcher, and says yes or no there; the value never reaches you, only how the command ended and its output, masked. Use it only for a command that cannot work without the secret, such as a publish.",

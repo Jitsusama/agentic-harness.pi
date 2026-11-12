@@ -188,13 +188,16 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "reload",
+		// Wanted only in a session changing this harness: loaded on demand.
+		// Its first rule opens with "When", so the on-demand list keeps it.
+		exposure: "deferred",
 		label: "Reload",
 		description:
 			"Reload this session's extensions, onto a worktree of this harness or back onto its install, once the current run ends. A tree is loaded in a pi of its own first and refused if it does not load. When the reload lands, a message says which code runs, and the run carries on.",
 		promptSnippet:
 			"Reload the session onto a harness worktree, or its install, and carry on.",
 		promptGuidelines: [
-			"After changing this harness's extensions, call reload with onto set to the worktree, then exercise the change yourself; do not ask the user to reload, and do not fire the changed code path before the reload lands.",
+			"When you change this harness's extensions, call reload with onto set to the worktree, then exercise the change yourself; do not ask the user to reload, and do not fire the changed code path before the reload lands.",
 			"After calling reload, end your turn with no further calls; the reload runs when the run ends, and a message starts the next turn.",
 			`Reload onto "${INSTALLED}" once the change is merged and the install updated, so the session stops running the tree.`,
 		],
