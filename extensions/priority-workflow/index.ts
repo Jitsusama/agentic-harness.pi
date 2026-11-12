@@ -56,6 +56,7 @@ import {
 	type Rules,
 	runsChangedChecks,
 } from "../../lib/internal/priority/queue.ts";
+import { claimReading } from "../../lib/internal/priority/reading-claim.ts";
 import {
 	cgroupOf,
 	commandsIn,
@@ -337,9 +338,16 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 			const now = Date.now();
 			const wanted = folder.hasJobs() || folder.isDue(now);
 			if (!wanted || folder.keptFresh(now)) return;
-			const reading = await readNow();
-			folder.keep(reading, Date.now(), cgroupFor);
-			await machine.yieldBuilds?.(dir);
+			// Another session reading the machine keeps it with what it reads.
+			const handBack = claimReading(dir, now);
+			if (!handBack) return;
+			try {
+				const reading = await readNow();
+				folder.keep(reading, Date.now(), cgroupFor);
+				await machine.yieldBuilds?.(dir);
+			} finally {
+				handBack();
+			}
 		} catch {
 			// A folder that can't be kept this time is kept on the next.
 		}
