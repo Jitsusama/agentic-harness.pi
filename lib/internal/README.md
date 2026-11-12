@@ -75,6 +75,10 @@ may import from here, and any of it may change without notice.
   there and says its end in the words its own pi would have; and the
   reaper that kills what a call left, by its mark.
 - **`stray/`**: catching writes that would land behind pi's screen.
+- **`verbs/`**: the verbs server the launcher keeps a connection to:
+  each verb as its markdown file says it, the prompt it builds over a
+  selection once the scrubber finds no secret in it, each use and what
+  became of it, and a thin client for agents and tests.
 - **`verification/`**: a process-global check another extension can
   ask whether the code is failing.
 
