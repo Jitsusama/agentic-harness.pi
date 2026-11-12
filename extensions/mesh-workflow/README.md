@@ -785,9 +785,11 @@ is said again only once it changes. A quest or document that ends
 afterwards, before the next talk opens, adds `came`, such as
 `{"stage": "came", "what": "plan concluded", "ref": "PLAN-..."}`.
 A replied talk gets `over`, with `why`, once the session moves
-on from it: a newer talk to it is replied (`a newer talk was
-answered`) or it ends for good (`the session ended`), but not
-while its own work carries on, nor at a reload or a park. The
+on from it: a newer talk to its address is replied (`a newer
+talk was answered`), even after a reload or a rollover, or it
+ends for good (`the session ended`), when pi quits with no park
+or restart in place to bring it back. Its own work carrying on
+doesn't count, nor does a reload, a park or a rollover. The
 desktop appends `{"stage": "read", "by": "..."}` once the person
 has read the reply; no session writes it. A steer that answers
 an earlier talk in place carries `re` with that talk's id, and

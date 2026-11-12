@@ -81,30 +81,34 @@ describe("a talk file", () => {
 		expect(talkEvents(inbox, "none")).toEqual([]);
 	});
 
-	it("is over, once, when its session moves on from a reply, and only then", () => {
+	it("is over, once, when its address moves on from a reply, and only then", () => {
+		const other = join(inbox, "..", "OTHER");
 		sayTalk(inbox, "mine", { stage: "delivered", session: "s1", text: "a" });
 		sayTalk(inbox, "mine", { stage: "replied", text: "done" });
 		sayTalk(inbox, "read", { stage: "delivered", session: "s1", text: "b" });
 		sayTalk(inbox, "read", { stage: "replied", text: "done" });
 		sayTalk(inbox, "read", { stage: "read", by: "launcher" });
 		sayTalk(inbox, "open", { stage: "delivered", session: "s1", text: "c" });
-		sayTalk(inbox, "theirs", { stage: "delivered", session: "s2", text: "d" });
-		sayTalk(inbox, "theirs", { stage: "replied", text: "done" });
+		sayTalk(inbox, "rolled", { stage: "delivered", session: "s0", text: "d" });
+		sayTalk(inbox, "rolled", { stage: "replied", text: "done" });
+		sayTalk(other, "theirs", { stage: "delivered", session: "s2", text: "f" });
+		sayTalk(other, "theirs", { stage: "replied", text: "done" });
 		sayTalk(inbox, "now", { stage: "delivered", session: "s1", text: "e" });
 		sayTalk(inbox, "now", { stage: "replied", text: "done" });
 
-		const ended = overTalks(inbox, "s1", "the session ended", "now");
+		const ended = overTalks(inbox, "the session ended", "now");
 
-		expect(ended.sort()).toEqual(["mine", "read"]);
+		expect(ended.sort()).toEqual(["mine", "read", "rolled"]);
 		expect(talkEvents(inbox, "mine").at(-1)).toMatchObject({
 			stage: "over",
 			why: "the session ended",
 		});
-		for (const id of ["open", "theirs", "now"]) {
+		for (const id of ["open", "now"]) {
 			expect(talkEvents(inbox, id).at(-1)?.stage, id).not.toBe("over");
 		}
-		expect(overTalks(inbox, "s1", "again")).toEqual(["now"]);
-		expect(overTalks(join(inbox, "..", "nobody"), "s1", "none")).toEqual([]);
+		expect(talkEvents(other, "theirs").at(-1)?.stage).toBe("replied");
+		expect(overTalks(inbox, "again")).toEqual(["now"]);
+		expect(overTalks(join(inbox, "..", "nobody"), "none")).toEqual([]);
 	});
 
 	it("is pruned only once it is both old and past the newest kept", () => {

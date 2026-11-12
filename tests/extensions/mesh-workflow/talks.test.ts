@@ -11,6 +11,7 @@ import {
 	CAME_MS,
 	createTalks,
 	ended,
+	endsForGood,
 	READING_MS,
 	type Talks,
 	userText,
@@ -260,6 +261,23 @@ describe("a talk a session follows", () => {
 		});
 	});
 
+	it("is over once a newer talk is replied after a rollover gave the session a new id", () => {
+		const before = createTalks({ session: () => "s0", now: () => clock });
+		take(before, { text: "a", id: "t1", file: "f" });
+		before.wrote("On it.");
+		before.settled(false);
+
+		const after = talks();
+		take(after, { text: "b", id: "t2", file: "f" });
+		after.wrote("Done.");
+		after.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "over",
+			why: "a newer talk was answered",
+		});
+	});
+
 	it("is over when the session ends, in every inbox it answers from", () => {
 		const following = createTalks({
 			session: () => "s1",
@@ -291,6 +309,24 @@ describe("a talk a session follows", () => {
 		following.settled(false);
 		const replies = join(inbox, "replies");
 		expect(existsSync(replies), `${replies} is not made`).toBe(false);
+	});
+});
+
+describe("a session's shutdown", () => {
+	const calm = { parked: false, restarting: false };
+
+	it("ends it for good only when pi quits with nothing to bring it back", () => {
+		expect(endsForGood({ reason: "quit" }, calm)).toBe(true);
+		expect(endsForGood({ reason: "quit" }, { ...calm, parked: true })).toBe(
+			false,
+		);
+		expect(
+			endsForGood({ reason: "quit" }, { ...calm, restarting: true }),
+		).toBe(false);
+		for (const reason of ["reload", "new", "resume", "fork"]) {
+			expect(endsForGood({ reason }, calm), reason).toBe(false);
+		}
+		expect(endsForGood(undefined, calm)).toBe(false);
 	});
 });
 

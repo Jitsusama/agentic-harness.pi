@@ -18,8 +18,9 @@
  * the one the talk asked for.
  *
  * A replied talk is over once the session moves on from it: when a
- * newer talk to it is replied, even one answered after a reload, since
- * the files say which are replied, or when the session ends for good.
+ * newer talk to its address is replied, even after a reload or a
+ * rollover, since the files say which are replied, or when the session
+ * ends for good (endsForGood).
  * Its own work carrying on is not moving on, or the desktop's sign of
  * an unread answer would go as soon as it came.
  */
@@ -124,7 +125,7 @@ export function createTalks(host: TalksHost): Talks {
 	const reply = (talk: Open, text: string) => {
 		say(talk, { stage: "replied", text });
 		try {
-			overTalks(talk.inbox, host.session(), NEWER, talk.id, new Date(now()));
+			overTalks(talk.inbox, NEWER, talk.id, new Date(now()));
 		} catch {
 			// An earlier talk left as replied is the desktop's sign kept a while
 			// longer; the next reply or the session's end tries again.
@@ -242,7 +243,7 @@ export function createTalks(host: TalksHost): Talks {
 			const at = new Date(now());
 			for (const inbox of new Set([...inboxes, ...(host.inboxes?.() ?? [])])) {
 				try {
-					overTalks(inbox, host.session(), ENDED, undefined, at);
+					overTalks(inbox, ENDED, undefined, at);
 				} catch {
 					// An inbox that can't be read keeps its sign; nothing here can
 					// try again, and the launcher still reads the talk as replied.
@@ -250,6 +251,29 @@ export function createTalks(host: TalksHost): Talks {
 			}
 		},
 	};
+}
+
+/** What else is happening to a session as it shuts down. */
+export interface ShuttingDown {
+	/** It parked, for its holder to wake. */
+	readonly parked: boolean;
+	/** Its holder starts it again at once, as a restart in place does. */
+	readonly restarting: boolean;
+}
+
+/**
+ * Whether a shutdown ends the session for good: pi quitting, with no
+ * park or restart in place to bring it back. A reload, and a rollover
+ * (`new` or `resume`, which carries the conversation on in a fresh
+ * log), don't.
+ */
+export function endsForGood(event: unknown, how: ShuttingDown): boolean {
+	const quit =
+		typeof event === "object" &&
+		event !== null &&
+		"reason" in event &&
+		event.reason === "quit";
+	return quit && !how.parked && !how.restarting;
 }
 
 /** The text a message carries, when it is the assistant's. */

@@ -136,15 +136,15 @@ export function talkEvents(inbox: string, id: string): TalkLine[] {
 }
 
 /**
- * Say each talk of a session in an inbox that it replied to, and that
- * isn't over yet, is over, with why; `except` names the talk the
- * session has just answered, which stays as it is. Looks at the
- * newest OVER_LOOKS talks only, since each reply ends those before it.
- * Answers the talks it ended.
+ * Say each replied talk in an inbox that isn't over yet is over, with
+ * why; `except` names the talk just answered, which stays as it is.
+ * An inbox is one address's, and an address carries across a
+ * rollover where a session's id doesn't, so the inbox alone says whose
+ * talks they are. Looks at the newest OVER_LOOKS talks only, since
+ * each reply ends those before it. Answers the talks it ended.
  */
 export function overTalks(
 	inbox: string,
-	session: string,
 	why: string,
 	except?: string,
 	at: Date = new Date(),
@@ -152,10 +152,7 @@ export function overTalks(
 	const ended: string[] = [];
 	for (const id of newestTalks(inbox, OVER_LOOKS)) {
 		if (id === except) continue;
-		const events = talkEvents(inbox, id);
-		const delivered = events.find(({ stage }) => stage === "delivered");
-		if (delivered?.session !== session) continue;
-		const stages = new Set(events.map(({ stage }) => stage));
+		const stages = new Set(talkEvents(inbox, id).map(({ stage }) => stage));
 		if (!stages.has("replied") || stages.has("over")) continue;
 		try {
 			sayTalk(inbox, id, { stage: "over", why }, at);
