@@ -309,7 +309,7 @@ describe("the conversation summariser", () => {
 
 	it("holds a session in the ceiling's trial to the ceiling", async () => {
 		const closing = await closingOfLongSession("s1");
-		expect(closing).toContain("Make it about 6,000 tokens long");
+		expect(closing).toContain("Keep it to at most 6,000 tokens");
 	});
 
 	it("says a focus once when it arrives both by hand and as a contribution", async () => {
