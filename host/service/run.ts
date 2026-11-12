@@ -14,7 +14,8 @@
  *
  * Once ready, when the unit sets a watchdog, the host pings it from its
  * own loop, so a host whose loop stops turning is restarted with what it
- * holds, while one busy with long turns, which it awaits, never is.
+ * holds, while one busy with long turns, which it awaits, never is. A
+ * beat that comes late says in the journal how long the loop held.
  *
  * What one conversation throws where nothing caught it is contained to
  * that conversation; anything else stops the host the same way, and its
@@ -54,6 +55,14 @@ const STATUS_EVERY_MS = 15_000;
  * work took 96 s.
  */
 const PINGS_PER_TIMEOUT = 4;
+
+/**
+ * How late a watchdog beat may come before the journal says the loop
+ * held: the longest a live host kept a request waiting through the night
+ * of 12 November was 3.3 s, so this names only what passes a busy night.
+ */
+const LATE_BEAT_MS = 5000;
+const HALF = 2;
 
 const MICROSECONDS_PER_MS = 1000;
 const MS_PER_SECOND = 1000;
@@ -199,6 +208,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 					ping: (within) => (options.alive ?? notifyAlive)(options.env, within),
 					every,
 					report,
+					held: (late) => say(heldLine(late, every * PINGS_PER_TIMEOUT)),
 				});
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
@@ -379,17 +389,28 @@ function notifyAlive(env: NodeJS.ProcessEnv, within: number): Promise<void> {
  * one beat. One still on its way when the next is due is let be for that
  * beat rather than joined by another, and the beat after pings anyway,
  * so a systemd-notify that never ends can't silence a healthy host.
+ * A beat that comes late by more than LATE_BEAT_MS, or half the timeout
+ * when that is less, is `held`, so a stall short of a kill leaves a
+ * trace saying how long it was.
  */
 function keepAlive(options: {
 	ping: (within: number) => Promise<void>;
 	every: number;
 	report: (error: unknown) => void;
+	held: (late: number) => void;
 }): () => void {
+	const timeout = options.every * PINGS_PER_TIMEOUT;
+	const noted = Math.min(LATE_BEAT_MS, timeout / HALF);
 	// The newest ping, and whether it's still on its way and has had its beat.
 	let newest = 0;
 	let pinging = false;
 	let waited = false;
+	let last = performance.now();
 	const beat = setInterval(() => {
+		const now = performance.now();
+		const late = now - last - options.every;
+		last = now;
+		if (late > noted) options.held(late);
 		if (pinging && !waited) {
 			waited = true;
 			return;
@@ -407,6 +428,12 @@ function keepAlive(options: {
 	}, options.every);
 	beat.unref();
 	return () => clearInterval(beat);
+}
+
+/** Say how long the loop held past a beat, of the watchdog's `timeout`. */
+function heldLine(late: number, timeout: number): string {
+	const seconds = (ms: number) => (ms / MS_PER_SECOND).toFixed(1);
+	return `the loop held ${seconds(late)} s past a watchdog beat, of the ${seconds(timeout)} s systemd waits`;
 }
 
 /** Show what the host serves as the unit's status, once it changes. */
