@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { saveRecord } from "../../../extensions/quest-workflow/session-registry.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { spawnInHost } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
@@ -10,6 +11,7 @@ import { hostSocketPath } from "../../../host/service/address.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
+import { openRecord } from "../../../lib/internal/quest/session-registry.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import { createEnvGuard } from "./_helpers.ts";
@@ -246,6 +248,38 @@ describe("spawn into a host", () => {
 		expect(received[0], "adopt carries no first words").not.toHaveProperty(
 			"first",
 		);
+		expect(
+			received[0],
+			"a session with no record of a fence moves in as the host runs",
+		).not.toHaveProperty("env");
+	});
+
+	it("adopts a session that ran fenced as fenced", async () => {
+		await serveHost("home", "background");
+		const resumed = randomUUID();
+		const { state, id } = await questWithSession(resumed, 60 * 60 * 1000);
+		saveRecord(
+			openRecord({
+				sessionId: resumed,
+				instanceId: "inst",
+				cwd: tmpRoot,
+				questId: id,
+				env: { PI_SANDBOX: "fence" },
+				now: new Date(),
+			}),
+		);
+		answer = async () => ({
+			...identityFor(received[0] as ControlRequest),
+			sessionId: resumed,
+		});
+		await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(received, "the adopt says the fence its record kept").toEqual([
+			expect.objectContaining({ op: "adopt", env: { PI_SANDBOX: "fence" } }),
+		]);
 	});
 
 	it("refuses to adopt with a note, or a session still live, sending nothing", async () => {

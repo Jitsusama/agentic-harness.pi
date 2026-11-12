@@ -36,6 +36,7 @@ import type {
 	EventBus,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { CarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
@@ -294,6 +295,8 @@ export interface Mover {
 	readonly from?: string;
 	/** The process that owns it, as its presence says (core/session owner). */
 	readonly pid: number;
+	/** How it runs its commands, as its own environment says (move.ts). */
+	readonly env?: CarriedEnvironment;
 }
 
 /** The note a session's move leaves; throws when it has no file to move. */
@@ -318,5 +321,6 @@ export function moveNoteOf(
 		...(mover.title ? { title: mover.title } : {}),
 		...(mover.from ? { from: mover.from } : {}),
 		pid: mover.pid,
+		...(mover.env ? { env: mover.env } : {}),
 	};
 }

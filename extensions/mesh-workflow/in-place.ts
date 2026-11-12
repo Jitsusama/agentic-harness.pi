@@ -30,7 +30,6 @@ import {
 	heldDirectly,
 	holderCommand,
 	PARKED_EXIT,
-	restartCommand,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
@@ -124,12 +123,14 @@ export function joinCommand(
  * once (`--view`), never waiting on a move: a parked conversation is
  * held but not open, and the attach is what wakes it. With no
  * log there are no plain pi words, and mycelium's node gives today's
- * attach words instead.
+ * attach words instead. The plain pi words carry the conversation's
+ * fence, so a fenced one taken back runs its commands fenced still.
  */
 export function hostedPresence(
 	host: string,
 	session: string,
 	sessionFile: string | undefined,
+	env: NodeJS.ProcessEnv = {},
 ): NonNullable<Presence["hosted"]> {
 	return {
 		host,
@@ -144,7 +145,7 @@ export function hostedPresence(
 						"--session",
 						session,
 						"--",
-						...restartCommand(sessionFile),
+						...holderCommand(sessionFile, [], env),
 					],
 				}),
 	};

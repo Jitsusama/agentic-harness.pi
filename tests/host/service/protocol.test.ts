@@ -80,6 +80,23 @@ describe("wire validation", () => {
 				sessionFile: "/session.jsonl",
 				attended: false,
 			},
+			// A fenced session's move into a host says how it ran its commands.
+			{
+				v: 1,
+				id: "a",
+				op: "adopt",
+				sessionFile: "/session.jsonl",
+				attended: false,
+				env: { PI_SANDBOX: "fence", PI_SPAWNER: "on" },
+			},
+			{
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: "/repo",
+				attended: true,
+				env: { PI_SANDBOX: "fence" },
+			},
 			...["release", "close", "abort"].map((op) => ({ ...close, op })),
 			{ ...close, op: "attach", rows: 24, columns: 80 },
 			// A newer client may say it can do what this host doesn't know yet.
@@ -102,6 +119,20 @@ describe("wire validation", () => {
 			{ ...close, op: "stop" },
 			{ ...close, id: "" },
 			{ v: 1, id: "a", op: "adopt", sessionFile: "relative", attended: true },
+			// Only how a session runs its commands, never a key or a path.
+			...[
+				{ API_KEY: "secret" },
+				{ PI_SANDBOX: "fence", HOME: "/tmp" },
+				{ PI_SANDBOX: "fence; rm -rf ~" },
+				{},
+			].map((env) => ({
+				v: 1,
+				id: "a",
+				op: "adopt",
+				sessionFile: "/session.jsonl",
+				attended: false,
+				env,
+			})),
 			{ ...close, op: "attach", rows: 0, columns: 80 },
 			{ ...close, op: "attach", rows: 24.5, columns: 80 },
 			{ ...close, op: "attach", rows: 24, columns: 1001 },

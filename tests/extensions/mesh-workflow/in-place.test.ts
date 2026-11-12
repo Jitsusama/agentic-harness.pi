@@ -127,6 +127,28 @@ describe("a hosted conversation's presence", () => {
 		);
 	});
 
+	it("keeps a fenced conversation fenced in the window that takes it back", () => {
+		const { view } = hostedPresence(
+			"work-attended",
+			"01a1",
+			"/logs/01a1.jsonl",
+			{
+				PI_SANDBOX: "fence",
+				HOME: "/home/joel",
+			},
+		);
+		expect(
+			view?.slice(6),
+			"plain pi's words carry the fence, and nothing else of the env",
+		).toEqual([
+			"env",
+			"PI_SANDBOX=fence",
+			"pi",
+			"--session",
+			"/logs/01a1.jsonl",
+		]);
+	});
+
 	it("names no words with no log for plain pi to take up", () => {
 		expect(hostedPresence("work-attended", "01a1", undefined)).toEqual({
 			host: "work-attended",

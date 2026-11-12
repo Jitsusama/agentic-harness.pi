@@ -32,6 +32,7 @@ import {
 	type SessionView,
 	sessionActivity,
 } from "../../../lib/internal/quest/session-liveness.ts";
+import type { CarriedEnvironment } from "../../../lib/internal/session/carried-environment.ts";
 import {
 	attachWords,
 	type HostHold,
@@ -40,6 +41,7 @@ import {
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { readRecord } from "../session-registry.ts";
 import {
 	ok,
 	type QuestResult,
@@ -362,6 +364,8 @@ function requestFor(
 				sessionFile: found.path,
 				attended,
 				quest: spawn.questId,
+				// Run its commands as it last ran them, as a reopen after a reboot does.
+				...ranWith(resumed.id),
 			},
 		};
 	}
@@ -389,6 +393,12 @@ function requestFor(
 				: {}),
 		},
 	};
+}
+
+/** How a session's record says it ran its commands, for its adopt. */
+function ranWith(sessionId: string): { env?: CarriedEnvironment } {
+	const env = readRecord(sessionId)?.env;
+	return env ? { env } : {};
 }
 
 function neverSent(error: unknown): boolean {

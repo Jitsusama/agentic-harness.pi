@@ -116,6 +116,18 @@ export function conversationBase(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
+ * A conversation's own variables, laid over the realm's: how the session
+ * it continues ran its commands (the fence, the spawner), which the
+ * asker hands on, since the host's own environment sets neither. The
+ * protocol lets through only those variables, each a plain word.
+ */
+export function conversationLaunch(request: {
+	readonly env?: Readonly<Record<string, string>> | undefined;
+}): Readonly<Record<string, string>> {
+	return request.env ?? {};
+}
+
+/**
  * Say in the install's `loaded` folder that this process runs the
  * harness at `root`, as each pi says at its load, so pi-packages keeps
  * the version the host's own code runs from, and every version retired
@@ -170,6 +182,8 @@ export async function startHostProgram(
 				stateDir: join(stateDir("host-engine"), host.key),
 				host,
 				env: conversationBase(env),
+				conversationEnv: (_conversation, request) =>
+					conversationLaunch(request),
 				key: gatewayKey({ env }),
 				screens: screens.screens,
 				report,
