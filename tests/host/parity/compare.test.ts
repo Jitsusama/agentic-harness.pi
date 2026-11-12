@@ -53,6 +53,21 @@ it("sets ids and times aside without hiding a broken reference", () => {
 	expect(normalise(a, [])).not.toEqual(normalise(broken, []));
 });
 
+it("sets a model call's timing entry aside but keeps how it stopped", () => {
+	const call = (of: number, preparedMs: number, firstTokenMs: number) => ({
+		customType: "harness-call",
+		data: { v: 1, of, preparedMs, firstTokenMs, stopReason: "stop" },
+	});
+	expect(normalise(call(1_794_469_266_736, 43, 67), [])).toEqual(
+		normalise(call(1_794_469_288_751, 137, 64), []),
+	);
+	const stopped = {
+		...call(1, 2, 3),
+		data: { ...call(1, 2, 3).data, stopReason: "aborted" },
+	};
+	expect(normalise(call(1, 2, 3), [])).not.toEqual(normalise(stopped, []));
+});
+
 it("labels each side's own folders and ports alike", () => {
 	const a = { path: "/a/repo/fixture.txt", url: "http://127.0.0.1:4100/v1" };
 	const b = { path: "/b/repo/fixture.txt", url: "http://127.0.0.1:5200/v1" };
