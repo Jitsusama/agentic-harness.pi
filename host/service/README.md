@@ -98,7 +98,12 @@ input pipeline or screen. No unit or running host is installed yet.
   background work held (the engine's count of each conversation's
   job-workflow) and every screen at rest (screens.ts), it asks
   systemd to restart the unit, which parks and resumes every
-  conversation. Only once systemctl has queued it does the stop tell
+  conversation. Conversations that take turns may never all rest two
+  minutes at once, so once it has differed for 30 minutes the host
+  looks every second and takes the first moment none has a turn
+  running, still with no background work and every screen at rest;
+  its journal line says which rule it restarted under. Only once
+  systemctl has queued it does the stop tell
   each viewer `restarting`, just before it closes on them, so a
   refused restart says nothing. A unit file systemd hasn't reloaded
   yet asks nothing, since a restart would start the old one.

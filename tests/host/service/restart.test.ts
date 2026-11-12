@@ -47,9 +47,13 @@ function manualTimers() {
 			const timer = waiting.shift();
 			if (!timer) throw new Error("No timer is waiting");
 			if (!timer.cancelled) timer.run();
-			await vi.waitFor(() => {
-				if (!over()) throw new Error("The look hasn't finished");
-			});
+			await vi.waitFor(
+				() => {
+					if (!over()) throw new Error("The look hasn't finished");
+				},
+				// A look awaits only promises the test resolves at once.
+				{ interval: 1 },
+			);
 		},
 	};
 }
@@ -197,9 +201,9 @@ describe("restartWhenSettled", () => {
 		const timers = manualTimers();
 		const seen: Held[][] = [];
 		const { facts: given, said } = facts({ held, now: () => clock });
-		given.restart = async (why, rule) => {
+		given.restart = async (why, under) => {
 			seen.push([...held()]);
-			said.push(`restart under ${rule}: ${why}`);
+			said.push(`restart under ${under.rule}: ${why}`);
 		};
 		restartWhenSettled(given, { after: timers.after });
 		const giveUp = NOW + 2 * 60 * 60_000;
@@ -361,7 +365,8 @@ describe("followWhatStarts", () => {
 		const report = vi.fn();
 		await followWhatStarts({
 			serving: {
-				held: () => [{ state: "idle" as const, since: lately }],
+				// It changed just now, by the clock the host reads.
+				held: () => [{ state: "idle" as const, since: new Date().toISOString() }],
 				restartComing: vi.fn(),
 			},
 			background: () => 0,
