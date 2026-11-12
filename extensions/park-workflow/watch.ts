@@ -137,9 +137,10 @@ export interface Watch {
 	/**
 	 * End now for its holder to start it again at once on `sessionFile`,
 	 * if nothing holds it; answers why not. A rollover asks it on the bus
-	 * ({@link RESTART_ASK}), and the watch answers there too.
+	 * ({@link RESTART_ASK}), and the watch answers there too. `asked`, its
+	 * person asked for it, so their being at its window doesn't hold it.
 	 */
-	restartInto(sessionFile: string): string | undefined;
+	restartInto(sessionFile: string, asked?: boolean): string | undefined;
 	/** Stop watching, as the session ends. */
 	stop(): void;
 }
@@ -453,7 +454,7 @@ export function watch(
 	};
 	// Not a park: no marker, since it starts again at once, in place, or
 	// else through its holder, on the wake it writes itself.
-	const restartInto = (fresh: string, asked: boolean): string | undefined => {
+	const restartInto = (fresh: string, asked = false): string | undefined => {
 		if (parked) return "parking already";
 		if (hosted()) return HOST_PARKS;
 		if (parkAfterMs(session, options.env, options.switchPath) === undefined) {
