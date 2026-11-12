@@ -15,6 +15,9 @@ const theme = {
 	bold: (text: string) => text,
 } as unknown as Theme;
 
+/** Wide enough that the call keeps to one line. */
+const WIDTH = 100;
+
 const args = { to: "orchestrator", intent: "fyi", text: "merged #1373" };
 const answer = {
 	content: [
@@ -45,7 +48,7 @@ function lines(quiet: () => boolean, expanded = false): string[] {
 		theme,
 		context,
 	);
-	return [...call.render(60), ...result.render(60)].map((line) =>
+	return [...call.render(WIDTH), ...result.render(WIDTH)].map((line) =>
 		line.trimEnd(),
 	);
 }
@@ -72,15 +75,15 @@ describe("a mesh_send row", () => {
 		let quiet = false;
 		const drawing = sendDrawing(() => quiet);
 		const call = drawing.renderCall(args, theme, row());
-		expect(call.render(60)).not.toEqual([]);
+		expect(call.render(WIDTH)).not.toEqual([]);
 		quiet = true;
-		expect(call.render(60)).toEqual([]);
+		expect(call.render(WIDTH)).toEqual([]);
 	});
 
 	it("keeps the frame open below a call still waiting for its answer", () => {
 		const drawing = sendDrawing(() => false);
 		const call = drawing.renderCall(args, theme, row());
-		expect(call.render(60).map((line) => line.trimEnd())).toEqual([
+		expect(call.render(WIDTH).map((line) => line.trimEnd())).toEqual([
 			"",
 			` mesh_send to="orchestrator" intent="fyi" text="merged #1373"`,
 			"",
