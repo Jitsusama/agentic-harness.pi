@@ -98,6 +98,10 @@ describe("the always-on context of a session", () => {
 				rules: 30,
 				project_context: 400,
 			},
+			byTool: {
+				read: JSON.stringify({ name: "read" }).length,
+				bash: JSON.stringify({ name: "bash" }).length,
+			},
 			redeclared: 0,
 		});
 	});
@@ -191,6 +195,7 @@ describe("the always-on context of a session", () => {
 				repo: "small",
 				tools: 1,
 				pieces: { tools: 10 },
+				byTool: {},
 				redeclared: 0,
 			},
 			{
@@ -198,6 +203,7 @@ describe("the always-on context of a session", () => {
 				repo: "big",
 				tools: 1,
 				pieces: { tools: 10, x: 900 },
+				byTool: {},
 				redeclared: 700,
 			},
 			{
@@ -205,6 +211,7 @@ describe("the always-on context of a session", () => {
 				repo: "big",
 				tools: 1,
 				pieces: { tools: 10, x: 100 },
+				byTool: {},
 				redeclared: 0,
 			},
 			{
@@ -212,6 +219,7 @@ describe("the always-on context of a session", () => {
 				repo: "big",
 				tools: 1,
 				pieces: { tools: 10, x: 500 },
+				byTool: {},
 				redeclared: 300,
 			},
 		]);
