@@ -43,6 +43,7 @@ import { spawn } from "node:child_process";
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../record.ts";
+import { kernelText } from "./kernel-file.ts";
 
 /** The weight build.slice takes while a stamp runs. */
 export const YIELD_WEIGHT = 1;
@@ -97,9 +98,8 @@ export function systemBuildSlice(cgroups: string, proc = "/proc"): BuildSlice {
 	return {
 		async weight() {
 			try {
-				const read = await readFile(
+				const read = await kernelText(
 					join(cgroups, "build.slice", "cpu.weight"),
-					"utf8",
 				);
 				const weight = Number.parseInt(read, 10);
 				return Number.isInteger(weight) ? weight : undefined;
@@ -307,7 +307,7 @@ async function childrenOf(dir: string): Promise<readonly string[]> {
 
 async function procsIn(dir: string): Promise<readonly string[]> {
 	try {
-		return (await readFile(join(dir, "cgroup.procs"), "utf8"))
+		return (await kernelText(join(dir, "cgroup.procs")))
 			.split("\n")
 			.filter((pid) => pid !== "");
 	} catch {
@@ -318,7 +318,7 @@ async function procsIn(dir: string): Promise<readonly string[]> {
 
 async function commOf(proc: string, pid: string): Promise<string> {
 	try {
-		return (await readFile(join(proc, pid, "comm"), "utf8")).trim();
+		return (await kernelText(join(proc, pid, "comm"))).trim();
 	} catch {
 		// A process gone since it was listed was no VM.
 		return "";
