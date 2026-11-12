@@ -3,7 +3,7 @@
  * counted as each one reads it.
  */
 
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -78,6 +78,21 @@ describe("what is on top", () => {
 		expect([before === null, read() === before], "the last whole file").toEqual(
 			[false, true],
 		);
+	});
+
+	// A filesystem's clock can tick slower than two writes: the lender's
+	// read both of a test's writes at one time, so the second went unread.
+	it("reads a new top written within the same tick as the last", () => {
+		const where = folder();
+		const tick = new Date(SATURDAY);
+		writeFileSync(where.file, JSON.stringify(TOP));
+		utimesSync(where.file, tick, tick);
+		const read = reader(where, "s1");
+		read();
+		const next = { ...TOP, why: "ship by Monday; everything else yields" };
+		writeFileSync(where.file, JSON.stringify(next));
+		utimesSync(where.file, tick, tick);
+		expect(read(), "the new top's words").toContain("ship by Monday");
 	});
 
 	// 85PKB2 on #1404: a whole file that names no quest takes the top

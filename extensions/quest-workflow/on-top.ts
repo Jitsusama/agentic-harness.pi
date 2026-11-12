@@ -30,7 +30,6 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -94,23 +93,25 @@ export function onTopReads(
 }
 
 /**
- * What a session is told is on top, read again only when the file
- * changes, and its read left once a top.
+ * What a session is told is on top, parsed again only when the file's
+ * words change, and its read left once a top. It compares the words
+ * rather than the file's time, since two writes can land within one
+ * tick of a filesystem's clock; the file is a few lines.
  */
 export function onTopReader(places: OnTopPlaces): () => string | null {
 	const zone = places.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-	let mtime: number | undefined;
+	let seen: string | undefined;
 	let top: OnTop | null = null;
 	return () => {
-		const changed = modified(places.file);
-		if (changed !== mtime) {
-			const read = readTop(places.file);
+		const words = wordsOf(places.file);
+		if (words !== seen) {
+			const read = topIn(words);
 			if (read !== undefined) {
 				if (read !== null && read.at !== top?.at) {
 					forgetOlderReads(places.reads, read.at);
 				}
 				top = read;
-				mtime = changed;
+				seen = words;
 			}
 		}
 		if (top === null || lapsed(top, places.now(), zone)) return null;
@@ -160,13 +161,13 @@ function missionFolder(
  * whole and names no quest, which is how a top is taken down; undefined
  * only when it doesn't parse, which may be a write still under way.
  */
-function readTop(file: string): OnTop | null | undefined {
-	if (!existsSync(file)) return null;
+function topIn(words: string | undefined): OnTop | null | undefined {
+	if (words === undefined) return null;
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(readFileSync(file, "utf8"));
+		parsed = JSON.parse(words);
 	} catch {
-		// Half written, or gone between the look and the read: keep the last.
+		// Half written: keep the last.
 		return undefined;
 	}
 	return (isRecord(parsed) ? topOf(parsed) : undefined) ?? null;
@@ -259,9 +260,9 @@ function keyOf(at: string): string {
 	return at.replace(/[^0-9A-Za-z]/g, "-");
 }
 
-function modified(path: string): number | undefined {
+function wordsOf(path: string): string | undefined {
 	try {
-		return statSync(path).mtimeMs;
+		return readFileSync(path, "utf8");
 	} catch {
 		// No file: nothing is on top.
 		return undefined;
