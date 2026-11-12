@@ -200,7 +200,9 @@ function sayTop(top: OnTop, zone: string): string {
 		? ` at ${localTime(at, zone)} on ${calendarDay(localDay(at, zone))}`
 		: "";
 	const until =
-		top.until === null ? "until he takes it down" : `until ${calendarDay(top.until)}`;
+		top.until === null
+			? "until he takes it down"
+			: `until ${calendarDay(top.until)}`;
 	const quests = top.quests
 		.map((quest) =>
 			quest.title === undefined ? quest.id : `${quest.title} (${quest.id})`,
