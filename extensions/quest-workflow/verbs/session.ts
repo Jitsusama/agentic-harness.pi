@@ -43,7 +43,6 @@ import {
 	openTerminal,
 } from "../../../lib/terminal/index.ts";
 import { count } from "../../../lib/ui/count.ts";
-import { spawnHostSetting } from "../config.ts";
 import { offerReopen } from "../first-turn-watch.ts";
 import {
 	attachSessionInQuestDir,
@@ -83,12 +82,7 @@ import {
 	spawnHeld,
 	startsPi,
 } from "./spawn-held.ts";
-import {
-	hostBySetting,
-	hostTargetOf,
-	reachedInHost,
-	spawnInHost,
-} from "./spawn-host.ts";
+import { hostTargetOf, reachedInHost, spawnByHost } from "./spawn-host.ts";
 import {
 	launcherOpens,
 	launcherSession,
@@ -456,33 +450,19 @@ export async function spawn(
 	const hold = resuming ? await hostHold(resuming) : undefined;
 	if (resuming && hold) return reachedInHost(resuming, hold);
 	const here = machine ?? hostname().split(".")[0] ?? "";
-	// A plain spawn goes where quest-workflow's spawnHost says, read now so
-	// turning it on or off takes at the next spawn.
-	const bySetting = target.kind
-		? {}
-		: await hostBySetting({
-				...(await spawnHostSetting()),
-				params,
-				placedHere: machine === undefined || isThisMachine(machine),
-				agent: () => agentCommand("pi", here),
-				env: sessionEnv(ctx).snapshot(),
-			});
-	const settingNote = bySetting.note ? ` ${bySetting.note}` : "";
-	const hostKind = target.kind ?? bySetting.kind;
-	if (hostKind) {
-		// The host is this machine's, so a quest its needs place elsewhere
-		// can't be hosted here.
-		if (machine !== undefined && !isThisMachine(machine)) {
-			return refuse(
-				`${questIdForSpawn}'s needs place it on ${machine}, and a host spawn opens here only; spawn it without host to start it there.`,
-			);
-		}
-		const picked =
-			resume && "id" in resume
-				? sessions.find((s) => s.id === resume.id)
-				: undefined;
-		const hosted = await spawnInHost({
-			kind: hostKind,
+	const picked =
+		resume && "id" in resume
+			? sessions.find((s) => s.id === resume.id)
+			: undefined;
+	// The host the call names, or for a plain spawn the one spawnHost says.
+	const byHost = await spawnByHost({
+		...(target.kind ? { asked: target.kind } : {}),
+		params,
+		...(machine !== undefined && !isThisMachine(machine)
+			? { elsewhere: machine }
+			: {}),
+		agent: () => agentCommand("pi", here),
+		spawn: {
 			questId: questIdForSpawn,
 			cwd,
 			chosenBy,
@@ -494,12 +474,10 @@ export async function spawn(
 			...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
 			env: sessionEnv(ctx).snapshot(),
 			...(params.dryRun ? { dryRun: true } : {}),
-		});
-		if (!settingNote) return hosted;
-		return hosted.ok
-			? { ...hosted, message: `${hosted.message}${settingNote}` }
-			: { ...hosted, guidance: `${hosted.guidance}${settingNote}` };
-	}
+		},
+	});
+	if ("result" in byHost) return byHost.result;
+	const settingNote = byHost.terminalNote;
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
 	// A reopen starts where its session ran, since pi finds a session by

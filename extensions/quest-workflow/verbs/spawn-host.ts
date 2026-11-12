@@ -44,6 +44,7 @@ import {
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { spawnHostSetting } from "../config.ts";
 import { readRecord } from "../session-registry.ts";
 import {
 	ok,
@@ -183,6 +184,65 @@ export async function hostBySetting(
 	return {
 		kind: setting,
 		note: `${said}, so it went to the host; name a terminal or a layout, or use spawn-tab, to open a window instead.`,
+	};
+}
+
+/** What spawn has resolved, for the host it may go to. */
+export interface HostChoice {
+	/** The host the call named, if it named one. */
+	readonly asked?: HostKind;
+	readonly params: QuestToolParams;
+	/** The machine the quest's needs place it on, when not this one. */
+	readonly elsewhere?: string;
+	/** The agent command this machine's realm starts its sessions with. */
+	readonly agent: () => Promise<string>;
+	/** The spawn to send, once a host is chosen. */
+	readonly spawn: Omit<HostSpawn, "kind">;
+}
+
+/**
+ * Spawn in the host the call names, or the one spawnHost sends a plain
+ * spawn to, with the setting's note on its answer; or, when neither
+ * chooses one, the note a terminal answer ends with, empty or saying
+ * why the setting's host didn't take it.
+ */
+export async function spawnByHost(
+	choice: HostChoice,
+	call: ControlCall = controlRequest,
+): Promise<{ result: QuestResult } | { terminalNote: string }> {
+	const { spawn } = choice;
+	if (choice.asked) {
+		// The host is this machine's, so a quest its needs place elsewhere
+		// can't be hosted here.
+		if (choice.elsewhere) {
+			return {
+				result: refuse(
+					`${spawn.questId}'s needs place it on ${choice.elsewhere}, and a host spawn opens here only; spawn it without host to start it there.`,
+				),
+			};
+		}
+		return {
+			result: await spawnInHost({ ...spawn, kind: choice.asked }, call),
+		};
+	}
+	// Read now, so turning it on or off takes at the next spawn.
+	const bySetting = await hostBySetting(
+		{
+			...(await spawnHostSetting()),
+			params: choice.params,
+			placedHere: choice.elsewhere === undefined,
+			agent: choice.agent,
+			env: spawn.env,
+		},
+		call,
+	);
+	const note = bySetting.note ? ` ${bySetting.note}` : "";
+	if (!bySetting.kind) return { terminalNote: note };
+	const hosted = await spawnInHost({ ...spawn, kind: bySetting.kind }, call);
+	return {
+		result: hosted.ok
+			? { ...hosted, message: `${hosted.message}${note}` }
+			: { ...hosted, guidance: `${hosted.guidance}${note}` },
 	};
 }
 
