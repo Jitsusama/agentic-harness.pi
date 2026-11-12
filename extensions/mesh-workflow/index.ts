@@ -202,7 +202,7 @@ import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
-import { inboxOf } from "../../lib/mesh/steer.ts";
+import { inboxOf, type Steer } from "../../lib/mesh/steer.ts";
 import { toolDetail } from "../../lib/mesh/step.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
@@ -278,7 +278,12 @@ import {
 	quietWanted,
 } from "./quiet.ts";
 import { meshLines, type Shown } from "./render.ts";
-import { createSteering, type Steering, steerText } from "./steer.ts";
+import {
+	answerSteered,
+	createSteering,
+	type Steering,
+	steerText,
+} from "./steer.ts";
 import {
 	assistantText,
 	createTalks,
@@ -1014,6 +1019,18 @@ export function meshWorkflow(
 			pi.sendUserMessage(text, idle ? undefined : { deliverAs: "steer" });
 		};
 
+		/**
+		 * An answer the person gave an open ask from the launcher: the ask
+		 * takes it as typed, or, when it has moved on, the window says so.
+		 */
+		const answerFromAway = (one: Steer) => {
+			const at = ctx;
+			if (!at) return;
+			answerSteered(one, sessionKeyOf(at), (text) => {
+				if (at.hasUI) at.ui.notify(text, "info");
+			});
+		};
+
 		/** Steering for this session's addresses, when the mesh has inboxes. */
 		const steer = (root: string | undefined) => {
 			steering?.stop();
@@ -1034,6 +1051,10 @@ export function meshWorkflow(
 					}
 					if (one.act === "move") {
 						if (isMoveTarget(one.to)) moving.move(one.to);
+						return;
+					}
+					if (one.act === "answer") {
+						answerFromAway(one);
 						return;
 					}
 					// A resume, a talk or typing says the person is at the desk.

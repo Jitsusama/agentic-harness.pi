@@ -54,6 +54,28 @@ describe("a want", () => {
 		expect(wantFrom("question")).toBeUndefined();
 	});
 
+	it("keeps an ask's choices it can read, and drops ones it can't", () => {
+		const since = "2026-10-22T08:00:00Z";
+		const ask = {
+			choices: [{ value: "keep", label: "Keep it", description: "As is" }],
+			recommended: "keep",
+			allowOther: false,
+		};
+
+		expect(
+			wantFrom({ kind: "question", since, said: "Keep?", ask })?.ask,
+			"the choices read whole",
+		).toEqual(ask);
+		const bad = wantFrom({
+			kind: "question",
+			since,
+			said: "Keep?",
+			ask: { choices: [{ value: 3, label: "Keep it" }] },
+		});
+		expect(bad, "the want still reads").toBeDefined();
+		expect(bad, "without choices it can't offer").not.toHaveProperty("ask");
+	});
+
 	it("tells the one standing longest", () => {
 		const at = (since: string) => ({
 			id: wantId("question", since),

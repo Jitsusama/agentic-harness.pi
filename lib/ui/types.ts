@@ -12,6 +12,7 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { WantAsk } from "../internal/session/wants.ts";
 
 /** Semantic glyphs: roguelike-inspired geometric set. */
 export const GLYPH = {
@@ -175,6 +176,12 @@ export interface PromptWant {
 	readonly kind: "question" | "approval";
 	/** One short line. Default: the title. */
 	readonly said?: string;
+	/**
+	 * The choices the want says, so the person can answer from where they
+	 * are (a single prompt only): one given there is taken as if picked
+	 * here, and words as if typed into the option that opens an editor.
+	 */
+	readonly ask?: WantAsk;
 }
 
 /**

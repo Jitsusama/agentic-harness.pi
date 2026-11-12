@@ -7,9 +7,14 @@
  * goes with the quest. So the inboxes watched are settled again each
  * time the peer looks, and every look takes what is waiting in all of
  * them, which also catches what a watcher never reported.
+ *
+ * An answer the person gives an open ask from the launcher goes to the
+ * ask itself, not the conversation, so it is taken as if picked there.
  */
 
 import { type FSWatcher, watch } from "node:fs";
+import { withSession } from "../../lib/core/session/index.ts";
+import { answerWant } from "../../lib/internal/session/wants.ts";
 import {
 	FROM_MACHINE,
 	FROM_PERSON,
@@ -114,6 +119,28 @@ export function steerText(steer: Steer, into: SteeredInto): string {
 		? " while this session works: answer first, in a line or two, then carry on."
 		: ": answer first, in a line or two, then do what is asked.";
 	return `[${asker(steer.from)} is asking from outside this window${then}]\n\n${steer.text}`;
+}
+
+/** What the window says of an answer that came for an ask now gone. */
+export const ANSWER_GONE =
+	"An answer from outside this window came for a question it no longer asks, so nothing was answered.";
+
+/**
+ * Give an `answer` steer to the open ask its want names, in `session`,
+ * since a watcher's callback may run outside the session it serves.
+ * When the ask has moved on, `tell` says so on screen.
+ */
+export function answerSteered(
+	steer: Steer,
+	session: string | undefined,
+	tell: (text: string) => void,
+): void {
+	const { want, given } = steer;
+	const taken =
+		want !== undefined &&
+		given !== undefined &&
+		withSession(session, () => answerWant(want, given));
+	if (!taken) tell(ANSWER_GONE);
 }
 
 /** Who a steer's writer reads as: Joel by name, else the person. */

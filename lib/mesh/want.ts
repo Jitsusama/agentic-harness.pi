@@ -20,9 +20,16 @@
  * keeps it, in the same kinds and on the same one line.
  */
 
-import { oneLine, type WantKind } from "../internal/session/wants.ts";
+import {
+	askFrom,
+	oneLine,
+	type WantAsk,
+	type WantKind,
+	wantId,
+} from "../internal/session/wants.ts";
 
-export type { WantKind };
+export type { WantAsk, WantKind };
+export { wantId };
 
 /** What a peer can be waiting on its person for. */
 export const WANT_KINDS: readonly WantKind[] = [
@@ -46,11 +53,11 @@ export interface Want {
 	readonly since: string;
 	/** What it asked or said, in one short line. */
 	readonly said: string;
-}
-
-/** The id a want of this kind, begun then, goes by. */
-export function wantId(kind: WantKind, since: string): string {
-	return `${kind}@${since}`;
+	/**
+	 * The choices an ask offers, so the launcher can answer it in place
+	 * by writing the answer to the session's steer folder (see steer.ts).
+	 */
+	readonly ask?: WantAsk;
 }
 
 /**
@@ -77,11 +84,13 @@ export function wantFrom(value: unknown): Want | undefined {
 		typeof one.since === "string" ? Date.parse(one.since) : Number.NaN;
 	if (!Number.isFinite(since)) return undefined;
 	const began = new Date(since).toISOString();
+	const ask = askFrom(one.ask);
 	return {
 		id: wantId(one.kind, began),
 		kind: one.kind,
 		since: began,
 		said: oneLine(one.said),
+		...(ask ? { ask } : {}),
 	};
 }
 

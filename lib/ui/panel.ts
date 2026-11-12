@@ -12,10 +12,17 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { waitedOn } from "../internal/session/wants.ts";
+import {
+	type GivenAnswer,
+	sessionWants,
+	WANT_AFTER_MS,
+	type WantAsk,
+	waitedOn,
+} from "../internal/session/wants.ts";
 import { chord, frameRule, frameTitle } from "./frame.ts";
 import { mountPanel, type PanelFactory } from "./mount.ts";
-import { showSinglePrompt } from "./prompt-single.ts";
+import { optionValue } from "./option-list.ts";
+import { elsewhereVerdict, showSinglePrompt } from "./prompt-single.ts";
 import { showTabbedPrompt } from "./prompt-tabbed.ts";
 import { showWorkspacePrompt } from "./prompt-workspace.ts";
 import {
@@ -50,11 +57,62 @@ export async function promptSingle(
 	config: SinglePromptConfig,
 ): Promise<PromptResult | null> {
 	if (!ctx.hasUI) return null;
-	return waitedOn(
-		config.want?.kind ?? "approval",
-		config.want?.said ?? config.title ?? UNTITLED_WANT,
-		showSinglePrompt(ctx, config),
+	const kind = config.want?.kind ?? "approval";
+	const said = config.want?.said ?? config.title ?? UNTITLED_WANT;
+	const ask = config.want?.ask;
+	if (!ask) return waitedOn(kind, said, showSinglePrompt(ctx, config));
+	return askedElsewhereToo(ctx, config, kind, said, ask);
+}
+
+/**
+ * A single prompt whose want carries its choices, so an answer given
+ * from outside the window, as the launcher gives one, is taken as if
+ * picked here: the prompt comes down and its record says where.
+ */
+async function askedElsewhereToo(
+	ctx: ExtensionContext,
+	config: SinglePromptConfig,
+	kind: "question" | "approval",
+	said: string,
+	ask: WantAsk,
+): Promise<PromptResult | null> {
+	const away = new AbortController();
+	let given: PromptResult | undefined;
+	const shown = showSinglePrompt(ctx, config, {
+		signal: away.signal,
+		verdict: () => (given ? elsewhereVerdict(config, given) : undefined),
+	});
+	const result = await waitedOn(
+		kind,
+		said,
+		shown,
+		sessionWants(),
+		WANT_AFTER_MS,
+		{
+			...ask,
+			take: (answer) => {
+				if (given) return;
+				given = resultOf(config, answer);
+				if (given) away.abort();
+			},
+		},
 	);
+	return given ?? result;
+}
+
+/** What picking `answer` in this prompt would have answered, if it can. */
+function resultOf(
+	config: SinglePromptConfig,
+	answer: GivenAnswer,
+): PromptResult | undefined {
+	if ("value" in answer) return { type: "option", value: answer.value };
+	const editor = config.options?.find((one) => one.opensEditor);
+	if (!editor) return undefined;
+	return {
+		type: "option",
+		value: optionValue(editor),
+		editorText: answer.other,
+	};
 }
 
 /**

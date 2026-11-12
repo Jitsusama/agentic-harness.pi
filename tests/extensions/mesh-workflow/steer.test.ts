@@ -3,8 +3,80 @@
  * came from, or a machine's, saying they aren't the person's.
  */
 
-import { describe, expect, it } from "vitest";
-import { steerText } from "../../../extensions/mesh-workflow/steer.ts";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	ANSWER_GONE,
+	answerSteered,
+	steerText,
+} from "../../../extensions/mesh-workflow/steer.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
+import {
+	forgetWants,
+	type GivenAnswer,
+	sessionWants,
+	wantId,
+} from "../../../lib/internal/session/wants.ts";
+
+const AT = new Date("2026-11-12T06:00:00.000Z");
+const WANT = wantId("question", AT.toISOString());
+
+describe("an answer steered from the launcher", () => {
+	afterEach(() => forgetWants());
+
+	/** An ask open in session `s1`, and every answer it took. */
+	function open(): { taken: GivenAnswer[]; lower: () => void } {
+		const taken: GivenAnswer[] = [];
+		const lower = withSession("s1", () =>
+			sessionWants().raise("question", "Keep the bar?", AT, {
+				choices: [{ value: "keep", label: "Keep it" }],
+				take: (given) => taken.push(given),
+			}),
+		);
+		return { taken, lower };
+	}
+
+	it("reaches the open ask it names, in the session it serves", () => {
+		const { taken, lower } = open();
+		const told: string[] = [];
+
+		answerSteered(
+			{
+				text: "",
+				act: "answer",
+				want: WANT,
+				given: { value: "keep" },
+				file: "f",
+			},
+			"s1",
+			(text) => told.push(text),
+		);
+
+		expect(taken, "the ask took the choice").toEqual([{ value: "keep" }]);
+		expect(told, "nothing said on screen").toEqual([]);
+		lower();
+	});
+
+	it("says on screen that the question moved on, when its ask is gone", () => {
+		const { taken, lower } = open();
+		lower();
+		const told: string[] = [];
+
+		answerSteered(
+			{
+				text: "",
+				act: "answer",
+				want: WANT,
+				given: { value: "keep" },
+				file: "f",
+			},
+			"s1",
+			(text) => told.push(text),
+		);
+
+		expect(taken, "nothing was taken").toEqual([]);
+		expect(told, "the window says why").toEqual([ANSWER_GONE]);
+	});
+});
 
 describe("a steer as the session reads it", () => {
 	it("is the person asking, to be answered first, when they or nobody named wrote it", () => {

@@ -220,6 +220,43 @@ describe("the steer inbox", () => {
 		).toBeUndefined();
 	});
 
+	it("reads an answer with its want and a choice or words, and none missing either", () => {
+		const want = "question@2026-11-12T06:00:00.000Z";
+		expect(
+			steerFrom(
+				`{"act":"answer","from":"joel","want":"${want}","value":"keep","text":"hi"}`,
+				"f",
+			),
+			"a choice, its words dropped so no run starts",
+		).toEqual({
+			text: "",
+			act: "answer",
+			from: "joel",
+			want,
+			given: { value: "keep" },
+			file: "f",
+		});
+		expect(
+			steerFrom(`{"act":"answer","want":"${want}","other":"Shorter"}`, "f"),
+			"words of the person's own",
+		).toMatchObject({ act: "answer", given: { other: "Shorter" } });
+		expect(
+			steerFrom('{"act":"answer","value":"keep"}', "f"),
+			"no want named",
+		).toBeUndefined();
+		expect(
+			steerFrom(`{"act":"answer","want":"${want}"}`, "f"),
+			"nothing given",
+		).toBeUndefined();
+		expect(
+			steerFrom(
+				`{"act":"answer","from":"machine","want":"${want}","value":"keep"}`,
+				"f",
+			),
+			"only the person answers",
+		).toBeUndefined();
+	});
+
 	it("reads what waits without taking it", () => {
 		const inbox = inboxOf(root, "P9R1KI");
 		takeSteers(inbox, "1");
