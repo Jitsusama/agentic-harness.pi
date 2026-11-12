@@ -153,8 +153,13 @@ parent feature branch, and says to push past it with `--no-verify`. A
 push run as `PI_PUSH_SKIPS_STALE_CUTOFF=1 git push ...` leaves out that
 one hook instead, and says so; the LFS and ancestry hooks run as
 always (Joel, 8 November). An old branch is rebased onto main instead.
-Any other push, and any doubt, runs the repository's own pre-push
-whole.
+A push that replaces a branch, its old tip no ancestor of its new, and
+whose scan can't be left out runs `git lfs pre-push` itself in place of
+World's LFS hook, and says so: World pushes to one remote and fetches
+main from another, so the hook's range is every commit of main the
+branch was rebased past, 11,760 on 11 November, for 4.5 minutes and
+4.6 GB. Without a git-lfs, the hook runs as it is. Any other push, and
+any doubt, runs the repository's own pre-push whole.
 
 Since that spares the scan by itself, a push of World with
 `--no-verify` is refused by the `world-push-hooks` guard, in block
