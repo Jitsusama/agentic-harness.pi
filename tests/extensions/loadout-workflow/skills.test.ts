@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	parseLoadoutSettings,
-	skillsHere,
+	placedHere,
 	withPackagePlaces,
 } from "../../../extensions/loadout-workflow/skills.ts";
 
@@ -22,7 +22,7 @@ const names = (listed: readonly { name: string }[]) =>
 
 describe("the skills listed for a session", () => {
 	it("are every skill when no place is said", () => {
-		expect(names(skillsHere(skills, {}, "/anywhere", HOME))).toEqual(
+		expect(names(placedHere(skills, {}, "/anywhere", HOME))).toEqual(
 			names(skills),
 		);
 	});
@@ -31,10 +31,10 @@ describe("the skills listed for a session", () => {
 		const places = { "shopify-world-*": ["~/world"] };
 
 		expect(
-			names(skillsHere(skills, places, `${HOME}/src/agentic-harness.pi`, HOME)),
+			names(placedHere(skills, places, `${HOME}/src/agentic-harness.pi`, HOME)),
 		).toEqual(["planning-guide", "shopify-vault-guide"]);
 		expect(
-			names(skillsHere(skills, places, `${HOME}/world/trees/root/src`, HOME)),
+			names(placedHere(skills, places, `${HOME}/world/trees/root/src`, HOME)),
 		).toEqual(names(skills));
 	});
 
@@ -44,7 +44,7 @@ describe("the skills listed for a session", () => {
 			"shopify-vault-guide": ["~"],
 		};
 
-		expect(names(skillsHere(skills, places, `${HOME}/src/x`, HOME))).toEqual([
+		expect(names(placedHere(skills, places, `${HOME}/src/x`, HOME))).toEqual([
 			"planning-guide",
 			"shopify-vault-guide",
 		]);
@@ -54,7 +54,7 @@ describe("the skills listed for a session", () => {
 		const places = { "shopify-world-*": ["~/world"] };
 
 		expect(
-			names(skillsHere(skills, places, `${HOME}/worldly`, HOME)),
+			names(placedHere(skills, places, `${HOME}/worldly`, HOME)),
 		).not.toContain("shopify-world-pr-convention");
 	});
 });
@@ -67,7 +67,7 @@ describe("the package's own places", () => {
 
 	it("list a review round's contract in no ordinary session", () => {
 		expect(
-			names(skillsHere(withContract, withPackagePlaces({}), "/anywhere", HOME)),
+			names(placedHere(withContract, withPackagePlaces({}), "/anywhere", HOME)),
 		).toEqual(names(skills));
 	});
 
@@ -81,7 +81,7 @@ describe("the package's own places", () => {
 			"the package ships its round contracts",
 		).toBeGreaterThan(4);
 		expect(
-			names(skillsHere(contracts, withPackagePlaces({}), "/anywhere", HOME)),
+			names(placedHere(contracts, withPackagePlaces({}), "/anywhere", HOME)),
 		).toEqual([]);
 	});
 
@@ -89,7 +89,7 @@ describe("the package's own places", () => {
 		const places = withPackagePlaces({ "review-council-format": ["~"] });
 
 		expect(
-			names(skillsHere(withContract, places, `${HOME}/src`, HOME)),
+			names(placedHere(withContract, places, `${HOME}/src`, HOME)),
 		).toEqual(names(withContract));
 	});
 });
@@ -98,7 +98,7 @@ describe("the loadout section", () => {
 	it("is nothing to filter when absent", () => {
 		expect(parseLoadoutSettings(undefined)).toEqual({
 			ok: true,
-			value: { skills: {} },
+			value: { skills: {}, tools: {} },
 		});
 	});
 
@@ -107,11 +107,51 @@ describe("the loadout section", () => {
 			parseLoadoutSettings({ skills: { "shopify-world-*": ["~/world"] } }),
 		).toEqual({
 			ok: true,
-			value: { skills: { "shopify-world-*": ["~/world"] } },
+			value: { skills: { "shopify-world-*": ["~/world"] }, tools: {} },
 		});
 		expect(parseLoadoutSettings({ skills: { x: "~/world" } })).toMatchObject({
 			ok: false,
 		});
 		expect(parseLoadoutSettings([])).toMatchObject({ ok: false });
+	});
+
+	it("takes tools' places the same way as skills'", () => {
+		expect(
+			parseLoadoutSettings({
+				tools: { "mastery_*": ["~/src/joel.gerber.pi"] },
+			}),
+		).toEqual({
+			ok: true,
+			value: { skills: {}, tools: { "mastery_*": ["~/src/joel.gerber.pi"] } },
+		});
+		expect(parseLoadoutSettings({ tools: { "mastery_*": "~/src" } })).toEqual({
+			ok: false,
+			error: 'loadout.tools["mastery_*"] must be a list of folders',
+		});
+		expect(parseLoadoutSettings({ tools: [] })).toEqual({
+			ok: false,
+			error: "loadout.tools must be an object",
+		});
+	});
+});
+
+describe("the tools indexed for a session", () => {
+	const tools = [
+		{ name: "bash" },
+		{ name: "mastery_start_cycle" },
+		{ name: "mastery_collect_git" },
+	];
+	const places = { "mastery_*": ["~/src/joel.gerber.pi"] };
+
+	it("leave out a tool named for another place", () => {
+		expect(names(placedHere(tools, places, `${HOME}/src/x`, HOME))).toEqual([
+			"bash",
+		]);
+	});
+
+	it("keep it where it applies", () => {
+		expect(
+			names(placedHere(tools, places, `${HOME}/src/joel.gerber.pi/lib`, HOME)),
+		).toEqual(names(tools));
 	});
 });

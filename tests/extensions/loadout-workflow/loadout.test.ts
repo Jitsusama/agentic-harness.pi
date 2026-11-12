@@ -4,8 +4,11 @@
  * reading a skill that names some of them loads them.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import loadoutWorkflow, {
 	INDEX_SECTION,
 } from "../../../extensions/loadout-workflow/index.ts";
@@ -160,6 +163,59 @@ describe("the index of tools that load on demand", () => {
 		expect(first.section).toContain("browser_go");
 		expect(second.section).toBe(first.section);
 		expect(first.returned).toBeUndefined();
+	});
+});
+
+describe("the index where the person says a tool applies", () => {
+	const made: string[] = [];
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		for (const folder of made.splice(0)) {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	/** A package config placing the browser's tools under one folder. */
+	function browserOnlyUnder(folder: string) {
+		const config = mkdtempSync(join(tmpdir(), "loadout-tools-"));
+		made.push(config);
+		const dir = join(config, "pi", "agentic-harness.pi");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "config.json"),
+			JSON.stringify({
+				version: 1,
+				sections: { loadout: { tools: { "browser_*": [folder] } } },
+			}),
+		);
+		vi.stubEnv("XDG_CONFIG_HOME", config);
+	}
+
+	async function indexIn(cwd: string) {
+		const { fire } = activate(["bash"]);
+		await fire("session_start", {});
+		const sections: Record<string, string> = {};
+		await fire("before_agent_start", {
+			systemPromptOptions: { sections, cwd },
+		});
+		return sections[INDEX_SECTION] ?? "";
+	}
+
+	it("leaves out a tool placed elsewhere, keeping the rest", async () => {
+		browserOnlyUnder("/work/browsing");
+
+		const index = await indexIn("/work/other");
+
+		expect(index).not.toContain("browser_go");
+		expect(index).toContain("render_mermaid");
+	});
+
+	it("keeps it in the folder it applies to", async () => {
+		browserOnlyUnder("/work/browsing");
+
+		const index = await indexIn("/work/browsing/site");
+
+		expect(index).toContain("browser_go");
 	});
 });
 
