@@ -27,9 +27,9 @@ import {
 	rollOver,
 	rolloverAsked,
 	sessionFileName,
-	uuidv7,
 	writeRolled,
 } from "../../../../lib/internal/session/rollover.ts";
+import { uuidv7 } from "../../../../lib/internal/session/uuidv7.ts";
 
 let dir: string;
 

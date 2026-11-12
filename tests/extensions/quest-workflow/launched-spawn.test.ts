@@ -4,12 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	decideSpawn,
 	handToHost,
 	type LaunchedSpawn,
 	launchedSpawn,
+	SPAWN_HOSTED,
+	SPAWN_STAYS,
+	STAYED_VARIABLE,
 	settleLaunchedSpawn,
 } from "../../../extensions/quest-workflow/launched-spawn.ts";
-import type { ControlCall } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
+import {
+	type ControlCall,
+	OPEN_PATIENCE_MS,
+} from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
 import { leaveFirstWords } from "../../../lib/internal/quest/first-words.ts";
 
@@ -21,6 +28,7 @@ let runtime: string;
 let dir: string;
 let sessionId: string;
 let sent: ControlRequest[];
+let patience: Map<string, number | undefined>;
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "launched-spawn-"));
@@ -29,6 +37,7 @@ beforeEach(() => {
 	dir = join(root, "first-words");
 	sessionId = randomUUID();
 	sent = [];
+	patience = new Map();
 });
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
@@ -55,8 +64,9 @@ function argvOf(...more: string[]) {
 function hostThat(
 	open: (request: ControlRequest) => Awaited<ReturnType<ControlCall>>,
 ): ControlCall {
-	return async (_socket, request) => {
+	return async (_socket, request, timeoutMs) => {
 		sent.push(request);
+		patience.set(request.op, timeoutMs);
 		if (request.op === "list") {
 			return { v: 1, id: request.id, ok: true, result: { sessions: [] } };
 		}
@@ -240,7 +250,125 @@ describe("handing a launched spawn to its host", () => {
 	});
 });
 
+describe("deciding a launched spawn headless, for the launcher", () => {
+	/** Decide, answering the exit status and the lines said. */
+	async function decided(setting: string | undefined, call: ControlCall) {
+		const lines: string[] = [];
+		const code = await decideSpawn(
+			argvOf(),
+			root,
+			factsOf(setting, call),
+			(line) => lines.push(line),
+			join(root, "state"),
+		);
+		return { code, lines };
+	}
+
+	function logged(): string {
+		const log = join(root, "state", "launched-spawns.log");
+		return existsSync(log) ? readFileSync(log, "utf8") : "";
+	}
+
+	it("says it is opening, then where it went, and answers hosted", async () => {
+		leaveFirstWords(sessionId, WORDS, dir);
+		const hosted = randomUUID();
+
+		expect(await decided("attended", opening(hosted))).toEqual({
+			code: SPAWN_HOSTED,
+			lines: ["opening work-attended", `hosted work-attended ${hosted}`],
+		});
+		expect(leftOf(), "the words are taken by the host").toEqual([".taken"]);
+		expect(
+			patience.get("open"),
+			"the open waits as long as a host takes to load a conversation",
+		).toBe(OPEN_PATIENCE_MS);
+		expect(logged()).toMatch(
+			new RegExp(
+				`spawn ${sessionId} for ${QUEST} went to the work-attended host as session ${hosted} \\(headless, \\d+ ms\\)`,
+			),
+		);
+	});
+
+	it("answers stays, saying nothing, while spawnHost is off", async () => {
+		leaveFirstWords(sessionId, WORDS, dir);
+
+		expect(await decided("off", opening("x"))).toEqual({
+			code: SPAWN_STAYS,
+			lines: [],
+		});
+		expect(sent).toEqual([]);
+		expect(leftOf(), "the words still wait").toEqual([".json"]);
+	});
+
+	it("answers stays, saying nothing and asking no host, for what isn't a spawn", async () => {
+		expect(await decided("attended", opening("x"))).toEqual({
+			code: SPAWN_STAYS,
+			lines: [],
+		});
+		expect(sent).toEqual([]);
+		expect(logged()).toBe("");
+	});
+
+	it("answers stays with why, before opening anything, when no host is listening", async () => {
+		leaveFirstWords(sessionId, WORDS, dir);
+
+		const { code, lines } = await decided("background", nobody);
+
+		expect(code).toBe(SPAWN_STAYS);
+		expect(lines).toEqual([
+			expect.stringContaining("no work-background host is listening"),
+		]);
+		expect(leftOf(), "the words still wait").toEqual([".json"]);
+	});
+
+	it("answers stays with why, words put back, when the host turns the open away", async () => {
+		leaveFirstWords(sessionId, WORDS, dir);
+		const refusing = hostThat((request) => ({
+			v: 1,
+			id: request.id,
+			ok: false,
+			error: { code: "busy", message: "too many conversations" },
+		}));
+
+		const { code, lines } = await decided("background", refusing);
+
+		expect(code).toBe(SPAWN_STAYS);
+		expect(lines).toEqual([
+			"opening work-background",
+			expect.stringContaining("too many conversations"),
+		]);
+		expect(leftOf(), "the words are put back, untaken").toEqual([".json"]);
+		expect(logged()).toContain("stayed in its window");
+	});
+});
+
 describe("settling a launched spawn as pi starts", () => {
+	it("decides no more once the launcher's decider kept it in its window, saying why", async () => {
+		leaveFirstWords(sessionId, WORDS, dir);
+		let ended = 0;
+		const end = () => {
+			ended += 1;
+		};
+
+		const why = await settleLaunchedSpawn(
+			argvOf(),
+			envOf({ [STAYED_VARIABLE]: "no work-attended host is listening" }),
+			end,
+			opening("x"),
+		);
+		const quiet = await settleLaunchedSpawn(
+			argvOf(),
+			envOf({ [STAYED_VARIABLE]: "" }),
+			end,
+			opening("x"),
+		);
+
+		expect(why).toBe("no work-attended host is listening");
+		expect(quiet).toBeUndefined();
+		expect(ended, "the pi carries on in its window").toBe(0);
+		expect(sent, "no host is asked again").toEqual([]);
+	});
+
 	it("leaves any other pi be, ending nothing", async () => {
 		let ended = 0;
 

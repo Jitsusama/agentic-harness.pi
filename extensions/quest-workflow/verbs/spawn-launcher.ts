@@ -19,7 +19,7 @@ import {
 	launcherTakes,
 } from "../../../lib/internal/quest/hand-over.ts";
 import { realmSegments } from "../../../lib/internal/realm.ts";
-import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import {
 	type OpenOptions,
 	type OpenRequest,

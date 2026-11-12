@@ -43,7 +43,7 @@ import {
 	holdOf,
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
-import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
+import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { spawnHostSetting } from "../config.ts";
 import { readRecord } from "../session-registry.ts";
 import {
@@ -55,6 +55,15 @@ import {
 
 /** Sends one control request to a host's socket and reads its reply. */
 export type ControlCall = typeof controlRequest;
+
+/**
+ * How long an open or adopt may take to answer. The host loads pi and
+ * every extension of the harness for the conversation before it commits,
+ * which took past the client's 30 s on a fresh host (E15, 12 November);
+ * given up sooner, the outcome is unknown, and a window opened then
+ * would make a second session. The host E tests give it as long.
+ */
+export const OPEN_PATIENCE_MS = 120_000;
 
 type OpenRequest = Extract<ControlRequest, { op: "open" }>;
 type ThinkingLevel = NonNullable<OpenRequest["thinkingLevel"]>;
@@ -325,7 +334,7 @@ export async function spawnInHost(
 	}
 	let reply: Awaited<ReturnType<ControlCall>>;
 	try {
-		reply = await call(socket, request);
+		reply = await call(socket, request, OPEN_PATIENCE_MS);
 	} catch (error) {
 		if (neverSent(error)) {
 			return refuse(

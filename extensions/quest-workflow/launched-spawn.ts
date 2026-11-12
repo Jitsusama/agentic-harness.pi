@@ -24,12 +24,23 @@
  * pi ends, and its holder closes the window without a frame drawn in it.
  * A host that turns it away leaves the words where they were, for this
  * pi to say as any spawned pi does.
+ *
+ * A pi in a window still opens that window for a moment, which Joel sees
+ * blink (OSPHT4 [b00fe454]). So the launcher asks first, headless, through
+ * scripts/spawn-decide.ts (decideSpawn here), and opens a window only for
+ * a spawn that stays, telling its pi why in QUEST_WORKFLOW_SPAWN_STAYED so
+ * it doesn't ask again. The launcher's side is core.nix's Sessions.qml
+ * (KP0L6A [10b5128e]).
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import type { HostKind } from "../../host/service/address.ts";
+import {
+	type HostKind,
+	hostKey,
+	hostRealm,
+} from "../../host/service/address.ts";
 import type { SpawnHostSetting } from "../../lib/core/quest/config.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
@@ -49,6 +60,18 @@ import {
 
 /** The variable naming the quest a spawned pi loads as it starts. */
 const AUTOLOAD_VARIABLE = "QUEST_WORKFLOW_AUTOLOAD_ID";
+
+/**
+ * The variable the launcher sets on a spawn's window once the decider has
+ * said it stays: why, or empty for nothing to say. Its pi decides no more.
+ */
+export const STAYED_VARIABLE = "QUEST_WORKFLOW_SPAWN_STAYED";
+
+/** The decider's exit status for a spawn that went to a host: open nothing. */
+export const SPAWN_HOSTED = 0;
+
+/** The decider's exit status for a spawn that stays: open its window. */
+export const SPAWN_STAYS = 3;
 
 /** Thinking levels pi's `--model provider/id:level` may end with. */
 const THINKING_LEVELS = new Set([
@@ -133,6 +156,11 @@ export interface HandFacts {
 	readonly call?: ControlCall;
 	/** Where spawns leave first words. */
 	readonly dir?: string;
+	/**
+	 * Told the host's key once the words are taken and the open is about to
+	 * go, after which the spawn has to wait for the host's answer.
+	 */
+	readonly opening?: (host: string) => void;
 }
 
 /** Where a launched spawn went: to a host, or staying in its window. */
@@ -174,6 +202,7 @@ export async function handToHost(
 	const words = takeFirstWords([spawn.sessionId], dir);
 	// Dropped as stale meanwhile: nothing is waiting to start, so it stays.
 	if (words === undefined) return { hosted: false };
+	facts.opening?.(hostKey(hostRealm(facts.env), choice.kind));
 	const carried = carriedEnvironment({ ...facts.env });
 	const opened = await spawnInHost(
 		{
@@ -219,15 +248,15 @@ export async function settleLaunchedSpawn(
 	// A host's conversations never start with --session-id, so a host
 	// goes no further and never reads the process's folder.
 	if (!flagValue(argv, "--session-id")) return undefined;
+	const stayed = env[STAYED_VARIABLE];
+	if (stayed !== undefined) {
+		// The decider has had its say; what this pi starts mustn't inherit it.
+		if (env === process.env) delete process.env[STAYED_VARIABLE];
+		return stayed.trim() || undefined;
+	}
 	const spawn = launchedSpawn(argv, env, process.cwd());
 	if (!spawn) return undefined;
-	const machine = hostname().split(".")[0] ?? "";
-	const handed = await handToHost(spawn, {
-		setting: spawnHostSetting,
-		agent: () => agentCommand("pi", machine),
-		env,
-		...(call ? { call } : {}),
-	});
+	const handed = await handToHost(spawn, liveHandFacts(env, call));
 	noteHanded(spawn, handed);
 	if (handed.hosted) {
 		end();
@@ -237,19 +266,69 @@ export async function settleLaunchedSpawn(
 }
 
 /**
- * Keep a line of what became of a launched spawn, since the pi that
- * hands itself away has no screen left to say it on. Never fails the pi.
+ * Decide, headless, where the launcher's spawn of `argv` goes, for the
+ * launcher to open its window only when it stays. Says `opening <host>`
+ * once the open is sent, from when the launcher waits for the answer
+ * rather than give up, then `hosted <host> <session>` and answers
+ * SPAWN_HOSTED, or why it stays, if anything, and answers SPAWN_STAYS.
  */
-export function noteHanded(spawn: LaunchedSpawn, handed: Handed): void {
+export async function decideSpawn(
+	argv: readonly string[],
+	cwd: string,
+	facts: HandFacts,
+	say: (line: string) => void,
+	log?: string,
+): Promise<number> {
+	const spawn = launchedSpawn(argv, facts.env, cwd, facts.dir);
+	if (!spawn) return SPAWN_STAYS;
+	const began = Date.now();
+	const handed = await handToHost(spawn, {
+		...facts,
+		opening: (host) => say(`opening ${host}`),
+	});
+	noteHanded(spawn, handed, `headless, ${Date.now() - began} ms`, log);
+	if (handed.hosted) {
+		say(`hosted ${handed.host} ${handed.sessionId}`);
+		return SPAWN_HOSTED;
+	}
+	if (handed.note) say(handed.note.replace(/\s+/g, " "));
+	return SPAWN_STAYS;
+}
+
+/** The facts a spawn is handed by on this machine, read as it is now. */
+export function liveHandFacts(
+	env: Readonly<Record<string, string | undefined>>,
+	call?: ControlCall,
+): HandFacts {
+	const machine = hostname().split(".")[0] ?? "";
+	return {
+		setting: spawnHostSetting,
+		agent: () => agentCommand("pi", machine),
+		env,
+		...(call ? { call } : {}),
+	};
+}
+
+/**
+ * Keep a line of what became of a launched spawn, since the pi that
+ * hands itself away has no screen left to say it on, with `how` it was
+ * decided when not in its own pi. Never fails the pi.
+ */
+export function noteHanded(
+	spawn: LaunchedSpawn,
+	handed: Handed,
+	how?: string,
+	log: string = stateDir("quest-workflow"),
+): void {
 	const said = handed.hosted
 		? `went to the ${handed.host} host as session ${handed.sessionId}`
 		: `stayed in its window${handed.note ? `: ${handed.note}` : ""}`;
+	const by = how ? ` (${how})` : "";
 	try {
-		const dir = stateDir("quest-workflow");
-		mkdirSync(dir, { recursive: true });
+		mkdirSync(log, { recursive: true });
 		appendFileSync(
-			join(dir, "launched-spawns.log"),
-			`${new Date().toISOString()} spawn ${spawn.sessionId} for ${spawn.questId} ${said}\n`,
+			join(log, "launched-spawns.log"),
+			`${new Date().toISOString()} spawn ${spawn.sessionId} for ${spawn.questId} ${said}${by}\n`,
 		);
 	} catch {
 		// The record is only for a person looking back; the spawn went either way.

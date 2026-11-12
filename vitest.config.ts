@@ -67,6 +67,7 @@ const PROCESS_TESTS = [
 	"tests/scripts/host-join.test.ts",
 	"tests/scripts/pi-carry.test.ts",
 	"tests/scripts/pi-host.test.ts",
+	"tests/scripts/spawn-decide.test.ts",
 	"tests/host/service/killed-host.test.ts",
 	"tests/host/engine/hosted-agent.test.ts",
 	"tests/host/engine/engine.test.ts",

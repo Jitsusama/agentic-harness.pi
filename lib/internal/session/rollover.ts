@@ -49,6 +49,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process-global.ts";
+import { uuidv7 } from "./uuidv7.ts";
 
 /** The bus event asking extensions what to carry over; see `Carry`. */
 export const ROLLOVER_CARRY = "session:rollover-carry:v1";
@@ -168,31 +169,6 @@ const POINTING: Record<string, string> = {
 	label: "targetId",
 	context_edit: "targetId",
 };
-
-/**
- * A UUIDv7, the form pi gives session ids: its first 48 bits are the
- * time in milliseconds, so ids sort as logs were started.
- */
-export function uuidv7(
-	now: number = Date.now(),
-	random: Buffer = randomBytes(10),
-): string {
-	const hex = (n: number, width: number) => n.toString(16).padStart(width, "0");
-	const time = hex(now, 12);
-	const rand = random.toString("hex");
-	const version = `7${rand.slice(0, 3)}`;
-	const variant = (
-		(Number.parseInt(rand.slice(3, 4), 16) & 0x3) |
-		0x8
-	).toString(16);
-	return [
-		time.slice(0, 8),
-		time.slice(8, 12),
-		version,
-		`${variant}${rand.slice(4, 7)}`,
-		rand.slice(7, 19),
-	].join("-");
-}
 
 /** The name pi gives a log started at `at` with id `id`. */
 export function sessionFileName(id: string, at: Date): string {
