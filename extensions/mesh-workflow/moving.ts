@@ -30,6 +30,10 @@
  * host. One that finds no quiet moment within {@link QUIET_BOUND_MS}
  * gives up for now and looks again after {@link QUIET_REST_MS}, rather
  * than moving under someone typing.
+ *
+ * The person can ask from inside the window too, with /host
+ * (host-command.ts): the same move, said as asked there, and saying at
+ * once what it waits for first.
  */
 
 import type {
@@ -90,10 +94,13 @@ export interface MovingHost {
 	readonly every?: (ms: number, look: () => void) => () => void;
 }
 
+/** Where the person asked for a move: from outside its window, or in it. */
+export type AskedFrom = "outside" | "here";
+
 /** Moving for one session. */
 export interface MovingSession {
-	/** The person asked it to move to `to` from outside the window. */
-	move(to: MoveTarget): void;
+	/** The person asked it to move to `to`, from outside the window unless said. */
+	move(to: MoveTarget, asked?: AskedFrom): void;
 	/** The person is at the desk: a move waiting is called off. */
 	cancel(): void;
 	/**
@@ -154,6 +161,20 @@ async function letGo(
 	if (!released) host.close(by);
 }
 
+/** What a move says as it is asked, waiting on `holds` when it does. */
+function movingSaid(
+	to: MoveTarget,
+	asked: AskedFrom,
+	holds: string | undefined,
+): string {
+	if (asked === "outside") {
+		return `Moving to ${whereTo(to)} from outside this window, once nothing of its own is out.`;
+	}
+	return holds === undefined
+		? `Moving to ${whereTo(to)} in this window, once nothing of its own is out.`
+		: `Moving to ${whereTo(to)} in this window; waiting first, as ${holds}.`;
+}
+
 /** Moving, as its peer last left it. */
 export function createMoving(host: MovingHost): MovingSession {
 	const now = host.now ?? (() => new Date());
@@ -164,6 +185,8 @@ export function createMoving(host: MovingHost): MovingSession {
 	// until when it rests after finding none.
 	let seeking: number | undefined;
 	let restsUntil = Number.NEGATIVE_INFINITY;
+	// Where the move waiting was asked, as its close says.
+	let askedFrom: AskedFrom = "outside";
 	const unlook = () => {
 		unwatch?.();
 		unwatch = undefined;
@@ -216,7 +239,7 @@ export function createMoving(host: MovingHost): MovingSession {
 		if (!over || !handedOver(over)) {
 			host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
 		}
-		const by = `a move to ${whereTo(moving.to)}, asked from outside its window`;
+		const by = `a move to ${whereTo(moving.to)}, ${askedFrom === "here" ? "asked in its window" : "asked from outside its window"}`;
 		if (moving.to === "pi" && host.release) {
 			void letGo(host, host.release, by);
 			return;
@@ -230,7 +253,7 @@ export function createMoving(host: MovingHost): MovingSession {
 		host.tell("The move is off: the person is at the desk.");
 	};
 	return {
-		move(to) {
+		move(to, asked = "outside") {
 			if (ended) return;
 			if (to === "pi" && !host.hosted()) {
 				host.tell(
@@ -240,10 +263,9 @@ export function createMoving(host: MovingHost): MovingSession {
 			}
 			seeking = undefined;
 			restsUntil = Number.NEGATIVE_INFINITY;
+			askedFrom = asked;
 			host.setMoving({ to, since: now().toISOString() });
-			host.tell(
-				`Moving to ${whereTo(to)} from outside this window, once nothing of its own is out.`,
-			);
+			host.tell(movingSaid(to, asked, host.holds()));
 			look();
 		},
 		cancel,

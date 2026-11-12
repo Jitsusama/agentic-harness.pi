@@ -136,7 +136,10 @@ describe("/host", () => {
 	});
 
 	it("refuses a window its holder doesn't run itself, since the move would close it", async () => {
-		const unheld = asked({ handOver: () => undefined, env: { MYCELIUM_REALM: "work" } });
+		const unheld = asked({
+			handOver: () => undefined,
+			env: { MYCELIUM_REALM: "work" },
+		});
 		expect(await moveIntoHost("", unheld.facts)).toMatch(
 			/would close it.*nothing holds it/,
 		);

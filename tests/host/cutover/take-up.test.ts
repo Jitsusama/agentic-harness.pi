@@ -54,7 +54,9 @@ function machine(script: {
 				notes.set("01a1", note("01a1", script.to ?? "background"));
 				notedLook = at;
 			}
-			return script.standings[Math.min(at, script.standings.length - 1)] ?? "moving";
+			return (
+				script.standings[Math.min(at, script.standings.length - 1)] ?? "moving"
+			);
 		},
 		keepPlace: unused,
 		windowNow: unused,

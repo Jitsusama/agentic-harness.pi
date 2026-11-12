@@ -41,6 +41,7 @@ import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
 import type { HeldConversation, ReleaseFacts } from "./release.ts";
+import type { TakeUpFacts } from "./take-up.ts";
 import {
 	type MachineWindows,
 	readMachineWindows,
@@ -312,5 +313,21 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 		now: () => Date.now(),
 		pause,
 		say,
+	};
+}
+
+/** A /host take-up's facts from this machine (take-up.ts). */
+export function takeUpFacts(places: CutoverPlaces): TakeUpFacts {
+	const presences = createPresences(
+		places.presence ?? join(stateDir("mesh-workflow"), "presence"),
+	);
+	return {
+		...machineFacts(places),
+		standing: async (session) => {
+			const presence = presences.of(session);
+			const pid = presence?.owner?.pid;
+			if (pid === undefined || !rolloutFacts.alive(pid)) return "gone";
+			return presence?.moving === undefined ? "off" : "moving";
+		},
 	};
 }
