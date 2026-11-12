@@ -42,11 +42,14 @@ export type TalkEvent =
 			readonly text: string;
 			readonly from?: string;
 			readonly sentAt?: string;
+			readonly re?: string;
 	  }
 	| { readonly stage: "reading"; readonly after: string }
 	| { readonly stage: "replying"; readonly text: string }
 	| { readonly stage: "replied"; readonly text: string }
 	| { readonly stage: "failed"; readonly why: string }
+	| { readonly stage: "read"; readonly by: string }
+	| { readonly stage: "over"; readonly why: string }
 	| {
 			readonly stage: "came";
 			readonly what: string;
@@ -82,6 +85,28 @@ export function sayTalk(
 		talkFile(inbox, id),
 		`${JSON.stringify({ ...event, at: at.toISOString() })}\n`,
 	);
+}
+
+/** One line of a talk as read back: its stage, its time and the rest. */
+export interface TalkLine {
+	readonly stage: string;
+	readonly at: string;
+	readonly [field: string]: unknown;
+}
+
+/** A talk's events, read back in the order they were said. */
+export function talkEvents(_inbox: string, _id: string): TalkLine[] {
+	return [];
+}
+
+/** Say a session's replied talks are over. */
+export function overTalks(
+	_inbox: string,
+	_session: string,
+	_why: string,
+	_except?: string,
+): string[] {
+	return [];
 }
 
 /**

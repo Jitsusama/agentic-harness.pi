@@ -201,6 +201,90 @@ describe("a talk a session follows", () => {
 		});
 	});
 
+	it("keeps the talk a steer answers in place, as delivered says it", () => {
+		const following = talks();
+		take(following, { text: "and the tests?", id: "t2", re: "t1", file: "f" });
+
+		expect(stages("t2")[0]).toEqual({
+			stage: "delivered",
+			session: "s1",
+			text: "and the tests?",
+			re: "t1",
+		});
+	});
+
+	it("is over once a newer talk to the session is replied, not while its work carries on", () => {
+		const following = talks();
+		take(following, { text: "a", id: "t1", file: "f" });
+		following.wrote("On it.");
+		following.settled(false);
+		following.step("bash");
+		following.wrote("Carrying on with the build.");
+		following.settled(false);
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: "On it." });
+
+		take(following, { text: "b", id: "t2", file: "f" });
+		following.wrote("Done.");
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "over",
+			why: "a newer talk was answered",
+		});
+		expect(stages("t2").at(-1)).toEqual({ stage: "replied", text: "Done." });
+	});
+
+	it("ends a talk answered before a reload, once, when a newer one is replied after it", () => {
+		const before = talks();
+		take(before, { text: "a", id: "t1", file: "f" });
+		before.wrote("On it.");
+		before.settled(false);
+
+		const after = talks();
+		for (const id of ["t2", "t3"]) {
+			take(after, { text: id, id, file: "f" });
+			after.wrote(`Answered ${id}.`);
+			after.settled(false);
+		}
+
+		expect(stages("t1").filter(({ stage }) => stage === "over")).toHaveLength(
+			1,
+		);
+		expect(stages("t2").at(-1)).toEqual({
+			stage: "over",
+			why: "a newer talk was answered",
+		});
+		expect(stages("t3").at(-1)).toEqual({
+			stage: "replied",
+			text: "Answered t3.",
+		});
+	});
+
+	it("is over when the session ends, in every inbox it answers from", () => {
+		const following = createTalks({
+			session: () => "s1",
+			now: () => clock,
+			inboxes: () => [inbox],
+		});
+		take(following, { text: "a", id: "t1", file: "f" });
+		following.wrote("On it.");
+		following.settled(false);
+		take(following, { text: "b", id: "t2", file: "f" });
+
+		following.ended();
+
+		expect(stages("t1").map(({ stage }) => stage)).toEqual([
+			"delivered",
+			"replied",
+			"over",
+		]);
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "over",
+			why: "the session ended",
+		});
+		expect(stages("t2").map(({ stage }) => stage)).toEqual(["delivered"]);
+	});
+
 	it("is not opened by a steer without an id", () => {
 		const following = talks();
 		take(following, { text: "a", file: "f" });

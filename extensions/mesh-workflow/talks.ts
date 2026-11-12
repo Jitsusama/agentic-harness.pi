@@ -34,6 +34,8 @@ export interface TalksHost {
 	readonly session: () => string;
 	/** The clock, in milliseconds; the system's unless a test sets one. */
 	readonly now?: () => number;
+	/** The inboxes the session answers from, for its talks when it ends. */
+	readonly inboxes?: () => readonly string[];
 }
 
 /** The talks one session follows. */
@@ -59,6 +61,8 @@ export interface Talks {
 	 * run and those its run's end closed alike.
 	 */
 	came(what: string, ref?: string): void;
+	/** The session ended for good: its replied talks are over. */
+	ended(): void;
 }
 
 interface Open {
@@ -201,6 +205,9 @@ export function createTalks(host: TalksHost): Talks {
 			for (const talk of [...taken(), ...recent]) {
 				say(talk, { stage: "came", what, ...(ref ? { ref } : {}) });
 			}
+		},
+		ended() {
+			// Red first: nothing ends yet.
 		},
 	};
 }

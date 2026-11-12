@@ -120,6 +120,8 @@ export interface Steer {
 	readonly by?: string;
 	/** The talk it opens, when the writer gave one (see talk.ts). */
 	readonly id?: string;
+	/** The earlier talk it answers in place, when the writer said. */
+	readonly re?: string;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
 }
