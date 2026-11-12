@@ -5,6 +5,11 @@
  * tool. Supports browser session tokens (xoxc- extracted from
  * Chrome) and OAuth2 user tokens (xoxp-). Renders content as
  * markdown-like text.
+ *
+ * The router, the sign-in and the setup commands load on first use,
+ * since most sessions never call Slack: only what renders a call and
+ * its result loads at start, because a resumed session draws its
+ * history before any tool runs, and a draw can't wait on an import.
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -19,25 +24,22 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { singleFlight } from "../../lib/internal/single-flight.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import { registerStandingContext } from "../../lib/prompt/index.ts";
-import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
-import {
-	clearAllConfig,
-	displayNameForId,
-	formatAuthError,
-	formatSlackText,
-	getToken,
-	type OAuthApp,
-	parseSlackUrl,
-	SlackApiError,
-	type SlackClient,
-	type SlackUser,
+import { SlackApiError } from "../../lib/slack/api/client.ts";
+import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.ts";
+import type { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
+import { formatAuthError } from "../../lib/slack/auth/errors.ts";
+import type {
+	OAuthApp,
+	SlackClient,
+	SlackUser,
 } from "../../lib/slack/index.ts";
+import { formatSlackText } from "../../lib/slack/renderers/message.ts";
+import { parseSlackUrl } from "../../lib/slack/resolvers/url.ts";
+import { displayNameForId } from "../../lib/slack/resolvers/user.ts";
 import { count } from "../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
-import { handleSlackAuthCommand } from "./auth-command.ts";
 import { IDENTITY_CONTEXT, identityText } from "./context.ts";
-import { routeAction } from "./router.ts";
 import { createSessionState, type SlackSessionState } from "./state.ts";
 
 /** Lightweight shapes for renderResult previews. */
@@ -203,6 +205,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		if (cachedClient) return cachedClient;
 		return login("slack", async () => {
 			try {
+				const { ensureAuthenticated } = await import(
+					"../../lib/slack/auth/ensure-auth.ts"
+				);
 				cachedClient = await ensureAuthenticated(
 					unattended(ctx),
 					ENV_OAUTH_CONFIG,
@@ -477,6 +482,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			// than at the fifty-odd places a result is built.
 			try {
 				const client = await getClient(ctx);
+				const { routeAction } = await import("./router.ts");
 				const result = await routeAction(
 					params.action as string,
 					client,
@@ -715,6 +721,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	pi.registerCommand("slack-setup", {
 		description: "Set up Slack authentication (interactive)",
 		handler: async (args, ctx) => {
+			const { handleSlackAuthCommand } = await import("./auth-command.ts");
 			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
 	});
@@ -723,6 +730,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Slack. Usage: slack-auth [--status] [--logout]",
 		handler: async (args, ctx) => {
+			const { handleSlackAuthCommand } = await import("./auth-command.ts");
 			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
 	});
