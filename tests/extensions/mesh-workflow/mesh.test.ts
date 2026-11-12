@@ -742,7 +742,8 @@ describe("quiet", () => {
 		if (!one || !render) throw new Error("no delivery to draw");
 		const row = new CustomMessageComponent(
 			{ role: "custom", timestamp: 0, display: true, ...one },
-			render as MessageRenderer,
+			// The test's renderer is pi's, read through the stand-in's narrower type.
+			render as unknown as MessageRenderer,
 		);
 		expect(row.render(120)).toEqual([]);
 		row.setExpanded(true);
