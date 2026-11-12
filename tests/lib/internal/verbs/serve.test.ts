@@ -15,6 +15,7 @@ import {
 	type VerbServer,
 	verbServer,
 } from "../../../../lib/internal/verbs/serve.ts";
+import { quietFor, until } from "../../../support/until.ts";
 
 const TOKEN = "[secret scrubbed: GitHub token]";
 const AT = new Date("2026-11-12T13:00:00Z");
@@ -361,6 +362,34 @@ describe("the verbs server", () => {
 		[{ id: 10, ask: "dance" }, "unknown-ask", 'no ask "dance" here'],
 	])("answers %j with the interface's error", async (line, code, message) => {
 		expect(await ask(line)).toEqual({ id: 10, error: { code, message } });
+	});
+
+	it("rests once no connection has been open for its while, and not before", async () => {
+		const rests: number[] = [];
+		const resting = verbServer({
+			folders: [folder],
+			uses,
+			known: [],
+			log: () => undefined,
+			restAfterMs: 40,
+			onRest: () => rests.push(Date.now()),
+		});
+		const socket = join(root, "resting.sock");
+		await new Promise<void>((done) => resting.server.listen(socket, done));
+		try {
+			const held = await client(socket);
+			await quietFor(40);
+			expect(rests, "a connection held open keeps it serving").toEqual([]);
+			const closed = Date.now();
+			held.close();
+			await until("the server rests", () => rests.length > 0, 2000);
+			expect(
+				(rests[0] ?? 0) - closed >= 30,
+				"it rested only after its while had passed with no one there",
+			).toBe(true);
+		} finally {
+			await resting.stop();
+		}
 	});
 
 	it("refuses a line that isn't JSON, and goes on answering", async () => {
