@@ -6,7 +6,8 @@
  * stub in its place, with the call's own path in the files' folder
  * (lib/internal/shell/kept.ts). A call ending here takes its files with
  * it: its end is said from what pi read, so they are no longer needed.
- * One handed to another process leaves them for that process.
+ * One handed to another process leaves them for that process, marked
+ * carried so the host that started it doesn't reap it.
  *
  * The hand-off finds its call's files through the signal it ran the
  * call under, which is the one pi hands these operations.
@@ -17,6 +18,7 @@ import type { CarriedShell } from "../../lib/internal/shell/carried.ts";
 import {
 	KEPT_BYTES,
 	makeKept,
+	markCarried,
 	pidOf,
 	removeKept,
 	rollIfFull,
@@ -118,7 +120,10 @@ export function keepsOnDisk(
 				},
 				handed() {
 					const kept = calls.get(signal);
-					if (kept) kept.handed = true;
+					if (!kept) return;
+					kept.handed = true;
+					// A host's reaper spares it until its end is said elsewhere.
+					markCarried(kept.path);
 				},
 			};
 		},

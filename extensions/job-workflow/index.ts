@@ -39,7 +39,7 @@ import {
 	watchStamps,
 } from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
-import { carriedIn, carryAway, movingToHost, takeUp } from "./moved.ts";
+import { carriedIn, carryAway, movingOn, takeUp } from "./moved.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 import { type TypedLine, typedLine } from "./typed-line.ts";
@@ -146,15 +146,15 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 }
 
 /**
- * Hand a session moving to a host the jobs that can go with it, written
- * in its log as it ends (moved.ts).
+ * Hand a session moving on, to a host or out of one, the jobs that can
+ * go with it, written in its log as it ends (moved.ts).
  */
 function carryIfMoving(
 	pi: ExtensionAPI,
 	session: JobSession,
 	ctx: ExtensionContext,
 ): void {
-	if (!movingToHost(sessionIdOf(ctx))) return;
+	if (!movingOn(sessionIdOf(ctx))) return;
 	carryAway(
 		session.jobs,
 		session.outbox,

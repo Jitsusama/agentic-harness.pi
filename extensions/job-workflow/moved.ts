@@ -1,5 +1,6 @@
 /**
- * A session's jobs carried through a move to a host.
+ * A session's jobs carried through a move to a host, or a release from
+ * one back to plain pi.
  *
  * A move used to wait out every job, since a job died with the pi that
  * ran it: on 12 November a wave moved none of seven sessions, each with
@@ -8,12 +9,14 @@
  * takes it up (`JobSpec.carry`), and only the others hold a move.
  *
  * As the moving pi ends, its move note (lib/internal/session/move.ts)
- * says it is going to a host, so the jobs that can be carried are let go
+ * says where it is going, so the jobs that can be carried are let go
  * unstopped, and a `job-carried` entry in its log names each, with the
- * results it hadn't said yet. The host opens that log once the pi has
- * gone and starts the conversation as `startup`; then each job is taken
- * up under its own id and its end said as it would have been, and a
- * `job-carried-taken` entry keeps a later start from taking them again.
+ * results it hadn't said yet. A host opens that log once the pi has
+ * gone and starts the conversation as `startup`, as does a plain pi a
+ * release opens on it; then each job is taken up under its own id and
+ * its end said as it would have been, and a `job-carried-taken` entry
+ * keeps a later start from taking them again. In a host, the note names
+ * the host's own process, and the conversation's end is its own quit.
  *
  * Only bash calls are carried so far (lib/internal/shell/carried.ts). A
  * call whose shell is gone with no exit status is said as lost, with its
@@ -57,14 +60,21 @@ export interface Carried {
 	readonly results: readonly JobResult[];
 }
 
-/** Where a move carries jobs: the hosts, which open the log at `startup`. */
-const CARRIES_TO: ReadonlySet<MoveTarget> = new Set(["attended", "background"]);
+/**
+ * Where a move carries jobs: the hosts, and plain pi, each of which opens
+ * the log at `startup`.
+ */
+const CARRIES_TO: ReadonlySet<MoveTarget> = new Set([
+	"attended",
+	"background",
+	"pi",
+]);
 
 /**
- * Whether this process's session `session` is ending to move to a host,
- * as the note its move wrote a moment before says.
+ * Whether this process's session `session` is ending to move on, to a
+ * host or out of one, as the note its move wrote a moment before says.
  */
-export function movingToHost(
+export function movingOn(
 	session: string | undefined,
 	read: (session: string) => { to: unknown; pid: number } | undefined = (one) =>
 		readMoveNote(one),

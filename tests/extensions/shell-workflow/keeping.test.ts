@@ -6,7 +6,13 @@
  * on its way out.
  */
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
@@ -104,6 +110,10 @@ describe("a kept call", () => {
 		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
 		expect(work.mark).toBe("mark-1");
 		carry?.handed();
+		expect(
+			existsSync(`${work.keep}.carried`),
+			"marked carried, so a host's reaper spares it",
+		).toBe(true);
 		expect((await running).code).toBe(4);
 		expect(endOf(work.keep), "its status is on disk").toBe(4);
 		expect(outputOf(work.keep)).toBe("started\nbye\n");

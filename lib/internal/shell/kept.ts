@@ -18,6 +18,11 @@
  * on disk. Bytes written in the instant of that move can be lost. The
  * files go when the call ends in its pi, or once a carried call's end is
  * said; any left a week are swept.
+ *
+ * A call handed to another process is marked `<path>.carried` until its
+ * end is said, so a host that reaps what its conversations started
+ * (host/engine/tool-children.ts) spares it: its shell still carries the
+ * marks of the host that started it, which no longer answers for it.
  */
 
 import { spawnSync } from "node:child_process";
@@ -46,7 +51,10 @@ const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
 /** The files a kept call writes, by the suffix each adds to its path. */
-const SUFFIXES = [".out", ".old", ".end", ".pid"] as const;
+const SUFFIXES = [".out", ".old", ".end", ".pid", ".carried"] as const;
+
+/** The suffix marking a call handed to another process. */
+const CARRIED = ".carried";
 
 /** Where kept calls go: shell-workflow's state, under XDG_STATE_HOME. */
 export function keptFolder(): string {
@@ -122,6 +130,36 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
 	} catch {
 		// Removed under it, as its call ended: nothing left to keep short.
 	}
+}
+
+/** Mark the call handed to another process, which says its end. */
+export function markCarried(path: string): void {
+	try {
+		writeFileSync(`${path}${CARRIED}`, "", { mode: FILE_MODE });
+	} catch {
+		// Removed under it, as its call ended: nothing left to spare.
+	}
+}
+
+/**
+ * The process groups of calls in `folder` handed to another process:
+ * each one's shell leads its own group, so its pid names it.
+ */
+export function carriedGroups(folder: string = keptFolder()): Set<number> {
+	const groups = new Set<number>();
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// No folder yet: nothing was ever kept, so nothing is carried.
+		return groups;
+	}
+	for (const name of names) {
+		if (!name.endsWith(CARRIED)) continue;
+		const pid = pidOf(join(folder, name.slice(0, -CARRIED.length)));
+		if (pid !== undefined) groups.add(pid);
+	}
+	return groups;
 }
 
 /** Remove everything a call kept. */

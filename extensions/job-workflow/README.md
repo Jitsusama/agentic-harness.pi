@@ -250,8 +250,13 @@ start doesn't take them again. A job taken up can be carried again.
   this ran; fleets; a review watch that names no target; a model
   retry; a reload.
 - A signal ends the pi without its children, so a pi signalled during
-  its move carries nothing. A move back to a window (`pi`) holds as
-  before.
+  its move carries nothing.
+- **Released:** a hosted conversation moving back to plain pi (a
+  release, or item 11's rollback) carries the same way: in a host its
+  note names the host's process, and its close is its own quit. The
+  host spares each carried command as it reaps what the conversation
+  started, by a `.carried` mark beside the command's kept files, and
+  the plain pi opened on the log says its end.
 
 ## When the Machine Ends a Session
 

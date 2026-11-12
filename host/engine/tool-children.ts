@@ -14,8 +14,13 @@
  * so another live host's children are never touched. A reused pid carries no marker, so it is never mistaken for a
  * child, and an owner is its pid and the tick it started at, which no later
  * process with that pid shares. Linux's /proc is the process table.
+ *
+ * A command a move or a release handed to another process runs on under
+ * the marks of the conversation that started it, so its group is spared
+ * (`carriedGroups`, lib/internal/shell/kept.ts) until its end is said.
  */
 import { readdirSync, readFileSync } from "node:fs";
+import { carriedGroups } from "../../lib/internal/shell/kept.ts";
 
 /** The variable naming the conversation a process was started for. */
 export const CONVERSATION_MARKER = "PI_HOST_CONVERSATION";
@@ -90,10 +95,12 @@ export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 export function reapToolChildren(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
+	spared: ReadonlySet<number> = carriedGroups(),
 ): Reaped {
 	return reapWhere(
 		(environ) => environ[CONVERSATION_MARKER] === sessionId,
 		table,
+		spared,
 	);
 }
 
@@ -105,13 +112,20 @@ export function reapToolChildren(
 export function reapLeftBehind(
 	key: string,
 	table: ProcessTable = linuxProcessTable(),
+	spared: ReadonlySet<number> = carriedGroups(),
 ): Reaped {
-	return reapWhere((environ) => {
-		const owner = environ[OWNER_MARKER];
-		return (
-			environ[KEY_MARKER] === key && owner !== undefined && !runs(owner, table)
-		);
-	}, table);
+	return reapWhere(
+		(environ) => {
+			const owner = environ[OWNER_MARKER];
+			return (
+				environ[KEY_MARKER] === key &&
+				owner !== undefined &&
+				!runs(owner, table)
+			);
+		},
+		table,
+		spared,
+	);
 }
 
 /** Every process other than this one carrying the conversation's marker. */
@@ -133,6 +147,7 @@ function runs(owner: string, table: ProcessTable): boolean {
 function reapWhere(
 	chosen: (environ: Readonly<Record<string, string>>) => boolean,
 	table: ProcessTable,
+	spared: ReadonlySet<number>,
 ): Reaped {
 	const own = table.group(table.self);
 	const groups = new Set<number>();
@@ -142,7 +157,8 @@ function reapWhere(
 		if (found.length === 0) break;
 		for (const pid of found) {
 			const group = table.group(pid);
-			if (group === undefined) continue;
+			// Gone meanwhile, or handed on and said elsewhere.
+			if (group === undefined || spared.has(group)) continue;
 			if (group === own) {
 				pids.add(pid);
 				table.kill({ pid });

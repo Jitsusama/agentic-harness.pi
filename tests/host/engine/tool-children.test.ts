@@ -92,6 +92,21 @@ describe("reaping a conversation's tool children", () => {
 		).toEqual([1, 2]);
 	});
 
+	it("spares a group handed on to another process, which says its end", () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: { group: 10, env: conversationMarker("a", HOST) },
+			20: { group: 20, env: conversationMarker("a", HOST) },
+		});
+		expect(reapToolChildren("a", table, new Set([10]))).toEqual({
+			groups: [20],
+			pids: [],
+		});
+		expect([...table.pids()].sort(), "the carried call runs on").toEqual([
+			1, 10,
+		]);
+	});
+
 	it("answers nothing when no process carries the marker", () => {
 		const table = fakeTable({ 1: { group: 1, env: {} } });
 		expect(reapToolChildren("a", table)).toEqual({ groups: [], pids: [] });
@@ -128,6 +143,17 @@ describe("reaping what a dead host left behind", () => {
 			groups: [10, 20],
 			pids: [],
 		});
+	});
+
+	it("spares what it left that was released to plain pi with its commands", () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: { group: 10, env: conversationMarker("released", EARLIER) },
+			20: { group: 20, env: conversationMarker("held", EARLIER) },
+		});
+		expect(reapLeftBehind("test-host", table, new Set([10])).groups).toEqual([
+			20,
+		]);
 	});
 
 	it("takes a reused pid for a host that no longer runs", () => {
