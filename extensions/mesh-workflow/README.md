@@ -220,7 +220,10 @@ and can answer a question or a gate left open on screen.
   it was last found still true (said again, or found ready by the
   daemon), and its `owner.state` is `ended` once the session that
   raised it ends for good, not parks, until that session starts
-  again.
+  again. A session running on the quest takes up what an ended
+  session left, and what names no owner, as it starts and every
+  minute after, so Needs You sends the person to one that runs;
+  an item another running session raised stays that session's.
 - `show_person`: point the person at something to look at (a pull
   request, a page, a file, a diff, a terminal) rather than open it.
   Each look is a file of its own in

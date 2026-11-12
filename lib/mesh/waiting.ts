@@ -245,6 +245,31 @@ export function markOwner(
 	return changed;
 }
 
+/**
+ * Take up, for `owner`, what `quest` has waiting whose session ended or
+ * that names none, since a session that takes up a quest carries on its
+ * asks: a rollover or a new session on the quest left them reading
+ * "session ended" for good (2RCBOJ, 11 November: four of them on For
+ * You). An item another running session raised stays that session's.
+ * Answers whether anything changed.
+ */
+export function claimEnded(
+	folder: string,
+	quest: string,
+	owner: Owner,
+	now = new Date(),
+): boolean {
+	const held = waitingOf(folder, quest);
+	let changed = false;
+	const items = held.map((one): WaitingItem => {
+		if (one.owner && one.owner.state !== "ended") return one;
+		changed = true;
+		return { ...one, owner };
+	});
+	if (changed) write(folder, quest, items, now);
+	return changed;
+}
+
 /** Remove what `quest` has waiting, as the quest ends. */
 export function clearWaiting(folder: string, quest: string): void {
 	rmSync(waitingFile(folder, quest), { force: true });

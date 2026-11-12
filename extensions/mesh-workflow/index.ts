@@ -1929,6 +1929,9 @@ export function meshWorkflow(
 					// A quest ended in another session, or before this one began.
 					endLooksOfQuests(looksDir, (quest) => questEnded(questsDir, quest));
 					void askAboutLooks(pi, looksDir, asking);
+					// Asks a session of this quest left as it ended come here, so
+					// Needs You sends the person to one that runs.
+					if (waiting) markOwnerRunning(waiting, true);
 				}, LOOKS_CHECK_MS);
 				looksClock.unref?.();
 			}

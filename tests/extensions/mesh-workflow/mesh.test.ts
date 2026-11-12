@@ -3438,6 +3438,36 @@ describe("a message that names no group", () => {
 		expect(transport.ids()).toEqual([]);
 	});
 
+	// 2RCBOJ, 11 November: asks read "session ended" on For You after a
+	// new session had taken their quest up.
+	it("takes up, as it starts, what an ended session of its quest left waiting", async () => {
+		paths = { ...paths, waiting: join(root, "waiting") };
+		const file = join(root, "waiting", "7M6JKG.json");
+		mkdirSync(join(root, "waiting"), { recursive: true });
+		const left = {
+			id: "eero-login",
+			title: "Log in to eero",
+			why: "Only Joel has the account",
+			minutes: 2,
+			window: null,
+			quest: "QEST-20261021-7M6JKG",
+			ready: true,
+			doneWhen: { by: "person" },
+			steps: ["Open the eero app"],
+			owner: { session: "gone-session", address: "WJATIN", state: "ended" },
+		};
+		writeFileSync(
+			file,
+			JSON.stringify({ v: 2, updated: "x", quest: left.quest, items: [left] }),
+		);
+
+		await startSession();
+
+		const owner = JSON.parse(readFileSync(file, "utf8")).items[0]?.owner;
+		expect(owner?.session, "the session now running owns it").toBe(session);
+		expect(owner?.state, "it no longer reads ended").toBeUndefined();
+	});
+
 	it("keeps what waits on the person where the launcher reads it, and out of presence", async () => {
 		paths = { ...paths, waiting: join(root, "waiting") };
 		const { tools } = await startSession();
