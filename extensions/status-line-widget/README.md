@@ -95,6 +95,10 @@ never carries the colour.
 | `☾`, muted, or warning with a count | away; the count is calls held for your return | listed when you come back |
 | `⧗`, muted | background work is running | `/jobs` |
 | `✕`, error, with attempts | verification fails | the verify tool |
+| `↻`, warning, with the try | a model call failed, and it tries again | the notice above the editor |
+| `⇄`, muted | the session runs a tree, not the install | `/harness` |
+| robot, dim, or warning or error with a share | the budget it spends; the share shows once an allowance runs low | `/budget` |
+| bell off, muted, with a count | mesh quiet; the count is peer notes kept off this screen | ctrl+o, `/mesh quiet` |
 
 A quest says nothing here: its kind and status glyphs lead its own
 line above the editor, and its id ends that line. A subagent fleet says nothing here either,
