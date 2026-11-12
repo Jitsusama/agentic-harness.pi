@@ -18,6 +18,9 @@
  * anyone looked. Summaries are computed from the rows now,
  * so they cost a query instead of the evidence.
  *
+ * It also keeps each model call's timing and each typed message in the
+ * session's own log (timing.ts), for the latency pass to read.
+ *
  * It deliberately shows no cost of its own. `spend-workflow`
  * subscribes to the same recorder and folds fan-out into the
  * one money figure on the status line, because a council round
@@ -47,6 +50,7 @@ import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { repoOf } from "../../lib/ledger/session.ts";
+import { timeCalls } from "./timing.ts";
 
 /** Result payload the observe_runs tool returns. */
 interface ObserveDetails {
@@ -63,6 +67,8 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 	// before the process exits is not lost to the async gap between
 	// recordRun and the sqlite flush.
 	const pendingWrites = new Set<Promise<unknown>>();
+
+	timeCalls(pi);
 
 	pi.on("session_start", async (_event, ctx) => {
 		// Held so each record is stamped with the session current when
