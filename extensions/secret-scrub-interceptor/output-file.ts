@@ -25,7 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { isRecord } from "../../lib/internal/record.ts";
-import { scrubSecrets } from "../../lib/internal/secrets.ts";
+import { type ScrubOptions, scrubSecrets } from "../../lib/internal/secrets.ts";
 
 /** How pi names the files it saves output to: `pi-bash-<hex>.log` and its kin. */
 const PI_OUTPUT_FILE = /^pi-[a-z]+-[0-9a-f]+\.log$/;
@@ -73,13 +73,21 @@ export function savedOutputFile(
  * Rewrites `file` with its credentials scrubbed, and says which kinds it
  * found. The new content is renamed over the old, so a reader sees one or
  * the other whole, and it keeps the owner-only mode pi gave it. A file
- * that is gone, too large or unreadable is left alone.
+ * that is gone, too large or unreadable is left alone. A command's
+ * printing of the environment is read as one, as `options` says.
  */
-export function scrubOutputFile(file: string): readonly string[] {
+export function scrubOutputFile(
+	file: string,
+	options: ScrubOptions = {},
+): readonly string[] {
 	try {
 		const { size, mode } = statSync(file);
 		if (size > MOST_BYTES) return [];
-		const { text, kinds } = scrubSecrets(readFileSync(file, "utf8"));
+		const { text, kinds } = scrubSecrets(
+			readFileSync(file, "utf8"),
+			undefined,
+			options,
+		);
 		if (kinds.length === 0) return [];
 		const staged = `${file}.scrubbing`;
 		try {

@@ -145,46 +145,46 @@ async function open(path: string, id: string): Promise<string> {
 
 // SIGKILL as an out-of-memory kill sends it, and SIGABRT as systemd's
 // watchdog sends it to a host whose loop stopped turning.
-describe.each([
-	"SIGKILL",
-	"SIGABRT",
-] as const)("a host killed with %s", (signal) => {
-	it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
-		const killed = await hostInAChild();
-		const ids = [await open(killed.path, "a"), await open(killed.path, "b")];
+describe.each(["SIGKILL", "SIGABRT"] as const)(
+	"a host killed with %s",
+	(signal) => {
+		it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
+			const killed = await hostInAChild();
+			const ids = [await open(killed.path, "a"), await open(killed.path, "b")];
 
-		process.kill(killed.pid, signal);
-		await gone(killed.pid, 5_000);
-		expect(
-			(await lstat(killed.path)).isSocket(),
-			"a killed host's socket outlives it, as after a crash",
-		).toBe(true);
-
-		const report = vi.fn<(error: unknown) => void>();
-		const next = await serveHost({
-			...places(),
-			// Run from a tree, so the rollout gate is opened for it.
-			rollout: () => Promise.resolve(),
-			report,
-			engine: async (h) => engine(h, dir),
-		});
-		try {
-			expect(next.path).toBe(killed.path);
-			expect(next.unresumed).toEqual([]);
-			const reply = await controlRequest(next.path, {
-				v: 1,
-				id: "l",
-				op: "list",
-			});
-			if (!reply.ok) throw new Error(reply.error.message);
-			const listed = parseListResult(reply.result);
-			expect(listed.host.owner.pid).toBe(process.pid);
+			process.kill(killed.pid, signal);
+			await gone(killed.pid, 5_000);
 			expect(
-				listed.sessions.map(({ sessionId, state }) => [sessionId, state]),
-			).toEqual(ids.map((id) => [id, "idle"]));
-			expect(report).not.toHaveBeenCalled();
-		} finally {
-			await next.stop();
-		}
-	});
-});
+				(await lstat(killed.path)).isSocket(),
+				"a killed host's socket outlives it, as after a crash",
+			).toBe(true);
+
+			const report = vi.fn<(error: unknown) => void>();
+			const next = await serveHost({
+				...places(),
+				// Run from a tree, so the rollout gate is opened for it.
+				rollout: () => Promise.resolve(),
+				report,
+				engine: async (h) => engine(h, dir),
+			});
+			try {
+				expect(next.path).toBe(killed.path);
+				expect(next.unresumed).toEqual([]);
+				const reply = await controlRequest(next.path, {
+					v: 1,
+					id: "l",
+					op: "list",
+				});
+				if (!reply.ok) throw new Error(reply.error.message);
+				const listed = parseListResult(reply.result);
+				expect(listed.host.owner.pid).toBe(process.pid);
+				expect(
+					listed.sessions.map(({ sessionId, state }) => [sessionId, state]),
+				).toEqual(ids.map((id) => [id, "idle"]));
+				expect(report).not.toHaveBeenCalled();
+			} finally {
+				await next.stop();
+			}
+		});
+	},
+);
