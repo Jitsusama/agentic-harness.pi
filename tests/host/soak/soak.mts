@@ -305,6 +305,9 @@ async function runHosted(sealed: Seal): Promise<{
 		say(
 			`checkpoint ${weighings.length}: heap ${awake.heapKb} kB awake, ${parked.heapKb} kB parked`,
 		);
+		// Each weighing in full as it is taken, so a run cut short by its
+		// lender's limit still leaves the memory curve it got to.
+		say(`weighed ${JSON.stringify(weighings.at(-1))}`);
 	});
 	await Promise.all(
 		conversations.map((one) => drive(host, one, barrier, byKey)),
