@@ -3,11 +3,14 @@
  * the machine says to tell it by.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { told } from "../../../extensions/status-line-widget/place.ts";
+import {
+	rootName,
+	told,
+} from "../../../extensions/status-line-widget/place.ts";
 import {
 	DEFAULT_WHERE,
 	engineNamed,
@@ -57,6 +60,78 @@ describe("a folder, told from its root", () => {
 
 	it("doesn't take a folder beside home for one inside it", () => {
 		expect(told("/home2/x", [".git"], "/home", disk).lead).toBe("/");
+	});
+});
+
+/** Files that read as these texts, and every other as missing. */
+function reading(files: Record<string, string>) {
+	return (file: string) => files[file] ?? null;
+}
+
+const ORIGIN = '[core]\n\tbare = false\n[remote "origin"]\n\turl = ';
+
+describe("a root that is a broker's worktree", () => {
+	const tree =
+		"/h/trees/worktree-github-Jitsusama-agentic-harness.pi-feat-shell-edit-guard";
+	const linked = {
+		[`${tree}/.git`]: "gitdir: /h/src/harness/.git/worktrees/wt\n",
+		"/h/src/harness/.git/worktrees/wt/commondir": "../..\n",
+	};
+
+	it("is named by its origin, not the folder the broker named", () => {
+		const read = reading({
+			...linked,
+			"/h/src/harness/.git/config": `${ORIGIN}git@github.com:Jitsusama/agentic-harness.pi.git\n`,
+		});
+
+		expect(
+			told(`${tree}/lib`, [".git"], "/h", holding(`${tree}/.git`), read).parts,
+			"the repository and the folder below it",
+		).toEqual(["agentic-harness.pi", "lib"]);
+	});
+
+	it("takes an https origin, and one from a bare repository", () => {
+		const read = reading({
+			[`${tree}/.git`]: "gitdir: /h/world/git/worktrees/wt",
+			"/h/world/git/worktrees/wt/commondir": "../..",
+			"/h/world/git/config": `${ORIGIN}https://github.com/Shopify/world/\n`,
+		});
+
+		expect(rootName(tree, read), "the origin's last part").toBe("world");
+	});
+
+	it("is named by the checkout holding it when there is no origin", () => {
+		expect(rootName(tree, reading(linked)), "the main checkout's folder").toBe(
+			"harness",
+		);
+	});
+
+	it("keeps its own name when it is a checkout of its own", () => {
+		expect(rootName("/h/src/notes", reading({})), "a plain folder's name").toBe(
+			"notes",
+		);
+	});
+
+	it("reads the worktree's files from the disk", () => {
+		const dir = mkdtempSync(join(tmpdir(), "status-line-tree-"));
+		try {
+			const common = join(dir, "src", "harness", ".git");
+			mkdirSync(join(common, "worktrees", "wt"), { recursive: true });
+			mkdirSync(join(dir, "trees", "worktree-github-x-y-main"), {
+				recursive: true,
+			});
+			const root = join(dir, "trees", "worktree-github-x-y-main");
+			writeFileSync(join(root, ".git"), `gitdir: ${common}/worktrees/wt\n`);
+			writeFileSync(join(common, "worktrees", "wt", "commondir"), "../..\n");
+			writeFileSync(join(common, "config"), `${ORIGIN}git@host:x/y.git\n`);
+
+			expect(
+				told(root, [".git"], "/nowhere").parts,
+				"the origin's name",
+			).toEqual(["y"]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 
