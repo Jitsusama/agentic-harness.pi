@@ -17,9 +17,7 @@
  * the writers every session in the process registered.
  */
 
-import { spawnSync } from "node:child_process";
 import { processGlobal } from "../process-global.ts";
-import { systemFolders, systemProgram } from "../system-program.ts";
 
 /** One uncaught error, as a dying pi records it. */
 export interface Crash {
@@ -44,9 +42,6 @@ interface Slot {
 
 /** The process's slot; a load whose slot has another shape takes a new version. */
 export const CRASH_SLOT = "pi:harness:crash-record:v1";
-
-/** The longest a journal write may hold a dying process up. */
-const JOURNAL_WAIT_MS = 2_000;
 
 /** The process's slot, shared by every load. */
 function slotOf(): Slot {
@@ -106,41 +101,4 @@ export function recordCrashes(key: string, write: CrashWriter): () => void {
 export function crashText(crash: Crash, who: string): string {
 	const head = `pi ${who} is ending on an uncaught error (${crash.origin}) at ${crash.at}: ${crash.message}`;
 	return crash.stack ? `${head}\n${crash.stack}` : head;
-}
-
-/** What writes to the system's log, and the arguments it takes. */
-export interface JournalCommand {
-	program: string;
-	args: string[];
-}
-
-/**
- * How to write to the system's log: systemd-cat into the journal on
- * Linux, logger into the unified log on macOS, each found only where
- * the system put it; nothing when neither is there.
- */
-export function journalCommand(
-	find: (program: string, folders: readonly string[]) => string | undefined = (
-		program,
-		folders,
-	) => systemProgram(program, folders),
-): JournalCommand | undefined {
-	const cat = find("systemd-cat", systemFolders());
-	if (cat) return { program: cat, args: ["-t", "pi", "-p", "err"] };
-	const logger = find("logger", ["/usr/bin", ...systemFolders()]);
-	if (logger) return { program: logger, args: ["-t", "pi", "-p", "user.err"] };
-	return undefined;
-}
-
-/** Writes `text` to the system's log and waits for it, briefly. */
-export function writeJournal(
-	text: string,
-	command: JournalCommand | undefined,
-): void {
-	if (!command) return;
-	spawnSync(command.program, command.args, {
-		input: text,
-		stdio: ["pipe", "ignore", "ignore"],
-		timeout: JOURNAL_WAIT_MS,
-	});
 }
