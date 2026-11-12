@@ -21,8 +21,11 @@ export interface SoakProvider {
 	close(): Promise<void>;
 }
 
+/** What a job's command prints once its moment's wait is over. */
+export const JOB_SAYS = "soak job done";
+
 /** What a job turn has bash run in the background: a moment's wait, then words. */
-export const JOB = "timeout 1 tail -f /dev/null; echo soak job done";
+export const JOB = `timeout 1 tail -f /dev/null; echo ${JOB_SAYS}`;
 
 /** How many lines a long answer has. */
 const LONG_LINES = 120;
