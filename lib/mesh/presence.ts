@@ -220,8 +220,7 @@ export interface Presence {
 	readonly driven?: boolean;
 	/**
 	 * The name Agents shows it under at the launcher's top, never folded,
-	 * and the words that find it, as its README's `stands-at-top` says; the
-	 * void's, which Joel found folded among 23 (WCJQSG, 12 November 2026).
+	 * and the words that find it, as its README's `stands-at-top` says.
 	 */
 	readonly standsAtTop?: StandsAtTop;
 	/** When it last said so, as an ISO time. */
