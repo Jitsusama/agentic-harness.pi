@@ -72,6 +72,7 @@ import {
 	refusedNotes,
 	refusedSection,
 } from "./refusals.ts";
+import { sendDrawing } from "./send-drawing.ts";
 import { type Waiting, waitOnPerson } from "./wait.ts";
 
 /** The most messages one mesh_read hands back. */
@@ -145,6 +146,7 @@ export interface SendDetails {
 export function registerTools(
 	pi: ExtensionAPI,
 	local: () => Local | undefined,
+	quiet: () => boolean = () => false,
 ): void {
 	const using =
 		<P>(act: (at: Local, params: P) => Answer | Promise<Answer>) =>
@@ -211,6 +213,8 @@ export function registerTools(
 		execute: using((at, params: SendParams) =>
 			params.realm?.trim() ? sendAcross(at, params) : send(at, params),
 		),
+		// Under /mesh quiet the session's own sends leave the screen too.
+		...sendDrawing(quiet),
 	});
 
 	pi.registerTool({

@@ -41,6 +41,10 @@ export const FOOTER_GLYPH = {
 	budget: "\u{f06a9}",
 	// A model call failed for a moment, and the session will ask again.
 	retrying: "\u21bb",
+	// Other sessions' news is kept off this screen (`/mesh quiet`): the
+	// Nerd Font's bell turned off, since every geometric shape is some
+	// family's already.
+	quiet: "\u{f009b}",
 } as const;
 
 /** What a footer mark is called. */
@@ -66,3 +70,22 @@ export function footerMark(
 		? `${mark} ${theme.fg("dim", String(count))}`
 		: mark;
 }
+
+/**
+ * A footer mark with how much of something is used, as a dimmed whole
+ * percent ("82%"), or the mark alone while `percent` is omitted.
+ */
+export function footerShare(
+	name: FooterMarkName,
+	colour: ThemeColor,
+	theme: MarkTheme,
+	percent?: number,
+): string {
+	const mark = theme.fg(colour, FOOTER_GLYPH[name]);
+	if (percent === undefined) return mark;
+	const whole = Math.min(MOST_PERCENT, Math.max(0, Math.round(percent)));
+	return `${mark} ${theme.fg("dim", `${whole}%`)}`;
+}
+
+/** A share past this says only that it is all gone: no 312%. */
+const MOST_PERCENT = 100;

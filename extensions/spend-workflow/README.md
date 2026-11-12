@@ -138,19 +138,20 @@ An aggregate that cannot say what it missed is not evidence, so:
 ## The Budget on the Footer
 
 A budget is whose money a request spends: a Claude plan, the AI proxy's
-cap, a team's token. The footer says the one this session spends and how
-near its nearest allowance stands, in that allowance's own unit, never
-converted, since a share of a plan's window has no price:
+cap, a team's token. The footer marks that the session spends one, and
+once its nearest allowance passes its warning, how much of it is used;
+the budget's name, its standing in its own unit and its reset are in
+`/budget`, since a footer says marks, never words:
 
 ```
-󰚩 delta $184 of $300
-󰚩 claude 84% of 5 h · resets 21:30
+󰚩
+󰚩 84%
 ```
 
 The mark is AI spend's, the robot the desktop's spend notices sign with,
 dim while there's room, the warning colour past the allowance's warning
 (80% where its feed sets none), and the error colour once it's spent or
-a turn is refused; the reset shows only past the warning. The budget is
+a turn is refused. The budget is
 the one that claims the session's provider (the Claude plan claims
 `claude-code`), else the one the session draws on by name (its quest's,
 or one inherited in `PI_BUDGET`), else the machine's default, which shows
@@ -161,7 +162,7 @@ the provider said after the last turn, so they move with each turn.
 its reset, what this session spent and on which, and all AI spend in
 billed dollars. Both read `spend-watch budgets --json`, asked as the
 session starts and after a reply at most once a minute. Without
-spend-watch, a budget the session chose shows by name alone, the default
+spend-watch, a budget the session chose shows its mark alone, the default
 not at all, and `/budget` gives the ledger's list-price figure, saying
 that it is one.
 
@@ -271,7 +272,7 @@ dependency, and it is DuckDB doing the retrospecting either way.
 - `index.ts`: registration, store lifecycle and the `spend` tool.
 - `indexer.ts`: walking pi's session directories incrementally.
 - `report.ts`: pure formatting, tested without loading pi.
-- `budget.ts`: which budget the session spends, the footer's words for
+- `budget.ts`: which budget the session spends, the footer's mark for
   it and `/budget`'s report, all pure; `budget-item.ts` keeps the item
   current and registers `/budget`, over
   `lib/internal/spend-watch-budgets.ts` and `lib/internal/claude-plan.ts`.

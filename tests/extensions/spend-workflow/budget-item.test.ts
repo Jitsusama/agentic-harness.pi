@@ -141,11 +141,11 @@ describe("the budget item", () => {
 		process.env.PI_BUDGET = "delta";
 		const item = harness({ answer: ANSWER });
 		await item.fire("session_start");
-		expect(item.statuses.at(0), "the name before spend-watch answers").toBe(
-			`${FOOTER_GLYPH.budget} delta`,
+		expect(item.statuses.at(0), "the mark before spend-watch answers").toBe(
+			FOOTER_GLYPH.budget,
 		);
 		await item.settle();
-		expect(item.statuses.at(-1)).toBe(`${FOOTER_GLYPH.budget} delta $12 today`);
+		expect(item.statuses.at(-1)).toBe(FOOTER_GLYPH.budget);
 	});
 
 	it("keeps the default quiet, and tells it once the quest settles on one", async () => {
@@ -155,7 +155,7 @@ describe("the budget item", () => {
 		expect(item.statuses.at(-1)).toBeUndefined();
 
 		item.pi.events.emit(BUDGET_SETTLED, { name: "delta" });
-		expect(item.statuses.at(-1)).toBe(`${FOOTER_GLYPH.budget} delta $12 today`);
+		expect(item.statuses.at(-1)).toBe(FOOTER_GLYPH.budget);
 	});
 
 	it("moves with what Claude Code says of the plan after a turn", async () => {
@@ -171,15 +171,13 @@ describe("the budget item", () => {
 						type: RATE_LIMIT,
 						details: {
 							status: "allowed",
-							unifiedWindows: { five_hour: { utilization: 0.62 } },
+							unifiedWindows: { five_hour: { utilization: 0.91 } },
 						},
 					},
 				],
 			},
 		});
-		expect(item.statuses.at(-1)).toBe(
-			`${FOOTER_GLYPH.budget} claude 62% of 5 h`,
-		);
+		expect(item.statuses.at(-1)).toBe(`${FOOTER_GLYPH.budget} 91%`);
 	});
 
 	it("asks spend-watch after a reply at most once a minute", async () => {
@@ -217,7 +215,7 @@ describe("the budget item", () => {
 			item.answer();
 			await landed();
 			expect(unhandled).toEqual([]);
-			expect(item.statuses).toEqual([`${FOOTER_GLYPH.budget} delta`]);
+			expect(item.statuses).toEqual([FOOTER_GLYPH.budget]);
 		});
 
 		it("lets it land without throwing even when the shutdown went unheard", async () => {

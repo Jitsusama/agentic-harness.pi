@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-	budgetLine,
+	budgetMark,
 	budgetReport,
 	nearest,
 	type SessionBudget,
@@ -167,7 +167,7 @@ describe("the budget a session spends", () => {
 	});
 });
 
-describe("the footer's words", () => {
+describe("the footer's mark", () => {
 	const chosen = (
 		allowances: Allowance[],
 		standing?: string,
@@ -178,42 +178,32 @@ describe("the footer's words", () => {
 		...(standing ? { standing } : {}),
 	});
 
-	it("says a share in its window's words, quietly", () => {
-		const line = budgetLine(
-			chosen([
-				allowance({ unit: "share", used: 0.62, label: "5 h", warn: 0.8 }),
-			]),
-			clock,
-		);
-		expect(line).toEqual({ tone: "dim", text: "delta 62% of 5 h" });
-	});
-
-	it("says dollars as spend-watch wrote them", () => {
-		expect(budgetLine(chosen([allowance()], "$184 of $300"), clock)).toEqual({
+	it("is the mark alone while the budget is calm", () => {
+		const calm = chosen([
+			allowance({ unit: "share", used: 0.62, label: "5 h", warn: 0.8 }),
+		]);
+		expect(budgetMark(calm)).toEqual({ tone: "dim" });
+		expect(budgetMark(chosen([allowance()], "$184 of $300"))).toEqual({
 			tone: "dim",
-			text: "delta $184 of $300",
 		});
 	});
 
-	it("says when the window starts again, only past its warning", () => {
+	it("adds the share used only past its warning", () => {
 		expect(
-			budgetLine(
+			budgetMark(
 				chosen([
 					allowance({ unit: "share", used: 0.84, label: "5 h", warn: 0.8 }),
 				]),
-				clock,
 			),
-		).toEqual({
-			tone: "warning",
-			text: `delta 84% of 5 h · resets ${clock(RESETS)}`,
+		).toEqual({ tone: "warning", percent: 84 });
+		expect(budgetMark(chosen([allowance({ used: 1.02 })]))).toEqual({
+			tone: "error",
+			percent: 102,
 		});
 	});
 
-	it("says a chosen budget with nothing known by its name alone", () => {
-		expect(budgetLine(chosen([]), clock)).toEqual({
-			tone: "dim",
-			text: "delta",
-		});
+	it("marks a chosen budget with nothing known", () => {
+		expect(budgetMark(chosen([]))).toEqual({ tone: "dim" });
 	});
 
 	it("keeps the default quiet until it warns", () => {
@@ -222,17 +212,14 @@ describe("the footer's words", () => {
 			chosen: false,
 			allowances: [allowance()],
 		};
-		expect(budgetLine(fallback, clock)).toBeUndefined();
-		expect(budgetLine({ ...fallback, allowances: [] }, clock)).toBeUndefined();
+		expect(budgetMark(fallback)).toBeUndefined();
+		expect(budgetMark({ ...fallback, allowances: [] })).toBeUndefined();
 		expect(
-			budgetLine(
-				{
-					...fallback,
-					allowances: [allowance({ used: 0.95 })],
-					standing: "$38,000 of $40,000",
-				},
-				clock,
-			)?.tone,
+			budgetMark({
+				...fallback,
+				allowances: [allowance({ used: 0.95 })],
+				standing: "$38,000 of $40,000",
+			})?.tone,
 		).toBe("warning");
 	});
 });
