@@ -41,7 +41,10 @@ function readParams(text: string): Set<string> {
 /** Every property the schema declares, with its description text. */
 function declared(text: string): Map<string, string> {
 	const found = new Map<string, string>();
-	for (const match of text.matchAll(/^\t{3}([a-zA-Z]+): Type\./gm)) {
+	// A typebox type, or a string enum, which offer's action is (#1370).
+	for (const match of text.matchAll(
+		/^\t{3}([a-zA-Z]+): (?:Type\.|StringEnum\()/gm,
+	)) {
 		const name = match[1];
 		if (name === undefined) continue;
 		// The description, when there is one, sits inside the next

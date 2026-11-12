@@ -21,6 +21,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { schemaActions as actionsOf } from "./schema-actions.ts";
 
 /**
  * The tool modules, and the tool each one registers.
@@ -38,28 +39,6 @@ const TOOLS: ReadonlyArray<readonly [file: string, tool: string]> = [
 ];
 
 const GUIDE = "skills/review-guide/SKILL.md";
-
-/**
- * Every action literal a tool's schema offers.
- *
- * Scoped to the action property's own union rather than every literal
- * in the file, or this sweeps up diff sides, verdicts and settlements
- * and demands the guide document "old" as an action.
- */
-function actionsOf(source: string): readonly string[] {
-	const start = source.indexOf("action: Type.");
-	if (start < 0) return [];
-	const listEnd = source.indexOf("],", start);
-	const union = source.slice(start, listEnd < 0 ? undefined : listEnd);
-	const found = new Set<string>();
-	const literal = /Type\.Literal\("([a-zA-Z-]+)"\)/g;
-	let match: RegExpExecArray | null = literal.exec(union);
-	for (; match !== null; match = literal.exec(union)) {
-		const name = match[1];
-		if (name) found.add(name);
-	}
-	return [...found];
-}
 
 function read(relative: string): string {
 	return readFileSync(join(process.cwd(), relative), "utf8");
