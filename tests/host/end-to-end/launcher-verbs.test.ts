@@ -52,6 +52,12 @@ import { attach, type Viewer } from "./support/viewer.ts";
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
 /** A conversation's turn on the scripted provider, with pi's whole screen drawing it. */
 const TURN_MS = 20_000;
+/**
+ * How long a closed conversation's session may stay in the host's memory.
+ * With the mesh loaded it went about 3.4 s after a close on a lender on
+ * 12 November, steered or not, and at the first weigh without it.
+ */
+const LET_GO_MS = 30_000;
 const ENTER = "\r";
 const ROWS = 30;
 const COLUMNS = 100;
@@ -125,8 +131,7 @@ it(
 			await untilAnswered(
 				"both conversations are busy in their tools",
 				async () =>
-					textOf(a.file).includes(DAWDLING) &&
-					textOf(b.file).includes(WAITING),
+					textOf(a.file).includes(DAWDLING) && textOf(b.file).includes(WAITING),
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}${files()}`);
 			});
@@ -190,11 +195,15 @@ it(
 				(await started.list()).map((one) => one.sessionId),
 				"the host holds the other alone",
 			).toEqual([b.sessionId]);
-			const weighed = await started.weigh();
-			expect(
-				weighed.sessions,
+			let weighed = await started.weigh();
+			await untilAnswered(
 				"no session of the closed conversation is left in the host's memory",
-			).not.toContain(a.sessionId);
+				async () => {
+					weighed = await started.weigh();
+					return !weighed.sessions.includes(a.sessionId);
+				},
+				LET_GO_MS,
+			);
 			expect(weighed.sessions).toContain(b.sessionId);
 			await expect(
 				viewing(started, a.sessionId),
