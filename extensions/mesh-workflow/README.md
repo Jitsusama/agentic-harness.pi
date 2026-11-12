@@ -566,7 +566,11 @@ doing only when it is the easy thing:
   `awaited`.
   This is how a machine-wide pause, a reboot included, hands
   work back: the holder asks each peer to answer its hold once
-  parked, and answers the hold itself when work may resume.
+  parked, and answers the hold itself with `endsHold` when work
+  may resume. Without `endsHold`, a holder's answer to its own
+  hold goes out answering nothing, so the hold stands: on 12
+  November a note that a small push was fine during a hold ended
+  it in the middle of the person's calls.
   Waits are kept on disk under the session's id and an end is
   known by the holder's address, so a session restored after a
   reboot is handed its turn, and one that ended while it was

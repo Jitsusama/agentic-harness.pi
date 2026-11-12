@@ -55,6 +55,7 @@ import {
 	idNamed,
 	mayReplace,
 	type Reader,
+	type Self,
 	sentBy,
 } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
@@ -170,7 +171,7 @@ export function registerTools(
 		promptSnippet:
 			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, and mesh_end lets an orchestrator end a session of its own.",
 		description:
-			"Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself (re) when work may resume; a reboot ends it too. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave `to` out and the mesh picks, saying where. mesh_groups lists the groups.",
+			"Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself with re and endsHold when work may resume; a reboot ends it too. Answering your own hold without endsHold leaves it held. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave `to` out and the mesh picks, saying where. mesh_groups lists the groups.",
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -200,7 +201,7 @@ export function registerTools(
 			endsHold: Type.Optional(
 				Type.Boolean({
 					description:
-						"true only when the person has told you the hold named by re, another peer's, is over; it ends it for every peer once they confirm. Never on your own judgement",
+						"true when the hold named by re is over: your own, as you end it, or another peer's only when the person has told you it is, which ends once they confirm, never on your own judgement",
 				}),
 			),
 			realm: Type.Optional(
@@ -547,7 +548,7 @@ function peers(at: Local): Promise<Census> {
 
 /**
  * The hold a send ends on the person's word, or why it ends none: only
- * another peer's hold can be, since answering its own ends it already.
+ * another peer's hold can be, since this peer ends its own itself.
  */
 function endedOnWord(
 	at: Local,
@@ -561,12 +562,31 @@ function endedOnWord(
 			why: `${re ? `[${re.slice(re.lastIndexOf("-") + 1)}]` : "what it answers"} is no other peer's hold, so endsHold was left out`,
 		};
 	}
+	// This peer's own hold is its to end, with no word to confirm.
 	if (sentBy(hold, { addresses: at.peer.addresses, ...senderIdentity() })) {
-		return {
-			why: `[${shortId(hold)}] is this peer's own hold, which answering ends already, so endsHold was left out`,
-		};
+		return {};
 	}
 	return { hold };
+}
+
+/**
+ * This peer's own hold that a send answers without saying it ends it.
+ * Answering its own hold ends it for every peer it parked, so that is
+ * done only when the send says so with endsHold: on 12 November a
+ * holder's note that a small push was fine during its hold answered it
+ * with re, and ended it in the middle of the person's calls.
+ */
+function ownHoldKept(
+	at: Local,
+	named: string | undefined,
+	ends: boolean | undefined,
+	self: Self,
+): Message | undefined {
+	if (ends || named === undefined) return undefined;
+	const answered = at.transport.read(named);
+	return answered?.intent === "hold" && sentBy(answered, self)
+		? answered
+		: undefined;
 }
 
 /**
@@ -592,7 +612,7 @@ export function answeringIntent(
 	return {
 		intent: "fyi",
 		why: sentBy(answered, self)
-			? `it answers [${id}], this peer's own hold, which answering ends, so it went as an fyi rather than a new hold; to hold on in other words, replace [${id}] with supersedes`
+			? `it answers [${id}], this peer's own hold, so it went as an fyi rather than a new hold; to hold on in other words, replace [${id}] with supersedes`
 			: `it answers [${id}], another peer's hold, so it went as an fyi: a hold would park everyone it reached; send a hold of this peer's own without re`,
 	};
 }
@@ -713,7 +733,11 @@ function messageNamed(at: Local, written: string): string | undefined {
 }
 
 async function send(at: Local, params: SendParams): Promise<Answer> {
-	const answersNamed = params.re ? messageNamed(at, params.re) : undefined;
+	const self = { addresses: at.peer.addresses, ...senderIdentity() };
+	const reNamed = params.re ? messageNamed(at, params.re) : undefined;
+	// Left without re, a holder's note about its own hold leaves it held.
+	const kept = ownHoldKept(at, reNamed, params.endsHold, self);
+	const answersNamed = kept ? undefined : reNamed;
 	const crossedAnswer = crossedAnswerRefused(at, answersNamed);
 	if (crossedAnswer) return crossedAnswer;
 
@@ -732,13 +756,12 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 		? messageNamed(at, params.supersedes)
 		: undefined;
 	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
-	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	// A send is never refused for how it was written: what does not hold
 	// is left out and said, and the message goes on without it.
 	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
 	const intent = answeringIntent(
 		params.intent,
-		answersNamed ? at.transport.read(answersNamed) : undefined,
+		kept ?? (answersNamed ? at.transport.read(answersNamed) : undefined),
 		self,
 		ownReplaced,
 	);
@@ -770,6 +793,9 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 			? `${unnamed.join(", ")} cannot be a group, so it was left out`
 			: "",
 		ended.why ?? "",
+		kept
+			? `[${shortId(kept)}] is this peer's own hold, and answering it ends it for every peer it parked, so re was left out and it still holds: to end it, answer it with endsHold true; to change what it holds, replace it with supersedes`
+			: "",
 		intent.why ?? "",
 	].filter(Boolean);
 	const notes: string[] =
@@ -1003,13 +1029,21 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 	}
 	if (message.intent === "hold") {
 		notes.push(
-			`It holds for two hours at most: answer or replace [${shortId(message)}] when it is over, so whoever waits on it carries on.`,
+			`It holds for two hours at most: answer [${shortId(message)}] with endsHold, or replace it, when it is over, so whoever waits on it carries on.`,
 		);
 	}
 	const answered = re ? at.transport.read(re) : undefined;
 	if (message.endsHold && answered) {
 		notes.push(
 			`It ends [${shortId(answered)}] on the person's word, and every peer waiting on it gets a turn to carry on.`,
+		);
+	} else if (
+		params.endsHold &&
+		answered?.intent === "hold" &&
+		sentBy(answered, self)
+	) {
+		notes.push(
+			`It ends [${shortId(answered)}], this peer's own hold, and every peer waiting on it gets a turn to carry on.`,
 		);
 	} else if (
 		answered?.intent === "hold" &&
