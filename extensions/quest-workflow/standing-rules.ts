@@ -133,7 +133,7 @@ function ownContextOf(
 	if (parsed?.frontMatter._extra?.["context-stands"] !== true) return null;
 	const context = extractSection(parsed.body, "context").join("\n").trim();
 	if (!context) return null;
-	return `This quest's own README Context, ${quest}, stands here too, so it need not be read for it:\n\n${context}`;
+	return `This quest, ${quest}, sets these in its own README's Context section, so its README need not be read for them:\n\n${context}`;
 }
 
 /** A reader of each quest's README under a quests root. */

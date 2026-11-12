@@ -57,11 +57,12 @@ shipped and tested.
   of those sessions starts with the marked quest's Context
   section in its prompt, as its standing rules, and is told
   once when that section changes. A quest whose README says
-  `context-stands: true` adds its own Context after them. Until Monday 16 November
-  2026, half of WCJQSG's builders (an odd second-to-last hex
-  digit in the session id, all but WCJQSG and 16V6F4) also hear
-  one habit line, sending independent looks in one step, as a
-  trial (`batching-trial.ts`). A quest id on its own line in
+  `context-stands: true` adds its own Context after them.
+  Until Monday 16 November 2026, half of WCJQSG's builders
+  (an odd second-to-last hex digit in the session id, all
+  but WCJQSG and 16V6F4) also hear one habit line, sending
+  independent looks in one step, as a trial
+  (`batching-trial.ts`). A quest id on its own line in
   `mission/trials/batching-out` under the state folder takes
   that quest's sessions out at their next turn, and
   `PI_BATCHING_TRIAL=off` ends it everywhere. Every
