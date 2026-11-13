@@ -4,8 +4,9 @@ One persistent pi screen per hosted conversation. The engine calls
 `screens.opened`, `rebound` and `closed` under withSession as
 conversations come and go; each opening builds pi's own InteractiveMode
 over a ViewerTerminal and runs it, so the screen keeps its state with
-nobody watching, drawing no frame until someone joins. The service's viewer bridge (`viewer`) lets any number
-of viewers join a screen by its pi session id.
+nobody watching, drawing no frame until someone joins. The service's
+viewer bridge (`viewer`) lets any number of viewers join a screen by its
+pi session id.
 
 A screen that quits, crashes or fails closes only its own conversation,
 through the view's `close`, with a reason naming who asked. A quit a
