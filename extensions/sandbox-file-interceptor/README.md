@@ -45,7 +45,8 @@ the work open and the desktop closed, and pi's file tools follow it:
 
 - **Writing** is refused where a fenced command can't write: the
   settings and startup files it binds read-only, a new file or a link
-  in the home folder itself, and the runtime folder. The path as named
+  in the home folder itself, a visible folder there but the one the
+  session works in, and the runtime folder. The path as named
   counts as well as where it leads, since writing a link may replace
   it.
 - **Reading** is refused for any process's files in `/proc`, pi's own
@@ -54,8 +55,8 @@ the work open and the desktop closed, and pi's file tools follow it:
 - **Every link** is followed as above, so a link made in the work
   leads nowhere the fence refuses.
 
-Everything else, the home folder and the work, reads and writes as it
-did.
+Everything else, the home folder's hidden entries and the work, reads
+and writes as it did.
 
 It blocks rather than asks, and through no guard policy: a fence a
 policy could soften is one an injected instruction could talk its way

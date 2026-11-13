@@ -207,7 +207,7 @@ function fenceRefusal(
 			use === "write" &&
 			(fenceRefusesWrite(candidate, fence) || fenceRefusesWrite(real, fence))
 		) {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the folders the person browses in the home folder but the one the session works in, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
 		}
 		if (fenceRefusesRead(real, fence)) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run.`;
