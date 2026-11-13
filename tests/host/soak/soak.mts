@@ -18,7 +18,11 @@
  *
  * It needs a pi with the host's patches, as test:host does
  * (PI_HOST_RUNTIME), and prints the report as one JSON line after
- * `soak report:`, writing it to DIR/report.json too.
+ * `soak report:`, writing it to DIR/report.json too. A lender can drop a
+ * run of hours before its end, so what the report would hold is said as
+ * it is known: each weighing and the hosted turns' latency so far at each
+ * checkpoint, the hosted side's latency and time spent once it is done,
+ * and each plain conversation's latency as it ends.
  */
 import {
 	appendFileSync,
@@ -54,6 +58,8 @@ import {
 	growthOf,
 	latencies,
 	parityOf,
+	type ScreenSplit,
+	type Spread,
 	screenSplit,
 	spreadOf,
 	type Typed,
@@ -178,6 +184,12 @@ say(
 
 const hostSeal = await seal();
 const hosted = await runHosted(hostSeal);
+const hostedLatency = latencyOf(hosted.logs);
+const hostedTime = values.profile
+	? timeSpent(profilesIn(profiles.hosted))
+	: undefined;
+say(`hosted latency ${JSON.stringify(hostedLatency)}`);
+if (hostedTime) say(`hosted time spent ${JSON.stringify(hostedTime)}`);
 say("hosted side done; plain pi next");
 const plainSeal = await seal();
 const plain = await runPlain(plainSeal);
@@ -197,14 +209,14 @@ const report = {
 		heldWhileParked: parkedWeights.map((one) => one.sessions.length),
 	},
 	latency: {
-		hosted: spreadOf(hosted.logs.flatMap(latencies).map((one) => one.ms)),
+		hosted: hostedLatency.hosted,
 		plain: spreadOf(plain.logs.flatMap(latencies).map((one) => one.ms)),
-		screen: screenSplit(hosted.logs.flatMap(turnTimes), typedAt),
+		screen: hostedLatency.screen,
 	},
-	...(values.profile
+	...(hostedTime
 		? {
 				timeSpent: {
-					hosted: timeSpent(profilesIn(profiles.hosted)),
+					hosted: hostedTime,
 					plain: timeSpent(profilesIn(profiles.plain)),
 				},
 			}
@@ -225,6 +237,17 @@ process.stdout.write(`soak report: ${JSON.stringify(report)}\n`);
 await provider.close();
 await hostSeal.dispose();
 await plainSeal.dispose();
+
+/** The hosted turns' latency in the engine, and what the screens add to it, from their logs. */
+function latencyOf(logs: readonly Record<string, unknown>[][]): {
+	readonly hosted: Spread;
+	readonly screen: ScreenSplit;
+} {
+	return {
+		hosted: spreadOf(logs.flatMap(latencies).map((one) => one.ms)),
+		screen: screenSplit(logs.flatMap(turnTimes), typedAt),
+	};
+}
 
 /** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
 function agentOf(listening: SoakProvider): {
@@ -302,6 +325,10 @@ async function runHosted(sealed: Seal): Promise<{
 	const barrier = barrierOf(conversations.length, async (done) => {
 		const awake = await host.weigh();
 		const recordBytes = sum(conversations.map((one) => sizeOf(one.file)));
+		const soFar = latencyOf(
+			conversations.map((one) => entriesOf(readOr(one.file))),
+		);
+		say(`latency so far ${JSON.stringify(soFar)}`);
 		const atMs = () => Date.now() - started;
 		if (values["no-park"]) {
 			weighings.push({ turnsDone: done, atMs: atMs(), awake, recordBytes });
@@ -589,11 +616,11 @@ async function runPlain(sealed: Seal): Promise<{
 			const { data } = await client.request({ type: "get_state" });
 			const file = isRecord(data) ? data.sessionFile : undefined;
 			await client.close();
-			return {
-				entries:
-					typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [],
-				errors: readOr(`${log}.stderr`),
-			};
+			const entries =
+				typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [];
+			const spread = spreadOf(latencies(entries).map((one) => one.ms));
+			say(`plain ${index} done ${JSON.stringify(spread)}`);
+			return { entries, errors: readOr(`${log}.stderr`) };
 		}),
 	);
 	return {
