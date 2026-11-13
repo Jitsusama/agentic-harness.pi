@@ -1,17 +1,20 @@
 /**
  * Each bash call keeps its output, status and pid on disk while it runs,
  * through the keeping stub, on a real bash: what pi reads is what it
- * read before, a call that ends in its pi takes its files with it, and
- * one handed on leaves them, its status written whatever the command did
- * on its way out.
+ * read before, even when its tee is slow to write it, a call that ends
+ * in its pi takes its files with it, and one handed on leaves them, its
+ * status written whatever the command did on its way out.
  */
 
+import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,11 +50,28 @@ function keeping() {
 	};
 }
 
+/**
+ * A folder whose `tee` waits `seconds` before it starts, as one does on a
+ * machine too busy to run it at once.
+ */
+function slowTee(seconds: number): string {
+	const dir = mkdtempSync(join(tmpdir(), "slow-tee-"));
+	made.push(dir);
+	const tee = execFileSync("sh", ["-c", "command -v tee"], {
+		encoding: "utf8",
+	}).trim();
+	const file = join(dir, "tee");
+	writeFileSync(file, `#!/bin/sh\nsleep ${seconds}\nexec ${tee} "$@"\n`);
+	chmodSync(file, 0o755);
+	return dir;
+}
+
 /** Run `command` as the spawn hook leaves it, collecting what pi reads. */
 async function run(
 	ops: ReturnType<typeof keeping>["operations"],
 	command: string,
 	signal: AbortSignal = new AbortController().signal,
+	env: Readonly<Record<string, string>> = {},
 ) {
 	let read = "";
 	const result = await ops.exec(COMMAND_STUB, tmpdir(), {
@@ -63,6 +83,7 @@ async function run(
 			...process.env,
 			[COMMAND_VARIABLE]: command,
 			[CALL_VARIABLE]: "mark-1",
+			...env,
 		},
 	});
 	return { code: result.exitCode, read };
@@ -78,6 +99,28 @@ describe("a kept call", () => {
 		expect(code).toBe(3);
 		expect(read.split("\n").sort()).toEqual(["", "err", "out"]);
 		expect(readdirSync(kept.folder), "its files went with it").toEqual([]);
+	});
+
+	it("ends only once its tee has written what it said", async () => {
+		const kept = keeping();
+		const { read } = await run(
+			kept.operations,
+			"echo out",
+			new AbortController().signal,
+			{ PATH: `${slowTee(0.3)}:${process.env.PATH ?? ""}` },
+		);
+		expect(read, "pi read it before the shell had gone").toBe("out\n");
+	});
+
+	it("isn't held by what it left writing to its output", async () => {
+		const kept = keeping();
+		const started = Date.now();
+		const { code, read } = await run(kept.operations, "sleep 5 & echo out");
+		expect(code).toBe(0);
+		expect(read).toBe("out\n");
+		expect(Date.now() - started, "ended well before its child").toBeLessThan(
+			3000,
+		);
 	});
 
 	it("is not kept where it can't be", async () => {
