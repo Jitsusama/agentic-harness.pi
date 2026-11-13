@@ -74,7 +74,7 @@ import {
 	guardsGitFolder,
 	nixDoor,
 } from "./fence.ts";
-import { cachesWithin, OWN_HOMES } from "./fence-home.ts";
+import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
 import { fenceSshConfig } from "./fence-ssh.ts";
 import {
 	type CloudGrant,
@@ -637,21 +637,20 @@ export function sandboxFor(
 }
 
 /**
- * Makes each folder among the caches the fence keeps writable within a
- * read-only entry, where that entry is there: inside, nothing could
- * make one, and aws fails rather than skip a cache it can't write.
+ * Makes each folder the fence keeps within a home entry, where that
+ * entry is there: the deeper read-only paths and the caches within
+ * read-only entries, which nothing inside could make.
  */
-function makeCachesWithin(home: string): void {
-	for (const { path, folder } of cachesWithin(home)) {
+function makeFoldersFirst(home: string): void {
+	for (const path of foldersMadeFirst(home)) {
 		const entry = join(home, relative(home, path).split(sep)[0] ?? "");
-		if (!folder || !statSync(entry, { throwIfNoEntry: false })?.isDirectory()) {
-			continue;
-		}
+		if (!statSync(entry, { throwIfNoEntry: false })?.isDirectory()) continue;
 		try {
 			mkdirSync(path, { recursive: true, mode: 0o700 });
 		} catch {
-			// A cache that can't be made is left unbound, and its program
-			// fails to write it inside as it would have anyway.
+			// A folder that can't be made is left unbound: a cache's program
+			// fails to write it inside as it would have anyway, and pi's file
+			// tools still refuse a read-only path that isn't there.
 		}
 	}
 }
@@ -679,7 +678,7 @@ export function wrapFor(
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 			};
-			makeCachesWithin(home);
+			makeFoldersFirst(home);
 			const own = sandboxFolders(home).cache;
 			const made = {
 				bwrap: sandbox.bwrap,

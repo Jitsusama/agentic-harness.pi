@@ -393,8 +393,10 @@ describe("pi's file tools in a fenced session", () => {
 		expect(refusal("write", join(home, "work/other.ts"))).toBeUndefined();
 	});
 
-	it("makes the caches kept within a read-only entry first, since a command could make none", () => {
-		mkdirSync(join(home, ".aws"), { recursive: true });
+	it("makes the folders it keeps within an entry first, since a command could make none", () => {
+		for (const entry of [".aws", ".local"]) {
+			mkdirSync(join(home, entry), { recursive: true });
+		}
 		wrapFor(
 			{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
 			{ cwd: work, env: { XDG_RUNTIME_DIR: runtimeDir } },
@@ -403,7 +405,14 @@ describe("pi's file tools in a fenced session", () => {
 		expect(existsSync(join(home, ".aws/cli/cache")), "aws's own cache").toBe(
 			true,
 		);
+		for (const folder of [".local/share/dbus-1", ".local/bin"]) {
+			expect(
+				existsSync(join(home, folder)),
+				`${folder}, so it can be bound read-only`,
+			).toBe(true);
+		}
 		expect(existsSync(join(home, ".kube")), "no entry that wasn't").toBe(false);
+		expect(existsSync(join(home, ".pi")), "nor one under it").toBe(false);
 	});
 
 	it("makes no file in the home folder itself, and writes no link there", () => {
