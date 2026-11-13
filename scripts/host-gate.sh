@@ -9,9 +9,13 @@
 # merges only once scripts/host-test-there.sh has run the whole of
 # `pnpm test:host` at that very commit, on the runtime the hosts are proven
 # on, and every case passed. pnpm check can't stand in: it skips the host
-# cases wherever no runtime is installed. The gate only reads what that run
-# kept, since review_offer gives a gate five minutes and a run takes longer.
-# A refusal says the command that clears it.
+# cases wherever no runtime is installed. The gate only reads what
+# nix-offload's keeper kept of that run (`nix-offload passed ran SHA`),
+# since review_offer gives a gate five minutes and a run takes longer. Only
+# the keeper writes that record, so a fenced session can't forge one, and
+# only a kept run whose words are exactly the ones host-test-words.sh makes
+# here and now counts: the keeper keeps any program that passed, true
+# included. A refusal says the command that clears it.
 set -euo pipefail
 
 sha=${1:?Name the commit to merge: host-gate.sh SHA}
@@ -20,7 +24,8 @@ sha=${1:?Name the commit to merge: host-gate.sh SHA}
 runner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-test-there.sh"
 state=${XDG_STATE_HOME:-$HOME/.local/state}
 runtime=$(readlink -f "${PI_HOST_RUNTIME:-$state/pi-host/runtime}")
-record=$state/agentic-harness.pi/host-tests/$sha
+# What nix-offload says when this machine runs no keeper.
+NO_KEEPER=69
 
 # What a host runs, and what decides how test:host runs it: the host
 # program, its screens and the session seam its conversations go through,
@@ -46,19 +51,26 @@ if [[ -z $touched ]]; then
   exit 0
 fi
 
+# shellcheck source=host-test-words.sh
+source "$(dirname "${BASH_SOURCE[0]}")/host-test-words.sh"
+host_test_words "$runtime"
+wanted=$(host_test_ran)
+
 why=""
-clear="Clear it from a harness checkout: git checkout $sha && bash $runner"
-if [[ ! -f $record/status ]]; then
-  why="nothing ran test:host at $sha"
-elif [[ -e $record/files ]]; then
-  why="test:host ran only some files at $sha"
-elif [[ $(< "$record/runtime") != "$runtime" ]]; then
-  why="test:host ran at $sha on $(< "$record/runtime"), not the proven $runtime"
-elif [[ $(< "$record/status") != 0 ]]; then
-  why="test:host at $sha exited $(< "$record/status"); its log is $record/log"
-  # Each run is a fresh one, so a flake clears on a second run at the
-  # same commit; anything else needs fixing first.
-  clear="Read the log, then fix it in a new commit and run bash $runner there, or run that same command again at $sha if a case only flaked"
+clear="Clear it from a harness checkout of $sha: bash $runner, or inside the agent fence the command it prints"
+set +e
+ran=$(nix-offload passed ran "$sha")
+kept=$?
+set -e
+if [[ $kept == "$NO_KEEPER" ]]; then
+  why="this machine runs no nix-offload keeper, so no run of test:host can be taken as passed"
+  clear="Merge it from a machine that runs one"
+elif [[ $kept != 0 ]]; then
+  why="nix-offload couldn't say what passed at $sha (it exited $kept)"
+elif [[ -z $ran ]]; then
+  why="nothing ran test:host at $sha and passed"
+elif ! grep -qF -- "$wanted" <<< "$ran"; then
+  why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools"
 fi
 if [[ -z $why ]]; then
   echo "host-gate: test:host passed at $sha on $runtime"
