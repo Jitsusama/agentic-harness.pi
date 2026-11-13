@@ -15,8 +15,11 @@
  *   HEAD moved since this code loaded, once per new HEAD, with the
  *   dependency check again, since a pull is what moves both.
  *
- * Each notice is said once a process. Without git, as on an npm
- * install, only the dependency check runs.
+ * Each notice is said once a conversation. Every reading is taken once
+ * for all the conversations this load of the code serves, since a host
+ * runs them all on one loop: HEAD and the upstream at most every ten
+ * minutes, the dependencies again only when HEAD moves. Without git,
+ * as on an npm install, only the dependency check runs.
  */
 
 import { fileURLToPath } from "node:url";
@@ -31,6 +34,7 @@ import {
 	drifted,
 } from "../../lib/internal/install/drift.ts";
 import { headWatch } from "../../lib/internal/install/head.ts";
+import { sharedReading } from "../../lib/internal/install/reading.ts";
 import {
 	behindNotice,
 	driftNotice,
@@ -51,12 +55,41 @@ const HEAD_INTERVAL_MS = 10 * 60_000;
 /** The package this extension ships in. */
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
+// Taken at load, not at session start: a new session runs the code this
+// load holds, and a reload evaluates this module again.
+const loadedHead = headOf(PACKAGE_ROOT);
+const headNow = sharedReading(() => headOf(PACKAGE_ROOT), {
+	maxAgeMs: HEAD_INTERVAL_MS,
+});
+const behindNow = sharedReading(() => commitsBehind(PACKAGE_ROOT), {
+	maxAgeMs: HEAD_INTERVAL_MS,
+});
+/** The install's notices, read again for the HEAD that moved. */
+const installNotices = sharedReading<string, string[]>(() =>
+	dependencyNotices(),
+);
+
+/** What the install says of its dependencies, as notices. */
+function dependencyNotices(): string[] {
+	const notices: string[] = [];
+	const skipped = unbuiltDependencies(PACKAGE_ROOT);
+	if (skipped.length > 0) notices.push(unbuiltNotice(skipped));
+	const drift = drifted(
+		dependencyStandings(dependencyRanges(PACKAGE_ROOT), (name) =>
+			installedVersion(PACKAGE_ROOT, name),
+		),
+	);
+	if (drift.length > 0)
+		notices.push(
+			driftNotice(describeDrift(drift), installCommand(PACKAGE_ROOT)),
+		);
+	return notices;
+}
+
 export default function installCheckWorkflow(pi: ExtensionAPI) {
-	// Taken at load, not at session start: a new session runs the code
-	// this process loaded, and a reload evaluates this module again.
 	const watch = headWatch({
-		loaded: headOf(PACKAGE_ROOT),
-		read: () => headOf(PACKAGE_ROOT),
+		loaded: loadedHead,
+		read: () => headNow(),
 		intervalMs: HEAD_INTERVAL_MS,
 	});
 	const said = new Set<string>();
@@ -65,22 +98,11 @@ export default function installCheckWorkflow(pi: ExtensionAPI) {
 		said.add(text);
 		ctx.ui.notify(text, "warning");
 	};
-	const checkDependencies = (ctx: ExtensionContext) => {
-		const drift = drifted(
-			dependencyStandings(dependencyRanges(PACKAGE_ROOT), (name) =>
-				installedVersion(PACKAGE_ROOT, name),
-			),
-		);
-		const skipped = unbuiltDependencies(PACKAGE_ROOT);
-		if (skipped.length > 0) say(ctx, unbuiltNotice(skipped));
-		if (drift.length === 0) return;
-		say(ctx, driftNotice(describeDrift(drift), installCommand(PACKAGE_ROOT)));
-	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		checkDependencies(ctx);
+		for (const notice of installNotices()) say(ctx, notice);
 		// Not awaited: a slow git is no reason to hold up the session.
-		void commitsBehind(PACKAGE_ROOT).then((behind) => {
+		void behindNow().then((behind) => {
 			if (behind) say(ctx, behindNotice(behind));
 		});
 	});
@@ -89,6 +111,6 @@ export default function installCheckWorkflow(pi: ExtensionAPI) {
 		const move = await watch.check();
 		if (!move) return;
 		say(ctx, moveNotice(move));
-		checkDependencies(ctx);
+		for (const notice of installNotices(move.now)) say(ctx, notice);
 	});
 }

@@ -11,7 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { isOwner } from "../../core/process/index.ts";
 import { hosted } from "../../core/session/host.ts";
@@ -115,6 +115,21 @@ function readStartToken(pid: number): ProcessInspection {
 	} catch (error) {
 		return interpretPsLookup(psLookupFromError(error));
 	}
+}
+
+/**
+ * {@link readStartToken}, answering from procfs where it can: a pid
+ * with no folder under /proc holds no process, so it is gone without
+ * spawning `ps`. A host probes every recorded session on its one loop,
+ * and each record whose pid was gone cost a spawn only to hear so
+ * (3.1 s in a soak of twelve conversations, 13 November). Only while
+ * procfs shows this very process, so a missing or hidden /proc is never
+ * read as death.
+ */
+function inspectOnLinux(pid: number): ProcessInspection {
+	if (existsSync(`/proc/${process.pid}`) && !existsSync(`/proc/${pid}`))
+		return { kind: "gone" };
+	return readStartToken(pid);
 }
 
 /** Read the observable facts of a failed `ps` run off the thrown error. */
@@ -326,13 +341,12 @@ export function currentInstanceId(ref?: SessionRef): string {
 /** The always-on local floor: this host plus the OS start-token reader. */
 export function localProcessDeps(): ProbeProcessDeps {
 	const localBootToken = currentBootToken();
+	const linux = process.platform === "linux";
 	return {
 		localHostId: hostname(),
-		inspect: readStartToken,
+		inspect: linux ? inspectOnLinux : readStartToken,
 		...(localBootToken ? { localBootToken } : {}),
-		...(process.platform === "linux"
-			? { startTicks: startTicksFromProcSync }
-			: {}),
+		...(linux ? { startTicks: startTicksFromProcSync } : {}),
 	};
 }
 

@@ -1,4 +1,10 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -69,6 +75,33 @@ describe("a process probe that never answers", () => {
 		expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
 		expect(answer).toBe("unknown");
 	}, 40_000);
+
+	// A host probes every recorded session on its one loop, and a record
+	// whose pid is gone has no ticks to read, so each fell through to a
+	// `ps` spawn only to hear it gone: 3.1 s in a soak of twelve
+	// conversations (13 November).
+	it.skipIf(process.platform !== "linux")(
+		"reads a pid /proc doesn't hold as gone without asking ps",
+		async () => {
+			const liveness = await fresh();
+			const deps = liveness.localProcessDeps();
+			hang("ps");
+			const pidMax = Number(
+				readFileSync("/proc/sys/kernel/pid_max", "utf8").trim(),
+			);
+			const recorded = {
+				hostId: deps.localHostId,
+				pid: pidMax + 1,
+				startToken: "whenever",
+			};
+			const { answer, took } = timed(() =>
+				liveness.probeProcess(recorded, deps),
+			);
+			expect(answer, "the verdict on a pid no process holds").toBe("gone");
+			expect(took, "how long the verdict took").toBeLessThan(500);
+		},
+		40_000,
+	);
 
 	it.skipIf(process.platform !== "darwin")(
 		"gives up on reading the boot at its clock",
