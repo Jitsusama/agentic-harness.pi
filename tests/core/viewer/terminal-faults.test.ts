@@ -33,6 +33,7 @@ const viewer = (rows = 40, columns = 120) => ({
 describe("a throw in one of pi's callbacks", () => {
 	it("from a frame reaches the fault listener, and the draw returns", () => {
 		const { terminal, faults } = faulting(() => {});
+		terminal.attach(viewer());
 
 		terminal.renderScope(() => {
 			throw new Error("This extension ctx is stale");
@@ -75,6 +76,7 @@ describe("a throw in one of pi's callbacks", () => {
 	it("goes on up when no listener is set, as before", () => {
 		const terminal = new ViewerTerminal("a", () => {});
 		terminals.push(terminal);
+		terminal.attach(viewer());
 
 		expect(() =>
 			terminal.renderScope(() => {
