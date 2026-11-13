@@ -42,6 +42,7 @@ import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { hosted } from "../../lib/core/session/index.ts";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { tickFacts } from "../../lib/internal/process-ticks.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
@@ -223,15 +224,21 @@ async function recordOrSay(
 }
 
 /**
- * Who is waiting, asked once.
+ * Who is waiting, asked once in plain pi.
  *
- * The answer cannot change and asking costs a subprocess, so it is
- * kept; the library is left stateless, since a cache belongs to a
- * session rather than to a definition. A failure is not kept, because
- * `ps` can miss for a moment under load and caching that turns one
- * slow probe into a session where no fleet is attributed to anybody.
+ * There the answer is the process, which cannot change, and asking
+ * costs a subprocess, so it is kept; the library is left stateless,
+ * since a cache belongs to a session rather than to a definition. A
+ * failure is not kept, because `ps` can miss for a moment under load
+ * and caching that turns one slow probe into a session where no fleet
+ * is attributed to anybody.
+ *
+ * In a host it is asked every time: each conversation waits on its own
+ * fleets, the host already knows its own birthday, and this module is
+ * shared by every conversation in a folder.
  */
 async function ourOwner(): Promise<FleetRun["owner"]> {
+	if (hosted()) return await whoIsWaiting(tickFacts);
 	if (waiting !== undefined) return waiting;
 	waiting = await whoIsWaiting(tickFacts);
 	return waiting;

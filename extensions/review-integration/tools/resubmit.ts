@@ -8,6 +8,11 @@
  * they had changed nothing. A refusal that reads like the first one
  * reads like a fresh problem. Saying it is the same text, refused a
  * moment ago, tells the agent the list is still waiting to be read.
+ *
+ * Both what was refused and the drafts kept are each conversation's
+ * own: a host's conversations in one folder share this module, and on
+ * 13 November a draft keyed only by the call's repo and head, which a
+ * call usually leaves out, was every conversation's.
  */
 
 import { createHash } from "node:crypto";
@@ -20,16 +25,17 @@ const refused = new Map<string, number>();
 
 /**
  * The complaint as it should be said: with a note in front when this
- * exact title and body were refused before in this session.
+ * exact title and body were refused before in this conversation.
  */
 export function sayRefusal(
+	session: string,
 	complaint: string,
 	title: string | undefined,
 	body: string | undefined,
 	now: number = Date.now(),
 ): string {
 	const key = createHash("sha1")
-		.update(`${title ?? ""}\0${body ?? ""}`)
+		.update(`${session}\0${title ?? ""}\0${body ?? ""}`)
 		.digest("hex");
 	const before = refused.get(key);
 	refused.delete(key);
@@ -70,12 +76,19 @@ interface Draft {
 	readonly at: number;
 }
 
-/** The latest refused proposal of each repo and branch, by that pair. */
+/** The latest refused proposal of each conversation, repo and branch. */
 const drafts = new Map<string, Draft>();
 
-/** Which proposal a draft is of: the repo and branch as the call named them. */
-export function draftKey(repo?: string, head?: string): string {
-	return `${repo ?? ""}\0${head ?? ""}`;
+/**
+ * Which proposal a draft is of: the conversation's, of the checkout
+ * the call works in and the branch it named.
+ */
+export function draftKey(
+	session: string,
+	checkout: string,
+	head?: string,
+): string {
+	return `${session}\0${checkout}\0${head ?? ""}`;
 }
 
 /**

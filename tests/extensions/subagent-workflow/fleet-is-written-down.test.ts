@@ -15,12 +15,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SubagentCancelledError } from "../../../extensions/subagent-workflow/cancellation.ts";
+import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import { tickFacts } from "../../../lib/internal/process-ticks.ts";
 import {
 	createFleetLedger,
 	type FleetRun,
 } from "../../../lib/subagent/fleet.ts";
 import type { RunPi } from "../../../lib/subagent/subagent.ts";
+import { sessionHost } from "../../support/session-host.ts";
 import { activateWith } from "../support/review-extension.ts";
 
 /** What the supervisor would have spawned, had one been wanted. */
@@ -162,6 +164,29 @@ describe("dispatching a fleet", () => {
 			startedAt: await tickFacts.startedAt(process.pid),
 			...(bootId ? { bootId } : {}),
 			...(startTicks === undefined ? {} : { startTicks }),
+		});
+	});
+
+	it("records each hosted conversation as the one waiting on its own fleet", async () => {
+		// A host's conversations share this module, and a waiter kept once
+		// for the module named the first conversation as every fleet's,
+		// so closing it abandoned fleets its siblings were still waiting on.
+		const { host } = sessionHost({ pid: 123, startedAt: 1_760_000_000_000 });
+		const removeHost = installHost(host);
+		try {
+			await withSession("a", () => dispatch("fleet-a"));
+			await withSession("b", () => dispatch("fleet-b"));
+		} finally {
+			removeHost();
+		}
+
+		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
+		const waiters = Object.fromEntries(
+			runs.map((run) => [run.id, run.owner?.session]),
+		);
+		expect(waiters, "each fleet names its own conversation").toEqual({
+			"fleet-a": "a",
+			"fleet-b": "b",
 		});
 	});
 
