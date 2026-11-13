@@ -60,8 +60,8 @@ describe("whether tee persists", () => {
 	it("answers for the tee each PATH finds", () => {
 		const persists = teeEnding(0);
 		const refuses = teeEnding(1);
-		expect(teePersists(persists)).toBe(true);
-		expect(teePersists(refuses)).toBe(false);
+		expect(teePersists(persists), "a tee that writes on persists").toBe(true);
+		expect(teePersists(refuses), "a tee that stops does not").toBe(false);
 		expect(teePersists(persists), "each answer kept apart").toBe(true);
 	});
 });
