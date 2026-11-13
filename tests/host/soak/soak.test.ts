@@ -84,6 +84,22 @@ describe.skipIf(!packageDir)(
 						arrayBuffersKb: expect.any(Number),
 					},
 				});
+				expect(
+					isRecord(report) && Array.isArray(report.checkpoints)
+						? report.checkpoints[0]
+						: undefined,
+					"the weighing says how late and how busy the host's loop ran since the last",
+				).toMatchObject({
+					awake: {
+						loopP99Ms: expect.any(Number),
+						loopMaxMs: expect.any(Number),
+						loopBusy: expect.any(Number),
+					},
+				});
+				expect(
+					said.join("\n"),
+					"the checkpoint line says the loop's delay",
+				).toMatch(/loop p99 \d+ ms, max \d+ ms, busy \d+%/);
 				// A lender lost before the end leaves what each line said by then.
 				expect(
 					saidAfter(said, "latency so far "),
