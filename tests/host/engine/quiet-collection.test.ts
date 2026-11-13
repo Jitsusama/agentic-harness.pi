@@ -201,10 +201,7 @@ describe("V8's last-resort collection", () => {
 		expect(() => lastResortCollect()()).not.toThrow();
 	});
 
-	it.runIf(process.platform === "linux")(
-		"reads this process's Pss",
-		() => {
-			expect(pssBytes()).toBeGreaterThan(MB);
-		},
-	);
+	it.runIf(process.platform === "linux")("reads this process's Pss", () => {
+		expect(pssBytes()).toBeGreaterThan(MB);
+	});
 });

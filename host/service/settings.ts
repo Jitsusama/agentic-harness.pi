@@ -30,7 +30,10 @@ export const parseHostSection: SectionParse<HostSettings> = (value) => {
 	if (!isRecord(value)) return { ok: false, error: "must be an object" };
 	const collect = value.collectWhenQuiet;
 	if (collect !== undefined && typeof collect !== "boolean")
-		return { ok: false, error: "has a collectWhenQuiet that isn't true or false" };
+		return {
+			ok: false,
+			error: "has a collectWhenQuiet that isn't true or false",
+		};
 	return {
 		ok: true,
 		value: { collectWhenQuiet: collect ?? DEFAULTS.collectWhenQuiet },

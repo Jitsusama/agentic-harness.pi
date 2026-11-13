@@ -85,8 +85,7 @@ export function quietCollection(options: {
 	let lastCollected = Number.NEGATIVE_INFINITY;
 	let lastViewed = Number.NEGATIVE_INFINITY;
 
-	const forPark = (now: number) =>
-		parkOwed && now - lastForPark >= SPACING_MS;
+	const forPark = (now: number) => parkOwed && now - lastForPark >= SPACING_MS;
 	const due = (now: number) =>
 		Math.max(
 			now + SETTLE_MS,
