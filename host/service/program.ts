@@ -14,7 +14,7 @@
 
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { stateDir } from "../../lib/internal/paths.ts";
+import { packageConfigPath, stateDir } from "../../lib/internal/paths.ts";
 import { sayLoaded } from "../../lib/internal/reload/said.ts";
 import {
 	createEngine,
@@ -29,6 +29,8 @@ import { hostProof } from "./proof.ts";
 import { followWhatStarts } from "./restart.ts";
 import { hostRoot } from "./rollout.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
+import { hostSettings } from "./settings.ts";
+import { noticingInput } from "./viewer.ts";
 
 /**
  * The exit status of a host refused for its configuration, EX_CONFIG from
@@ -160,6 +162,7 @@ export async function startHostProgram(
 	const { argv, env } = options;
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
+	const settings = await hostSettings(report, packageConfigPath(env));
 	sayHostRuns();
 	nameViewerTerminal(env);
 	configured.startTheme();
@@ -191,11 +194,13 @@ export async function startHostProgram(
 					conversationLaunch(request),
 				key: gatewayKey({ env }),
 				screens: screens.screens,
+				collectWhenQuiet: settings.collectWhenQuiet,
 				report,
 			});
 			return engine;
 		},
-		viewer: () => screens.viewer,
+		// A viewer's key or resize holds the quiet collection off for a while.
+		viewer: () => noticingInput(screens.viewer, () => engine?.viewed()),
 		// One conversation's throw ends only it, never the host's other conversations.
 		faults: process,
 		contain: (sessionId, error) => screens.faulted(sessionId, error),

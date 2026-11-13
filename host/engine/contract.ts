@@ -137,6 +137,11 @@ export interface EngineOptions {
 	readonly screens?: EngineScreens;
 	/** What every conversation loads beyond what its settings and folders give it, as pi's flags say; none leaves pi to its settings. */
 	readonly resources?: ConversationResources;
+	/**
+	 * Whether the host gives V8's pooled pages back with a last-resort
+	 * collection once it is quiet (quiet-collection.ts); on unless false.
+	 */
+	readonly collectWhenQuiet?: boolean;
 	readonly report?: (error: unknown) => void;
 }
 
@@ -145,6 +150,8 @@ export interface HostEngine extends ConversationEngine {
 	view(sessionId: string): HostedView | undefined;
 	/** Say to the service each conversation ending or becoming another on its own; set once, before any start. */
 	watch(events: ConversationEvents): void;
+	/** A viewer pressed a key or resized, so a collection waits for the quiet after it. */
+	viewed(): void;
 	/**
 	 * How much background work every running conversation holds: commands,
 	 * fleets and rounds still running, and results not yet said, which a

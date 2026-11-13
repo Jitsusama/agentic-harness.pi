@@ -21,3 +21,30 @@ export function terminalBridge(
 		},
 	};
 }
+
+/**
+ * The same bridge, telling `noticed` of each key and resize a viewer
+ * sends, before the screen takes it.
+ */
+export function noticingInput(
+	bridge: ViewerBridge,
+	noticed: () => void,
+): ViewerBridge {
+	return {
+		attach: (request, sink) => {
+			const connection = bridge.attach(request, sink);
+			return {
+				edited: (id, text) => connection.edited?.(id, text),
+				detach: () => connection.detach(),
+				input: (data) => {
+					noticed();
+					connection.input(data);
+				},
+				resize: (rows, columns) => {
+					noticed();
+					connection.resize(rows, columns);
+				},
+			};
+		},
+	};
+}

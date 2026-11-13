@@ -85,6 +85,11 @@ input pipeline or screen. No unit or running host is installed yet.
   judged, it writes `loaded/<pid>` naming the version it runs, as
   each pi does, so pi-packages keeps that version and every one
   retired since the host started, even with no conversation open.
+- settings.ts: the host's section of the package's config file,
+  `host`, read once as the host starts. `collectWhenQuiet: false`
+  turns off the engine's quiet collection (engine/quiet-collection.ts),
+  which is on by default. A section or file it can't read is said in
+  the journal and leaves the defaults, rather than refusing the start.
 - restart.ts and what-starts.ts: the host restarting itself. A host
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
@@ -131,7 +136,9 @@ input pipeline or screen. No unit or running host is installed yet.
   stays fixed, as the launcher treats it; otherwise the personal key is
   resolved through the dev tool and resolved again when the dev cache's
   expiry stamp moves, nears, or the gateway refuses the key.
-- viewer.ts: adapts V's persistent Terminal without reproducing its parser.
+- viewer.ts: adapts V's persistent Terminal without reproducing its
+  parser, and tells the engine of each key and resize a viewer sends,
+  so the quiet collection waits 30 s after one.
 - protocol.ts: strict v1 control requests, replies and viewer input.
   A close or release may name its caller (`by`), for the journal.
 - framing.ts: bounded UTF-8 JSON lines; only LF separates records.
