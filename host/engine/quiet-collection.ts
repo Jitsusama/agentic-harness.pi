@@ -71,6 +71,5 @@ export function lastResortCollect(): Collect {
 	const gc: unknown = runInNewContext("gc");
 	if (typeof gc !== "function")
 		throw new Error("V8 exposed no gc to collect with");
-	return () =>
-		gc({ type: "major", execution: "sync", flavor: "last-resort" });
+	return () => gc({ type: "major", execution: "sync", flavor: "last-resort" });
 }
