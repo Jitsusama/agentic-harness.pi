@@ -72,8 +72,40 @@ describe.skipIf(!packageDir)(
 					isRecord(report) ? report.checkpoints : undefined,
 					"one weighing, at the end",
 				).toHaveLength(1);
+				expect(
+					isRecord(report) && Array.isArray(report.checkpoints)
+						? report.checkpoints[0]
+						: undefined,
+					"the weighing holds what V8 keeps beside the heap it uses",
+				).toMatchObject({
+					awake: {
+						heapTotalKb: expect.any(Number),
+						externalKb: expect.any(Number),
+						arrayBuffersKb: expect.any(Number),
+					},
+				});
+				// A lender lost before the end leaves what each line said by then.
+				expect(
+					saidAfter(said, "latency so far "),
+					"the hosted turns' latency, said at the checkpoint",
+				).toMatchObject({ hosted: { count: 4 } });
+				for (const index of [0, 1])
+					expect(
+						saidAfter(said, `plain ${index} done `),
+						`plain conversation ${index}'s latency, said as it ends`,
+					).toMatchObject({ count: 2 });
 			},
 			RUN_MS,
 		);
 	},
 );
+
+/** The JSON a soak line opening with `lead` holds, or undefined when no line does. */
+function saidAfter(said: string, lead: string): unknown {
+	const line = said
+		.split("\n")
+		.map((one) => one.replace(/^soak \S+ /, ""))
+		.reverse()
+		.find((one) => one.startsWith(lead));
+	return line === undefined ? undefined : JSON.parse(line.slice(lead.length));
+}

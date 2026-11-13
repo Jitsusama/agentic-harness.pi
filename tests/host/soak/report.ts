@@ -1,8 +1,12 @@
 /**
  * What a soak's records say: each turn's latency, read from a
  * conversation's log as the time from the prompt's entry to its final
- * answer's; the 50th and 99th percentiles of those; whether a series of
- * weighings settles or keeps growing; and how a hosted conversation's
+ * answer's, which pi writes as each message ends in the engine, so it
+ * is the engine's own turn on either side; what a screen adds, from a
+ * key typed to the prompt's entry and from the answer's entry to its
+ * drawing at a viewer; the 50th and 99th percentiles of those; whether
+ * a series of weighings settles or keeps growing; and how a hosted
+ * conversation's
  * log differs from plain pi's of the same turns, with each side's own
  * folders, times and ids made labels first, as the parity suite does.
  */
@@ -19,6 +23,32 @@ import { acknowledged, asked } from "./turns.ts";
 export interface Latency {
 	readonly tag: string;
 	readonly ms: number;
+}
+
+/** When one turn's prompt and its answer were written, in ms since the epoch. */
+export interface TurnTime {
+	readonly tag: string;
+	readonly promptAt: number;
+	readonly answerAt: number;
+}
+
+/** When a viewer typed a turn's prompt, and when it drew the answer, if it did. */
+export interface Typed {
+	readonly keyAt: number;
+	readonly drawnAt?: number;
+}
+
+/**
+ * What a screen adds to a turn: from the key to the prompt's entry, from
+ * the answer's entry to its drawing (below 0 when the answer is drawn as
+ * it streams, before it ends), and from the key to the drawing in all.
+ */
+export interface ScreenSplit {
+	readonly keyToAccepted: Spread;
+	readonly writtenToDrawn: Spread;
+	readonly keyToDrawn: Spread;
+	/** Turns typed whose answer no viewer was seen to draw. */
+	readonly undrawn: number;
 }
 
 /** A series' 50th and 99th percentiles and how many it held. */
@@ -76,7 +106,45 @@ export function entriesOf(log: string): Record<string, unknown>[] {
 export function latencies(
 	entries: readonly Record<string, unknown>[],
 ): Latency[] {
-	const found: Latency[] = [];
+	return turnTimes(entries).map(({ tag, promptAt, answerAt }) => ({
+		tag,
+		ms: answerAt - promptAt,
+	}));
+}
+
+/** What a screen added to each turn a viewer typed, against the log's times. */
+export function screenSplit(
+	turns: readonly TurnTime[],
+	typed: ReadonlyMap<string, Typed>,
+): ScreenSplit {
+	const accepted: number[] = [];
+	const drawn: number[] = [];
+	const whole: number[] = [];
+	let undrawn = 0;
+	for (const turn of turns) {
+		const keys = typed.get(turn.tag);
+		if (keys === undefined) continue;
+		accepted.push(turn.promptAt - keys.keyAt);
+		if (keys.drawnAt === undefined) {
+			undrawn += 1;
+			continue;
+		}
+		drawn.push(keys.drawnAt - turn.answerAt);
+		whole.push(keys.drawnAt - keys.keyAt);
+	}
+	return {
+		keyToAccepted: spreadOf(accepted),
+		writtenToDrawn: spreadOf(drawn),
+		keyToDrawn: spreadOf(whole),
+		undrawn,
+	};
+}
+
+/** When each soak turn's prompt and answer were written in a log, in order. */
+export function turnTimes(
+	entries: readonly Record<string, unknown>[],
+): TurnTime[] {
+	const found: TurnTime[] = [];
 	for (const [at, entry] of entries.entries()) {
 		const message = messageOf(entry);
 		const turn = message?.role === "user" ? asked(message.text) : undefined;
@@ -87,10 +155,11 @@ export function latencies(
 			return said?.role === "assistant" && said.text.includes(ack);
 		});
 		if (answer === undefined) continue;
-		const ms =
-			Date.parse(String(answer.timestamp)) -
-			Date.parse(String(entry.timestamp));
-		found.push({ tag: turn.tag, ms });
+		found.push({
+			tag: turn.tag,
+			promptAt: Date.parse(String(entry.timestamp)),
+			answerAt: Date.parse(String(answer.timestamp)),
+		});
 	}
 	return found;
 }

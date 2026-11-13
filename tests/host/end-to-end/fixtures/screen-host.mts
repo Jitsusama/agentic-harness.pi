@@ -223,7 +223,9 @@ process.on("SIGHUP", weigh);
 /**
  * Collect the garbage, then write what this process weighs to
  * `weighed.json` in HOME, whole, for a test to read: its RSS, PSS and
- * swapped PSS in kB, as the kernel counts them, the heap V8 still uses in kB, and
+ * swapped PSS in kB, as the kernel counts them, the heap V8 still uses
+ * and the heap it holds from the kernel, what V8 keeps outside its heap
+ * and the array buffers within that, all in kB, and
  * how many sessions the agent folder's weigh extension saw start are
  * still in memory.
  */
@@ -247,13 +249,18 @@ function weigh(): void {
 			if (ref instanceof WeakRef && ref.deref() !== undefined)
 				sessions.push(id);
 	const weighed = join(home, "weighed.json");
+	const used = process.memoryUsage();
+	const inKb = (bytes: number) => Math.round(bytes / BYTES_PER_KB);
 	writeFileSync(
 		`${weighed}.part`,
 		JSON.stringify({
 			rss: kb("Rss"),
 			pss: kb("Pss"),
 			swapPss: kb("SwapPss"),
-			heapKb: Math.round(process.memoryUsage().heapUsed / BYTES_PER_KB),
+			heapKb: inKb(used.heapUsed),
+			heapTotalKb: inKb(used.heapTotal),
+			externalKb: inKb(used.external),
+			arrayBuffersKb: inKb(used.arrayBuffers),
 			sessions,
 		}),
 	);

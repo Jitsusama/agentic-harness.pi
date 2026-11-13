@@ -47,6 +47,15 @@ export interface Weight {
 	 * given back to the kernel.
 	 */
 	readonly heapKb: number;
+	/**
+	 * The heap V8 holds from the kernel, in kB: above heapKb by what it
+	 * freed and keeps pooled until a memory-reducing collection.
+	 */
+	readonly heapTotalKb: number;
+	/** What V8 keeps outside its heap for JavaScript objects, in kB. */
+	readonly externalKb: number;
+	/** The array buffers within externalKb, in kB. */
+	readonly arrayBuffersKb: number;
 	/** The conversations whose sessions are still in its memory. */
 	readonly sessions: readonly string[];
 }
@@ -218,6 +227,9 @@ function weight(said: unknown): Weight {
 		typeof said.pss !== "number" ||
 		typeof said.swapPss !== "number" ||
 		typeof said.heapKb !== "number" ||
+		typeof said.heapTotalKb !== "number" ||
+		typeof said.externalKb !== "number" ||
+		typeof said.arrayBuffersKb !== "number" ||
 		!Array.isArray(said.sessions)
 	)
 		throw new Error(`the host weighed itself as ${JSON.stringify(said)}`);
@@ -229,6 +241,9 @@ function weight(said: unknown): Weight {
 		pss: said.pss,
 		swapPss: said.swapPss,
 		heapKb: said.heapKb,
+		heapTotalKb: said.heapTotalKb,
+		externalKb: said.externalKb,
+		arrayBuffersKb: said.arrayBuffersKb,
 		sessions,
 	};
 }

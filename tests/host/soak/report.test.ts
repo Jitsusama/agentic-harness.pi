@@ -11,7 +11,9 @@ import {
 	growthOf,
 	latencies,
 	parityOf,
+	screenSplit,
 	spreadOf,
+	turnTimes,
 } from "./report.ts";
 import { answerTo, JOB } from "./soak-provider.ts";
 
@@ -58,6 +60,48 @@ describe("a soak's latencies", () => {
 			entriesOf(`${lines.map((one) => JSON.stringify(one)).join("\n")}\n`),
 			"one entry a line, the blank last line skipped",
 		).toEqual(lines);
+	});
+});
+
+describe("what a screen adds", () => {
+	const minute = Date.UTC(2026, 10, 12, 9, 0, 0);
+	const log = [
+		entry("user", "soak c0-t0 echo, please", 1),
+		entry("assistant", [{ type: "text", text: "heard, ack c0-t0." }], 3),
+		entry("user", "soak c0-t1 echo, please", 10),
+		entry("assistant", [{ type: "text", text: "heard, ack c0-t1." }], 11),
+		entry("user", "soak c0-t2 echo, please", 20),
+		entry("assistant", [{ type: "text", text: "heard, ack c0-t2." }], 21),
+	];
+
+	it("reads each turn's prompt and answer times from the log", () => {
+		expect(turnTimes(log)[1], "the second turn's entries").toEqual({
+			tag: "c0-t1",
+			promptAt: minute + 10_000,
+			answerAt: minute + 11_000,
+		});
+	});
+
+	it("splits keys to the prompt from the answer to its drawing", () => {
+		const typed = new Map([
+			["c0-t0", { keyAt: minute + 500, drawnAt: minute + 3_200 }],
+			// Drawn as it streamed, before the answer's entry was written.
+			["c0-t1", { keyAt: minute + 9_900, drawnAt: minute + 10_900 }],
+			["c0-t2", { keyAt: minute + 19_000 }],
+		]);
+		expect(screenSplit(turnTimes(log), typed), "three turns typed").toEqual({
+			keyToAccepted: { count: 3, p50: 500, p99: 1000 },
+			writtenToDrawn: { count: 2, p50: -100, p99: 200 },
+			keyToDrawn: { count: 2, p50: 1000, p99: 2700 },
+			undrawn: 1,
+		});
+	});
+
+	it("leaves out a turn no viewer typed", () => {
+		expect(
+			screenSplit(turnTimes(log), new Map()).keyToAccepted.count,
+			"none typed",
+		).toBe(0);
 	});
 });
 

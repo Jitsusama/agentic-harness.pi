@@ -11,11 +11,18 @@
  * process a conversation, all at once as the host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--out DIR]
+ *     [--no-park] [--profile] [--out DIR]
+ *
+ * With --profile each side's node writes a CPU profile, and the report
+ * says where each side's time went.
  *
  * It needs a pi with the host's patches, as test:host does
  * (PI_HOST_RUNTIME), and prints the report as one JSON line after
- * `soak report:`, writing it to DIR/report.json too.
+ * `soak report:`, writing it to DIR/report.json too. A lender can drop a
+ * run of hours before its end, so what the report would hold is said as
+ * it is known: each weighing and the hosted turns' latency so far at each
+ * checkpoint, the hosted side's latency and time spent once it is done,
+ * and each plain conversation's latency as it ends.
  */
 import {
 	appendFileSync,
@@ -45,12 +52,18 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
+import { timeSpent } from "./profile.ts";
 import {
 	entriesOf,
 	growthOf,
 	latencies,
 	parityOf,
+	type ScreenSplit,
+	type Spread,
+	screenSplit,
 	spreadOf,
+	type Typed,
+	turnTimes,
 } from "./report.ts";
 import {
 	JOB_SAYS,
@@ -74,6 +87,8 @@ const PARK_MS = 4 * 60_000;
 const REWEIGH_EVERY_MS = 5_000;
 /** How long a viewer may take to draw its first frame. */
 const DRAWN_MS = 30_000;
+/** How long past a turn's going idle its answer may take to be drawn. */
+const DRAWN_AFTER_IDLE_MS = 5_000;
 /** How often a turn's end is looked for in its log. */
 const LOOK_EVERY_MS = 100;
 /** How much of a log's end a look reads: more than any one answer. */
@@ -124,6 +139,7 @@ const { values } = parseArgs({
 		turns: { type: "string" },
 		checkpoints: { type: "string", default: "8" },
 		"no-park": { type: "boolean", default: false },
+		profile: { type: "boolean", default: false },
 		out: { type: "string" },
 	},
 });
@@ -149,6 +165,12 @@ const fault = (what: string) => {
 };
 const say = (line: string) =>
 	process.stdout.write(`soak ${new Date().toISOString()} ${line}\n`);
+/** When each hosted turn's prompt was typed and its answer drawn, by tag. */
+const typedAt = new Map<string, Typed>();
+const profiles = {
+	hosted: join(out, "profile-hosted"),
+	plain: join(out, "profile-plain"),
+};
 
 const provider = await soakProvider();
 const agent = agentOf(provider);
@@ -162,6 +184,12 @@ say(
 
 const hostSeal = await seal();
 const hosted = await runHosted(hostSeal);
+const hostedLatency = latencyOf(hosted.logs);
+const hostedTime = values.profile
+	? timeSpent(profilesIn(profiles.hosted))
+	: undefined;
+say(`hosted latency ${JSON.stringify(hostedLatency)}`);
+if (hostedTime) say(`hosted time spent ${JSON.stringify(hostedTime)}`);
 say("hosted side done; plain pi next");
 const plainSeal = await seal();
 const plain = await runPlain(plainSeal);
@@ -178,12 +206,26 @@ const report = {
 		parked: growthOf(parkedWeights.map((one) => one.heapKb)),
 		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
 		rssParked: growthOf(parkedWeights.map((one) => one.rss)),
+		rssAwake: growthOf(hosted.checkpoints.map((one) => one.awake.rss)),
+		heapTotalParked: growthOf(parkedWeights.map((one) => one.heapTotalKb)),
+		heapTotalAwake: growthOf(
+			hosted.checkpoints.map((one) => one.awake.heapTotalKb),
+		),
 		heldWhileParked: parkedWeights.map((one) => one.sessions.length),
 	},
 	latency: {
-		hosted: spreadOf(hosted.logs.flatMap(latencies).map((one) => one.ms)),
+		hosted: hostedLatency.hosted,
 		plain: spreadOf(plain.logs.flatMap(latencies).map((one) => one.ms)),
+		screen: hostedLatency.screen,
 	},
+	...(hostedTime
+		? {
+				timeSpent: {
+					hosted: hostedTime,
+					plain: timeSpent(profilesIn(profiles.plain)),
+				},
+			}
+		: {}),
 	parity: hosted.logs.map((log, at) =>
 		parityOf(log, plain.logs[at] ?? [], {
 			hosted: hostSeal.root,
@@ -200,6 +242,17 @@ process.stdout.write(`soak report: ${JSON.stringify(report)}\n`);
 await provider.close();
 await hostSeal.dispose();
 await plainSeal.dispose();
+
+/** The hosted turns' latency in the engine, and what the screens add to it, from their logs. */
+function latencyOf(logs: readonly Record<string, unknown>[][]): {
+	readonly hosted: Spread;
+	readonly screen: ScreenSplit;
+} {
+	return {
+		hosted: spreadOf(logs.flatMap(latencies).map((one) => one.ms)),
+		screen: screenSplit(logs.flatMap(turnTimes), typedAt),
+	};
+}
 
 /** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
 function agentOf(listening: SoakProvider): {
@@ -245,7 +298,12 @@ async function runHosted(sealed: Seal): Promise<{
 }> {
 	const agentFile = join(sealed.root, "soak-agent.json");
 	writeFileSync(agentFile, JSON.stringify(agent));
-	const host = await startScreenHost(sealed, packageDir ?? "", also, agentFile);
+	const host = await startScreenHost(
+		{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
+		packageDir ?? "",
+		also,
+		agentFile,
+	);
 	const work = folders(sealed);
 	const conversations: Conversation[] = [];
 	const opening = Date.now();
@@ -272,6 +330,10 @@ async function runHosted(sealed: Seal): Promise<{
 	const barrier = barrierOf(conversations.length, async (done) => {
 		const awake = await host.weigh();
 		const recordBytes = sum(conversations.map((one) => sizeOf(one.file)));
+		const soFar = latencyOf(
+			conversations.map((one) => entriesOf(readOr(one.file))),
+		);
+		say(`latency so far ${JSON.stringify(soFar)}`);
 		const atMs = () => Date.now() - started;
 		if (values["no-park"]) {
 			weighings.push({ turnsDone: done, atMs: atMs(), awake, recordBytes });
@@ -305,7 +367,7 @@ async function runHosted(sealed: Seal): Promise<{
 			wakeMs,
 		});
 		say(
-			`checkpoint ${weighings.length}: heap ${awake.heapKb} kB awake, ${parked.heapKb} kB parked`,
+			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked`,
 		);
 		// Each weighing in full as it is taken, so a run cut short by its
 		// lender's limit still leaves the memory curve it got to.
@@ -385,8 +447,10 @@ async function drive(
 		let viewer: Viewer | undefined;
 		for (const [at, turn] of visit.turns.entries()) {
 			viewer = await stopsDue(viewer);
+			// A key that wakes its conversation times the wake, not the screen.
+			const waking = viewer === undefined && byKey.has(one.sessionId);
 			viewer ??= await opened(host, one, byKey);
-			await typed(host, one, viewer, turn);
+			await typed(host, one, viewer, turn, waking);
 			done += 1;
 			if (at === 0 && visit.joined) {
 				const second = await attach(host.path, one.sessionId, ROWS, COLUMNS);
@@ -417,15 +481,26 @@ async function opened(
 	return viewer;
 }
 
-/** Type one turn and wait until its answer is in the log and the host lists it idle. */
+/**
+ * Type one turn and wait until its answer is in the log and the host
+ * lists it idle, noting when its key went and its answer was drawn.
+ */
 async function typed(
 	host: ScreenHost,
 	one: Conversation,
 	viewer: Viewer,
 	turn: Turn,
+	waking: boolean,
 ): Promise<void> {
-	viewer.type(`${turn.prompt}${ENTER}`);
 	const ack = acknowledged(turn.tag);
+	const keyAt = Date.now();
+	// The write that first draws the answer settles it; a turn whose
+	// answer is never seen drawn settles empty and is counted.
+	const drawn = viewer.shows(ack, TURN_MS).then(
+		() => Date.now(),
+		() => undefined,
+	);
+	viewer.type(`${turn.prompt}${ENTER}`);
 	const until = Date.now() + TURN_MS;
 	while (!tailOf(one.file).includes(ack)) {
 		if (Date.now() > until) {
@@ -440,6 +515,40 @@ async function typed(
 		host.idle(one.sessionId, TURN_MS),
 		`${turn.tag} answered but never went idle, its log ending ${lastOf(one.file)}`,
 	);
+	const drawnAt = await Promise.race([
+		drawn,
+		new Promise<undefined>((late) =>
+			setTimeout(() => late(undefined), DRAWN_AFTER_IDLE_MS),
+		),
+	]);
+	if (waking) return;
+	typedAt.set(turn.tag, drawnAt === undefined ? { keyAt } : { keyAt, drawnAt });
+}
+
+/** `env` with node told to write a CPU profile into `folder`, under --profile. */
+function profiled(env: NodeJS.ProcessEnv, folder: string): NodeJS.ProcessEnv {
+	if (!values.profile) return env;
+	mkdirSync(folder, { recursive: true });
+	const options = `--cpu-prof --cpu-prof-dir=${folder}`;
+	const before = env.NODE_OPTIONS;
+	return {
+		...env,
+		NODE_OPTIONS: before ? `${before} ${options}` : options,
+	};
+}
+
+/** Every CPU profile node wrote into `folder`, parsed. */
+function profilesIn(folder: string): unknown[] {
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// A side that wrote no profile has no folder; it reports none.
+		return [];
+	}
+	return names
+		.filter((name) => name.endsWith(".cpuprofile"))
+		.map((name) => JSON.parse(readFileSync(join(folder, name), "utf8")));
 }
 
 /** The kinds of a log's last entries, to say where a conversation stopped. */
@@ -480,9 +589,9 @@ async function runPlain(sealed: Seal): Promise<{
 	}
 	const work = folders(sealed);
 	const env = Object.fromEntries(
-		Object.entries({ ...sealed.env, PI_OFFLINE: "1" }).filter(
-			(pair): pair is [string, string] => typeof pair[1] === "string",
-		),
+		Object.entries(
+			profiled({ ...sealed.env, PI_OFFLINE: "1" }, profiles.plain),
+		).filter((pair): pair is [string, string] => typeof pair[1] === "string"),
 	);
 	const cwds = counts.map(() => workingFolder(work));
 	const ran = await Promise.all(
@@ -512,11 +621,11 @@ async function runPlain(sealed: Seal): Promise<{
 			const { data } = await client.request({ type: "get_state" });
 			const file = isRecord(data) ? data.sessionFile : undefined;
 			await client.close();
-			return {
-				entries:
-					typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [],
-				errors: readOr(`${log}.stderr`),
-			};
+			const entries =
+				typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [];
+			const spread = spreadOf(latencies(entries).map((one) => one.ms));
+			say(`plain ${index} done ${JSON.stringify(spread)}`);
+			return { entries, errors: readOr(`${log}.stderr`) };
 		}),
 	);
 	return {
