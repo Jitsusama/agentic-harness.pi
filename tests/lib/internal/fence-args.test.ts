@@ -15,8 +15,8 @@ import {
 	HIDDEN,
 	jobsBroker,
 	NEVER_THROUGH,
-	READ_ONLY,
 } from "../../../lib/internal/fence.ts";
+import { READ_ONLY } from "../../../lib/internal/fence-home.ts";
 
 /**
  * A disk where every path is a folder but the links named and any git
@@ -285,7 +285,7 @@ describe("the folders the person browses in the home folder", () => {
 	const home = "/home/someone";
 	const disk = diskWith(home, [
 		".cache",
-		".cargo",
+		".npm",
 		"Documents",
 		"Downloads",
 		"demo",
@@ -303,22 +303,22 @@ describe("the folders the person browses in the home folder", () => {
 		expect(
 			writable(`${home}/.local/state/trees/thing`),
 			"only the hidden entries are bound back",
-		).toEqual([`${home}/.cache`, `${home}/.cargo`]);
+		).toEqual([`${home}/.cache`, `${home}/.npm`]);
 		expect(writable(home), "nor for a session in the home folder").toEqual([
 			`${home}/.cache`,
-			`${home}/.cargo`,
+			`${home}/.npm`,
 		]);
 	});
 
 	it("binds back writable the one the session works in, but never src or world whole", () => {
 		expect(writable(`${home}/demo/play`), "the session's own").toEqual([
 			`${home}/.cache`,
-			`${home}/.cargo`,
+			`${home}/.npm`,
 			`${home}/demo`,
 		]);
 		expect(writable(`${home}/src/repo`), "a checkout in src").toEqual([
 			`${home}/.cache`,
-			`${home}/.cargo`,
+			`${home}/.npm`,
 		]);
 	});
 
@@ -335,6 +335,84 @@ describe("the folders the person browses in the home folder", () => {
 		);
 		expect(refuses(`${home}/demo/runbook.md`), "the session's own").toBe(false);
 		expect(refuses(`${home}/.cache/thing`), "a cache").toBe(false);
+	});
+});
+
+describe("programs' hidden entries that run code as the person later", () => {
+	// Each is read as the person outside the fence: zsh sources its
+	// completion dump, dbus starts a service named there, nvim loads its
+	// site plugins, Chrome trusts a CA added there, kubectl and aws run a
+	// credential command their settings name, cargo builds the sources it
+	// extracted, and gpg, gradle and docker run what theirs name.
+	const home = "/home/someone";
+	const disk = diskOf([
+		`${home}/.zcompdump-optimus-5.9.2`,
+		`${home}/.zcompdump-optimus-5.9.2.zwc`,
+		`${home}/.kube/cache/`,
+		`${home}/.kube/gke_gcloud_auth_plugin_cache`,
+		`${home}/.aws/sso/cache/`,
+		`${home}/.cargo/registry/`,
+		`${home}/.gnupg/`,
+		`${home}/.pki/nssdb/`,
+		`${home}/.gradle/init.d/`,
+		`${home}/.docker/`,
+		`${home}/.local/share/dbus-1/services/`,
+		`${home}/.local/share/nvim/site/`,
+		`${home}/.cache/`,
+		`${home}/.npm/`,
+	]);
+	const place = { home, runtimeDir: undefined, cwd: `${home}/.cache/work` };
+	const args = fenceArgs(place, disk);
+	const pairs = (flag: string) =>
+		args.flatMap((arg, at) => (arg === flag ? [args[at + 1]] : []));
+
+	it("binds back writable only the caches among them", () => {
+		expect(
+			pairs("--bind").filter((path) => path?.startsWith(home)),
+			"the writable entries and the caches within the read-only ones",
+		).toEqual([
+			`${home}/.cache`,
+			`${home}/.local`,
+			`${home}/.npm`,
+			`${home}/.kube/cache`,
+			`${home}/.kube/gke_gcloud_auth_plugin_cache`,
+			`${home}/.aws/sso/cache`,
+		]);
+		expect(pairs("--ro-bind"), "dbus's services and nvim's plugins").toEqual(
+			expect.arrayContaining([
+				`${home}/.local/share/dbus-1`,
+				`${home}/.local/share/nvim`,
+			]),
+		);
+	});
+
+	it("refuses pi's file tools the same, an entry not yet there included", () => {
+		const refuses = (path: string) =>
+			fenceRefusesWrite(`${home}/${path}`, place, disk);
+		for (const path of [
+			".zcompdump-optimus-5.9.2",
+			".zcompdump-optimus-5.9.2.zwc",
+			".kube/config",
+			".aws/credentials",
+			".cargo/config.toml",
+			".cargo/registry/src/index/crate/build.rs",
+			".gnupg/gpg-agent.conf",
+			".pki/nssdb/cert9.db",
+			".gradle/init.d/thing.gradle",
+			".docker/cli-plugins/docker-thing",
+			".local/share/dbus-1/services/thing.service",
+			".local/share/nvim/site/plugin/thing.lua",
+		]) {
+			expect(refuses(path), `${path} was writable`).toBe(true);
+		}
+		for (const path of [
+			".kube/cache/discovery",
+			".aws/sso/cache/token.json",
+			".aws/cli/cache/role.json",
+			".npm/_cacache/index",
+		]) {
+			expect(refuses(path), `${path} was refused`).toBe(false);
+		}
 	});
 });
 

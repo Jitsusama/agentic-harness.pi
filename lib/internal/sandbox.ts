@@ -74,6 +74,7 @@ import {
 	guardsGitFolder,
 	nixDoor,
 } from "./fence.ts";
+import { cachesWithin, OWN_HOMES } from "./fence-home.ts";
 import { fenceSshConfig } from "./fence-ssh.ts";
 import {
 	type CloudGrant,
@@ -636,6 +637,26 @@ export function sandboxFor(
 }
 
 /**
+ * Makes each folder among the caches the fence keeps writable within a
+ * read-only entry, where that entry is there: inside, nothing could
+ * make one, and aws fails rather than skip a cache it can't write.
+ */
+function makeCachesWithin(home: string): void {
+	for (const { path, folder } of cachesWithin(home)) {
+		const entry = join(home, relative(home, path).split(sep)[0] ?? "");
+		if (!folder || !statSync(entry, { throwIfNoEntry: false })?.isDirectory()) {
+			continue;
+		}
+		try {
+			mkdirSync(path, { recursive: true, mode: 0o700 });
+		} catch {
+			// A cache that can't be made is left unbound, and its program
+			// fails to write it inside as it would have anyway.
+		}
+	}
+}
+
+/**
  * The wrap a sandbox puts around each command, for the place it runs in,
  * or nothing when the session runs commands as they are.
  */
@@ -658,6 +679,8 @@ export function wrapFor(
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 			};
+			makeCachesWithin(home);
+			const own = sandboxFolders(home).cache;
 			const made = {
 				bwrap: sandbox.bwrap,
 				landrun: sandbox.landrun,
@@ -665,6 +688,9 @@ export function wrapFor(
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
 				agent: agentProxy(fence.runtimeDir),
+				homes: OWN_HOMES.map(
+					([name, folder]) => [name, join(own, folder)] as const,
+				),
 			};
 			return (command) => {
 				const out = offloadedOutside(command, sandbox.offload, {

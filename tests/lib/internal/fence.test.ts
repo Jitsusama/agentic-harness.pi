@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
@@ -204,10 +205,22 @@ describe("a command in the fence, through stand-ins", () => {
 			SSH_AUTH_SOCK: "/run/user/1000/ssh-tpm-agent.sock",
 			NIRI_SOCKET: "/run/user/1000/niri.sock",
 			NIX_REMOTE: "daemon",
+			CARGO_HOME: join(home, ".cargo"),
 			FENCE_TEST_KEPT: "kept",
 		});
 		const env = result.stdout;
 		expect(env).toContain("FENCE_TEST_KEPT=kept");
+		for (const [name, tool] of [
+			["CARGO_HOME", "cargo"],
+			["GRADLE_USER_HOME", "gradle"],
+		]) {
+			expect(env, `${name} is the fence's own`).toMatch(
+				new RegExp(
+					`^${name}=${join(home, ".cache/pi-sandbox/cache", tool ?? "")}$`,
+					"m",
+				),
+			);
+		}
 		expect(env).toContain(
 			`NIX_REMOTE=unix://${join(runtimeDir, "nix-untrusted.sock")}`,
 		);
@@ -378,6 +391,19 @@ describe("pi's file tools in a fenced session", () => {
 			"folders the person browses",
 		);
 		expect(refusal("write", join(home, "work/other.ts"))).toBeUndefined();
+	});
+
+	it("makes the caches kept within a read-only entry first, since a command could make none", () => {
+		mkdirSync(join(home, ".aws"), { recursive: true });
+		wrapFor(
+			{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+			{ cwd: work, env: { XDG_RUNTIME_DIR: runtimeDir } },
+			home,
+		);
+		expect(existsSync(join(home, ".aws/cli/cache")), "aws's own cache").toBe(
+			true,
+		);
+		expect(existsSync(join(home, ".kube")), "no entry that wasn't").toBe(false);
 	});
 
 	it("makes no file in the home folder itself, and writes no link there", () => {
