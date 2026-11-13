@@ -194,6 +194,46 @@ describe("ledger views", () => {
 		await Promise.all([reader.close(), store.close()]);
 	});
 
+	// A proxy failing over to another provider's backend lands on a cache
+	// of its own: on 13 November 2026 two failovers wrote $57 again, all
+	// counted as unexplained.
+	it("names a miss on another backend than the session's turn before", async () => {
+		const at = (minute: number) =>
+			`2026-11-13T12:${String(minute).padStart(2, "0")}:00.000Z`;
+		const served = (backend: string) => ({
+			...FACTS,
+			precededBy: "results" as const,
+			gapMs: 30_000,
+			servedBackend: backend,
+		});
+		const { store, reader } = await ledger([
+			turn({ sessionId: "moved", timestamp: at(50), facts: served("anthropic") }),
+			turn({
+				...missed({}),
+				sessionId: "moved",
+				timestamp: at(52),
+				facts: served("vertex"),
+			}),
+			turn({ sessionId: "stayed", timestamp: at(50), facts: served("vertex") }),
+			turn({
+				...missed({}),
+				sessionId: "stayed",
+				timestamp: at(52),
+				facts: served("vertex"),
+			}),
+		]);
+
+		const answer = await reader.query(
+			"SELECT session_id, cause FROM misses ORDER BY session_id",
+		);
+
+		expect(answer.rows).toEqual([
+			{ session_id: "moved", cause: "served by another backend" },
+			{ session_id: "stayed", cause: "full miss, unexplained" },
+		]);
+		await Promise.all([reader.close(), store.close()]);
+	});
+
 	it("does not count an ordinary turn, or a first turn, as a miss", async () => {
 		const { store, reader } = await ledger([
 			turn(),
