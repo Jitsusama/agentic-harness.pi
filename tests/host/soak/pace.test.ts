@@ -1,7 +1,8 @@
 /**
- * The soak's pace: times drawn through a median and a 90th percentile, the
- * same for the same key, capped, and an answer streamed in pieces across
- * its drawn time, by the soak's provider over real HTTP.
+ * The soak's pace: times and rounds drawn through a median and a 90th
+ * percentile, the same for the same key, capped, a turn worked through its
+ * drawn rounds, and an answer streamed in pieces across its drawn time, by
+ * the soak's provider over real HTTP.
  */
 import { describe, expect, it } from "vitest";
 import { drawn, LONGEST_MS, paceOf, piecesOf } from "./pace.ts";
@@ -53,6 +54,11 @@ describe("a pace", () => {
 		);
 	});
 
+	it("caps a draw at the most it is given", () => {
+		const many = { p50: 100, p90: 100 };
+		expect(drawn(many, "c0-t1 rounds", 60)).toBe(60);
+	});
+
 	it("cuts words into pieces that join back into them", () => {
 		expect(piecesOf("abcdefghij", 3), "three").toEqual(["abcd", "efgh", "ij"]);
 		expect(piecesOf("ab", 5), "no more than its letters").toEqual(["a", "b"]);
@@ -63,13 +69,73 @@ describe("a pace", () => {
 
 describe("the soak's provider at a pace", () => {
 	const user = (text: string) => ({ role: "user", content: text });
+	const called = { role: "assistant", content: [{ type: "tool_use" }] };
+	const result = {
+		role: "user",
+		content: [{ type: "tool_result", content: "ok" }],
+	};
+	/** A turn's messages once `rounds` of its tools have answered. */
+	const after = (prompt: string, rounds: number) => [
+		user("soak c0-t0 echo, please"),
+		{ role: "assistant", content: "heard" },
+		user(prompt),
+		...Array.from({ length: rounds }, () => [called, result]).flat(),
+	];
+	const four = { rounds: { p50: 4, p90: 4 } };
 
 	it("has a bash turn's command wait its drawn time first", () => {
 		const tool = { p50: 500, p90: 500 };
-		expect(answerTo([user("soak c0-t3 bash, please")], tool)).toEqual({
+		expect(answerTo([user("soak c0-t3 bash, please")], { tool })).toEqual({
 			type: "tool_use",
 			name: "bash",
 			input: { command: "sleep 0.500; echo soak bash c0-t3" },
+		});
+	});
+
+	it("works an echo turn's drawn rounds before its own answer", () => {
+		const prompt = "soak c0-t1 echo, please";
+		const answers = [0, 1, 2, 3].map((n) => answerTo(after(prompt, n), four));
+		expect(answers, "two bash, a read, then its own").toEqual([
+			{
+				type: "tool_use",
+				name: "bash",
+				input: { command: "echo soak round 0 c0-t1" },
+			},
+			{
+				type: "tool_use",
+				name: "bash",
+				input: { command: "echo soak round 1 c0-t1" },
+			},
+			{ type: "tool_use", name: "read", input: { path: "notes.txt" } },
+			{ type: "text", text: "heard, ack c0-t1." },
+		]);
+	});
+
+	it("counts a tool turn's own call among its rounds", () => {
+		const prompt = "soak c0-t3 bash, please";
+		const answers = [1, 2, 3].map((n) => answerTo(after(prompt, n), four));
+		expect(answers).toEqual([
+			{
+				type: "tool_use",
+				name: "bash",
+				input: { command: "echo soak round 1 c0-t3" },
+			},
+			{
+				type: "tool_use",
+				name: "bash",
+				input: { command: "echo soak bash c0-t3" },
+			},
+			{ type: "text", text: "done, ack c0-t3." },
+		]);
+	});
+
+	it("counts only the tools of the latest turn", () => {
+		const earlier = [...after("soak c0-t1 echo, please", 3)];
+		const latest = [...earlier, user("soak c0-t2 echo, please")];
+		expect(answerTo(latest, four)).toEqual({
+			type: "tool_use",
+			name: "bash",
+			input: { command: "echo soak round 0 c0-t2" },
 		});
 	});
 
