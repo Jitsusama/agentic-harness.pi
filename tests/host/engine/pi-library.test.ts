@@ -132,12 +132,15 @@ describe("the host's picks of pi's transcript helpers", () => {
 		const declared = [tool("read"), tool("bash")].map(
 			library.toToolDeclaration,
 		);
+		expect(request(library, declared, [tool("read")]).toolsRemoved).toEqual([
+			"bash",
+		]);
 		expect(
-			request(library, declared, [tool("read")]).toolsRemoved,
-		).toEqual(["bash"]);
-		expect(
-			request(library, declared, [tool("read"), tool("bash"), tool("job")])
-				.toolsAdded.map((added) => added.name),
+			request(library, declared, [
+				tool("read"),
+				tool("bash"),
+				tool("job"),
+			]).toolsAdded.map((added) => added.name),
 		).toEqual(["job"]);
 		expect(calls.compared).toBe(2);
 	});
