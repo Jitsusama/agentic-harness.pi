@@ -2,14 +2,17 @@
  * What a soak's records say: each turn's latency, read from a
  * conversation's log as the time from the prompt's entry to its final
  * answer's, which pi writes as each message ends in the engine, so it
- * is the engine's own turn on either side; what a screen adds, from a
- * key typed to the prompt's entry and from the answer's entry to its
- * drawing at a viewer; the 50th and 99th percentiles of those; whether
+ * is the engine's own turn on either side; what each turn cost hosted
+ * against plain pi's same seeded turn; what a screen adds, from a key
+ * typed to the prompt's entry and to its first drawing, and from the
+ * answer's entry to its drawing at a viewer; the 50th and 99th
+ * percentiles of those, and whether they meet the bar; whether
  * a series of weighings settles or keeps growing; and how a hosted
  * conversation's
  * log differs from plain pi's of the same turns, with each side's own
  * folders, times and ids made labels first, as the parity suite does.
  */
+import { stripVTControlCharacters } from "node:util";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	alignedEvents,
@@ -32,23 +35,67 @@ export interface TurnTime {
 	readonly answerAt: number;
 }
 
-/** When a viewer typed a turn's prompt, and when it drew the answer, if it did. */
+/** When a viewer typed a turn's prompt, and what it drew after, if it did. */
 export interface Typed {
 	readonly keyAt: number;
+	/** When the viewer was first sent a frame showing the prompt. */
+	readonly shownAt?: number;
+	/** When it drew the answer. */
 	readonly drawnAt?: number;
+	/**
+	 * How its conversation woke, when this is the first key since: a key
+	 * then can wait on the wake, so it is told apart from the rest.
+	 */
+	readonly woke?: string;
 }
 
 /**
- * What a screen adds to a turn: from the key to the prompt's entry, from
- * the answer's entry to its drawing (below 0 when the answer is drawn as
- * it streams, before it ends), and from the key to the drawing in all.
+ * What a screen adds to a turn: from the key to the prompt's entry and
+ * to the first frame showing it, for keys outside a wake, and the same
+ * for the first key after each wake; and from the answer's entry to its
+ * drawing (below 0 when the answer is drawn as it streams, before it
+ * ends).
  */
 export interface ScreenSplit {
 	readonly keyToAccepted: Spread;
-	readonly writtenToDrawn: Spread;
 	readonly keyToDrawn: Spread;
+	readonly writtenToDrawn: Spread;
+	readonly afterWake: {
+		readonly keyToAccepted: Spread;
+		readonly keyToDrawn: Spread;
+	};
 	/** Turns typed whose answer no viewer was seen to draw. */
 	readonly undrawn: number;
+	/**
+	 * Keys outside a wake whose prompt no viewer was seen to draw, so
+	 * keyToDrawn leaves them out; the bar fails past a few of them.
+	 */
+	readonly unshown: number;
+}
+
+/**
+ * One hosted turn, with what is known of it: its engine time, plain pi's
+ * for the same seeded turn, and its key's times when a viewer typed it.
+ */
+export interface TurnRecord {
+	readonly tag: string;
+	readonly hostedMs: number;
+	readonly plainMs?: number;
+	readonly keyToAcceptedMs?: number;
+	readonly keyToDrawnMs?: number;
+	readonly woke?: string;
+}
+
+/** What the turns cost hosted over plain pi, and how many plain pi never answered. */
+export interface PairedCost extends Spread {
+	readonly unpaired: number;
+}
+
+/** Whether each of the bar's three figures holds. */
+export interface Bar {
+	readonly paired: boolean;
+	readonly keyToAccepted: boolean;
+	readonly keyToDrawn: boolean;
 }
 
 /** A key that took longer than the bar to reach its conversation's log. */
@@ -87,6 +134,22 @@ export interface Parity {
 	/** The first few, for the report, those of substance first. */
 	readonly first: readonly Difference[];
 }
+
+/**
+ * The most a turn may cost hosted over plain pi's same turn, at the
+ * p99: both play the same seeded answers and tools, so what is left is
+ * the host's own.
+ */
+const BAR_PAIRED_MS = 1000;
+
+/** The most a key may take, to its log or to its first drawing, at the p99. */
+const BAR_KEY_MS = 200;
+
+/**
+ * The share of keys outside a wake that may go unseen drawn before
+ * keyToDrawn's p99 stops counting: each one left out biases it low.
+ */
+const BAR_UNSHOWN_SHARE = 0.01;
 
 /** A later half growing slower than this, a checkpoint, has settled. */
 const SETTLED_KB_PER_CHECKPOINT = 1024;
@@ -139,26 +202,103 @@ export function screenSplit(
 	turns: readonly TurnTime[],
 	typed: ReadonlyMap<string, Typed>,
 ): ScreenSplit {
-	const accepted: number[] = [];
+	const steady = keyTimes();
+	const waking = keyTimes();
 	const drawn: number[] = [];
-	const whole: number[] = [];
 	let undrawn = 0;
+	let unshown = 0;
 	for (const turn of turns) {
 		const keys = typed.get(turn.tag);
 		if (keys === undefined) continue;
-		accepted.push(turn.promptAt - keys.keyAt);
-		if (keys.drawnAt === undefined) {
-			undrawn += 1;
-			continue;
-		}
-		drawn.push(keys.drawnAt - turn.answerAt);
-		whole.push(keys.drawnAt - keys.keyAt);
+		const into = keys.woke === undefined ? steady : waking;
+		into.accepted.push(turn.promptAt - keys.keyAt);
+		if (keys.shownAt !== undefined) into.shown.push(keys.shownAt - keys.keyAt);
+		else if (keys.woke === undefined) unshown += 1;
+		if (keys.drawnAt === undefined) undrawn += 1;
+		else drawn.push(keys.drawnAt - turn.answerAt);
 	}
 	return {
-		keyToAccepted: spreadOf(accepted),
+		keyToAccepted: spreadOf(steady.accepted),
+		keyToDrawn: spreadOf(steady.shown),
 		writtenToDrawn: spreadOf(drawn),
-		keyToDrawn: spreadOf(whole),
+		afterWake: {
+			keyToAccepted: spreadOf(waking.accepted),
+			keyToDrawn: spreadOf(waking.shown),
+		},
 		undrawn,
+		unshown,
+	};
+}
+
+/**
+ * Whether `writes`, a viewer's output from a key on, show `tag` once
+ * joined with their escapes stripped, so a tag a frame split across two
+ * writes, or coloured or moved over mid-word, still counts as shown.
+ */
+export function showsTag(writes: readonly string[], tag: string): boolean {
+	return stripVTControlCharacters(writes.join("")).includes(tag);
+}
+
+/** Keys' times to their logs and to their first drawings, gathered. */
+function keyTimes(): { accepted: number[]; shown: number[] } {
+	return { accepted: [], shown: [] };
+}
+
+/**
+ * Each hosted turn with plain pi's time for the same seeded turn, by its
+ * tag, and its key's times when a viewer typed it, so a reading the
+ * report doesn't make can still be made from it.
+ */
+export function turnRecords(
+	hosted: readonly TurnTime[],
+	plain: readonly Latency[],
+	typed: ReadonlyMap<string, Typed>,
+): TurnRecord[] {
+	const plainMs = new Map(plain.map(({ tag, ms }) => [tag, ms]));
+	return hosted.map(({ tag, promptAt, answerAt }) => {
+		const keys = typed.get(tag);
+		const paired = plainMs.get(tag);
+		return {
+			tag,
+			hostedMs: answerAt - promptAt,
+			...(paired === undefined ? {} : { plainMs: paired }),
+			...(keys === undefined ? {} : { keyToAcceptedMs: promptAt - keys.keyAt }),
+			...(keys?.shownAt === undefined
+				? {}
+				: { keyToDrawnMs: keys.shownAt - keys.keyAt }),
+			...(keys?.woke === undefined ? {} : { woke: keys.woke }),
+		};
+	});
+}
+
+/**
+ * What each turn cost hosted: its time less plain pi's for the same
+ * seeded turn, below 0 where plain pi was slower. A turn plain pi never
+ * answered is counted apart.
+ */
+export function pairedCost(records: readonly TurnRecord[]): PairedCost {
+	const costs = records.flatMap(({ hostedMs, plainMs }) =>
+		plainMs === undefined ? [] : [hostedMs - plainMs],
+	);
+	return {
+		...spreadOf(costs),
+		unpaired: records.length - costs.length,
+	};
+}
+
+/**
+ * Whether the bar holds: a turn's cost over plain pi's at most 1 s, and
+ * a key outside a wake at most 200 ms to its log and to its first
+ * drawing, each at the p99. A figure nothing measured fails, and so does
+ * the drawing's when more than 1% of its keys were never seen drawn.
+ */
+export function barOf(paired: Spread, screen: ScreenSplit): Bar {
+	const unshownAllowed = screen.keyToAccepted.count * BAR_UNSHOWN_SHARE;
+	return {
+		paired: paired.p99 <= BAR_PAIRED_MS,
+		keyToAccepted: screen.keyToAccepted.p99 <= BAR_KEY_MS,
+		keyToDrawn:
+			screen.keyToDrawn.p99 <= BAR_KEY_MS && screen.unshown <= unshownAllowed,
 	};
 }
 

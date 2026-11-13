@@ -68,17 +68,21 @@ import {
 	timeSpentWithin,
 } from "./profile.ts";
 import {
+	barOf,
 	entriesOf,
 	growthOf,
 	latencies,
+	pairedCost,
 	parityOf,
 	type ScreenSplit,
 	type SlowKey,
 	type Spread,
 	screenSplit,
+	showsTag,
 	slowKeys,
 	spreadOf,
 	type Typed,
+	turnRecords,
 	turnTimes,
 } from "./report.ts";
 import {
@@ -107,6 +111,8 @@ const PARK_MS = 4 * 60_000;
 const REWEIGH_EVERY_MS = 5_000;
 /** How long a viewer may take to draw its first frame. */
 const DRAWN_MS = 30_000;
+/** How often a viewer's frames are looked through for a prompt just typed. */
+const SHOWN_LOOK_MS = 5;
 /** How long past a turn's going idle its answer may take to be drawn. */
 const DRAWN_AFTER_IDLE_MS = 5_000;
 /** How often a turn's end is looked for in its log. */
@@ -254,6 +260,13 @@ say("plain side done");
 const parkedWeights = hosted.checkpoints.flatMap((one) =>
 	one.parked ? [one.parked] : [],
 );
+const plainLatencies = plain.logs.flatMap(latencies);
+const turnsTimed = turnRecords(
+	hosted.logs.flatMap(turnTimes),
+	plainLatencies,
+	typedAt,
+);
+const paired = pairedCost(turnsTimed);
 const report = {
 	conversations: counts.length,
 	pace,
@@ -274,9 +287,12 @@ const report = {
 	},
 	latency: {
 		hosted: hostedLatency.hosted,
-		plain: spreadOf(plain.logs.flatMap(latencies).map((one) => one.ms)),
+		plain: spreadOf(plainLatencies.map((one) => one.ms)),
+		paired,
 		screen: hostedLatency.screen,
+		bar: barOf(paired, hostedLatency.screen),
 	},
+	turnsTimed,
 	...(hostedTime
 		? {
 				timeSpent: {
@@ -578,12 +594,17 @@ async function drive(
 ): Promise<void> {
 	const marks = checkpointsOf(one.turns.length, checkpoints);
 	let done = 0;
+	let stopped = 0;
+	// How it woke at the checkpoint just passed, until its next key.
+	let woke: string | undefined;
 	const stopsDue = async (viewer?: Viewer) => {
 		if (marks[0] !== done) return viewer;
 		await viewer?.leave();
 		while (marks[0] === done) {
 			marks.shift();
 			await barrier(done);
+			woke = wokeAt(one, stopped);
+			stopped += 1;
 		}
 		return undefined;
 	};
@@ -591,10 +612,9 @@ async function drive(
 		let viewer: Viewer | undefined;
 		for (const [at, turn] of visit.turns.entries()) {
 			viewer = await stopsDue(viewer);
-			// A key that wakes its conversation times the wake, not the screen.
-			const waking = viewer === undefined && byKey.has(one.sessionId);
 			viewer ??= await opened(host, one, byKey);
-			await typed(host, one, viewer, turn, waking);
+			await typed(host, one, viewer, turn, woke);
+			woke = undefined;
 			done += 1;
 			if (at === 0 && visit.joined) {
 				const second = await attach(host.path, one.sessionId, ROWS, COLUMNS);
@@ -608,6 +628,15 @@ async function drive(
 		await viewer?.leave();
 	}
 	await stopsDue();
+}
+
+/**
+ * How `one` woke at its `checkpoint`th stop, when it parked there: its
+ * next key can wait on that wake, a mesh's going on as it is typed.
+ */
+function wokeAt(one: Conversation, checkpoint: number): string | undefined {
+	if (values["no-park"]) return undefined;
+	return values.burst ? "burst" : wakeOf(one, checkpoint);
 }
 
 /** A viewer attached to `one`, drawn unless its first key is to wake it. */
@@ -627,16 +656,19 @@ async function opened(
 
 /**
  * Type one turn and wait until its answer is in the log and the host
- * lists it idle, noting when its key went and its answer was drawn.
+ * lists it idle, noting when its key went, when its prompt was first
+ * drawn and when its answer was, and how its conversation woke, when
+ * this is its first key since.
  */
 async function typed(
 	host: ScreenHost,
 	one: Conversation,
 	viewer: Viewer,
 	turn: Turn,
-	waking: boolean,
+	woke: string | undefined,
 ): Promise<void> {
 	const ack = acknowledged(turn.tag);
+	const shown = firstShown(viewer, turn.tag, DRAWN_MS);
 	const keyAt = Date.now();
 	// The write that first draws the answer settles it; a turn whose
 	// answer is never seen drawn settles empty and is counted.
@@ -659,14 +691,52 @@ async function typed(
 		host.idle(one.sessionId, TURN_MS),
 		`${turn.tag} answered but never went idle, its log ending ${lastOf(one.file)}`,
 	);
-	const drawnAt = await Promise.race([
-		drawn,
-		new Promise<undefined>((late) =>
-			setTimeout(() => late(undefined), DRAWN_AFTER_IDLE_MS),
-		),
-	]);
-	if (waking) return;
-	typedAt.set(turn.tag, drawnAt === undefined ? { keyAt } : { keyAt, drawnAt });
+	const late = () =>
+		new Promise<undefined>((gone) =>
+			setTimeout(() => gone(undefined), DRAWN_AFTER_IDLE_MS),
+		);
+	const drawnAt = await Promise.race([drawn, late()]);
+	const shownAt = await Promise.race([shown, late()]);
+	typedAt.set(turn.tag, {
+		keyAt,
+		...(shownAt === undefined ? {} : { shownAt }),
+		...(drawnAt === undefined ? {} : { drawnAt }),
+		...(woke === undefined ? {} : { woke }),
+	});
+}
+
+/**
+ * When `viewer`'s output from now on first shows `tag`, looked for every
+ * few ms, or nothing once `ms` pass: the first drawing a key typed into
+ * it brings, which is what a person waits on as they type. The writes
+ * are read joined with their escapes stripped, so a tag split across
+ * frames still counts. The time is the look's, not the write's arrival,
+ * so it reads high by up to SHOWN_LOOK_MS plus this process's own loop
+ * lag, which errs towards failing the bar.
+ */
+function firstShown(
+	viewer: Viewer,
+	tag: string,
+	ms: number,
+): Promise<number | undefined> {
+	const from = viewer.output.length;
+	let looked = from;
+	const until = Date.now() + ms;
+	return new Promise((done) => {
+		const look = () => {
+			const { output } = viewer;
+			if (output.length > looked) {
+				looked = output.length;
+				if (showsTag(output.slice(from), tag)) {
+					done(Date.now());
+					return;
+				}
+			}
+			if (Date.now() > until) done(undefined);
+			else setTimeout(look, SHOWN_LOOK_MS);
+		};
+		look();
+	});
 }
 
 /** `env` with node told to write a CPU profile into `folder`, under --profile. */
