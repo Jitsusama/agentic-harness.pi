@@ -624,21 +624,20 @@ export function setQuestPriorityByDir(
 }
 
 /**
- * Add one or more aliases to the loaded quest in a single front-matter
+ * Add one or more aliases to the quest in `questDir` in a single front-matter
  * write, so a list either lands whole or not at all and no partial
  * state survives a failure. Aliases already present, and duplicates
  * within the batch, are reported as already and added only once.
  */
-export function addAliasesToLoaded(
-	state: QuestState,
+export function addAliasesToQuest(
+	questDir: string,
 	aliases: QuestAlias[],
 ):
 	| { ok: true; added: QuestAlias[]; already: QuestAlias[] }
 	| { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
 	let added: QuestAlias[] = [];
 	let already: QuestAlias[] = [];
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+	const result = writeQuestFrontMatter(questDir, (fm) => {
 		// Reset on every invocation so a retried write does not
 		// accumulate duplicate report entries.
 		added = [];
@@ -662,21 +661,20 @@ export function addAliasesToLoaded(
 }
 
 /**
- * Remove one or more aliases from the loaded quest in a single write,
- * the batch counterpart to addAliasesToLoaded. Reports which were
+ * Remove one or more aliases from the quest in `questDir` in a single
+ * write, the batch counterpart to addAliasesToQuest. Reports which were
  * removed and which were absent, so the verb can signal a partial or
  * whole no-op the same way the add path does.
  */
-export function removeAliasesFromLoaded(
-	state: QuestState,
+export function removeAliasesFromQuest(
+	questDir: string,
 	aliases: QuestAlias[],
 ):
 	| { ok: true; removed: QuestAlias[]; absent: QuestAlias[] }
 	| { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
 	let removed: QuestAlias[] = [];
 	let absent: QuestAlias[] = [];
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+	const result = writeQuestFrontMatter(questDir, (fm) => {
 		removed = [];
 		absent = [];
 		const drop = (a: QuestAlias) =>
