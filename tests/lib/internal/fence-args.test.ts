@@ -135,7 +135,7 @@ describe("the fence's arguments", () => {
 		);
 	});
 
-	it("makes the home folder read-only, binding back writable every entry but the read-only ones and links", () => {
+	it("makes the home folder read-only, binding back writable every hidden entry but the read-only ones and links", () => {
 		expect(pairs("--ro-bind")[0]).toBe(place.home);
 		const writable = pairs("--bind").filter((path) =>
 			path?.startsWith(place.home),
@@ -144,7 +144,6 @@ describe("the fence's arguments", () => {
 			"/home/someone/.cache",
 			"/home/someone/.local",
 			"/home/someone/.pi",
-			"/home/someone/src",
 		]);
 	});
 
@@ -279,6 +278,65 @@ function diskOf(paths: readonly string[]): Disk {
 				.map((path) => path.slice(folder.length + 1)),
 	};
 }
+
+describe("the folders the person browses in the home folder", () => {
+	// A command could make ~/Downloads/x/.git with a clean filter in its
+	// settings, which git status runs when the person's prompt enters it.
+	const home = "/home/someone";
+	const disk = diskWith(home, [
+		".cache",
+		".cargo",
+		"Documents",
+		"Downloads",
+		"demo",
+		"notes.txt",
+		"src",
+	]);
+	const writable = (cwd: string) => {
+		const args = fenceArgs({ home, runtimeDir: undefined, cwd }, disk);
+		return args.flatMap((arg, at) =>
+			arg === "--bind" && args[at + 1]?.startsWith(home) ? [args[at + 1]] : [],
+		);
+	};
+
+	it("keeps each one read-only, so no command plants a repository there for the person's git to run", () => {
+		expect(
+			writable(`${home}/.local/state/trees/thing`),
+			"only the hidden entries are bound back",
+		).toEqual([`${home}/.cache`, `${home}/.cargo`]);
+		expect(writable(home), "nor for a session in the home folder").toEqual([
+			`${home}/.cache`,
+			`${home}/.cargo`,
+		]);
+	});
+
+	it("binds back writable the one the session works in, but never src or world whole", () => {
+		expect(writable(`${home}/demo/play`), "the session's own").toEqual([
+			`${home}/.cache`,
+			`${home}/.cargo`,
+			`${home}/demo`,
+		]);
+		expect(writable(`${home}/src/repo`), "a checkout in src").toEqual([
+			`${home}/.cache`,
+			`${home}/.cargo`,
+		]);
+	});
+
+	it("refuses pi's file tools there too", () => {
+		const place = { home, runtimeDir: undefined, cwd: `${home}/demo/play` };
+		const refuses = (path: string) => fenceRefusesWrite(path, place, disk);
+		expect(
+			refuses(`${home}/Downloads/x/.git/config`),
+			"a repository in Downloads",
+		).toBe(true);
+		expect(refuses(`${home}/Documents/file.txt`), "a document").toBe(true);
+		expect(refuses(`${home}/notes.txt`), "a file atop the home folder").toBe(
+			true,
+		);
+		expect(refuses(`${home}/demo/runbook.md`), "the session's own").toBe(false);
+		expect(refuses(`${home}/.cache/thing`), "a cache").toBe(false);
+	});
+});
 
 describe("what the fence keeps from the person's own keys, devices and repositories", () => {
 	const home = "/home/someone";

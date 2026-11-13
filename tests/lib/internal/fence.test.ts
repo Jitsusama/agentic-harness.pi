@@ -372,6 +372,14 @@ describe("pi's file tools in a fenced session", () => {
 		expect(refusal("write", join(link, "x"))).toContain("read-only");
 	});
 
+	it("writes nothing in a folder the person browses but the one the session works in", () => {
+		mkdirSync(join(home, "Downloads"), { recursive: true });
+		expect(refusal("write", join(home, "Downloads/x/.git/config"))).toContain(
+			"folders the person browses",
+		);
+		expect(refusal("write", join(home, "work/other.ts"))).toBeUndefined();
+	});
+
 	it("makes no file in the home folder itself, and writes no link there", () => {
 		expect(refusal("write", join(home, ".newrc"))).toContain("read-only");
 		spawnSync("ln", ["-s", join(work, "file.ts"), join(home, ".linked")]);

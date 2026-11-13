@@ -121,10 +121,17 @@ through landrun:
   the Nix profile, dev's toolchain), the launcher's entries, direnv's
   allow list, `~/.pi/agent`, pi's packages, and the skills and settings
   every agent loads, so nothing it writes runs as you later. The home
-  folder itself is read-only, with its other entries bound back
+  folder itself is read-only, with its other hidden entries bound back
   writable, since a dotfile linked into the store could otherwise be
   deleted and replaced. pi's own file tools are held to the same (see
   the sandbox file interceptor).
+- **No repositories where you browse.** The home folder's visible
+  entries (`~/Downloads`, `~/Documents` and the rest) are read-only
+  but the one the session works in. A repository a command made in
+  `~/Downloads` could name a clean filter in its settings, which your
+  prompt's `git status` would run the moment you entered it, and
+  `core.fsmonitor=false` stops no filter. Hidden entries, where
+  programs keep their caches and state, stay writable.
 - **No moves between cgroups.** `/sys/fs/cgroup` is read-only, so a
   command reads where it stands but moves no process and changes no
   limit. pi places a command's work, its queue's turn and a World
@@ -132,8 +139,8 @@ through landrun:
 - **No new privileges.** A setgid wrapper such as 1Password's `op`
   gains nothing.
 
-Everything else is as it was: the home folder, the work, the network
-and the rest of the environment. The strict profile below is for text a
+Everything else is as it was: the home folder's hidden entries, the
+work, the network and the rest of the environment. The strict profile below is for text a
 stranger wrote; the fence is for every session. A session asking for
 it without bwrap and landrun on `PATH`, or off Linux, runs no command.
 It cost about 80 ms a command on a machine at a load of 20 (85 ms
