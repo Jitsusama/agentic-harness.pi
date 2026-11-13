@@ -42,14 +42,27 @@ export const KEEP_VARIABLE = "PI_BASH_KEEP";
  * runs the command in a subshell, so the command's own `exit` and traps
  * can't skip what follows, and sends its output through `tee -p`, which
  * pi reads as before and which writes on to the file when pi's pipe
- * closes. Then it writes the command's status and exits with it. Still
- * one line, so a failing command's line numbers are what they were.
+ * closes. Then it waits for that tee, so pi has the output before the
+ * shell exits, writes the command's status and exits with it. Still one
+ * line, so a failing command's line numbers are what they were.
+ *
+ * The tee is opened from a group, not the subshell, so it is this
+ * shell's own and `$!` names it: opened by the subshell, the wait found
+ * nothing, the shell could exit first, and pi, which reads a pipe only
+ * briefly once its shell has gone, lost what came late. Anything the
+ * command left running with its output keeps the tee open, so the wait
+ * stops after a second, as the watchdog's signal says, as pi stops
+ * reading what such a child writes.
  */
 export const KEEPING_STUB = [
 	`printf '%s\\n' "$$" > "$${KEEP_VARIABLE}.pid"`,
-	`( eval "unset ${COMMAND_VARIABLE} ${KEEP_VARIABLE}; $${COMMAND_VARIABLE}" ) > >(trap '' PIPE; exec tee -p -a "$${KEEP_VARIABLE}.out") 2>&1`,
+	`{ ( eval "unset ${COMMAND_VARIABLE} ${KEEP_VARIABLE}; $${COMMAND_VARIABLE}" ); } > >(trap '' PIPE; exec tee -p -a "$${KEEP_VARIABLE}.out") 2>&1`,
 	"s=$?",
-	"wait $! 2>/dev/null",
+	"t=$!",
+	"trap : USR1",
+	"( read -t 1 <> <(:); kill -USR1 $$ ) </dev/null >/dev/null 2>&1 & w=$!",
+	"wait $t 2>/dev/null",
+	"kill $w 2>/dev/null",
 	`printf '%s\\n' "$s" > "$${KEEP_VARIABLE}.end"`,
 	"exit $s",
 ].join("; ");
