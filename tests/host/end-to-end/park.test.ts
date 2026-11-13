@@ -47,11 +47,6 @@ const LOOK_MS = 60_000;
 const PARK_MS = NAMED_PARK_AFTER_MS + LOOK_MS + 30_000;
 /** How long the parking case may take, parking included. */
 const PARKING_CASE_MS = PARK_MS + 60_000;
-/**
- * A parked conversation a restart resumes parks again at the first look,
- * idle since its log's last message, well inside the switch's two minutes.
- */
-const PARK_AGAIN_MS = LOOK_MS + 30_000;
 /** How long a wake case may take. */
 const CASE_MS = 60_000;
 const ENTER = "\r";
@@ -69,7 +64,7 @@ const viewers: Viewer[] = [];
 const KINDS = ["byKey", "byWindow", "byMesh"] as const;
 /** The conversations, by how each is woken. */
 const woken = { byKey: "", byWindow: "", byMesh: "" };
-/** A conversation parked and never woken, for a host restart to resume. */
+/** A conversation parked and never woken, for a host restart to leave parked. */
 let resting = "";
 /** Every conversation the switch names. */
 const named = () => [...Object.values(woken), resting];
@@ -293,21 +288,39 @@ describe.skipIf(!packageDir)(
 		);
 
 		it(
-			"parks one a host restart resumed again at its first look, idle since its log's last message",
+			"leaves one parked across a host restart, building nothing until a mesh sender wakes it",
 			async () => {
 				expect(await standing(resting), "it was parked").toBe("parked");
 				expect(await host.restart(), "the host stops cleanly").toBe(0);
 				if (!packageDir) throw new Error("the host's pi went missing");
+				const started = Date.now();
 				host = await startScreenHost(sealed, packageDir);
+				took.restartedMs = Date.now() - started;
 				expect(
 					await standing(resting),
-					"the restarted host resumed it, running",
-				).toBe("idle");
-				const started = Date.now();
-				await host.parked(resting, PARK_AGAIN_MS).catch(withHost);
-				took.parkedAgainMs = Date.now() - started;
+					"the restarted host still holds it parked",
+				).toBe("parked");
+				expect(
+					(await host.weigh()).sessions,
+					"the restart built no session for it",
+				).not.toContain(resting);
+				const waking = Date.now();
+				expect(
+					askWake(resting, "message-2", parkFolder),
+					"its marker stood across the restart, naming where to wake it",
+				).toBe(true);
+				await host.idle(resting, TURN_MS).catch(withHost);
+				took.restingWokenMs = Date.now() - waking;
+				expect(
+					said(await logOf(resting)),
+					"the same conversation woke",
+				).toEqual(["first resting"]);
+				expect(
+					(await host.weigh()).sessions,
+					"its session is back in memory",
+				).toContain(resting);
 			},
-			PARK_AGAIN_MS + CASE_MS,
+			CASE_MS + CASE_MS,
 		);
 	},
 );

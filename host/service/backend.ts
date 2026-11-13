@@ -48,6 +48,14 @@ export interface ConversationEngine {
 	 * than the host resuming what it held as it starts.
 	 */
 	resume(entry: RosterEntry, woken?: boolean): Promise<void>;
+	/**
+	 * A host starting asks first whether a conversation it holds parked
+	 * before then, its park marker standing: if so the engine leaves it
+	 * parked, watching for its wake, and answers true, building nothing
+	 * until it is asked for; otherwise it does nothing and the start
+	 * resumes it.
+	 */
+	restsParked?(entry: RosterEntry): boolean;
 	abort(sessionId: string): Promise<void>;
 	/**
 	 * How much background work one conversation holds: commands, fleets
@@ -436,7 +444,9 @@ export interface Resuming {
 
 /**
  * Resume every held conversation at start, one at a time in the order
- * they were held. One that can't resume stays held, since only a
+ * they were held, apart from one that parked before the start and
+ * rests parked (`restsParked`), which builds nothing, so passes no gate
+ * and counts as none resumed. One that can't resume stays held, since only a
  * deliberate close or release may drop a hold, and is reported for a
  * person to close or repair. With `admitAnother`, each after the first
  * that resumed must pass it, so the same one runs alone after every
@@ -462,6 +472,7 @@ export async function resumeHeld(options: {
 				of: entries.length,
 				sessionId: entry.sessionId,
 			});
+			if (options.engine.restsParked?.(entry)) continue;
 			if (resumed.length > 0) await options.admitAnother?.();
 			await options.engine.resume(entry);
 			resumed.push(entry.sessionId);

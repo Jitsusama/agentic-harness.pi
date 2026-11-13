@@ -469,6 +469,40 @@ describe("hostBackend", () => {
 			await expect(backendWith(fake, gate).execute(open)).rejects.toBe(stale);
 		});
 
+		it("leaves a hold that rests parked unbuilt, asking the gate only for each built after the first", async () => {
+			const { fake } = engine();
+			const opening = backendWith(fake);
+			const held: string[] = [];
+			for (let n = 0; n < 3; n++)
+				held.push(parseOpenResult(await opening.execute(open)).sessionId);
+			for (const id of held) await host.stop(id);
+			const [resting, a, b] = held;
+
+			const restart = engine({
+				restsParked: vi.fn((entry) => entry.sessionId === resting),
+			});
+			const gate = vi.fn(() => Promise.resolve());
+			expect(
+				await resumeHeld({ roster, engine: restart.fake, admitAnother: gate }),
+			).toEqual({ resumed: [a, b], unresumed: [] });
+			expect(
+				vi.mocked(restart.fake.resume).mock.calls.map(([e]) => e.sessionId),
+				"only those that don't rest are built",
+			).toEqual([a, b]);
+			expect(gate, "asked for b alone, a going first").toHaveBeenCalledTimes(1);
+			const listed = parseListResult(
+				await backendWith(restart.fake).execute({ v: 1, id: "l", op: "list" }),
+			);
+			expect(
+				listed.sessions.map(({ sessionId, state }) => [sessionId, state]),
+				"still held, listed parked",
+			).toEqual([
+				[a, "idle"],
+				[b, "idle"],
+				[resting, "parked"],
+			]);
+		});
+
 		it("resumes the first hold that resumes and parks each after it with the gate's reason, in the order they were held", async () => {
 			const { fake } = engine();
 			const opening = backendWith(fake);

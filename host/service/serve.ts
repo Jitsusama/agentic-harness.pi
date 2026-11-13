@@ -110,11 +110,16 @@ export async function serveHost(options: {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		await options.starting?.({ step: "engine" });
 		const engine = await options.engine(host);
-		// What wakes a parked conversation, once the host listens: before then a
-		// wake does nothing, since the start resumes what the roster holds, and
-		// once it stops a wake says why it can't, so a window that asked says so
-		// rather than waiting on a wake that never comes.
+		// What wakes a parked conversation, once the host listens. A wake asked
+		// before then waits for it: one still parked from before the start
+		// (restsParked) wakes only so, as for a message sent while the host was
+		// down. Once it stops a wake says why it can't, so a window that asked
+		// says so rather than waiting on a wake that never comes.
 		let wakes: HostBackend["wake"] | undefined;
+		let listening = (_wake: HostBackend["wake"]): void => undefined;
+		const listened = new Promise<HostBackend["wake"]>((resolve) => {
+			listening = resolve;
+		});
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
 		engine.watch?.(
@@ -122,7 +127,10 @@ export async function serveHost(options: {
 				roster,
 				report: options.report,
 				...(options.say ? { say: options.say } : {}),
-				wake: (sessionId) => wakes?.(sessionId) ?? Promise.resolve(),
+				wake: (sessionId) =>
+					wakes
+						? wakes(sessionId)
+						: listened.then((wake) => wake(sessionId)),
 			}),
 		);
 		const { unresumed } = await resumeHeld({
@@ -151,6 +159,7 @@ export async function serveHost(options: {
 		let stopping: Promise<void> | undefined;
 		let restarting = false;
 		wakes = backend.wake;
+		listening(backend.wake);
 		return {
 			identity,
 			path,

@@ -375,6 +375,59 @@ describe("serveHost", () => {
 		).toBe("held");
 	});
 
+	it("leaves one still parked from before the start parked, waking it once listening for a wake asked as it started", async () => {
+		const first = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+		});
+		const reply = await opened(first.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await first.stop();
+
+		let events: ConversationEvents | undefined;
+		let woke: Promise<void> | undefined;
+		const resumes: (boolean | undefined)[] = [];
+		const second = await serveHost({
+			...places(),
+			engine: async (h) => {
+				const plain = engine(h);
+				return {
+					...plain,
+					watch: (given) => {
+						events = given;
+					},
+					// A message wrote its wake file while the host was down.
+					restsParked: (entry) => {
+						woke = events?.wake?.(entry.sessionId);
+						return true;
+					},
+					resume: async (entry, woken) => {
+						resumes.push(woken);
+						await plain.resume(entry);
+					},
+				};
+			},
+		});
+		try {
+			expect(second.unresumed, "nothing failed to resume").toEqual([]);
+			await woke;
+			expect(
+				resumes,
+				"built once, by the wake, rather than by the start",
+			).toEqual([true]);
+			expect(
+				(await listed(second.path)).sessions.map(({ sessionId: id, state }) => [
+					id,
+					state,
+				]),
+				"the wake left it running",
+			).toEqual([[sessionId, "idle"]]);
+		} finally {
+			await second.stop();
+		}
+	});
+
 	it("watches the engine before it resumes, so a conversation that ends inside pi is dropped", async () => {
 		const first = await serveHost({
 			...places(),
