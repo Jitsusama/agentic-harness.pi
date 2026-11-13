@@ -12,14 +12,15 @@
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
  *     [--no-park] [--profile] [--answer-ms P50[,P90]]
- *     [--tool-ms P50[,P90]] [--out DIR]
+ *     [--tool-ms P50[,P90]] [--rounds P50[,P90]] [--out DIR]
  *
  * With --profile each side's node writes a CPU profile, and the report
  * says where each side's time went. Without a pace the model answers at
  * once and every side runs as fast as it can; --answer-ms has each answer
  * take a time drawn through those percentiles, streamed in pieces, and
- * --tool-ms has each bash turn's command run that long, as a real
- * week's sessions do. The report says the pace it ran at.
+ * --tool-ms has each bash command run that long, and --rounds has each
+ * turn work through that many rounds of tool calls, as a real week's
+ * sessions do. The report says the pace it ran at.
  *
  * It needs a pi with the host's patches, as test:host does
  * (PI_HOST_RUNTIME), and prints the report as one JSON line after
@@ -57,7 +58,7 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
-import { LONGEST_MS, paceOf } from "./pace.ts";
+import { LONGEST_MS, MOST_ROUNDS, paceOf } from "./pace.ts";
 import { timeSpent } from "./profile.ts";
 import {
 	entriesOf,
@@ -164,6 +165,7 @@ const { values } = parseArgs({
 		profile: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
+		rounds: { type: "string" },
 		out: { type: "string" },
 	},
 });
@@ -199,10 +201,14 @@ const profiles = {
 const pace = {
 	answer: paceOf(values["answer-ms"]),
 	tool: paceOf(values["tool-ms"]),
+	rounds: paceOf(values.rounds),
 };
-// A paced turn may take as long as its pace adds: two answers and a tool.
+// A paced turn may take as long as its pace adds: an answer and a tool
+// each round, and a turn's own two rounds when it has no more.
 const turnMs =
-	TURN_MS + (pace.answer ? 2 * LONGEST_MS : 0) + (pace.tool ? LONGEST_MS : 0);
+	TURN_MS +
+	(pace.rounds ? MOST_ROUNDS : 2) *
+		((pace.answer ? LONGEST_MS : 0) + (pace.tool ? LONGEST_MS : 0));
 const provider = await soakProvider(pace);
 const agent = agentOf(provider);
 const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
@@ -680,10 +686,12 @@ async function runPlain(sealed: Seal): Promise<{
 				// the next prompt waits for that turn too, as the hosted side
 				// waits for the host to list the conversation idle.
 				const reported =
-					turn.kind === "job" ? client.wait(reportSettled()) : undefined;
+					turn.kind === "job"
+						? client.wait(reportSettled(), turnMs)
+						: undefined;
 				// Awaited below; a failure before then is its to report.
 				reported?.catch(() => undefined);
-				await tried(client.prompt(turn.prompt), `plain ${turn.tag}`);
+				await tried(client.prompt(turn.prompt, turnMs), `plain ${turn.tag}`);
 				if (reported)
 					await tried(reported, `plain ${turn.tag}'s job report never settled`);
 			}

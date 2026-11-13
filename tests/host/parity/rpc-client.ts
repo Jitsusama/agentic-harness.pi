@@ -24,10 +24,13 @@ export type RpcEvent = Readonly<Record<string, unknown>> & {
 export interface RpcClient {
 	/** Send a command and resolve with its successful response. */
 	request(command: Record<string, unknown>): Promise<RpcEvent>;
-	/** Resolve with the first event from now on that matches. */
-	wait(matches: (event: RpcEvent) => boolean): Promise<RpcEvent>;
-	/** Send a prompt and resolve once the agent settles. */
-	prompt(message: string): Promise<RpcEvent>;
+	/** Resolve with the first event from now on that matches, within `withinMs`. */
+	wait(
+		matches: (event: RpcEvent) => boolean,
+		withinMs?: number,
+	): Promise<RpcEvent>;
+	/** Send a prompt and resolve once the agent settles, within `withinMs`. */
+	prompt(message: string, withinMs?: number): Promise<RpcEvent>;
 	close(): Promise<void>;
 }
 
@@ -100,7 +103,10 @@ export function rpcClient(
 		for (const listener of listeners) listener(event);
 	}
 
-	function wait(matches: (event: RpcEvent) => boolean): Promise<RpcEvent> {
+	function wait(
+		matches: (event: RpcEvent) => boolean,
+		withinMs = EVENT_DEADLINE_MS,
+	): Promise<RpcEvent> {
 		if (exited) return Promise.reject(exited);
 		const found = new Promise<RpcEvent>((done, refuse) => {
 			const heardOne = (event: RpcEvent) => {
@@ -119,7 +125,7 @@ export function rpcClient(
 			listeners.add(heardOne);
 			failures.add(failed);
 		});
-		return deadline(found, EVENT_DEADLINE_MS, "No RPC event came in time");
+		return deadline(found, withinMs, "No RPC event came in time");
 	}
 
 	async function request(command: Record<string, unknown>): Promise<RpcEvent> {
@@ -138,8 +144,8 @@ export function rpcClient(
 	return {
 		request,
 		wait,
-		prompt: async (message) => {
-			const settled = wait((event) => event.type === "agent_settled");
+		prompt: async (message, withinMs) => {
+			const settled = wait((event) => event.type === "agent_settled", withinMs);
 			// Awaited below; a refusal before then is the request's to report.
 			settled.catch(() => undefined);
 			await request({ type: "prompt", message });

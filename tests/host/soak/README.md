@@ -15,10 +15,11 @@ host adds, and records that drift from plain pi's.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
   127.0.0.1 that answers without end, so both sides run pi's real
   provider code, at once or at a pace.
-- `pace.ts`: how long each answer and each bash turn's command takes
-  under a pace, drawn through a median and a 90th percentile, the same
-  for the same turn on either side and on every run, and how an answer
-  is cut into pieces streamed across its time.
+- `pace.ts`: how long each answer and each bash command takes and how
+  many rounds a turn has under a pace, drawn through a median and a
+  90th percentile, the same for the same turn on either side and on
+  every run, and how an answer is cut into pieces streamed across its
+  time.
 - `report.ts`: latencies from the logs, what the screens add to them,
   their percentiles, whether the weighings settle, and the differences
   between each pair of logs.
@@ -48,17 +49,20 @@ Without a pace the model answers at once, so each side runs as fast as
 it can: a closed loop that measures the host's cost per turn, not what a
 person feels. `--answer-ms P50,P90` has each answer take a time drawn
 through those percentiles, its words streamed in a piece every 50 ms,
-and `--tool-ms P50,P90` has each bash turn's command run that long
-first. No drawn time passes 45 s, so a tool turn stays inside plain pi's
-wait for an event. The week of Nov 6 to 13 on optimus gave the pace,
-from 680,045 answers and 425,376 bash runs in 604 session logs:
+`--tool-ms P50,P90` has each bash command run that long first, and
+`--rounds P50,P90` has each turn work through that many rounds before
+it answers, a tool call in each, two bash to every read. No drawn time
+passes 45 s and no turn passes 60 rounds, and each wait for a turn
+widens to fit. The week of Nov 6 to 13 on optimus gave the pace, from
+680,045 answers, 425,376 bash runs and their turns in 604 session logs:
 
 ```sh
---answer-ms 16007,38871 --tool-ms 541,12263
+--answer-ms 16007,38871 --tool-ms 541,12263 --rounds 7,55
 ```
 
-A paced turn takes about 20 s, so size a paced run's turns smaller:
-40 a conversation takes 15 to 20 minutes a side.
+At that pace a turn averages about 25 rounds and 9 minutes, so size a
+paced run's turns small: 4 a conversation with `--checkpoints 2` takes
+35 to 40 minutes a side, inside `--longest 14400`.
 
 ## The Report
 

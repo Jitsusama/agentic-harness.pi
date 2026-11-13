@@ -1,13 +1,13 @@
 /**
- * How long the soak's model takes over an answer, at a pace taken from real
- * sessions rather than at once: each answer's time is drawn from a spread
- * through a median and a 90th percentile, keyed by what it answers, so the
- * same answer takes the same time on either side and in every run, and its
- * words arrive in pieces across that time, as a real model streams them.
+ * The soak's pace, taken from real sessions rather than at once: how long
+ * each answer and each tool takes, and how many rounds each turn has, each
+ * drawn through a median and a 90th percentile and keyed by what it is
+ * for, so the same turn goes the same way on either side and in every run.
+ * An answer's words arrive in pieces across its time, as a model streams.
  */
 
-/** A spread of times: its median and its 90th percentile, in ms. */
-export interface TimeSpread {
+/** A spread of values: its median and its 90th percentile. */
+export interface Percentiles {
 	readonly p50: number;
 	readonly p90: number;
 }
@@ -16,34 +16,41 @@ export interface TimeSpread {
 export const PIECE_EVERY_MS = 50;
 
 /**
- * The longest a time is drawn to be. A tool turn's two answers and its
- * tool then take at most 135 s, inside plain pi's 180 s wait for an event;
- * a week's answers took longer about one time in fifteen.
+ * The longest a time is drawn to be, so no one wait of a run sits near its
+ * deadline: a week's answers took longer about one time in fifteen.
  */
 export const LONGEST_MS = 45_000;
+
+/** The most rounds a turn is drawn to have, past a week's 90th, 55. */
+export const MOST_ROUNDS = 60;
 
 /** The standard normal's 90th percentile, which fixes a spread's width. */
 const Z_90 = 1.2815515655446004;
 
-/** Read `P50[,P90]` in ms, or nothing when it isn't given. */
-export function paceOf(text: string | undefined): TimeSpread | undefined {
+/** Read `P50[,P90]`, or nothing when it isn't given. */
+export function paceOf(text: string | undefined): Percentiles | undefined {
 	if (text === undefined || text === "") return undefined;
 	const [p50, p90 = p50] = text.split(",").map(Number);
 	if (!(p50 > 0) || !(p90 >= p50))
 		throw new Error(
-			`a pace is P50[,P90] in ms, P50 above 0 and P90 at least P50: ${text}`,
+			`a pace is P50[,P90], P50 above 0 and P90 at least P50: ${text}`,
 		);
 	return { p50, p90 };
 }
 
 /**
- * The time drawn from `spread` for `key`, the same for the same key every
- * run: log-normal, as answer times are, through the spread's percentiles.
+ * The value drawn from `spread` for `key`, the same for the same key every
+ * run, rounded and at most `most`: log-normal, as answer times and rounds
+ * are, through the spread's percentiles.
  */
-export function drawn(spread: TimeSpread, key: string): number {
+export function drawn(
+	spread: Percentiles,
+	key: string,
+	most = LONGEST_MS,
+): number {
 	const sigma = Math.log(spread.p90 / spread.p50) / Z_90;
-	const time = spread.p50 * Math.exp(sigma * normal(hashOf(key)));
-	return Math.min(LONGEST_MS, Math.round(time));
+	const value = spread.p50 * Math.exp(sigma * normal(hashOf(key)));
+	return Math.min(most, Math.round(value));
 }
 
 /** FNV-1a's 32-bit offset basis and prime. */

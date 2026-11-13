@@ -8,23 +8,39 @@
  * lines, and anything else is echoed. Every turn's last answer ends in
  * the prompt's tag, which the soak waits for. Given a pace, each answer
  * takes a time drawn from it, its words arriving in pieces across that
- * time, and a bash turn's command waits a drawn time before it echoes;
- * without one it answers at once, in one piece, and bash echoes at once.
- * It binds 127.0.0.1 and takes no credential.
+ * time, each bash command waits a drawn time before it echoes, and a turn
+ * has a drawn count of rounds, each before its own answer a tool call,
+ * two bash to a read, as a real turn works before it answers. Without one
+ * it answers at once, in one piece, bash echoes at once, and a turn is
+ * only its own answer. It binds 127.0.0.1 and takes no credential.
  */
 import { createServer, type ServerResponse } from "node:http";
 import { setTimeout as later } from "node:timers/promises";
 import { isRecord } from "../../../lib/internal/record.ts";
-import { drawn, PIECE_EVERY_MS, piecesOf, type TimeSpread } from "./pace.ts";
-import { acknowledged, asked, type TurnKind } from "./turns.ts";
+import {
+	drawn,
+	MOST_ROUNDS,
+	PIECE_EVERY_MS,
+	type Percentiles,
+	piecesOf,
+} from "./pace.ts";
+import { acknowledged, asked, type Turn, type TurnKind } from "./turns.ts";
 
-/** How long answers and tools take, each drawn from its spread. */
+/** How long answers and tools take and how many rounds a turn has. */
 export interface SoakPace {
-	/** How long the model takes over each answer. */
-	readonly answer?: TimeSpread;
-	/** How long a bash turn's command runs. */
-	readonly tool?: TimeSpread;
+	/** How long the model takes over each answer, in ms. */
+	readonly answer?: Percentiles;
+	/** How long each bash command runs, in ms. */
+	readonly tool?: Percentiles;
+	/** How many rounds a turn has, the model answering once in each. */
+	readonly rounds?: Percentiles;
 }
+
+/** The turn kinds whose own answer is a tool call, so two rounds. */
+const TOOL_KINDS: ReadonlySet<TurnKind> = new Set(["read", "bash", "job"]);
+
+/** Of each three rounds before a turn's own, the one that reads. */
+const READS_EVERY = 3;
 
 /** The provider, while it listens. */
 export interface SoakProvider {
@@ -64,11 +80,12 @@ export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 		const body: unknown = JSON.parse(raw);
 		const messages: unknown = isRecord(body) ? body.messages : undefined;
 		answered += 1;
+		const history = Array.isArray(messages) ? messages : [];
 		await stream(
 			response,
-			answerTo(Array.isArray(messages) ? messages : [], pace.tool),
+			answerTo(history, pace),
 			answered,
-			pace.answer === undefined ? 0 : drawn(pace.answer, drawKeyOf(messages)),
+			pace.answer === undefined ? 0 : drawn(pace.answer, drawKeyOf(history)),
 		);
 	});
 	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -85,34 +102,64 @@ export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 	};
 }
 
-/**
- * What the request whose messages are `messages` is answered with, a bash
- * turn's command running for a time drawn from `tool` when given.
- */
+/** What the request whose messages are `messages` is answered with, at `pace`. */
 export function answerTo(
 	messages: readonly unknown[],
-	tool?: TimeSpread,
+	pace: SoakPace = {},
 ): Block {
-	const prompt = [...messages].reverse().find(said);
-	const turn = prompt === undefined ? undefined : asked(textOf(prompt));
-	if (turn === undefined) return { type: "text", text: UNSCRIPTED };
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined) return { type: "text", text: UNSCRIPTED };
+	const { turn, round } = sofar;
+	const runsMs = (key: string) =>
+		pace.tool === undefined ? 0 : drawn(pace.tool, `${turn.tag} tool ${key}`);
+	const before = roundsBefore(turn, pace.rounds);
+	if (round < before) return workFor(turn.tag, round, runsMs(`${round}`));
 	const ack = acknowledged(turn.tag);
-	if (isToolResult(messages.at(-1)))
-		return { type: "text", text: `done, ${ack}` };
-	const runsMs = tool === undefined ? 0 : drawn(tool, `${turn.tag} tool`);
-	return blockFor(turn.kind, turn.tag, ack, runsMs);
+	if (round > before) return { type: "text", text: `done, ${ack}` };
+	return blockFor(turn.kind, turn.tag, ack, runsMs("own"));
+}
+
+/** The soak turn `messages` are of, and how many of its tools have answered. */
+function turnSoFar(
+	messages: readonly unknown[],
+): { readonly turn: Pick<Turn, "tag" | "kind">; readonly round: number } | undefined {
+	let start = messages.length - 1;
+	while (start >= 0 && !said(messages[start])) start -= 1;
+	const turn = start < 0 ? undefined : asked(textOf(messages[start]));
+	if (turn === undefined) return undefined;
+	const round = messages.slice(start + 1).filter(isToolResult).length;
+	return { turn, round };
+}
+
+/** How many rounds of work come before `turn`'s own answer, at `rounds`. */
+function roundsBefore(
+	turn: Pick<Turn, "tag" | "kind">,
+	rounds: Percentiles | undefined,
+): number {
+	if (rounds === undefined) return 0;
+	const total = drawn(rounds, `${turn.tag} rounds`, MOST_ROUNDS);
+	return Math.max(0, total - (TOOL_KINDS.has(turn.kind) ? 2 : 1));
+}
+
+/** Round `round` of a turn's work: two bash, then a read, over again. */
+function workFor(tag: string, round: number, runsMs: number): Block {
+	if (round % READS_EVERY === READS_EVERY - 1)
+		return { type: "tool_use", name: "read", input: { path: "notes.txt" } };
+	return {
+		type: "tool_use",
+		name: "bash",
+		input: { command: `${waitFor(runsMs)}echo soak round ${round} ${tag}` },
+	};
 }
 
 /**
- * What a request's time is drawn by: the turn it answers and whether it
- * answers a tool's result, the same on either side of the soak.
+ * What a request's time is drawn by: the turn it answers and its round,
+ * the same on either side of the soak.
  */
-function drawKeyOf(messages: unknown): string {
-	if (!Array.isArray(messages)) return UNSCRIPTED;
-	const prompt = [...messages].reverse().find(said);
-	const turn = prompt === undefined ? undefined : asked(textOf(prompt));
-	if (turn === undefined) return UNSCRIPTED;
-	return `${turn.tag} ${isToolResult(messages.at(-1)) ? "after" : "first"}`;
+function drawKeyOf(messages: readonly unknown[]): string {
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined) return UNSCRIPTED;
+	return `${sofar.turn.tag} answer ${sofar.round}`;
 }
 
 function blockFor(
