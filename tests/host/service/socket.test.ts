@@ -16,6 +16,7 @@ import {
 } from "../../../host/service/server.ts";
 import { terminalBridge } from "../../../host/service/viewer.ts";
 import { ambientSession } from "../../../lib/core/session/index.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
@@ -236,14 +237,11 @@ describe("viewer connection lifecycle", () => {
 				ok: true,
 				id: "view",
 			});
+			// Drawn in one tick, so one frame.
 			expect(
 				(await messages.next()).value,
-				"a joining viewer is first given the modes pi's screen expects",
-			).toEqual({ type: "output", data: "\x1b[>7u\x1b[?2004h" });
-			expect((await messages.next()).value).toEqual({
-				type: "output",
-				data: `screen-${id}`,
-			});
+				"a joining viewer is first given the modes pi's screen expects, then its screen",
+			).toEqual({ type: "output", data: `\x1b[>7u\x1b[?2004hscreen-${id}` });
 			return { socket, messages };
 		}
 		const first = await connect(a);
@@ -299,14 +297,14 @@ describe("viewer connection lifecycle", () => {
 			id: "view",
 			ok: true,
 		});
-		expect((await messages.next()).value).toEqual({
-			type: "output",
-			data: "initial screen",
-		});
-		expect((await messages.next()).value).toEqual({
-			type: "output",
-			data: "updated",
-		});
+		// One frame or two, as the ticks fall; the bytes and their order hold.
+		let drawn = "";
+		while (drawn.length < "initial screenupdated".length) {
+			const next = (await messages.next()).value;
+			expect(next).toMatchObject({ type: "output" });
+			if (isRecord(next) && typeof next.data === "string") drawn += next.data;
+		}
+		expect(drawn).toBe("initial screenupdated");
 		socket.end();
 		await messages.next();
 		expect(seen).toEqual([
