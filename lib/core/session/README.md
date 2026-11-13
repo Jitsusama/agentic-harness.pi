@@ -159,6 +159,12 @@ migrates a site, removing zero entries. New shortcuts fail. A genuine
 process-wide service needs a reviewed exemption rather than a session
 slot: its owner moves it to tests/package/session-state-exempt.txt as
 `path:kind count reason`, and a line without a reason, or a count the
-file outgrows, fails. The waiting list still holds such services until
-their owners classify them.
+file outgrows, fails.
+
+The waiting list is empty, so package.json declares
+`pi.sessionStateKeyed: true`. A host that honours it loads one copy of
+each of the package's modules for every folder its conversations run
+in, rather than a copy per folder, so module state is shared by all of
+them. The gate fails while the declaration stands and any site waits,
+so a new site is keyed or exempted before it lands.
 The gate does not scan library code: wave 2 owns its library migrations.

@@ -216,20 +216,30 @@ export function sweepKept(
 	}
 }
 
-let persists: boolean | undefined;
+/** What {@link teePersists} found, by the PATH it was asked with. */
+const persistsOn = new Map<string, boolean>();
 
 /**
- * Whether this machine's `tee` writes on to its file once its other
- * output has gone (`-p`, GNU's): without it the stub can't keep a call
- * past its pi, and its calls hold a move, as every call did before.
+ * Whether the `tee` that `path` finds writes on to its file once its
+ * other output has gone (`-p`, GNU's): without it the stub can't keep a
+ * call past its pi, and its calls hold a move, as every call did before.
+ * Asked of a command's own PATH, since a hosted conversation's need not
+ * be the process's.
  */
-export function teePersists(): boolean {
-	persists ??=
+export function teePersists(
+	path: string | undefined = process.env.PATH,
+): boolean {
+	const key = path ?? "";
+	const known = persistsOn.get(key);
+	if (known !== undefined) return known;
+	const persists =
 		spawnSync("tee", ["-p", "/dev/null"], {
 			input: "",
 			stdio: ["pipe", "ignore", "ignore"],
 			timeout: 5000,
+			...(path === undefined ? {} : { env: { ...process.env, PATH: path } }),
 		}).status === 0;
+	persistsOn.set(key, persists);
 	return persists;
 }
 

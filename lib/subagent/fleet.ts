@@ -28,7 +28,11 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { hosted, sessionOwner } from "../core/session/index.ts";
+import {
+	hosted,
+	type SessionRef,
+	sessionOwner,
+} from "../core/session/index.ts";
 import {
 	askedOnceWithTicks,
 	isTickedOwner,
@@ -213,12 +217,13 @@ export async function abandonedFleets(
 export async function whoIsWaiting(
 	facts: TickFacts,
 	pid: number = process.pid,
+	session?: SessionRef,
 ): Promise<FleetRun["owner"]> {
 	// The shared one. Kept as a name of its own because the caller
 	// here is asking a question in this module's vocabulary, and
 	// because the two spellings of an owner cannot be allowed to drift
 	// whatever they are called.
-	return hosted() ? sessionOwner() : tickedOwnerNow(facts, pid);
+	return hosted() ? sessionOwner(session) : tickedOwnerNow(facts, pid);
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
@@ -321,11 +326,12 @@ export function createFleetLedger(root: string): FleetLedger {
 		// again at zero every time this module is loaded and a reload is
 		// an ordinary event in a long session.
 		//
-		// Random bytes as well, because pi caches this module per folder:
-		// a host's conversations in one folder share its counter, but
-		// those in other folders each load a copy of their own, sharing
-		// the pid and counting from zero, so two can match in pid,
-		// millisecond and counter.
+		// Random bytes as well, because one process can hold several
+		// copies of this module: a host's conversations share one, but a
+		// reload makes a fresh copy beside it, and a package that keeps a
+		// copy per folder loads one for each. Those share the pid and
+		// count from zero, so two can match in pid, millisecond and
+		// counter.
 		staging += 1;
 		const chance = randomBytes(4).toString("hex");
 		const pending = `${path}.${process.pid}.${Date.now()}.${staging}.${chance}${STAGING_SUFFIX}`;

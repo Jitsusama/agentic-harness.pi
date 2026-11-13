@@ -16,6 +16,7 @@ import {
 	type JobOutcome,
 	jobStopReason,
 } from "../../lib/jobs/index.ts";
+import { installTestHost } from "../support/session-host.ts";
 import { until } from "../support/until.ts";
 
 /**
@@ -107,6 +108,28 @@ describe("watching checks", () => {
 			ENDS_WITHIN_MS,
 		);
 		expect(typeof watch(bus, async () => rollup("pending"))).toBe("object");
+	});
+
+	it("lets two hosted conversations each watch the same change", () => {
+		const testHost = installTestHost();
+		disposers.push(() => testHost.dispose());
+		const read = async () => rollup("pending");
+		const watchIn = (session: string) => {
+			const { bus } = recordingHost();
+			return watchChecks({
+				bus,
+				session,
+				key: "gh:shop/app#7",
+				label: "shop/app#7",
+				read,
+				render: (r) => `state ${r.state}`,
+				pollMs: 5,
+			});
+		};
+
+		expect(typeof watchIn("a")).toBe("object");
+		expect(typeof watchIn("b")).toBe("object");
+		expect(watchIn("a")).toBe("already-watching");
 	});
 
 	it("says so when there is no host to hold it", () => {

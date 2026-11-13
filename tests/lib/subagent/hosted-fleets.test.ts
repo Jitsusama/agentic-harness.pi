@@ -50,3 +50,15 @@ it("records separate waiters and abandons only the conversation that closed", as
 	]);
 	expect(host.holds("b")).toBe("idle");
 });
+
+it("names the conversation it is told of, over the ambient one", async () => {
+	const { host } = sessionHost(OWNER);
+	removeHost = installHost(host);
+	const b = await withSession("a", () => whoIsWaiting(facts, undefined, "b"));
+	expect(b).toEqual({ ...OWNER, session: "b", host: host.key });
+	expect(await whoIsWaiting(facts, undefined, "a")).toEqual({
+		...OWNER,
+		session: "a",
+		host: host.key,
+	});
+});

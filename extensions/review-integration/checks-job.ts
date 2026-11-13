@@ -8,8 +8,9 @@
  * returns at once, and the settled result arrives as a message of its
  * own.
  *
- * Only one watch per change at a time, so a model that asks twice does
- * not get told twice. A look that fails is not a settled result; a run
+ * Only one watch per change at a time in a conversation, so a model that
+ * asks twice does not get told twice; another conversation watching the
+ * same change is told on its own bus. A look that fails is not a settled result; a run
  * of failures in a row is, and says so, since a watch that can never
  * read anything should not sit there for two hours.
  *
@@ -25,6 +26,7 @@ import type {
 	ChecksRollup,
 	ReviewTarget,
 } from "../../lib/core/review/index.ts";
+import { type SessionRef, sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	type CarriedWork,
 	findJobHost,
@@ -59,6 +61,8 @@ export interface ChecksReading {
 /** What watching a change's checks needs. */
 export interface ChecksWatch extends ChecksReading {
 	readonly bus: EventBus;
+	/** The conversation watching, whose second watch of a change is refused. */
+	readonly session?: SessionRef;
 	/** What identifies the change, so a second watch on it is refused. */
 	readonly key: string;
 	/** How the change is named to the model, e.g. `Shopify/app#7`. */
@@ -83,7 +87,12 @@ interface CarriedChecks extends CarriedWork {
 /** Why a watch could not be started. */
 export type WatchRefusal = "no-host" | "already-watching";
 
-const watching = new Set<string>();
+const WATCHING_SLOT = "agentic-harness.review-integration.checks-watching.v1";
+
+/** The changes a conversation is watching, its own in a host. */
+function watchingIn(session?: SessionRef): Set<string> {
+	return sessionSlot(WATCHING_SLOT, session, () => new Set<string>());
+}
 
 /** A watch under way, which a move can stop without saying anything. */
 interface Watching {
@@ -117,6 +126,7 @@ function carryOf(
 
 /** Hold the waiting as a job, or say why it cannot be. */
 export function watchChecks(watch: ChecksWatch): Job | WatchRefusal {
+	const watching = watchingIn(watch.session);
 	if (watching.has(watch.key)) return "already-watching";
 	const host = findJobHost(watch.bus);
 	if (host === undefined) return "no-host";
@@ -129,7 +139,7 @@ export function watchChecks(watch: ChecksWatch): Job | WatchRefusal {
 		...(carry ? { carry } : {}),
 	});
 	watching.add(watch.key);
-	armed = arm(job, watch, started);
+	armed = arm(job, watch, started, watching);
 	return job;
 }
 
@@ -138,6 +148,7 @@ function arm(
 	job: Job,
 	watch: Omit<ChecksWatch, "bus">,
 	started: number,
+	watching: Set<string>,
 ): Watching {
 	const now = watch.now ?? Date.now;
 	let ended = false;
@@ -237,6 +248,8 @@ export interface TakingChecks {
 	) => Promise<ChecksReading | undefined>;
 	readonly pollMs?: number;
 	readonly now?: () => number;
+	/** The conversation taking it up, else the one the call runs in. */
+	readonly session?: SessionRef;
 }
 
 /**
@@ -249,6 +262,7 @@ export function takeUpChecks(
 	here: TakingChecks,
 ): Taking | undefined {
 	if (!isCarriedChecks(work)) return undefined;
+	const watching = watchingIn(here.session);
 	const watch = {
 		key: work.key,
 		label: work.label,
@@ -285,7 +299,13 @@ export function takeUpChecks(
 				(reading) => {
 					if (job.signal.aborted || handedOn) return;
 					if (reading === undefined) cannot("no provider serves the change");
-					else armed = arm(job, { ...watch, ...reading }, work.startedAt);
+					else
+						armed = arm(
+							job,
+							{ ...watch, ...reading },
+							work.startedAt,
+							watching,
+						);
 				},
 				(error: unknown) => {
 					if (job.signal.aborted || handedOn) return;

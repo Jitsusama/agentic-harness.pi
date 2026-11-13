@@ -118,7 +118,7 @@ export async function runSee(
 
 		bound = await boundFor(pi, params, ctx.cwd);
 		if (params.action === "checks" && params.watch === true)
-			return await watchFor(pi, bound);
+			return await watchFor(pi, bound, ctx);
 		return await readFrom(
 			bound,
 			params.action as Exclude<SeeAction, "changes">,
@@ -234,7 +234,11 @@ async function seeChecks(bound: BoundTarget): Promise<Answer> {
  * What CI says now, and when it has not settled, a job that says it
  * once it has. Settled already, this answers as a plain read does.
  */
-async function watchFor(pi: ExtensionAPI, bound: BoundTarget): Promise<Answer> {
+async function watchFor(
+	pi: ExtensionAPI,
+	bound: BoundTarget,
+	ctx: ExtensionContext,
+): Promise<Answer> {
 	const checks = await bound.checks();
 	if (!checks) {
 		return say(
@@ -250,6 +254,7 @@ async function watchFor(pi: ExtensionAPI, bound: BoundTarget): Promise<Answer> {
 			: `${bound.target.kind} in ${bound.repo.key}`;
 	const watched = watchChecks({
 		bus: pi.events,
+		session: ctx,
 		key: `${bound.provider.id}:${label}`,
 		label,
 		target: bound.target,

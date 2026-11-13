@@ -66,7 +66,8 @@
 		"skills": [
 			"./skills",
 			"!skills/review-*-format"
-		]
+		],
+		"sessionStateKeyed": true
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.29.0",

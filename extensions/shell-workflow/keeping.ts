@@ -34,8 +34,12 @@ const MS_PER_SECOND = 1000;
 
 /** What the operations need, for tests to stand in for. */
 export interface KeepingOptions {
-	/** Whether calls can be kept now: GNU tee, bash, no pi-spawner. */
-	readonly can: () => boolean;
+	/**
+	 * Whether calls can be kept now: GNU tee, bash, no pi-spawner; asked
+	 * with a call's environment when it has one, since its PATH finds the
+	 * tee it runs.
+	 */
+	readonly can: (env?: NodeJS.ProcessEnv) => boolean;
 	/** Where the calls' files go. */
 	readonly folder?: () => string;
 	readonly now?: () => number;
@@ -63,11 +67,16 @@ export function keepsOnDisk(
 ): Keeping {
 	const now = options.now ?? Date.now;
 	const calls = new WeakMap<AbortSignal, KeptCall>();
+	// The calls whose own environment said they can't be kept.
+	const unkept = new WeakSet<AbortSignal>();
 	return {
 		operations: {
 			async exec(command, cwd, call) {
-				if (command !== COMMAND_STUB || !options.can())
+				if (command !== COMMAND_STUB) return await ops.exec(command, cwd, call);
+				if (!options.can(call.env)) {
+					if (call.signal) unkept.add(call.signal);
 					return await ops.exec(command, cwd, call);
+				}
 				const path = options.folder ? makeKept(options.folder()) : makeKept();
 				const startedAt = now();
 				const kept: KeptCall = {
@@ -102,7 +111,7 @@ export function keepsOnDisk(
 			},
 		},
 		carryOf(signal) {
-			if (!options.can()) return undefined;
+			if (unkept.has(signal) || !options.can()) return undefined;
 			return {
 				what(): CarriedShell | undefined {
 					const kept = calls.get(signal);

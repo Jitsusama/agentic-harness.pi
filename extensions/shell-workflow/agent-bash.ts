@@ -57,7 +57,9 @@ export function agentBash(
 		createLocalBashOperations(
 			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
 		),
-		{ can: () => isBash(settings.shellPath) && teePersists() },
+		{
+			can: (env) => isBash(settings.shellPath) && teePersists(env?.PATH),
+		},
 	);
 	const spawning = spawnedBy(keeping.operations, {
 		...(settings.shellPath ? { shellPath: settings.shellPath } : {}),

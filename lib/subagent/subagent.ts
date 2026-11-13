@@ -1609,12 +1609,12 @@ const briefHolders = new Map<
 >();
 
 /**
- * What tells this copy's briefs from another's in the same process. Pi
- * caches an extension's module per folder, so a host's conversations in
- * one folder share this copy and its holders, one count covering them
- * all, while a conversation in another folder, or after a reload, has a
- * copy of its own counting only its own holders. Two copies sending one
- * brief must never name the same file.
+ * What tells this copy's briefs from another's in the same process. A
+ * host's conversations share this copy and its holders, one count
+ * covering them all, so conversations sending the same brief share one
+ * file of the same bytes, removed at the last release. A copy a reload
+ * makes, or one a package loads per folder, counts only its own
+ * holders. Two copies sending one brief must never name the same file.
  */
 const BRIEF_COPY = randomBytes(4).toString("hex");
 
