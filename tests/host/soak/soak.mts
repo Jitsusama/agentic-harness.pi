@@ -7,11 +7,13 @@
  * At each checkpoint every conversation stops: the host is weighed awake,
  * the park switch names them all, the host is weighed once they have
  * parked, and each is woken again, by a window, by the mesh or by the
- * next key typed, in turn. Then plain pi takes the same turns, one RPC
+ * next key typed, in turn; with --burst every one is woken by a window
+ * at the same moment instead, as a host's conversations wake together
+ * after a switch, and the host is weighed again once all have. Then plain pi takes the same turns, one RPC
  * process a conversation, all at once as the host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--profile] [--answer-ms P50[,P90]]
+ *     [--no-park] [--burst] [--profile] [--answer-ms P50[,P90]]
  *     [--tool-ms P50[,P90]] [--rounds P50[,P90]] [--out DIR]
  *
  * With --profile each side's node writes a CPU profile, and the report
@@ -133,12 +135,16 @@ interface Checkpoint {
 	readonly parkMs?: number;
 	/** Each window's wake, one at a time, before the others wake. */
 	readonly windowWakes?: readonly WindowWake[];
+	/** Under --burst, every conversation's wake by a window, all at once. */
+	readonly burstWakes?: readonly WindowWake[];
+	/** Under --burst, the host once all have woken: its loop, through the burst. */
+	readonly afterBurst?: Weight;
 }
 
 /**
- * A window opened on a parked conversation while nothing else wakes: the
- * host's answer to its attach waits for the whole wake, so `answeredMs`
- * is the wake, and `drawnMs` the screen's first words after it.
+ * A window opened on a parked conversation: the host's answer to its
+ * attach waits for the whole wake, so `answeredMs` is the wake, and
+ * `drawnMs` the screen's first words after it.
  */
 interface WindowWake {
 	readonly conversation: number;
@@ -162,6 +168,7 @@ const { values } = parseArgs({
 		turns: { type: "string" },
 		checkpoints: { type: "string", default: "8" },
 		"no-park": { type: "boolean", default: false },
+		burst: { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
@@ -395,14 +402,22 @@ async function runHosted(sealed: Seal): Promise<{
 		writeFileSync(switchFile, "");
 		const checkpoint = weighings.length;
 		const windowWakes: WindowWake[] = [];
-		for (const one of conversations)
-			if (wakeOf(one, checkpoint) === "window")
-				windowWakes.push(await windowWake(host, one));
-		await Promise.all(
-			conversations.map((one) =>
-				wake(host, one, checkpoint, parkFolder, byKey),
-			),
-		);
+		let burst: { wakes: WindowWake[]; after: Weight } | undefined;
+		if (values.burst) {
+			const wakes = await Promise.all(
+				conversations.map((one) => windowWake(host, one)),
+			);
+			burst = { wakes, after: await host.weigh() };
+		} else {
+			for (const one of conversations)
+				if (wakeOf(one, checkpoint) === "window")
+					windowWakes.push(await windowWake(host, one));
+			await Promise.all(
+				conversations.map((one) =>
+					wake(host, one, checkpoint, parkFolder, byKey),
+				),
+			);
+		}
 		weighings.push({
 			turnsDone: done,
 			atMs: atMs(),
@@ -411,9 +426,10 @@ async function runHosted(sealed: Seal): Promise<{
 			recordBytes,
 			parkMs,
 			windowWakes,
+			...(burst ? { burstWakes: burst.wakes, afterBurst: burst.after } : {}),
 		});
 		say(
-			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked, ${loopOf(awake)}`,
+			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked, ${loopOf(awake)}${burst ? `; ${burstOf(burst.wakes, burst.after)}` : ""}`,
 		);
 		// Each weighing in full as it is taken, so a run cut short by its
 		// lender's limit still leaves the memory curve it got to.
@@ -431,6 +447,12 @@ async function runHosted(sealed: Seal): Promise<{
 /** How late and how busy the host's loop ran up to `weight`, as a line says it. */
 function loopOf(weight: Weight): string {
 	return `loop p99 ${Math.round(weight.loopP99Ms)} ms, max ${Math.round(weight.loopMaxMs)} ms, busy ${Math.round(weight.loopBusy * PERCENT)}%`;
+}
+
+/** What a burst of window wakes came to, as a line says it. */
+function burstOf(wakes: readonly WindowWake[], after: Weight): string {
+	const slowest = Math.max(...wakes.map((one) => one.answeredMs));
+	return `burst of ${wakes.length}: slowest answered ${slowest} ms, loop max ${Math.round(after.loopMaxMs)} ms`;
 }
 
 /** A fresh trusted folder holding the notes a read turn reads. */
