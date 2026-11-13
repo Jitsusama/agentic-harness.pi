@@ -47,6 +47,7 @@ import {
 	writeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { threadId } from "node:worker_threads";
 import { WRITING, writeWhole } from "../write-whole.ts";
 
 /** Lock-acquire retry budget per call. */
@@ -82,13 +83,19 @@ export function atomicWriteFile(path: string, data: string): void {
 
 interface LockRecord {
 	pid: number;
+	/** The holder's thread, since each worker thread writes apart. */
+	threadId?: number;
 	startedAt: number;
 }
 
 function readLockRecord(lockPath: string): LockRecord | undefined {
 	try {
 		const text = readFileSync(lockPath, "utf8");
-		const parsed = JSON.parse(text) as { pid?: unknown; startedAt?: unknown };
+		const parsed = JSON.parse(text) as {
+			pid?: unknown;
+			threadId?: unknown;
+			startedAt?: unknown;
+		};
 		const pid =
 			typeof parsed.pid === "number" && Number.isFinite(parsed.pid)
 				? parsed.pid
@@ -98,7 +105,9 @@ function readLockRecord(lockPath: string): LockRecord | undefined {
 				? parsed.startedAt
 				: undefined;
 		if (pid === undefined || startedAt === undefined) return undefined;
-		return { pid, startedAt };
+		return typeof parsed.threadId === "number"
+			? { pid, threadId: parsed.threadId, startedAt }
+			: { pid, startedAt };
 	} catch {
 		// Lock file is malformed or unreadable. Treat as stale
 		// so the steal loop can recover instead of wedging.
@@ -106,8 +115,10 @@ function readLockRecord(lockPath: string): LockRecord | undefined {
 	}
 }
 
-function isProcessAlive(pid: number): boolean {
-	if (pid <= 0 || pid === process.pid) return false;
+function isProcessAlive(pid: number, thread?: number): boolean {
+	// Another thread of this process writes apart, so its lock is live.
+	if (pid === process.pid) return thread !== undefined && thread !== threadId;
+	if (pid <= 0) return false;
 	try {
 		// kill(pid, 0) probes whether the pid exists; throws
 		// ESRCH when it doesn't and EPERM when it does but we
@@ -140,7 +151,8 @@ function tryStealStaleLock(lockPath: string, now: number): boolean {
 	}
 	const record = readLockRecord(lockPath);
 	const stale = record
-		? now - record.startedAt >= STALE_LOCK_MS || !isProcessAlive(record.pid)
+		? now - record.startedAt >= STALE_LOCK_MS ||
+			!isProcessAlive(record.pid, record.threadId)
 		: now - judged.mtimeMs >= STALE_LOCK_MS;
 	if (!stale) return false;
 	const aside = `${lockPath}.stale-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
@@ -171,6 +183,7 @@ function acquireLock(lockPath: string): { fd: number; ino: number } {
 			const fd = openSync(lockPath, "wx");
 			const payload: LockRecord = {
 				pid: process.pid,
+				threadId,
 				startedAt: Date.now(),
 			};
 			// Not flushed: other writers read the record from the page cache

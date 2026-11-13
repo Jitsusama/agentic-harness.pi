@@ -104,16 +104,21 @@ const [packageDir] = process.argv.slice(2);
 if (!packageDir) throw new Error("usage: screen-host.mts <package dir>");
 
 registerHooks({ resolve: piFromHost(packageDir) });
+/**
+ * Spike (worker per awake engine): with PI_HOST_WORKERS=1 each awake
+ * conversation's engine and screen run in a worker thread of their own,
+ * and this thread loads no pi: no screens, no theme and no scripted
+ * model, so only an agent folder's own provider, such as the soak's,
+ * answers.
+ */
+const workers = process.env.PI_HOST_WORKERS === "1";
 const { createEngine } = await import("../../../../host/engine/index.ts");
-const { loadHostPi } = await import("../../../../host/engine/host-pi.ts");
-const { hostedModeOf, hostScreens } = await import(
-	"../../../../host/screen/screens.ts"
+const { createWorkerEngine } = await import(
+	"../../../../host/engine/worker-engine.ts"
 );
 const { serveHost } = await import("../../../../host/service/serve.ts");
-const { conversationBase, nameViewerTerminal, startupQuestions, themeStarter } =
-	await import("../../../../host/service/program.ts");
-const { hostedAskerOf } = await import(
-	"../../../../host/screen/startup-ask.ts"
+const { conversationBase, nameViewerTerminal } = await import(
+	"../../../../host/service/program.ts"
 );
 
 /** The sealed session's Wayland display, as the host unit is given it. */
@@ -142,26 +147,40 @@ const report = (error: unknown) => {
 	process.stderr.write(`screen-host: ${String(said)}\n`);
 };
 
-const compat = piModule<Compat>(
-	await import(
-		pathToFileURL(
-			join(packageDir, "node_modules/@earendil-works/pi-ai/dist/compat.js"),
-		).href
-	),
-);
-const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
-faux.setResponses(Array.from({ length: ANSWERS }, () => answer));
+// In worker mode the scripted model is never registered, so nothing asks it.
+const compat: Compat = workers
+	? piModule<Compat>(
+			new Proxy(
+				{},
+				{
+					get: () => {
+						throw new Error("the scripted model isn't loaded in worker mode");
+					},
+				},
+			),
+		)
+	: piModule<Compat>(
+			await import(
+				pathToFileURL(
+					join(packageDir, "node_modules/@earendil-works/pi-ai/dist/compat.js"),
+				).href
+			),
+		);
+const faux = workers
+	? undefined
+	: compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
+faux?.setResponses(Array.from({ length: ANSWERS }, () => answer));
 // pi's reload clears every provider registered in the process, as it does
 // before an extension's provider comes back with its new load; the agent
 // folder's footer extension brings this one back the same way.
-const scripted = compat.getApiProvider(faux.api);
+const scripted = faux ? compat.getApiProvider(faux.api) : undefined;
 (globalThis as Record<symbol, unknown>)[
 	Symbol.for("screen-host.faux.restore")
 ] = () => {
-	if (scripted && !compat.getApiProvider(faux.api))
+	if (faux && scripted && !compat.getApiProvider(faux.api))
 		compat.registerApiProvider(scripted);
 };
-writeAgentFolder(faux.api);
+writeAgentFolder(faux?.api ?? "screen-faux-unregistered");
 const clipboard = writeClipboard();
 // What the host unit gives the host: the session's Wayland display beside
 // its runtime folder, and the clipboard reader on its PATH. Offline comes
@@ -169,26 +188,31 @@ const clipboard = writeClipboard();
 process.env.WAYLAND_DISPLAY = WAYLAND_DISPLAY;
 process.env.PATH = `${clipboard}:${process.env.PATH ?? ""}`;
 
-const pi = await loadHostPi(packageDir);
 nameViewerTerminal(process.env);
-themeStarter(pi.modules.codingAgent, home)();
-const questions = startupQuestions(pi.modules);
-
-const screens = hostScreens({
-	create: hostedModeOf(pi.modules.codingAgent.InteractiveMode),
-	ask: hostedAskerOf(questions.selector, questions.mainScreen),
-	report,
-});
+const screens = workers ? undefined : await mainScreens();
 const key: EngineKey = {
 	inherited: false,
 	current: async () => "faux-key",
 	refused: () => {},
 };
+let threads: ReturnType<typeof createWorkerEngine> | undefined;
 const serving = await serveHost({
 	realm: process.env.MYCELIUM_REALM ?? "sealed",
 	kind: "attended",
-	engine: (host) =>
-		createEngine({
+	engine: async (host) => {
+		if (!screens) {
+			threads = createWorkerEngine({
+				packageDir,
+				stateDir: join(home, "engine"),
+				home,
+				host,
+				env: conversationBase(process.env),
+				key,
+				report,
+			});
+			return threads.engine;
+		}
+		return createEngine({
 			packageDir,
 			stateDir: join(home, "engine"),
 			host,
@@ -196,8 +220,13 @@ const serving = await serveHost({
 			key,
 			report,
 			screens: screens.screens,
-		}),
-	viewer: () => screens.viewer,
+		});
+	},
+	viewer: () => {
+		const bridge = screens?.viewer ?? threads?.viewer;
+		if (!bridge) throw new Error("the host has no viewer bridge");
+		return bridge;
+	},
 	report,
 	// The lines the host's journal keeps, such as each conversation's end.
 	say: (line: string) => process.stderr.write(`screen-host: ${line}\n`),
@@ -222,7 +251,31 @@ process.once("SIGUSR2", () => {
 	serving.restartComing(true);
 	stop();
 });
-process.on("SIGHUP", weigh);
+process.on("SIGHUP", () => {
+	weigh().catch(report);
+});
+
+/** The host's pi, theme and screens on this thread, as the host program has them. */
+async function mainScreens() {
+	const { loadHostPi } = await import("../../../../host/engine/host-pi.ts");
+	const { hostedModeOf, hostScreens } = await import(
+		"../../../../host/screen/screens.ts"
+	);
+	const { startupQuestions, themeStarter } = await import(
+		"../../../../host/service/program.ts"
+	);
+	const { hostedAskerOf } = await import(
+		"../../../../host/screen/startup-ask.ts"
+	);
+	const pi = await loadHostPi(packageDir);
+	themeStarter(pi.modules.codingAgent, home)();
+	const questions = startupQuestions(pi.modules);
+	return hostScreens({
+		create: hostedModeOf(pi.modules.codingAgent.InteractiveMode),
+		ask: hostedAskerOf(questions.selector, questions.mainScreen),
+		report,
+	});
+}
 
 /** How late the loop ran between weighings, sampled every 10 ms. */
 const loop = monitorEventLoopDelay({ resolution: 10 });
@@ -242,7 +295,7 @@ let utilised = performance.eventLoopUtilization();
  * read before the collection and begin again after it, so a weighing's
  * own collection is in none of them.
  */
-function weigh(): void {
+async function weigh(): Promise<void> {
 	const collect = Reflect.get(globalThis, "gc");
 	if (typeof collect !== "function")
 		throw new Error("the fixture runs with --expose-gc to weigh itself");
@@ -251,6 +304,8 @@ function weigh(): void {
 	const loopBusy = performance.eventLoopUtilization(utilised).utilization;
 	loop.disable();
 	loop.reset();
+	// Each worker collects and weighs itself; /proc below counts every thread.
+	const inWorkers = threads ? await threads.weigh() : [];
 	// A session held only by weak references goes at a full collection; the
 	// second takes what the first's finalisers let go.
 	collect();
@@ -266,23 +321,39 @@ function weigh(): void {
 		for (const [id, ref] of seen)
 			if (ref instanceof WeakRef && ref.deref() !== undefined)
 				sessions.push(id);
+	for (const one of inWorkers)
+		for (const id of one.sessions)
+			if (!sessions.includes(id)) sessions.push(id);
 	const weighed = join(home, "weighed.json");
 	const used = process.memoryUsage();
 	const inKb = (bytes: number) => Math.round(bytes / BYTES_PER_KB);
+	const summed = (pick: (one: (typeof inWorkers)[number]) => number) =>
+		inWorkers.reduce((sum, one) => sum + pick(one), 0);
+	const worst = (pick: (one: (typeof inWorkers)[number]) => number) =>
+		inWorkers.reduce((most, one) => Math.max(most, pick(one)), 0);
 	writeFileSync(
 		`${weighed}.part`,
 		JSON.stringify({
 			rss: kb("Rss"),
 			pss: kb("Pss"),
 			swapPss: kb("SwapPss"),
-			heapKb: inKb(used.heapUsed),
-			heapTotalKb: inKb(used.heapTotal),
-			externalKb: inKb(used.external),
-			arrayBuffersKb: inKb(used.arrayBuffers),
+			heapKb: inKb(used.heapUsed) + summed((one) => one.heapKb),
+			heapTotalKb: inKb(used.heapTotal) + summed((one) => one.heapTotalKb),
+			externalKb: inKb(used.external) + summed((one) => one.externalKb),
+			arrayBuffersKb:
+				inKb(used.arrayBuffers) + summed((one) => one.arrayBuffersKb),
 			loopP99Ms,
 			loopMaxMs,
 			loopBusy,
 			sessions,
+			...(threads
+				? {
+						workerCount: threads.workers(),
+						workerLoopP99MaxMs: worst((one) => one.loopP99Ms),
+						workerLoopMaxMs: worst((one) => one.loopMaxMs),
+						workers: inWorkers,
+					}
+				: {}),
 		}),
 	);
 	renameSync(`${weighed}.part`, weighed);

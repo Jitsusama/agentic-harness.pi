@@ -78,9 +78,15 @@ export function openChannel(
 				return handler(...args);
 			})
 			.then(
-				(answer) => port.postMessage({ kind: "reply", id, ok: true, value: answer }),
+				(answer) =>
+					port.postMessage({ kind: "reply", id, ok: true, value: answer }),
 				(error: unknown) =>
-					port.postMessage({ kind: "reply", id, ok: false, error: flat(error) }),
+					port.postMessage({
+						kind: "reply",
+						id,
+						ok: false,
+						error: flat(error),
+					}),
 			)
 			.catch(report);
 	});

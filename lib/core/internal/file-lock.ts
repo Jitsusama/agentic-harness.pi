@@ -24,6 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { threadId } from "node:worker_threads";
 import { processGlobal } from "../../internal/process-global.ts";
 
 /** How long a writer waits for a live holder before saying so. */
@@ -95,7 +96,8 @@ async function acquire(lockPath: string): Promise<number> {
 		try {
 			const handle = await open(lockPath, "wx");
 			try {
-				await handle.writeFile(String(process.pid), "utf8");
+				// The thread too, since each worker thread queues on its own.
+				await handle.writeFile(`${process.pid}.${threadId}`, "utf8");
 				return (await handle.stat()).ino;
 			} finally {
 				await handle.close();
@@ -107,7 +109,7 @@ async function acquire(lockPath: string): Promise<number> {
 		if (Date.now() >= deadline) {
 			const holder = await holderOf(lockPath);
 			throw new Error(
-				`${lockPath} has been held for over ${WAIT_MS / 1000}s by ${holder === undefined ? "a process that did not say which" : `pid ${holder}`}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`,
+				`${lockPath} has been held for over ${WAIT_MS / 1000}s by ${holder === undefined ? "a process that did not say which" : `pid ${holder.pid}`}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`,
 			);
 		}
 		await new Promise((done) => setTimeout(done, RETRY_MS));
@@ -164,10 +166,20 @@ async function release(lockPath: string, ino: number): Promise<void> {
 	}
 }
 
-async function holderOf(lockPath: string): Promise<number | undefined> {
+/** Who holds a lock: its process, and its thread when it said one. */
+interface Holder {
+	readonly pid: number;
+	readonly thread?: number;
+}
+
+async function holderOf(lockPath: string): Promise<Holder | undefined> {
 	try {
-		const pid = Number.parseInt(await readFile(lockPath, "utf8"), 10);
-		return Number.isFinite(pid) && pid > 0 ? pid : undefined;
+		const [pidPart, threadPart] = (await readFile(lockPath, "utf8")).split(".");
+		const pid = Number.parseInt(pidPart ?? "", 10);
+		if (!Number.isFinite(pid) || pid <= 0) return undefined;
+		const thread =
+			threadPart === undefined ? Number.NaN : Number.parseInt(threadPart, 10);
+		return Number.isFinite(thread) ? { pid, thread } : { pid };
 	} catch (error) {
 		// Gone since the create failed, which the next attempt handles.
 		if (hasCode(error, "ENOENT")) return undefined;
@@ -175,11 +187,12 @@ async function holderOf(lockPath: string): Promise<number | undefined> {
 	}
 }
 
-function isAlive(pid: number): boolean {
-	// This process never waits on its own lock, since all its writers, in
+function isAlive({ pid, thread }: Holder): boolean {
+	// This thread never waits on its own lock, since all its writers, in
 	// every copy of this module, queue first, so a lock naming it is one a
-	// previous process with the same pid left behind.
-	if (pid === process.pid) return false;
+	// previous process with the same pid left behind. Another thread of
+	// this process queues apart, so its lock is a live one.
+	if (pid === process.pid) return thread !== undefined && thread !== threadId;
 	try {
 		process.kill(pid, 0);
 		return true;

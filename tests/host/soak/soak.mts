@@ -626,13 +626,20 @@ async function restarted(
 
 /** How late and how busy the host's loop ran up to `weight`, as a line says it. */
 function loopOf(weight: Weight): string {
-	return `loop p99 ${Math.round(weight.loopP99Ms)} ms, max ${Math.round(weight.loopMaxMs)} ms, busy ${Math.round(weight.loopBusy * PERCENT)}%`;
+	const main = `loop p99 ${Math.round(weight.loopP99Ms)} ms, max ${Math.round(weight.loopMaxMs)} ms, busy ${Math.round(weight.loopBusy * PERCENT)}%`;
+	// Spike (worker per awake engine): the worst worker loop beside the main one.
+	if (weight.workerCount === undefined) return main;
+	return `${main} (${weight.workerCount} workers, worst worker p99 ${Math.round(weight.workerLoopP99MaxMs ?? 0)} ms, max ${Math.round(weight.workerLoopMaxMs ?? 0)} ms)`;
 }
 
 /** What a burst of window wakes came to, as a line says it. */
 function burstOf(wakes: readonly WindowWake[], after: Weight): string {
 	const slowest = Math.max(...wakes.map((one) => one.answeredMs));
-	return `burst of ${wakes.length}: slowest answered ${slowest} ms, loop max ${Math.round(after.loopMaxMs)} ms`;
+	const workers =
+		after.workerLoopMaxMs === undefined
+			? ""
+			: `, worst worker max ${Math.round(after.workerLoopMaxMs)} ms`;
+	return `burst of ${wakes.length}: slowest answered ${slowest} ms, loop max ${Math.round(after.loopMaxMs)} ms${workers}`;
 }
 
 /** A fresh trusted folder holding the notes a read turn reads. */

@@ -64,6 +64,14 @@ export interface Weight {
 	readonly loopBusy: number;
 	/** The conversations whose sessions are still in its memory. */
 	readonly sessions: readonly string[];
+	/** Spike (worker per awake engine): how many workers run. */
+	readonly workerCount?: number;
+	/** Spike: the worst worker loop's 99th-percentile lateness, in ms. */
+	readonly workerLoopP99MaxMs?: number;
+	/** Spike: the most any worker loop ran late, in ms. */
+	readonly workerLoopMaxMs?: number;
+	/** Spike: each worker's own weighing, as it wrote it. */
+	readonly workers?: readonly unknown[];
 }
 
 /** A running screen host and the control requests a test makes of it. */
@@ -117,6 +125,9 @@ export async function startScreenHost(
 			env: {
 				...seal.env,
 				PI_OFFLINE: "1",
+				...(process.env.PI_HOST_WORKERS
+					? { PI_HOST_WORKERS: process.env.PI_HOST_WORKERS }
+					: {}),
 				...(also.length > 0 ? { SCREEN_HOST_ALSO: also.join(",") } : {}),
 				...(agent === undefined ? {} : { SCREEN_HOST_AGENT: agent }),
 			},
@@ -257,6 +268,16 @@ function weight(said: unknown): Weight {
 		loopMaxMs: said.loopMaxMs,
 		loopBusy: said.loopBusy,
 		sessions,
+		...(typeof said.workerCount === "number"
+			? { workerCount: said.workerCount }
+			: {}),
+		...(typeof said.workerLoopP99MaxMs === "number"
+			? { workerLoopP99MaxMs: said.workerLoopP99MaxMs }
+			: {}),
+		...(typeof said.workerLoopMaxMs === "number"
+			? { workerLoopMaxMs: said.workerLoopMaxMs }
+			: {}),
+		...(Array.isArray(said.workers) ? { workers: said.workers } : {}),
 	};
 }
 

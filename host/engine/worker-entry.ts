@@ -195,7 +195,10 @@ setInterval(() => {
 
 /** Attach a viewer the main thread holds to this conversation's screen, its output batched a frame a tick. */
 function attach(connection: number, request: unknown): void {
-	const sessionId = String(Reflect.get(Object(request), "sessionId"));
+	const sessionId =
+		typeof request === "object" && request !== null
+			? String(Reflect.get(request, "sessionId"))
+			: "";
 	let drawn = "";
 	const flush = () => {
 		if (drawn === "") return;

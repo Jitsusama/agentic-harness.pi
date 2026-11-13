@@ -34,10 +34,7 @@ import type {
 } from "../service/server.ts";
 import type { EngineKey, HostEngine } from "./contract.ts";
 import { PARKED, parking } from "./parking.ts";
-import type {
-	ConversationIdentity,
-	SessionHost,
-} from "./session-host.ts";
+import type { ConversationIdentity, SessionHost } from "./session-host.ts";
 import { type Channel, openChannel, revived } from "./worker-channel.ts";
 import type { WorkerSetup, WorkerWeight } from "./worker-setup.ts";
 
@@ -231,7 +228,9 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 			},
 			report,
 		);
-		worker.on("error", (error) => {
+		worker.on("error", (thrown: unknown) => {
+			const error =
+				thrown instanceof Error ? thrown : new Error(String(thrown));
 			unready(error);
 			died(seat, error);
 		});
@@ -365,7 +364,9 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 			host.stop(id, error.message).catch(report);
 		}
 		for (const relay of seat.viewers.values())
-			relay.sink.disconnect(`The conversation's worker ended: ${error.message}`);
+			relay.sink.disconnect(
+				`The conversation's worker ended: ${error.message}`,
+			);
 		seat.viewers.clear();
 		if (!seat.exiting) report(error);
 	}
@@ -496,7 +497,9 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 		async parkSettled(sessionId) {
 			const seat = seatOf.get(sessionId);
 			if (seat && !seat.dead)
-				await seat.channel.call("parkSettled", sessionId).catch(() => undefined);
+				await seat.channel
+					.call("parkSettled", sessionId)
+					.catch(() => undefined);
 			await parkedHandling.get(sessionId);
 		},
 
