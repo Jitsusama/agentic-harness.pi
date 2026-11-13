@@ -1610,9 +1610,11 @@ const briefHolders = new Map<
 
 /**
  * What tells this copy's briefs from another's in the same process. Pi
- * loads a fresh copy of this module for each conversation in a host,
- * and each copy counts only its own holders, so two conversations
- * sending one brief must never name the same file.
+ * caches an extension's module per folder, so a host's conversations in
+ * one folder share this copy and its holders, one count covering them
+ * all, while a conversation in another folder, or after a reload, has a
+ * copy of its own counting only its own holders. Two copies sending one
+ * brief must never name the same file.
  */
 const BRIEF_COPY = randomBytes(4).toString("hex");
 
