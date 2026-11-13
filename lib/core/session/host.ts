@@ -10,6 +10,12 @@ export interface SessionEnvironment {
 	set(name: string, value: string): void;
 	delete(name: string): void;
 	snapshot(): NodeJS.ProcessEnv;
+	/**
+	 * The names it holds, without copying it, where it can say them
+	 * cheaply. A host's process.env lists through this on every child
+	 * started with no env of its own.
+	 */
+	names?(): readonly string[];
 }
 
 /** Hints consumed once when a conversation starts, not on reload. */
