@@ -156,9 +156,12 @@ wake that fails leaves it to the next. A wake through the file that is
 refused is kept beside it as `wake.refused`, with the message that asked
 and why (lib/internal/session/refused-wake.ts), so the mesh can say why
 it sleeps on; the conversation's next start or its close clears it. A
-resume as the host starts, rather than a wake, clears plain pi's marker,
-so the conversation counts idle from its log and parks again at its
-first look. While a conversation is parked, parked-warming.ts keeps its
+host starting leaves parked what its last process parked this boot,
+plain pi's marker still naming this host's wake file
+(`restsParked`): it builds nothing, watches the wake file as the park
+did, and a wake written while the host was down wakes it once the host
+listens. Any other it resumes clearing the marker, so the conversation
+counts idle from its log and parks again at its first look. While a conversation is parked, parked-warming.ts keeps its
 cache entry warm from the carry its session's warming wrote as it
 parked (lib/internal/warming-carry.ts): on the session's schedule, at
 most four warms in all, through pi's model runtime with the

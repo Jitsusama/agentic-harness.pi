@@ -47,6 +47,11 @@ export interface Parking {
 	/** Park it, then watch for its wake; a wake asked meanwhile wakes it once parked. */
 	park(sessionId: string): Promise<void>;
 	/**
+	 * It parked under an earlier host and still rests: watch for its wake
+	 * as its park would have, waking it for one written meanwhile.
+	 */
+	rests(sessionId: string): void;
+	/**
 	 * It is asked for: wake it, or once its park settles. Settles once the
 	 * wake has, rejecting with why it failed, so whoever asked can say so
 	 * and ask again.
@@ -193,6 +198,7 @@ export function parking(options: {
 			settling.set(sessionId, { done, asked });
 			return done;
 		},
+		rests: watchWake,
 		wake,
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch: forget,

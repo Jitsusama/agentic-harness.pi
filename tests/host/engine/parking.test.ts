@@ -1,5 +1,5 @@
 /** Parking a conversation: a park under way can be waited on, and a wake says how it went. */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -137,6 +137,26 @@ describe("parking a conversation", () => {
 		await until("the wake file to wake it", () => asking.mock.calls.length > 0);
 		expect(asking, "it was woken").toHaveBeenCalledWith("a");
 		parked.unwatch("a");
+	});
+
+	it("watches the wake of one parked under an earlier host, waking it for one written before", async () => {
+		const asking = vi.fn((_sessionId: string) => Promise.resolve());
+		const { parked, stop } = held(asking);
+		const woke = (sessionId: string) =>
+			asking.mock.calls.some(([id]) => id === sessionId);
+		await mkdir(join(dir, "a"), { recursive: true });
+		await writeFile(parked.wakeFile("a"), "sent while the host was down");
+
+		parked.rests("a");
+		parked.rests("b");
+
+		await until("the wake written before to wake it", () => woke("a"));
+		expect(woke("b"), "one with no wake written rests").toBe(false);
+		await writeFile(parked.wakeFile("b"), "message");
+		await until("the wake written after to wake it", () => woke("b"));
+		expect(stop, "nothing parked again: it already was").not.toHaveBeenCalled();
+		parked.unwatch("a");
+		parked.unwatch("b");
 	});
 
 	it("keeps a refused wake's message and why beside its wake file, until it runs", async () => {

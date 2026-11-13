@@ -27,7 +27,11 @@ import {
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { callIsOn } from "../../lib/internal/calls.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
-import { clearParked, WAKE_ENV } from "../../lib/internal/session/park.ts";
+import {
+	clearParked,
+	readParked,
+	WAKE_ENV,
+} from "../../lib/internal/session/park.ts";
 import {
 	pendingWarmsDir,
 	warmingCarryDir,
@@ -872,9 +876,9 @@ export async function createEngine(
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
 			// Before its session starts and takes the carry, so nothing warms twice.
 			warming.stop(entry.sessionId);
-			// A host starting resumes what it held; a conversation parked
-			// before then isn't woken, so it counts idle from its log and parks
-			// again within a look, rather than an hour from now.
+			// A start resumes one whose marker went with an earlier boot, or
+			// names another holder's wake (restsParked keeps those that stand),
+			// so it counts idle from its log and parks again within a look.
 			if (!woken) clearParked(entry.sessionId);
 			if (!existsSync(entry.file))
 				throw new Error(
@@ -894,6 +898,19 @@ export async function createEngine(
 			// Only once it runs: a wake that failed leaves its wake file watched,
 			// and one refused as it began says nothing true now.
 			parked.unwatch(sessionId);
+		},
+
+		// Parked by this host key's last process, this boot, and never woken.
+		// Building it only to park again a minute later held a start 7 to 13 s
+		// a conversation on 13 November. A park waits until it is idle with
+		// nothing outstanding, so nothing runs until something asks for it.
+		restsParked(entry) {
+			const { sessionId } = entry;
+			if (host.holds(sessionId) !== undefined) return false;
+			if (readParked(sessionId)?.wake !== parked.wakeFile(sessionId))
+				return false;
+			parked.rests(sessionId);
+			return true;
 		},
 
 		parkSettled: (sessionId) => parked.settled(sessionId),
