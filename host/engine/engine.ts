@@ -675,6 +675,26 @@ export async function createEngine(
 		record: Live,
 		why: string,
 	): Promise<void> {
+		// The release runs in a frame of its own, so nothing of pi it held,
+		// such as its agent, stays in memory while the reap below reads every
+		// process's environment.
+		await release(sessionId, record, why);
+		// The signal kills a tool's own group; a descendant that left it ends here.
+		await reapToolChildren(sessionId);
+		const events = watched;
+		if (record.ending === "closed" && events)
+			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
+			Promise.resolve()
+				.then(() => events.ended(sessionId, why))
+				.catch(report);
+	}
+
+	/** Let go of a conversation's screen, session and store, and take it off the table. */
+	async function release(
+		sessionId: string,
+		record: Live,
+		why: string,
+	): Promise<void> {
 		record.closing = true;
 		// A screen asked about the folder holds a terminal for it, and settles any question still open, whether or not a session came of it.
 		if (record.runtime || record.questioned) {
@@ -692,21 +712,14 @@ export async function createEngine(
 		try {
 			await record.conversation?.close();
 		} finally {
-			// It lets go of pi before the reap, which reads every process's
-			// environment and takes a while, so nothing ended stays held meanwhile.
+			// The host's list keeps a parked conversation, and with it this
+			// record, so the record lets go of pi; only its own entry leaves
+			// the table, never a newer one under the same id.
 			record.runtime = undefined;
 			record.conversation = undefined;
 			record.unsubscribe = undefined;
 			if (live.get(sessionId) === record) live.delete(sessionId);
-			// The signal kills a tool's own group; a descendant that left it ends here.
-			await reapToolChildren(sessionId);
 		}
-		const events = watched;
-		if (record.ending === "closed" && events)
-			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
-			Promise.resolve()
-				.then(() => events.ended(sessionId, why))
-				.catch(report);
 	}
 
 	/** Say on the host's list whether a conversation is running, as its runs start and end. */
