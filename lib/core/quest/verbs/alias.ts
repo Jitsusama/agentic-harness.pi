@@ -8,11 +8,12 @@ import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../../internal/quest/alias-index.ts";
+import type { QuestIndex } from "../../../internal/quest/discovery.ts";
 import { discoverQuests } from "../../../internal/quest/discovery.ts";
 import { appendHarnessLog } from "../../../internal/quest/harness-log.ts";
 import type { QuestAlias } from "../../../quest/index.ts";
 import { parseRef } from "../../../refs/index.ts";
-import { addAliasesToLoaded, removeAliasesFromLoaded } from "../lifecycle.ts";
+import { addAliasesToQuest, removeAliasesFromQuest } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
 	ok,
@@ -43,11 +44,44 @@ function parseAliasInput(raw: string): QuestAlias | undefined {
 	return undefined;
 }
 
+/** A quest an alias verb acts on: its id and its folder. */
+interface AliasTarget {
+	id: string;
+	dir: string;
+}
+
+/**
+ * The quest `params.id` names, or the loaded one when it names none,
+ * or why there is none: an id no quest has is refused rather than
+ * taken for the loaded quest, which once took an alias meant for
+ * another and reported it added.
+ */
+function aliasTarget(
+	state: QuestState,
+	params: QuestToolParams,
+	index: QuestIndex,
+): AliasTarget | string {
+	if (params.id) {
+		const entry = index.quests.get(params.id);
+		if (!entry) {
+			return `No quest has the id ${params.id}. Name a quest's id in \`id\`, or leave it out for the loaded quest.`;
+		}
+		return { id: params.id, dir: entry.dir };
+	}
+	if (!state.questId || !state.questDir) {
+		return "Load a quest first, or name one in `id`.";
+	}
+	return { id: state.questId, dir: state.questDir };
+}
+
+/** Add the aliases `params.ref` or `params.url` gives to the quest `params.id` names, or the loaded one. */
 export function aliasAdd(
 	state: QuestState,
 	params: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
+	const { index } = discoverQuests(state.questsRoot);
+	const target = aliasTarget(state, params, index);
+	if (typeof target === "string") return refuse(target);
 	const input = params.ref ?? params.url ?? "";
 	// A comma separates entries: a type:value literal and a URL both
 	// have no bare comma, so splitting first lets one call add several.
@@ -72,7 +106,6 @@ export function aliasAdd(
 	}
 	// Refuse a ref that already lives on another quest: routing the
 	// same alias to two quests would mis-attribute the linked work.
-	const { index } = discoverQuests(state.questsRoot);
 	const aliasIdx = buildAliasIndex(index);
 	for (const alias of aliases) {
 		const lookup = lookupAliasDetail(aliasIdx, alias);
@@ -81,41 +114,48 @@ export function aliasAdd(
 				`Alias ${alias.type}:${alias.value} is already on multiple quests (${lookup.questIds.join(", ")}). Resolve the duplicate before adding it again.`,
 			);
 		}
-		if (lookup.kind === "hit" && lookup.questId !== state.questId) {
+		if (lookup.kind === "hit" && lookup.questId !== target.id) {
 			return refuse(
-				`Alias ${alias.type}:${alias.value} is already on quest ${lookup.questId}. Load that quest, or remove it there first.`,
+				`Alias ${alias.type}:${alias.value} is already on quest ${lookup.questId}. Name that quest in \`id\`, or remove it there first.`,
 			);
 		}
 	}
 	// One write lands the whole list, so a mid-list failure cannot
 	// leave a partial set behind.
-	const result = addAliasesToLoaded(state, aliases);
+	const result = addAliasesToQuest(target.dir, aliases);
 	if (!result.ok) return refuse(result.guidance);
 	const { added, already } = result;
 	for (const alias of added) {
-		if (state.questDir) {
-			appendHarnessLog(state.questDir, `Linked ${alias.type}:${alias.value}.`);
-		}
+		appendHarnessLog(target.dir, `Linked ${alias.type}:${alias.value}.`);
 	}
 	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
 	if (added.length === 0) {
-		return ok(`Alias ${already.map(label).join(", ")} was already present.`, {
-			aliases: already,
-			added: false,
-		});
+		return ok(
+			`Alias ${already.map(label).join(", ")} was already present on ${target.id}.`,
+			{
+				aliases: already,
+				added: false,
+			},
+		);
 	}
-	let message = `Added alias ${added.map(label).join(", ")}.`;
+	let message = `Added alias ${added.map(label).join(", ")} to ${target.id}.`;
 	if (already.length > 0) {
 		message += ` ${already.map(label).join(", ")} already present.`;
 	}
 	return ok(message, { aliases: added, added: true });
 }
 
+/** Remove the aliases `params.ref` or `params.url` gives from the quest `params.id` names, or the loaded one. */
 export function aliasRemove(
 	state: QuestState,
 	params: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
+	const target = aliasTarget(
+		state,
+		params,
+		discoverQuests(state.questsRoot).index,
+	);
+	if (typeof target === "string") return refuse(target);
 	const input = params.ref ?? params.url ?? "";
 	// Accept a comma batch, matching alias-add, so several aliases can be
 	// scrubbed in one call rather than one at a time.
@@ -138,19 +178,22 @@ export function aliasRemove(
 			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url`. Separate several with commas.",
 		);
 	}
-	const result = removeAliasesFromLoaded(state, aliases);
+	const result = removeAliasesFromQuest(target.dir, aliases);
 	if (!result.ok) return refuse(result.guidance);
 	const { removed, absent } = result;
 	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
 	// A no-op is reported as success, matching alias-add: "nothing to
 	// remove" is the same outcome as "already present", not a refusal.
 	if (removed.length === 0) {
-		return ok(`Alias ${absent.map(label).join(", ")} was not on this quest.`, {
-			aliases: absent,
-			removed: false,
-		});
+		return ok(
+			`Alias ${absent.map(label).join(", ")} was not on this quest, ${target.id}.`,
+			{
+				aliases: absent,
+				removed: false,
+			},
+		);
 	}
-	let message = `Removed alias ${removed.map(label).join(", ")}.`;
+	let message = `Removed alias ${removed.map(label).join(", ")} from ${target.id}.`;
 	if (absent.length > 0) {
 		message += ` ${absent.map(label).join(", ")} was not on this quest.`;
 	}
