@@ -72,8 +72,7 @@ export function keepsOnDisk(
 	return {
 		operations: {
 			async exec(command, cwd, call) {
-				if (command !== COMMAND_STUB)
-					return await ops.exec(command, cwd, call);
+				if (command !== COMMAND_STUB) return await ops.exec(command, cwd, call);
 				if (!options.can(call.env)) {
 					if (call.signal) unkept.add(call.signal);
 					return await ops.exec(command, cwd, call);

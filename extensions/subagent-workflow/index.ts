@@ -42,10 +42,7 @@ import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import {
-	type SessionRef,
-	sessionCell,
-} from "../../lib/core/session/index.ts";
+import { type SessionRef, sessionCell } from "../../lib/core/session/index.ts";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { tickFacts } from "../../lib/internal/process-ticks.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";

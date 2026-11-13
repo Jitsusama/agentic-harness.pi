@@ -5,12 +5,12 @@
  */
 
 import {
+	chmodSync,
 	mkdtempSync,
 	readdirSync,
 	rmSync,
 	statSync,
 	utimesSync,
-	chmodSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";

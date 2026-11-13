@@ -26,6 +26,7 @@ import type {
 	ChecksRollup,
 	ReviewTarget,
 } from "../../lib/core/review/index.ts";
+import { type SessionRef, sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	type CarriedWork,
 	findJobHost,
@@ -33,10 +34,6 @@ import {
 	type JobCarry,
 } from "../../lib/jobs/index.ts";
 import type { Taking } from "../../lib/jobs/take-up.ts";
-import {
-	type SessionRef,
-	sessionSlot,
-} from "../../lib/core/session/index.ts";
 
 /** How often to look. CI takes minutes; a tighter loop is cost with no reader. */
 export const CHECKS_POLL_MS = 30_000;
