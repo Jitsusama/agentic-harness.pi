@@ -2,10 +2,14 @@
  * Reaping a conversation's tool children: only processes carrying its marker
  * die, each by its whole group, never the host or a process in the host's
  * own group beyond the marked one; what a dead host under the key left dies
- * at the next start, and a live host's never does; and on Linux, a real
+ * at the next start, and a live host's never does; reading the table leaves
+ * the host's loop free for its other conversations; and on Linux, a real
  * detached shell and its descendant are gone after one reap.
  */
 import { type ChildProcess, spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	CONVERSATION_MARKER,
@@ -216,6 +220,44 @@ describe("reaping what a dead host left behind", () => {
 	it("marks this process as an owner by its pid and start", () => {
 		const table = fakeTable({ 1: { group: 1, env: {}, started: 42 } });
 		expect(ownerMark(table)).toBe("1:42");
+	});
+});
+
+describe("reading the process table", () => {
+	/** How many processes the made-up table holds: a busy machine has thousands. */
+	const PROCESSES = 300;
+	let root: string | undefined;
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+	});
+
+	/** A /proc-shaped folder of processes, none carrying a marker. */
+	function madeUpProc(): string {
+		const made = mkdtempSync(join(tmpdir(), "tool-children-proc-"));
+		for (let pid = 100; pid < 100 + PROCESSES; pid += 1) {
+			const folder = join(made, String(pid));
+			mkdirSync(folder);
+			writeFileSync(join(folder, "environ"), "HOME=/home/x\0PATH=/bin\0");
+			writeFileSync(
+				join(folder, "stat"),
+				`${pid} (sh) S 1 ${pid} ${pid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 5 1000`,
+			);
+		}
+		return made;
+	}
+
+	it("leaves the host's loop free to serve its other conversations while it reads", async () => {
+		root = madeUpProc();
+		let servedMeanwhile = false;
+		setImmediate(() => {
+			servedMeanwhile = true;
+		});
+		const reaped = await reapToolChildren("a", linuxProcessTable(root));
+		expect(reaped).toEqual({ groups: [], pids: [] });
+		expect(
+			servedMeanwhile,
+			"the loop ran something else before the reading ended",
+		).toBe(true);
 	});
 });
 
