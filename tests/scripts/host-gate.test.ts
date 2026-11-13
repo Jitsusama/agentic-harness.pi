@@ -256,7 +256,7 @@ describe("host-gate.sh", () => {
 		const answered = await gate(on, sha);
 
 		expect(answered.code).toBe(1);
-		expect(answered.said).toContain(`not test:host on the proven`);
+		expect(answered.said).toContain("isn't test:host on the proven");
 	});
 
 	it("refuses a pass kept for an earlier commit of the same branch", async () => {
