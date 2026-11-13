@@ -5,6 +5,7 @@ import {
 	mixedTurnRefusal,
 	shellEditRefusal,
 	sleepRefusal,
+	spinningPauseRefusal,
 	stashRefusal,
 	trackedShellEdits,
 	withoutOutputCut,
@@ -107,6 +108,48 @@ describe("sleep", () => {
 			sleepRefusal(stripped("cat <<'EOF' > x.sh\nsleep 60\nEOF")),
 		).toBeUndefined();
 		expect(sleepRefusal(stripped('echo "sleep 60"'))).toBeUndefined();
+	});
+});
+
+describe("a pause that spins a core", () => {
+	it("is refused when read waits on /dev/zero or /dev/urandom", () => {
+		expect(
+			spinningPauseRefusal(
+				stripped(
+					"until gh pr view 3 | grep -q MERGED; do read -t 120 < /dev/zero; done",
+				),
+			),
+		).toContain("/dev/zero");
+		expect(
+			spinningPauseRefusal(stripped("read -r -t 30 _ </dev/urandom || true")),
+		).toContain("/dev/urandom");
+	});
+
+	it("is refused when yes runs into /dev/null", () => {
+		expect(
+			spinningPauseRefusal(stripped("timeout 60 yes > /dev/null; make")),
+		).toContain("yes");
+	});
+
+	it("names the pause that rests", () => {
+		expect(spinningPauseRefusal(stripped("read -t 5 < /dev/zero"))).toContain(
+			"background: true",
+		);
+	});
+
+	it("goes ahead for reads and yes that do real work", () => {
+		for (const command of [
+			"head -c 1M /dev/zero > disk.img",
+			"dd if=/dev/urandom of=key bs=32 count=1",
+			"yes | pnpm install",
+			"read -r line < input.txt",
+			'echo "read -t 9 < /dev/zero"',
+		]) {
+			expect(
+				spinningPauseRefusal(stripped(command)),
+				`${command} was refused`,
+			).toBeUndefined();
+		}
 	});
 });
 

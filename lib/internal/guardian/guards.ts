@@ -111,7 +111,7 @@ export const GUARDS = {
 		name: "sleep",
 		class: "form",
 		description:
-			"Refuses a sleep of ten seconds or more, pointing at background work",
+			"Refuses a sleep of ten seconds or more, pointing at background work, and a pause that spins a core",
 		defaultMode: "redirect",
 		groups: ["shell"],
 	}),
