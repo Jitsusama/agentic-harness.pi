@@ -21,6 +21,7 @@ import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts"
 import {
 	type LaunchHints,
 	SESSION_STAMP_EVENT,
+	type SessionEnvironment,
 	type SessionStamp,
 	withSession,
 } from "../../lib/core/session/index.ts";
@@ -181,6 +182,8 @@ export async function createEngine(
 	let watched: ConversationEvents | undefined;
 	// Each conversation's agent folder, where its model runtime reads auth and models.
 	const agentDirs = new Map<string, string>();
+	// Each conversation's environment, kept past its park: its warms go once the host has let it go.
+	const environments = new Map<string, SessionEnvironment>();
 	const warming = parkedWarming({
 		carries: warmingCarryDir(),
 		pending: pendingWarmsDir(),
@@ -256,7 +259,7 @@ export async function createEngine(
 		// what the conversation names for itself.
 		const values: Record<string, string> = { ...host.hostReads() };
 		for (const [name, value] of Object.entries(
-			host.env(sessionId).snapshot(),
+			environmentOf(sessionId).snapshot(),
 		)) {
 			if (value !== undefined) values[name] = value;
 		}
@@ -265,6 +268,12 @@ export async function createEngine(
 			for (const name of KEY_VARIABLES) values[name] = key;
 		}
 		return values;
+	}
+
+	/** A conversation's environment: the host's while it holds it, else the one it parked with. */
+	function environmentOf(sessionId: string): SessionEnvironment {
+		if (host.holds(sessionId) !== undefined) return host.env(sessionId);
+		return environments.get(sessionId) ?? host.env(sessionId);
 	}
 
 	/** Whether a refused request is worth sending again, having asked for a fresh key. */
@@ -378,6 +387,7 @@ export async function createEngine(
 		const { request } = building;
 		const env = () => requestEnv(sessionId);
 		agentDirs.set(sessionId, target.agentDir);
+		environments.set(sessionId, host.env(sessionId));
 		const modelRuntime = await sessions.ModelRuntime.create({
 			authPath: join(target.agentDir, "auth.json"),
 			modelsPath: join(target.agentDir, "models.json"),
@@ -918,6 +928,7 @@ export async function createEngine(
 		async dropped(sessionId, why) {
 			warming.stop(sessionId);
 			agentDirs.delete(sessionId);
+			environments.delete(sessionId);
 			parked.closed(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},
