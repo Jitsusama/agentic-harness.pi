@@ -3,11 +3,13 @@
  * once no tool call or job runs and no viewer has typed or resized for
  * VIEWER_QUIET_MS, though conversations may be waiting on the model; at
  * most one each SPACING_MS, plus one owed after a park; none until
- * something stirs. Fake timers stand in for the clock; the last cases
+ * something stirs; one anyway once due CEILING_MS with work running;
+ * none, said once, where V8 exposes no gc. Fake timers stand in for the clock; the last cases
  * run V8's own collection and read this process's Pss.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	CEILING_MS,
 	lastResortCollect,
 	pssBytes,
 	type QuietReading,
@@ -29,7 +31,7 @@ describe("the host's collection once quiet", () => {
 	});
 
 	function counted(
-		reading: () => QuietReading = () => ({ working: 0, waiting: 0 }),
+		reading: () => QuietReading = () => ({ tools: 0, jobs: 0, waiting: 0 }),
 	) {
 		const collect = vi.fn();
 		const said: string[] = [];
@@ -59,7 +61,8 @@ describe("the host's collection once quiet", () => {
 
 	it("collects while a conversation only waits on the model, and says how many do", () => {
 		const { collect, said, quiet } = counted(() => ({
-			working: 0,
+			tools: 0,
+			jobs: 0,
 			waiting: 3,
 		}));
 		quiet.stirred();
@@ -69,13 +72,50 @@ describe("the host's collection once quiet", () => {
 	});
 
 	it("never collects while a tool call or job runs, collecting once none does", () => {
-		let working = 1;
-		const { collect, quiet } = counted(() => ({ working, waiting: 1 }));
+		for (const running of [
+			{ tools: 1, jobs: 0 },
+			{ tools: 0, jobs: 1 },
+		]) {
+			let now = running;
+			const { collect, quiet } = counted(() => ({ ...now, waiting: 1 }));
+			quiet.stirred();
+			vi.advanceTimersByTime(SPACING_MS * 2);
+			expect(collect).not.toHaveBeenCalled();
+			now = { tools: 0, jobs: 0 };
+			vi.advanceTimersByTime(SETTLE_MS);
+			expect(collect).toHaveBeenCalledTimes(1);
+			quiet.stop();
+		}
+	});
+
+	it("collects anyway once due for an hour with a job running, saying what ran", () => {
+		const { collect, said, quiet } = counted(() => ({
+			tools: 1,
+			jobs: 2,
+			waiting: 0,
+		}));
 		quiet.stirred();
-		vi.advanceTimersByTime(SPACING_MS * 2);
+		vi.advanceTimersByTime(SETTLE_MS + CEILING_MS - 1);
 		expect(collect).not.toHaveBeenCalled();
-		working = 0;
-		vi.advanceTimersByTime(SETTLE_MS);
+		vi.advanceTimersByTime(1);
+		expect(collect).toHaveBeenCalledTimes(1);
+		expect(said[0]).toMatch(
+			/waiting on the model, and 1 tool calls and 2 jobs running, due for 60 minutes$/,
+		);
+	});
+
+	it("holds even an hour's collection until a viewer has been quiet 30 s", () => {
+		const { collect, quiet } = counted(() => ({
+			tools: 0,
+			jobs: 1,
+			waiting: 0,
+		}));
+		quiet.stirred();
+		vi.advanceTimersByTime(SETTLE_MS + CEILING_MS - VIEWER_QUIET_MS / 2);
+		quiet.viewed();
+		vi.advanceTimersByTime(VIEWER_QUIET_MS - 1);
+		expect(collect).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
 		expect(collect).toHaveBeenCalledTimes(1);
 	});
 
@@ -119,13 +159,13 @@ describe("the host's collection once quiet", () => {
 	});
 
 	it("holds what a park owes while a viewer types or a tool runs", () => {
-		let working = 1;
-		const { collect, quiet } = counted(() => ({ working, waiting: 0 }));
+		let tools = 1;
+		const { collect, quiet } = counted(() => ({ tools, jobs: 0, waiting: 0 }));
 		quiet.viewed();
 		quiet.parked();
 		vi.advanceTimersByTime(VIEWER_QUIET_MS * 2);
 		expect(collect).not.toHaveBeenCalled();
-		working = 0;
+		tools = 0;
 		vi.advanceTimersByTime(SETTLE_MS);
 		expect(collect).toHaveBeenCalledTimes(1);
 	});
@@ -143,7 +183,7 @@ describe("the host's collection once quiet", () => {
 	it("says a pause over a second as the loop held, as the watchdog says a late beat", () => {
 		const said: string[] = [];
 		const quiet = quietCollection({
-			reading: () => ({ working: 0, waiting: 2 }),
+			reading: () => ({ tools: 0, jobs: 0, waiting: 2 }),
 			collect: () => {},
 			weigh: () => undefined,
 			report: (one) => said.push(one),
@@ -157,6 +197,28 @@ describe("the host's collection once quiet", () => {
 		expect(said).toEqual([
 			"Collected while quiet in 1240 ms, Pss unread, with 2 conversations waiting on the model; the loop held 1.2 s for it",
 		]);
+	});
+
+	it("starts with collection off, said once, where V8 exposes no gc", () => {
+		for (const exposeGc of [
+			() => undefined,
+			() => {
+				throw new Error("no such flag");
+			},
+		]) {
+			const said: string[] = [];
+			const quiet = quietCollection({
+				reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+				exposeGc,
+				report: (one) => said.push(one),
+			});
+			quiet.stirred();
+			quiet.parked();
+			vi.advanceTimersByTime(SPACING_MS);
+			expect(said).toEqual([
+				"V8 exposed no gc to collect with, so the host won't collect when quiet",
+			]);
+		}
 	});
 
 	it("stops, collecting nothing after", () => {
@@ -198,7 +260,9 @@ describe("the tool calls a conversation runs", () => {
 
 describe("V8's last-resort collection", () => {
 	it("runs in this process", () => {
-		expect(() => lastResortCollect()()).not.toThrow();
+		const collect = lastResortCollect();
+		expect(collect).toBeTypeOf("function");
+		expect(() => collect?.()).not.toThrow();
 	});
 
 	it.runIf(process.platform === "linux")("reads this process's Pss", () => {

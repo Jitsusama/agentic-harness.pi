@@ -173,7 +173,12 @@ running, and no viewer's key or resize for 30 s. A conversation
 mid-turn that only waits on the model doesn't hold it off, since the
 attended host almost always has one, and the pause costs it at most a
 stall in streaming. It runs at most once in 10 minutes, and a park may
-bring one forward inside them. The journal line says the pause in ms,
+bring one forward inside them. A host that always has a job running
+would never be quiet, so once a collection has been due an hour it
+runs with tool calls and jobs running, still after 30 s with no key
+or resize, and says how many of each were. Where V8 exposes no gc it
+says so once and collects nothing, rather than refusing to start. The
+journal line says the pause in ms,
 the Pss before and after and how many conversations were waiting on
 the model, and names a pause over a second as the loop held, as the
 watchdog names a late beat. The `host` section of the package's config

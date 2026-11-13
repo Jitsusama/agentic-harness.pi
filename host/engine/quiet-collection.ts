@@ -15,6 +15,13 @@
  * inside that, since a park lets most of a conversation go at once. It
  * says the pause, the Pss before and after and how many conversations
  * were waiting on the model, and runs again only after something stirs.
+ * A host that always has a job running, as the background host nearly
+ * always does, would never be quiet, so once a collection has been due
+ * for CEILING_MS it runs with tool calls and jobs running, still only
+ * once a viewer has been quiet, and says how many of each were: a
+ * pause only stalls a job's child, whose pipe buffers meanwhile.
+ * Where V8 exposes no gc, it says so once and collects nothing, rather
+ * than keeping the host, and every conversation in it, from starting.
  */
 import { readFileSync } from "node:fs";
 import { setFlagsFromString } from "node:v8";
@@ -23,14 +30,19 @@ import { runInNewContext } from "node:vm";
 /** How long after a viewer's last key or resize the host may pause. */
 export const VIEWER_QUIET_MS = 30_000;
 
+const MS_PER_MINUTE = 60_000;
+
 /** The least time between two collections, but for one a park brings forward. */
-export const SPACING_MS = 10 * 60_000;
+export const SPACING_MS = 10 * MS_PER_MINUTE;
 
 /**
  * How long after a stir the host looks, and how often it looks again
  * while a tool call or job runs: what a turn's end sets off runs first.
  */
 export const SETTLE_MS = 5_000;
+
+/** How long a collection may wait on running tool calls and jobs before it runs anyway. */
+export const CEILING_MS = 60 * MS_PER_MINUTE;
 
 /** A pause longer than this is said as the loop held, as a late watchdog beat is. */
 const HELD_MS = 1_000;
@@ -44,8 +56,10 @@ export type Collect = () => void;
 
 /** What the host's conversations are doing, as far as a pause would cost them. */
 export interface QuietReading {
-	/** Tool calls and jobs running, in every conversation. */
-	readonly working: number;
+	/** Tool calls running, in every conversation. */
+	readonly tools: number;
+	/** Background jobs running or with results unsaid, in every conversation. */
+	readonly jobs: number;
 	/** Conversations mid-turn with no tool call running: waiting on the model. */
 	readonly waiting: number;
 }
@@ -66,13 +80,21 @@ export interface QuietCollection {
 export function quietCollection(options: {
 	readonly reading: () => QuietReading;
 	readonly collect?: Collect;
+	/** What exposes V8's gc, where no `collect` is given; see lastResortCollect. */
+	readonly exposeGc?: () => unknown;
 	/** This process's Pss in bytes, or nothing where it can't be read. */
 	readonly weigh?: () => number | undefined;
 	readonly report?: (said: string) => void;
 	/** What times the pause, in ms; performance.now by default. */
 	readonly clock?: () => number;
 }): QuietCollection {
-	const collect = options.collect ?? lastResortCollect();
+	const collect = options.collect ?? lastResortCollect(options.exposeGc);
+	if (!collect) {
+		options.report?.(
+			"V8 exposed no gc to collect with, so the host won't collect when quiet",
+		);
+		return { stirred() {}, parked() {}, viewed() {}, stop() {} };
+	}
 	const weigh = options.weigh ?? pssBytes;
 	const clock = options.clock ?? (() => performance.now());
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -84,6 +106,8 @@ export function quietCollection(options: {
 	let lastForPark = Number.NEGATIVE_INFINITY;
 	let lastCollected = Number.NEGATIVE_INFINITY;
 	let lastViewed = Number.NEGATIVE_INFINITY;
+	// Since when a collection has been due but held off by running work.
+	let dueSince: number | undefined;
 
 	const forPark = (now: number) => parkOwed && now - lastForPark >= SPACING_MS;
 	const due = (now: number) =>
@@ -112,23 +136,26 @@ export function quietCollection(options: {
 			return;
 		}
 		const reading = options.reading();
-		if (reading.working > 0) {
-			arm(now + SETTLE_MS);
+		const working = reading.tools + reading.jobs > 0;
+		dueSince ??= now;
+		if (working && now - dueSince < CEILING_MS) {
+			arm(Math.min(now + SETTLE_MS, dueSince + CEILING_MS));
 			return;
 		}
 		if (forPark(now) && now - lastCollected < SPACING_MS) lastForPark = now;
 		stirred = false;
 		parkOwed = false;
+		dueSince = undefined;
 		lastCollected = now;
-		collected(reading);
+		collected(reading, working);
 	};
-	const collected = (reading: QuietReading) => {
+	const collected = (reading: QuietReading, working: boolean) => {
 		const before = weigh();
 		const started = clock();
 		collect();
 		const took = Math.round(clock() - started);
 		const after = weigh();
-		options.report?.(collectedLine(took, before, after, reading.waiting));
+		options.report?.(collectedLine(took, before, after, reading, working));
 	};
 	return {
 		stirred() {
@@ -187,14 +214,18 @@ function collectedLine(
 	took: number,
 	before: number | undefined,
 	after: number | undefined,
-	waiting: number,
+	reading: QuietReading,
+	working: boolean,
 ): string {
 	const megabytes = (bytes: number) => `${Math.round(bytes / MB)} MB`;
 	const pss =
 		before === undefined || after === undefined
 			? "Pss unread"
 			: `Pss ${megabytes(before)} to ${megabytes(after)}`;
-	const line = `Collected while quiet in ${took} ms, ${pss}, with ${waiting} conversations waiting on the model`;
+	const quiet = `Collected while quiet in ${took} ms, ${pss}, with ${reading.waiting} conversations waiting on the model`;
+	const line = working
+		? `${quiet}, and ${reading.tools} tool calls and ${reading.jobs} jobs running, due for ${CEILING_MS / MS_PER_MINUTE} minutes`
+		: quiet;
 	return took > HELD_MS
 		? `${line}; the loop held ${(took / MS_PER_SECOND).toFixed(1)} s for it`
 		: line;
@@ -217,12 +248,25 @@ export function pssBytes(): number | undefined {
 
 /**
  * V8's gc, exposed for this process alone, run as a last-resort major
- * collection: the one kind that unmaps its pooled pages.
+ * collection: the one kind that unmaps its pooled pages. Nothing where
+ * `expose` gives no gc or throws, as a V8 that drops the flag would.
  */
-export function lastResortCollect(): Collect {
-	setFlagsFromString("--expose-gc");
-	const gc: unknown = runInNewContext("gc");
-	if (typeof gc !== "function")
-		throw new Error("V8 exposed no gc to collect with");
+export function lastResortCollect(
+	expose: () => unknown = exposedGc,
+): Collect | undefined {
+	let gc: unknown;
+	try {
+		gc = expose();
+	} catch {
+		// A V8 that refuses the flag or the context: the caller says so.
+		return undefined;
+	}
+	if (typeof gc !== "function") return undefined;
 	return () => gc({ type: "major", execution: "sync", flavor: "last-resort" });
+}
+
+/** V8's gc, from a new context once the flag that exposes it is set. */
+function exposedGc(): unknown {
+	setFlagsFromString("--expose-gc");
+	return runInNewContext("gc");
 }

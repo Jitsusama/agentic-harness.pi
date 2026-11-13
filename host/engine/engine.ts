@@ -215,15 +215,18 @@ export async function createEngine(
 
 	/** What a pause to collect would cost the conversations now. */
 	function quietReading(): QuietReading {
-		let working = 0;
-		for (const [sessionId, record] of live)
-			working += tools.running(sessionId) + backgroundIn(record);
+		let running = 0;
+		let jobs = 0;
+		for (const [sessionId, record] of live) {
+			running += tools.running(sessionId);
+			jobs += backgroundIn(record);
+		}
 		const waiting = host
 			.list()
 			.filter(
 				({ id, state }) => state === "busy" && tools.running(id) === 0,
 			).length;
-		return { working, waiting };
+		return { tools: running, jobs, waiting };
 	}
 
 	function held(sessionId: string, file: string): boolean {
