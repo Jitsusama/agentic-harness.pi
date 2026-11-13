@@ -559,9 +559,7 @@ async function runPlain(sealed: Seal): Promise<{
 	const env = Object.fromEntries(
 		Object.entries(
 			profiled({ ...sealed.env, PI_OFFLINE: "1" }, profiles.plain),
-		).filter(
-			(pair): pair is [string, string] => typeof pair[1] === "string",
-		),
+		).filter((pair): pair is [string, string] => typeof pair[1] === "string"),
 	);
 	const cwds = counts.map(() => workingFolder(work));
 	const ran = await Promise.all(

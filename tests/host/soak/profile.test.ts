@@ -27,7 +27,11 @@ function profile(samples: readonly number[]): object {
 			node(4, "prompt", `${PI}/@earendil-works/pi-agent-core/dist/agent.js`),
 			node(5, "onTurn", "file:///w/h/extensions/job-workflow/index.ts"),
 			node(6, "(garbage collector)"),
-			node(7, "parse", "file:///w/h/node_modules/.pnpm/a/node_modules/x/lib/y.js"),
+			node(
+				7,
+				"parse",
+				"file:///w/h/node_modules/.pnpm/a/node_modules/x/lib/y.js",
+			),
 		],
 		samples,
 		timeDeltas: samples.map(() => 1000),
