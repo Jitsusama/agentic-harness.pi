@@ -27,7 +27,10 @@ What must not be out:
 - no peer waiting on a hold it sent;
 - for an orchestrator, no session it leads at work (listening, busy
   or waiting rather than parked or paused), since their findings and
-  landings are its to pass on.
+  landings are its to pass on;
+- and it must not be the session standing at the launcher's top
+  (its quest's `stands-at-top`), which takes the person's lines and
+  would make each wait for a wake.
 
 Idle counts from the last thing that happened in it: a prompt typed,
 a run starting or ending, a prompt opening or closing.
