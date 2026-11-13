@@ -149,7 +149,6 @@ function patchFor(kept: SystemMessage, head: SystemMessage): Patch {
 	return patch;
 }
 
-
 /** The two heads already say the same thing. */
 const SAME = Symbol("same");
 
