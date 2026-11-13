@@ -238,9 +238,7 @@ export function turnRecords(
 			tag,
 			hostedMs: answerAt - promptAt,
 			...(paired === undefined ? {} : { plainMs: paired }),
-			...(keys === undefined
-				? {}
-				: { keyToAcceptedMs: promptAt - keys.keyAt }),
+			...(keys === undefined ? {} : { keyToAcceptedMs: promptAt - keys.keyAt }),
 			...(keys?.shownAt === undefined
 				? {}
 				: { keyToDrawnMs: keys.shownAt - keys.keyAt }),
