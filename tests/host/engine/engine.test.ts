@@ -96,6 +96,8 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** The warms a parked conversation's host kept for its next start. */
+	readonly pending?: number;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -493,6 +495,23 @@ describe("the host's engine", () => {
 				"user: hi",
 				"assistant: hello again",
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"warms a parked conversation's cache on its own key, once the host has let it go",
+		async () => {
+			const seen = await step(hostFolder(), "warm-parked");
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.keysSeen, "its turn, then its warm").toEqual([
+				"first-key",
+				"first-key",
+			]);
+			expect(seen.pending, "the warm waits for its next start").toBe(1);
 		},
 		HOST_LIFE_MS,
 	);
