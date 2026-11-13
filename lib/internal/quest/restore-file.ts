@@ -27,6 +27,10 @@
  * A released session has always run here, so it is offered while its
  * move note stands (lib/internal/session/move.ts) rather than by the
  * records, and stands in for any other entry for that session.
+ * A session whose conversation another one carries on, coming back or
+ * running, isn't offered, so a reopen never opens two on one
+ * conversation (carriedOnElsewhere). Each entry on a quest names the
+ * workspace its window opens on, by name (KP0L6A, 13 November).
  *
  * Worked out without probing any process, since it is written as each
  * pi starts, and starting a session never shells out: a record from
@@ -43,6 +47,7 @@ import type { MoveNote } from "../session/move.ts";
 import type { CarriedHome } from "./carried.ts";
 import { atomicWriteFile } from "./io.ts";
 import {
+	carriedOnElsewhere,
 	closeRecord,
 	lastBootSessions,
 	type SessionRecord,
@@ -106,6 +111,22 @@ export interface RestoreEntry {
 	 * before the boot is fenced after it.
 	 */
 	readonly env?: CarriedEnvironment;
+	/**
+	 * The niri workspace its window opens on, by name: the address of the
+	 * topmost orchestrator over its quest, else its quest's own
+	 * (windowWorkspaceOf in orchestration.ts), so a reopen after a boot
+	 * never puts it where the person is (KP0L6A, 13 November). Absent
+	 * with no quest.
+	 */
+	readonly workspace?: string;
+}
+
+/** How a restore file's sessions are placed and which are left out. */
+export interface RestorePlacing {
+	/** The workspace a quest's sessions open on, as an address. */
+	readonly workspaceOf?: (questId: string) => string | undefined;
+	/** The session a session's log carried on from, for `carriedOnElsewhere`. */
+	readonly parentOf?: (sessionId: string) => string | undefined;
 }
 
 /** The whole file. */
@@ -157,6 +178,7 @@ export function restoreFileOf(
 	live: (questId: string) => boolean = () => true,
 	/** Sessions their hosts let go, read by `releasedEntry`. */
 	released: readonly RestoreEntry[] = [],
+	placing: RestorePlacing = {},
 ): RestoreFile {
 	const letGo = new Set(released.map((entry) => entry.id));
 	const unreleased = (entry: RestoreEntry) => !letGo.has(entry.id);
@@ -174,24 +196,41 @@ export function restoreFileOf(
 			: record;
 	});
 	const found = lastBootSessions(records, thisBoot, ended);
+	const parked = found.parked.filter(
+		(record) => record.quest === undefined || live(record.quest),
+	);
+	const carriedOn = placing.parentOf
+		? carriedOnElsewhere(
+				[...found.offered, ...parked],
+				records.filter((record) => record.closedAt === undefined),
+				placing.parentOf,
+			)
+		: new Set<string>();
+	const uncarried = (record: SessionRecord) => !carriedOn.has(record.sessionId);
 	const joins = elsewhere(found.boot);
 	const boot = found.boot ?? joins?.boot;
+	const placed = (entry: RestoreEntry): RestoreEntry => {
+		const workspace =
+			entry.workspace ??
+			(entry.quest ? placing.workspaceOf?.(entry.quest) : undefined);
+		return workspace ? { ...entry, workspace } : entry;
+	};
 	return {
 		v: RESTORE_FILE_VERSION,
 		...(boot !== undefined ? { boot } : {}),
 		sessions: [
 			...[
-				...found.offered.map((record) =>
-					saved(record.sessionId)
-						? entryOf(record, titleOf)
-						: { ...entryOf(record, titleOf), fresh: true as const },
-				),
-				...found.parked
-					.filter((record) => record.quest === undefined || live(record.quest))
-					.map((record) => ({
-						...entryOf(record, titleOf),
-						parked: true as const,
-					})),
+				...found.offered
+					.filter(uncarried)
+					.map((record) =>
+						saved(record.sessionId)
+							? entryOf(record, titleOf)
+							: { ...entryOf(record, titleOf), fresh: true as const },
+					),
+				...parked.filter(uncarried).map((record) => ({
+					...entryOf(record, titleOf),
+					parked: true as const,
+				})),
 				...(joins?.windows ?? []).map(
 					(window): RestoreEntry => ({
 						id: window.id,
@@ -208,7 +247,7 @@ export function restoreFileOf(
 				...carried.filter((entry) => !ranHere.has(entry.id)),
 			].filter(unreleased),
 			...released,
-		],
+		].map(placed),
 	};
 }
 

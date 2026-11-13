@@ -119,9 +119,9 @@ describe("what the launcher is told to place a window by", () => {
 			alone: handedPlaceFor(ALONE, index),
 			unknown: handedPlaceFor("QEST-20260101-NOSUCH", index),
 		}).toEqual({
-			worker: { orchestratedBy: "LEADER", title: "Work" },
-			lead: { title: "Lead" },
-			alone: { title: "Alone" },
+			worker: { orchestratedBy: "LEADER", workspace: "LEADER", title: "Work" },
+			lead: { workspace: "LEADER", title: "Lead" },
+			alone: { workspace: "ALONEQ", title: "Alone" },
 			unknown: {},
 		});
 	});

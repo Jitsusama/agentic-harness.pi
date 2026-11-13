@@ -472,3 +472,112 @@ describe("the restore file", () => {
 		expect(bootEndedBefore(join(home, "none.json"), "this", 0)).toBeUndefined();
 	});
 });
+
+describe("the restore file's placing and lines", () => {
+	const lost = (sessionId: string, questId?: string) => ({
+		record: ranIn(sessionId, "last", questId),
+		heartbeatAt: "2026-10-29T05:00:00Z",
+	});
+
+	it("names the workspace each session's window opens on, by name", () => {
+		const file = restoreFileOf(
+			[lost("01a1aaaa-bbbb", "QEST-20261025-85PKB2"), lost("01a1cccc-dddd")],
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				workspaceOf: (questId) =>
+					questId === "QEST-20261025-85PKB2" ? "WCJQSG" : undefined,
+			},
+		);
+		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
+
+		expect(byId.get("01a1aaaa-bbbb")?.workspace).toBe("WCJQSG");
+		expect(
+			byId.get("01a1cccc-dddd"),
+			"no quest, so no workspace",
+		).not.toHaveProperty("workspace");
+	});
+
+	it("leaves out a session whose conversation another one coming back carries on", () => {
+		const parked = {
+			record: closeRecord(
+				ranIn("01a1-old", "last", "QEST-1"),
+				"parked",
+				new Date("2026-10-29T04:00:00Z"),
+			),
+			heartbeatAt: "2026-10-29T04:00:00Z",
+		};
+		const file = restoreFileOf(
+			[parked, lost("01a1-new", "QEST-1")],
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ parentOf: (id) => (id === "01a1-new" ? "01a1-old" : undefined) },
+		);
+
+		expect(
+			file.sessions.map((entry) => entry.id),
+			"the carried-on copy is offered",
+		).toEqual(["01a1-new"]);
+	});
+
+	const parkedOld = {
+		record: closeRecord(
+			ranIn("01a1-old", "last", "QEST-1"),
+			"parked",
+			new Date("2026-10-29T04:00:00Z"),
+		),
+		heartbeatAt: "2026-10-29T04:00:00Z",
+	};
+	const carriedOnByNew = {
+		parentOf: (id: string) => (id === "01a1-new" ? "01a1-old" : undefined),
+	};
+	const offered = (stored: Parameters<typeof restoreFileOf>[0]) =>
+		restoreFileOf(
+			stored,
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			carriedOnByNew,
+		).sessions.map((entry) => entry.id);
+
+	it("leaves it out while the session that carries it on runs", () => {
+		const running = {
+			record: ranIn("01a1-new", "this", "QEST-1"),
+			heartbeatAt: "2026-10-29T05:00:00Z",
+		};
+
+		expect(offered([parkedOld, running]), "nothing to offer").toEqual([]);
+	});
+
+	it("offers it when nothing that carries it on comes back", () => {
+		const quit = {
+			record: closeRecord(
+				ranIn("01a1-new", "last", "QEST-1"),
+				"quit",
+				new Date("2026-10-29T04:30:00Z"),
+			),
+			heartbeatAt: "2026-10-29T04:30:00Z",
+		};
+
+		expect(offered([parkedOld, quit]), "the line's one session").toEqual([
+			"01a1-old",
+		]);
+	});
+});

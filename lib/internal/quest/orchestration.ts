@@ -61,6 +61,35 @@ export function orchestrationOf(
 	};
 }
 
+/**
+ * The quest whose workspace a session of this quest opens its window
+ * on: the topmost orchestrator above it, through every nested one, else
+ * the quest itself. Joel steers a session through that orchestrator, so
+ * its window belongs beside it; a workspace is told by this quest's
+ * address as a name, since positions and ids change with every boot
+ * (13 November, when reopened windows landed on the workspace he was
+ * on). Undefined for a quest that can't be read.
+ */
+export function windowWorkspaceOf(
+	quest: string,
+	read: (quest: string) => QuestFrontMatter | undefined,
+): string | undefined {
+	const own = read(quest);
+	if (!own) return undefined;
+	const seen = new Set([quest]);
+	let top = quest;
+	let at = own;
+	while (seen.size <= MOST_PARENTS) {
+		const above = orchestratorAbove(top, at, read);
+		const next = above && !seen.has(above) ? read(above) : undefined;
+		if (!above || !next) return top;
+		seen.add(above);
+		top = above;
+		at = next;
+	}
+	return top;
+}
+
 /** The nearest orchestrating quest above this one, or the one it names. */
 function orchestratorAbove(
 	quest: string,

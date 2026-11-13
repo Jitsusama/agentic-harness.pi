@@ -14,6 +14,7 @@
 import {
 	askLauncher,
 	callLauncher,
+	type HandedPlace,
 	type HandedSession,
 	type LauncherCall,
 	launcherTakes,
@@ -37,8 +38,8 @@ export interface LauncherSpawn {
 	readonly named: boolean;
 	/** The session asking for it, which its window goes beside. */
 	readonly fromSessionId?: string;
-	/** The orchestrator and title its window is placed by (window-place.ts). */
-	readonly place?: Pick<HandedSession, "orchestratedBy" | "title">;
+	/** The orchestrator, workspace and title its window is placed by (window-place.ts). */
+	readonly place?: HandedPlace;
 }
 
 /**

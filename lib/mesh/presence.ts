@@ -30,6 +30,7 @@ import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import {
 	type Orchestration,
 	orchestrationOf,
+	windowWorkspaceOf,
 } from "../internal/quest/orchestration.ts";
 import { parsedFiles } from "../internal/quest/parsed-file.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
@@ -176,6 +177,8 @@ export interface Presence {
 	 * signs with the quest's address, which is the one that had it first.
 	 */
 	readonly orchestrates?: string;
+	/** Its window's niri workspace, by name (windowWorkspaceOf). */
+	readonly workspace?: string;
 	/**
 	 * The machine it runs on, when that is another one: a mycelium node
 	 * writes the presence of a session elsewhere here, with its owner
@@ -320,6 +323,8 @@ export interface PeerWork {
 	readonly scopes: readonly string[];
 	/** Where its quest sits among orchestrations, by quest id. */
 	readonly orchestration: Orchestration;
+	/** The workspace its window belongs on, by name (see Presence). */
+	readonly workspace?: string;
 	/** Its quest hears only what is put to it (see attention.ts). */
 	readonly hears?: "addressed";
 	/** Its quest stands at the launcher's top (see Presence). */
@@ -386,6 +391,7 @@ export function workOf(
 			),
 		}),
 		orchestration,
+		workspace: questAddress(windowWorkspaceOf(quest, read) ?? quest),
 		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
 		...standingAtTop(parsed.frontMatter._extra?.["stands-at-top"]),
 	};
@@ -678,6 +684,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...(typeof one.orchestrates === "string"
 			? { orchestrates: one.orchestrates }
+			: {}),
+		...(typeof one.workspace === "string" && one.workspace !== ""
+			? { workspace: one.workspace }
 			: {}),
 		...(typeof one.machine === "string" && one.machine !== ""
 			? { machine: one.machine }
