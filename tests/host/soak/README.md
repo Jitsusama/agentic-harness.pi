@@ -10,6 +10,8 @@ host adds, and records that drift from plain pi's.
   conversation parks and the host is weighed awake and parked, then each
   wakes by a window, the mesh or its next key, in turn: the windows one
   at a time first, as a person opens one, then the rest together.
+  Under `--burst` every one wakes by a window at the same moment instead,
+  as a host's conversations do after a switch.
 - `turns.ts`: the script, the same on every run of the same sizes, with
   reads, bash, background bash jobs and long answers among the echoes.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
@@ -26,7 +28,8 @@ host adds, and records that drift from plain pi's.
 - `profile.ts`: where each side's time went, from the CPU profiles node
   writes under `--profile`, by area and by function.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns,
-  once with no parking and once parked and woken, in `pnpm test:host`.
+  once with no parking, once parked and woken in turn, and once woken
+  in a burst, in `pnpm test:host`.
 
 ## Running a Week
 
@@ -80,7 +83,11 @@ It prints a line a checkpoint and the report as one JSON line after
   each window's wake, from its attach to the host's answer, which waits
   for the whole wake, and from there to its first drawing, with the bytes
   its log held. A mesh wake goes untimed: the host lists a waking
-  conversation idle before it has loaded.
+  conversation idle before it has loaded. Under `--burst`, `burstWakes`
+  times every window's wake the same way, all opened at once, and
+  `afterBurst` weighs the host once all have woken, its loop figures
+  covering the burst alone: the bar asks each wake to answer within 5 s
+  and the loop never to run more than 1 s late.
 - `heap`: whether the heap used, the heap total and RSS settle, awake
   and parked. A parked heap that still climbs in the run's later half is
   a leak; the awake heap grows with the conversations' history, so read
