@@ -12,6 +12,7 @@ import {
 	answerLookSteered,
 	answerSteered,
 	LOOK_GONE,
+	steerDelivery,
 	steerText,
 } from "../../../extensions/mesh-workflow/steer.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
@@ -174,6 +175,22 @@ describe("a look answered from the launcher", () => {
 			LOOK_GONE,
 		]);
 		expect(looksIn(looks)[0]?.answer, "the first answer stands").toBe("Posted");
+	});
+});
+
+describe("when a steer reaches the session", () => {
+	it("starts a turn when the session is idle, now or not", () => {
+		for (const now of [undefined, true] as const) {
+			expect(
+				steerDelivery({ ...(now ? { now } : {}) }, true),
+				`idle, now ${now}`,
+			).toBeUndefined();
+		}
+	});
+
+	it("waits for the run under way to end, unless it says now", () => {
+		expect(steerDelivery({}, false), "busy").toBe("followUp");
+		expect(steerDelivery({ now: true }, false), "busy, now").toBe("steer");
 	});
 });
 

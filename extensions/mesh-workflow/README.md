@@ -813,9 +813,11 @@ under `$XDG_STATE_HOME/pi/agentic-harness.pi/steer/`: a file
 renamed into `steer/<ADDRESS>/` as `<unix-ms>-<random>.json`,
 holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`
 (only `text` is needed), reaches the session going by that
-address as the person's own message. That's a turn when idle,
-and a steer into the run under way, read after its tool,
-otherwise. Either way it reads as the person asking from
+address as the person's own message. That's a turn when idle.
+A session at work reads it once its run ends, so a task isn't
+broken into, unless the file holds `"now": true`, which reads
+it into the run under way after its current tool (Joel, 12
+November). Either way it reads as the person asking from
 outside the window, to be answered first in a line or two
 before the session carries on, since the launcher shows that
 first answer; a machine's steer says it isn't the person's.

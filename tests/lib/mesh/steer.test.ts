@@ -86,6 +86,22 @@ describe("the steer inbox", () => {
 		expect(steerFrom('["go"]', "f")).toBeUndefined();
 	});
 
+	it("keeps now only when it is true, so a steer waits unless it says so", () => {
+		expect(steerFrom('{"text":"go","now":true}', "f")?.now, "now true").toBe(
+			true,
+		);
+		for (const now of ['"yes"', "1", "false"]) {
+			expect(
+				steerFrom(`{"text":"go","now":${now}}`, "f"),
+				`now ${now}`,
+			).not.toHaveProperty("now");
+		}
+		expect(
+			steerFrom('{"act":"pause","now":true}', "f"),
+			"an act",
+		).not.toHaveProperty("now");
+	});
+
 	it("keeps a talk id only when it can name a file in the replies folder", () => {
 		expect(steerFrom('{"text":"go","id":"t-01.a"}', "f")?.id).toBe("t-01.a");
 		expect(steerFrom('{"text":"go","id":"../x"}', "f")?.id).toBeUndefined();
