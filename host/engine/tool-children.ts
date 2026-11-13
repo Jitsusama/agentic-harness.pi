@@ -20,8 +20,14 @@
  * its end is said (`carriedCalls`, lib/internal/shell/kept.ts): every
  * process carrying the call's own mark, whatever group it moved to, as
  * `timeout` does, and its shell's group.
+ *
+ * A busy machine holds thousands of processes, and their environments tens
+ * of megabytes, so the table is read without holding the host's one loop,
+ * a few files at a time, and only an environment that mentions the marker
+ * sought is parsed.
  */
 import { readdirSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
 	type CarriedCalls,
 	carriedCalls,
@@ -40,6 +46,9 @@ export const OWNER_MARKER = "PI_HOST_OWNER";
 /** How many times reaping looks again, for a child forked while it killed. */
 const MOST_PASSES = 3;
 
+/** How many environments reaping reads at once, leaving the rest of the host's file work room between. */
+const READ_AT_ONCE = 32;
+
 /** Where the group sits after a stat line's command: state, parent, group. */
 const GROUP_FIELD = 2;
 
@@ -52,8 +61,15 @@ export interface ProcessTable {
 	readonly self: number;
 	/** Every process id the table holds. */
 	pids(): readonly number[];
-	/** A process's environment, or undefined once it is gone or unreadable. */
-	environ(pid: number): Readonly<Record<string, string>> | undefined;
+	/**
+	 * A process's environment, or undefined once it is gone or unreadable. A
+	 * table may answer undefined too for one whose environment never mentions
+	 * `mentioning`, sparing the parse; reaping checks what it answers exactly.
+	 */
+	environ(
+		pid: number,
+		mentioning?: string,
+	): Promise<Readonly<Record<string, string>> | undefined>;
 	/** A process's group, or undefined once it is gone. */
 	group(pid: number): number | undefined;
 	/** When a process started, in ticks since boot, or undefined once it is gone. */
@@ -94,6 +110,12 @@ export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 	return `${table.self}:${started}`;
 }
 
+/** What reaping looks for: the text a marked environment holds, and the exact test it must pass. */
+interface Sought {
+	readonly mentioning: string;
+	readonly chosen: (environ: Readonly<Record<string, string>>) => boolean;
+}
+
 /**
  * Kill every process group holding a process this conversation's tools
  * started, answering the groups and lone processes it killed.
@@ -102,12 +124,8 @@ export function reapToolChildren(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
 	spared: CarriedCalls = carriedCalls(),
-): Reaped {
-	return reapWhere(
-		(environ) => environ[CONVERSATION_MARKER] === sessionId,
-		table,
-		spared,
-	);
+): Promise<Reaped> {
+	return reapWhere(conversationSought(sessionId), table, spared);
 }
 
 /**
@@ -119,15 +137,18 @@ export function reapLeftBehind(
 	key: string,
 	table: ProcessTable = linuxProcessTable(),
 	spared: CarriedCalls = carriedCalls(),
-): Reaped {
+): Promise<Reaped> {
 	return reapWhere(
-		(environ) => {
-			const owner = environ[OWNER_MARKER];
-			return (
-				environ[KEY_MARKER] === key &&
-				owner !== undefined &&
-				!runs(owner, table)
-			);
+		{
+			mentioning: `${KEY_MARKER}=${key}`,
+			chosen: (environ) => {
+				const owner = environ[OWNER_MARKER];
+				return (
+					environ[KEY_MARKER] === key &&
+					owner !== undefined &&
+					!runs(owner, table)
+				);
+			},
 		},
 		table,
 		spared,
@@ -135,11 +156,19 @@ export function reapLeftBehind(
 }
 
 /** Every process other than this one carrying the conversation's marker. */
-export function marked(sessionId: string, table: ProcessTable): number[] {
-	return markedWhere(
-		(environ) => environ[CONVERSATION_MARKER] === sessionId,
-		table,
-	);
+export async function marked(
+	sessionId: string,
+	table: ProcessTable,
+): Promise<number[]> {
+	return [...(await markedWhere(conversationSought(sessionId), table)).keys()];
+}
+
+/** The processes carrying one conversation's marker. */
+function conversationSought(sessionId: string): Sought {
+	return {
+		mentioning: `${CONVERSATION_MARKER}=${sessionId}`,
+		chosen: (environ) => environ[CONVERSATION_MARKER] === sessionId,
+	};
 }
 
 /** Whether the host an owner mark names still runs as the same process. */
@@ -150,21 +179,21 @@ function runs(owner: string, table: ProcessTable): boolean {
 	return colon > 0 && Number.isInteger(pid) && table.started(pid) === started;
 }
 
-function reapWhere(
-	chosen: (environ: Readonly<Record<string, string>>) => boolean,
+async function reapWhere(
+	sought: Sought,
 	table: ProcessTable,
 	spared: CarriedCalls,
-): Reaped {
+): Promise<Reaped> {
 	const own = table.group(table.self);
 	const groups = new Set<number>();
 	const pids = new Set<number>();
 	for (let pass = 0; pass < MOST_PASSES; pass += 1) {
-		const found = markedWhere(chosen, table);
-		if (found.length === 0) break;
-		for (const pid of found) {
+		const found = await markedWhere(sought, table);
+		if (found.size === 0) break;
+		for (const [pid, environ] of found) {
 			const group = table.group(pid);
 			// Gone meanwhile, or handed on and said elsewhere.
-			if (group === undefined || handedOn(pid, group, table, spared)) continue;
+			if (group === undefined || handedOn(environ, group, spared)) continue;
 			if (group === own) {
 				pids.add(pid);
 				table.kill({ pid });
@@ -179,25 +208,34 @@ function reapWhere(
 
 /** Whether a process belongs to a call handed on, by its call's mark or its shell's group. */
 function handedOn(
-	pid: number,
+	environ: Readonly<Record<string, string>>,
 	group: number,
-	table: ProcessTable,
 	spared: CarriedCalls,
 ): boolean {
 	if (spared.groups.has(group)) return true;
-	const mark = table.environ(pid)?.[CALL_VARIABLE];
+	const mark = environ[CALL_VARIABLE];
 	return mark !== undefined && spared.marks.has(mark);
 }
 
-function markedWhere(
-	chosen: (environ: Readonly<Record<string, string>>) => boolean,
+/** Each process other than this one that is sought, with its environment, read a few at a time. */
+async function markedWhere(
+	sought: Sought,
 	table: ProcessTable,
-): number[] {
-	return table.pids().filter((pid) => {
-		if (pid === table.self) return false;
-		const environ = table.environ(pid);
-		return environ !== undefined && chosen(environ);
-	});
+): Promise<Map<number, Readonly<Record<string, string>>>> {
+	const others = table.pids().filter((pid) => pid !== table.self);
+	const found = new Map<number, Readonly<Record<string, string>>>();
+	for (let at = 0; at < others.length; at += READ_AT_ONCE) {
+		const some = others.slice(at, at + READ_AT_ONCE);
+		const read = await Promise.all(
+			some.map((pid) => table.environ(pid, sought.mentioning)),
+		);
+		some.forEach((pid, index) => {
+			const environ = read[index];
+			if (environ !== undefined && sought.chosen(environ))
+				found.set(pid, environ);
+		});
+	}
+	return found;
 }
 
 /** The process table Linux keeps under /proc. */
@@ -216,13 +254,19 @@ export function linuxProcessTable(root = "/proc"): ProcessTable {
 			readdirSync(root)
 				.filter((name) => /^\d+$/.test(name))
 				.map(Number),
-		environ: (pid) => {
+		environ: async (pid, mentioning) => {
+			let bytes: Buffer;
 			try {
-				return parseEnviron(readFileSync(`${root}/${pid}/environ`, "utf8"));
+				bytes = await readFile(`${root}/${pid}/environ`);
 			} catch {
 				// Gone, or another user's: either way not this conversation's.
 				return undefined;
 			}
+			// Most processes are nobody's sought: decoding and parsing their
+			// environments was most of the reading's time.
+			if (mentioning !== undefined && !bytes.includes(mentioning))
+				return undefined;
+			return parseEnviron(bytes.toString("utf8"));
 		},
 		group: (pid) => {
 			const line = stat(pid);
