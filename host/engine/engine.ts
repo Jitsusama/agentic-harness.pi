@@ -75,6 +75,7 @@ import {
 } from "./pi-session.ts";
 import type { AssistantMessage } from "./pi-types.ts";
 import { projectTrust, type StartupQuestion } from "./project-trust.ts";
+import { quietCollection } from "./quiet-collection.ts";
 import { holdReplacements } from "./replacement.ts";
 import {
 	adoptable,
@@ -199,6 +200,11 @@ export async function createEngine(
 		asking: () => watched?.wake,
 		report,
 		parked: (sessionId) => warming.start(sessionId),
+	});
+	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.
+	const quiet = quietCollection({
+		busy: () => host.list().some(({ state }) => state === "busy"),
+		report,
 	});
 
 	function held(sessionId: string, file: string): boolean {
@@ -695,6 +701,8 @@ export async function createEngine(
 			// The signal kills a tool's own group; a descendant that left it ends here.
 			reapToolChildren(sessionId);
 			live.delete(sessionId);
+			// What it held is garbage now: the quiet that frees it starts here.
+			quiet.stirred();
 		}
 		const events = watched;
 		if (record.ending === "closed" && events)
@@ -713,6 +721,7 @@ export async function createEngine(
 					? "idle"
 					: undefined;
 		if (!state || host.holds(sessionId) === "parked") return;
+		quiet.stirred();
 		try {
 			host.state(sessionId, state);
 		} catch (error) {
