@@ -127,6 +127,10 @@ export const NEVER_THROUGH = [
 	// The keeper of nix-offload's passes: only the exempted call outside
 	// the fence records one, so nothing inside can claim a check it ran.
 	"/run/nix-offload-keep.sock",
+	// nix-offload's door to the standing builders, which builds as the
+	// person: a fenced command reaches Nix only untrusted (ISXEG8, 13
+	// November, before the person leaves Nix's trusted users).
+	"/run/nix-offload-standing.sock",
 ] as const;
 
 /** What the fence needs to know of the disk: what a path is, and what a folder holds. */
