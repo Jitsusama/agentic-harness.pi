@@ -30,6 +30,16 @@ import type {
 import { createEngine } from "../../../../host/engine/engine.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
+import {
+	LONG_CACHE_LIFETIME_MS,
+	warmingDelayMs,
+} from "../../../../lib/internal/cache-warming.ts";
+import {
+	pendingWarmsDir,
+	takePendingWarms,
+	warmingCarryDir,
+	writeWarmingCarry,
+} from "../../../../lib/internal/warming-carry.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
 interface Compat {
@@ -230,6 +240,8 @@ const say =
 
 interface Scenario {
 	responses: () => unknown[];
+	/** The API the scripted provider answers as, when it must stand in for a real one. */
+	api?: string;
 	/** Whether pi loads this package, as Joel's settings have it, beside the probe. */
 	harness?: true;
 	/** The screens the engine hands conversations to; none binds them with no interface. */
@@ -264,6 +276,54 @@ const scenarios: Record<string, Scenario> = {
 			};
 			await host.close(id);
 			return { ...seen, after: host.holds(id) ?? "gone" };
+		},
+	},
+	/** Park a conversation whose cache is due a warm, which goes once the host has let it go. */
+	"warm-parked": {
+		// Only Anthropic's messages API is warmed, so the scripted provider answers as it.
+		api: "anthropic-messages",
+		responses: () => [say("hello there"), say("")],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "hi" });
+			await idle(engine, id);
+			// Its cache last read a warming delay ago, so its warm is due as it parks.
+			const lastRead =
+				Date.now() - (warmingDelayMs(LONG_CACHE_LIFETIME_MS) ?? 0) - 1000;
+			writeWarmingCarry(warmingCarryDir(), {
+				sessionId: id,
+				payload: {
+					model: MODEL,
+					max_tokens: 64,
+					system: [
+						{
+							type: "text",
+							text: "a prompt",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+					messages: [{ role: "user", content: "hi" }],
+				},
+				headers: {},
+				provider: PROVIDER,
+				modelId: MODEL,
+				at: lastRead,
+				refreshedAt: lastRead,
+				warms: 0,
+			});
+			host.park(id);
+			await until(
+				"its warm went out or failed",
+				() =>
+					keysSeen.length > 1 ||
+					reported.some((line) => line.includes("Parked warm")),
+			);
+			await until(
+				"its warm was kept or failed",
+				() =>
+					existsSync(pendingWarmsDir()) ||
+					reported.some((line) => line.includes("Parked warm")),
+			);
+			return { pending: takePendingWarms(pendingWarmsDir(), id).length };
 		},
 	},
 	/** The gateway refuses the first key; the request goes again on the next. */
@@ -656,7 +716,10 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		].join("\n"),
 	);
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
-	const faux = compat.registerFauxProvider({ tokenSize: { min: 2, max: 2 } });
+	const faux = compat.registerFauxProvider({
+		tokenSize: { min: 2, max: 2 },
+		...(scenario.api ? { api: scenario.api } : {}),
+	});
 	faux.setResponses(scenario.responses());
 	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
 	// pi counts any .agents/skills above a folder but HOME's as a project's own, and this folder may sit under a
