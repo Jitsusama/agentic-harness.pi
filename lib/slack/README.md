@@ -32,6 +32,7 @@ const rendered = renderMessageList(results.messages);
 - **`./api`**, **`./renderers`** and **`./resolvers`**:
   `SlackClient` and every API, renderer and resolver function.
 - **`./auth`**: credential state readers (`hasToken`, `getToken`),
+  async since the credentials live in the desktop's keyring,
   `formatAuthError`, and `ensureAuthenticated`, the one-call entry
   point that bridges the setup wizard and the OAuth web redirect flow
   through Pi's interactive UI. The OAuth exchange, callback server and

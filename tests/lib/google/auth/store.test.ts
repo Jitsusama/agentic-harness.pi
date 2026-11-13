@@ -1,51 +1,58 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, writeFile } from "../../../../lib/google/auth/store.ts";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { useSecretStore } from "../../../../lib/core/internal/keyring/secrets.ts";
+import {
+	moveToKeyring,
+	readCredentials,
+	writeCredentials,
+} from "../../../../lib/google/auth/store.ts";
+import { credentialsPath } from "../../../../lib/google/paths.ts";
+import {
+	type MemorySecretStore,
+	memorySecretStore,
+} from "../../../support/memory-secret-store.ts";
 
-let dir: string;
+let keyring: MemorySecretStore;
 
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), "google-store-"));
-});
-
-afterEach(() => {
-	rmSync(dir, { recursive: true, force: true });
+	keyring = memorySecretStore();
+	useSecretStore(keyring);
 });
 
 describe("google credentials store", () => {
-	it("returns fresh defaults when the file is missing", () => {
-		expect(readFile(join(dir, "absent.json"))).toEqual({
-			accounts: [],
-			tokens: {},
-		});
+	it("reads fresh defaults when nothing is stored", async () => {
+		expect(await readCredentials()).toEqual({ accounts: [], tokens: {} });
 	});
 
-	it("returns fresh defaults when the file is corrupt", () => {
-		const file = join(dir, "corrupt.json");
-		writeFileSync(file, "{ not valid json");
+	it("fills in what a stored document leaves out", async () => {
+		keyring.items.set("google-credentials", "{}");
 
-		expect(readFile(file)).toEqual({ accounts: [], tokens: {} });
+		expect(await readCredentials()).toEqual({ accounts: [], tokens: {} });
 	});
 
-	it("round-trips a written file", () => {
-		const file = join(dir, "creds.json");
+	it("keeps what it writes in the keyring", async () => {
 		const data = {
-			accounts: [{ email: "a@b.com" }] as never,
+			accounts: [{ name: "work", isDefault: true }],
 			tokens: {},
 		};
 
-		writeFile(data, file);
+		await writeCredentials(data);
 
-		expect(readFile(file)).toEqual(data);
+		expect(await readCredentials()).toEqual(data);
+		expect(JSON.parse(keyring.items.get("google-credentials") ?? "")).toEqual(
+			data,
+		);
 	});
 
-	it("creates the parent directory on write", () => {
-		const file = join(dir, "nested", "deep", "creds.json");
+	it("moves the old plain file into the keyring", async () => {
+		const file = credentialsPath();
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, JSON.stringify({ accounts: [], tokens: {} }));
 
-		writeFile({ accounts: [], tokens: {} }, file);
+		await moveToKeyring();
 
-		expect(existsSync(file), `${file} exists`).toBe(true);
+		expect(existsSync(file)).toBe(false);
+		expect(keyring.items.has("google-credentials")).toBe(true);
 	});
 });

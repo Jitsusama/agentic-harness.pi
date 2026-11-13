@@ -1,45 +1,54 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, writeFile } from "../../../../lib/slack/auth/store.ts";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { useSecretStore } from "../../../../lib/core/internal/keyring/secrets.ts";
+import {
+	moveToKeyring,
+	readCredentials,
+	writeCredentials,
+} from "../../../../lib/slack/auth/store.ts";
+import { credentialsPath } from "../../../../lib/slack/paths.ts";
+import {
+	type MemorySecretStore,
+	memorySecretStore,
+} from "../../../support/memory-secret-store.ts";
 
-let dir: string;
+let keyring: MemorySecretStore;
 
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), "slack-store-"));
-});
-
-afterEach(() => {
-	rmSync(dir, { recursive: true, force: true });
+	keyring = memorySecretStore();
+	useSecretStore(keyring);
 });
 
 describe("slack credentials store", () => {
-	it("returns fresh defaults when the file is missing", () => {
-		expect(readFile(join(dir, "absent.json"))).toEqual({});
+	it("reads nothing when nothing is stored", async () => {
+		expect(await readCredentials()).toEqual({});
 	});
 
-	it("returns fresh defaults when the file is corrupt", () => {
-		const file = join(dir, "corrupt.json");
-		writeFileSync(file, "{ not valid json");
+	it("keeps what it writes in the keyring", async () => {
+		const data = {
+			token: {
+				accessToken: "xoxp-1",
+				userId: "U1",
+				teamId: "T1",
+				scopes: "",
+			},
+		};
 
-		expect(readFile(file)).toEqual({});
+		await writeCredentials(data);
+
+		expect(await readCredentials()).toEqual(data);
+		expect(keyring.items.has("slack-credentials")).toBe(true);
 	});
 
-	it("round-trips a written file", () => {
-		const file = join(dir, "creds.json");
-		const data = { token: { accessToken: "xoxb-1" } as never };
+	it("moves the old plain file into the keyring", async () => {
+		const file = credentialsPath();
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, JSON.stringify({ token: null }));
 
-		writeFile(data, file);
+		await moveToKeyring();
 
-		expect(readFile(file)).toEqual(data);
-	});
-
-	it("creates the parent directory on write", () => {
-		const file = join(dir, "nested", "deep", "creds.json");
-
-		writeFile({}, file);
-
-		expect(existsSync(file), `${file} exists`).toBe(true);
+		expect(existsSync(file)).toBe(false);
+		expect(keyring.items.get("slack-credentials")).toBe('{"token":null}');
 	});
 });

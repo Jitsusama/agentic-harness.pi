@@ -4,22 +4,22 @@
  */
 
 import type { OAuthApp } from "../types.ts";
-import { readFile, writeFile } from "./store.ts";
+import { readCredentials, writeCredentials } from "./store.ts";
 
 /** Store OAuth app credentials. */
-export function storeOAuthApp(credentials: OAuthApp): void {
-	const data = readFile();
+export async function storeOAuthApp(credentials: OAuthApp): Promise<void> {
+	const data = await readCredentials();
 	data.oauthApp = credentials;
-	writeFile(data);
+	await writeCredentials(data);
 }
 
 /** Retrieve OAuth app credentials. */
-export function getOAuthApp(): OAuthApp | null {
-	return readFile().oauthApp ?? null;
+export async function getOAuthApp(): Promise<OAuthApp | null> {
+	return (await readCredentials()).oauthApp ?? null;
 }
 
 /** Check if OAuth app credentials are configured. */
-export function hasOAuthApp(): boolean {
-	const creds = getOAuthApp();
+export async function hasOAuthApp(): Promise<boolean> {
+	const creds = await getOAuthApp();
 	return !!(creds?.clientId && creds?.clientSecret);
 }

@@ -24,8 +24,8 @@ import { resolveUser } from "../../../slack/resolvers/user.ts";
 
 let cachedClient: SlackClient | undefined;
 
-function clientFromStoredToken(): SlackClient | undefined {
-	const token = getToken();
+async function clientFromStoredToken(): Promise<SlackClient | undefined> {
+	const token = await getToken();
 	if (!token?.accessToken) return undefined;
 	if (!cachedClient) {
 		cachedClient = new SlackClient(token.accessToken, token.cookie);
@@ -54,8 +54,8 @@ export const slackResolver: PersonResolver = {
 		const hint = opts?.hint;
 		if (hint && hint !== "handle") return undefined;
 		if (!looksLikeHandle(input)) return undefined;
-		if (!hasToken()) return undefined;
-		const client = clientFromStoredToken();
+		if (!(await hasToken())) return undefined;
+		const client = await clientFromStoredToken();
 		if (!client) return undefined;
 		const handle = input.startsWith("@") ? input.slice(1) : input;
 		try {

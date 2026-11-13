@@ -7,6 +7,7 @@
 
 import { homedir, tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { secretStore } from "../../lib/core/internal/keyring/secrets.ts";
 import { cacheDir, dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { machineQueueDir } from "../../lib/internal/priority/folder.ts";
 
@@ -40,5 +41,11 @@ describe("the test suite's XDG sandbox", () => {
 			queue.startsWith(tmpdir()),
 			`${queue} lies under the temporary directory, ${tmpdir()}`,
 		).toBe(true);
+	});
+
+	it("keeps credentials out of the developer's keyring", () => {
+		// The Google and Slack sign-ins keep their tokens in the keyring; a
+		// test signing in must not replace the developer's own.
+		expect(secretStore().name).toBe("The test keyring");
 	});
 });

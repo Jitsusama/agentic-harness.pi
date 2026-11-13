@@ -1,12 +1,12 @@
 /**
  * Account and token management: storing, retrieving and
  * managing Google account configurations and their OAuth
- * tokens.
+ * tokens, kept in the desktop's keyring by store.ts.
  */
 
 import type { Credentials } from "google-auth-library";
 import type { GoogleAccount } from "../types.ts";
-import { readFile, writeFile } from "./store.ts";
+import { readCredentials, writeCredentials } from "./store.ts";
 
 // Re-export OAuth app types and functions for consumers that
 // previously imported everything from credentials.ts.
@@ -18,11 +18,11 @@ export {
 } from "./oauth-app.ts";
 
 /** Store credentials for an account. */
-export function storeCredentials(
+export async function storeCredentials(
 	account: string,
 	credentials: Credentials,
-): void {
-	const data = readFile();
+): Promise<void> {
+	const data = await readCredentials();
 	data.tokens[account] = {
 		access_token: credentials.access_token || "",
 		refresh_token: credentials.refresh_token || "",
@@ -30,12 +30,14 @@ export function storeCredentials(
 		token_type: credentials.token_type || "Bearer",
 		scope: credentials.scope || "",
 	};
-	writeFile(data);
+	await writeCredentials(data);
 }
 
 /** Retrieve credentials for an account. */
-export function getCredentials(account: string): Credentials | null {
-	const data = readFile();
+export async function getCredentials(
+	account: string,
+): Promise<Credentials | null> {
+	const data = await readCredentials();
 	const entry = data.tokens[account];
 	if (!entry) return null;
 
@@ -49,13 +51,13 @@ export function getCredentials(account: string): Credentials | null {
 }
 
 /** List all configured accounts. */
-export function listAccounts(): GoogleAccount[] {
-	return readFile().accounts;
+export async function listAccounts(): Promise<GoogleAccount[]> {
+	return (await readCredentials()).accounts;
 }
 
 /** Add or update an account. */
-export function saveAccount(account: GoogleAccount): void {
-	const data = readFile();
+export async function saveAccount(account: GoogleAccount): Promise<void> {
+	const data = await readCredentials();
 	const existing = data.accounts.findIndex((a) => a.name === account.name);
 
 	if (existing >= 0) {
@@ -64,30 +66,30 @@ export function saveAccount(account: GoogleAccount): void {
 		data.accounts.push(account);
 	}
 
-	writeFile(data);
+	await writeCredentials(data);
 }
 
 /** Get the default account. */
-export function getDefaultAccount(): GoogleAccount | null {
-	const accounts = listAccounts();
+export async function getDefaultAccount(): Promise<GoogleAccount | null> {
+	const accounts = await listAccounts();
 	return accounts.find((a) => a.isDefault) || accounts[0] || null;
 }
 
 /** Set the default account by name. */
-export function setDefaultAccount(accountName: string): void {
-	const data = readFile();
+export async function setDefaultAccount(accountName: string): Promise<void> {
+	const data = await readCredentials();
 
 	for (const account of data.accounts) {
 		account.isDefault = account.name === accountName;
 	}
 
-	writeFile(data);
+	await writeCredentials(data);
 }
 
 /**
  * Clear all Google Workspace configuration (OAuth app,
  * accounts, tokens). Used for resetting to a fresh state.
  */
-export function clearAllConfig(): void {
-	writeFile({ oauthApp: null, accounts: [], tokens: {} });
+export async function clearAllConfig(): Promise<void> {
+	await writeCredentials({ oauthApp: null, accounts: [], tokens: {} });
 }
