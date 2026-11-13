@@ -13,8 +13,8 @@
  * own, which a stop or a time limit kills whole. It is done once both its
  * streams end after it exits, or 100 ms after its last output past its
  * exit. An end by a signal counts as 128 and the signal's number. Where
- * pi-spawner isn't asked for (PI_SPAWNER=on), isn't on the PATH or has
- * stopped, pi's own spawn starts the command, as before.
+ * pi-spawner is turned off (PI_SPAWNER=off), isn't in the system's profile
+ * or has stopped, pi's own spawn starts the command, as before.
  *
  * One pi-spawner serves one load of the extension. When the load ends, at
  * a reload or a new session, its spawner is retired: it takes no more
@@ -34,7 +34,7 @@ import {
 	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
 import { systemProgram } from "../system-program.ts";
-import { SPAWNER_VARIABLE } from "./spawner-variable.ts";
+import { spawnerWanted } from "./spawner-variable.ts";
 
 /** The program's name, as core.nix puts it on the PATH. */
 export const SPAWNER_PROGRAM = "pi-spawner";
@@ -143,7 +143,7 @@ export function spawnedBy(
 ): SpawnerOperations {
 	const env = options.env ?? process.env;
 	(options.reap ?? stopIdleSpawners)();
-	if (env[SPAWNER_VARIABLE] !== "on") {
+	if (!spawnerWanted(env)) {
 		return {
 			exec: (command, cwd, settings) => fallback.exec(command, cwd, settings),
 			retire: () => undefined,
