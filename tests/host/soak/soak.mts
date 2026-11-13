@@ -339,6 +339,9 @@ async function runHosted(sealed: Seal): Promise<{
 		const atMs = () => Date.now() - started;
 		if (values["no-park"]) {
 			weighings.push({ turnsDone: done, atMs: atMs(), awake, recordBytes });
+			say(
+				`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, ${loopOf(awake)}`,
+			);
 			return;
 		}
 		mkdirSync(parkFolder, { recursive: true });
@@ -369,7 +372,7 @@ async function runHosted(sealed: Seal): Promise<{
 			wakeMs,
 		});
 		say(
-			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked, loop p99 ${Math.round(awake.loopP99Ms)} ms, max ${Math.round(awake.loopMaxMs)} ms, busy ${Math.round(awake.loopBusy * PERCENT)}%`,
+			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked, ${loopOf(awake)}`,
 		);
 		// Each weighing in full as it is taken, so a run cut short by its
 		// lender's limit still leaves the memory curve it got to.
@@ -382,6 +385,11 @@ async function runHosted(sealed: Seal): Promise<{
 	const errors = host.errors();
 	await host.stop();
 	return { checkpoints: weighings, logs, errors };
+}
+
+/** How late and how busy the host's loop ran up to `weight`, as a line says it. */
+function loopOf(weight: Weight): string {
+	return `loop p99 ${Math.round(weight.loopP99Ms)} ms, max ${Math.round(weight.loopMaxMs)} ms, busy ${Math.round(weight.loopBusy * PERCENT)}%`;
 }
 
 /** A fresh trusted folder holding the notes a read turn reads. */
