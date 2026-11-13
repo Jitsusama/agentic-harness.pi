@@ -78,6 +78,7 @@ import {
 	type SlowKey,
 	type Spread,
 	screenSplit,
+	showsTag,
 	slowKeys,
 	spreadOf,
 	type Typed,
@@ -705,22 +706,28 @@ async function typed(
 }
 
 /**
- * When `viewer` is first sent a frame holding `tag` from now on, looked
- * for every few ms, or nothing once `ms` pass: the first drawing a key
- * typed into it brings, which is what a person waits on as they type.
+ * When `viewer`'s output from now on first shows `tag`, looked for every
+ * few ms, or nothing once `ms` pass: the first drawing a key typed into
+ * it brings, which is what a person waits on as they type. The writes
+ * are read joined with their escapes stripped, so a tag split across
+ * frames still counts. The time is the look's, not the write's arrival,
+ * so it reads high by up to SHOWN_LOOK_MS plus this process's own loop
+ * lag, which errs towards failing the bar.
  */
 function firstShown(
 	viewer: Viewer,
 	tag: string,
 	ms: number,
 ): Promise<number | undefined> {
-	let seen = viewer.output.length;
+	const from = viewer.output.length;
+	let looked = from;
 	const until = Date.now() + ms;
 	return new Promise((done) => {
 		const look = () => {
 			const { output } = viewer;
-			for (; seen < output.length; seen += 1) {
-				if (output[seen]?.includes(tag)) {
+			if (output.length > looked) {
+				looked = output.length;
+				if (showsTag(output.slice(from), tag)) {
 					done(Date.now());
 					return;
 				}

@@ -53,7 +53,7 @@ describe.skipIf(!packageDir)(
 					"each turn paired with plain pi's, each key's prompt seen drawn",
 				).toMatchObject({
 					paired: { count: 4, unpaired: 0 },
-					screen: { keyToDrawn: { count: 4 } },
+					screen: { keyToDrawn: { count: 4 }, unshown: 0 },
 					bar: {
 						paired: expect.any(Boolean),
 						keyToAccepted: expect.any(Boolean),

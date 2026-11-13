@@ -14,6 +14,7 @@ import {
 	pairedCost,
 	parityOf,
 	screenSplit,
+	showsTag,
 	slowKeys,
 	spreadOf,
 	turnRecords,
@@ -116,7 +117,25 @@ describe("what a screen adds", () => {
 				keyToDrawn: { count: 1, p50: 1100, p99: 1100 },
 			},
 			undrawn: 1,
+			unshown: 0,
 		});
+	});
+
+	it("counts a key outside a wake never seen drawn, rather than dropping it", () => {
+		const typed = new Map([
+			["c0-t0", { keyAt: minute + 500, shownAt: minute + 600 }],
+			["c0-t1", { keyAt: minute + 9_900 }],
+			["c0-t2", { keyAt: minute + 19_000, woke: "mesh" }],
+		]);
+		const split = screenSplit(turnTimes(log), typed);
+		expect(split.unshown, "the steady key with no drawing").toBe(1);
+		expect(split.keyToDrawn.count, "only the one drawn is timed").toBe(1);
+	});
+
+	it("sees a tag split over two writes with a colour inside it", () => {
+		const writes = ["\x1b[2K\x1b[1Gsoak c0-", "\x1b[1;32mt1\x1b[0m echo"];
+		expect(showsTag(writes, "soak c0-t1"), "split and coloured").toBe(true);
+		expect(showsTag(writes, "soak c0-t2"), "another tag").toBe(false);
 	});
 
 	it("keeps each turn's times, paired with plain pi's same seeded turn", () => {
@@ -201,6 +220,7 @@ describe("the bar", () => {
 		writtenToDrawn: within,
 		afterWake: { keyToAccepted: within, keyToDrawn: within },
 		undrawn: 0,
+		unshown: 0,
 	};
 
 	it("holds a turn's cost to a second and a key's to 200 ms, at the p99", () => {
@@ -215,6 +235,19 @@ describe("the bar", () => {
 			),
 			"a turn and a drawing each over",
 		).toEqual({ paired: false, keyToAccepted: true, keyToDrawn: false });
+	});
+
+	it("fails the drawing when more than 1% of its keys were never seen drawn", () => {
+		const keys = { count: 200, p50: 20, p99: 150 };
+		const paired = { count: 5, p50: 0, p99: 0 };
+		expect(
+			barOf(paired, { ...screen, keyToAccepted: keys, unshown: 2 }).keyToDrawn,
+			"2 of 200 unseen, 1%",
+		).toBe(true);
+		expect(
+			barOf(paired, { ...screen, keyToAccepted: keys, unshown: 3 }).keyToDrawn,
+			"3 of 200 unseen, over 1%",
+		).toBe(false);
 	});
 
 	it("fails what nothing measured", () => {

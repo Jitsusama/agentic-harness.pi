@@ -12,6 +12,7 @@
  * log differs from plain pi's of the same turns, with each side's own
  * folders, times and ids made labels first, as the parity suite does.
  */
+import { stripVTControlCharacters } from "node:util";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	alignedEvents,
@@ -65,6 +66,11 @@ export interface ScreenSplit {
 	};
 	/** Turns typed whose answer no viewer was seen to draw. */
 	readonly undrawn: number;
+	/**
+	 * Keys outside a wake whose prompt no viewer was seen to draw, so
+	 * keyToDrawn leaves them out; the bar fails past a few of them.
+	 */
+	readonly unshown: number;
 }
 
 /**
@@ -139,6 +145,12 @@ const BAR_PAIRED_MS = 1000;
 /** The most a key may take, to its log or to its first drawing, at the p99. */
 const BAR_KEY_MS = 200;
 
+/**
+ * The share of keys outside a wake that may go unseen drawn before
+ * keyToDrawn's p99 stops counting: each one left out biases it low.
+ */
+const BAR_UNSHOWN_SHARE = 0.01;
+
 /** A later half growing slower than this, a checkpoint, has settled. */
 const SETTLED_KB_PER_CHECKPOINT = 1024;
 
@@ -194,12 +206,14 @@ export function screenSplit(
 	const waking = keyTimes();
 	const drawn: number[] = [];
 	let undrawn = 0;
+	let unshown = 0;
 	for (const turn of turns) {
 		const keys = typed.get(turn.tag);
 		if (keys === undefined) continue;
 		const into = keys.woke === undefined ? steady : waking;
 		into.accepted.push(turn.promptAt - keys.keyAt);
 		if (keys.shownAt !== undefined) into.shown.push(keys.shownAt - keys.keyAt);
+		else if (keys.woke === undefined) unshown += 1;
 		if (keys.drawnAt === undefined) undrawn += 1;
 		else drawn.push(keys.drawnAt - turn.answerAt);
 	}
@@ -212,7 +226,17 @@ export function screenSplit(
 			keyToDrawn: spreadOf(waking.shown),
 		},
 		undrawn,
+		unshown,
 	};
+}
+
+/**
+ * Whether `writes`, a viewer's output from a key on, show `tag` once
+ * joined with their escapes stripped, so a tag a frame split across two
+ * writes, or coloured or moved over mid-word, still counts as shown.
+ */
+export function showsTag(writes: readonly string[], tag: string): boolean {
+	return stripVTControlCharacters(writes.join("")).includes(tag);
 }
 
 /** Keys' times to their logs and to their first drawings, gathered. */
@@ -265,13 +289,16 @@ export function pairedCost(records: readonly TurnRecord[]): PairedCost {
 /**
  * Whether the bar holds: a turn's cost over plain pi's at most 1 s, and
  * a key outside a wake at most 200 ms to its log and to its first
- * drawing, each at the p99. A figure nothing measured fails.
+ * drawing, each at the p99. A figure nothing measured fails, and so does
+ * the drawing's when more than 1% of its keys were never seen drawn.
  */
 export function barOf(paired: Spread, screen: ScreenSplit): Bar {
+	const unshownAllowed = screen.keyToAccepted.count * BAR_UNSHOWN_SHARE;
 	return {
 		paired: paired.p99 <= BAR_PAIRED_MS,
 		keyToAccepted: screen.keyToAccepted.p99 <= BAR_KEY_MS,
-		keyToDrawn: screen.keyToDrawn.p99 <= BAR_KEY_MS,
+		keyToDrawn:
+			screen.keyToDrawn.p99 <= BAR_KEY_MS && screen.unshown <= unshownAllowed,
 	};
 }
 

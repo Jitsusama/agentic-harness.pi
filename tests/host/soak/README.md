@@ -106,14 +106,21 @@ It prints a line a checkpoint and the report as one JSON line after
   answers and tools, so this is the host's own cost, where each side's
   p99 is only the run's slowest seeded turn. `screen` says what the
   host's screens add: from the key typed to the prompt's entry
-  (`keyToAccepted`) and to the first frame the viewer is sent holding
+  (`keyToAccepted`) and to the first output the viewer is sent showing
   the prompt (`keyToDrawn`), and from the answer's entry to the write
   that first draws it (`writtenToDrawn`, below 0 when drawn as it
-  streams). The first key after each wake can wait on the wake, as one
-  the mesh woke is still loading when it is typed, so `afterWake` times
-  those apart and the other two leave them out. `bar` says whether
-  each holds: `paired` at most 1 s at the p99, and `keyToAccepted` and
-  `keyToDrawn` at most 200 ms; the burst is judged from its checkpoint.
+  streams). The output is read from the key on, joined with its
+  escapes stripped, so a prompt split across writes or coloured
+  mid-word still counts. It is looked at every 5 ms, so `keyToDrawn`
+  reads high by up to that plus the soak's own loop lag, erring towards
+  failing. `unshown` counts the keys outside a wake never seen drawn,
+  which `keyToDrawn` leaves out. The first key after each wake can
+  wait on the wake, as one the mesh woke is still loading when it is
+  typed, so `afterWake` times those apart and the other two leave them
+  out. `bar` says whether each holds: `paired` at most 1 s at the p99,
+  and `keyToAccepted` and `keyToDrawn` at most 200 ms, with
+  `keyToDrawn` failing too when over 1% of its keys are `unshown`; the
+  burst is judged from its checkpoint.
 - `turnsTimed`: every hosted turn's own times, plain pi's beside them
   and its key's when a viewer typed it, with how it woke when it was
   the first key since, so a reading the report doesn't make can still
