@@ -72,6 +72,18 @@ describe.skipIf(!packageDir)(
 					isRecord(report) ? report.checkpoints : undefined,
 					"one weighing, at the end",
 				).toHaveLength(1);
+				expect(
+					isRecord(report) && Array.isArray(report.checkpoints)
+						? report.checkpoints[0]
+						: undefined,
+					"the weighing holds what V8 keeps beside the heap it uses",
+				).toMatchObject({
+					awake: {
+						heapTotalKb: expect.any(Number),
+						externalKb: expect.any(Number),
+						arrayBuffersKb: expect.any(Number),
+					},
+				});
 				// A lender lost before the end leaves what each line said by then.
 				expect(
 					saidAfter(said, "latency so far "),
