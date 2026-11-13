@@ -140,9 +140,7 @@ describe("reaping a conversation's tool children", () => {
 			},
 		});
 		const carried = { marks: new Set(["call-1"]), groups: new Set([10]) };
-		expect((await reapToolChildren("a", table, carried)).groups).toEqual([
-			20,
-		]);
+		expect((await reapToolChildren("a", table, carried)).groups).toEqual([20]);
 		expect(
 			[...table.pids()].sort(),
 			"the carried call and what it started run on",
@@ -287,10 +285,7 @@ describe("reading the process table", () => {
 		});
 		expect(await table.environ(99_999), "no such process").toBe(undefined);
 		// "a" is how "ab" begins, so the text matches and the parse must not.
-		writeFileSync(
-			join(root, "101", "environ"),
-			`${CONVERSATION_MARKER}=ab\0`,
-		);
+		writeFileSync(join(root, "101", "environ"), `${CONVERSATION_MARKER}=ab\0`);
 		expect(await marked("a", table)).toEqual([]);
 		expect(await marked("ab", table)).toEqual([101]);
 	});
