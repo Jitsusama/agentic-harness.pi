@@ -11,7 +11,10 @@
  * process a conversation, all at once as the host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--out DIR]
+ *     [--no-park] [--profile] [--out DIR]
+ *
+ * With --profile each side's node writes a CPU profile, and the report
+ * says where each side's time went.
  *
  * It needs a pi with the host's patches, as test:host does
  * (PI_HOST_RUNTIME), and prints the report as one JSON line after
@@ -45,12 +48,16 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
+import { timeSpent } from "./profile.ts";
 import {
 	entriesOf,
 	growthOf,
 	latencies,
 	parityOf,
+	screenSplit,
 	spreadOf,
+	type Typed,
+	turnTimes,
 } from "./report.ts";
 import {
 	JOB_SAYS,
@@ -74,6 +81,8 @@ const PARK_MS = 4 * 60_000;
 const REWEIGH_EVERY_MS = 5_000;
 /** How long a viewer may take to draw its first frame. */
 const DRAWN_MS = 30_000;
+/** How long past a turn's going idle its answer may take to be drawn. */
+const DRAWN_AFTER_IDLE_MS = 5_000;
 /** How often a turn's end is looked for in its log. */
 const LOOK_EVERY_MS = 100;
 /** How much of a log's end a look reads: more than any one answer. */
@@ -124,6 +133,7 @@ const { values } = parseArgs({
 		turns: { type: "string" },
 		checkpoints: { type: "string", default: "8" },
 		"no-park": { type: "boolean", default: false },
+		profile: { type: "boolean", default: false },
 		out: { type: "string" },
 	},
 });
@@ -149,6 +159,12 @@ const fault = (what: string) => {
 };
 const say = (line: string) =>
 	process.stdout.write(`soak ${new Date().toISOString()} ${line}\n`);
+/** When each hosted turn's prompt was typed and its answer drawn, by tag. */
+const typedAt = new Map<string, Typed>();
+const profiles = {
+	hosted: join(out, "profile-hosted"),
+	plain: join(out, "profile-plain"),
+};
 
 const provider = await soakProvider();
 const agent = agentOf(provider);
@@ -183,7 +199,16 @@ const report = {
 	latency: {
 		hosted: spreadOf(hosted.logs.flatMap(latencies).map((one) => one.ms)),
 		plain: spreadOf(plain.logs.flatMap(latencies).map((one) => one.ms)),
+		screen: screenSplit(hosted.logs.flatMap(turnTimes), typedAt),
 	},
+	...(values.profile
+		? {
+				timeSpent: {
+					hosted: timeSpent(profilesIn(profiles.hosted)),
+					plain: timeSpent(profilesIn(profiles.plain)),
+				},
+			}
+		: {}),
 	parity: hosted.logs.map((log, at) =>
 		parityOf(log, plain.logs[at] ?? [], {
 			hosted: hostSeal.root,
@@ -245,7 +270,12 @@ async function runHosted(sealed: Seal): Promise<{
 }> {
 	const agentFile = join(sealed.root, "soak-agent.json");
 	writeFileSync(agentFile, JSON.stringify(agent));
-	const host = await startScreenHost(sealed, packageDir ?? "", also, agentFile);
+	const host = await startScreenHost(
+		{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
+		packageDir ?? "",
+		also,
+		agentFile,
+	);
 	const work = folders(sealed);
 	const conversations: Conversation[] = [];
 	const opening = Date.now();
@@ -385,8 +415,10 @@ async function drive(
 		let viewer: Viewer | undefined;
 		for (const [at, turn] of visit.turns.entries()) {
 			viewer = await stopsDue(viewer);
+			// A key that wakes its conversation times the wake, not the screen.
+			const waking = viewer === undefined && byKey.has(one.sessionId);
 			viewer ??= await opened(host, one, byKey);
-			await typed(host, one, viewer, turn);
+			await typed(host, one, viewer, turn, waking);
 			done += 1;
 			if (at === 0 && visit.joined) {
 				const second = await attach(host.path, one.sessionId, ROWS, COLUMNS);
@@ -417,15 +449,26 @@ async function opened(
 	return viewer;
 }
 
-/** Type one turn and wait until its answer is in the log and the host lists it idle. */
+/**
+ * Type one turn and wait until its answer is in the log and the host
+ * lists it idle, noting when its key went and its answer was drawn.
+ */
 async function typed(
 	host: ScreenHost,
 	one: Conversation,
 	viewer: Viewer,
 	turn: Turn,
+	waking: boolean,
 ): Promise<void> {
-	viewer.type(`${turn.prompt}${ENTER}`);
 	const ack = acknowledged(turn.tag);
+	const keyAt = Date.now();
+	// The write that first draws the answer settles it; a turn whose
+	// answer is never seen drawn settles empty and is counted.
+	const drawn = viewer.shows(ack, TURN_MS).then(
+		() => Date.now(),
+		() => undefined,
+	);
+	viewer.type(`${turn.prompt}${ENTER}`);
 	const until = Date.now() + TURN_MS;
 	while (!tailOf(one.file).includes(ack)) {
 		if (Date.now() > until) {
@@ -440,6 +483,40 @@ async function typed(
 		host.idle(one.sessionId, TURN_MS),
 		`${turn.tag} answered but never went idle, its log ending ${lastOf(one.file)}`,
 	);
+	const drawnAt = await Promise.race([
+		drawn,
+		new Promise<undefined>((late) =>
+			setTimeout(() => late(undefined), DRAWN_AFTER_IDLE_MS),
+		),
+	]);
+	if (waking) return;
+	typedAt.set(turn.tag, drawnAt === undefined ? { keyAt } : { keyAt, drawnAt });
+}
+
+/** `env` with node told to write a CPU profile into `folder`, under --profile. */
+function profiled(env: NodeJS.ProcessEnv, folder: string): NodeJS.ProcessEnv {
+	if (!values.profile) return env;
+	mkdirSync(folder, { recursive: true });
+	const options = `--cpu-prof --cpu-prof-dir=${folder}`;
+	const before = env.NODE_OPTIONS;
+	return {
+		...env,
+		NODE_OPTIONS: before ? `${before} ${options}` : options,
+	};
+}
+
+/** Every CPU profile node wrote into `folder`, parsed. */
+function profilesIn(folder: string): unknown[] {
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// A side that wrote no profile has no folder; it reports none.
+		return [];
+	}
+	return names
+		.filter((name) => name.endsWith(".cpuprofile"))
+		.map((name) => JSON.parse(readFileSync(join(folder, name), "utf8")));
 }
 
 /** The kinds of a log's last entries, to say where a conversation stopped. */
@@ -480,7 +557,9 @@ async function runPlain(sealed: Seal): Promise<{
 	}
 	const work = folders(sealed);
 	const env = Object.fromEntries(
-		Object.entries({ ...sealed.env, PI_OFFLINE: "1" }).filter(
+		Object.entries(
+			profiled({ ...sealed.env, PI_OFFLINE: "1" }, profiles.plain),
+		).filter(
 			(pair): pair is [string, string] => typeof pair[1] === "string",
 		),
 	);

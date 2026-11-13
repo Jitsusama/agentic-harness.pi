@@ -14,8 +14,11 @@ host adds, and records that drift from plain pi's.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
   127.0.0.1 that answers without end, so both sides run pi's real
   provider code.
-- `report.ts`: latencies from the logs, their percentiles, whether the
-  weighings settle, and the differences between each pair of logs.
+- `report.ts`: latencies from the logs, what the screens add to them,
+  their percentiles, whether the weighings settle, and the differences
+  between each pair of logs.
+- `profile.ts`: where each side's time went, from the CPU profiles node
+  writes under `--profile`, by area and by function.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns
   with no parking, in `pnpm test:host`.
 
@@ -44,11 +47,20 @@ It prints a line a checkpoint and the report as one JSON line after
   leak; the awake heap grows with the conversations' history, so read it
   against the log bytes.
 - `latency`: each side's 50th and 99th percentile, from a prompt's entry
-  to its answer's in the log.
+  to its answer's in the log. pi writes both as each message ends in its
+  engine, so these are the engine's own turns, like for like. `screen`
+  says what the host's screens add: from the key typed to the prompt's
+  entry, from the answer's entry to the write that first draws it at the
+  viewer (below 0 when drawn as it streams), and from key to drawing. A
+  turn whose first key wakes its conversation is left out of `screen`.
+- `timeSpent`, under `--profile`: each side's busy and idle time and its
+  busiest areas and functions, plain pi's processes summed.
 - `parity`: each conversation's log against plain pi's, entries aligned
   by type, with ids, times and each side's folder left out.
 - `faults`, `hostErrors` and `plainErrors`: what went wrong.
 
-The host's turns come through viewers and pi's screens, plain pi's
-through RPC, so a latency gap holds the screens' cost as well as the
-host's. The host also loads the fixture's own command extensions.
+The host draws its screens on the same event loop its engines run on,
+and serves every conversation from one process where plain pi runs one
+a conversation, so its engine turns hold both; a run of one
+conversation, with `--profile`, tells them apart. The host also loads
+the fixture's own command extensions.
