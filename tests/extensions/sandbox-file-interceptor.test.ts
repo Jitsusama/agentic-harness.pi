@@ -38,6 +38,7 @@ vi.mock("../../lib/internal/fence-log.ts", () => ({
 		logged.refusals.push(refusal);
 		return logged.answer;
 	},
+	systemLogger: () => "logger",
 }));
 
 let base: string;

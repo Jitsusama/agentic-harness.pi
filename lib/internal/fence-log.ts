@@ -68,6 +68,11 @@ export function refusalLine(refusal: Refusal): string {
 	].join(" ");
 }
 
+/** The system's own `logger`, or undefined when it has none. */
+export function systemLogger(): string | undefined {
+	return systemProgram("logger");
+}
+
 function loggerArguments(refusal: Refusal): string[] {
 	return ["-t", FENCE_LOG_TAG, "-p", PRIORITY, "--", refusalLine(refusal)];
 }
@@ -75,10 +80,12 @@ function loggerArguments(refusal: Refusal): string[] {
 /**
  * Writes a refusal to the system's log from pi's process, answering why
  * it couldn't when it couldn't, for the refused call's answer to say.
+ * The logger is named, never defaulted, so `undefined` means there is
+ * none rather than "look one up": `systemLogger()` looks it up.
  */
 export function recordRefusal(
 	refusal: Refusal,
-	logger: string | undefined = systemProgram("logger"),
+	logger: string | undefined,
 ): Promise<string | undefined> {
 	if (logger === undefined) {
 		return Promise.resolve(

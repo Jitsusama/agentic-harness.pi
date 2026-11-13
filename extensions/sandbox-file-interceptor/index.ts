@@ -31,7 +31,7 @@
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
-import { recordRefusal } from "../../lib/internal/fence-log.ts";
+import { recordRefusal, systemLogger } from "../../lib/internal/fence-log.ts";
 import { SANDBOX_VARIABLE } from "../../lib/internal/sandbox.ts";
 import { fileToolRefusal } from "../../lib/internal/sandbox-files.ts";
 import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
@@ -56,12 +56,15 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 			skills,
 		});
 		if (!reason) return undefined;
-		const unrecorded = await recordRefusal({
-			kind: "path",
-			tool: event.toolName,
-			sandbox: process.env[SANDBOX_VARIABLE],
-			session: sessionKeyOf(ctx),
-		});
+		const unrecorded = await recordRefusal(
+			{
+				kind: "path",
+				tool: event.toolName,
+				sandbox: process.env[SANDBOX_VARIABLE],
+				session: sessionKeyOf(ctx),
+			},
+			systemLogger(),
+		);
 		return {
 			block: true,
 			reason: unrecorded ? `${reason} ${unrecorded}` : reason,
