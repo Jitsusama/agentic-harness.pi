@@ -115,10 +115,40 @@ export function keepHead<M extends { readonly role: string }>(
 ): (M | SystemMessage)[] | undefined {
 	const head = messages[0];
 	if (!isSystemMessage(head)) return undefined;
-	const patch = patchBetween(kept, head);
+	const patch = patchFor(kept, head);
 	if (patch === undefined || patch === SAME) return undefined;
 	return [kept, patch, ...messages.slice(1)];
 }
+
+/**
+ * The last head each kept head was patched to, and the patch. pi clones
+ * the context for every request, so a head comes as a new object equal
+ * to the last, and working the patch out again compared every tool's
+ * declaration: up to 12.8 s of 5KBYD7's 13-minute soak of twelve pis
+ * (85PKB2, 13 November 2026). A kept head is one session's own entry, so keying
+ * by it keeps each session's apart.
+ */
+const lastPatched = new WeakMap<
+	SystemMessage,
+	{ readonly head: string; readonly patch: Patch }
+>();
+
+/** What `patchBetween` answers. */
+type Patch = SystemMessage | typeof SAME | undefined;
+
+/** The patch from `kept` to `head`, worked out only when `head` changed. */
+function patchFor(kept: SystemMessage, head: SystemMessage): Patch {
+	// The whole head as text: pi folds a head under its first message's
+	// timestamp, so a tool reworded since leaves no smaller mark, and
+	// writing it out costs far less than comparing declarations.
+	const print = JSON.stringify(head);
+	const last = lastPatched.get(kept);
+	if (last !== undefined && last.head === print) return last.patch;
+	const patch = patchBetween(kept, head);
+	lastPatched.set(kept, { head: print, patch });
+	return patch;
+}
+
 
 /** The two heads already say the same thing. */
 const SAME = Symbol("same");
