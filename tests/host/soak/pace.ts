@@ -30,7 +30,9 @@ const Z_90 = 1.2815515655446004;
 /** Read `P50[,P90]`, or nothing when it isn't given. */
 export function paceOf(text: string | undefined): Percentiles | undefined {
 	if (text === undefined || text === "") return undefined;
-	const [p50, p90 = p50] = text.split(",").map(Number);
+	const [first, second] = text.split(",");
+	const p50 = Number(first);
+	const p90 = second === undefined ? p50 : Number(second);
 	if (!(p50 > 0) || !(p90 >= p50))
 		throw new Error(
 			`a pace is P50[,P90], P50 above 0 and P90 at least P50: ${text}`,

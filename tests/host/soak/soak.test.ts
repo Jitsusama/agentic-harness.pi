@@ -1,7 +1,8 @@
 /**
  * The soak itself, at its smallest: two conversations of two turns each
- * through one host and through plain pi, once with no parking and once
- * parked and woken, so a change that breaks the soak is found by
+ * through one host and through plain pi, once with no parking, once
+ * parked and woken in turn, and once parked and woken in a burst, so a
+ * change that breaks the soak is found by
  * test:host rather than on the night a week's run is due. A week's run
  * goes on a lent builder by hand, as README.md says.
  */
@@ -27,6 +28,7 @@ const SOAK = resolve(import.meta.dirname, "soak.mts");
 const RUN_MS = 600_000;
 const out = mkdtempSync(join(tmpdir(), "soak-"));
 const parkedOut = mkdtempSync(join(tmpdir(), "soak-parked-"));
+const burstOut = mkdtempSync(join(tmpdir(), "soak-burst-"));
 
 describe.skipIf(!packageDir)(
 	"the soak (needs a pi with the host's patches: pnpm test:host)",
@@ -118,6 +120,45 @@ describe.skipIf(!packageDir)(
 						},
 					],
 				});
+			},
+			RUN_MS,
+		);
+	},
+);
+
+describe.skipIf(!packageDir)(
+	"the soak, woken in a burst (needs a pi with the host's patches: pnpm test:host)",
+	() => {
+		afterAll(() => rmSync(burstOut, { recursive: true, force: true }));
+
+		it(
+			"wakes every parked conversation by a window at once, timing each, and weighs the loop after",
+			async () => {
+				const { said, report } = await soaked(burstOut, ["--burst"]);
+				expect(report, said).toMatchObject({ faults: [] });
+				const first =
+					isRecord(report) && Array.isArray(report.checkpoints)
+						? report.checkpoints[0]
+						: undefined;
+				expect(
+					first,
+					"both conversations' wakes, and none one at a time",
+				).toMatchObject({
+					burstWakes: [
+						{ conversation: 0, answeredMs: expect.any(Number) },
+						{ conversation: 1, answeredMs: expect.any(Number) },
+					],
+					windowWakes: [],
+				});
+				expect(first, "how late the loop ran through the burst").toMatchObject({
+					afterBurst: {
+						loopP99Ms: expect.any(Number),
+						loopMaxMs: expect.any(Number),
+					},
+				});
+				expect(said, "the checkpoint line says the burst").toMatch(
+					/burst of 2: slowest answered \d+ ms, loop max \d+ ms/,
+				);
 			},
 			RUN_MS,
 		);
