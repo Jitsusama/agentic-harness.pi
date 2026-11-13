@@ -58,7 +58,11 @@ import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
-import { parkedWarming, warmThrough } from "./parked-warming.ts";
+import {
+	type ParkedEnv,
+	parkedWarming,
+	warmThrough,
+} from "./parked-warming.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
@@ -180,14 +184,14 @@ export async function createEngine(
 	const warming = parkedWarming({
 		carries: warmingCarryDir(),
 		pending: pendingWarmsDir(),
-		send: async (carry, signal) => {
+		send: async (carry, env, signal) => {
 			const agentDir = agentDirs.get(carry.sessionId);
 			if (!agentDir)
 				return { ok: false, reason: "its agent folder is unknown" };
 			const runtime = await sessions.ModelRuntime.create({
 				authPath: join(agentDir, "auth.json"),
 				modelsPath: join(agentDir, "models.json"),
-				authContext: conversationAuthContext(() => requestEnv(carry.sessionId)),
+				authContext: conversationAuthContext(() => envForRequest(env)),
 			});
 			return warmThrough(runtime, carry, signal);
 		},
@@ -199,12 +203,23 @@ export async function createEngine(
 			),
 		report,
 	});
+	// What each conversation held as it stopped to park, until its warming takes it.
+	const parkedEnvs = new Map<string, ParkedEnv>();
 	const parked = parking({
 		stateDir: options.stateDir,
-		stop: (sessionId, why) => host.stop(sessionId, why),
+		stop: async (sessionId, why) => {
+			// Read while it is still held, since a parked one isn't.
+			const env = host.env(sessionId).snapshot();
+			await host.stop(sessionId, why);
+			parkedEnvs.set(sessionId, env);
+		},
 		asking: () => watched?.wake,
 		report,
-		parked: (sessionId) => warming.start(sessionId),
+		parked: (sessionId) => {
+			const env = parkedEnvs.get(sessionId);
+			parkedEnvs.delete(sessionId);
+			if (env) warming.start(sessionId, env);
+		},
 	});
 	const tools = runningTools();
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.
@@ -245,15 +260,20 @@ export async function createEngine(
 	}
 
 	/** The conversation's environment as one request sends it, the current key included. */
-	async function requestEnv(
+	function requestEnv(
 		sessionId: string,
+	): Promise<Readonly<Record<string, string>>> {
+		return envForRequest(host.env(sessionId).snapshot());
+	}
+
+	/** A request's environment over what a conversation holds, held now or as it parked. */
+	async function envForRequest(
+		own: ParkedEnv,
 	): Promise<Readonly<Record<string, string>>> {
 		// The runtime's own tools, as code in the host reads them, under
 		// what the conversation names for itself.
 		const values: Record<string, string> = { ...host.hostReads() };
-		for (const [name, value] of Object.entries(
-			host.env(sessionId).snapshot(),
-		)) {
+		for (const [name, value] of Object.entries(own)) {
 			if (value !== undefined) values[name] = value;
 		}
 		if (options.key) {

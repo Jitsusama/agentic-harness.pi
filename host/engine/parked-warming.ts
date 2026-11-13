@@ -15,6 +15,11 @@
  * from it, and is kept for that start to record, since only the
  * session writes its log.
  *
+ * A parked conversation is no longer held, so the host can't read its
+ * environment then: each warm goes under what it held as it parked,
+ * handed to `start`. Read at the warm, it failed all ten the hosts sent
+ * by 13 November with "Conversation not held".
+ *
  * What stops it: the conversation waking or closing (`stop`, before
  * its session starts and takes the carry), the carry going, a warm that
  * wrote more than 2,000 tokens (its prefix was gone, so the entry is
@@ -71,17 +76,24 @@ export type WarmSent =
 
 /** What warms parked conversations. */
 export interface ParkedWarming {
-	/** It parked: warm its carry on, from where its own warming left off. */
-	start(sessionId: string): void;
+	/**
+	 * It parked holding `env`: warm its carry on under it, from where its
+	 * own warming left off.
+	 */
+	start(sessionId: string, env: ParkedEnv): void;
 	/** It wakes or closes: nothing more is sent or written for it. */
 	stop(sessionId: string): void;
 	/** Warms out now, which a restart waits for as it waits for jobs. */
 	inFlight(): number;
 }
 
+/** A conversation's environment as it parked, which its warms go under. */
+export type ParkedEnv = Readonly<Record<string, string | undefined>>;
+
 /** One parked conversation's warming. */
 interface Warming {
 	readonly controller: AbortController;
+	readonly env: ParkedEnv;
 	timer?: ReturnType<typeof setTimeout>;
 	retried: boolean;
 	/** When a call first held its next warm back. */
@@ -98,6 +110,7 @@ export function parkedWarming(options: {
 	readonly pending: string;
 	readonly send: (
 		carry: WarmingCarry,
+		env: ParkedEnv,
 		signal: AbortSignal,
 	) => Promise<WarmSent>;
 	readonly enabled: () => Promise<boolean>;
@@ -172,7 +185,11 @@ export function parkedWarming(options: {
 		flying += 1;
 		let sent: WarmSent;
 		try {
-			sent = await options.send(carry, warming.controller.signal);
+			sent = await options.send(
+				carry,
+				warming.env,
+				warming.controller.signal,
+			);
 		} finally {
 			flying -= 1;
 		}
@@ -213,13 +230,14 @@ export function parkedWarming(options: {
 	};
 
 	return {
-		start(sessionId) {
+		start(sessionId, env) {
 			stop(sessionId);
 			const carry = readWarmingCarry(carries, sessionId);
 			const next = carry ? due(carry) : undefined;
 			if (!next) return;
 			const warming: Warming = {
 				controller: new AbortController(),
+				env,
 				retried: false,
 			};
 			warmings.set(sessionId, warming);
