@@ -189,6 +189,31 @@ async function setUp() {
 		return path;
 	}
 
+	/**
+	 * A tree another provider cut whose checkout is git's, as World's
+	 * keeps its checkout in `src`: a worktree of trunk, and the record.
+	 */
+	async function elsewhereCheckout(key: string): Promise<string> {
+		const path = join(state, key);
+		mkdirSync(path, { recursive: true });
+		await git(
+			main,
+			"worktree",
+			"add",
+			"-q",
+			"--detach",
+			join(path, "src"),
+			"main",
+		);
+		memory.remember({
+			identity: { key, shareable: false },
+			path,
+			providerId: ELSEWHERE,
+			owners: [ENDED],
+		});
+		return path;
+	}
+
 	/** Sweep with `provider` loaded, on a machine where this test runs. */
 	const sweepWith = (provider: TreeProvider, claims: readonly string[] = []) =>
 		sweepEndedTrees({
@@ -208,6 +233,7 @@ async function setUp() {
 		sweep,
 		lostClone,
 		elsewhereTree,
+		elsewhereCheckout,
 		sweepWith,
 		sweepKnowing,
 	};
@@ -239,6 +265,14 @@ async function landed(
 	await git(tree, "commit", "-q", "--allow-empty", "-m", "work");
 	await git(tree, "push", "-q", "origin", branch);
 	return tree;
+}
+
+/** Put a folder with no git, and its `src`, two days back, as one left alone. */
+function settleFolder(tree: string): void {
+	const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
+	for (const one of [join(tree, "src", "file"), join(tree, "src"), tree]) {
+		utimesSync(one, then, then);
+	}
 }
 
 /** Put a tree's HEAD and its reflog two days back, as one left alone. */
@@ -513,6 +547,7 @@ describe("trees another provider cut", () => {
 	it("takes a spent one through its provider, holding it meanwhile", async () => {
 		const { memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
 		let holders: unknown;
 		const provider = elsewhere(undefined, async (held) => {
 			holders = memory.recall().find((one) => one.path === tree)?.owners;
@@ -530,6 +565,7 @@ describe("trees another provider cut", () => {
 	it("keeps one its provider says to keep", async () => {
 		const { elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
 
 		const outcome = await sweepWith(elsewhere("it has uncommitted changes"));
 
@@ -538,6 +574,55 @@ describe("trees another provider cut", () => {
 			why: "it has uncommitted changes",
 		});
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("keeps a spent one whose HEAD moved within the day, unasked", async () => {
+		const { elsewhereCheckout, sweepWith } = await setUp();
+		const tree = await elsewhereCheckout("world-tree");
+		let asked = false;
+		const provider: TreeProvider = {
+			...elsewhere(undefined),
+			whyKept: async () => {
+				asked = true;
+				return undefined;
+			},
+		};
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "it moved within the last day, so a session may come back to it",
+		});
+		expect(
+			asked,
+			"the provider is asked nothing of a tree still settling",
+		).toBe(false);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("takes a spent one once its HEAD sat a day", async () => {
+		const { elsewhereCheckout, sweepWith } = await setUp();
+		const tree = await elsewhereCheckout("world-tree");
+		await settle(join(tree, "src"));
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+	});
+
+	it("keeps a spent one with no git that changed within the day", async () => {
+		const { elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "it moved within the last day, so a session may come back to it",
+		});
 	});
 
 	it("keeps a shareable one, which a session could join mid-removal", async () => {
@@ -576,6 +661,7 @@ describe("trees another provider cut", () => {
 	it("gives the record back to its sessions when the release fails", async () => {
 		const { memory, elsewhereTree, sweepWith } = await setUp();
 		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
 		const provider = elsewhere(undefined, async () => {
 			throw new Error("dev refused");
 		});

@@ -184,7 +184,10 @@ A tree another provider cut, such as a World dev tree, goes through
 that provider's own release, and only once the provider says nothing
 would be lost. While it is removed, its record names the sweeping
 session, so no other session is handed it. A shareable tree, or one
-whose provider can't judge it, is kept.
+whose provider can't judge it, is kept. So is one that moved within
+a day, its HEAD or, with no git, its folder, and its provider isn't
+asked: on 13 November a World tree, clean on its branch, was taken
+while the session working on it stood in another folder.
 
 ## Dev-Shell Roots Nobody Uses
 
