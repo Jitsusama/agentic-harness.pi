@@ -207,7 +207,11 @@ describe("ledger views", () => {
 			servedBackend: backend,
 		});
 		const { store, reader } = await ledger([
-			turn({ sessionId: "moved", timestamp: at(50), facts: served("anthropic") }),
+			turn({
+				sessionId: "moved",
+				timestamp: at(50),
+				facts: served("anthropic"),
+			}),
 			turn({
 				...missed({}),
 				sessionId: "moved",
