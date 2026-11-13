@@ -128,9 +128,7 @@ export async function serveHost(options: {
 				report: options.report,
 				...(options.say ? { say: options.say } : {}),
 				wake: (sessionId) =>
-					wakes
-						? wakes(sessionId)
-						: listened.then((wake) => wake(sessionId)),
+					wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
 			}),
 		);
 		const { unresumed } = await resumeHeld({
