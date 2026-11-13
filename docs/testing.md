@@ -77,17 +77,21 @@ A harness change reaches the hosts through a gate of its own, since
 `pnpm check` skips the host cases wherever no runtime is installed.
 `bash scripts/host-test-there.sh` runs the whole of `pnpm test:host` for
 the commit checked out on a lent builder, through `nix-offload there
---run`, on the runtime the hosts are proven on, and keeps what it said under
-`$XDG_STATE_HOME/agentic-harness.pi/host-tests/<commit>/`. Given test
-files, it runs only those, which answers for a branch's own tests but
-clears no merge. `scripts/host-gate.sh` is the harness's
+--run`, on the runtime the hosts are proven on. nix-offload's keeper keeps
+the pass, with the words that ran, where no session can write, so the
+script writes no record of its own. Inside the agent fence, which hides the
+builders' key, it prints that call instead, to be run alone, which the
+fence lets out. Given test files, it runs only those, which answers for a
+branch's own tests but clears no merge. `scripts/host-gate.sh` is the harness's
 `review.merge.gates` entry: a change that touches nothing a host runs
 (`host/`, `lib/ui/`, `lib/core/session/`, `lib/core/viewer/`,
 `tests/host/`, the host scripts, `package.json`, the lockfile and the
 vitest config, and the extensions and libraries whose tools the host
 cases drive: jobs, loadout, mesh, park, quest, reload, result store,
-spend and subagent) merges as before; one that does merges only once a whole
-run at that very commit, on that runtime, passed. A refusal names the
+spend and subagent) merges as before; one that does merges only once the
+keeper kept a whole run passing at that very commit, its words exactly
+those `scripts/host-test-words.sh` makes for that runtime and this
+machine's tools, since the keeper keeps any program that passed. A refusal names the
 command that clears it. A merge outside `review_offer`, on GitHub's page,
 skips it, as it skips core.nix's `merge-net ready`.
 
