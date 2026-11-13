@@ -4,3 +4,34 @@
 # session-state-exempt.txt with its reason. Counts only shrink.
 # Widened 2026-11-10 to lib/, host/ and packs/, the rest of what a hosted
 # conversation loads; K7 keys or exempts each of these with a reason.
+# Widened 2026-11-12 to module state (a top-level let, map or set): pi
+# caches a module by path within a folder, so a host's conversations
+# there share it. Each domain's owner keys it in a session slot or
+# exempts it with a reason.
+extensions/away-workflow/notices.ts:module 1
+extensions/quest-workflow/quest-index.ts:module 2
+extensions/review-integration/checks-job.ts:module 1
+extensions/review-integration/tools/resubmit.ts:module 2
+extensions/subagent-workflow/index.ts:module 1
+lib/core/internal/terminal/binaries.ts:module 3
+lib/core/process/process.ts:module 2
+lib/core/result/spill.ts:module 1
+lib/core/web/mermaid.ts:module 1
+lib/google/apis/client.ts:module 1
+lib/internal/calls.ts:module 1
+lib/internal/offload-exemption.ts:module 1
+lib/internal/paths.ts:module 1
+lib/internal/people/resolvers/slack.ts:module 1
+lib/internal/quest/discovery.ts:module 1
+lib/internal/quest/process-liveness.ts:module 2
+lib/internal/reload/follow.ts:module 1
+lib/internal/sandbox.ts:module 1
+lib/internal/shell/kept.ts:module 1
+lib/mesh/presence.ts:module 2
+lib/slack/resolvers/conversation-cache.ts:module 1
+lib/subagent/fleet.ts:module 1
+lib/subagent/subagent.ts:module 1
+lib/terminal/niri.ts:module 1
+lib/ui/gate-dock.ts:module 1
+lib/ui/panel-room.ts:module 1
+lib/ui/panel-screen.ts:module 1

@@ -27,6 +27,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
+import { sessionSlot } from "../../lib/core/session/index.ts";
 import { treeRequestFrom } from "../../lib/core/work/ask.ts";
 import {
 	WORK_READY,
@@ -46,25 +47,44 @@ import { loadReviewConfig } from "./config.ts";
  */
 const REMOTE_PROBE_MS = 5_000;
 
-/** The working layer, once something has announced one. */
-let work: WorkApi | undefined;
-
 /**
- * The host, kept for the one question only a command can answer.
+ * What one conversation knows of its working layer.
  *
- * Which repository a directory is a checkout of is not something a
- * locator knows: that is the whole reason a round could be run
- * against somebody else's repo. Asking git is the only honest answer,
- * and asking is optional, because a caller who cannot ask is a caller
- * who cannot show the fallback is the right repo either.
- *
- * Unattended rather than pi's own exec, whose child shares pi's terminal
- * and would draw a credential prompt over it.
+ * A conversation's own, never the module's: a shared host loads this
+ * module once for every conversation in a folder, so a module-level
+ * value was the last conversation's. Its start wiped the others' layer
+ * and unsubscribed their listener, and the listener it kept held a
+ * parked conversation's whole session alive. On plain pi the slot is
+ * the one process-wide value, as the module's was.
  */
-let host: Pick<ExtensionAPI, "exec"> | undefined;
+interface Standing {
+	/** The working layer, once something has announced one. */
+	work?: WorkApi;
+	/**
+	 * The host, kept for the one question only a command can answer.
+	 *
+	 * Which repository a directory is a checkout of is not something a
+	 * locator knows: that is the whole reason a round could be run
+	 * against somebody else's repo. Asking git is the only honest answer,
+	 * and asking is optional, because a caller who cannot ask is a caller
+	 * who cannot show the fallback is the right repo either.
+	 *
+	 * Unattended rather than pi's own exec, whose child shares pi's
+	 * terminal and would draw a credential prompt over it.
+	 */
+	host?: Pick<ExtensionAPI, "exec">;
+	/** How to stop listening for it, so listening twice does not stack. */
+	stopListening?: () => void;
+	/** The config, once something has asked for it. */
+	configured?: ReturnType<typeof loadReviewConfig>;
+}
 
-/** How to stop listening for it, so listening twice does not stack. */
-let stopListening: (() => void) | undefined;
+const STANDING = "agentic-harness.review.work-layer.v1";
+
+/** This conversation's standing, by the ambient session when hosted. */
+function standing(): Standing {
+	return sessionSlot<Standing>(STANDING, undefined, () => ({}));
+}
 
 /**
  * Listen for the working layer and ask it to announce itself.
@@ -79,29 +99,31 @@ export function watchForWorkLayer(
 	pi: ExtensionAPI,
 	runner: Pick<ExtensionAPI, "exec"> = REVIEW_COMMANDS,
 ): void {
-	host = runner;
+	const mine = standing();
+	mine.host = runner;
 	// Once. This runs at registration and again on every session start,
 	// and the bus outlives a reload, so keeping the old subscription
 	// would stack a listener per start until node warns about a leak in
 	// the middle of a frame. The stale ones also still answer, which is
 	// how a forgotten broker comes back.
-	stopListening?.();
-	stopListening = pi.events.on(WORK_READY, (api: unknown) => {
-		work = api as WorkApi;
+	mine.stopListening?.();
+	mine.stopListening = pi.events.on(WORK_READY, (api: unknown) => {
+		mine.work = api as WorkApi;
 	});
 	pi.events.emit(WORK_REQUEST, {});
 }
 
 /** Forget it, so a reload does not answer with a dead broker. */
 export function forgetWorkLayer(): void {
-	work = undefined;
-	host = undefined;
+	const mine = standing();
+	mine.work = undefined;
+	mine.host = undefined;
 	// The config too, since a reload is how somebody applies an edit to
 	// it, and answering from the copy read before the edit is the one
 	// thing a reload is supposed to fix.
-	configured = undefined;
-	stopListening?.();
-	stopListening = undefined;
+	mine.configured = undefined;
+	mine.stopListening?.();
+	mine.stopListening = undefined;
 }
 
 /** Whether a change already has somewhere to read it. */
@@ -127,6 +149,7 @@ export async function treeStandingFor(
 	repo: RepoLocator,
 	commit: string | undefined,
 ): Promise<TreeStanding> {
+	const { work } = standing();
 	if (work === undefined) {
 		return { kind: "unknown", why: "no working layer is loaded" };
 	}
@@ -197,6 +220,7 @@ export async function treeForFixing(
 	repo: RepoLocator,
 	branch: string,
 ): Promise<{ path: string } | { refusal: string }> {
+	const { work } = standing();
 	if (work === undefined) {
 		return {
 			refusal:
@@ -339,13 +363,11 @@ async function groundFor(
 async function configuredCheckout(
 	repo: RepoLocator,
 ): Promise<string | undefined> {
-	configured ??= loadReviewConfig();
-	const { config } = await configured;
+	const mine = standing();
+	mine.configured ??= loadReviewConfig();
+	const { config } = await mine.configured;
 	return checkoutFor(repo.key, config);
 }
-
-/** The config, once something has asked for it. */
-let configured: ReturnType<typeof loadReviewConfig> | undefined;
 
 /**
  * Whether a directory is a checkout of this repo, by asking git.
@@ -362,6 +384,7 @@ async function isCheckoutOf(
 ): Promise<boolean> {
 	const named = repo.key.split(":").pop();
 	if (named === undefined || named === "") return false;
+	const { host } = standing();
 	if (host === undefined) return false;
 	try {
 		const said = await host.exec("git", ["-C", directory, "remote", "-v"], {
@@ -387,6 +410,7 @@ async function isCheckoutOf(
  * cannot vouch for is the case a refusal is for.
  */
 async function headOf(directory: string): Promise<string | undefined> {
+	const { host } = standing();
 	if (host === undefined) return undefined;
 	try {
 		const said = await host.exec(
@@ -464,6 +488,7 @@ export async function treeForRound(
 			caveat: `This provider does not report the commit under review, so there is nothing to pin a tree to and reviewers read ${fallback} instead.`,
 		};
 	}
+	const { work } = standing();
 	if (work === undefined) {
 		return fallbackAt(
 			fallback,

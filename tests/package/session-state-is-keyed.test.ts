@@ -18,7 +18,7 @@ const LOADED = ["extensions", "lib", "host", "packs"];
  */
 const WALK_MS = 60_000;
 const SITE_KEY = new RegExp(
-	`^(${LOADED.join("|")})/\\S+:(pid|cwd|global|env-write)$`,
+	`^(${LOADED.join("|")})/\\S+:(pid|cwd|global|env-write|module)$`,
 );
 
 interface Entry {
@@ -102,6 +102,17 @@ describe("session state in the code a conversation loads", () => {
 			global: 3,
 			"env-write": 4,
 		});
+		expect(
+			Object.fromEntries(
+				processSessionSites(`
+					let last; export let shared = 0, other = 1;
+					const held = new Map(); const seen = new Set();
+					const KINDS = new Set(["a"]); const kept = new WeakMap();
+					function inner() { let local = 0; const own = new Map(); }
+				`),
+			),
+			"a module's own state is counted, its constants and a function's locals are not",
+		).toEqual({ module: 5 });
 		expect(
 			processSessionSites("sessionSlot(name, ctx, make); sessionCwd(ctx);")
 				.size,

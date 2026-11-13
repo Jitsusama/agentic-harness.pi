@@ -9,6 +9,7 @@
  * until the provider it named goes away.
  */
 
+import { sessionSlot } from "../session/slot.ts";
 import type { RepoLocator, ReviewTarget } from "./change.ts";
 import { targetKey } from "./keys.ts";
 import type { RepoProbe, ReviewProvider } from "./provider.ts";
@@ -43,8 +44,16 @@ export type TargetResolution =
  * replaying the target's own `local:` locator handed that provider a
  * repo it does not serve, so the first call worked and every later one
  * was refused.
+ *
+ * Each conversation's own when a host holds several, since one module
+ * serves them all: a binding one made is not another's to replay, and
+ * one conversation's start must not forget the others'.
  */
-const bindings = new Map<string, Binding>();
+function bindings(): Map<string, Binding> {
+	return sessionSlot(BINDINGS, undefined, () => new Map<string, Binding>());
+}
+
+const BINDINGS = "agentic-harness.review.target-bindings.v1";
 
 /** A resolution worth replaying: who serves the target, and as what. */
 type Binding = { providerId: string; repo: RepoLocator; via: ResolvedVia };
@@ -59,16 +68,16 @@ export function bindTarget(
 	providerId: string,
 	resolved?: { repo: RepoLocator; via: ResolvedVia },
 ): void {
-	bindings.set(targetKey(target), {
+	bindings().set(targetKey(target), {
 		providerId,
 		repo: resolved?.repo ?? repoOf(target),
 		via: resolved?.via ?? "config-repo",
 	});
 }
 
-/** Forget every binding. Intended for tests and lifecycle. */
+/** Forget this conversation's bindings. Intended for tests and lifecycle. */
 export function clearTargetBindings(): void {
-	bindings.clear();
+	bindings().clear();
 }
 
 /** The repo a target is about. */
@@ -99,7 +108,7 @@ function remember(
 function bound(
 	target: ReviewTarget,
 ): { provider: ReviewProvider; binding: Binding } | undefined {
-	const binding = bindings.get(targetKey(target));
+	const binding = bindings().get(targetKey(target));
 	if (!binding) return undefined;
 	const provider = getReviewProvider(binding.providerId);
 	return provider ? { provider, binding } : undefined;
