@@ -70,6 +70,8 @@ import {
 const TURN_MS = 120_000;
 /** park-workflow's two minutes for a named session, its minute between looks, and room for load. */
 const PARK_MS = 4 * 60_000;
+/** How often a parked host is weighed again while it still holds a session. */
+const REWEIGH_EVERY_MS = 5_000;
 /** How long a viewer may take to draw its first frame. */
 const DRAWN_MS = 30_000;
 /** How often a turn's end is looked for in its log. */
@@ -285,16 +287,8 @@ async function runHosted(sealed: Seal): Promise<{
 				host.parked(id, PARK_MS),
 				`${id} didn't park at ${done} turns`,
 			);
-		// Parked is said before the host has closed the conversation's
-		// runtime and let its session go, so a weighing taken then still
-		// counts the last one parked as held. Weighed once each is gone.
-		for (const id of ids)
-			await tried(
-				host.gone(id, PARK_MS),
-				`${id} parked but wasn't let go at ${done} turns`,
-			);
 		const parkMs = Date.now() - parking;
-		const parked = await host.weigh();
+		const parked = await weighedOnceLetGo(host, ids, done);
 		writeFileSync(switchFile, "");
 		const wakeMs = await Promise.all(
 			conversations.map((one) =>
@@ -581,6 +575,31 @@ function barrierOf(
 		opening();
 		return waiting;
 	};
+}
+
+/**
+ * The host's weight once it holds none of `ids`' sessions. Parked is
+ * said before the host has closed a conversation's runtime and let its
+ * session go, and a parked conversation stays listed, so this weighs
+ * again until the weighing names none of them. One still held at the
+ * end is a fault, and the last weighing stands.
+ */
+async function weighedOnceLetGo(
+	host: ScreenHost,
+	ids: readonly string[],
+	done: number,
+): Promise<Weight> {
+	const until = Date.now() + PARK_MS;
+	for (;;) {
+		const weighed = await host.weigh();
+		const held = ids.filter((id) => weighed.sessions.includes(id));
+		if (held.length === 0) return weighed;
+		if (Date.now() > until) {
+			fault(`${held.join(", ")} parked but still held at ${done} turns`);
+			return weighed;
+		}
+		await new Promise((later) => setTimeout(later, REWEIGH_EVERY_MS));
+	}
 }
 
 /** Wait for `work`, counting its failure as a fault saying `what`. */
