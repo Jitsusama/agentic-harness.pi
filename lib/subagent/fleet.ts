@@ -321,9 +321,11 @@ export function createFleetLedger(root: string): FleetLedger {
 		// again at zero every time this module is loaded and a reload is
 		// an ordinary event in a long session.
 		//
-		// Random bytes as well, because each conversation in a host loads
-		// its own copy of this module, sharing the pid and counting from
-		// zero, so two can match in pid, millisecond and counter.
+		// Random bytes as well, because pi caches this module per folder:
+		// a host's conversations in one folder share its counter, but
+		// those in other folders each load a copy of their own, sharing
+		// the pid and counting from zero, so two can match in pid,
+		// millisecond and counter.
 		staging += 1;
 		const chance = randomBytes(4).toString("hex");
 		const pending = `${path}.${process.pid}.${Date.now()}.${staging}.${chance}${STAGING_SUFFIX}`;

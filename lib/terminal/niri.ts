@@ -169,9 +169,10 @@ let opened = 0;
  * A class no other window carries: `SPAWNED_CLASS` and a number, the
  * form the compositor's rule opens without focus. The pid keeps two
  * pis' numbers apart, and apart from the launcher's small ones. The
- * conversations of one host share its pid and each load its own copy
- * of this module, so each counts from one; random digits keep theirs
- * apart too.
+ * conversations of one host share its pid. Those in one folder share
+ * this module's counter too, which keeps their numbers unique, but pi
+ * caches the module per folder, so those in other folders each count
+ * from one; random digits keep theirs apart too.
  */
 export function classOfItsOwn(pid = process.pid): string {
 	opened += 1;
