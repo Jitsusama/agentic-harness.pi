@@ -8,15 +8,20 @@
 import { describe, expect, it } from "vitest";
 import {
 	barOf,
+	burstOf,
 	entriesOf,
 	growthOf,
 	latencies,
 	pairedCost,
+	pairSteps,
 	parityOf,
 	screenSplit,
 	showsTag,
 	slowKeys,
+	slowSteps,
 	spreadOf,
+	stepCostOf,
+	stepsOf,
 	turnRecords,
 	turnTimes,
 } from "./report.ts";
@@ -116,9 +121,68 @@ describe("what a screen adds", () => {
 				keyToAccepted: { count: 1, p50: 1000, p99: 1000 },
 				keyToDrawn: { count: 1, p50: 1100, p99: 1100 },
 			},
+			burst: {
+				keyToAccepted: spreadOf([]),
+				keyToDrawn: spreadOf([]),
+				unshown: 0,
+			},
 			undrawn: 1,
 			unshown: 0,
 		});
+	});
+
+	it("judges keys typed within a second into other conversations apart, as a burst", () => {
+		const two = [
+			entry("user", "soak c0-t0 echo, please", 1),
+			entry("assistant", [{ type: "text", text: "heard, ack c0-t0." }], 3),
+			entry("user", "soak c0-t1 echo, please", 10),
+			entry("assistant", [{ type: "text", text: "heard, ack c0-t1." }], 11),
+			entry("user", "soak c1-t0 echo, please", 1),
+			entry("assistant", [{ type: "text", text: "heard, ack c1-t0." }], 3),
+			entry("user", "soak c1-t1 echo, please", 12),
+			entry("assistant", [{ type: "text", text: "heard, ack c1-t1." }], 13),
+		];
+		const typed = new Map([
+			// Both opening keys in the same instant, as a script types them.
+			["c0-t0", { keyAt: minute + 700, shownAt: minute + 800 }],
+			["c1-t0", { keyAt: minute + 700, shownAt: minute + 900 }],
+			// Two seconds apart, in two conversations: a person's keys, steady.
+			["c0-t1", { keyAt: minute + 9_950, shownAt: minute + 9_970 }],
+			["c1-t1", { keyAt: minute + 11_960, shownAt: minute + 11_990 }],
+		]);
+		expect(
+			[...burstOf(typed)].sort(),
+			"the two openings, not the key two seconds later",
+		).toEqual(["c0-t0", "c1-t0"]);
+		const split = screenSplit(turnTimes(two), typed);
+		expect(split.burst, "the openings, judged apart").toEqual({
+			keyToAccepted: { count: 2, p50: 300, p99: 300 },
+			keyToDrawn: { count: 2, p50: 100, p99: 200 },
+			unshown: 0,
+		});
+		expect(split.keyToAccepted, "the steady keys alone").toEqual({
+			count: 2,
+			p50: 40,
+			p99: 50,
+		});
+		expect(
+			burstOf(
+				new Map([
+					["c0-t0", { keyAt: minute }],
+					["c0-t1", { keyAt: minute + 10 }],
+				]),
+			).size,
+			"two keys into one conversation are no burst",
+		).toBe(0);
+		expect(
+			burstOf(
+				new Map([
+					["c0-t3", { keyAt: minute }],
+					["c1-t5", { keyAt: minute + 1_000 }],
+				]),
+			).size,
+			"keys a second apart into two are one",
+		).toBe(2);
 	});
 
 	it("counts a key outside a wake never seen drawn, rather than dropping it", () => {
@@ -153,13 +217,30 @@ describe("what a screen adds", () => {
 		).toEqual([
 			{
 				tag: "c0-t0",
+				promptAt: minute + 1_000,
+				answerAt: minute + 3_000,
 				hostedMs: 2_000,
 				plainMs: 1_500,
+				keyAt: minute + 500,
 				keyToAcceptedMs: 500,
 				keyToDrawnMs: 100,
 			},
-			{ tag: "c0-t1", hostedMs: 1_000, plainMs: 1_200 },
-			{ tag: "c0-t2", hostedMs: 1_000, keyToAcceptedMs: 1_000, woke: "key" },
+			{
+				tag: "c0-t1",
+				promptAt: minute + 10_000,
+				answerAt: minute + 11_000,
+				hostedMs: 1_000,
+				plainMs: 1_200,
+			},
+			{
+				tag: "c0-t2",
+				promptAt: minute + 20_000,
+				answerAt: minute + 21_000,
+				hostedMs: 1_000,
+				keyAt: minute + 19_000,
+				keyToAcceptedMs: 1_000,
+				woke: "key",
+			},
 		]);
 	});
 
@@ -212,6 +293,94 @@ describe("what a screen adds", () => {
 	});
 });
 
+describe("a turn's steps", () => {
+	const minute = Date.UTC(2026, 10, 12, 9, 0, 0);
+	const call = [{ type: "toolCall", id: "t1", name: "bash", arguments: {} }];
+	const hosted = [
+		entry("user", "soak c0-t0 bash, please", 1),
+		entry("assistant", call, 3),
+		entry("toolResult", "ok", 4),
+		{ type: "custom", timestamp: new Date(minute + 5_000).toISOString() },
+		entry("assistant", [{ type: "text", text: "done, ack c0-t0." }], 6),
+		entry("user", "soak c0-t1 bash, please", 10),
+		entry("assistant", call, 11),
+		entry("toolResult", "ok", 12),
+		entry("assistant", [{ type: "text", text: "done, ack c0-t1." }], 13),
+	];
+	const plain = [
+		entry("user", "soak c0-t0 bash, please", 1),
+		entry("assistant", call, 2),
+		entry("toolResult", "ok", 3),
+		entry("assistant", [{ type: "text", text: "done, ack c0-t0." }], 5),
+		// A turn that took another round on plain pi's side: its steps differ.
+		entry("user", "soak c0-t1 bash, please", 10),
+		entry("assistant", call, 11),
+		entry("toolResult", "ok", 12),
+		entry("assistant", call, 13),
+		entry("toolResult", "ok", 14),
+		entry("assistant", [{ type: "text", text: "done, ack c0-t1." }], 15),
+	];
+
+	it("runs each round to its answer and each tool to its result, past other entries", () => {
+		expect(stepsOf(hosted)[0], "two rounds and a tool").toEqual({
+			tag: "c0-t0",
+			steps: [
+				{ kind: "round", from: minute + 1_000, to: minute + 3_000 },
+				{ kind: "tool", from: minute + 3_000, to: minute + 4_000 },
+				{ kind: "round", from: minute + 4_000, to: minute + 6_000 },
+			],
+		});
+	});
+
+	it("costs each step against plain pi's at the same place, counting a turn whose steps differ", () => {
+		const pairing = pairSteps(stepsOf(hosted), stepsOf(plain));
+		expect(
+			pairing.steps.map(({ tag, at, kind, costMs }) => ({
+				tag,
+				at,
+				kind,
+				costMs,
+			})),
+			"the first turn's three steps",
+		).toEqual([
+			{ tag: "c0-t0", at: 0, kind: "round", costMs: 1_000 },
+			{ tag: "c0-t0", at: 1, kind: "tool", costMs: 0 },
+			{ tag: "c0-t0", at: 2, kind: "round", costMs: 0 },
+		]);
+		expect(pairing, "the second, unpaired").toMatchObject({
+			turns: 1,
+			unpaired: 1,
+		});
+		expect(stepCostOf(pairing), "rounds and tools apart").toEqual({
+			rounds: { count: 2, p50: 0, p99: 1_000, max: 1_000 },
+			tools: { count: 1, p50: 0, p99: 0, max: 0 },
+			turns: 1,
+			unpaired: 1,
+		});
+		expect(
+			slowSteps(pairing, 1),
+			"the costliest, with its own times",
+		).toEqual([
+			{
+				kind: "round",
+				from: minute + 1_000,
+				to: minute + 3_000,
+				tag: "c0-t0",
+				at: 0,
+				hostedMs: 2_000,
+				plainMs: 1_000,
+				costMs: 1_000,
+			},
+		]);
+		expect(
+			turnRecords(turnTimes(hosted), [], new Map(), pairing.steps).map(
+				(one) => one.stepCostsMs,
+			),
+			"each turn's step costs, to read again",
+		).toEqual([[1_000, 0, 0], undefined]);
+	});
+});
+
 describe("the bar", () => {
 	const within = { count: 5, p50: 20, p99: 150 };
 	const screen = {
@@ -219,43 +388,93 @@ describe("the bar", () => {
 		keyToDrawn: within,
 		writtenToDrawn: within,
 		afterWake: { keyToAccepted: within, keyToDrawn: within },
+		burst: { keyToAccepted: within, keyToDrawn: within, unshown: 0 },
 		undrawn: 0,
 		unshown: 0,
 	};
+	const step = { count: 500, p50: 0, p99: 250, max: 1_000 };
+	const steps = { rounds: step, tools: step, turns: 100, unpaired: 0 };
 
-	it("holds a turn's cost to a second and a key's to 200 ms, at the p99", () => {
-		expect(
-			barOf({ count: 5, p50: 0, p99: 1_000 }, screen),
-			"all three within",
-		).toEqual({ paired: true, keyToAccepted: true, keyToDrawn: true });
+	it("holds a step's cost to 250 ms at the p99 and a second at most, and a key's to 200 ms", () => {
+		expect(barOf(steps, screen), "all four within").toEqual({
+			rounds: true,
+			tools: true,
+			keyToAccepted: true,
+			keyToDrawn: true,
+		});
 		expect(
 			barOf(
-				{ count: 5, p50: 0, p99: 1_001 },
+				{
+					...steps,
+					rounds: { ...step, p99: 251 },
+					tools: { ...step, max: 1_001 },
+				},
 				{ ...screen, keyToDrawn: { count: 5, p50: 20, p99: 201 } },
 			),
-			"a turn and a drawing each over",
-		).toEqual({ paired: false, keyToAccepted: true, keyToDrawn: false });
+			"a round's p99, one tool and a drawing each over",
+		).toEqual({
+			rounds: false,
+			tools: false,
+			keyToAccepted: true,
+			keyToDrawn: false,
+		});
+	});
+
+	it("fails one stall a whole turn's cost would hide", () => {
+		// A 1.5 s stall in one round, the rest of its turn's rounds even.
+		const stalled = { count: 500, p50: 0, p99: 30, max: 1_500 };
+		expect(barOf({ ...steps, rounds: stalled }, screen).rounds).toBe(false);
+	});
+
+	it("fails the steps when more than 1% of turns went unpaired", () => {
+		expect(
+			barOf({ ...steps, turns: 99, unpaired: 1 }, screen),
+			"1 of 100, 1%",
+		).toMatchObject({ rounds: true, tools: true });
+		expect(
+			barOf({ ...steps, turns: 98, unpaired: 2 }, screen),
+			"2 of 100, over 1%",
+		).toMatchObject({ rounds: false, tools: false });
 	});
 
 	it("fails the drawing when more than 1% of its keys were never seen drawn", () => {
 		const keys = { count: 200, p50: 20, p99: 150 };
-		const paired = { count: 5, p50: 0, p99: 0 };
 		expect(
-			barOf(paired, { ...screen, keyToAccepted: keys, unshown: 2 }).keyToDrawn,
+			barOf(steps, { ...screen, keyToAccepted: keys, unshown: 2 }).keyToDrawn,
 			"2 of 200 unseen, 1%",
 		).toBe(true);
 		expect(
-			barOf(paired, { ...screen, keyToAccepted: keys, unshown: 3 }).keyToDrawn,
+			barOf(steps, { ...screen, keyToAccepted: keys, unshown: 3 }).keyToDrawn,
 			"3 of 200 unseen, over 1%",
 		).toBe(false);
 	});
 
+	it("leaves a burst's keys to be judged apart", () => {
+		const slow = { count: 12, p50: 250, p99: 300 };
+		expect(
+			barOf(steps, {
+				...screen,
+				burst: { keyToAccepted: slow, keyToDrawn: slow, unshown: 0 },
+			}),
+			"a slow burst, steady keys within",
+		).toMatchObject({ keyToAccepted: true, keyToDrawn: true });
+	});
+
 	it("fails what nothing measured", () => {
 		const none = spreadOf([]);
+		const nothing = { ...none, max: Number.NaN };
 		expect(
-			barOf(none, { ...screen, keyToAccepted: none }),
-			"no turn paired and no key timed",
-		).toEqual({ paired: false, keyToAccepted: false, keyToDrawn: true });
+			barOf(
+				{ rounds: nothing, tools: nothing, turns: 0, unpaired: 0 },
+				{ ...screen, keyToAccepted: none },
+			),
+			"no step paired and no key timed",
+		).toEqual({
+			rounds: false,
+			tools: false,
+			keyToAccepted: false,
+			keyToDrawn: true,
+		});
 	});
 });
 

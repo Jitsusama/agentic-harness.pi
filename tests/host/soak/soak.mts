@@ -4,6 +4,9 @@
  * how). Each conversation's turns are typed through viewers that attach
  * for a visit of a few turns and leave, a second one joining every third
  * visit, and include reads, bash, background bash jobs and long answers.
+ * Each conversation's first key waits a seeded draw within one median
+ * turn at the pace, on either side, so they start as a person comes to
+ * them rather than in the same instant.
  * At each checkpoint every conversation stops: the host is weighed awake,
  * the park switch names them all, the host is weighed once they have
  * parked, and each is woken again, by a window, by the mesh or by the
@@ -60,7 +63,13 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
-import { LONGEST_MS, MOST_ROUNDS, paceOf } from "./pace.ts";
+import {
+	LONGEST_MS,
+	MOST_ROUNDS,
+	medianTurnMs,
+	paceOf,
+	staggerOf,
+} from "./pace.ts";
 import {
 	longestLived,
 	type Pinned,
@@ -73,6 +82,7 @@ import {
 	growthOf,
 	latencies,
 	pairedCost,
+	pairSteps,
 	parityOf,
 	type ScreenSplit,
 	type SlowKey,
@@ -80,7 +90,10 @@ import {
 	screenSplit,
 	showsTag,
 	slowKeys,
+	slowSteps,
 	spreadOf,
+	stepCostOf,
+	stepsOf,
 	type Typed,
 	turnRecords,
 	turnTimes,
@@ -105,6 +118,8 @@ const TURN_MS = 120_000;
 const SLOW_KEY_MS = 1000;
 /** How many of the slowest keys the report names. */
 const MOST_SLOW_KEYS = 20;
+/** How many of the costliest rounds and tools the report names. */
+const MOST_SLOW_STEPS = 10;
 /** park-workflow's two minutes for a named session, its minute between looks, and room for load. */
 const PARK_MS = 4 * 60_000;
 /** How often a parked host is weighed again while it still holds a session. */
@@ -233,6 +248,9 @@ const turnMs =
 	TURN_MS +
 	(pace.rounds ? MOST_ROUNDS : 2) *
 		((pace.answer ? LONGEST_MS : 0) + (pace.tool ? LONGEST_MS : 0));
+// Each conversation's first key waits a draw within one median turn, on
+// either side, so they start as a person comes to them, not at once.
+const staggerMs = medianTurnMs(pace);
 const provider = await soakProvider(pace);
 const agent = agentOf(provider);
 const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
@@ -248,7 +266,12 @@ const hosted = await runHosted(hostSeal);
 const hostedLatency = latencyOf(hosted.logs);
 const hostedProfiles = values.profile ? profilesIn(profiles.hosted) : [];
 const hostedTime = values.profile ? timeSpent(hostedProfiles) : undefined;
-const slow = slowSpent(hostedLatency.slowKeys, hostedProfiles, hosted.pinned);
+const slow = spentIn(
+	hostedLatency.slowKeys,
+	(key) => ({ from: key.keyAt, to: key.promptAt }),
+	hostedProfiles,
+	hosted.pinned,
+);
 say(`hosted latency ${JSON.stringify(hostedLatency)}`);
 if (hostedTime) say(`hosted time spent ${JSON.stringify(hostedTime)}`);
 say(`slow keys ${JSON.stringify(slow)}`);
@@ -261,10 +284,16 @@ const parkedWeights = hosted.checkpoints.flatMap((one) =>
 	one.parked ? [one.parked] : [],
 );
 const plainLatencies = plain.logs.flatMap(latencies);
+const pairing = pairSteps(
+	hosted.logs.flatMap(stepsOf),
+	plain.logs.flatMap(stepsOf),
+);
+const steps = stepCostOf(pairing);
 const turnsTimed = turnRecords(
 	hosted.logs.flatMap(turnTimes),
 	plainLatencies,
 	typedAt,
+	pairing.steps,
 );
 const paired = pairedCost(turnsTimed);
 const report = {
@@ -273,7 +302,14 @@ const report = {
 	turns: sum(counts),
 	opened: hosted.opened,
 	checkpoints: hosted.checkpoints,
+	staggerMs,
 	slowKeys: slow,
+	slowSteps: spentIn(
+		slowSteps(pairing, MOST_SLOW_STEPS),
+		(step) => step,
+		hostedProfiles,
+		hosted.pinned,
+	),
 	heap: {
 		parked: growthOf(parkedWeights.map((one) => one.heapKb)),
 		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
@@ -289,8 +325,9 @@ const report = {
 		hosted: hostedLatency.hosted,
 		plain: spreadOf(plainLatencies.map((one) => one.ms)),
 		paired,
+		steps,
 		screen: hostedLatency.screen,
-		bar: barOf(paired, hostedLatency.screen),
+		bar: barOf(steps, hostedLatency.screen),
 	},
 	turnsTimed,
 	...(hostedTime
@@ -333,21 +370,22 @@ function latencyOf(logs: readonly Record<string, unknown>[][]): {
 }
 
 /**
- * Each slow key with where the host's time went while it waited, from
- * the profile of the host's own process, which lived longest; without
- * --profile, the keys alone.
+ * Each of `items`, a slow key or a costly step, with where the host's
+ * time went within its stretch, from the profile of the host's own
+ * process, which lived longest; without --profile, the items alone.
  */
-function slowSpent(
-	keys: readonly SlowKey[],
+function spentIn<T extends object>(
+	items: readonly T[],
+	stretchOf: (item: T) => { readonly from: number; readonly to: number },
 	hostProfiles: readonly unknown[],
 	pinned: Pinned,
 ): readonly object[] {
 	const host = longestLived(hostProfiles);
-	if (host === undefined) return keys;
-	return keys.map((key) => ({
-		...key,
-		spent: timeSpentWithin(host, pinned, { from: key.keyAt, to: key.promptAt }),
-	}));
+	if (host === undefined) return items;
+	return items.map((item) => {
+		const { from, to } = stretchOf(item);
+		return { ...item, spent: timeSpentWithin(host, pinned, { from, to }) };
+	});
 }
 
 /** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
@@ -592,6 +630,7 @@ async function drive(
 	barrier: (done: number) => Promise<void>,
 	byKey: Set<string>,
 ): Promise<void> {
+	await waited(staggerOf(one.index, staggerMs));
 	const marks = checkpointsOf(one.turns.length, checkpoints);
 	let done = 0;
 	let stopped = 0;
@@ -820,6 +859,7 @@ async function runPlain(sealed: Seal): Promise<{
 				env,
 				log,
 			);
+			await waited(staggerOf(index, staggerMs));
 			for (const turn of turnsOf(index, count)) {
 				// A job's report starts a turn of its own once the job ends, so
 				// the next prompt waits for that turn too, as the hosted side
@@ -973,6 +1013,11 @@ function readOr(file: string): string {
 /** The lines of what a process wrote that say something went wrong. */
 function errorsIn(written: string): string[] {
 	return written.split("\n").filter((line) => /error|fail|warn/i.test(line));
+}
+
+/** A promise settled once `ms` have passed. */
+function waited(ms: number): Promise<void> {
+	return new Promise((done) => setTimeout(done, ms));
 }
 
 function sum(values: readonly number[]): number {

@@ -2,8 +2,9 @@
  * What a soak's records say: each turn's latency, read from a
  * conversation's log as the time from the prompt's entry to its final
  * answer's, which pi writes as each message ends in the engine, so it
- * is the engine's own turn on either side; what each turn cost hosted
- * against plain pi's same seeded turn; what a screen adds, from a key
+ * is the engine's own turn on either side; what each turn, and each
+ * round and tool within it, cost hosted against plain pi's same seeded
+ * one; what a screen adds, from a key
  * typed to the prompt's entry and to its first drawing, and from the
  * answer's entry to its drawing at a viewer; the 50th and 99th
  * percentiles of those, and whether they meet the bar; whether
@@ -64,6 +65,15 @@ export interface ScreenSplit {
 		readonly keyToAccepted: Spread;
 		readonly keyToDrawn: Spread;
 	};
+	/**
+	 * Keys outside a wake typed within a second of a key into another
+	 * conversation, judged apart as a burst and left out of the steady two.
+	 */
+	readonly burst: {
+		readonly keyToAccepted: Spread;
+		readonly keyToDrawn: Spread;
+		readonly unshown: number;
+	};
 	/** Turns typed whose answer no viewer was seen to draw. */
 	readonly undrawn: number;
 	/**
@@ -79,11 +89,71 @@ export interface ScreenSplit {
  */
 export interface TurnRecord {
 	readonly tag: string;
+	/** When its prompt and answer were written, in ms since the epoch. */
+	readonly promptAt: number;
+	readonly answerAt: number;
 	readonly hostedMs: number;
 	readonly plainMs?: number;
+	/** When its key was typed, in ms since the epoch. */
+	readonly keyAt?: number;
 	readonly keyToAcceptedMs?: number;
 	readonly keyToDrawnMs?: number;
 	readonly woke?: string;
+	/** Typed within a second of a key into another conversation. */
+	readonly burst?: true;
+	/** What each of its steps cost over plain pi's, in order, when they pair. */
+	readonly stepCostsMs?: readonly number[];
+}
+
+/**
+ * One step of a turn: a round, from its prompt or a tool's result to
+ * the next answer, or a tool, from an answer to a result of its call,
+ * each from one entry's time to the next's, in ms since the epoch.
+ */
+export interface Step {
+	readonly kind: "round" | "tool";
+	readonly from: number;
+	readonly to: number;
+}
+
+/** A soak turn's steps, in order. */
+export interface TurnSteps {
+	readonly tag: string;
+	readonly steps: readonly Step[];
+}
+
+/** A hosted step with plain pi's same step beside it, and what it cost. */
+export interface PairedStep extends Step {
+	readonly tag: string;
+	/** Its place in its turn's steps. */
+	readonly at: number;
+	readonly hostedMs: number;
+	readonly plainMs: number;
+	readonly costMs: number;
+}
+
+/** The hosted steps paired with plain pi's, and how many turns paired. */
+export interface StepPairing {
+	readonly steps: readonly PairedStep[];
+	readonly turns: number;
+	/**
+	 * Hosted turns whose steps didn't pair: plain pi never answered it, or
+	 * the two sides' steps differ in number or kind.
+	 */
+	readonly unpaired: number;
+}
+
+/** A spread and its largest value. */
+export interface Extent extends Spread {
+	readonly max: number;
+}
+
+/** What the rounds and the tools cost hosted over plain pi, apart. */
+export interface StepCost {
+	readonly rounds: Extent;
+	readonly tools: Extent;
+	readonly turns: number;
+	readonly unpaired: number;
 }
 
 /** What the turns cost hosted over plain pi, and how many plain pi never answered. */
@@ -91,9 +161,10 @@ export interface PairedCost extends Spread {
 	readonly unpaired: number;
 }
 
-/** Whether each of the bar's three figures holds. */
+/** Whether each of the bar's figures holds. */
 export interface Bar {
-	readonly paired: boolean;
+	readonly rounds: boolean;
+	readonly tools: boolean;
 	readonly keyToAccepted: boolean;
 	readonly keyToDrawn: boolean;
 }
@@ -136,11 +207,27 @@ export interface Parity {
 }
 
 /**
- * The most a turn may cost hosted over plain pi's same turn, at the
- * p99: both play the same seeded answers and tools, so what is left is
- * the host's own.
+ * The most a round or a tool may cost hosted over plain pi's same one,
+ * at the p99: both play the same seeded answers and tools, so what is
+ * left is the host's own, and a stall shows in the step it held up
+ * rather than spread across a long turn.
  */
-const BAR_PAIRED_MS = 1000;
+const BAR_STEP_P99_MS = 250;
+
+/** The most any one round or tool may cost over plain pi's. */
+const BAR_STEP_MOST_MS = 1000;
+
+/**
+ * Keys into different conversations closer than this are a burst:
+ * typed together, whoever typed them, they are judged apart.
+ */
+const BAR_BURST_MS = 1000;
+
+/**
+ * The share of hosted turns whose steps may go unpaired before the
+ * step figures stop counting: each one left out could hide a stall.
+ */
+const BAR_UNPAIRED_SHARE = 0.01;
 
 /** The most a key may take, to its log or to its first drawing, at the p99. */
 const BAR_KEY_MS = 200;
@@ -204,16 +291,22 @@ export function screenSplit(
 ): ScreenSplit {
 	const steady = keyTimes();
 	const waking = keyTimes();
+	const bursting = keyTimes();
+	const together = burstOf(typed);
 	const drawn: number[] = [];
 	let undrawn = 0;
-	let unshown = 0;
 	for (const turn of turns) {
 		const keys = typed.get(turn.tag);
 		if (keys === undefined) continue;
-		const into = keys.woke === undefined ? steady : waking;
+		const into =
+			keys.woke !== undefined
+				? waking
+				: together.has(turn.tag)
+					? bursting
+					: steady;
 		into.accepted.push(turn.promptAt - keys.keyAt);
 		if (keys.shownAt !== undefined) into.shown.push(keys.shownAt - keys.keyAt);
-		else if (keys.woke === undefined) unshown += 1;
+		else into.unshown += 1;
 		if (keys.drawnAt === undefined) undrawn += 1;
 		else drawn.push(keys.drawnAt - turn.answerAt);
 	}
@@ -225,9 +318,40 @@ export function screenSplit(
 			keyToAccepted: spreadOf(waking.accepted),
 			keyToDrawn: spreadOf(waking.shown),
 		},
+		burst: {
+			keyToAccepted: spreadOf(bursting.accepted),
+			keyToDrawn: spreadOf(bursting.shown),
+			unshown: bursting.unshown,
+		},
 		undrawn,
-		unshown,
+		unshown: steady.unshown,
 	};
+}
+
+/**
+ * The tags of the keys typed within a second of a key into another
+ * conversation, whichever came first: a burst, as when a person's
+ * windows all wake at once or a script types into several.
+ */
+export function burstOf(typed: ReadonlyMap<string, Typed>): Set<string> {
+	const keys = [...typed]
+		.map(([tag, { keyAt }]) => ({ tag, keyAt, into: conversationOf(tag) }))
+		.sort((a, b) => a.keyAt - b.keyAt);
+	const found = new Set<string>();
+	for (const [at, key] of keys.entries())
+		for (const next of keys.slice(at + 1)) {
+			if (next.keyAt - key.keyAt > BAR_BURST_MS) break;
+			if (next.into === key.into) continue;
+			found.add(key.tag);
+			found.add(next.tag);
+		}
+	return found;
+}
+
+/** The conversation a turn's tag names: `c3` of `c3-t41`. */
+function conversationOf(tag: string): string {
+	const turn = tag.lastIndexOf("-t");
+	return turn < 0 ? tag : tag.slice(0, turn);
 }
 
 /**
@@ -239,9 +363,9 @@ export function showsTag(writes: readonly string[], tag: string): boolean {
 	return stripVTControlCharacters(writes.join("")).includes(tag);
 }
 
-/** Keys' times to their logs and to their first drawings, gathered. */
-function keyTimes(): { accepted: number[]; shown: number[] } {
-	return { accepted: [], shown: [] };
+/** Keys' times to their logs and to their first drawings, gathered, and those never seen drawn. */
+function keyTimes(): { accepted: number[]; shown: number[]; unshown: number } {
+	return { accepted: [], shown: [], unshown: 0 };
 }
 
 /**
@@ -253,22 +377,128 @@ export function turnRecords(
 	hosted: readonly TurnTime[],
 	plain: readonly Latency[],
 	typed: ReadonlyMap<string, Typed>,
+	steps: readonly PairedStep[] = [],
 ): TurnRecord[] {
 	const plainMs = new Map(plain.map(({ tag, ms }) => [tag, ms]));
+	const together = burstOf(typed);
+	const costs = new Map<string, number[]>();
+	for (const { tag, costMs } of steps)
+		costs.set(tag, [...(costs.get(tag) ?? []), costMs]);
 	return hosted.map(({ tag, promptAt, answerAt }) => {
 		const keys = typed.get(tag);
 		const paired = plainMs.get(tag);
+		const stepCostsMs = costs.get(tag);
 		return {
 			tag,
+			promptAt,
+			answerAt,
 			hostedMs: answerAt - promptAt,
 			...(paired === undefined ? {} : { plainMs: paired }),
-			...(keys === undefined ? {} : { keyToAcceptedMs: promptAt - keys.keyAt }),
+			...(keys === undefined
+				? {}
+				: { keyAt: keys.keyAt, keyToAcceptedMs: promptAt - keys.keyAt }),
 			...(keys?.shownAt === undefined
 				? {}
 				: { keyToDrawnMs: keys.shownAt - keys.keyAt }),
 			...(keys?.woke === undefined ? {} : { woke: keys.woke }),
+			...(together.has(tag) ? { burst: true } : {}),
+			...(stepCostsMs === undefined ? {} : { stepCostsMs }),
 		};
 	});
+}
+
+/**
+ * Each soak turn's steps in a log, in order: from its prompt's entry
+ * to its answer's, each message entry ending a step, an answer a round
+ * and a tool's result a tool.
+ */
+export function stepsOf(
+	entries: readonly Record<string, unknown>[],
+): TurnSteps[] {
+	return soakTurns(entries).map(({ tag, prompt, answer }) => {
+		const steps: Step[] = [];
+		let from = timeOf(entries[prompt]);
+		for (const later of entries.slice(prompt + 1, answer + 1)) {
+			const role = messageOf(later)?.role;
+			if (role === undefined) continue;
+			const to = timeOf(later);
+			if (role === "assistant") steps.push({ kind: "round", from, to });
+			else if (role === "toolResult") steps.push({ kind: "tool", from, to });
+			from = to;
+		}
+		return { tag, steps };
+	});
+}
+
+/**
+ * Each hosted step paired with plain pi's at the same place in the
+ * same seeded turn. A turn whose two sides took different steps, or
+ * that plain pi never answered, pairs none of its steps and is counted.
+ */
+export function pairSteps(
+	hosted: readonly TurnSteps[],
+	plain: readonly TurnSteps[],
+): StepPairing {
+	const plainSteps = new Map(plain.map(({ tag, steps }) => [tag, steps]));
+	const paired: PairedStep[] = [];
+	let turns = 0;
+	for (const { tag, steps } of hosted) {
+		const theirs = plainSteps.get(tag);
+		const alike =
+			theirs !== undefined &&
+			theirs.length === steps.length &&
+			steps.every((step, at) => theirs[at]?.kind === step.kind);
+		if (!alike) continue;
+		turns += 1;
+		for (const [at, step] of steps.entries()) {
+			const plainMs = (theirs[at]?.to ?? 0) - (theirs[at]?.from ?? 0);
+			const hostedMs = step.to - step.from;
+			paired.push({
+				...step,
+				tag,
+				at,
+				hostedMs,
+				plainMs,
+				costMs: hostedMs - plainMs,
+			});
+		}
+	}
+	return { steps: paired, turns, unpaired: hosted.length - turns };
+}
+
+/** What the paired rounds and tools cost hosted, each apart. */
+export function stepCostOf(pairing: StepPairing): StepCost {
+	const costs = (kind: Step["kind"]) =>
+		pairing.steps.filter((one) => one.kind === kind).map((one) => one.costMs);
+	return {
+		rounds: extentOf(costs("round")),
+		tools: extentOf(costs("tool")),
+		turns: pairing.turns,
+		unpaired: pairing.unpaired,
+	};
+}
+
+/** The paired steps that cost most, at most `most` of them, the costliest first. */
+export function slowSteps(
+	pairing: StepPairing,
+	most: number,
+): PairedStep[] {
+	return [...pairing.steps]
+		.sort((a, b) => b.costMs - a.costMs)
+		.slice(0, most);
+}
+
+/** A spread of `values` and the largest of them, which is not a number when there are none. */
+function extentOf(values: readonly number[]): Extent {
+	return {
+		...spreadOf(values),
+		max: values.length === 0 ? Number.NaN : Math.max(...values),
+	};
+}
+
+/** An entry's time, in ms since the epoch. */
+function timeOf(entry: Readonly<Record<string, unknown>> | undefined): number {
+	return Date.parse(String(entry?.timestamp));
 }
 
 /**
@@ -287,15 +517,23 @@ export function pairedCost(records: readonly TurnRecord[]): PairedCost {
 }
 
 /**
- * Whether the bar holds: a turn's cost over plain pi's at most 1 s, and
- * a key outside a wake at most 200 ms to its log and to its first
- * drawing, each at the p99. A figure nothing measured fails, and so does
- * the drawing's when more than 1% of its keys were never seen drawn.
+ * Whether the bar holds: each round's and each tool's cost over plain
+ * pi's at most 250 ms at the p99 and 1 s at most, and a key outside a
+ * wake or a burst at most 200 ms to its log and to its first drawing at
+ * the p99. A figure nothing measured fails; so do the steps' when more
+ * than 1% of turns went unpaired, and the drawing's when more than 1%
+ * of its keys were never seen drawn.
  */
-export function barOf(paired: Spread, screen: ScreenSplit): Bar {
+export function barOf(steps: StepCost, screen: ScreenSplit): Bar {
 	const unshownAllowed = screen.keyToAccepted.count * BAR_UNSHOWN_SHARE;
+	const unpairedAllowed = (steps.turns + steps.unpaired) * BAR_UNPAIRED_SHARE;
+	const holds = (extent: Extent) =>
+		extent.p99 <= BAR_STEP_P99_MS &&
+		extent.max <= BAR_STEP_MOST_MS &&
+		steps.unpaired <= unpairedAllowed;
 	return {
-		paired: paired.p99 <= BAR_PAIRED_MS,
+		rounds: holds(steps.rounds),
+		tools: holds(steps.tools),
 		keyToAccepted: screen.keyToAccepted.p99 <= BAR_KEY_MS,
 		keyToDrawn:
 			screen.keyToDrawn.p99 <= BAR_KEY_MS && screen.unshown <= unshownAllowed,
@@ -328,22 +566,30 @@ export function slowKeys(
 export function turnTimes(
 	entries: readonly Record<string, unknown>[],
 ): TurnTime[] {
-	const found: TurnTime[] = [];
-	for (const [at, entry] of entries.entries()) {
+	return soakTurns(entries).map(({ tag, prompt, answer }) => ({
+		tag,
+		promptAt: timeOf(entries[prompt]),
+		answerAt: timeOf(entries[answer]),
+	}));
+}
+
+/** Where each answered soak turn's prompt and answer sit in a log's entries. */
+function soakTurns(
+	entries: readonly Record<string, unknown>[],
+): { readonly tag: string; readonly prompt: number; readonly answer: number }[] {
+	const found: { tag: string; prompt: number; answer: number }[] = [];
+	for (const [prompt, entry] of entries.entries()) {
 		const message = messageOf(entry);
 		const turn = message?.role === "user" ? asked(message.text) : undefined;
 		if (turn === undefined) continue;
 		const ack = acknowledged(turn.tag);
-		const answer = entries.slice(at + 1).find((later) => {
+		const answer = entries.findIndex((later, at) => {
+			if (at <= prompt) return false;
 			const said = messageOf(later);
 			return said?.role === "assistant" && said.text.includes(ack);
 		});
-		if (answer === undefined) continue;
-		found.push({
-			tag: turn.tag,
-			promptAt: Date.parse(String(entry.timestamp)),
-			answerAt: Date.parse(String(answer.timestamp)),
-		});
+		if (answer < 0) continue;
+		found.push({ tag: turn.tag, prompt, answer });
 	}
 	return found;
 }
