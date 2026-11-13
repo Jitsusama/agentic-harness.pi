@@ -286,6 +286,7 @@ import {
 	createSteering,
 	LOOK_GONE,
 	type Steering,
+	steerDelivery,
 	steerText,
 } from "./steer.ts";
 import {
@@ -1037,10 +1038,16 @@ export function meshWorkflow(
 
 		/**
 		 * The person's words from outside the window, as their own message:
-		 * a turn when idle, or into the run under way, read after its tool.
+		 * a turn when idle, otherwise once the run under way ends, or into it
+		 * after its tool when the steer says now (steerDelivery).
 		 */
-		const steered = (text: string, idle: boolean) => {
-			pi.sendUserMessage(text, idle ? undefined : { deliverAs: "steer" });
+		const steered = (
+			text: string,
+			idle: boolean,
+			steer: Pick<Steer, "now"> = {},
+		) => {
+			const deliverAs = steerDelivery(steer, idle);
+			pi.sendUserMessage(text, deliverAs ? { deliverAs } : undefined);
 		};
 
 		/**
@@ -1107,9 +1114,12 @@ export function meshWorkflow(
 					}
 					pausing.talked();
 					const idle = ctx?.isIdle?.() ?? true;
-					const said = steerText(one, { busy: !idle });
+					// Words that wait for the run to end are read as it ends, idle.
+					const said = steerText(one, {
+						busy: steerDelivery(one, idle) === "steer",
+					});
 					talks.opened(one, inbox, said);
-					steered(said, idle);
+					steered(said, idle, one);
 				},
 				setAside: (inbox, names) => {
 					if (!ctx?.hasUI) return;

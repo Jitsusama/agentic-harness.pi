@@ -97,6 +97,20 @@ export function createSteering(host: SteeringHost): Steering {
 	};
 }
 
+/**
+ * How a steer's words reach the session: a turn of their own when it is
+ * idle (nothing), read into the run under way after its current tool
+ * when the steer says `now`, and otherwise once that run ends, so a
+ * task isn't broken into unless the person says to.
+ */
+export function steerDelivery(
+	steer: Pick<Steer, "now">,
+	idle: boolean,
+): "steer" | "followUp" | undefined {
+	if (idle) return undefined;
+	return steer.now ? "steer" : "followUp";
+}
+
 /** What the session is doing as a steer reaches it. */
 export interface SteeredInto {
 	/** Whether a run is under way, which the steer is read into. */

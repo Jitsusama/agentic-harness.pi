@@ -18,7 +18,11 @@
  * `pi`), and a `fill` puts its `text` in the prompt without sending it.
  * An `answer` answers the open ask the session's want `want` names, with
  * one of its choices as `value` or the person's words as `other`, or the
- * look `look` names with one of its choices as `value`. A
+ * look `look` names with one of its choices as `value`. Words reach a
+ * session at work once its run ends, unless the steer holds `"now": true`,
+ * which reads them into the run under way, after its current tool: the
+ * person says when to break into a task (Joel, 12 November: a message
+ * to a session mid-task waits for its turn to end unless he says now). A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. The
  * session going by that address takes it by renaming it again, so two
@@ -133,6 +137,11 @@ export interface Steer {
 	readonly look?: string;
 	/** What an `answer` gives the ask: a choice's value, or words. */
 	readonly given?: GivenAnswer;
+	/**
+	 * Whether its words go into the run under way, rather than waiting for
+	 * it to end; only for words, never for an act.
+	 */
+	readonly now?: true;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
 }
@@ -224,6 +233,8 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
 	const re = "re" in parsed && isTalkId(parsed.re) ? parsed.re : undefined;
+	const now =
+		text !== "" && "now" in parsed && parsed.now === true ? true : undefined;
 	const by =
 		from === FROM_MACHINE &&
 		"by" in parsed &&
@@ -240,6 +251,7 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		...(by ? { by } : {}),
 		...(id ? { id } : {}),
 		...(re ? { re } : {}),
+		...(now ? { now } : {}),
 		...(act === "answer" && want ? { want } : {}),
 		...(act === "answer" && look ? { look } : {}),
 		...(act === "answer" && given ? { given } : {}),
