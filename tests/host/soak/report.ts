@@ -479,13 +479,8 @@ export function stepCostOf(pairing: StepPairing): StepCost {
 }
 
 /** The paired steps that cost most, at most `most` of them, the costliest first. */
-export function slowSteps(
-	pairing: StepPairing,
-	most: number,
-): PairedStep[] {
-	return [...pairing.steps]
-		.sort((a, b) => b.costMs - a.costMs)
-		.slice(0, most);
+export function slowSteps(pairing: StepPairing, most: number): PairedStep[] {
+	return [...pairing.steps].sort((a, b) => b.costMs - a.costMs).slice(0, most);
 }
 
 /** A spread of `values` and the largest of them, which is not a number when there are none. */
@@ -506,7 +501,9 @@ function timeOf(entry: Readonly<Record<string, unknown>> | undefined): number {
  * seeded turn, below 0 where plain pi was slower. A turn plain pi never
  * answered is counted apart.
  */
-export function pairedCost(records: readonly TurnRecord[]): PairedCost {
+export function pairedCost(
+	records: readonly Pick<TurnRecord, "hostedMs" | "plainMs">[],
+): PairedCost {
 	const costs = records.flatMap(({ hostedMs, plainMs }) =>
 		plainMs === undefined ? [] : [hostedMs - plainMs],
 	);
@@ -573,11 +570,16 @@ export function turnTimes(
 	}));
 }
 
-/** Where each answered soak turn's prompt and answer sit in a log's entries. */
-function soakTurns(
-	entries: readonly Record<string, unknown>[],
-): { readonly tag: string; readonly prompt: number; readonly answer: number }[] {
-	const found: { tag: string; prompt: number; answer: number }[] = [];
+/** Where an answered soak turn's prompt and answer sit in a log's entries. */
+interface SoakTurn {
+	readonly tag: string;
+	readonly prompt: number;
+	readonly answer: number;
+}
+
+/** Each answered soak turn in a log's entries, in order. */
+function soakTurns(entries: readonly Record<string, unknown>[]): SoakTurn[] {
+	const found: SoakTurn[] = [];
 	for (const [prompt, entry] of entries.entries()) {
 		const message = messageOf(entry);
 		const turn = message?.role === "user" ? asked(message.text) : undefined;

@@ -78,9 +78,7 @@ describe.skipIf(!packageDir)(
 						? split.keyToDrawn.count
 						: 0;
 				expect(
-					isRecord(screen)
-						? drawnCount(screen) + drawnCount(screen.burst)
-						: 0,
+					isRecord(screen) ? drawnCount(screen) + drawnCount(screen.burst) : 0,
 					"every key drawn, steady or in a burst, as unpaced both open at once",
 				).toBe(4);
 				expect(report, "no pace, no stagger").toMatchObject({

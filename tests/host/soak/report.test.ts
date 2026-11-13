@@ -322,7 +322,7 @@ describe("a turn's steps", () => {
 	];
 
 	it("runs each round to its answer and each tool to its result, past other entries", () => {
-		expect(stepsOf(hosted)[0], "two rounds and a tool").toEqual({
+		expect(stepsOf(hosted).at(0), "two rounds and a tool").toEqual({
 			tag: "c0-t0",
 			steps: [
 				{ kind: "round", from: minute + 1_000, to: minute + 3_000 },
@@ -357,10 +357,7 @@ describe("a turn's steps", () => {
 			turns: 1,
 			unpaired: 1,
 		});
-		expect(
-			slowSteps(pairing, 1),
-			"the costliest, with its own times",
-		).toEqual([
+		expect(slowSteps(pairing, 1), "the costliest, with its own times").toEqual([
 			{
 				kind: "round",
 				from: minute + 1_000,
