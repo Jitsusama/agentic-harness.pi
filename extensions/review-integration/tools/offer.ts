@@ -46,7 +46,7 @@ import {
 	type ChangeSize,
 	usesDepth,
 } from "../../../lib/core/sections/shape.ts";
-import { sessionCwd } from "../../../lib/core/session/index.ts";
+import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
 import {
 	detectTitleViolations,
 	toTitleCase,
@@ -247,23 +247,17 @@ function sectionsGiven(
 
 /**
  * A proposal resubmitted after a refusal, with the title and sections
- * it left out taken from the refused draft of the same repo and branch.
+ * it left out taken from the draft under `key` (see {@link draftOf}).
  * A call giving a body, or every section, is its own whole draft.
  */
 function resubmitted<
 	T extends SectionFields & {
 		title?: string;
 		body?: string;
-		repo?: string;
-		head?: string;
 	},
->(params: T): T {
+>(params: T, key: string): T {
 	if (params.body !== undefined || sectionsGiven(params)) return params;
-	const filled = filledFromRefused(
-		draftKey(params.repo, params.head),
-		params.title,
-		params,
-	);
+	const filled = filledFromRefused(key, params.title, params);
 	return filled
 		? {
 				...params,
@@ -271,6 +265,21 @@ function resubmitted<
 				...(filled.title ? { title: filled.title } : {}),
 			}
 		: params;
+}
+
+/**
+ * The key of a proposal's refused draft: this conversation's, of the
+ * checkout the call works in and the branch it named.
+ */
+function draftOf(
+	ctx: ExtensionToolContext,
+	params: { repo?: string; head?: string },
+): string {
+	return draftKey(
+		sessionKeyOf(ctx),
+		params.repo ?? sessionCwd(ctx),
+		params.head,
+	);
 }
 
 function intentFor(params: OfferParams): AuthoringIntent["kind"] {
@@ -303,7 +312,9 @@ export async function runOffer(
 		// checked once the change is known.
 		let revising: SectionFields | undefined;
 		let deferredBody = false;
-		if (params.action === "propose") params = resubmitted(params);
+		if (params.action === "propose") {
+			params = resubmitted(params, draftOf(ctx, params));
+		}
 		if (params.title !== undefined) {
 			params = { ...params, title: inTitleCase(params.title) };
 		}
@@ -330,15 +341,16 @@ export async function runOffer(
 				size,
 			);
 			if (complaint) {
-				const said = sayRefusal(complaint, params.title, params.body);
+				const said = sayRefusal(
+					sessionKeyOf(ctx),
+					complaint,
+					params.title,
+					params.body,
+				);
 				// A refused proposal's sections are kept, so its resubmission
 				// need send only what changes.
 				if (params.action === "propose" && asSections !== undefined) {
-					keepRefusedDraft(
-						draftKey(params.repo, params.head),
-						params.title,
-						asSections,
-					);
+					keepRefusedDraft(draftOf(ctx, params), params.title, asSections);
 					return refuse(`${said}\n\n${RESUBMIT_ONLY_CHANGES}`);
 				}
 				return refuse(said);
@@ -485,7 +497,9 @@ export async function runOffer(
 								);
 					const complaint = proposalComplaint(undefined, params.body, size);
 					if (complaint) {
-						return refuse(sayRefusal(complaint, undefined, params.body));
+						return refuse(
+							sayRefusal(sessionKeyOf(ctx), complaint, undefined, params.body),
+						);
 					}
 					return edit(ctx, change, authoring, params, caution);
 				}
@@ -508,7 +522,9 @@ export async function runOffer(
 						: undefined,
 				);
 				if (complaint) {
-					return refuse(sayRefusal(complaint, undefined, next.body));
+					return refuse(
+						sayRefusal(sessionKeyOf(ctx), complaint, undefined, next.body),
+					);
 				}
 				return edit(
 					ctx,
@@ -909,7 +925,7 @@ async function proposeStack(
 			: undefined;
 		const complaint = proposalComplaint(undefined, body, size);
 		if (complaint) {
-			const said = sayRefusal(complaint, head, body);
+			const said = sayRefusal(sessionKeyOf(ctx), complaint, head, body);
 			return refuse(`The body for ${head} is not usable.\n\n${said}`);
 		}
 	}
@@ -1454,7 +1470,6 @@ async function sayMerged(
 		...(person ? { person } : {}),
 	});
 }
-
 /** The package config's `review` section, or nothing when it can't be read. */
 async function reviewSection(): Promise<unknown> {
 	const loaded = await loadPackageConfig();

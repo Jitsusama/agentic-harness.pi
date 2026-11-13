@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { forgetRefusals } from "../../extensions/review-integration/tools/resubmit.ts";
+import { cleanupSessionResults } from "../../lib/core/result/location.ts";
 import {
 	type AuthoringCapabilities,
 	type Change,
@@ -22,6 +23,7 @@ import {
 	PR_SECTIONS,
 	readPrFields,
 } from "../../lib/core/sections/index.ts";
+import { resultSession } from "../support/result-session.ts";
 import { stubProvider } from "../support/stub-provider.ts";
 import {
 	activate,
@@ -119,10 +121,11 @@ function recordingProvider(
 async function offer(
 	params: Record<string, unknown>,
 	answers: ExecAnswers = {},
+	ctx: typeof HEADLESS = HEADLESS,
 ) {
 	const stub = activate(answers);
 	const tool = toolNamed(stub, "review_offer");
-	return await tool.execute("1", params, undefined, undefined, HEADLESS);
+	return await tool.execute("1", params, undefined, undefined, ctx);
 }
 
 const proposing = {
@@ -241,6 +244,28 @@ describe("proposing with sections", () => {
 		expect(proposed[0]).toMatchObject({
 			title: "Merge Short Commit Ids the First Time",
 		});
+	});
+
+	it("keeps nothing from another conversation's refused draft of the same branch", async () => {
+		// A host's conversations in one folder share this module, and a
+		// draft keyed by the call's own repo and head, which are usually
+		// left out, was every conversation's.
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+		const long = `${Array.from({ length: 45 }, () => "words").join(" ")}.`;
+		const other = { ...resultSession(), cwd: process.cwd(), hasUI: false };
+
+		try {
+			await offer({ ...proposing, ...SECTIONS, tldr: long });
+			const answer = JSON.stringify(
+				await offer({ ...proposing, tldr: SECTIONS.tldr }, {}, other),
+			);
+
+			expect(answer).toContain("missing problem, solution, validation");
+			expect(proposed).toHaveLength(0);
+		} finally {
+			cleanupSessionResults(other);
+		}
 	});
 
 	it("keeps nothing from another branch's refused draft", async () => {
