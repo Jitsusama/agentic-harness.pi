@@ -218,7 +218,10 @@ describe("persistent viewer terminal", () => {
 
 		joined.detach();
 		terminal.renderScope(draw);
-		expect(draw, "a frame drew after its last viewer left").toHaveBeenCalledOnce();
+		expect(
+			draw,
+			"a frame drew after its last viewer left",
+		).toHaveBeenCalledOnce();
 	});
 
 	it("discards a detached viewer's pending input and accepts a later viewer", () => {
