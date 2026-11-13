@@ -26,7 +26,8 @@ host adds, and records that drift from plain pi's.
   their percentiles, whether the weighings settle, and the differences
   between each pair of logs.
 - `profile.ts`: where each side's time went, from the CPU profiles node
-  writes under `--profile`, by area and by function.
+  writes under `--profile`, by area and by function, in all or within a
+  stretch of wall time.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns,
   once with no parking, once parked and woken in turn, and once woken
   in a burst, in `pnpm test:host`.
@@ -73,6 +74,9 @@ It prints a line a checkpoint and the report as one JSON line after
 `soak report:`. The report holds:
 
 - `pace`: the pace it ran at, empty for none.
+- `opened`: how long opening every conversation took and the host's
+  weighing once all had, so its loop figures cover the opening alone
+  and the first checkpoint's start after it.
 
 - `checkpoints`: the host's RSS, PSS, swapped PSS, heap used, heap
   total, external and array buffers after its garbage is collected,
@@ -100,6 +104,12 @@ It prints a line a checkpoint and the report as one JSON line after
   entry, from the answer's entry to the write that first draws it at the
   viewer (below 0 when drawn as it streams), and from key to drawing. A
   turn whose first key wakes its conversation is left out of `screen`.
+- `slowKeys`: the 20 slowest keys whose prompt reached the log over
+  1 s after it was typed, each with its turn and times, so a p99 says
+  which keys it was. Under `--profile`, `spent` says where the host's
+  time went while each waited: its profile's samples within that
+  stretch, the profile's own clock laid on the wall's by when the host
+  started and stopped.
 - `timeSpent`, under `--profile`: each side's busy and idle time and its
   busiest areas and functions, plain pi's processes summed.
 - `parity`: each conversation's log against plain pi's, entries aligned
