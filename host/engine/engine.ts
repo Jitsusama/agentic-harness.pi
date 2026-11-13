@@ -159,7 +159,7 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
-	const reaped = reapLeftBehind(host.key);
+	const reaped = await reapLeftBehind(host.key);
 	if (reaped.groups.length > 0 || reaped.pids.length > 0)
 		report(
 			new Error(
@@ -502,7 +502,7 @@ export async function createEngine(
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
 		// What an earlier host's tools left running for it ends before this start reports them cut off.
-		reapToolChildren(sessionId);
+		await reapToolChildren(sessionId);
 		const first = request?.op === "open" ? request.first : undefined;
 		noteFirstPrompt(first);
 		const sessionManager =
@@ -693,7 +693,7 @@ export async function createEngine(
 			await record.conversation?.close();
 		} finally {
 			// The signal kills a tool's own group; a descendant that left it ends here.
-			reapToolChildren(sessionId);
+			await reapToolChildren(sessionId);
 			live.delete(sessionId);
 		}
 		const events = watched;

@@ -125,10 +125,14 @@ through landrun:
   dbus's services, nvim's site plugins, the browser's certificates in
   `~/.pki`, and `~/.kube`, `~/.aws`, `~/.gnupg`, `~/.gradle`,
   `~/.docker` and `~/.cargo`, whose settings run a credential command
-  or a build. Their caches (kube's and aws's) are bound back writable,
+  or a build, and `~/.rustup`, `~/.mozilla` and `~/.bundle`, whose
+  toolchains, messaging hosts and plugins run as you. Their caches
+  (kube's, aws's and bundler's) are bound back writable,
   and cargo and gradle get homes of their own in the sandbox's cache,
   since cargo builds the sources it extracted without checking them
-  again. The home folder itself is read-only, with its other hidden
+  again. A deeper read-only folder is made first where its top entry
+  is there, so a command can't make one that wasn't. The home folder
+  itself is read-only, with its other hidden
   entries bound back writable, since a dotfile linked into the store
   could otherwise be deleted and replaced. pi's own file tools are held to the same (see
   the sandbox file interceptor).

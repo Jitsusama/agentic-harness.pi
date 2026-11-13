@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { findQuestEntry } from "../../../lib/core/quest/lifecycle.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -120,6 +121,85 @@ describe("alias-add with a list", () => {
 		);
 		expect(readme.match(/value: shop\/world#1/g)?.length).toBe(1);
 		expect(readme).toMatch(/value: shop\/world#2/);
+	});
+});
+
+describe("alias-add and alias-remove on the quest `id` names", () => {
+	// On 12 November an alias meant for another quest was written to the
+	// loaded one, and reported as added.
+	async function twoQuests() {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const ctx = fakeCtx(tmpRoot);
+		const ids: string[] = [];
+		for (const title of ["Loaded", "Named"]) {
+			const created = await handle(state, fakePi(), ctx, {
+				action: "create",
+				title,
+			});
+			if (!created.ok) throw new Error(created.guidance);
+			ids.push((created.details as { id: string }).id);
+		}
+		const [loaded = "", named = ""] = ids;
+		await handle(state, fakePi(), ctx, { action: "load", id: loaded });
+		const readme = (id: string) =>
+			readFileSync(
+				join(findQuestEntry(state, id)?.dir ?? "", "README.md"),
+				"utf8",
+			);
+		return { state, ctx, loaded, named, readme };
+	}
+
+	it("adds to the named quest, not the loaded one, and says which", async () => {
+		const { state, ctx, loaded, named, readme } = await twoQuests();
+		const result = await handle(state, fakePi(), ctx, {
+			action: "alias-add",
+			id: named,
+			ref: "swarm:delta",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message, "the quest it went to").toContain(named);
+		expect(readme(named), "the named quest's aliases").toMatch(/value: delta/);
+		expect(readme(loaded), "the loaded quest's aliases").not.toMatch(
+			/value: delta/,
+		);
+	});
+
+	it("removes from the named quest, leaving the loaded one's", async () => {
+		const { state, ctx, loaded, named, readme } = await twoQuests();
+		for (const [id, team] of [
+			[loaded, "alpha"],
+			[named, "beta"],
+		]) {
+			await handle(state, fakePi(), ctx, {
+				action: "alias-add",
+				id,
+				ref: `swarm:${team}`,
+			});
+		}
+		const result = await handle(state, fakePi(), ctx, {
+			action: "alias-remove",
+			id: named,
+			ref: "swarm:beta, swarm:alpha",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message, "the quest it came from").toContain(named);
+		expect(readme(named), "the named quest's alias").not.toMatch(/value: beta/);
+		expect(readme(loaded), "the loaded quest's alias").toMatch(/value: alpha/);
+	});
+
+	it("refuses an id no quest has, writing nothing", async () => {
+		const { state, ctx, loaded, readme } = await twoQuests();
+		for (const action of ["alias-add", "alias-remove"] as const) {
+			const result = await handle(state, fakePi(), ctx, {
+				action,
+				id: "QEST-20990101-NOSUCH",
+				ref: "swarm:delta",
+			});
+			expect(result.ok, `${action} took an unknown id`).toBe(false);
+		}
+		expect(readme(loaded), "the loaded quest's aliases").not.toMatch(
+			/value: delta/,
+		);
 	});
 });
 

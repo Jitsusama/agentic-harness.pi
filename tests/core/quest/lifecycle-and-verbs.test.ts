@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	addAliasesToLoaded,
+	addAliasesToQuest,
 	appendJourneyEntry,
 	attachCurrentSession,
 	captureSessionIdentity,
@@ -24,7 +24,7 @@ import {
 	findQuestEntry,
 	inventoryWorktrees,
 	refreshLoadedSlice,
-	removeAliasesFromLoaded,
+	removeAliasesFromQuest,
 	setLoadedKind,
 	setLoadedStatus,
 } from "../../../lib/core/quest/lifecycle.ts";
@@ -122,7 +122,7 @@ describe("aliasAdd / aliasRemove", () => {
 		});
 		expect(added).toMatchObject({ ok: true });
 
-		const dupe = addAliasesToLoaded(state, [
+		const dupe = addAliasesToQuest(state.questDir ?? "", [
 			{ type: "github-pr", value: "shop/world#47281" },
 		]);
 		expect(dupe.ok && dupe.already).toEqual([
@@ -134,7 +134,7 @@ describe("aliasAdd / aliasRemove", () => {
 			ref: "github-pr:shop/world#47281",
 		});
 		expect(removed).toMatchObject({ ok: true });
-		const remaining = removeAliasesFromLoaded(state, [
+		const remaining = removeAliasesFromQuest(state.questDir ?? "", [
 			{ type: "github-issue", value: "shop/world#100" },
 		]);
 		expect(remaining.ok && remaining.removed).toHaveLength(1);

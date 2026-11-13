@@ -343,7 +343,10 @@ describe("programs' hidden entries that run code as the person later", () => {
 	// completion dump, dbus starts a service named there, nvim loads its
 	// site plugins, Chrome trusts a CA added there, kubectl and aws run a
 	// credential command their settings name, cargo builds the sources it
-	// extracted, and gpg, gradle and docker run what theirs name.
+	// extracted, and gpg, gradle and docker run what theirs name. A
+	// rustup proxy runs its toolchains' binaries, Firefox runs the program
+	// a native messaging host names, and bundler loads its settings and
+	// plugins.
 	const home = "/home/someone";
 	const disk = diskOf([
 		`${home}/.zcompdump-optimus-5.9.2`,
@@ -358,6 +361,9 @@ describe("programs' hidden entries that run code as the person later", () => {
 		`${home}/.docker/`,
 		`${home}/.local/share/dbus-1/services/`,
 		`${home}/.local/share/nvim/site/`,
+		`${home}/.rustup/toolchains/`,
+		`${home}/.mozilla/native-messaging-hosts/`,
+		`${home}/.bundle/cache/`,
 		`${home}/.cache/`,
 		`${home}/.npm/`,
 	]);
@@ -377,6 +383,7 @@ describe("programs' hidden entries that run code as the person later", () => {
 			`${home}/.kube/cache`,
 			`${home}/.kube/gke_gcloud_auth_plugin_cache`,
 			`${home}/.aws/sso/cache`,
+			`${home}/.bundle/cache`,
 		]);
 		expect(pairs("--ro-bind"), "dbus's services and nvim's plugins").toEqual(
 			expect.arrayContaining([
@@ -402,6 +409,10 @@ describe("programs' hidden entries that run code as the person later", () => {
 			".docker/cli-plugins/docker-thing",
 			".local/share/dbus-1/services/thing.service",
 			".local/share/nvim/site/plugin/thing.lua",
+			".rustup/toolchains/stable/bin/cargo",
+			".mozilla/native-messaging-hosts/thing.json",
+			".bundle/config",
+			".bundle/plugin/index",
 		]) {
 			expect(refuses(path), `${path} was writable`).toBe(true);
 		}
@@ -410,6 +421,7 @@ describe("programs' hidden entries that run code as the person later", () => {
 			".aws/sso/cache/token.json",
 			".aws/cli/cache/role.json",
 			".npm/_cacache/index",
+			".bundle/cache/compact_index/thing",
 		]) {
 			expect(refuses(path), `${path} was refused`).toBe(false);
 		}

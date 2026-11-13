@@ -263,7 +263,7 @@ function homeArgs(place: FencePlace, disk: Disk): string[] {
 		const kept = kind === "link" ? dirname(path) : path;
 		args.push("--ro-bind", kept, kept);
 	}
-	for (const { path } of cachesWithin(home)) {
+	for (const path of cachesWithin(home)) {
 		const entry = relative(home, path).split(sep)[0] ?? "";
 		if (!entries.includes(entry)) continue;
 		const kind = disk.kind(path);
@@ -618,7 +618,7 @@ export function fenceRefusesWrite(
 	];
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);
-	const caches = cachesWithin(place.home).map(({ path }) => path);
+	const caches = cachesWithin(place.home);
 	if (kept.some(inside) && !caches.some(inside)) return true;
 	if (dirname(path) === place.home && readOnlyEntry(basename(path))) {
 		return true;

@@ -22,13 +22,18 @@ import { join } from "node:path";
  * certificates, kubectl's and aws's settings, whose credential commands
  * run at their next call, gpg's agent settings, gradle's init scripts,
  * docker's plugins, and cargo's settings and the sources it extracted,
- * which it never checks again before building them.
+ * which it never checks again before building them; and rustup's
+ * toolchains, whose binaries its proxies run, the browser's native
+ * messaging hosts, each naming a program it runs, and bundler's
+ * settings and plugins (ISXEG8, 12 November, again).
  *
  * The home folder itself is read-only too, with every other hidden
  * entry in it bound back writable, since a dotfile is often a link into
  * the store: one a command could delete, and put a file of its own in
  * its place, if it could write the folder holding it. So a top entry
- * here can't be made by a command where it isn't, as a deeper one can.
+ * here can't be made by a command where it isn't. Each deeper one is a
+ * folder, made before the fence where its top entry is there, so it
+ * can always be bound read-only.
  */
 export const READ_ONLY = [
 	".config",
@@ -54,6 +59,9 @@ export const READ_ONLY = [
 	".gradle",
 	".docker",
 	".cargo",
+	".rustup",
+	".mozilla",
+	".bundle",
 	".local/bin",
 	".local/share/dbus-1",
 	".local/share/nvim",
@@ -86,6 +94,7 @@ const CACHES_WITHIN = [
 	".kube/gke_gcloud_auth_plugin_cache",
 	".aws/sso/cache/",
 	".aws/cli/cache/",
+	".bundle/cache/",
 ] as const;
 
 /**
@@ -99,14 +108,23 @@ export const OWN_HOMES = [
 	["GRADLE_USER_HOME", "gradle"],
 ] as const;
 
-/** Each of `CACHES_WITHIN` in the home folder `home`, and whether it is a folder. */
-export function cachesWithin(
-	home: string,
-): { path: string; folder: boolean }[] {
-	return CACHES_WITHIN.map((cache) => ({
-		path: join(home, cache.replace(/\/$/, "")),
-		folder: cache.endsWith("/"),
-	}));
+/** Each of `CACHES_WITHIN` in the home folder `home`. */
+export function cachesWithin(home: string): string[] {
+	return CACHES_WITHIN.map((cache) => join(home, cache.replace(/\/$/, "")));
+}
+
+/**
+ * The folders made before the fence, in the home folder `home`, where
+ * their top entry is there: each deeper read-only path, and each folder
+ * among the caches. Inside, nothing could make one, so a read-only path
+ * not yet there could otherwise be made by a command, and aws fails
+ * rather than skip a cache it can't write.
+ */
+export function foldersMadeFirst(home: string): string[] {
+	return [
+		...READ_ONLY.filter((path) => path.includes("/")),
+		...CACHES_WITHIN.filter((cache) => cache.endsWith("/")),
+	].map((path) => join(home, path.replace(/\/$/, "")));
 }
 
 /** Whether the home folder's entry `entry` is one `READ_ONLY` names, whole or by the start of its name. */
