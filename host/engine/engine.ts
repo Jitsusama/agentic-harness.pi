@@ -170,7 +170,10 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
-	const reaped = await reapLeftBehind(host.key);
+	const reaped =
+		options.reapAtStart === false
+			? { groups: [], pids: [] }
+			: await reapLeftBehind(host.key);
 	if (reaped.groups.length > 0 || reaped.pids.length > 0)
 		report(
 			new Error(
@@ -211,7 +214,10 @@ export async function createEngine(
 		stop: (sessionId, why) => host.stop(sessionId, why),
 		asking: () => watched?.wake,
 		report,
-		parked: (sessionId) => warming.start(sessionId),
+		parked: (sessionId) => {
+			warming.start(sessionId);
+			options.parkedOut?.(sessionId);
+		},
 	});
 	const tools = runningTools();
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.

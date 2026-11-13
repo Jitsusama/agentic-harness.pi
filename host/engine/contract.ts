@@ -142,6 +142,14 @@ export interface EngineOptions {
 	 * collection once it is quiet (quiet-collection.ts); on unless false.
 	 */
 	readonly collectWhenQuiet?: boolean;
+	/**
+	 * Spike (worker per engine): whether this engine ends what its host's
+	 * dead predecessors' tools left running as it starts; on unless false.
+	 * A worker's engine leaves it to the main thread, which does it once.
+	 */
+	readonly reapAtStart?: boolean;
+	/** Spike: hears each conversation once its park has stopped it. */
+	readonly parkedOut?: (sessionId: string) => void;
 	readonly report?: (error: unknown) => void;
 }
 

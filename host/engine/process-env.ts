@@ -61,16 +61,22 @@ export const HOST_READS: readonly string[] = [
 /** Install the view, returning what puts the host's own env back. */
 export function installConversationEnv(host: Host): () => void {
 	const own = process.env;
+	// Spike (worker per engine): a worker's host answers holds for its
+	// siblings' conversations too, but holds only its own env.
+	const here = (id: string): boolean => {
+		const local: unknown = Reflect.get(host, "holdsHere");
+		return typeof local === "function"
+			? Reflect.apply(local, host, [id]) === true
+			: host.holds(id) !== undefined;
+	};
 	const current = (): SessionEnvironment | undefined => {
 		const id = ambientSession();
-		return id !== undefined && host.holds(id) !== undefined
-			? host.env(id)
-			: undefined;
+		return id !== undefined && here(id) ? host.env(id) : undefined;
 	};
 	/** Running for a conversation the host has let go, whose writes go nowhere. */
 	const released = (): boolean => {
 		const id = ambientSession();
-		return id !== undefined && host.holds(id) === undefined;
+		return id !== undefined && !here(id);
 	};
 	const read = (name: string): string | undefined => {
 		const env = current();

@@ -73,11 +73,21 @@ export class SessionHost implements Host {
 	private readonly uninstall: () => void;
 	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
+	/** Spike (worker per engine): whether the list is written to the registry file. */
+	private readonly writes: boolean;
+	/** Spike: hears the list each time it is published. */
+	private readonly published?: (list: ConversationIdentity[]) => void;
+	/** Spike: how conversations held by the same process's other threads stand. */
+	private readonly elsewhere?: (id: string) => HostedState | undefined;
 
 	constructor(options: {
 		key: string;
 		owner: SessionOwner;
 		registryDir?: string;
+		/** Spike: a worker's host writes no registry; the main thread's does. */
+		writesRegistry?: boolean;
+		published?: (list: ConversationIdentity[]) => void;
+		elsewhere?: (id: string) => HostedState | undefined;
 	}) {
 		if (
 			!options.key ||
@@ -88,6 +98,9 @@ export class SessionHost implements Host {
 		this.key = options.key;
 		this.owner = Object.freeze({ ...options.owner });
 		this.registryPath = hostRegistryPath(this.owner, options.registryDir);
+		this.writes = options.writesRegistry ?? true;
+		if (options.published) this.published = options.published;
+		if (options.elsewhere) this.elsewhere = options.elsewhere;
 		const unhost = installHost(this);
 		// Code that reads process.env directly sees its own conversation's.
 		const unview = installConversationEnv(this);
@@ -167,7 +180,12 @@ export class SessionHost implements Host {
 
 	/** S2 liveness reads parked sessions as held until disposal succeeds. */
 	holds(id: string): HostedState | undefined {
-		return this.conversations.get(id)?.state;
+		return this.conversations.get(id)?.state ?? this.elsewhere?.(id);
+	}
+
+	/** Spike: whether this thread's host holds the conversation itself. */
+	holdsHere(id: string): boolean {
+		return this.conversations.has(id);
 	}
 
 	/** The private environment map, never an overlay on process.env. */
@@ -302,7 +320,7 @@ export class SessionHost implements Host {
 		if (this.disposed) return;
 		if (this.conversations.size)
 			throw new Error("Close hosted conversations before disposing the host");
-		rmSync(this.registryPath, { force: true });
+		if (this.writes) rmSync(this.registryPath, { force: true });
 		this.uninstall();
 		this.disposed = true;
 	}
@@ -325,6 +343,8 @@ export class SessionHost implements Host {
 	}
 
 	private publish(): void {
+		this.published?.(this.list());
+		if (!this.writes) return;
 		const registry: HostRegistry = {
 			key: this.key,
 			owner: this.owner,
