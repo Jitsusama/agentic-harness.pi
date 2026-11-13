@@ -15,12 +15,7 @@
 import { createServer, type ServerResponse } from "node:http";
 import { setTimeout as later } from "node:timers/promises";
 import { isRecord } from "../../../lib/internal/record.ts";
-import {
-	drawn,
-	PIECE_EVERY_MS,
-	piecesOf,
-	type TimeSpread,
-} from "./pace.ts";
+import { drawn, PIECE_EVERY_MS, piecesOf, type TimeSpread } from "./pace.ts";
 import { acknowledged, asked, type TurnKind } from "./turns.ts";
 
 /** How long answers and tools take, each drawn from its spread. */
@@ -61,9 +56,7 @@ type Block =
 	  };
 
 /** Listen on a free local port, answering at `pace`. */
-export async function soakProvider(
-	pace: SoakPace = {},
-): Promise<SoakProvider> {
+export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 	let answered = 0;
 	const server = createServer(async (request, response) => {
 		let raw = "";

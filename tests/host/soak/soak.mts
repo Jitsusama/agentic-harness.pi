@@ -57,6 +57,7 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
+import { LONGEST_MS, paceOf } from "./pace.ts";
 import { timeSpent } from "./profile.ts";
 import {
 	entriesOf,
@@ -70,7 +71,6 @@ import {
 	type Typed,
 	turnTimes,
 } from "./report.ts";
-import { LONGEST_MS, paceOf } from "./pace.ts";
 import {
 	JOB_SAYS,
 	type SoakProvider,
@@ -202,9 +202,7 @@ const pace = {
 };
 // A paced turn may take as long as its pace adds: two answers and a tool.
 const turnMs =
-	TURN_MS +
-	(pace.answer ? 2 * LONGEST_MS : 0) +
-	(pace.tool ? LONGEST_MS : 0);
+	TURN_MS + (pace.answer ? 2 * LONGEST_MS : 0) + (pace.tool ? LONGEST_MS : 0);
 const provider = await soakProvider(pace);
 const agent = agentOf(provider);
 const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
