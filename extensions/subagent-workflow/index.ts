@@ -226,7 +226,9 @@ async function recordOrSay(
 const OWNER_CELL = "agentic-harness.subagent-workflow.owner.v1";
 
 /**
- * Who is waiting in the conversation `session` names, asked once.
+ * Who is waiting in the conversation `session` names, asked once;
+ * left out, the conversation the host is running, as a context built
+ * by something other than pi names none.
  *
  * The answer cannot change and asking costs a subprocess, so it is
  * kept, in the conversation's own cell: in a host, each conversation is
@@ -236,7 +238,9 @@ const OWNER_CELL = "agentic-harness.subagent-workflow.owner.v1";
  * turns one slow probe into a session where no fleet is attributed to
  * anybody.
  */
-async function ourOwner(session: SessionRef): Promise<FleetRun["owner"]> {
+async function ourOwner(
+	session: SessionRef | undefined,
+): Promise<FleetRun["owner"]> {
 	const cell = sessionCell<NonNullable<FleetRun["owner"]>>(OWNER_CELL, session);
 	const kept = cell.get();
 	if (kept !== undefined) return kept;
@@ -940,7 +944,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						// Asked inside the guard, since it forks a subprocess and
 						// bookkeeping must not cost a fleet: outside it, a `ps`
 						// that hung or threw took the dispatch with it.
-						const owner = await ourOwner(ctx);
+						const owner = await ourOwner(session);
 						await ledger.open({
 							id: runId,
 							startedAt: new Date().toISOString(),
