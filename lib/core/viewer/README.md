@@ -12,6 +12,10 @@ running. Dispose releases viewer buffers when the conversation closes.
 `isEditing` says whether a viewer has a draft out in its own editor,
 which a host waits out before restarting.
 
+A frame is drawn only while a viewer is attached: with nobody watching,
+`renderScope` skips it, since every conversation in a host shares one
+thread, and the join's repaint draws the whole screen for whoever comes.
+
 `confirmQuit` judges a quit pi was asked for. One no viewer's key asked
 for, such as an extension's shutdown, holds at once, and so does one a
 lone viewer typed, as plain pi's quit keys do. One a viewer typed with

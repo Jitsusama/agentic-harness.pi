@@ -191,6 +191,7 @@ describe("persistent viewer terminal", () => {
 	it("draws pi's frames as the conversation it shows, whoever asked, across a rebind", () => {
 		host();
 		const terminal = new ViewerTerminal("a", () => {});
+		terminal.attach(viewer());
 		const drawn: (string | undefined)[] = [];
 		const draw = () => drawn.push(ambientSession());
 		terminal.renderScope(draw);
@@ -199,6 +200,28 @@ describe("persistent viewer terminal", () => {
 		withSession("a", () => terminal.renderScope(draw));
 		expect(drawn).toEqual(["a", "a", "b"]);
 		terminal.dispose();
+	});
+
+	it("draws no frame while nobody watches, and paints in full for whoever joins", () => {
+		const repaint = vi.fn();
+		const terminal = new ViewerTerminal("a", repaint);
+		cleanups.push(() => terminal.dispose());
+		const draw = vi.fn();
+
+		terminal.renderScope(draw);
+		expect(draw, "a frame nobody sees was drawn").not.toHaveBeenCalled();
+
+		const joined = terminal.attach(viewer());
+		expect(repaint, "the viewer joining wasn't painted").toHaveBeenCalledOnce();
+		terminal.renderScope(draw);
+		expect(draw, "a watched frame wasn't drawn").toHaveBeenCalledOnce();
+
+		joined.detach();
+		terminal.renderScope(draw);
+		expect(
+			draw,
+			"a frame drew after its last viewer left",
+		).toHaveBeenCalledOnce();
 	});
 
 	it("discards a detached viewer's pending input and accepts a later viewer", () => {

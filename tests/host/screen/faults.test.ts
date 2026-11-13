@@ -76,6 +76,15 @@ function host(make = (options: HostedModeOptions) => new FaultyMode(options)) {
 		await screens.screens.opened(view);
 		const mode = modes.get(sessionId);
 		if (!mode) throw new Error(`no screen for ${sessionId}`);
+		// A screen draws only for someone watching; the join's own repaint
+		// is forgotten, so a test sees only what a fault asked for.
+		mode.options.terminal.attach({
+			rows: 40,
+			columns: 120,
+			write: () => {},
+			disconnect: () => {},
+		});
+		mode.ui.requestRender.mockClear();
 		return mode;
 	}
 	return { ...screens, report, closes, open };

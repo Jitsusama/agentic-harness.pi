@@ -448,8 +448,14 @@ export class ViewerTerminal implements Terminal {
 	 * that changed the theme every screen listens to, so what a component
 	 * reads from its conversation while drawing would otherwise be that one's.
 	 * A pi without the host's render scope never calls this.
+	 *
+	 * With nobody watching, the frame is skipped: nobody would see it, and
+	 * a viewer joining is painted in full by the repaint its join asks for.
+	 * The host's conversations share one thread, and in a paced 12-way soak
+	 * drawing screens, watched or not, took about a third of its busy time.
 	 */
 	renderScope(draw: () => void): void {
+		if (this.viewers.size === 0) return;
 		this.inConversation(draw);
 	}
 
