@@ -446,6 +446,40 @@ describe("viewer connection lifecycle", () => {
 		socket.destroy();
 		expect(backend.execute).not.toHaveBeenCalled();
 	});
+	it("sends what a screen draws in one tick as one frame, before what follows it", async () => {
+		// A redraw is dozens of small writes; framing each alone holds the
+		// host's one loop for every conversation it serves.
+		await start({
+			attach: (_request, sink) => {
+				sink.write("\x1b[?25l");
+				sink.write("\x1b[2K");
+				sink.write("drawn");
+				sink.edit("e1", "draft");
+				sink.write("after");
+				return { input: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		expect((await messages.next()).value).toMatchObject({ ok: true });
+		expect((await messages.next()).value).toEqual({
+			type: "output",
+			data: "\x1b[?25l\x1b[2Kdrawn",
+		});
+		expect((await messages.next()).value).toEqual({
+			type: "edit",
+			id: "e1",
+			text: "draft",
+		});
+		expect((await messages.next()).value).toEqual({
+			type: "output",
+			data: "after",
+		});
+		socket.destroy();
+	});
 	it("bounds output even when a viewer does not read", async () => {
 		const detach = vi.fn();
 		await start({
