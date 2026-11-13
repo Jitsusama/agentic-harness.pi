@@ -159,7 +159,7 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
-	const reaped = reapLeftBehind(host.key);
+	const reaped = await reapLeftBehind(host.key);
 	if (reaped.groups.length > 0 || reaped.pids.length > 0)
 		report(
 			new Error(
@@ -502,7 +502,7 @@ export async function createEngine(
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
 		// What an earlier host's tools left running for it ends before this start reports them cut off.
-		reapToolChildren(sessionId);
+		await reapToolChildren(sessionId);
 		const first = request?.op === "open" ? request.first : undefined;
 		noteFirstPrompt(first);
 		const sessionManager =
@@ -675,6 +675,26 @@ export async function createEngine(
 		record: Live,
 		why: string,
 	): Promise<void> {
+		// The release runs in a frame of its own, so nothing of pi it held,
+		// such as its agent, stays in memory while the reap below reads every
+		// process's environment.
+		await release(sessionId, record, why);
+		// The signal kills a tool's own group; a descendant that left it ends here.
+		await reapToolChildren(sessionId);
+		const events = watched;
+		if (record.ending === "closed" && events)
+			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
+			Promise.resolve()
+				.then(() => events.ended(sessionId, why))
+				.catch(report);
+	}
+
+	/** Let go of a conversation's screen, session and store, and take it off the table. */
+	async function release(
+		sessionId: string,
+		record: Live,
+		why: string,
+	): Promise<void> {
 		record.closing = true;
 		// A screen asked about the folder holds a terminal for it, and settles any question still open, whether or not a session came of it.
 		if (record.runtime || record.questioned) {
@@ -692,16 +712,14 @@ export async function createEngine(
 		try {
 			await record.conversation?.close();
 		} finally {
-			// The signal kills a tool's own group; a descendant that left it ends here.
-			reapToolChildren(sessionId);
-			live.delete(sessionId);
+			// The host's list keeps a parked conversation, and with it this
+			// record, so the record lets go of pi; only its own entry leaves
+			// the table, never a newer one under the same id.
+			record.runtime = undefined;
+			record.conversation = undefined;
+			record.unsubscribe = undefined;
+			if (live.get(sessionId) === record) live.delete(sessionId);
 		}
-		const events = watched;
-		if (record.ending === "closed" && events)
-			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
-			Promise.resolve()
-				.then(() => events.ended(sessionId, why))
-				.catch(report);
 	}
 
 	/** Say on the host's list whether a conversation is running, as its runs start and end. */
