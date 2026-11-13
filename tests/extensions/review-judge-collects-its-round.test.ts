@@ -14,7 +14,7 @@ import {
 	runArtifactDir,
 	runDir,
 } from "../../extensions/review-integration/engine.ts";
-import { collectFinished } from "../../extensions/review-integration/tools/ask.ts";
+import { collectFinished } from "../../extensions/review-integration/tools/ask-settle.ts";
 import {
 	type AskRun,
 	type ChangeRef,

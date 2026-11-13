@@ -418,7 +418,7 @@ is followed by judgment, not by a regex.
   unnamed is refused unless the person named that model, in
   `lib/internal/session/asked-models.ts`, called from
   `extensions/subagent-workflow/fleet-settings.ts` and
-  `extensions/review-integration/tools/ask.ts`. Which persona
+  `extensions/review-integration/tools/ask-roster.ts`. Which persona
   each job takes stays ⚪.
 - **Project-local guides**: `extension-dev-guide`, under
   `.pi/skills/`, for working on this package. Its rules for

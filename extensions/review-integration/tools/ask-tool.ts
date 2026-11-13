@@ -23,8 +23,10 @@ import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
 
 const roundReadingModule = loadOnce(() => import("../round-reading.ts"));
-/** review_ask's work, loaded once, for the tool and for settling rounds. */
+/** review_ask's work, loaded once, for the tool. */
 export const askModule = loadOnce(() => import("./ask.ts"));
+/** Settling rounds nothing waits on, without the rest of review_ask. */
+export const settleModule = loadOnce(() => import("./ask-settle.ts"));
 
 /** What `review_ask` takes. */
 const ASK_PARAMETERS = Type.Object({

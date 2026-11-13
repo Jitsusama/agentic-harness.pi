@@ -26,6 +26,12 @@ const TOOLS = join(
 /** What a call does, loaded on the tool's first call. */
 const source = readFileSync(join(TOOLS, "ask.ts"), "utf8");
 
+/** How a round's answer is painted, for every round that answers. */
+const brush = readFileSync(join(TOOLS, "ask-answer.ts"), "utf8");
+
+/** Settling rounds, which answer too. */
+const settling = readFileSync(join(TOOLS, "ask-settle.ts"), "utf8");
+
 /** The tool's registration, where its schema is. */
 const schema = readFileSync(join(TOOLS, "ask-tool.ts"), "utf8");
 
@@ -66,8 +72,14 @@ describe("the round's answer", () => {
 		// composition is tested where it now lives. What is left here
 		// is a brush, and a brush is worth one assertion: that nothing
 		// has quietly started composing again.
-		expect(source).toContain("roundAnswer(run, { ...also, warnings, caveat })");
-		expect(source).not.toContain("whole story");
+		expect(brush, "the brush paints the library's answer").toContain(
+			"roundAnswer(run, { ...also, warnings, caveat })",
+		);
+		for (const answering of [source, settling]) {
+			expect(answering, "no round composes its own answer").not.toContain(
+				"whole story",
+			);
+		}
 	});
 
 	it("paints every answer with the same brush, the start included", () => {
@@ -76,7 +88,11 @@ describe("the round's answer", () => {
 		// bare while the other seven put the identical sentence second
 		// and marked. One caller counting is the whole check: there is
 		// no other way to produce an answer here.
-		expect(source).not.toContain("warnings.map((warning) =>");
+		for (const answering of [source, settling]) {
+			expect(answering, "every answer goes through the brush").not.toContain(
+				"warnings.map((warning) =>",
+			);
+		}
 	});
 
 	it("gives a retry the whole answer, not just the head", () => {

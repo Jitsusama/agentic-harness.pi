@@ -52,7 +52,7 @@ import {
 } from "./engine.ts";
 import { guardPublishes } from "./guard-publish.ts";
 import { watchQueued } from "./queued.ts";
-import { askModule } from "./tools/ask-tool.ts";
+import { settleModule } from "./tools/ask-tool.ts";
 import {
 	registerAskTool,
 	registerDraftTool,
@@ -110,9 +110,9 @@ type TellModel = (text: string) => void;
 async function settleRounds(rounds: string, tell: TellModel): Promise<void> {
 	const { rounds: open } = await createRunStore(rounds).openRunIds();
 	if (open.length === 0) return;
-	// Loaded only when a round is open, since it is the whole of
-	// review_ask's work and a session with none never needs it.
-	const { collectSettled } = await askModule();
+	// Loaded only when a round is open, since a session with none never
+	// needs it; only the settling, not the rest of review_ask.
+	const { collectSettled } = await settleModule();
 	const { leftMine } = await collectSettled(open);
 	if (leftMine.length === 0) return;
 	const named = leftMine.map(
@@ -210,7 +210,7 @@ async function sweepTranscripts(
 ): Promise<void> {
 	try {
 		// What can be collected is, first, so what follows protects only
-		// what still waits (ask.ts collectSettled), and this session's
+		// what still waits (ask-settle.ts collectSettled), and this session's
 		// model alone hears of its own that it couldn't.
 		await settleRounds(rounds, tell);
 		// Which rounds are still waiting to be collected. A detached

@@ -18,7 +18,7 @@ import {
 import {
 	collectOne,
 	stopRound,
-} from "../../extensions/review-integration/tools/ask.ts";
+} from "../../extensions/review-integration/tools/ask-settle.ts";
 import {
 	type AskRun,
 	type ChangeRef,
