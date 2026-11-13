@@ -20,8 +20,8 @@ import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	drawn,
 	MOST_ROUNDS,
-	PIECE_EVERY_MS,
 	type Percentiles,
+	PIECE_EVERY_MS,
 	piecesOf,
 } from "./pace.ts";
 import { acknowledged, asked, type Turn, type TurnKind } from "./turns.ts";
@@ -122,7 +122,9 @@ export function answerTo(
 /** The soak turn `messages` are of, and how many of its tools have answered. */
 function turnSoFar(
 	messages: readonly unknown[],
-): { readonly turn: Pick<Turn, "tag" | "kind">; readonly round: number } | undefined {
+):
+	| { readonly turn: Pick<Turn, "tag" | "kind">; readonly round: number }
+	| undefined {
 	let start = messages.length - 1;
 	while (start >= 0 && !said(messages[start])) start -= 1;
 	const turn = start < 0 ? undefined : asked(textOf(messages[start]));

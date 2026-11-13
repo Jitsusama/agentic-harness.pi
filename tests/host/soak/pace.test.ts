@@ -75,7 +75,7 @@ describe("the soak's provider at a pace", () => {
 		content: [{ type: "tool_result", content: "ok" }],
 	};
 	/** A turn's messages once `rounds` of its tools have answered. */
-	const after = (prompt: string, rounds: number) => [
+	const worked = (prompt: string, rounds: number) => [
 		user("soak c0-t0 echo, please"),
 		{ role: "assistant", content: "heard" },
 		user(prompt),
@@ -94,7 +94,7 @@ describe("the soak's provider at a pace", () => {
 
 	it("works an echo turn's drawn rounds before its own answer", () => {
 		const prompt = "soak c0-t1 echo, please";
-		const answers = [0, 1, 2, 3].map((n) => answerTo(after(prompt, n), four));
+		const answers = [0, 1, 2, 3].map((n) => answerTo(worked(prompt, n), four));
 		expect(answers, "two bash, a read, then its own").toEqual([
 			{
 				type: "tool_use",
@@ -113,7 +113,7 @@ describe("the soak's provider at a pace", () => {
 
 	it("counts a tool turn's own call among its rounds", () => {
 		const prompt = "soak c0-t3 bash, please";
-		const answers = [1, 2, 3].map((n) => answerTo(after(prompt, n), four));
+		const answers = [1, 2, 3].map((n) => answerTo(worked(prompt, n), four));
 		expect(answers).toEqual([
 			{
 				type: "tool_use",
@@ -130,7 +130,7 @@ describe("the soak's provider at a pace", () => {
 	});
 
 	it("counts only the tools of the latest turn", () => {
-		const earlier = [...after("soak c0-t1 echo, please", 3)];
+		const earlier = worked("soak c0-t1 echo, please", 3);
 		const latest = [...earlier, user("soak c0-t2 echo, please")];
 		expect(answerTo(latest, four)).toEqual({
 			type: "tool_use",
