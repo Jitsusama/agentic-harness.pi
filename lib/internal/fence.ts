@@ -32,6 +32,8 @@
  *   the person browses, the home folder's visible entries, are
  *   read-only but the one the session works in, so no command plants a
  *   repository whose settings their prompt's git runs on entering it.
+ * - **No registry tokens:** `~/.npmrc` is a copy without its tokens'
+ *   lines (`fence-npmrc.ts`), and pi's own file tools are refused it.
  * - **No new privileges:** bubblewrap and Landlock both set
  *   NoNewPrivs, so a setgid wrapper such as 1Password's `op` gains
  *   nothing, and 1Password refuses it.
@@ -50,6 +52,7 @@ import {
 	readOnlyEntry,
 	readOnlyPaths,
 } from "./fence-home.ts";
+import { NPMRC } from "./fence-npmrc.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -206,6 +209,11 @@ export interface FencePlace {
 	 * as nobody's.
 	 */
 	readonly sshConfig?: string;
+	/**
+	 * A copy of `~/.npmrc` without its tokens' lines, bound over it
+	 * (`fence-npmrc.ts`), or `/dev/null` where no copy could be made.
+	 */
+	readonly npmrc?: string;
 }
 
 /**
@@ -334,17 +342,41 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...gitArgs(place, disk),
 		...scratchArgs(place, disk),
 		...hiddenArgs(place.home, disk),
+		...npmrcArgs(place, disk),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
 }
 
 /**
- * Private keys outside `~/.ssh`, emptied inside, as paths from the home
- * folder: nix-offload's login to the lent builders, which ssh takes from
- * its file through the relay on this machine's loopback, so a command
- * holding it could run anything there, past the exemption's rules.
+ * Private keys and tokens outside `~/.ssh`, emptied inside, as paths from
+ * the home folder: nix-offload's login to the lent builders, which ssh
+ * takes from its file through the relay on this machine's loopback, so a
+ * command holding it could run anything there, past the exemption's
+ * rules; and the logins pi's own tools read in pi's process, outside the
+ * fence, which no command needs (Google's, Slack's and Vault's, and
+ * Tuple's sign-in, IDEGAT 13 November).
  */
-export const HIDDEN = [".local/state/nix-offload/store_ed25519"] as const;
+export const HIDDEN = [
+	".local/state/nix-offload/store_ed25519",
+	".config/agentic-harness/google/credentials.json",
+	".config/agentic-harness/slack/credentials.json",
+	".pi/agent/vault.json",
+	".local/share/tuple/0/.auth_token",
+] as const;
+
+/**
+ * bubblewrap's arguments binding the copy of `~/.npmrc` without its
+ * tokens over it, or over the file it links to, since bubblewrap won't
+ * mount on a link.
+ */
+function npmrcArgs(place: FencePlace, disk: Disk): string[] {
+	if (!place.npmrc) return [];
+	const path = join(place.home, NPMRC);
+	const kind = disk.kind(path);
+	const over = kind === "link" ? disk.real?.(path) : path;
+	if (kind === undefined || over === undefined) return [];
+	return ["--ro-bind", place.npmrc, over];
+}
 
 /** bubblewrap's arguments emptying each hidden file that is there. */
 function hiddenArgs(home: string, disk: Disk): string[] {
@@ -647,14 +679,16 @@ export function fenceRefusesWrite(
 /**
  * Whether a path, already resolved, lies where the fence keeps pi's own
  * file tools from reading: another process's files in `/proc`, a hidden
- * key (`HIDDEN`), or the runtime folder, which holds the clipboard's pictures and the
- * desktop's sockets.
+ * key (`HIDDEN`), npm's settings, which hold registry tokens (commands
+ * read a copy without them), or the runtime folder, which holds the
+ * clipboard's pictures and the desktop's sockets.
  */
 export function fenceRefusesRead(path: string, place: FencePlace): boolean {
 	// pi's own /proc/self resolves to its pid, so it is refused too: its
 	// open files are pipes and sockets no fenced command could reach.
 	if (/^\/proc\/(\d+|thread-self)(\/|$)/.test(path)) return true;
 	if (HIDDEN.some((hidden) => path === join(place.home, hidden))) return true;
+	if (path === join(place.home, NPMRC)) return true;
 	const runtime = place.runtimeDir;
 	return (
 		runtime !== undefined &&

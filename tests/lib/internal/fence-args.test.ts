@@ -135,6 +135,45 @@ describe("the fence's arguments", () => {
 		);
 	});
 
+	it("binds the copy of npm's settings without their tokens over them, after the home's binds", () => {
+		const npmrc = "/run/user/1000/pi-fence/npmrc";
+		const settings = `${place.home}/.npmrc`;
+		const given = fenceArgs(
+			{ ...place, npmrc },
+			diskWith(place.home, [".npmrc", ".config"]),
+		);
+		const at = given.indexOf(npmrc);
+		expect(given.slice(at - 1, at + 2)).toEqual(["--ro-bind", npmrc, settings]);
+		expect(
+			given.lastIndexOf(settings),
+			"no later bind puts the file back",
+		).toBe(at + 1);
+		expect(
+			fenceRefusesRead(settings, place),
+			"pi's read tool is refused the file itself",
+		).toBe(true);
+		expect(args, "with no copy, nothing is bound").not.toContain(npmrc);
+	});
+
+	it("binds the npm copy over the file its settings link to, and nothing where there are none", () => {
+		const npmrc = "/run/user/1000/pi-fence/npmrc";
+		const settings = `${place.home}/.npmrc`;
+		const stored = "/nix/store/0000-npmrc";
+		const linked = {
+			...diskWith(place.home, [".npmrc"], [settings]),
+			real: (path: string) => (path === settings ? stored : undefined),
+		};
+		const given = fenceArgs({ ...place, npmrc }, linked);
+		const at = given.indexOf(npmrc);
+		expect(given.slice(at - 1, at + 2)).toEqual(["--ro-bind", npmrc, stored]);
+
+		const none: Disk = {
+			kind: (path) => (path === settings ? undefined : "folder"),
+			entries: () => [],
+		};
+		expect(fenceArgs({ ...place, npmrc }, none)).not.toContain(npmrc);
+	});
+
 	it("makes the home folder read-only, binding back writable every hidden entry but the read-only ones and links", () => {
 		expect(pairs("--ro-bind")[0]).toBe(place.home);
 		const writable = pairs("--bind").filter((path) =>
@@ -507,6 +546,32 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(
 			fenceRefusesRead(`${key}.pub`, place),
 			"its public half stays readable",
+		).toBe(false);
+	});
+
+	it("empties the logins pi's own tools read outside the fence, for commands and pi's file tools alike", () => {
+		const logins = [
+			`${home}/.config/agentic-harness/google/credentials.json`,
+			`${home}/.config/agentic-harness/slack/credentials.json`,
+			`${home}/.pi/agent/vault.json`,
+		];
+		const given = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000" },
+			diskOf([...logins, `${home}/.config/agentic-harness/settings.json`]),
+		);
+		const place = { home, runtimeDir: "/run/user/1000" };
+		for (const login of logins) {
+			const at = given.lastIndexOf(login);
+			expect(given.slice(at - 2, at + 1), login).toEqual([
+				"--ro-bind",
+				"/dev/null",
+				login,
+			]);
+			expect(fenceRefusesRead(login, place), login).toBe(true);
+		}
+		expect(
+			fenceRefusesRead(`${home}/.config/agentic-harness/settings.json`, place),
+			"the harness's other settings stay readable",
 		).toBe(false);
 	});
 
