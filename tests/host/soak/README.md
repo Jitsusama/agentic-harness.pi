@@ -99,11 +99,25 @@ It prints a line a checkpoint and the report as one JSON line after
   used is pages V8 freed and keeps pooled, not objects held.
 - `latency`: each side's 50th and 99th percentile, from a prompt's entry
   to its answer's in the log. pi writes both as each message ends in its
-  engine, so these are the engine's own turns, like for like. `screen`
-  says what the host's screens add: from the key typed to the prompt's
-  entry, from the answer's entry to the write that first draws it at the
-  viewer (below 0 when drawn as it streams), and from key to drawing. A
-  turn whose first key wakes its conversation is left out of `screen`.
+  engine, so these are the engine's own turns, like for like. `paired`
+  is what each turn cost hosted: its time less plain pi's for the same
+  seeded turn, below 0 where plain pi was slower, with `unpaired` the
+  turns plain pi never answered. Both sides play the same seeded
+  answers and tools, so this is the host's own cost, where each side's
+  p99 is only the run's slowest seeded turn. `screen` says what the
+  host's screens add: from the key typed to the prompt's entry
+  (`keyToAccepted`) and to the first frame the viewer is sent holding
+  the prompt (`keyToDrawn`), and from the answer's entry to the write
+  that first draws it (`writtenToDrawn`, below 0 when drawn as it
+  streams). The first key after each wake can wait on the wake, as one
+  the mesh woke is still loading when it is typed, so `afterWake` times
+  those apart and the other two leave them out. `bar` says whether
+  each holds: `paired` at most 1 s at the p99, and `keyToAccepted` and
+  `keyToDrawn` at most 200 ms; the burst is judged from its checkpoint.
+- `turnsTimed`: every hosted turn's own times, plain pi's beside them
+  and its key's when a viewer typed it, with how it woke when it was
+  the first key since, so a reading the report doesn't make can still
+  be made.
 - `slowKeys`: the 20 slowest keys whose prompt reached the log over
   1 s after it was typed, each with its turn and times, so a p99 says
   which keys it was. Under `--profile`, `spent` says where the host's
