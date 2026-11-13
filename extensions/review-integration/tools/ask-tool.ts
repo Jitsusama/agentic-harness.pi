@@ -13,6 +13,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { loadOnce } from "../../../lib/internal/single-flight.ts";
 import { takesUpCarried } from "../../../lib/jobs/take-up.ts";
 import { THINKING_LEVELS } from "../../../lib/thinking/index.ts";
 import { ROUND_WORK, type RoundReading, takeUpRound } from "../round-job.ts";
@@ -20,6 +21,10 @@ import type { AskParams } from "./ask.ts";
 import { person } from "./heard.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
+
+const roundReadingModule = loadOnce(() => import("../round-reading.ts"));
+/** review_ask's work, loaded once, for the tool and for settling rounds. */
+export const askModule = loadOnce(() => import("./ask.ts"));
 
 /** What `review_ask` takes. */
 const ASK_PARAMETERS = Type.Object({
@@ -158,7 +163,7 @@ function readingLater(
 	runId: string,
 	participants: readonly string[],
 ): RoundReading {
-	const reading = import("../round-reading.ts").then((loaded) =>
+	const reading = roundReadingModule().then((loaded) =>
 		loaded.carriedRoundReading(runId, participants),
 	);
 	return {
@@ -234,7 +239,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			_onUpdate: unknown,
 			ctx: ExtensionContext,
 		): Promise<Answer> {
-			const { runAsk } = await import("./ask.ts");
+			const { runAsk } = await askModule();
 			return runAsk(pi, toolCallId, args as AskParams, callSignal, ctx);
 		},
 	});

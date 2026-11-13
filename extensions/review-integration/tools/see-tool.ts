@@ -8,10 +8,13 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { loadOnce } from "../../../lib/internal/single-flight.ts";
 import { takesUpCarried } from "../../../lib/jobs/take-up.ts";
 import { CHECKS_WORK, takeUpChecks } from "../checks-job.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
+
+const seeModule = loadOnce(() => import("./see.ts"));
 
 /** What `review_see` takes. */
 const SEE_PARAMETERS = Type.Object({
@@ -84,7 +87,7 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 	takesUpCarried(pi.events, CHECKS_WORK, (work) =>
 		takeUpChecks(work, {
 			reading: async (target) => {
-				const { checksReading } = await import("./see.ts");
+				const { checksReading } = await seeModule();
 				return checksReading(pi, target);
 			},
 		}),
@@ -118,7 +121,7 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			const { runSee } = await import("./see.ts");
+			const { runSee } = await seeModule();
 			return runSee(pi, params, ctx);
 		},
 	});

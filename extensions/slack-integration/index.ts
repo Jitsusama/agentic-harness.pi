@@ -21,7 +21,7 @@ import {
 } from "../../lib/internal/away/unattended.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { singleFlight } from "../../lib/internal/single-flight.ts";
+import { loadOnce, singleFlight } from "../../lib/internal/single-flight.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { SlackApiError } from "../../lib/slack/api/client.ts";
@@ -41,6 +41,12 @@ import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { IDENTITY_CONTEXT, identityText } from "./context.ts";
 import { createSessionState, type SlackSessionState } from "./state.ts";
+
+const ensureAuthModule = loadOnce(
+	() => import("../../lib/slack/auth/ensure-auth.ts"),
+);
+const routerModule = loadOnce(() => import("./router.ts"));
+const authCommandModule = loadOnce(() => import("./auth-command.ts"));
 
 /** Lightweight shapes for renderResult previews. */
 interface MessagePreview {
@@ -205,9 +211,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		if (cachedClient) return cachedClient;
 		return login("slack", async () => {
 			try {
-				const { ensureAuthenticated } = await import(
-					"../../lib/slack/auth/ensure-auth.ts"
-				);
+				const { ensureAuthenticated } = await ensureAuthModule();
 				cachedClient = await ensureAuthenticated(
 					unattended(ctx),
 					ENV_OAUTH_CONFIG,
@@ -482,7 +486,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			// than at the fifty-odd places a result is built.
 			try {
 				const client = await getClient(ctx);
-				const { routeAction } = await import("./router.ts");
+				const { routeAction } = await routerModule();
 				const result = await routeAction(
 					params.action as string,
 					client,
@@ -721,7 +725,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	pi.registerCommand("slack-setup", {
 		description: "Set up Slack authentication (interactive)",
 		handler: async (args, ctx) => {
-			const { handleSlackAuthCommand } = await import("./auth-command.ts");
+			const { handleSlackAuthCommand } = await authCommandModule();
 			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
 	});
@@ -730,7 +734,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Slack. Usage: slack-auth [--status] [--logout]",
 		handler: async (args, ctx) => {
-			const { handleSlackAuthCommand } = await import("./auth-command.ts");
+			const { handleSlackAuthCommand } = await authCommandModule();
 			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
 	});

@@ -24,3 +24,26 @@ export function singleFlight<K, V>(): (
 		return flight;
 	};
 }
+
+/**
+ * A module loaded on first use, once: callers who ask while it loads
+ * join that load, and the module is kept once it lands. A failed load
+ * is forgotten, so the next caller tries again.
+ *
+ * pi loads extensions through jiti, which hands a second import of a
+ * module still being evaluated the half-made module. A call made then
+ * finds that module's own imports undefined: on 13 November two of
+ * three review_offer calls made at once failed reading `refuseFailure`.
+ * Every lazy `import()` in an extension goes through one of these, as
+ * `tests/package/lazy-imports-load-once.test.ts` holds.
+ */
+export function loadOnce<M>(load: () => Promise<M>): () => Promise<M> {
+	let loading: Promise<M> | undefined;
+	return () => {
+		loading ??= load().catch((error: unknown) => {
+			loading = undefined;
+			throw error;
+		});
+		return loading;
+	};
+}

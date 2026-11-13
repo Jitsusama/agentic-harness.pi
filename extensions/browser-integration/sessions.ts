@@ -8,7 +8,10 @@
  * first call.
  */
 
+import { loadOnce } from "../../lib/internal/single-flight.ts";
 import type { RegistryOptions, SessionRegistry } from "./registry.ts";
+
+const registryModule = loadOnce(() => import("./registry.ts"));
 
 /** The registry, made on first use and the same one after. */
 export type Sessions = () => Promise<SessionRegistry>;
@@ -26,7 +29,7 @@ export function lazySessions(
 	let made: Promise<SessionRegistry> | undefined;
 	return {
 		sessions: () => {
-			made ??= import("./registry.ts").then((registry) =>
+			made ??= registryModule().then((registry) =>
 				registry.createSessionRegistry(options),
 			);
 			return made;

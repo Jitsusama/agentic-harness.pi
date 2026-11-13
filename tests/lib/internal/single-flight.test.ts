@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { singleFlight } from "../../../lib/internal/single-flight.ts";
+import { loadOnce, singleFlight } from "../../../lib/internal/single-flight.ts";
 
 /** A start whose answer the test hands over when it chooses. */
 function pending<V>() {
@@ -83,5 +83,51 @@ describe("singleFlight", () => {
 		login.resolve("client");
 		expect(await retry).toBe("client");
 		expect(login.starts()).toBe(2);
+	});
+});
+
+describe("loadOnce", () => {
+	it("loads once for callers who ask while it loads", async () => {
+		// pi's loader handed a second import of a module still being
+		// evaluated the half-made module, so two of three review_offer
+		// calls made at once found their imports undefined.
+		const module = pending<string>();
+		const load = loadOnce(module.start);
+
+		const calls = [load(), load(), load()];
+		expect(module.starts(), "one load for three callers").toBe(1);
+		module.resolve("offer");
+
+		expect(await Promise.all(calls)).toEqual(["offer", "offer", "offer"]);
+	});
+
+	it("keeps a module once it has loaded", async () => {
+		const module = pending<string>();
+		const load = loadOnce(module.start);
+
+		const first = load();
+		module.resolve("offer");
+		await first;
+
+		expect(await load(), "the loaded module").toBe("offer");
+		expect(module.starts(), "no second load once loaded").toBe(1);
+	});
+
+	it("shares a failed load with the callers who waited, then tries again", async () => {
+		// A file missing for a moment, as an install swaps, must not be
+		// every later call's answer.
+		const module = pending<string>();
+		const load = loadOnce(module.start);
+
+		const first = load();
+		const second = load();
+		module.reject(new Error("no such file"));
+
+		await expect(first).rejects.toThrow("no such file");
+		await expect(second).rejects.toThrow("no such file");
+		const retry = load();
+		module.resolve("offer");
+		expect(await retry, "the module from the second load").toBe("offer");
+		expect(module.starts(), "a second load after the failure").toBe(2);
 	});
 });

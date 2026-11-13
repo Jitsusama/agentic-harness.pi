@@ -5,9 +5,12 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { loadOnce } from "../../lib/internal/single-flight.ts";
 import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import type { Sessions } from "./sessions.ts";
+
+const doModule = loadOnce(() => import("./do.ts"));
 
 const parameters = Type.Object({
 	kind: Type.Optional(
@@ -312,7 +315,7 @@ export function registerDo(pi: ExtensionAPI, sessions: Sessions): void {
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
 		async execute(_id, params, signal, _onUpdate, ctx) {
-			const { runDo } = await import("./do.ts");
+			const { runDo } = await doModule();
 			return runDo(ctx, await sessions(), params, signal);
 		},
 	});

@@ -7,8 +7,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { loadOnce } from "../../../lib/internal/single-flight.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
+
+const readModule = loadOnce(() => import("./read.ts"));
 
 /** What `review` takes. */
 const REVIEW_PARAMETERS = Type.Object({
@@ -94,7 +97,7 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			const { runReview } = await import("./read.ts");
+			const { runReview } = await readModule();
 			return runReview(pi, params, ctx);
 		},
 	});
