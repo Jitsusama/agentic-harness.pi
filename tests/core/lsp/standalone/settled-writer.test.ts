@@ -49,6 +49,8 @@ it("fails a request it can't send, leaving nothing loose", async () => {
 	const asked = connection.sendRequest("textDocument/hover", {});
 
 	await expect(asked, "the caller hears its call failed").rejects.toThrow();
+	// A real pause: what's checked is that nothing goes loose, and no
+	// event marks a rejection that never comes.
 	await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
 	expect(
 		loose.map((reason) => String(reason)),
@@ -61,6 +63,8 @@ it("lets a notification it can't send go quietly", async () => {
 
 	await connection.sendNotification("textDocument/didChange", {});
 
+	// A real pause: what's checked is that nothing goes loose, and no
+	// event marks a rejection that never comes.
 	await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
 	expect(
 		loose.map((reason) => String(reason)),
