@@ -164,7 +164,12 @@ parked (lib/internal/warming-carry.ts): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
 A resume stops it before the session starts and takes the carry, and a
-warm out then is dropped rather than holding the wake up. Given
+warm out then is dropped rather than holding the wake up.
+quiet-collection.ts gives V8's pooled pages back: once no turn has
+started or ended and no conversation has been let go for a minute, and
+none is busy, the host runs one last-resort collection, which unmaps
+the pages V8 keeps until a memory-reducing collection, and reports how
+long it took and what it gave back. Given
 screens, the engine hands each built conversation to them; without, it
 binds extensions with no interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.
