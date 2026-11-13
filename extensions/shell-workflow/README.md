@@ -261,14 +261,16 @@ pi's own file tools run outside Landlock, so the
 Starting a process forks the one that starts it, and pi grows past a
 gigabyte in a long session: a spawn from it took 36 ms at the median,
 against 4 ms from a fresh node, on the thread that reads the person's
-keys. A session started with `PI_SPAWNER=on` hands each command to
-`pi-spawner` instead, a small program core.nix puts on the PATH, which
-the harness starts once for the session. The command runs as it would
-under pi: in a process group of its own, with the same folder,
-variables, stop, time limit and exit code. Where the program isn't on
-the PATH or stops, pi starts commands itself, as it does without the
-variable. A reload or a new session retires its load's `pi-spawner`,
-which closes once the commands it runs have ended, so a background
+keys. A session hands each command to `pi-spawner` instead, a small
+program core.nix puts in the system's profile, which the harness starts
+once for the session; one started with `PI_SPAWNER=off` doesn't. The
+command runs as it would under pi: in a process group of its own, with
+the same folder, variables, stop, time limit and exit code. Where the
+program isn't in the profile or stops, pi starts commands itself, as it
+does when it is turned off. A command pi-spawner starts isn't kept on
+disk, so a move waits for it to end rather than carrying it. A reload
+or a new session retires its load's `pi-spawner`, which closes once
+the commands it runs have ended, so a background
 command outlives the reload. Each load, as it starts, stops any
 `pi-spawner` its pi started that runs nothing, as loads from before
 retiring was possible left them, whether or not it runs one itself: a
