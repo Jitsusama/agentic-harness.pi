@@ -36,9 +36,12 @@
  * follower does once its install moves. The harness's own park-workflow
  * parks a conversation the park switch names, by plain pi's rule, and
  * SCREEN_HOST_ALSO names more of the harness's extensions, by folder,
- * for a case that needs them, such as the mesh a release steers by. At
+ * for a case that needs them, such as the mesh a release steers by.
+ * SCREEN_HOST_AGENT names a JSON file of more `providers` for its
+ * models.json and more `settings` for its settings.json, such as the
+ * soak's provider over HTTP made the default. At
  * SIGHUP it collects its garbage and weighs itself into `weighed.json` in
- * HOME: its PSS and swapped PSS, and how many conversations' sessions
+ * HOME: its RSS, PSS and swapped PSS, and how many conversations' sessions
  * are still in memory. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
@@ -219,8 +222,8 @@ process.on("SIGHUP", weigh);
 
 /**
  * Collect the garbage, then write what this process weighs to
- * `weighed.json` in HOME, whole, for a test to read: its PSS and swapped
- * PSS in kB, as the kernel counts them, the heap V8 still uses in kB, and
+ * `weighed.json` in HOME, whole, for a test to read: its RSS, PSS and
+ * swapped PSS in kB, as the kernel counts them, the heap V8 still uses in kB, and
  * how many sessions the agent folder's weigh extension saw start are
  * still in memory.
  */
@@ -247,6 +250,7 @@ function weigh(): void {
 	writeFileSync(
 		`${weighed}.part`,
 		JSON.stringify({
+			rss: kb("Rss"),
 			pss: kb("Pss"),
 			swapPss: kb("SwapPss"),
 			heapKb: Math.round(process.memoryUsage().heapUsed / BYTES_PER_KB),
@@ -374,9 +378,11 @@ function writeClipboard(): string {
  * every frame, a `/status` command setting a footer status line to its
  * words, and this checkout's panel-lifecycle and panel-zoom extensions.
  * The second model reasons, so the footer names its thinking level.
+ * What SCREEN_HOST_AGENT's file holds is added to both files.
  */
 function writeAgentFolder(api: string): void {
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
+	const more = moreOfTheAgent();
 	writeFileSync(
 		join(agentDir, "models.json"),
 		JSON.stringify({
@@ -398,6 +404,7 @@ function writeAgentFolder(api: string): void {
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 					})),
 				},
+				...more.providers,
 			},
 		}),
 	);
@@ -407,6 +414,7 @@ function writeAgentFolder(api: string): void {
 			defaultProvider: PROVIDER,
 			defaultModel: MODEL,
 			quietStartup: true,
+			...more.settings,
 		}),
 	);
 	writeFileSync(
@@ -598,4 +606,24 @@ export default function (pi) {
 			join(agentDir, "extensions", `${extension}.ts`),
 			`export { default } from ${JSON.stringify(join(harness, "extensions", extension, "index.ts"))};\n`,
 		);
+}
+
+/** The providers and settings SCREEN_HOST_AGENT's file adds, or none. */
+function moreOfTheAgent(): {
+	readonly providers: Record<string, unknown>;
+	readonly settings: Record<string, unknown>;
+} {
+	const file = process.env.SCREEN_HOST_AGENT;
+	if (!file) return { providers: {}, settings: {} };
+	const said: unknown = JSON.parse(readFileSync(file, "utf8"));
+	const part = (name: string): Record<string, unknown> => {
+		const value: unknown =
+			typeof said === "object" && said !== null
+				? Reflect.get(said, name)
+				: undefined;
+		return typeof value === "object" && value !== null
+			? Object.fromEntries(Object.entries(value))
+			: {};
+	};
+	return { providers: part("providers"), settings: part("settings") };
 }

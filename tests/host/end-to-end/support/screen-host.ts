@@ -27,9 +27,16 @@ const LISTEN_MS = 60_000;
 const ASK_EVERY_MS = 50;
 /** How long the host may take to collect its garbage and weigh itself. */
 const WEIGH_MS = 10_000;
+/**
+ * How long an open may take: it loads every extension for the new
+ * conversation, past the client's own 30 s on a loaded lender.
+ */
+const OPEN_MS = 120_000;
 
 /** What the host weighs, as it says once it has collected its garbage. */
 export interface Weight {
+	/** Its resident set size, in kB. */
+	readonly rss: number;
 	/** Its proportional set size, in kB. */
 	readonly pss: number;
 	/** Its proportional share of swap, in kB. */
@@ -78,12 +85,14 @@ export interface ScreenHost {
 /**
  * Start a screen host under `seal` on the pi at `packageDir`, its
  * conversations loading the harness's extensions `also` names, by folder,
- * beside the fixture's own.
+ * beside the fixture's own, and its agent folder adding what the JSON
+ * file `agent` names, as the fixture's SCREEN_HOST_AGENT says.
  */
 export async function startScreenHost(
 	seal: Seal,
 	packageDir: string,
 	also: readonly string[] = [],
+	agent?: string,
 ): Promise<ScreenHost> {
 	const child = spawn(
 		process.execPath,
@@ -94,6 +103,7 @@ export async function startScreenHost(
 				...seal.env,
 				PI_OFFLINE: "1",
 				...(also.length > 0 ? { SCREEN_HOST_ALSO: also.join(",") } : {}),
+				...(agent === undefined ? {} : { SCREEN_HOST_AGENT: agent }),
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		},
@@ -107,8 +117,8 @@ export async function startScreenHost(
 	);
 	const path = await listening(child, exited, () => errors);
 	let asked = 0;
-	const ask = async (request: ControlRequest) => {
-		const reply = await controlRequest(path, request);
+	const ask = async (request: ControlRequest, ms?: number) => {
+		const reply = await controlRequest(path, request, ms);
 		if (!reply.ok) throw new Error(reply.error.message);
 		return reply.result;
 	};
@@ -154,14 +164,17 @@ export async function startScreenHost(
 		path,
 		open: async (cwd, first) =>
 			parseOpenResult(
-				await ask({
-					v: 1,
-					id: id(),
-					op: "open",
-					cwd,
-					attended: true,
-					...(first === undefined ? {} : { first }),
-				}),
+				await ask(
+					{
+						v: 1,
+						id: id(),
+						op: "open",
+						cwd,
+						attended: true,
+						...(first === undefined ? {} : { first }),
+					},
+					OPEN_MS,
+				),
 			),
 		list,
 		close: (sessionId, by) => end("close", sessionId, by),
@@ -201,6 +214,7 @@ export async function startScreenHost(
 function weight(said: unknown): Weight {
 	if (
 		!isRecord(said) ||
+		typeof said.rss !== "number" ||
 		typeof said.pss !== "number" ||
 		typeof said.swapPss !== "number" ||
 		typeof said.heapKb !== "number" ||
@@ -211,6 +225,7 @@ function weight(said: unknown): Weight {
 		(id): id is string => typeof id === "string",
 	);
 	return {
+		rss: said.rss,
 		pss: said.pss,
 		swapPss: said.swapPss,
 		heapKb: said.heapKb,

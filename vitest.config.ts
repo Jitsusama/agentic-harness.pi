@@ -73,6 +73,7 @@ const PROCESS_TESTS = [
 	"tests/host/engine/hosted-agent.test.ts",
 	"tests/host/engine/engine.test.ts",
 	"tests/host/parity/parity.test.ts",
+	"tests/host/soak/soak.test.ts",
 	"tests/host/end-to-end/sealed-host.test.ts",
 	"tests/host/end-to-end/killed-busy.test.ts",
 	"tests/host/end-to-end/listed-busy.test.ts",
