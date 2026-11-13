@@ -206,6 +206,11 @@ const report = {
 		parked: growthOf(parkedWeights.map((one) => one.heapKb)),
 		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
 		rssParked: growthOf(parkedWeights.map((one) => one.rss)),
+		rssAwake: growthOf(hosted.checkpoints.map((one) => one.awake.rss)),
+		heapTotalParked: growthOf(parkedWeights.map((one) => one.heapTotalKb)),
+		heapTotalAwake: growthOf(
+			hosted.checkpoints.map((one) => one.awake.heapTotalKb),
+		),
 		heldWhileParked: parkedWeights.map((one) => one.sessions.length),
 	},
 	latency: {
@@ -362,7 +367,7 @@ async function runHosted(sealed: Seal): Promise<{
 			wakeMs,
 		});
 		say(
-			`checkpoint ${weighings.length}: heap ${awake.heapKb} kB awake, ${parked.heapKb} kB parked`,
+			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked`,
 		);
 		// Each weighing in full as it is taken, so a run cut short by its
 		// lender's limit still leaves the memory curve it got to.

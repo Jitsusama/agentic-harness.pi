@@ -40,12 +40,14 @@ nix-offload there --never-ask --run --copy "$runtime" --longest 14400 -- \
 It prints a line a checkpoint and the report as one JSON line after
 `soak report:`. The report holds:
 
-- `checkpoints`: the host's RSS, PSS, swapped PSS and heap after its
-  garbage is collected, awake and parked, with the bytes the logs hold.
-- `heap`: whether the parked heap, the awake heap and the parked RSS
-  settle. A parked heap that still climbs in the run's later half is a
-  leak; the awake heap grows with the conversations' history, so read it
-  against the log bytes.
+- `checkpoints`: the host's RSS, PSS, swapped PSS, heap used, heap
+  total, external and array buffers after its garbage is collected,
+  awake and parked, with the bytes the logs hold.
+- `heap`: whether the heap used, the heap total and RSS settle, awake
+  and parked. A parked heap that still climbs in the run's later half is
+  a leak; the awake heap grows with the conversations' history, so read
+  it against the log bytes. RSS or heap total climbing over a flat heap
+  used is pages V8 freed and keeps pooled, not objects held.
 - `latency`: each side's 50th and 99th percentile, from a prompt's entry
   to its answer's in the log. pi writes both as each message ends in its
   engine, so these are the engine's own turns, like for like. `screen`
