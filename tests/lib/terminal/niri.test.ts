@@ -168,7 +168,7 @@ describe("a class of its own", () => {
 		expect(second).not.toBe(first);
 	});
 
-	it("is never the same in two conversations of one host, each with its own copy", async () => {
+	it("is never the same from two copies of the module in one process, as a reload makes", async () => {
 		vi.resetModules();
 		const one = await import("../../../lib/terminal/niri.ts");
 		vi.resetModules();
@@ -176,7 +176,7 @@ describe("a class of its own", () => {
 
 		expect(
 			one.classOfItsOwn,
-			"each conversation loads a copy of its own",
+			"each import loads a copy of its own",
 		).not.toBe(other.classOfItsOwn);
 		expect(one.classOfItsOwn(4242)).not.toBe(other.classOfItsOwn(4242));
 	});

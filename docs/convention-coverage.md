@@ -50,7 +50,10 @@ sites are listed by file and kind in session-state-waiting.txt, which only
 shrinks. This is syntax coverage, not alias or data-flow analysis, and does
 not cover library code. Genuine process-wide infrastructure, once its
 domain owner reviews it, moves to session-state-exempt.txt with a reason
-per line; a line without one, or a count the file outgrows, fails.
+per line; a line without one, or a count the file outgrows, fails. The
+package declares `pi.sessionStateKeyed` only while nothing waits, which
+the same test holds, since a host shares a declaring package's modules
+across every folder.
 
 ## Open Gaps
 

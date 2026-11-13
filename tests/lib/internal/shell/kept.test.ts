@@ -10,6 +10,7 @@ import {
 	rmSync,
 	statSync,
 	utimesSync,
+	chmodSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +26,7 @@ import {
 	removeKept,
 	rollIfFull,
 	sweepKept,
+	teePersists,
 } from "../../../../lib/internal/shell/kept.ts";
 
 const PRIVATE = 0o600;
@@ -43,6 +45,26 @@ function folder(): string {
 	made.push(dir);
 	return join(dir, "kept");
 }
+
+/** A folder holding only a `tee` that ends with `status`, as a PATH. */
+function teeEnding(status: number): string {
+	const dir = mkdtempSync(join(tmpdir(), "tee-"));
+	made.push(dir);
+	const tee = join(dir, "tee");
+	writeFileSync(tee, `#!/bin/sh\nexit ${status}\n`);
+	chmodSync(tee, PRIVATE_FOLDER);
+	return dir;
+}
+
+describe("whether tee persists", () => {
+	it("answers for the tee each PATH finds", () => {
+		const persists = teeEnding(0);
+		const refuses = teeEnding(1);
+		expect(teePersists(persists)).toBe(true);
+		expect(teePersists(refuses)).toBe(false);
+		expect(teePersists(persists), "each answer kept apart").toBe(true);
+	});
+});
 
 describe("a kept call", () => {
 	it("is made private, in a private folder, with nothing written yet", () => {

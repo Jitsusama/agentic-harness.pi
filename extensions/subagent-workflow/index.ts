@@ -42,7 +42,10 @@ import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { hosted } from "../../lib/core/session/index.ts";
+import {
+	type SessionRef,
+	sessionCell,
+} from "../../lib/core/session/index.ts";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { tickFacts } from "../../lib/internal/process-ticks.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
@@ -223,29 +226,28 @@ async function recordOrSay(
 	}
 }
 
-/**
- * Who is waiting, asked once in plain pi.
- *
- * There the answer is the process, which cannot change, and asking
- * costs a subprocess, so it is kept; the library is left stateless,
- * since a cache belongs to a session rather than to a definition. A
- * failure is not kept, because `ps` can miss for a moment under load
- * and caching that turns one slow probe into a session where no fleet
- * is attributed to anybody.
- *
- * In a host it is asked every time: each conversation waits on its own
- * fleets, the host already knows its own birthday, and this module is
- * shared by every conversation in a folder.
- */
-async function ourOwner(): Promise<FleetRun["owner"]> {
-	if (hosted()) return await whoIsWaiting(tickFacts);
-	if (waiting !== undefined) return waiting;
-	waiting = await whoIsWaiting(tickFacts);
-	return waiting;
-}
+const OWNER_CELL = "agentic-harness.subagent-workflow.owner.v1";
 
-/** What {@link ourOwner} has settled on, once it has. */
-let waiting: FleetRun["owner"] | undefined;
+/**
+ * Who is waiting in the conversation `session` names, asked once.
+ *
+ * The answer cannot change and asking costs a subprocess, so it is
+ * kept, in the conversation's own cell: in a host, each conversation is
+ * an owner of its own. The library is left stateless, since a cache
+ * belongs to a session rather than to a definition. A failure is not
+ * kept, because `ps` can miss for a moment under load and caching that
+ * turns one slow probe into a session where no fleet is attributed to
+ * anybody.
+ */
+async function ourOwner(session: SessionRef): Promise<FleetRun["owner"]> {
+	const cell = sessionCell<NonNullable<FleetRun["owner"]>>(OWNER_CELL, session);
+	const kept = cell.get();
+	if (kept !== undefined) return kept;
+	// The pid left to its default, this process's.
+	const owner = await whoIsWaiting(tickFacts, undefined, session);
+	if (owner !== undefined) cell.set(owner);
+	return owner;
+}
 
 /**
  * Whether this context's conversation said anything before this start,
@@ -941,7 +943,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						// Asked inside the guard, since it forks a subprocess and
 						// bookkeeping must not cost a fleet: outside it, a `ps`
 						// that hung or threw took the dispatch with it.
-						const owner = await ourOwner();
+						const owner = await ourOwner(ctx);
 						await ledger.open({
 							id: runId,
 							startedAt: new Date().toISOString(),

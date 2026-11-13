@@ -12,6 +12,7 @@ const ROOT = join(import.meta.dirname, "../..");
 const LIST = join(import.meta.dirname, "session-state-waiting.txt");
 const EXEMPT = join(import.meta.dirname, "session-state-exempt.txt");
 const LOADED = ["extensions", "lib", "host", "packs"];
+const MANIFEST = join(ROOT, "package.json");
 /**
  * How long one walk of every loaded file may take. It takes about 2 s alone,
  * but a whole-suite run starves it of CPU past vitest's 5 s default.
@@ -138,6 +139,24 @@ describe("session state in the code a conversation loads", () => {
 		expect(
 			stale,
 			"lower tests/package/session-state-waiting.txt, or an exemption, to the counts still present, removing zero entries",
+		).toEqual([]);
+	});
+
+	it("declares its state keyed only while no site waits", () => {
+		const manifest: unknown = JSON.parse(readFileSync(MANIFEST, "utf8"));
+		const pi =
+			typeof manifest === "object" && manifest !== null && "pi" in manifest
+				? manifest.pi
+				: undefined;
+		const declared =
+			typeof pi === "object" &&
+			pi !== null &&
+			"sessionStateKeyed" in pi &&
+			pi.sessionStateKeyed === true;
+		if (!declared) return;
+		expect(
+			[...waiting().keys()],
+			"a host shares a package declaring pi.sessionStateKeyed across every folder, so each waiting site is keyed in a session slot or exempted with its reason first",
 		).toEqual([]);
 	});
 
