@@ -122,9 +122,23 @@ interface Checkpoint {
 	readonly parked?: Weight;
 	/** The bytes every conversation's log holds. */
 	readonly recordBytes: number;
-	/** How long the last conversation took to park, and each to wake. */
+	/** How long the last conversation took to park. */
 	readonly parkMs?: number;
-	readonly wakeMs?: readonly number[];
+	/** Each window's wake, one at a time, before the others wake. */
+	readonly windowWakes?: readonly WindowWake[];
+}
+
+/**
+ * A window opened on a parked conversation while nothing else wakes: the
+ * host's answer to its attach waits for the whole wake, so `answeredMs`
+ * is the wake, and `drawnMs` the screen's first words after it.
+ */
+interface WindowWake {
+	readonly conversation: number;
+	/** The bytes its log held, which its wake reads. */
+	readonly recordBytes: number;
+	readonly answeredMs: number;
+	readonly drawnMs: number;
 }
 
 /** A conversation of the run, on one side. */
@@ -357,10 +371,13 @@ async function runHosted(sealed: Seal): Promise<{
 		const parkMs = Date.now() - parking;
 		const parked = await weighedOnceLetGo(host, ids, done);
 		writeFileSync(switchFile, "");
-		const wakeMs = await Promise.all(
-			conversations.map((one) =>
-				wake(host, one, weighings.length, parkFolder, byKey),
-			),
+		const checkpoint = weighings.length;
+		const windowWakes: WindowWake[] = [];
+		for (const one of conversations)
+			if (wakeOf(one, checkpoint) === "window")
+				windowWakes.push(await windowWake(host, one));
+		await Promise.all(
+			conversations.map((one) => wake(host, one, checkpoint, parkFolder, byKey)),
 		);
 		weighings.push({
 			turnsDone: done,
@@ -369,7 +386,7 @@ async function runHosted(sealed: Seal): Promise<{
 			parked,
 			recordBytes,
 			parkMs,
-			wakeMs,
+			windowWakes,
 		});
 		say(
 			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked, ${loopOf(awake)}`,
@@ -399,10 +416,47 @@ function workingFolder(work: Folders): string {
 	return cwd;
 }
 
+/** How a parked conversation wakes at a checkpoint, each way in turn. */
+function wakeOf(
+	one: Conversation,
+	checkpoint: number,
+): "window" | "mesh" | "key" {
+	const ways = ["window", "mesh", "key"] as const;
+	return ways[(one.index + checkpoint) % ways.length] ?? "key";
+}
+
+/** Open a window on a parked conversation, timing its wake and first drawing. */
+async function windowWake(
+	host: ScreenHost,
+	one: Conversation,
+): Promise<WindowWake> {
+	const recordBytes = sizeOf(one.file);
+	const started = Date.now();
+	const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+	const answered = Date.now();
+	await tried(
+		window.sent(/\S/, DRAWN_MS),
+		`a window woke ${one.sessionId} and drew nothing`,
+	);
+	const drawn = Date.now();
+	await tried(
+		host.idle(one.sessionId, TURN_MS),
+		`${one.sessionId} didn't wake by a window`,
+	);
+	await window.leave();
+	return {
+		conversation: one.index,
+		recordBytes,
+		answeredMs: answered - started,
+		drawnMs: drawn - answered,
+	};
+}
+
 /**
- * Wake a parked conversation, by a window opening on it, by the mesh's
- * wake, or left for its next key, by which checkpoint this is; how long
- * it took, or 0 for one its next key wakes.
+ * Wake a parked conversation by the mesh, or leave it for its next key,
+ * by which checkpoint this is; one a window wakes woke already. A mesh
+ * wake goes untimed: the host lists a waking conversation idle before it
+ * has loaded, so nothing outside it says when the wake ends.
  */
 async function wake(
 	host: ScreenHost,
@@ -410,29 +464,16 @@ async function wake(
 	checkpoint: number,
 	parkFolder: string,
 	byKey: Set<string>,
-): Promise<number> {
-	const started = Date.now();
-	const how = (one.index + checkpoint) % 3;
-	if (how === 2) {
-		byKey.add(one.sessionId);
-		return 0;
-	}
-	if (how === 1) {
-		if (!askWake(one.sessionId, `soak-${checkpoint}`, parkFolder))
-			fault(`${one.sessionId} had no marker to wake it by`);
-		await tried(
-			host.idle(one.sessionId, TURN_MS),
-			`${one.sessionId} didn't wake by the mesh`,
-		);
-		return Date.now() - started;
-	}
-	const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+): Promise<void> {
+	const how = wakeOf(one, checkpoint);
+	if (how === "key") byKey.add(one.sessionId);
+	if (how !== "mesh") return;
+	if (!askWake(one.sessionId, `soak-${checkpoint}`, parkFolder))
+		fault(`${one.sessionId} had no marker to wake it by`);
 	await tried(
 		host.idle(one.sessionId, TURN_MS),
-		`${one.sessionId} didn't wake by a window`,
+		`${one.sessionId} didn't wake by the mesh`,
 	);
-	await window.leave();
-	return Date.now() - started;
 }
 
 /** Take one conversation through its turns, visit by visit, stopping at each checkpoint. */

@@ -8,7 +8,8 @@ host adds, and records that drift from plain pi's.
   viewers that attach for a visit of two to eight turns and leave, a
   second viewer joining every third visit. At each checkpoint every
   conversation parks and the host is weighed awake and parked, then each
-  wakes by a window, the mesh or its next key, in turn.
+  wakes by a window, the mesh or its next key, in turn: the windows one
+  at a time first, as a person opens one, then the rest together.
 - `turns.ts`: the script, the same on every run of the same sizes, with
   reads, bash, background bash jobs and long answers among the echoes.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
@@ -19,8 +20,8 @@ host adds, and records that drift from plain pi's.
   between each pair of logs.
 - `profile.ts`: where each side's time went, from the CPU profiles node
   writes under `--profile`, by area and by function.
-- `soak.test.ts`: the soak at its smallest, two conversations of two turns
-  with no parking, in `pnpm test:host`.
+- `soak.test.ts`: the soak at its smallest, two conversations of two turns,
+  once with no parking and once parked and woken, in `pnpm test:host`.
 
 ## Running a Week
 
@@ -45,7 +46,11 @@ It prints a line a checkpoint and the report as one JSON line after
   awake and parked, with the bytes the logs hold. The awake weighing
   also says how late the host's loop ran, at its 99th percentile and at
   most, and the share of the time it was busy, since the weighing
-  before, the weighings' own collections left out.
+  before, the weighings' own collections left out. `windowWakes` times
+  each window's wake, from its attach to the host's answer, which waits
+  for the whole wake, and from there to its first drawing, with the bytes
+  its log held. A mesh wake goes untimed: the host lists a waking
+  conversation idle before it has loaded.
 - `heap`: whether the heap used, the heap total and RSS settle, awake
   and parked. A parked heap that still climbs in the run's later half is
   a leak; the awake heap grows with the conversations' history, so read
