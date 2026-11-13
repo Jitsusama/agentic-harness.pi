@@ -10,7 +10,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	CONVERSATION_MARKER,
 	conversationMarker,
@@ -36,7 +36,17 @@ interface FakeProcess {
 	env: Record<string, string>;
 	/** When it started, in ticks; 0 unless a case says. */
 	started?: number;
+	/** Its cgroup, or unreadable unless a case says. */
+	cgroup?: string;
 }
+
+/** A cgroup under the account's user manager. */
+const USER = "/user.slice/user-1000.slice/user@1000.service";
+
+/** The host's own cgroup, the work slice's and one moved out on purpose. */
+const IN_HOST = `${USER}/background.slice/pi-host.service`;
+const IN_WORK = `${USER}/jobs.slice/jobs.service`;
+const MOVED_OUT = `${USER}/background.slice/demo-tunnels-8.scope`;
 
 /** The host the fake table's processes ran under: pid 1, started at tick 0. */
 const HOST = { key: "test-host", mark: "1:0" };
@@ -55,6 +65,7 @@ function fakeTable(
 		pids: () => [...live.keys()],
 		environ: async (pid) => live.get(pid)?.env,
 		group: (pid) => live.get(pid)?.group,
+		cgroup: (pid) => live.get(pid)?.cgroup,
 		started: (pid) => {
 			const found = live.get(pid);
 			return found === undefined ? undefined : (found.started ?? 0);
@@ -147,6 +158,46 @@ describe("reaping a conversation's tool children", () => {
 		).toEqual([1, 10, 11]);
 	});
 
+	describe("with a process moved out of the host's cgroup and the work slice", () => {
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("spares it, kills its group's others one by one, and kills the work slice's group whole", async () => {
+			vi.stubEnv("JOBS_CGROUP", "jobs.slice/jobs.service");
+			const a = conversationMarker("a", HOST);
+			const table = fakeTable({
+				1: { group: 1, env: {}, cgroup: IN_HOST },
+				10: { group: 10, env: a, cgroup: IN_WORK },
+				20: { group: 20, env: a, cgroup: MOVED_OUT },
+				30: { group: 30, env: a, cgroup: IN_WORK },
+				31: { group: 30, env: a, cgroup: MOVED_OUT },
+				40: { group: 40, env: a, cgroup: `${IN_HOST}/child` },
+			});
+			expect(await reapToolChildren("a", table)).toEqual({
+				groups: [10, 40],
+				pids: [30],
+			});
+			expect(
+				[...table.pids()].sort(),
+				"the host and the two moved out live on",
+			).toEqual([1, 20, 31]);
+		});
+
+		it("kills it where the host's own cgroup can't be read", async () => {
+			vi.stubEnv("JOBS_CGROUP", "jobs.slice/jobs.service");
+			const table = fakeTable({
+				1: { group: 1, env: {} },
+				20: {
+					group: 20,
+					env: conversationMarker("a", HOST),
+					cgroup: MOVED_OUT,
+				},
+			});
+			expect((await reapToolChildren("a", table)).groups).toEqual([20]);
+		});
+	});
+
 	it("answers nothing when no process carries the marker", async () => {
 		const table = fakeTable({ 1: { group: 1, env: {} } });
 		expect(await reapToolChildren("a", table)).toEqual({
@@ -224,6 +275,29 @@ describe("reaping what a dead host left behind", () => {
 			pids: [],
 		});
 		expect(table.killed).toEqual([]);
+	});
+
+	it("spares what it moved out of its cgroup and the work slice, at the next host's start", async () => {
+		vi.stubEnv("JOBS_CGROUP", "jobs.slice/jobs.service");
+		try {
+			const table = fakeTable({
+				1: { group: 1, env: {}, cgroup: IN_HOST },
+				10: {
+					group: 10,
+					env: conversationMarker("a", EARLIER),
+					cgroup: IN_WORK,
+				},
+				20: {
+					group: 20,
+					env: conversationMarker("a", EARLIER),
+					cgroup: MOVED_OUT,
+				},
+			});
+			expect((await reapLeftBehind("test-host", table)).groups).toEqual([10]);
+			expect([...table.pids()].sort(), "the tunnel lives on").toEqual([1, 20]);
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("marks this process as an owner by its pid and start", () => {
