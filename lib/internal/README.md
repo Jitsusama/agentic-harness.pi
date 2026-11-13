@@ -33,7 +33,8 @@ may import from here, and any of it may change without notice.
   share.
 - **`install/`**: whether the installed dependencies and checkout
   are the ones on disk, and which builds the install skipped, for
-  `install-check-workflow` and `pnpm load-check`.
+  `install-check-workflow` and `pnpm load-check`, read once for
+  every conversation one load serves.
 - **`links/`**: what a click on pi's fullscreen lands on: the
   places plain text names, where each opens, and the one wrap of
   pi-tui's press that lets `link-click-widget` open them.
