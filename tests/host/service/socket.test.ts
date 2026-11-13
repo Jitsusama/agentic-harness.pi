@@ -16,8 +16,8 @@ import {
 } from "../../../host/service/server.ts";
 import { terminalBridge } from "../../../host/service/viewer.ts";
 import { ambientSession } from "../../../lib/core/session/index.ts";
-import { isRecord } from "../../../lib/internal/record.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
 const b = "b0000000-0000-4000-8000-000000000002";
