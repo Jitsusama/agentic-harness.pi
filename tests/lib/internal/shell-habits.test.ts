@@ -1,6 +1,16 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
+import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox.ts";
 import {
 	mixedTurnRefusal,
 	shellEditRefusal,
@@ -166,6 +176,10 @@ describe("a tracked file rewritten from the shell", () => {
 		await git(repo, "commit", "-q", "-m", "a test");
 	});
 	afterAll(() => disposeRepo(repo));
+	// The fixture is a temp repo, not a tree the work tool cut, so a
+	// fenced session's git would refuse to read it.
+	beforeEach(() => vi.stubEnv(SANDBOX_VARIABLE, ""));
+	afterEach(() => vi.unstubAllEnvs());
 
 	it("is found by each way the shell rewrites a file", () => {
 		const file = join(repo, "a.test.ts");

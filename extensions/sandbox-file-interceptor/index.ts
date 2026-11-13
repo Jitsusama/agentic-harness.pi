@@ -34,6 +34,7 @@ import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import { recordRefusal } from "../../lib/internal/fence-log.ts";
 import { SANDBOX_VARIABLE } from "../../lib/internal/sandbox.ts";
 import { fileToolRefusal } from "../../lib/internal/sandbox-files.ts";
+import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
 
 /** Wires the fence onto each call to pi's file tools. */
 export default function sandboxFileInterceptor(pi: ExtensionAPI) {
@@ -47,7 +48,10 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		const reason = fileToolRefusal(event, {
 			cwd: ctx.cwd,
-			env: process.env,
+			// The loaded quest's TMPDIR reaches only the agent's commands,
+			// offered as each starts; judged by pi's own, the quest's scratch
+			// would read as another quest's, and the write tool refuse it.
+			env: { ...process.env, ...offeredShellEnvironment() },
 			home: homedir(),
 			skills,
 		});

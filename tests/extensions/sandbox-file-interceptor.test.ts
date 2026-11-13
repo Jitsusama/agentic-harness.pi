@@ -25,6 +25,7 @@ import {
 	fileToolRefusal,
 	toolPaths,
 } from "../../lib/internal/sandbox-files.ts";
+import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 
 // What the interceptor would write to the system's log, kept here rather
 // than written to the machine's real one.
@@ -277,6 +278,53 @@ describe("the interceptor", () => {
 			seat(),
 		);
 		expect(answer).toBeUndefined();
+	});
+
+	describe("in a fenced session on a quest", () => {
+		let scratch: string;
+
+		beforeEach(() => {
+			process.env.PI_SANDBOX = "fence";
+			vi.stubEnv("XDG_CACHE_HOME", join(base, "cache"));
+			const root = join(base, "cache/pi/agentic-harness.pi/quest-workspace");
+			mkdirSync(join(root, "QEST-1/tmp"), { recursive: true });
+			mkdirSync(join(root, "QEST-2/tmp"), { recursive: true });
+			scratch = join(base, "pi-quest-QEST-1");
+			symlinkSync(join(root, "QEST-1/tmp"), scratch);
+			// The quest workflow offers its TMPDIR to the agent's commands
+			// only; pi's own environment never names it.
+			offerShellEnvironment("quest-workflow", () => ({ TMPDIR: scratch }));
+		});
+
+		afterEach(() => {
+			offerShellEnvironment("quest-workflow", undefined);
+			vi.unstubAllEnvs();
+		});
+
+		it("writes in the quest's own scratch, as its commands do", async () => {
+			const answer = await handler(
+				{
+					toolName: "write",
+					input: { path: join(scratch, "report.txt"), content: "x" },
+				},
+				seat(),
+			);
+			expect(answer, "the write tool refused its own scratch").toBeUndefined();
+		});
+
+		it("never writes in another quest's scratch", async () => {
+			const other = join(
+				base,
+				"cache/pi/agentic-harness.pi/quest-workspace/QEST-2/tmp/x.txt",
+			);
+			const answer = await handler(
+				{ toolName: "write", input: { path: other, content: "x" } },
+				seat(),
+			);
+			expect(answer, "another quest's scratch took a write").toMatchObject({
+				block: true,
+			});
+		});
 	});
 
 	it("lets a session with no sandbox read as it likes", async () => {
