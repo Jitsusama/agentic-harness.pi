@@ -51,6 +51,15 @@ export interface ScreenSplit {
 	readonly undrawn: number;
 }
 
+/** A key that took longer than the bar to reach its conversation's log. */
+export interface SlowKey {
+	readonly tag: string;
+	/** When it was typed and when its prompt was written, in ms since the epoch. */
+	readonly keyAt: number;
+	readonly promptAt: number;
+	readonly ms: number;
+}
+
 /** A series' 50th and 99th percentiles and how many it held. */
 export interface Spread {
 	readonly count: number;
@@ -151,6 +160,28 @@ export function screenSplit(
 		keyToDrawn: spreadOf(whole),
 		undrawn,
 	};
+}
+
+/**
+ * The keys typed for `turns` whose prompt was written more than `overMs`
+ * after it, the slowest first and at most `most` of them, so a p99 says
+ * which keys it was.
+ */
+export function slowKeys(
+	turns: readonly TurnTime[],
+	typed: ReadonlyMap<string, Typed>,
+	overMs: number,
+	most: number,
+): SlowKey[] {
+	return turns
+		.flatMap(({ tag, promptAt }) => {
+			const keys = typed.get(tag);
+			if (keys === undefined) return [];
+			const ms = promptAt - keys.keyAt;
+			return ms > overMs ? [{ tag, keyAt: keys.keyAt, promptAt, ms }] : [];
+		})
+		.sort((a, b) => b.ms - a.ms)
+		.slice(0, most);
 }
 
 /** When each soak turn's prompt and answer were written in a log, in order. */

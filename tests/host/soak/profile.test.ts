@@ -4,7 +4,7 @@
  * by area and by function across every profile read.
  */
 import { describe, expect, it } from "vitest";
-import { timeSpent } from "./profile.ts";
+import { longestLived, timeSpent, timeSpentWithin } from "./profile.ts";
 
 const PI = "file:///nix/store/x/lib/node_modules/pi-monorepo/node_modules";
 
@@ -78,6 +78,44 @@ describe("where a profile's time went", () => {
 			timeSpent([called]).calledFrom,
 			"the sync spawn, not the GC",
 		).toEqual([{ name: "onTurn extensions/job-workflow/i.ts:10", ms: 2 }]);
+	});
+
+	it("sums only the samples inside a stretch of wall time", () => {
+		// Nine samples at 1 to 9 ms of a profile 9 ms long, pinned to a
+		// wall clock that ran 18 ms meanwhile, so each sample lands at twice
+		// its profile time: 6 to 10 ms on the wall holds those at 3 to 5.
+		const timed = {
+			...profile([3, 3, 4, 5, 5, 2, 2, 6, 7]),
+			startTime: 50_000,
+			endTime: 59_000,
+		};
+		const wall = 1_000_000;
+		const within = timeSpentWithin(
+			timed,
+			{ startedAt: wall, endedAt: wall + 18 },
+			{ from: wall + 6, to: wall + 10 },
+		);
+		expect(within.busyMs, "the three samples at 3 to 5 ms").toBe(3);
+		expect(within.areas, "two in the extension, one in the engine").toEqual([
+			{ name: "extension: job-workflow", ms: 2 },
+			{ name: "pi: pi-agent-core", ms: 1 },
+		]);
+	});
+
+	it("says nothing within a stretch of a profile with no clock", () => {
+		const within = timeSpentWithin(
+			profile([3, 3]),
+			{ startedAt: 0, endedAt: 2 },
+			{ from: 0, to: 2 },
+		);
+		expect(within, "none read").toMatchObject({ profiles: 0, busyMs: 0 });
+	});
+
+	it("picks the profile that lived longest, the host's own", () => {
+		const child = { ...profile([3]), startTime: 10, endTime: 20 };
+		const host = { ...profile([3]), startTime: 0, endTime: 900 };
+		expect(longestLived([child, "nonsense", host]), "the host").toBe(host);
+		expect(longestLived([]), "none").toBeUndefined();
 	});
 
 	it("adds several profiles together and skips what isn't one", () => {
