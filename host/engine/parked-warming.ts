@@ -185,11 +185,7 @@ export function parkedWarming(options: {
 		flying += 1;
 		let sent: WarmSent;
 		try {
-			sent = await options.send(
-				carry,
-				warming.env,
-				warming.controller.signal,
-			);
+			sent = await options.send(carry, warming.env, warming.controller.signal);
 		} finally {
 			flying -= 1;
 		}
