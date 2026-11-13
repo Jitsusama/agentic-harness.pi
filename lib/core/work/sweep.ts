@@ -52,6 +52,7 @@ import { createGitHistory } from "./history.ts";
 import {
 	headStillSince,
 	resolvedPath as resolved,
+	treeStillSince,
 	treesInUse,
 	type UseSigns,
 } from "./in-use.ts";
@@ -263,6 +264,11 @@ async function byRepository(
  * broker hand it to nobody else, and the removal runs after. A
  * shareable tree is never taken that way, since another session may
  * join one whoever holds it.
+ *
+ * A tree that moved within {@link PUSHED_SETTLE_MS} is kept without
+ * asking, as a pushed git worktree is: on 13 November a provider called
+ * a live World tree spent, clean on its branch, and the sweep took it
+ * while the session working there stood in another folder.
  */
 async function releaseThroughProvider(
 	deps: SweepDeps,
@@ -280,6 +286,11 @@ async function releaseThroughProvider(
 	}
 	if (tree.identity.shareable) {
 		keep("it is shareable, so a session could join it while it is removed");
+		return;
+	}
+	const since = (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS;
+	if (!treeStillSince(tree.path, since)) {
+		keep("it moved within the last day, so a session may come back to it");
 		return;
 	}
 	const provider = deps.providers?.().find((one) => one.id === tree.providerId);

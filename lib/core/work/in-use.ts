@@ -140,6 +140,25 @@ export function headStillSince(path: string, since: number): boolean {
 	});
 }
 
+/**
+ * Whether a tree has sat still since `since`: its HEAD and reflog, as
+ * {@link headStillSince} reads them, or, with no git to say, the tree's
+ * folder and its `src` folder, which change as anything is added to or
+ * taken from them.
+ */
+export function treeStillSince(path: string, since: number): boolean {
+	const checkout = existsSync(join(path, ".git")) ? path : join(path, "src");
+	if (gitDirOf(checkout) !== undefined) return headStillSince(path, since);
+	return [path, checkout].every((one) => {
+		try {
+			return statSync(one).mtimeMs <= since;
+		} catch {
+			// A folder that isn't there has nothing in it to have moved.
+			return true;
+		}
+	});
+}
+
 /** The git folder of a checkout, whether `.git` is one or points at one. */
 function gitDirOf(checkout: string): string | undefined {
 	const dotGit = join(checkout, ".git");
