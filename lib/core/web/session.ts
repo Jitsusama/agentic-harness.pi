@@ -73,23 +73,16 @@ import {
 	CONTENT_PROBE,
 	type DelegatedListeners,
 	diffStyles,
-	foldHover,
-	HIDE_TEXT,
-	HOVER_SCAN,
-	type HoverMeasurement,
 	type HoverReport,
-	type HoverScan,
 	judgeActionability,
 	judgeVisibility,
 	type Listener,
-	MAX_HOVER_CANDIDATES,
 	type Measurement,
 	measureBetween,
 	normalizeAnimations,
 	normalizeBoxModel,
 	normalizeListeners,
 	OCCLUDER_PROBE,
-	OWN_TEXT_PROBE,
 	PAINTING_ELEMENT_PROBE,
 	type PseudoState,
 	type PseudoVariant,
@@ -99,14 +92,11 @@ import {
 	type Rect,
 	SELECT_TEXT_PROBE,
 	SETTLE_PROBE,
-	type StyleChange,
 	sameBox,
 	type VisibilityVerdict,
 } from "./element/index.ts";
 import { DIR_MODE, FILE_MODE, pathComponent } from "./envelope/index.ts";
 import {
-	type CookieRecord,
-	captureState,
 	chooseTab,
 	type Divergence,
 	type EmulationState,
@@ -206,14 +196,10 @@ import {
 	type ConformanceBar,
 	type ContrastLevel,
 	enabledRules,
-	foldBehind,
-	foldPair,
 	MOTION_CAPTURE,
 	type MotionCapture,
 	type PageBox,
-	type PaintedSide,
 	type PairReport,
-	parseRgb,
 	type RawAxeRun,
 	readAxeRun,
 	type StructureNode,
@@ -238,19 +224,13 @@ import { HYDRATION_CAPTURE, type HydrationCapture } from "./hydration/index.ts";
 import {
 	categoriesFor,
 	compareHeap,
-	foldLayers,
 	foldProfile,
 	foldTrace,
 	type HeapComparison,
 	type HeapReading,
 	type Hotspots,
-	LAYER_ROUNDS,
-	LAYER_SETTLE_MS,
 	type LayerReport,
-	nameNode,
-	namesAnElement,
 	observerBootstrap,
-	type RawLayer,
 	type RawProfile,
 	type RawTraceEvent,
 	readVitalsSource,
@@ -260,7 +240,9 @@ import {
 } from "./perf/index.ts";
 import { captureTiles } from "./screenshot.ts";
 import { ArtifactLedger } from "./session/artifacts.ts";
+import { SessionContrast } from "./session/contrast.ts";
 import { EmulationController } from "./session/emulation.ts";
+import { SessionPainting } from "./session/painting.ts";
 import {
 	claimRecording,
 	describeRecording,
@@ -271,6 +253,7 @@ import {
 import { PageSettler } from "./session/settling.ts";
 import { NetworkShaper } from "./session/shaping.ts";
 import { SourceMapStore } from "./session/sourcemaps.ts";
+import { SessionStorage, type StateLoaded } from "./session/storage.ts";
 import { SessionTelemetry } from "./session/telemetry.ts";
 import type { SessionWires } from "./session/wires.ts";
 import {
@@ -642,6 +625,31 @@ export class BrowserSession {
 
 	/** The rules and throttle this session's network answers to. */
 	private readonly shaper = new NetworkShaper(this.wires);
+
+	/** What the page keeps, read and written. */
+	private readonly stores = new SessionStorage(this.wires);
+
+	/** How readable the page is, judged through this session's nodes. */
+	private readonly contrast = new SessionContrast(this.wires, {
+		axTree: () => this.axTree(),
+		objectFor: (id) => this.objectFor(id),
+		paintingElement: (id) => this.paintingElement(id),
+		stylesOf: (id) => this.stylesOf(id),
+		capture: (id) => this.capture(id, {}),
+		release: (id) => this.release(id),
+		readShot: async (shot) => {
+			const { readPng } = await images();
+			return readPng(readFileSync(shot));
+		},
+	});
+
+	/** Layers and hover states, read through this session's nodes. */
+	private readonly painting = new SessionPainting(this.wires, {
+		frontendNodeFor: (id) => this.frontendNodeFor(id),
+		objectFor: (id) => this.objectFor(id),
+		stylesOf: (id) => this.stylesOf(id),
+		settleForcedState: (id) => this.settleForcedState(id),
+	});
 
 	/** The disk side of this session: sink, stamps and ledger. */
 	private readonly artifacts: ArtifactLedger;
@@ -1398,416 +1406,36 @@ export class BrowserSession {
 	/** The previous heap reading, for the next comparison. */
 	private lastHeap?: HeapReading;
 
-	/**
-	 * What the compositor is holding for this page, and why.
-	 *
-	 * LayerTree pushes nothing when it is enabled: the tree arrives
-	 * only on layerTreeDidChange, and a page that has finished
-	 * settling has no change left to report. Measured across seven
-	 * candidates, a throwaway screenshot is the cheapest way to make
-	 * Chrome recompose and hand the tree over, and the only one that
-	 * alters nothing about the page. Scrolling moves the page,
-	 * overriding device metrics disturbs an emulation the caller may
-	 * have set, and toggling a style writes to the DOM.
-	 *
-	 * The domain goes off again afterwards, so a read leaves no
-	 * instrumentation running behind it.
-	 */
-	/**
-	 * Judge text against the background actually behind its glyphs.
-	 *
-	 * For the case axe hands back as needing a person: text over a
-	 * gradient, a photograph, or anything else with no single
-	 * background colour. Two shots of the same region, the second with
-	 * the text hidden, give both the glyph mask and what lies under it.
-	 *
-	 * Hiding the text is a paint-only change, so nothing moves between
-	 * the shots and the subtraction stays aligned. The inline style is
-	 * put back in a finally, including the case where it had one of its
-	 * own to begin with.
-	 */
-	async contrastBehind(
+	/** Judge text against the background behind it (session/contrast.ts). */
+	contrastBehind(
 		target: Target,
 		bar: ContrastLevel = "AA",
 	): Promise<
 		{ ok: true; report: BehindReport } | { ok: false; refusal: TargetRefusal }
 	> {
-		await this.ready();
-		const tree = await this.axTree();
-		const resolution = resolveTarget(tree, target);
-		if (resolution.kind === "notFound") {
-			return { ok: false, refusal: notFoundRefusal(tree, target) };
-		}
-		if (resolution.kind === "ambiguous") {
-			return { ok: false, refusal: ambiguityRefusal(tree, target) };
-		}
-		const backendNodeId = resolution.backendDomId;
-
-		const named = await this.objectFor(backendNodeId);
-		if (!named) {
-			return { ok: false, refusal: notFoundRefusal(tree, target) };
-		}
-		// Naming a paragraph's text means naming its StaticText, since
-		// a paragraph has no accessible name, and that resolves to a
-		// text node. The colour and the hiding both belong to the
-		// element painting it; the capture below still uses the named
-		// node, whose box is the tighter one.
-		const objectId = await this.paintingElement(named);
-
-		try {
-			const styles = await this.stylesOf(objectId);
-			// No fallback here on purpose. parseRgb returns undefined for a
-			// colour it cannot read, and the fold treats that as undecidable;
-			// substituting black would answer confidently about a colour
-			// nobody read.
-			const colour = parseRgb(styles?.color ?? "");
-			const sizing = {
-				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
-				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
-			};
-
-			const first = await this.capture(backendNodeId, {});
-			await this.hideText(objectId, true);
-			try {
-				const second = await this.capture(backendNodeId, {});
-				const { readPng } = await images();
-				const withText = readPng(readFileSync(first.paths[0] ?? ""));
-				const bare = readPng(readFileSync(second.paths[0] ?? ""));
-				return {
-					ok: true,
-					report: foldBehind({
-						withText,
-						bare,
-						textColour: colour
-							? { r: colour.r, g: colour.g, b: colour.b }
-							: undefined,
-						sizing,
-						bar,
-					}),
-				};
-			} finally {
-				await this.hideText(objectId, false);
-			}
-		} finally {
-			await this.release(objectId);
-			// Promoting a text node makes a second handle, and the node
-			// that was named is still ours to let go of.
-			if (named !== objectId) await this.release(named);
-		}
+		return this.contrast.behind(target, bar);
 	}
 
-	/**
-	 * Judge the contrast between two elements the caller named.
-	 *
-	 * Distinct from contrastBehind, which subtracts pixels to read the
-	 * background under one element's glyphs. This compares two
-	 * elements' stated colours, which is the only way to ask about a
-	 * boundary: an icon against its card, a border against the page.
-	 * Both sides are read from the computed style rather than the
-	 * screen, so nothing is captured and nothing moves.
-	 */
-	async contrastPair(
+	/** Judge the contrast between two elements the caller named. */
+	contrastPair(
 		one: Target,
 		other: Target,
 		bar: ContrastLevel = "AA",
 	): Promise<
 		| { ok: true; report: PairReport }
-		// The failing target travels with the refusal, as it does for a
-		// measurement between two elements. Without it the caller can
-		// only render the refusal against the target it happens to hold,
-		// which is the first one, and a caller told the subject was not
-		// found goes and corrects a subject that was fine.
 		| { ok: false; target: Target; refusal: TargetRefusal }
 	> {
-		await this.ready();
-		const tree = await this.axTree();
-		const sides: PaintedSide[] = [];
-		for (const target of [one, other]) {
-			const resolution = resolveTarget(tree, target);
-			if (resolution.kind === "notFound") {
-				return { ok: false, target, refusal: notFoundRefusal(tree, target) };
-			}
-			if (resolution.kind === "ambiguous") {
-				return { ok: false, target, refusal: ambiguityRefusal(tree, target) };
-			}
-			const named = await this.objectFor(resolution.backendDomId);
-			if (!named) {
-				return { ok: false, target, refusal: notFoundRefusal(tree, target) };
-			}
-			// Either side may be named as StaticText, which resolves to a
-			// text node: no computed style to read, and no child text
-			// nodes of its own, so it would also be judged as carrying no
-			// text and drawn against the wrong criterion.
-			const objectId = await this.paintingElement(named);
-			try {
-				sides.push(await this.paintedSide(objectId));
-			} finally {
-				await this.release(objectId);
-				if (named !== objectId) await this.release(named);
-			}
-		}
-		const [first, second] = sides;
-		if (!first || !second) {
-			// Only reachable if a side went missing after resolving, and
-			// the loop above returns for anything it could name, so the
-			// one still unaccounted for is the second.
-			return {
-				ok: false,
-				target: other,
-				refusal: notFoundRefusal(tree, other),
-			};
-		}
-		return { ok: true, report: foldPair({ one: first, other: second, bar }) };
+		return this.contrast.pair(one, other, bar);
 	}
 
-	/** What one side of a contrast pairing paints. */
-	private async paintedSide(objectId: string): Promise<PaintedSide> {
-		const styles = await this.stylesOf(objectId);
-		const { result } = await this.cdp.send("Runtime.callFunctionOn", {
-			objectId,
-			functionDeclaration: OWN_TEXT_PROBE,
-			returnByValue: true,
-		});
-		return {
-			hasText: result.value === true,
-			...(styles?.color === undefined ? {} : { color: styles.color }),
-			...(styles?.["background-color"] === undefined
-				? {}
-				: { backgroundColor: styles["background-color"] }),
-			...(styles?.["border-color"] === undefined
-				? {}
-				: { borderColor: styles["border-color"] }),
-			sizing: {
-				fontSizePx: Number.parseFloat(styles?.["font-size"] ?? "16") || 16,
-				fontWeight: Number.parseFloat(styles?.["font-weight"] ?? "400") || 400,
-			},
-		};
+	/** The layers the compositor made (session/painting.ts). */
+	layers(): Promise<LayerReport> {
+		return this.painting.layers();
 	}
 
-	/**
-	 * Make an element's own text stop painting, and put it back.
-	 *
-	 * Only colour and shadow are touched, because neither affects
-	 * layout: the glyphs still occupy the same pixels, they simply
-	 * leave no mark on them.
-	 */
-	private async hideText(objectId: string, hidden: boolean): Promise<void> {
-		try {
-			await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: HIDE_TEXT,
-				arguments: [{ value: hidden }],
-				returnByValue: true,
-			});
-		} catch {
-			// A page that navigated mid-measurement has already discarded
-			// the element, so there is no style left to restore.
-		}
-	}
-
-	async layers(): Promise<LayerReport> {
-		await this.ready();
-
-		let latest: readonly RawLayer[] = [];
-		const onChange = (payload: { layers?: RawLayer[] }): void => {
-			if (payload.layers) latest = payload.layers;
-		};
-		this.cdp.on("LayerTree.layerTreeDidChange", onChange);
-		try {
-			await this.cdp.send("LayerTree.enable");
-			// Each screenshot makes Chrome compose a frame, and so send a tree.
-			for (let round = 0; round < LAYER_ROUNDS; round++) {
-				await this.cdp.send("Page.captureScreenshot", { format: "png" });
-				await this.settleLayers();
-				if (namesAnElement(latest)) break;
-			}
-		} finally {
-			this.cdp.off("LayerTree.layerTreeDidChange", onChange);
-			// Best effort: a disable that fails leaves the domain on, which
-			// costs a little work per frame but breaks nothing, and is not
-			// worth failing the read over.
-			await this.cdp.send("LayerTree.disable").catch(() => undefined);
-		}
-
-		// Snapshotted before anything is asked about it. Every await
-		// below lets another change land, and a loop reading the live
-		// array attributes one layer's reasons to another's id.
-		const layers = [...latest];
-		const reasons: Record<string, readonly string[]> = {};
-		const elements: Record<string, string> = {};
-		for (const layer of layers) {
-			reasons[layer.layerId] = await this.reasonsFor(layer.layerId);
-			const named = await this.nameOfNode(layer.backendNodeId);
-			if (named !== undefined) elements[layer.layerId] = named;
-		}
-
-		return foldLayers({ layers, reasons, elements });
-	}
-
-	/**
-	 * What the page does on hover, and whether focus does it too.
-	 *
-	 * Two halves, because either alone lies. The stylesheets say
-	 * which elements might hover, cheaply and in one round trip, but
-	 * a declared rule the cascade beat changes nothing a person can
-	 * see. So the scan only proposes candidates, and each one is then
-	 * held in hover and in focus and read, which is the only account
-	 * of what actually happens.
-	 *
-	 * Bounded because there is a round trip per candidate, measured
-	 * at roughly 9ms for the pair of states.
-	 */
-	async hovers(limit = MAX_HOVER_CANDIDATES): Promise<HoverReport> {
-		await this.ready();
-
-		const scan = await this.scanForHover();
-		const measurements: HoverMeasurement[] = [];
-		const seen = new Set<number>();
-
-		for (const selector of scan.selectors) {
-			if (measurements.length >= limit) break;
-			for (const found of await this.nodesMatching(selector)) {
-				if (measurements.length >= limit) break;
-				// One element can match two hover selectors. Measuring it
-				// twice would report one treatment as two.
-				if (seen.has(found)) continue;
-				seen.add(found);
-				const measured = await this.measureHover(found);
-				if (measured) measurements.push(measured);
-			}
-		}
-
-		return foldHover(measurements, scan.unreadableSheets);
-	}
-
-	/** Which selectors carry a hover, as the page's own sheets say. */
-	private async scanForHover(): Promise<HoverScan> {
-		try {
-			const { result } = await this.cdp.send("Runtime.evaluate", {
-				expression: HOVER_SCAN,
-				returnByValue: true,
-			});
-			const parsed: unknown = JSON.parse(String(result.value));
-			if (
-				typeof parsed === "object" &&
-				parsed !== null &&
-				"selectors" in parsed &&
-				Array.isArray(parsed.selectors)
-			) {
-				const sheets =
-					"unreadableSheets" in parsed &&
-					typeof parsed.unreadableSheets === "number"
-						? parsed.unreadableSheets
-						: 0;
-				return {
-					selectors: parsed.selectors.filter(
-						(one): one is string => typeof one === "string",
-					),
-					unreadableSheets: sheets,
-				};
-			}
-			return { selectors: [], unreadableSheets: 0 };
-		} catch {
-			// A page that navigated mid-scan has no stylesheets to report.
-			return { selectors: [], unreadableSheets: 0 };
-		}
-	}
-
-	/** Backend ids matching a selector, or none if it will not parse. */
-	private async nodesMatching(selector: string): Promise<readonly number[]> {
-		try {
-			const { root } = await this.cdp.send("DOM.getDocument", { depth: 0 });
-			const { nodeIds } = await this.cdp.send("DOM.querySelectorAll", {
-				nodeId: root.nodeId,
-				selector,
-			});
-			const backend: number[] = [];
-			for (const nodeId of nodeIds) {
-				const { node } = await this.cdp.send("DOM.describeNode", { nodeId });
-				if (node.backendNodeId !== undefined) backend.push(node.backendNodeId);
-			}
-			return backend;
-		} catch {
-			// A selector Chrome will not parse, which a stylesheet can
-			// legally contain once its hover part is stripped off.
-			return [];
-		}
-	}
-
-	/** Hold hover, then focus, and read what each changed. */
-	private async measureHover(
-		backendNodeId: number,
-	): Promise<HoverMeasurement | undefined> {
-		const nodeId = await this.frontendNodeFor(backendNodeId);
-		if (nodeId === undefined) return undefined;
-		const objectId = await this.objectFor(backendNodeId);
-		if (objectId === undefined) return undefined;
-
-		const named = await this.nameOfNode(backendNodeId);
-		const atRest = await this.stylesOf(objectId);
-		if (!atRest) return undefined;
-		const resting = curateStyles(atRest, {});
-
-		const read = async (
-			state: PseudoState,
-		): Promise<readonly StyleChange[]> => {
-			await this.cdp.send("CSS.forcePseudoState", {
-				nodeId,
-				forcedPseudoClasses: [state],
-			});
-			await this.settleForcedState(objectId);
-			const held = await this.stylesOf(objectId);
-			return held ? diffStyles(resting, curateStyles(held, {})) : [];
-		};
-
-		try {
-			const hover = await read("hover");
-			const focus = await read("focus");
-			return { element: named ?? `node ${backendNodeId}`, hover, focus };
-		} finally {
-			// Always released. A page left stuck in a forced hover would
-			// corrupt every later reading of it, and a restoration written
-			// after the reads would not run when one of them throws.
-			await this.cdp
-				.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] })
-				.catch(() => undefined);
-		}
-	}
-
-	/** Why Chrome composited one layer, or nothing if it will not say. */
-	private async reasonsFor(layerId: string): Promise<readonly string[]> {
-		try {
-			const answer = await this.cdp.send("LayerTree.compositingReasons", {
-				layerId,
-			});
-			return answer.compositingReasons ?? [];
-		} catch {
-			// The layer went away between the snapshot and the question,
-			// which is silence about it rather than a reason to fail.
-			return [];
-		}
-	}
-
-	/** A short name for the element behind a layer. */
-	private async nameOfNode(
-		backendNodeId: number | undefined,
-	): Promise<string | undefined> {
-		if (backendNodeId === undefined) return undefined;
-		try {
-			const { node } = await this.cdp.send("DOM.describeNode", {
-				backendNodeId,
-			});
-			return nameNode(node.nodeName, node.attributes);
-		} catch {
-			// A node that has left the document cannot be named, and a
-			// layer without a name is still worth reporting by id.
-			return undefined;
-		}
-	}
-
-	/** Give the compositor a moment to finish reporting. */
-	private settleLayers(): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, LAYER_SETTLE_MS));
+	/** What the page does on hover, and whether focus does it too. */
+	hovers(limit?: number): Promise<HoverReport> {
+		return this.painting.hovers(limit);
 	}
 
 	/** Socket events dropped to stay within the buffer's budget. */
@@ -1859,91 +1487,23 @@ export class BrowserSession {
 		return this.emulation.asked;
 	}
 
-	/**
-	 * Read what the page has kept.
-	 *
-	 * A store that cannot be read says why rather than coming
-	 * back empty, since an empty store and an unreadable one lead
-	 * to opposite conclusions.
-	 */
-	async storage(wanted: {
+	/** Read what the page has kept (session/storage.ts). */
+	storage(wanted: {
 		local?: boolean;
 		session?: boolean;
 		cookies?: boolean;
 		clipboard?: boolean;
 	}): Promise<StorageSnapshot> {
-		await this.ready();
-		const snapshot: {
-			local?: readonly (readonly [string, string])[];
-			session?: readonly (readonly [string, string])[];
-			cookies?: readonly CookieRecord[];
-			clipboard?: string;
-			unavailable: Record<string, string>;
-		} = { unavailable: {} };
-
-		if (wanted.local) {
-			snapshot.local = await this.domStorage(true, snapshot.unavailable);
-		}
-		if (wanted.session) {
-			snapshot.session = await this.domStorage(false, snapshot.unavailable);
-		}
-		if (wanted.cookies) {
-			try {
-				const { cookies } = await this.cdp.send("Network.getCookies");
-				snapshot.cookies = cookies as CookieRecord[];
-			} catch (err) {
-				snapshot.unavailable.cookies = String(err);
-			}
-		}
-		if (wanted.clipboard) {
-			const read = await this.clipboard();
-			if (read.ok) snapshot.clipboard = read.text;
-			else snapshot.unavailable.clipboard = read.why;
-		}
-
-		const { unavailable, ...rest } = snapshot;
-		return Object.keys(unavailable).length > 0
-			? { ...rest, unavailable }
-			: rest;
-	}
-
-	/** One of the two DOM stores, keyed by this frame's origin. */
-	private async domStorage(
-		isLocalStorage: boolean,
-		unavailable: Record<string, string>,
-	): Promise<readonly (readonly [string, string])[] | undefined> {
-		const label = isLocalStorage ? "local storage" : "session storage";
-		try {
-			await this.cdp.send("DOMStorage.enable");
-			const { entries } = await this.cdp.send("DOMStorage.getDOMStorageItems", {
-				storageId: { securityOrigin: await this.origin(), isLocalStorage },
-			});
-			// The protocol types an entry as a loose string array; it
-			// is always a key and a value, which is what the pair type
-			// says and what the renderer reads.
-			return entries.map((entry) => [entry[0] ?? "", entry[1] ?? ""] as const);
-		} catch (err) {
-			// A page on about:blank or a file url has no security
-			// origin to key a store by, which is a fact about where we
-			// are rather than a failure to report.
-			unavailable[label] = String(err);
-			return undefined;
-		}
+		return this.stores.storage(wanted);
 	}
 
 	/** Put a value into one of the DOM stores. */
-	async setStored(
+	setStored(
 		isLocalStorage: boolean,
 		key: string,
 		value: string,
 	): Promise<void> {
-		await this.ready();
-		await this.cdp.send("DOMStorage.enable");
-		await this.cdp.send("DOMStorage.setDOMStorageItem", {
-			storageId: { securityOrigin: await this.origin(), isLocalStorage },
-			key,
-			value,
-		});
+		return this.stores.setStored(isLocalStorage, key, value);
 	}
 
 	/**
@@ -2031,172 +1591,28 @@ export class BrowserSession {
 		return { ...chosen, current: true };
 	}
 
-	/**
-	 * Keep everything that makes this session signed in.
-	 *
-	 * Cookies and the two DOM stores together, because being logged
-	 * in is rarely all in one of them: a session cookie and a token
-	 * in local storage is the ordinary arrangement, and saving half
-	 * of it produces a state that restores without signing anyone
-	 * in.
-	 */
-	async saveState(): Promise<SavedState> {
-		await this.ready();
-		const snapshot = await this.storage({
-			local: true,
-			session: true,
-			cookies: true,
-		});
-		return captureState(await this.origin(), snapshot);
+	/** Keep everything that makes this session signed in. */
+	saveState(): Promise<SavedState> {
+		return this.stores.saveState();
 	}
 
-	/**
-	 * Wear a state saved earlier, and report exactly what landed.
-	 *
-	 * Cookies go to the browser, so they apply whatever page is
-	 * open. The DOM stores are scoped to an origin, so they can only
-	 * be written while the session is on the origin they came from,
-	 * and the answer says when they were not rather than counting
-	 * them as restored. A caller who is told they are signed in and
-	 * is not will blame the site.
-	 */
-	async loadState(state: SavedState): Promise<{
-		cookies: number;
-		local: number;
-		session: number;
-		wrongOrigin?: string;
-	}> {
-		await this.ready();
-		if (state.cookies.length > 0) {
-			await this.cdp.send("Network.setCookies", {
-				cookies: state.cookies.map(({ sameSite, ...rest }) => ({
-					...rest,
-					// A saved file can hold any string here, and the protocol
-					// takes three. An unrecognised one is dropped rather than
-					// passed on: without the attribute the browser applies its
-					// own default, which is what a cookie with a nonsense
-					// value would have got anyway, and sending it refuses the
-					// whole batch and signs nobody in.
-					...(sameSite === "Strict" || sameSite === "Lax" || sameSite === "None"
-						? { sameSite }
-						: {}),
-				})),
-			});
-		}
-
-		const here = await this.origin();
-		if (here !== state.origin) {
-			return {
-				cookies: state.cookies.length,
-				local: 0,
-				session: 0,
-				wrongOrigin: here,
-			};
-		}
-
-		for (const [key, value] of state.local) {
-			await this.setStored(true, key, value);
-		}
-		for (const [key, value] of state.session) {
-			await this.setStored(false, key, value);
-		}
-		return {
-			cookies: state.cookies.length,
-			local: state.local.length,
-			session: state.session.length,
-		};
+	/** Wear a state saved earlier, and report exactly what landed. */
+	loadState(state: SavedState): Promise<StateLoaded> {
+		return this.stores.loadState(state);
 	}
 
 	/** Empty the stores named, and only those. */
-	async clearStorage(wanted: {
+	clearStorage(wanted: {
 		local?: boolean;
 		session?: boolean;
 		cookies?: boolean;
 	}): Promise<void> {
-		await this.ready();
-		if (wanted.local || wanted.session) {
-			await this.cdp.send("DOMStorage.enable");
-			const securityOrigin = await this.origin();
-			if (wanted.local) {
-				await this.cdp.send("DOMStorage.clear", {
-					storageId: { securityOrigin, isLocalStorage: true },
-				});
-			}
-			if (wanted.session) {
-				await this.cdp.send("DOMStorage.clear", {
-					storageId: { securityOrigin, isLocalStorage: false },
-				});
-			}
-		}
-		if (wanted.cookies) await this.cdp.send("Network.clearBrowserCookies");
-	}
-
-	/**
-	 * Read the clipboard.
-	 *
-	 * Chrome refuses this unless the permission is granted against
-	 * the browser context, not merely the origin, and unless the
-	 * read is attributed to a user gesture. Both were measured;
-	 * either alone still gets a refusal.
-	 */
-	private async clipboard(): Promise<
-		{ ok: true; text: string } | { ok: false; why: string }
-	> {
-		try {
-			await this.grantClipboard();
-			const response = await this.cdp.send("Runtime.evaluate", {
-				expression: "navigator.clipboard.readText()",
-				awaitPromise: true,
-				userGesture: true,
-				returnByValue: true,
-			});
-			// Runtime.evaluate resolves with exceptionDetails rather
-			// than rejecting, so a refused permission arrived here as
-			// an undefined value and was reported as an empty
-			// clipboard. "Nothing is on the clipboard" and "the page
-			// would not let us look" are different answers, and only
-			// one of them is about the page.
-			if (response.exceptionDetails) {
-				return {
-					ok: false,
-					why: describeThrow(response.exceptionDetails).message,
-				};
-			}
-			return { ok: true, text: String(response.result.value ?? "") };
-		} catch (err) {
-			return { ok: false, why: String(err) };
-		}
+		return this.stores.clearStorage(wanted);
 	}
 
 	/** Put text on the clipboard. */
-	async writeClipboard(text: string): Promise<void> {
-		await this.ready();
-		await this.grantClipboard();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: `navigator.clipboard.writeText(${JSON.stringify(text)})`,
-			awaitPromise: true,
-			userGesture: true,
-		});
-		// This inspected nothing at all, so a refused write was
-		// reported to the caller as a success.
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`Could not write the clipboard: ${threw.message}`);
-		}
-	}
-
-	/** Ask for clipboard access against this context. */
-	private async grantClipboard(): Promise<void> {
-		await this.cdp.send("Browser.grantPermissions", {
-			origin: await this.origin(),
-			browserContextId: this.context.id,
-			permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
-		});
-	}
-
-	/** The origin the current page's stores are keyed by. */
-	private async origin(): Promise<string> {
-		return new URL(this.page.url()).origin;
+	writeClipboard(text: string): Promise<void> {
+		return this.stores.writeClipboard(text);
 	}
 
 	/**
