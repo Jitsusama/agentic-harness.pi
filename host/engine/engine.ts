@@ -75,7 +75,12 @@ import {
 } from "./pi-session.ts";
 import type { AssistantMessage } from "./pi-types.ts";
 import { projectTrust, type StartupQuestion } from "./project-trust.ts";
-import { quietCollection } from "./quiet-collection.ts";
+import {
+	type QuietCollection,
+	type QuietReading,
+	quietCollection,
+	runningTools,
+} from "./quiet-collection.ts";
 import { holdReplacements } from "./replacement.ts";
 import {
 	adoptable,
@@ -201,11 +206,25 @@ export async function createEngine(
 		report,
 		parked: (sessionId) => warming.start(sessionId),
 	});
+	const tools = runningTools();
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.
-	const quiet = quietCollection({
-		busy: () => host.list().some(({ state }) => state === "busy"),
-		report,
-	});
+	const quiet: QuietCollection =
+		options.collectWhenQuiet === false
+			? { stirred() {}, parked() {}, viewed() {}, stop() {} }
+			: quietCollection({ reading: quietReading, report });
+
+	/** What a pause to collect would cost the conversations now. */
+	function quietReading(): QuietReading {
+		let working = 0;
+		for (const [sessionId, record] of live)
+			working += tools.running(sessionId) + backgroundIn(record);
+		const waiting = host
+			.list()
+			.filter(
+				({ id, state }) => state === "busy" && tools.running(id) === 0,
+			).length;
+		return { working, waiting };
+	}
 
 	function held(sessionId: string, file: string): boolean {
 		return (
@@ -472,7 +491,7 @@ export async function createEngine(
 		try {
 			await host.run(sessionId, async () => {
 				next.unsubscribe = runtime.session.subscribe((event) =>
-					publishState(sessionId, event.type),
+					heard(sessionId, event.type),
 				);
 				await options.screens?.rebound(view(sessionId, next), previousId);
 				const recovery = await agentOf(next).recover();
@@ -530,7 +549,7 @@ export async function createEngine(
 		});
 		const agent = agentOf(record);
 		record.unsubscribe = runtime.session.subscribe((event) =>
-			publishState(sessionId, event.type),
+			heard(sessionId, event.type),
 		);
 		if (options.screens)
 			await options.screens.opened(view(sessionId, record), {
@@ -724,10 +743,20 @@ export async function createEngine(
 			record.runtime = undefined;
 			record.conversation = undefined;
 			record.unsubscribe = undefined;
-			if (live.get(sessionId) === record) live.delete(sessionId);
-			// What it held is garbage now: the quiet that frees it starts here.
-			quiet.stirred();
+			if (live.get(sessionId) === record) {
+				live.delete(sessionId);
+				tools.forget(sessionId);
+			}
+			// What it held is garbage now: a park lets most of it go, and may collect sooner.
+			if (record.parking) quiet.parked();
+			else quiet.stirred();
 		}
+	}
+
+	/** Follow what a conversation's session says: its runs, and the tool calls in them. */
+	function heard(sessionId: string, event: string): void {
+		tools.heard(sessionId, event);
+		publishState(sessionId, event);
 	}
 
 	/** Say on the host's list whether a conversation is running, as its runs start and end. */
@@ -774,6 +803,10 @@ export async function createEngine(
 
 		watch(events) {
 			watched = events;
+		},
+
+		viewed() {
+			quiet.viewed();
 		},
 
 		background() {

@@ -50,6 +50,11 @@ pi imports made from outside the host's pi to that pi.
 gateway-key.test.ts checks the launcher's key order and when a personal
 key is resolved again, with a fake resolver and a stamp file in a
 private folder; the dev tool itself is never run.
+settings.test.ts reads the host's config section from a private
+folder: the quiet collection on with no file or no say, off when it
+says false, and a bad value or file said with the defaults kept.
+viewer.test.ts checks the bridge notices each key and resize before
+the screen takes it, and passes edits and detaches on unnoticed.
 roster.test.ts checks durable holds across stop and a host that died
 without closing, lock refusal and takeover races, launch environments
 written only when they hold something, and refusal to start over an

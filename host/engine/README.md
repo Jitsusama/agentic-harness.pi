@@ -165,11 +165,19 @@ most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
 A resume stops it before the session starts and takes the carry, and a
 warm out then is dropped rather than holding the wake up.
-quiet-collection.ts gives V8's pooled pages back: once no turn has
-started or ended and no conversation has been let go for a minute, and
-none is busy, the host runs one last-resort collection, which unmaps
-the pages V8 keeps until a memory-reducing collection, and reports how
-long it took and what it gave back. Given
+quiet-collection.ts gives V8's pooled pages back with one last-resort
+collection, which unmaps the pages V8 keeps until a memory-reducing
+one, once something has stirred (a turn started or ended, or a
+conversation was let go) and the host is quiet: no tool call or job
+running, and no viewer's key or resize for 30 s. A conversation
+mid-turn that only waits on the model doesn't hold it off, since the
+attended host almost always has one, and the pause costs it at most a
+stall in streaming. It runs at most once in 10 minutes, and a park may
+bring one forward inside them. The journal line says the pause in ms,
+the Pss before and after and how many conversations were waiting on
+the model, and names a pause over a second as the loop held, as the
+watchdog names a late beat. The `host` section of the package's config
+file turns it off with `collectWhenQuiet: false` (service/settings.ts). Given
 screens, the engine hands each built conversation to them; without, it
 binds extensions with no interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
 host's life a start at a time.
