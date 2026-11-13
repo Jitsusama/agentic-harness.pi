@@ -90,6 +90,25 @@ describe("what a session asking for the fence is given", () => {
 		);
 	});
 
+	it("carries the system's logger for its refusals, refused or not", () => {
+		const logged = finder({
+			bwrap: "/bin/bwrap",
+			landrun: "/bin/landrun",
+			logger: "/bin/logger",
+		});
+		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", logged);
+		const offLinux = sandboxFor({ PI_SANDBOX: FENCE }, "darwin", logged);
+		const none = sandboxFor({}, "linux", logged);
+		expect(fence, "the fence's logger").toMatchObject({
+			logger: "/bin/logger",
+		});
+		expect(offLinux, "a refusal's logger").toMatchObject({
+			kind: "refused",
+			logger: "/bin/logger",
+		});
+		expect(none, "no sandbox has nothing to log").toEqual({ kind: "none" });
+	});
+
 	it("names both sandboxes when asked for one that isn't there", () => {
 		const loose = sandboxFor({ PI_SANDBOX: "loose" }, "linux", all);
 		const reason = loose.kind === "refused" ? loose.reason : "";

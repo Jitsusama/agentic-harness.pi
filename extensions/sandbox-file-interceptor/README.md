@@ -62,6 +62,23 @@ It blocks rather than asks, and through no guard policy: a fence a
 policy could soften is one an injected instruction could talk its way
 past.
 
+## What Each Refusal Leaves
+
+Each refusal leaves one line in the system's log, the journal on Linux
+and the unified log on macOS, under the identifier `pi-fence`:
+
+```text
+refused kind=path tool=read sandbox=fence session=<id>
+```
+
+It names the tool, the sandbox and the session, never the path, so a
+reader outside the session (a health daemon) can see an agent probing
+the fence without the log holding what it asked for. A command the
+shell workflow refuses leaves the same line with `kind=program` and
+`tool=bash`. When the log doesn't take a line, the refusal says so.
+What the kernel refuses inside the fence never passes through pi, so
+Landlock's own audit records cover that.
+
 ## What It Doesn't Do
 
 A check comes before the tool runs, so a command running at the same

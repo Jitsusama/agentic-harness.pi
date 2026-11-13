@@ -87,7 +87,14 @@ describe("what a session asks for", () => {
 		const gcloud = () => ({ reason: "none here" });
 		expect(
 			sandboxFor({ PI_SANDBOX: "strict" }, "linux", found, github, gcloud),
-		).toEqual({ kind: "strict", landrun: "/bin/landrun", github, gcloud });
+		).toEqual({
+			kind: "strict",
+			landrun: "/bin/landrun",
+			github,
+			gcloud,
+			// This finder answers one path for every program, the logger's too.
+			logger: "/bin/landrun",
+		});
 	});
 
 	it("runs nothing where the sandbox can't be had", () => {
@@ -455,13 +462,39 @@ describe("a command in the sandbox", () => {
 	});
 
 	it("runs nothing when the sandbox was refused, and says why", async () => {
+		// A stand-in for the system's logger, which says what it was handed
+		// rather than writing to the machine's real log.
+		const folder = mkdtempSync(join(tmpdir(), "refusal-logger-"));
+		const logger = join(folder, "logger");
+		writeFileSync(logger, "#!/bin/sh\nprintf 'logged %s\\n' \"$*\" >&2\n");
+		chmodSync(logger, 0o755);
+		try {
+			const answer = await run(
+				{ kind: "refused", reason: "no landrun here", logger },
+				"echo ran",
+			);
+			expect(answer).toContain("no landrun here");
+			expect(answer).not.toMatch(/^ran$/m);
+			expect(answer).toContain("126");
+			expect(answer, "the refusal left no line in the log").toMatch(
+				/logged -t pi-fence -p auth\.notice -- refused kind=program tool=bash /,
+			);
+			expect(answer, "the log was handed the command").not.toMatch(
+				/logged .*echo ran/,
+			);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("says so when a refused command's log didn't take it", async () => {
 		const answer = await run(
 			{ kind: "refused", reason: "no landrun here" },
 			"echo ran",
 		);
-		expect(answer).toContain("no landrun here");
-		expect(answer).not.toMatch(/^ran$/m);
-		expect(answer).toContain("126");
+		expect(answer, "a refusal with no logger hid it").toContain(
+			"The system log didn't take this refusal.",
+		);
 	});
 });
 

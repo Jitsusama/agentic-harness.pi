@@ -18,12 +18,26 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sandboxFileInterceptor from "../../extensions/sandbox-file-interceptor/index.ts";
+import type { Refusal } from "../../lib/internal/fence-log.ts";
 import {
 	fileToolRefusal,
 	toolPaths,
 } from "../../lib/internal/sandbox-files.ts";
+
+// What the interceptor would write to the system's log, kept here rather
+// than written to the machine's real one.
+const logged = vi.hoisted(() => ({
+	refusals: [] as Refusal[],
+	answer: undefined as string | undefined,
+}));
+vi.mock("../../lib/internal/fence-log.ts", () => ({
+	recordRefusal: async (refusal: Refusal) => {
+		logged.refusals.push(refusal);
+		return logged.answer;
+	},
+}));
 
 let base: string;
 let home: string;
@@ -181,7 +195,10 @@ describe("a strict session the sandbox can't fence", () => {
 describe("the interceptor", () => {
 	type Handler = (
 		event: { toolName: string; input: unknown },
-		ctx: { cwd: string },
+		ctx: {
+			cwd: string;
+			sessionManager: { getSessionId: () => string };
+		},
 	) => Promise<unknown>;
 	type Starting = (event: {
 		systemPromptOptions: { skills: Array<{ baseDir: string }> };
@@ -189,9 +206,15 @@ describe("the interceptor", () => {
 	let handler: Handler;
 	let starting: Starting;
 	let asked: string | undefined;
+	const seat = () => ({
+		cwd: work,
+		sessionManager: { getSessionId: () => "a-session" },
+	});
 
 	beforeEach(() => {
 		asked = process.env.PI_SANDBOX;
+		logged.refusals = [];
+		logged.answer = undefined;
 		const handlers = new Map<string, unknown>();
 		const pi = { on: (name: string, on: unknown) => handlers.set(name, on) };
 		sandboxFileInterceptor(pi as unknown as ExtensionAPI);
@@ -213,10 +236,34 @@ describe("the interceptor", () => {
 		process.env.PI_SANDBOX = "strict";
 		const answer = await handler(
 			{ toolName: "read", input: { path: "/proc/self/environ" } },
-			{ cwd: work },
+			seat(),
 		);
 		expect(answer).toMatchObject({ block: true });
 		expect(JSON.stringify(answer)).toContain("didn't run");
+	});
+
+	it("writes each refusal to the system's log, as a kind, never the path", async () => {
+		process.env.PI_SANDBOX = "strict";
+		await handler(
+			{ toolName: "write", input: { path: "/proc/self/environ" } },
+			seat(),
+		);
+		expect(logged.refusals, "what the log was handed").toEqual([
+			{ kind: "path", tool: "write", sandbox: "strict", session: "a-session" },
+		]);
+	});
+
+	it("says in the refusal when the log didn't take it", async () => {
+		process.env.PI_SANDBOX = "strict";
+		logged.answer = "The system log didn't take this refusal: gone.";
+		const answer = await handler(
+			{ toolName: "read", input: { path: "/proc/self/environ" } },
+			seat(),
+		);
+		expect(
+			JSON.stringify(answer),
+			"the refusal hid the log's failure",
+		).toContain("didn't take this refusal: gone.");
 	});
 
 	it("reads the skills pi offered as the session started", async () => {
@@ -227,7 +274,7 @@ describe("the interceptor", () => {
 		await starting({ systemPromptOptions: { skills: [{ baseDir: skill }] } });
 		const answer = await handler(
 			{ toolName: "read", input: { path: join(skill, "SKILL.md") } },
-			{ cwd: work },
+			seat(),
 		);
 		expect(answer).toBeUndefined();
 	});
@@ -236,8 +283,9 @@ describe("the interceptor", () => {
 		delete process.env.PI_SANDBOX;
 		const answer = await handler(
 			{ toolName: "read", input: { path: "/proc/self/environ" } },
-			{ cwd: work },
+			seat(),
 		);
 		expect(answer).toBeUndefined();
+		expect(logged.refusals, "a call let through was logged").toEqual([]);
 	});
 });

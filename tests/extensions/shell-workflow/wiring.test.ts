@@ -9,8 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
+import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox.ts";
 import { announceJobHost, type JobSpec } from "../../../lib/jobs/host.ts";
 
 interface Tool {
@@ -36,6 +37,10 @@ beforeEach(() => {
 	saved = process.env.PI_CODING_AGENT_DIR;
 	agentDir = mkdtempSync(join(tmpdir(), "shell-workflow-"));
 	process.env.PI_CODING_AGENT_DIR = agentDir;
+	// Unfenced, whatever runs the tests: these cases are about pi's bash
+	// and the person's settings, and a fenced session's sandbox, asked for
+	// as the extension loads, can't be had inside its own fence.
+	vi.stubEnv(SANDBOX_VARIABLE, "");
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
@@ -57,6 +62,7 @@ afterEach(() => {
 	if (saved === undefined) delete process.env.PI_CODING_AGENT_DIR;
 	else process.env.PI_CODING_AGENT_DIR = saved;
 	rmSync(agentDir, { recursive: true, force: true });
+	vi.unstubAllEnvs();
 });
 
 const ctx = (mode = "tui") => ({
