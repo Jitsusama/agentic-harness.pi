@@ -79,7 +79,9 @@ export function installConversationEnv(host: Host): () => void {
 		return value === undefined && HOST_READS.includes(name) ? own[name] : value;
 	};
 	const keys = (env: SessionEnvironment): string[] => [
-		...Object.keys(env.snapshot()).filter((name) => !CREDENTIALS.has(name)),
+		...(env.names?.() ?? Object.keys(env.snapshot())).filter(
+			(name) => !CREDENTIALS.has(name),
+		),
 		...Object.keys(own).filter((name) => CREDENTIALS.has(name)),
 	];
 	const view = new Proxy(own, {

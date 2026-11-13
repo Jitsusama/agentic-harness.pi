@@ -139,7 +139,32 @@ export async function listenControl(options: {
 			viewing.delete(socket);
 			sockets.delete(socket);
 		}
+		// What the screen drew this tick, sent as one frame once the tick
+		// ends: a redraw is dozens of small writes, and framing each alone
+		// holds the loop every conversation in the host shares.
+		let drawn = "";
+		function output(data: string) {
+			if (socket.destroyed || data === "") return;
+			if (drawn === "") setImmediate(flush);
+			drawn += data;
+			// A UTF-16 unit is at least a byte, so this never under-counts.
+			if (socket.writableLength + drawn.length > MAX_QUEUED_BYTES) {
+				drawn = "";
+				socket.destroy();
+			}
+		}
+		function flush() {
+			if (drawn === "") return;
+			const data = drawn;
+			drawn = "";
+			frame({ type: "output", data });
+		}
+		/** Send a frame after whatever the screen drew before it. */
 		function send(value: unknown) {
+			flush();
+			frame(value);
+		}
+		function frame(value: unknown) {
 			if (socket.destroyed) return;
 			const line = `${JSON.stringify(value)}\n`;
 			if (socket.writableLength + Buffer.byteLength(line) > MAX_QUEUED_BYTES) {
@@ -211,7 +236,7 @@ export async function listenControl(options: {
 				sessionId = request.sessionId;
 				viewer = withSession(sessionId, () =>
 					options.viewer?.attach(request, {
-						write: (data) => send({ type: "output", data }),
+						write: output,
 						disconnect: (reason) => {
 							send({ type: "detached", reason });
 							socket.end();

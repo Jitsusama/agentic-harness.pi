@@ -17,6 +17,7 @@ import {
 import { terminalBridge } from "../../../host/service/viewer.ts";
 import { ambientSession } from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 
 const a = "a0000000-0000-4000-8000-000000000001";
 const b = "b0000000-0000-4000-8000-000000000002";
@@ -236,14 +237,11 @@ describe("viewer connection lifecycle", () => {
 				ok: true,
 				id: "view",
 			});
+			// Drawn in one tick, so one frame.
 			expect(
 				(await messages.next()).value,
-				"a joining viewer is first given the modes pi's screen expects",
-			).toEqual({ type: "output", data: "\x1b[>7u\x1b[?2004h" });
-			expect((await messages.next()).value).toEqual({
-				type: "output",
-				data: `screen-${id}`,
-			});
+				"a joining viewer is first given the modes pi's screen expects, then its screen",
+			).toEqual({ type: "output", data: `\x1b[>7u\x1b[?2004hscreen-${id}` });
 			return { socket, messages };
 		}
 		const first = await connect(a);
@@ -299,14 +297,14 @@ describe("viewer connection lifecycle", () => {
 			id: "view",
 			ok: true,
 		});
-		expect((await messages.next()).value).toEqual({
-			type: "output",
-			data: "initial screen",
-		});
-		expect((await messages.next()).value).toEqual({
-			type: "output",
-			data: "updated",
-		});
+		// One frame or two, as the ticks fall; the bytes and their order hold.
+		let drawn = "";
+		while (drawn.length < "initial screenupdated".length) {
+			const next = (await messages.next()).value;
+			expect(next).toMatchObject({ type: "output" });
+			if (isRecord(next) && typeof next.data === "string") drawn += next.data;
+		}
+		expect(drawn).toBe("initial screenupdated");
 		socket.end();
 		await messages.next();
 		expect(seen).toEqual([
@@ -445,6 +443,40 @@ describe("viewer connection lifecycle", () => {
 		});
 		socket.destroy();
 		expect(backend.execute).not.toHaveBeenCalled();
+	});
+	it("sends what a screen draws in one tick as one frame, before what follows it", async () => {
+		// A redraw is dozens of small writes; framing each alone holds the
+		// host's one loop for every conversation it serves.
+		await start({
+			attach: (_request, sink) => {
+				sink.write("\x1b[?25l");
+				sink.write("\x1b[2K");
+				sink.write("drawn");
+				sink.edit("e1", "draft");
+				sink.write("after");
+				return { input: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		expect((await messages.next()).value).toMatchObject({ ok: true });
+		expect((await messages.next()).value).toEqual({
+			type: "output",
+			data: "\x1b[?25l\x1b[2Kdrawn",
+		});
+		expect((await messages.next()).value).toEqual({
+			type: "edit",
+			id: "e1",
+			text: "draft",
+		});
+		expect((await messages.next()).value).toEqual({
+			type: "output",
+			data: "after",
+		});
+		socket.destroy();
 	});
 	it("bounds output even when a viewer does not read", async () => {
 		const detach = vi.fn();

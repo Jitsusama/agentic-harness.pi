@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	type ConversationRegistration,
 	SessionHost,
@@ -152,6 +152,24 @@ it("lists and spreads the conversation's keys", () => {
 		"SHOPIFY_HARNESS_SETTINGS",
 		"SHOPIFY_PROXY_KEY",
 	]);
+});
+
+it("lists a conversation's keys without copying its environment", () => {
+	// Every child started with no env of its own lists process.env, and
+	// on the host's one loop a copy each time is every conversation's wait.
+	const started = twoConversations();
+	const copies = vi.spyOn(started.env("a"), "snapshot");
+	const listed = () => started.run("a", () => Object.keys(process.env));
+	expect(listed()).toContain("DEV_INVOCATION_ID");
+	started.run("a", () => {
+		process.env.PI_WORKTRAIL_RUN = "run-a";
+		delete process.env.DEV_INVOCATION_ID;
+	});
+	expect(listed(), "the list follows the conversation's writes").toContain(
+		"PI_WORKTRAIL_RUN",
+	);
+	expect(listed(), "and its deletes").not.toContain("DEV_INVOCATION_ID");
+	expect(copies, "listing never copied the environment").not.toHaveBeenCalled();
 });
 
 it("hands a child started with no env the conversation's", () => {
