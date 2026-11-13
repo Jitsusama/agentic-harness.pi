@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BUILT_IN_ROSTER } from "../../extensions/review-integration/roster.ts";
-import { rosterFromConfig } from "../../extensions/review-integration/tools/ask.ts";
+import { rosterFromConfig } from "../../extensions/review-integration/tools/ask-roster.ts";
 import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 
 /** A config file holding one roster, written where the loader reads. */

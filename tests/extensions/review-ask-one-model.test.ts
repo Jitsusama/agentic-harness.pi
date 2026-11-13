@@ -10,7 +10,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { refusedWhoModel } from "../../extensions/review-integration/tools/ask.ts";
+import { refusedWhoModel } from "../../extensions/review-integration/tools/ask-roster.ts";
 import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 
 const OPUS = "anthropic/claude-opus-5-5";
