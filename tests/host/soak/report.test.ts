@@ -194,6 +194,37 @@ describe("a parity report", () => {
 	});
 });
 
+/** How many differences a parity report names. */
+const FIRST_NAMED = 10;
+
+describe("a soak's parity, past what differs on every run", () => {
+	it("names a difference of substance before those", () => {
+		const sourced = (source: string) =>
+			Array.from({ length: 11 }, () => ({
+				type: "custom",
+				customType: "journal",
+				data: { source, journal: { last: { trace_id: source } } },
+			}));
+		const result = (text: string) =>
+			entry("toolResult", [{ type: "text", text }], 2);
+		const parity = parityOf(
+			[...sourced("hosted"), result("(no output)")],
+			[...sourced("plain"), result("soak bash c3-t5")],
+			{ hosted: "/h", plain: "/p" },
+		);
+		expect(
+			parity.differences,
+			"each side's source and trace, and one",
+		).toBeGreaterThan(FIRST_NAMED);
+		expect(parity.unexpected, "only the result's words").toBe(1);
+		expect(parity.first[0], "named first").toEqual({
+			path: "events[11:message].message.content[0].text",
+			expected: "soak bash c3-t5",
+			actual: "(no output)",
+		});
+	});
+});
+
 describe("a soak's parity, past the provider's numbering", () => {
 	it("leaves out the id the provider numbers its answers by", () => {
 		const answered = (id: string) => ({

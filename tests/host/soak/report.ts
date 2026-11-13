@@ -73,7 +73,9 @@ export interface Parity {
 	readonly differences: number;
 	/** How many differ at each place, its entry's index left out. */
 	readonly where: Readonly<Record<string, number>>;
-	/** The first few, for the report. */
+	/** How many differ at a place that doesn't differ on every run. */
+	readonly unexpected: number;
+	/** The first few, for the report, those of substance first. */
 	readonly first: readonly Difference[];
 }
 
@@ -82,6 +84,17 @@ const SETTLED_KB_PER_CHECKPOINT = 1024;
 
 /** Growth under this over the whole run is noise, whatever its slope. */
 const NOISE_KB = 4096;
+
+/**
+ * Places a hosted log and plain pi's differ at on every run, by what
+ * each side is: where an entry came from, a job's own id and the
+ * journal's trace of the call that wrote it.
+ */
+const EVERY_RUN = [
+	/\.data\.source$/,
+	/\.data\.workItemId$/,
+	/\.data\.journal\.last\./,
+];
 
 /** How many differences a parity report names. */
 const FIRST_DIFFERENCES = 10;
@@ -249,11 +262,18 @@ export function parityOf(
 		const place = path.replace(/\[\d+(:|\])/g, "[$1");
 		where[place] = (where[place] ?? 0) + 1;
 	}
+	const everyRun = ({ path }: Difference) =>
+		EVERY_RUN.some((place) => place.test(path));
+	const unexpected = found.filter((one) => !everyRun(one));
 	return {
 		entries: { hosted: hosted.length, plain: plain.length },
 		differences: found.length,
 		where,
-		first: found.slice(0, FIRST_DIFFERENCES),
+		unexpected: unexpected.length,
+		first: [...unexpected, ...found.filter(everyRun)].slice(
+			0,
+			FIRST_DIFFERENCES,
+		),
 	};
 }
 

@@ -1,9 +1,9 @@
 /**
  * The soak itself, at its smallest: two conversations of two turns each
- * through one host and through plain pi, with no parking, so a change
- * that breaks the soak is found by test:host rather than on the night a
- * week's run is due. A week's run goes on a lent builder by hand, as
- * README.md says.
+ * through one host and through plain pi, once with no parking and once
+ * parked and woken, so a change that breaks the soak is found by
+ * test:host rather than on the night a week's run is due. A week's run
+ * goes on a lent builder by hand, as README.md says.
  */
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -26,42 +26,20 @@ const SOAK = resolve(import.meta.dirname, "soak.mts");
 /** Two sides each loading every extension, on a loaded machine. */
 const RUN_MS = 600_000;
 const out = mkdtempSync(join(tmpdir(), "soak-"));
+const parkedOut = mkdtempSync(join(tmpdir(), "soak-parked-"));
 
 describe.skipIf(!packageDir)(
 	"the soak (needs a pi with the host's patches: pnpm test:host)",
 	() => {
-		afterAll(() => rmSync(out, { recursive: true, force: true }));
+		afterAll(() => {
+			rmSync(out, { recursive: true, force: true });
+			rmSync(parkedOut, { recursive: true, force: true });
+		});
 
 		it(
 			"takes every turn on both sides, answers each, and reports",
 			async () => {
-				const child = spawn(
-					process.execPath,
-					[
-						"--no-warnings",
-						SOAK,
-						"--turns",
-						"2,2",
-						"--checkpoints",
-						"1",
-						"--no-park",
-						"--out",
-						out,
-					],
-					{ stdio: ["ignore", "pipe", "pipe"] },
-				);
-				let said = "";
-				child.stdout.on("data", (chunk) => {
-					said += String(chunk);
-				});
-				child.stderr.on("data", (chunk) => {
-					said += String(chunk);
-				});
-				const [code] = await once(child, "exit");
-				expect(code, said).toBe(0);
-				const report: unknown = JSON.parse(
-					readFileSync(join(out, "report.json"), "utf8"),
-				);
+				const { said, report } = await soaked(out, ["--no-park"]);
 				expect(report, said).toMatchObject({
 					conversations: 2,
 					turns: 4,
@@ -84,6 +62,21 @@ describe.skipIf(!packageDir)(
 						arrayBuffersKb: expect.any(Number),
 					},
 				});
+				expect(
+					isRecord(report) && Array.isArray(report.checkpoints)
+						? report.checkpoints[0]
+						: undefined,
+					"the weighing says how late and how busy the host's loop ran since the last",
+				).toMatchObject({
+					awake: {
+						loopP99Ms: expect.any(Number),
+						loopMaxMs: expect.any(Number),
+						loopBusy: expect.any(Number),
+					},
+				});
+				expect(said, "the checkpoint line says the loop's delay").toMatch(
+					/loop p99 \d+ ms, max \d+ ms, busy \d+%/,
+				);
 				// A lender lost before the end leaves what each line said by then.
 				expect(
 					saidAfter(said, "latency so far "),
@@ -99,6 +92,72 @@ describe.skipIf(!packageDir)(
 		);
 	},
 );
+
+describe.skipIf(!packageDir)(
+	"the soak, parked (needs a pi with the host's patches: pnpm test:host)",
+	() => {
+		it(
+			"wakes a window's conversation on its own, timing its answer apart from its first drawing",
+			async () => {
+				const { said, report } = await soaked(parkedOut, []);
+				expect(report, said).toMatchObject({ faults: [] });
+				// At the first checkpoint the first conversation wakes by a window,
+				// the second by the mesh.
+				expect(
+					isRecord(report) && Array.isArray(report.checkpoints)
+						? report.checkpoints[0]
+						: undefined,
+					"the window's wake, how big its record was, and when it answered and drew",
+				).toMatchObject({
+					windowWakes: [
+						{
+							conversation: 0,
+							recordBytes: expect.any(Number),
+							answeredMs: expect.any(Number),
+							drawnMs: expect.any(Number),
+						},
+					],
+				});
+			},
+			RUN_MS,
+		);
+	},
+);
+
+/** Run the smallest soak into `into`, with `extra` arguments: what it said and its report. */
+async function soaked(
+	into: string,
+	extra: readonly string[],
+): Promise<{ said: string; report: unknown }> {
+	const child = spawn(
+		process.execPath,
+		[
+			"--no-warnings",
+			SOAK,
+			"--turns",
+			"2,2",
+			"--checkpoints",
+			"1",
+			...extra,
+			"--out",
+			into,
+		],
+		{ stdio: ["ignore", "pipe", "pipe"] },
+	);
+	let said = "";
+	child.stdout.on("data", (chunk) => {
+		said += String(chunk);
+	});
+	child.stderr.on("data", (chunk) => {
+		said += String(chunk);
+	});
+	const [code] = await once(child, "exit");
+	expect(code, said).toBe(0);
+	const report: unknown = JSON.parse(
+		readFileSync(join(into, "report.json"), "utf8"),
+	);
+	return { said, report };
+}
 
 /** The JSON a soak line opening with `lead` holds, or undefined when no line does. */
 function saidAfter(said: string, lead: string): unknown {

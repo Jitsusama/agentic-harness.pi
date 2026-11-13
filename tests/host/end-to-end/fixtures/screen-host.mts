@@ -41,8 +41,9 @@
  * models.json and more `settings` for its settings.json, such as the
  * soak's provider over HTTP made the default. At
  * SIGHUP it collects its garbage and weighs itself into `weighed.json` in
- * HOME: its RSS, PSS and swapped PSS, and how many conversations' sessions
- * are still in memory. A stand-in `wl-paste`
+ * HOME: its RSS, PSS and swapped PSS, how late and how busy its loop ran
+ * since the last weighing, and how many conversations' sessions are
+ * still in memory. A stand-in `wl-paste`
  * holds a picture on a sealed Wayland clipboard, handing it only to a
  * reader that has the session's Wayland display and runtime folder,
  * which the host's environment holds as the host unit sets it.
@@ -64,6 +65,7 @@ import {
 import { registerHooks } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import type { EngineKey } from "../../../../host/engine/index.ts";
 import { piFromHost } from "../../../../host/service/pi-resolution.ts";
@@ -131,6 +133,8 @@ const LONG_TAG = /long answer (\w+)/;
 const ANSWERS = 200;
 /** Bytes in a kB, as /proc counts them. */
 const BYTES_PER_KB = 1024;
+/** Nanoseconds in a millisecond, as the loop's delays are read. */
+const NS_PER_MS = 1e6;
 const home = homedir();
 const agentDir = join(home, ".pi", "agent");
 const report = (error: unknown) => {
@@ -220,19 +224,33 @@ process.once("SIGUSR2", () => {
 });
 process.on("SIGHUP", weigh);
 
+/** How late the loop ran between weighings, sampled every 10 ms. */
+const loop = monitorEventLoopDelay({ resolution: 10 });
+loop.enable();
+/** Where the loop's busy share is read from, the last weighing on. */
+let utilised = performance.eventLoopUtilization();
+
 /**
  * Collect the garbage, then write what this process weighs to
  * `weighed.json` in HOME, whole, for a test to read: its RSS, PSS and
  * swapped PSS in kB, as the kernel counts them, the heap V8 still uses
  * and the heap it holds from the kernel, what V8 keeps outside its heap
- * and the array buffers within that, all in kB, and
- * how many sessions the agent folder's weigh extension saw start are
- * still in memory.
+ * and the array buffers within that, all in kB, the 99th percentile and
+ * the most the loop ran late since the last weighing, in ms, the share
+ * of that time it was busy, and how many sessions the agent folder's
+ * weigh extension saw start are still in memory. The loop's figures are
+ * read before the collection and begin again after it, so a weighing's
+ * own collection is in none of them.
  */
 function weigh(): void {
 	const collect = Reflect.get(globalThis, "gc");
 	if (typeof collect !== "function")
 		throw new Error("the fixture runs with --expose-gc to weigh itself");
+	const loopP99Ms = loop.percentile(99) / NS_PER_MS;
+	const loopMaxMs = loop.max / NS_PER_MS;
+	const loopBusy = performance.eventLoopUtilization(utilised).utilization;
+	loop.disable();
+	loop.reset();
 	// A session held only by weak references goes at a full collection; the
 	// second takes what the first's finalisers let go.
 	collect();
@@ -261,10 +279,15 @@ function weigh(): void {
 			heapTotalKb: inKb(used.heapTotal),
 			externalKb: inKb(used.external),
 			arrayBuffersKb: inKb(used.arrayBuffers),
+			loopP99Ms,
+			loopMaxMs,
+			loopBusy,
 			sessions,
 		}),
 	);
 	renameSync(`${weighed}.part`, weighed);
+	loop.enable();
+	utilised = performance.eventLoopUtilization();
 }
 
 /**
