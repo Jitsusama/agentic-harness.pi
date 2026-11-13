@@ -100,6 +100,29 @@ describe("keeping the first head", () => {
 	it("leaves a request with no system head alone", () => {
 		expect(keepHead(first, [user("next", 6)])).toBeUndefined();
 	});
+
+	// pi clones the context for every request, so each one hands over a
+	// head equal to the last but never the same object.
+	it("works a head's patch out once for every request that sends it again", () => {
+		const once = keepHead(first, afterCompaction) ?? [];
+		const again = keepHead(first, structuredClone(afterCompaction)) ?? [];
+
+		expect(again[1], "the patch from the request before").toBe(once[1]);
+	});
+
+	it("works the patch out anew once the head it is sent changes", () => {
+		const once = keepHead(first, afterCompaction) ?? [];
+		const reworded: SystemMessage = {
+			...folded,
+			sections: { ...folded.sections, tools: "<tools>read</tools>" },
+		};
+		const after = keepHead(first, [reworded, user("next", 6)]) ?? [];
+
+		expect(after[1]).not.toBe(once[1]);
+		expect(getCurrentSystemPrompt(after)).toBe(
+			getCurrentSystemPrompt([reworded]),
+		);
+	});
 });
 
 /** A head whose skills section is most of it, as a real session's is. */
