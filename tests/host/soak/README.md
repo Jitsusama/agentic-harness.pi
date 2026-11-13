@@ -42,7 +42,10 @@ It prints a line a checkpoint and the report as one JSON line after
 
 - `checkpoints`: the host's RSS, PSS, swapped PSS, heap used, heap
   total, external and array buffers after its garbage is collected,
-  awake and parked, with the bytes the logs hold.
+  awake and parked, with the bytes the logs hold. The awake weighing
+  also says how late the host's loop ran, at its 99th percentile and at
+  most, and the share of the time it was busy, since the weighing
+  before, the weighings' own collections left out.
 - `heap`: whether the heap used, the heap total and RSS settle, awake
   and parked. A parked heap that still climbs in the run's later half is
   a leak; the awake heap grows with the conversations' history, so read
@@ -58,7 +61,10 @@ It prints a line a checkpoint and the report as one JSON line after
 - `timeSpent`, under `--profile`: each side's busy and idle time and its
   busiest areas and functions, plain pi's processes summed.
 - `parity`: each conversation's log against plain pi's, entries aligned
-  by type, with ids, times and each side's folder left out.
+  by type, with ids, times and each side's folder left out. `unexpected`
+  counts the differences outside the places that differ on every run
+  (an entry's source, a job's id, the journal's trace), and `first`
+  names those before the rest.
 - `faults`, `hostErrors` and `plainErrors`: what went wrong.
 
 The host draws its screens on the same event loop its engines run on,

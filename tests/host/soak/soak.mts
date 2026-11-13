@@ -97,6 +97,8 @@ const TAIL_BYTES = 64 * 1024;
 const MOST_FAULTS = 20;
 /** How much of what the host wrote a fault quotes. */
 const SAID_CHARACTERS = 2000;
+/** A share as a checkpoint line says it. */
+const PERCENT = 100;
 /** How many of a log's last entries a fault names. */
 const LAST_ENTRIES = 6;
 /** How much of each named entry's words a fault quotes. */
@@ -367,7 +369,7 @@ async function runHosted(sealed: Seal): Promise<{
 			wakeMs,
 		});
 		say(
-			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked`,
+			`checkpoint ${weighings.length}: heap ${awake.heapKb} of ${awake.heapTotalKb} kB and RSS ${awake.rss} kB awake, heap ${parked.heapKb} of ${parked.heapTotalKb} kB and RSS ${parked.rss} kB parked, loop p99 ${Math.round(awake.loopP99Ms)} ms, max ${Math.round(awake.loopMaxMs)} ms, busy ${Math.round(awake.loopBusy * PERCENT)}%`,
 		);
 		// Each weighing in full as it is taken, so a run cut short by its
 		// lender's limit still leaves the memory curve it got to.

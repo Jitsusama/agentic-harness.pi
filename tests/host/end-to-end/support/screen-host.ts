@@ -56,6 +56,12 @@ export interface Weight {
 	readonly externalKb: number;
 	/** The array buffers within externalKb, in kB. */
 	readonly arrayBuffersKb: number;
+	/** Its loop's 99th-percentile lateness since the last weighing, in ms. */
+	readonly loopP99Ms: number;
+	/** The most its loop ran late since the last weighing, in ms. */
+	readonly loopMaxMs: number;
+	/** The share of the time since the last weighing its loop was busy. */
+	readonly loopBusy: number;
 	/** The conversations whose sessions are still in its memory. */
 	readonly sessions: readonly string[];
 }
@@ -230,6 +236,9 @@ function weight(said: unknown): Weight {
 		typeof said.heapTotalKb !== "number" ||
 		typeof said.externalKb !== "number" ||
 		typeof said.arrayBuffersKb !== "number" ||
+		typeof said.loopP99Ms !== "number" ||
+		typeof said.loopMaxMs !== "number" ||
+		typeof said.loopBusy !== "number" ||
 		!Array.isArray(said.sessions)
 	)
 		throw new Error(`the host weighed itself as ${JSON.stringify(said)}`);
@@ -244,6 +253,9 @@ function weight(said: unknown): Weight {
 		heapTotalKb: said.heapTotalKb,
 		externalKb: said.externalKb,
 		arrayBuffersKb: said.arrayBuffersKb,
+		loopP99Ms: said.loopP99Ms,
+		loopMaxMs: said.loopMaxMs,
+		loopBusy: said.loopBusy,
 		sessions,
 	};
 }
