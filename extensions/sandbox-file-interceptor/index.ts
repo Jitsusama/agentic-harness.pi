@@ -18,6 +18,11 @@
  * fence that a policy could soften is one an injected instruction could
  * talk its way past.
  *
+ * Each refusal leaves a line in the system's log under `pi-fence`
+ * (`lib/internal/fence-log.ts`): the tool, the sandbox and the session,
+ * never the path, so a reader outside the session sees an agent probing
+ * the fence. When the log doesn't take it, the refusal says so.
+ *
  * The skills pi offers the session stay readable, since pi names each
  * skill's file and leaves the model to read it; refusing them would
  * leave a reviewer without the contract its answer is written to.
@@ -25,6 +30,9 @@
 
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { sessionKeyOf } from "../../lib/core/session/identity.ts";
+import { recordRefusal } from "../../lib/internal/fence-log.ts";
+import { SANDBOX_VARIABLE } from "../../lib/internal/sandbox.ts";
 import { fileToolRefusal } from "../../lib/internal/sandbox-files.ts";
 
 /** Wires the fence onto each call to pi's file tools. */
@@ -43,7 +51,16 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 			home: homedir(),
 			skills,
 		});
-		if (reason) return { block: true, reason };
-		return undefined;
+		if (!reason) return undefined;
+		const unrecorded = await recordRefusal({
+			kind: "path",
+			tool: event.toolName,
+			sandbox: process.env[SANDBOX_VARIABLE],
+			session: sessionKeyOf(ctx),
+		});
+		return {
+			block: true,
+			reason: unrecorded ? `${reason} ${unrecorded}` : reason,
+		};
 	});
 }

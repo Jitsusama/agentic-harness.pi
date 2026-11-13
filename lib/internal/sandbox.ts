@@ -75,6 +75,7 @@ import {
 	nixDoor,
 } from "./fence.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
+import { recordedInShell } from "./fence-log.ts";
 import { fenceSshConfig } from "./fence-ssh.ts";
 import {
 	type CloudGrant,
@@ -466,19 +467,28 @@ export function folderGit(
  */
 export type Sandbox =
 	| { readonly kind: "none" }
-	| {
+	| (Logged & {
 			readonly kind: "strict";
 			readonly landrun: string;
 			readonly github?: GitHubTokenSource;
 			readonly gcloud?: CloudGrantSource;
-	  }
-	| {
+	  })
+	| (Logged & {
 			readonly kind: "fence";
 			readonly bwrap: string;
 			readonly landrun: string;
 			readonly offload?: Offload;
-	  }
-	| { readonly kind: "refused"; readonly reason: string };
+	  })
+	| (Logged & { readonly kind: "refused"; readonly reason: string });
+
+/**
+ * What a sandbox writes its refusals to the system's log with
+ * (`fence-log.ts`): the system's own `logger`, or none, when the
+ * refusal says the log didn't take it.
+ */
+interface Logged {
+	readonly logger?: string;
+}
 
 /** The broker's tokens, asked for once every few minutes for the session. */
 const sessionTokens = brokerTokens();
@@ -616,6 +626,19 @@ export function sandboxFor(
 ): Sandbox {
 	const asked = env[SANDBOX_VARIABLE]?.trim();
 	if (!asked) return { kind: "none" };
+	const logger = find("logger");
+	const sandbox = askedFor(asked, platform, find, github, gcloud);
+	return logger && sandbox.kind !== "none" ? { ...sandbox, logger } : sandbox;
+}
+
+/** The sandbox `asked` names, and whether this machine can give it. */
+function askedFor(
+	asked: string,
+	platform: NodeJS.Platform,
+	find: (program: string) => string | undefined,
+	github: GitHubTokenSource,
+	gcloud: CloudGrantSource,
+): Sandbox {
 	if (asked === FENCE) return fenceFor(platform, find);
 	if (asked !== STRICT) {
 		return { kind: "refused", reason: noSuchSandbox(asked, "command") };
@@ -657,18 +680,30 @@ function makeFoldersFirst(home: string): void {
 
 /**
  * The wrap a sandbox puts around each command, for the place it runs in,
- * or nothing when the session runs commands as they are.
+ * or nothing when the session runs commands as they are. A command it
+ * refuses leaves a line in the system's log first (`fence-log.ts`),
+ * naming the session but never the command.
  */
 export function wrapFor(
 	sandbox: Sandbox,
 	place: { cwd: string; env: NodeJS.ProcessEnv },
 	home: string,
 ): ((command: string) => string) | undefined {
+	const refused = (reason: string) =>
+		`${recordedInShell(
+			{
+				kind: "program",
+				tool: "bash",
+				sandbox: place.env[SANDBOX_VARIABLE],
+				session: place.env.PI_SESSION_ID,
+			},
+			sandbox.kind === "none" ? undefined : sandbox.logger,
+		)}; ${refusedCommand(reason)}`;
 	switch (sandbox.kind) {
 		case "none":
 			return undefined;
 		case "refused":
-			return () => refusedCommand(sandbox.reason);
+			return () => refused(sandbox.reason);
 		case "fence": {
 			const fence = {
 				home,
@@ -704,12 +739,12 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				return keptIn === undefined
 					? fencedCommand(command, made)
-					: refusedCommand(keptIn);
+					: refused(keptIn);
 			};
 		}
 		case "strict": {
 			const unfenced = unfencedFolder(place.cwd, home);
-			if (unfenced) return () => refusedCommand(unfenced);
+			if (unfenced) return () => refused(unfenced);
 			// landrun skips a path that isn't there, and nothing inside could
 			// make one, so the sandbox's folders are made before a command.
 			for (const folder of Object.values(sandboxFolders(home))) {
