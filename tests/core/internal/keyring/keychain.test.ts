@@ -83,9 +83,10 @@ describe("keychainStore", () => {
 			expect(call.args.join(" ")).not.toContain("xoxp-secret");
 			expect(call.args.join(" ")).not.toContain(encoded);
 		}
-		expect(security.calls.some((call) => call.input?.includes(encoded))).toBe(
-			true,
-		);
+		expect(
+			security.calls.some((call) => call.input?.includes(encoded)),
+			"the encoded value reaches security on stdin",
+		).toBe(true);
 	});
 
 	it("splits a value too long for one line into chunks and joins them", async () => {

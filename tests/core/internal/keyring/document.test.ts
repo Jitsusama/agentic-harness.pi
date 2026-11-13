@@ -70,7 +70,7 @@ describe("credentialsDocument", () => {
 
 		expect(await document().read()).toEqual({ token: "t1" });
 		expect(store.items.get("test-credentials")).toBe('{"token":"t1"}');
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), "the plain file is gone").toBe(false);
 	});
 
 	it("moves the plain file into the keyring and removes it, saying so", async () => {
@@ -79,7 +79,7 @@ describe("credentialsDocument", () => {
 		expect(await document().read()).toEqual({ token: "from-file" });
 
 		expect(store.items.get("test-credentials")).toBe('{"token":"from-file"}');
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), "the plain file is gone").toBe(false);
 		expect(notices).toEqual([
 			expect.objectContaining({
 				level: "info",
@@ -96,7 +96,7 @@ describe("credentialsDocument", () => {
 
 		expect(await document().read()).toEqual({ token: "from-file" });
 
-		expect(existsSync(file)).toBe(true);
+		expect(existsSync(file), "the plain file is kept").toBe(true);
 		expect(notices[0]?.message).toMatch(/stay in the plain file/);
 	});
 
@@ -106,7 +106,7 @@ describe("credentialsDocument", () => {
 
 		expect(await document().read()).toEqual({ token: "from-file" });
 
-		expect(existsSync(file)).toBe(true);
+		expect(existsSync(file), "the plain file is kept").toBe(true);
 		expect(notices).toEqual([
 			expect.objectContaining({
 				level: "warning",
@@ -138,7 +138,7 @@ describe("credentialsDocument", () => {
 		store.unreachable = undefined;
 
 		expect(await document().read()).toEqual({ token: "newer" });
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), "the plain file is gone").toBe(false);
 	});
 
 	it("says a notice once, however many reads find the keyring locked", async () => {
@@ -167,7 +167,7 @@ describe("credentialsDocument", () => {
 
 		plainFile({ token: "from-file" });
 		await document().moveIfPresent();
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), "the plain file is gone").toBe(false);
 		expect(store.items.size).toBe(1);
 	});
 

@@ -38,7 +38,7 @@ describe("slack credentials store", () => {
 		await writeCredentials(data);
 
 		expect(await readCredentials()).toEqual(data);
-		expect(keyring.items.has("slack-credentials")).toBe(true);
+		expect([...keyring.items.keys()]).toEqual(["slack-credentials"]);
 	});
 
 	it("moves the old plain file into the keyring", async () => {
@@ -48,7 +48,7 @@ describe("slack credentials store", () => {
 
 		await moveToKeyring();
 
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), "the plain file is gone").toBe(false);
 		expect(keyring.items.get("slack-credentials")).toBe('{"token":null}');
 	});
 });

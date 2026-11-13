@@ -52,7 +52,7 @@ describe("google credentials store", () => {
 
 		await moveToKeyring();
 
-		expect(existsSync(file)).toBe(false);
-		expect(keyring.items.has("google-credentials")).toBe(true);
+		expect(existsSync(file), "the plain file is gone").toBe(false);
+		expect([...keyring.items.keys()]).toEqual(["google-credentials"]);
 	});
 });
