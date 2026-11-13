@@ -28,6 +28,7 @@ import type {
 // the 255 entries instead would mean maintaining a second
 // opinion about which keys exist, and being wrong separately.
 import { _keyDefinitions } from "puppeteer-core/internal/common/USKeyboardLayout.js";
+import { loadOnce } from "../../internal/single-flight.ts";
 import {
 	type Announcement,
 	type AxNode,
@@ -133,6 +134,8 @@ import {
 	type WaitCondition,
 	type WaitOutcome,
 } from "./wait/index.ts";
+
+const imagesModule = loadOnce(() => import("./compare/images.ts"));
 
 /**
  * The styles a snapshot carries by default.
@@ -318,7 +321,7 @@ import {
  * image.
  */
 function images(): Promise<typeof import("./compare/images.ts")> {
-	return import("./compare/images.ts");
+	return imagesModule();
 }
 
 /** How a page should be laid out for reading. */
@@ -3151,7 +3154,6 @@ export class BrowserSession {
 		// Closing the context disposes its pages along with the
 		// cookies, storage and cache they accumulated. Chrome
 		// answers that only after the tabs are gone, so the wait is
-
 		// claimed, or nothing would be holding the event loop for it.
 		await holdWhile(() => this.context.close());
 	}

@@ -7,8 +7,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { loadOnce } from "../../../lib/internal/single-flight.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
+
+const draftModule = loadOnce(() => import("./draft.ts"));
 
 /** What `review_draft` takes. */
 const DRAFT_PARAMETERS = Type.Object({
@@ -186,7 +189,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, signal, _onUpdate, ctx): Promise<Answer> {
-			const { runDraft } = await import("./draft.ts");
+			const { runDraft } = await draftModule();
 			return runDraft(pi, params, signal, ctx);
 		},
 	});

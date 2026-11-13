@@ -8,9 +8,12 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { loadOnce } from "../../../lib/internal/single-flight.ts";
 import { sectionParameters, stackSections } from "./sections.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
+
+const offerModule = loadOnce(() => import("./offer.ts"));
 
 /** What `review_offer` takes. */
 const OFFER_PARAMETERS = Type.Object({
@@ -195,7 +198,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
-			const { runOffer } = await import("./offer.ts");
+			const { runOffer } = await offerModule();
 			return runOffer(pi, params, ctx);
 		},
 	});

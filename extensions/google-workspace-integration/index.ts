@@ -24,9 +24,18 @@ import {
 	unattended,
 } from "../../lib/internal/away/unattended.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { singleFlight } from "../../lib/internal/single-flight.ts";
+import { loadOnce, singleFlight } from "../../lib/internal/single-flight.ts";
 import { renderGoogleCall } from "./render-call.ts";
 import { renderGoogleResult } from "./render-result.ts";
+
+const ensureAuthModule = loadOnce(
+	() => import("../../lib/google/auth/ensure-auth.ts"),
+);
+const routerModule = loadOnce(() => import("./router.ts"));
+const setupWizardModule = loadOnce(
+	() => import("../../lib/google/auth/setup-wizard.ts"),
+);
+const authCommandModule = loadOnce(() => import("./auth-command.ts"));
 
 // OAuth2 configuration from environment variables.
 const ENV_OAUTH_CONFIG = {
@@ -55,9 +64,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 
 		return login(key, async () => {
 			try {
-				const { ensureAuthenticated } = await import(
-					"../../lib/google/auth/ensure-auth.ts"
-				);
+				const { ensureAuthenticated } = await ensureAuthModule();
 				const client = await ensureAuthenticated(
 					unattended(ctx),
 					ENV_OAUTH_CONFIG,
@@ -228,7 +235,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			// router's own return sites.
 			try {
 				const auth = await getClient(ctx, accountName as string | undefined);
-				const { routeAction } = await import("./router.ts");
+				const { routeAction } = await routerModule();
 				const result = await routeAction(
 					action as string,
 					params,
@@ -262,9 +269,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 	pi.registerCommand("google-setup", {
 		description: "Set up Google OAuth credentials (interactive)",
 		handler: async (_args, ctx) => {
-			const { ensureOAuthApp } = await import(
-				"../../lib/google/auth/setup-wizard.ts"
-			);
+			const { ensureOAuthApp } = await setupWizardModule();
 			await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 		},
 	});
@@ -274,10 +279,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Authenticate with Google Workspace. Usage: google-auth [--account name] [--list] [--default name]",
 		handler: async (args, ctx) => {
 			const [{ ensureOAuthApp }, { handleGoogleAuthCommand }] =
-				await Promise.all([
-					import("../../lib/google/auth/setup-wizard.ts"),
-					import("./auth-command.ts"),
-				]);
+				await Promise.all([setupWizardModule(), authCommandModule()]);
 			const oauthConfig = await ensureOAuthApp(ctx, ENV_OAUTH_CONFIG);
 			if (!oauthConfig) return;
 			await handleGoogleAuthCommand(args, ctx, oauthConfig);
