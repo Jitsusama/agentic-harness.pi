@@ -14,7 +14,12 @@ host adds, and records that drift from plain pi's.
   reads, bash, background bash jobs and long answers among the echoes.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
   127.0.0.1 that answers without end, so both sides run pi's real
-  provider code.
+  provider code, at once or at a pace.
+- `pace.ts`: how long each answer and each bash command takes and how
+  many rounds a turn has under a pace, drawn through a median and a
+  90th percentile, the same for the same turn on either side and on
+  every run, and how an answer is cut into pieces streamed across its
+  time.
 - `report.ts`: latencies from the logs, what the screens add to them,
   their percentiles, whether the weighings settle, and the differences
   between each pair of logs.
@@ -38,8 +43,33 @@ nix-offload there --never-ask --run --copy "$runtime" --longest 14400 -- \
       --turns 120,60,40,40,30,30,20,20,10,10 --checkpoints 8"
 ```
 
+## Running at a Real Pace
+
+Without a pace the model answers at once, so each side runs as fast as
+it can: a closed loop that measures the host's cost per turn, not what a
+person feels. `--answer-ms P50,P90` has each answer take a time drawn
+through those percentiles, its words streamed in a piece every 50 ms,
+`--tool-ms P50,P90` has each bash command run that long first, and
+`--rounds P50,P90` has each turn work through that many rounds before
+it answers, a tool call in each, two bash to every read. No drawn time
+passes 45 s and no turn passes 60 rounds, and each wait for a turn
+widens to fit. The week of Nov 6 to 13 on optimus gave the pace, from
+680,045 answers, 425,376 bash runs and their turns in 604 session logs:
+
+```sh
+--answer-ms 16007,38871 --tool-ms 541,12263 --rounds 7,55
+```
+
+At that pace a turn averages about 25 rounds and 9 minutes, so size a
+paced run's turns small: 4 a conversation with `--checkpoints 2` takes
+35 to 40 minutes a side, inside `--longest 14400`.
+
+## The Report
+
 It prints a line a checkpoint and the report as one JSON line after
 `soak report:`. The report holds:
+
+- `pace`: the pace it ran at, empty for none.
 
 - `checkpoints`: the host's RSS, PSS, swapped PSS, heap used, heap
   total, external and array buffers after its garbage is collected,

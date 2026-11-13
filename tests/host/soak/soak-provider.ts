@@ -6,12 +6,41 @@
  * tool's result is acknowledged, a read reads `notes.txt`, a bash turn
  * echoes, a job runs bash in the background, a long turn answers in 120
  * lines, and anything else is echoed. Every turn's last answer ends in
- * the prompt's tag, which the soak waits for. It binds 127.0.0.1 and takes
- * no credential.
+ * the prompt's tag, which the soak waits for. Given a pace, each answer
+ * takes a time drawn from it, its words arriving in pieces across that
+ * time, each bash command waits a drawn time before it echoes, and a turn
+ * has a drawn count of rounds, each before its own answer a tool call,
+ * two bash to a read, as a real turn works before it answers. Without one
+ * it answers at once, in one piece, bash echoes at once, and a turn is
+ * only its own answer. It binds 127.0.0.1 and takes no credential.
  */
 import { createServer, type ServerResponse } from "node:http";
+import { setTimeout as later } from "node:timers/promises";
 import { isRecord } from "../../../lib/internal/record.ts";
-import { acknowledged, asked, type TurnKind } from "./turns.ts";
+import {
+	drawn,
+	MOST_ROUNDS,
+	type Percentiles,
+	PIECE_EVERY_MS,
+	piecesOf,
+} from "./pace.ts";
+import { acknowledged, asked, type Turn, type TurnKind } from "./turns.ts";
+
+/** How long answers and tools take and how many rounds a turn has. */
+export interface SoakPace {
+	/** How long the model takes over each answer, in ms. */
+	readonly answer?: Percentiles;
+	/** How long each bash command runs, in ms. */
+	readonly tool?: Percentiles;
+	/** How many rounds a turn has, the model answering once in each. */
+	readonly rounds?: Percentiles;
+}
+
+/** The turn kinds whose own answer is a tool call, so two rounds. */
+const TOOL_KINDS: ReadonlySet<TurnKind> = new Set(["read", "bash", "job"]);
+
+/** Of each three rounds before a turn's own, the one that reads. */
+const READS_EVERY = 3;
 
 /** The provider, while it listens. */
 export interface SoakProvider {
@@ -42,8 +71,8 @@ type Block =
 			readonly input: Readonly<Record<string, unknown>>;
 	  };
 
-/** Listen on a free local port. */
-export async function soakProvider(): Promise<SoakProvider> {
+/** Listen on a free local port, answering at `pace`. */
+export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 	let answered = 0;
 	const server = createServer(async (request, response) => {
 		let raw = "";
@@ -51,10 +80,12 @@ export async function soakProvider(): Promise<SoakProvider> {
 		const body: unknown = JSON.parse(raw);
 		const messages: unknown = isRecord(body) ? body.messages : undefined;
 		answered += 1;
-		stream(
+		const history = Array.isArray(messages) ? messages : [];
+		await stream(
 			response,
-			answerTo(Array.isArray(messages) ? messages : []),
+			answerTo(history, pace),
 			answered,
+			pace.answer === undefined ? 0 : drawn(pace.answer, drawKeyOf(history)),
 		);
 	});
 	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -71,18 +102,74 @@ export async function soakProvider(): Promise<SoakProvider> {
 	};
 }
 
-/** What the request whose messages are `messages` is answered with. */
-export function answerTo(messages: readonly unknown[]): Block {
-	const prompt = [...messages].reverse().find(said);
-	const turn = prompt === undefined ? undefined : asked(textOf(prompt));
-	if (turn === undefined) return { type: "text", text: UNSCRIPTED };
+/** What the request whose messages are `messages` is answered with, at `pace`. */
+export function answerTo(
+	messages: readonly unknown[],
+	pace: SoakPace = {},
+): Block {
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined) return { type: "text", text: UNSCRIPTED };
+	const { turn, round } = sofar;
+	const runsMs = (key: string) =>
+		pace.tool === undefined ? 0 : drawn(pace.tool, `${turn.tag} tool ${key}`);
+	const before = roundsBefore(turn, pace.rounds);
+	if (round < before) return workFor(turn.tag, round, runsMs(`${round}`));
 	const ack = acknowledged(turn.tag);
-	if (isToolResult(messages.at(-1)))
-		return { type: "text", text: `done, ${ack}` };
-	return blockFor(turn.kind, turn.tag, ack);
+	if (round > before) return { type: "text", text: `done, ${ack}` };
+	return blockFor(turn.kind, turn.tag, ack, runsMs("own"));
 }
 
-function blockFor(kind: TurnKind, tag: string, ack: string): Block {
+/** The soak turn `messages` are of, and how many of its tools have answered. */
+function turnSoFar(
+	messages: readonly unknown[],
+):
+	| { readonly turn: Pick<Turn, "tag" | "kind">; readonly round: number }
+	| undefined {
+	let start = messages.length - 1;
+	while (start >= 0 && !said(messages[start])) start -= 1;
+	const turn = start < 0 ? undefined : asked(textOf(messages[start]));
+	if (turn === undefined) return undefined;
+	const round = messages.slice(start + 1).filter(isToolResult).length;
+	return { turn, round };
+}
+
+/** How many rounds of work come before `turn`'s own answer, at `rounds`. */
+function roundsBefore(
+	turn: Pick<Turn, "tag" | "kind">,
+	rounds: Percentiles | undefined,
+): number {
+	if (rounds === undefined) return 0;
+	const total = drawn(rounds, `${turn.tag} rounds`, MOST_ROUNDS);
+	return Math.max(0, total - (TOOL_KINDS.has(turn.kind) ? 2 : 1));
+}
+
+/** Round `round` of a turn's work: two bash, then a read, over again. */
+function workFor(tag: string, round: number, runsMs: number): Block {
+	if (round % READS_EVERY === READS_EVERY - 1)
+		return { type: "tool_use", name: "read", input: { path: "notes.txt" } };
+	return {
+		type: "tool_use",
+		name: "bash",
+		input: { command: `${waitFor(runsMs)}echo soak round ${round} ${tag}` },
+	};
+}
+
+/**
+ * What a request's time is drawn by: the turn it answers and its round,
+ * the same on either side of the soak.
+ */
+function drawKeyOf(messages: readonly unknown[]): string {
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined) return UNSCRIPTED;
+	return `${sofar.turn.tag} answer ${sofar.round}`;
+}
+
+function blockFor(
+	kind: TurnKind,
+	tag: string,
+	ack: string,
+	runsMs: number,
+): Block {
 	switch (kind) {
 		case "read":
 			return { type: "tool_use", name: "read", input: { path: "notes.txt" } };
@@ -90,7 +177,7 @@ function blockFor(kind: TurnKind, tag: string, ack: string): Block {
 			return {
 				type: "tool_use",
 				name: "bash",
-				input: { command: `echo soak bash ${tag}` },
+				input: { command: `${waitFor(runsMs)}echo soak bash ${tag}` },
 			};
 		case "job":
 			return {
@@ -110,6 +197,13 @@ function blockFor(kind: TurnKind, tag: string, ack: string): Block {
 			return { type: "text", text: `heard, ${ack}` };
 	}
 }
+
+/** A command's wait of `ms` before it goes on, or none for no time. */
+function waitFor(ms: number): string {
+	return ms === 0 ? "" : `sleep ${(ms / MS_PER_SECOND).toFixed(3)}; `;
+}
+
+const MS_PER_SECOND = 1000;
 
 /** Whether a message is one the person said, rather than a tool's result. */
 function said(message: unknown): boolean {
@@ -137,8 +231,16 @@ export function textOf(message: unknown): string {
 		.join("");
 }
 
-/** Stream `block` as Anthropic's server-sent events, as answer `count`. */
-function stream(response: ServerResponse, block: Block, count: number): void {
+/**
+ * Stream `block` as Anthropic's server-sent events, as answer `count`,
+ * its words in pieces spread across `takesMs`.
+ */
+async function stream(
+	response: ServerResponse,
+	block: Block,
+	count: number,
+	takesMs: number,
+): Promise<void> {
 	const tool = block.type === "tool_use";
 	response.writeHead(200, { "content-type": "text/event-stream" });
 	const emit = (data: { type: string } & Record<string, unknown>) =>
@@ -173,13 +275,21 @@ function stream(response: ServerResponse, block: Block, count: number): void {
 				}
 			: { type: "text", text: "" },
 	});
-	emit({
-		type: "content_block_delta",
-		index: 0,
-		delta: tool
-			? { type: "input_json_delta", partial_json: JSON.stringify(block.input) }
-			: { type: "text_delta", text: block.text },
-	});
+	const words = tool ? JSON.stringify(block.input) : block.text;
+	const pieces = piecesOf(words, Math.floor(takesMs / PIECE_EVERY_MS));
+	const gapMs = takesMs / pieces.length;
+	for (const piece of pieces) {
+		if (gapMs > 0) await later(gapMs);
+		// A client that went away while the answer streamed takes no more.
+		if (response.destroyed) return;
+		emit({
+			type: "content_block_delta",
+			index: 0,
+			delta: tool
+				? { type: "input_json_delta", partial_json: piece }
+				: { type: "text_delta", text: piece },
+		});
+	}
 	emit({ type: "content_block_stop", index: 0 });
 	emit({
 		type: "message_delta",
