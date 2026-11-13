@@ -61,7 +61,12 @@ import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
 import { LONGEST_MS, MOST_ROUNDS, paceOf } from "./pace.ts";
-import { timeSpent } from "./profile.ts";
+import {
+	longestLived,
+	type Pinned,
+	timeSpent,
+	timeSpentWithin,
+} from "./profile.ts";
 import {
 	entriesOf,
 	growthOf,
@@ -69,7 +74,9 @@ import {
 	parityOf,
 	type ScreenSplit,
 	type Spread,
+	type SlowKey,
 	screenSplit,
+	slowKeys,
 	spreadOf,
 	type Typed,
 	turnTimes,
@@ -90,6 +97,10 @@ import {
 
 /** How long one turn may take on a loaded builder, every extension loaded. */
 const TURN_MS = 120_000;
+/** A key slower than this to reach its log is named, the bar a held loop is held to. */
+const SLOW_KEY_MS = 1000;
+/** How many of the slowest keys the report names. */
+const MOST_SLOW_KEYS = 20;
 /** park-workflow's two minutes for a named session, its minute between looks, and room for load. */
 const PARK_MS = 4 * 60_000;
 /** How often a parked host is weighed again while it still holds a session. */
@@ -229,11 +240,12 @@ say(
 const hostSeal = await seal();
 const hosted = await runHosted(hostSeal);
 const hostedLatency = latencyOf(hosted.logs);
-const hostedTime = values.profile
-	? timeSpent(profilesIn(profiles.hosted))
-	: undefined;
+const hostedProfiles = values.profile ? profilesIn(profiles.hosted) : [];
+const hostedTime = values.profile ? timeSpent(hostedProfiles) : undefined;
+const slow = slowSpent(hostedLatency.slowKeys, hostedProfiles, hosted.pinned);
 say(`hosted latency ${JSON.stringify(hostedLatency)}`);
 if (hostedTime) say(`hosted time spent ${JSON.stringify(hostedTime)}`);
+say(`slow keys ${JSON.stringify(slow)}`);
 say("hosted side done; plain pi next");
 const plainSeal = await seal();
 const plain = await runPlain(plainSeal);
@@ -246,7 +258,9 @@ const report = {
 	conversations: counts.length,
 	pace,
 	turns: sum(counts),
+	opened: hosted.opened,
 	checkpoints: hosted.checkpoints,
+	slowKeys: slow,
 	heap: {
 		parked: growthOf(parkedWeights.map((one) => one.heapKb)),
 		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
@@ -292,11 +306,32 @@ await plainSeal.dispose();
 function latencyOf(logs: readonly Record<string, unknown>[][]): {
 	readonly hosted: Spread;
 	readonly screen: ScreenSplit;
+	readonly slowKeys: readonly SlowKey[];
 } {
+	const turns = logs.flatMap(turnTimes);
 	return {
 		hosted: spreadOf(logs.flatMap(latencies).map((one) => one.ms)),
-		screen: screenSplit(logs.flatMap(turnTimes), typedAt),
+		screen: screenSplit(turns, typedAt),
+		slowKeys: slowKeys(turns, typedAt, SLOW_KEY_MS, MOST_SLOW_KEYS),
 	};
+}
+
+/**
+ * Each slow key with where the host's time went while it waited, from
+ * the profile of the host's own process, which lived longest; without
+ * --profile, the keys alone.
+ */
+function slowSpent(
+	keys: readonly SlowKey[],
+	hostProfiles: readonly unknown[],
+	pinned: Pinned,
+): readonly object[] {
+	const host = longestLived(hostProfiles);
+	if (host === undefined) return keys;
+	return keys.map((key) => ({
+		...key,
+		spent: timeSpentWithin(host, pinned, { from: key.keyAt, to: key.promptAt }),
+	}));
 }
 
 /** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
@@ -337,12 +372,17 @@ function agentOf(listening: SoakProvider): {
 
 /** The hosted side: every conversation in one host, with its checkpoints. */
 async function runHosted(sealed: Seal): Promise<{
+	/** The loop while every conversation opened, kept apart from the first checkpoint's. */
+	readonly opened: { readonly ms: number; readonly weight: Weight };
 	readonly checkpoints: readonly Checkpoint[];
 	readonly logs: readonly Record<string, unknown>[][];
 	readonly errors: string;
+	/** When the host's process started and ended, to lay its profile on the wall clock. */
+	readonly pinned: Pinned;
 }> {
 	const agentFile = join(sealed.root, "soak-agent.json");
 	writeFileSync(agentFile, JSON.stringify(agent));
+	const startedAt = Date.now();
 	const host = await startScreenHost(
 		{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
 		packageDir ?? "",
@@ -362,6 +402,12 @@ async function runHosted(sealed: Seal): Promise<{
 		const turns = turnsOf(index, count);
 		conversations.push({ index, cwd, sessionId, file, turns });
 	}
+	// Weighed here, the loop's figures since the host started are the
+	// opening's alone, and the first checkpoint's start after it.
+	const opened = { ms: Date.now() - opening, weight: await host.weigh() };
+	say(
+		`opened all ${conversations.length} in ${opened.ms} ms, ${loopOf(opened.weight)}`,
+	);
 	const parkFolder = join(
 		sealed.env.XDG_STATE_HOME ?? "",
 		"pi",
@@ -441,7 +487,8 @@ async function runHosted(sealed: Seal): Promise<{
 	const logs = conversations.map((one) => entriesOf(readOr(one.file)));
 	const errors = host.errors();
 	await host.stop();
-	return { checkpoints: weighings, logs, errors };
+	const pinned = { startedAt, endedAt: Date.now() };
+	return { opened, checkpoints: weighings, logs, errors, pinned };
 }
 
 /** How late and how busy the host's loop ran up to `weight`, as a line says it. */
