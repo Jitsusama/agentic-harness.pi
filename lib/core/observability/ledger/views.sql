@@ -41,6 +41,14 @@ SELECT f.*,
 		WHEN f.preceded_by = 'compaction' THEN 'after compaction'
 		WHEN f.preceded_by = 'model' THEN 'model change'
 		WHEN f.account_changed = 1 THEN 'served by another account'
+		-- Each provider's backend keeps a cache of its own, and a failover
+		-- to one names no account, so the backend is told apart here.
+		WHEN f.served_backend <> (
+			SELECT p.served_backend FROM turns AS p
+			WHERE p.session_id = f.session_id AND p.kind = 'assistant'
+				AND p.timestamp < f.timestamp
+			ORDER BY p.timestamp DESC LIMIT 1
+		) THEN 'served by another backend'
 		WHEN f.gap_ms > :hour_ms THEN 'idle over an hour'
 		WHEN f.gap_ms > :five_minutes_ms AND f.cache_write_1h = 0
 			THEN 'idle over five minutes'
