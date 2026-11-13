@@ -692,9 +692,14 @@ export async function createEngine(
 		try {
 			await record.conversation?.close();
 		} finally {
+			// It lets go of pi before the reap, which reads every process's
+			// environment and takes a while, so nothing ended stays held meanwhile.
+			record.runtime = undefined;
+			record.conversation = undefined;
+			record.unsubscribe = undefined;
+			if (live.get(sessionId) === record) live.delete(sessionId);
 			// The signal kills a tool's own group; a descendant that left it ends here.
 			await reapToolChildren(sessionId);
-			live.delete(sessionId);
 		}
 		const events = watched;
 		if (record.ending === "closed" && events)
