@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	gitTreeRootOf,
 	isGitignored,
@@ -18,11 +18,16 @@ import {
 	isWithin,
 	trackedTreeRoot,
 } from "../../../../lib/internal/quest/git-signals.ts";
+import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox.ts";
 
 let repo: string;
 let outside: string;
 
 beforeAll(() => {
+	// Unfenced, whatever runs the tests: inside the fence git is refused in
+	// a repo that isn't a cut tree, which these fixtures never are, so a
+	// fenced session read every answer as none.
+	vi.stubEnv(SANDBOX_VARIABLE, "");
 	repo = mkdtempSync(path.join(tmpdir(), "git-signals-repo-"));
 	outside = mkdtempSync(path.join(tmpdir(), "git-signals-outside-"));
 	const run = (args: string[]) =>
@@ -75,6 +80,7 @@ describe("isWithin", () => {
 });
 
 afterAll(() => {
+	vi.unstubAllEnvs();
 	rmSync(repo, { recursive: true, force: true });
 	rmSync(outside, { recursive: true, force: true });
 });
