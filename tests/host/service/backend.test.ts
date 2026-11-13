@@ -1,4 +1,8 @@
-/** The service holds before the engine registers and drops only after an end commits. */
+/**
+ * The service holds before the engine registers and drops only after an
+ * end commits. Long because every case drives the one backend through the
+ * same fake engine, session host and roster, which a split would copy.
+ */
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
