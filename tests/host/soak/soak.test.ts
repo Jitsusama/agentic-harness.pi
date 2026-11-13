@@ -79,6 +79,19 @@ describe.skipIf(!packageDir)(
 				expect(said, "the checkpoint line says the loop's delay").toMatch(
 					/loop p99 \d+ ms, max \d+ ms, busy \d+%/,
 				);
+				expect(
+					report,
+					"the loop while they opened, apart from the checkpoint's, and the slow keys",
+				).toMatchObject({
+					opened: {
+						ms: expect.any(Number),
+						weight: { loopMaxMs: expect.any(Number) },
+					},
+					slowKeys: expect.any(Array),
+				});
+				expect(said, "a line says the opening's loop").toMatch(
+					/opened all 2 in \d+ ms, loop p99 \d+ ms/,
+				);
 				// A lender lost before the end leaves what each line said by then.
 				expect(
 					saidAfter(said, "latency so far "),

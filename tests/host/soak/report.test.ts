@@ -12,6 +12,7 @@ import {
 	latencies,
 	parityOf,
 	screenSplit,
+	slowKeys,
 	spreadOf,
 	turnTimes,
 } from "./report.ts";
@@ -95,6 +96,35 @@ describe("what a screen adds", () => {
 			keyToDrawn: { count: 2, p50: 1000, p99: 2700 },
 			undrawn: 1,
 		});
+	});
+
+	it("names each key slower than the bar, slowest first", () => {
+		const typed = new Map([
+			["c0-t0", { keyAt: minute + 500 }],
+			["c0-t1", { keyAt: minute + 4_000 }],
+			["c0-t2", { keyAt: minute + 17_000 }],
+		]);
+		expect(
+			slowKeys(turnTimes(log), typed, 1000, 5),
+			"the 6 s and 3 s keys, not the 0.5 s one",
+		).toEqual([
+			{
+				tag: "c0-t1",
+				keyAt: minute + 4_000,
+				promptAt: minute + 10_000,
+				ms: 6_000,
+			},
+			{
+				tag: "c0-t2",
+				keyAt: minute + 17_000,
+				promptAt: minute + 20_000,
+				ms: 3_000,
+			},
+		]);
+		expect(
+			slowKeys(turnTimes(log), typed, 1000, 1).map((one) => one.tag),
+			"only the slowest, at most one",
+		).toEqual(["c0-t1"]);
 	});
 
 	it("leaves out a turn no viewer typed", () => {
