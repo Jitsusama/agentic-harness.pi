@@ -76,7 +76,6 @@ describe("the host's collection once quiet", () => {
 		vi.advanceTimersByTime(QUIET_MS);
 		expect(collect).toHaveBeenCalledTimes(1);
 	});
-
 });
 
 describe("V8's last-resort collection", () => {
