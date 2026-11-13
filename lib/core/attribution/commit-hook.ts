@@ -14,7 +14,7 @@
  * is host-agnostic and shared.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -139,6 +139,16 @@ function installInto(
 }
 
 /**
+ * How long one git probe on the command path may take.
+ *
+ * The probe has to land before the command runs, so the command waits
+ * on it. A rev-parse answers in milliseconds; one still silent at two
+ * seconds is stuck on a hung mount or a filesystem that stopped
+ * responding.
+ */
+export const GIT_PROBE_TIMEOUT_MS = 2000;
+
+/**
  * Ensure the hook is installed in the repo containing dir, at most
  * once per repo. Records both dir and its repo root in `installed`,
  * so a later command from either asks git nothing, and installs
@@ -146,26 +156,21 @@ function installInto(
  * not remembered, so a repo initialised there later is still
  * covered. This is how hook coverage follows the session into repos
  * it later cds into, rather than only the repo the session started
- * in. Each git call is a synchronous spawn on the command path, so
- * a first visit costs one and a repeat costs none.
- */
-/**
- * How long one git probe on the command path may take.
+ * in. A first visit costs one git call and a repeat costs none.
  *
- * The probe is synchronous, because it has to land before the command
- * runs, so while it waits nothing in pi renders or reads a key. A
- * rev-parse answers in milliseconds; one still silent at two seconds is
- * stuck on a hung mount or a filesystem that stopped responding.
+ * The call is asynchronous, so pi's loop stays free while git answers:
+ * a host runs every conversation on one loop, and a soak of twelve
+ * spent 4.9 s of it in this probe's synchronous spawn (13 November).
+ * The install itself follows the answer synchronously, so two calls
+ * awaiting the same repo cannot both install into it.
  */
-export const GIT_PROBE_TIMEOUT_MS = 2000;
-
-export function ensureCommitHook(
+export async function ensureCommitHook(
 	dir: string,
 	installed: Set<string>,
 	options: CommitHookOptions,
-): void {
+): Promise<void> {
 	if (installed.has(dir)) return;
-	const layout = locateHooks(dir);
+	const layout = await askHooks(dir);
 	// A git that never answered is not asked about this directory again
 	// this session: its commits go unhooked, which costs a trailer,
 	// where asking again would freeze pi for the clock on every command.
@@ -221,28 +226,53 @@ interface HooksLayout {
 function locateHooks(dir: string): HooksLayout | null | typeof UNANSWERED {
 	let answer: string;
 	try {
-		answer = execFileSync(
-			"git",
-			[
-				"-C",
-				dir,
-				"rev-parse",
-				"--show-toplevel",
-				"--git-common-dir",
-				"--git-path",
-				"hooks",
-			],
-			{
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_PROBE_TIMEOUT_MS,
-			},
-		);
+		answer = execFileSync("git", hooksQuestion(dir), {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+			timeout: GIT_PROBE_TIMEOUT_MS,
+		});
 	} catch (error) {
 		if (ranOutClock(error)) return UNANSWERED;
 		// Not in a working tree (or git unavailable): nothing to hook.
 		return null;
 	}
+	return layoutFrom(dir, answer);
+}
+
+/** {@link locateHooks}, asked without holding pi's loop. */
+function askHooks(
+	dir: string,
+): Promise<HooksLayout | null | typeof UNANSWERED> {
+	return new Promise((resolve) => {
+		execFile(
+			"git",
+			hooksQuestion(dir),
+			{ encoding: "utf8", timeout: GIT_PROBE_TIMEOUT_MS },
+			(error, stdout) => {
+				if (!error) resolve(layoutFrom(dir, stdout));
+				// Killed by the clock reads as unanswered; any other failure
+				// is no working tree (or no git): nothing to hook.
+				else resolve(error.killed ? UNANSWERED : null);
+			},
+		);
+	});
+}
+
+/** The one git call that locates a folder's repo and its hooks. */
+function hooksQuestion(dir: string): string[] {
+	return [
+		"-C",
+		dir,
+		"rev-parse",
+		"--show-toplevel",
+		"--git-common-dir",
+		"--git-path",
+		"hooks",
+	];
+}
+
+/** The hooks layout git's answer to {@link hooksQuestion} gives. */
+function layoutFrom(dir: string, answer: string): HooksLayout | null {
 	const [root, commonDir, hooks] = answer.trimEnd().split("\n");
 	if (!root || !commonDir || !hooks) return null;
 	return {

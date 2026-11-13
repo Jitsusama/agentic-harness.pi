@@ -39,20 +39,26 @@ import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.ts";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 import { attributeGh } from "./attribution.ts";
 
 const GH_ENTITIES = ["pr", "issue"] as const;
+
+/** The process's folders whose repo already has the hook, or has none. */
+const HOOKED_REPOS = "agentic-harness.attribution.hooked-repos.v1";
 
 export default function attributionExtension(pi: ExtensionAPI) {
 	declareGuards(GUARDS.attribution);
 	// The prepare-commit-msg hook is how every commit path pi cannot
 	// intercept at the command (cherry-pick, revert, rebase, merge,
-	// editor) gets attributed. Install it once per repo the session
+	// editor) gets attributed. Install it once per repo the process
 	// touches, so coverage follows the agent as it cds between repos
-	// rather than only the repo pi started in.
-	const hookedRepos = new Set<string>();
+	// rather than only the repo pi started in. Once per process rather
+	// than per session: the hook is on disk, the same for every
+	// conversation a host runs, and each wake started a fresh set.
+	const hookedRepos = processGlobal(HOOKED_REPOS, () => new Set<string>());
 	pi.on("session_start", async (_event, ctx) => {
-		ensureCommitHook(ctx.cwd, hookedRepos);
+		await ensureCommitHook(ctx.cwd, hookedRepos);
 	});
 
 	pi.on(
@@ -66,7 +72,7 @@ export default function attributionExtension(pi: ExtensionAPI) {
 			// Make sure the hook covers the repo this command runs in,
 			// which may be one the agent cd'd into after startup.
 			const cwd = effectiveCwd(tokenize(command), ctx.cwd);
-			ensureCommitHook("dir" in cwd ? cwd.dir : ctx.cwd, hookedRepos);
+			await ensureCommitHook("dir" in cwd ? cwd.dir : ctx.cwd, hookedRepos);
 
 			// Carry the trailer to child git processes so the
 			// prepare-commit-msg hook attributes every commit path,

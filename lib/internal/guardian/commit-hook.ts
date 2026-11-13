@@ -41,6 +41,9 @@ export function installCommitHook(repoRoot: string): HookInstall {
  * session into repos it later cds into, rather than only the repo
  * pi started in.
  */
-export function ensureCommitHook(dir: string, installed: Set<string>): void {
-	ensureCommitHookWith(dir, installed, PI_OPTIONS);
+export function ensureCommitHook(
+	dir: string,
+	installed: Set<string>,
+): Promise<void> {
+	return ensureCommitHookWith(dir, installed, PI_OPTIONS);
 }

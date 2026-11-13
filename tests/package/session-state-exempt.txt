@@ -2,6 +2,7 @@
 # right to stay process-wide when one host runs many conversations.
 # Each line is `path:kind count reason`; a line without a reason, or a
 # count the file has outgrown, fails session-state-is-keyed.test.ts.
+extensions/attribution-interceptor/index.ts:global 1 Remembers which folders' repos already carry the commit hook, which is a file in the repo, the same for every conversation a host runs; a set per conversation only asked git again on each wake (85PKB2, 2026-11-13).
 extensions/compaction-workflow/warm.ts:global 1 Carries an idle session's cache warming across a reload, which evaluates the module afresh; the map is keyed by session id, written at that session's reload shutdown and taken once at its next start, so conversations in one host never see each other's (QCXZEB for 85PKB2, 2026-11-11).
 extensions/job-workflow/moved.ts:pid 1 Asks whether a move note names the process that is ending, since only a pi handing its conversation on carries its jobs; a host never writes one for itself (2QZBX9, 2026-11-12).
 extensions/mesh-workflow/steer.ts:pid 1 Names the claim file takeSteers renames a steer to; the rename, read and unlink run synchronously, so of two conversations in one host the first takes a steer whole and the second finds it gone, as between two processes (8CCK38, 2026-11-09).
