@@ -40,9 +40,10 @@ const STALE_MS = 30_000;
 /**
  * The writers waiting on each path, one queue for the whole process. Pi
  * loads a fresh copy of this module for each extension, and a host for
- * each conversation, all under one pid: with a queue per copy, a second
- * copy would find a lock naming this pid and, as {@link isAlive} must,
- * judge it left by a process gone, and take it from its live holder.
+ * each folder its conversations run in, all under one pid: with a queue
+ * per copy, a second copy would find a lock naming this pid and, as
+ * {@link isAlive} must, judge it left by a process gone, and take it
+ * from its live holder.
  */
 const queues = processGlobal(
 	"agentic-harness.file-lock.queues.v1",
