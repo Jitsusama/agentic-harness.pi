@@ -49,6 +49,22 @@ describe.skipIf(!packageDir)(
 					latency: { hosted: { count: 4 }, plain: { count: 4 } },
 				});
 				expect(
+					isRecord(report) ? report.latency : undefined,
+					"each turn paired with plain pi's, each key's prompt seen drawn",
+				).toMatchObject({
+					paired: { count: 4, unpaired: 0 },
+					screen: { keyToDrawn: { count: 4 } },
+					bar: {
+						paired: expect.any(Boolean),
+						keyToAccepted: expect.any(Boolean),
+						keyToDrawn: expect.any(Boolean),
+					},
+				});
+				expect(
+					isRecord(report) ? report.turnsTimed : undefined,
+					"every hosted turn's own times, to read again later",
+				).toHaveLength(4);
+				expect(
 					isRecord(report) ? report.checkpoints : undefined,
 					"one weighing, at the end",
 				).toHaveLength(1);

@@ -7,13 +7,16 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+	barOf,
 	entriesOf,
 	growthOf,
 	latencies,
+	pairedCost,
 	parityOf,
 	screenSplit,
 	slowKeys,
 	spreadOf,
+	turnRecords,
 	turnTimes,
 } from "./report.ts";
 import { answerTo, JOB } from "./soak-provider.ts";
@@ -83,19 +86,74 @@ describe("what a screen adds", () => {
 		});
 	});
 
-	it("splits keys to the prompt from the answer to its drawing", () => {
+	it("splits keys to the prompt and to its first drawing from the answer's", () => {
 		const typed = new Map([
-			["c0-t0", { keyAt: minute + 500, drawnAt: minute + 3_200 }],
+			[
+				"c0-t0",
+				{ keyAt: minute + 500, shownAt: minute + 600, drawnAt: minute + 3_200 },
+			],
 			// Drawn as it streamed, before the answer's entry was written.
-			["c0-t1", { keyAt: minute + 9_900, drawnAt: minute + 10_900 }],
-			["c0-t2", { keyAt: minute + 19_000 }],
+			[
+				"c0-t1",
+				{
+					keyAt: minute + 9_900,
+					shownAt: minute + 10_100,
+					drawnAt: minute + 10_900,
+				},
+			],
+			// The first key since its conversation woke, still loading.
+			[
+				"c0-t2",
+				{ keyAt: minute + 19_000, shownAt: minute + 20_100, woke: "mesh" },
+			],
 		]);
 		expect(screenSplit(turnTimes(log), typed), "three turns typed").toEqual({
-			keyToAccepted: { count: 3, p50: 500, p99: 1000 },
+			keyToAccepted: { count: 2, p50: 100, p99: 500 },
+			keyToDrawn: { count: 2, p50: 100, p99: 200 },
 			writtenToDrawn: { count: 2, p50: -100, p99: 200 },
-			keyToDrawn: { count: 2, p50: 1000, p99: 2700 },
+			afterWake: {
+				keyToAccepted: { count: 1, p50: 1000, p99: 1000 },
+				keyToDrawn: { count: 1, p50: 1100, p99: 1100 },
+			},
 			undrawn: 1,
 		});
+	});
+
+	it("keeps each turn's times, paired with plain pi's same seeded turn", () => {
+		const typed = new Map([
+			["c0-t0", { keyAt: minute + 500, shownAt: minute + 600 }],
+			["c0-t2", { keyAt: minute + 19_000, woke: "key" }],
+		]);
+		const plain = [
+			{ tag: "c0-t0", ms: 1_500 },
+			{ tag: "c0-t1", ms: 1_200 },
+		];
+		expect(
+			turnRecords(turnTimes(log), plain, typed),
+			"each hosted turn, with what is known of it",
+		).toEqual([
+			{
+				tag: "c0-t0",
+				hostedMs: 2_000,
+				plainMs: 1_500,
+				keyToAcceptedMs: 500,
+				keyToDrawnMs: 100,
+			},
+			{ tag: "c0-t1", hostedMs: 1_000, plainMs: 1_200 },
+			{ tag: "c0-t2", hostedMs: 1_000, keyToAcceptedMs: 1_000, woke: "key" },
+		]);
+	});
+
+	it("costs each turn as hosted's time less plain pi's for the same one", () => {
+		const records = [
+			{ tag: "c0-t0", hostedMs: 2_000, plainMs: 1_500 },
+			{ tag: "c0-t1", hostedMs: 1_000, plainMs: 1_200 },
+			{ tag: "c0-t2", hostedMs: 1_000 },
+		];
+		expect(
+			pairedCost(records),
+			"two paired, plain pi's slower one below 0, one plain never answered",
+		).toEqual({ count: 2, p50: -200, p99: 500, unpaired: 1 });
 	});
 
 	it("names each key slower than the bar, slowest first", () => {
@@ -132,6 +190,39 @@ describe("what a screen adds", () => {
 			screenSplit(turnTimes(log), new Map()).keyToAccepted.count,
 			"none typed",
 		).toBe(0);
+	});
+});
+
+describe("the bar", () => {
+	const within = { count: 5, p50: 20, p99: 150 };
+	const screen = {
+		keyToAccepted: within,
+		keyToDrawn: within,
+		writtenToDrawn: within,
+		afterWake: { keyToAccepted: within, keyToDrawn: within },
+		undrawn: 0,
+	};
+
+	it("holds a turn's cost to a second and a key's to 200 ms, at the p99", () => {
+		expect(
+			barOf({ count: 5, p50: 0, p99: 1_000 }, screen),
+			"all three within",
+		).toEqual({ paired: true, keyToAccepted: true, keyToDrawn: true });
+		expect(
+			barOf(
+				{ count: 5, p50: 0, p99: 1_001 },
+				{ ...screen, keyToDrawn: { count: 5, p50: 20, p99: 201 } },
+			),
+			"a turn and a drawing each over",
+		).toEqual({ paired: false, keyToAccepted: true, keyToDrawn: false });
+	});
+
+	it("fails what nothing measured", () => {
+		const none = spreadOf([]);
+		expect(
+			barOf(none, { ...screen, keyToAccepted: none }),
+			"no turn paired and no key timed",
+		).toEqual({ paired: false, keyToAccepted: false, keyToDrawn: true });
 	});
 });
 
