@@ -17,6 +17,7 @@ import {
 	FIRST_WORDS_VARIABLE,
 	firstWordsDir,
 } from "../../../lib/internal/quest/first-words.ts";
+import { questAddress } from "../../../lib/mesh/address.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
@@ -428,8 +429,10 @@ describe("spawn through the desktop's launcher", () => {
 				cwd: tmpRoot,
 				quest: id,
 				from: "spawner",
-				// Nothing orchestrates Alpha, so it says only its title.
+				// Nothing orchestrates Alpha, so it says its title, and its
+				// window opens on its own quest's workspace.
 				title: "Alpha",
+				workspace: questAddress(id),
 				replaces: back,
 				model: "anthropic/claude-opus-5-5:high",
 				focus: false,

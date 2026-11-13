@@ -559,6 +559,43 @@ export function lastBootSessions(
 }
 
 /**
+ * How far back a line of rollovers is followed: well past any real one,
+ * and a stop for a loop of parents a damaged log could make.
+ */
+const MAX_LINE = 64;
+
+/**
+ * The sessions among `coming` whose conversation another session
+ * carries on: one descended from it, through `parentOf`, that is coming
+ * back too or `running`. Reopening one beside the session that took its
+ * conversation over is a second writer on one quest: on 13 November a
+ * copy resumed by mistake two days after it rolled over parked twice,
+ * and the reboot's Reopen Them All opened it beside its successor. A
+ * session the only one of its line to come back stays, however old.
+ */
+export function carriedOnElsewhere(
+	coming: readonly SessionRecord[],
+	running: readonly SessionRecord[],
+	parentOf: (sessionId: string) => string | undefined,
+): Set<string> {
+	const ancestors = new Set<string>();
+	for (const descendant of [...coming, ...running]) {
+		const seen = new Set([descendant.sessionId]);
+		let parent = parentOf(descendant.sessionId);
+		while (parent !== undefined && !seen.has(parent) && seen.size < MAX_LINE) {
+			seen.add(parent);
+			ancestors.add(parent);
+			parent = parentOf(parent);
+		}
+	}
+	return new Set(
+		coming
+			.map((record) => record.sessionId)
+			.filter((sessionId) => ancestors.has(sessionId)),
+	);
+}
+
+/**
  * Whether a session was taken away rather than closed: it crashed and
  * a reader found it gone, or a signal ended it. Every view that
  * separates a lost tab from a closed one asks this, so they cannot

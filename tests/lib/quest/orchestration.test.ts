@@ -2,7 +2,10 @@
  * Orchestration: which quest's session a quest answers to.
  */
 import { describe, expect, it } from "vitest";
-import { orchestrationOf } from "../../../lib/internal/quest/orchestration.ts";
+import {
+	orchestrationOf,
+	windowWorkspaceOf,
+} from "../../../lib/internal/quest/orchestration.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 
 function quest(
@@ -112,5 +115,29 @@ describe("a quest's orchestration", () => {
 		const read = store(quest(a, b), quest(b, a));
 
 		expect(orchestrationOf(a, read)).toEqual({});
+	});
+});
+
+describe("the workspace a quest's session window opens on", () => {
+	it("is the topmost orchestrator's, through a nested orchestration", () => {
+		// 13 November: after a reboot, windows opened wherever niri put
+		// them; each belongs with the orchestrator Joel steers it through.
+		const read = store(
+			quest(MISSION, null, { orchestrator: true }),
+			quest(SWARM, MISSION, { orchestrator: true }),
+			quest(WORKER, SWARM),
+		);
+
+		expect(windowWorkspaceOf(WORKER, read)).toBe(MISSION);
+		expect(windowWorkspaceOf(SWARM, read)).toBe(MISSION);
+		expect(windowWorkspaceOf(MISSION, read)).toBe(MISSION);
+	});
+
+	it("is the quest's own with no orchestrator above it", () => {
+		expect(windowWorkspaceOf(KARST, store(quest(KARST, null)))).toBe(KARST);
+	});
+
+	it("is none for a quest it can't read", () => {
+		expect(windowWorkspaceOf(KARST, store())).toBeUndefined();
 	});
 });

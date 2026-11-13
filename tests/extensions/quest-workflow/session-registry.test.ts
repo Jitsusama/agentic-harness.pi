@@ -593,6 +593,42 @@ describe("sessions a shared host ran", () => {
 	});
 });
 
+describe("a session whose conversation another carries on", () => {
+	/** A session that ran in the boot that has since ended. */
+	function inLastBoot(sessionId: string) {
+		return openRecord({
+			...base(sessionId),
+			process: {
+				hostId: hostname(),
+				pid: process.pid,
+				startToken: "t",
+				bootToken: "last",
+			},
+		});
+	}
+	// sess-old rolled over into sess-mid, and sess-mid into sess-new.
+	const parents = new Map([
+		["sess-new", "sess-mid"],
+		["sess-mid", "sess-old"],
+	]);
+	const parentOf = (sessionId: string) => parents.get(sessionId);
+	const ids = (records: readonly { sessionId: string }[]) =>
+		records.map((record) => record.sessionId);
+
+	it("is not reopened beside the session that carries it on", () => {
+		// On 13 November a copy resumed by mistake parked twice, and the
+		// reboot's Reopen Them All opened it beside the session its
+		// conversation had rolled over into two days before.
+		saveRecord(closeRecord(inLastBoot("sess-old"), "parked", NOW));
+		saveRecord(closeRecord(inLastBoot("sess-new"), "died", NOW));
+
+		const lastBoot = lastBootRestorable(() => true, "this", parentOf);
+
+		expect(ids(lastBoot.parked), "the carried-on copy came back").toEqual([]);
+		expect(ids(lastBoot.offered)).toEqual(["sess-new"]);
+	});
+});
+
 describe("seeding tabs that predate the registry", () => {
 	const live = {
 		questId: "QEST-1",
