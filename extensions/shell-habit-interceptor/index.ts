@@ -12,8 +12,8 @@
  *
  * `stash` refuses git stash saving work, `sleep` a sleep of ten
  * seconds or more in a call that holds the session (one already sent
- * to the background holds nothing, and is what the refusal asks for),
- * and `shell-edit` a redirect, `tee`, `sed -i` or
+ * to the background holds nothing, and is what the refusal asks for)
+ * or a pause that spins a core wherever it runs, and `shell-edit` a redirect, `tee`, `sed -i` or
  * `perl -i` onto a file git tracks, each naming what to do instead.
  * `mixed-turn` refuses VM work chained after a build in one call, which
  * would hold a VM slot through the build, printing the call split in
@@ -33,6 +33,7 @@ import {
 	mixedTurnRefusal,
 	shellEditRefusal,
 	sleepRefusal,
+	spinningPauseRefusal,
 	stashRefusal,
 	trackedShellEdits,
 	withoutOutputCut,
@@ -57,14 +58,14 @@ export default function shellHabitInterceptor(pi: ExtensionAPI) {
 					command,
 				);
 			}
-			const sleep = inBackground(event.input)
-				? undefined
-				: sleepRefusal(stripped);
+			const sleep =
+				spinningPauseRefusal(stripped) ??
+				(inBackground(event.input) ? undefined : sleepRefusal(stripped));
 			if (sleep) {
 				const refused = refusalUnder(
 					GUARDS.sleep.name,
 					{ block: true, reason: sleep },
-					"A long sleep",
+					"A long or spinning pause",
 					command,
 				);
 				if (refused) return refused;

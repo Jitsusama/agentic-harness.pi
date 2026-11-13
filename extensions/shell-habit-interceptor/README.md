@@ -18,7 +18,11 @@ test output with tail or head, 13 waited with sleep, and 5 ran
   `background: true`. A short sleep between polls goes ahead, and so
   does any sleep in a call already sent with `background: true`,
   which holds nothing: on 2026-11-07, 828 of the 872 sleeps agents
-  sent again past the guard were in such calls.
+  sent again past the guard were in such calls. A pause that spins a
+  core is refused wherever it runs: a `read` fed from `/dev/zero` or
+  `/dev/urandom`, or `yes` into `/dev/null`. On 2026-11-12 one
+  background watch paused with `read -t 120 < /dev/zero` and held 82%
+  of a core for 28 minutes, where a sleep would have rested.
 - **`shell-edit`** refuses a redirect, `tee`, `sed -i`, `perl -i`, or
   a `cp`, `tar` or other copy onto a file git tracks, pointing at the
   edit and write tools. A shell

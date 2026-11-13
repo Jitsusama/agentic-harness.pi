@@ -1,7 +1,8 @@
 /**
  * The sleep guard as the interceptor applies it: a long sleep that
  * would hold the session is turned back, and one in a call already
- * sent to the background goes ahead.
+ * sent to the background goes ahead. A pause that spins a core is
+ * turned back wherever it runs.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -57,6 +58,19 @@ describe("the sleep guard", () => {
 			ctx,
 		);
 		expect(verdict).toBeUndefined();
+	});
+
+	it("turns back a pause that spins, even in the background", async () => {
+		const verdict = await interceptor()(
+			bash({
+				command:
+					"until gh pr view 3 | grep -q MERGED; do read -t 120 < /dev/zero; done",
+				background: true,
+			}),
+			ctx,
+		);
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict?.reason).toContain("keeps a core busy");
 	});
 
 	it("still turns back a long sleep when background is only false", async () => {

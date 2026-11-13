@@ -136,6 +136,34 @@ export function mixedTurnRefusal(command: string): string | undefined {
 }
 
 /**
+ * A `read` fed from a device that never runs dry: it takes bytes as
+ * fast as the device gives them until its timeout, rather than resting.
+ */
+const READ_SPINS =
+	/(?:^|[\s;&|(])read\b[^;&|\n]*?<\s*(\/dev\/(?:zero|u?random))\b/;
+
+/** `yes` thrown away: a pause that writes as fast as it can. */
+const YES_SPINS = /(?:^|[\s;&(])yes(?:\s+[^;&|<>\n]*)?\s*>\s*\/dev\/null/;
+
+/**
+ * Why a command that pauses by spinning a core is refused, or nothing.
+ * On 2026-11-12 a background merge watch paused with
+ * `read -t 120 < /dev/zero`, which held 82% of a core for 28 minutes,
+ * the largest share of the jobs slice's pressure; a sleep would have
+ * rested. It is refused in the background too, where a sleep goes ahead.
+ */
+export function spinningPauseRefusal(stripped: string): string | undefined {
+	const read = READ_SPINS.exec(stripped);
+	const spinner = read
+		? `reading ${read[1]}`
+		: YES_SPINS.test(stripped)
+			? "running yes into /dev/null"
+			: undefined;
+	if (!spinner) return undefined;
+	return `This pauses by ${spinner}, which keeps a core busy for the whole pause. Pause with sleep, which rests: in a call sent with background: true a sleep of any length goes ahead, or use a tool's own watch.`;
+}
+
+/**
  * Why a command that waits with a long sleep is refused, or nothing.
  * A short sleep between polls of something is how a wait should go,
  * so only one of ten seconds or more is refused.
