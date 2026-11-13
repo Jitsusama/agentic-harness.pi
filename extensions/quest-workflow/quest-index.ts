@@ -84,6 +84,12 @@ export interface QuestIndexEntry {
 	/** The mesh address its session signs with. */
 	readonly address: string;
 	readonly short?: string;
+	/**
+	 * The name its team goes by in the swarm, from its `swarm:` alias,
+	 * which the realm's node serves with the quest so its person types
+	 * the name they call it by rather than one worked out of its title.
+	 */
+	readonly swarm?: string;
 	readonly title: string;
 	/** The Summary's first paragraph, as plain text. */
 	readonly summary?: string;
@@ -265,10 +271,12 @@ export function questsIn(
 						? toTheHour(lastLive)
 						: lastLive;
 				const resume = reopened && { ...reopened, ...(at ? { at } : {}) };
+				const swarm = fm.aliases.find((alias) => alias.type === "swarm")?.value;
 				found.push({
 					id,
 					address: questAddress(id),
 					...(fm.short ? { short: fm.short } : {}),
+					...(swarm ? { swarm } : {}),
 					title: entry.doc.title ?? id,
 					...(summary ? { summary } : {}),
 					kind: fm.kind,

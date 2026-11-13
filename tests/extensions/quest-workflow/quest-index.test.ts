@@ -309,6 +309,30 @@ describe("the quests the desktop lists", () => {
 		});
 	});
 
+	it("carry the name a quest's team goes by in the swarm, from its swarm alias", () => {
+		quest(
+			MISSION,
+			[
+				"status: active",
+				"aliases:",
+				"  - type: github-pr",
+				"    value: someone/reef#7",
+				"  - type: swarm",
+				"    value: reef",
+			].join("\n"),
+			"# Quick Wins That Move the Reef",
+		);
+		quest(CHILD, "status: active", "# A child");
+
+		const listed = questsIn(discoverQuests(root).index, nothingKnown, root);
+		const named = listed.find((entry) => entry.id === MISSION);
+		const unnamed = listed.find((entry) => entry.id === CHILD);
+
+		expect(named?.swarm).toBe("reef");
+		expect(unnamed).toBeDefined();
+		expect(unnamed).not.toHaveProperty("swarm");
+	});
+
 	it("leave the ended ones to their own list, by id, each starting in its newest session's folder", () => {
 		const newer = mkdtempSync(join(tmpdir(), "quest-index-newer-"));
 		try {
