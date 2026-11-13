@@ -140,7 +140,10 @@ describe.skipIf(!packageDir)(
 					isRecord(report) && Array.isArray(report.checkpoints)
 						? report.checkpoints[0]
 						: undefined;
-				expect(first, "both conversations' wakes, and none one at a time").toMatchObject({
+				expect(
+					first,
+					"both conversations' wakes, and none one at a time",
+				).toMatchObject({
 					burstWakes: [
 						{ conversation: 0, answeredMs: expect.any(Number) },
 						{ conversation: 1, answeredMs: expect.any(Number) },
