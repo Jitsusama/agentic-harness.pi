@@ -20,8 +20,9 @@
  * for CEILING_MS it runs with tool calls and jobs running, still only
  * once a viewer has been quiet, and says how many of each were: a
  * pause only stalls a job's child, whose pipe buffers meanwhile.
- * Where V8 exposes no gc, it says so once and collects nothing, rather
- * than keeping the host, and every conversation in it, from starting.
+ * Where V8 exposes no gc, or its gc throws, it says so once and
+ * collects nothing more, rather than keeping the host, and every
+ * conversation in it, from starting or running.
  */
 import { readFileSync } from "node:fs";
 import { setFlagsFromString } from "node:v8";
@@ -152,7 +153,18 @@ export function quietCollection(options: {
 	const collected = (reading: QuietReading, working: boolean) => {
 		const before = weigh();
 		const started = clock();
-		collect();
+		try {
+			collect();
+		} catch (error) {
+			// In a timer, a throw would reach the process with no
+			// conversation to blame, so it is said once and collection ends.
+			stopped = true;
+			const why = error instanceof Error ? error.message : String(error);
+			options.report?.(
+				`V8's gc threw (${why}), so the host won't collect when quiet`,
+			);
+			return;
+		}
 		const took = Math.round(clock() - started);
 		const after = weigh();
 		options.report?.(collectedLine(took, before, after, reading, working));

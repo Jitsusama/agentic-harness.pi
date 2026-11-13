@@ -4,7 +4,7 @@
  * VIEWER_QUIET_MS, though conversations may be waiting on the model; at
  * most one each SPACING_MS, plus one owed after a park; none until
  * something stirs; one anyway once due CEILING_MS with work running;
- * none, said once, where V8 exposes no gc. Fake timers stand in for the clock; the last cases
+ * none, said once, where V8 exposes no gc or its gc throws. Fake timers stand in for the clock; the last cases
  * run V8's own collection and read this process's Pss.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -219,6 +219,27 @@ describe("the host's collection once quiet", () => {
 				"V8 exposed no gc to collect with, so the host won't collect when quiet",
 			]);
 		}
+	});
+
+	it("stops collecting, said once, where V8's gc throws", () => {
+		const said: string[] = [];
+		const collect = vi.fn(() => {
+			throw new Error("unknown flavor");
+		});
+		const quiet = quietCollection({
+			reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+			collect,
+			weigh: () => undefined,
+			report: (one) => said.push(one),
+		});
+		quiet.stirred();
+		expect(() => vi.advanceTimersByTime(SETTLE_MS)).not.toThrow();
+		quiet.stirred();
+		vi.advanceTimersByTime(SPACING_MS * 2);
+		expect(collect).toHaveBeenCalledTimes(1);
+		expect(said).toEqual([
+			"V8's gc threw (unknown flavor), so the host won't collect when quiet",
+		]);
 	});
 
 	it("stops, collecting nothing after", () => {
