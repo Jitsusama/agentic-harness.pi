@@ -96,10 +96,9 @@ describe.skipIf(!packageDir)(
 						loopBusy: expect.any(Number),
 					},
 				});
-				expect(
-					said,
-					"the checkpoint line says the loop's delay",
-				).toMatch(/loop p99 \d+ ms, max \d+ ms, busy \d+%/);
+				expect(said, "the checkpoint line says the loop's delay").toMatch(
+					/loop p99 \d+ ms, max \d+ ms, busy \d+%/,
+				);
 				// A lender lost before the end leaves what each line said by then.
 				expect(
 					saidAfter(said, "latency so far "),
