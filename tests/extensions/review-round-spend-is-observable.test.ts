@@ -196,18 +196,16 @@ describe("what a round spends", () => {
 		// plan keeps rediscovering: the piece is tested and the join is
 		// not. A scan is a poor test and the right one here, since the
 		// closure it lives in is reachable only by running a round.
-		const source = readFileSync(
-			join(
-				dirname(fileURLToPath(import.meta.url)),
-				"..",
-				"..",
-				"extensions",
-				"review-integration",
-				"tools",
-				"ask.ts",
-			),
-			"utf8",
+		const tools = join(
+			dirname(fileURLToPath(import.meta.url)),
+			"..",
+			"..",
+			"extensions",
+			"review-integration",
+			"tools",
 		);
+		const source = readFileSync(join(tools, "ask.ts"), "utf8");
+		const settling = readFileSync(join(tools, "ask-settle.ts"), "utf8");
 
 		expect(source).toContain("recordReviewerRun({");
 		// And that a retry bills the round it substitutes into rather
@@ -217,7 +215,10 @@ describe("what a round spends", () => {
 		expect(source.split("charters, held.id)").length - 1).toBe(2);
 		// And a round started and left running is counted when it is
 		// collected, since nothing else ever sees what it cost.
-		expect(source).toContain(
+		expect(
+			settling,
+			"a collected round counts each reviewer's spend",
+		).toContain(
 			"recordReviewerRun(collectedRun(held, participant.id, left.result))",
 		);
 	});
