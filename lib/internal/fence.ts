@@ -44,6 +44,12 @@
 
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
+import {
+	cachesWithin,
+	READ_ONLY,
+	readOnlyEntry,
+	readOnlyPaths,
+} from "./fence-home.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -121,46 +127,6 @@ export const NEVER_THROUGH = [
 	// The keeper of nix-offload's passes: only the exempted call outside
 	// the fence records one, so nothing inside can claim a check it ran.
 	"/run/nix-offload-keep.sock",
-] as const;
-
-/**
- * The person's files that run code as them later, or say what does,
- * read-only inside: the shell's startup files, every program's settings
- * (systemd's units and quickshell's code among them), git's and npm's,
- * SSH's, what is on their path (their own bin, the Nix profile, dev's
- * toolchain), the launcher's entries, direnv's allow list, pi's own
- * settings and packages, and the skills and settings every agent loads.
- *
- * The home folder itself is read-only too, with every other hidden
- * entry in it bound back writable, since a dotfile is often a link into
- * the store: one a command could delete, and put a file of its own in
- * its place, if it could write the folder holding it.
- */
-export const READ_ONLY = [
-	".config",
-	".zshrc",
-	".zshenv",
-	".zprofile",
-	".zlogin",
-	".profile",
-	".bashrc",
-	".bash_profile",
-	".gitconfig",
-	".npmrc",
-	".ssh",
-	".agents",
-	".claude",
-	".claude-personal",
-	".claude.json",
-	".codex",
-	".local/bin",
-	".local/share/applications",
-	".local/share/direnv/allow",
-	".local/share/systemd",
-	".local/share/pi-packages",
-	".local/state/nix",
-	".local/state/tec/toolchain",
-	".pi/agent",
 ] as const;
 
 /** What the fence needs to know of the disk: what a path is, and what a folder holds. */
@@ -266,11 +232,6 @@ function workingEntry(place: FencePlace): string | undefined {
 	return kept ? undefined : first;
 }
 
-/** The read-only paths, for the home folder `home`. */
-export function readOnlyPaths(home: string): string[] {
-	return READ_ONLY.map((path) => join(home, path));
-}
-
 /**
  * bubblewrap's arguments for the home folder: itself read-only, every
  * hidden entry but the read-only ones bound back writable, and the
@@ -283,13 +244,15 @@ export function readOnlyPaths(home: string): string[] {
 function homeArgs(place: FencePlace, disk: Disk): string[] {
 	const home = place.home;
 	if (disk.kind(home) !== "folder") return [];
-	const top = new Set<string>(READ_ONLY.filter((path) => !path.includes("/")));
 	const working = workingEntry(place);
+	const entries = [...disk.entries(home)].sort();
 	const args = ["--ro-bind", home, home];
-	for (const entry of [...disk.entries(home)].sort()) {
+	for (const entry of entries) {
 		const path = join(home, entry);
 		const kind = disk.kind(path);
-		if (top.has(entry) || kind === "link" || kind === undefined) continue;
+		if (readOnlyEntry(entry) || kind === "link" || kind === undefined) {
+			continue;
+		}
 		if (browsed(entry) && entry !== working) continue;
 		args.push("--bind", path, path);
 	}
@@ -299,6 +262,12 @@ function homeArgs(place: FencePlace, disk: Disk): string[] {
 		if (kind === undefined) continue;
 		const kept = kind === "link" ? dirname(path) : path;
 		args.push("--ro-bind", kept, kept);
+	}
+	for (const { path } of cachesWithin(home)) {
+		const entry = relative(home, path).split(sep)[0] ?? "";
+		if (!entries.includes(entry)) continue;
+		const kind = disk.kind(path);
+		if (kind === "folder" || kind === "file") args.push("--bind", path, path);
 	}
 	return args;
 }
@@ -649,7 +618,11 @@ export function fenceRefusesWrite(
 	];
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);
-	if (kept.some(inside)) return true;
+	const caches = cachesWithin(place.home).map(({ path }) => path);
+	if (kept.some(inside) && !caches.some(inside)) return true;
+	if (dirname(path) === place.home && readOnlyEntry(basename(path))) {
+		return true;
+	}
 	const scratch = place.scratch;
 	if (scratch && inside(scratch.root)) {
 		return !(scratch.own && inside(scratch.own));
@@ -701,9 +674,16 @@ export function fencedCommand(
 		readonly rules: readonly string[];
 		readonly door?: string;
 		readonly agent?: string;
+		/** Where each of `OWN_HOMES` lives inside, by its variable. */
+		readonly homes?: readonly (readonly [string, string])[];
 	},
 ): string {
-	const unset = [...UNSET, SANDBOXED_COMMAND].join("|");
+	const homes = fence.homes ?? [];
+	const unset = [
+		...UNSET,
+		...homes.map(([name]) => name),
+		SANDBOXED_COMMAND,
+	].join("|");
 	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
 	return [
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
@@ -719,6 +699,7 @@ export function fencedCommand(
 			...(fence.agent
 				? [`--env ${quoted(`SSH_AUTH_SOCK=${fence.agent}`)}`]
 				: []),
+			...homes.map(([name, path]) => `--env ${quoted(`${name}=${path}`)}`),
 			`-- bash -c ${quoted(stub)}`,
 		].join(" "),
 	].join("\n");

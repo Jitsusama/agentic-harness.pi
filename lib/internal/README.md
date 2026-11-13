@@ -107,6 +107,11 @@ may import from here, and any of it may change without notice.
   startup files and git's code read-only; what it never lets through,
   the one SSH agent it lets in (core's proxy), the private keys it
   empties, and where it keeps pi's own file tools from.
+- **`fence-home.ts`**: what in the home folder runs code as the
+  person later, which the fence keeps read-only: settings, startup
+  files and programs' entries whose settings name a command, with
+  the caches within them bound back and the programs given a home of
+  their own in the sandbox's cache.
 - **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
   binds over them, each included file written in, since ssh inside
   refuses root's files as nobody's.

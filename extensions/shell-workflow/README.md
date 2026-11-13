@@ -120,10 +120,17 @@ through landrun:
   git's and npm's settings, `~/.ssh`, what is on your `PATH` (`~/.local/bin`,
   the Nix profile, dev's toolchain), the launcher's entries, direnv's
   allow list, `~/.pi/agent`, pi's packages, and the skills and settings
-  every agent loads, so nothing it writes runs as you later. The home
-  folder itself is read-only, with its other hidden entries bound back
-  writable, since a dotfile linked into the store could otherwise be
-  deleted and replaced. pi's own file tools are held to the same (see
+  every agent loads, so nothing it writes runs as you later. So are
+  the programs' entries read as you later: zsh's completion dump,
+  dbus's services, nvim's site plugins, the browser's certificates in
+  `~/.pki`, and `~/.kube`, `~/.aws`, `~/.gnupg`, `~/.gradle`,
+  `~/.docker` and `~/.cargo`, whose settings run a credential command
+  or a build. Their caches (kube's and aws's) are bound back writable,
+  and cargo and gradle get homes of their own in the sandbox's cache,
+  since cargo builds the sources it extracted without checking them
+  again. The home folder itself is read-only, with its other hidden
+  entries bound back writable, since a dotfile linked into the store
+  could otherwise be deleted and replaced. pi's own file tools are held to the same (see
   the sandbox file interceptor).
 - **No repositories where you browse.** The home folder's visible
   entries (`~/Downloads`, `~/Documents` and the rest) are read-only
