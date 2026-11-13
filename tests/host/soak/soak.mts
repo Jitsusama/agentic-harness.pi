@@ -377,7 +377,9 @@ async function runHosted(sealed: Seal): Promise<{
 			if (wakeOf(one, checkpoint) === "window")
 				windowWakes.push(await windowWake(host, one));
 		await Promise.all(
-			conversations.map((one) => wake(host, one, checkpoint, parkFolder, byKey)),
+			conversations.map((one) =>
+				wake(host, one, checkpoint, parkFolder, byKey),
+			),
 		);
 		weighings.push({
 			turnsDone: done,
