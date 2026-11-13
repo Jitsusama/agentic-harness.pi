@@ -11,10 +11,15 @@
  * process a conversation, all at once as the host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--profile] [--out DIR]
+ *     [--no-park] [--profile] [--answer-ms P50[,P90]]
+ *     [--tool-ms P50[,P90]] [--out DIR]
  *
  * With --profile each side's node writes a CPU profile, and the report
- * says where each side's time went.
+ * says where each side's time went. Without a pace the model answers at
+ * once and every side runs as fast as it can; --answer-ms has each answer
+ * take a time drawn through those percentiles, streamed in pieces, and
+ * --tool-ms has each bash turn's command run that long, as a real
+ * week's sessions do. The report says the pace it ran at.
  *
  * It needs a pi with the host's patches, as test:host does
  * (PI_HOST_RUNTIME), and prints the report as one JSON line after
@@ -65,6 +70,7 @@ import {
 	type Typed,
 	turnTimes,
 } from "./report.ts";
+import { LONGEST_MS, paceOf } from "./pace.ts";
 import {
 	JOB_SAYS,
 	type SoakProvider,
@@ -156,6 +162,8 @@ const { values } = parseArgs({
 		checkpoints: { type: "string", default: "8" },
 		"no-park": { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
+		"answer-ms": { type: "string" },
+		"tool-ms": { type: "string" },
 		out: { type: "string" },
 	},
 });
@@ -188,7 +196,16 @@ const profiles = {
 	plain: join(out, "profile-plain"),
 };
 
-const provider = await soakProvider();
+const pace = {
+	answer: paceOf(values["answer-ms"]),
+	tool: paceOf(values["tool-ms"]),
+};
+// A paced turn may take as long as its pace adds: two answers and a tool.
+const turnMs =
+	TURN_MS +
+	(pace.answer ? 2 * LONGEST_MS : 0) +
+	(pace.tool ? LONGEST_MS : 0);
+const provider = await soakProvider(pace);
 const agent = agentOf(provider);
 const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
 	.filter((entry) => entry.isDirectory() && !FIXTURE_LOADS.has(entry.name))
@@ -216,6 +233,7 @@ const parkedWeights = hosted.checkpoints.flatMap((one) =>
 );
 const report = {
 	conversations: counts.length,
+	pace,
 	turns: sum(counts),
 	checkpoints: hosted.checkpoints,
 	heap: {
@@ -549,16 +567,16 @@ async function typed(
 	const keyAt = Date.now();
 	// The write that first draws the answer settles it; a turn whose
 	// answer is never seen drawn settles empty and is counted.
-	const drawn = viewer.shows(ack, TURN_MS).then(
+	const drawn = viewer.shows(ack, turnMs).then(
 		() => Date.now(),
 		() => undefined,
 	);
 	viewer.type(`${turn.prompt}${ENTER}`);
-	const until = Date.now() + TURN_MS;
+	const until = Date.now() + turnMs;
 	while (!tailOf(one.file).includes(ack)) {
 		if (Date.now() > until) {
 			const said = host.errors().slice(-SAID_CHARACTERS);
-			fault(`${turn.tag} wasn't answered in ${TURN_MS} ms: ${said}`);
+			fault(`${turn.tag} wasn't answered in ${turnMs} ms: ${said}`);
 			return;
 		}
 		// The log says a turn ended only when read, so this waits between reads.
