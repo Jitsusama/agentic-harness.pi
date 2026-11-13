@@ -63,7 +63,10 @@ describe("where a profile's time went", () => {
 	it("gives node's work to the nearest caller of the harness's or pi's", () => {
 		const called = {
 			nodes: [
-				{ ...node(1, "onTurn", "file:///w/h/extensions/job-workflow/i.ts", 9), children: [2] },
+				{
+					...node(1, "onTurn", "file:///w/h/extensions/job-workflow/i.ts", 9),
+					children: [2],
+				},
 				{ ...node(2, "execFileSync", "node:child_process"), children: [3] },
 				node(3, "spawnSync", "node:internal/child_process"),
 				node(4, "(garbage collector)"),
@@ -71,9 +74,10 @@ describe("where a profile's time went", () => {
 			samples: [3, 3, 1, 4],
 			timeDeltas: [1000, 1000, 1000, 1000],
 		};
-		expect(timeSpent([called]).calledFrom, "the sync spawn, not the GC").toEqual([
-			{ name: "onTurn extensions/job-workflow/i.ts:10", ms: 2 },
-		]);
+		expect(
+			timeSpent([called]).calledFrom,
+			"the sync spawn, not the GC",
+		).toEqual([{ name: "onTurn extensions/job-workflow/i.ts:10", ms: 2 }]);
 	});
 
 	it("adds several profiles together and skips what isn't one", () => {
