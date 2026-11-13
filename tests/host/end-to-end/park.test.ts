@@ -309,16 +309,19 @@ describe.skipIf(!packageDir)(
 					askWake(resting, "message-2", parkFolder),
 					"its marker stood across the restart, naming where to wake it",
 				).toBe(true);
+				// Listed idle as it registers, before its session loads, so the
+				// wake is done only once its session is in memory. No window is
+				// attached, since attaching would wake it whatever the mesh did.
 				await host.idle(resting, TURN_MS).catch(withHost);
+				let sessions = (await host.weigh()).sessions;
+				while (!sessions.includes(resting) && Date.now() - waking < TURN_MS)
+					sessions = (await host.weigh()).sessions;
 				took.restingWokenMs = Date.now() - waking;
+				expect(sessions, "its session is back in memory").toContain(resting);
 				expect(
 					said(await logOf(resting)),
 					"the same conversation woke",
 				).toEqual(["first resting"]);
-				expect(
-					(await host.weigh()).sessions,
-					"its session is back in memory",
-				).toContain(resting);
 			},
 			CASE_MS + CASE_MS,
 		);
