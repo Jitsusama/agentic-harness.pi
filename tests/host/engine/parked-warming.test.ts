@@ -98,6 +98,10 @@ function reply(cacheWrite = 0): WarmSent {
 	};
 }
 
+/** What the conversation held in its environment as it parked. */
+const PARKED_ENV = { HOME: "/home/s2", ANTHROPIC_API_KEY: "its own" };
+
+/** A warmer whose conversations each park holding PARKED_ENV. */
 function warmer(
 	options: {
 		send?: (carry: WarmingCarry) => Promise<WarmSent>;
@@ -106,13 +110,15 @@ function warmer(
 	} = {},
 ) {
 	const sent: WarmingCarry[] = [];
+	const sentUnder: unknown[] = [];
 	const report = vi.fn();
 	const held = vi.fn();
-	const warming = parkedWarming({
+	const warmings = parkedWarming({
 		carries,
 		pending,
-		send: async (carry) => {
+		send: async (carry, env) => {
 			sent.push(carry);
+			sentUnder.push(env);
 			return (options.send ?? (async () => reply()))(carry);
 		},
 		enabled: async () => options.enabled ?? true,
@@ -120,7 +126,12 @@ function warmer(
 		held,
 		report,
 	});
-	return { warming, sent, report, held };
+	const warming = {
+		start: (sessionId: string) => warmings.start(sessionId, PARKED_ENV),
+		stop: (sessionId: string) => warmings.stop(sessionId),
+		inFlight: () => warmings.inFlight(),
+	};
+	return { warming, sent, sentUnder, report, held };
 }
 
 const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms);
@@ -148,6 +159,16 @@ describe("warming a parked conversation", () => {
 				parked: true,
 			}),
 		]);
+	});
+
+	it("sends each warm under the environment its conversation held as it parked", async () => {
+		parkedCarry({ warms: 1 });
+		const { warming, sentUnder } = warmer();
+
+		warming.start("s2");
+		await wait(10 * WARM_EVERY);
+
+		expect(sentUnder).toEqual([PARKED_ENV, PARKED_ENV, PARKED_ENV]);
 	});
 
 	it("takes the schedule up from the carry after a host restart", async () => {
