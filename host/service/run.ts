@@ -87,11 +87,13 @@ const MICROSECONDS_PER_MS = 1000;
 const MS_PER_SECOND = 1000;
 
 /**
- * How long a stop for a throw nothing contained may take before the host
- * ends anyway: inside systemd's 60 s stop timeout, so the next host starts
- * from what parked rather than from a kill.
+ * How long a stop may take before the host ends anyway, naming what hadn't
+ * parked: inside systemd's 60 s stop timeout, so the next host starts from
+ * what parked rather than from a kill. A park awaits each conversation's
+ * work ending, and on 14 November one awaited a model request for more than
+ * the minute, so systemd killed the host with every conversation unparked.
  */
-const FAILED_STOP_MS = 45_000;
+const STOP_WITHIN_MS = 45_000;
 
 /**
  * The codes of a write to a pipe or stream whose other end has gone: a
@@ -121,6 +123,8 @@ export interface HostRunOptions {
 	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
 	statusEvery?: number;
+	/** How long, in ms, a stop may park before the host ends; STOP_WITHIN_MS by default. */
+	stopWithin?: number;
 	/**
 	 * Says the host's loop still turns, when systemd's watchdog watches it,
 	 * given how many ms the saying may take; systemd's notify by default.
@@ -267,10 +271,12 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		following?.();
 		// Parking many can take a while; the status says so meanwhile, and
 		// the watchdog hears the loop still turns until every one is parked.
-		stopping = tell(stoppingStatus(serving.held().length))
+		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
-			.then(() => serving.stop())
-			.finally(() => unwatch?.());
+			.then(() => serving.stop());
+		stopping = endWithin(parked, options.stopWithin ?? STOP_WITHIN_MS, (ms) =>
+			say(unparkedLine(ms, serving.held())),
+		).finally(() => unwatch?.());
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -285,8 +291,6 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			// A stop under way ends as it began; a closed pipe ends nothing.
 			if (stopping || closedPipe(error)) return;
 			const ended = () => reject(failure);
-			// A stop that hangs still ends the host, inside systemd's own timeout.
-			setTimeout(ended, FAILED_STOP_MS).unref();
 			stop().then(ended, (stopFailed: unknown) => {
 				report(stopFailed);
 				ended();
@@ -535,6 +539,40 @@ function heldLine(
 	const seconds = (ms: number) => (ms / MS_PER_SECOND).toFixed(1);
 	const busy = held.filter(({ state }) => state === "busy").length;
 	return `the loop held ${seconds(late)} s past a watchdog beat, of the ${seconds(timeout)} s systemd waits, with ${busy} of ${held.length} conversations mid-turn`;
+}
+
+/**
+ * Settle as `work` does, or once `ms` have passed, telling `late` so; a
+ * failure of `work` past then is the stop's own and is let go.
+ */
+function endWithin(
+	work: Promise<void>,
+	ms: number,
+	late: (ms: number) => void,
+): Promise<void> {
+	let timer: NodeJS.Timeout | undefined;
+	const bound = new Promise<void>((resolve) => {
+		timer = setTimeout(() => {
+			late(ms);
+			resolve();
+		}, ms);
+		timer.unref();
+	});
+	// Past the bound the host ends anyway; what the stop says then is moot.
+	work.catch(() => {});
+	return Promise.race([work, bound]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Say that a stop ends after `ms` with the conversations still `held`
+ * unparked, by id, so the next host's resume of each can be laid beside it.
+ */
+function unparkedLine(
+	ms: number,
+	held: readonly { readonly id: string }[],
+): string {
+	const ids = held.map(({ id }) => id).join(", ");
+	return `stopping after ${ms} ms, ${held.length} not parked: ${ids}`;
 }
 
 /** Show what the host serves as the unit's status, once it changes. */

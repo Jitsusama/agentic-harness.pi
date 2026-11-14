@@ -39,6 +39,7 @@ import { realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
+import type { SessionIdentity } from "./protocol.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
 import {
@@ -284,7 +285,10 @@ type Next = "restarting" | "look" | "gap";
 
 /** What a running host gives the restart loop, and where to look. */
 export interface Following {
-	readonly serving: Pick<ServingHost, "held" | "restartComing" | "stopping">;
+	readonly serving: Pick<ServingHost, "restartComing" | "stopping"> & {
+		/** Each conversation the host runs, by its state and when that last changed. */
+		held(): readonly Pick<SessionIdentity, "state" | "since">[];
+	};
 	/** How much background work the conversations hold (the engine's). */
 	background(): number;
 	/** What that background work is, a line each (the engine's). */

@@ -71,7 +71,10 @@ input pipeline or screen. No unit or running host is installed yet.
   Given the process's faults, it backstops an uncaught exception: one
   thrown inside a conversation goes to that conversation's screen, and
   one it can't tie to a screen parks every conversation and fails the
-  run, within 45 s, so systemd restarts the host from what it parked.
+  run. Any stop ends within 45 s, inside systemd's 60 s stop timeout:
+  a park still awaiting its conversation's work then is left, and the
+  journal names each conversation not parked, which the next host
+  resumes from its store as it would after a kill.
 - program.ts: that program, which `scripts/pi-host.ts` runs. It loads
   the host's pi from PI_PACKAGE_DIR, refused unless every host patch is
   there, starts pi's theme from the person's settings, and gives each
