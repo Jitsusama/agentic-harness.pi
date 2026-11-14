@@ -31,6 +31,7 @@ import {
 	STRICT,
 	unfencedFolder,
 } from "./sandbox.ts";
+import { brokerTrees } from "./sandbox-trees.ts";
 import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 
 /**
@@ -195,6 +196,7 @@ function fenceRefusal(
 		cwd: place.cwd,
 		ownGitFolder: treeGit(place.cwd, place.home)?.gitDir,
 		scratch: questScratch(place.env.TMPDIR),
+		trees: brokerTrees(place.env.PI_SESSION_ID),
 	};
 	for (const candidate of candidates) {
 		const real = leadsTo(candidate);
@@ -207,7 +209,7 @@ function fenceRefusal(
 			use === "write" &&
 			(fenceRefusesWrite(candidate, fence) || fenceRefusesWrite(real, fence))
 		) {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the folders the person browses in the home folder but the one the session works in, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the work tool's trees but the session's own, the folders the person browses in the home folder but the one the session works in, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
 		}
 		if (fenceRefusesRead(real, fence)) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes, the runtime folder and the files holding keys or registry tokens out of reach: ${path} leads to ${real}, so ${toolName} didn't run. A command reads ~/.npmrc without its tokens.`;

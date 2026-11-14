@@ -57,8 +57,12 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, and the jobs broker in the runtime folder", () => {
-		const bound = pairs("--bind").filter((path) =>
+	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, and the jobs broker in the runtime folder, each read-only", () => {
+		expect(
+			pairs("--bind").filter((path) => path?.startsWith(place.runtimeDir)),
+			"something in the runtime folder is bound writable",
+		).toEqual([]);
+		const bound = pairs("--ro-bind").filter((path) =>
 			path?.startsWith(place.runtimeDir),
 		);
 		expect(bound).toEqual([
@@ -236,7 +240,9 @@ describe("the fence's arguments", () => {
 	});
 
 	it("makes the home folder read-only, binding back writable every hidden entry but the read-only ones and links", () => {
-		expect(pairs("--ro-bind")[0]).toBe(place.home);
+		expect(
+			pairs("--ro-bind").find((path) => path?.startsWith(place.home)),
+		).toBe(place.home);
 		const writable = pairs("--bind").filter((path) =>
 			path?.startsWith(place.home),
 		);

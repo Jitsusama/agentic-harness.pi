@@ -125,6 +125,9 @@ may import from here, and any of it may change without notice.
   inside while a watch in pi's process removes any name planted there
   that sends git outside elsewhere, and stops the session that could
   have planted it.
+- **`fence-broker-trees.ts`**: the work tool's trees read-only
+  inside but the session's own, their `.git` files aside, since git
+  outside runs in every one.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.

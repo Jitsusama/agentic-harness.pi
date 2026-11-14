@@ -101,7 +101,12 @@ import {
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
-import { folderGit, heldTree, worktreeFolder } from "./sandbox-trees.ts";
+import {
+	brokerTrees,
+	folderGit,
+	heldTree,
+	worktreeFolder,
+} from "./sandbox-trees.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
 import { cutTreeDir } from "./work-records.ts";
@@ -665,6 +670,7 @@ export function wrapFor(
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
+				trees: brokerTrees(session),
 			};
 			makeFoldersFirst(home);
 			const own = sandboxFolders(home).cache;

@@ -5,11 +5,13 @@
  * fence guards.
  */
 
+import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { guardsGitFolder } from "./fence.ts";
+import type { BrokerTrees } from "./fence-broker-trees.ts";
 import type { HeldGit } from "./offload-exemption.ts";
 import { namedGitFolder, real, treeGit } from "./tree-git.ts";
-import { treesHeldBy } from "./work-records.ts";
+import { cutTreeDir, treeRecordDir, treesHeldBy } from "./work-records.ts";
 
 /** The folder a worktree's `.git` file names, or nothing when `cwd` has none. */
 export function worktreeFolder(cwd: string): string | undefined {
@@ -66,4 +68,45 @@ export function folderGit(
 	return guardsGitFolder(git, real(home))
 		? { folder: top, gitDir: git }
 		: undefined;
+}
+
+/**
+ * The trees each session holds, as last read, by the records folder's
+ * change time: every record is written beside and renamed in, so the
+ * folder's time moves with each one, and a thousand records aren't read
+ * again for every command.
+ */
+const HELD = new Map<
+	string,
+	{ readonly at: number; readonly held: string[] }
+>();
+
+/**
+ * The work broker's trees as the fence keeps them for `session`: the
+ * folder they're cut in, the records saying who holds each, and the
+ * trees the records hold for this session, as they really are.
+ */
+export function brokerTrees(
+	session: string | undefined,
+	namedRoot: string = cutTreeDir(),
+	namedRecords: string = treeRecordDir(),
+): BrokerTrees {
+	// As they really are, as the held trees are, so a tree is found in
+	// its folder whatever links lead there.
+	const root = real(namedRoot);
+	const records = real(namedRecords);
+	if (!session) return { root, records, held: [] };
+	let at: number;
+	try {
+		at = statSync(records).mtimeMs;
+	} catch {
+		// No records yet: the session holds no tree.
+		return { root, records, held: [] };
+	}
+	const key = `${records} ${session}`;
+	const known = HELD.get(key);
+	if (known && known.at === at) return { root, records, held: known.held };
+	const held = treesHeldBy(session, records).map(real);
+	HELD.set(key, { at, held });
+	return { root, records, held };
 }
