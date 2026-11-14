@@ -475,9 +475,9 @@ const ENDING_GRACE_MS = 2_000;
 
 /** What ending a process by a signal needs of it: `process`, in life. */
 interface SignalTarget {
-	pid: number;
-	removeAllListeners: (signal: NodeJS.Signals) => void;
-	kill: (pid: number, signal: NodeJS.Signals) => void;
+	readonly pid: number;
+	readonly removeAllListeners: (signal: NodeJS.Signals) => void;
+	readonly kill: (pid: number, signal: NodeJS.Signals) => void;
 }
 
 /**
