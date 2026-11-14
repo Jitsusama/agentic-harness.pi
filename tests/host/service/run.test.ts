@@ -513,6 +513,54 @@ describe("runHost", () => {
 		).toBe("held");
 	});
 
+	// On 14 November a park never settled, awaiting a model request its
+	// abort hadn't ended, and systemd killed the host 60 s into its stop.
+	it("ends a stop a park holds, naming the conversation, inside its bound", async () => {
+		const signals = new EventEmitter();
+		const said: string[] = [];
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				start: async ({ sessionId, file, cwd }) => {
+					// A park that never ends, as a hung durable close does.
+					const close = () => new Promise<void>(() => {});
+					host.register({ id: sessionId, file, cwd, env: {}, close });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			stopWithin: 200,
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		signals.emit("SIGTERM");
+		await run.stopped;
+		expect(
+			said.filter((line) => line.includes("not parked")),
+			"says which conversation it ends unparked",
+		).toEqual([
+			expect.stringContaining(`stopping after 200 ms, 1 not parked: ${sessionId}`),
+		]);
+		expect(
+			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
+			"the next host takes it up",
+		).toBe("held");
+	});
+
 	it("gives serve the viewer bridge, built once over the host it runs", async () => {
 		const signals = new EventEmitter();
 		const viewer = vi.fn((_host: SessionHost) => ({
