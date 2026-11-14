@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CarriedShell,
+	carriesMark,
 	isCarriedShell,
 	watchCarried,
 } from "../../../../lib/internal/shell/carried.ts";
@@ -37,6 +38,30 @@ function carried(extra: Partial<CarriedShell> = {}): CarriedShell {
 
 /** Looks every millisecond, so a test waits on nothing but the looks. */
 const QUICK = 1;
+
+// A pid reused by another process after a restart is not the call's shell.
+describe("whether a pid is still the call it was", () => {
+	const environ = (entries: string[]) => () => `${entries.join("\0")}\0`;
+
+	it("is when its environment carries the call's mark", () => {
+		expect(
+			carriesMark(4242, "m1", environ(["PATH=/bin", "PI_BASH_CALL=m1"])),
+		).toBe(true);
+	});
+
+	it("is not when it carries another mark or none", () => {
+		expect(carriesMark(4242, "m1", environ(["PI_BASH_CALL=m2"]))).toBe(false);
+		expect(carriesMark(4242, "m1", environ(["PATH=/bin"]))).toBe(false);
+	});
+
+	it("leaves the pid to say when its environment can't be read", () => {
+		expect(
+			carriesMark(4242, "m1", () => {
+				throw new Error("EACCES");
+			}),
+		).toBe(true);
+	});
+});
 
 describe("a carried call's watch", () => {
 	it("reads the status it wrote as it ended, with its output", async () => {

@@ -22,12 +22,15 @@ import {
 	watchSignals,
 } from "../../../extensions/job-workflow/cut-off.ts";
 import jobWorkflow from "../../../extensions/job-workflow/index.ts";
+import { CARRIED_ENTRY } from "../../../extensions/job-workflow/moved.ts";
+import { HOST_RESTARTING_EVENT } from "../../../lib/core/session/host.ts";
 import {
 	SESSION_STAMP_EVENT,
 	withSession,
 } from "../../../lib/core/session/index.ts";
 import { processGlobal } from "../../../lib/internal/process-global.ts";
 import { CRASH_SLOT } from "../../../lib/internal/session/crash-record.ts";
+import { JOBS_CARRIED } from "../../../lib/jobs/host.ts";
 import { findJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
@@ -316,6 +319,80 @@ describe("the job workflow, at a session's end and its return", () => {
 
 			expect(pi.appended).toHaveLength(1);
 			expect(pi.appended[0]?.data).toMatchObject({ running: true });
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("in a host's restart, carries the bash calls to the next host and records only the rest cut off", async () => {
+		const host = installTestHost();
+		try {
+			const pi = activate([], new EventEmitter(), "a");
+			await pi.fire("session_start", { reason: "startup" });
+			const work = {
+				kind: "shell",
+				keep: "/kept/one",
+				pid: 4242,
+				mark: "m1",
+				startedAt: 0,
+			};
+			const jobs = findJobHost(pi.events);
+			jobs?.start({
+				kind: "shell",
+				label: "make test",
+				carry: { what: () => work, handed: () => {} },
+			});
+			jobs?.start({ kind: "subagent", label: "three lanes" });
+			const said: unknown[] = [];
+			pi.events.on(JOBS_CARRIED, (data) => said.push(data));
+
+			pi.events.emit(HOST_RESTARTING_EVENT, { session: "a" });
+			pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
+			await pi.fire("session_shutdown", { reason: "quit" });
+
+			expect(said).toEqual([
+				{
+					session: "a",
+					jobs: [expect.objectContaining({ label: "make test", work })],
+				},
+			]);
+			expect(pi.appended.map(({ type }) => type)).toEqual([
+				CARRIED_ENTRY,
+				CUT_OFF_ENTRY,
+			]);
+			expect(pi.appended[1]?.data).toMatchObject({
+				jobs: [{ label: "three lanes" }],
+			});
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("in a host, carries nothing for a stop that isn't a restart", async () => {
+		const host = installTestHost();
+		try {
+			const pi = activate([], new EventEmitter(), "a");
+			await pi.fire("session_start", { reason: "startup" });
+			findJobHost(pi.events)?.start({
+				kind: "shell",
+				label: "make test",
+				carry: {
+					what: () => ({
+						kind: "shell",
+						keep: "/kept/one",
+						pid: 4242,
+						mark: "m1",
+						startedAt: 0,
+					}),
+					handed: () => {},
+				},
+			});
+			// Another conversation's restart is not this one's.
+			pi.events.emit(HOST_RESTARTING_EVENT, { session: "b" });
+			pi.events.emit(SESSION_STAMP_EVENT, { session: "a", how: "signalled" });
+			await pi.fire("session_shutdown", { reason: "quit" });
+
+			expect(pi.appended.map(({ type }) => type)).toEqual([CUT_OFF_ENTRY]);
 		} finally {
 			host.dispose();
 		}

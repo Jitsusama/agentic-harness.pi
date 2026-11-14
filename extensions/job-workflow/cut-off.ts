@@ -22,6 +22,10 @@
  */
 
 import {
+	HOST_RESTARTING_EVENT,
+	isHostRestarting,
+} from "../../lib/core/session/host.ts";
+import {
 	isSessionStamp,
 	SESSION_STAMP_EVENT,
 } from "../../lib/core/session/index.ts";
@@ -150,6 +154,12 @@ const ENDING = ["SIGTERM", "SIGHUP"] as const;
 /** Whether a session's end was the machine's, heard until stopped. */
 export interface EndWatch {
 	signalled(): boolean;
+	/**
+	 * Whether the end is its host's own restart, which resumes it in the
+	 * next host, so what can outlive the stop is carried there. Only a
+	 * host says so; a signal to plain pi never does.
+	 */
+	restarting?(): boolean;
 	stop(): void;
 }
 
@@ -182,9 +192,21 @@ export interface StampSource {
  */
 export function watchStamps(bus: StampSource, session: string): EndWatch {
 	let heard = false;
-	const stop = bus.on(SESSION_STAMP_EVENT, (data) => {
+	let restart = false;
+	const offStamps = bus.on(SESSION_STAMP_EVENT, (data) => {
 		if (isSessionStamp(data) && data.session === session)
 			heard = data.how === "signalled";
 	});
-	return { signalled: () => heard, stop };
+	// Said just before the stamp, by a host stopping to restart itself.
+	const offRestart = bus.on(HOST_RESTARTING_EVENT, (data) => {
+		if (isHostRestarting(data) && data.session === session) restart = true;
+	});
+	return {
+		signalled: () => heard,
+		restarting: () => heard && restart,
+		stop: () => {
+			offStamps();
+			offRestart();
+		},
+	};
 }

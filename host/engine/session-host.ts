@@ -33,6 +33,11 @@ export interface ConversationRegistration {
 	readonly reload?: (request: HostReloadRequest) => void | Promise<void>;
 	/** Park this idle conversation, keeping it held for a wake. */
 	readonly park?: () => void | Promise<void>;
+	/**
+	 * Say on this conversation's bus that its stop is the host's own
+	 * restart, which resumes it, just before the stamp.
+	 */
+	readonly restarting?: () => void;
 }
 
 /** Why a host reloads no conversation onto another tree. */
@@ -55,6 +60,7 @@ interface Conversation extends ConversationIdentity {
 	stampCallback: ConversationRegistration["stamp"];
 	reloadCallback: ConversationRegistration["reload"];
 	parkCallback: ConversationRegistration["park"];
+	restartingCallback: ConversationRegistration["restarting"];
 	reloading?: Promise<void>;
 	ending?: "signalled" | "closed";
 	stamped?: "signalled" | "closed";
@@ -141,6 +147,7 @@ export class SessionHost implements Host {
 			stampCallback: input.stamp,
 			reloadCallback: input.reload,
 			parkCallback: input.park,
+			restartingCallback: input.restarting,
 		});
 		try {
 			this.publish();
@@ -247,15 +254,20 @@ export class SessionHost implements Host {
 		});
 	}
 
-	/** Stop for host restart without recording a deliberate conversation quit. */
-	stop(id: string, why = "host stopped"): Promise<void> {
-		return this.finish(id, why, "signalled");
+	/**
+	 * Stop for host restart without recording a deliberate conversation
+	 * quit. `restarting` when the stop is a restart the host asked for, so
+	 * the conversation may carry its work to the next host.
+	 */
+	stop(id: string, why = "host stopped", restarting = false): Promise<void> {
+		return this.finish(id, why, "signalled", restarting);
 	}
 
 	private finish(
 		id: string,
 		why: string,
 		how: "signalled" | "closed",
+		restarting = false,
 	): Promise<void> {
 		const conversation = this.conversations.get(id);
 		if (!conversation) return Promise.resolve();
@@ -266,6 +278,8 @@ export class SessionHost implements Host {
 		// Start cleanup in a microtask so a reentrant close sees the same promise.
 		conversation.closing = Promise.resolve()
 			.then(async () => {
+				if (restarting && conversation.ending === "signalled")
+					withSession(id, () => conversation.restartingCallback?.());
 				await this.stamp(id, conversation.ending ?? how);
 				if (!conversation.disposed) {
 					await withSession(id, () => conversation.cleanup(why));

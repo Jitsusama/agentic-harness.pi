@@ -112,10 +112,12 @@ export interface JobHost {
 	 */
 	pending?(): number;
 	/**
-	 * The running jobs that hold a move, since they can't be carried.
-	 * Optional, so a host from before it holds a move on all `pending`.
+	 * The running jobs that hold a move, since they can't be carried, or
+	 * whose work `carriable` refuses, as a host restart refuses all but
+	 * the shell's. Optional, so a host from before it holds a move on all
+	 * `pending`.
 	 */
-	holds?(): readonly JobHold[];
+	holds?(carriable?: (work: CarriedWork) => boolean): readonly JobHold[];
 }
 
 /**
@@ -170,6 +172,94 @@ export function onJobFinished(
 ): () => void {
 	return bus.on(JOBS_FINISHED, (data) => {
 		if (isFinished(data)) listener(data);
+	});
+}
+
+/**
+ * Said on the bus as a session hands its jobs to another process, once
+ * their record is written: the jobs, as the process taking them up
+ * reads them. A host keeps what it carried out of its own cgroup by it.
+ */
+export const JOBS_CARRIED = "jobs:carried:v1";
+
+/** A job handed to another process, as `JOBS_CARRIED` names it. */
+export interface JobCarried {
+	readonly id: string;
+	readonly kind: string;
+	readonly label: string;
+	readonly toolCallId?: string;
+	readonly work: CarriedWork;
+}
+
+/** What `JOBS_CARRIED` carries. */
+export interface JobsCarried {
+	/** The session the jobs were carried from, by key. */
+	readonly session: string;
+	readonly jobs: readonly JobCarried[];
+}
+
+/**
+ * Said on the bus as a session takes up a job another process carried
+ * to it, before the job's work is looked at, so whoever tied something
+ * to the call (a lease) can tie it again and hear the job's end.
+ */
+export const JOBS_TAKEN_UP = "jobs:taken-up:v1";
+
+/** What `JOBS_TAKEN_UP` carries. */
+export interface JobTakenUp {
+	readonly jobId: string;
+	readonly kind: string;
+	readonly label: string;
+	readonly toolCallId?: string;
+}
+
+function isWork(value: unknown): value is CarriedWork {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as Record<string, unknown>).kind === "string"
+	);
+}
+
+function isTakenUp(data: unknown): data is JobTakenUp {
+	if (typeof data !== "object" || data === null) return false;
+	const { jobId, kind, label, toolCallId } = data as Record<string, unknown>;
+	return (
+		typeof jobId === "string" &&
+		typeof kind === "string" &&
+		typeof label === "string" &&
+		(toolCallId === undefined || typeof toolCallId === "string")
+	);
+}
+
+/** Whether a payload is a session's carried jobs, as this version says them. */
+export function isJobsCarried(data: unknown): data is JobsCarried {
+	if (typeof data !== "object" || data === null) return false;
+	const { session, jobs } = data as Record<string, unknown>;
+	return (
+		typeof session === "string" && Array.isArray(jobs) && jobs.every(isCarried)
+	);
+}
+
+function isCarried(job: unknown): job is JobCarried {
+	if (typeof job !== "object" || job === null) return false;
+	const { id, kind, label, toolCallId, work } = job as Record<string, unknown>;
+	return (
+		typeof id === "string" &&
+		typeof kind === "string" &&
+		typeof label === "string" &&
+		(toolCallId === undefined || typeof toolCallId === "string") &&
+		isWork(work)
+	);
+}
+
+/** Hear every job a session takes up from another process. Returns a disposer. */
+export function onJobTakenUp(
+	bus: EventBus,
+	listener: (taken: JobTakenUp) => void,
+): () => void {
+	return bus.on(JOBS_TAKEN_UP, (data) => {
+		if (isTakenUp(data)) listener(data);
 	});
 }
 

@@ -211,6 +211,7 @@ export async function startHostProgram(
 		serving: run.serving,
 		// runHost answers only once its engine is made.
 		background: () => engine?.background() ?? 0,
+		holding: () => engine?.holding() ?? [],
 		resting: () => screens.resting(),
 		report,
 	}).catch((error: unknown) => {

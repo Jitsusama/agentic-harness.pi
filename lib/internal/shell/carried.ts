@@ -8,11 +8,17 @@
  * from outside or with the machine, and is said so with its last lines,
  * never dropped or run again. A stop kills the shell's process group,
  * then everything else carrying its mark, as a stop in its own pi does.
+ *
+ * A pid is only a number, and one taken up after a restart or a reboot
+ * may name another process by then. So a shell counts as there only
+ * while its environment, where it can be read, still carries the call's
+ * mark; from the first look, as the call is taken up, on.
  */
 
+import { readFileSync } from "node:fs";
 import type { CarriedWork } from "../../jobs/index.ts";
 import { endOf, outputOf, rollIfFull } from "./kept.ts";
-import { reap } from "./reap.ts";
+import { CALL_VARIABLE, reap } from "./reap.ts";
 
 /** What a host needs to take up a bash call another pi started. */
 export interface CarriedShell extends CarriedWork {
@@ -58,7 +64,8 @@ export type CarriedEnd =
 export interface WatchOptions {
 	readonly everyMs?: number;
 	readonly now?: () => number;
-	readonly alive?: (pid: number) => boolean;
+	/** Whether the call's shell is there, as the call it was. */
+	readonly alive?: (pid: number, mark: string) => boolean;
 	/** Stop the call's work: its group, then its mark. */
 	readonly stop?: (work: CarriedShell) => void;
 }
@@ -67,7 +74,7 @@ export interface WatchOptions {
 export const LOOK_EVERY_MS = 1000;
 
 /** Whether a process is there, ours or not. */
-function alive(pid: number): boolean {
+function there(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -75,6 +82,32 @@ function alive(pid: number): boolean {
 		// EPERM: there, and somebody else's. ESRCH: gone.
 		return error instanceof Error && "code" in error && error.code === "EPERM";
 	}
+}
+
+/**
+ * Whether the process `pid` is the call `mark` names: true when its
+ * environment carries the mark, false when it carries another, and true
+ * when it can't be read (no /proc, or not ours to read), which leaves
+ * the pid to say.
+ */
+export function carriesMark(
+	pid: number,
+	mark: string,
+	read: (file: string) => string = (file) => readFileSync(file, "latin1"),
+): boolean {
+	let environ: string;
+	try {
+		environ = read(`/proc/${pid}/environ`);
+	} catch {
+		// Unreadable: no /proc here, or not ours; the pid alone says.
+		return true;
+	}
+	return environ.split("\0").includes(`${CALL_VARIABLE}=${mark}`);
+}
+
+/** Whether the call's shell is there, as the call it was. */
+function alive(pid: number, mark: string): boolean {
+	return there(pid) && carriesMark(pid, mark);
 }
 
 /** Kill a call's process group and everything else it marked. */
@@ -124,7 +157,7 @@ export function watchCarried(
 			done({ how: "exited", code, output: outputOf(work.keep) });
 			return;
 		}
-		if (!isAlive(work.pid)) {
+		if (!isAlive(work.pid, work.mark)) {
 			// It may have written its status as it went, between the looks.
 			const last = endOf(work.keep);
 			done(

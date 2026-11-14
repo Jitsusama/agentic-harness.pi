@@ -21,6 +21,14 @@
  * Only bash calls are carried so far (lib/internal/shell/carried.ts). A
  * call whose shell is gone with no exit status is said as lost, with its
  * last lines; it is never dropped or run again.
+ *
+ * A host's own restart carries the same way: the host says it on the
+ * conversation's bus before it stops it (cut-off.ts hears it), and the
+ * next host resumes the conversation at `startup`. What went is said on
+ * the bus too (`JOBS_CARRIED`), so the host can keep each call's shell
+ * out of its unit's stop, and each job taken up is said
+ * (`JOBS_TAKEN_UP`), so a lease tied to its call is taken again until it
+ * ends.
  */
 
 import {
@@ -40,6 +48,12 @@ import {
 	keepInTemp,
 	spoken,
 } from "../../lib/jobs/hand-off.ts";
+import {
+	JOBS_CARRIED,
+	JOBS_TAKEN_UP,
+	type JobsCarried,
+	type JobTakenUp,
+} from "../../lib/jobs/host.ts";
 import type { CarriedWork, JobOutcome } from "../../lib/jobs/index.ts";
 import type { Taking } from "../../lib/jobs/take-up.ts";
 import type { CarriedJob, Jobs } from "./jobs.ts";
@@ -119,6 +133,30 @@ export function carryAway(
 	return carried;
 }
 
+/** Say on `bus` the jobs `session` carried away, once their record is written. */
+export function sayCarried(
+	bus: { emit(channel: string, data: unknown): void },
+	session: string,
+	jobs: readonly CarriedJob[],
+): void {
+	const said: JobsCarried = { session, jobs };
+	bus.emit(JOBS_CARRIED, said);
+}
+
+/** Say on `bus` a carried job this session takes up. */
+export function sayTakenUp(
+	bus: { emit(channel: string, data: unknown): void },
+	job: CarriedJob,
+): void {
+	const said: JobTakenUp = {
+		jobId: job.id,
+		kind: job.kind,
+		label: job.label,
+		...(job.toolCallId !== undefined ? { toolCallId: job.toolCallId } : {}),
+	};
+	bus.emit(JOBS_TAKEN_UP, said);
+}
+
 /** A field of an untyped entry. */
 function field(value: unknown, key: string): unknown {
 	return typeof value === "object" && value !== null
@@ -193,6 +231,8 @@ export interface TakingUp {
 	 * extension that started it, asked on the bus (lib/jobs/take-up.ts).
 	 */
 	readonly offer?: (work: CarriedWork) => Taking | undefined;
+	/** Hears each job taken up, before its work is looked at. */
+	readonly taken?: (job: CarriedJob) => void;
 }
 
 /** Take up what a move carried here, under the ids it had. */
@@ -213,6 +253,7 @@ export function takeUp(carried: Carried, into: TakingUp): void {
 		}
 		const taking = into.offer?.(job.work);
 		if (taking) {
+			into.taken?.(job);
 			const adopted = into.jobs.adopt(job.id, {
 				kind: job.kind,
 				label: job.label,
@@ -251,6 +292,8 @@ function takeUpShell(
 	});
 	// Its files go once its end is said, or once it is stopped and so said.
 	adopted.onDelivered(() => removeKept(work.keep));
+	// Before the first look, which may find it already ended.
+	into.taken?.(job);
 	watching = (into.watch ?? watchCarried)(work, adopted.signal);
 	watching.ended.then((end) => {
 		ended = true;

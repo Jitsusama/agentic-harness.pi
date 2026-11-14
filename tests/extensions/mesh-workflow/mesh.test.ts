@@ -64,6 +64,7 @@ import {
 	SESSION_WANTS,
 	wantsShown,
 } from "../../../lib/internal/session/wants.ts";
+import { JOBS_TAKEN_UP } from "../../../lib/jobs/host.ts";
 import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
 import {
 	MOST_CAUGHT_UP,
@@ -4753,6 +4754,53 @@ describe("a lease", () => {
 			const first = await startSession();
 			await handedOff(first);
 			await first.fire("session_shutdown", { reason: "new" });
+			expect(ownBoard()).toEqual([]);
+		});
+	});
+
+	describe("a call carried here through a host's restart", () => {
+		const takenUp = {
+			jobId: "j1",
+			kind: "shell",
+			label: "qemu-system-x86_64",
+			toolCallId: "b3",
+		};
+		const ended = {
+			jobId: "j1",
+			kind: "shell",
+			toolCallId: "b3",
+			failed: false,
+		};
+
+		it("claims its heavy work again until its job ends", async () => {
+			const run = await startSession();
+			run.emit(JOBS_TAKEN_UP, takenUp);
+			await vi.waitFor(() =>
+				expect(ownBoard()).toMatchObject([
+					{ kind: "heavy", subject: "vm-test" },
+				]),
+			);
+			run.emit(JOBS_FINISHED, ended);
+			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
+		});
+
+		it("claims it once the session starts when taken up before", async () => {
+			await startSession({}, {}, [], undefined, undefined, (emit) =>
+				emit(JOBS_TAKEN_UP, takenUp),
+			);
+			await vi.waitFor(() =>
+				expect(ownBoard()).toMatchObject([
+					{ kind: "heavy", subject: "vm-test" },
+				]),
+			);
+		});
+
+		it("claims nothing when it ended before the session started", async () => {
+			await startSession({}, {}, [], undefined, undefined, (emit) => {
+				emit(JOBS_TAKEN_UP, takenUp);
+				emit(JOBS_FINISHED, ended);
+			});
+			await new Promise((done) => setTimeout(done, 50));
 			expect(ownBoard()).toEqual([]);
 		});
 	});

@@ -29,6 +29,8 @@ export interface SessionManagerStatics {
 /** pi's event bus, the one `pi.events` gives every extension of a session. */
 export interface EventBus {
 	emit(channel: string, data: unknown): void;
+	/** Hear `channel`; answers the function that stops hearing it. */
+	on(channel: string, listener: (data: unknown) => void): () => void;
 }
 
 /** What one model call answered, as far as a cache warm reads it. */

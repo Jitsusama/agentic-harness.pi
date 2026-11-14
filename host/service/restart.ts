@@ -23,6 +23,13 @@
  * with still no background work held and every screen at rest, and its
  * journal line says it restarted under that rule.
  *
+ * Background work is what a restart would end: fleets, codemode and
+ * review rounds. A bash call is carried to the next host instead, and
+ * on 13 November one always running kept both work hosts from
+ * restarting for hours (QCXZEB). Work still holding a restart past the
+ * ceiling is named in the journal once an hour, so whoever wonders why
+ * a host runs old code reads what holds it; nothing is ended for it.
+ *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
@@ -85,6 +92,9 @@ export const FIRST_LOOK_MS = 5 * 60_000;
  */
 export const RESTART_DUE_MS = 2 * 60_000;
 
+/** How often a restart held past the ceiling by background work names it. */
+export const HELD_SAY_MS = 60 * 60_000;
+
 /** A conversation as the host lists it, for whether it is settled. */
 export interface Held {
 	readonly state: "busy" | "idle" | "parked";
@@ -108,6 +118,8 @@ export interface RestartFacts {
 	held(): readonly Held[];
 	/** How much background work the conversations hold, which a restart would end. */
 	background(): number;
+	/** What `background` counts, a line each, for the journal. */
+	holding?(): readonly string[];
 	/** Whether every screen shows only an empty editor, with nobody in one. */
 	resting(): boolean;
 	/**
@@ -173,6 +185,8 @@ export function restartWhenSettled(
 	let stopped = false;
 	// Since when the host has differed from what it would start, unbroken.
 	let differingSince: number | undefined;
+	// When background work holding a restart past the ceiling was last named.
+	let heldSaidAt: number | undefined;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
@@ -210,10 +224,26 @@ export function restartWhenSettled(
 		);
 	}
 
+	// Name what holds a restart past the ceiling, at most once every HELD_SAY_MS.
+	function sayHeld(): void {
+		if (!pastCeiling()) return;
+		const now = facts.now();
+		if (heldSaidAt !== undefined && now - heldSaidAt < HELD_SAY_MS) return;
+		heldSaidAt = now;
+		const holding = facts.holding?.() ?? [];
+		facts.report(
+			`Restart held past the ceiling by background work: ${holding.length > 0 ? holding.join("; ") : "unnamed"}`,
+		);
+	}
+
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
 		if (facts.stopping()) return undefined;
-		if (facts.background() > 0 || !facts.resting()) return undefined;
+		if (facts.background() > 0) {
+			sayHeld();
+			return undefined;
+		}
+		if (!facts.resting()) return undefined;
 		const held = facts.held();
 		if (settled(held, facts.now(), settledMs)) return { rule: "settled" };
 		if (!pastCeiling() || held.some(({ state }) => state === "busy"))
@@ -228,6 +258,7 @@ export function restartWhenSettled(
 		if (stopped) return "look";
 		if (why === undefined) {
 			differingSince = undefined;
+			heldSaidAt = undefined;
 			return "look";
 		}
 		differingSince ??= facts.now();
@@ -258,6 +289,8 @@ export interface Following {
 	readonly serving: Pick<ServingHost, "held" | "restartComing" | "stopping">;
 	/** How much background work the conversations hold (the engine's). */
 	background(): number;
+	/** What that background work is, a line each (the engine's). */
+	holding?(): readonly string[];
 	/** Whether every screen is at rest (screens.ts). */
 	resting(): boolean;
 	report(error: unknown): void;
@@ -323,6 +356,7 @@ export async function followWhatStarts(
 			differs: async () => (await installMoved()) ?? (await unitChanged()),
 			held: () => options.serving.held(),
 			background: options.background,
+			...(options.holding ? { holding: options.holding } : {}),
 			resting: options.resting,
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),

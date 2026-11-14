@@ -228,6 +228,23 @@ shell marks its kept files `.carried` with the call's own mark, and
 every process carrying that mark, whatever group it moved to as
 `timeout` does, is spared until the plain pi says its end.
 
+A host's own restart carries its conversations' bash calls the same
+way, to the next host (carried-shells.ts). The service stops each
+conversation with `restarting`, whose callback tells its bus
+(`agentic-harness:host-restarting`) before the stamp, and job-workflow
+says what it carried. Once every conversation has parked, the engine
+moves each carried call's processes still in the host's own cgroup,
+matched by the call's `PI_BASH_CALL` mark and never by a pattern, into
+the cgroup `JOBS_CGROUP` names, so the unit's stop never reaches them;
+a moved process then sits under that unit's limits and ends with its
+stop. It writes them to `carried-shells.json` in its state folder, and
+the next host stops one no conversation took up once its time limit
+passes or a day after the restart, whichever comes first, saying so
+in the journal. Without a jobs cgroup nothing is kept, and a bash call
+holds the restart as every other job does. `background` counts only
+what a restart would end, and `holding` names it, for the journal
+line a restart held past its ceiling writes once an hour.
+
 A conversation can become another, by pi's /new, /fork, /resume or
 import (replacement.ts). pi disposes the old session before it builds
 the next, so a resume or import of a file the host holds is refused

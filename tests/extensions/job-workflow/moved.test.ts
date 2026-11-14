@@ -142,6 +142,30 @@ describe("carrying away", () => {
 		]);
 	});
 
+	it("holds a host's restart on the work it can't keep, though a move would carry it", () => {
+		const { jobs } = registry();
+		jobs.start({
+			kind: "shell",
+			label: "sleep 45",
+			carry: { what: () => shellWork(), handed: () => {} },
+		});
+		jobs.start({
+			kind: "review-checks",
+			label: "checks",
+			carry: { what: () => ({ kind: "review-checks" }), handed: () => {} },
+		});
+		jobs.start({ kind: "subagent", label: "a fleet" });
+
+		expect(
+			jobs.holds((work) => work.kind === "shell").map(({ id }) => id),
+			"the checks and the fleet",
+		).toEqual(["j2", "j3"]);
+		expect(
+			jobs.holds().map(({ id }) => id),
+			"a move: the fleet",
+		).toEqual(["j3"]);
+	});
+
 	it("writes nothing when there is nothing to carry", () => {
 		const { jobs } = registry();
 		const written: unknown[] = [];

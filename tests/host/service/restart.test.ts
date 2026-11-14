@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	followWhatStarts,
+	HELD_SAY_MS,
 	type Held,
 	RESTART_DUE_MS,
 	type RestartFacts,
@@ -257,8 +258,47 @@ describe("restartWhenSettled", () => {
 			restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
 			await timers.fire();
 			await timers.fire();
-			expect(said, "nothing restarted").toEqual([]);
+			expect(
+				said.filter((line) => !line.startsWith("report:")),
+				"nothing restarted",
+			).toEqual([]);
 		}
+	});
+
+	// On 13 November a background bash always running kept both work hosts
+	// on old code for hours, and nothing said why (QCXZEB).
+	it("names what holds a restart past the ceiling, once an hour, ending nothing", async () => {
+		let clock = NOW;
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			background: () => 1,
+			holding: () => ["s1: j1 subagent: review"],
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
+		for (let look = 0; look < 5; look++) {
+			clock += 60_000;
+			await timers.fire();
+		}
+		clock += HELD_SAY_MS;
+		await timers.fire();
+
+		expect(said).toEqual([
+			"report: Restart held past the ceiling by background work: s1: j1 subagent: review",
+			"report: Restart held past the ceiling by background work: s1: j1 subagent: review",
+		]);
+	});
+
+	it("names nothing while held before the ceiling", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			background: () => 1,
+			holding: () => ["s1: j1 subagent: review"],
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		await timers.fire();
+		expect(said).toEqual([]);
 	});
 
 	it("reports a look that failed and looks again", async () => {

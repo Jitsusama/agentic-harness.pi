@@ -153,9 +153,20 @@ export interface HostEngine extends ConversationEngine {
 	/** A viewer pressed a key or resized, so a collection waits for the quiet after it. */
 	viewed(): void;
 	/**
-	 * How much background work every running conversation holds: commands,
-	 * fleets and rounds still running, and results not yet said, which a
-	 * host restart would end or lose.
+	 * How much background work every running conversation holds that a
+	 * host restart would end: fleets, codemode and rounds still running,
+	 * and parked warms in flight. A bash call is carried through the
+	 * restart and results not yet said go in the conversation's log, so
+	 * neither counts, except where the host has no jobs cgroup to keep a
+	 * call in, when bash calls count too.
 	 */
 	background(): number;
+	/** What `background` counts, a line each, for a restart held long to name. */
+	holding(): readonly string[];
+	/**
+	 * As a restart stops the host, once every conversation has parked:
+	 * keep the bash calls they carried alive through the stop, out of the
+	 * host's cgroup, and write them down for the next host.
+	 */
+	keepCarried(): Promise<void>;
 }

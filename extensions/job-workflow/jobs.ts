@@ -66,8 +66,11 @@ export interface Jobs extends JobHost {
 	 * can be carried, letting it go unstopped, and say what each was.
 	 */
 	carryOut(): readonly CarriedJob[];
-	/** The running jobs that hold a move, since they can't be carried. */
-	holds(): readonly JobHold[];
+	/**
+	 * The running jobs that hold a move, since they can't be carried, or
+	 * whose work `carriable` refuses.
+	 */
+	holds(carriable?: (work: CarriedWork) => boolean): readonly JobHold[];
 }
 
 /** What came of an agent's stop. */
@@ -180,11 +183,13 @@ export function createJobs(
 			if (carried.length > 0) changed();
 			return carried;
 		},
-		holds: () =>
+		holds: (carriable = () => true) =>
 			[...held]
-				.filter(
-					([, job]) => !job.finished && job.spec.carry?.what() === undefined,
-				)
+				.filter(([, job]) => {
+					if (job.finished) return false;
+					const work = job.spec.carry?.what();
+					return work === undefined || !carriable(work);
+				})
 				.map(([id, job]) => ({
 					id,
 					kind: job.spec.kind,
