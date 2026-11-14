@@ -283,6 +283,14 @@ refuses the log. The case does what the window's join does, waiting
 its grace and taking the move back, then opens plain pi on the same
 log, which says the fleet's summary the same way.
 
+restart-carry.test.ts is E23, a host's own restart that doesn't wait
+for a hosted conversation's background command: the host is told a
+restart is coming and stops, as systemd's restart stops it, while the
+command runs on. The host started after resumes the conversation and
+says the command's end in it under the same job id, leaving nothing
+kept. E24, in the same file, kills the command's shell while no host
+runs, and the next host says the job was lost rather than dropping it.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
