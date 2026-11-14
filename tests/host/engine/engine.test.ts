@@ -605,9 +605,12 @@ describe("the host's engine", () => {
 				"a close while asking tells the screen",
 			).toBe(true);
 			expect(seen.closingHeld).toBe("gone");
-			expect(seen.reported).toEqual([
-				expect.stringMatching(/nobody is not trusted/),
-				expect.stringMatching(/closed before it was built$/),
+			expect(
+				seen.reported,
+				"a warning is one line, an error thrown keeps its kind",
+			).toEqual([
+				expect.stringMatching(/^Conversation [\w-]+: .*nobody is not trusted/),
+				expect.stringMatching(/^Error: .*closed before it was built$/),
 			]);
 		},
 		HOST_LIFE_MS,
@@ -734,10 +737,8 @@ describe("the host's engine", () => {
 				started.childrenAlive,
 				"the next start ends them before it resumes anything",
 			).toEqual([]);
-			expect(started.reported).toEqual([
-				expect.stringContaining(
-					"Ended what an earlier host's tools left running",
-				),
+			expect(started.reported, "said as one line, not an error").toEqual([
+				expect.stringMatching(/^Ended what an earlier host's tools left running/),
 			]);
 		},
 		HOST_LIFE_MS,

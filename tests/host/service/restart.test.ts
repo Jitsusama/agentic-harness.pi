@@ -138,7 +138,7 @@ describe("restartWhenSettled", () => {
 			"expect true",
 			"restart: the install moved",
 			"expect false",
-			"report: Error: systemd queued the host's restart but never ran it; looking again",
+			"report: systemd queued the host's restart but never ran it; looking again",
 		]);
 		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
 	});

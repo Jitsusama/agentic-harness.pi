@@ -196,9 +196,7 @@ describe("warming a parked conversation", () => {
 
 		expect(sent).toHaveLength(2);
 		expect(readWarmingCarry(carries, "s2")?.warms).toBe(0);
-		expect(report).toHaveBeenCalledWith(
-			expect.objectContaining({ message: expect.stringMatching(/overloaded/) }),
-		);
+		expect(report).toHaveBeenCalledWith("Parked warm of s2 failed: overloaded");
 	});
 
 	it("writes nothing for a warm still out when the conversation wakes", async () => {
