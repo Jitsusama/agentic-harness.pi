@@ -5,6 +5,7 @@
  */
 
 import { homedir, hostname } from "node:os";
+import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
@@ -481,19 +482,23 @@ export async function spawn(
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
 	// A reopen starts where its session ran, since pi finds a session by
-	// id only among the logs of the folder it starts in.
-	const reopenedIn = given
-		? undefined
-		: reopenedCwd({
-				command: spawned.command,
-				sessions,
-				questDir: entry.dir,
-				store: state.questsRoot,
-			});
+	// id only among the logs of the folder it starts in, even over a
+	// folder the call named: on 14 November two of WJATIN's four reopens
+	// were opened in a folder their logs weren't under, so neither pi
+	// found its session and their first words were never taken.
+	const reopenedIn = reopenedCwd({
+		command: spawned.command,
+		sessions,
+		questDir: entry.dir,
+		store: state.questsRoot,
+	});
 	if (reopenedIn) {
+		const overruled = given && resolve(given) !== resolve(reopenedIn);
 		cwd = reopenedIn;
 		cwdSource = "reopened";
-		chosenBy = describeCwdSource("reopened");
+		chosenBy = overruled
+			? `${describeCwdSource("reopened")}, not ${given}, where pi would find no session to reopen`
+			: describeCwdSource("reopened");
 	}
 	// A realm whose node declares another command for its agent sessions,
 	// as Joel's personal one declares pi-claude, starts that instead.
