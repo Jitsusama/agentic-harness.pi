@@ -282,6 +282,18 @@ export const GUARDS = {
 	}),
 	// A VM here only slows this machine, and the refusal says how to send
 	// it, so a run that truly needs this machine goes ahead when made again.
+	// Blocks by default, unlike the other safety guards: someone asked for
+	// these agents to stop, and a refusal a retry could talk past would
+	// make the safe word a suggestion. It refuses only while a live stop
+	// stands, and only the writes that stop reaches.
+	pineapple: declare({
+		name: "pineapple",
+		class: "safety",
+		description:
+			"Refuses the pushes, pull-request writes and switches a standing safe-word stop reaches",
+		defaultMode: "block",
+		groups: ["git", "github", "review"],
+	}),
 	vmHere: declare({
 		name: "vm-here",
 		class: "form",

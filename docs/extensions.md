@@ -37,7 +37,7 @@ it does:
   `one-writer-workflow`, `shell-workflow`, `codemode-workflow`,
   `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
   `model-retry-workflow`, `crash-record-workflow`,
-  `secret-run-workflow`.
+  `secret-run-workflow`, `pineapple-workflow`.
 
   `crash-record-workflow` has a pi that an uncaught error ends write
   the error and its stack to its session's log and the system's log
@@ -110,6 +110,14 @@ it does:
   holds it and ends with code 78, taking no prompt. Pi has no lock on
   a log, and on 10 November a plain pi and the background host both
   appended to one.
+
+  `pineapple-workflow` holds Joel's safe word at the tool call.
+  While a stop core's pineapple reader wrote stands, it refuses the
+  pushes, pull-request writes and switches that stop reaches, and
+  nothing else, so a stop on one pull request leaves a session its
+  other work. A stop in shadow refuses nothing and writes down what
+  it would have refused. On 13 November a colleague's "pineapple
+  override" reached Joel's agents only by luck.
 
   `job-workflow` hosts background work. A tool that returns
   before its work ends hands the work to it, and it says the
