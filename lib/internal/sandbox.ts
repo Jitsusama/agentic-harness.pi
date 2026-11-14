@@ -69,17 +69,18 @@ import {
 	agentProxy,
 	FENCE,
 	fenceArgs,
-	fencedCommand,
 	fenceRules,
 	guardsGitFolder,
 	nixDoor,
 } from "./fence.ts";
+import { fencedCommand } from "./fence-command.ts";
 import {
 	afterCheck,
 	guardedIn,
 	plantStopped,
 	sharedRootFor,
 } from "./fence-git-root.ts";
+import { githubDoorFolder } from "./fence-github.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
 import { recordedInShell } from "./fence-log.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
@@ -427,6 +428,8 @@ export type Sandbox =
 			readonly bwrap: string;
 			readonly landrun: string;
 			readonly offload?: Offload;
+			/** The GitHub door's program, where the machine runs the door. */
+			readonly githubDoor?: string;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -554,10 +557,12 @@ function fenceFor(
 	}
 	const program = inStore(find("nix-offload"));
 	const env = inStore(find("env"));
+	const githubDoor = find("pi-github-door");
 	return {
 		kind: "fence",
 		bwrap,
 		landrun,
+		...(githubDoor ? { githubDoor } : {}),
 		...(program && env
 			? { offload: { program, env, lentOnly: takesLentOnly(program) } }
 			: {}),
@@ -661,9 +666,19 @@ export function wrapFor(
 			const sharedRoot = sharedRootFor(ownGitFolder, session, (root) =>
 				guardsGitFolder(root, real(home)),
 			);
+			// Only where the machine runs the door and the session's id can
+			// name its folder; elsewhere gh inside fails as it always did.
+			const githubFolder = sandbox.githubDoor
+				? githubDoorFolder(place.env.XDG_RUNTIME_DIR, session)
+				: undefined;
+			const github =
+				sandbox.githubDoor && session && githubFolder
+					? { program: sandbox.githubDoor, session, folder: githubFolder }
+					: undefined;
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
+				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				cwd: place.cwd,
 				ownGitFolder,
 				sharedRoot,
@@ -687,6 +702,7 @@ export function wrapFor(
 				homes: OWN_HOMES.map(
 					([name, folder]) => [name, join(own, folder)] as const,
 				),
+				...(github ? { github } : {}),
 			};
 			return (command) => {
 				const out = offloadedOutside(command, sandbox.offload, {

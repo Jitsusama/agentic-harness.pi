@@ -40,6 +40,8 @@
  *   repository whose settings their prompt's git runs on entering it.
  * - **No registry tokens:** `~/.npmrc` is a copy without its tokens'
  *   lines (`fence-npmrc.ts`), and pi's own file tools are refused it.
+ * - **No GitHub token:** gh reaches GitHub through the GitHub door,
+ *   holding a placeholder for it (`fence-github.ts`).
  * - **No new privileges:** bubblewrap and Landlock both set
  *   NoNewPrivs, so a setgid wrapper such as 1Password's `op` gains
  *   nothing, and 1Password refuses it.
@@ -58,6 +60,7 @@ import {
 } from "./fence-broker-trees.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { sharedRootArgs } from "./fence-git-root.ts";
+import { githubDoorArgs } from "./fence-github.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
@@ -67,7 +70,6 @@ import {
 	readOnlyPaths,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
-import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
 export const FENCE = "fence";
@@ -148,6 +150,7 @@ export const NEVER_THROUGH = [
 	"ssh-tpm-agent.sock",
 	"agent-signing.sock",
 	"github-broker.sock",
+	"pi-github/control.sock", // opens door sessions, lifts caps
 	"gcloud-broker",
 	// The sessions kitty's remote control, which reads and types into
 	// every session window (core's modules/quickshell/home.nix).
@@ -163,23 +166,6 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
-] as const;
-
-/**
- * Variables that name the desktop, left out so a command fails at once
- * rather than looking for a socket it can't reach.
- */
-const UNSET = [
-	"WAYLAND_DISPLAY",
-	"DISPLAY",
-	"XAUTHORITY",
-	"DBUS_SESSION_BUS_ADDRESS",
-	"SSH_AUTH_SOCK",
-	"NIRI_SOCKET",
-	"SWAYSOCK",
-	"KITTY_LISTEN_ON",
-	"KITTY_WINDOW_ID",
-	"NIX_REMOTE",
 ] as const;
 
 /** Where a fenced command runs. */
@@ -212,6 +198,8 @@ export interface FencePlace {
 	readonly npmrc?: string;
 	/** The work broker's trees, kept read-only but the session's own (`fence-broker-trees.ts`). */
 	readonly trees?: BrokerTrees;
+	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
+	readonly githubDoor?: string;
 }
 
 /**
@@ -329,6 +317,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 			const path = join(place.runtimeDir, name);
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
+		args.push(...githubDoorArgs(place.githubDoor));
 	}
 	// The system bus and X's sockets live outside the runtime folder.
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
@@ -632,6 +621,7 @@ export function fenceRules(place: FencePlace): string[] {
 		...(place.runtimeDir
 			? LET_THROUGH.map((name) => join(place.runtimeDir as string, name))
 			: []),
+		...(place.githubDoor ? [place.githubDoor] : []),
 	];
 	return [
 		"--rwx",
@@ -747,54 +737,4 @@ export function fenceRefusesRead(
 		runtime !== undefined &&
 		(path === runtime || path.startsWith(`${runtime}/`))
 	);
-}
-
-/**
- * The shell text that runs `command` in the agent fence: bubblewrap
- * with `args`, around landrun with `rules`. Every variable the shell
- * exports goes in but those naming the desktop, Nix is reached
- * through `door`, its daemon's door for sandboxes, and SSH's agent is
- * `agent`, the proxy, when there is one.
- */
-export function fencedCommand(
-	command: string,
-	fence: {
-		readonly bwrap: string;
-		readonly landrun: string;
-		readonly args: readonly string[];
-		readonly rules: readonly string[];
-		readonly door?: string;
-		readonly agent?: string;
-		/** Where each of `OWN_HOMES` lives inside, by its variable. */
-		readonly homes?: readonly (readonly [string, string])[];
-	},
-): string {
-	const homes = fence.homes ?? [];
-	const unset = [
-		...UNSET,
-		...homes.map(([name]) => name),
-		SANDBOXED_COMMAND,
-	].join("|");
-	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
-	return [
-		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
-		[
-			`${SANDBOXED_COMMAND}=${quoted(command)}`,
-			quoted(fence.bwrap),
-			...fence.args.map(quoted),
-			"--",
-			quoted(fence.landrun),
-			...fence.rules.map(quoted),
-			`"\${__pi_env[@]}" --env ${SANDBOXED_COMMAND}`,
-			...(fence.door ? [`--env ${quoted(`NIX_REMOTE=${fence.door}`)}`] : []),
-			// Status and diff then take no optional lock to refresh the
-			// index, so one kept read-only never stops them (ISXEG8).
-			"--env GIT_OPTIONAL_LOCKS=0",
-			...(fence.agent
-				? [`--env ${quoted(`SSH_AUTH_SOCK=${fence.agent}`)}`]
-				: []),
-			...homes.map(([name, path]) => `--env ${quoted(`${name}=${path}`)}`),
-			`-- bash -c ${quoted(stub)}`,
-		].join(" "),
-	].join("\n");
 }

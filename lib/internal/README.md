@@ -108,11 +108,19 @@ may import from here, and any of it may change without notice.
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
 - **`fence.ts`**: the agent fence, as bubblewrap's and landrun's
-  arguments and the shell text that runs a command in it: each
-  command's own processes and devices, no desktop, and the settings,
-  startup files and git's code read-only; what it never lets through,
-  the one SSH agent it lets in (core's proxy), the private keys it
-  empties, and where it keeps pi's own file tools from.
+  arguments: each command's own processes and devices, no desktop,
+  and the settings, startup files and git's code read-only; what it
+  never lets through, the one SSH agent it lets in (core's proxy),
+  the private keys it empties, and where it keeps pi's own file tools
+  from.
+- **`fence-command.ts`**: the shell text that runs a command in the
+  fence, with every variable exported but those naming the desktop,
+  and its doors to Nix, SSH's agent and GitHub.
+- **`fence-github.ts`**: the GitHub door (core's
+  `modules/pi/github-door`) as the fence uses it: the session's own
+  folder bound in read-only, gh and git sent through the door's relay
+  with a placeholder token and the session's trust bundle, and the
+  door's control socket kept out.
 - **`fence-disk.ts`**: the disk as the fence reads it, what a path
   is and what a folder holds, which a test hands in a disk of its own
   for.

@@ -109,6 +109,41 @@ describe("what a session asking for the fence is given", () => {
 		expect(none, "no sandbox has nothing to log").toEqual({ kind: "none" });
 	});
 
+	it("carries the GitHub door where the system's profile holds it, and opens a plain session through it", () => {
+		const withDoor = finder({
+			bwrap: "/bin/bwrap",
+			landrun: "/bin/landrun",
+			"pi-github-door": "/bin/pi-github-door",
+		});
+		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", withDoor);
+		expect(fence).toMatchObject({ githubDoor: "/bin/pi-github-door" });
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "fence-door-")));
+		const text = (session: string) =>
+			wrapFor(
+				fence,
+				{
+					cwd: home,
+					env: { XDG_RUNTIME_DIR: "/run/user/1000", PI_SESSION_ID: session },
+				},
+				home,
+			)?.("true") ?? "";
+		expect(text("s-1"), "the session wasn't opened").toContain(
+			"'/bin/pi-github-door' open 's-1'",
+		);
+		expect(text("s-1"), "its folder isn't bound").toContain(
+			"'--ro-bind-try' '/run/user/1000/pi-github/sessions/s-1'",
+		);
+		expect(
+			text("../s"),
+			"a session naming another folder was opened",
+		).not.toContain("pi-github-door");
+		expect(
+			sandboxFor({ PI_SANDBOX: FENCE }, "linux", all),
+			"a door was named where none is",
+		).not.toHaveProperty("githubDoor");
+		rmSync(home, { recursive: true, force: true });
+	});
+
 	it("names both sandboxes when asked for one that isn't there", () => {
 		const loose = sandboxFor({ PI_SANDBOX: "loose" }, "linux", all);
 		const reason = loose.kind === "refused" ? loose.reason : "";
