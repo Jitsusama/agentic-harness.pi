@@ -29,7 +29,12 @@ import {
 	watchWakingSteers,
 } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { giveSteer, inboxOf, steerFrom } from "../../../lib/mesh/steer.ts";
+import {
+	giveSteer,
+	inboxOf,
+	STEER_ACTS,
+	steerFrom,
+} from "../../../lib/mesh/steer.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 const parked: Presence = {
@@ -405,6 +410,16 @@ describe("telling a holder in another language which steers wake", () => {
 
 			expect(wakesByRule(raw), raw).toBe(steerWakes(steer));
 		}
+	});
+
+	// 85PKB2, 14 November: an act added to the mesh but not to the rule
+	// would leave a parked peer asleep without anyone choosing it.
+	it("judges every act the mesh knows on purpose", () => {
+		const leftParked = ["pause", "resume", "stop", "answer"];
+
+		expect([...WAKING_STEERS.acts, ...leftParked].sort()).toEqual(
+			[...STEER_ACTS].sort(),
+		);
 	});
 
 	it("names each of a peer's inboxes beside the rule", () => {
