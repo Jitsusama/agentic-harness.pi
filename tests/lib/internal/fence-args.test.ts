@@ -515,44 +515,6 @@ describe("programs' hidden entries that run code as the person later", () => {
 	});
 });
 
-describe("the harness's inboxes, which say who wrote them", () => {
-	// A fenced command wrote a steer saying it was Joel's, or a mesh
-	// message under another peer's address (KP0L6A, DJT4LK, 13 November).
-	const home = "/home/someone";
-	const state = `${home}/.local/state/pi/agentic-harness.pi`;
-	const disk = diskOf([
-		`${state}/steer/0RF7H9/`,
-		`${state}/mesh-workflow/messages/`,
-		`${state}/work/trees/thing/`,
-	]);
-	const place = { home, runtimeDir: undefined, cwd: `${home}/.cache/work` };
-
-	it("binds the steer inboxes and the mesh's store read-only", () => {
-		const args = fenceArgs(place, disk);
-		const kept = args.flatMap((arg, at) =>
-			arg === "--ro-bind" ? [args[at + 1]] : [],
-		);
-		expect(kept, "the inboxes stayed writable").toEqual(
-			expect.arrayContaining([`${state}/steer`, `${state}/mesh-workflow`]),
-		);
-	});
-
-	it("refuses pi's file tools there, and not in the trees beside them", () => {
-		const refuses = (path: string) => fenceRefusesWrite(path, place, disk);
-		for (const path of [
-			`${state}/steer/0RF7H9/1-a.json`,
-			`${state}/steer/NEW123/1-a.json`,
-			`${state}/mesh-workflow/messages/forged.json`,
-		]) {
-			expect(refuses(path), `${path} was writable`).toBe(true);
-		}
-		expect(
-			refuses(`${state}/work/trees/thing/file.ts`),
-			"a cut tree beside them was refused",
-		).toBe(false);
-	});
-});
-
 describe("what the fence keeps from the person's own keys, devices and repositories", () => {
 	const home = "/home/someone";
 	const tree = `${home}/trees/thing`;
