@@ -27,6 +27,8 @@ a rule covers.
   auto-discovered, so deliberately not under `extensions/`
 - `skills/`: package-bound markdown instructions the agent
   loads on demand when a task matches their description
+- `data/`: what the package keeps as data, which programs outside
+  it read from the install (the fence's hidden list)
 - `docs/`: the reasoning behind the rules here, a page a
   subject
 - `scripts/`: programs run by hand, by `pnpm`, by a user

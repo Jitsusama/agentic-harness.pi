@@ -111,6 +111,9 @@ may import from here, and any of it may change without notice.
 - **`fence-disk.ts`**: the disk as the fence reads it, what a path
   is and what a folder holds, which a test hands in a disk of its own
   for.
+- **`fence-hidden.ts`**: what the fence keeps from every command,
+  read from `data/fence-hidden.json`, which core's secret asks read
+  too.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
