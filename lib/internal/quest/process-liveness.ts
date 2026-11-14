@@ -162,6 +162,12 @@ const MS_PER_SECOND = 1000;
  * A start in seconds since the epoch as `ps -o lstart=` prints it, in
  * local time (`%a %b %e %H:%M:%S %Y`), so a token read from procfs is
  * the one a record written through `ps` holds, character for character.
+ *
+ * The day and month names are always English, while `ps` names them
+ * as `LC_TIME` says. They match under an English or C locale, which is
+ * what every machine running this has. Under another locale a record
+ * `ps` wrote would read as another process's start, and `ps` would
+ * need `LC_TIME=C` wherever it still writes them (macOS).
  */
 function lstartOf(seconds: number): string {
 	const at = new Date(seconds * MS_PER_SECOND);
