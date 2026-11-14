@@ -7,8 +7,10 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
+	CustomMessageEntry,
 	ExtensionAPI,
 	ExtensionContext,
+	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { takeOwedTurn } from "../../lib/internal/reload/hold.ts";
@@ -121,6 +123,56 @@ export function showMark(ctx: ExtensionContext, loaded: Loaded): void {
 	}
 }
 
+/**
+ * What to tell the model when the session's last note on which code
+ * runs no longer holds, or undefined when it does or there is none.
+ * `now` is what runs, as describeLoaded says it, which every note
+ * holds. A pi started afresh on a session (woken, restarted, reopened)
+ * loads whatever is installed then, and says nothing of it unless
+ * asked: on 13 November a session woken at 19:06 ran the install of
+ * 18:37 while its last note named the code of 17:26, and its model
+ * went by the note.
+ */
+export function outdatedNoteSaid(
+	entries: readonly SessionEntry[],
+	now: string,
+): string | undefined {
+	const last = [...entries]
+		.reverse()
+		.find(
+			(entry): entry is CustomMessageEntry =>
+				entry.type === "custom_message" && entry.customType === LOADED_MESSAGE,
+		);
+	if (last === undefined) return undefined;
+	const text =
+		typeof last.content === "string"
+			? last.content
+			: last.content
+					.map((part) => (part.type === "text" ? part.text : ""))
+					.join("");
+	if (text.includes(now)) return undefined;
+	return `This pi started afresh since the last note on which harness code runs, so that note and the ones before it are out of date. ${now}`;
+}
+
+/** Tell the model when the session's last note on what runs is out of date. */
+function sayIfOutdated(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	loaded: Loaded,
+): void {
+	let entries: readonly SessionEntry[];
+	try {
+		entries = ctx.sessionManager.getBranch();
+	} catch {
+		// A context with no session behind it has no notes to correct.
+		return;
+	}
+	const said = outdatedNoteSaid(entries, describeLoaded(PACKAGE_NAME, loaded));
+	if (said === undefined) return;
+	// It never starts a turn, and never fills the person's screen.
+	pi.sendMessage({ customType: LOADED_MESSAGE, content: said, display: false });
+}
+
 /** The sentence a landed reload is said in. */
 export function landedText(landed: ReloadLanded, loaded: Loaded): string {
 	const onto = landed.tree ? ` onto ${homely(landed.tree)}` : "";
@@ -204,7 +256,9 @@ async function startHostedRuntime(
 			content: `The harness was reloaded. ${describeLoaded(PACKAGE_NAME, loaded)}`,
 			display: false,
 		});
+		return;
 	}
+	sayIfOutdated(pi, ctx, loaded);
 }
 
 /**
@@ -276,5 +330,8 @@ export async function startRuntime(
 			content: `The harness was reloaded. ${describeLoaded(PACKAGE_NAME, loaded)}`,
 			display: false,
 		});
+		return;
 	}
+	// A reload the harness asked for says its landing once it lands.
+	if (reason !== "reload") sayIfOutdated(pi, ctx, loaded);
 }

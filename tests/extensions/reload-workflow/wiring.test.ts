@@ -480,6 +480,30 @@ describe("a reload nobody asked the agent for", LANDS, () => {
 		expect(now.hidden).toEqual([]);
 	});
 
+	it("says what runs at startup when the log's last note names other code", async () => {
+		// On 13 November a session woken at 19:06 ran the new install while
+		// its log's last note named the code of 17:26.
+		runningTheInstall();
+		const now = runtime();
+		const stale = {
+			type: "custom_message",
+			customType: "harness-loaded",
+			content:
+				"Reloaded between runs. agentic-harness.pi runs its install, ~/elsewhere at 233d61cf.",
+			display: false,
+		};
+		await now.fire(
+			"session_start",
+			{ reason: "startup" },
+			{ sessionManager: { getBranch: () => [stale] } },
+		);
+		expect(now.hidden, "the stale note was left standing").toEqual([
+			expect.stringMatching(
+				/^This pi started afresh .* out of date\. agentic-harness\.pi runs its install, /,
+			),
+		]);
+	});
+
 	it("does nothing while the session rolls over, saying why", async () => {
 		// On 3 November a reload begun as a rollover switched finished on
 		// the log left behind, a runtime that went on reloading the live
