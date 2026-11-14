@@ -598,6 +598,8 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 			`${home}/.config/agentic-harness/google/credentials.json`,
 			`${home}/.config/agentic-harness/slack/credentials.json`,
 			`${home}/.pi/agent/vault.json`,
+			`${home}/.local/state/gnome-keyring/login.cred`,
+			`${home}/.local/state/eero/session.cred`,
 		];
 		const given = fenceArgs(
 			{ home, runtimeDir: "/run/user/1000" },

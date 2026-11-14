@@ -31,6 +31,12 @@ function workingLandrun(): string | undefined {
 
 const landrun = workingLandrun();
 
+/**
+ * systemd's credential service, which decrypts for any caller what its
+ * account sealed, the login keyring's password among them.
+ */
+const CREDENTIALS = "/run/systemd/io.systemd.Credentials";
+
 /** A script for node that exits 0 once it connects to its socket. */
 const CONNECT = [
 	"const s = require('node:net').connect(process.argv[1]);",
@@ -109,6 +115,18 @@ describe.skipIf(landrun === undefined)(
 				NEVER_THROUGH,
 				"a change to the fence could let the standing door through unseen",
 			).toContain("/run/nix-offload-standing.sock");
+		});
+
+		it("keeps a fenced command from systemd's credential service, which opens what the person sealed", async (context) => {
+			// Only where the service runs and this test isn't already fenced
+			// away from it, so the refusal seen is the fence's own.
+			if (!(await connects(CREDENTIALS, []))) context.skip();
+
+			expect(
+				await connects(CREDENTIALS, fenced()),
+				"a fenced command reached systemd's credential service",
+			).toBe(false);
+			expect(NEVER_THROUGH).toContain(CREDENTIALS);
 		});
 	},
 );
