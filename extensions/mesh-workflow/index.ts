@@ -201,7 +201,11 @@ import {
 } from "../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
-import { sweeper } from "../../lib/mesh/retention.ts";
+import {
+	SWEEP_EVERY_MS,
+	SWEPT_STAMP,
+	sweeper,
+} from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
 import { inboxOf, type Steer } from "../../lib/mesh/steer.ts";
 import { toolDetail } from "../../lib/mesh/step.ts";
@@ -688,13 +692,19 @@ export function meshWorkflow(
 			notes: join(paths.mesh, "crossings"),
 			...senderIdentity(),
 		};
-		// Lets go of what is past its time, at most hourly, off the turn.
-		const tidy = sweeper({
-			transport,
-			presences,
-			board,
-			...(paths.steer !== undefined ? { inboxes: paths.steer } : {}),
-		});
+		// Lets go of what is past its time, at most hourly on the machine,
+		// off the turn: every conversation a host starts makes one of these.
+		const tidy = sweeper(
+			{
+				transport,
+				presences,
+				board,
+				...(paths.steer !== undefined ? { inboxes: paths.steer } : {}),
+			},
+			SWEEP_EVERY_MS,
+			Date.now,
+			join(paths.mesh, SWEPT_STAMP),
+		);
 		let own: OwnLeases | undefined;
 		// Heavy work that ended before this runtime had its leases to release.
 		const unowned: LeaseEvent[] = [];

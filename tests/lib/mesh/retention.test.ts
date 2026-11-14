@@ -20,6 +20,7 @@ import {
 	ENDED_MS,
 	KEEP_MS,
 	RECENT_MS,
+	SWEPT_STAMP,
 	sweep,
 	sweeper,
 } from "../../../lib/mesh/retention.ts";
@@ -384,6 +385,40 @@ describe("the sweep", () => {
 
 		clock += 2 * 60 * 1000;
 		await tidy();
+		expect(at.transport.ids()).not.toContain(second);
+	});
+
+	it("runs at most once an hour on the machine, given a stamp", async () => {
+		const at = kept();
+		const stamp = join(root, SWEPT_STAMP);
+		let clock = now;
+		const first = stamped(messages, KEEP_MS + 1000);
+		await sweeper(at, 60 * 60 * 1000, () => clock, stamp)();
+		expect(at.transport.ids()).not.toContain(first);
+
+		// Another conversation's sweeper, made since, finds the hour taken.
+		const second = stamped(messages, KEEP_MS + 2000, "WCJQSG-2-cccc");
+		clock += 59 * 60 * 1000;
+		const another = sweeper(at, 60 * 60 * 1000, () => clock, stamp);
+		await another();
+		expect(at.transport.ids()).toContain(second);
+
+		clock += 2 * 60 * 1000;
+		await another();
+		expect(at.transport.ids()).not.toContain(second);
+	});
+
+	it("sweeps when its stamp can't be read or says a time to come", async () => {
+		const at = kept();
+		const stamp = join(root, SWEPT_STAMP);
+		writeFileSync(stamp, String(now + 60 * 1000));
+		const first = stamped(messages, KEEP_MS + 1000);
+		await sweeper(at, 60 * 60 * 1000, () => now, stamp)();
+		expect(at.transport.ids()).not.toContain(first);
+
+		writeFileSync(stamp, "torn");
+		const second = stamped(messages, KEEP_MS + 2000, "WCJQSG-2-cccc");
+		await sweeper(at, 60 * 60 * 1000, () => now, stamp)();
 		expect(at.transport.ids()).not.toContain(second);
 	});
 });

@@ -18,7 +18,15 @@ export interface SessionLogHeader {
 	readonly parentSession?: string;
 }
 
-/** How much of a log is read for its header line, which is short. */
+/**
+ * How much of a log is read first for its header line, which is short.
+ * Reading 64 KB of every log for it, and splitting all of it on lines,
+ * was 0.26 s of a woken conversation's start on 14 November, which
+ * reads the header of each log in its line.
+ */
+const FIRST_BYTES = 4 * 1024;
+
+/** How much of a log is read at most for its header line. */
 const HEADER_BYTES = 64 * 1024;
 
 /** A log's header, or nothing when there is no log there pi wrote. */
@@ -26,24 +34,38 @@ export function sessionLogHeader(path: string): SessionLogHeader | undefined {
 	let fd: number | undefined;
 	try {
 		fd = openSync(path, "r");
-		const buffer = Buffer.alloc(HEADER_BYTES);
-		const read = readSync(fd, buffer, 0, HEADER_BYTES, 0);
-		const line = buffer.toString("utf8", 0, read).split("\n")[0] ?? "";
-		const header: unknown = JSON.parse(line);
-		if (typeof header !== "object" || header === null) return undefined;
-		const { id, cwd, parentSession } = header as Record<string, unknown>;
-		if (typeof id !== "string") return undefined;
-		return {
-			id,
-			...(typeof cwd === "string" ? { cwd } : {}),
-			...(typeof parentSession === "string" ? { parentSession } : {}),
-		};
+		return headerIn(readHeaderLine(fd));
 	} catch {
 		// No log there yet, or not one pi wrote: nothing to read.
 		return undefined;
 	} finally {
 		if (fd !== undefined) closeSync(fd);
 	}
+}
+
+/** A log's first line: from its first bytes, or more when it is long. */
+function readHeaderLine(fd: number): string {
+	for (const size of [FIRST_BYTES, HEADER_BYTES]) {
+		const buffer = Buffer.alloc(size);
+		const read = readSync(fd, buffer, 0, size, 0);
+		const text = buffer.toString("utf8", 0, read);
+		const end = text.indexOf("\n");
+		if (end >= 0) return text.slice(0, end);
+		if (read < size) return text;
+	}
+	return "";
+}
+
+function headerIn(line: string): SessionLogHeader | undefined {
+	const header: unknown = JSON.parse(line);
+	if (typeof header !== "object" || header === null) return undefined;
+	const { id, cwd, parentSession } = header as Record<string, unknown>;
+	if (typeof id !== "string") return undefined;
+	return {
+		id,
+		...(typeof cwd === "string" ? { cwd } : {}),
+		...(typeof parentSession === "string" ? { parentSession } : {}),
+	};
 }
 
 /**
