@@ -22,6 +22,8 @@ export type RpcEvent = Readonly<Record<string, unknown>> & {
 
 /** A running RPC process. */
 export interface RpcClient {
+	/** The process's id, or undefined when it never started. */
+	readonly pid: number | undefined;
 	/** Send a command and resolve with its successful response. */
 	request(command: Record<string, unknown>): Promise<RpcEvent>;
 	/** Resolve with the first event from now on that matches, within `withinMs`. */
@@ -142,6 +144,7 @@ export function rpcClient(
 	}
 
 	return {
+		pid: child.pid,
 		request,
 		wait,
 		prompt: async (message, withinMs) => {

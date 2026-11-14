@@ -183,6 +183,12 @@ It prints a line a checkpoint and the report as one JSON line after
   (an entry's source, a job's id, the journal's trace), and `first`
   names those before the rest.
 - `faults`, `hostErrors` and `plainErrors`: what went wrong.
+- `plainProcesses`: what one process a conversation costs, measured on
+  plain pi. `readyMs` spreads each plain pi's time from its start to
+  answering a state request, all started at once before the stagger;
+  `pssReadyKb` and `rssReadyKb` what each weighed then, and `pssDoneKb`
+  and `rssDoneKb` once its turns were done, from the kernel's rollup of
+  its mappings. `unread` counts weighings that found no rollup.
 
 The host draws its screens on the same event loop its engines run on,
 and serves every conversation from one process where plain pi runs one
