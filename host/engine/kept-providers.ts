@@ -117,7 +117,11 @@ function plainHeaders(
 	);
 }
 
-/** Whether a value comes back from JSON as it went in: no function, symbol or undefined in it. */
+/**
+ * Whether a value comes back from JSON as it went in: no function,
+ * symbol or undefined in it, save a field left undefined, which JSON
+ * leaves out and pi reads as unset.
+ */
 function plainData(value: unknown): boolean {
 	if (value === null) return true;
 	switch (typeof value) {
@@ -130,7 +134,9 @@ function plainData(value: unknown): boolean {
 			return Array.isArray(value)
 				? value.every(plainData)
 				: Object.getPrototypeOf(value) === Object.prototype &&
-						Object.values(value).every(plainData);
+						Object.values(value).every(
+							(field) => field === undefined || plainData(field),
+						);
 		default:
 			return false;
 	}
