@@ -11,6 +11,7 @@ import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
+import { OFF } from "../../../lib/internal/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox.ts";
 import { announceJobHost, type JobSpec } from "../../../lib/jobs/host.ts";
 
@@ -40,7 +41,7 @@ beforeEach(() => {
 	// Unfenced, whatever runs the tests: these cases are about pi's bash
 	// and the person's settings, and a fenced session's sandbox, asked for
 	// as the extension loads, can't be had inside its own fence.
-	vi.stubEnv(SANDBOX_VARIABLE, "");
+	vi.stubEnv(SANDBOX_VARIABLE, OFF);
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),

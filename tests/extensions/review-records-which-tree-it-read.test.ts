@@ -41,6 +41,7 @@ import {
 	watchForWorkLayer,
 } from "../../extensions/review-integration/work.ts";
 import { runCouncil, startCouncil } from "../../lib/core/review/index.ts";
+import { OFF } from "../../lib/internal/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../lib/internal/sandbox.ts";
 import { freshRepo } from "../support/git-fixture.ts";
 
@@ -51,7 +52,7 @@ beforeEach(() => {
 	vi.stubEnv("XDG_CONFIG_HOME", home);
 	// Unfenced, whatever runs the tests: inside the fence git is refused in
 	// a repo that isn't a cut tree, which these fixtures never are.
-	vi.stubEnv(SANDBOX_VARIABLE, "");
+	vi.stubEnv(SANDBOX_VARIABLE, OFF);
 	forgetWorkLayer();
 	// Git is asked for real, through the unattended runner the module
 	// uses by default. Without something to ask, nothing can show a

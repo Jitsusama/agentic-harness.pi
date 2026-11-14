@@ -10,6 +10,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { OFF } from "../../../lib/internal/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox.ts";
 import {
 	mixedTurnRefusal,
@@ -178,7 +179,7 @@ describe("a tracked file rewritten from the shell", () => {
 	afterAll(() => disposeRepo(repo));
 	// The fixture is a temp repo, not a tree the work tool cut, so a
 	// fenced session's git would refuse to read it.
-	beforeEach(() => vi.stubEnv(SANDBOX_VARIABLE, ""));
+	beforeEach(() => vi.stubEnv(SANDBOX_VARIABLE, OFF));
 	afterEach(() => vi.unstubAllEnvs());
 
 	it("is found by each way the shell rewrites a file", async () => {

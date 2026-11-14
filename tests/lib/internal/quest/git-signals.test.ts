@@ -21,6 +21,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { OFF } from "../../../../lib/internal/fence-stage.ts";
 import {
 	gitTreeRootOf,
 	isGitignored,
@@ -39,7 +40,7 @@ beforeAll(() => {
 	// Unfenced, whatever runs the tests: inside the fence git is refused in
 	// a repo that isn't a cut tree, which these fixtures never are, so a
 	// fenced session read every answer as none.
-	vi.stubEnv(SANDBOX_VARIABLE, "");
+	vi.stubEnv(SANDBOX_VARIABLE, OFF);
 	repo = mkdtempSync(path.join(tmpdir(), "git-signals-repo-"));
 	outside = mkdtempSync(path.join(tmpdir(), "git-signals-outside-"));
 	const run = (args: string[]) =>
