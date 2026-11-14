@@ -575,6 +575,51 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		).toBe(false);
 	});
 
+	it("empties the person's own cloud login, a folder of them whole, since fenced gcloud reads its own", () => {
+		const gcloud = `${home}/.config/gcloud`;
+		const legacy = `${gcloud}/legacy_credentials`;
+		const files = [
+			`${gcloud}/application_default_credentials.json`,
+			`${gcloud}/credentials.db`,
+			`${gcloud}/access_tokens.db`,
+			`${home}/.gsutil/credstore2`,
+		];
+		const given = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000" },
+			diskOf([
+				...files,
+				`${legacy}/someone/adc.json`,
+				`${gcloud}/configurations/config_default`,
+			]),
+		);
+		const place = { home, runtimeDir: "/run/user/1000" };
+		for (const file of files) {
+			const at = given.lastIndexOf(file);
+			expect(given.slice(at - 2, at + 1), file).toEqual([
+				"--ro-bind",
+				"/dev/null",
+				file,
+			]);
+		}
+		const at = given.indexOf(legacy);
+		expect(
+			given.slice(at - 1, at + 3),
+			"the folder, empty and read-only",
+		).toEqual(["--tmpfs", legacy, "--remount-ro", legacy]);
+		expect(
+			fenceRefusesRead(`${legacy}/someone/adc.json`, place),
+			"pi's read tool is refused what the folder holds",
+		).toBe(true);
+		expect(
+			fenceRefusesRead(`${gcloud}/configurations/config_default`, place),
+			"gcloud's other settings stay readable",
+		).toBe(false);
+		expect(
+			fenceRefusesRead(`${gcloud}/legacy_credentials_other`, place),
+			"a name that only starts the same isn't the folder",
+		).toBe(false);
+	});
+
 	it("keeps src and world read-only, each git folder there but what a commit writes", () => {
 		const at = (flag: string, path: string) =>
 			args.findIndex((arg, index) => arg === flag && args[index + 1] === path);

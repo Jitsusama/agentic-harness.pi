@@ -352,9 +352,12 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
  * the home folder: nix-offload's login to the lent builders, which ssh
  * takes from its file through the relay on this machine's loopback, so a
  * command holding it could run anything there, past the exemption's
- * rules; and the logins pi's own tools read in pi's process, outside the
+ * rules; the logins pi's own tools read in pi's process, outside the
  * fence, which no command needs (Google's, Slack's and Vault's, and
- * Tuple's sign-in, IDEGAT 13 November).
+ * Tuple's sign-in); and the person's own cloud login, which fenced gcloud
+ * never reads, since it is pointed at a settings folder of its own with
+ * the broker's hour token (`gcloud-broker.ts`). IDEGAT, 13 November. A
+ * path ending in `/` is a folder, emptied whole.
  */
 export const HIDDEN = [
 	".local/state/nix-offload/store_ed25519",
@@ -362,7 +365,21 @@ export const HIDDEN = [
 	".config/agentic-harness/slack/credentials.json",
 	".pi/agent/vault.json",
 	".local/share/tuple/0/.auth_token",
+	".config/gcloud/application_default_credentials.json",
+	".config/gcloud/credentials.db",
+	".config/gcloud/access_tokens.db",
+	".config/gcloud/legacy_credentials/",
+	".gsutil/credstore2",
 ] as const;
+
+/** A hidden path's place in the home folder, and whether it is a folder. */
+function hiddenIn(home: string): { path: string; folder: boolean }[] {
+	return HIDDEN.map((hidden) => {
+		const folder = hidden.endsWith("/");
+		// join keeps a trailing slash, which no resolved path has.
+		return { path: join(home, folder ? hidden.slice(0, -1) : hidden), folder };
+	});
+}
 
 /**
  * bubblewrap's arguments binding the copy of `~/.npmrc` without its
@@ -378,11 +395,19 @@ function npmrcArgs(place: FencePlace, disk: Disk): string[] {
 	return ["--ro-bind", place.npmrc, over];
 }
 
-/** bubblewrap's arguments emptying each hidden file that is there. */
+/**
+ * bubblewrap's arguments emptying each hidden file and folder that is
+ * there: a file bound over with `/dev/null`, a folder with an empty one
+ * made read-only.
+ */
 function hiddenArgs(home: string, disk: Disk): string[] {
-	return HIDDEN.map((path) => join(home, path))
-		.filter((path) => disk.kind(path) === "file")
-		.flatMap((path) => ["--ro-bind", "/dev/null", path]);
+	return hiddenIn(home).flatMap(({ path, folder }) => {
+		const kind = disk.kind(path);
+		if (folder) {
+			return kind === "folder" ? ["--tmpfs", path, "--remount-ro", path] : [];
+		}
+		return kind === "file" ? ["--ro-bind", "/dev/null", path] : [];
+	});
 }
 
 /**
@@ -687,7 +712,10 @@ export function fenceRefusesRead(path: string, place: FencePlace): boolean {
 	// pi's own /proc/self resolves to its pid, so it is refused too: its
 	// open files are pipes and sockets no fenced command could reach.
 	if (/^\/proc\/(\d+|thread-self)(\/|$)/.test(path)) return true;
-	if (HIDDEN.some((hidden) => path === join(place.home, hidden))) return true;
+	const hidden = hiddenIn(place.home).some(({ path: at, folder }) =>
+		folder ? path === at || path.startsWith(`${at}/`) : path === at,
+	);
+	if (hidden) return true;
 	if (path === join(place.home, NPMRC)) return true;
 	const runtime = place.runtimeDir;
 	return (
