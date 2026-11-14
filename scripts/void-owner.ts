@@ -144,7 +144,14 @@ function requestFor(
 	if (pull.host && DELTA_HOSTS.has(pull.host))
 		return {
 			command: "dt",
-			args: ["api", "--host", DELTA_ORIGIN, "-R", pull.repo, `/api/v3/${route}`],
+			args: [
+				"api",
+				"--host",
+				DELTA_ORIGIN,
+				"-R",
+				pull.repo,
+				`/api/v3/${route}`,
+			],
 		};
 	if (pull.host === GITHUB_HOST) return { command: "gh", args: ["api", route] };
 	return undefined;

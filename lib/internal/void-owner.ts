@@ -439,7 +439,10 @@ function aliasNamesPage(
 	const claim = bare(value);
 	if (!claim.includes("/")) return hostOf(`https://${claim}`) === host;
 	const page = bare(url);
-	return page === claim || ["/", "?", "#"].some((end) => page.startsWith(claim + end));
+	return (
+		page === claim ||
+		["/", "?", "#"].some((end) => page.startsWith(claim + end))
+	);
 }
 
 /** An address without its scheme, a file's page read as its tree's. */

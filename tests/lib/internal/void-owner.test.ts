@@ -221,7 +221,10 @@ describe("placing a line", () => {
 describe("placing a pull request by the zone it touches", () => {
 	const PULL = "https://delta.shopify.io/shop/world/pull/2431000";
 	const KEY = "delta.shopify.io/shop/world#2431000";
-	const text = line("why is this one stuck?", `tab: Tidy the sandbox · ${PULL}`);
+	const text = line(
+		"why is this one stuck?",
+		`tab: Tidy the sandbox · ${PULL}`,
+	);
 
 	it("sends it to the quest that claims the tree its files sit under", () => {
 		const files = {
@@ -284,7 +287,7 @@ describe("placing a page under a claimed tree", () => {
 	it("sends a file's page in the tree to the quest that claims it", () => {
 		const text = line(
 			"this README is out of date",
-			`tab: README · https://delta.shopify.io/shop/world/blob/main/areas/incubating/aquifer/README.md`,
+			"tab: README · https://delta.shopify.io/shop/world/blob/main/areas/incubating/aquifer/README.md",
 		);
 
 		expect(addresses(text, sources([GIT, ZONED]))[0]).toBe("WM4KSZ");

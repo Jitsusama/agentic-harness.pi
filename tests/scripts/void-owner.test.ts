@@ -112,10 +112,13 @@ describe("the files a pull request touches", () => {
 
 	it("asks GitHub for a GitHub pull request's files", () => {
 		const asked: string[][] = [];
-		filesOf({ host: "github.com", repo: "a/b", number: "7" }, (command, args) => {
-			asked.push([command, ...args]);
-			return listing;
-		});
+		filesOf(
+			{ host: "github.com", repo: "a/b", number: "7" },
+			(command, args) => {
+				asked.push([command, ...args]);
+				return listing;
+			},
+		);
 
 		expect(asked).toEqual([
 			["gh", "api", "repos/a/b/pulls/7/files?per_page=100"],
