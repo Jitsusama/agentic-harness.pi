@@ -5,6 +5,7 @@ import type {
 	InnerCallRecord,
 	RunCost,
 	RunTokens,
+	SessionRecord,
 	TurnKind,
 	TurnRecord,
 } from "../core/observability/index.ts";
@@ -69,30 +70,85 @@ export function readTurns(
 	sessionId: string,
 	lines: Iterable<string>,
 ): LedgerScan {
-	const turns: TurnRecord[] = [];
+	const scan = startScan(sessionId);
+	for (const line of lines) scan.feed(line);
+	return scan.take();
+}
+
+/**
+ * A scan of one log, fed a line at a time, that can stop and carry what
+ * it knows to a later pass over the same log once it has grown.
+ */
+export interface Scan {
+	/** Read the log's next line. */
+	feed(line: string): void;
+	/**
+	 * What the lines fed since the last take gave: their turns, calls,
+	 * inner calls and declarations, every call a compaction has dropped,
+	 * and any compaction turn read earlier whose run has since said
+	 * whether it resumed, so the store can fill that in.
+	 */
+	take(): LedgerScan;
+	/** What a later pass needs to carry on from here, after a take. */
+	carry(): ScanState;
+}
+
+/**
+ * What a scan knows of a log so far, from which a later pass carries on
+ * as if it had read the lines before. Every entry's inherited level,
+ * booking and branch is kept, since any of them can be a later entry's
+ * parent, and every call that may still be answered or dropped.
+ */
+export interface ScanState {
+	readonly calls: ReadonlyMap<string, ToolCallRecord>;
+	readonly targets: ReadonlyMap<string, string>;
+	readonly entryOrder: ReadonlyMap<string, number>;
+	readonly boundaries: readonly Boundary[];
+	readonly session: SessionRecord;
+	readonly lastModel: string;
+	readonly levels: ReadonlyMap<string, string | null>;
+	readonly bookings: ReadonlyMap<string, Booking>;
+	readonly branches: BranchWalk;
+	/** Compaction turns whose run has not yet said whether it resumed. */
+	readonly unsettled: readonly TurnRecord[];
+}
+
+/** A compaction's place on the log's timeline. */
+export interface Boundary {
+	readonly order: number;
+	readonly entryId: string;
+	readonly timestamp: string;
+}
+
+/**
+ * Start a scan of a log, from its first line or, given what an earlier
+ * pass carried, from where that pass stopped.
+ */
+export function startScan(sessionId: string, from?: ScanState): Scan {
+	let turns: TurnRecord[] = [];
 	// Keyed by call id so a result can find the call it answers. A call
 	// whose result never arrives stays in the list with an unknown
 	// result rather than being dropped: the call still happened.
-	const calls = new Map<string, MutableCall>();
+	const calls = new Map<string, MutableCall>(
+		[...(from?.calls ?? [])].map(([id, call]) => [id, { ...call }]),
+	);
+	// The calls made since the last take, which are the ones it gives.
+	let made = new Set<string>();
 	// The tool each gateway call named, by call id, read when the call
 	// is made since its arguments are digested away then.
-	const targets = new Map<string, string>();
-	const inner: InnerCallRecord[] = [];
-	const declarations: DeclarationRecord[] = [];
+	const targets = new Map(from?.targets);
+	let inner: InnerCallRecord[] = [];
+	let declarations: DeclarationRecord[] = [];
 	// The order every entry with an id was seen in, which is what makes a
 	// compaction's firstKeptEntryId comparable to a call's own entry:
 	// entry ids are not sortable strings, but the log's own line order is
 	// the session's real timeline.
-	const entryOrder = new Map<string, number>();
+	const entryOrder = new Map(from?.entryOrder);
 	// Compaction boundaries in the order they happened. A boundary only
 	// ever moves forward, so the first one after a call's order is the
 	// one compaction that actually dropped it.
-	const boundaries: Array<{
-		order: number;
-		entryId: string;
-		timestamp: string;
-	}> = [];
-	const session = new SessionCollector(sessionId);
+	const boundaries: Boundary[] = [...(from?.boundaries ?? [])];
+	const session = new SessionCollector(sessionId, from?.session);
 	let count = 0;
 	let parsed = 0;
 	let unparseable = 0;
@@ -101,28 +157,30 @@ export function readTurns(
 	// A CompactionEntry carries no model field of its own, so without
 	// this every compaction turn's model would be empty, with nothing
 	// for a later join to a model's billed rate to join on.
-	let lastModel = "";
+	let lastModel = from?.lastModel ?? "";
 	// The thinking level in force at each entry, inherited through its
 	// parent. A log is a tree, so reading the last level set in line
 	// order would carry a level from an abandoned branch into its
 	// sibling; following parentId gives each turn its own branch's.
-	const levels = new Map<string, string | null>();
+	const levels = new Map(from?.levels);
 	// The quest and document in force at each entry, inherited the same
 	// way, so a turn is booked to the work it was done for rather than to
 	// whichever quest its session named last.
-	const bookings = new Map<string, Booking>();
+	const bookings = new Map(from?.bookings);
 	// What came before each turn on its own branch, for the same reason.
-	const branches = new BranchWalk();
+	const branches = from?.branches ?? new BranchWalk();
+	// Read before the last take, and told again once settled.
+	let unsettled = [...(from?.unsettled ?? [])];
 
-	for (const line of lines) {
+	function feed(line: string): void {
 		count += 1;
-		if (!line.trim()) continue;
+		if (!line.trim()) return;
 		let entry: Record<string, unknown>;
 		try {
 			const value: unknown = JSON.parse(line);
 			if (typeof value !== "object" || value === null) {
 				unparseable += 1;
-				continue;
+				return;
 			}
 			entry = value as Record<string, unknown>;
 		} catch {
@@ -130,7 +188,7 @@ export function readTurns(
 			// unreadable line once reduced a corpus-wide total to a tenth
 			// of the truth by aborting the pipeline that met it.
 			unparseable += 1;
-			continue;
+			return;
 		}
 		parsed += 1;
 		if (typeof entry.id === "string" && !entryOrder.has(entry.id)) {
@@ -142,20 +200,20 @@ export function readTurns(
 
 		if (entry.type === "session") {
 			session.observeHeader(entry);
-			continue;
+			return;
 		}
 
 		if (entry.customType === "quest-workflow") {
 			const data = asRecord(entry.data);
 			if (data) session.observeWorkflow(data);
-			continue;
+			return;
 		}
 
 		const message = asRecord(entry.message);
 		if (message?.role === "toolResult") {
 			absorbResult(calls, message);
 			inner.push(...innerOf(calls, targets, message));
-			continue;
+			return;
 		}
 		if (message?.role === "system") {
 			const seq =
@@ -163,11 +221,11 @@ export function readTurns(
 					? (entryOrder.get(entry.id) ?? entryOrder.size)
 					: entryOrder.size;
 			declarations.push(...declarationsOf(sessionId, seq, entry, message));
-			continue;
+			return;
 		}
 
 		const read = turnFrom(sessionId, entry, lastModel, level);
-		if (!read) continue;
+		if (!read) return;
 		const turn: TurnRecord = { ...read, ...step, ...booking };
 		if (turn.kind === "assistant" && turn.model) lastModel = turn.model;
 		session.observeTurn(turn.timestamp);
@@ -175,7 +233,7 @@ export function readTurns(
 		if (turn.cost) billable += 1;
 		else unmetered += 1;
 		collectCalls(
-			{ calls, targets },
+			{ calls, targets, made },
 			sessionId,
 			turn.entryId,
 			turn.timestamp,
@@ -196,15 +254,76 @@ export function readTurns(
 		}
 	}
 
-	return {
-		turns,
-		calls: [...calls.values()],
-		inner,
-		declarations,
-		dropped: droppedCallsOf(sessionId, calls, entryOrder, boundaries),
-		coverage: { lines: count, parsed, unparseable, billable, unmetered },
-		session: session.record(),
-	};
+	function take(): LedgerScan {
+		// A compaction read before is told again once its run says whether
+		// it resumed, since the store fills in a fact a held turn lacks.
+		const settled = unsettled.filter(
+			({ compaction }) => compaction?.resumed !== null,
+		);
+		unsettled = unsettled.filter(
+			({ compaction }) => compaction?.resumed === null,
+		);
+		const scan: LedgerScan = {
+			turns: [...settled, ...turns],
+			calls: [...calls.values()].filter(({ callId }) => made.has(callId)),
+			inner,
+			declarations,
+			dropped: droppedCallsOf(sessionId, calls, entryOrder, boundaries),
+			coverage: { lines: count, parsed, unparseable, billable, unmetered },
+			session: session.record(),
+		};
+		unsettled.push(
+			...turns.filter(({ compaction }) => compaction?.resumed === null),
+		);
+		turns = [];
+		made = new Set();
+		inner = [];
+		declarations = [];
+		count = 0;
+		parsed = 0;
+		unparseable = 0;
+		billable = 0;
+		unmetered = 0;
+		return scan;
+	}
+
+	function carry(): ScanState {
+		return {
+			calls: stillOpen(calls, entryOrder, boundaries),
+			targets,
+			entryOrder,
+			boundaries,
+			session: session.record(),
+			lastModel,
+			levels,
+			bookings,
+			branches,
+			unsettled,
+		};
+	}
+
+	return { feed, take, carry };
+}
+
+/**
+ * The calls a later line can still change: one still awaiting its
+ * result, or not yet dropped by a compaction. One answered and dropped
+ * has given every row it will, so a scan that carries on needs it no
+ * more.
+ */
+function stillOpen(
+	calls: ReadonlyMap<string, MutableCall>,
+	entryOrder: ReadonlyMap<string, number>,
+	boundaries: readonly Boundary[],
+): Map<string, ToolCallRecord> {
+	const open = new Map<string, ToolCallRecord>();
+	for (const [id, call] of calls) {
+		const order = entryOrder.get(call.entryId);
+		const dropped =
+			order !== undefined && boundaries.some((b) => b.order > order);
+		if (call.resultChars === null || !dropped) open.set(id, call);
+	}
+	return open;
 }
 
 /**
@@ -217,7 +336,7 @@ function droppedCallsOf(
 	sessionId: string,
 	calls: ReadonlyMap<string, MutableCall>,
 	entryOrder: ReadonlyMap<string, number>,
-	boundaries: readonly { order: number; entryId: string; timestamp: string }[],
+	boundaries: readonly Boundary[],
 ): DroppedCallRecord[] {
 	if (boundaries.length === 0) return [];
 	const ordered = [...boundaries].sort((a, b) => a.order - b.order);
@@ -314,7 +433,7 @@ function levelAt(
 }
 
 /** The quest and document a turn is booked to; null is none loaded. */
-interface Booking {
+export interface Booking {
 	readonly quest: string | null;
 	readonly document: string | null;
 }
@@ -544,6 +663,7 @@ function collectCalls(
 	into: {
 		readonly calls: Map<string, MutableCall>;
 		readonly targets: Map<string, string>;
+		readonly made: Set<string>;
 	},
 	sessionId: string,
 	entryId: string,
@@ -562,6 +682,7 @@ function collectCalls(
 		const command = args?.command;
 		const target = name === GATEWAY_TOOL ? gatewayTarget(args) : undefined;
 		if (target) into.targets.set(callId, target);
+		into.made.add(callId);
 		into.calls.set(callId, {
 			// The tool's name is inside the address, so the same arguments
 			// to two different tools are two different calls.

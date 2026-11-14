@@ -42,7 +42,7 @@ const PRECEDENCE: readonly Exclude<TurnPrecedent, "nothing">[] = [
 ];
 
 /** A compaction's facts, open until the log says whether its run resumed. */
-type OpenCompaction = {
+export type OpenCompaction = {
 	-readonly [K in keyof CompactionFacts]: CompactionFacts[K];
 };
 
@@ -51,7 +51,7 @@ type OpenCompaction = {
  * entry and inherited through `parentId`, since a log is a tree: reading
  * in line order would carry a sibling branch's history into this one.
  */
-interface BranchState {
+export interface BranchState {
 	/** When the last billed turn on this branch ran, in epoch ms. */
 	readonly lastTurnAt: number | null;
 	/** That turn's output tokens, which the next prompt carries. */
@@ -101,7 +101,17 @@ export interface BranchStep {
  * compaction are measured by, none of which the turn's own usage holds.
  */
 export class BranchWalk {
-	private readonly states = new Map<string, BranchState>();
+	private readonly states: Map<string, BranchState>;
+
+	/** Walk from the log's start, or on from each entry's state a walk left. */
+	constructor(from?: ReadonlyMap<string, BranchState>) {
+		this.states = new Map(from);
+	}
+
+	/** Each entry's state so far, for a later walk to carry on from. */
+	soFar(): ReadonlyMap<string, BranchState> {
+		return this.states;
+	}
 
 	/** Take one entry, in log order, and return what it contributed. */
 	step(entry: Record<string, unknown>): BranchStep {

@@ -52,8 +52,13 @@ export class SessionCollector {
 
 	private readonly sessionId: string;
 
-	constructor(sessionId: string) {
+	/** Start with nothing seen, or from what an earlier pass recorded. */
+	constructor(sessionId: string, from?: SessionRecord) {
 		this.sessionId = sessionId;
+		this.cwd = from?.cwd ?? null;
+		this.quest = from?.quest ?? null;
+		this.first = from?.firstSeen ?? null;
+		this.last = from?.lastSeen ?? null;
 	}
 
 	/**

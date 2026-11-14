@@ -63,6 +63,10 @@ interface PassStamp {
 	/** Logs read and turns new to the ledger, when it finished. */
 	readonly scanned?: number;
 	readonly inserted?: number;
+	/** Of those, how many were read from where the last pass stopped. */
+	readonly resumed?: number;
+	/** Why each log that carried something was read whole instead. */
+	readonly refused?: readonly string[];
 	/** Why it failed, when it did. */
 	readonly error?: string;
 }
@@ -125,6 +129,8 @@ export async function stampedPass(
 		seconds: outcome.seconds,
 		scanned: outcome.scanned,
 		inserted: outcome.inserted,
+		resumed: outcome.resumed,
+		...(outcome.refused.length > 0 ? { refused: outcome.refused } : {}),
 	});
 	return outcome;
 }

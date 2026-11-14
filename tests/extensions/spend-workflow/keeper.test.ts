@@ -37,6 +37,8 @@ const OUTCOME: IndexOutcome = {
 	insertedCalls: 0,
 	duplicateCalls: 0,
 	insertedDropped: 0,
+	resumed: 1,
+	refused: [],
 	seconds: 1.5,
 };
 

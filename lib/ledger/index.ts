@@ -12,9 +12,13 @@
  * that holds them, and the summaries computed over them.
  */
 
+export { CARRY_VERSION, readCarry, writeCarry } from "./carry.ts";
 export {
 	readTurns,
 	SCAN_VERSION,
+	type Scan,
+	type ScanState,
+	startScan,
 } from "./scan.ts";
 export { LEDGER_SCOPE } from "./scope.ts";
 export { repoOf } from "./session.ts";
