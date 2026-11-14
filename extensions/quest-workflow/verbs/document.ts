@@ -278,9 +278,13 @@ function droppingMost(
 /**
  * The note a read tool leaves where it cut a file short, as
  * "[Showing lines 1-165 of 211 (50.0KB limit). Use offset=166 to
- * continue.]" or "[81 more lines in file. Use offset=115 to continue.]".
+ * continue.]" or "[81 more lines in file. Use offset=115 to continue.]",
+ * or a stored answer's where it cut lines to fit, as "Cut 9 of 56 lines
+ * to fit the 8,192 byte budget.", which a `show` of a long section
+ * ends with.
  */
-const CUT_NOTE = /\[[^\]\n]*Use offset=\d+ to continue\.\]/;
+const CUT_NOTE =
+	/\[[^\]\n]*Use offset=\d+ to continue\.\]|Cut [\d,]+ of [\d,]+ lines to fit the [\d,]+ byte budget\./;
 
 /**
  * A refusal when a new body holds a read's note that it was cut short.
@@ -296,7 +300,7 @@ function cutShort(text: string, force: boolean): EditRefused | undefined {
 		ok: false,
 		reason:
 			`This body holds a read's note that it was cut short ("${note[0]}"), so whatever came after that point is missing, and nothing was changed. ` +
-			"Read the rest with the offset it names, or read the section with `show` and `title`, then write it whole. " +
+			"Read the rest with the offset it names, or read the document's file itself, then write the section whole. " +
 			"Pass force: true if the note belongs in the text.",
 	};
 }
