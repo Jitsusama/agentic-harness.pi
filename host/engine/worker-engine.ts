@@ -122,6 +122,9 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 	const parkedHandling = new Map<string, Promise<void>>();
 	const asleep = new Map<string, Set<Relay>>();
 	const waking = new Set<string>();
+	// Woken into a worker whose resume hasn't answered: listed already, its
+	// screen maybe not built, so a viewer waits here as a parked one's does.
+	const resuming = new Set<string>();
 	let nextRelay = 0;
 	let watched: ConversationEvents | undefined;
 	const parked = parking({
@@ -488,12 +491,15 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 				`woken ${woken}`,
 			);
 			seat.busy += 1;
+			resuming.add(entry.sessionId);
 			try {
 				await seat.ready;
 				await seat.channel.call("resume", entry, woken);
 				parked.unwatch(entry.sessionId);
+				resuming.delete(entry.sessionId);
 				wakeViewers(entry.sessionId, seat);
 			} finally {
+				resuming.delete(entry.sessionId);
 				seat.busy -= 1;
 				retireIfEmpty(seat);
 			}
@@ -556,7 +562,12 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 					? `t${seat.worker.threadId} dead ${seat.dead} here ${seat.here.has(request.sessionId)}`
 					: "no seat",
 			);
-			if (seat && !seat.dead && seat.here.has(request.sessionId)) {
+			if (
+				seat &&
+				!seat.dead &&
+				seat.here.has(request.sessionId) &&
+				!resuming.has(request.sessionId)
+			) {
 				relay.seat = seat;
 				seat.viewers.set(relay.id, relay);
 				seat.channel.tell("attach", relay.id, relay.request);
@@ -571,7 +582,8 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 					else {
 						trace("buffered", relay.sessionId, `relay ${relay.id}`);
 						relay.buffered.push(data);
-						wakeFor(relay);
+						// One resuming wakes already; its resume attaches it.
+						if (!resuming.has(relay.sessionId)) wakeFor(relay);
 					}
 				},
 				resize(rows, columns) {

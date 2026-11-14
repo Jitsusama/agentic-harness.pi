@@ -128,6 +128,9 @@ export async function startScreenHost(
 				...(process.env.PI_HOST_WORKERS
 					? { PI_HOST_WORKERS: process.env.PI_HOST_WORKERS }
 					: {}),
+				...(process.env.PI_HOST_WORKERS_TRACE
+					? { PI_HOST_WORKERS_TRACE: process.env.PI_HOST_WORKERS_TRACE }
+					: {}),
 				...(also.length > 0 ? { SCREEN_HOST_ALSO: also.join(",") } : {}),
 				...(agent === undefined ? {} : { SCREEN_HOST_AGENT: agent }),
 			},
