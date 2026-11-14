@@ -5,7 +5,7 @@
  * tool's answer, which nothing but the model reads.
  *
  * Each line has one fixed shape under the identifier `pi-fence`:
- * `refused kind=<path|program> tool=<name> sandbox=<name>
+ * `refused kind=<path|program|plant> tool=<name> sandbox=<name>
  * session=<id>`. It never holds what was asked for, no path, command or
  * reason text, since the log is kept for weeks and read by more than the
  * person. Every value is a plain word, or `unknown` when it isn't one,
@@ -25,8 +25,12 @@ import { systemProgram } from "./system-program.ts";
 /** The identifier every refusal's line carries in the system's log. */
 export const FENCE_LOG_TAG = "pi-fence";
 
-/** What a refusal kept from the agent, as a kind, never the thing. */
-export type RefusedKind = "path" | "program";
+/**
+ * What a refusal kept from the agent, as a kind, never the thing: a
+ * `plant` is a name made in a shared git folder that would send git
+ * outside the fence elsewhere (`fence-git-root.ts`).
+ */
+export type RefusedKind = "path" | "program" | "plant";
 
 /** One refusal, as the log holds it. */
 export interface Refusal {

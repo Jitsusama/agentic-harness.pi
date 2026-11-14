@@ -64,7 +64,7 @@
 
 import { mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import {
 	agentProxy,
 	FENCE,
@@ -74,6 +74,12 @@ import {
 	guardsGitFolder,
 	nixDoor,
 } from "./fence.ts";
+import {
+	afterCheck,
+	guardedIn,
+	plantStopped,
+	sharedRootFor,
+} from "./fence-git-root.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
 import { recordedInShell } from "./fence-log.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
@@ -87,7 +93,6 @@ import {
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import {
-	type HeldGit,
 	inStore,
 	type Offload,
 	offloadedOutside,
@@ -96,16 +101,10 @@ import {
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
+import { folderGit, heldTree, worktreeFolder } from "./sandbox-trees.ts";
 import { systemProgram } from "./system-program.ts";
-import {
-	type GitRules,
-	namedGitFolder,
-	real,
-	treeGit,
-	within,
-	worktreeRepository,
-} from "./tree-git.ts";
-import { cutTreeDir, treesHeldBy } from "./work-records.ts";
+import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
+import { cutTreeDir } from "./work-records.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
@@ -405,63 +404,6 @@ export function questScratch(
 	return outside ? { root: top } : { root: top, own: join(top, first) };
 }
 
-/** The folder a worktree's `.git` file names, or nothing when `cwd` has none. */
-function worktreeFolder(cwd: string): string | undefined {
-	try {
-		return namedGitFolder(cwd);
-	} catch {
-		// No .git file here: a plain folder, or a clone's own git folder.
-		return undefined;
-	}
-}
-
-/**
- * `folder` as it really is, when it is a tree the work tool's records
- * hold for `session`, named as it is rather than through a link, whose
- * `.git` file, its git folder's way back and its `commondir` all agree
- * on one repository outside the home folder, with the git folder they
- * name; nothing otherwise. What a `cd` before an exempt nix-offload call
- * must be, and the git folder the call is held to.
- */
-export function heldTree(
-	folder: string,
-	home: string,
-	session: string | undefined,
-	records?: string,
-): HeldGit | undefined {
-	if (!session) return undefined;
-	const named = resolve(folder);
-	if (real(named) !== named) return undefined;
-	const held = treesHeldBy(session, records).some(
-		(tree) => real(tree) === named,
-	);
-	if (!held) return undefined;
-	const git = treeGit(named, home);
-	return git ? { folder: named, gitDir: git.gitDir } : undefined;
-}
-
-/**
- * `folder` as it really is, with the git folder a call outside the fence
- * is held to there: a tree the session holds, as {@link heldTree} has
- * it, or the top of a checkout whose own `.git` folder the fence keeps
- * read-only; nothing for any other folder, a checkout's subfolder
- * among them.
- */
-export function folderGit(
-	folder: string,
-	home: string,
-	session: string | undefined,
-	records?: string,
-): HeldGit | undefined {
-	const held = heldTree(folder, home, session, records);
-	if (held) return held;
-	const top = real(resolve(folder));
-	const git = join(top, ".git");
-	return guardsGitFolder(git, real(home))
-		? { folder: top, gitDir: git }
-		: undefined;
-}
-
 /**
  * How a session's commands run: as they are, fenced, or not at all. A
  * fenced command is handed a GitHub token from `github`, and a cloud
@@ -707,11 +649,19 @@ export function wrapFor(
 		case "refused":
 			return () => refused(sandbox.reason);
 		case "fence": {
+			const session = place.env.PI_SESSION_ID;
+			const stopped = plantStopped(session);
+			if (stopped) return () => refused(stopped);
+			const ownGitFolder = worktreeFolder(place.cwd);
+			const sharedRoot = sharedRootFor(ownGitFolder, session, (root) =>
+				guardsGitFolder(root, real(home)),
+			);
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
-				ownGitFolder: worktreeFolder(place.cwd),
+				ownGitFolder,
+				sharedRoot,
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
@@ -743,9 +693,17 @@ export function wrapFor(
 				});
 				if (out !== undefined) return out;
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
-				return keptIn === undefined
-					? fencedCommand(command, made)
-					: refused(keptIn);
+				if (keptIn !== undefined) return refused(keptIn);
+				const guarded = guardedIn(
+					sharedRoot && ownGitFolder ? [sharedRoot, ownGitFolder] : [],
+				);
+				const planted = recordedInShell(
+					{ kind: "plant", tool: "git", sandbox: FENCE, session },
+					sandbox.logger,
+				);
+				return [fencedCommand(command, made), afterCheck(guarded, planted)]
+					.filter(Boolean)
+					.join("\n");
 			};
 		}
 		case "strict": {

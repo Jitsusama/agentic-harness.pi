@@ -29,7 +29,7 @@ import {
 	offloadKeptIn,
 	takesLentOnly,
 } from "../../../lib/internal/offload-exemption.ts";
-import { folderGit, heldTree } from "../../../lib/internal/sandbox.ts";
+import { folderGit, heldTree } from "../../../lib/internal/sandbox-trees.ts";
 
 const OFFLOAD = {
 	program: "/nix/store/0000-nix-offload/bin/nix-offload",
