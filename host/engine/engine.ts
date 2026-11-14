@@ -45,6 +45,7 @@ import type {
 	Prepared,
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
+import { holdMessagesThroughCarriedTurns } from "./carried-turn-messages.ts";
 import type {
 	ConversationTraits,
 	EngineOptions,
@@ -458,6 +459,9 @@ export async function createEngine(
 				: {}),
 			createAgent: conversation.createAgent,
 		});
+		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
+		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
+		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
 		return { ...created, services, diagnostics: said };
 	}
 

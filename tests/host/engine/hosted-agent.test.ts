@@ -129,6 +129,29 @@ function calls(message: Record<string, unknown>, callId: string): boolean {
 	);
 }
 
+/** What the session file in `folder` holds around its custom message, in file order: the entry before it and the one after. */
+function besideTheWord(folder: string): [string, string] {
+	const sessions = join(folder, "sessions");
+	const said = readdirSync(sessions).flatMap((file) =>
+		readFileSync(join(sessions, file), "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.flatMap((line) => {
+				const entry: unknown = JSON.parse(line);
+				if (!isRecord(entry)) return [];
+				if (entry.type === "custom_message") return ["the word"];
+				const message = entry.message;
+				if (entry.type !== "message" || !isRecord(message)) return [];
+				if (message.role === "toolResult")
+					return [`the result of ${String(message.toolCallId)}`];
+				if (calls(message, "call-2")) return ["the call of call-2"];
+				return [String(message.role)];
+			}),
+	);
+	const word = said.indexOf("the word");
+	return [said[word - 1] ?? "nothing", said[word + 1] ?? "nothing"];
+}
+
 /** Run a hosted scenario to its death, keeping what it left in `folder`; answers the signal that ended it. */
 async function killed(
 	scenario: string,
@@ -187,6 +210,17 @@ function textOf(message: { readonly content: unknown }): string {
 function carries(event: object, text: string): boolean {
 	const message: unknown = Reflect.get(event, "message");
 	return isRecord(message) && textOf({ content: message.content }) === text;
+}
+
+/** The provider errors a transcript holds, by their text. */
+function refusals(observed: Observed): unknown[] {
+	return observed.transcript
+		.filter(
+			(message) =>
+				message.role === "assistant" &&
+				Reflect.get(message, "stopReason") === "error",
+		)
+		.map((message) => Reflect.get(message, "errorMessage"));
 }
 
 function said(observed: Observed, role: string): string[] {
@@ -344,6 +378,72 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			expect(said(observed, "assistant").at(-1)).toBe("after the restart");
 			expect(observed.ran, "each tool ran once, before the kill").toBe(2);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("writes a peer's word sent mid-round after the round's result, as pi does in a run of its own", async () => {
+		// Two had a mesh message written between a call and its result, and every request after was refused for a result without its call.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-word-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(
+				folder,
+				"reopen-with-a-word",
+			);
+			expect(reported, "durable reported nothing").toBe("");
+			expect(
+				besideTheWord(folder),
+				"the word follows the round's result in the file",
+			).toEqual(["the result of call-2", "assistant"]);
+			expect(refusals(observed), "no request was refused").toEqual([]);
+			expect(said(observed, "assistant").at(-1)).toBe("after the word");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("writes a peer's word held mid-round when the host stops before the round ends", async () => {
+		// A host stops in the middle of such turns, and a word held only in memory would be lost without a word.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-word-stopped-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			expect(
+				await killed("reopen-with-a-word-stopped", folder),
+				"the host stopped of itself",
+			).toBeNull();
+			expect(
+				besideTheWord(folder),
+				"the word is in the file, after the call it came during",
+			).toEqual(["the call of call-2", "nothing"]);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("answers on a file that holds a word between a call and its result, now and on the next turn", async () => {
+		// The two conversations of 13 November hold their files in this shape still.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-word-written-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(
+				folder,
+				"reopen-with-a-word-written",
+			);
+			expect(reported, "durable reported nothing").toBe("");
+			expect(
+				besideTheWord(folder),
+				"the word sits between the call and its result",
+			).toEqual(["the call of call-2", "the result of call-2"]);
+			expect(refusals(observed), "no request was refused").toEqual([]);
+			expect(said(observed, "assistant").at(-1)).toBe("after the word");
+			const next = await reopenedWithReports(folder, "reopen-asked");
+			expect(
+				refusals(next.observed),
+				"the next turn, on the file as it was left, was not refused",
+			).toEqual([]);
+			expect(said(next.observed, "assistant").at(-1)).toBe("answered");
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}

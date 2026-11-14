@@ -20,6 +20,7 @@ import type {
 	Submission,
 	ToolRegistration,
 } from "./durable-types.ts";
+import { pairToolResults } from "./paired-results.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
 	AgentContext,
@@ -861,7 +862,7 @@ export class HostedAgent {
 		let messages = run.context.messages;
 		if (this.transformContext)
 			messages = await this.transformContext(messages, run.controller.signal);
-		const converted = await this.convertToLlm(messages);
+		const converted = pairToolResults(await this.convertToLlm(messages));
 		const normalized = this.library.normalizeContext({ messages: converted });
 		run.request = {
 			model: run.model,

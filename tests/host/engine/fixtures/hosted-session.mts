@@ -19,19 +19,32 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried-turn-messages.ts";
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
+import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** What the fixture drives of a pi session. */
 interface Session {
 	prompt(text: string): Promise<void>;
 	steer(text: string): Promise<void>;
 	followUp(text: string): Promise<void>;
+	sendCustomMessage(
+		message: { customType: string; content: string; display: boolean },
+		options?: { triggerTurn?: boolean },
+	): Promise<void>;
 	abort(): Promise<void>;
 	dispose(): void;
 	navigateTree(targetId: string, options: object): Promise<unknown>;
+	readonly isStreaming: boolean;
+	subscribe(listener: (event: { readonly type: string }) => void): () => void;
 	readonly sessionManager: {
+		appendCustomMessageEntry(
+			customType: string,
+			content: string,
+			display: boolean,
+		): string;
 		getEntries(): readonly {
 			readonly id: string;
 			readonly type: string;
@@ -170,6 +183,45 @@ async function answerOnceQueued(text: string): Promise<unknown> {
 }
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
+
+/**
+ * Answer `text`, unless a tool result in the request does not follow its
+ * call's answer, which is refused as Anthropic's API refuses it.
+ */
+function pairedOrRefused(text: string) {
+	return (context: { readonly messages: readonly unknown[] }): unknown => {
+		const at = firstUnpaired(context.messages);
+		return at === undefined
+			? say(text)
+			: compat.fauxAssistantMessage([], {
+					stopReason: "error",
+					errorMessage: `400 messages.${at}: unexpected tool_use_id found in tool_result blocks`,
+				});
+	};
+}
+
+/** Where the first tool result whose call is not in the answer just before the results stands. */
+function firstUnpaired(messages: readonly unknown[]): number | undefined {
+	const roleAt = (index: number): unknown => {
+		const message = messages[index];
+		return isRecord(message) ? message.role : undefined;
+	};
+	for (const [index, message] of messages.entries()) {
+		if (!isRecord(message) || message.role !== "toolResult") continue;
+		let before = index - 1;
+		while (before >= 0 && roleAt(before) === "toolResult") before--;
+		const answer = messages[before];
+		const calls =
+			isRecord(answer) &&
+			answer.role === "assistant" &&
+			Array.isArray(answer.content) &&
+			answer.content.some(
+				(part: unknown) => isRecord(part) && part.id === message.toolCallId,
+			);
+		if (!calls) return index;
+	}
+	return undefined;
+}
 const call = (id: string, text: string, timestamp?: number) =>
 	compat.fauxAssistantMessage([compat.fauxToolCall("echo", { text }, { id })], {
 		stopReason: "toolUse",
@@ -304,6 +356,57 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 	},
+	/** Reopen into a tool round whose tool hears a peer's word, as a mesh message reached a turn durable carried on on 13 November. */
+	"reopen-with-a-word": {
+		responses: () => [
+			call("call-2", "pong"),
+			pairedOrRefused("after the word"),
+		],
+		tools: echo(async (session) => {
+			await session.sendCustomMessage(
+				{ customType: "mesh", content: "a word from a peer", display: true },
+				{ triggerTurn: false },
+			);
+		}),
+		drive: async () => {},
+		persist: true,
+	},
+	/** As reopen-with-a-word, the host stopping as the tool's word is held, its turn never ending. */
+	"reopen-with-a-word-stopped": {
+		responses: () => [call("call-2", "pong"), say("never")],
+		tools: echo(async (session) => {
+			await session.sendCustomMessage(
+				{ customType: "mesh", content: "a word from a peer", display: true },
+				{ triggerTurn: false },
+			);
+			stopHost();
+		}),
+		drive: async () => {},
+		persist: true,
+	},
+	/** As reopen-with-a-word, the word written straight into the file between the call and its result, as pi wrote it on 13 November. */
+	"reopen-with-a-word-written": {
+		responses: () => [
+			call("call-2", "pong"),
+			pairedOrRefused("after the word"),
+		],
+		tools: echo(async (session) => {
+			session.sessionManager.appendCustomMessageEntry(
+				"mesh",
+				"a word from a peer",
+				true,
+			);
+		}),
+		drive: async () => {},
+		persist: true,
+	},
+	/** Open the kept session again and prompt it, its file as the last run left it. */
+	"reopen-asked": {
+		responses: () => [pairedOrRefused("answered")],
+		tools: echo(),
+		drive: (session) => session.prompt("and now?"),
+		persist: true,
+	},
 	/** Open the kept session file as it stands, sending nothing. */
 	inspect: {
 		responses: () => [],
@@ -434,6 +537,11 @@ const scenarios: Record<string, Scenario> = {
 	},
 };
 
+/** Stop the host mid-round, once the session is built. */
+let stopHost: () => void = () => {
+	throw new Error("the session is not built yet");
+};
+
 const scenario = scenarios[scenarioName];
 if (!scenario) throw new Error(`no scenario ${scenarioName}`);
 
@@ -509,6 +617,17 @@ try {
 		...(conversation ? { createAgent: conversation.createAgent } : {}),
 	});
 	built = session;
+	// As the host's engine does for each session it builds.
+	if (conversation?.agent)
+		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
+			process.stderr.write(`held message reported: ${String(error)}\n`),
+		);
+	stopHost = () => {
+		// As the engine's release does for a stopping host, then the process ends before any turn does.
+		conversation?.agent?.park();
+		session.dispose();
+		process.exit(0);
+	};
 	const events: unknown[] = [];
 	session.agent.subscribe((event: unknown) => {
 		events.push(comparable(event));
