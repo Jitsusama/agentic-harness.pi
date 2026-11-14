@@ -698,10 +698,14 @@ export async function showTabbedPrompt(
 		{
 			cancelled: null,
 			title: config.title ?? "A batch of decisions",
-			verdict: (result) =>
-				result === null
-					? `${OUTCOME_GLYPH.cancelled} cancelled`
-					: `${OUTCOME_GLYPH.done} answered ${result.items.size} of ${config.items.length}`,
+			verdict: (result) => {
+				if (result !== null)
+					return `${OUTCOME_GLYPH.done} answered ${result.items.size} of ${config.items.length}`;
+				return config.closer?.signal.aborted
+					? config.closer.verdict
+					: `${OUTCOME_GLYPH.cancelled} cancelled`;
+			},
+			...(config.closer ? { dismiss: config.closer.signal } : {}),
 		},
 	);
 }

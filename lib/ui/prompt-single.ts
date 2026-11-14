@@ -329,14 +329,22 @@ export async function showSinglePrompt(
 	config: SinglePromptConfig,
 	answered?: AnsweredElsewhere,
 ): Promise<PromptResult | null> {
+	const closer = config.closer;
+	const dismiss = [answered?.signal, closer?.signal].filter(
+		(one): one is AbortSignal => one !== undefined,
+	);
 	return mountGate<PromptResult | null>(
 		ctx,
 		(tui, theme, done) => createSingleController(config, tui, theme, done),
 		{
 			cancelled: null,
 			title: config.title ?? "A decision",
-			verdict: (result) => answered?.verdict() ?? singleVerdict(config, result),
-			...(answered ? { dismiss: answered.signal } : {}),
+			verdict: (result) =>
+				answered?.verdict() ??
+				(closer?.signal.aborted && result === null
+					? closer.verdict
+					: singleVerdict(config, result)),
+			...(dismiss.length > 0 ? { dismiss: AbortSignal.any(dismiss) } : {}),
 		},
 	);
 }

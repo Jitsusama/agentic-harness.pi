@@ -14,11 +14,22 @@
  * it marked; while they are away (see away-workflow) nothing is asked
  * at all: the recommendation is taken, or the asker is told to decide
  * from the evidence, and the decision waits for the person's return.
+ *
+ * A question never holds its turn for long: left unanswered five
+ * minutes, or asked while the screen is locked or the person is away
+ * from it, it parks on their look list and the session carries on
+ * (see parking.ts).
  */
 
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { decide, isAway } from "../../lib/internal/away/state.ts";
+import { runtimeDir, stateDir } from "../../lib/internal/paths.ts";
 import type { WantAsk } from "../../lib/internal/session/wants.ts";
 import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
 import { count } from "../../lib/ui/count.ts";
@@ -26,7 +37,21 @@ import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
-import type { ListChoice, PromptItem } from "../../lib/ui/types.ts";
+import type {
+	ListChoice,
+	PromptCloser,
+	PromptItem,
+} from "../../lib/ui/types.ts";
+import {
+	ABSENCE_EVERY_MS,
+	absence,
+	PARK_AFTER_MS,
+	type ParkReason,
+	parkedText,
+	parkQuestions,
+	pointerOf,
+	watchToPark,
+} from "./parking.ts";
 
 // Types
 interface QuestionOption {
@@ -56,6 +81,28 @@ interface AskResult {
 	questions: Question[];
 	answers: Answer[];
 	cancelled: boolean;
+	/** Why it parked on the look list unanswered, when it did. */
+	parked?: ParkReason;
+}
+
+/** What a parked question's record and result say, past its mark. */
+const PARKED_SAID = "parked on the look list, unanswered";
+
+/** Park `questions` on the person's look list, and say so to the asker. */
+function parked(
+	questions: Question[],
+	session: string,
+	reason: ParkReason,
+): { content: { type: "text"; text: string }[]; details: AskResult } {
+	const pointer = pointerOf(session, {
+		presences: join(stateDir("mesh-workflow"), "presence"),
+		sessions: join(stateDir("quest-workflow"), "sessions"),
+	});
+	const kept = parkQuestions(stateDir("looks"), pointer, questions, reason);
+	return {
+		content: [{ type: "text", text: parkedText(reason, kept) }],
+		details: { questions, answers: [], cancelled: false, parked: reason },
+	};
 }
 
 // Schema
@@ -177,6 +224,105 @@ function buildOptions(q: Question): ListChoice[] {
 	return opts;
 }
 
+/** What picking `value`, or writing `editorText`, answers of `q`. */
+function answerOf(
+	q: Question,
+	value: string,
+	editorText: string | undefined,
+): Answer | undefined {
+	if (value === "__other__" && editorText) {
+		return { id: q.id, value: editorText, label: editorText, wasCustom: true };
+	}
+	const at = q.options.findIndex((o) => o.value === value);
+	const opt = q.options[at];
+	if (!opt) return undefined;
+	return {
+		id: q.id,
+		value: opt.value,
+		label: opt.label,
+		wasCustom: false,
+		index: at + 1,
+	};
+}
+
+/**
+ * Ask on screen: one question as a list, several as tabs. Answers what
+ * was picked, or nothing when the person cancelled or `closer` closed it.
+ */
+async function answersOnScreen(
+	ctx: ExtensionContext,
+	questions: Question[],
+	closer: PromptCloser,
+): Promise<Map<string, Answer> | null> {
+	const answers = new Map<string, Answer>();
+	const [only] = questions;
+	if (only && questions.length === 1) {
+		const result = await promptSingle(ctx, {
+			content: (theme: Theme, width: number) =>
+				renderMarkdown(only.prompt, theme, width),
+			options: buildOptions(only),
+			want: { kind: "question", said: only.prompt, ask: wantAsk(only) },
+			closer,
+		});
+		if (!result) return null;
+		if (result.type === "option") {
+			const answer = answerOf(only, result.value, result.editorText);
+			if (answer) answers.set(only.id, answer);
+		}
+		return answers;
+	}
+	const items: PromptItem[] = questions.map((q) => ({
+		label: q.label,
+		views: [
+			{
+				key: "1",
+				label: "Question",
+				content: (theme: Theme, width: number) =>
+					renderMarkdown(q.prompt, theme, width),
+			},
+		],
+		options: buildOptions(q),
+	}));
+	const result = await promptTabbed(ctx, {
+		items,
+		autoResolve: true,
+		want: {
+			kind: "question",
+			said: `${count(questions.length, "question")}: ${questions[0]?.prompt ?? ""}`,
+		},
+		closer,
+	});
+	if (!result) return null;
+	for (const [index, itemResult] of result.items) {
+		const q = questions[index];
+		if (!q || itemResult.type !== "option") continue;
+		const answer = answerOf(q, itemResult.value, itemResult.editorText);
+		if (answer) answers.set(q.id, answer);
+	}
+	return answers;
+}
+
+/** The tool's result for questions the person answered. */
+function answered(
+	questions: Question[],
+	answers: Map<string, Answer>,
+): { content: { type: "text"; text: string }[]; details: AskResult } {
+	const askResult: AskResult = {
+		questions,
+		answers: Array.from(answers.values()),
+		cancelled: false,
+	};
+	const answerLines = askResult.answers.map((a) => {
+		const qLabel = questions.find((q) => q.id === a.id)?.label || a.id;
+		if (a.wasCustom) return `${qLabel}: user wrote: ${a.label}`;
+		return `${qLabel}: user selected: ${a.index}. ${a.label}`;
+	});
+	return {
+		content: [{ type: "text", text: answerLines.join("\n") }],
+		details: askResult,
+	};
+}
+
 export default function ask(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ask",
@@ -213,129 +359,40 @@ export default function ask(pi: ExtensionAPI) {
 				allowOther: q.allowOther !== false,
 			}));
 
-			const isMulti = questions.length > 1;
-			const answers = new Map<string, Answer>();
-
-			if (!isMulti) {
-				// Single question: simple prompt with options
-				const q = questions[0];
-				if (!q) return errorResult("Error: Empty question");
-
-				const result = await promptSingle(ctx, {
-					content: (theme: Theme, width: number) =>
-						renderMarkdown(q.prompt, theme, width),
-					options: buildOptions(q),
-					want: { kind: "question", said: q.prompt, ask: wantAsk(q) },
-				});
-
-				if (!result) {
+			// Nobody there to answer: park at once rather than hold the turn.
+			const session = ctx.sessionManager.getSessionId();
+			const gone = absence(runtimeDir());
+			if (gone) return parked(questions, session, gone);
+			const closing = new AbortController();
+			let parkedFor: ParkReason | undefined;
+			const stopWatching = watchToPark(
+				(reason) => {
+					parkedFor = reason;
+					closing.abort();
+				},
+				{
+					afterMs: PARK_AFTER_MS,
+					everyMs: ABSENCE_EVERY_MS,
+					absent: () => absence(runtimeDir()),
+				},
+			);
+			const closer: PromptCloser = {
+				signal: closing.signal,
+				verdict: `${OUTCOME_GLYPH.cancelled} ${PARKED_SAID}`,
+			};
+			try {
+				const answers = await answersOnScreen(ctx, questions, closer);
+				if (parkedFor) return parked(questions, session, parkedFor);
+				if (!answers) {
 					return {
 						content: [{ type: "text", text: "User cancelled" }],
 						details: { questions, answers: [], cancelled: true },
 					};
 				}
-
-				if (result.type === "option") {
-					if (result.value === "__other__" && result.editorText) {
-						answers.set(q.id, {
-							id: q.id,
-							value: result.editorText,
-							label: result.editorText,
-							wasCustom: true,
-						});
-					} else {
-						const optIdx = q.options.findIndex((o) => o.value === result.value);
-						const opt = q.options[optIdx];
-						if (opt) {
-							answers.set(q.id, {
-								id: q.id,
-								value: opt.value,
-								label: opt.label,
-								wasCustom: false,
-								index: optIdx + 1,
-							});
-						}
-					}
-				}
-			} else {
-				// Multiple questions: tabbed prompt
-				const items: PromptItem[] = questions.map((q) => ({
-					label: q.label,
-					views: [
-						{
-							key: "1",
-							label: "Question",
-							content: (theme: Theme, width: number) =>
-								renderMarkdown(q.prompt, theme, width),
-						},
-					],
-					options: buildOptions(q),
-				}));
-
-				const result = await promptTabbed(ctx, {
-					items,
-					autoResolve: true,
-					want: {
-						kind: "question",
-						said: `${count(questions.length, "question")}: ${questions[0]?.prompt ?? ""}`,
-					},
-				});
-
-				if (!result) {
-					return {
-						content: [{ type: "text", text: "User cancelled" }],
-						details: { questions, answers: [], cancelled: true },
-					};
-				}
-
-				for (const [index, itemResult] of result.items) {
-					const q = questions[index];
-					if (!q || itemResult.type !== "option") continue;
-
-					if (itemResult.value === "__other__" && itemResult.editorText) {
-						answers.set(q.id, {
-							id: q.id,
-							value: itemResult.editorText,
-							label: itemResult.editorText,
-							wasCustom: true,
-						});
-					} else {
-						const optIdx = q.options.findIndex(
-							(o) => o.value === itemResult.value,
-						);
-						const opt = q.options[optIdx];
-						if (opt) {
-							answers.set(q.id, {
-								id: q.id,
-								value: opt.value,
-								label: opt.label,
-								wasCustom: false,
-								index: optIdx + 1,
-							});
-						}
-					}
-				}
+				return answered(questions, answers);
+			} finally {
+				stopWatching();
 			}
-
-			// We build the result from the accumulated answers.
-			const askResult: AskResult = {
-				questions,
-				answers: Array.from(answers.values()),
-				cancelled: false,
-			};
-
-			const answerLines = askResult.answers.map((a) => {
-				const qLabel = questions.find((q) => q.id === a.id)?.label || a.id;
-				if (a.wasCustom) {
-					return `${qLabel}: user wrote: ${a.label}`;
-				}
-				return `${qLabel}: user selected: ${a.index}. ${a.label}`;
-			});
-
-			return {
-				content: [{ type: "text", text: answerLines.join("\n") }],
-				details: askResult,
-			};
 		},
 
 		renderCall(args, theme, context) {
@@ -361,6 +418,12 @@ export default function ask(pi: ExtensionAPI) {
 				return drawInto(
 					context?.lastComponent,
 					theme.fg("dim", `${OUTCOME_GLYPH.cancelled} cancelled`),
+				);
+			}
+			if (details.parked) {
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("muted", `${OUTCOME_GLYPH.cancelled} ${PARKED_SAID}`),
 				);
 			}
 			// Answered while the user was away: the text says how.

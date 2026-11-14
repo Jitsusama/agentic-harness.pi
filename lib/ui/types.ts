@@ -169,6 +169,19 @@ export interface SinglePromptConfig {
 	 * Default: an approval, said by the title.
 	 */
 	want?: PromptWant;
+	/** What may close it from outside, with what its record then says. */
+	closer?: PromptCloser;
+}
+
+/**
+ * Closes a prompt from outside, as the ask tool does when it parks a
+ * question nobody answered: the prompt comes down as if cancelled, and
+ * its record says `verdict`.
+ */
+export interface PromptCloser {
+	readonly signal: AbortSignal;
+	/** What its record says once closed this way. */
+	readonly verdict: string;
 }
 
 /** What an unanswered prompt is waiting for, and the line saying it. */
@@ -209,6 +222,8 @@ export interface TabbedPromptConfig {
 	allowHScroll?: boolean;
 	/** As for a single prompt. Default: an approval, said by the title. */
 	want?: PromptWant;
+	/** As for a single prompt. */
+	closer?: PromptCloser;
 }
 
 /** Configuration for a read-only content view (no actions or options). */
