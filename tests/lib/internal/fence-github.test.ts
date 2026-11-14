@@ -20,13 +20,15 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	fenceArgs,
-	fencedCommand,
 	fenceRules,
-	GITHUB_PLACEHOLDER,
-	githubDoorFolder,
 	NEVER_THROUGH,
 } from "../../../lib/internal/fence.ts";
+import { fencedCommand } from "../../../lib/internal/fence-command.ts";
 import type { Disk } from "../../../lib/internal/fence-disk.ts";
+import {
+	GITHUB_PLACEHOLDER,
+	githubDoorFolder,
+} from "../../../lib/internal/fence-github.ts";
 
 const runtimeDir = "/run/user/1000";
 const folder = "/run/user/1000/pi-github/sessions/s-1";

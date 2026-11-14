@@ -69,18 +69,18 @@ import {
 	agentProxy,
 	FENCE,
 	fenceArgs,
-	fencedCommand,
 	fenceRules,
-	githubDoorFolder,
 	guardsGitFolder,
 	nixDoor,
 } from "./fence.ts";
+import { fencedCommand } from "./fence-command.ts";
 import {
 	afterCheck,
 	guardedIn,
 	plantStopped,
 	sharedRootFor,
 } from "./fence-git-root.ts";
+import { githubDoorFolder } from "./fence-github.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
 import { recordedInShell } from "./fence-log.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
