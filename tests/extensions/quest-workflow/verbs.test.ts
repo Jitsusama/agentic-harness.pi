@@ -429,7 +429,7 @@ describe("spawn verbs", () => {
 			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
 		});
 		expect(
-			listedForStage(calls[0].env?.PI_FENCE_STAGE),
+			listedForStage(calls.at(0)?.env?.PI_FENCE_STAGE),
 			"a fresh spawn wasn't listed for the fence's first stage",
 		).toBe(true);
 	});
