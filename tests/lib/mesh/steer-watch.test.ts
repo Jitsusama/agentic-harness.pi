@@ -50,14 +50,18 @@ describe("watching a parked peer's steer inboxes", () => {
 	});
 
 	it("says one of several already waiting, and none that waits on nothing", async () => {
-		giveSteer(root, "A1B2C3", { text: "", act: "pause", from: "joel" });
+		const pause = giveSteer(root, "A1B2C3", {
+			text: "",
+			act: "pause",
+			from: "joel",
+		});
 		const carry = giveSteer(root, "A1B2C3", {
 			text: "",
 			act: "carry",
 			to: "penelope",
 			from: "joel",
 		});
-		giveSteer(root, "A1B2C3", { text: "and this", from: "joel" });
+		const talk = giveSteer(root, "A1B2C3", { text: "and this", from: "joel" });
 		const waking = vi.fn();
 
 		const watch = watchWakingSteers({
@@ -69,8 +73,10 @@ describe("watching a parked peer's steer inboxes", () => {
 		await quietFor(SAID_WITHIN_MS, 3);
 		watch.close();
 
-		expect(waking.mock.calls, "the first that waits on it running").toEqual([
-			[carry],
-		]);
+		// Written in one millisecond, their names may sort either way.
+		expect(waking, "said once for all three").toHaveBeenCalledTimes(1);
+		const [said] = waking.mock.calls[0] ?? [];
+		expect([carry, talk], "one that waits on it running").toContain(said);
+		expect(said, "never the pause").not.toBe(pause);
 	});
 });
