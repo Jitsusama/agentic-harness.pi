@@ -168,13 +168,23 @@ describe("asking for the fence where nothing asked", () => {
 		}
 	});
 
+	it("fences a session whose value is empty, so off is the only way out", () => {
+		for (const asked of ["", "  "]) {
+			const env: NodeJS.ProcessEnv = { PI_SANDBOX: asked };
+			expect(fenceByDefault(env, "linux", both), "said for empty").toBe(
+				undefined,
+			);
+			expect(env.PI_SANDBOX, "an empty value unfenced the session").toBe(FENCE);
+		}
+	});
+
 	it("leaves a value already there as it is, strict and off included", () => {
-		for (const asked of [STRICT, OFF, FENCE, ""]) {
+		for (const asked of [STRICT, OFF, FENCE]) {
 			const env: NodeJS.ProcessEnv = { PI_SANDBOX: asked };
 			expect(fenceByDefault(env, "linux", both), `said for ${asked}`).toBe(
 				undefined,
 			);
-			expect(env.PI_SANDBOX, `${asked || "empty"} was replaced`).toBe(asked);
+			expect(env.PI_SANDBOX, `${asked} was replaced`).toBe(asked);
 		}
 	});
 

@@ -48,8 +48,9 @@ beforeEach(() => {
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	// Unfenced, whatever runs the tests: these cases are about pi's bash
 	// and the person's settings, and a fenced session's sandbox, asked for
-	// as the extension loads, can't be had inside its own fence.
-	vi.stubEnv(SANDBOX_VARIABLE, "");
+	// as the extension loads, can't be had inside its own fence. An empty
+	// value would be fenced by default, so off is how to say none.
+	vi.stubEnv(SANDBOX_VARIABLE, "off");
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
@@ -109,27 +110,8 @@ describe("the registered bash", () => {
 		expect(result?.content[0]?.text).toBe("yes true session-1");
 	});
 
-	it("leaves an unfenced line for a session with no fence, naming it", async () => {
+	it("leaves an unfenced line for a session that chose off, naming it", async () => {
 		await sessionStart?.({ type: "session_start" }, ctx());
-		expect(unfencedSaid, "the line for a session with none").toEqual([
-			[undefined, "session-1"],
-		]);
-	});
-
-	it("says off in the line of a session that chose it", async () => {
-		vi.stubEnv(SANDBOX_VARIABLE, "off");
-		let start: typeof sessionStart;
-		shellWorkflow(
-			{
-				events: createEventBus(),
-				on: (event: string, handler: typeof sessionStart) => {
-					if (event === "session_start") start = handler;
-				},
-				registerTool: () => {},
-			} as unknown as ExtensionAPI,
-			{ recordUnfenced },
-		);
-		await start?.({ type: "session_start" }, ctx());
 		expect(unfencedSaid, "the opt-out's line").toEqual([["off", "session-1"]]);
 	});
 

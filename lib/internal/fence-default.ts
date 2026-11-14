@@ -15,19 +15,22 @@ import { systemProgram } from "./system-program.ts";
  * session's commands are fenced unless it says otherwise: on Linux,
  * with bubblewrap and landrun in the system's own profile, an unset
  * `PI_SANDBOX` is set to `fence`, in `env` itself, so every reader in
- * this process and every child it starts sees the one value. Answers
+ * this process and every child it starts sees the one value. An empty
+ * one counts as unset, so a stray `PI_SANDBOX=` in a wrapper or a
+ * record can't quietly unfence a session: `off` is the only way out,
+ * and the way back for one session. Answers
  * why it couldn't, on Linux without them, so that is said rather than
  * passed over; elsewhere there is no fence to ask for, and nothing is
- * said. A value already there, `off` or an empty one included, is left
- * as it is: `PI_SANDBOX=off` is the way back for one session. Until 13
- * November every session not started with the fence ran unfenced.
+ * said. Any other value is left as it is, `strict` and `off` among
+ * them. Until 13 November every session not started with the fence ran
+ * unfenced.
  */
 export function fenceByDefault(
 	env: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = process.platform,
 	find: (program: string) => string | undefined = systemProgram,
 ): string | undefined {
-	if (env[SANDBOX_VARIABLE] !== undefined || platform !== "linux") {
+	if (env[SANDBOX_VARIABLE]?.trim() || platform !== "linux") {
 		return undefined;
 	}
 	const missing = ["bwrap", "landrun"].filter((program) => !find(program));

@@ -72,8 +72,8 @@ screen. So rather than ask each daemon to tell an agent from you, each
 command runs in
 [bubblewrap](https://github.com/containers/bubblewrap), around Landlock
 through landrun. On Linux it is the default: a session that names no
-`PI_SANDBOX` is given `PI_SANDBOX=fence` as it loads, and its children
-inherit it. Where bubblewrap or landrun isn't in the system's own
+`PI_SANDBOX`, or an empty one, is given `PI_SANDBOX=fence` as it loads,
+and its children inherit it. Where bubblewrap or landrun isn't in the system's own
 profile, the session runs unfenced and says so once. `PI_SANDBOX=off`
 runs one session unfenced by choice. Either way the session leaves
 `unfenced sandbox=<off|none> session=<id>` in the system's log under
