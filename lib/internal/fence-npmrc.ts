@@ -16,9 +16,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fenceCopy } from "./fence-copy.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
 
 /** The person's npm settings, as a path from the home folder. */
-export const NPMRC = ".npmrc";
+export const NPMRC = FENCE_HIDDEN.npmrc;
 
 /**
  * A setting that is a credential: `_authToken`, `_auth` or `_password`,

@@ -1,0 +1,22 @@
+{
+	"version": 1,
+	"home": [
+		".local/state/nix-offload/store_ed25519",
+		".config/agentic-harness/google/credentials.json",
+		".config/agentic-harness/slack/credentials.json",
+		".pi/agent/vault.json",
+		".local/share/tuple/0/.auth_token",
+		".config/gcloud/application_default_credentials.json",
+		".config/gcloud/credentials.db",
+		".config/gcloud/access_tokens.db",
+		".config/gcloud/legacy_credentials/",
+		".gsutil/credstore2",
+		".local/share/keyrings/",
+		".local/state/gnome-keyring/login.cred",
+		".local/state/eero/session.cred"
+	],
+	"sshKept": [
+		"^(config|known_hosts(\\.old)?|google_compute_known_hosts(\\.old)?|.*\\.pub)$"
+	],
+	"npmrc": ".npmrc"
+}

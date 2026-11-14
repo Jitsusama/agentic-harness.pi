@@ -48,6 +48,7 @@
 import { basename, dirname, join, relative, sep } from "node:path";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
 	cachesWithin,
 	READ_ONLY,
@@ -319,34 +320,10 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 
 /**
  * Private keys and tokens outside `~/.ssh`, emptied inside, as paths from
- * the home folder: nix-offload's login to the lent builders, which ssh
- * takes from its file through the relay on this machine's loopback, so a
- * command holding it could run anything there, past the exemption's
- * rules; the logins pi's own tools read in pi's process, outside the
- * fence, which no command needs (Google's, Slack's and Vault's, and
- * Tuple's sign-in); and the person's own cloud login, which fenced gcloud
- * never reads, since it is pointed at a settings folder of its own with
- * the broker's hour token (`gcloud-broker.ts`); and the login keyring
- * with what systemd sealed for the person (its password, eero's session),
- * which Landlock already keeps from systemd's credential service, so no
- * copy leaves for an offline guess either. IDEGAT, 13 November. A path
- * ending in `/` is a folder, emptied whole.
+ * the home folder, from `data/fence-hidden.json` (`fence-hidden.ts`, which
+ * says why each is there).
  */
-export const HIDDEN = [
-	".local/state/nix-offload/store_ed25519",
-	".config/agentic-harness/google/credentials.json",
-	".config/agentic-harness/slack/credentials.json",
-	".pi/agent/vault.json",
-	".local/share/tuple/0/.auth_token",
-	".config/gcloud/application_default_credentials.json",
-	".config/gcloud/credentials.db",
-	".config/gcloud/access_tokens.db",
-	".config/gcloud/legacy_credentials/",
-	".gsutil/credstore2",
-	".local/share/keyrings/",
-	".local/state/gnome-keyring/login.cred",
-	".local/state/eero/session.cred",
-] as const;
+export const HIDDEN: readonly string[] = FENCE_HIDDEN.home;
 
 /** A hidden path's place in the home folder, and whether it is a folder. */
 function hiddenIn(home: string): { path: string; folder: boolean }[] {
@@ -426,8 +403,7 @@ function scratchArgs(place: FencePlace, disk: Disk): string[] {
 }
 
 /** The files in `~/.ssh` a command may read: public keys, settings and known hosts. */
-const SSH_KEPT =
-	/^(config|known_hosts(\.old)?|google_compute_known_hosts(\.old)?|.*\.pub)$/;
+const SSH_KEPT = FENCE_HIDDEN.sshKept;
 
 /**
  * bubblewrap's arguments for `~/.ssh`: emptied, with only what names
