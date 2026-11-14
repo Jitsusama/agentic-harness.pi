@@ -517,6 +517,26 @@ describe("the host's engine", () => {
 	);
 
 	it(
+		"keeps warming a conversation that rests parked through the host's restart",
+		async () => {
+			const folder = hostFolder();
+			const parked = await step(folder, "park-to-restart");
+			expect(parked.held, "the park let it go").toBe("let go");
+			const seen = await step(folder, "warm-resting");
+			expect(seen.rests, "its next start leaves it parked").toBe(true);
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.keysSeen, "only its warm, on its own key").toEqual([
+				"first-key",
+			]);
+			expect(seen.pending, "the warm waits for its wake").toBe(1);
+		},
+		2 * HOST_LIFE_MS,
+	);
+
+	it(
 		"answers an open whose first words are a command still waiting on a person",
 		async () => {
 			const seen = await step(hostFolder(), "open-waiting");
