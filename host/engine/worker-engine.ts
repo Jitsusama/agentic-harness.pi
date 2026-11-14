@@ -37,6 +37,7 @@ import { PARKED, parking } from "./parking.ts";
 import type { ConversationIdentity, SessionHost } from "./session-host.ts";
 import { type Channel, openChannel, revived } from "./worker-channel.ts";
 import type { WorkerSetup, WorkerWeight } from "./worker-setup.ts";
+import { trace } from "./worker-trace.ts";
 
 /** What lib/core/viewer/terminal.ts tells viewers, kept here so the main thread loads no pi-tui. */
 const CLOSED = "Conversation closed";
@@ -227,6 +228,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 				refused: () => options.key?.refused(),
 			},
 			report,
+			`main>t${worker.threadId}`,
 		);
 		worker.on("error", (thrown: unknown) => {
 			const error =
@@ -324,6 +326,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 
 	/** A conversation parked in its worker: let it go here, keep its viewers, and watch its wake. */
 	function parkedOut(seat: Seat, id: string): void {
+		trace("parkedOut", id, `viewers ${seat.viewers.size}`);
 		seat.here.delete(id);
 		const handled = (async () => {
 			await host.stop(id, PARKED).catch(report);
@@ -335,6 +338,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 			seat.viewers.clear();
 			if (kept.size > 0) asleep.set(id, kept);
 			parked.rests(id);
+			trace("rests", id, `kept ${kept.size}`);
 			retireIfEmpty(seat);
 		})();
 		parkedHandling.set(id, handled);
@@ -348,6 +352,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 		if (seat.dead || seat.exiting) return;
 		if (seat.busy > 0 || seat.ids.size > 0 || seat.here.size > 0) return;
 		seat.exiting = true;
+		trace("retire", `t${seat.worker.threadId}`);
 		const ended = setTimeout(() => {
 			void seat.worker.terminate();
 		}, EXIT_MS);
@@ -357,6 +362,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 
 	function died(seat: Seat, error: Error): void {
 		if (seat.dead) return;
+		trace("died", `t${seat.worker.threadId}`, error.message, [...seat.ids]);
 		seat.dead = true;
 		seats.delete(seat);
 		seat.channel.fail(error);
@@ -374,6 +380,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 	/** The viewers kept while `id` was parked, attached to the worker it woke into. */
 	function wakeViewers(id: string, seat: Seat): void {
 		const kept = asleep.get(id);
+		trace("wakeViewers", id, `kept ${kept?.size ?? 0}`);
 		if (!kept) return;
 		asleep.delete(id);
 		for (const relay of kept) {
@@ -388,6 +395,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 	/** A viewer of a parked conversation typed: ask for its wake, once. */
 	function wakeFor(relay: Relay): void {
 		const id = relay.sessionId;
+		trace("wakeFor", id, `waking ${waking.has(id)}`);
 		if (waking.has(id)) return;
 		const wake = watched?.wake;
 		if (!wake) return;
@@ -473,6 +481,12 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
 			const seat = spawn();
+			trace(
+				"resume",
+				entry.sessionId,
+				`t${seat.worker.threadId}`,
+				`woken ${woken}`,
+			);
 			seat.busy += 1;
 			try {
 				await seat.ready;
@@ -496,6 +510,12 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 
 		async parkSettled(sessionId) {
 			const seat = seatOf.get(sessionId);
+			trace(
+				"parkSettled",
+				sessionId,
+				seat ? `t${seat.worker.threadId}` : "no seat",
+				`handling ${parkedHandling.has(sessionId)}`,
+			);
 			if (seat && !seat.dead)
 				await seat.channel
 					.call("parkSettled", sessionId)
@@ -528,6 +548,14 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 				buffered: [],
 			};
 			const seat = seatOf.get(request.sessionId);
+			trace(
+				"attach",
+				request.sessionId,
+				`relay ${relay.id}`,
+				seat
+					? `t${seat.worker.threadId} dead ${seat.dead} here ${seat.here.has(request.sessionId)}`
+					: "no seat",
+			);
 			if (seat && !seat.dead && seat.here.has(request.sessionId)) {
 				relay.seat = seat;
 				seat.viewers.set(relay.id, relay);
@@ -541,6 +569,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 				input(data) {
 					if (relay.seat) relay.seat.channel.tell("input", relay.id, data);
 					else {
+						trace("buffered", relay.sessionId, `relay ${relay.id}`);
 						relay.buffered.push(data);
 						wakeFor(relay);
 					}
@@ -553,6 +582,7 @@ export function createWorkerEngine(options: WorkerEngineOptions): WorkerEngine {
 					relay.seat?.channel.tell("edited", relay.id, id, text);
 				},
 				detach() {
+					trace("detach", relay.sessionId, `relay ${relay.id}`);
 					if (relay.seat) {
 						relay.seat.viewers.delete(relay.id);
 						relay.seat.channel.tell("detach", relay.id);

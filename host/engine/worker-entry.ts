@@ -109,6 +109,7 @@ const channel = openChannel(
 		},
 	},
 	(error) => process.stderr.write(`worker ${threadId}: ${String(error)}\n`),
+	"worker",
 );
 
 const pi = await loadHostPi(setup.packageDir);

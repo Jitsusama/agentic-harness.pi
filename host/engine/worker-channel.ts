@@ -7,6 +7,14 @@
  * what a worker says of a conversation before it answers a call reaches
  * the main thread first.
  */
+import { brief, trace, tracing } from "./worker-trace.ts";
+
+/** Words too frequent to trace. */
+const UNTRACED = new Set(["write", "input", "background", "mirror"]);
+/** How long a call may wait before the trace lists it. */
+const STALE_CALL_MS = 30_000;
+/** How often the trace lists calls still waiting. */
+const STALE_EVERY_MS = 60_000;
 
 /** The port either side talks over: a Worker on the main thread, parentPort in the worker. */
 export interface Port {
@@ -30,6 +38,9 @@ export interface Channel {
 interface Waiting {
 	resolve(value: unknown): void;
 	reject(error: unknown): void;
+	name: string;
+	first: unknown;
+	at: number;
 }
 
 /** Open a channel over `port`, answering with `handlers`. */
@@ -37,9 +48,22 @@ export function openChannel(
 	port: Port,
 	handlers: Handlers,
 	report: (error: unknown) => void,
+	label = "channel",
 ): Channel {
 	let next = 0;
 	const waiting = new Map<number, Waiting>();
+	if (tracing)
+		setInterval(() => {
+			const now = Date.now();
+			for (const [id, one] of waiting)
+				if (now - one.at > STALE_CALL_MS)
+					trace(
+						label,
+						`still waiting #${id} ${one.name}`,
+						brief(one.first),
+						`${now - one.at} ms`,
+					);
+		}, STALE_EVERY_MS).unref();
 	port.on("message", (value) => {
 		if (typeof value !== "object" || value === null) return;
 		const kind: unknown = Reflect.get(value, "kind");
@@ -48,6 +72,13 @@ export function openChannel(
 			const one = waiting.get(id);
 			if (!one) return;
 			waiting.delete(id);
+			if (tracing)
+				trace(
+					label,
+					`reply #${id} ${one.name}`,
+					Reflect.get(value, "ok") === true ? "ok" : "failed",
+					`${Date.now() - one.at} ms`,
+				);
 			if (Reflect.get(value, "ok") === true)
 				one.resolve(Reflect.get(value, "value"));
 			else one.reject(revived(Reflect.get(value, "error")));
@@ -57,6 +88,8 @@ export function openChannel(
 		const raw: unknown = Reflect.get(value, "args");
 		const args: readonly unknown[] = Array.isArray(raw) ? raw : [];
 		const handler = handlers[name];
+		if (tracing && !UNTRACED.has(name))
+			trace(label, `heard ${String(kind)} ${name}`, brief(args[0]));
 		if (kind === "tell") {
 			if (!handler) {
 				report(new Error(`No handler for word ${name}`));
@@ -93,8 +126,15 @@ export function openChannel(
 	return {
 		call(method, ...args) {
 			const id = next++;
+			if (tracing) trace(label, `call #${id} ${method}`, brief(args[0]));
 			return new Promise((resolve, reject) => {
-				waiting.set(id, { resolve, reject });
+				waiting.set(id, {
+					resolve,
+					reject,
+					name: method,
+					first: args[0],
+					at: Date.now(),
+				});
 				port.postMessage({ kind: "call", id, name: method, args });
 			});
 		},
@@ -102,6 +142,8 @@ export function openChannel(
 			port.postMessage({ kind: "tell", name: word, args });
 		},
 		fail(error) {
+			if (tracing)
+				trace(label, `failed ${waiting.size} waiting`, error.message);
 			for (const one of waiting.values()) one.reject(error);
 			waiting.clear();
 		},

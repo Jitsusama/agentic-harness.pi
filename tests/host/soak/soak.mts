@@ -249,6 +249,10 @@ const fault = (what: string) => {
 };
 const say = (line: string) =>
 	process.stdout.write(`soak ${new Date().toISOString()} ${line}\n`);
+// Spike (worker per awake engine): each step, to find where a run waits.
+const step = (line: string) => {
+	if (process.env.PI_SOAK_TRACE === "1") say(`step ${line}`);
+};
 /** When each hosted turn's prompt was typed and its answer drawn, by tag. */
 const typedAt = new Map<string, Typed>();
 const profiles = {
@@ -665,8 +669,10 @@ async function windowWake(
 ): Promise<WindowWake> {
 	const recordBytes = sizeOf(one.file);
 	const started = Date.now();
+	step(`${one.index} window attach`);
 	const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
 	const answered = Date.now();
+	step(`${one.index} window attached`);
 	await tried(
 		window.sent(/\S/, DRAWN_MS),
 		`a window woke ${one.sessionId} and drew nothing`,
@@ -701,6 +707,7 @@ async function wake(
 	const how = wakeOf(one, checkpoint);
 	if (how === "key") byKey.add(one.sessionId);
 	if (how !== "mesh") return;
+	step(`${one.index} mesh wake`);
 	if (!askWake(one.sessionId, `soak-${checkpoint}`, parkFolder))
 		fault(`${one.sessionId} had no marker to wake it by`);
 	await tried(
@@ -770,7 +777,9 @@ async function opened(
 	one: Conversation,
 	byKey: Set<string>,
 ): Promise<Viewer> {
+	step(`${one.index} attach${byKey.has(one.sessionId) ? " by key" : ""}`);
 	const viewer = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+	step(`${one.index} attached`);
 	if (byKey.delete(one.sessionId)) return viewer;
 	await tried(
 		viewer.sent(/\S/, DRAWN_MS),
@@ -801,6 +810,7 @@ async function typed(
 		() => Date.now(),
 		() => undefined,
 	);
+	step(`${one.index} type ${turn.tag}${woke ? ` woke ${woke}` : ""}`);
 	viewer.type(`${turn.prompt}${ENTER}`);
 	const until = Date.now() + turnMs;
 	while (!tailOf(one.file).includes(ack)) {
@@ -812,6 +822,7 @@ async function typed(
 		// The log says a turn ended only when read, so this waits between reads.
 		await new Promise((done) => setTimeout(done, LOOK_EVERY_MS));
 	}
+	step(`${one.index} answered ${turn.tag}`);
 	await tried(
 		host.idle(one.sessionId, TURN_MS),
 		`${turn.tag} answered but never went idle, its log ending ${lastOf(one.file)}`,
