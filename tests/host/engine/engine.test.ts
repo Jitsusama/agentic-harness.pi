@@ -60,6 +60,8 @@ interface Seen {
 	/** The request each launch environment was derived for, in that run. */
 	readonly derived: readonly string[];
 	readonly env?: Readonly<Record<string, unknown>>;
+	/** Whether a start left the conversation parked, as one that parked before it. */
+	readonly rests?: boolean;
 	/** What the conversation's screen was handed to show as it started. */
 	readonly diagnostics?: readonly { type: string; message: string }[];
 	/**
