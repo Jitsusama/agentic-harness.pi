@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -10,11 +10,13 @@ import {
 	parkedPointing,
 	parkedText,
 	parkQuestions,
+	pointerOf,
 	watchToPark,
 } from "../../../extensions/ask-workflow/parking.ts";
 import { resetAway } from "../../../lib/internal/away/state.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import { looksIn, refusalOf } from "../../../lib/mesh/looks.ts";
+import { createPresences } from "../../../lib/mesh/presence.ts";
 
 let scratch: string;
 
@@ -25,6 +27,32 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(scratch, { recursive: true, force: true });
 });
+
+/**
+ * A mesh presence for `session` signing as `address`, and a quest record
+ * saying it has `quest` loaded, under the state folder `state`.
+ */
+function onTheMesh(
+	state: string,
+	session: string,
+	address: string,
+	quest: string,
+): { presences: string; sessions: string } {
+	const presences = join(state, "mesh-workflow", "presence");
+	const sessions = join(state, "quest-workflow", "sessions");
+	createPresences(presences).publish({
+		session,
+		addresses: [address],
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: new Date().toISOString(),
+	});
+	mkdirSync(sessions, { recursive: true });
+	writeFileSync(join(sessions, `${session}.json`), JSON.stringify({ quest }));
+	return { presences, sessions };
+}
 
 /** A runtime folder whose shell says `locked` and `away` as given. */
 function runtime(markers: { locked?: string; away?: string }): string {
@@ -148,10 +176,37 @@ describe("what the look list is told", () => {
 		expect(refusalOf(pointing), "the look list refused it").toBeUndefined();
 	});
 
-	it("keeps the look for the launcher, asking for an answer", () => {
+	it("offers no choices where no pick could find its way back", () => {
+		const pointing = parkedPointing("s1", [QUESTION], "unanswered", false);
+		expect(pointing.choices, "choices nobody can send back").toBeUndefined();
+		expect(pointing.ask).toBe(QUESTION.prompt);
+		expect(refusalOf(pointing), "the look list refused it").toBeUndefined();
 		const parked = parkQuestions(
 			scratch,
 			{ session: "s1" },
+			[QUESTION],
+			"unanswered",
+		);
+		expect(parked.look?.choices, "a look with no address").toBeUndefined();
+		expect(parkedText("unanswered", parked)).toContain("opening this window");
+	});
+
+	it("names the session's address and quest, where the launcher sends a pick", () => {
+		const records = onTheMesh(join(scratch, "state"), "s1", "ABC123", "Q-1");
+		expect(pointerOf("s1", records)).toEqual({
+			session: "s1",
+			address: "ABC123",
+			quest: "Q-1",
+		});
+		expect(pointerOf("s2", records), "a session off the mesh").toEqual({
+			session: "s2",
+		});
+	});
+
+	it("keeps the look for the launcher, asking for an answer", () => {
+		const parked = parkQuestions(
+			scratch,
+			{ session: "s1", address: "ABC123", quest: "Q-1" },
 			[QUESTION],
 			"unanswered",
 		);
@@ -159,6 +214,8 @@ describe("what the look list is told", () => {
 		expect(parked.look?.id).toBe(look?.id);
 		expect(look).toMatchObject({
 			session: "s1",
+			address: "ABC123",
+			quest: "Q-1",
 			kind: "terminal",
 			asks: true,
 			state: "waiting",
@@ -172,7 +229,7 @@ describe("what the look list is told", () => {
 	it("tells the asker nothing was decided", () => {
 		const parked = parkQuestions(
 			scratch,
-			{ session: "s1" },
+			{ session: "s1", address: "ABC123" },
 			[QUESTION],
 			"away",
 		);
@@ -193,6 +250,7 @@ describe("the ask tool with nobody there", () => {
 		resetAway();
 		process.env.XDG_RUNTIME_DIR = runtime({ locked: "locked" });
 		process.env.XDG_STATE_HOME = join(scratch, "state");
+		onTheMesh(stateDir(""), "s1", "ABC123", "Q-1");
 	});
 
 	afterEach(() => {
@@ -235,8 +293,8 @@ describe("the ask tool with nobody there", () => {
 		);
 		expect(result.details.parked).toBe("locked");
 		expect(
-			looksIn(stateDir("looks")).map((look) => look.session),
-			"nothing reached the look list",
-		).toEqual(["s1"]);
+			looksIn(stateDir("looks")).map((look) => [look.session, look.address]),
+			"nothing reached the look list, or without its address",
+		).toEqual([["s1", "ABC123"]]);
 	});
 });

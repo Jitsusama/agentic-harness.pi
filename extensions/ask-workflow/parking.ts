@@ -26,6 +26,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadedQuest } from "../../lib/mesh/address.ts";
 import {
 	type Look,
 	type Pointer,
@@ -33,6 +34,7 @@ import {
 	pointAt,
 	refusalOf,
 } from "../../lib/mesh/looks.ts";
+import { createPresences } from "../../lib/mesh/presence.ts";
 
 /** How long a question stands unanswered on screen before it parks. */
 export const PARK_AFTER_MS = 5 * 60 * 1000;
@@ -143,6 +145,7 @@ export function parkedPointing(
 	session: string,
 	questions: readonly ParkedQuestion[],
 	reason: ParkReason,
+	answerable = true,
 ): Pointing {
 	const base = {
 		kind: "terminal" as const,
@@ -160,9 +163,14 @@ export function parkedPointing(
 	}
 	const title = "A question waits for you";
 	const choices = only.options.map((option) => option.label);
+	const withChoices: Pointing[] = answerable
+		? [
+				{ ...base, title, ask: only.prompt, choices },
+				{ ...base, title, ask: OPEN_TO_READ, choices },
+			]
+		: [];
 	const tries: Pointing[] = [
-		{ ...base, title, ask: only.prompt, choices },
-		{ ...base, title, ask: OPEN_TO_READ, choices },
+		...withChoices,
 		{ ...base, title, ask: only.prompt },
 	];
 	return (
@@ -188,11 +196,43 @@ export function parkQuestions(
 	now: Date = new Date(),
 ): Parked {
 	try {
-		const pointing = parkedPointing(pointer.session, questions, reason);
+		// The launcher sends a pick to the look's address, else its quest's;
+		// with neither it has nowhere to send one, so the look offers no
+		// choices and sends him to the window instead.
+		const answerable = Boolean(pointer.address || pointer.quest);
+		const pointing = parkedPointing(
+			pointer.session,
+			questions,
+			reason,
+			answerable,
+		);
 		return { look: pointAt(dir, pointing, pointer, now) };
 	} catch (error) {
 		return { unkept: error instanceof Error ? error.message : String(error) };
 	}
+}
+
+/** Where a session's mesh presence and quest record are kept. */
+export interface PointerRecords {
+	/** The mesh's presence folder, one file a session. */
+	readonly presences: string;
+	/** The quest workflow's session records. */
+	readonly sessions: string;
+}
+
+/**
+ * The session parking a question, with the address it signs with on the
+ * mesh and its loaded quest, where they are known: the launcher sends
+ * the person's pick back to that address, else to the quest's session.
+ */
+export function pointerOf(session: string, records: PointerRecords): Pointer {
+	const address = createPresences(records.presences).of(session)?.addresses[0];
+	const quest = loadedQuest(session, records.sessions);
+	return {
+		session,
+		...(address ? { address } : {}),
+		...(quest ? { quest } : {}),
+	};
 }
 
 /** Why it parked, as the asker reads it. */

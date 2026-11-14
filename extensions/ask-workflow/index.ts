@@ -21,6 +21,7 @@
  * (see parking.ts).
  */
 
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -48,6 +49,7 @@ import {
 	type ParkReason,
 	parkedText,
 	parkQuestions,
+	pointerOf,
 	watchToPark,
 } from "./parking.ts";
 
@@ -92,7 +94,11 @@ function parked(
 	session: string,
 	reason: ParkReason,
 ): { content: { type: "text"; text: string }[]; details: AskResult } {
-	const kept = parkQuestions(stateDir("looks"), { session }, questions, reason);
+	const pointer = pointerOf(session, {
+		presences: join(stateDir("mesh-workflow"), "presence"),
+		sessions: join(stateDir("quest-workflow"), "sessions"),
+	});
+	const kept = parkQuestions(stateDir("looks"), pointer, questions, reason);
 	return {
 		content: [{ type: "text", text: parkedText(reason, kept) }],
 		details: { questions, answers: [], cancelled: false, parked: reason },
