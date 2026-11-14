@@ -366,7 +366,7 @@ function withParents(
 	const first = matches[0]?.quest;
 	const parent = first?.parent ? quests.find((q) => q.id === first.parent) : undefined;
 	if (first && parent)
-		found.push(fromQuest(parent, `the quest above ${questAddress(first.id)}`));
+		found.splice(1, 0, fromQuest(parent, `the quest above ${questAddress(first.id)}`));
 	return found;
 }
 
