@@ -8,11 +8,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	fenceArgs,
-	fenceDisplay,
 	fenceRefusesRead,
 	fenceRefusesWrite,
 	fenceRules,
-	fenceShims,
 	HIDDEN,
 	jobsBroker,
 	NEVER_THROUGH,
@@ -59,7 +57,7 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, and the jobs broker in the runtime folder, each read-only", () => {
+	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, the jobs broker and the clipboard door's folder in the runtime folder, each read-only", () => {
 		expect(
 			pairs("--bind").filter((path) => path?.startsWith(place.runtimeDir)),
 			"something in the runtime folder is bound writable",
@@ -72,51 +70,8 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent.sock",
 			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
+			"/run/user/1000/pi-clipboard",
 		]);
-	});
-
-	it("binds the clipboard door's folder and the sandboxed display's read-only, so no command replaces a socket in either", () => {
-		const doors = ["/run/user/1000/pi-clipboard", "/run/user/1000/pi-fence"];
-		expect(
-			pairs("--ro-bind").filter((path) => path?.startsWith(place.runtimeDir)),
-		).toEqual(doors);
-		for (const door of doors) {
-			expect(pairs("--bind"), `${door} is writable`).not.toContain(door);
-			expect(
-				rules.join(" "),
-				`Landlock lets a command reach ${door}`,
-			).toContain(`--unix ${door}`);
-		}
-	});
-
-	it("keeps the fence's wl-copy and wl-paste read-only", () => {
-		const shims = "/home/someone/.local/share/pi-fence";
-		expect(pairs("--ro-bind")).toContain(shims);
-		expect(pairs("--bind")).not.toContain(shims);
-	});
-
-	it("names the sandboxed display and the fence's shims only where the machine has them", () => {
-		const display = "/run/user/1000/pi-fence/wayland";
-		const shims = "/home/someone/.local/share/pi-fence/bin";
-		const only = (path: string): Disk => ({
-			kind: (given) => (given === path ? "file" : undefined),
-			entries: () => [],
-		});
-		expect(
-			[
-				fenceDisplay(place.runtimeDir, only(display)),
-				fenceDisplay(place.runtimeDir, only("/elsewhere")),
-				fenceDisplay(undefined, only(display)),
-			],
-			"there, not there, no runtime folder",
-		).toEqual([display, undefined, undefined]);
-		expect(
-			[
-				fenceShims(place.home, only(shims)),
-				fenceShims(place.home, only("/elsewhere")),
-			],
-			"there, not there",
-		).toEqual([shims, undefined]);
 	});
 
 	it("hides the Google daemon's runtime folder, whose tokens are the person's, by binding none of it back", () => {
@@ -403,7 +358,6 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
 			"/run/user/1000/pi-clipboard",
-			"/run/user/1000/pi-fence",
 		]);
 		expect(rules).not.toContain("--unrestricted-scoped");
 		expect(rules).not.toContain("--unrestricted-filesystem");

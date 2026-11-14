@@ -16,7 +16,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../lib/internal/fence.ts";
 import {
@@ -277,11 +277,8 @@ describe("a command in the fence, through stand-ins", () => {
 		}
 	});
 
-	it("opens windows on the sandboxed display and copies through the fence's own wl-copy, once both are there", () => {
-		const display = join(runtimeDir, "pi-fence", "wayland");
+	it("copies through the fence's own wl-copy, once it's there, and names no display at all", () => {
 		const shims = join(home, ".local", "share", "pi-fence", "bin");
-		mkdirSync(dirname(display), { recursive: true });
-		writeFileSync(display, "");
 		mkdirSync(shims, { recursive: true });
 		writeFileSync(join(shims, "wl-copy"), '#!/bin/sh\necho "the fence\'s"\n');
 		chmodSync(join(shims, "wl-copy"), 0o755);
@@ -290,7 +287,9 @@ describe("a command in the fence, through stand-ins", () => {
 				'echo "display=$WAYLAND_DISPLAY"; echo "path=$PATH"; wl-copy',
 				{ WAYLAND_DISPLAY: "wayland-1", NIRI_SOCKET: "/run/niri.sock" },
 			);
-			expect(result.stdout).toContain(`display=${display}\n`);
+			expect(result.stdout, "a display reached the command").toContain(
+				"display=\n",
+			);
 			expect(
 				result.stdout,
 				"the shims come first, then the path as it was",
@@ -302,7 +301,6 @@ describe("a command in the fence, through stand-ins", () => {
 				"niri.sock",
 			);
 		} finally {
-			rmSync(join(runtimeDir, "pi-fence"), { recursive: true });
 			rmSync(join(home, ".local", "share", "pi-fence"), { recursive: true });
 		}
 	});

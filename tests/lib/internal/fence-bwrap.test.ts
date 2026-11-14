@@ -323,7 +323,7 @@ function serve(path: string): Promise<Server> {
 }
 
 describe.skipIf(bwrap === undefined)(
-	"the clipboard door and the sandboxed display, from a fenced command",
+	"the clipboard door, and no display, from a fenced command",
 	() => {
 		let base: string;
 		let home: string;
@@ -379,23 +379,25 @@ describe.skipIf(bwrap === undefined)(
 			rmSync(base, { recursive: true, force: true });
 		});
 
-		it("reaches the clipboard door and the sandboxed display, and never niri's own display", async () => {
+		// Core runs the sandboxed display, but niri focuses a window opened
+		// on it like any other, so the fence lets it through no more than
+		// niri's own display until niri opens one unfocused elsewhere.
+		it("reaches the clipboard door, and neither the sandboxed display nor niri's own", async () => {
 			const node = process.execPath;
 			expect(await fenced(node, ["-e", CONNECT, door]), "the door").toBe(true);
 			expect(
 				await fenced(node, ["-e", CONNECT, display]),
 				"the sandboxed display",
-			).toBe(true);
+			).toBe(false);
 			expect(
 				await fenced(node, ["-e", CONNECT, join(runtimeDir, "wayland-1")]),
 				"niri's own display",
 			).toBe(false);
 		});
 
-		it("replaces neither socket, nor the shims, for every other session's commands to reach", async () => {
+		it("replaces neither the door's socket nor the shims, for every other session's commands to reach", async () => {
 			for (const [what, script] of [
 				["the door's socket removed", `rm -f ${door}`],
-				["the display's socket removed", `rm -f ${display}`],
 				["a socket planted beside the door", `touch ${door}.new`],
 				["a program planted among the shims", `touch ${shims}/wl-paste`],
 				["a shim rewritten", `echo exit 0 > ${shims}/wl-copy`],
@@ -407,7 +409,6 @@ describe.skipIf(bwrap === undefined)(
 				expect(await fenced("sh", ["-c", script]), what).toBe(false);
 			}
 			expect(existsSync(door), "the door's socket is there").toBe(true);
-			expect(existsSync(display), "the display's socket is there").toBe(true);
 			expect(existsSync(join(shims, "wl-paste")), "a shim was planted").toBe(
 				false,
 			);

@@ -15,20 +15,20 @@
  * - **No other process:** a pid namespace of its own and a `/proc` to
  *   match, so no other process's files, memory or open pipes.
  * - **No desktop:** the runtime folder is an empty one of its own, with
- *   only the Nix daemon's door for sandboxes and the SSH agent's proxy
- *   bound back in, and, read-only, the clipboard door and the sandboxed
- *   display (`READ_ONLY_THROUGH`). The display,
+ *   only the Nix daemon's door for sandboxes, the SSH agent's proxy,
+ *   the jobs broker and the clipboard door bound back in, read-only
+ *   (`LET_THROUGH`). The display,
  *   niri, the shell's ipc, the session bus, sound, the keyring, the
  *   password and clipboard daemons and kitty's socket are named in
  *   `NEVER_THROUGH`, and Landlock refuses any socket it wasn't told of,
  *   abstract ones and signals outside too, so one elsewhere isn't
  *   reachable either.
- * - **A clipboard and windows without the desktop:** `wl-copy` and
- *   `wl-paste` are the fence's own, first on `PATH`, which ask the
- *   clipboard door outside; and `WAYLAND_DISPLAY` names the sandboxed
- *   display, where a window opens but no client records the screen,
- *   types, reads the clipboard behind the person's back or steals
- *   focus. niri's own socket and its ipc stay out.
+ * - **A clipboard without the desktop:** `wl-copy` and `wl-paste` are
+ *   the fence's own, first on `PATH`, which ask the clipboard door
+ *   outside (`fence-clipboard.ts`). No window opens: niri would focus
+ *   it on the person's workspace, so no display is let through, not
+ *   even core's sandboxed one, until niri opens a sandboxed window
+ *   unfocused elsewhere.
  * - **No startup files:** the settings and startup files that run code
  *   as the person later (`READ_ONLY`) are read-only, from this command
  *   and from pi's own file tools (`sandbox-files.ts`).
@@ -74,7 +74,6 @@ import {
 	readOnlyPaths,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
-import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
 export const FENCE = "fence";
@@ -88,7 +87,10 @@ export const FENCE = "fence";
  * process asking, as the kernel names it, into a scope of its own in
  * its quest's work, and says how named units stand (core's
  * `modules/jobs-broker`). The broker stands in for the user's bus,
- * which stays shut.
+ * which stays shut. And the clipboard door, in a folder of its own,
+ * which copies and pastes for the fence's `wl-copy` and `wl-paste`,
+ * answers only fenced commands and never reads what a password manager
+ * marked secret (core's `modules/pi/clipboard-door`).
  *
  * The proxy's socket lives in a folder of its own, bound whole, so a
  * fenced command started before the proxy's socket comes back (a switch
@@ -102,34 +104,8 @@ const LET_THROUGH = [
 	"pi-agent.sock",
 	"pi-agent",
 	"daemons/jobs-broker.sock",
+	"pi-clipboard",
 ] as const;
-
-/**
- * Doors to the desktop a fenced command may reach, each a folder of its
- * own in the runtime folder, bound read-only so no command removes or
- * replaces a socket there for every other session's commands to reach
- * instead: the clipboard door, which copies and pastes for the fence's
- * `wl-copy` and `wl-paste`, answers only fenced commands and never
- * reads what a password manager marked secret (core's
- * `modules/pi/clipboard-door`); and the sandboxed display, a Wayland
- * socket made through wp-security-context-v1, on which niri hides its
- * privileged protocols: data-control, screencopy, the virtual keyboard
- * and pointer, foreign toplevels, layer shell, the session lock and
- * input methods among them (core's `modules/pi/fence-display`). A
- * folder, not its socket, is bound, so a socket made again after the
- * command started is still the one it reaches.
- */
-const READ_ONLY_THROUGH = ["pi-clipboard", "pi-fence"] as const;
-
-/** The sandboxed display, in the runtime folder, for `WAYLAND_DISPLAY`. */
-const FENCE_DISPLAY = "pi-fence/wayland";
-
-/**
- * The fence's `wl-copy` and `wl-paste`, in the home folder, first on a
- * fenced command's `PATH`; read-only inside (`fence-home.ts`), so no
- * command plants a program there for another session's to run.
- */
-const FENCE_SHIMS = ".local/share/pi-fence/bin";
 
 /**
  * The cgroup tree, bound read-only inside: a fenced command may read
@@ -197,23 +173,6 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
-] as const;
-
-/**
- * Variables that name the desktop, left out so a command fails at once
- * rather than looking for a socket it can't reach.
- */
-const UNSET = [
-	"WAYLAND_DISPLAY",
-	"DISPLAY",
-	"XAUTHORITY",
-	"DBUS_SESSION_BUS_ADDRESS",
-	"SSH_AUTH_SOCK",
-	"NIRI_SOCKET",
-	"SWAYSOCK",
-	"KITTY_LISTEN_ON",
-	"KITTY_WINDOW_ID",
-	"NIX_REMOTE",
 ] as const;
 
 /** Where a fenced command runs. */
@@ -360,10 +319,6 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		// the proxy's folder could be emptied and a command listen in the
 		// proxy's place for every other session's signing (JMJ7J4).
 		for (const name of LET_THROUGH) {
-			const path = join(place.runtimeDir, name);
-			if (exists(path)) args.push("--ro-bind", path, path);
-		}
-		for (const name of READ_ONLY_THROUGH) {
 			const path = join(place.runtimeDir, name);
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
@@ -668,9 +623,7 @@ export function fenceRules(place: FencePlace): string[] {
 	const sockets = [
 		...SOCKETS_ELSEWHERE,
 		...(place.runtimeDir
-			? [...LET_THROUGH, ...READ_ONLY_THROUGH].map((name) =>
-					join(place.runtimeDir as string, name),
-				)
+			? LET_THROUGH.map((name) => join(place.runtimeDir as string, name))
 			: []),
 	];
 	return [
@@ -706,32 +659,6 @@ export function jobsBroker(
 ): string | undefined {
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, JOBS_BROKER);
-	return disk.kind(path) === undefined ? undefined : path;
-}
-
-/**
- * The sandboxed display, for `WAYLAND_DISPLAY` inside, when it's there;
- * without it a fenced command opens no window at all.
- */
-export function fenceDisplay(
-	runtimeDir: string | undefined,
-	disk: Disk = DISK,
-): string | undefined {
-	if (!runtimeDir) return undefined;
-	const path = join(runtimeDir, FENCE_DISPLAY);
-	return disk.kind(path) === undefined ? undefined : path;
-}
-
-/**
- * The folder holding the fence's `wl-copy` and `wl-paste`, for the front
- * of `PATH` inside, when it's there; without it a fenced command finds
- * whatever `wl-copy` its path holds, which reaches no display inside.
- */
-export function fenceShims(
-	home: string,
-	disk: Disk = DISK,
-): string | undefined {
-	const path = join(home, FENCE_SHIMS);
 	return disk.kind(path) === undefined ? undefined : path;
 }
 
@@ -810,67 +737,4 @@ export function fenceRefusesRead(
 		runtime !== undefined &&
 		(path === runtime || path.startsWith(`${runtime}/`))
 	);
-}
-
-/**
- * The shell text that runs `command` in the agent fence: bubblewrap
- * with `args`, around landrun with `rules`. Every variable the shell
- * exports goes in but those naming the desktop, Nix is reached
- * through `door`, its daemon's door for sandboxes, SSH's agent is
- * `agent`, the proxy, when there is one, `WAYLAND_DISPLAY` is `display`,
- * the sandboxed display, and `shims`, the fence's `wl-copy` and
- * `wl-paste`, go first on `PATH`, each when there is one.
- */
-export function fencedCommand(
-	command: string,
-	fence: {
-		readonly bwrap: string;
-		readonly landrun: string;
-		readonly args: readonly string[];
-		readonly rules: readonly string[];
-		readonly door?: string;
-		readonly agent?: string;
-		readonly display?: string;
-		readonly shims?: string;
-		/** Where each of `OWN_HOMES` lives inside, by its variable. */
-		readonly homes?: readonly (readonly [string, string])[];
-	},
-): string {
-	const homes = fence.homes ?? [];
-	const unset = [
-		...UNSET,
-		...homes.map(([name]) => name),
-		...(fence.shims ? ["PATH"] : []),
-		SANDBOXED_COMMAND,
-	].join("|");
-	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
-	return [
-		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
-		[
-			`${SANDBOXED_COMMAND}=${quoted(command)}`,
-			quoted(fence.bwrap),
-			...fence.args.map(quoted),
-			"--",
-			quoted(fence.landrun),
-			...fence.rules.map(quoted),
-			`"\${__pi_env[@]}" --env ${SANDBOXED_COMMAND}`,
-			...(fence.door ? [`--env ${quoted(`NIX_REMOTE=${fence.door}`)}`] : []),
-			// Status and diff then take no optional lock to refresh the
-			// index, so one kept read-only never stops them (ISXEG8).
-			"--env GIT_OPTIONAL_LOCKS=0",
-			...(fence.agent
-				? [`--env ${quoted(`SSH_AUTH_SOCK=${fence.agent}`)}`]
-				: []),
-			...(fence.display
-				? [`--env ${quoted(`WAYLAND_DISPLAY=${fence.display}`)}`]
-				: []),
-			// The path as the shell outside has it when the command runs,
-			// the fence's shims ahead of it.
-			...(fence.shims
-				? [`--env ${quoted(`PATH=${fence.shims}:`)}"$PATH"`]
-				: []),
-			...homes.map(([name, path]) => `--env ${quoted(`${name}=${path}`)}`),
-			`-- bash -c ${quoted(stub)}`,
-		].join(" "),
-	].join("\n");
 }

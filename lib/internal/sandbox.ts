@@ -69,13 +69,12 @@ import {
 	agentProxy,
 	FENCE,
 	fenceArgs,
-	fenceDisplay,
-	fencedCommand,
 	fenceRules,
-	fenceShims,
 	guardsGitFolder,
 	nixDoor,
 } from "./fence.ts";
+import { fenceShims } from "./fence-clipboard.ts";
+import { fencedCommand } from "./fence-command.ts";
 import {
 	afterCheck,
 	guardedIn,
@@ -686,7 +685,6 @@ export function wrapFor(
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
 				agent: agentProxy(fence.runtimeDir),
-				display: fenceDisplay(fence.runtimeDir),
 				shims: fenceShims(home),
 				homes: OWN_HOMES.map(
 					([name, folder]) => [name, join(own, folder)] as const,
