@@ -231,8 +231,17 @@ const BAR_BURST_MS = 1000;
  */
 const BAR_UNPAIRED_SHARE = 0.01;
 
-/** The most a key may take, to its log or to its first drawing, at the p99. */
+/**
+ * The most a key may take, to its log or to its first drawing, at the
+ * p99; a first key's is what it took over plain pi's own first key.
+ */
 const BAR_KEY_MS = 200;
+
+/**
+ * The most any first key may take over plain pi's, since a first
+ * prompt's own cost is pi's and a later key's p99 can't hide a stall.
+ */
+const BAR_FIRST_KEY_MOST_MS = 1000;
 
 /**
  * The share of keys outside a wake that may go unseen drawn before
@@ -388,11 +397,24 @@ export function plainKeys(
 	);
 }
 
+/** What hosted cost over plain pi, with its largest, and how many didn't pair. */
+export interface PairedExtent extends Extent {
+	readonly unpaired: number;
+}
+
 /** Keys hosted and plain, and what each hosted one cost over plain pi's same key. */
 export interface KeysPaired {
 	readonly hosted: Spread;
 	readonly plain: Spread;
-	readonly paired: PairedCost;
+	/** Hosted's key to its log less plain pi's. */
+	readonly paired: PairedExtent;
+	/** Hosted's key to its first drawing. */
+	readonly drawn: Spread;
+	/**
+	 * Hosted's key to its first drawing less plain pi's key to its log,
+	 * plain pi having no screen, over the keys seen drawn.
+	 */
+	readonly drawnPaired: PairedExtent;
 }
 
 /**
@@ -419,16 +441,26 @@ export function pairKeys(records: readonly TurnRecord[]): KeyPairing {
 			one.woke === undefined &&
 			one.burst === undefined,
 	);
-	const of = (some: readonly TurnRecord[]): KeysPaired => {
-		const costs = some.flatMap(({ keyToAcceptedMs, plainKeyToAcceptedMs }) =>
-			keyToAcceptedMs === undefined || plainKeyToAcceptedMs === undefined
+	const over = (
+		some: readonly TurnRecord[],
+		hostedOf: (one: TurnRecord) => number | undefined,
+	): PairedExtent => {
+		const costs = some.flatMap((one) => {
+			const hosted = hostedOf(one);
+			return hosted === undefined || one.plainKeyToAcceptedMs === undefined
 				? []
-				: [keyToAcceptedMs - plainKeyToAcceptedMs],
-		);
+				: [hosted - one.plainKeyToAcceptedMs];
+		});
+		return { ...extentOf(costs), unpaired: some.length - costs.length };
+	};
+	const of = (some: readonly TurnRecord[]): KeysPaired => {
+		const shown = some.filter((one) => one.keyToDrawnMs !== undefined);
 		return {
 			hosted: spreadOf(some.flatMap((one) => one.keyToAcceptedMs ?? [])),
 			plain: spreadOf(some.flatMap((one) => one.plainKeyToAcceptedMs ?? [])),
-			paired: { ...spreadOf(costs), unpaired: some.length - costs.length },
+			paired: over(some, (one) => one.keyToAcceptedMs),
+			drawn: spreadOf(shown.flatMap((one) => one.keyToDrawnMs ?? [])),
+			drawnPaired: over(shown, (one) => one.keyToDrawnMs),
 		};
 	};
 	return {
@@ -590,23 +622,37 @@ export function pairedCost(
  * Whether the bar holds: each round's and each tool's cost over plain
  * pi's at most 250 ms at the p99 and 1 s at most, and a key outside a
  * wake or a burst at most 200 ms to its log and to its first drawing at
- * the p99. A figure nothing measured fails; so do the steps' when more
- * than 1% of turns went unpaired, and the drawing's when more than 1%
- * of its keys were never seen drawn.
+ * the p99. A conversation's first key is judged over plain pi's first
+ * key to its log instead, at most 200 ms at the p99 and 1 s at most,
+ * since pi's own first prompt can pass 200 ms with no host at all. A
+ * figure nothing measured fails; so do the steps' when more than 1% of
+ * turns went unpaired, the first keys' when more than 1% of them did,
+ * and the drawing's when more than 1% of its keys were never seen drawn.
  */
-export function barOf(steps: StepCost, screen: ScreenSplit): Bar {
+export function barOf(
+	steps: StepCost,
+	screen: ScreenSplit,
+	keys: KeyPairing,
+): Bar {
 	const unshownAllowed = screen.keyToAccepted.count * BAR_UNSHOWN_SHARE;
 	const unpairedAllowed = (steps.turns + steps.unpaired) * BAR_UNPAIRED_SHARE;
 	const holds = (extent: Extent) =>
 		extent.p99 <= BAR_STEP_P99_MS &&
 		extent.max <= BAR_STEP_MOST_MS &&
 		steps.unpaired <= unpairedAllowed;
+	const firstHolds = (cost: PairedExtent) =>
+		cost.p99 <= BAR_KEY_MS &&
+		cost.max <= BAR_FIRST_KEY_MOST_MS &&
+		cost.unpaired <= (cost.count + cost.unpaired) * BAR_UNPAIRED_SHARE;
 	return {
 		rounds: holds(steps.rounds),
 		tools: holds(steps.tools),
-		keyToAccepted: screen.keyToAccepted.p99 <= BAR_KEY_MS,
+		keyToAccepted:
+			keys.later.hosted.p99 <= BAR_KEY_MS && firstHolds(keys.first.paired),
 		keyToDrawn:
-			screen.keyToDrawn.p99 <= BAR_KEY_MS && screen.unshown <= unshownAllowed,
+			keys.later.drawn.p99 <= BAR_KEY_MS &&
+			firstHolds(keys.first.drawnPaired) &&
+			screen.unshown <= unshownAllowed,
 	};
 }
 

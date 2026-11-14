@@ -353,7 +353,7 @@ const report = {
 		keys,
 		steps,
 		screen: hostedLatency.screen,
-		bar: barOf(steps, hostedLatency.screen),
+		bar: barOf(steps, hostedLatency.screen, keys),
 	},
 	turnsTimed,
 	...(hostedTime
