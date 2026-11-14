@@ -13,6 +13,7 @@ import {
 	type Held,
 	type Here,
 } from "../../lib/internal/pineapple/cover.ts";
+import { changesRecords } from "../../lib/internal/pineapple/records.ts";
 import {
 	describeReach,
 	type Standing,
@@ -36,6 +37,8 @@ export interface Judging {
 	readonly trees: string;
 	/** Where what a shadow stop would have refused is written. */
 	readonly shadowLog: string;
+	/** The safe word's records, which no agent changes. */
+	readonly records: string;
 	readonly now: () => Date;
 }
 
@@ -56,6 +59,13 @@ export type Verdict = { readonly refuse: string } | undefined;
  * stop standing needs it to tell the write apart.
  */
 export async function judge(call: Call, judging: Judging): Promise<Verdict> {
+	const changed = changesRecords(
+		call.tool,
+		call.input,
+		call.cwd,
+		judging.records,
+	);
+	if (changed !== undefined) return { refuse: changed };
 	const calls = writesOf(call, judging.trees);
 	if (calls.length === 0) return undefined;
 	const { stops } = judging.standing();
@@ -165,8 +175,14 @@ export function questsOf(
 	sessions: string,
 	quests: string,
 ): string[] {
+	const id = loadedQuestOf(session, sessions);
+	return id === undefined ? [] : questChain(id, quests);
+}
+
+/** A quest, then its parents, upper-case, as their READMEs name them. */
+export function questChain(quest: string, quests: string): string[] {
 	const chain: string[] = [];
-	let id = loadedQuestOf(session, sessions);
+	let id: string | undefined = quest;
 	while (id !== undefined && !chain.includes(id) && chain.length < DEEPEST) {
 		chain.push(id.toUpperCase());
 		id = parentOf(join(quests, id, "README.md"));

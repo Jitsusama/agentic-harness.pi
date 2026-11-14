@@ -10,21 +10,37 @@
  * on, so a stop on one pull request leaves the session its other work.
  * Only Joel resumes a stop, outside pi.
  *
- * A stop the reader marks shadow refuses nothing: what it would have
- * refused is written to `$XDG_STATE_HOME/pineapple/would-refuse.jsonl`
- * for Joel to read before any stop is enforced. With no stop standing,
- * a call costs one look at an empty folder, and only a write looks.
+ * A stop wider than one change also parks the sessions it reaches (see
+ * parking.ts): the turn under way finishes and nothing new starts until
+ * Joel resumes it, though what he types himself still runs. And every
+ * stop sends a mesh hold to the groups its work is in, renewed while it
+ * stands and ended once he resumes it (see holding.ts). No agent may
+ * change the stops, or run the resume, since only Joel resumes.
+ *
+ * A stop the reader marks shadow refuses, parks and holds nothing: what
+ * it would have done is written beside its stops, to would-refuse.jsonl,
+ * would-park.jsonl and would-hold.jsonl, for Joel to read before any
+ * stop is enforced. With no stop standing, a call costs one look at an
+ * empty folder, and the clock one more each minute.
  */
 
 import { execFile } from "node:child_process";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
+import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
 import {
+	describeReach,
+	type Stop,
 	standingStops,
 	stopsFolder,
 } from "../../lib/internal/pineapple/stops.ts";
@@ -33,16 +49,115 @@ import {
 	repoOfUrl,
 } from "../../lib/internal/pineapple/writes.ts";
 import { sessionRealmName } from "../../lib/internal/realm.ts";
-import { type Judging, judge, questsOf } from "./enforce.ts";
+import { isPersonText } from "../../lib/internal/session/driven.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+import { senderIdentity } from "../../lib/mesh/message.ts";
+import { folderTransport } from "../../lib/mesh/transport.ts";
+import { type Judging, judge, questChain, questsOf } from "./enforce.ts";
+import { tendHolds } from "./holding.ts";
+import { createParking } from "./parking.ts";
+import { dirsOf, reposOf } from "./whereabouts.ts";
 
 const run = promisify(execFile);
 
 /** How long a lookup may take before the guard goes on without it. */
 const LOOKUP_MS = 10_000;
 
+/** How often parked sessions look for a resume, and holds are tended. */
+const CLOCK_MS = 60_000;
+
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);
 	const heads = new Map<string, Promise<string | undefined>>();
+	let ctx: ExtensionContext | undefined;
+	const folder = stopsFolder();
+	const stops = (): Stop[] => [...standingStops(folder).stops];
+	const quests = join(dataDir("quest-workflow"), "quests");
+	const parking = createParking({
+		stops,
+		session: async (standing) => {
+			const id = ctx?.sessionManager.getSessionId() ?? "";
+			const cwd = ctx?.cwd ?? process.cwd();
+			const asks = asksRepos(standing);
+			const dirs = asks
+				? dirsOf(id, cwd, join(stateDir("work"), "cut"))
+				: [cwd];
+			return {
+				realm: sessionRealmName(),
+				quests: questsOf(
+					id,
+					join(stateDir("quest-workflow"), "sessions"),
+					quests,
+				),
+				repos: asks
+					? await reposOf(dirs, (dir) => gitFacts.repoOf(dir, "origin"))
+					: [],
+				dirs,
+			};
+		},
+		idle: () => ctx?.isIdle?.() ?? true,
+		abort: () => {
+			// Stopped from outside, not by the person: away mode stays on.
+			if (!ctx) return;
+			stoppingFromOutside(ctx);
+			ctx.abort?.();
+		},
+		carryOn: (text) => pi.sendUserMessage(text),
+		notify: (text) => {
+			if (ctx?.hasUI) ctx.ui.notify(text, "warning");
+		},
+		wouldPark: (parked) =>
+			logBeside(folder, "would-park.jsonl", wouldPark(parked, ctx)),
+	});
+	const mesh = stateDir("mesh-workflow");
+	const transport = folderTransport(join(mesh, "messages"));
+	function tick(): void {
+		void (async () => {
+			try {
+				await parking.tick();
+				tendHolds({
+					stops,
+					notes: join(mesh, "pineapple"),
+					send: (draft) => transport.send(draft),
+					shadowLog: join(dirname(folder), "would-hold.jsonl"),
+					realm: sessionRealmName(),
+					chainOf: (quest) => questChain(quest, quests),
+					pid: senderIdentity().pid,
+					now: Date.now,
+				});
+			} catch {
+				// A clock tick that failed (a folder gone, a mesh being moved)
+				// is tried again at the next; the write guard holds meanwhile.
+			}
+		})();
+	}
+	let clock: ReturnType<typeof setInterval> | undefined;
+	pi.on("session_start", async (_event, started) => {
+		ctx = started;
+		if (clock === undefined) {
+			clock = setInterval(tick, CLOCK_MS);
+			clock.unref?.();
+		}
+		tick();
+	});
+	pi.on("session_shutdown", async () => {
+		if (clock !== undefined) clearInterval(clock);
+		clock = undefined;
+	});
+	pi.on("input", async (event) => {
+		// What Joel types runs, stop or no stop, wherever he typed it; what
+		// the harness says carries its header, whatever its source, and a
+		// peer's message starts a run with no input at all.
+		parking.heard(isPersonText(event.text));
+		return { action: "continue" };
+	});
+	pi.on("agent_start", async (_event, started) => {
+		ctx = started;
+		await parking.started();
+	});
+	onTurnEnd(pi, async () => {
+		await parking.turnEnded();
+	});
 	pi.on("tool_call", async (event, ctx) => {
 		const session = ctx.sessionManager.getSessionId();
 		const verdict = await judge(
@@ -76,9 +191,40 @@ function judging(
 			),
 		}),
 		trees: join(stateDir("work"), "trees"),
-		shadowLog: join(folder, "..", "would-refuse.jsonl"),
+		shadowLog: join(dirname(folder), "would-refuse.jsonl"),
+		records: dirname(folder),
 		now: () => new Date(),
 	};
+}
+
+function wouldPark(
+	parked: Parked,
+	ctx: ExtensionContext | undefined,
+): Record<string, unknown> {
+	return {
+		at: new Date().toISOString(),
+		stop: parked.stop.id,
+		session: ctx?.sessionManager.getSessionId(),
+		cwd: ctx?.cwd,
+		reach: describeReach(parked.reach),
+		because: parked.because,
+	};
+}
+
+function logBeside(
+	stops: string,
+	name: string,
+	line: Record<string, unknown>,
+): void {
+	try {
+		mkdirSync(dirname(stops), { recursive: true });
+		writeFileSync(join(dirname(stops), name), `${JSON.stringify(line)}\n`, {
+			flag: "a",
+		});
+	} catch {
+		// A shadow log that can't be written loses one line; nothing is
+		// enforced from it, and the stop itself is unchanged.
+	}
 }
 
 const gitFacts: GitFacts = {

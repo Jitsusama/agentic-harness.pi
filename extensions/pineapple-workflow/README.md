@@ -53,17 +53,66 @@ Only Joel resumes a stop, outside pi. The guard is `pineapple` in
 `/guards` and blocks by default, so a refused call made again is
 refused again.
 
+## Parking
+
+A stop wider than one change parks the sessions it reaches: the turn
+under way finishes, and a run nobody typed (a peer's question, a
+background job's result, a steer) ends as it starts. A quest parks the
+sessions on it or under it, a repository those with its clone or a
+tree of it, a realm its sessions, and `named:` those whose repository,
+folder or quest carries the word. A stop on one pull request or branch
+parks nobody.
+
+What Joel types still runs, since a safe word that stopped him working
+would break what it protects; the write guard still holds every write
+the stop reaches. This is the session parking itself rather than a
+steer's pause, because a pause ends when the person talks to it and a
+stop must not.
+
+Once the stops parking a session are resumed, it carries on within a
+minute, told to check what changed where the stop stood before it
+writes.
+
+## Holds
+
+Each stop sends a mesh hold from the address `PINEAPPLE`, to the
+narrowest groups its work is in: `#quest/...` for a quest, `#repo/...`
+for a repository or a change in one, and `#all` otherwise. It says
+who said what and where, what it stops, and asks each session to say
+what it was doing there. It is renewed every 100 minutes, inside the
+mesh's two hours, and ended with a note once Joel resumes the stop.
+A stop on another realm is left to that realm's sessions.
+
+Every session tends the holds on a one-minute clock, one at a time
+by a claim file under the mesh's state, so they go out while any
+session runs.
+
+## Joel's Records
+
+No agent changes the safe word's records under
+`$XDG_STATE_HOME/pineapple/`, stop or no stop: an edit or write
+there, or a command naming the folder that isn't plainly a read, is
+refused, and so is any `pineapple resume`. Reading goes on: `cat`,
+`ls`, `jq`, `find` without `-delete` or `-exec`, `pineapple stops`
+and `pineapple-slack heard`.
+
 ## Shadow
 
-A stop the reader marks shadow refuses nothing. Each write it would
-have refused is written to
-`$XDG_STATE_HOME/pineapple/would-refuse.jsonl`, with the stop and the
-reason, so Joel can read two days of it before anything is enforced.
+A stop the reader marks shadow refuses, parks and holds nothing. What
+it would have done is written beside the stops, so Joel can read two
+days of it before anything is enforced:
+
+- `would-refuse.jsonl`: each write, with the stop and the reason;
+- `would-park.jsonl`: each session it would have parked, once;
+- `would-hold.jsonl`: each hold it would have sent, once a renewal.
 
 ## Cost
 
 With no stop standing, a call that writes looks once at an empty
-folder and a call that doesn't write looks at nothing. A stop on one
+folder and a call that doesn't write looks at nothing; a run's start
+and each turn's end look once more, and so does the one-minute clock.
+Only a stop on a repository or a name asks git for the session's
+repositories, at each of those looks. A stop on one
 pull request asks GitHub (then Delta) once a session for that change's
 branch, to tell a push to it from any other.
 
@@ -71,3 +120,7 @@ branch, to tell a push to it from any other.
 
 - Writes through a program this doesn't know, such as a script that
   pushes; a mesh hold and parking cover those.
+- Merges already queued: they are left alone, since pushing to a
+  queued change can throw it out of the queue.
+- Sessions running older code, which neither refuse nor park; the
+  hold reaches those.

@@ -169,7 +169,7 @@ function namedIn(name: string, write: Write, here: Here): string | undefined {
 }
 
 /** Two repositories alike, where a bare name matches any owner's. */
-function sameRepo(stopped: string, written: string): boolean {
+export function sameRepo(stopped: string, written: string): boolean {
 	const a = stopped.toLowerCase();
 	const b = written.toLowerCase();
 	if (a === b) return true;
