@@ -59,6 +59,7 @@ import {
 	mkdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
 	symlinkSync,
 	watch,
 	writeFileSync,
@@ -635,11 +636,13 @@ export default function (pi) {
 		"panel-zoom-widget",
 		"park-workflow",
 		...also,
-	])
-		symlinkSync(
-			join(harness, "extensions", extension),
-			join(agentDir, "extensions", extension),
-		);
+	]) {
+		// A host started again on the same state, as a restart is, finds
+		// the last one's link.
+		const link = join(agentDir, "extensions", extension);
+		rmSync(link, { force: true });
+		symlinkSync(join(harness, "extensions", extension), link);
+	}
 }
 
 /** The providers and settings SCREEN_HOST_AGENT's file adds, or none. */
