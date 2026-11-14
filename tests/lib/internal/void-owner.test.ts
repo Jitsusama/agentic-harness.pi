@@ -328,6 +328,15 @@ describe("placing a file he was reading", () => {
 		expect(addresses(text)[0]).toBe("F8TT8O");
 	});
 
+	it("sends a file in a quest's temporary folder to that quest", () => {
+		const text = line(
+			"this chart is wrong",
+			`file: /tmp/pi-quest-${ROWS.id}/chart.md`,
+		);
+
+		expect(addresses(text)[0]).toBe("F8TT8O");
+	});
+
 	it("says so when the file's quest isn't open", () => {
 		const text = line(
 			"what's this?",
