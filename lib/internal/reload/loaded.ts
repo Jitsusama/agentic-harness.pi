@@ -13,6 +13,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { headFromFiles } from "./head.ts";
 
 /**
  * The custom message a reload nobody asked the agent for is said in,
@@ -83,19 +84,43 @@ function git(
 	});
 }
 
-/** Read what `root` is, from git, beside where the settings install it. */
+/** What a checkout says of itself: its commit and how many files differ from it. */
+type Checkout = Pick<Loaded, "head" | "uncommitted">;
+
+/** Each checkout's reading, by its root, once per load of this code. */
+const checkouts = new Map<string, Promise<Checkout>>();
+
+/**
+ * Read what `root` is, from git, beside where the settings install it.
+ *
+ * A checkout is read once per load of this code, since the reading
+ * says what this load runs, and what changes on disk after it runs in
+ * none of it until a reload, which loads this module afresh. Every
+ * conversation a host starts or wakes asks, and each git it started was
+ * forked from the loop the others wait on: 459 ms of one turn in a soak
+ * of twelve (13 November). HEAD is read from git's files; only the
+ * count of what differs asks git, that once.
+ */
 export async function readLoaded(
 	root: string,
 	install: string | undefined,
 ): Promise<Loaded> {
 	const base = install === undefined ? { root } : { root, install };
 	if (!existsSync(join(root, ".git"))) return base;
+	let reading = checkouts.get(root);
+	if (reading === undefined) {
+		reading = readCheckout(root);
+		checkouts.set(root, reading);
+	}
+	return { ...base, ...(await reading) };
+}
+
+async function readCheckout(root: string): Promise<Checkout> {
 	const [head, status] = await Promise.all([
-		git(root, ["rev-parse", "HEAD"]),
+		headFromFiles(root) ?? git(root, ["rev-parse", "HEAD"]),
 		git(root, ["status", "--porcelain"]),
 	]);
 	return {
-		...base,
 		...(head?.trim() ? { head: head.trim() } : {}),
 		...(status === undefined
 			? {}

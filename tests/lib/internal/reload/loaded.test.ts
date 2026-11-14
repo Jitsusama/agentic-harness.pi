@@ -7,7 +7,8 @@ import {
 	isSwapped,
 	readLoaded,
 } from "../../../../lib/internal/reload/loaded.ts";
-import { disposeRepo, freshRepo } from "../../../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
+import { watchSpawns } from "../../../support/spawns.ts";
 
 const NAME = "agentic-harness.pi";
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -113,5 +114,27 @@ describe("reading what runs from git", () => {
 	it("reads nothing from git where there is no checkout", async () => {
 		const loaded = await readLoaded("/", undefined);
 		expect(loaded).toEqual({ root: "/" });
+	});
+
+	// Every conversation a host starts or wakes asks which code runs, and
+	// each git it started was forked from the loop the others wait on:
+	// 459 ms of one turn in a soak of twelve (13 November).
+	it("reads the commit from git's files, and asks git once a load what differs", async () => {
+		repo = await freshRepo();
+		const watch = watchSpawns();
+		try {
+			const first = await readLoaded(repo, undefined);
+			const again = await readLoaded(repo, undefined);
+			expect(again).toEqual(first);
+		} finally {
+			watch.stop();
+		}
+		expect(
+			watch.started.map(({ how, program }) => `${how} ${program}`),
+			"git asked only what differs, once",
+		).toEqual(["execFile git"]);
+		expect((await readLoaded(repo, undefined)).head).toBe(
+			await git(repo, "rev-parse", "HEAD"),
+		);
 	});
 });
