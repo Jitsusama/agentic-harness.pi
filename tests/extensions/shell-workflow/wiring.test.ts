@@ -32,6 +32,15 @@ let saved: string | undefined;
 let tool: Tool | undefined;
 let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 let bus: EventBus;
+// The unfenced lines a session would leave in the system's log.
+let unfencedSaid: [string | undefined, string | undefined][];
+const recordUnfenced = async (
+	sandbox: string | undefined,
+	session: string | undefined,
+) => {
+	unfencedSaid.push([sandbox, session]);
+	return undefined;
+};
 
 beforeEach(() => {
 	saved = process.env.PI_CODING_AGENT_DIR;
@@ -45,6 +54,7 @@ beforeEach(() => {
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
 	);
+	unfencedSaid = [];
 	bus = createEventBus();
 	const pi = {
 		events: bus,
@@ -55,7 +65,7 @@ beforeEach(() => {
 			tool = definition;
 		},
 	};
-	shellWorkflow(pi as unknown as ExtensionAPI);
+	shellWorkflow(pi as unknown as ExtensionAPI, { recordUnfenced });
 });
 
 afterEach(() => {
@@ -97,6 +107,30 @@ describe("the registered bash", () => {
 		);
 
 		expect(result?.content[0]?.text).toBe("yes true session-1");
+	});
+
+	it("leaves an unfenced line for a session with no fence, naming it", async () => {
+		await sessionStart?.({ type: "session_start" }, ctx());
+		expect(unfencedSaid, "the line for a session with none").toEqual([
+			[undefined, "session-1"],
+		]);
+	});
+
+	it("says off in the line of a session that chose it", async () => {
+		vi.stubEnv(SANDBOX_VARIABLE, "off");
+		let start: typeof sessionStart;
+		shellWorkflow(
+			{
+				events: createEventBus(),
+				on: (event: string, handler: typeof sessionStart) => {
+					if (event === "session_start") start = handler;
+				},
+				registerTool: () => {},
+			} as unknown as ExtensionAPI,
+			{ recordUnfenced },
+		);
+		await start?.({ type: "session_start" }, ctx());
+		expect(unfencedSaid, "the opt-out's line").toEqual([["off", "session-1"]]);
 	});
 
 	it("keeps the command, its prefix included, off the shell's command line", async () => {

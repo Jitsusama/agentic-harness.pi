@@ -110,6 +110,9 @@ import { cutTreeDir, treesHeldBy } from "./work-records.ts";
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
 export const STRICT = "strict";
 
+/** The value that runs a session's commands with no sandbox, by choice. */
+export const OFF = "off";
+
 /**
  * What git that pi runs outside the sandbox holds to for this session
  * (`tree-git.ts`): a repository the fence guards, when its commands run
@@ -581,7 +584,7 @@ export function githubRules(): Rule[] {
 
 /** Why a sandbox that isn't there is refused, for what it would fence. */
 export function noSuchSandbox(asked: string, what: string): string {
-	return `${SANDBOX_VARIABLE}=${asked} names no sandbox; the ones there are are "${FENCE}" and "${STRICT}". No ${what} runs until it is set right or unset.`;
+	return `${SANDBOX_VARIABLE}=${asked} names no sandbox; the ones there are are "${FENCE}" and "${STRICT}", and "${OFF}" runs with none. No ${what} runs until it is set right or unset.`;
 }
 
 /** What the agent fence needs of this machine, or why it can't be had. */
@@ -626,7 +629,7 @@ export function sandboxFor(
 	gcloud: CloudGrantSource = sessionGrants,
 ): Sandbox {
 	const asked = env[SANDBOX_VARIABLE]?.trim();
-	if (!asked) return { kind: "none" };
+	if (!asked || asked === OFF) return { kind: "none" };
 	const logger = find("logger");
 	const sandbox = askedFor(asked, platform, find, github, gcloud);
 	return logger && sandbox.kind !== "none" ? { ...sandbox, logger } : sandbox;

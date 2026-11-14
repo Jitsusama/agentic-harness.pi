@@ -68,13 +68,43 @@ export function refusalLine(refusal: Refusal): string {
 	].join(" ");
 }
 
+/**
+ * The one line a session leaves when it runs its commands with no
+ * fence: `unfenced sandbox=<off|none> session=<id>`, `off` when it
+ * said so and `none` when the fence couldn't be had. It says nothing of
+ * why, as a refusal's line doesn't.
+ */
+export function unfencedLine(
+	sandbox: string | undefined,
+	session: string | undefined,
+): string {
+	return [
+		"unfenced",
+		`sandbox=${plain(sandbox ?? "none")}`,
+		`session=${plain(session)}`,
+	].join(" ");
+}
+
+/**
+ * Writes a session's unfenced line to the system's log, so an opt-out
+ * shows outside the session; answers why it couldn't, as
+ * `recordRefusal` does.
+ */
+export function recordUnfenced(
+	sandbox: string | undefined,
+	session: string | undefined,
+	logger: string | undefined,
+): Promise<string | undefined> {
+	return writeLine(unfencedLine(sandbox, session), logger);
+}
+
 /** The system's own `logger`, or undefined when it has none. */
 export function systemLogger(): string | undefined {
 	return systemProgram("logger");
 }
 
-function loggerArguments(refusal: Refusal): string[] {
-	return ["-t", FENCE_LOG_TAG, "-p", PRIORITY, "--", refusalLine(refusal)];
+function loggerArguments(line: string): string[] {
+	return ["-t", FENCE_LOG_TAG, "-p", PRIORITY, "--", line];
 }
 
 /**
@@ -87,6 +117,14 @@ export function recordRefusal(
 	refusal: Refusal,
 	logger: string | undefined,
 ): Promise<string | undefined> {
+	return writeLine(refusalLine(refusal), logger);
+}
+
+/** Writes one line under the fence's tag, answering why it couldn't. */
+function writeLine(
+	line: string,
+	logger: string | undefined,
+): Promise<string | undefined> {
 	if (logger === undefined) {
 		return Promise.resolve(
 			`${UNRECORDED}: there is no logger in the system's own programs.`,
@@ -95,7 +133,7 @@ export function recordRefusal(
 	return new Promise((resolve) => {
 		execFile(
 			logger,
-			loggerArguments(refusal),
+			loggerArguments(line),
 			{ timeout: LOGGER_TIMEOUT_MS },
 			(error) =>
 				resolve(error ? `${UNRECORDED}: ${error.message.trim()}.` : undefined),
@@ -116,6 +154,8 @@ export function recordedInShell(
 ): string {
 	const unrecorded = `printf '%s\\n' ${quoted(`${UNRECORDED}.`)} >&2`;
 	if (logger === undefined) return unrecorded;
-	const call = [logger, ...loggerArguments(refusal)].map(quoted).join(" ");
+	const call = [logger, ...loggerArguments(refusalLine(refusal))]
+		.map(quoted)
+		.join(" ");
 	return `${call} || ${unrecorded}`;
 }

@@ -108,9 +108,16 @@ may import from here, and any of it may change without notice.
   startup files and git's code read-only; what it never lets through,
   the one SSH agent it lets in (core's proxy), the private keys it
   empties, and where it keeps pi's own file tools from.
+- **`fence-disk.ts`**: the disk as the fence reads it, what a path
+  is and what a folder holds, which a test hands in a disk of its own
+  for.
+- **`fence-default.ts`**: the fence a session gets when it names no
+  sandbox: `PI_SANDBOX=fence` on Linux where bubblewrap and landrun
+  are there, and a notice saying why where they aren't.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
-  tool, sandbox and session but never what was asked for.
+  tool, sandbox and session but never what was asked for, and the
+  line a session running unfenced leaves, naming it.
 - **`fence-home.ts`**: what in the home folder runs code as the
   person later, which the fence keeps read-only: settings, startup
   files and programs' entries whose settings name a command, with
