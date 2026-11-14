@@ -188,8 +188,12 @@ export class HostedAgent {
 	private readonly steeringQueue: MessageQueue;
 	private readonly followUpQueue: MessageQueue;
 	private active?: { promise: Promise<void>; resolve: () => void; run: Run };
-	/** The newest durable entry pi has seen, or holds. */
-	private cursor = 0;
+	/**
+	 * The newest durable entry pi has seen, or holds: found from the session
+	 * file the first time it is needed, whether by the recovery or by a run
+	 * something began before it, as an extension's start may.
+	 */
+	private cursor: number | undefined;
 	private mirrorLine: Promise<unknown> = Promise.resolve();
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
@@ -387,6 +391,9 @@ export class HostedAgent {
 	 * nothing to carry on and shows nothing.
 	 */
 	async recover(): Promise<{ readonly settled: Promise<void> }> {
+		// A run begun before the recovery, as by an extension's start, ends
+		// first: durable admits nothing new while a turn it holds is cut off.
+		while (this.active) await this.active.promise;
 		this.cursor = await this.lastShown();
 		let resumed = () => {};
 		const started = new Promise<void>((done) => {
@@ -743,14 +750,28 @@ export class HostedAgent {
 
 	private readonly hooks: GenerationHooks = {
 		beforeRequest: async () => this.within(() => this.beforeRequest()),
-		onCommittedTurn: async () => this.within(() => this.committedTurn()),
+		onCommittedTurn: async (turn) =>
+			this.within(() => this.committedTurn(turn)),
 	};
 
-	/** The run a hook belongs to, once pi saw its input. */
+	/**
+	 * The run a hook belongs to, once pi saw its input. Durable may carry
+	 * on with no run of pi's open, as when it wakes after the run that
+	 * recovered it settled; pi is then shown a run of its own, as for a
+	 * recovery, rather than refused.
+	 */
 	private async runForHook(): Promise<Run> {
+		if (!(this.active || this.parked)) this.carryOn();
 		const run = this.currentRun();
 		await run.ready;
 		return run;
+	}
+
+	/** Open a run for what durable does on its own; it ends once durable is idle. */
+	private carryOn(): void {
+		this.runWithLifecycle(async () => {}).catch(() => {
+			// The run's failure is shown to pi as its end; nobody awaits it here.
+		});
 	}
 
 	private currentRun(): Run {
@@ -838,32 +859,45 @@ export class HostedAgent {
 		}
 	}
 
-	/** Durable committed an answer and every result of its round: pi ends the turn and says what follows. */
-	private async committedTurn(): Promise<{
+	/**
+	 * Durable committed an answer and every result of its round: pi ends the
+	 * turn and says what follows. A turn whose answer pi showed before a
+	 * restart, with the decision cut off, is rebuilt from the session; one
+	 * pi holds no answer for at all ends, since pi has no turn to close.
+	 */
+	private async committedTurn(committed: {
+		readonly assistant: number;
+	}): Promise<{
 		readonly action: "end" | "continue";
 	}> {
 		const run = await this.runForHook();
 		await this.mirror(run, { showResults: true });
 		const round = run.round;
 		run.round = undefined;
-		let message: AssistantMessage | undefined = round?.assistant;
+		let message: AssistantMessage | undefined =
+			round?.assistant ?? this.lastAnswer(run);
 		let toolResults: ToolResultMessage[] = [];
 		if (round) {
+			// A result the session held before a restart is its own, not the round's.
 			toolResults = round.calls.flatMap((call) => {
-				const shown = round.messages.get(call.id);
+				const shown =
+					round.messages.get(call.id) ??
+					resultOf(run.context.messages, call.id);
 				return shown ? [shown] : [];
 			});
-		} else {
-			message = this.lastAnswer(run);
-			const calls = message ? toolCalls(message) : [];
-			if (message && message.stopReason === "length" && calls.length > 0) {
+		} else if (message) {
+			const calls = toolCalls(message);
+			if (message.stopReason === "length" && calls.length > 0) {
 				toolResults = await this.failTruncatedCalls(run, message);
 			}
+		} else {
+			message = await this.answerShownBefore(run, committed.assistant);
+			if (message) toolResults = resultsOf(run.context.messages, message);
 		}
-		if (!message)
-			throw new Error(
-				"Durable committed a turn the host's agent never saw answered",
-			);
+		if (!message) {
+			run.endDecided = true;
+			return { action: "end" };
+		}
 		const turn: CompletedTurn = {
 			message,
 			toolResults,
@@ -892,6 +926,34 @@ export class HostedAgent {
 	private lastAnswer(run: Run): AssistantMessage | undefined {
 		const last = lastOfRole(run.newMessages, "assistant");
 		return last && isAssistant(last) ? last : undefined;
+	}
+
+	/**
+	 * The answer durable committed as `entryId`, as the session already
+	 * holds it: a restart came after pi showed it, before durable heard
+	 * what follows it. On 13 November a helper resumed with its tool's
+	 * result shown and the decision cut off, and its turn was refused.
+	 */
+	private async answerShownBefore(
+		run: Run,
+		entryId: number,
+	): Promise<AssistantMessage | undefined> {
+		const { conversation, context } = this.durable;
+		const page = await conversation.entries(
+			{ minEntryId: entryId, order: "ascending" },
+			1,
+			undefined,
+			context,
+		);
+		const [committed] =
+			page.items.find((entry) => entry.id === entryId)?.model ?? [];
+		if (!committed) return undefined;
+		const key = messageKey(committed);
+		const shown = newest(
+			run.context.messages,
+			(message) => messageKey(message) === key,
+		);
+		return shown && isAssistant(shown) ? shown : undefined;
 	}
 
 	/** pi fails every call of an answer cut off at its output limit, and continues. */
@@ -1258,12 +1320,22 @@ export class HostedAgent {
 			this.startRound(run, message);
 	}
 
+	/**
+	 * Show a result durable committed, as its round made it. One the
+	 * session already holds is shown once only; one whose call is in no
+	 * round pi has open is shown as durable committed it, so a result left
+	 * over from before a restart can never break the round after it.
+	 */
 	private async showResult(run: Run, entry: EntryRecord): Promise<void> {
 		const [committed] = entry.model ?? [];
 		if (!committed || !isToolResult(committed)) return;
+		if (resultShown(run.context.messages, committed.toolCallId)) return;
 		const round = run.round;
 		let shown = round?.messages.get(committed.toolCallId);
-		if (!shown && round) {
+		const called = round?.calls.some(
+			(call) => call.id === committed.toolCallId,
+		);
+		if (!shown && round && called) {
 			await round.settleUnrun(
 				committed.toolCallId,
 				unrunText(entry, committed),
@@ -1283,16 +1355,18 @@ export class HostedAgent {
 	/** Entries newer than the cursor, oldest first. */
 	private async unseen(): Promise<EntryRecord[]> {
 		const { conversation, context } = this.durable;
+		this.cursor ??= await this.lastShown();
+		const from = this.cursor;
 		const found: EntryRecord[] = [];
 		let cursor: unknown;
 		do {
 			const page = await conversation.entries(
-				{ minEntryId: this.cursor + 1, order: "ascending" },
+				{ minEntryId: from + 1, order: "ascending" },
 				ENTRY_PAGE,
 				cursor,
 				context,
 			);
-			found.push(...page.items.filter((entry) => entry.id > this.cursor));
+			found.push(...page.items.filter((entry) => entry.id > from));
 			cursor = page.next;
 		} while (cursor !== undefined);
 		return found;
@@ -1624,9 +1698,61 @@ function inputData(entry: EntryRecord): InputData | undefined {
 	return { hostId, messages };
 }
 
+/**
+ * What a session message and the durable entry it came from share: a
+ * result's call, or another message's role and timestamp. A result is
+ * not matched by its time, since pi shows the one its round made, a
+ * moment before durable commits its own: on 13 November the two were
+ * 1 ms apart, so a resume took the result as unshown, showed it again
+ * and broke the round after it.
+ */
 function messageKey(message: AgentMessage): string {
-	const call = typeof message.toolCallId === "string" ? message.toolCallId : "";
-	return `${message.role}\u0000${String(message.timestamp)}\u0000${call}`;
+	if (typeof message.toolCallId === "string")
+		return `${message.role}\u0000call\u0000${message.toolCallId}`;
+	return `${message.role}\u0000${String(message.timestamp)}`;
+}
+
+/** Whether `messages` already hold a result for the call `callId`. */
+function resultShown(
+	messages: readonly AgentMessage[],
+	callId: string,
+): boolean {
+	return resultOf(messages, callId) !== undefined;
+}
+
+/** The newest result `messages` hold for the call `callId`. */
+function resultOf(
+	messages: readonly AgentMessage[],
+	callId: string,
+): ToolResultMessage | undefined {
+	const found = newest(
+		messages,
+		(message) => isToolResult(message) && message.toolCallId === callId,
+	);
+	return found && isToolResult(found) ? found : undefined;
+}
+
+/** The newest of `messages` that `matches`. */
+function newest(
+	messages: readonly AgentMessage[],
+	matches: (message: AgentMessage) => boolean,
+): AgentMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message && matches(message)) return message;
+	}
+	return undefined;
+}
+
+/** The results `messages` hold for `answer`'s calls, in call order. */
+function resultsOf(
+	messages: readonly AgentMessage[],
+	answer: AssistantMessage,
+): ToolResultMessage[] {
+	return toolCalls(answer).flatMap((call) => {
+		const result = resultOf(messages, call.id);
+		return result ? [result] : [];
+	});
 }
 
 function isAssistant(message: AgentMessage): message is AssistantMessage {
