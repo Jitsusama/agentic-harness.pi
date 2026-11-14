@@ -106,6 +106,40 @@ describe("a panel coming off the screen", () => {
 		).toBe(false);
 	});
 
+	it("closes when its closer fires, as a parked question does", async () => {
+		const closing = new AbortController();
+		const answer = promptSingle(s.ctx(), {
+			...gate("GATE ONE"),
+			closer: { signal: closing.signal, verdict: "parked" },
+		});
+		expect(await s.settled()).toContain("GATE ONE body");
+
+		closing.abort();
+		expect(await answer, "a closed prompt answers as Escape does").toBeNull();
+		expect(await s.settled()).not.toContain("GATE ONE body");
+		expect(
+			s.tui.hasOverlayEntries,
+			"no overlay is left on pi's stack after its closer fires",
+		).toBe(false);
+	});
+
+	it("closes a tabbed gate when its closer fires", async () => {
+		const closing = new AbortController();
+		const answer = promptTabbed(s.ctx(), {
+			items: ["one", "two"].map((n) => ({
+				label: n,
+				views: [{ key: "c", label: "Body", content: () => [`tab ${n} body`] }],
+			})),
+			actions: [{ key: "r", label: "Reject" }],
+			closer: { signal: closing.signal, verdict: "parked" },
+		} satisfies TabbedPromptConfig);
+		expect(await s.settled()).toContain("tab one body");
+
+		closing.abort();
+		expect(await answer, "a closed batch answers as Escape does").toBeNull();
+		expect(await s.settled()).not.toContain("tab one body");
+	});
+
 	it("takes only itself down when stopped under another overlay", async () => {
 		const turn = new AbortController();
 		const answer = promptSingle(s.ctx(turn.signal), gate("GATE ONE"));

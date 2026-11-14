@@ -25,4 +25,21 @@ as if picked or typed here (the mesh workflow's `answer` steer).
 Several questions at once say only their words, so they are
 answered in the window.
 
+A question never holds its session for long. Left unanswered
+five minutes, or asked while your screen is locked or you are
+away from it, it parks: it comes off the screen, goes on your
+look list in the launcher, and the agent is told it was parked
+unanswered, so it carries on with what doesn't depend on it. A
+short question keeps its words and up to four short choices
+there; what you pick comes back to the session as a message.
+Otherwise the look opens the session's window, where you answer
+in your own words. A parked question takes no recommendation:
+only away mode decides for you.
+
+Whether you're there is read from the shell's files in the
+runtime folder: `quickshell-locked` saying `locked`, or
+`quickshell-away` saying `away` (ten minutes with no input and
+nothing keeping the screen awake). With neither, a question parks
+only on the five minutes. The reasoning is in `parking.ts`.
+
 Any skill or extension can rely on this tool being available.
