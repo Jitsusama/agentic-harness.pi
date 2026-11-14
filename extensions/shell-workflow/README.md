@@ -274,7 +274,9 @@ command outlives the reload. Each load, as it starts, stops any
 retiring was possible left them, whether or not it runs one itself: a
 pi that ran one earlier and runs without it now would keep that one
 idle until it ends. A shared host running `pi-spawner` stops none,
-since there they are other conversations'.
+since there they are other conversations'. When pi goes, its
+`pi-spawner` kills every command still running but a kept one (see
+Through a Move below).
 
 ## Stopping a Command
 
@@ -323,8 +325,11 @@ moved pi leaves.
   `.carried` file holding the call's own mark, so a host reaping what a
   released conversation started spares everything carrying that mark. Files left a week, by a pi killed outright, are swept
   as a session starts.
-- **Where not:** commands `pi-spawner` starts, and any where `tee`
-  lacks `-p` or the shell isn't bash, run as before and hold a move.
+- **Where not:** commands a `pi-spawner` from before `pi-spawner
+  keeps` starts, since it kills every command when its pi goes, and any
+  where `tee` lacks `-p` or the shell isn't bash, run as before and
+  hold a move. A `pi-spawner` that answers `keeps` leaves a kept
+  command running when its pi goes, so its calls are kept like pi's.
 
 ## Limits
 

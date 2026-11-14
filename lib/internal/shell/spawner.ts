@@ -23,10 +23,15 @@
  * possible left its spawner running, idle, for good: on 11 November one pi
  * had two after one reload. So before a load starts its own, it stops each
  * pi-spawner its pi started that runs nothing.
+ *
+ * When pi goes, pi-spawner kills every command it still runs but one kept
+ * on disk (shell-workflow's keeping.ts), which a shared host hands to the
+ * next. A spawner from before that answers no `keeps`, so through it no
+ * command is kept, and each holds a host's restart as before.
  */
 
 import { spawn } from "node:child_process";
-import { constants, readdirSync, readFileSync } from "node:fs";
+import { constants, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { access } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
 import {
@@ -38,6 +43,12 @@ import { SPAWNER_VARIABLE } from "./spawner-variable.ts";
 
 /** The program's name, as core.nix puts it on the PATH. */
 export const SPAWNER_PROGRAM = "pi-spawner";
+
+/** What pi-spawner says, asked `keeps`, when it spares kept commands. */
+const KEEPS_WORD = "keeps";
+
+/** How long pi-spawner may take to say whether it keeps. */
+const KEEPS_TIMEOUT_MS = 5000;
 
 /** How long pi waits for output past a command's exit, as pi does. */
 const EXIT_STDIO_GRACE_MS = 100;
@@ -86,6 +97,8 @@ export interface SpawnerOptions {
 	/** How the program is found, when `program` doesn't say. */
 	find?: (program: string) => string | undefined;
 	start?: (program: string) => Started;
+	/** Whether the program at a path spares kept commands when pi goes. */
+	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
 	kill?: (pid: number) => void;
 	/**
@@ -106,6 +119,12 @@ export interface SpawnerOperations extends BashOperations {
 	 * commands it runs have ended. Later commands start as pi's own.
 	 */
 	retire(): void;
+	/**
+	 * Whether a kept command these start outlives this pi's going: always
+	 * through pi's own spawn, and through pi-spawner when it says it
+	 * keeps. Asked once and waited on without holding pi's loop.
+	 */
+	spares(): Promise<boolean>;
 }
 
 /** How a command ended, as pi-spawner reports it. */
@@ -147,17 +166,29 @@ export function spawnedBy(
 		return {
 			exec: (command, cwd, settings) => fallback.exec(command, cwd, settings),
 			retire: () => undefined,
+			spares: async () => true,
 		};
 	}
 	const kill = options.kill ?? killGroup;
 	let link: Link | undefined;
 	let lost = false;
 	let shell: Shell | undefined = options.shell;
+	let found: { program: string | undefined } | undefined;
+	// Resolved once, so the program asked whether it keeps is the one that
+	// runs, though a switch repoints the profile's link between the two.
+	const programOf = (): string | undefined => {
+		found ??= {
+			program: resolved(
+				options.program ?? (options.find ?? systemProgram)(SPAWNER_PROGRAM),
+			),
+		};
+		return found.program;
+	};
+	let keeps: Promise<boolean> | undefined;
 	const linked = (): Link | undefined => {
 		if (lost) return undefined;
 		if (link) return link;
-		const program =
-			options.program ?? (options.find ?? systemProgram)(SPAWNER_PROGRAM);
+		const program = programOf();
 		if (program === undefined) {
 			lost = true;
 			return undefined;
@@ -193,7 +224,49 @@ export function spawnedBy(
 			link?.retire();
 			link = undefined;
 		},
+		spares: async () => {
+			// Without the program, pi's own spawn starts what these run.
+			const program = programOf();
+			if (lost || program === undefined) return true;
+			keeps ??= (options.asksKeeps ?? spawnerKeeps)(program);
+			return await keeps;
+		},
 	};
+}
+
+/** The file `program` names, through any links, or `program` where none is there. */
+function resolved(program: string | undefined): string | undefined {
+	if (program === undefined) return undefined;
+	try {
+		return realpathSync(program);
+	} catch {
+		// Nothing there: starting it fails, and pi's own spawn takes over.
+		return program;
+	}
+}
+
+/**
+ * Whether the pi-spawner at `program` spares kept commands when pi goes:
+ * asked `keeps`, it says so. One from before refuses the word, or reads
+ * its empty input as pi gone and says nothing.
+ */
+export function spawnerKeeps(program: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const asked = spawn(program, [KEEPS_WORD], {
+			stdio: ["ignore", "pipe", "ignore"],
+			timeout: KEEPS_TIMEOUT_MS,
+		});
+		let said = "";
+		asked.stdout?.setEncoding("utf8");
+		asked.stdout?.on("data", (chunk: string) => {
+			said += chunk;
+		});
+		// One that can't start keeps nothing.
+		asked.once("error", () => resolve(false));
+		asked.once("close", (status) =>
+			resolve(status === 0 && said.trim() === KEEPS_WORD),
+		);
+	});
 }
 
 /** The name a pi-spawner goes by in /proc, as its comm. */
