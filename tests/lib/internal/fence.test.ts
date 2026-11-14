@@ -351,7 +351,7 @@ describe("a command in the fence, through stand-ins", () => {
 	});
 
 	it("names only the sandboxed display, once it's there", () => {
-		const folder = join(runtimeDir, "pi-fence");
+		const folder = join(runtimeDir, "pi-fence-display");
 		mkdirSync(folder, { recursive: true });
 		const display = join(folder, "wayland");
 		writeFileSync(display, "");

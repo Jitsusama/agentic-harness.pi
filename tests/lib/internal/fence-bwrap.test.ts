@@ -331,6 +331,7 @@ describe.skipIf(bwrap === undefined)(
 		let door: string;
 		let display: string;
 		let shims: string;
+		let copy: string;
 		const servers: Server[] = [];
 
 		/** Whether `program` with `args` succeeds as a fenced command. */
@@ -359,12 +360,17 @@ describe.skipIf(bwrap === undefined)(
 				recursive: true,
 				mode: 0o700,
 			});
+			mkdirSync(join(runtimeDir, "pi-fence-display"), { mode: 0o700 });
+			// The fence's own copies sit in pi-fence beside it, as
+			// fence-copy.ts writes them.
 			mkdirSync(join(runtimeDir, "pi-fence"), { mode: 0o700 });
+			copy = join(runtimeDir, "pi-fence", "ssh_config");
+			writeFileSync(copy, "Host *\n", { mode: 0o600 });
 			shims = join(home, ".local", "share", "pi-fence", "bin");
 			mkdirSync(shims, { recursive: true });
 			writeFileSync(join(shims, "wl-copy"), "#!/bin/sh\n");
 			door = join(runtimeDir, "pi-clipboard", "door.sock");
-			display = join(runtimeDir, "pi-fence", "wayland");
+			display = join(runtimeDir, "pi-fence-display", "wayland");
 			servers.push(
 				await serve(door),
 				await serve(display),
@@ -393,6 +399,17 @@ describe.skipIf(bwrap === undefined)(
 			expect(
 				await fenced(node, ["-e", CONNECT, join(runtimeDir, "wayland-1")]),
 				"niri's own display",
+			).toBe(false);
+		});
+
+		// The display's folder is its own, so letting it through lets
+		// none of the fence's copies be read but through the file each
+		// stands in for (fence-copy.ts).
+		it("reads none of the fence's copies where pi keeps them", async () => {
+			expect(await fenced("cat", [copy]), "the ssh_config copy").toBe(false);
+			expect(
+				await fenced("ls", [join(runtimeDir, "pi-fence")]),
+				"the copies' folder",
 			).toBe(false);
 		});
 

@@ -71,7 +71,7 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
 			"/run/user/1000/pi-clipboard",
-			"/run/user/1000/pi-fence",
+			"/run/user/1000/pi-fence-display",
 		]);
 	});
 
@@ -359,7 +359,7 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
 			"/run/user/1000/pi-clipboard",
-			"/run/user/1000/pi-fence",
+			"/run/user/1000/pi-fence-display",
 		]);
 		expect(rules).not.toContain("--unrestricted-scoped");
 		expect(rules).not.toContain("--unrestricted-filesystem");

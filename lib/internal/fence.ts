@@ -105,7 +105,9 @@ export const FENCE = "fence";
  * (data control, screencopy, the virtual keyboard and pointer, foreign
  * toplevels, the session lock, input methods and the idle notifier
  * among them) and opens every window behind, unfocused (core's
- * `modules/pi/fence-display`).
+ * `modules/pi/fence-display`). Never `pi-fence`, where the fence keeps
+ * its copies (`fence-copy.ts`), each to be read only through the file
+ * it stands in for.
  *
  * The proxy's socket lives in a folder of its own, bound whole, so a
  * fenced command started before the proxy's socket comes back (a switch
@@ -120,11 +122,11 @@ const LET_THROUGH = [
 	"pi-agent",
 	"daemons/jobs-broker.sock",
 	"pi-clipboard",
-	"pi-fence",
+	"pi-fence-display",
 ] as const;
 
 /** The sandboxed display's socket, in the runtime folder. */
-const FENCE_DISPLAY = "pi-fence/wayland";
+const FENCE_DISPLAY = "pi-fence-display/wayland";
 
 /**
  * The cgroup tree, bound read-only inside: a fenced command may read
