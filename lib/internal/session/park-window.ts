@@ -18,10 +18,11 @@
  *
  * A screen that's off doesn't make every workspace fair game: Joel comes
  * back to what each output last showed (OSPHT4 [4e28d429]). With no
- * output on, as with the lid shut, niri names no workspace shown, so the
- * window he focused last counts as in sight, and so does its workspace
- * and every workspace remembered as shown from a read while the screen
- * was on. Off, with neither, nothing can be closed.
+ * output on, as with the lid shut, niri puts every workspace on no
+ * output, so what a read remembered as shown while the screen was on
+ * counts as in sight, and so do the window he focused last, its
+ * workspace, and any workspace niri still calls active. Off, with
+ * nothing remembered, nothing can be closed.
  */
 
 import { isRecord } from "../record.ts";
@@ -100,16 +101,25 @@ function focusedLast(screen: Screen): ScreenWindow | undefined {
 	return last;
 }
 
-/** Where a window stands while the screen is off. */
-function placeWhileOff(niri: ScreenWindow, screen: Screen): One {
-	const last = focusedLast(screen);
+/**
+ * Where a window stands while the screen is off. Nothing is closed with
+ * nothing remembered from a read while it was on, since the window
+ * focused last alone would leave unguarded the workspace Joel left on
+ * (OSPHT4 [ae9c9e8a]: on 14 November focus moved after he left).
+ */
+function placeWhileOff(
+	niri: ScreenWindow,
+	workspace: ScreenWorkspace,
+	screen: Screen,
+): One {
 	const remembered = screen.remembered ?? [];
-	if (last === undefined && remembered.length === 0) {
+	if (remembered.length === 0) {
 		return {
 			kind: "leave",
-			why: "the screen is off, and niri can't say what it last showed",
+			why: "the screen is off, and nothing is remembered of what it showed",
 		};
 	}
+	const last = focusedLast(screen);
 	if (last?.id === niri.id) {
 		return {
 			kind: "in-sight",
@@ -117,8 +127,10 @@ function placeWhileOff(niri: ScreenWindow, screen: Screen): One {
 		};
 	}
 	if (
-		niri.workspace !== undefined &&
-		(niri.workspace === last?.workspace || remembered.includes(niri.workspace))
+		workspace.active ||
+		workspace.focused ||
+		workspace.id === last?.workspace ||
+		remembered.includes(workspace.id)
 	) {
 		return {
 			kind: "in-sight",
@@ -176,7 +188,7 @@ function placeOf(window: HeldWindow, screen: Screen): One {
 		};
 	}
 	if (niri !== undefined && screenOff(screen)) {
-		return placeWhileOff(niri, screen);
+		return placeWhileOff(niri, workspace, screen);
 	}
 	if (workspace.focused || (workspace.active && workspace.output !== null)) {
 		return { kind: "in-sight", why: "its window is on a workspace in sight" };

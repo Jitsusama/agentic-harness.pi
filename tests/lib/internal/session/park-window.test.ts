@@ -82,10 +82,11 @@ describe("windowVerdict", () => {
 	});
 
 	describe("with the screen off", () => {
-		// He comes back to what each output last showed: the workspace of
-		// the window he last focused, and any remembered from a read while
-		// the screen was on (OSPHT4 [4e28d429]).
-		const off = (remembered?: number[]): Screen => ({
+		// He comes back to what each output last showed: any workspace
+		// remembered from a read while the screen was on, the window he last
+		// focused and its workspace, and any niri still calls active (OSPHT4
+		// [4e28d429], [ae9c9e8a]). Workspace 4 was remembered as shown.
+		const off = (remembered: number[] = [4], active?: number): Screen => ({
 			windows: [
 				{
 					id: 7,
@@ -104,13 +105,13 @@ describe("windowVerdict", () => {
 				},
 				{ id: 10, appId: "pi-session.3", workspace: 2, focused: false },
 			],
-			workspaces: [1, 2, 3].map((id) => ({
+			workspaces: [1, 2, 3, 4].map((id) => ({
 				id,
-				active: false,
+				active: id === active,
 				focused: false,
 				output: null,
 			})),
-			...(remembered ? { remembered } : {}),
+			remembered,
 		});
 
 		it("closes a window on a workspace no output last showed", () => {
@@ -119,6 +120,19 @@ describe("windowVerdict", () => {
 				kind: "close",
 				windows: [window],
 			});
+		});
+
+		it("closes nothing with nothing remembered from the screen on", () => {
+			expect(windowVerdict([held("33", "pi-session.1")], off([]))).toEqual({
+				kind: "leave",
+				why: "the screen is off, and nothing is remembered of what it showed",
+			});
+		});
+
+		it("keeps a workspace niri still calls active in sight", () => {
+			expect(
+				windowVerdict([held("33", "pi-session.1")], off([4], 3)).kind,
+			).toBe("in-sight");
 		});
 
 		it("keeps the window last focused, and its workspace, in sight", () => {
@@ -139,6 +153,17 @@ describe("windowVerdict", () => {
 			expect(windowVerdict([held("3", "pi-session.3")], off()).kind).toBe(
 				"close",
 			);
+			expect(
+				windowVerdict([held("4", "pi-session.4")], {
+					...off(),
+					windows: [
+						{ id: 11, appId: "pi-session.4", workspace: 4, focused: false },
+					],
+				}),
+			).toEqual({
+				kind: "in-sight",
+				why: "its window is on a workspace shown as the screen went off",
+			});
 		});
 	});
 

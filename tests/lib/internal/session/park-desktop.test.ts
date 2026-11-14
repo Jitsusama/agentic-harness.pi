@@ -175,7 +175,19 @@ describe("with the screen off", () => {
 		);
 	});
 
-	it("keeps the last focused window's workspace in sight, with nothing remembered", () => {
+	it("closes nothing with nothing remembered from the screen on", () => {
+		const off = desk({ off: true, workspace: 3 });
+		expect(leaveScreen("s-1", [WINDOW], off)).toEqual({
+			kind: "parks",
+			closed: [],
+			open: "the screen is off, and nothing is remembered of what it showed",
+		});
+		expect(off.calls).not.toContain(KEEP);
+		expect(off.calls).not.toContain(CLOSE);
+	});
+
+	it("keeps the last focused window's workspace in sight", () => {
+		inSight([WINDOW], desk({ workspace: 3 }));
 		const off = desk({ off: true, workspace: 4 });
 		expect(inSight([WINDOW], off)).toBe(
 			"its window is on a workspace shown as the screen went off",
@@ -183,6 +195,7 @@ describe("with the screen off", () => {
 	});
 
 	it("closes a window on a workspace neither shown last nor focused last", () => {
+		inSight([WINDOW], desk({ workspace: 3 }));
 		const off = desk({ off: true, workspace: 3 });
 		expect(leaveScreen("s-1", [WINDOW], off)).toEqual({
 			kind: "parks",
