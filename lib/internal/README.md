@@ -108,6 +108,11 @@ may import from here, and any of it may change without notice.
   startup files and git's code read-only; what it never lets through,
   the one SSH agent it lets in (core's proxy), the private keys it
   empties, and where it keeps pi's own file tools from.
+- **`fence-disk.ts`**: the disk as the fence reads it, what a path
+  is and what a folder holds, which a test hands in a disk of its own
+  for.
+- **`fence-gpu.ts`**: the GPU's render nodes, bound into every
+  fence's /dev, and never a card node.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
