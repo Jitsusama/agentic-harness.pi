@@ -93,9 +93,10 @@ conversation alone, it never parks, and its awake note says
    writes there, whole, the steer inbox of each of its addresses and
    which steers wake it (`{inboxes, wakes}`), as the mesh says. The
    holder watches those folders while it is parked and wakes it as a
-   talk, a resume with words, a close, a carry, a move or a fill
-   lands, rather than at a running peer's look a minute on. With no
-   inboxes to name it clears what an earlier park wrote. A
+   talk, a resume with words, a close, a carry, a move, a fill or
+   the person's answer lands, rather than at a running peer's look
+   a minute on. With no inboxes to name it clears what an earlier
+   park wrote. A
    conversation in a host writes nothing: the host watches its
    inboxes itself.
 4. pi shuts down as `/quit` would and exits with code 75

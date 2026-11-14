@@ -87,8 +87,10 @@ export function wakes(
 /**
  * Whether a steer waits on its parked peer running: a talk, or a resume
  * with words, which a running peer answers; a close, a carry or a move,
- * which only a running session can make; or a fill, since the person is
- * coming to its window to send it.
+ * which only a running session can make; a fill, since the person is
+ * coming to its window to send it; or the person's answer to a look or a
+ * question, which only a running pi takes (an answer the mesh keeps
+ * always says what it answers and what it gives).
  */
 export function steerWakes(steer: Steer): boolean {
 	if (steer.act === undefined) return WAKING_STEERS.talk;
@@ -98,9 +100,13 @@ export function steerWakes(steer: Steer): boolean {
 	return WAKING_STEERS.acts.includes(steer.act);
 }
 
-/** {@link steerWakes} as data, for a holder in another language. */
+/**
+ * {@link steerWakes} as data, for a holder in another language. Such a
+ * holder judges the raw file, so a malformed answer the mesh would drop
+ * still wakes its peer, which finds nothing to take and parks again.
+ */
 export const WAKING_STEERS: WakingSteers = {
-	acts: ["close", "carry", "move", "fill"],
+	acts: ["close", "carry", "move", "fill", "answer"],
 	talk: true,
 	resumeWithWords: true,
 };
@@ -121,7 +127,7 @@ export function holderSteers(
 
 /**
  * Ask the holder of every parked peer whose steer inbox under `root`
- * holds a talk, a close, a carry, a move or a fill to wake it, the
+ * holds a steer that wakes it ({@link steerWakes}) to wake it, the
  * steer's file named as why;
  * answers the sessions asked for. The steer stays where it is, for the
  * peer to take as it starts.

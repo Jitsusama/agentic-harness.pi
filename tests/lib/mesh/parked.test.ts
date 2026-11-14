@@ -225,6 +225,35 @@ describe("waking a parked peer for a steer", () => {
 		}
 	});
 
+	// 14 November: Joel's pick on a look, or his answer to a question,
+	// waited for an unrelated wake, as only a running pi takes it.
+	it("wakes it for the person's answer to a look or a question, which only a running peer takes", () => {
+		for (const answer of [
+			{ act: "answer", look: "look-1", value: "Keep it" },
+			{
+				act: "answer",
+				want: "question@2026-11-14T18:00:00Z",
+				other: "neither",
+			},
+		]) {
+			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+			steer(root, "85PKB2", answer);
+			const asked: string[] = [];
+
+			const woken = wakeSteered(
+				[parked],
+				root,
+				() => true,
+				(session) => asked.push(session),
+			);
+
+			expect([woken, asked], JSON.stringify(answer)).toEqual([
+				["s-parked"],
+				["s-parked"],
+			]);
+		}
+	});
+
 	it("lets a pause, a stop or a bare resume wait for its next start, as each does nothing parked", () => {
 		for (const act of ["pause", "stop", "resume"]) {
 			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
@@ -403,6 +432,7 @@ describe("telling a holder in another language which steers wake", () => {
 			{ act: "carry", to: "penelope" },
 			{ act: "move", to: "background" },
 			{ act: "fill", text: "Ready for this." },
+			{ act: "answer", look: "look-1", value: "Keep it" },
 		]) {
 			const raw = JSON.stringify(body);
 			const steer = steerFrom(raw, "1-a.json");
@@ -415,7 +445,7 @@ describe("telling a holder in another language which steers wake", () => {
 	// 85PKB2, 14 November: an act added to the mesh but not to the rule
 	// would leave a parked peer asleep without anyone choosing it.
 	it("judges every act the mesh knows on purpose", () => {
-		const leftParked = ["pause", "resume", "stop", "answer"];
+		const leftParked = ["pause", "resume", "stop"];
 
 		expect([...WAKING_STEERS.acts, ...leftParked].sort()).toEqual(
 			[...STEER_ACTS].sort(),
