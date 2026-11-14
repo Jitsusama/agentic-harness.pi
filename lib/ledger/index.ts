@@ -16,7 +16,6 @@ export { CARRY_VERSION, readCarry, writeCarry } from "./carry.ts";
 export {
 	readTurns,
 	SCAN_VERSION,
-	type Scan,
 	type ScanState,
 	startScan,
 } from "./scan.ts";

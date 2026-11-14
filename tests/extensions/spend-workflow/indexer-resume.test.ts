@@ -226,7 +226,7 @@ const TABLES = [
 async function rows(where: Place): Promise<unknown[]> {
 	const reader = await openLedgerReader(where.db);
 	try {
-		const answers = [];
+		const answers: unknown[] = [];
 		for (const sql of TABLES) answers.push((await reader.query(sql)).rows);
 		return answers;
 	} finally {
