@@ -9,18 +9,29 @@
  * that fails or doesn't answer in time leaves the window open, as
  * parking always left it.
  *
- * The launcher is asked to keep the window's place
- * (`qs ipc call sessions keepPlace <session>`) before it closes, and it
- * closes only on the answer "kept", so Agents can open it again where it
- * was. Off niri, as on a Mac or in a plain terminal, none of this runs.
+ * The launcher is asked to keep the window's place asleep
+ * (`qs ipc call sessions keepPlaceAsleep <session>`) before it closes,
+ * and it closes only on the answer "kept". A place kept asleep opens
+ * the window there again once the session wakes, by anything, though
+ * never onto the workspace Joel is on (KP0L6A [f3186685]). Off niri, as
+ * on a Mac or in a plain terminal, none of this runs.
+ *
+ * Every read while the screen is on remembers which workspaces it
+ * showed, in a file beside the park markers, since niri names none once
+ * it's off, and those count as in sight until it's on again.
  */
 
 import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { isRecord } from "../record.ts";
+import { parkFolder } from "./park.ts";
 import {
 	type HeldWindow,
 	kittyShows,
 	type Screen,
 	screenOf,
+	shownNow,
 	windowVerdict,
 } from "./park-window.ts";
 
@@ -41,33 +52,85 @@ export const runProgram: Run = (program, args) =>
 		stdio: ["ignore", "pipe", "ignore"],
 	});
 
+/** How the desktop is reached: its programs, and where what it showed is kept. */
+export interface Desk {
+	readonly run: Run;
+	/** The file remembering the workspaces shown while the screen was on. */
+	readonly memory: string;
+}
+
+/** This machine's desktop, remembered beside the park markers. */
+export function machineDesk(folder: string = parkFolder()): Desk {
+	return { run: runProgram, memory: join(folder, "screen.json") };
+}
+
 /** Whether this process runs under niri, which says so in its socket. */
 export function onNiri(env: NodeJS.ProcessEnv = process.env): boolean {
 	return Boolean(env.NIRI_SOCKET);
 }
 
-/** What niri shows, or nothing when it can't be read. */
-export function readScreen(run: Run = runProgram): Screen | undefined {
+function remembered(memory: string): number[] {
 	try {
-		return screenOf(
-			JSON.parse(run("niri", ["msg", "--json", "windows"])),
-			JSON.parse(run("niri", ["msg", "--json", "workspaces"])),
+		const kept: unknown = JSON.parse(readFileSync(memory, "utf8"));
+		if (!isRecord(kept) || !Array.isArray(kept.shown)) return [];
+		return kept.shown.filter((one): one is number => typeof one === "number");
+	} catch {
+		// Nothing remembered yet, or a file half written: nothing is known.
+		return [];
+	}
+}
+
+function remember(memory: string, shown: readonly number[]): void {
+	try {
+		writeFileSync(
+			memory,
+			`${JSON.stringify({ shown, at: new Date().toISOString() })}\n`,
+		);
+	} catch {
+		// Unremembered, an off screen spares only what niri itself says.
+	}
+}
+
+/**
+ * What niri shows, or nothing when it can't be read. Read while the
+ * screen is on, it remembers the workspaces shown; read while it's off,
+ * it carries those remembered.
+ */
+export function readScreen(desk: Desk): Screen | undefined {
+	let screen: Screen;
+	try {
+		screen = screenOf(
+			JSON.parse(desk.run("niri", ["msg", "--json", "windows"])),
+			JSON.parse(desk.run("niri", ["msg", "--json", "workspaces"])),
 		);
 	} catch {
 		// niri didn't answer, or answered something else: nothing is known.
 		return undefined;
 	}
+	const shown = shownNow(screen);
+	if (shown !== undefined) {
+		remember(desk.memory, shown);
+		return screen;
+	}
+	return { ...screen, remembered: remembered(desk.memory) };
 }
 
 /**
- * Ask the launcher to keep where `session`'s window sits, answering what
- * it said, "kept" when it did, or why it couldn't be asked.
+ * Ask the launcher to keep where `session`'s window sits while it
+ * sleeps, answering what it said, "kept" when it did, or why it couldn't
+ * be asked.
  */
-export function keepPlace(session: string, run: Run = runProgram): string {
+export function keepPlaceAsleep(session: string, run: Run): string {
 	try {
-		return run("qs", ["ipc", "call", "sessions", "keepPlace", session]).trim();
+		return run("qs", [
+			"ipc",
+			"call",
+			"sessions",
+			"keepPlaceAsleep",
+			session,
+		]).trim();
 	} catch {
-		// No shell, or one that didn't answer: the place isn't kept.
+		// No shell, or one that doesn't take the call yet: the place isn't kept.
 		return "the launcher didn't answer";
 	}
 }
@@ -76,10 +139,7 @@ export function keepPlace(session: string, run: Run = runProgram): string {
  * Close `window` in its kitty, once kitty shows it in an OS window of
  * its class; answers why not, when it couldn't.
  */
-export function closeWindow(
-	window: HeldWindow,
-	run: Run = runProgram,
-): string | undefined {
+export function closeWindow(window: HeldWindow, run: Run): string | undefined {
 	try {
 		const ls: unknown = JSON.parse(
 			run("kitten", ["@", "--to", window.within, "ls"]),
@@ -102,9 +162,24 @@ export function closeWindow(
 }
 
 /**
- * What became of a parking session's windows: kept awake because one is
- * in sight, or parked, closing those it could and saying why it left any
- * open.
+ * Why a parking session must stay awake for its windows: one is focused
+ * or in sight. Anything else, even a screen that can't be read, lets it
+ * park, leaving open what can't be closed.
+ */
+export function inSight(
+	windows: readonly HeldWindow[],
+	desk: Desk,
+): string | undefined {
+	if (windows.length === 0) return undefined;
+	const screen = readScreen(desk);
+	if (screen === undefined) return undefined;
+	const verdict = windowVerdict(windows, screen);
+	return verdict.kind === "in-sight" ? verdict.why : undefined;
+}
+
+/**
+ * What became of a parking session's windows: kept open because one is
+ * in sight, or closed as far as could be, saying why any stayed open.
  */
 export type Leaving =
 	| { readonly kind: "refused"; readonly why: string }
@@ -116,17 +191,16 @@ export type Leaving =
 
 /**
  * Close the windows a parking session shows in, where none is in sight:
- * any focused, or on a workspace shown on an output, refuses the park.
- * The launcher keeps their place first, and they close only once it
- * says "kept".
+ * any focused, or on a workspace shown, closes none. The launcher keeps
+ * their place asleep first, and they close only once it says "kept".
  */
 export function leaveScreen(
 	session: string,
 	windows: readonly HeldWindow[],
-	run: Run = runProgram,
+	desk: Desk,
 ): Leaving {
 	if (windows.length === 0) return { kind: "parks", closed: [] };
-	const screen = readScreen(run);
+	const screen = readScreen(desk);
 	if (screen === undefined) {
 		return { kind: "parks", closed: [], open: "niri can't be read" };
 	}
@@ -136,7 +210,7 @@ export function leaveScreen(
 		return { kind: "parks", closed: [], open: verdict.why };
 	}
 	if (verdict.kind === "none") return { kind: "parks", closed: [] };
-	const kept = keepPlace(session, run);
+	const kept = keepPlaceAsleep(session, desk.run);
 	if (kept !== KEPT) {
 		return {
 			kind: "parks",
@@ -146,7 +220,7 @@ export function leaveScreen(
 	}
 	const closed: HeldWindow[] = [];
 	for (const window of verdict.windows) {
-		const why = closeWindow(window, run);
+		const why = closeWindow(window, desk.run);
 		if (why !== undefined) return { kind: "parks", closed, open: why };
 		closed.push(window);
 	}

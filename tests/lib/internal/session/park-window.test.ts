@@ -11,6 +11,7 @@ import {
 	parkedWindowsOf,
 	type Screen,
 	screenOf,
+	shownNow,
 	windowVerdict,
 } from "../../../../lib/internal/session/park-window.ts";
 
@@ -80,15 +81,64 @@ describe("windowVerdict", () => {
 		).toBe("in-sight");
 	});
 
-	it("counts no workspace in sight with no output on", () => {
-		const window = held("33", "pi-session.1");
-		const lidShut: Screen = {
-			windows: [{ id: 7, appId: "pi-session.1", workspace: 1, focused: false }],
-			workspaces: [{ id: 1, active: true, focused: false, output: null }],
-		};
-		expect(windowVerdict([window], lidShut)).toEqual({
-			kind: "close",
-			windows: [window],
+	describe("with the screen off", () => {
+		// He comes back to what each output last showed: the workspace of
+		// the window he last focused, and any remembered from a read while
+		// the screen was on (OSPHT4 [4e28d429]).
+		const off = (remembered?: number[]): Screen => ({
+			windows: [
+				{
+					id: 7,
+					appId: "pi-session.1",
+					workspace: 3,
+					focused: false,
+					focusedAt: 10,
+				},
+				{ id: 8, appId: "chrome", workspace: 1, focused: false, focusedAt: 90 },
+				{
+					id: 9,
+					appId: "pi-session.2",
+					workspace: 1,
+					focused: false,
+					focusedAt: 50,
+				},
+				{ id: 10, appId: "pi-session.3", workspace: 2, focused: false },
+			],
+			workspaces: [1, 2, 3].map((id) => ({
+				id,
+				active: false,
+				focused: false,
+				output: null,
+			})),
+			...(remembered ? { remembered } : {}),
+		});
+
+		it("closes a window on a workspace no output last showed", () => {
+			const window = held("33", "pi-session.1");
+			expect(windowVerdict([window], off())).toEqual({
+				kind: "close",
+				windows: [window],
+			});
+		});
+
+		it("keeps the window last focused, and its workspace, in sight", () => {
+			expect(windowVerdict([held("1", "chrome")], off())).toEqual({
+				kind: "in-sight",
+				why: "its window was focused last, as the screen went off",
+			});
+			expect(windowVerdict([held("2", "pi-session.2")], off())).toEqual({
+				kind: "in-sight",
+				why: "its window is on a workspace shown as the screen went off",
+			});
+		});
+
+		it("keeps a workspace remembered as shown in sight", () => {
+			expect(windowVerdict([held("3", "pi-session.3")], off([2])).kind).toBe(
+				"in-sight",
+			);
+			expect(windowVerdict([held("3", "pi-session.3")], off()).kind).toBe(
+				"close",
+			);
 		});
 	});
 
@@ -163,6 +213,7 @@ describe("screenOf", () => {
 						app_id: "pi-session.1",
 						workspace_id: 3,
 						is_focused: false,
+						focus_timestamp: { secs: 24462, nanos: 6462154 },
 					},
 					{ id: 19, app_id: null, workspace_id: null, is_focused: true },
 				],
@@ -177,7 +228,13 @@ describe("screenOf", () => {
 			),
 		).toEqual({
 			windows: [
-				{ id: 18, appId: "pi-session.1", workspace: 3, focused: false },
+				{
+					id: 18,
+					appId: "pi-session.1",
+					workspace: 3,
+					focused: false,
+					focusedAt: 24462.006462154,
+				},
 				{ id: 19, appId: "", workspace: undefined, focused: true },
 			],
 			workspaces: [{ id: 3, active: false, focused: false, output: "eDP-1" }],
@@ -189,6 +246,25 @@ describe("screenOf", () => {
 			windows: [],
 			workspaces: [],
 		});
+	});
+});
+
+describe("shownNow", () => {
+	it("names the workspaces shown while the screen is on", () => {
+		expect(
+			shownNow(
+				screen([{ id: 7, appId: "pi-session.1", workspace: 1, focused: true }]),
+			),
+		).toEqual([1, 2]);
+	});
+
+	it("names nothing while the screen is off", () => {
+		expect(
+			shownNow({
+				windows: [],
+				workspaces: [{ id: 1, active: false, focused: false, output: null }],
+			}),
+		).toBeUndefined();
 	});
 });
 
@@ -259,7 +335,17 @@ describe("parkedWindowsOf", () => {
 					},
 				],
 			},
-			{ id: "309ddbc5", windows: [] },
+			{
+				id: "309ddbc5",
+				windows: [
+					{
+						terminal: "kitty",
+						id: "2",
+						within: SOCKET,
+						app_id: "pi-session.2",
+					},
+				],
+			},
 			{ id: "0a0a0a0a", parked: true, windows: [] },
 		];
 		const sessions = [
@@ -272,7 +358,17 @@ describe("parkedWindowsOf", () => {
 				session: "s-1",
 				address: "VKCF3Z",
 				windows: [held("33", "pi-session.1")],
+				parked: true,
 			},
+		]);
+		expect(
+			parkedWindowsOf(holds, sessions, true).map((one) => [
+				one.address,
+				one.parked,
+			]),
+		).toEqual([
+			["VKCF3Z", true],
+			["AAAAAA", false],
 		]);
 	});
 });
