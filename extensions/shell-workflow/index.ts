@@ -33,6 +33,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
+import { liftFence } from "../../lib/internal/fence-lifted.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
@@ -74,7 +75,9 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// used: execution is per session, at the folder its conversation stands
 	// in, and pi's description names none.
 	const shape = createBashToolDefinition(SHAPE_ONLY);
-	// Asked for when the session starts, by its environment (sandbox.ts).
+	// Asked for when the session starts, by its environment (sandbox.ts),
+	// with the fence lifted from all but subagents until it relands.
+	liftFence();
 	const sandbox = sandboxFor();
 	let bash: AgentBash | undefined;
 	// A bash given up closes its pi-spawner once its commands end, so a
