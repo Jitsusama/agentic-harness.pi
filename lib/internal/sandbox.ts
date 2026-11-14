@@ -69,6 +69,7 @@ import {
 	agentProxy,
 	FENCE,
 	fenceArgs,
+	fenceDisplay,
 	fenceRules,
 	guardsGitFolder,
 	nixDoor,
@@ -702,6 +703,7 @@ export function wrapFor(
 				door: nixDoor(fence.runtimeDir),
 				agent: agentProxy(fence.runtimeDir),
 				shims: fenceShims(home),
+				display: fenceDisplay(fence.runtimeDir),
 				homes: OWN_HOMES.map(
 					([name, folder]) => [name, join(own, folder)] as const,
 				),

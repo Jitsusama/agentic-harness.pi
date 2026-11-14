@@ -4,9 +4,8 @@
  * and what stays refused (13 to 15), plus the builders' and the GitHub
  * door's own and git outside a tree while a plant is tried inside.
  *
- * A check that touches the clipboard saves the person's selection first
- * and puts it back after, and works on the primary selection, so nothing
- * he copied is lost (ISXEG8, e0410496).
+ * The checks of the person's desktop, the clipboard and windows, are
+ * in `fence-preflight-desktop.ts`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -38,6 +37,11 @@ import {
 	tailOf,
 	type Verdict,
 } from "./fence-preflight.ts";
+import {
+	clipboardRoundTrip,
+	focusedWindow,
+	windowBehind,
+} from "./fence-preflight-desktop.ts";
 import { SANDBOX_VARIABLE, sandboxFor } from "./sandbox.ts";
 import { askRoute } from "./secret-ask.ts";
 
@@ -55,83 +59,6 @@ function runtime(): string {
 /** A word no check has used before, for a line, a file or a session. */
 function fresh(): string {
 	return `preflight-${randomUUID().slice(0, 8)}`;
-}
-
-/** The id of the focused window, or nothing when niri doesn't say. */
-async function focusedWindow(cwd: string): Promise<number | undefined> {
-	const ran = await outside("niri msg -j focused-window", cwd);
-	if (ran.code !== 0) return undefined;
-	try {
-		const window: unknown = JSON.parse(ran.out);
-		return typeof window === "object" &&
-			window !== null &&
-			"id" in window &&
-			typeof window.id === "number"
-			? window.id
-			: undefined;
-	} catch {
-		// Not JSON: niri answered something else, which says no window.
-		return undefined;
-	}
-}
-
-/** How many windows niri has open, or nothing when it doesn't say. */
-async function windowCount(cwd: string): Promise<number | undefined> {
-	const ran = await outside("niri msg -j windows", cwd);
-	if (ran.code !== 0) return undefined;
-	try {
-		const windows: unknown = JSON.parse(ran.out);
-		return Array.isArray(windows) ? windows.length : undefined;
-	} catch {
-		// Not JSON: niri answered something else.
-		return undefined;
-	}
-}
-
-/** Check (1): a fenced copy and paste, with the person's selection kept. */
-async function clipboardRoundTrip(context: PreflightContext): Promise<Verdict> {
-	const { scratch, session } = context;
-	const line = fresh();
-	const kept = join(scratch, "primary-kept");
-	const saved = await outside(
-		`wl-paste --primary -n > ${kept} 2>/dev/null`,
-		scratch,
-	);
-	const focusBefore = await focusedWindow(scratch);
-	const windowsBefore = await windowCount(scratch);
-	try {
-		const copy = await fenced(
-			`printf %s '${line}' | wl-copy --primary > /dev/null 2>&1`,
-			scratch,
-			session,
-		);
-		const paste = await fenced("wl-paste --primary -n", scratch, session);
-		const focusAfter = await focusedWindow(scratch);
-		const windowsAfter = await windowCount(scratch);
-		if (copy.code !== 0) return failed(`wl-copy failed: ${tailOf(copy)}`);
-		if (paste.out !== line) {
-			return failed(`wl-paste gave back ${JSON.stringify(paste.out)}`);
-		}
-		if (focusBefore === undefined || focusBefore !== focusAfter) {
-			return failed(`focus moved, from ${focusBefore} to ${focusAfter}`);
-		}
-		if (windowsBefore === undefined || windowsBefore !== windowsAfter) {
-			return failed(`windows went from ${windowsBefore} to ${windowsAfter}`);
-		}
-		return passed(
-			`round-tripped on the primary selection in ${copy.ms + paste.ms} ms, focus and windows unchanged`,
-		);
-	} finally {
-		// setsid, so the copy serving his selection outlives this script
-		// and anything that stops it.
-		await outside(
-			saved.code === 0
-				? `setsid -f wl-copy --primary < ${kept} > /dev/null 2>&1`
-				: "wl-copy --primary --clear",
-			scratch,
-		);
-		rmSync(kept, { force: true });
-	}
 }
 
 /** Check (3): the change installing touches no niri, shell or launcher code. */
@@ -348,6 +275,12 @@ export const CHECKS: readonly Check[] = [
 		group: "person",
 		what: "copy and paste from a fenced command",
 		run: clipboardRoundTrip,
+	},
+	{
+		id: "1b",
+		group: "person",
+		what: "a fenced window opens behind, the focus unmoved",
+		run: windowBehind,
 	},
 	{
 		id: "2",

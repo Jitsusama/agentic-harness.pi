@@ -152,6 +152,9 @@ may import from here, and any of it may change without notice.
 - **`fence-preflight-checks.ts`**: the checks themselves: what the
   person and agents must still be able to do with the fence on, and
   what must stay refused.
+- **`fence-preflight-desktop.ts`**: the checks of the person's
+  desktop: a fenced copy and paste with his selection kept, and a
+  fenced window opening behind, each leaving his focus where it was.
 - **`fence-home.ts`**: what in the home folder runs code as the
   person later, which the fence keeps read-only: settings, startup
   files and programs' entries whose settings name a command, with
