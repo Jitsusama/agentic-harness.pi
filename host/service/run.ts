@@ -38,7 +38,7 @@ import { ambientSession } from "../../lib/core/session/index.ts";
 import { withPi } from "../../lib/internal/priority/place.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostRealm } from "./address.ts";
-import type { ConversationEngine } from "./backend.ts";
+import type { ConversationEngine, ResumePhase } from "./backend.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
 
@@ -198,14 +198,25 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const began = Date.now();
 	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
 	const since = () => seconds(Date.now() - began);
-	// The conversation being resumed and when it began, so each says how
-	// long it took and a restart of thirty can be sized from one.
-	let resuming: { readonly step: StartStep; readonly at: number } | undefined;
+	// The conversation being resumed, when it began and when each of its
+	// phases ended, so each says how long it took and where, and a restart
+	// of thirty can be sized from one.
+	let resuming:
+		| {
+				readonly step: StartStep;
+				readonly at: number;
+				readonly phases: PhaseEnd[];
+		  }
+		| undefined;
+	const mark = (phase: ResumePhase) => {
+		resuming?.phases.push({ phase, at: Date.now() });
+	};
 	const resumed = () => {
 		if (resuming?.step.step !== "resume") return;
 		const { number, of } = resuming.step;
+		const now = Date.now();
 		say(
-			`${since()}: resumed ${number} of ${of} in ${seconds(Date.now() - resuming.at)}`,
+			`${since()}: resumed ${number} of ${of} in ${seconds(now - resuming.at)}${phaseTimes(resuming.at, resuming.phases, now)}`,
 		);
 	};
 	const ask = async (status: string) => {
@@ -222,7 +233,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const starting = async (step: StartStep) => {
 		resumed();
 		renewing?.();
-		resuming = { step, at: Date.now() };
+		resuming = { step, at: Date.now(), phases: [] };
 		const status = describeStep(step);
 		say(`${since()}: ${status}`);
 		await ask(status);
@@ -243,6 +254,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			report,
 			say,
 			starting,
+			mark,
 			runtimeDir: options.env.XDG_RUNTIME_DIR,
 		});
 	} finally {
@@ -347,6 +359,32 @@ export function stoppingStatus(parking: number): string {
 function conversations(count: number): string {
 	if (count === 0) return "no conversations";
 	return `${count} conversation${count === 1 ? "" : "s"}`;
+}
+
+/** When one phase of a resume ended. */
+export interface PhaseEnd {
+	readonly phase: ResumePhase;
+	readonly at: number;
+}
+
+/**
+ * How long each phase of a resume begun at `began` took, in words, and
+ * what followed the last until `ended`; nothing when none was marked.
+ */
+export function phaseTimes(
+	began: number,
+	phases: readonly PhaseEnd[],
+	ended: number,
+): string {
+	if (phases.length === 0) return "";
+	let from = began;
+	const parts = phases.map(({ phase, at }) => {
+		const part = `${phase} ${((at - from) / MS_PER_SECOND).toFixed(1)} s`;
+		from = at;
+		return part;
+	});
+	parts.push(`rest ${((ended - from) / MS_PER_SECOND).toFixed(1)} s`);
+	return ` (${parts.join(", ")})`;
 }
 
 /** A start step in words, as the journal and systemd's status show it. */

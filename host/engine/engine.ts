@@ -48,6 +48,7 @@ import type {
 	ConversationEvents,
 	OpenRequest,
 	Prepared,
+	ResumePhase,
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
 import { type CarriedShells, carriedShells } from "./carried-shells.ts";
@@ -578,10 +579,12 @@ export async function createEngine(
 		record: Live,
 		manager: SessionManager,
 		request: OpenRequest | AdoptRequest | undefined,
+		mark?: (phase: ResumePhase) => void,
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
 		// What an earlier host's tools left running for it ends before this start reports them cut off.
 		await reapToolChildren(sessionId);
+		mark?.("reap");
 		const first = request?.op === "open" ? request.first : undefined;
 		noteFirstPrompt(first);
 		const sessionManager =
@@ -591,6 +594,7 @@ export async function createEngine(
 			factory(seat, request),
 			{ cwd, agentDir: sessions.getAgentDir(), sessionManager },
 		);
+		mark?.("runtime");
 		record.runtime = runtime;
 		// Before a screen takes the runtime on, so its own rebinding runs as the conversation it binds.
 		holdReplacements(runtime, {
@@ -613,7 +617,9 @@ export async function createEngine(
 			runtime.setRebindSession(() => bindHeadless(runtime, host, report));
 			await bindHeadless(runtime, host, report);
 		}
+		mark?.("screen");
 		const recovery = await agent.recover();
+		mark?.("recovery");
 		if (first === undefined) {
 			recovery.settled.catch(report);
 			return;
@@ -668,6 +674,7 @@ export async function createEngine(
 		manager: SessionManager,
 		launch: Readonly<Record<string, string>>,
 		request?: OpenRequest | AdoptRequest,
+		mark?: (phase: ResumePhase) => void,
 	): Promise<void> {
 		const { sessionId } = traits;
 		const record = register(traits, launch, request, hintsFor(request));
@@ -675,7 +682,7 @@ export async function createEngine(
 			record.asked = () => done("asking");
 		});
 		const building = host
-			.run(sessionId, () => build(record, manager, request))
+			.run(sessionId, () => build(record, manager, request, mark))
 			.then(
 				() => "built" as const,
 				(error: unknown) => {
@@ -962,7 +969,11 @@ export async function createEngine(
 			prepared.delete(conversation.sessionId);
 		},
 
-		async resume(entry: RosterEntry, woken = false) {
+		async resume(
+			entry: RosterEntry,
+			woken = false,
+			mark?: (phase: ResumePhase) => void,
+		) {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);
 			// Before its session starts and takes the carry, so nothing warms twice.
@@ -980,11 +991,14 @@ export async function createEngine(
 				throw new Error(
 					`${entry.file} now holds conversation ${manager.getSessionId()}, not ${entry.sessionId}`,
 				);
+			mark?.("log");
 			const { sessionId, file, cwd, attended, quest, launch } = entry;
 			await begin(
 				{ sessionId, file, cwd, attended, ...(quest ? { quest } : {}) },
 				manager,
 				launch ?? {},
+				undefined,
+				mark,
 			);
 			// Only once it runs: a wake that failed leaves its wake file watched,
 			// and one refused as it began says nothing true now.
