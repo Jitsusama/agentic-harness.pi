@@ -3,7 +3,13 @@
  * it parks and registered again on a warm's runtime: in memory whole,
  * and on disk only where it is plain data, over real files.
  */
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,6 +90,40 @@ describe("kept providers", () => {
 			natives: [],
 		});
 		expect(statSync(file).mode & 0o777).toBe(0o600);
+	});
+
+	it("keeps a key on disk only by its variable, and no credential header", () => {
+		const file = providersFile();
+		const literal = {
+			baseUrl: "https://vendor.invalid",
+			apiKey: "sk-written-out-in-full",
+			headers: {
+				Authorization: "Bearer header-secret",
+				"x-api-key": "another-secret",
+				"pi-session-id": "s1",
+			},
+			models: [
+				{ id: "m", headers: { "X-Token": "model-secret", "x-team": "pi" } },
+			],
+		};
+		const braced = { ...PROXIED, apiKey: "${SHOPIFY_PROXY_KEY}" };
+		writeKept(
+			file,
+			keptProviders(runtime({ literal, braced, anthropic: PROXIED }).model),
+		);
+		expect(readKept(file)?.configs).toEqual({
+			literal: {
+				baseUrl: "https://vendor.invalid",
+				headers: { "pi-session-id": "s1" },
+				models: [{ id: "m", headers: { "x-team": "pi" } }],
+			},
+			braced,
+			anthropic: PROXIED,
+		});
+		const written = readFileSync(file, "utf8");
+		for (const secret of ["sk-written", "header-secret", "another-secret"])
+			expect(written).not.toContain(secret);
+		expect(written).not.toContain("model-secret");
 	});
 
 	it("leaves no file when nothing it registered is plain data", () => {
