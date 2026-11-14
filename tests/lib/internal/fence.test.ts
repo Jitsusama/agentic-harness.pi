@@ -19,13 +19,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../lib/internal/fence.ts";
+import { fenceByDefault } from "../../../lib/internal/fence-default.ts";
 import {
 	inStore,
 	OFFLOAD_EXEMPTION_ENDS,
 	offloadedOutside,
 } from "../../../lib/internal/offload-exemption.ts";
 import {
+	OFF,
 	type Sandbox,
+	STRICT,
 	sandboxFor,
 	wrapFor,
 } from "../../../lib/internal/sandbox.ts";
@@ -114,6 +117,93 @@ describe("what a session asking for the fence is given", () => {
 		const reason = loose.kind === "refused" ? loose.reason : "";
 		expect(reason).toContain('"fence"');
 		expect(reason).toContain('"strict"');
+		expect(reason, "the way to run with none").toContain('"off"');
+	});
+
+	it("is none when the session says off", () => {
+		expect(
+			sandboxFor({ PI_SANDBOX: OFF }, "linux", all),
+			"off refused every command, or fenced them",
+		).toEqual({ kind: "none" });
+		expect(
+			sandboxFor({ PI_SANDBOX: " off " }, "linux", all),
+			"off with spaces round it",
+		).toEqual({ kind: "none" });
+	});
+});
+
+describe("asking for the fence where nothing asked", () => {
+	const both = finder({ bwrap: "/bin/bwrap", landrun: "/bin/landrun" });
+
+	it("asks for the fence on Linux with bwrap and landrun", () => {
+		const env: NodeJS.ProcessEnv = {};
+		const said = fenceByDefault(env, "linux", both);
+		expect(said, "a fence had says nothing").toBeUndefined();
+		expect(env.PI_SANDBOX, "an unset PI_SANDBOX wasn't set to fence").toBe(
+			FENCE,
+		);
+		expect(
+			sandboxFor(env, "linux", both).kind,
+			"what the session's commands then get",
+		).toBe("fence");
+	});
+
+	it("leaves it unset without either program, and says which once", () => {
+		for (const [missing, find] of [
+			["bwrap", finder({ landrun: "/bin/landrun" })],
+			["landrun", finder({ bwrap: "/bin/bwrap" })],
+			["bwrap and landrun", finder({})],
+		] as const) {
+			const env: NodeJS.ProcessEnv = {};
+			const said = fenceByDefault(env, "linux", find);
+			expect(env.PI_SANDBOX, `set without ${missing}`).toBeUndefined();
+			expect(said, `the notice without ${missing}`).toContain(
+				`and ${missing} isn't there`,
+			);
+			expect(said, "the way to say it's meant").toContain("PI_SANDBOX=off");
+			expect(
+				sandboxFor(env, "linux", find).kind,
+				"a session the fence can't be had in still runs commands",
+			).toBe("none");
+		}
+	});
+
+	it("fences a session whose value is empty, so off is the only way out", () => {
+		for (const asked of ["", "  "]) {
+			const env: NodeJS.ProcessEnv = { PI_SANDBOX: asked };
+			expect(fenceByDefault(env, "linux", both), "said for empty").toBe(
+				undefined,
+			);
+			expect(env.PI_SANDBOX, "an empty value unfenced the session").toBe(FENCE);
+		}
+	});
+
+	it("leaves a value already there as it is, strict and off included", () => {
+		for (const asked of [STRICT, OFF, FENCE]) {
+			const env: NodeJS.ProcessEnv = { PI_SANDBOX: asked };
+			expect(fenceByDefault(env, "linux", both), `said for ${asked}`).toBe(
+				undefined,
+			);
+			expect(env.PI_SANDBOX, `${asked} was replaced`).toBe(asked);
+		}
+	});
+
+	it("does nothing and says nothing off Linux, where there is no fence", () => {
+		const env: NodeJS.ProcessEnv = {};
+		expect(fenceByDefault(env, "darwin", both), "said on macOS").toBe(
+			undefined,
+		);
+		expect(env.PI_SANDBOX, "set on macOS").toBeUndefined();
+	});
+
+	it("hands a child the value it set, never a fresh default", () => {
+		const env: NodeJS.ProcessEnv = {};
+		fenceByDefault(env, "linux", both);
+		const child = spawnSync("/bin/sh", ["-c", 'printf %s "$PI_SANDBOX"'], {
+			env,
+			encoding: "utf8",
+		});
+		expect(child.stdout, "what a child of the session sees").toBe(FENCE);
 	});
 });
 
@@ -376,6 +466,14 @@ describe("pi's file tools in a fenced session", () => {
 				env: { PI_SANDBOX: FENCE, XDG_RUNTIME_DIR: runtimeDir },
 			},
 		);
+
+	it("holds nothing to the fence in a session that says off", () => {
+		const off = fileToolRefusal(
+			{ toolName: "write", input: { path: "/etc/passwd", content: "" } },
+			{ cwd: work, home, env: { PI_SANDBOX: OFF } },
+		);
+		expect(off, "off refused a file tool").toBeUndefined();
+	});
 
 	it("writes and reads the work, and reads the settings", () => {
 		writeFileSync(join(home, ".history"), "");
