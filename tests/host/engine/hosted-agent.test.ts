@@ -129,6 +129,29 @@ function calls(message: Record<string, unknown>, callId: string): boolean {
 	);
 }
 
+/** What the session file in `folder` holds around its custom message, in file order: the entry before it and the one after. */
+function besideTheWord(folder: string): [string, string] {
+	const sessions = join(folder, "sessions");
+	const said = readdirSync(sessions).flatMap((file) =>
+		readFileSync(join(sessions, file), "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.flatMap((line) => {
+				const entry: unknown = JSON.parse(line);
+				if (!isRecord(entry)) return [];
+				if (entry.type === "custom_message") return ["the word"];
+				const message = entry.message;
+				if (entry.type !== "message" || !isRecord(message)) return [];
+				if (message.role === "toolResult")
+					return [`the result of ${String(message.toolCallId)}`];
+				if (calls(message, "call-2")) return ["the call of call-2"];
+				return [String(message.role)];
+			}),
+	);
+	const word = said.indexOf("the word");
+	return [said[word - 1] ?? "nothing", said[word + 1] ?? "nothing"];
+}
+
 /** Run a hosted scenario to its death, keeping what it left in `folder`; answers the signal that ended it. */
 async function killed(
 	scenario: string,
@@ -360,8 +383,8 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
-	it("keeps a tool result beside its call when a peer's word is written between them, now and on the next turn", async () => {
-		// Two carried a mesh message written between a call and its result, and every request after was refused for a result without its call.
+	it("writes a peer's word sent mid-round after the round's result, as pi does in a run of its own", async () => {
+		// Two had a mesh message written between a call and its result, and every request after was refused for a result without its call.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-word-"));
 		try {
 			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
@@ -370,18 +393,31 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				"reopen-with-a-word",
 			);
 			expect(reported, "durable reported nothing").toBe("");
-			const word = observed.transcript.findIndex(
-				(message) => message.role === "custom",
+			expect(
+				besideTheWord(folder),
+				"the word follows the round's result in the file",
+			).toEqual(["the result of call-2", "assistant"]);
+			expect(refusals(observed), "no request was refused").toEqual([]);
+			expect(said(observed, "assistant").at(-1)).toBe("after the word");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("answers on a file that holds a word between a call and its result, now and on the next turn", async () => {
+		// The two conversations of 13 November hold their files in this shape still.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-word-written-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(
+				folder,
+				"reopen-with-a-word-written",
 			);
-			const before = observed.transcript[word - 1];
+			expect(reported, "durable reported nothing").toBe("");
 			expect(
-				isRecord(before) && calls(before, "call-2"),
-				"the word follows the carried-on turn's call",
-			).toBe(true);
-			expect(
-				Reflect.get(observed.transcript[word + 1] ?? {}, "toolCallId"),
-				"and comes before that call's result",
-			).toBe("call-2");
+				besideTheWord(folder),
+				"the word sits between the call and its result",
+			).toEqual(["the call of call-2", "the result of call-2"]);
 			expect(refusals(observed), "no request was refused").toEqual([]);
 			expect(said(observed, "assistant").at(-1)).toBe("after the word");
 			const next = await reopenedWithReports(folder, "reopen-asked");

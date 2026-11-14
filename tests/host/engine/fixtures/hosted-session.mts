@@ -36,7 +36,14 @@ interface Session {
 	abort(): Promise<void>;
 	dispose(): void;
 	navigateTree(targetId: string, options: object): Promise<unknown>;
+	readonly isStreaming: boolean;
+	subscribe(listener: (event: { readonly type: string }) => void): () => void;
 	readonly sessionManager: {
+		appendCustomMessageEntry(
+			customType: string,
+			content: string,
+			display: boolean,
+		): string;
 		getEntries(): readonly {
 			readonly id: string;
 			readonly type: string;
@@ -358,6 +365,22 @@ const scenarios: Record<string, Scenario> = {
 			await session.sendCustomMessage(
 				{ customType: "mesh", content: "a word from a peer", display: true },
 				{ triggerTurn: false },
+			);
+		}),
+		drive: async () => {},
+		persist: true,
+	},
+	/** As reopen-with-a-word, the word written straight into the file between the call and its result, as pi wrote it on 13 November. */
+	"reopen-with-a-word-written": {
+		responses: () => [
+			call("call-2", "pong"),
+			pairedOrRefused("after the word"),
+		],
+		tools: echo(async (session) => {
+			session.sessionManager.appendCustomMessageEntry(
+				"mesh",
+				"a word from a peer",
+				true,
 			);
 		}),
 		drive: async () => {},
