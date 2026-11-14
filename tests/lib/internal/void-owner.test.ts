@@ -293,12 +293,18 @@ describe("placing a file he was reading", () => {
 		body: "",
 		repos: ["core.nix"],
 	};
-	const STORE = "/home/jitsusama/.local/share/pi/agentic-harness.pi/quest-workflow/quests";
-	const SCRATCH = "/home/jitsusama/.cache/pi/agentic-harness.pi/quest-workspace";
+	const STORE =
+		"/home/jitsusama/.local/share/pi/agentic-harness.pi/quest-workflow/quests";
+	const SCRATCH =
+		"/home/jitsusama/.cache/pi/agentic-harness.pi/quest-workspace";
 
 	it("reads the file row", () => {
 		const said = readLine(
-			line("do what you think is right", "window: Reader · Reader", `file: ${STORE}/${LIGHT.id}/research/RSCH-20261108-HGB8JZ.md`),
+			line(
+				"do what you think is right",
+				"window: Reader · Reader",
+				`file: ${STORE}/${LIGHT.id}/research/RSCH-20261108-HGB8JZ.md`,
+			),
 		);
 
 		expect(said.attached.file).toBe(

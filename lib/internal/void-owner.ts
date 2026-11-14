@@ -231,10 +231,14 @@ function byFile(
 		.map((segment) => QUEST_FOLDER.exec(segment)?.[1])
 		.filter((found) => found !== undefined)
 		.at(-1);
-	if (!id) return { tried: `the file ${file} (in no quest's folder)`, found: [] };
+	if (!id)
+		return { tried: `the file ${file} (in no quest's folder)`, found: [] };
 	const quest = sources.quests.find((open) => open.id === id);
 	if (!quest)
-		return { tried: `the file ${file} (its quest ${id} isn't open)`, found: [] };
+		return {
+			tried: `the file ${file} (its quest ${id} isn't open)`,
+			found: [],
+		};
 	return {
 		tried: `the file ${file}`,
 		found: [fromQuest(quest, "the file sits in its folder")],
