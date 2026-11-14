@@ -465,11 +465,36 @@ const TERMINATING_SIGNALS: readonly NodeJS.Signals[] = ["SIGHUP", "SIGTERM"];
 
 /**
  * How long a dying process gets to finish on its own before the
- * signal is sent again. pi's own shutdown normally ends the process
- * within a second of a hang-up, so this only matters when nothing else
- * is going to.
+ * signal ends it. pi's own shutdown ends an idle pi in about 200 ms;
+ * at the 13 November reboot the two held pis that finished took 0.9
+ * and 1.9 s, and 60 more were still going when the account's manager
+ * ran out of its 5 s stop and was killed whole. Two seconds leaves
+ * the rest of that 5 s to the holders and terminals around each pi.
  */
-const REFIRE_GRACE_MS = 3_000;
+const ENDING_GRACE_MS = 2_000;
+
+/** What ending a process by a signal needs of it: `process`, in life. */
+interface SignalTarget {
+	pid: number;
+	removeAllListeners: (signal: NodeJS.Signals) => void;
+	kill: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/**
+ * End the process by a signal's own default action. pi keeps its
+ * listener while it shuts down, and a second signal only finds that
+ * shutdown already under way, so sending it again with pi listening
+ * would change nothing. Every listener goes first. What pi writes as
+ * it goes (the session's log, the record stamped above) is written
+ * synchronously, so nothing it has said is lost.
+ */
+export function endBySignal(
+	signal: NodeJS.Signals,
+	target: SignalTarget = process,
+): void {
+	target.removeAllListeners(signal);
+	target.kill(target.pid, signal);
+}
 
 /**
  * The stamp's state, held on `globalThis` rather than in this module.
@@ -510,7 +535,7 @@ const liveSignalStampDeps: SignalStampDeps = {
 		// process open. A process that exits on its own never sees it.
 		setTimeout(fire, delayMs).unref?.();
 	},
-	raise: (signal) => process.kill(process.pid, signal),
+	raise: (signal) => endBySignal(signal),
 };
 
 /**
@@ -525,11 +550,11 @@ const liveSignalStampDeps: SignalStampDeps = {
  * recorded reliably. The write is synchronous for the same reason.
  *
  * Listening for SIGHUP switches off Node's default exit, so after the
- * stamp the listeners remove themselves and the signal is re-raised
- * after a grace period. If pi has already exited, nothing happens. If
- * it is still around, the signal now reaches whatever would have had
- * it without us, so installing this can never keep alive a process
- * that should have died.
+ * stamp the listeners remove themselves, and after a grace period the
+ * signal ends the process by its default action. If pi has already
+ * exited, nothing happens. If its shutdown is still going, the process
+ * dies of the signal as it would with no listener at all, so a
+ * shutdown that stalls can't hold up the account's stop.
  */
 export function installSignalStamp(
 	deps: SignalStampDeps = liveSignalStampDeps,
@@ -549,7 +574,7 @@ export function installSignalStamp(
 				} catch {}
 			}
 			removeSignalStamp();
-			deps.schedule(() => deps.raise(signal), REFIRE_GRACE_MS);
+			deps.schedule(() => deps.raise(signal), ENDING_GRACE_MS);
 		});
 	}
 	for (const [signal, listener] of listeners) process.on(signal, listener);

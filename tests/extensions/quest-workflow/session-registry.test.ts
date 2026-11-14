@@ -407,8 +407,7 @@ describe("stamping a session a signal takes away", () => {
 	it("steps aside after a signal so it can never keep a dying pi alive", () => {
 		// Listening for SIGHUP switches off Node's default exit. Once the
 		// record is stamped the listener goes, and if the process is still
-		// around after a grace period the signal is sent again, now to
-		// whatever default or handler would have had it without us.
+		// around after a grace period the signal ends it.
 		const before = process.listenerCount("SIGHUP");
 		installSignalStamp(deps);
 		process.emit("SIGHUP");
