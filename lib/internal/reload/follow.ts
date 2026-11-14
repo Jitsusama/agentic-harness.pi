@@ -205,7 +205,6 @@ export interface Moved {
 /** Stops watching. */
 export type Unwatch = () => void;
 
-/** Whether a package root is a link, as an install of whole versions is. */
 /**
  * The move of an install named by a link onto another version than the
  * one `running` is, read from the link itself rather than heard, or
@@ -216,20 +215,25 @@ export type Unwatch = () => void;
  */
 export function missedMove(running: string, link: string): Moved | undefined {
 	if (!isLink(link)) return undefined;
-	if (installOfVersion(running) !== dirname(link)) return undefined;
 	let now: string;
 	let was: string;
+	let install: string;
 	try {
 		now = realpathSync(link);
 		was = realpathSync(running);
+		install = realpathSync(dirname(link));
 	} catch {
 		// A link onto nothing, or a version gone: nothing to come up to.
 		return undefined;
 	}
+	// Both by their real paths: node names the running code so, while the
+	// settings name the link as written, through any linked folder above it.
+	if (installOfVersion(was) !== install) return undefined;
 	if (now === was) return undefined;
 	return { root: link, from: basename(running), to: basename(now) };
 }
 
+/** Whether a package root is a link, as an install of whole versions is. */
 function isLink(root: string): boolean {
 	try {
 		return lstatSync(root).isSymbolicLink();
