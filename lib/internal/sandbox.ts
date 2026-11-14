@@ -77,6 +77,7 @@ import {
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
 import { recordedInShell } from "./fence-log.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
+import { seedOwnHomes } from "./fence-seed.ts";
 import { fenceSshConfig } from "./fence-ssh.ts";
 import {
 	type CloudGrant,
@@ -717,6 +718,9 @@ export function wrapFor(
 			};
 			makeFoldersFirst(home);
 			const own = sandboxFolders(home).cache;
+			// Never waited on: a command started first finds what the own
+			// homes held already.
+			void seedOwnHomes(home, own);
 			const made = {
 				bwrap: sandbox.bwrap,
 				landrun: sandbox.landrun,

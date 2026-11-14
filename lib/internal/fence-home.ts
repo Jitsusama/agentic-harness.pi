@@ -108,7 +108,9 @@ const CACHES_WITHIN = [
  * The programs given a home of their own in the sandbox's cache rather
  * than theirs in the home folder, read-only inside, since they write
  * there as they work: cargo's registry and gradle's caches. The
- * person's cargo settings still apply, read as an ancestor's.
+ * person's cargo settings still apply, read as an ancestor's, and
+ * cargo's home starts with copies of what the person's cargo fetched
+ * (`fence-seed.ts`).
  */
 export const OWN_HOMES = [
 	["CARGO_HOME", "cargo"],
