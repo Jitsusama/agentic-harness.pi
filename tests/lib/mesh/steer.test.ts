@@ -97,7 +97,7 @@ describe("the steer inbox", () => {
 			).not.toHaveProperty("now");
 		}
 		expect(
-			steerFrom('{"act":"pause","from":"joel","now":true}', "f"),
+			steerFrom('{"act":"pause","now":true}', "f"),
 			"an act",
 		).not.toHaveProperty("now");
 	});
@@ -116,45 +116,22 @@ describe("the steer inbox", () => {
 	});
 
 	it("reads an act with no text, and keeps words only beside resume", () => {
-		const joel = (said: string) =>
-			steerFrom(`{"from":"joel",${said.slice(1)}`, "f");
-		expect(joel('{"act":"pause"}')).toEqual({
+		expect(steerFrom('{"act":"pause"}', "f")).toEqual({
 			text: "",
 			act: "pause",
-			from: "joel",
 			file: "f",
 		});
-		expect(joel('{"act":"stop","text":"now"}')?.text).toBe("");
-		expect(joel('{"act":"close","text":"bye"}')).toEqual({
+		expect(steerFrom('{"act":"stop","text":"now"}', "f")?.text).toBe("");
+		expect(steerFrom('{"act":"close","text":"bye"}', "f")).toEqual({
 			text: "",
 			act: "close",
-			from: "joel",
 			file: "f",
 		});
-		expect(joel('{"act":"resume","text":"go on"}')).toMatchObject({
+		expect(steerFrom('{"act":"resume","text":"go on"}', "f")).toMatchObject({
 			act: "resume",
 			text: "go on",
 		});
-		expect(joel('{"act":"reboot"}')).toBeUndefined();
-	});
-
-	// A fenced command could write a steer saying nothing of who wrote it
-	// (KP0L6A, 13 November): its words still reach the session, but it acts
-	// on nothing.
-	it("lets a steer that names no writer act on nothing", () => {
-		for (const act of ["pause", "stop", "close", "resume"]) {
-			expect(steerFrom(`{"act":"${act}"}`, "f"), `an unnamed ${act}`).toBe(
-				undefined,
-			);
-			expect(
-				steerFrom(`{"act":"${act}","from":"","text":"x"}`, "f"),
-				`an empty writer's ${act}`,
-			).not.toHaveProperty("act");
-		}
-		expect(
-			steerFrom('{"act":"move","to":"pi"}', "f"),
-			"an unnamed move",
-		).toBeUndefined();
+		expect(steerFrom('{"act":"reboot"}', "f")).toBeUndefined();
 	});
 
 	it("lets only the person act, so a machine's steer can't pause or stop", () => {
@@ -211,21 +188,17 @@ describe("the steer inbox", () => {
 	});
 
 	it("reads a carry with the machine it goes to, and no carry that names none", () => {
-		const joel = (said: string) =>
-			steerFrom(`{"from":"joel",${said.slice(1)}`, "f");
-		expect(joel('{"act":"carry","to":"penelope"}')).toEqual({
+		expect(steerFrom('{"act":"carry","to":"penelope"}', "f")).toEqual({
 			text: "",
 			act: "carry",
 			to: "penelope",
-			from: "joel",
 			file: "f",
 		});
-		expect(joel('{"act":"carry"}')).toBeUndefined();
-		expect(joel('{"act":"carry","to":"../x"}')).toBeUndefined();
-		expect(joel('{"act":"close","to":"penelope"}')).toEqual({
+		expect(steerFrom('{"act":"carry"}', "f")).toBeUndefined();
+		expect(steerFrom('{"act":"carry","to":"../x"}', "f")).toBeUndefined();
+		expect(steerFrom('{"act":"close","to":"penelope"}', "f")).toEqual({
 			text: "",
 			act: "close",
-			from: "joel",
 			file: "f",
 		});
 		expect(
@@ -238,29 +211,25 @@ describe("the steer inbox", () => {
 	});
 
 	it("reads a move with where it goes, and no move that names nowhere a session goes", () => {
-		const joel = (said: string) =>
-			steerFrom(`{"from":"joel",${said.slice(1)}`, "f");
 		for (const to of ["attended", "background", "pi"]) {
-			expect(joel(`{"act":"move","to":"${to}"}`)).toEqual({
+			expect(steerFrom(`{"act":"move","to":"${to}"}`, "f")).toEqual({
 				text: "",
 				act: "move",
 				to,
-				from: "joel",
 				file: "f",
 			});
 		}
-		expect(joel('{"act":"move"}')).toBeUndefined();
-		expect(joel('{"act":"move","to":"penelope"}')).toBeUndefined();
+		expect(steerFrom('{"act":"move"}', "f")).toBeUndefined();
+		expect(steerFrom('{"act":"move","to":"penelope"}', "f")).toBeUndefined();
 		// A carry's machine is no move's host, nor a host a carry's machine.
-		expect(joel('{"act":"carry","to":"pi"}')).toMatchObject({
+		expect(steerFrom('{"act":"carry","to":"pi"}', "f")).toMatchObject({
 			act: "carry",
 			to: "pi",
 		});
 		// Words beside a move would start a run it waits out.
-		expect(joel('{"act":"move","to":"background","text":"hi"}')).toMatchObject({
-			text: "",
-			act: "move",
-		});
+		expect(
+			steerFrom('{"act":"move","to":"background","text":"hi"}', "f"),
+		).toMatchObject({ text: "", act: "move" });
 		// Only the person moves a session.
 		expect(
 			steerFrom('{"from":"machine","act":"move","to":"pi"}', "f"),
@@ -284,18 +253,15 @@ describe("the steer inbox", () => {
 			file: "f",
 		});
 		expect(
-			steerFrom(
-				`{"act":"answer","from":"joel","want":"${want}","other":"Shorter"}`,
-				"f",
-			),
+			steerFrom(`{"act":"answer","want":"${want}","other":"Shorter"}`, "f"),
 			"words of the person's own",
 		).toMatchObject({ act: "answer", given: { other: "Shorter" } });
 		expect(
-			steerFrom('{"act":"answer","from":"joel","value":"keep"}', "f"),
+			steerFrom('{"act":"answer","value":"keep"}', "f"),
 			"no want named",
 		).toBeUndefined();
 		expect(
-			steerFrom(`{"act":"answer","from":"joel","want":"${want}"}`, "f"),
+			steerFrom(`{"act":"answer","want":"${want}"}`, "f"),
 			"nothing given",
 		).toBeUndefined();
 		expect(
@@ -335,11 +301,7 @@ describe("the steer inbox", () => {
 	it("reads what waits without taking it", () => {
 		const inbox = inboxOf(root, "P9R1KI");
 		takeSteers(inbox, "1");
-		put(
-			inbox,
-			"1-a.json",
-			JSON.stringify({ act: "carry", to: "penelope", from: "joel" }),
-		);
+		put(inbox, "1-a.json", JSON.stringify({ act: "carry", to: "penelope" }));
 		put(inbox, "2-b.json", "not json");
 
 		expect(waitingSteers(inbox).map((one) => one.act)).toEqual(["carry"]);

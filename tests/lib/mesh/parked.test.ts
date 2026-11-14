@@ -159,14 +159,10 @@ describe("waking a parked peer", () => {
 });
 
 /** Writes a steer into an address's inbox as a writer does: renamed in. */
-/** A steer from Joel, as the launcher writes it, naming him. */
 function steer(root: string, address: string, body: object): void {
 	const inbox = inboxOf(root, address);
 	mkdirSync(inbox, { recursive: true });
-	writeFileSync(
-		join(inbox, "1-a.json.tmp"),
-		JSON.stringify({ from: "joel", ...body }),
-	);
+	writeFileSync(join(inbox, "1-a.json.tmp"), JSON.stringify(body));
 	renameSync(join(inbox, "1-a.json.tmp"), join(inbox, "1-a.json"));
 }
 

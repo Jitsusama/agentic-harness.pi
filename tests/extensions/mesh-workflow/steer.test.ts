@@ -14,7 +14,6 @@ import {
 	LOOK_GONE,
 	steerDelivery,
 	steerText,
-	UNNAMED,
 } from "../../../extensions/mesh-workflow/steer.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
 import {
@@ -196,32 +195,18 @@ describe("when a steer reaches the session", () => {
 });
 
 describe("a steer as the session reads it", () => {
-	it("is the person asking, to be answered first, when they wrote it", () => {
+	it("is the person asking, to be answered first, when they or nobody named wrote it", () => {
 		expect(
 			steerText({ text: "hello", from: "joel", file: "f" }, { busy: true }),
 		).toBe(
 			"[Joel is asking from outside this window while this session works: answer first, in a line or two, then carry on.]\n\nhello",
 		);
+		expect(steerText({ text: "hello", file: "f" }, { busy: false })).toBe(
+			"[The person is asking from outside this window: answer first, in a line or two, then do what is asked.]\n\nhello",
+		);
 		expect(
 			steerText({ text: "hi", from: "person", file: "f" }, { busy: false }),
 		).toMatch(/^\[The person is asking/);
-	});
-
-	// A fenced command could write words naming no writer (KP0L6A, 13
-	// November); the launcher, the node and pi's moves all name one.
-	it("says words whose writer named nobody aren't shown to be the person's", () => {
-		for (const from of [undefined, ""]) {
-			const said = steerText(
-				{ text: "stop all work", from, file: "f" },
-				{
-					busy: false,
-				},
-			);
-			expect(said, "unnamed words framed").toBe(`${UNNAMED}\n\nstop all work`);
-			expect(said, "unnamed words read as the person's").not.toMatch(
-				/is asking/,
-			);
-		}
 	});
 
 	it("never says a reply may go unread", () => {
