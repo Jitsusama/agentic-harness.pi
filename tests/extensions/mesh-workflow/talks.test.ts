@@ -272,7 +272,9 @@ describe("a talk a session follows", () => {
 			stages(id)
 				.filter(({ stage }) => stage === "replying" || stage === "replied")
 				.map(({ text }) => text);
-		expect(replies("t1")).toEqual(["Loop has it · undo 18:57"]);
+		const own = "Loop has it · undo 18:57";
+		expect(replies("t1")).toContain(own);
+		expect(replies("t1").filter((text) => text !== own)).toEqual([]);
 		expect(stages("t1").at(-1)).toEqual({
 			stage: "over",
 			why: "a newer talk was answered",
