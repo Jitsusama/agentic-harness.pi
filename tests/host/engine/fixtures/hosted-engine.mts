@@ -31,6 +31,10 @@ import { createEngine } from "../../../../host/engine/engine.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import {
+	WAKE_ENV,
+	writeParked,
+} from "../../../../lib/internal/session/park.ts";
+import {
 	LONG_CACHE_LIFETIME_MS,
 	warmingDelayMs,
 } from "../../../../lib/internal/cache-warming.ts";
@@ -259,6 +263,22 @@ function writeDueCarry(sessionId: string): void {
 	});
 }
 
+/** The marker park-workflow writes as its conversation parks, naming the wake file the engine gave it. */
+function writeMarker(host: SessionHost, id: string): void {
+	const entry = readEntry();
+	const wake = host.env(id).snapshot()[WAKE_ENV];
+	if (wake === undefined) throw new Error(`${id} was given no wake file`);
+	writeParked({
+		session: id,
+		sessionFile: entry.file,
+		cwd: entry.cwd,
+		addresses: [],
+		parkedAt: new Date().toISOString(),
+		pid: process.pid,
+		wake,
+	});
+}
+
 /** Until a parked warm went out past the `before` requests already seen, and was kept, or failed. */
 async function warmed(before: number): Promise<void> {
 	const failed = () => reported.some((line) => line.includes("Parked warm"));
@@ -339,6 +359,7 @@ const scenarios: Record<string, Scenario> = {
 		run: async (engine, host) => {
 			const id = await open(engine, { first: "hi" });
 			await idle(engine, id);
+			writeMarker(host, id);
 			host.park(id);
 			// The park starts a turn after it is asked for.
 			await new Promise((later) => setImmediate(later));
