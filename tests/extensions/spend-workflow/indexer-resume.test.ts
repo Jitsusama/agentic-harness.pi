@@ -14,11 +14,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { indexSessionLogs } from "../../../extensions/spend-workflow/indexer.ts";
+import { RESUME_TEXT } from "../../../lib/compaction/resume.ts";
 import {
 	openLedgerReader,
 	openTurnStore,
 } from "../../../lib/core/observability/index.ts";
-import { RESUME_TEXT } from "../../../lib/compaction/resume.ts";
 
 let scratch: string | null = null;
 

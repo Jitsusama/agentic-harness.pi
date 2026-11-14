@@ -92,14 +92,18 @@ export function writeCarry(state: ScanState): CarriedScan {
 	});
 	const levels = tabled(ids, state.levels, same);
 	const bookings = tabled(ids, state.bookings, same);
-	const states = tabled(ids, state.branches.soFar(), (branch): WrittenState => ({
-		...branch,
-		seen: [...branch.seen],
-		awaiting:
-			branch.awaiting === null
-				? null
-				: (awaitingAt.get(branch.awaiting) ?? { ...branch.awaiting }),
-	}));
+	const states = tabled(
+		ids,
+		state.branches.soFar(),
+		(branch): WrittenState => ({
+			...branch,
+			seen: [...branch.seen],
+			awaiting:
+				branch.awaiting === null
+					? null
+					: (awaitingAt.get(branch.awaiting) ?? { ...branch.awaiting }),
+		}),
+	);
 	return {
 		version: CARRY_VERSION,
 		ids,
@@ -188,9 +192,7 @@ export function readCarry(value: unknown): ScanState | undefined {
 		lastModel: value.lastModel,
 		levels: untabled(value.ids, value.levelTable, value.levels),
 		bookings: untabled(value.ids, value.bookingTable, value.bookings),
-		branches: new BranchWalk(
-			untabled(value.ids, stateTable, value.states),
-		),
+		branches: new BranchWalk(untabled(value.ids, stateTable, value.states)),
 		unsettled,
 	};
 }
