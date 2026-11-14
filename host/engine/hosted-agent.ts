@@ -194,6 +194,11 @@ export class HostedAgent {
 	 * something began before it, as an extension's start may.
 	 */
 	private cursor: number | undefined;
+	/**
+	 * The recovery, once begun: by the host, or by a prompt that came
+	 * first, so each caller shares the one.
+	 */
+	private recovery: Promise<{ readonly settled: Promise<void> }> | undefined;
 	private mirrorLine: Promise<unknown> = Promise.resolve();
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
@@ -346,7 +351,21 @@ export class HostedAgent {
 				"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
 			);
 		}
-		await this.runPromptMessages(normalizePromptInput(input, images));
+		const messages = normalizePromptInput(input, images);
+		if (!this.recovery) {
+			// A prompt before the recovery, as an extension's start sends, waits
+			// for it: durable refuses new words as busy while it holds a turn a
+			// restart cut off, and the words were lost (13 November).
+			await (await this.recover()).settled.catch(() => {
+				// The host reports the recovery's failure where it began it; the words go on.
+			});
+			if (this.active) {
+				// Another run began as this one waited: the words follow it, as pi queues them.
+				for (const message of messages) this.followUp(message);
+				return;
+			}
+		}
+		await this.runPromptMessages(messages);
 	}
 
 	async continue(): Promise<void> {
@@ -390,7 +409,12 @@ export class HostedAgent {
 	 * resolves once the carried-on run ends. A fresh conversation has
 	 * nothing to carry on and shows nothing.
 	 */
-	async recover(): Promise<{ readonly settled: Promise<void> }> {
+	recover(): Promise<{ readonly settled: Promise<void> }> {
+		this.recovery ??= this.recoverOnce();
+		return this.recovery;
+	}
+
+	private async recoverOnce(): Promise<{ readonly settled: Promise<void> }> {
 		// A run begun before the recovery, as by an extension's start, ends
 		// first: durable admits nothing new while a turn it holds is cut off.
 		while (this.active) await this.active.promise;
