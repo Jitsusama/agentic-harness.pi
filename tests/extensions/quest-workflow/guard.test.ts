@@ -91,7 +91,7 @@ describe("where a bash write lands", () => {
 	it("reads ~ as the home directory, not a folder in the cwd", async () => {
 		const state = await questInBuild();
 
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"bash",
 			{ command: "mkdir -p ~/src && echo hi > ~/src/foo.ts" },
@@ -107,7 +107,7 @@ describe("where a bash write lands", () => {
 		const state = await questInBuild();
 		const sibling = join(state.questsRoot, "QEST-20260101-OTHER1", "README.md");
 
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"edit",
 			{ path: sibling },
@@ -133,9 +133,11 @@ describe("a quest document read from the shell", () => {
 		const verdicts = () =>
 			questVerdicts(state, "bash", input, tmpRoot, noScratch);
 
-		expect(verdicts().map((v) => v.guard)).toContain("quest-document-read");
-		const first = applyQuestGuards(state, verdicts(), undefined, call);
-		const again = applyQuestGuards(state, verdicts(), undefined, call);
+		expect((await verdicts()).map((v) => v.guard)).toContain(
+			"quest-document-read",
+		);
+		const first = applyQuestGuards(state, await verdicts(), undefined, call);
+		const again = applyQuestGuards(state, await verdicts(), undefined, call);
 
 		expect(first?.reason).toContain(
 			"`quest show` with id PLAN-20261025-QR647O",
@@ -154,14 +156,14 @@ describe("a quest document read from the shell", () => {
 		);
 		const byScript = { ...noScratch, byScript: true };
 
-		const whole = questVerdicts(
+		const whole = await questVerdicts(
 			state,
 			"read",
 			{ path: plan },
 			tmpRoot,
 			byScript,
 		);
-		const shell = questVerdicts(
+		const shell = await questVerdicts(
 			state,
 			"bash",
 			{ command: `grep -c "^- " ${plan}` },
@@ -175,7 +177,7 @@ describe("a quest document read from the shell", () => {
 
 	it("still has a script's write judged by the gates that judge writes", async () => {
 		const state = await questInBuild();
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"bash",
 			{ command: "mkdir -p ~/src && echo hi > ~/src/foo.ts" },
@@ -320,12 +322,20 @@ describe("the quest gates under the policy", () => {
 		const linked = join(tmpRoot, "linked");
 		await git(repoRoot, "worktree", "add", "-q", "-b", "linked", linked);
 		const write = { path: join(linked, "src/foo.ts") };
-		const before = questVerdicts(state, "write", write, linked, noScratch);
+		const before = await questVerdicts(
+			state,
+			"write",
+			write,
+			linked,
+			noScratch,
+		);
 
 		applyQuestGuards(state, before);
 
 		expect(reports.map((r) => r.kind)).toEqual(["fixed"]);
-		expect(questVerdicts(state, "write", write, linked, noScratch)).toEqual([]);
+		expect(
+			await questVerdicts(state, "write", write, linked, noScratch),
+		).toEqual([]);
 	});
 
 	it("notes what it lets through outside every tree, and nothing it refused", async () => {
@@ -352,7 +362,7 @@ describe("the quest gates under the policy", () => {
 		const state = await questInBuild();
 		const loose = join(tmpRoot, "loose");
 
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"bash",
 			{ command: `echo a > ${loose}/a.txt && echo b > ${loose}/b.txt` },
@@ -374,7 +384,7 @@ describe("the quest gates under the policy", () => {
 
 		const result = applyQuestGuards(
 			state,
-			questVerdicts(state, "write", write, repoRoot, noScratch),
+			await questVerdicts(state, "write", write, repoRoot, noScratch),
 		);
 
 		expect(result).toBeUndefined();

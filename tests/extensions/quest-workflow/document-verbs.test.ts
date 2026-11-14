@@ -574,7 +574,7 @@ describe("retitle", () => {
 describe("hand edits of owned front matter", () => {
 	it("are refused with the verb that owns the field", async () => {
 		const { state, planPath } = await questWithPlan();
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"edit",
 			{
@@ -589,7 +589,7 @@ describe("hand edits of owned front matter", () => {
 
 	it("let everything else in the file through", async () => {
 		const { state, planPath } = await questWithPlan();
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"edit",
 			{
@@ -605,7 +605,7 @@ describe("hand edits of owned front matter", () => {
 
 	it("catch a whole-file write that drops the stage", async () => {
 		const { state, planPath } = await questWithPlan();
-		const verdicts = questVerdicts(
+		const verdicts = await questVerdicts(
 			state,
 			"write",
 			{ path: planPath, content: "# Verb Plan\n" },
