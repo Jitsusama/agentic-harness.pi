@@ -131,6 +131,9 @@ may import from here, and any of it may change without notice.
   files and programs' entries whose settings name a command, with
   the caches within them bound back and the programs given a home of
   their own in the sandbox's cache.
+- **`fence-seed.ts`**: those own homes seeded from what the person's
+  programs already downloaded (cargo's crates, index and git clones),
+  copied one way by reflink, again at most every ten minutes.
 - **`fence-copy.ts`**: where the fence keeps the copies it binds over
   files inside, pi's folder in the runtime folder, written when they
   change.

@@ -116,6 +116,7 @@ lib/core/result/spill.ts:module 1 Counts staging files only to make each name un
 lib/core/web/mermaid.ts:module 1 The Mermaid library's source from its one fixed address, fetched once, the same text for every conversation (2QZBX9, 2026-11-13).
 lib/google/apis/client.ts:module 1 The googleapis library, required once; its one global option is a request timeout, and every call passes its own conversation's auth, so one copy serves every conversation (2QZBX9, 2026-11-13).
 lib/internal/calls.ts:module 1 Whether a-call-is-on was said to be missing from the PATH, once a process: the program and the PATH searched are the machine's, never a conversation's (2QZBX9, 2026-11-13).
+lib/internal/fence-seed.ts:module 1 When the fence's own homes in the sandbox cache were last seeded, keyed by that cache folder, which is the person's and the same for every conversation a host runs; one walk of the person's registry each ten minutes serves them all (85PKB2, 2026-11-14).
 lib/internal/offload-exemption.ts:module 1 What each nix-offload says it takes, keyed by its resolved path in the Nix store, which never changes, so the answer is the machine's (2QZBX9, 2026-11-13).
 lib/internal/paths.ts:module 1 The account's own macOS temporary folder, asked once of getconf; it is per login, never a conversation's TMPDIR (2QZBX9, 2026-11-13).
 lib/internal/people/resolvers/slack.ts:module 1 The Slack client built from the machine's one stored token, the same for every conversation; it holds no conversation's state (2QZBX9, 2026-11-13).
