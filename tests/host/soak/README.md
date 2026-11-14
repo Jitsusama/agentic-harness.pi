@@ -145,10 +145,19 @@ It prints a line a checkpoint and the report as one JSON line after
   `keyToAccepted` and `keyToDrawn` at most 200 ms, with `keyToDrawn`
   failing too when over 1% of its keys are `unshown`. The whole turn's
   `paired` is reported beside them, unjudged; the bursts are judged
-  from their checkpoints and `burst`.
+  from their checkpoints and `burst`. `keys`, unjudged, sets each
+  steady key beside plain pi's same one, timed from sending its RPC
+  prompt to the same entry the hosted key is timed to, each
+  conversation's first key (`first`) apart from the rest (`later`),
+  with `hosted`, `plain`, and `paired`, hosted less plain. It tells
+  what the host adds to a key from what pi itself spends, a first
+  prompt above all. Plain pi is asked its state before its first
+  prompt, as a hosted conversation is open before its first key, so
+  neither side's start counts. Plain pi has no screen, so a drawing
+  doesn't pair.
 - `turnsTimed`: every hosted turn's own times, when its key, prompt
   and answer were, plain pi's beside them and its key's when a viewer
-  typed it, with how it woke when it was the first key since, whether
+  typed it, with plain pi's own key for the same turn, with how it woke when it was the first key since, whether
   it was in a burst, and what each of its steps cost, so a reading the
   report doesn't make can still be made.
 - `staggerMs`: the span the first keys were staggered through.

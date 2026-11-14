@@ -98,6 +98,8 @@ export interface TurnRecord {
 	readonly keyAt?: number;
 	readonly keyToAcceptedMs?: number;
 	readonly keyToDrawnMs?: number;
+	/** Plain pi's time from being sent the same prompt to its entry. */
+	readonly plainKeyToAcceptedMs?: number;
 	readonly woke?: string;
 	/** Typed within a second of a key into another conversation. */
 	readonly burst?: true;
@@ -369,15 +371,84 @@ function keyTimes(): { accepted: number[]; shown: number[]; unshown: number } {
 }
 
 /**
+ * Plain pi's key for each turn it was sent, by tag: from the prompt's
+ * sending to its entry, the same entry a hosted key is timed to, so a
+ * hosted key pairs with plain pi's own. Plain pi has no screen, so this
+ * is all of a key it can be timed for.
+ */
+export function plainKeys(
+	turns: readonly TurnTime[],
+	sent: ReadonlyMap<string, number>,
+): Map<string, number> {
+	return new Map(
+		turns.flatMap(({ tag, promptAt }) => {
+			const at = sent.get(tag);
+			return at === undefined ? [] : [[tag, promptAt - at]];
+		}),
+	);
+}
+
+/** Keys hosted and plain, and what each hosted one cost over plain pi's same key. */
+export interface KeysPaired {
+	readonly hosted: Spread;
+	readonly plain: Spread;
+	readonly paired: PairedCost;
+}
+
+/**
+ * The keys outside a wake or a burst, each conversation's first apart
+ * from the rest, since a first prompt runs work later ones don't, and
+ * each paired against plain pi's same key, to tell what the host adds
+ * from what pi itself spends.
+ */
+export interface KeyPairing {
+	readonly first: KeysPaired;
+	readonly later: KeysPaired;
+}
+
+/** Whether `tag` is a conversation's first turn. */
+function isFirst(tag: string): boolean {
+	return tag.endsWith("-t0");
+}
+
+/** The steady keys of `records`, first and later apart, each paired with plain pi's. */
+export function pairKeys(records: readonly TurnRecord[]): KeyPairing {
+	const steady = records.filter(
+		(one) =>
+			one.keyToAcceptedMs !== undefined &&
+			one.woke === undefined &&
+			one.burst === undefined,
+	);
+	const of = (some: readonly TurnRecord[]): KeysPaired => {
+		const costs = some.flatMap(({ keyToAcceptedMs, plainKeyToAcceptedMs }) =>
+			keyToAcceptedMs === undefined || plainKeyToAcceptedMs === undefined
+				? []
+				: [keyToAcceptedMs - plainKeyToAcceptedMs],
+		);
+		return {
+			hosted: spreadOf(some.flatMap((one) => one.keyToAcceptedMs ?? [])),
+			plain: spreadOf(some.flatMap((one) => one.plainKeyToAcceptedMs ?? [])),
+			paired: { ...spreadOf(costs), unpaired: some.length - costs.length },
+		};
+	};
+	return {
+		first: of(steady.filter((one) => isFirst(one.tag))),
+		later: of(steady.filter((one) => !isFirst(one.tag))),
+	};
+}
+
+/**
  * Each hosted turn with plain pi's time for the same seeded turn, by its
- * tag, and its key's times when a viewer typed it, so a reading the
- * report doesn't make can still be made from it.
+ * tag, and its key's times when a viewer typed it, beside plain pi's own
+ * key when it was timed, so a reading the report doesn't make can still
+ * be made from it.
  */
 export function turnRecords(
 	hosted: readonly TurnTime[],
 	plain: readonly Latency[],
 	typed: ReadonlyMap<string, Typed>,
 	steps: readonly PairedStep[] = [],
+	plainKeyMs: ReadonlyMap<string, number> = new Map(),
 ): TurnRecord[] {
 	const plainMs = new Map(plain.map(({ tag, ms }) => [tag, ms]));
 	const together = burstOf(typed);
@@ -387,6 +458,7 @@ export function turnRecords(
 	return hosted.map(({ tag, promptAt, answerAt }) => {
 		const keys = typed.get(tag);
 		const paired = plainMs.get(tag);
+		const plainKey = plainKeyMs.get(tag);
 		const stepCostsMs = costs.get(tag);
 		return {
 			tag,
@@ -400,6 +472,7 @@ export function turnRecords(
 			...(keys?.shownAt === undefined
 				? {}
 				: { keyToDrawnMs: keys.shownAt - keys.keyAt }),
+			...(plainKey === undefined ? {} : { plainKeyToAcceptedMs: plainKey }),
 			...(keys?.woke === undefined ? {} : { woke: keys.woke }),
 			...(together.has(tag) ? { burst: true } : {}),
 			...(stepCostsMs === undefined ? {} : { stepCostsMs }),

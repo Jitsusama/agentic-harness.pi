@@ -86,8 +86,10 @@ import {
 	growthOf,
 	latencies,
 	pairedCost,
+	pairKeys,
 	pairSteps,
 	parityOf,
+	plainKeys,
 	type ScreenSplit,
 	type SlowKey,
 	type Spread,
@@ -313,8 +315,11 @@ const turnsTimed = turnRecords(
 	plainLatencies,
 	typedAt,
 	pairing.steps,
+	plainKeys(plain.logs.flatMap(turnTimes), plain.sent),
 );
 const paired = pairedCost(turnsTimed);
+const keys = pairKeys(turnsTimed);
+say(`keys hosted and plain ${JSON.stringify(keys)}`);
 const report = {
 	conversations: counts.length,
 	pace,
@@ -345,6 +350,7 @@ const report = {
 		hosted: hostedLatency.hosted,
 		plain: spreadOf(plainLatencies.map((one) => one.ms)),
 		paired,
+		keys,
 		steps,
 		screen: hostedLatency.screen,
 		bar: barOf(steps, hostedLatency.screen),
@@ -901,6 +907,8 @@ function lastOf(file: string): string {
 async function runPlain(sealed: Seal): Promise<{
 	readonly logs: readonly Record<string, unknown>[][];
 	readonly errors: readonly string[];
+	/** When each turn's prompt was sent, by tag, in ms since the epoch. */
+	readonly sent: ReadonlyMap<string, number>;
 }> {
 	const agentDir = join(sealed.home, ".pi", "agent");
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -926,6 +934,7 @@ async function runPlain(sealed: Seal): Promise<{
 		).filter((pair): pair is [string, string] => typeof pair[1] === "string"),
 	);
 	const cwds = counts.map(() => workingFolder(work));
+	const sent = new Map<string, number>();
 	const ran = await Promise.all(
 		counts.map(async (count, index) => {
 			const log = join(out, `plain-${index}.rpc.log`);
@@ -939,6 +948,10 @@ async function runPlain(sealed: Seal): Promise<{
 				log,
 			);
 			await waited(staggerOf(index, staggerMs));
+			// Answered once pi listens, as a hosted conversation is open
+			// before its first key, so a first prompt's time leaves out pi's
+			// start on either side.
+			await client.request({ type: "get_state" });
 			for (const turn of turnsOf(index, count)) {
 				// A job's report starts a turn of its own once the job ends, so
 				// the next prompt waits for that turn too, as the hosted side
@@ -949,6 +962,7 @@ async function runPlain(sealed: Seal): Promise<{
 						: undefined;
 				// Awaited below; a failure before then is its to report.
 				reported?.catch(() => undefined);
+				sent.set(turn.tag, Date.now());
 				await tried(client.prompt(turn.prompt, turnMs), `plain ${turn.tag}`);
 				if (reported)
 					await tried(reported, `plain ${turn.tag}'s job report never settled`);
@@ -966,6 +980,7 @@ async function runPlain(sealed: Seal): Promise<{
 	return {
 		logs: ran.map((one) => one.entries),
 		errors: ran.map((one) => one.errors),
+		sent,
 	};
 }
 
