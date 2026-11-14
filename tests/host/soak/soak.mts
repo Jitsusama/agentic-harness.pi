@@ -12,11 +12,15 @@
  * parked, and each is woken again, by a window, by the mesh or by the
  * next key typed, in turn; with --burst every one is woken by a window
  * at the same moment instead, as a host's conversations wake together
- * after a switch, and the host is weighed again once all have. Then plain pi takes the same turns, one RPC
- * process a conversation, all at once as the host's were.
+ * after a switch, and the host is weighed again once all have. With
+ * --restart, once the turns are done every conversation parks, the host
+ * restarts on the same state, and the fresh host is timed to its socket
+ * answering and to every conversation woken by a window at once. Then
+ * plain pi takes the same turns, one RPC process a conversation, all at
+ * once as the host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--burst] [--profile] [--answer-ms P50[,P90]]
+ *     [--no-park] [--burst] [--restart] [--profile] [--answer-ms P50[,P90]]
  *     [--tool-ms P50[,P90]] [--rounds P50[,P90]] [--out DIR]
  *
  * With --profile each side's node writes a CPU profile, and the report
@@ -186,6 +190,20 @@ interface WindowWake {
 	readonly drawnMs: number;
 }
 
+/**
+ * A host restarted with every conversation parked: how long the fresh
+ * host took from its start to its socket answering, how many it held
+ * parked then, each one's wake by a window, all at once, and its loop
+ * through them, with `allAnsweredMs` from its start to the last idle.
+ */
+interface Restart {
+	readonly toSocketMs: number;
+	readonly parkedAtStart: number;
+	readonly wakes: readonly WindowWake[];
+	readonly allAnsweredMs: number;
+	readonly after: Weight;
+}
+
 /** A conversation of the run, on one side. */
 interface Conversation {
 	readonly index: number;
@@ -201,6 +219,7 @@ const { values } = parseArgs({
 		checkpoints: { type: "string", default: "8" },
 		"no-park": { type: "boolean", default: false },
 		burst: { type: "boolean", default: false },
+		restart: { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
@@ -303,6 +322,7 @@ const report = {
 	opened: hosted.opened,
 	checkpoints: hosted.checkpoints,
 	staggerMs,
+	...(hosted.restart ? { restart: hosted.restart } : {}),
 	slowKeys: slow,
 	slowSteps: spentIn(
 		slowSteps(pairing, MOST_SLOW_STEPS),
@@ -429,6 +449,7 @@ async function runHosted(sealed: Seal): Promise<{
 	/** The loop while every conversation opened, kept apart from the first checkpoint's. */
 	readonly opened: { readonly ms: number; readonly weight: Weight };
 	readonly checkpoints: readonly Checkpoint[];
+	readonly restart?: Restart;
 	readonly logs: readonly Record<string, unknown>[][];
 	readonly errors: string;
 	/** When the host's process started and ended, to lay its profile on the wall clock. */
@@ -437,12 +458,14 @@ async function runHosted(sealed: Seal): Promise<{
 	const agentFile = join(sealed.root, "soak-agent.json");
 	writeFileSync(agentFile, JSON.stringify(agent));
 	const startedAt = Date.now();
-	const host = await startScreenHost(
-		{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
-		packageDir ?? "",
-		also,
-		agentFile,
-	);
+	const start = () =>
+		startScreenHost(
+			{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
+			packageDir ?? "",
+			also,
+			agentFile,
+		);
+	const host = await start();
 	const work = folders(sealed);
 	const conversations: Conversation[] = [];
 	const opening = Date.now();
@@ -538,11 +561,67 @@ async function runHosted(sealed: Seal): Promise<{
 	await Promise.all(
 		conversations.map((one) => drive(host, one, barrier, byKey)),
 	);
+	const timed = values.restart
+		? await restarted(host, start, conversations, parkFolder)
+		: undefined;
+	const last = timed?.host ?? host;
 	const logs = conversations.map((one) => entriesOf(readOr(one.file)));
-	const errors = host.errors();
-	await host.stop();
+	const errors = timed ? `${host.errors()}${last.errors()}` : host.errors();
+	await last.stop();
 	const pinned = { startedAt, endedAt: Date.now() };
-	return { opened, checkpoints: weighings, logs, errors, pinned };
+	return {
+		opened,
+		checkpoints: weighings,
+		...(timed ? { restart: timed.restart } : {}),
+		logs,
+		errors,
+		pinned,
+	};
+}
+
+/**
+ * Park every conversation, restart the host as systemd does, and time
+ * the fresh host `start` gives on the same state: to its socket
+ * answering, then to every conversation woken by a window at once and
+ * answered, as a switch's restart wakes them. It answers with the fresh
+ * host, still running.
+ */
+async function restarted(
+	host: ScreenHost,
+	start: () => Promise<ScreenHost>,
+	conversations: readonly Conversation[],
+	parkFolder: string,
+): Promise<{ readonly host: ScreenHost; readonly restart: Restart }> {
+	mkdirSync(parkFolder, { recursive: true });
+	const switchFile = join(parkFolder, "switch");
+	const ids = conversations.map((one) => one.sessionId);
+	writeFileSync(switchFile, `${ids.join("\n")}\n`);
+	for (const id of ids)
+		await tried(host.parked(id, PARK_MS), `${id} didn't park to restart`);
+	writeFileSync(switchFile, "");
+	const code = await host.restart();
+	if (code !== 0) fault(`the host stopped with ${code} to restart`);
+	const starting = Date.now();
+	const next = await start();
+	const toSocketMs = Date.now() - starting;
+	const held = await next.list();
+	const parkedAtStart = ids.filter(
+		(id) => held.find((one) => one.sessionId === id)?.state === "parked",
+	).length;
+	if (parkedAtStart < ids.length)
+		fault(`the restarted host held ${parkedAtStart} of ${ids.length} parked`);
+	const wakes = await Promise.all(
+		conversations.map((one) => windowWake(next, one)),
+	);
+	const allAnsweredMs = Date.now() - starting;
+	const after = await next.weigh();
+	say(
+		`restart: socket in ${toSocketMs} ms, ${parkedAtStart} of ${ids.length} parked, all answered in ${allAnsweredMs} ms; ${burstOf(wakes, after)}`,
+	);
+	return {
+		host: next,
+		restart: { toSocketMs, parkedAtStart, wakes, allAnsweredMs, after },
+	};
 }
 
 /** How late and how busy the host's loop ran up to `weight`, as a line says it. */

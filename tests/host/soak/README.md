@@ -14,7 +14,10 @@ host adds, and records that drift from plain pi's.
   as a host's conversations do after a switch. Each conversation's first
   key waits a seeded draw within one median turn at the pace, on either
   side, so they start as a person comes to them rather than in the same
-  instant; with no pace they start at once.
+  instant; with no pace they start at once. Under `--restart`, once the
+  turns are done every conversation parks, the host restarts on the same
+  state, and the fresh host is timed to its socket answering and to
+  every conversation woken by a window at once.
 - `turns.ts`: the script, the same on every run of the same sizes, with
   reads, bash, background bash jobs and long answers among the echoes.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
@@ -33,7 +36,7 @@ host adds, and records that drift from plain pi's.
   stretch of wall time.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns,
   once with no parking, once parked and woken in turn, and once woken
-  in a burst, in `pnpm test:host`.
+  in a burst and through a restart, in `pnpm test:host`.
 
 ## Running a Week
 
@@ -95,6 +98,13 @@ It prints a line a checkpoint and the report as one JSON line after
   `afterBurst` weighs the host once all have woken, its loop figures
   covering the burst alone: the bar asks each wake to answer within 5 s
   and the loop never to run more than 1 s late.
+- `restart`, under `--restart`: a restart's time, read the same on
+  every architecture. `toSocketMs` runs from the fresh host's start to
+  its socket answering, `parkedAtStart` counts the conversations it held
+  parked then, a fault when not all, `wakes` times each one's wake by a
+  window, all opened at once, as `burstWakes` does, `allAnsweredMs` runs
+  from the start to the last of them idle, and `after` weighs the host
+  through them.
 - `heap`: whether the heap used, the heap total and RSS settle, awake
   and parked. A parked heap that still climbs in the run's later half is
   a leak; the awake heap grows with the conversations' history, so read
