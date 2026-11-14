@@ -277,8 +277,8 @@ describe("a grown log read from where the last pass stopped", () => {
 		}
 
 		expect(await rows(resumed)).toEqual(await rows(whole));
-		// Fifty passes, each opening a ledger, which a loaded machine takes
-		// past the default five seconds over.
+		// Two passes a line, each opening a ledger: on a loaded machine
+		// that runs past the default five seconds.
 	}, 30_000);
 
 	it("leaves an unended last line for the pass after it ends", async () => {
