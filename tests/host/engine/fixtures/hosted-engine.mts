@@ -305,12 +305,10 @@ const say =
 	(text: string) =>
 	(
 		_context: unknown,
-		options: { apiKey?: unknown },
-		_state: unknown,
-		model?: { headers?: Record<string, unknown> },
+		options: { apiKey?: unknown; headers?: Record<string, unknown> },
 	) => {
 		keysSeen.push(options.apiKey);
-		const registered = model?.headers?.[KEPT_HEADER];
+		const registered = options.headers?.[KEPT_HEADER];
 		if (registered !== undefined) registeredHeadersSeen.push(registered);
 		return compat.fauxAssistantMessage(text);
 	};
