@@ -23,6 +23,8 @@
  * 2026); the deepest tree claimed wins.
  */
 
+import { count, verb } from "../ui/count.ts";
+
 /** What Joel had attached to a line, as the line's `Attached:` rows say. */
 export interface Attached {
 	/** The focused window, as `<program> · <title>`. */
@@ -281,7 +283,7 @@ function byTree(
 		.map(({ quest, path, under }) =>
 			fromQuest(
 				quest,
-				`claims ${path}, where ${under} of its ${plural(files.length, "file")} sit`,
+				`claims ${path}, where ${under} of its ${count(files.length, "file")} sit`,
 			),
 		);
 }
@@ -289,8 +291,8 @@ function byTree(
 /** What no quest claimed of a pull request, its files when they were read. */
 function unclaimed(files: readonly string[] | undefined): string {
 	if (!files) return "no quest alias";
-	const verb = files.length === 1 ? "sits" : "sit";
-	return `no quest claims it or a tree its ${plural(files.length, "file")} ${verb} under`;
+	const sit = verb(files.length, "sits", "sit");
+	return `no quest claims it or a tree its ${count(files.length, "file")} ${sit} under`;
 }
 
 function treeOf(
@@ -304,10 +306,6 @@ function treeOf(
 
 function isUnder(file: string, path: string): boolean {
 	return file === path || file.startsWith(`${path}/`);
-}
-
-function plural(n: number, noun: string): string {
-	return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
 function byPage(
@@ -331,7 +329,7 @@ function byPage(
 			),
 		};
 	const written = sources.quests
-		.map((quest) => ({ quest, times: count(quest.body, host) }))
+		.map((quest) => ({ quest, times: occurrences(quest.body, host) }))
 		.filter((entry) => entry.times > 0)
 		.sort((a, b) => b.times - a.times)
 		.slice(0, MOST_BY_PAGE);
@@ -491,7 +489,7 @@ function wordsOf(text: string): string[] {
 	);
 }
 
-function count(text: string, needle: string): number {
+function occurrences(text: string, needle: string): number {
 	return text.split(needle).length - 1;
 }
 
