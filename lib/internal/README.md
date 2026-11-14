@@ -42,7 +42,8 @@ may import from here, and any of it may change without notice.
   the resolvers and where people are stored.
 - **`pineapple/`**: Joel's safe word at the tool call: the stops
   core's pineapple reader writes, which tool calls are writes and
-  where they go, and which stops reach them, for
+  where they go, which stops reach them, which sessions they park,
+  the mesh holds they send, and the guard on their own records, for
   `pineapple-workflow`.
 - **`priority/`**: the machine queue: when a session's heavy work
   may run, by memory, VM limits and who is waiting on it.

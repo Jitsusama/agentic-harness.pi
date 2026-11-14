@@ -236,7 +236,8 @@ export function writesInBash(command: string, cwd: string): WriteCall[] {
 	return writes;
 }
 
-function words(simple: SimpleCommand): string[] {
+/** A command's words, unquoted, from the program it runs past any wrapper. */
+export function words(simple: SimpleCommand): string[] {
 	const argv = simple.argv.map((word) => unquote(word.text));
 	let at = 0;
 	while (at < argv.length) {

@@ -115,8 +115,11 @@ it does:
   While a stop core's pineapple reader wrote stands, it refuses the
   pushes, pull-request writes and switches that stop reaches, and
   nothing else, so a stop on one pull request leaves a session its
-  other work. A stop in shadow refuses nothing and writes down what
-  it would have refused. On 13 November a colleague's "pineapple
+  other work. A stop wider than one change parks the sessions it
+  reaches until Joel resumes it, though what he types still runs, and
+  each stop sends a mesh hold, renewed while it stands. No agent may
+  change a stop or resume one. A stop in shadow refuses, parks and
+  holds nothing, and writes down what it would have. On 13 November a colleague's "pineapple
   override" reached Joel's agents only by luck.
 
   `job-workflow` hosts background work. A tool that returns

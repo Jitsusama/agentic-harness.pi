@@ -37,6 +37,7 @@ function machine(
 		here: () => ({ realm: "work", quests: [] }),
 		trees: "/trees",
 		shadowLog: log,
+		records: root,
 		now: () => new Date("2026-11-14T06:00:00Z"),
 	};
 }
@@ -122,6 +123,21 @@ describe("the write guard", () => {
 		]);
 		expect(
 			await judge(call("work", { action: "push", tree: "shop-fix" }), judging),
+		).toBeUndefined();
+	});
+
+	it("refuses changing a stop, stop or no stop, so only Joel resumes one", async () => {
+		const judging = machine([]);
+		const verdict = await judge(
+			call("bash", { command: `rm ${judging.records}/stops/0.json` }),
+			judging,
+		);
+		expect(verdict?.refuse).toContain("Only Joel resumes");
+		expect(
+			await judge(
+				call("bash", { command: `cat ${judging.records}/stops/0.json` }),
+				judging,
+			),
 		).toBeUndefined();
 	});
 
