@@ -322,9 +322,12 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	];
 	if (place.runtimeDir) {
 		args.push("--perms", "0700", "--tmpfs", place.runtimeDir);
+		// Read-only, which a connect doesn't need written: bound writable,
+		// the proxy's folder could be emptied and a command listen in the
+		// proxy's place for every other session's signing (JMJ7J4).
 		for (const name of LET_THROUGH) {
 			const path = join(place.runtimeDir, name);
-			if (exists(path)) args.push("--bind", path, path);
+			if (exists(path)) args.push("--ro-bind", path, path);
 		}
 	}
 	// The system bus and X's sockets live outside the runtime folder.
