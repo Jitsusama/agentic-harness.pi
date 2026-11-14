@@ -25,7 +25,12 @@ import { join } from "node:path";
  * which it never checks again before building them; and rustup's
  * toolchains, whose binaries its proxies run, the browser's native
  * messaging hosts, each naming a program it runs, and bundler's
- * settings and plugins (ISXEG8, 12 November, again).
+ * settings and plugins (ISXEG8, 12 November, again). And the
+ * harness's own inboxes, which sessions trust for who wrote them: the
+ * steer inboxes, where a file saying it is Joel's could pause, stop or
+ * move another session, and the mesh's store, where a message could
+ * claim any peer's address (KP0L6A, DJT4LK, 765QSB, 13 November). pi
+ * itself, the launcher and the node write them from outside the fence.
  *
  * The home folder itself is read-only too, with every other hidden
  * entry in it bound back writable, since a dotfile is often a link into
@@ -71,6 +76,8 @@ export const READ_ONLY = [
 	".local/share/pi-packages",
 	".local/state/nix",
 	".local/state/tec/toolchain",
+	".local/state/pi/agentic-harness.pi/steer",
+	".local/state/pi/agentic-harness.pi/mesh-workflow",
 	".pi/agent",
 ] as const;
 

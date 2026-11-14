@@ -94,11 +94,14 @@ const PROGRAM_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 export const FROM_PERSON = "person";
 
 /**
- * Whether a steer's writer is the person: one who names nobody, Joel, or
- * the node writing on the person's word.
+ * Whether a steer's writer is the person: Joel, or the node writing on
+ * the person's word. One who names nobody isn't, since the launcher, the
+ * node and pi's own moves all say who they are, and a steer that says
+ * nothing could come from anything that reached the inbox (KP0L6A,
+ * 13 November).
  */
 export function isFromPerson(from: string | undefined): boolean {
-	if (from === undefined || from === "") return true;
+	if (from === undefined) return false;
 	const who = from.toLowerCase();
 	return who === "joel" || who === FROM_PERSON;
 }
