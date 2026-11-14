@@ -68,6 +68,18 @@ describe("the fence's arguments", () => {
 		]);
 	});
 
+	it("hides the Google daemon's runtime folder, whose tokens are the person's, by binding none of it back", () => {
+		const everything: Disk = { kind: () => "folder", entries: () => [] };
+		const all = fenceArgs(place, everything);
+		expect(all.join(" "), "the runtime folder is emptied").toContain(
+			"--tmpfs /run/user/1000",
+		);
+		expect(
+			all.filter((arg) => arg.startsWith("/run/user/1000/google")),
+			"nothing of the Google daemon's folder is bound back",
+		).toEqual([]);
+	});
+
 	it("names the jobs broker's socket only where the machine runs it", () => {
 		const socket = "/run/user/1000/daemons/jobs-broker.sock";
 		const only = (path: string): Disk => ({
