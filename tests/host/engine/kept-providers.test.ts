@@ -92,6 +92,18 @@ describe("kept providers", () => {
 		expect(statSync(file).mode & 0o777).toBe(0o600);
 	});
 
+	it("keeps on disk a registration a field of which is left undefined, without it", () => {
+		const file = providersFile();
+		const flex = {
+			...PROXIED,
+			models: [{ id: "m", contextWindow: 1000, capContextWindow: undefined }],
+		};
+		writeKept(file, keptProviders(runtime({ flex }).model));
+		expect(readKept(file)?.configs).toEqual({
+			flex: { ...PROXIED, models: [{ id: "m", contextWindow: 1000 }] },
+		});
+	});
+
 	it("keeps a key on disk only by its variable, and no credential header", () => {
 		const file = providersFile();
 		const literal = {
