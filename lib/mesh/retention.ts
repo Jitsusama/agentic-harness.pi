@@ -24,10 +24,13 @@
  *   since a session restored within the week takes up its address and
  *   whatever steer still waits there.
  *
- * Any peer sweeps, at most once an hour, off its own turn: each removal
- * is of a file only the sweep would take, so peers sweeping at once
- * only race to the same end.
+ * Any peer sweeps, at most once an hour on the machine, off its own
+ * turn: each removal is of a file only the sweep would take, so peers
+ * sweeping at once only race to the same end.
  */
+
+import { readFileSync } from "node:fs";
+import { writeWhole } from "../internal/write-whole.ts";
 
 import type { Board } from "./lease.ts";
 import { type Census, census } from "./liveness.ts";
@@ -50,8 +53,11 @@ export const RECENT_MS = 6 * HOUR_MS;
 /** How long an ended peer's presence is kept after it last changed. */
 export const ENDED_MS = 24 * HOUR_MS;
 
-/** How often one peer sweeps, at most. */
+/** How often the machine sweeps, at most. */
 export const SWEEP_EVERY_MS = HOUR_MS;
+
+/** The file in the mesh's folder that says when it was last swept. */
+export const SWEPT_STAMP = ".swept";
 
 /** What the mesh keeps, each of which lets go of its own. */
 export interface Kept {
@@ -92,19 +98,53 @@ export async function sweep(
  * this process and never throws, since nothing a peer is doing should
  * hang on tidying. It hands back the sweep, which never rejects, for a
  * caller that wants to know it is done; a peer leaves it unawaited.
+ *
+ * Given a stamp file, the hour is the machine's rather than this
+ * sweeper's: each sweep writes its time there, and a sweeper that reads
+ * a time within the hour sweeps nothing. A host makes a sweeper for each
+ * conversation it starts, and on 14 November each one woken swept the
+ * whole mesh again, 0.67 s of a 4.4 s wake on the host's one thread.
  */
 export function sweeper(
 	kept: Kept,
 	every: number = SWEEP_EVERY_MS,
 	clock: () => number = Date.now,
+	stamp?: string,
 ): () => Promise<void> {
 	let last = Number.NEGATIVE_INFINITY;
 	return () => {
 		const now = clock();
 		if (now - last < every) return Promise.resolve();
+		if (stamp !== undefined) {
+			const swept = sweptAt(stamp);
+			if (swept !== undefined && now - swept < every && swept <= now) {
+				last = swept;
+				return Promise.resolve();
+			}
+			markSwept(stamp, now);
+		}
 		last = now;
 		return sweep(kept, now).catch(() => {
 			// A sweep that fails leaves what it could not tidy for the next.
 		});
 	};
+}
+
+/** When the machine last swept, by its stamp, or nothing when unknown. */
+function sweptAt(stamp: string): number | undefined {
+	try {
+		const at = Number(readFileSync(stamp, "utf8"));
+		return Number.isFinite(at) ? at : undefined;
+	} catch {
+		// No stamp yet, or one that can't be read: sweep, as before stamps.
+		return undefined;
+	}
+}
+
+function markSwept(stamp: string, now: number): void {
+	try {
+		writeWhole(stamp, String(now));
+	} catch {
+		// Unwritten, the next sweeper sweeps too: the same end, sooner.
+	}
 }

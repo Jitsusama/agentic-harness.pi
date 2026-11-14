@@ -37,6 +37,22 @@ describe("sessionLogHeader", () => {
 		});
 	});
 
+	it("reads a header longer than its first read, and one with no line after it", () => {
+		const cwd = `/w/${"x".repeat(6000)}`;
+		const long = logWith("long.jsonl", { id: "s5", cwd }, "{}\n");
+		expect(sessionLogHeader(long)).toEqual({ id: "s5", cwd });
+
+		const path = join(dir, "alone.jsonl");
+		writeFileSync(path, JSON.stringify({ id: "s6" }));
+		expect(sessionLogHeader(path)).toEqual({ id: "s6" });
+	});
+
+	it("answers nothing for a first line past the most it reads", () => {
+		const cwd = `/w/${"x".repeat(70 * 1024)}`;
+		const huge = logWith("huge.jsonl", { id: "s7", cwd }, "{}\n");
+		expect(sessionLogHeader(huge)).toBeUndefined();
+	});
+
 	it("answers nothing for a missing log or a first line without an id", () => {
 		expect(sessionLogHeader(join(dir, "none.jsonl"))).toBeUndefined();
 		expect(
