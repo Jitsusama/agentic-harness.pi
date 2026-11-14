@@ -53,8 +53,8 @@ export interface ServingHost {
 	 * adopted, closed or released since no longer counts.
 	 */
 	stillUnresumed(): number;
-	/** Each conversation the host runs, with its state and when it last changed. */
-	held(): readonly Pick<SessionIdentity, "state" | "since">[];
+	/** Each conversation the host runs, by id, with its state and when it last changed. */
+	held(): readonly Pick<SessionIdentity, "id" | "state" | "since">[];
 	/**
 	 * Say whether a restart of the host is coming. While it is, stopping
 	 * tells every attached viewer the host is restarting before it closes
