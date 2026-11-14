@@ -47,6 +47,7 @@
 
 import { basename, dirname, join, relative, sep } from "node:path";
 import { DISK, type Disk } from "./fence-disk.ts";
+import { renderNodeArgs } from "./fence-gpu.ts";
 import {
 	cachesWithin,
 	READ_ONLY,
@@ -271,8 +272,9 @@ function systemSshConfig(disk: Disk): string | undefined {
 export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	const exists = (path: string) => disk.kind(path) !== undefined;
 	// A /dev of its own, with only what any program needs (null, zero,
-	// random, a tty): the TPM, the camera, the microphone and the
-	// security keys are devices the person's account opens.
+	// random, a tty), and the GPU's render nodes, never its card nodes
+	// (fence-gpu.ts): the TPM, the camera, the microphone and the security
+	// keys are devices the person's account opens.
 	const args = [
 		"--die-with-parent",
 		"--new-session",
@@ -286,6 +288,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		"/dev/shm",
 		"--proc",
 		"/proc",
+		...renderNodeArgs(disk),
 	];
 	if (place.runtimeDir) {
 		args.push("--perms", "0700", "--tmpfs", place.runtimeDir);
