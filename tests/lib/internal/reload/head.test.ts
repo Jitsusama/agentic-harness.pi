@@ -31,7 +31,8 @@ describe("reading HEAD from git's files", () => {
 
 	it("follows a branch's own file", async () => {
 		repo = await freshRepo();
-		expect(headFromFiles(repo)).toBe(await committed(repo));
+		const head = await committed(repo);
+		expect(headFromFiles(repo)).toBe(head);
 	});
 
 	it("follows a branch packed into packed-refs", async () => {
