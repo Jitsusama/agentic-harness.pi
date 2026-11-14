@@ -108,11 +108,13 @@ may import from here, and any of it may change without notice.
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
 - **`fence.ts`**: the agent fence, as bubblewrap's and landrun's
-  arguments and the shell text that runs a command in it: each
-  command's own processes and devices, no desktop, and the settings,
-  startup files and git's code read-only; what it never lets through,
-  the one SSH agent it lets in (core's proxy), the private keys it
-  empties, and where it keeps pi's own file tools from.
+  arguments: each command's own processes and devices, no desktop,
+  and the settings, startup files and git's code read-only; what it
+  never lets through, the one SSH agent it lets in (core's proxy),
+  the private keys it empties, and where it keeps pi's own file tools
+  from.
+- **`fence-command.ts`**: the shell text that runs a command in the
+  fence, with the shell's environment less what names the desktop.
 - **`fence-disk.ts`**: the disk as the fence reads it, what a path
   is and what a folder holds, which a test hands in a disk of its own
   for.
@@ -128,6 +130,9 @@ may import from here, and any of it may change without notice.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.
+- **`fence-clipboard.ts`**: the fence's own `wl-copy` and
+  `wl-paste`, first on a fenced command's path, which ask core's
+  clipboard door outside rather than a display.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.

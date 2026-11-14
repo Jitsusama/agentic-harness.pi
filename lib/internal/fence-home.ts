@@ -16,7 +16,8 @@ import { join } from "node:path";
  * (systemd's units and quickshell's code among them), git's and npm's,
  * SSH's, what is on their path (their own bin, the Nix profile, dev's
  * toolchain), the launcher's entries, direnv's allow list, pi's own
- * settings and packages, and the skills and settings every agent loads.
+ * settings and packages, the fence's own `wl-copy` and `wl-paste`, first
+ * on every fenced command's path, and the skills and settings every agent loads.
  * Among programs' own entries, those read as the person later (ISXEG8,
  * 12 November): dbus's services, nvim's site plugins, the browser's
  * certificates, kubectl's and aws's settings, whose credential commands
@@ -80,6 +81,7 @@ export const READ_ONLY = [
 	".local/share/direnv/allow",
 	".local/share/systemd",
 	".local/share/pi-packages",
+	".local/share/pi-fence",
 	".local/state/nix",
 	".local/state/tec/toolchain",
 	".local/state/pi",

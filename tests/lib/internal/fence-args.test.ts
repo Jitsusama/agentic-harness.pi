@@ -57,7 +57,7 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, and the jobs broker in the runtime folder, each read-only", () => {
+	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, the jobs broker and the clipboard door's folder in the runtime folder, each read-only", () => {
 		expect(
 			pairs("--bind").filter((path) => path?.startsWith(place.runtimeDir)),
 			"something in the runtime folder is bound writable",
@@ -70,6 +70,7 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent.sock",
 			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
+			"/run/user/1000/pi-clipboard",
 		]);
 	});
 
@@ -356,6 +357,7 @@ describe("the fence's arguments", () => {
 			"/run/user/1000/pi-agent.sock",
 			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
+			"/run/user/1000/pi-clipboard",
 		]);
 		expect(rules).not.toContain("--unrestricted-scoped");
 		expect(rules).not.toContain("--unrestricted-filesystem");
