@@ -148,9 +148,12 @@ It prints a line a checkpoint and the report as one JSON line after
   its loop's worst while it did; `plainMs` is one plain pi starting in
   plain's seal. Each side's cache is warm before its timed run, so these
   stay out of `opened` and the bar.
-- `opened`: how long opening every conversation took and the host's
+- `opened`: how long opening every conversation took, one after
+  another, each open answered before the next is asked, and the host's
   weighing once all had, so its loop figures cover the opening alone
-  and the first checkpoint's start after it.
+  and the first checkpoint's start after it. A storm of wakes all at
+  once is `burstWakes` under `--burst` and `restart.wakes` under
+  `--restart`.
 
 - `checkpoints`: the host's RSS, PSS, swapped PSS, heap used, heap
   total, external and array buffers after its garbage is collected,
