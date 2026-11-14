@@ -316,6 +316,28 @@ describe("when a send goes nowhere", () => {
 		advance(1);
 		expect(sent).toHaveLength(2);
 	});
+
+	// 14 Nov: a hosted agent refused the prompt while it recovered, pi
+	// settled with no start, and the outbox sent again at once, 335 times.
+	it("waits out a prompt refused as it settled with no run, rather than looping", () => {
+		const { box, sent, advance } = outbox();
+		box.post(result("j1"));
+		expect(sent).toHaveLength(1);
+		box.runSettled();
+		advance(TICK_MS);
+		expect(sent, "sent again before a prompt's wait was out").toHaveLength(1);
+		advance(PROMPT_WAIT_MS - TICK_MS);
+		expect(sent, "never tried again").toHaveLength(2);
+	});
+
+	it("sends at once again after a run that did start", () => {
+		const { box, sent } = outbox();
+		box.post(result("j1"));
+		box.runSettled();
+		box.runStarted();
+		box.runSettled();
+		expect(sent, "a real run's settle waited").toHaveLength(2);
+	});
 });
 
 /** An outbox whose clock is counted: how many run, and their ticks. */
