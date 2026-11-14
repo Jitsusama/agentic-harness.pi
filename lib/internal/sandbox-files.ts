@@ -26,7 +26,6 @@ import {
 	type FileUse,
 	fileReach,
 	noSuchSandbox,
-	OFF,
 	questScratch,
 	SANDBOX_VARIABLE,
 	STRICT,
@@ -150,7 +149,7 @@ export function fileToolRefusal(
 ): string | undefined {
 	const asked = place.env[SANDBOX_VARIABLE]?.trim();
 	const tool = FILE_TOOLS.get(call.toolName);
-	if (!asked || asked === OFF || !tool) return undefined;
+	if (!asked || !tool) return undefined;
 	if (asked !== STRICT && asked !== FENCE) {
 		return noSuchSandbox(asked, "file tool");
 	}

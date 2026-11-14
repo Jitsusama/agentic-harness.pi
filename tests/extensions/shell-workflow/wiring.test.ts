@@ -32,15 +32,6 @@ let saved: string | undefined;
 let tool: Tool | undefined;
 let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 let bus: EventBus;
-// The unfenced lines a session would leave in the system's log.
-let unfencedSaid: [string | undefined, string | undefined][];
-const recordUnfenced = async (
-	sandbox: string | undefined,
-	session: string | undefined,
-) => {
-	unfencedSaid.push([sandbox, session]);
-	return undefined;
-};
 
 beforeEach(() => {
 	saved = process.env.PI_CODING_AGENT_DIR;
@@ -48,14 +39,12 @@ beforeEach(() => {
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	// Unfenced, whatever runs the tests: these cases are about pi's bash
 	// and the person's settings, and a fenced session's sandbox, asked for
-	// as the extension loads, can't be had inside its own fence. An empty
-	// value would be fenced by default, so off is how to say none.
-	vi.stubEnv(SANDBOX_VARIABLE, "off");
+	// as the extension loads, can't be had inside its own fence.
+	vi.stubEnv(SANDBOX_VARIABLE, "");
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
 	);
-	unfencedSaid = [];
 	bus = createEventBus();
 	const pi = {
 		events: bus,
@@ -66,7 +55,7 @@ beforeEach(() => {
 			tool = definition;
 		},
 	};
-	shellWorkflow(pi as unknown as ExtensionAPI, { recordUnfenced });
+	shellWorkflow(pi as unknown as ExtensionAPI);
 });
 
 afterEach(() => {
@@ -108,11 +97,6 @@ describe("the registered bash", () => {
 		);
 
 		expect(result?.content[0]?.text).toBe("yes true session-1");
-	});
-
-	it("leaves an unfenced line for a session that chose off, naming it", async () => {
-		await sessionStart?.({ type: "session_start" }, ctx());
-		expect(unfencedSaid, "the opt-out's line").toEqual([["off", "session-1"]]);
 	});
 
 	it("keeps the command, its prefix included, off the shell's command line", async () => {

@@ -21,9 +21,7 @@ import {
 	type Refusal,
 	recordedInShell,
 	recordRefusal,
-	recordUnfenced,
 	refusalLine,
-	unfencedLine,
 } from "../../../lib/internal/fence-log.ts";
 
 let folder: string;
@@ -95,40 +93,6 @@ describe("recording a refusal from pi's process", () => {
 
 	it("says why when there is no logger", async () => {
 		const why = await recordRefusal(refusal, undefined);
-		expect(why, "a missing logger said nothing").toContain("no logger");
-	});
-});
-
-describe("a session running unfenced", () => {
-	it("says off when it chose to, and none when it couldn't be had", () => {
-		expect(unfencedLine("off", "s-1"), "an opt-out's line").toBe(
-			"unfenced sandbox=off session=s-1",
-		);
-		expect(unfencedLine(undefined, "s-1"), "no fence to be had").toBe(
-			"unfenced sandbox=none session=s-1",
-		);
-		expect(
-			unfencedLine("off now", undefined),
-			"a value with a space bent the shape",
-		).toBe("unfenced sandbox=unknown session=unknown");
-	});
-
-	it("hands the logger the tag and the line", async () => {
-		const why = await recordUnfenced("off", "s-1", logger);
-		expect(why, "the logger took it, so nothing is added").toBeUndefined();
-		const words = readFileSync(written, "utf8").trim().split("\n");
-		expect(words, "what the logger was given").toEqual([
-			"-t",
-			FENCE_LOG_TAG,
-			"-p",
-			"auth.notice",
-			"--",
-			"unfenced sandbox=off session=s-1",
-		]);
-	});
-
-	it("says why when there is no logger", async () => {
-		const why = await recordUnfenced("off", "s-1", undefined);
 		expect(why, "a missing logger said nothing").toContain("no logger");
 	});
 });
