@@ -121,6 +121,10 @@ may import from here, and any of it may change without notice.
   too.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
+- **`fence-git-root.ts`**: a worktree's shared git folder, writable
+  inside while a watch in pi's process removes any name planted there
+  that sends git outside elsewhere, and stops the session that could
+  have planted it.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
@@ -180,6 +184,8 @@ may import from here, and any of it may change without notice.
   rules, and the agent fence from `fence.ts`.
 - **`sandbox-shell.ts`**: the shell text both sandboxes build on: a
   word quoted for the shell, and the variable a command travels in.
+- **`sandbox-trees.ts`**: which tree a fenced command stands in, and
+  the git folder a call outside the fence is held to there.
 - **`sandbox-files.ts`**: the check `sandbox-file-interceptor` holds
   pi's own file tools to, under either sandbox.
 - **`secrets.ts`**: the shapes a credential takes in a tool's output,

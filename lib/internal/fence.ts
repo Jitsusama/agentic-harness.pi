@@ -29,7 +29,10 @@
  *   repositories pi runs git in outside the fence live, are read-only
  *   but for the session's own tree and what a commit writes in each git
  *   folder (`GIT_WRITTEN`), so no command plants a repository, a
- *   setting or a `commondir` there for git outside to run. The folders
+ *   setting or a `commondir` there for git outside to run. A worktree's
+ *   shared git folder is writable but for what runs code, once a watch
+ *   outside removes any `commondir` planted there and stops the session
+ *   (`fence-git-root.ts`). The folders
  *   the person browses, the home folder's visible entries, are
  *   read-only but the one the session works in, so no command plants a
  *   repository whose settings their prompt's git runs on entering it.
@@ -47,6 +50,7 @@
 
 import { basename, dirname, join, relative, sep } from "node:path";
 import { DISK, type Disk } from "./fence-disk.ts";
+import { sharedRootArgs } from "./fence-git-root.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
@@ -180,6 +184,11 @@ export interface FencePlace {
 	readonly cwd?: string;
 	/** The worktree's own folder in its repository's `worktrees`. */
 	readonly ownGitFolder?: string;
+	/**
+	 * The repository git folder that worktree shares, writable inside
+	 * once a watch outside guards it (`fence-git-root.ts`).
+	 */
+	readonly sharedRoot?: string;
 	/** Where quests' scratch folders live, and this session's quest's own. */
 	readonly scratch?: { readonly root: string; readonly own?: string };
 	/**
@@ -588,10 +597,15 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 					join(own, "config.worktree"),
 				]
 			: [];
+	const shared =
+		place.sharedRoot && inKept(place.sharedRoot) && there(place.sharedRoot)
+			? sharedRootArgs(place.sharedRoot, there)
+			: [];
 	return [
 		...homes.flatMap((top) => ["--ro-bind", top, top]),
 		...bound("--bind", written),
 		...bound("--ro-bind", kept),
+		...shared,
 		...bound("--bind", treeBack),
 		...bound("--bind", ownBack),
 		...bound("--ro-bind", ownKept),
@@ -753,6 +767,9 @@ export function fencedCommand(
 			...fence.rules.map(quoted),
 			`"\${__pi_env[@]}" --env ${SANDBOXED_COMMAND}`,
 			...(fence.door ? [`--env ${quoted(`NIX_REMOTE=${fence.door}`)}`] : []),
+			// Status and diff then take no optional lock to refresh the
+			// index, so one kept read-only never stops them (ISXEG8).
+			"--env GIT_OPTIONAL_LOCKS=0",
 			...(fence.agent
 				? [`--env ${quoted(`SSH_AUTH_SOCK=${fence.agent}`)}`]
 				: []),
