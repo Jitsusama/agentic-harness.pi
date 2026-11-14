@@ -46,12 +46,19 @@ describe("whether a pid is still the call it was", () => {
 	it("is when its environment carries the call's mark", () => {
 		expect(
 			carriesMark(4242, "m1", environ(["PATH=/bin", "PI_BASH_CALL=m1"])),
+			"a pid whose environment carries the mark is the call",
 		).toBe(true);
 	});
 
 	it("is not when it carries another mark or none", () => {
-		expect(carriesMark(4242, "m1", environ(["PI_BASH_CALL=m2"]))).toBe(false);
-		expect(carriesMark(4242, "m1", environ(["PATH=/bin"]))).toBe(false);
+		expect(
+			carriesMark(4242, "m1", environ(["PI_BASH_CALL=m2"])),
+			"another call's mark is not this call",
+		).toBe(false);
+		expect(
+			carriesMark(4242, "m1", environ(["PATH=/bin"])),
+			"a pid with no mark is not this call",
+		).toBe(false);
 	});
 
 	it("leaves the pid to say when its environment can't be read", () => {
@@ -59,6 +66,7 @@ describe("whether a pid is still the call it was", () => {
 			carriesMark(4242, "m1", () => {
 				throw new Error("EACCES");
 			}),
+			"an unreadable environment leaves the pid to say",
 		).toBe(true);
 	});
 });

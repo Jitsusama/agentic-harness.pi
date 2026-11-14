@@ -118,8 +118,11 @@ describe("carried shells", () => {
 	}
 
 	it("keeps nothing where there is no jobs cgroup", () => {
-		expect(make({ jobs: "" }).keeps).toBe(false);
-		expect(make().keeps).toBe(true);
+		expect(
+			make({ jobs: "" }).keeps,
+			"a host with no jobs cgroup keeps nothing",
+		).toBe(false);
+		expect(make().keeps, "a host with a jobs cgroup keeps calls").toBe(true);
 	});
 
 	it("moves only the processes in its own cgroup that carry the call's mark", async () => {
