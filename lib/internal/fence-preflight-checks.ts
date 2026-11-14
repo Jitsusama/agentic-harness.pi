@@ -11,6 +11,8 @@
 
 import { randomUUID } from "node:crypto";
 import {
+	accessSync,
+	constants,
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -19,7 +21,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { NEVER_THROUGH } from "./fence.ts";
+import { FENCE, NEVER_THROUGH } from "./fence.ts";
+import { BUILDERS_FOLDER } from "./fence-builders.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
 	type Check,
@@ -34,6 +37,8 @@ import {
 	tailOf,
 	type Verdict,
 } from "./fence-preflight.ts";
+import { SANDBOX_VARIABLE, sandboxFor } from "./sandbox.ts";
+import { askRoute } from "./secret-ask.ts";
 
 /** How long a build sent to the builders may take. */
 const BUILD_LIMIT_MS = 1_900_000;
@@ -207,6 +212,7 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 			.map((path) => join(home, path)),
 		...sshKeys,
 		join(home, ".local/share/keyrings/login.keyring"),
+		join(BUILDERS_FOLDER, "cloud-token"),
 	].filter((path) => existsSync(path));
 	const read: string[] = [];
 	for (const path of paths) {
@@ -541,6 +547,39 @@ export const CHECKS: readonly Check[] = [
 		},
 	},
 	{
+		id: "9d",
+		group: "agents",
+		what: "a fenced command naming secret-asks is told of secret_run",
+		// Named, never run: an ask that reached the daemon would ping Joel.
+		run: async ({ scratch, session }) => {
+			const ran = await fenced(": secret-asks", scratch, session);
+			return ran.err.includes("secret_run")
+				? passed("told to ask with secret_run")
+				: failed(`no word of secret_run: ${tailOf(ran)}`);
+		},
+	},
+	{
+		id: "9e",
+		group: "agents",
+		what: "secret_run, outside, could file an ask",
+		// secret_run's own checks for a fenced session, up to the filing,
+		// which is left out so nothing shows in the launcher.
+		run: async () => {
+			const env = { ...process.env, [SANDBOX_VARIABLE]: FENCE };
+			const route = askRoute({
+				fenced: sandboxFor(env).kind === "fence",
+				runtimeDir: runtime(),
+			});
+			if ("refused" in route) return failed(route.refused);
+			try {
+				accessSync(route.folder, constants.W_OK);
+			} catch (error) {
+				return failed(`pi can't write ${route.folder}: ${String(error)}`);
+			}
+			return passed(`it would file in ${route.folder}`);
+		},
+	},
+	{
 		id: "9b",
 		group: "agents",
 		what: "an untrusted Nix build",
@@ -617,7 +656,7 @@ export const CHECKS: readonly Check[] = [
 	{
 		id: "13a",
 		group: "refused",
-		what: "keys, the keyring and the builders' key stay hidden",
+		what: "keys, the keyring and the builders' key and token stay hidden",
 		run: hiddenUnread,
 	},
 	{

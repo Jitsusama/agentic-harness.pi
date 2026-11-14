@@ -65,6 +65,11 @@ import {
 	brokerTreeArgs,
 	brokerTreesRefuseWrite,
 } from "./fence-broker-trees.ts";
+import {
+	buildersFolderArgs,
+	buildersSecret,
+	inBuildersFolder,
+} from "./fence-builders.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { sharedRootArgs } from "./fence-git-root.ts";
 import { githubDoorArgs } from "./fence-github.ts";
@@ -177,6 +182,10 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
+	// The secret-asks daemon takes a yes from anything reaching its socket,
+	// so only pi asks, from outside (secret-ask.ts).
+	"daemons/secret-asks.sock",
+	"secret-asks",
 ] as const;
 
 /** Where a fenced command runs. */
@@ -334,6 +343,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
+	args.push(...buildersFolderArgs(disk));
 	const settings = systemSshConfig(disk);
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
 		args.push("--ro-bind", place.sshConfig, settings);
@@ -705,6 +715,7 @@ export function fenceRefusesWrite(
 	if (dirname(path) === place.home && readOnlyEntry(basename(path))) {
 		return true;
 	}
+	if (inBuildersFolder(path)) return true;
 	const scratch = place.scratch;
 	if (scratch && inside(scratch.root)) {
 		return !(scratch.own && inside(scratch.own));
@@ -739,6 +750,7 @@ export function fenceRefusesRead(
 	// pi's own /proc/self resolves to its pid, so it is refused too: its
 	// open files are pipes and sockets no fenced command could reach.
 	if (/^\/proc\/(\d+|thread-self)(\/|$)/.test(path)) return true;
+	if (buildersSecret(path)) return true;
 	const refused = refusedIn(place.home, disk).some(({ path: at, folder }) =>
 		folder ? path === at || path.startsWith(`${at}/`) : path === at,
 	);

@@ -8,12 +8,28 @@
  * goes from 1Password to the command the line names and never comes back
  * here. An ask the daemon would refuse is refused before it's written, so
  * an agent learns why at once rather than after Joel has seen a line.
+ *
+ * Only pi asks, from outside the fence: the daemon takes a yes from
+ * anything that reaches its socket (core's secret-asks `daemon.rs`), so
+ * no fenced command reaches it or the asks, and one naming the daemon's
+ * program is told to use secret_run instead.
  */
 
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { join } from "node:path";
+import { quoted } from "./sandbox-shell.ts";
 import { writeWhole } from "./write-whole.ts";
+
+/** What a fenced command naming the daemon's program is told. */
+const FENCED_NOTE =
+	"pi: a fenced command can't reach secret-asks, since anything that reaches it could say yes to an ask; ask for the secret with the secret_run tool, which asks Joel from outside the fence.";
 
 /** The shape's version the daemon reads. */
 export const ASK_VERSION = 1;
@@ -103,6 +119,43 @@ function refusal(ask: SecretAsk): string | undefined {
 		return `the why runs past ${LONGEST_WHY} characters`;
 	}
 	return undefined;
+}
+
+/**
+ * Where secret_run files its asks, or why it can't from here: only from a
+ * session whose commands are fenced, since only the fence keeps them from
+ * the asks, and only where the daemon runs. Nothing is filed, so the
+ * pre-flight checks the whole route without asking Joel.
+ */
+export function askRoute(
+	place: { readonly fenced: boolean; readonly runtimeDir: string | undefined },
+	exists: (path: string) => boolean = existsSync,
+): { readonly folder: string } | { readonly refused: string } {
+	if (!place.fenced) {
+		return {
+			refused:
+				"secret_run is refused while this session's commands run outside the agent fence, since only the fence keeps them from the asks. Ask Joel in words instead.",
+		};
+	}
+	const runtime = place.runtimeDir;
+	if (!runtime || !exists(join(runtime, "daemons", "secret-asks.sock"))) {
+		return {
+			refused:
+				"secret_run needs core's secret-asks daemon, which doesn't run on this machine. Ask Joel in words instead.",
+		};
+	}
+	return { folder: join(runtime, "secret-asks") };
+}
+
+/**
+ * `command`, preceded by a note on stderr saying secret_run is the way to
+ * a secret when it names the daemon's program, which a fenced command
+ * never reaches. Only a note: a command that merely names it, as a search
+ * does, still runs.
+ */
+export function withSecretNote(command: string): string {
+	if (!/(^|[^\w.-])secret-asks($|[^\w.-])/.test(command)) return command;
+	return `printf '%s\\n' ${quoted(FENCED_NOTE)} >&2\n${command}`;
 }
 
 /**

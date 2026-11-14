@@ -255,6 +255,16 @@ describe("a command in the fence, through stand-ins", () => {
 		expect(result.status).toBe(7);
 	});
 
+	it("tells a command naming secret-asks of secret_run, and still runs it", () => {
+		const result = run("echo secret-asks named; exit 3");
+		expect(result.stderr, "no word of secret_run").toContain("secret_run");
+		expect(result.stdout, "the command didn't run").toContain("named");
+		expect(result.status, "its exit was lost").toBe(3);
+		expect(run("echo plain").stderr, "a plain command was noted").not.toContain(
+			"secret_run",
+		);
+	});
+
 	it("is handed every variable but those naming the desktop, and reaches Nix by its door", () => {
 		const result = run("env", {
 			WAYLAND_DISPLAY: "wayland-1",

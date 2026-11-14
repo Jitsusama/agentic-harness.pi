@@ -19,7 +19,7 @@
  * within an hour of Joel's no.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
@@ -32,6 +32,7 @@ import { dataDir } from "../../lib/internal/paths.ts";
 import { extractTitle } from "../../lib/internal/quest/quest-doc.ts";
 import { sandboxFor } from "../../lib/internal/sandbox.ts";
 import {
+	askRoute,
 	LONGEST_MINUTES,
 	putAsk,
 	type SecretAnswer,
@@ -172,22 +173,11 @@ export default function secretRunWorkflow(pi: ExtensionAPI) {
 					true,
 				);
 			}
-			if (sandboxFor(env.snapshot()).kind !== "fence") {
-				return said(
-					"secret_run is refused while this session's commands run outside the agent fence, since only the fence keeps them from the asks. Ask Joel in words instead.",
-					true,
-				);
-			}
-			const runtime = env.get("XDG_RUNTIME_DIR");
-			if (
-				!runtime ||
-				!existsSync(join(runtime, "daemons", "secret-asks.sock"))
-			) {
-				return said(
-					"secret_run needs core's secret-asks daemon, which doesn't run on this machine. Ask Joel in words instead.",
-					true,
-				);
-			}
+			const route = askRoute({
+				fenced: sandboxFor(env.snapshot()).kind === "fence",
+				runtimeDir: env.get("XDG_RUNTIME_DIR"),
+			});
+			if ("refused" in route) return said(route.refused, true);
 			if (waiting.has(session)) {
 				return said(
 					"This session already has an ask waiting on Joel; wait for its answer before asking again.",
@@ -207,7 +197,7 @@ export default function secretRunWorkflow(pi: ExtensionAPI) {
 				);
 			}
 
-			const folder = join(runtime, "secret-asks");
+			const { folder } = route;
 			const questId = env.get("PI_QUEST");
 			const minutes = asked.minutes ?? DEFAULT_MINUTES;
 			let id: string;
