@@ -786,9 +786,10 @@ describe("runHost", () => {
 				Number(runtime),
 				"the phase that waited is the one named",
 			).toBeGreaterThanOrEqual(0.1);
-			expect(Number(rest), "what followed the last mark").toBeGreaterThanOrEqual(
-				0.1,
-			);
+			expect(
+				Number(rest),
+				"what followed the last mark",
+			).toBeGreaterThanOrEqual(0.1);
 		} finally {
 			second.emit("SIGTERM");
 			await run.stopped;
