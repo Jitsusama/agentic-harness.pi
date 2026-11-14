@@ -162,7 +162,15 @@ describe("a fenced command with the GitHub door", () => {
 	}
 
 	it("sets nothing for gh while the door hasn't made the session's folder, so gh fails as it did", () => {
-		expect([...fencedEnv().keys()], "gh was pointed at no door").toEqual([]);
+		// By value, not name: a machine's own shell setup may set a trust
+		// file of its own, as the builders' does NIX_SSL_CERT_FILE.
+		const atTheDoor = [...fencedEnv()].filter(
+			([, value]) =>
+				value.includes(base) ||
+				value.includes("4242") ||
+				value === GITHUB_PLACEHOLDER,
+		);
+		expect(atTheDoor, "gh was pointed at no door").toEqual([]);
 	});
 
 	it("asks the door for the session outside, and points gh and git at its relay inside once the folder is there", async () => {
