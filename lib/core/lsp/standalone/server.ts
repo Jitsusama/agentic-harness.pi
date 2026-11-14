@@ -69,6 +69,7 @@ import {
 	toProtocolPosition,
 	uriToFile,
 } from "./document.ts";
+import { settledWriter } from "./settled-writer.ts";
 
 /**
  * Client capabilities advertised at initialize. A server may
@@ -181,9 +182,12 @@ export class StandaloneServer {
 		// unhandled stream error.
 		stdin.on("error", () => {});
 		stdout.on("error", () => {});
+		// A write that fails means the server can hear nothing more, and
+		// says so by ending it, rather than by a rejection nothing catches.
+		let started: StandaloneServer | undefined;
 		const connection = createMessageConnection(
 			new StreamMessageReader(stdout),
-			new StreamMessageWriter(stdin),
+			settledWriter(new StreamMessageWriter(stdin), () => started?.markGone()),
 		);
 		const server: StandaloneServer = new StandaloneServer(
 			config.name,
@@ -191,6 +195,7 @@ export class StandaloneServer {
 			child,
 			connection,
 		);
+		started = server;
 		// Swallow transport errors (a write after the child is killed);
 		// they are expected during dispose and must not go unhandled.
 		connection.onError(() => {});
@@ -434,12 +439,28 @@ export class StandaloneServer {
 		}
 		this.lineCache.set(uri, toLines(text));
 		this.version += 1;
-		this.connection
-			.sendNotification(DidChangeTextDocumentNotification.type, {
+		this.notify(() =>
+			this.connection.sendNotification(DidChangeTextDocumentNotification.type, {
 				textDocument: { uri, version: this.version },
 				contentChanges: [{ text }],
-			})
-			.catch(() => {});
+			}),
+		);
+	}
+
+	/**
+	 * Tell the server something that wants no answer. A connection that
+	 * has closed throws at once rather than rejecting, which from an edit's
+	 * sync would escape every caller, and a server that is gone has
+	 * nothing to be told.
+	 */
+	private notify(send: () => Promise<void>): void {
+		if (this.gone) return;
+		try {
+			send().catch(() => {});
+		} catch {
+			// Closed between the check and the send: the server is going, and
+			// its exit or close marks it gone.
+		}
 	}
 
 	/**
@@ -595,16 +616,16 @@ export class StandaloneServer {
 		this.lineCache.set(uri, toLines(text));
 		this.version += 1;
 		this.openDocs.add(uri);
-		this.connection
-			.sendNotification(DidOpenTextDocumentNotification.type, {
+		this.notify(() =>
+			this.connection.sendNotification(DidOpenTextDocumentNotification.type, {
 				textDocument: {
 					uri,
 					languageId: languageIdFor(path),
 					version: this.version,
 					text,
 				},
-			})
-			.catch(() => {});
+			}),
+		);
 	}
 
 	private linesFor(path: string): string[] {
