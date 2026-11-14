@@ -16,12 +16,16 @@
  * `commondir` made in that folder sends git outside, the person's
  * prompt included, to read its settings from wherever it names, and a
  * `config.worktree` does the same where the repository's settings turn
- * that file on. Planting one is never legitimate. So before any fenced
+ * that file on, now or once `git sparse-checkout init` turns it on
+ * later. Planting one is never legitimate. So before any fenced
  * command may write the folder, a watcher in pi's own process, outside
  * the fence, is armed on it and on the session's own folder. It removes
  * a planted name as soon as it's made, logs a refusal naming each
  * session that could have made it, and stops those sessions' fenced
- * commands. Where the watcher can't be armed, the folder stays
+ * commands: everything in each command's own process namespace, killed
+ * if it outlasts a polite ask by five seconds. A watch can't tell who
+ * wrote, so a session stopped may be collateral, and its refusal says
+ * so and that a new session works at once. Where the watcher can't be armed, the folder stays
  * read-only. Until a day of use shows no false refusal, this holds only
  * for a session working in a worktree; one in a repository's main
  * checkout keeps its git folder read-only.
@@ -33,6 +37,7 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
 	watch,
 } from "node:fs";
@@ -88,19 +93,6 @@ export function sharedRootArgs(
 	];
 }
 
-/** Whether a repository's settings have git read `config.worktree`. */
-function readsWorktreeConfig(root: string): boolean {
-	try {
-		return /^\s*worktreeconfig\s*=\s*(true|yes|on|1)\s*$/im.test(
-			readFileSync(join(root, "config"), "utf8"),
-		);
-	} catch {
-		// Settings that can't be read here can't be told safe, so the
-		// file counts as read.
-		return true;
-	}
-}
-
 function present(path: string): boolean {
 	return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
 }
@@ -152,6 +144,8 @@ const LIVE: RootWatchDeps = {
 
 /** One armed watch: what it guards in a folder, and who could write it. */
 interface Armed {
+	/** The shared git folder the watched folder belongs to. */
+	readonly root: string;
 	readonly guarded: readonly string[];
 	readonly sessions: Set<string>;
 	watcher: { close(): void } | undefined;
@@ -161,31 +155,36 @@ interface Armed {
 /** Each folder's armed watch, by the folder. */
 const ARMED = new Map<string, Armed>();
 
-/** The sessions whose fenced commands a plant stopped, for this process. */
-const STOPPED = new Set<string>();
+/**
+ * The sessions whose fenced commands a plant stopped, for this process,
+ * with the shared git folder it was planted in.
+ */
+const STOPPED = new Map<string, string>();
 
-/** Why a stopped session's fenced commands are refused. */
-export const PLANT_STOPPED =
-	"A name that sends git outside the fence to settings elsewhere (commondir, gitdir or config.worktree) was made in this session's shared git folder. Nothing legitimate makes one, so this session's fenced commands are stopped for the rest of it and the fence log says so. Tell the person; a fresh session works as before.";
-
-/** Whether a plant stopped `session`'s fenced commands. */
-export function plantStopped(session: string | undefined): boolean {
-	return session !== undefined && STOPPED.has(session);
+/**
+ * Why a session's fenced commands are refused once a plant stopped
+ * them, or nothing when none did.
+ */
+export function plantStopped(session: string | undefined): string | undefined {
+	const root = session === undefined ? undefined : STOPPED.get(session);
+	return root === undefined
+		? undefined
+		: `A name that sends git outside the fence to settings elsewhere (commondir, gitdir or config.worktree) was made in ${root}, which this session's fenced commands could write. A watch can't tell which command made it, so every session that could write there was stopped, and this one may be collateral. Its fenced commands stay refused for the rest of it, and the fence log says so. Tell the person; a new session works at once.`;
 }
 
 /**
  * What a watch guards in the shared `root` and in the session's `own`
  * folder: the names git never makes there, and `config.worktree` where
- * the repository's settings have git read it and it isn't there yet
- * (one there already is bound read-only).
+ * it isn't there yet (one there already is bound read-only). That file
+ * is guarded whether or not the settings turn it on, since `git
+ * sparse-checkout init` turns it on later and would wake one planted
+ * now, and nothing inside writes it while the settings are read-only.
+ * The own folder's `commondir` and `gitdir` are always there, and
+ * bound read-only.
  */
 export function guardedNames(root: string, own: string): Map<string, string[]> {
-	const worktreeConfig = readsWorktreeConfig(root);
-	const unmade = (folder: string, name: string) => !present(join(folder, name));
 	const config = (folder: string) =>
-		worktreeConfig && unmade(folder, "config.worktree")
-			? ["config.worktree"]
-			: [];
+		present(join(folder, "config.worktree")) ? [] : ["config.worktree"];
 	return new Map([
 		[root, [...NEVER_MADE, ...config(root)]],
 		[own, config(own)],
@@ -196,7 +195,7 @@ function planted(armed: Armed, path: string): void {
 	armed.deps.remove(path);
 	for (const session of armed.sessions) {
 		armed.deps.refused(session);
-		STOPPED.add(session);
+		STOPPED.set(session, armed.root);
 		armed.deps.stop(session);
 	}
 }
@@ -207,6 +206,7 @@ function sweep(armed: Armed): void {
 
 /** Arm a watch on `folder` for `names`, once a process, or say it can't. */
 function armFolder(
+	root: string,
 	folder: string,
 	names: readonly string[],
 	deps: RootWatchDeps,
@@ -215,6 +215,7 @@ function armFolder(
 	if (known) return known;
 	const guarded = names.map((name) => join(folder, name));
 	const armed: Armed = {
+		root,
 		guarded,
 		sessions: new Set(),
 		watcher: undefined,
@@ -263,7 +264,7 @@ export function armSharedRoot(
 	}
 	const armed: Armed[] = [];
 	for (const [folder, names] of guardedNames(root, own)) {
-		const one = armFolder(folder, names, deps);
+		const one = armFolder(root, folder, names, deps);
 		if (!one) return false;
 		armed.push(one);
 	}
@@ -312,46 +313,135 @@ export function guardedIn(folders: readonly string[]): string[] {
 	return folders.flatMap((folder) => [...(ARMED.get(folder)?.guarded ?? [])]);
 }
 
+/** How long a stopped command has to end before it is killed (ISXEG8). */
+const GRACE_MS = 5000;
+
+/** What ending a session's commands does to a process, given so a test can stand in. */
+export interface Ending {
+	/** Where the processes are listed. */
+	readonly proc: string;
+	/** Send `signal` to `pid`. */
+	readonly signal: (pid: number, signal: NodeJS.Signals) => void;
+	/** Run `then` once `ms` have passed. */
+	readonly later: (then: () => void, ms: number) => void;
+}
+
+const ENDING: Ending = {
+	proc: "/proc",
+	signal: (pid, signal) => process.kill(pid, signal),
+	later: (then, ms) => setTimeout(then, ms).unref(),
+};
+
+/** A listed process: its pid, when it started and its pid namespace. */
+interface Listed {
+	readonly pid: number;
+	readonly started: string;
+	readonly namespace: string | undefined;
+}
+
+/** When `pid` started, from its stat line, so a reused pid is told apart. */
+function startedAt(proc: string, pid: number): string | undefined {
+	try {
+		const stat = readFileSync(join(proc, String(pid), "stat"), "utf8");
+		return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+	} catch {
+		// Gone already: nothing to tell apart.
+		return undefined;
+	}
+}
+
+function namespaceOf(proc: string, pid: number | "self"): string | undefined {
+	try {
+		return readlinkSync(join(proc, String(pid), "ns", "pid"));
+	} catch {
+		// Gone, or not this account's to read: no namespace to reach.
+		return undefined;
+	}
+}
+
 /**
- * End `session`'s fenced commands: each bubblewrap this account runs
- * for that session, by its own environment, which takes everything
- * inside with it. Only this account's processes are read, and only
- * bubblewrap's.
+ * This account's processes, and of them the bubblewraps whose
+ * environment carries `session`'s id.
  */
-export function endFencedCommands(
+function listed(
+	proc: string,
 	session: string,
-	proc = "/proc",
-	kill: (pid: number) => void = (pid) => process.kill(pid, "SIGTERM"),
-): number {
+): { all: Listed[]; fenced: Listed[] } {
 	const uid = process.getuid?.();
 	const mark = `PI_SESSION_ID=${session}`;
-	let ended = 0;
+	const all: Listed[] = [];
+	const fenced: Listed[] = [];
 	let entries: string[];
 	try {
 		entries = readdirSync(proc);
 	} catch {
-		return 0;
+		return { all, fenced };
 	}
 	for (const entry of entries) {
 		if (!/^\d+$/.test(entry)) continue;
+		const pid = Number(entry);
 		try {
 			const status = readFileSync(join(proc, entry, "status"), "utf8");
 			const owner = /^Uid:\s+(\d+)/m.exec(status)?.[1];
 			if (uid !== undefined && owner !== String(uid)) continue;
+			const started = startedAt(proc, pid);
+			if (started === undefined) continue;
+			const one = { pid, started, namespace: namespaceOf(proc, pid) };
+			all.push(one);
 			if (readFileSync(join(proc, entry, "comm"), "utf8").trim() !== "bwrap")
 				continue;
 			const env = readFileSync(join(proc, entry, "environ"), "utf8").split(
 				"\0",
 			);
-			if (!env.includes(mark)) continue;
-			kill(Number(entry));
-			ended += 1;
+			if (env.includes(mark)) fenced.push(one);
 		} catch {
 			// A process gone between the listing and the read is one fewer
 			// to end.
 		}
 	}
-	return ended;
+	return { all, fenced };
+}
+
+/**
+ * End `session`'s fenced commands: each bubblewrap this account runs
+ * for that session, by its own environment, and everything in the
+ * process namespace it made, so a child that outlived it or ignores
+ * the ask goes too. Each is asked to end, and killed five seconds on if
+ * it's still the same process. Only this account's processes are read.
+ * Answers how many were asked.
+ */
+export function endFencedCommands(
+	session: string,
+	given: Partial<Ending> = {},
+): number {
+	const ending = { ...ENDING, ...given };
+	const { all, fenced } = listed(ending.proc, session);
+	const own = namespaceOf(ending.proc, "self");
+	const theirs = new Set(
+		fenced
+			.map((one) => one.namespace)
+			.filter((space) => space !== undefined && space !== own),
+	);
+	const targets = all.filter(
+		(one) =>
+			fenced.includes(one) ||
+			(one.namespace !== undefined && theirs.has(one.namespace)),
+	);
+	const send = (one: Listed, signal: NodeJS.Signals) => {
+		try {
+			ending.signal(one.pid, signal);
+		} catch {
+			// Gone already, which is what was asked.
+		}
+	};
+	for (const one of targets) send(one, "SIGTERM");
+	if (targets.length > 0)
+		ending.later(() => {
+			for (const one of targets)
+				if (startedAt(ending.proc, one.pid) === one.started)
+					send(one, "SIGKILL");
+		}, GRACE_MS);
+	return targets.length;
 }
 
 /** Forget every armed watch, for a test that arms its own. */

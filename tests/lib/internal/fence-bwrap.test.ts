@@ -8,12 +8,14 @@
  * another sandbox.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
 	cpSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 } from "node:fs";
@@ -24,6 +26,7 @@ import { fenceArgs } from "../../../lib/internal/fence.ts";
 import {
 	armSharedRoot,
 	disarmAll,
+	endFencedCommands,
 	plantStopped,
 } from "../../../lib/internal/fence-git-root.ts";
 import { gitRun } from "../../../lib/internal/tree-git.ts";
@@ -246,7 +249,57 @@ describe.skipIf(bwrap === undefined)(
 				{ timeout: 100, interval: 2 },
 			);
 			expect(refused).toHaveBeenCalledWith("s-bwrap");
-			expect(plantStopped("s-bwrap"), "the session stopped").toBe(true);
+			expect(plantStopped("s-bwrap"), "why").toContain(root);
+		});
+
+		it("ends a stopped session's command, children that ignore the ask included", async () => {
+			const session = `s-end-${randomUUID()}`;
+			const args = fenceArgs({ home, runtimeDir: undefined });
+			const running = spawn(
+				bwrap ?? "bwrap",
+				[
+					"--unshare-user",
+					...args,
+					"sh",
+					"-c",
+					"trap '' TERM; sh -c \"trap '' TERM; sleep 60\" & echo up; wait",
+				],
+				{ env: { ...process.env, PI_SESSION_ID: session } },
+			);
+			const ended = new Promise<void>((done) =>
+				running.on("exit", () => done()),
+			);
+			await new Promise<void>((done) =>
+				running.stdout.once("data", () => done()),
+			);
+			const asked: number[] = [];
+			endFencedCommands(session, {
+				signal: (pid, signal) => {
+					asked.push(pid);
+					process.kill(pid, signal);
+				},
+				// The grace is cut short here: what's tested is the kill after it.
+				later: (then) => setImmediate(then),
+			});
+			expect(
+				new Set(asked).size,
+				"the bubblewraps, the shells and the sleep",
+			).toBeGreaterThan(3);
+			await ended;
+			const alive = (pid: number) => {
+				try {
+					return !/^State:\s+Z/m.test(
+						readFileSync(`/proc/${pid}/status`, "utf8"),
+					);
+				} catch {
+					// Gone, and reaped.
+					return false;
+				}
+			};
+			await vi.waitFor(
+				() => expect(asked.filter(alive), "left running").toEqual([]),
+				{ timeout: 2000 },
+			);
 		});
 	},
 );

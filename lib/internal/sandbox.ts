@@ -77,7 +77,6 @@ import {
 import {
 	afterCheck,
 	guardedIn,
-	PLANT_STOPPED,
 	plantStopped,
 	sharedRootFor,
 } from "./fence-git-root.ts";
@@ -651,7 +650,8 @@ export function wrapFor(
 			return () => refused(sandbox.reason);
 		case "fence": {
 			const session = place.env.PI_SESSION_ID;
-			if (plantStopped(session)) return () => refused(PLANT_STOPPED);
+			const stopped = plantStopped(session);
+			if (stopped) return () => refused(stopped);
 			const ownGitFolder = worktreeFolder(place.cwd);
 			const sharedRoot = sharedRootFor(ownGitFolder, session, (root) =>
 				guardsGitFolder(root, real(home)),

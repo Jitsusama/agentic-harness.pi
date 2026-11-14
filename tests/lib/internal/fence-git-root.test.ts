@@ -12,6 +12,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,27 +71,16 @@ describe("which git folder a worktree shares", () => {
 });
 
 describe("what the watch guards", () => {
-	it("guards the names git never makes in the shared folder", () => {
-		const names = guardedNames(root, own);
-		expect(names.get(root)).toEqual(["commondir", "gitdir"]);
-		expect(names.get(own), "config.worktree is read by nothing").toEqual([]);
-	});
-
-	it("guards config.worktree where the settings have git read it", () => {
-		writeFileSync(
-			join(root, "config"),
-			"[extensions]\n\tworktreeConfig = true\n",
-		);
+	it("guards the names git never makes there, and config.worktree whatever the settings say", () => {
 		const names = guardedNames(root, own);
 		expect(names.get(root)).toEqual(["commondir", "gitdir", "config.worktree"]);
-		expect(names.get(own)).toEqual(["config.worktree"]);
+		expect(
+			names.get(own),
+			"a sparse checkout turning it on later would wake one",
+		).toEqual(["config.worktree"]);
 	});
 
 	it("leaves a config.worktree already there to the read-only bind", () => {
-		writeFileSync(
-			join(root, "config"),
-			"[extensions]\n\tworktreeConfig = on\n",
-		);
 		writeFileSync(join(own, "config.worktree"), "");
 		expect(guardedNames(root, own).get(own)).toEqual([]);
 	});
@@ -108,10 +98,6 @@ describe("a plant in the shared git folder", () => {
 	])(
 		"removes %s at once and logs and stops the session",
 		async (_name, path) => {
-			writeFileSync(
-				join(root, "config"),
-				"[extensions]\n\tworktreeConfig = true\n",
-			);
 			const deps = watched();
 			expect(armSharedRoot(root, own, "s-1", deps), "the watch armed").toBe(
 				true,
@@ -128,7 +114,12 @@ describe("a plant in the shared git folder", () => {
 			expect(deps.stop, "the session's commands stopped").toHaveBeenCalledWith(
 				"s-1",
 			);
-			expect(plantStopped("s-1"), "later commands refused").toBe(true);
+			const why = plantStopped("s-1");
+			expect(why, "later commands refused, naming the folder").toContain(root);
+			expect(why, "saying it may be collateral").toContain("collateral");
+			expect(why, "saying how to get going again").toContain(
+				"a new session works at once",
+			);
 		},
 	);
 
@@ -147,7 +138,7 @@ describe("a plant in the shared git folder", () => {
 			() => expect(existsSync(planted), "a plant still there").toBe(false),
 			{ timeout: PROMPTLY_MS, interval: 2 },
 		);
-		expect(plantStopped("s-loop"), "the session stopped").toBe(true);
+		expect(plantStopped("s-loop"), "the session stopped").toBeDefined();
 		expect(deps.stop, "its commands ended").toHaveBeenCalledWith("s-loop");
 	});
 
@@ -157,13 +148,13 @@ describe("a plant in the shared git folder", () => {
 		armSharedRoot(root, own, "s-b", deps);
 		writeFileSync(join(root, "gitdir"), "/elsewhere\n");
 		await vi.waitFor(
-			() => expect(plantStopped("s-b"), "s-b stopped").toBe(true),
+			() => expect(plantStopped("s-b"), "s-b stopped").toBeDefined(),
 			{
 				timeout: PROMPTLY_MS,
 				interval: 2,
 			},
 		);
-		expect(plantStopped("s-a"), "s-a stopped").toBe(true);
+		expect(plantStopped("s-a"), "s-a stopped").toBeDefined();
 		expect(deps.refused.mock.calls.flat().sort()).toEqual(["s-a", "s-b"]);
 	});
 
@@ -176,7 +167,7 @@ describe("a plant in the shared git folder", () => {
 		// pause past the time a plant takes to be removed is the point.
 		await new Promise((done) => setTimeout(done, 30));
 		expect(deps.refused, "no refusal").not.toHaveBeenCalled();
-		expect(plantStopped("s-git"), "not stopped").toBe(false);
+		expect(plantStopped("s-git"), "not stopped").toBeUndefined();
 	});
 });
 
@@ -220,6 +211,8 @@ describe("a shared git folder the watch can't guard", () => {
 		expect(guardedIn([root, own])).toEqual([
 			join(root, "commondir"),
 			join(root, "gitdir"),
+			join(root, "config.worktree"),
+			join(own, "config.worktree"),
 		]);
 	});
 });
@@ -329,38 +322,100 @@ describe("the after-check", () => {
 });
 
 describe("ending a session's fenced commands", () => {
-	/** A stand-in /proc entry for `pid`. */
-	function process_(proc: string, pid: number, comm: string, env: string[]) {
+	const OURS = "pid:[4026531836]";
+
+	/** A stand-in /proc entry for `pid`, in pid namespace `space`. */
+	function listed(
+		proc: string,
+		pid: number,
+		comm: string,
+		env: string[],
+		space = OURS,
+		uid = process.getuid?.(),
+	) {
 		const at = join(proc, String(pid));
-		mkdirSync(at, { recursive: true });
+		mkdirSync(join(at, "ns"), { recursive: true });
 		writeFileSync(
 			join(at, "status"),
-			`Name:\t${comm}\nUid:\t${process.getuid?.()}\t0\t0\t0\n`,
+			`Name:\t${comm}\nUid:\t${uid}\t0\t0\t0\n`,
 		);
 		writeFileSync(join(at, "comm"), `${comm}\n`);
 		writeFileSync(join(at, "environ"), `${env.join("\0")}\0`);
+		writeFileSync(
+			join(at, "stat"),
+			`${pid} (${comm} x) S 1 ${pid} ${pid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${pid}00 0 0\n`,
+		);
+		symlinkSync(space, join(at, "ns", "pid"));
 	}
 
-	it("ends only this session's bubblewraps", () => {
-		const proc = join(base, "proc");
-		process_(proc, 11, "bwrap", ["PI_SESSION_ID=s-1", "HOME=/h"]);
-		process_(proc, 12, "bwrap", ["PI_SESSION_ID=s-2"]);
-		process_(proc, 13, "bash", ["PI_SESSION_ID=s-1"]);
-		process_(proc, 14, "bwrap", ["PI_SESSION_ID=s-10"]);
-		mkdirSync(join(proc, "self"));
-		const killed: number[] = [];
-		expect(endFencedCommands("s-1", proc, (pid) => killed.push(pid))).toBe(1);
-		expect(killed).toEqual([11]);
+	/** A stand-in /proc with this process's own namespace. */
+	function proc(): string {
+		const made = join(base, "proc");
+		mkdirSync(join(made, "self", "ns"), { recursive: true });
+		symlinkSync(OURS, join(made, "self", "ns", "pid"));
+		return made;
+	}
+
+	/** Each signal sent, and the later step left to run. */
+	function ending(at: string) {
+		const sent: string[] = [];
+		const steps: (() => void)[] = [];
+		const given = {
+			proc: at,
+			signal: (pid: number, signal: string) => sent.push(`${signal} ${pid}`),
+			later: (then: () => void, ms: number) => {
+				expect(ms, "the grace before a kill").toBe(5000);
+				steps.push(then);
+			},
+		};
+		return { sent, steps, given };
+	}
+
+	it("asks this session's bubblewraps and everything in their namespace to end, then kills them", () => {
+		const at = proc();
+		const theirs = "pid:[4026533000]";
+		listed(at, 11, "bwrap", ["PI_SESSION_ID=s-1", "HOME=/h"]);
+		listed(at, 12, "bwrap", ["PI_SESSION_ID=s-1"], theirs);
+		listed(at, 13, "sh", [], theirs);
+		listed(at, 14, "sleep", [], theirs);
+		listed(at, 15, "bwrap", ["PI_SESSION_ID=s-2"], "pid:[4026533001]");
+		listed(at, 16, "bash", ["PI_SESSION_ID=s-1"]);
+		listed(at, 17, "bwrap", ["PI_SESSION_ID=s-10"]);
+		const { sent, steps, given } = ending(at);
+		expect(endFencedCommands("s-1", given), "how many were asked").toBe(4);
+		expect(sent).toEqual([
+			"SIGTERM 11",
+			"SIGTERM 12",
+			"SIGTERM 13",
+			"SIGTERM 14",
+		]);
+		rmSync(join(at, "13"), { recursive: true });
+		for (const step of steps) step();
+		expect(sent.slice(4), "killed but what ended").toEqual([
+			"SIGKILL 11",
+			"SIGKILL 12",
+			"SIGKILL 14",
+		]);
+	});
+
+	it("kills no process that took a pid freed in the grace", () => {
+		const at = proc();
+		listed(at, 21, "bwrap", ["PI_SESSION_ID=s-1"]);
+		const { sent, steps, given } = ending(at);
+		endFencedCommands("s-1", given);
+		writeFileSync(
+			join(at, "21", "stat"),
+			"21 (other) S 1 21 21 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 999 0 0\n",
+		);
+		for (const step of steps) step();
+		expect(sent).toEqual(["SIGTERM 21"]);
 	});
 
 	it("ends none of another account's", () => {
-		const proc = join(base, "proc");
-		process_(proc, 21, "bwrap", ["PI_SESSION_ID=s-1"]);
-		writeFileSync(
-			join(proc, "21", "status"),
-			"Name:\tbwrap\nUid:\t4242\t0\t0\t0\n",
-		);
-		const killed: number[] = [];
-		expect(endFencedCommands("s-1", proc, (pid) => killed.push(pid))).toBe(0);
+		const at = proc();
+		listed(at, 31, "bwrap", ["PI_SESSION_ID=s-1"], OURS, 4242);
+		const { sent, given } = ending(at);
+		expect(endFencedCommands("s-1", given)).toBe(0);
+		expect(sent).toEqual([]);
 	});
 });
