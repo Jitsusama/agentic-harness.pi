@@ -28,6 +28,9 @@ function carrying(refusing = false) {
 			if (refusing) throw new Error("the file is closed");
 			written.push(String(message.content));
 		},
+		dispose() {
+			written.push("disposed");
+		},
 	};
 	const agent: CarryingAgent = {
 		state,
@@ -63,6 +66,21 @@ describe("an extension's message during a turn the host carries on", () => {
 		await send("a word", { triggerTurn: false });
 		emit("agent_end");
 		expect(written).toEqual(["a word"]);
+	});
+
+	it("is written as the session is disposed when no turn ends first", async () => {
+		const { session, send, written } = carrying();
+		await send("a word", { triggerTurn: false });
+		session.dispose();
+		expect(written).toEqual(["a word", "disposed"]);
+	});
+
+	it("lets go of the session as it is disposed", async () => {
+		const { session, send, emit, written } = carrying();
+		session.dispose();
+		await send("after", { triggerTurn: false });
+		emit("turn_end");
+		expect(written).toEqual(["disposed", "after"]);
 	});
 
 	it("keeps its order with the others held beside it", async () => {

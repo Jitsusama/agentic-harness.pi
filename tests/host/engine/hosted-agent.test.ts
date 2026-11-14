@@ -404,6 +404,24 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
+	it("writes a peer's word held mid-round when the host stops before the round ends", async () => {
+		// A host stops in the middle of such turns, and a word held only in memory would be lost without a word.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-word-stopped-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			expect(
+				await killed("reopen-with-a-word-stopped", folder),
+				"the host stopped of itself",
+			).toBeNull();
+			expect(
+				besideTheWord(folder),
+				"the word is in the file, after the call it came during",
+			).toEqual(["the call of call-2", "nothing"]);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
 	it("answers on a file that holds a word between a call and its result, now and on the next turn", async () => {
 		// The two conversations of 13 November hold their files in this shape still.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-word-written-"));

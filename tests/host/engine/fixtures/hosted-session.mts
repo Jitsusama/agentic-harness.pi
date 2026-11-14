@@ -371,6 +371,19 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 	},
+	/** As reopen-with-a-word, the host stopping as the tool's word is held, its turn never ending. */
+	"reopen-with-a-word-stopped": {
+		responses: () => [call("call-2", "pong"), say("never")],
+		tools: echo(async (session) => {
+			await session.sendCustomMessage(
+				{ customType: "mesh", content: "a word from a peer", display: true },
+				{ triggerTurn: false },
+			);
+			stopHost();
+		}),
+		drive: async () => {},
+		persist: true,
+	},
 	/** As reopen-with-a-word, the word written straight into the file between the call and its result, as pi wrote it on 13 November. */
 	"reopen-with-a-word-written": {
 		responses: () => [
@@ -524,6 +537,11 @@ const scenarios: Record<string, Scenario> = {
 	},
 };
 
+/** Stop the host mid-round, once the session is built. */
+let stopHost: () => void = () => {
+	throw new Error("the session is not built yet");
+};
+
 const scenario = scenarios[scenarioName];
 if (!scenario) throw new Error(`no scenario ${scenarioName}`);
 
@@ -604,6 +622,12 @@ try {
 		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
 			process.stderr.write(`held message reported: ${String(error)}\n`),
 		);
+	stopHost = () => {
+		// As the engine's release does for a stopping host, then the process ends before any turn does.
+		conversation?.agent?.park();
+		session.dispose();
+		process.exit(0);
+	};
 	const events: unknown[] = [];
 	session.agent.subscribe((event: unknown) => {
 		events.push(comparable(event));
