@@ -19,6 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried-turn-messages.ts";
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
@@ -598,6 +599,11 @@ try {
 		...(conversation ? { createAgent: conversation.createAgent } : {}),
 	});
 	built = session;
+	// As the host's engine does for each session it builds.
+	if (conversation?.agent)
+		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
+			process.stderr.write(`held message reported: ${String(error)}\n`),
+		);
 	const events: unknown[] = [];
 	session.agent.subscribe((event: unknown) => {
 		events.push(comparable(event));

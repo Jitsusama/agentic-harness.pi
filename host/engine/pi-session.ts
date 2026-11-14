@@ -160,6 +160,20 @@ export interface CommandContextActions {
 	reload(): Promise<void>;
 }
 
+/** An extension's own message, as pi.sendMessage takes it. */
+export interface CustomMessageInput {
+	readonly customType: string;
+	readonly content?: unknown;
+	readonly display: boolean;
+	readonly details?: unknown;
+}
+
+/** How pi.sendMessage is asked to deliver an extension's message. */
+export interface CustomMessageOptions {
+	readonly triggerTurn?: boolean;
+	readonly deliverAs?: "steer" | "followUp" | "nextTurn";
+}
+
 /** pi's AgentSession, as far as the engine drives it. */
 export interface AgentSession {
 	readonly sessionId: string;
@@ -180,6 +194,11 @@ export interface AgentSession {
 	waitForIdle(): Promise<void>;
 	reload(): Promise<void>;
 	subscribe(listener: (event: { readonly type: string }) => void): () => void;
+	/** What an extension's pi.sendMessage reaches. */
+	sendCustomMessage(
+		message: CustomMessageInput,
+		options?: CustomMessageOptions,
+	): Promise<void>;
 	navigateTree(
 		targetId: string,
 		options?: object,

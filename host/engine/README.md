@@ -84,12 +84,16 @@ one a restart cut off. Nothing reaches pi before durable has committed
 it, so the session file never holds a step twice, and ordinary pi opens
 the file.
 
-Each request has its tool results put back beside their calls first
-(paired-results.ts). pi's session writes an extension's message at once
-when it counts no run of its own, and a turn durable carries on after a
-restart is not one, so a mesh message can land between a call and its
-result; providers that check order refuse every request after that. A
-result whose call is not before it goes as text saying so.
+pi's session writes an extension's message at once when it counts no
+run of its own, and a turn durable carries on after a restart is not
+one, so a mesh message could land between a call and its result, and
+providers that check order then refuse every request. The engine has
+each session hold such a message through that turn as pi holds one
+through its own run (carried-turn-messages.ts): steered in when it asks
+for a turn, written once the turn ends when it doesn't. Each request
+also has its tool results put back beside their calls first
+(paired-results.ts), which keeps a file already in that shape
+answering; a result whose call is not before it goes as text saying so.
 
 ToolRound (tool-round.ts) keeps pi's tool-call steps in pi's order:
 start, then preparation, hooks and validation, then execution. A
