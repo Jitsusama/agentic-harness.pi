@@ -189,6 +189,12 @@ cache entry warm from the carry its session's warming wrote as it
 parked (lib/internal/warming-carry.ts): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
+A warm's runtime loads no extensions, so kept-providers.ts keeps what
+the conversation's extensions registered of its providers as it parks
+(Shopify's proxy registers anthropic with its address, key variable and
+headers) and registers it on each warm's runtime. It is kept in memory
+and, where it is plain data, in `providers.json` beside the
+conversation's store, for the next host's warms of one resting parked.
 A resume stops it before the session starts and takes the carry, and a
 warm out then is dropped rather than holding the wake up.
 quiet-collection.ts gives V8's pooled pages back with one last-resort

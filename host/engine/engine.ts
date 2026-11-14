@@ -14,7 +14,7 @@
  * resume) meet here in the order each relies on, every one of them
  * handing its own work to a module of its own beside this one.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
 import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
@@ -66,6 +66,13 @@ import { bindHeadless } from "./headless.ts";
 import { loadHostPi } from "./host-pi.ts";
 import type { HostedAgent } from "./hosted-agent.ts";
 import {
+	type KeptProviders,
+	keptProviders,
+	readKept,
+	registerKept,
+	writeKept,
+} from "./kept-providers.ts";
+import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
@@ -75,6 +82,7 @@ import { piLibrary } from "./pi-library.ts";
 import {
 	type AgentSessionRuntime,
 	type EventBus,
+	type ModelRuntime,
 	type PiSessions,
 	piBuiltInExtensions,
 	piSessions,
@@ -122,6 +130,8 @@ const REFUSED_KEY = /\b401\b/;
 
 /** The durable store's file inside a conversation's folder. */
 const STORE_FILE = "durable.sqlite";
+/** What its extensions registered of its providers, kept beside its store as it parks. */
+const PROVIDERS_FILE = "providers.json";
 
 /** One conversation the engine registered. */
 interface Live {
@@ -197,6 +207,10 @@ export async function createEngine(
 	const agentDirs = new Map<string, string>();
 	// Each conversation's environment, kept past its park: its warms go once the host has let it go.
 	const environments = new Map<string, SessionEnvironment>();
+	// What each conversation's extensions registered of its providers, kept past its park for its warms.
+	const providers = new Map<string, KeptProviders>();
+	const providersFile = (sessionId: string) =>
+		join(options.stateDir, sessionId, PROVIDERS_FILE);
 	const warming = parkedWarming({
 		carries: warmingCarryDir(),
 		pending: pendingWarmsDir(),
@@ -209,6 +223,8 @@ export async function createEngine(
 				modelsPath: join(agentDir, "models.json"),
 				authContext: conversationAuthContext(() => requestEnv(carry.sessionId)),
 			});
+			const kept = providers.get(carry.sessionId);
+			if (kept) registerKept(runtime, kept);
 			return warmThrough(runtime, carry, signal);
 		},
 		enabled: async () => keepingRequests() && (await warmingSwitchedOn()),
@@ -769,6 +785,8 @@ export async function createEngine(
 		if (record.ending !== "closed") agent?.park();
 		else if (!record.disposed) await record.runtime?.session.abort();
 		record.unsubscribe?.();
+		if (record.parking && record.runtime && !record.disposed)
+			keepProviders(sessionId, record.runtime.services.modelRuntime);
 		if (!record.disposed) await record.runtime?.dispose();
 		// Closing signals a running tool and writes no outcome, so the next start reports it cut off.
 		try {
@@ -787,6 +805,18 @@ export async function createEngine(
 			// What it held is garbage now: a park lets most of it go, and may collect sooner.
 			if (record.parking) quiet.parked();
 			else quiet.stirred();
+		}
+	}
+
+	/** Keep what a parking conversation's extensions registered, for its warms here and in the next host. */
+	function keepProviders(sessionId: string, runtime: ModelRuntime): void {
+		try {
+			const kept = keptProviders(runtime);
+			providers.set(sessionId, kept);
+			writeKept(providersFile(sessionId), kept);
+		} catch (error) {
+			// Its park goes on: only its warms go without, failing as they say.
+			report(error);
 		}
 	}
 
@@ -968,6 +998,8 @@ export async function createEngine(
 				return false;
 			parked.rests(sessionId);
 			agentDirs.set(sessionId, sessions.getAgentDir());
+			const kept = readKept(providersFile(sessionId));
+			if (kept) providers.set(sessionId, kept);
 			environments.set(
 				sessionId,
 				sessionEnvironment(
@@ -985,6 +1017,8 @@ export async function createEngine(
 			warming.stop(sessionId);
 			agentDirs.delete(sessionId);
 			environments.delete(sessionId);
+			providers.delete(sessionId);
+			rmSync(providersFile(sessionId), { force: true });
 			parked.closed(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},
