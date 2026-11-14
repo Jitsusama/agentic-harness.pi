@@ -189,6 +189,17 @@ function carries(event: object, text: string): boolean {
 	return isRecord(message) && textOf({ content: message.content }) === text;
 }
 
+/** The provider errors a transcript holds, by their text. */
+function refusals(observed: Observed): unknown[] {
+	return observed.transcript
+		.filter(
+			(message) =>
+				message.role === "assistant" &&
+				Reflect.get(message, "stopReason") === "error",
+		)
+		.map((message) => Reflect.get(message, "errorMessage"));
+}
+
 function said(observed: Observed, role: string): string[] {
 	return observed.transcript
 		.filter((message) => message.role === role)
@@ -344,6 +355,41 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			expect(said(observed, "assistant").at(-1)).toBe("after the restart");
 			expect(observed.ran, "each tool ran once, before the kill").toBe(2);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps a tool result beside its call when a peer's word is written between them, now and on the next turn", async () => {
+		// Two carried a mesh message written between a call and its result, and every request after was refused for a result without its call.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-word-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(
+				folder,
+				"reopen-with-a-word",
+			);
+			expect(reported, "durable reported nothing").toBe("");
+			const word = observed.transcript.findIndex(
+				(message) => message.role === "custom",
+			);
+			const before = observed.transcript[word - 1];
+			expect(
+				isRecord(before) && calls(before, "call-2"),
+				"the word follows the carried-on turn's call",
+			).toBe(true);
+			expect(
+				Reflect.get(observed.transcript[word + 1] ?? {}, "toolCallId"),
+				"and comes before that call's result",
+			).toBe("call-2");
+			expect(refusals(observed), "no request was refused").toEqual([]);
+			expect(said(observed, "assistant").at(-1)).toBe("after the word");
+			const next = await reopenedWithReports(folder, "reopen-asked");
+			expect(
+				refusals(next.observed),
+				"the next turn, on the file as it was left, was not refused",
+			).toEqual([]);
+			expect(said(next.observed, "assistant").at(-1)).toBe("answered");
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}

@@ -22,12 +22,17 @@ import { pathToFileURL } from "node:url";
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
+import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** What the fixture drives of a pi session. */
 interface Session {
 	prompt(text: string): Promise<void>;
 	steer(text: string): Promise<void>;
 	followUp(text: string): Promise<void>;
+	sendCustomMessage(
+		message: { customType: string; content: string; display: boolean },
+		options?: { triggerTurn?: boolean },
+	): Promise<void>;
 	abort(): Promise<void>;
 	dispose(): void;
 	navigateTree(targetId: string, options: object): Promise<unknown>;
@@ -170,6 +175,45 @@ async function answerOnceQueued(text: string): Promise<unknown> {
 }
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
+
+/**
+ * Answer `text`, unless a tool result in the request does not follow its
+ * call's answer, which is refused as Anthropic's API refuses it.
+ */
+function pairedOrRefused(text: string) {
+	return (context: { readonly messages: readonly unknown[] }): unknown => {
+		const at = firstUnpaired(context.messages);
+		return at === undefined
+			? say(text)
+			: compat.fauxAssistantMessage([], {
+					stopReason: "error",
+					errorMessage: `400 messages.${at}: unexpected tool_use_id found in tool_result blocks`,
+				});
+	};
+}
+
+/** Where the first tool result whose call is not in the answer just before the results stands. */
+function firstUnpaired(messages: readonly unknown[]): number | undefined {
+	const roleAt = (index: number): unknown => {
+		const message = messages[index];
+		return isRecord(message) ? message.role : undefined;
+	};
+	for (const [index, message] of messages.entries()) {
+		if (!isRecord(message) || message.role !== "toolResult") continue;
+		let before = index - 1;
+		while (before >= 0 && roleAt(before) === "toolResult") before--;
+		const answer = messages[before];
+		const calls =
+			isRecord(answer) &&
+			answer.role === "assistant" &&
+			Array.isArray(answer.content) &&
+			answer.content.some(
+				(part: unknown) => isRecord(part) && part.id === message.toolCallId,
+			);
+		if (!calls) return index;
+	}
+	return undefined;
+}
 const call = (id: string, text: string, timestamp?: number) =>
 	compat.fauxAssistantMessage([compat.fauxToolCall("echo", { text }, { id })], {
 		stopReason: "toolUse",
@@ -302,6 +346,28 @@ const scenarios: Record<string, Scenario> = {
 		tools: echo(async () => noteEffect("ping")),
 		early: (session) => session.prompt("sent at the start"),
 		drive: async () => {},
+		persist: true,
+	},
+	/** Reopen into a tool round whose tool hears a peer's word, as a mesh message reached a turn durable carried on on 13 November. */
+	"reopen-with-a-word": {
+		responses: () => [
+			call("call-2", "pong"),
+			pairedOrRefused("after the word"),
+		],
+		tools: echo(async (session) => {
+			await session.sendCustomMessage(
+				{ customType: "mesh", content: "a word from a peer", display: true },
+				{ triggerTurn: false },
+			);
+		}),
+		drive: async () => {},
+		persist: true,
+	},
+	/** Open the kept session again and prompt it, its file as the last run left it. */
+	"reopen-asked": {
+		responses: () => [pairedOrRefused("answered")],
+		tools: echo(),
+		drive: (session) => session.prompt("and now?"),
 		persist: true,
 	},
 	/** Open the kept session file as it stands, sending nothing. */
