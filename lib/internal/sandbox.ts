@@ -109,6 +109,7 @@ import {
 	heldTree,
 	worktreeFolder,
 } from "./sandbox-trees.ts";
+import { withSecretNote } from "./secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
 import { cutTreeDir } from "./work-records.ts";
@@ -725,7 +726,10 @@ export function wrapFor(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },
 					sandbox.logger,
 				);
-				return [fencedCommand(command, made), afterCheck(guarded, planted)]
+				return [
+					fencedCommand(withSecretNote(command), made),
+					afterCheck(guarded, planted),
+				]
 					.filter(Boolean)
 					.join("\n");
 			};

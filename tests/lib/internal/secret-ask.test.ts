@@ -11,10 +11,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerOf,
+	askRoute,
 	mayBeGiven,
 	putAsk,
 	type SecretAsk,
 	takeAsk,
+	withSecretNote,
 } from "../../../lib/internal/secret-ask.ts";
 
 let dir: string;
@@ -191,5 +193,73 @@ describe("a variable's name", () => {
 		}
 		expect(mayBeGiven("PACKAGE_TOKEN"), "a plain name").toBe(true);
 		expect(mayBeGiven("_X1"), "an underscore first").toBe(true);
+	});
+});
+
+describe("askRoute", () => {
+	const socket = "/run/user/1000/daemons/secret-asks.sock";
+
+	it("files in the runtime folder's asks from a fenced session where the daemon runs", () => {
+		const route = askRoute(
+			{ fenced: true, runtimeDir: "/run/user/1000" },
+			(path) => path === socket,
+		);
+		expect(route).toEqual({ folder: "/run/user/1000/secret-asks" });
+	});
+
+	it("refuses a session whose commands run outside the fence", () => {
+		const route = askRoute(
+			{ fenced: false, runtimeDir: "/run/user/1000" },
+			() => true,
+		);
+		expect("refused" in route && route.refused).toMatch(
+			/outside the agent fence/,
+		);
+	});
+
+	it("refuses where the daemon's socket isn't there", () => {
+		const route = askRoute(
+			{ fenced: true, runtimeDir: "/run/user/1000" },
+			() => false,
+		);
+		expect("refused" in route && route.refused).toMatch(
+			/doesn't run on this machine/,
+		);
+	});
+
+	it("refuses with no runtime folder", () => {
+		const route = askRoute({ fenced: true, runtimeDir: undefined }, () => true);
+		expect("refused" in route, "no folder to file in").toBe(true);
+	});
+});
+
+describe("withSecretNote", () => {
+	it("tells a command naming secret-asks of secret_run, then runs it", () => {
+		const said = withSecretNote("secret-asks ask --item x");
+		expect(said).toMatch(/^printf '%s\\n' .*secret_run.* >&2\n/);
+		expect(
+			said.endsWith("\nsecret-asks ask --item x"),
+			"the command runs after",
+		).toBe(true);
+	});
+
+	it("leaves a command alone that only names something like it", () => {
+		for (const command of [
+			"ls my-secret-asks",
+			"cat secret-asks.md",
+			"echo hi",
+		]) {
+			expect(withSecretNote(command), command).toBe(command);
+		}
+	});
+
+	it("notes the program wherever it stands in a line", () => {
+		expect(
+			withSecretNote("x && secret-asks list"),
+			"after another command",
+		).toMatch(/secret_run/);
+		expect(withSecretNote("$(secret-asks)"), "in a substitution").toMatch(
+			/secret_run/,
+		);
 	});
 });
