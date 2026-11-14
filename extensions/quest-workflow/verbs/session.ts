@@ -643,7 +643,6 @@ export async function spawn(
 	// environment, which also covers the launcher not answering.
 	const token = leftUnder(forLauncher?.id ?? uuidv7());
 	if (token) env[FIRST_WORDS_VARIABLE] = token;
-	// The launcher hands on only the id, so a fresh one is listed by it.
 	if (staged) env[STAGE_VARIABLE] = staged;
 	if (staged && forLauncher?.fresh) stagedById(forLauncher.id, stage);
 	// The command is typed into a login shell the terminal opens, so the
