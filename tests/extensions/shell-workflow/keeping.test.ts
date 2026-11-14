@@ -3,10 +3,11 @@
  * through the keeping stub, on a real bash: what pi reads is what it
  * read before, even when its tee is slow to write it, a call that ends
  * in its pi takes its files with it, and one handed on leaves them, its
- * status written whatever the command did on its way out.
+ * status written whatever the command did on its way out, and all it
+ * says once whatever read it has gone.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -18,7 +19,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
+import {
+	type BashOperations,
+	createLocalBashOperations,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	COMMAND_STUB,
@@ -64,6 +68,36 @@ function slowTee(seconds: number): string {
 	writeFileSync(file, `#!/bin/sh\nsleep ${seconds}\nexec ${tee} "$@"\n`);
 	chmodSync(file, 0o755);
 	return dir;
+}
+
+/**
+ * Operations that read a call's output until `leave` is called, then close
+ * their end of its pipes and return with the call still running, as a
+ * pi-spawner that leaves kept commands running does when its pi goes.
+ */
+function readsUntilItLeaves() {
+	let leave = (): void => undefined;
+	const left = new Promise<void>((resolve) => {
+		leave = resolve;
+	});
+	const operations: BashOperations = {
+		async exec(command, cwd, call) {
+			const child = spawn("bash", ["-c", command], {
+				cwd,
+				env: call.env,
+				stdio: ["ignore", "pipe", "pipe"],
+				detached: true,
+			});
+			child.stdout.on("data", call.onData);
+			child.stderr.on("data", call.onData);
+			await left;
+			child.stdout.destroy();
+			child.stderr.destroy();
+			child.unref();
+			return { exitCode: null };
+		},
+	};
+	return { operations, leave };
 }
 
 /** Run `command` as the spawn hook leaves it, collecting what pi reads. */
@@ -172,5 +206,41 @@ describe("a kept call", () => {
 			carry?.what(),
 			"once handed, it isn't carried twice",
 		).toBeUndefined();
+	});
+
+	it("writes all it says once what read it has gone, as a spawner leaving it does", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+		made.push(dir);
+		const folder = join(dir, "kept");
+		const reader = readsUntilItLeaves();
+		const kept = keepsOnDisk(reader.operations, {
+			can: () => true,
+			folder: () => folder,
+		});
+		const signal = new AbortController().signal;
+		const running = run(
+			kept.operations,
+			"echo tick-1; sleep 0.3; for i in 2 3 4 5 6; do echo tick-$i; done; exit 7",
+			signal,
+		);
+		const carry = kept.carryOf(signal);
+		await until(
+			"the call to have its pid on disk",
+			() => carry?.what() !== undefined,
+		);
+		const work = carry?.what();
+		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
+		carry?.handed();
+		await until("its first line on disk", () =>
+			outputOf(work.keep).startsWith("tick-1\n"),
+		);
+		reader.leave();
+		expect((await running).code, "its reader went before it ended").toBeNull();
+		await until("its end on disk", () => endOf(work.keep) !== undefined);
+		expect(endOf(work.keep), "its own status, not a broken pipe's").toBe(7);
+		expect(
+			outputOf(work.keep),
+			"every line, those after its reader went too",
+		).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
 	});
 });
