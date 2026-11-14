@@ -77,7 +77,35 @@ const LEGACY_LOCK_NAME = ".quest.lock";
  * files on the same volume.
  */
 export function atomicWriteFile(path: string, data: string): void {
-	writeWhole(path, data, { durable: true });
+	try {
+		writeWhole(path, data, { durable: true });
+	} finally {
+		wrote();
+	}
+}
+
+/**
+ * Where the process counts the quest writes it makes: on `globalThis`,
+ * as discovery keeps its memo, since every extension that imports this
+ * file has a copy of it and each copy's writes must reach one count.
+ */
+const WRITES = Symbol.for("agentic-harness.quest-writes");
+
+type WriteCount = Record<symbol, number | undefined>;
+
+/** Count one more write this process made to a quest. */
+function wrote(): void {
+	const global = globalThis as WriteCount;
+	global[WRITES] = (global[WRITES] ?? 0) + 1;
+}
+
+/**
+ * How many quest writes this process has made: each atomic write, and
+ * each stretch under a quest's lock, which covers the appends and
+ * removals made there. A held discovery reads it to see its own writes.
+ */
+export function questWritesMade(): number {
+	return (globalThis as WriteCount)[WRITES] ?? 0;
 }
 
 interface LockRecord {
@@ -279,6 +307,7 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 		awaitLegacyRelease(join(questDir, LEGACY_LOCK_NAME));
 		return fn();
 	} finally {
+		wrote();
 		releaseLock(lockPath, held);
 	}
 }

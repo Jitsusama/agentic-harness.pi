@@ -61,6 +61,7 @@ import {
 	splitFrontMatter,
 } from "./frontmatter.ts";
 import { isId, prefixOf } from "./id.ts";
+import { questWritesMade } from "./io.ts";
 import { extractTitle, parseQuestDoc } from "./quest-doc.ts";
 
 /**
@@ -344,6 +345,41 @@ const SETTLED_NS = 2_000_000_000n;
  */
 export function clearDiscoveryCache(): void {
 	delete (globalThis as GlobalMemo)[MEMO];
+	held?.clear();
+}
+
+/** What a held discovery found for a root, and the writes made by then. */
+interface HeldSlot {
+	readonly writes: number;
+	readonly result: DiscoveryResult;
+}
+
+/** The roots a hold has walked, while one is open; none outside it. */
+let held: Map<string, HeldSlot> | undefined;
+
+/**
+ * Run `fn` with the quest tree read as it stood at its first walk, plus
+ * this process's own writes, so every discovery inside it after the
+ * first costs nothing.
+ *
+ * A session's start asks discovery six times or more, and each ask
+ * signs the whole tree again, a stat a file and a listing a folder:
+ * about 40 ms each over some 800 quests, 0.24 s of a parked wake on 14
+ * November, every wake. Inside a hold an ask after the first is
+ * answered from that walk, unless the process wrote a quest since,
+ * which signs the tree again. `fn` runs to its end before anything
+ * else on the loop, so the hold covers its synchronous part only; what
+ * it starts that awaits asks afresh, as do another process's writes
+ * at the next ask outside a hold. A hold inside a hold is the outer one.
+ */
+export function withDiscoveryHeld<T>(fn: () => T): T {
+	if (held) return fn();
+	held = new Map();
+	try {
+		return fn();
+	} finally {
+		held = undefined;
+	}
 }
 
 /**
@@ -359,6 +395,19 @@ export function clearDiscoveryCache(): void {
 export function discoverQuests(
 	questsRoot: string,
 	seed: SeedOptions = {},
+): DiscoveryResult {
+	const kept = held?.get(questsRoot);
+	if (kept && kept.writes === questWritesMade()) return kept.result;
+	const result = discoverQuestsSigned(questsRoot, seed);
+	// Counted after the walk, whose seed for the next process isn't a quest.
+	held?.set(questsRoot, { writes: questWritesMade(), result });
+	return result;
+}
+
+/** discoverQuests's walk, behind the tree's signature. */
+function discoverQuestsSigned(
+	questsRoot: string,
+	seed: SeedOptions,
 ): DiscoveryResult {
 	const pass = newPass();
 	const seeds = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;

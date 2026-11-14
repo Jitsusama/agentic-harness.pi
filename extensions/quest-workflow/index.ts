@@ -37,6 +37,7 @@ import { dataDir } from "../../lib/internal/paths.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
+	withDiscoveryHeld,
 } from "../../lib/internal/quest/discovery.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
@@ -696,125 +697,129 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	let stopHostStamp: (() => void) | undefined;
 	let running: string | undefined;
 
-	pi.on("session_start", async (_event, ctx) => {
-		if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
-		stayedBecause = undefined;
-		// What this session journals is its own, for its own undo.
-		setJournalSession(currentSessionId(ctx, undefined));
-		running = currentSessionId(ctx, undefined);
-		// A park said before this start is over: it parked, or never did.
-		parking = undefined;
-		stopHostStamp?.();
-		if (hosted()) {
-			const session = currentSessionId(ctx, undefined);
-			if (session)
-				stopHostStamp = followHostStamps(pi.events, session, () =>
-					releaseSessionOnShutdown(state, session),
-				);
-		}
-		// Surface any layout-drift errors the discovery walk
-		// found. After the canonical-layout tightening, a
-		// nested QEST dir or a misplaced doc file gets recorded
-		// as a DiscoveryError and skipped from the index. The
-		// user needs to know those quests didn't load so they
-		// can move them back into place rather than noticing
-		// later that a quest "vanished."
-		const { index, errors } = discoverQuests(state.questsRoot);
-		// As one notice through the session's screen, never straight to
-		// the terminal, which pi is drawing (lib/ui/aside.ts).
-		if (errors.length > 0) {
-			const preview = errors.slice(0, 5);
-			const lines = [
-				`[quest-workflow] discovery surfaced ${count(errors.length, "layout error")}:`,
-				...preview.map((err) => `  ${err.path}: ${err.message}`),
-				...(errors.length > preview.length
-					? [`  and ${errors.length - preview.length} more`]
-					: []),
-				"Each is skipped until it is moved into the layout the quest-format skill describes.",
-			];
-			asideFor(ctx)(lines.join("\n"));
-		}
-		// From the walk just made, so it walks nothing more, and it catches
-		// a priority edited by hand while no session was running.
-		keepQuestWeights(state.questsRoot, index);
-		void keepDesktopListsCurrent(state.questsRoot);
-
-		// Resolve which quest to load through the one startup
-		// pipeline: an explicit spawn request wins, then this
-		// session's persisted history (a /reload restores the last
-		// loaded quest and focused document), then the cwd for a
-		// fresh session launched inside a quest or its tree.
-		resolveStartup(state, pi, ctx);
-		// Asked now, waited on before the first model call (above).
-		budgets.keep(ctx).catch(() => {
-			// Nothing awaits this ask, and an unwatched rejection ends pi;
-			// before_agent_start keeps again and is awaited.
-		});
-		// A session a spawn started sets to work on its quest by itself,
-		// once start is done (resources_discover, below).
-		firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
-		// Once a quest is loaded (restored, autoloaded or
-		// resolved from the cwd), record this session on it so
-		// the sessions frontmatter reflects where work happens.
-		if (state.questId) {
-			// Garbage-collect no-log phantoms here too: most reopens go
-			// through this autoload/restore path rather than the explicit
-			// load verb, so pruning only there would rarely fire. The
-			// no-op case is cheap (it skips the write).
-			prunePhantomSessionsOnLoaded(state);
-			// Before attaching, which writes this process over the record.
-			sayPeersOnStartup(state, pi, ctx);
-			const sid = currentSessionId(ctx, undefined);
-			attachCurrentSession(state, {
-				id: sid,
-				cwd: ctx.cwd,
-				persisted: isPersistedSession(ctx),
-				...captureSessionIdentity(),
-			});
-			// Reconcile on the launch path too, not only the explicit
-			// load verb: a resumed or spawned session lands here, and
-			// without this it would re-attach while still reading active
-			// on a straggler quest from an earlier run.
-			if (sid && isPersistedSession(ctx) && state.questId) {
-				reconcileSessionMembership(state, sid, state.questId);
+	// The start's every discovery after its first reads that walk, plus
+	// its own writes (withDiscoveryHeld), rather than signing the tree again.
+	pi.on("session_start", async (_event, ctx) =>
+		withDiscoveryHeld(() => {
+			if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
+			stayedBecause = undefined;
+			// What this session journals is its own, for its own undo.
+			setJournalSession(currentSessionId(ctx, undefined));
+			running = currentSessionId(ctx, undefined);
+			// A park said before this start is over: it parked, or never did.
+			parking = undefined;
+			stopHostStamp?.();
+			if (hosted()) {
+				const session = currentSessionId(ctx, undefined);
+				if (session)
+					stopHostStamp = followHostStamps(pi.events, session, () =>
+						releaseSessionOnShutdown(state, session),
+					);
 			}
-			// Said in the log now, not first at a tool's result, so a pi ended
-			// before its first call still leaves the quest for its resume.
-			persist(state, pi, ctx);
-		}
-		// Record every tab a person could want back, quest or not, so a
-		// later restart can reconstruct what was open together. Only a
-		// persisted interactive session is resumable: a fan-out runs
-		// without a session and a print run has no tab. The record is
-		// re-dated on a heartbeat and stamped by the signal that takes the
-		// tab away, since pi reports a closed tab as a quit. Best-effort.
-		const sid = currentSessionId(ctx, undefined);
-		if (sid && isPersistedSession(ctx) && (ctx.hasUI || hosted())) {
-			trackSession(
-				{
-					sessionId: sid,
+			// Surface any layout-drift errors the discovery walk
+			// found. After the canonical-layout tightening, a
+			// nested QEST dir or a misplaced doc file gets recorded
+			// as a DiscoveryError and skipped from the index. The
+			// user needs to know those quests didn't load so they
+			// can move them back into place rather than noticing
+			// later that a quest "vanished."
+			const { index, errors } = discoverQuests(state.questsRoot);
+			// As one notice through the session's screen, never straight to
+			// the terminal, which pi is drawing (lib/ui/aside.ts).
+			if (errors.length > 0) {
+				const preview = errors.slice(0, 5);
+				const lines = [
+					`[quest-workflow] discovery surfaced ${count(errors.length, "layout error")}:`,
+					...preview.map((err) => `  ${err.path}: ${err.message}`),
+					...(errors.length > preview.length
+						? [`  and ${errors.length - preview.length} more`]
+						: []),
+					"Each is skipped until it is moved into the layout the quest-format skill describes.",
+				];
+				asideFor(ctx)(lines.join("\n"));
+			}
+			// From the walk just made, so it walks nothing more, and it catches
+			// a priority edited by hand while no session was running.
+			keepQuestWeights(state.questsRoot, index);
+			void keepDesktopListsCurrent(state.questsRoot);
+
+			// Resolve which quest to load through the one startup
+			// pipeline: an explicit spawn request wins, then this
+			// session's persisted history (a /reload restores the last
+			// loaded quest and focused document), then the cwd for a
+			// fresh session launched inside a quest or its tree.
+			resolveStartup(state, pi, ctx);
+			// Asked now, waited on before the first model call (above).
+			budgets.keep(ctx).catch(() => {
+				// Nothing awaits this ask, and an unwatched rejection ends pi;
+				// before_agent_start keeps again and is awaited.
+			});
+			// A session a spawn started sets to work on its quest by itself,
+			// once start is done (resources_discover, below).
+			firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
+			// Once a quest is loaded (restored, autoloaded or
+			// resolved from the cwd), record this session on it so
+			// the sessions frontmatter reflects where work happens.
+			if (state.questId) {
+				// Garbage-collect no-log phantoms here too: most reopens go
+				// through this autoload/restore path rather than the explicit
+				// load verb, so pruning only there would rarely fire. The
+				// no-op case is cheap (it skips the write).
+				prunePhantomSessionsOnLoaded(state);
+				// Before attaching, which writes this process over the record.
+				sayPeersOnStartup(state, pi, ctx);
+				const sid = currentSessionId(ctx, undefined);
+				attachCurrentSession(state, {
+					id: sid,
 					cwd: ctx.cwd,
-					...(state.questId ? { questId: state.questId } : {}),
+					persisted: isPersistedSession(ctx),
 					...captureSessionIdentity(),
-					...startedWith(),
-				},
-				() => releaseSessionOnShutdown(state, sid),
-			);
-			settleMoveNote(sid, hosted() !== undefined);
-			// Off the start path: the launcher's list of what the last boot's
-			// end took away, now without this session if it was one of them.
-			setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();
-		}
-		updateScoreboard(state, ctx);
-		// A session on screen ends itself once its quest has ended and
-		// nothing is left in it, so its window closes with it.
-		if (ctx.hasUI || hosted()) watchForQuestEnd(state, ctx);
-		// A passive pointer, nothing more: list the few most recently
-		// active sessions so a fresh shell can see where work was without
-		// probing history or loading anything. The authoritative, probed
-		// view is `quest recent`.
-		showSessionHint(state, ctx);
-	});
+				});
+				// Reconcile on the launch path too, not only the explicit
+				// load verb: a resumed or spawned session lands here, and
+				// without this it would re-attach while still reading active
+				// on a straggler quest from an earlier run.
+				if (sid && isPersistedSession(ctx) && state.questId) {
+					reconcileSessionMembership(state, sid, state.questId);
+				}
+				// Said in the log now, not first at a tool's result, so a pi ended
+				// before its first call still leaves the quest for its resume.
+				persist(state, pi, ctx);
+			}
+			// Record every tab a person could want back, quest or not, so a
+			// later restart can reconstruct what was open together. Only a
+			// persisted interactive session is resumable: a fan-out runs
+			// without a session and a print run has no tab. The record is
+			// re-dated on a heartbeat and stamped by the signal that takes the
+			// tab away, since pi reports a closed tab as a quit. Best-effort.
+			const sid = currentSessionId(ctx, undefined);
+			if (sid && isPersistedSession(ctx) && (ctx.hasUI || hosted())) {
+				trackSession(
+					{
+						sessionId: sid,
+						cwd: ctx.cwd,
+						...(state.questId ? { questId: state.questId } : {}),
+						...captureSessionIdentity(),
+						...startedWith(),
+					},
+					() => releaseSessionOnShutdown(state, sid),
+				);
+				settleMoveNote(sid, hosted() !== undefined);
+				// Off the start path: the launcher's list of what the last boot's
+				// end took away, now without this session if it was one of them.
+				setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();
+			}
+			updateScoreboard(state, ctx);
+			// A session on screen ends itself once its quest has ended and
+			// nothing is left in it, so its window closes with it.
+			if (ctx.hasUI || hosted()) watchForQuestEnd(state, ctx);
+			// A passive pointer, nothing more: list the few most recently
+			// active sessions so a fresh shell can see where work was without
+			// probing history or loading anything. The authoritative, probed
+			// view is `quest recent`.
+			showSessionHint(state, ctx);
+		}),
+	);
 
 	// Tear down the bridge so a session_shutdown followed
 	// by a re-activation doesn't leave a stale closure
