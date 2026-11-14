@@ -16,7 +16,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../lib/internal/fence.ts";
 import {
@@ -132,10 +132,14 @@ describe("a command in the fence, through stand-ins", () => {
 		};
 		const wrap = wrapFor(sandbox, { cwd: folder, env: environment }, home);
 		const text = wrap ? wrap(command) : command;
+		// No stdin, as pi's bash tool starts a command: bash takes a socket
+		// on stdin for sshd and reads /etc/bashrc, which on NixOS sets PATH
+		// afresh, so the path a command keeps couldn't be seen.
 		return spawnSync("bash", ["-c", text], {
 			cwd: folder,
 			env: environment,
 			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
 		});
 	}
 
@@ -270,6 +274,36 @@ describe("a command in the fence, through stand-ins", () => {
 			expect(given).toEqual([`SSH_AUTH_SOCK=${proxy}`]);
 		} finally {
 			rmSync(proxy);
+		}
+	});
+
+	it("opens windows on the sandboxed display and copies through the fence's own wl-copy, once both are there", () => {
+		const display = join(runtimeDir, "pi-fence", "wayland");
+		const shims = join(home, ".local", "share", "pi-fence", "bin");
+		mkdirSync(dirname(display), { recursive: true });
+		writeFileSync(display, "");
+		mkdirSync(shims, { recursive: true });
+		writeFileSync(join(shims, "wl-copy"), '#!/bin/sh\necho "the fence\'s"\n');
+		chmodSync(join(shims, "wl-copy"), 0o755);
+		try {
+			const result = run(
+				'echo "display=$WAYLAND_DISPLAY"; echo "path=$PATH"; wl-copy',
+				{ WAYLAND_DISPLAY: "wayland-1", NIRI_SOCKET: "/run/niri.sock" },
+			);
+			expect(result.stdout).toContain(`display=${display}\n`);
+			expect(
+				result.stdout,
+				"the shims come first, then the path as it was",
+			).toContain(`path=${shims}:${process.env.PATH ?? ""}\n`);
+			expect(result.stdout, "the fence's wl-copy ran").toContain(
+				"the fence's\n",
+			);
+			expect(result.stdout, "niri's ipc reached the command").not.toContain(
+				"niri.sock",
+			);
+		} finally {
+			rmSync(join(runtimeDir, "pi-fence"), { recursive: true });
+			rmSync(join(home, ".local", "share", "pi-fence"), { recursive: true });
 		}
 	});
 

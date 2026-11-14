@@ -8,7 +8,7 @@
  * another sandbox.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	cpSync,
@@ -18,7 +18,9 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -299,6 +301,115 @@ describe.skipIf(bwrap === undefined)(
 			await vi.waitFor(
 				() => expect(asked.filter(alive), "left running").toEqual([]),
 				{ timeout: 2000 },
+			);
+		});
+	},
+);
+
+/** A script for node that exits 0 once it connects to its socket. */
+const CONNECT = [
+	"const s = require('node:net').connect(process.argv[1]);",
+	"s.on('connect', () => process.exit(0));",
+	"s.on('error', () => process.exit(2));",
+].join(" ");
+
+/** A socket served at `path` until closed. */
+function serve(path: string): Promise<Server> {
+	return new Promise((settle, fail) => {
+		const server = createServer((socket) => socket.end());
+		server.once("error", fail);
+		server.listen(path, () => settle(server));
+	});
+}
+
+describe.skipIf(bwrap === undefined)(
+	"the clipboard door and the sandboxed display, from a fenced command",
+	() => {
+		let base: string;
+		let home: string;
+		let runtimeDir: string;
+		let door: string;
+		let display: string;
+		let shims: string;
+		const servers: Server[] = [];
+
+		/** Whether `program` with `args` succeeds as a fenced command. */
+		function fenced(
+			program: string,
+			args: readonly string[],
+		): Promise<boolean> {
+			const bound = fenceArgs({ home, runtimeDir });
+			return new Promise((settle) => {
+				execFile(
+					bwrap ?? "bwrap",
+					["--unshare-user", ...bound, program, ...args],
+					{ timeout: 20_000 },
+					(error) => settle(error === null),
+				);
+			});
+		}
+
+		beforeAll(async () => {
+			// Not resolved, since a Unix socket's path may be at most 107
+			// bytes and TMPDIR may be a short link to a long folder.
+			base = mkdtempSync(join(tmpdir(), "fd-"));
+			home = join(base, "home");
+			runtimeDir = join(base, "run");
+			mkdirSync(join(runtimeDir, "pi-clipboard"), {
+				recursive: true,
+				mode: 0o700,
+			});
+			mkdirSync(join(runtimeDir, "pi-fence"), { mode: 0o700 });
+			shims = join(home, ".local", "share", "pi-fence", "bin");
+			mkdirSync(shims, { recursive: true });
+			writeFileSync(join(shims, "wl-copy"), "#!/bin/sh\n");
+			door = join(runtimeDir, "pi-clipboard", "door.sock");
+			display = join(runtimeDir, "pi-fence", "wayland");
+			servers.push(
+				await serve(door),
+				await serve(display),
+				await serve(join(runtimeDir, "wayland-1")),
+			);
+		});
+
+		afterAll(async () => {
+			await Promise.all(
+				servers.map((server) => new Promise((settle) => server.close(settle))),
+			);
+			rmSync(base, { recursive: true, force: true });
+		});
+
+		it("reaches the clipboard door and the sandboxed display, and never niri's own display", async () => {
+			const node = process.execPath;
+			expect(await fenced(node, ["-e", CONNECT, door]), "the door").toBe(true);
+			expect(
+				await fenced(node, ["-e", CONNECT, display]),
+				"the sandboxed display",
+			).toBe(true);
+			expect(
+				await fenced(node, ["-e", CONNECT, join(runtimeDir, "wayland-1")]),
+				"niri's own display",
+			).toBe(false);
+		});
+
+		it("replaces neither socket, nor the shims, for every other session's commands to reach", async () => {
+			for (const [what, script] of [
+				["the door's socket removed", `rm -f ${door}`],
+				["the display's socket removed", `rm -f ${display}`],
+				["a socket planted beside the door", `touch ${door}.new`],
+				["a program planted among the shims", `touch ${shims}/wl-paste`],
+				["a shim rewritten", `echo exit 0 > ${shims}/wl-copy`],
+				[
+					"the shims' folder moved",
+					`mv ${shims} ${join(home, ".local", "share", "moved")}`,
+				],
+			] as const) {
+				expect(await fenced("sh", ["-c", script]), what).toBe(false);
+			}
+			expect(existsSync(door), "the door's socket is there").toBe(true);
+			expect(existsSync(display), "the display's socket is there").toBe(true);
+			expect(existsSync(join(shims, "wl-paste")), "a shim was planted").toBe(
+				false,
 			);
 		});
 	},
