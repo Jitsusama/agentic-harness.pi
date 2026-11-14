@@ -321,6 +321,30 @@ it("routes close and host-stop stamps through each conversation bus", async () =
 	]);
 });
 
+it("tells a conversation the host restarts before stamping it signalled, only for a restart", async () => {
+	const host = start();
+	const seen: unknown[] = [];
+	for (const id of ["a", "b"])
+		host.register({
+			...registration(id),
+			restarting: () => {
+				seen.push([ambientSession(), "restarting"]);
+			},
+			stamp: (how) => {
+				seen.push([ambientSession(), how]);
+			},
+		});
+
+	await host.stop("a", "host restarting", true);
+	await host.stop("b");
+
+	expect(seen).toEqual([
+		["a", "restarting"],
+		["a", "signalled"],
+		["b", "signalled"],
+	]);
+});
+
 it("uninstalls a failed initial publication so another host can start", () => {
 	const dir = mkdtempSync(join(tmpdir(), "engine-failed-"));
 	directories.push(dir);

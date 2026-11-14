@@ -107,7 +107,11 @@ input pipeline or screen. No unit or running host is installed yet.
   minutes at once, so once it has differed for 30 minutes the host
   looks every second and takes the first moment none has a turn
   running, still with no background work and every screen at rest;
-  its journal line says which rule it restarted under. Only once
+  its journal line says which rule it restarted under. Background
+  work is what a restart would end (fleets, codemode, review rounds),
+  since bash calls are carried to the next host (see the engine's
+  README); work holding a restart past the ceiling is named in the
+  journal once an hour, and nothing is ended for it. Only once
   systemctl has queued it does the stop tell
   each viewer `restarting`, just before it closes on them, so a
   refused restart says nothing. A unit file systemd hasn't reloaded

@@ -19,6 +19,10 @@ import { join, resolve } from "node:path";
 import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
 import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
 import {
+	HOST_RESTARTING_EVENT,
+	type HostRestarting,
+} from "../../lib/core/session/host.ts";
+import {
 	type LaunchHints,
 	SESSION_STAMP_EVENT,
 	type SessionEnvironment,
@@ -45,6 +49,7 @@ import type {
 	Prepared,
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
+import { type CarriedShells, carriedShells } from "./carried-shells.ts";
 import { holdMessagesThroughCarriedTurns } from "./carried-turn-messages.ts";
 import type {
 	ConversationTraits,
@@ -181,6 +186,14 @@ export async function createEngine(
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
+	// The bash calls a restart carries to the next host, kept through its stop.
+	const shells = carriedShells({
+		stateDir: options.stateDir,
+		say: report,
+		report,
+	});
+	// What an earlier restart kept and no conversation here took up is stopped once due.
+	shells.watch((sessionId) => live.has(sessionId));
 	let watched: ConversationEvents | undefined;
 	// Each conversation's agent folder, where its model runtime reads auth and models.
 	const agentDirs = new Map<string, string>();
@@ -675,6 +688,7 @@ export async function createEngine(
 	): Live {
 		const { sessionId } = traits;
 		const record: Live = { traits, launch, bus: sessions.createEventBus() };
+		shells.heard(record.bus);
 		host.register({
 			id: sessionId,
 			file: traits.file,
@@ -701,6 +715,10 @@ export async function createEngine(
 				record.bus.emit(SESSION_STAMP_EVENT, stamp);
 			},
 			reload: () => reload(record),
+			restarting: () => {
+				const restarting: HostRestarting = { session: sessionId };
+				record.bus.emit(HOST_RESTARTING_EVENT, restarting);
+			},
 			// Its close then keeps its screen's terminal for the wake.
 			park: () => {
 				record.parking = true;
@@ -834,8 +852,33 @@ export async function createEngine(
 		background() {
 			// A warm of a parked conversation is out too.
 			let held = warming.inFlight();
-			for (const record of live.values()) held += backgroundIn(record);
+			for (const record of live.values())
+				held += restartEnds(record, shells).length;
 			return held;
+		},
+
+		holding() {
+			const held: string[] = [];
+			const warms = warming.inFlight();
+			if (warms > 0)
+				held.push(`${warms} parked warm${warms === 1 ? "" : "s"} in flight`);
+			for (const [sessionId, record] of live)
+				for (const what of restartEnds(record, shells))
+					held.push(`${sessionId}: ${what}`);
+			return held;
+		},
+
+		async keepCarried() {
+			try {
+				const moved = await shells.keep();
+				if (moved.length > 0)
+					report(
+						`Kept carried commands through the restart, moving processes ${moved.join(", ")} into the jobs cgroup`,
+					);
+			} catch (error) {
+				// The stop goes on: what wasn't kept is said lost by the next host.
+				report(error);
+			}
 		},
 
 		backgroundOf(sessionId) {
@@ -993,6 +1036,31 @@ function backgroundIn(record: Live): number {
 	// it could count says nothing, so it counts as holding work.
 	const jobs = findJobHost(record.bus);
 	return jobs ? (jobs.pending?.() ?? 1) : 0;
+}
+
+/**
+ * What a host restart would end of a conversation's background work,
+ * one line each, as its job host names it: every running job but a bash
+ * call the restart can carry (fleets, codemode, review rounds, a call
+ * that can't be kept), since only a call's shell is kept through the
+ * host's stop. Where the host can keep none, bash calls too. Results
+ * not yet said are carried in the conversation's log, so none holds it.
+ * A job host from before `holds` says only how many it holds.
+ */
+function restartEnds(record: Live, shells: CarriedShells): string[] {
+	if (!record.runtime) return [];
+	const jobs = findJobHost(record.bus);
+	if (!jobs) return [];
+	if (!jobs.holds) {
+		const pending = jobs.pending?.() ?? 1;
+		return Array.from({ length: pending }, () => "a job");
+	}
+	const carriable = shells.keeps
+		? (work: { kind: string }) => work.kind === "shell"
+		: () => false;
+	return jobs
+		.holds(carriable)
+		.map((job) => `${job.id} ${job.kind}: ${job.label}`);
 }
 
 /** Whether pi builds a session it resumed, rather than a new or forked one. */

@@ -39,7 +39,14 @@ import {
 	watchStamps,
 } from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
-import { carriedIn, carryAway, movingOn, takeUp } from "./moved.ts";
+import {
+	carriedIn,
+	carryAway,
+	movingOn,
+	sayCarried,
+	sayTakenUp,
+	takeUp,
+} from "./moved.ts";
 import { jobIdsIn } from "./outbox.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
@@ -156,12 +163,26 @@ function carryIfMoving(
 	ctx: ExtensionContext,
 ): void {
 	if (!movingOn(sessionIdOf(ctx))) return;
-	carryAway(
+	carry(pi, session, ctx);
+}
+
+/**
+ * Hand on the jobs that can be carried, written in the session's log,
+ * and say on the bus what went, for a host that keeps their work alive.
+ */
+function carry(
+	pi: ExtensionAPI,
+	session: JobSession,
+	ctx: ExtensionContext,
+): void {
+	const carried = carryAway(
 		session.jobs,
 		session.outbox,
 		(type, data) => pi.appendEntry(type, data),
 		Date.now(),
 	);
+	if (carried === undefined || carried.jobs.length === 0) return;
+	sayCarried(pi.events, sessionKeyOf(ctx), carried.jobs);
 }
 
 /** Take up the jobs a move carried into this session, if any wait. */
@@ -185,6 +206,7 @@ function takeUpIfCarried(
 		session: sessionKeyOf(ctx),
 		append: (type, data) => pi.appendEntry(type, data),
 		offer: (work) => offerCarried(pi.events, work),
+		taken: (job) => sayTakenUp(pi.events, job),
 	});
 }
 
@@ -285,8 +307,12 @@ export default function jobWorkflow(
 			// are called, so the signal is heard only once this yields. pi
 			// awaits this handler before it aborts the run.
 			await new Promise((resolve) => setImmediate(resolve));
-			if (signals?.signalled()) recordCutOff(pi, session, ctx);
-			else ownQuit = true;
+			if (signals?.signalled()) {
+				// Its host's own restart resumes it in the next host, so what
+				// can go there goes, and only the rest is recorded cut off.
+				if (session && signals.restarting?.()) carry(pi, session, ctx);
+				recordCutOff(pi, session, ctx);
+			} else ownQuit = true;
 		}
 		signals?.stop();
 		signals = undefined;

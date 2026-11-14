@@ -64,6 +64,12 @@ export interface ConversationEngine {
 	 */
 	backgroundOf(sessionId: string): number;
 	/**
+	 * As a restart stops the host, once every conversation has parked:
+	 * keep the bash calls they carried alive through the stop for the
+	 * next host to take up.
+	 */
+	keepCarried?(): Promise<void>;
+	/**
 	 * Once a park of the conversation under way has settled, at once when
 	 * none is: until then it is still held, though it is no longer running.
 	 */

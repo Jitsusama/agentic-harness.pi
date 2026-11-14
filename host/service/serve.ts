@@ -189,7 +189,10 @@ export async function serveHost(options: {
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();
-					await park(running);
+					// A restart's parks carry each conversation's bash calls, which
+					// are then kept out of the host's stop for the next host.
+					await park(running, restarting);
+					if (restarting) await engine.keepCarried?.();
 					running.dispose();
 					await roster.close();
 				})();
@@ -212,9 +215,14 @@ export async function serveHost(options: {
 	}
 }
 
-async function park(host: SessionHost): Promise<void> {
+/** Park every conversation `host` holds, telling each the host restarts when it does. */
+async function park(host: SessionHost, restarting = false): Promise<void> {
 	const results = await Promise.allSettled(
-		host.list().map(({ id }) => host.stop(id)),
+		host
+			.list()
+			.map(({ id }) =>
+				restarting ? host.stop(id, "host restarting", true) : host.stop(id),
+			),
 	);
 	const failed = results.find((result) => result.status === "rejected");
 	if (failed?.status === "rejected") throw failed.reason;

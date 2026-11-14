@@ -118,7 +118,7 @@ import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { isWakersAsk, WAKERS_ASK } from "../../lib/internal/session/wakers.ts";
 import { onWants, showWants } from "../../lib/internal/session/wants.ts";
 import { writerHold } from "../../lib/internal/session/writer-hold.ts";
-import { onJobFinished } from "../../lib/jobs/host.ts";
+import { onJobFinished, onJobTakenUp } from "../../lib/jobs/host.ts";
 import { loadedQuest, type QuestRecords } from "../../lib/mesh/address.ts";
 import {
 	attend,
@@ -258,6 +258,7 @@ import {
 	createEditNotes,
 	createHeavyCalls,
 	createLeasing,
+	type HeavyCall,
 	type HoldEnd,
 	parkHeavyCalls,
 	queueJobs,
@@ -697,6 +698,8 @@ export function meshWorkflow(
 		let own: OwnLeases | undefined;
 		// Heavy work that ended before this runtime had its leases to release.
 		const unowned: LeaseEvent[] = [];
+		// Bash calls taken up from a restart or a move before it had its leases.
+		const takenUnowned: HeavyCall[] = [];
 		const leasing = createLeasing({
 			board,
 			presences,
@@ -1956,6 +1959,8 @@ export function meshWorkflow(
 			// Restored after a reboot, nothing it claimed is under way.
 			leasing.forgetEarlierBoots();
 			for (const event of unowned.splice(0)) claim(event);
+			for (const [toolCallId, label] of takenUnowned.splice(0))
+				heavyCalls.called(toolCallId, label);
 			clearInterval(waitClock);
 			waitClock = undefined;
 			watchWaits();
@@ -2223,6 +2228,7 @@ export function meshWorkflow(
 				own?.releaseAll(new Set([...RUN_KINDS, "heavy" as const]));
 				unowned.length = 0;
 			}
+			takenUnowned.length = 0;
 			heavyCalls.clear();
 			stopWatching?.();
 			stopWatching = undefined;
@@ -2335,7 +2341,20 @@ export function meshWorkflow(
 		});
 		if (pi.events) {
 			onJobFinished(pi.events, ({ toolCallId }) => {
-				if (toolCallId !== undefined) heavyCalls.finished(toolCallId);
+				if (toolCallId === undefined) return;
+				// One taken up and ended before the leases came claims nothing.
+				const waiting = takenUnowned.findIndex(([id]) => id === toolCallId);
+				if (waiting >= 0) takenUnowned.splice(waiting, 1);
+				heavyCalls.finished(toolCallId);
+			});
+			// A bash call carried here through a host's restart or a move claims
+			// its heavy work again, so its end above lets it go: the session it
+			// left let go of everything as it ended. Its label is its command's
+			// first line, which names its kind of work as the command did.
+			onJobTakenUp(pi.events, ({ toolCallId, kind, label }) => {
+				if (toolCallId === undefined || kind !== "shell") return;
+				if (own && peer) heavyCalls.called(toolCallId, label);
+				else takenUnowned.push([toolCallId, label]);
 			});
 		}
 

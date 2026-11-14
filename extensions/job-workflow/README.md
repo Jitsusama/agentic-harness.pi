@@ -262,6 +262,27 @@ start doesn't take them again. A job taken up can be carried again.
   started, by a `.carried` mark beside the command's kept files, and
   the plain pi opened on the log says its end.
 
+## Through a Host's Restart
+
+A shared host restarting itself onto new code waited out every
+background job, and on 13 November neither work host restarted for
+hours, since each always had a command running. Now the host tells
+each conversation on its bus (`agentic-harness:host-restarting`) just
+before it stamps the stop signalled, and job-workflow carries what it
+can as a move does, recording only the rest as cut off. It says on the
+bus what went (`jobs:carried:v1`), so the host can keep each bash
+call's shell alive through its stop (see
+[the host engine](../../host/engine/README.md)), and the next host
+takes them up as a move's. Taking one up says `jobs:taken-up:v1`, so
+mesh-workflow claims a heavy command's lease again until its end.
+
+- **Carried:** bash calls, where the host has a jobs cgroup to keep
+  them in. `holds(carriable)` names every other running job, which
+  still holds the restart: fleets, codemode, review rounds.
+- **Lost:** a crash or a `kill -9` of the host carries nothing; the
+  conversation comes back cut off, and the next host ends what was
+  left as before.
+
 ## When the Machine Ends a Session
 
 pi resumes nothing on its own. A session restored after a reboot sits

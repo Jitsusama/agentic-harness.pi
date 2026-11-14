@@ -89,6 +89,33 @@ export function isSessionStamp(value: unknown): value is SessionStamp {
 	);
 }
 
+/**
+ * A host emits this on a conversation's bus, within withSession, just
+ * before it stamps the conversation `signalled` for a restart it asked
+ * for itself: the next host resumes the conversation, so what can outlive
+ * the stop may be carried to it, as a move carries it. A separate event
+ * rather than a third stamp, since a reader of stamps takes any other
+ * than `signalled` for the conversation's own quit, and one that never
+ * hears this stops its work as at any other stop.
+ */
+export const HOST_RESTARTING_EVENT = "agentic-harness:host-restarting";
+
+/** What HOST_RESTARTING_EVENT carries. */
+export interface HostRestarting {
+	session: string;
+}
+
+/** Whether an event from the shared bus says a host is restarting. */
+export function isHostRestarting(value: unknown): value is HostRestarting {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		"session" in value &&
+		typeof value.session === "string" &&
+		value.session.length > 0
+	);
+}
+
 /** An entry in the host's list of currently open conversations. */
 export interface HostedSession {
 	readonly id: string;

@@ -62,6 +62,11 @@ export interface HostProcess {
 	kill(): Promise<void>;
 	/** Send it systemd's stop and answer its exit code. */
 	stop(): Promise<number | null>;
+	/**
+	 * Stop it as its own restart does, telling it the restart is coming
+	 * before systemd's stop, and answer its exit code.
+	 */
+	restart(): Promise<number | null>;
 	/** What it wrote to standard error so far. */
 	errors(): string;
 }
@@ -100,6 +105,11 @@ const run = await runHost({
 	engine,
 	ready: async () => {},
 	places: { rollout: ${rollout} },
+});
+// A restart the host asked for: coming, then systemd's stop.
+process.once("SIGUSR2", () => {
+	run.serving.restartComing(true);
+	process.kill(process.pid, "SIGTERM");
 });
 process.stdout.write(JSON.stringify({ path: run.serving.path }) + "\\n");
 await run.stopped;
@@ -164,6 +174,10 @@ process.exit(0);`;
 		},
 		stop: () => {
 			child.kill("SIGTERM");
+			return exited;
+		},
+		restart: () => {
+			child.kill("SIGUSR2");
 			return exited;
 		},
 		errors: () => errors,
