@@ -59,6 +59,8 @@ import {
 	mkdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
+	symlinkSync,
 	watch,
 	writeFileSync,
 } from "node:fs";
@@ -622,7 +624,10 @@ export default function (pi) {
 `,
 	);
 	// A case may ask for more of the harness, such as the mesh a release
-	// steers by, by folder in SCREEN_HOST_ALSO.
+	// steers by, by folder in SCREEN_HOST_ALSO. Each is a link to its
+	// folder, so its real path lies in the harness as an installed
+	// package's does, and a host that shares a package declaring its state
+	// keyed shares it here too.
 	const also = (process.env.SCREEN_HOST_ALSO ?? "")
 		.split(",")
 		.filter((one) => one !== "");
@@ -631,11 +636,13 @@ export default function (pi) {
 		"panel-zoom-widget",
 		"park-workflow",
 		...also,
-	])
-		writeFileSync(
-			join(agentDir, "extensions", `${extension}.ts`),
-			`export { default } from ${JSON.stringify(join(harness, "extensions", extension, "index.ts"))};\n`,
-		);
+	]) {
+		// A host started again on the same state, as a restart is, finds
+		// the last one's link.
+		const link = join(agentDir, "extensions", extension);
+		rmSync(link, { force: true });
+		symlinkSync(join(harness, "extensions", extension), link);
+	}
 }
 
 /** The providers and settings SCREEN_HOST_AGENT's file adds, or none. */
