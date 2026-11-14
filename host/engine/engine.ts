@@ -66,16 +66,16 @@ import { bindHeadless } from "./headless.ts";
 import { loadHostPi } from "./host-pi.ts";
 import type { HostedAgent } from "./hosted-agent.ts";
 import {
+	type HostedConversation,
+	openHostedConversation,
+} from "./hosted-conversation.ts";
+import {
 	type KeptProviders,
 	keptProviders,
 	readKept,
 	registerKept,
 	writeKept,
 } from "./kept-providers.ts";
-import {
-	type HostedConversation,
-	openHostedConversation,
-} from "./hosted-conversation.ts";
 import { parkedWarming, warmThrough } from "./parked-warming.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";

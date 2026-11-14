@@ -41,10 +41,7 @@ export function keptProviders(runtime: ModelRuntime): KeptProviders {
 }
 
 /** Register on `runtime` what a conversation's extensions had, as they did. */
-export function registerKept(
-	runtime: ModelRuntime,
-	kept: KeptProviders,
-): void {
+export function registerKept(runtime: ModelRuntime, kept: KeptProviders): void {
 	for (const native of kept.natives) runtime.registerNativeProvider(native);
 	for (const [id, config] of Object.entries(kept.configs))
 		runtime.registerProvider(id, config);
