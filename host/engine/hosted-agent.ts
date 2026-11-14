@@ -357,13 +357,16 @@ export class HostedAgent {
 		input: string | AgentMessage | AgentMessage[],
 		images?: readonly ContentBlock[],
 	): Promise<void> {
-		if (this.active) {
-			throw new Error(
-				"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
-			);
-		}
 		const messages = normalizePromptInput(input, images);
-		if (!this.recovery) {
+		if (this.active) {
+			// pi begins a run only while it holds none, so one under way here is
+			// durable's: the recovery carrying a turn on, or durable's own work.
+			// The words queue behind it as an early prompt's do. Refused, pi,
+			// idle by its own account, let job-workflow say its cut-off notice
+			// again at once, 335 times in one conversation, and two resumes
+			// took 72 s each (14 November).
+			if (await this.followCarriedOn(messages)) return;
+		} else if (!this.recovery) {
 			// A prompt before the recovery, as an extension's start sends, begins
 			// it: durable refuses new words as busy while it holds a turn a
 			// restart cut off, and the words were lost (13 November).
