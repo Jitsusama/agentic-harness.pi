@@ -25,8 +25,11 @@
  * leaves says its run is carried, and the session is told only of the
  * jobs that died. On 14 November the 08:37 restart carried one run to
  * its end, then told it nothing had resumed it and to rerun what
- * mattered. The record says so, not the host the session returns to: a
- * session plain pi left cut off has no run for a host to carry.
+ * mattered. Both must hold: the record says so, since a session plain
+ * pi left cut off has no run for a host to carry, and the session
+ * returns in a host, since plain pi carries nothing. A host's
+ * conversations reopened in plain pi, as a rollback does, are told
+ * their run died.
  */
 
 import {
@@ -104,10 +107,14 @@ function roleOf(entry: unknown): string | undefined {
 
 /**
  * Whether a session's history says it was cut off and nothing has
- * taken it up since: what was under way, or nothing. A run its host
- * carries on has been taken up, so only a job dead with it counts.
+ * taken it up since: what was under way, or nothing. Returning in a
+ * host, a run its host carries on has been taken up, so only a job dead
+ * with it counts; elsewhere nothing carries it.
  */
-export function cutOffIn(branch: readonly unknown[]): CutOff | undefined {
+export function cutOffIn(
+	branch: readonly unknown[],
+	returnsInHost = false,
+): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
 		// A prompt since the record took it up; a later kill is read below.
@@ -118,7 +125,10 @@ export function cutOffIn(branch: readonly unknown[]): CutOff | undefined {
 		) {
 			const data = field(entry, "data");
 			if (!isCutOff(data)) return undefined;
-			return data.runCarried && data.jobs.length === 0 ? undefined : data;
+			if (!data.runCarried) return data;
+			if (!returnsInHost)
+				return { at: data.at, running: data.running, jobs: data.jobs };
+			return data.jobs.length === 0 ? undefined : data;
 		}
 	}
 	return killedIn(branch);

@@ -145,7 +145,8 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 		// No history to read: nothing to resume.
 		return;
 	}
-	const cut = cutOffIn(branch);
+	// Only a host carries a parked run on; plain pi takes nothing up.
+	const cut = cutOffIn(branch, hosted() !== undefined);
 	if (cut === undefined) return;
 	session.outbox.post({
 		jobId: "cut-off",
