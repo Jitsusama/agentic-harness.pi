@@ -101,9 +101,15 @@ sealed home has it. A lender has no key, so run it on this machine, in
 sealed hosts of its own, under `systemd-run --user --scope`, and keep it
 small: claude-haiku-5-5 takes about a dime a million tokens read.
 
+`scripts/soak-real.sh MODEL OUT` runs the day's slice so: 4
+conversations of 10 turns through a restart mid-run and one at the end,
+once the machine's memory isn't under pressure, its lines to
+`OUT/real.log` and its report, cut into files as a day's are, to
+`OUT/real/`. At about 30,000 tokens a request, its 120 or so requests
+cost well under a dollar.
+
 ```sh
-node --no-warnings tests/host/soak/soak.mts --real claude-haiku-5-5 \
-  --turns 10,10,10,10 --checkpoints 2 --restart-mid --restart
+systemd-run --user --scope -- scripts/soak-real.sh claude-haiku-5-5 "$out"
 ```
 
 ## Running at a Real Pace

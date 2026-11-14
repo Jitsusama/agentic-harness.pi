@@ -102,7 +102,14 @@ export function figuresOf(
 		restart:
 			report.restart === undefined ? undefined : restartOf(report.restart),
 		restartMid: report.restartMid,
+		real: report.real === undefined ? undefined : realOf(report.real),
 	};
+}
+
+/** A real-model slice's model, how many requests it refused, and each side's tokens. */
+function realOf(real: unknown): Record<string, unknown> {
+	const { model, refusals, usage } = recordOf(real);
+	return { model, refusals: listOf(refusals).length, usage };
 }
 
 /** A restart's times, its wakes summed to their spread. */

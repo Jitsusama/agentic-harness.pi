@@ -97,5 +97,19 @@ describe("a day's run", () => {
 			},
 			restartMid: { cut: ["c1-t5"] },
 		});
+		expect(figuresOf(report).real, "no real model's figures without one").toBe(
+			undefined,
+		);
+	});
+
+	it("says a real-model slice's refusals and tokens", () => {
+		const usage = { hosted: { input: 30 }, plain: { input: 31 } };
+		const refusal = { tag: "c0-t1", status: 400, said: "no" };
+		const real = { model: "claude-haiku-5-5", refusals: [refusal], usage };
+		expect(figuresOf({ ...report, real }).real).toEqual({
+			model: "claude-haiku-5-5",
+			refusals: 1,
+			usage,
+		});
 	});
 });
