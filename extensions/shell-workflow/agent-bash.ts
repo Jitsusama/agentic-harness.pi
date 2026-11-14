@@ -15,7 +15,10 @@ import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
-import { spawnedBy } from "../../lib/internal/shell/spawner.ts";
+import {
+	type SpawnerOptions,
+	spawnedBy,
+} from "../../lib/internal/shell/spawner.ts";
 import { SPAWNER_VARIABLE } from "../../lib/internal/shell/spawner-variable.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
@@ -39,32 +42,44 @@ export type AgentBash = ReturnType<typeof createBashToolDefinition> & {
 	carryOf: Keeping["carryOf"];
 };
 
-/** pi's bash for the conversation `session`, built with its settings. */
+/**
+ * pi's bash for the conversation `session`, built with its settings;
+ * `spawner` stands in for parts of pi-spawner, for tests.
+ */
 export function agentBash(
 	cwd: string,
 	settings: ShellSettings = {},
 	sandbox: Sandbox = { kind: "none" },
 	session?: SessionRef,
+	spawner: SpawnerOptions = {},
 ): AgentBash {
 	// In a host running pi-spawner, the ones its pid started are other
 	// conversations', so none is taken for one an earlier load left. A host
 	// without it, by the process's own environment, runs none for any.
 	const sharing = hosted() && process.env[SPAWNER_VARIABLE] === "on";
-	// Each call pi starts itself keeps itself on disk where it can, so a
-	// move can hand it on (keeping.ts). One pi-spawner starts is killed
-	// when this pi goes, so it keeps nothing, and holds a move.
-	const keeping = keepsOnDisk(
+	const spawning = spawnedBy(
 		createLocalBashOperations(
 			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
 		),
 		{
-			can: async (env) =>
-				isBash(settings.shellPath) && (await teePersists(env?.PATH)),
+			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
+			...(sharing ? { reap: () => undefined } : {}),
+			...spawner,
 		},
 	);
-	const spawning = spawnedBy(keeping.operations, {
-		...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
-		...(sharing ? { reap: () => undefined } : {}),
+	// Each call keeps itself on disk where it can, so a move can hand it
+	// on (keeping.ts), whether pi or pi-spawner starts it. A pi-spawner
+	// from before kept commands kills them all when this pi goes, so
+	// through it nothing is kept, and each call holds a move.
+	const keeping = keepsOnDisk(spawning, {
+		can: async (env) => {
+			if (!isBash(settings.shellPath)) return false;
+			const [tee, spared] = await Promise.all([
+				teePersists(env?.PATH),
+				spawning.spares(),
+			]);
+			return tee && spared;
+		},
 	});
 	const definition = createBashToolDefinition(cwd, {
 		...settings,
@@ -90,7 +105,7 @@ export function agentBash(
 		// left the shell's process group, as `timeout` does. Asked for, each
 		// command starts in pi-spawner, so pi never forks itself to start
 		// one (lib/internal/shell/spawner.ts).
-		operations: timedFromTurn(reapsWhatItLeft(spawning), {
+		operations: timedFromTurn(reapsWhatItLeft(keeping.operations), {
 			commandOf: (command, env) => env?.[COMMAND_VARIABLE] ?? command,
 		}),
 	});

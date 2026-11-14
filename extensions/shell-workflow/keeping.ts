@@ -35,7 +35,8 @@ const MS_PER_SECOND = 1000;
 /** What the operations need, for tests to stand in for. */
 export interface KeepingOptions {
 	/**
-	 * Whether a call can be kept: GNU tee, bash, no pi-spawner; asked with
+	 * Whether a call can be kept: GNU tee, bash, and no pi-spawner or one
+	 * that spares kept commands when pi goes; asked with
 	 * the call's environment when it has one, since its PATH finds the tee
 	 * it runs, and waited on without holding pi's loop.
 	 */

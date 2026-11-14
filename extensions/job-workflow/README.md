@@ -249,7 +249,8 @@ start doesn't take them again. A job taken up can be carried again.
   job's id (see
   [review-integration](../review-integration/#waiting-through-a-move)).
   A kind nobody answers for ends saying it can't be taken up.
-- **Holding:** calls `pi-spawner` started, and calls started before
+- **Holding:** calls a `pi-spawner` that doesn't answer `keeps`
+  started, and calls started before
   this ran; a fleet from a session with no id; a review watch
   that names no target; a model
   retry; a reload.

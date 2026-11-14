@@ -12,12 +12,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	type SpawnerOptions,
 	spawnedBy,
+	spawnerKeeps,
 	stopIdleSpawners,
 } from "../../../../lib/internal/shell/spawner.ts";
 import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variable.ts";
@@ -25,64 +25,12 @@ import {
 	systemFolders,
 	systemProgram,
 } from "../../../../lib/internal/system-program.ts";
+import {
+	type SpawnerStandIn,
+	spawnerStandIn as standIn,
+} from "../../../support/spawner-stand-in.ts";
 
 const SHELL = { shell: "/bin/bash", args: ["-c"] };
-
-/** A stand-in pi-spawner: what it was asked, and frames to answer with. */
-function standIn() {
-	const input = new PassThrough();
-	const output = new PassThrough();
-	let stopped: (() => void) | undefined;
-	const asked: string[][] = [];
-	let held = Buffer.alloc(0);
-	input.on("data", (chunk: Buffer) => {
-		held = Buffer.concat([held, chunk]);
-		while (held.length >= 4 && held.length >= 4 + held.readUInt32LE(0)) {
-			const length = held.readUInt32LE(0);
-			const fields = held
-				.subarray(4, 4 + length)
-				.toString("utf8")
-				.split("\0");
-			asked.push(fields.slice(0, -1));
-			held = held.subarray(4 + length);
-		}
-	});
-	const frame = (kind: string, id: number, payload: Buffer) => {
-		const head = Buffer.alloc(9);
-		head[0] = kind.charCodeAt(0);
-		head.writeUInt32LE(id, 1);
-		head.writeUInt32LE(payload.length, 5);
-		output.write(Buffer.concat([head, payload]));
-	};
-	const int32s = (...values: number[]) => {
-		const bytes = Buffer.alloc(values.length * 4);
-		for (const [at, value] of values.entries()) {
-			bytes.writeInt32LE(value, at * 4);
-		}
-		return bytes;
-	};
-	return {
-		asked,
-		start: () => ({
-			input,
-			output,
-			ended: (listener: () => void) => {
-				stopped = listener;
-			},
-		}),
-		started: (id: number, pid: number) => frame("p", id, int32s(pid)),
-		said: (id: number, stream: 1 | 2, text: string) =>
-			frame("o", id, Buffer.concat([Buffer.from([stream]), Buffer.from(text)])),
-		closed: (id: number, stream: 1 | 2) =>
-			frame("c", id, Buffer.from([stream])),
-		exited: (id: number, code: number, signal = 0) =>
-			frame("x", id, int32s(code, signal)),
-		failed: (id: number, why: string) => frame("e", id, Buffer.from(why)),
-		stop: () => stopped?.(),
-		/** Whether pi ended its input, which tells the program to stop. */
-		hungUp: () => input.writableEnded,
-	};
-}
 
 /** pi's own spawn as a stand-in, counting what fell back to it. */
 function fallback(): BashOperations & { calls: string[] } {
@@ -117,7 +65,7 @@ function through(over: Partial<SpawnerOptions> = {}) {
 const delivered = () => new Promise((done) => setImmediate(done));
 
 /** Wait until the stand-in has been asked `count` things. */
-async function askedFor(program: ReturnType<typeof standIn>, count: number) {
+async function askedFor(program: SpawnerStandIn, count: number) {
 	await vi.waitFor(() =>
 		expect(program.asked.length, "requests the stand-in read").toBe(count),
 	);
@@ -315,20 +263,102 @@ describe("the agent's commands through pi-spawner", () => {
 	});
 });
 
-/** End command `id` on the stand-in, as pi-spawner would. */
-function ends(program: ReturnType<typeof standIn>, id: number, pid: number) {
-	program.started(id, pid);
-	program.closed(id, 1);
-	program.closed(id, 2);
-	program.exited(id, 0);
-}
+describe("whether a kept command outlives pi's going", () => {
+	it("does through pi's own spawn, where pi-spawner isn't asked for", async () => {
+		const asksKeeps = vi.fn(async () => false);
+
+		const spared = await spawnedBy(fallback(), {
+			env: {},
+			asksKeeps,
+			reap: () => undefined,
+		}).spares();
+
+		expect(spared).toBe(true);
+		expect(asksKeeps, "no program to ask").not.toHaveBeenCalled();
+	});
+
+	it("does where the system's profile has no program", async () => {
+		const operations = spawnedBy(fallback(), {
+			env: { [SPAWNER_VARIABLE]: "on" },
+			shell: SHELL,
+			find: () => undefined,
+			asksKeeps: async () => false,
+			reap: () => undefined,
+		});
+
+		expect(await operations.spares()).toBe(true);
+	});
+
+	it("does through pi-spawner only when it says it keeps, asked once", async () => {
+		for (const keeps of [true, false]) {
+			const asksKeeps = vi.fn(async () => keeps);
+			const { operations } = through({ asksKeeps });
+
+			const answers = await Promise.all([
+				operations.spares(),
+				operations.spares(),
+			]);
+
+			expect(answers, `a spawner that keeps: ${keeps}`).toEqual([keeps, keeps]);
+			expect(asksKeeps).toHaveBeenCalledExactlyOnceWith("/run/pi-spawner");
+		}
+	});
+
+	it("does once pi-spawner is retired, since pi's own spawn starts what follows", async () => {
+		const { operations } = through({ asksKeeps: async () => false });
+
+		operations.retire();
+
+		expect(await operations.spares()).toBe(true);
+	});
+});
+
+describe("asking a pi-spawner whether it keeps", () => {
+	const made: string[] = [];
+	afterEach(() => {
+		for (const dir of made.splice(0))
+			rmSync(dir, { recursive: true, force: true });
+	});
+
+	/** A program at a path of its own, running `script` under sh. */
+	function programOf(script: string): string {
+		const dir = mkdtempSync(join(tmpdir(), "spawner-keeps-"));
+		made.push(dir);
+		const program = join(dir, "pi-spawner");
+		writeFileSync(program, `#!/bin/sh\n${script}\n`);
+		chmodSync(program, 0o755);
+		return program;
+	}
+
+	it("hears yes from one that answers keeps", async () => {
+		const program = programOf('[ "$1" = keeps ] && echo keeps');
+
+		expect(await spawnerKeeps(program)).toBe(true);
+	});
+
+	it("hears no from one that refuses the word, as one from before does", async () => {
+		const program = programOf("echo 'x it takes no keeps' >&2; exit 64");
+
+		expect(await spawnerKeeps(program)).toBe(false);
+	});
+
+	it("hears no from one that reads its empty input and says nothing", async () => {
+		const program = programOf("cat >/dev/null");
+
+		expect(await spawnerKeeps(program)).toBe(false);
+	});
+
+	it("hears no from one that isn't there", async () => {
+		expect(await spawnerKeeps("/no/such/pi-spawner")).toBe(false);
+	});
+});
 
 describe("a load's pi-spawner once the load is over", () => {
 	it("is closed at once when it runs nothing", async () => {
 		const { program, operations } = through();
 		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
 		await askedFor(program, 1);
-		ends(program, 1, 10);
+		program.ends(1, 10);
 		await ran;
 
 		operations.retire();
@@ -366,7 +396,7 @@ describe("a load's pi-spawner once the load is over", () => {
 		earlier.program.exited(1, 0);
 		await expect(job).resolves.toEqual({ exitCode: 0 });
 		expect(earlier.program.hungUp(), "closed once its job ended").toBe(true);
-		ends(later.program, 1, 21);
+		later.program.ends(1, 21);
 		await next;
 		expect(later.program.hungUp(), "the later load's own").toBe(false);
 	});
