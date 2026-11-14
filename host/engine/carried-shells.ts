@@ -172,14 +172,21 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	const stop = options.stop ?? stopCarried;
 	const carried: KeptCall[] = [];
 
-	async function moveOut(call: KeptCall, into: string): Promise<number[]> {
+	// One look over the table for every call, since the stop it runs in
+	// has a minute and a call each would read every pid's cgroup again.
+	async function moveOut(
+		calls: readonly KeptCall[],
+		into: string,
+	): Promise<number[]> {
 		const own = table.cgroup(table.self);
+		const marks = new Set(calls.map((call) => call.work.mark));
 		const moved: number[] = [];
-		const sought = `${CALL_VARIABLE}=${call.work.mark}`;
 		for (const pid of table.pids()) {
 			if (pid === table.self || table.cgroup(pid) !== own) continue;
-			const environ = await table.environ(pid, sought);
-			if (environ?.[CALL_VARIABLE] !== call.work.mark) continue;
+			const mark = (await table.environ(pid, `${CALL_VARIABLE}=`))?.[
+				CALL_VARIABLE
+			];
+			if (mark === undefined || !marks.has(mark)) continue;
 			try {
 				await move(into, pid);
 				moved.push(pid);
@@ -250,8 +257,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		async keep() {
 			if (carried.length === 0) return [];
 			const moved: number[] = [];
-			if (procs !== undefined)
-				for (const call of carried) moved.push(...(await moveOut(call, procs)));
+			if (procs !== undefined) moved.push(...(await moveOut(carried, procs)));
 			// What an earlier restart kept and nobody took up yet goes on too.
 			write([...readKept(file), ...carried]);
 			return moved;
