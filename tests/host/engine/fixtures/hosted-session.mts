@@ -178,6 +178,10 @@ const noteEffect = (text: string): void =>
 const QUEUED_WAIT_MS = 3_000;
 /** How often that answer looks again. */
 const QUEUED_POLL_MS = 20;
+/** How long an outbox scenario waits for its result to be seen. */
+const OUTBOX_WAIT_MS = 10_000;
+/** How often it looks. */
+const OUTBOX_POLL_MS = 50;
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -738,11 +742,6 @@ function persisted(): unknown {
 		? coding.SessionManager.open(join(sessionDir, file), sessionDir)
 		: coding.SessionManager.create(folder, sessionDir);
 }
-
-/** How long an outbox scenario waits for its result to be seen. */
-const OUTBOX_WAIT_MS = 10_000;
-/** How often it looks. */
-const OUTBOX_POLL_MS = 50;
 
 /**
  * Say `result` through an outbox wired as job-workflow wires it, told what
