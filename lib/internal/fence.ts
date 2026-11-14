@@ -134,6 +134,10 @@ export const NEVER_THROUGH = [
 	// person: a fenced command reaches Nix only untrusted (ISXEG8, 13
 	// November, before the person leaves Nix's trusted users).
 	"/run/nix-offload-standing.sock",
+	// systemd's credential service, which opens what the person's account
+	// sealed with `systemd-creds --user`: the login keyring's password and
+	// eero's session among them (IDEGAT, 13 November).
+	"/run/systemd/io.systemd.Credentials",
 ] as const;
 
 /** What the fence needs to know of the disk: what a path is, and what a folder holds. */
@@ -356,8 +360,11 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
  * fence, which no command needs (Google's, Slack's and Vault's, and
  * Tuple's sign-in); and the person's own cloud login, which fenced gcloud
  * never reads, since it is pointed at a settings folder of its own with
- * the broker's hour token (`gcloud-broker.ts`). IDEGAT, 13 November. A
- * path ending in `/` is a folder, emptied whole.
+ * the broker's hour token (`gcloud-broker.ts`); and the login keyring
+ * with what systemd sealed for the person (its password, eero's session),
+ * which Landlock already keeps from systemd's credential service, so no
+ * copy leaves for an offline guess either. IDEGAT, 13 November. A path
+ * ending in `/` is a folder, emptied whole.
  */
 export const HIDDEN = [
 	".local/state/nix-offload/store_ed25519",
@@ -370,6 +377,9 @@ export const HIDDEN = [
 	".config/gcloud/access_tokens.db",
 	".config/gcloud/legacy_credentials/",
 	".gsutil/credstore2",
+	".local/share/keyrings/",
+	".local/state/gnome-keyring/login.cred",
+	".local/state/eero/session.cred",
 ] as const;
 
 /** A hidden path's place in the home folder, and whether it is a folder. */
