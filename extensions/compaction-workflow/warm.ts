@@ -95,6 +95,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import { scrubSecrets } from "../../lib/internal/secrets.ts";
 import { isStaleContext } from "../../lib/internal/stale.ts";
 import {
+	carriedRoute,
 	pendingWarmsDir,
 	sweepPendingWarms,
 	takePendingWarms,
@@ -435,7 +436,7 @@ export function registerIdleWarming(
 		carried().delete(id);
 		if (!going) return;
 		if (event.reason === "reload") carried().set(id, going);
-		else if (keepingRequests()) keep(onDisk(id, going));
+		else if (keepingRequests()) keep(onDisk(id, going, ctx));
 	});
 
 	return {
@@ -487,8 +488,19 @@ function plan(ctx: ExtensionContext, held: HeldRequest | null): Planned {
 const CREDENTIAL_HEADER =
 	/authorization|api[-_]?key|cookie|token|secret|password/i;
 
-/** What a restart carries, as written to disk: the model by name alone. */
-function onDisk(sessionId: string, going: Carried): WarmingCarry {
+/**
+ * What a restart carries, as written to disk: the model by name alone,
+ * and the route an extension gave its provider, for a pi host that
+ * warms it through a runtime no extension registered with.
+ */
+function onDisk(
+	sessionId: string,
+	going: Carried,
+	ctx: ExtensionContext,
+): WarmingCarry {
+	const route = carriedRoute(
+		ctx.modelRegistry.getRegisteredProviderConfig?.(going.held.model.provider),
+	);
 	const headers = Object.fromEntries(
 		Object.entries(going.held.headers).filter(
 			([name, value]) =>
@@ -505,6 +517,7 @@ function onDisk(sessionId: string, going: Carried): WarmingCarry {
 		at: going.held.at,
 		refreshedAt: going.refreshedAt,
 		warms: going.warms,
+		...(route ? { route } : {}),
 	};
 }
 

@@ -240,6 +240,9 @@ export async function warmThrough(
 	carry: WarmingCarry,
 	signal: AbortSignal,
 ): Promise<WarmSent> {
+	// The runtime is the host's own, which no extension registered with:
+	// the route the session's provider sent through comes in its carry.
+	if (carry.route) runtime.registerProvider(carry.provider, carry.route);
 	const model = runtime.getModel(carry.provider, carry.modelId);
 	if (!model)
 		return { ok: false, reason: `no model ${carry.provider}/${carry.modelId}` };

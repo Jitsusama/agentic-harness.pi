@@ -8,6 +8,7 @@
 import { isRecord } from "../../lib/internal/record.ts";
 import type { AuthContext } from "./auth-context.ts";
 import type { HostPiModules } from "./host-pi.ts";
+import type { WarmingRoute } from "../../lib/internal/warming-carry.ts";
 import type { AgentOptions, Model } from "./pi-types.ts";
 
 /** pi's session manager: one conversation's tree and the file it keeps. */
@@ -46,6 +47,8 @@ export interface CompletedCall {
 /** pi's model runtime, as the engine asks it for a model and a warm's call. */
 export interface ModelRuntime {
 	getModel(provider: string, id: string): Model | undefined;
+	/** Route a provider's requests as an extension's registration would. */
+	registerProvider(provider: string, route: WarmingRoute): void;
 	completeSimple(
 		model: Model,
 		context: { readonly messages: readonly unknown[] },

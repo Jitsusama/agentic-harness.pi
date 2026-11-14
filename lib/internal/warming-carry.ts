@@ -12,6 +12,13 @@
  * in a folder of its own, as a line of the record a warm leaves, for
  * the session's next start to record in its log, which no other writer
  * touches.
+ *
+ * It also carries the route an extension gave the model's provider (a
+ * proxy's address, its key by the variable that holds it), since a pi
+ * host warms through a model runtime of its own, which no extension
+ * has registered with: without it every parked warm on 14 November
+ * 2026 failed with "Provider is not configured: anthropic". A key
+ * written out in full is never carried; the route goes without it.
  */
 
 import {
@@ -43,6 +50,37 @@ export interface WarmingCarry {
 	readonly refreshedAt: number;
 	/** The warms it has had since the request. */
 	readonly warms: number;
+	/** Where its provider sends, when an extension said so. */
+	readonly route?: WarmingRoute;
+}
+
+/** A provider's route as an extension registered it, its key by name alone. */
+export interface WarmingRoute {
+	readonly baseUrl?: string;
+	readonly api?: string;
+	/** The variable holding the key, as `$NAME`. */
+	readonly apiKey?: string;
+}
+
+/** A key named by the variable that holds it, rather than written out. */
+const KEY_BY_NAME = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The route worth carrying from what an extension registered for a
+ * provider: its address, API and key by name, or nothing when it set
+ * none of them.
+ */
+export function carriedRoute(registered: unknown): WarmingRoute | undefined {
+	if (!isRecord(registered)) return undefined;
+	const { baseUrl, api, apiKey } = registered;
+	const route: WarmingRoute = {
+		...(typeof baseUrl === "string" ? { baseUrl } : {}),
+		...(typeof api === "string" ? { api } : {}),
+		...(typeof apiKey === "string" && KEY_BY_NAME.test(apiKey)
+			? { apiKey }
+			: {}),
+	};
+	return Object.keys(route).length > 0 ? route : undefined;
 }
 
 /** No pending warm is kept longer than this for a session that never starts. */
@@ -181,6 +219,8 @@ function isCarry(value: unknown): value is WarmingCarry {
 		typeof value.warms === "number" &&
 		Object.values(value.headers).every(
 			(header) => typeof header === "string" || header === null,
-		)
+		) &&
+		(value.route === undefined ||
+			carriedRoute(value.route) !== undefined)
 	);
 }
