@@ -125,6 +125,12 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 							: []),
 					]
 				: []),
+			// Only where /proc lets a stop find what left the group (reap.ts).
+			...(process.platform === "linux"
+				? [
+						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group or session it moved to: setsid, nohup and \`jobs-broker run\` don't keep it. Only one moved to a scope outside pi's own cgroup and outside the jobs slice, as \`systemd-run --user --scope\` makes, is spared.${sandbox.kind === "fence" ? " Inside the agent fence no command can make one, so something meant to outlive its command needs a service its owner runs, or the person." : ""}`,
+					]
+				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere
 			// nice still ranks a command against what the person uses.
 			...(process.env.JOBS_CGROUP

@@ -21,6 +21,11 @@
  * process carrying the call's own mark, whatever group it moved to, as
  * `timeout` does, and its shell's group.
  *
+ * A process moved out on purpose, to a cgroup outside the host's own and
+ * outside the slice `JOBS_CGROUP` puts work in, is spared too
+ * (`movedOut`, lib/internal/shell/reap.ts), and the rest of a group
+ * holding one die one by one, so killing the group doesn't take it.
+ *
  * A busy machine holds thousands of processes, and their environments tens
  * of megabytes, so the table is read without holding the host's one loop,
  * a few files at a time, and only an environment that mentions the marker
@@ -32,7 +37,11 @@ import {
 	type CarriedCalls,
 	carriedCalls,
 } from "../../lib/internal/shell/kept.ts";
-import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
+import {
+	CALL_VARIABLE,
+	movedOut,
+	unifiedCgroup,
+} from "../../lib/internal/shell/reap.ts";
 
 /** The variable naming the conversation a process was started for. */
 export const CONVERSATION_MARKER = "PI_HOST_CONVERSATION";
@@ -72,6 +81,8 @@ export interface ProcessTable {
 	): Promise<Readonly<Record<string, string>> | undefined>;
 	/** A process's group, or undefined once it is gone. */
 	group(pid: number): number | undefined;
+	/** A process's cgroup, or undefined once it is gone or unreadable. */
+	cgroup(pid: number): string | undefined;
 	/** When a process started, in ticks since boot, or undefined once it is gone. */
 	started(pid: number): number | undefined;
 	/** Kill a whole group, or one process when the group is this one's own. */
@@ -185,16 +196,25 @@ async function reapWhere(
 	spared: CarriedCalls,
 ): Promise<Reaped> {
 	const own = table.group(table.self);
+	const ownCgroup = table.cgroup(table.self);
+	const jobs = process.env.JOBS_CGROUP;
 	const groups = new Set<number>();
 	const pids = new Set<number>();
 	for (let pass = 0; pass < MOST_PASSES; pass += 1) {
 		const found = await markedWhere(sought, table);
-		if (found.size === 0) break;
+		const holdingMovedOut = new Set<number>();
+		const dying: [number, number][] = [];
 		for (const [pid, environ] of found) {
 			const group = table.group(pid);
 			// Gone meanwhile, or handed on and said elsewhere.
 			if (group === undefined || handedOn(environ, group, spared)) continue;
-			if (group === own) {
+			if (movedOut(table.cgroup(pid), ownCgroup, jobs))
+				holdingMovedOut.add(group);
+			else dying.push([pid, group]);
+		}
+		if (dying.length === 0) break;
+		for (const [pid, group] of dying) {
+			if (group === own || holdingMovedOut.has(group)) {
 				pids.add(pid);
 				table.kill({ pid });
 			} else if (!groups.has(group)) {
@@ -271,6 +291,14 @@ export function linuxProcessTable(root = "/proc"): ProcessTable {
 		group: (pid) => {
 			const line = stat(pid);
 			return line === undefined ? undefined : parseGroup(line);
+		},
+		cgroup: (pid) => {
+			try {
+				return unifiedCgroup(readFileSync(`${root}/${pid}/cgroup`, "utf8"));
+			} catch {
+				// Gone, or unreadable: never a reason to spare it.
+				return undefined;
+			}
 		},
 		started: (pid) => {
 			const line = stat(pid);

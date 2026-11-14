@@ -24,17 +24,27 @@ afterEach(() => {
 		rmSync(dir, { recursive: true, force: true });
 });
 
-/** A /proc holding these processes' environments. */
-function procWith(environments: Record<string, string[]>): string {
+/** A /proc holding these processes' environments, and the cgroups named. */
+function procWith(
+	environments: Record<string, string[]>,
+	cgroups: Record<string, string> = {},
+): string {
 	const root = mkdtempSync(join(tmpdir(), "reap-proc-"));
 	made.push(root);
 	for (const [pid, env] of Object.entries(environments)) {
 		mkdirSync(join(root, pid));
 		writeFileSync(join(root, pid, "environ"), `${env.join("\0")}\0`);
 	}
-	mkdirSync(join(root, "self"));
+	for (const [pid, cgroup] of Object.entries(cgroups)) {
+		mkdirSync(join(root, pid), { recursive: true });
+		writeFileSync(join(root, pid, "cgroup"), `0::${cgroup}\n`);
+	}
+	mkdirSync(join(root, "self"), { recursive: true });
 	return root;
 }
+
+/** A cgroup under the account's user manager. */
+const USER = "/user.slice/user-1000.slice/user@1000.service";
 
 describe("reaping a call", () => {
 	it("kills every process carrying the call's mark, and nothing else", () => {
@@ -49,6 +59,61 @@ describe("reaping a call", () => {
 		reap("one", { procRoot, self: 104, kill: (pid) => killed.push(pid) });
 
 		expect(killed).toEqual([101]);
+	});
+
+	it("spares a marked process moved out of pi's cgroup and the work slice, and kills the rest", () => {
+		const mark = `${CALL_VARIABLE}=one`;
+		const procRoot = procWith(
+			{
+				"101": [mark],
+				"102": [mark],
+				"103": [mark],
+				"104": [mark],
+				"105": [mark],
+			},
+			{
+				"100": `${USER}/agents.slice/kitty-7-3.scope`,
+				"101": `${USER}/jobs.slice/jobs.service`,
+				"102": `${USER}/background.slice/demo-tunnels-8.scope`,
+				"103": `${USER}/jobs.slice/jobs-work.slice/work-9-1.scope`,
+				"104": `${USER}/agents.slice/kitty-7-3.scope`,
+			},
+		);
+		const killed: number[] = [];
+
+		reap("one", {
+			procRoot,
+			self: 100,
+			jobs: "jobs.slice/jobs.service",
+			kill: (pid) => killed.push(pid),
+		});
+
+		expect(
+			killed.sort(),
+			"the tunnel in a scope of its own lives; the work slice's, pi's own and the unreadable die",
+		).toEqual([101, 103, 104, 105]);
+	});
+
+	it("spares only what left pi's own cgroup where no work slice is named", () => {
+		const mark = `${CALL_VARIABLE}=one`;
+		const procRoot = procWith(
+			{ "101": [mark], "102": [mark] },
+			{
+				"100": `${USER}/app.slice/kitty-7.scope`,
+				"101": `${USER}/app.slice/kitty-7.scope`,
+				"102": `${USER}/app.slice/run-u8.scope`,
+			},
+		);
+		const killed: number[] = [];
+
+		reap("one", {
+			procRoot,
+			self: 100,
+			jobs: undefined,
+			kill: (pid) => killed.push(pid),
+		});
+
+		expect(killed, "the one moved to a scope of its own lives").toEqual([101]);
 	});
 
 	it("does nothing where there is no /proc", () => {
