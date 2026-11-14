@@ -77,11 +77,16 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 		stops,
 		session: async (standing) => {
 			const id = ctx?.sessionManager.getSessionId() ?? "";
-			const cwd = ctx?.cwd ?? process.cwd();
 			const asks = asksRepos(standing);
-			const dirs = asks
-				? dirsOf(id, cwd, join(stateDir("work"), "cut"))
-				: [cwd];
+			// Before a session starts there is no cwd of its own, and nothing
+			// running to park, so it is nowhere.
+			const cwd = ctx?.cwd;
+			const dirs =
+				cwd === undefined
+					? []
+					: asks
+						? dirsOf(id, cwd, join(stateDir("work"), "cut"))
+						: [cwd];
 			return {
 				realm: sessionRealmName(),
 				quests: questsOf(
