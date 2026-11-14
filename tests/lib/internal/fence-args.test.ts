@@ -7,7 +7,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	type Disk,
 	fenceArgs,
 	fenceRefusesRead,
 	fenceRefusesWrite,
@@ -16,6 +15,7 @@ import {
 	jobsBroker,
 	NEVER_THROUGH,
 } from "../../../lib/internal/fence.ts";
+import type { Disk } from "../../../lib/internal/fence-disk.ts";
 import { READ_ONLY } from "../../../lib/internal/fence-home.ts";
 
 /**
