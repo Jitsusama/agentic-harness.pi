@@ -31,6 +31,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { callIsOn } from "../../lib/internal/calls.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
 import {
 	clearParked,
@@ -225,6 +226,11 @@ export async function createEngine(
 		asking: () => watched?.wake,
 		report,
 		parked: (sessionId) => warming.start(sessionId),
+		// The host serves one realm, its conversations' own (service/address.ts).
+		steers: {
+			root: stateDir("steer"),
+			addressesOf: (sessionId) => readParked(sessionId)?.addresses ?? [],
+		},
 	});
 	const tools = runningTools();
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.

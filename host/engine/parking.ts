@@ -6,6 +6,12 @@
  * A wake through the file that is refused is kept beside it, with the
  * message that asked, for the mesh to say (refused-wake.ts), until the
  * conversation next runs.
+ *
+ * While it rests the host also watches its steer inboxes, under the
+ * addresses its park marker names, and wakes it the same way as soon as
+ * a steer lands that waits on it running (watchWakingSteers in lib/mesh/parked.ts): a talk, a
+ * close, a carry, a move or a fill. The mesh's once-a-minute pass stays
+ * as the backstop.
  */
 import {
 	existsSync,
@@ -21,6 +27,7 @@ import {
 	wakeAskedBy,
 	writeRefusedWake,
 } from "../../lib/internal/session/refused-wake.ts";
+import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
@@ -68,6 +75,22 @@ export interface Parking {
 	closed(sessionId: string): void;
 }
 
+/** A parked conversation's watches, until it wakes or is closed. */
+interface Sleeper {
+	readonly wake: FSWatcher;
+	steers?: SteerWatch;
+	/** A steer's wake is asked and not yet settled. */
+	waking?: boolean;
+}
+
+/** Where the person's steers wait, and whose they are for each conversation. */
+export interface SteerInboxes {
+	/** The steer root, one inbox an address under it. */
+	readonly root: string;
+	/** The addresses a parked conversation answers to, as it parked. */
+	readonly addressesOf: (sessionId: string) => readonly string[];
+}
+
 /** A park under way: when it settles, and the wakes asked of it meanwhile. */
 interface Settling {
 	readonly done: Promise<void>;
@@ -86,17 +109,21 @@ export function parking(options: {
 	readonly report: (error: unknown) => void;
 	/** It parked: said before its wake is watched, so any wake comes after. */
 	readonly parked?: (sessionId: string) => void;
+	/** Its steer inboxes, watched while it rests; none, only the wake file wakes it. */
+	readonly steers?: SteerInboxes;
 }): Parking {
 	const { stateDir, report } = options;
 	// Parked conversations, each watching its wake file until it wakes or is closed.
-	const sleepers = new Map<string, FSWatcher>();
+	const sleepers = new Map<string, Sleeper>();
 	// Conversations parking now.
 	const settling = new Map<string, Settling>();
 	const folderOf = (sessionId: string) => join(stateDir, sessionId);
 	const wakeFile = (sessionId: string) => join(folderOf(sessionId), WAKE_FILE);
 
 	function stopWatching(sessionId: string): void {
-		sleepers.get(sessionId)?.close();
+		const sleeper = sleepers.get(sessionId);
+		sleeper?.wake.close();
+		sleeper?.steers?.close();
 		sleepers.delete(sessionId);
 	}
 
@@ -110,11 +137,8 @@ export function parking(options: {
 		stopWatching(sessionId);
 		const file = wakeFile(sessionId);
 		mkdirSync(folderOf(sessionId), { recursive: true });
-		const woken = () => {
-			const watching = sleepers.get(sessionId);
-			if (!watching || !existsSync(file)) return;
-			const messageId = wakeAskedBy(readWritten(file));
-			rmSync(file, { force: true });
+		// Woken for `messageId`, or for nothing named; a refusal is kept beside its file.
+		const ask = (watching: Sleeper, messageId: string | undefined) =>
 			wake(sessionId).catch((error: unknown) => {
 				// Reported as it failed; kept for the mesh to say, until the next
 				// message writes the file again or the conversation runs. One
@@ -131,15 +155,39 @@ export function parking(options: {
 					report(unkept);
 				}
 			});
+		const woken = () => {
+			const watching = sleepers.get(sessionId);
+			if (!watching || !existsSync(file)) return;
+			const messageId = wakeAskedBy(readWritten(file));
+			rmSync(file, { force: true });
+			void ask(watching, messageId);
+		};
+		// A steer landing while its wake is asked would ask the same wake again.
+		const steered = (steer: string) => {
+			const watching = sleepers.get(sessionId);
+			if (!watching || watching.waking) return;
+			watching.waking = true;
+			void ask(watching, `steer-${steer}`).finally(() => {
+				watching.waking = false;
+			});
 		};
 		const watcher = watch(folderOf(sessionId), (_, name) => {
 			if (name === WAKE_FILE) woken();
 		});
 		watcher.unref();
 		watcher.on("error", report);
-		sleepers.set(sessionId, watcher);
+		const sleeper: Sleeper = { wake: watcher };
+		sleepers.set(sessionId, sleeper);
 		// One written between its park and this watch.
 		woken();
+		const steers = options.steers;
+		if (steers && sleepers.get(sessionId) === sleeper)
+			sleeper.steers = watchWakingSteers({
+				root: steers.root,
+				addresses: steers.addressesOf(sessionId),
+				waking: steered,
+				report,
+			});
 	}
 
 	function wake(sessionId: string): Promise<void> {

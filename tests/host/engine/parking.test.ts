@@ -2,14 +2,22 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PARKED, parking } from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
-import { until } from "../../support/until.ts";
+import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 /** How long a refusal may take to be kept, inside the case's own 5 s, so a red names this wait. */
 const KEPT_WITHIN_MS = 2000;
+
+/** The longest a waking steer may wait for its wake, from landing to asked. */
+const STEER_WAKES_WITHIN_MS = 100;
+
+/** The address the parked conversation `a` answers to. */
+const ADDRESS = "A1B2C3";
 
 let dir: string;
 beforeEach(async () => {
@@ -19,7 +27,10 @@ afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
 });
 
-/** Parking whose stop waits until let go, and whose wake is `asking`. */
+/**
+ * Parking whose stop waits until let go, and whose wake is `asking`;
+ * `a` answers to ADDRESS, with its steer inboxes under `steers`.
+ */
 function held(asking: (sessionId: string) => Promise<void>) {
 	let stopped: (() => void) | undefined;
 	const stop = vi.fn(
@@ -34,8 +45,36 @@ function held(asking: (sessionId: string) => Promise<void>) {
 		stop,
 		asking: () => asking,
 		report,
+		steers: {
+			root: steers(),
+			addressesOf: (sessionId) => (sessionId === "a" ? [ADDRESS] : []),
+		},
 	});
 	return { parked, stop, report, letStop: () => stopped?.() };
+}
+
+/** Where the person's steers wait, one inbox an address. */
+function steers(): string {
+	return join(dir, "steer");
+}
+
+/** Park `a` in parking whose wake is `asking`, once its stop settles. */
+async function parkedWith(asking: (sessionId: string) => Promise<void>) {
+	const made = held(asking);
+	const parking = made.parked.park("a");
+	made.letStop();
+	await parking;
+	return made;
+}
+
+/** A wake that notes when it was asked, on the clock steers land by. */
+function timedWake() {
+	const asked: number[] = [];
+	const asking = vi.fn((_sessionId: string) => {
+		asked.push(performance.now());
+		return Promise.resolve();
+	});
+	return { asking, asked };
 }
 
 /**
@@ -211,6 +250,136 @@ describe("parking a conversation", () => {
 			readRefusedWake(wake),
 			"a refusal settling after the close is not kept",
 		).toBeUndefined();
+	});
+
+	it("wakes within 100 ms of a talk landing in an inbox made after it parked", async () => {
+		const { asking, asked } = timedWake();
+		const { parked } = await parkedWith(asking);
+
+		const landed = performance.now();
+		giveSteer(steers(), ADDRESS, { text: "are you there?", from: "joel" });
+
+		await until("the talk to wake it", () => asked.length > 0);
+		expect(asking, "woken for its talk").toHaveBeenCalledWith("a");
+		expect(
+			(asked[0] ?? Number.POSITIVE_INFINITY) - landed,
+			"steer landed to wake asked, in ms",
+		).toBeLessThan(STEER_WAKES_WITHIN_MS);
+		parked.unwatch("a");
+	});
+
+	it("wakes for each act only a running session can make, landing in an inbox already there", async () => {
+		const { asking, asked } = timedWake();
+		await mkdir(inboxOf(steers(), ADDRESS), { recursive: true });
+		const { parked } = await parkedWith(asking);
+
+		const landed = performance.now();
+		giveSteer(steers(), ADDRESS, { text: "", act: "close", from: "joel" });
+
+		await until("the close to wake it", () => asked.length > 0);
+		expect(
+			(asked[0] ?? Number.POSITIVE_INFINITY) - landed,
+			"steer landed to wake asked, in ms",
+		).toBeLessThan(STEER_WAKES_WITHIN_MS);
+		parked.unwatch("a");
+	});
+
+	it("wakes one resting from an earlier host for a talk left while the host was down", async () => {
+		const { asking, asked } = timedWake();
+		const { parked } = held(asking);
+		giveSteer(steers(), ADDRESS, { text: "while you slept", from: "joel" });
+
+		parked.rests("a");
+
+		await until("the talk left before to wake it", () => asked.length > 0);
+		parked.unwatch("a");
+	});
+
+	it("leaves a pause, and a talk to another address, waiting for its next start", async () => {
+		const { asking } = timedWake();
+		const { parked } = await parkedWith(asking);
+
+		giveSteer(steers(), ADDRESS, { text: "", act: "pause", from: "joel" });
+		giveSteer(steers(), "Z9Y8X7", { text: "not for a", from: "joel" });
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+
+		expect(asking, "nothing it waits on running asked").not.toHaveBeenCalled();
+		parked.unwatch("a");
+	});
+
+	it("wakes again for a talk once its inbox was swept and made again", async () => {
+		const { asking, asked } = timedWake();
+		const inbox = inboxOf(steers(), ADDRESS);
+		await mkdir(inbox, { recursive: true });
+		const { parked } = await parkedWith(asking);
+
+		// forgetInboxes sweeps an inbox quiet long enough, folder and all.
+		await rm(inbox, { recursive: true, force: true });
+		await quietFor(STEER_WAKES_WITHIN_MS, 1);
+		const landed = performance.now();
+		giveSteer(steers(), ADDRESS, { text: "back again", from: "joel" });
+
+		await until("the talk to wake it", () => asked.length > 0);
+		expect(
+			(asked[0] ?? Number.POSITIVE_INFINITY) - landed,
+			"steer landed to wake asked, in ms",
+		).toBeLessThan(STEER_WAKES_WITHIN_MS);
+		parked.unwatch("a");
+	});
+
+	it("asks once a steer, however often its inbox stirs", async () => {
+		const { asking, asked } = timedWake();
+		const { parked } = await parkedWith(asking);
+
+		giveSteer(steers(), ADDRESS, { text: "one", from: "joel" });
+		await until("the talk to wake it", () => asked.length > 0);
+		giveSteer(steers(), ADDRESS, { text: "", act: "pause", from: "joel" });
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+
+		expect(asking, "one talk, one wake").toHaveBeenCalledTimes(1);
+		parked.unwatch("a");
+	});
+
+	it("watches its inbox no more once it resumes or is closed", async () => {
+		const { asking } = timedWake();
+		const { parked } = await parkedWith(asking);
+		parked.unwatch("a");
+		giveSteer(steers(), ADDRESS, { text: "after it woke", from: "joel" });
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asking, "nothing asked once it resumed").not.toHaveBeenCalled();
+
+		// It took the steer as it started, so its next park finds none waiting.
+		await rm(inboxOf(steers(), ADDRESS), { recursive: true, force: true });
+		const again = await parkedWith(asking);
+		again.parked.closed("a");
+		giveSteer(steers(), ADDRESS, { text: "after it closed", from: "joel" });
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asking, "nothing asked once it closed").not.toHaveBeenCalled();
+	});
+
+	it("keeps a refused steer's wake beside its wake file, naming the steer", async () => {
+		const { parked } = await parkedWith(() =>
+			Promise.reject(new Error("the host is stopping")),
+		);
+		const file = giveSteer(steers(), ADDRESS, {
+			text: "are you there?",
+			from: "joel",
+		});
+		const wake = parked.wakeFile("a");
+
+		await until(
+			"the refused wake to be kept",
+			() => readRefusedWake(wake) !== undefined,
+			KEPT_WITHIN_MS,
+		);
+		expect(
+			readRefusedWake(wake),
+			"the steer that asked, and why not",
+		).toMatchObject({
+			messageId: `steer-${file}`,
+			reason: "the host is stopping",
+		});
+		parked.closed("a");
 	});
 
 	it("keeps no refusal that settles as the conversation starts again", async () => {
