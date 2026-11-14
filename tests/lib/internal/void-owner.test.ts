@@ -138,6 +138,13 @@ describe("placing a line", () => {
 		expect(addresses(text)).toEqual(["EO6QV7", "WM4KSZ"]);
 	});
 
+	it("puts the quest above a site's quest straight after it", () => {
+		const threads = { ...ROWS, id: "QEST-20261113-KQL3KB", body: "saw aquifer-part-deux.quick.shopify.io" };
+		const text = line("give the five access", "tab: Aquifer · https://aquifer-part-deux.quick.shopify.io/");
+
+		expect(addresses(text, sources([SITE, threads, AQUIFER]))).toEqual(["EO6QV7", "WM4KSZ", "KQL3KB"]);
+	});
+
 	it("takes a site claimed as an alias over one only named in a README", () => {
 		const claimed = {
 			...AQUIFER,
