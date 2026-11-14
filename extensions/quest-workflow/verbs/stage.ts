@@ -61,6 +61,7 @@ import {
 import { count, noun, verb } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { refuseSealingDryRun } from "../dry-run.ts";
+import { wakeSealedQuestParks } from "../ends-with-quest.ts";
 import {
 	appendJourneyEntry,
 	autoFocusPlan,
@@ -182,6 +183,7 @@ async function sweepQuests(
 	}
 	const removed: string[] = [];
 	const left: string[] = [];
+	const woken: string[] = [];
 	for (const { id } of changes) {
 		const entry = index.quests.get(id);
 		if (!entry) continue;
@@ -212,11 +214,19 @@ async function sweepQuests(
 			appendHarnessLog(entry.dir, elsewhere);
 			left.push(`${id}: ${elsewhere}`);
 		}
+		const woke = wakeSealedQuestParks(id);
+		if (woke) {
+			appendHarnessLog(entry.dir, woke);
+			woken.push(`${id}: ${woke}`);
+		}
 	}
 	const beyond =
-		left.length === 0
+		(left.length === 0
 			? ""
-			: `\nWhat it couldn't remove from here:\n${left.map((l) => `- ${l}`).join("\n")}`;
+			: `\nWhat it couldn't remove from here:\n${left.map((l) => `- ${l}`).join("\n")}`) +
+		(woken.length === 0
+			? ""
+			: `\nTheir parked sessions:\n${woken.map((l) => `- ${l}`).join("\n")}`);
 	return {
 		...result,
 		message:
@@ -1102,6 +1112,11 @@ async function sealLoadedQuest(
 	if (elsewhere) {
 		logHarnessEntry(state, elsewhere);
 		message += ` ${elsewhere}`;
+	}
+	const woke = questId ? wakeSealedQuestParks(questId) : undefined;
+	if (woke) {
+		logHarnessEntry(state, woke);
+		message += ` ${woke}`;
 	}
 	return ok(message, {
 		scope: "quest",

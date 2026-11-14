@@ -41,7 +41,11 @@ import {
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
-import { isParking, PARKING } from "../../lib/internal/session/park.ts";
+import {
+	isParking,
+	PARK_ASK,
+	PARKING,
+} from "../../lib/internal/session/park.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
@@ -64,6 +68,8 @@ import {
 } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import {
+	questHasEnded,
+	refuseParkOnceEnded,
 	stopWatchingForQuestEnd,
 	watchForQuestEnd,
 } from "./ends-with-quest.ts";
@@ -688,12 +694,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	/** What a spawn left this session to say, sent once start is done. */
 	let firstWords: (() => void) | undefined;
 	let stopHostStamp: (() => void) | undefined;
+	let running: string | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
 		stayedBecause = undefined;
 		// What this session journals is its own, for its own undo.
 		setJournalSession(currentSessionId(ctx, undefined));
+		running = currentSessionId(ctx, undefined);
 		// A park said before this start is over: it parked, or never did.
 		parking = undefined;
 		stopHostStamp?.();
@@ -828,6 +836,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	pi.events?.on(PARKING, (data: unknown) => {
 		if (isParking(data)) parking = data.session;
 	});
+	// One whose quest has ended ends instead, even woken to (ends-with-quest.ts).
+	pi.events?.on(PARK_ASK, (data: unknown) =>
+		refuseParkOnceEnded(data, running, () => questHasEnded(state)),
+	);
 
 	pi.on("session_shutdown", async (event, ctx) => {
 		budgets.forget();

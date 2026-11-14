@@ -445,6 +445,29 @@ export function readParked(
 }
 
 /**
+ * Every session parked with this quest loaded, as markers from this
+ * boot say, in the order of their names.
+ */
+export function parkedWithQuest(
+	quest: string,
+	folder: string = parkFolder(),
+	booted: Booted = machineBooted,
+): Parked[] {
+	let names: string[];
+	try {
+		names = readdirSync(join(folder, "parked"));
+	} catch {
+		// No folder of markers is nothing parked.
+		return [];
+	}
+	return names
+		.sort()
+		.filter((name) => name.endsWith(".json"))
+		.map((name) => readParked(name.slice(0, -".json".length), folder, booted))
+		.filter((parked): parked is Parked => parked?.quest === quest);
+}
+
+/**
  * Clear every marker the machine's boot outlived, answering the
  * sessions whose markers went. Nothing goes where the machine won't
  * say when it booted.

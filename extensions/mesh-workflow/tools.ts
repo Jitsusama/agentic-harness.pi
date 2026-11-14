@@ -12,6 +12,7 @@ import {
 	type TickedOwner,
 	tickedStanding,
 } from "../../lib/internal/process-ticks.ts";
+import { askWake } from "../../lib/internal/session/park.ts";
 import { answeringTo, namedAtStart } from "../../lib/mesh/address.ts";
 import { endTarget } from "../../lib/mesh/end.ts";
 import type { CrossAnswer, Crossed, Crossing } from "../../lib/mesh/flow.ts";
@@ -115,6 +116,8 @@ export interface Local {
 	readonly looks?: string;
 	/** Ask a session's process to end; pi's own SIGTERM by default. */
 	readonly endProcess?: EndProcess;
+	/** Ask a parked session's holder to wake it; whether it was parked. */
+	readonly wakeParked?: (session: string, why: string) => boolean;
 }
 
 /**
@@ -1918,6 +1921,12 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
 		at.presences.all(),
 	);
 	if ("refused" in target) return answer(`Nothing ended: ${target.refused}.`);
+	// A parked session has no process to end, only a holder to wake it.
+	if (wokenToEnd(at, target.session)) {
+		return answer(
+			`${address} was parked, so nothing was signalled; it was woken instead. It ends itself within about two minutes if its quest has ended; otherwise it carries on, and mesh_end ends it once it runs.`,
+		);
+	}
 	const ended = await (at.endProcess ?? endByOwner)(
 		target.owner,
 		`mesh_end from ${at.peer.signature}`,
@@ -1939,6 +1948,17 @@ async function end(at: Local, params: { peer: string }): Promise<Answer> {
 	return answer(
 		`Asked ${address}'s pi (pid ${target.owner.pid}) to quit; its window closes with it.`,
 	);
+}
+
+/** Whether a parked session was woken for mesh_end, rather than ended. */
+function wokenToEnd(at: Local, session: string): boolean {
+	const wake = at.wakeParked ?? ((one, why) => askWake(one, why));
+	try {
+		return wake(session, `mesh-end-${at.peer.signature}`);
+	} catch {
+		// A holder that can't be asked leaves it to be ended as a process.
+		return false;
+	}
 }
 
 /**

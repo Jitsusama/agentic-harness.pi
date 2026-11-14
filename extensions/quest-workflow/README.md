@@ -514,7 +514,11 @@ while it waits its turn leaves without running.
   is typed in the prompt, it shuts pi down and its window closes
   with it. In a host, the host closes it, and its journal names
   the quest that ended it. A session with no quest loaded, or one that loaded
-  another, is left running.
+  another, is left running. Concluding or retiring a quest wakes each
+  session parked with it loaded, which then ends itself the same way,
+  and a session whose quest has ended may not park again first.
+  `mesh_end` on a parked session wakes it rather than signalling
+  nothing.
 - Telling the model which quest and document it is on. The
   line is frozen into the system prompt the first time a
   session renders it, and a later load, focus or stage change
