@@ -150,6 +150,9 @@ const GITHUB_TRUST = [
 	"NODE_EXTRA_CA_CERTS",
 ] as const;
 
+/** The hosts a fenced command reaches without the relay: this machine's. */
+const LOCAL_HOSTS = "localhost,127.0.0.1,::1";
+
 /** A session id the door takes, which can name a folder and nothing more. */
 const PLAIN_SESSION = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -767,9 +770,14 @@ function pointedInside(door: GitHubDoor): string {
 	const socket = quoted(join(door.folder, "door.sock"));
 	const trusted = GITHUB_TRUST.map((name) => `${name}=${bundle}`).join(" ");
 	const proxy = "http://127.0.0.1:$__pi_port";
+	// Servers on this machine are reached directly, never through the
+	// relay, beside any hosts the person already keeps from a proxy.
+	const local = ["NO_PROXY", "no_proxy"]
+		.map((name) => `${name}=\${${name}:+$${name},}${LOCAL_HOSTS}`)
+		.join(" ");
 	return [
 		`if [ -r ${bundle} ] && [ -S ${socket} ] && __pi_port=$(${quoted(door.program)} relay --socket ${socket} --while $$ 2>/dev/null); then`,
-		`export HTTPS_PROXY=${proxy} https_proxy=${proxy} GH_TOKEN=${GITHUB_PLACEHOLDER} ${trusted};`,
+		`export HTTPS_PROXY=${proxy} https_proxy=${proxy} ${local} GH_TOKEN=${GITHUB_PLACEHOLDER} ${trusted};`,
 		"fi; unset __pi_port;",
 	].join(" ");
 }

@@ -92,6 +92,8 @@ describe("a fenced command with the GitHub door", () => {
 	const POINTED = [
 		"HTTPS_PROXY",
 		"https_proxy",
+		"NO_PROXY",
+		"no_proxy",
 		"GH_TOKEN",
 		"SSL_CERT_FILE",
 		"GIT_SSL_CAINFO",
@@ -136,7 +138,7 @@ describe("a fenced command with the GitHub door", () => {
 	});
 
 	/** What `env` prints run as a fenced command, by name. */
-	function fencedEnv(): Map<string, string> {
+	function fencedEnv(given: Record<string, string> = {}): Map<string, string> {
 		const text = fencedCommand("env", {
 			bwrap: skip,
 			landrun: skip,
@@ -146,7 +148,7 @@ describe("a fenced command with the GitHub door", () => {
 		});
 		const ran = spawnSync("bash", ["-c", text], {
 			encoding: "utf8",
-			env: { PATH: process.env.PATH ?? "" },
+			env: { PATH: process.env.PATH ?? "", ...given },
 		});
 		expect(ran.status, ran.stderr).toBe(0);
 		return new Map(
@@ -171,6 +173,11 @@ describe("a fenced command with the GitHub door", () => {
 		const env = fencedEnv();
 		expect(env.get("HTTPS_PROXY")).toBe("http://127.0.0.1:4242");
 		expect(env.get("https_proxy")).toBe("http://127.0.0.1:4242");
+		for (const name of ["NO_PROXY", "no_proxy"])
+			expect(
+				env.get(name),
+				`${name} sends this machine's servers to the relay`,
+			).toBe("localhost,127.0.0.1,::1");
 		expect(env.get("GH_TOKEN")).toBe(GITHUB_PLACEHOLDER);
 		for (const name of [
 			"SSL_CERT_FILE",
@@ -181,6 +188,10 @@ describe("a fenced command with the GitHub door", () => {
 			expect(env.get(name), `${name} doesn't trust the session's bundle`).toBe(
 				bundle,
 			);
+		expect(
+			fencedEnv({ NO_PROXY: "intranet" }).get("NO_PROXY"),
+			"the hosts the person kept from a proxy were lost",
+		).toBe("intranet,localhost,127.0.0.1,::1");
 		expect(
 			spawnSync("cat", [opened], { encoding: "utf8" }).stdout,
 			"the session wasn't opened outside",
