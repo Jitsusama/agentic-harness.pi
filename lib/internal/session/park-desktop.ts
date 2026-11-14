@@ -7,14 +7,17 @@
  * sessions kitty's remote control from every command an agent runs
  * (`NEVER_THROUGH` in fence.ts). Each is given a few seconds, and one
  * that fails or doesn't answer in time leaves the window open, as
- * parking always left it.
+ * parking always left it. They run only as a plain pi parks, idle by
+ * then, so waiting on them holds up nothing Joel is doing there.
  *
  * The launcher is asked to keep the window's place asleep
  * (`qs ipc call sessions keepPlaceAsleep <session>`) before it closes,
  * and it closes only on the answer "kept". A place kept asleep opens
  * the window there again once the session wakes, by anything, though
- * never onto the workspace Joel is on (KP0L6A [f3186685]). Off niri, as
- * on a Mac or in a plain terminal, none of this runs.
+ * never onto the workspace Joel is on (KP0L6A [f3186685]). Just before
+ * each window closes, niri is asked again which window is focused, and
+ * one Joel has clicked into since the screen was read stays open. Off
+ * niri, as on a Mac or in a plain terminal, none of this runs.
  *
  * Every read while the screen is on remembers which workspaces it
  * showed, in a file beside the park markers, since niri names none once
@@ -25,7 +28,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "../record.ts";
-import { parkFolder } from "./park.ts";
+import { parkFolder, type WindowsLeft } from "./park.ts";
 import {
 	type HeldWindow,
 	kittyShows,
@@ -136,10 +139,34 @@ export function keepPlaceAsleep(session: string, run: Run): string {
 }
 
 /**
- * Close `window` in its kitty, once kitty shows it in an OS window of
- * its class; answers why not, when it couldn't.
+ * The app id of the window niri has focused now, "" for none, or
+ * nothing when niri can't say.
+ */
+function focusedNow(run: Run): string | undefined {
+	try {
+		const window: unknown = JSON.parse(
+			run("niri", ["msg", "--json", "focused-window"]),
+		);
+		if (window === null) return "";
+		if (!isRecord(window)) return undefined;
+		return typeof window.app_id === "string" ? window.app_id : "";
+	} catch {
+		// niri didn't answer: what is focused can't be known.
+		return undefined;
+	}
+}
+
+/**
+ * Close `window` in its kitty, once niri says it isn't focused and kitty
+ * shows it in an OS window of its class; answers why not, when it
+ * couldn't.
  */
 export function closeWindow(window: HeldWindow, run: Run): string | undefined {
+	const focused = focusedNow(run);
+	if (focused === undefined) return "niri can't say which window is focused";
+	if (focused !== "" && focused === window.appId) {
+		return "its window was focused as it would have closed";
+	}
 	try {
 		const ls: unknown = JSON.parse(
 			run("kitten", ["@", "--to", window.within, "ls"]),
@@ -188,6 +215,18 @@ export type Leaving =
 			readonly closed: readonly HeldWindow[];
 			readonly open?: string;
 	  };
+
+/**
+ * What a parked marker keeps of a leaving: the windows closed, and why
+ * any stayed open, a refusal included, since by then it parks anyway.
+ */
+export function leftOf(leaving: Leaving): WindowsLeft {
+	if (leaving.kind === "refused") return { closed: [], open: leaving.why };
+	return {
+		closed: leaving.closed.map(({ id, appId }) => ({ id, appId })),
+		...(leaving.open !== undefined ? { open: leaving.open } : {}),
+	};
+}
 
 /**
  * Close the windows a parking session shows in, where none is in sight:

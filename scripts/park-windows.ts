@@ -8,7 +8,8 @@
  * Parks from before park-workflow closed windows left theirs open, so
  * this sweeps them once. With no argument it closes nothing and prints a
  * JSON line for each parked session with a window: its address, hold,
- * windows and what would become of them. With `--close` and a session's
+ * windows and what would become of them, with what its park marker kept
+ * of why its window stayed open, as `left`. With `--close` and a session's
  * address, pi session id or hold id, or `all`, it closes those that may
  * close, one at a time, and reads niri's focused window and workspace
  * before and after each, stopping at once should either move. With
@@ -29,6 +30,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { readParked } from "../lib/internal/session/park.ts";
 import {
 	closeWindow,
 	KEPT,
@@ -150,6 +152,7 @@ function main(argv: readonly string[]): number {
 			return 1;
 		}
 		const verdict = windowVerdict(one.windows, screen);
+		const left = one.parked ? readParked(one.session)?.windows : undefined;
 		const line = {
 			address: one.address,
 			session: one.session,
@@ -164,6 +167,7 @@ function main(argv: readonly string[]): number {
 			...screenNote(screen),
 			verdict: verdict.kind,
 			...("why" in verdict ? { why: verdict.why } : {}),
+			...(left !== undefined ? { left } : {}),
 		};
 		if (which === undefined || !named(one, which)) {
 			say(line);

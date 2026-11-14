@@ -13,9 +13,11 @@ import {
 	inSight,
 	keepPlaceAsleep,
 	leaveScreen,
+	leftOf,
 	onNiri,
 	type Run,
 	readScreen,
+	runProgram,
 } from "../../../../lib/internal/session/park-desktop.ts";
 import type { HeldWindow } from "../../../../lib/internal/session/park-window.ts";
 
@@ -41,6 +43,8 @@ interface Given {
 	/** The workspace the session's niri window is on. */
 	workspace?: number;
 	focused?: boolean;
+	/** The app id niri says is focused just before a window closes. */
+	focusedLate?: string | null;
 	/** No output on, as with the lid shut. */
 	off?: boolean;
 	kept?: string;
@@ -83,6 +87,11 @@ function desk(given: Given = {}): Desk & { calls: string[] } {
 				{ id: 4, is_active: false, is_focused: false, output },
 			]);
 		}
+		if (call === "niri msg --json focused-window") {
+			const late =
+				given.focusedLate === undefined ? "chrome" : given.focusedLate;
+			return JSON.stringify(late === null ? null : { id: 9, app_id: late });
+		}
 		if (program === "qs") return `${given.kept ?? "kept"}\n`;
 		if (call === `kitten @ --to ${SOCKET} ls`) {
 			return JSON.stringify([
@@ -100,6 +109,16 @@ function desk(given: Given = {}): Desk & { calls: string[] } {
 
 const CLOSE = `kitten @ --to ${SOCKET} close-window --match id:33`;
 const KEEP = "qs ipc call sessions keepPlaceAsleep s-1";
+
+describe("runProgram", () => {
+	it("answers what the program printed", () => {
+		expect(runProgram("printf", ["%s", "said"])).toBe("said");
+	});
+
+	it("throws when the program fails", () => {
+		expect(() => runProgram("false", [])).toThrow();
+	});
+});
 
 describe("leaveScreen", () => {
 	it("keeps the place asleep, then closes a window on a hidden workspace", () => {
@@ -157,10 +176,38 @@ describe("leaveScreen", () => {
 		expect(at.calls.some((one) => one.startsWith("qs"))).toBe(false);
 	});
 
+	it("parks with its window open when it was focused as the launcher kept its place", () => {
+		const at = desk({ focusedLate: "pi-session.1" });
+		expect(leaveScreen("s-1", [WINDOW], at)).toEqual({
+			kind: "parks",
+			closed: [],
+			open: "its window was focused as it would have closed",
+		});
+		expect(at.calls).not.toContain(CLOSE);
+	});
+
 	it("asks nothing of a session with no window", () => {
 		const at = desk();
 		expect(leaveScreen("s-1", [], at)).toEqual({ kind: "parks", closed: [] });
 		expect(at.calls).toEqual([]);
+	});
+});
+
+describe("leftOf", () => {
+	it("keeps the windows closed, by id and class", () => {
+		expect(leftOf({ kind: "parks", closed: [WINDOW] })).toEqual({
+			closed: [{ id: "33", appId: "pi-session.1" }],
+		});
+	});
+
+	it("keeps why a window stayed open, a refusal as much as a failure", () => {
+		expect(leftOf({ kind: "refused", why: "its window is focused" })).toEqual({
+			closed: [],
+			open: "its window is focused",
+		});
+		expect(
+			leftOf({ kind: "parks", closed: [], open: "niri can't be read" }),
+		).toEqual({ closed: [], open: "niri can't be read" });
 	});
 });
 
@@ -196,7 +243,7 @@ describe("with the screen off", () => {
 
 	it("closes a window on a workspace neither shown last nor focused last", () => {
 		inSight([WINDOW], desk({ workspace: 3 }));
-		const off = desk({ off: true, workspace: 3 });
+		const off = desk({ off: true, workspace: 3, focusedLate: null });
 		expect(leaveScreen("s-1", [WINDOW], off)).toEqual({
 			kind: "parks",
 			closed: [WINDOW],
@@ -223,6 +270,23 @@ describe("closeWindow", () => {
 		expect(closeWindow(WINDOW, desk({ fails: "close-window" }).run)).toBe(
 			"kitty didn't close window 33",
 		);
+	});
+
+	it("reads niri's focus just before closing, and closes nothing now focused", () => {
+		const at = desk({ focusedLate: "pi-session.1" });
+		expect(closeWindow(WINDOW, at.run)).toBe(
+			"its window was focused as it would have closed",
+		);
+		expect(at.calls).toContain("niri msg --json focused-window");
+		expect(at.calls).not.toContain(CLOSE);
+	});
+
+	it("closes nothing when niri can't say what is focused", () => {
+		const at = desk({ fails: "focused-window" });
+		expect(closeWindow(WINDOW, at.run)).toBe(
+			"niri can't say which window is focused",
+		);
+		expect(at.calls).not.toContain(CLOSE);
 	});
 });
 

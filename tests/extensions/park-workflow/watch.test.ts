@@ -391,21 +391,41 @@ describe("closing its window as it parks", () => {
 	/** A desktop showing its window on `workspace`; 1 is the one in sight. */
 	const desktop = (
 		workspace: number,
-		given: { focused?: boolean; kept?: string } = {},
+		given: {
+			focused?: boolean;
+			kept?: string;
+			/** Focused from this read of niri's windows on, counting from 1. */
+			focusedFromRead?: number;
+			/** niri's windows fail to read from this read on. */
+			failsFromRead?: number;
+			kittyFails?: boolean;
+		} = {},
 	) => {
 		const calls: string[] = [];
+		let reads = 0;
 		const run = (program: string, args: readonly string[]) => {
 			const call = [program, ...args].join(" ");
 			calls.push(call);
 			if (call === "niri msg --json windows") {
+				reads += 1;
+				if (reads >= (given.failsFromRead ?? Number.POSITIVE_INFINITY)) {
+					throw new Error("niri is gone");
+				}
+				const focused =
+					(given.focused ?? false) ||
+					reads >= (given.focusedFromRead ?? Number.POSITIVE_INFINITY);
 				return JSON.stringify([
 					{
 						id: 7,
 						app_id: "pi-session.1",
 						workspace_id: workspace,
-						is_focused: given.focused ?? false,
+						is_focused: focused,
 					},
 				]);
+			}
+			if (call === "niri msg --json focused-window") return "null";
+			if (given.kittyFails && call.includes("close-window")) {
+				throw new Error("kitty is gone");
 			}
 			if (call === "niri msg --json workspaces") {
 				return JSON.stringify([
@@ -480,6 +500,63 @@ describe("closing its window as it parks", () => {
 		expect(watched.look()).toBeUndefined();
 		expect(calls).not.toContain(CLOSE);
 		expect(exits).toEqual([PARKED_EXIT]);
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "the launcher didn't keep its place: no window to keep",
+		});
+	});
+
+	it("keeps in its marker the windows it closed", () => {
+		const { desk } = desktop(3);
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [{ id: "33", appId: "pi-session.1" }],
+		});
+	});
+
+	it("keeps in its marker why its window stayed open, should it come into sight between the reads", () => {
+		const { calls, desk } = desktop(3, { focusedFromRead: 2 });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(calls).not.toContain(CLOSE);
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "its window is focused",
+		});
+	});
+
+	it("keeps in its marker that niri couldn't be read as it closed", () => {
+		const { desk } = desktop(3, { failsFromRead: 2 });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "niri can't be read",
+		});
+	});
+
+	it("keeps in its marker that kitty didn't close its window", () => {
+		const { desk } = desktop(3, { kittyFails: true });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "kitty didn't close window 33",
+		});
+	});
+
+	it("keeps nothing of windows in its marker off niri", () => {
+		const { desk } = desktop(3);
+		const watched = parkingOn(desk, holder());
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)).toBeDefined();
+		expect(readParked(SESSION, folder)?.windows).toBeUndefined();
 	});
 
 	it("asks the desktop nothing off niri, parking as before", () => {

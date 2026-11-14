@@ -22,6 +22,7 @@ import {
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
+	type Parked,
 	type Parking,
 	parkAfterMs,
 	RESTART_ASK,
@@ -39,6 +40,7 @@ import {
 	type Desk,
 	inSight,
 	leaveScreen,
+	leftOf,
 	machineDesk,
 	onNiri,
 } from "../../lib/internal/session/park-desktop.ts";
@@ -485,21 +487,24 @@ export function watch(
 		bus.emit(PARKING, parking);
 		// A host watches its conversations' inboxes itself (host/engine).
 		if (!parkingHost()) tellSteers(env[STEERS_ENV] ?? "", parking);
-		writeParked(
-			{
-				session,
-				sessionFile,
-				cwd: ctx.cwd,
-				addresses: parking.addresses,
-				...(parking.quest ? { quest: parking.quest } : {}),
-				parkedAt: new Date(now()).toISOString(),
-				pid: process.pid,
-				wake,
-			},
-			folder,
-		);
-		// Its holder outlives the window; whatever stays open stays parked.
-		leaveScreen(session, windows, desk());
+		const marker: Parked = {
+			session,
+			sessionFile,
+			cwd: ctx.cwd,
+			addresses: parking.addresses,
+			...(parking.quest ? { quest: parking.quest } : {}),
+			parkedAt: new Date(now()).toISOString(),
+			pid: process.pid,
+			wake,
+		};
+		writeParked(marker, folder);
+		// Its holder outlives the window; whatever stays open stays parked,
+		// its marker saying why, so a sleeper's window still there explains
+		// itself.
+		if (windows.length > 0) {
+			const left = leftOf(leaveScreen(session, windows, desk()));
+			writeParked({ ...marker, windows: left }, folder);
+		}
 		end();
 		return undefined;
 	};

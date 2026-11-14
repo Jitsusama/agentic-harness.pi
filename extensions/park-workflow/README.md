@@ -110,10 +110,14 @@ conversation alone, it never parks, and its awake note says
    was, and closes a window only on the answer `kept`. Each window is
    found by its OS window's class against niri's app id, and checked
    again in `kitten @ ls` before closing, since a restarted kitty
-   reuses ids. When niri can't be read, the launcher keeps nothing,
-   or a window can't be told apart, it parks with its window open.
-   Off niri, and in a host, which keeps its conversations' windows,
-   nothing is asked of the desktop.
+   reuses ids; niri is asked which window is focused just before
+   each closes, and one the person has clicked into stays open. When
+   niri can't be read, the launcher keeps nothing, or a window can't
+   be told apart, it parks with its window open. Its marker then
+   says what became of its windows, as `windows`: those closed, by
+   kitty id and class, and as `open` why one stayed open. Off niri,
+   and in a host, which keeps its conversations' windows, nothing is
+   asked of the desktop and the marker says nothing of windows.
 
    With the screen off, niri puts every workspace on no output, so
    what was in sight is remembered: each read while the screen is on
@@ -132,8 +136,9 @@ open. `scripts/park-windows.ts` lists, by the same checks, which of
 them would close now (`--running` adds the held pis awake, and
 `--screen <windows.json> <workspaces.json>` replays a saved niri
 read), and closes them with `--close <address|session|held|all>`,
-stopping if the person's focus moves. It runs by hand, outside the
-fence.
+stopping if the person's focus moves. Each line carries, as `left`,
+what a session's marker kept of why its window stayed open. It runs
+by hand, outside the fence.
 
 A message that would give the parked peer a turn (a question or hold
 sent to it, an answer to it, a pivot, and for an orchestrator a
