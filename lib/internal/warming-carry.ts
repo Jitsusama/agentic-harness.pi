@@ -220,7 +220,6 @@ function isCarry(value: unknown): value is WarmingCarry {
 		Object.values(value.headers).every(
 			(header) => typeof header === "string" || header === null,
 		) &&
-		(value.route === undefined ||
-			carriedRoute(value.route) !== undefined)
+		(value.route === undefined || carriedRoute(value.route) !== undefined)
 	);
 }

@@ -6,9 +6,9 @@
  * as the engine reaches, and picked from the loaded install by name.
  */
 import { isRecord } from "../../lib/internal/record.ts";
+import type { WarmingRoute } from "../../lib/internal/warming-carry.ts";
 import type { AuthContext } from "./auth-context.ts";
 import type { HostPiModules } from "./host-pi.ts";
-import type { WarmingRoute } from "../../lib/internal/warming-carry.ts";
 import type { AgentOptions, Model } from "./pi-types.ts";
 
 /** pi's session manager: one conversation's tree and the file it keeps. */
