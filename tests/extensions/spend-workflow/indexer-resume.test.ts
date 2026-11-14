@@ -244,23 +244,26 @@ describe("a grown log read from where the last pass stopped", () => {
 		(_, at) => at + 1,
 	);
 
-	it.each(splits)("gives the ledger what a whole read gives, split at line %i", async (split) => {
-		const lines = richLog();
-		const resumed = place("resumed");
-		const whole = place("whole");
-		for (const where of [resumed, whole]) {
-			writeFileSync(where.log, body(lines.slice(0, split)));
-			await pass(where);
-			appendFileSync(where.log, body(lines.slice(split)));
-		}
-		forget(whole);
+	it.each(splits)(
+		"gives the ledger what a whole read gives, split at line %i",
+		async (split) => {
+			const lines = richLog();
+			const resumed = place("resumed");
+			const whole = place("whole");
+			for (const where of [resumed, whole]) {
+				writeFileSync(where.log, body(lines.slice(0, split)));
+				await pass(where);
+				appendFileSync(where.log, body(lines.slice(split)));
+			}
+			forget(whole);
 
-		const outcome = await pass(resumed);
-		await pass(whole);
+			const outcome = await pass(resumed);
+			await pass(whole);
 
-		expect(outcome.resumed).toBe(1);
-		expect(await rows(resumed)).toEqual(await rows(whole));
-	});
+			expect(outcome.resumed).toBe(1);
+			expect(await rows(resumed)).toEqual(await rows(whole));
+		},
+	);
 
 	it("resumes again and again as a log keeps growing", async () => {
 		const lines = richLog();
