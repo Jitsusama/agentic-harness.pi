@@ -438,8 +438,7 @@ export async function createEngine(
 			throw new Error(`Conversation ${sessionId} closed before it was built`);
 		const said = [...trustSaid, ...startupDiagnostics(services)];
 		for (const { type, message } of said)
-			if (type !== "info")
-				report(`Conversation ${sessionId}: ${message}`);
+			if (type !== "info") report(`Conversation ${sessionId}: ${message}`);
 		const conversation = await openHostedConversation({
 			modules: pi.modules,
 			library,

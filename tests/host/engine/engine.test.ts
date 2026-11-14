@@ -738,7 +738,9 @@ describe("the host's engine", () => {
 				"the next start ends them before it resumes anything",
 			).toEqual([]);
 			expect(started.reported, "said as one line, not an error").toEqual([
-				expect.stringMatching(/^Ended what an earlier host's tools left running/),
+				expect.stringMatching(
+					/^Ended what an earlier host's tools left running/,
+				),
 			]);
 		},
 		HOST_LIFE_MS,
