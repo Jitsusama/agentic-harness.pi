@@ -183,6 +183,23 @@ describe("section", () => {
 		);
 	});
 
+	it("refuses a body built from a cut show, and changes nothing", async () => {
+		// 14 November: the void's Context lost its Rules, Cost and Design,
+		// rewritten from a `show` cut at 8,192 bytes; the 9 lines cut were
+		// too small a loss for the size guard.
+		const { run, planPath } = await questWithPlan();
+		const before = readFileSync(planPath, "utf8");
+		const body =
+			"- [ ] 1. Keep this.\n\n**Rules.**\n\nCut 9 of 56 lines to fit the 8,192 byte budget. " +
+			"The whole section is stored: read its $.text with result_query. " +
+			"A section written back from this cut view loses everything cut.";
+
+		const result = await run({ action: "section", title: "Notes", body });
+
+		expect(refused(result).guidance).toContain("cut short");
+		expect(readFileSync(planPath, "utf8")).toBe(before);
+	});
+
 	it("shrinks a large section when told to with force", async () => {
 		const { run, planPath } = await questWithPlan();
 		const entries = Array.from(
