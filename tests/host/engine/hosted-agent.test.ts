@@ -183,6 +183,12 @@ function textOf(message: { readonly content: unknown }): string {
 		.join("");
 }
 
+/** Whether an event carries a message whose text is `text`. */
+function carries(event: object, text: string): boolean {
+	const message: unknown = Reflect.get(event, "message");
+	return isRecord(message) && "content" in message && textOf(message) === text;
+}
+
 function said(observed: Observed, role: string): string[] {
 	return observed.transcript
 		.filter((message) => message.role === role)
@@ -366,6 +372,16 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				"the call, the cut-off turn's end and the prompt's answer, none refused as busy",
 			).toEqual(["", "after the restart", "and the prompt"]);
 			expect(said(observed, "user").at(-1)).toBe("sent at the start");
+			const types = observed.events.map((event) => event.type);
+			const carriedOnEnd = observed.events.findIndex(
+				(event) =>
+					event.type === "message_end" && carries(event, "after the restart"),
+			);
+			expect(types, "the prompt returned").toContain("early_returned");
+			expect(
+				types.indexOf("early_returned"),
+				"the prompt returned, its words queued, before the carried-on turn answered",
+			).toBeLessThan(carriedOnEnd);
 			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");
 		} finally {

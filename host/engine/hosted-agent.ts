@@ -353,17 +353,13 @@ export class HostedAgent {
 		}
 		const messages = normalizePromptInput(input, images);
 		if (!this.recovery) {
-			// A prompt before the recovery, as an extension's start sends, waits
-			// for it: durable refuses new words as busy while it holds a turn a
+			// A prompt before the recovery, as an extension's start sends, begins
+			// it: durable refuses new words as busy while it holds a turn a
 			// restart cut off, and the words were lost (13 November).
-			await (await this.recover()).settled.catch(() => {
+			await this.recover().catch(() => {
 				// The host reports the recovery's failure where it began it; the words go on.
 			});
-			if (this.active) {
-				// Another run began as this one waited: the words follow it, as pi queues them.
-				for (const message of messages) this.followUp(message);
-				return;
-			}
+			if (await this.followCarriedOn(messages)) return;
 		}
 		await this.runPromptMessages(messages);
 	}
@@ -431,6 +427,32 @@ export class HostedAgent {
 		});
 		await Promise.race([started, settled]);
 		return { settled };
+	}
+
+	/**
+	 * Queue words behind the turn the recovery carries on, as pi queues a
+	 * prompt while it is busy, so durable holds them through another restart
+	 * rather than an unresolved prompt that nothing shows. False, with the
+	 * recovery's run ended, when durable carried nothing on.
+	 */
+	private async followCarriedOn(
+		messages: readonly AgentMessage[],
+	): Promise<boolean> {
+		const recovering = this.active;
+		if (!recovering) return false;
+		// Ready settles just as the run begins admitting what pi queues.
+		await recovering.run.ready;
+		if (recovering.run.admitting) {
+			const items = messages.map((message) =>
+				this.queue(this.followUpQueue, message, "followUp"),
+			);
+			await this.admissions;
+			if (items[0]?.submissionId !== undefined) return true;
+			// An idle conversation refused them: nothing carried on, so they run as a prompt.
+			for (const item of items) this.followUpQueue.take(item.hostId);
+		}
+		while (this.active) await this.active.promise;
+		return false;
 	}
 
 	/** The session's last answer when it called tools whose results the session file lacks. */
@@ -1430,10 +1452,11 @@ export class HostedAgent {
 		queue: MessageQueue,
 		message: AgentMessage,
 		mode: "steer" | "followUp",
-	): void {
+	): QueuedMessage {
 		const item: QueuedMessage = { hostId: randomUUID(), message };
 		queue.enqueue(item);
 		if (this.active?.run.admitting) this.admitQueued(item, mode);
+		return item;
 	}
 
 	private admitQueued(item: QueuedMessage, mode: "steer" | "followUp"): void {

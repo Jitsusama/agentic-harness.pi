@@ -148,6 +148,14 @@ const effects = (): string => join(folder, "effects");
 const noteEffect = (text: string): void =>
 	appendFileSync(effects(), `${text}\n`);
 
+/** How long an answer waits for the early prompt to return before it answers anyway. */
+const EARLY_WAIT_MS = 3_000;
+let earlyReturned = () => {};
+/** Settles once the scenario's early prompt returned, so an answer can wait on it. */
+const returned = new Promise<void>((done) => {
+	earlyReturned = done;
+});
+
 const say = (text: string) => compat.fauxAssistantMessage(text);
 const call = (id: string, text: string, timestamp?: number) =>
 	compat.fauxAssistantMessage([compat.fauxToolCall("echo", { text }, { id })], {
@@ -273,7 +281,18 @@ const scenarios: Record<string, Scenario> = {
 	},
 	/** Reopen with a prompt sent before the recovery, as an extension starting with the session sends one. */
 	"reopen-prompted": {
-		responses: () => [say("after the restart"), say("and the prompt")],
+		responses: () => [
+			// The carried-on turn answers once the prompt returned, so the events show whether it waited for that turn.
+			async () => {
+				await Promise.race([
+					returned,
+					// A prompt that waits for the turn returns only after it: the answer stops waiting.
+					new Promise((done) => setTimeout(done, EARLY_WAIT_MS)),
+				]);
+				return say("after the restart");
+			},
+			say("and the prompt"),
+		],
 		tools: echo(async () => noteEffect("ping")),
 		early: (session) => session.prompt("sent at the start"),
 		drive: async () => {},
@@ -494,7 +513,10 @@ try {
 			resolve();
 		});
 	});
-	const early = scenario.early?.(session);
+	const early = scenario.early?.(session).then(() => {
+		events.push({ type: "early_returned" });
+		earlyReturned();
+	});
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);
 	const recovery = await conversation?.agent?.recover();
