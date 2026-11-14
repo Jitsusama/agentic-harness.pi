@@ -1,4 +1,10 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -47,6 +53,9 @@ describe("a git that never answers the hooks probe", () => {
 	beforeEach(() => {
 		bin = mkdtempSync(join(tmpdir(), "fake-git-"));
 		dir = mkdtempSync(join(tmpdir(), "not-probed-"));
+		// A folder holding a .git, so git is asked where it keeps its hooks:
+		// one in no repo isn't asked at all.
+		mkdirSync(join(dir, ".git"));
 		const git = join(bin, "git");
 		writeFileSync(git, "#!/bin/sh\nexec sleep 30\n");
 		chmodSync(git, 0o755);
