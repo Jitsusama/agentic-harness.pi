@@ -283,6 +283,72 @@ describe("placing a pull request by the zone it touches", () => {
 	});
 });
 
+describe("placing a file he was reading", () => {
+	// 14 November, 16:57: a line over a Reader window said only "Reader ·
+	// Reader"; two were open, and the line went to the wrong owner.
+	const LIGHT: OpenQuest = {
+		id: "QEST-20261108-1H56ZJ",
+		title: "Shape the Machine's Light Around Joel's Day, Backed by Science",
+		aliases: [],
+		body: "",
+		repos: ["core.nix"],
+	};
+	const STORE = "/home/jitsusama/.local/share/pi/agentic-harness.pi/quest-workflow/quests";
+	const SCRATCH = "/home/jitsusama/.cache/pi/agentic-harness.pi/quest-workspace";
+
+	it("reads the file row", () => {
+		const said = readLine(
+			line("do what you think is right", "window: Reader · Reader", `file: ${STORE}/${LIGHT.id}/research/RSCH-20261108-HGB8JZ.md`),
+		);
+
+		expect(said.attached.file).toBe(
+			`${STORE}/${LIGHT.id}/research/RSCH-20261108-HGB8JZ.md`,
+		);
+	});
+
+	it("sends a document in a quest's folder to that quest first", () => {
+		const text = line(
+			"for this document, instruct the approriate session to do what it believes is right",
+			"window: Reader · Reader",
+			`file: ${STORE}/${LIGHT.id}/research/RSCH-20261108-HGB8JZ.md`,
+		);
+
+		const placed = placeLine(text, sources([...QUESTS, LIGHT]));
+
+		expect(placed.candidates[0]?.address).toBe("1H56ZJ");
+		expect(placed.candidates[0]?.how).toContain("folder");
+	});
+
+	it("sends a file in a quest's scratch folder to that quest", () => {
+		const text = line(
+			"this chart is wrong",
+			`file: ${SCRATCH}/${ROWS.id}/tmp/chart.md`,
+		);
+
+		expect(addresses(text)[0]).toBe("F8TT8O");
+	});
+
+	it("says so when the file's quest isn't open", () => {
+		const text = line(
+			"what's this?",
+			`file: ${STORE}/QEST-20261001-ZZZZZZ/README.md`,
+		);
+
+		const placed = placeLine(text, sources());
+
+		expect(placed.candidates).toEqual([]);
+		expect(placed.tried.join("\n")).toContain("QEST-20261001-ZZZZZZ");
+	});
+
+	it("says so when the file sits in no quest's folder", () => {
+		const text = line("what's this?", "file: /home/jitsusama/notes.md");
+
+		expect(placeLine(text, sources()).tried.join("\n")).toContain(
+			"/home/jitsusama/notes.md",
+		);
+	});
+});
+
 describe("placing a page under a claimed tree", () => {
 	it("sends a file's page in the tree to the quest that claims it", () => {
 		const text = line(
