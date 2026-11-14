@@ -297,7 +297,7 @@ within a tenth of the minute a running pi's look would take, and takes
 the talk. The seal runs nothing else, so only the host's watch of the
 inbox can wake it that soon.
 
-restart-notice.test.ts is E25, a host's own restart with two
+restart-notice.test.ts is E26, a host's own restart with two
 conversations mid-tool. The next host carries each run on, and the one
 whose run it carried is told nothing more of the restart. The other,
 whose log is given a dead job while no host runs, since every job the

@@ -1,5 +1,5 @@
 /**
- * E25: a host that restarts itself mid-run carries each run on in the
+ * E26: a host that restarts itself mid-run carries each run on in the
  * next host, and a conversation whose run it carried is told nothing
  * more of the restart. One whose job died with it is told of that job
  * alone, and not that nothing resumed it. On 14 November the 08:37
@@ -129,7 +129,7 @@ async function deadJobIn(file: string): Promise<void> {
 }
 
 it(
-	"E25: a host's restart carries each run on, and tells its conversation only of a job that died",
+	"E26: a host's restart carries each run on, and tells its conversation only of a job that died",
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
 			const first = await start(pi);
