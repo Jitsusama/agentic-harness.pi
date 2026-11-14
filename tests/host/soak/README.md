@@ -17,9 +17,19 @@ host adds, and records that drift from plain pi's.
   instant; with no pace they start at once. Under `--restart`, once the
   turns are done every conversation parks, the host restarts on the same
   state, and the fresh host is timed to its socket answering and to
-  every conversation woken by a window at once.
+  every conversation woken by a window at once. Under `--restart-mid`,
+  every conversation's first turn after the middle checkpoint is held
+  mid-answer while the host restarts as systemd restarts it, and the
+  fresh host is timed to its socket and to each cut-off turn answered as
+  durable carries it on; a turn the person drives (a steer, an abort, a
+  compaction) is typed after the restart instead.
 - `turns.ts`: the script, the same on every run of the same sizes, with
-  reads, bash, background bash jobs and long answers among the echoes.
+  reads, bash, background bash jobs and long answers among the echoes,
+  and a person's own moves: a steer typed while its turn runs a tool, an
+  Escape that aborts a turn, and `/compact` with a focus naming the turn.
+  The provider holds a steer's or an abort's answer until the steer
+  shows pending or the abort has cut it, on either side, so both land
+  mid-turn the same way each run.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
   127.0.0.1 that answers without end, so both sides run pi's real
   provider code, at once or at a pace.
@@ -34,11 +44,31 @@ host adds, and records that drift from plain pi's.
 - `profile.ts`: where each side's time went, from the CPU profiles node
   writes under `--profile`, by area and by function, in all or within a
   stretch of wall time.
+- `week.json` and `week.ts`: a real week's turns, the prompts typed in
+  each of 594 session logs of 7 to 14 November on optimus, and how they
+  are cut into seven days of 20 conversations, each conversation one of
+  the day's busiest sessions with quiet ones after it.
+- `day.ts` and `day.mts`: a day's run, its turns from `week.ts` and what
+  its run left: the report cut into the files a reader checks it by, and
+  the day's figures, with the bursts and the opening's loop beside the
+  bar.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns,
   once with no parking, once parked and woken in turn, and once woken
-  in a burst and through a restart, in `pnpm test:host`.
+  in a burst and through a restart; and two of ten turns, which take
+  every kind through a restart mid-run; in `pnpm test:host`.
 
-## Running a Week
+## Running a Day of the Week
+
+`scripts/soak-day.sh DAY OUT` runs day DAY (1 to 7) of the real week on
+lent builders from the commit checked out, in two runs of a lender each:
+the day's turns unpaced, with a burst of wakes at each of 24
+checkpoints, a restart mid-run and one at the end, then 20 conversations
+of 4 turns at the real pace below. Each run's lines go to `OUT/<run>.log`
+and its report, cut into files, to `OUT/<run>/`. Run it under
+`systemd-run --user --scope`, so nothing that restarts the session
+running it cuts it off.
+
+## Running by Hand
 
 Size the turns from a week of real logs: one count a conversation, the
 busiest among them, ten conversations at least. Run it on a lent builder,
@@ -180,8 +210,15 @@ It prints a line a checkpoint and the report as one JSON line after
 - `parity`: each conversation's log against plain pi's, entries aligned
   by type, with ids, times and each side's folder left out. `unexpected`
   counts the differences outside the places that differ on every run
-  (an entry's source, a job's id, the journal's trace), and `first`
-  names those before the rest.
+  (an entry's source, a job's id, the journal's trace, the entry a
+  compaction keeps from, and the error interactive mode names an aborted
+  answer by), and `first` names those before the rest. A conversation
+  `--restart-mid` cut is `customsLeftOut`: the host keeps its own records
+  of the restart and of the turn it carried on, which plain pi has none
+  of, so its messages alone are compared.
+- `restartMid`, under `--restart-mid`: how long the host took to stop
+  and its socket to answer, the conversations' states then, the turns
+  cut off, and how long after the restart began each was answered.
 - `faults`, `hostErrors` and `plainErrors`: what went wrong.
 - `plainProcesses`: what one process a conversation costs, measured on
   plain pi. `readyMs` spreads each plain pi's time from its start to

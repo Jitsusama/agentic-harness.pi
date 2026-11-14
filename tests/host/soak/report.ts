@@ -199,6 +199,8 @@ export interface Growth {
 
 /** How one conversation's two logs differ. */
 export interface Parity {
+	/** Set when a restart cut the conversation, so its custom entries went uncompared. */
+	readonly customsLeftOut?: true;
 	readonly entries: { readonly hosted: number; readonly plain: number };
 	readonly differences: number;
 	/** How many differ at each place, its entry's index left out. */
@@ -258,13 +260,29 @@ const NOISE_KB = 4096;
 
 /**
  * Places a hosted log and plain pi's differ at on every run, by what
- * each side is: where an entry came from, a job's own id and the
- * journal's trace of the call that wrote it.
+ * each side is: where an entry came from, a job's own id, the journal's
+ * trace of the call that wrote it, and the entry a compaction keeps from,
+ * named by an id each side draws at random.
  */
 const EVERY_RUN = [
 	/\.data\.source$/,
 	/\.data\.workItemId$/,
 	/\.data\.journal\.last\./,
+	/\.firstKeptEntryId$/,
+];
+
+/**
+ * Values a hosted log and plain pi's differ by on every run at a place
+ * that otherwise counts: pi's interactive mode, which a hosted viewer
+ * types into, names an aborted answer's error itself, where RPC mode
+ * keeps the provider's.
+ */
+const EVERY_RUN_VALUES = [
+	{
+		place: /\.message\.errorMessage$/,
+		expected: "Request aborted",
+		actual: "Operation aborted",
+	},
 ];
 
 /** How many differences a parity report names. */
@@ -704,18 +722,26 @@ function slopeOf(values: readonly number[]): number {
  * own folder made the label `<root>` first. Entries are aligned by type,
  * as the parity suite aligns events, so one extra entry reads as one;
  * and each entry's own id, its parent's and its time are left out, since
- * a shifted id would make every later one differ.
+ * a shifted id would make every later one differ. A conversation a
+ * restart cut mid-turn is `restarted`: the host keeps its own records of
+ * the restart and the turn it carried on, which plain pi, never
+ * restarted, has none of, so both sides' custom entries are left out and
+ * its messages alone compared.
  */
 export function parityOf(
 	hosted: readonly Record<string, unknown>[],
 	plain: readonly Record<string, unknown>[],
 	roots: { readonly hosted: string; readonly plain: string },
+	restarted = false,
 ): Parity {
 	const comparable = (
 		log: readonly Record<string, unknown>[],
 		root: string,
 	) => {
-		const labelled = normalise(log.map(withoutPlace), [[root, "<root>"]]);
+		const kept = restarted
+			? log.filter((entry) => entry.type !== "custom")
+			: log;
+		const labelled = normalise(kept.map(withoutPlace), [[root, "<root>"]]);
 		return Array.isArray(labelled) ? labelled : [];
 	};
 	const found = alignedEvents(
@@ -727,10 +753,17 @@ export function parityOf(
 		const place = path.replace(/\[\d+(:|\])/g, "[$1");
 		where[place] = (where[place] ?? 0) + 1;
 	}
-	const everyRun = ({ path }: Difference) =>
-		EVERY_RUN.some((place) => place.test(path));
+	const everyRun = (one: Difference) =>
+		EVERY_RUN.some((place) => place.test(one.path)) ||
+		EVERY_RUN_VALUES.some(
+			({ place, expected, actual }) =>
+				place.test(one.path) &&
+				one.expected === expected &&
+				one.actual === actual,
+		);
 	const unexpected = found.filter((one) => !everyRun(one));
 	return {
+		...(restarted ? { customsLeftOut: true } : {}),
 		entries: { hosted: hosted.length, plain: plain.length },
 		differences: found.length,
 		where,

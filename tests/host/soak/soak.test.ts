@@ -298,6 +298,14 @@ describe.skipIf(!packageDir)(
 						: undefined,
 					"each conversation's record matches plain pi's past what differs on every run",
 				).toEqual([0, 0]);
+				expect(
+					isRecord(report) && Array.isArray(report.parity)
+						? report.parity.map((one) =>
+								isRecord(one) ? one.customsLeftOut : undefined,
+							)
+						: undefined,
+					"only the conversation the restart cut leaves the host's own records out",
+				).toEqual([undefined, true]);
 			},
 			RUN_MS,
 		);

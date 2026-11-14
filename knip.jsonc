@@ -17,6 +17,8 @@
 		"tests/**/fixtures/*.mts",
 		// The soak, run by hand on a lent builder and by its smoke test.
 		"tests/host/soak/soak.mts",
+		// A day of the week's soak, which scripts/soak-day.sh runs.
+		"tests/host/soak/day.mts",
 		"vitest*.config.ts",
 		// The engines a sealed host process imports by path, whose `engine`
 		// no static import names.

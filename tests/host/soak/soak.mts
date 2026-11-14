@@ -427,10 +427,12 @@ const report = {
 			}
 		: {}),
 	parity: hosted.logs.map((log, at) =>
-		parityOf(log, plain.logs[at] ?? [], {
-			hosted: hostSeal.root,
-			plain: plainSeal.root,
-		}),
+		parityOf(
+			log,
+			plain.logs[at] ?? [],
+			{ hosted: hostSeal.root, plain: plainSeal.root },
+			[...carriedTags].some((tag) => tag.startsWith(`c${at}-`)),
+		),
 	),
 	requests: provider.answered(),
 	faults,
