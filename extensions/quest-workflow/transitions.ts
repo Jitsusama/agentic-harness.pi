@@ -321,7 +321,7 @@ async function dispatch(
 		case "ancestors":
 			return ancestors(state, params);
 		case "sessions":
-			return sessions(state);
+			return sessions(state, params);
 		case "recent":
 			return recent(state);
 		case "reopen-sessions":

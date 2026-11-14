@@ -42,6 +42,7 @@ import {
 	expandQuest,
 	findPeople,
 	findQuestEntries,
+	getQuestEntry,
 	linksForLoaded,
 	locateOwner,
 	recentSessions,
@@ -241,11 +242,28 @@ export function locate(
 	return ok(lines.join("\n"), { hits });
 }
 
-/** The sessions at work right now, one row each, live first. */
-export async function sessions(state: QuestState): Promise<QuestResult> {
-	const entries = await sessionsAtWork(state);
+/**
+ * The sessions at work right now, one row each, live first: every
+ * quest's, or only the quest `id` names.
+ */
+export async function sessions(
+	state: QuestState,
+	params: QuestToolParams,
+): Promise<QuestResult> {
+	const only = params.id?.trim() || undefined;
+	if (only !== undefined && getQuestEntry(state, only) === undefined) {
+		return refuse(
+			`No quest with id "${only}". Pass a quest's id, or leave id out to list every quest's sessions.`,
+		);
+	}
+	const entries = await sessionsAtWork(state, only);
 	if (entries.length === 0) {
-		return ok("No quests are being worked on right now.", { sessions: [] });
+		return ok(
+			only === undefined
+				? "No quests are being worked on right now."
+				: `No session is at work on ${only} right now.`,
+			{ sessions: [] },
+		);
 	}
 	const lines = entries.map((e) => {
 		const where = e.cwd ? ` ${e.cwd}` : "";

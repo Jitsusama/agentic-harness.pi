@@ -111,4 +111,21 @@ describe("an ending", () => {
 
 		expect(said.filter(([channel]) => channel === QUEST_CONCLUDED)).toEqual([]);
 	});
+
+	it("of a loop that never drafted says it had no document, never null", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, pi, fakeCtx(), params);
+		succeeded(await run({ action: "create", title: "Loop Quest" }));
+		succeeded(await run({ action: "think", kind: "plan", note: "x" }));
+
+		const answer = succeeded(
+			await run({ action: "retire", scope: "document", reason: "not needed" }),
+		).message;
+
+		expect(answer, "the answer names no null").not.toContain("null");
+		expect(answer, "the answer says the loop had no document").toContain(
+			"plan loop with no document yet",
+		);
+	});
 });
