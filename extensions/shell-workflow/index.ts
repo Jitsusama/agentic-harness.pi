@@ -33,6 +33,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
+import { liftFence } from "../../lib/internal/fence-lifted.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
@@ -74,7 +75,9 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// used: execution is per session, at the folder its conversation stands
 	// in, and pi's description names none.
 	const shape = createBashToolDefinition(SHAPE_ONLY);
-	// Asked for when the session starts, by its environment (sandbox.ts).
+	// Asked for when the session starts, by its environment (sandbox.ts),
+	// with the fence lifted from all but subagents until it relands.
+	liftFence();
 	const sandbox = sandboxFor();
 	let bash: AgentBash | undefined;
 	// A bash given up closes its pi-spawner once its commands end, so a
@@ -123,6 +126,12 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 									"Inside the agent fence the cgroup tree is read-only and systemctl and systemd-run can't reach the account's systemd. For how a unit stands, run `jobs-broker status UNIT...` rather than `systemctl --user status`; for a command that wants a scope of its own, run `jobs-broker run -- COMMAND` rather than `systemd-run --user --scope`.",
 								]
 							: []),
+					]
+				: []),
+			// Only where /proc lets a stop find what left the group (reap.ts).
+			...(process.platform === "linux"
+				? [
+						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group or session it moved to: setsid, nohup and \`jobs-broker run\` don't keep it. Only one moved to a scope outside pi's own cgroup and outside the jobs slice, as \`systemd-run --user --scope\` makes, is spared.${sandbox.kind === "fence" ? " Inside the agent fence no command can make one, so something meant to outlive its command needs a service its owner runs, or the person." : ""}`,
 					]
 				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere

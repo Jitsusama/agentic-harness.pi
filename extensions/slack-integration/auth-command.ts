@@ -37,7 +37,7 @@ export async function handleSlackAuthCommand(
 	}
 
 	if (trimmed === "--logout") {
-		clearAllConfig();
+		await clearAllConfig();
 		ctx.ui.notify("✓ Slack credentials cleared.", "info");
 		return;
 	}
@@ -52,7 +52,7 @@ export async function handleSlackAuthCommand(
 
 /** Show current authentication status. */
 async function showStatus(ctx: ExtensionContext): Promise<void> {
-	if (!hasToken()) {
+	if (!(await hasToken())) {
 		ctx.ui.notify(
 			"Not authenticated with Slack. Run /slack-auth to authenticate.",
 			"info",
@@ -60,7 +60,7 @@ async function showStatus(ctx: ExtensionContext): Promise<void> {
 		return;
 	}
 
-	const token = getToken();
+	const token = await getToken();
 	if (!token) {
 		ctx.ui.notify("No stored token found.", "info");
 		return;

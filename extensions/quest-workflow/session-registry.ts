@@ -35,11 +35,13 @@ import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import { takeUpCarried } from "../../lib/internal/quest/carried.ts";
 import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.ts";
 import {
+	type HandedPlace,
 	type HandedSession,
 	launcherTakes,
 } from "../../lib/internal/quest/hand-over.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
+import { windowWorkspaceOf } from "../../lib/internal/quest/orchestration.ts";
 import {
 	currentBootToken,
 	localProcessDeps,
@@ -60,6 +62,7 @@ import {
 } from "../../lib/internal/quest/restore-file.ts";
 import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
 import {
+	carriedOnElsewhere,
 	closeRecord,
 	hostKeeps,
 	type LastBootSessions,
@@ -107,7 +110,9 @@ import {
 	removeMoveNote,
 } from "../../lib/internal/session/move.ts";
 import { isParking, PARKING } from "../../lib/internal/session/park.ts";
+import { questAddress } from "../../lib/mesh/address.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
+import type { QuestFrontMatter } from "../../lib/quest/types.ts";
 import {
 	describePlan,
 	type OpenOptions,
@@ -460,11 +465,36 @@ const TERMINATING_SIGNALS: readonly NodeJS.Signals[] = ["SIGHUP", "SIGTERM"];
 
 /**
  * How long a dying process gets to finish on its own before the
- * signal is sent again. pi's own shutdown normally ends the process
- * within a second of a hang-up, so this only matters when nothing else
- * is going to.
+ * signal ends it. pi's own shutdown ends an idle pi in about 200 ms;
+ * at the 13 November reboot the two held pis that finished took 0.9
+ * and 1.9 s, and 60 more were still going when the account's manager
+ * ran out of its 5 s stop and was killed whole. Two seconds leaves
+ * the rest of that 5 s to the holders and terminals around each pi.
  */
-const REFIRE_GRACE_MS = 3_000;
+const ENDING_GRACE_MS = 2_000;
+
+/** What ending a process by a signal needs of it: `process`, in life. */
+interface SignalTarget {
+	readonly pid: number;
+	readonly removeAllListeners: (signal: NodeJS.Signals) => void;
+	readonly kill: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/**
+ * End the process by a signal's own default action. pi keeps its
+ * listener while it shuts down, and a second signal only finds that
+ * shutdown already under way, so sending it again with pi listening
+ * would change nothing. Every listener goes first. What pi writes as
+ * it goes (the session's log, the record stamped above) is written
+ * synchronously, so nothing it has said is lost.
+ */
+export function endBySignal(
+	signal: NodeJS.Signals,
+	target: SignalTarget = process,
+): void {
+	target.removeAllListeners(signal);
+	target.kill(target.pid, signal);
+}
 
 /**
  * The stamp's state, held on `globalThis` rather than in this module.
@@ -505,7 +535,7 @@ const liveSignalStampDeps: SignalStampDeps = {
 		// process open. A process that exits on its own never sees it.
 		setTimeout(fire, delayMs).unref?.();
 	},
-	raise: (signal) => process.kill(process.pid, signal),
+	raise: (signal) => endBySignal(signal),
 };
 
 /**
@@ -520,11 +550,11 @@ const liveSignalStampDeps: SignalStampDeps = {
  * recorded reliably. The write is synchronous for the same reason.
  *
  * Listening for SIGHUP switches off Node's default exit, so after the
- * stamp the listeners remove themselves and the signal is re-raised
- * after a grace period. If pi has already exited, nothing happens. If
- * it is still around, the signal now reaches whatever would have had
- * it without us, so installing this can never keep alive a process
- * that should have died.
+ * stamp the listeners remove themselves, and after a grace period the
+ * signal ends the process by its default action. If pi has already
+ * exited, nothing happens. If its shutdown is still going, the process
+ * dies of the signal as it would with no listener at all, so a
+ * shutdown that stalls can't hold up the account's stop.
  */
 export function installSignalStamp(
 	deps: SignalStampDeps = liveSignalStampDeps,
@@ -544,7 +574,7 @@ export function installSignalStamp(
 				} catch {}
 			}
 			removeSignalStamp();
-			deps.schedule(() => deps.raise(signal), REFIRE_GRACE_MS);
+			deps.schedule(() => deps.raise(signal), ENDING_GRACE_MS);
 		});
 	}
 	for (const [signal, listener] of listeners) process.on(signal, listener);
@@ -669,6 +699,7 @@ export function restorableSessions(
 export function lastBootRestorable(
 	saved: (sessionId: string) => boolean = savedSessions(),
 	thisBoot: string | undefined = currentBootToken(),
+	parentOf: (sessionId: string) => string | undefined = logParents(),
 ): LastBootSessions {
 	const lost = new Set(
 		restorableSessions(saved).map((record) => record.sessionId),
@@ -678,11 +709,34 @@ export function lastBootRestorable(
 	const found = lastBootSessions(records, thisBoot, endedBoot(thisBoot));
 	const kept = (list: SessionRecord[]) =>
 		list.filter((record) => lost.has(record.sessionId));
+	const offered = kept(found.offered);
+	const parked = found.parked.filter((record) => !hostHas(record));
+	const carried = carriedOnElsewhere(
+		[...offered, ...parked],
+		records.filter((record) => !record.closedAt),
+		parentOf,
+	);
+	const uncarried = (list: SessionRecord[]) =>
+		list.filter((record) => !carried.has(record.sessionId));
 	return {
 		...found,
-		offered: kept(found.offered),
+		offered: uncarried(offered),
 		older: kept(found.older),
-		parked: found.parked.filter((record) => !hostHas(record)),
+		parked: uncarried(parked),
+	};
+}
+
+/**
+ * Each saved session's parent, as its log's header names it: the session
+ * a rollover or a fork carried on from. Logs are found once, when this
+ * is made, and each header read when asked.
+ */
+function logParents(): (sessionId: string) => string | undefined {
+	const logs = indexSessionFiles(sessionsDir());
+	return (sessionId) => {
+		const log = logs.get(sessionId);
+		const parentLog = log ? sessionLogHeader(log)?.parentSession : undefined;
+		return parentLog ? sessionLogHeader(parentLog)?.id : undefined;
 	};
 }
 
@@ -722,6 +776,10 @@ export function refreshRestoreFile(
 			endedBoot(thisBoot, stateHome),
 			(questId) => questLive(questsRoot, questId),
 			releasedHome(questsRoot),
+			{
+				workspaceOf: workspaceReader(questsRoot),
+				parentOf: logParents(),
+			},
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
 	} catch {
@@ -808,6 +866,41 @@ function questTitle(questsRoot: string, questId: string): string | undefined {
 		);
 	} catch {
 		// A quest folder gone or unreadable: the entry falls back to its folder.
+		return undefined;
+	}
+}
+
+/**
+ * The workspace, by name, a quest's sessions open their windows on
+ * (windowWorkspaceOf), each README read once however many sessions and
+ * orchestrations name it.
+ */
+function workspaceReader(
+	questsRoot: string,
+): (questId: string) => string | undefined {
+	const read = new Map<string, QuestFrontMatter | undefined>();
+	const frontMatter = (questId: string) => {
+		if (!read.has(questId))
+			read.set(questId, questFrontMatter(questsRoot, questId));
+		return read.get(questId);
+	};
+	return (questId) => {
+		const workspace = windowWorkspaceOf(questId, frontMatter);
+		return workspace ? questAddress(workspace) : undefined;
+	};
+}
+
+/** A quest's front matter from its README, or nothing when unreadable. */
+function questFrontMatter(
+	questsRoot: string,
+	questId: string,
+): QuestFrontMatter | undefined {
+	try {
+		return parseQuestFrontMatter(
+			readFileSync(join(questsRoot, questId, "README.md"), "utf8"),
+		)?.frontMatter;
+	} catch {
+		// A quest folder gone or unreadable: its sessions get no workspace.
 		return undefined;
 	}
 }
@@ -974,10 +1067,8 @@ export async function reopenLostSessions(
 		readonly settle?: (sessions: readonly string[]) => Promise<Settled>;
 		/** Where each session's window goes under niri. */
 		readonly placeOf?: (record: SessionRecord) => WindowPlace | undefined;
-		/** The orchestrator and title the launcher places each window by. */
-		readonly handedPlaceOf?: (
-			record: SessionRecord,
-		) => Pick<HandedSession, "orchestratedBy" | "title">;
+		/** The orchestrator, workspace and title each window is placed by. */
+		readonly handedPlaceOf?: (record: SessionRecord) => HandedPlace;
 	} = {},
 ): Promise<ReopenOutcome> {
 	const {
@@ -1138,9 +1229,7 @@ async function handedToLauncher(
 	records: readonly SessionRecord[],
 	saved: (sessionId: string) => boolean,
 	handOver: (sessions: readonly HandedSession[]) => Promise<number | undefined>,
-	placeOf: (
-		record: SessionRecord,
-	) => Pick<HandedSession, "orchestratedBy" | "title">,
+	placeOf: (record: SessionRecord) => HandedPlace,
 ): Promise<SessionRecord[]> {
 	const going = records.filter(
 		(record) =>

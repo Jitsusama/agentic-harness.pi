@@ -7,7 +7,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	type Disk,
 	fenceArgs,
 	fenceRefusesRead,
 	fenceRefusesWrite,
@@ -16,6 +15,7 @@ import {
 	jobsBroker,
 	NEVER_THROUGH,
 } from "../../../lib/internal/fence.ts";
+import type { Disk } from "../../../lib/internal/fence-disk.ts";
 import { READ_ONLY } from "../../../lib/internal/fence-home.ts";
 
 /**
@@ -133,6 +133,93 @@ describe("the fence's arguments", () => {
 		expect(given, "nothing mounts on the link itself").not.toContain(
 			"/etc/ssh/ssh_config",
 		);
+	});
+
+	it("binds the copy of npm's settings without their tokens over them, after the home's binds", () => {
+		const npmrc = "/run/user/1000/pi-fence/npmrc";
+		const settings = `${place.home}/.npmrc`;
+		const given = fenceArgs(
+			{ ...place, npmrc },
+			diskWith(place.home, [".npmrc", ".config"]),
+		);
+		const at = given.indexOf(npmrc);
+		expect(given.slice(at - 1, at + 2)).toEqual(["--ro-bind", npmrc, settings]);
+		expect(
+			given.lastIndexOf(settings),
+			"no later bind puts the file back",
+		).toBe(at + 1);
+		expect(
+			fenceRefusesRead(settings, place),
+			"pi's read tool is refused the file itself",
+		).toBe(true);
+		expect(args, "with no copy, nothing is bound").not.toContain(npmrc);
+	});
+
+	it("binds the npm copy over the file its settings link to, and nothing where there are none", () => {
+		const npmrc = "/run/user/1000/pi-fence/npmrc";
+		const settings = `${place.home}/.npmrc`;
+		const stored = "/nix/store/0000-npmrc";
+		const linked = {
+			...diskWith(place.home, [".npmrc"], [settings]),
+			real: (path: string) => (path === settings ? stored : undefined),
+		};
+		const given = fenceArgs({ ...place, npmrc }, linked);
+		const at = given.indexOf(npmrc);
+		expect(given.slice(at - 1, at + 2)).toEqual(["--ro-bind", npmrc, stored]);
+
+		const none: Disk = {
+			kind: (path) => (path === settings ? undefined : "folder"),
+			entries: () => [],
+		};
+		expect(fenceArgs({ ...place, npmrc }, none)).not.toContain(npmrc);
+		expect(
+			fenceRefusesRead(stored, place, linked),
+			"pi's read tool is refused the file the settings link to",
+		).toBe(true);
+	});
+
+	it("empties the file or folder a hidden link leads to, and refuses pi's tools there", () => {
+		const vault = `${place.home}/.pi/agent/vault.json`;
+		const legacy = `${place.home}/.config/gcloud/legacy_credentials`;
+		const storedFile = "/elsewhere/vault.json";
+		const storedFolder = "/elsewhere/legacy";
+		const linked: Disk = {
+			kind: (path) => {
+				if (path === vault || path === legacy) return "link";
+				return path === storedFile ? "file" : "folder";
+			},
+			entries: () => [],
+			real: (path) => ({ [vault]: storedFile, [legacy]: storedFolder })[path],
+		};
+		const given = fenceArgs(place, linked);
+		const file = given.indexOf(storedFile);
+		expect(given.slice(file - 2, file + 1)).toEqual([
+			"--ro-bind",
+			"/dev/null",
+			storedFile,
+		]);
+		const folder = given.indexOf(storedFolder);
+		expect(given.slice(folder - 1, folder + 3)).toEqual([
+			"--tmpfs",
+			storedFolder,
+			"--remount-ro",
+			storedFolder,
+		]);
+		expect(given, "nothing is mounted on the links themselves").not.toContain(
+			vault,
+		);
+		expect(
+			fenceRefusesRead(storedFile, place, linked),
+			"the stored file a link points at is refused",
+		).toBe(true);
+		expect(
+			fenceRefusesRead(`${storedFolder}/adc.json`, place, linked),
+			"a file in the stored folder a link points at is refused",
+		).toBe(true);
+		expect(
+			fenceRefusesRead("/elsewhere/other.json", place, linked),
+			"what sits beside the target stays readable",
+		).toBe(false);
 	});
 
 	it("makes the home folder read-only, binding back writable every hidden entry but the read-only ones and links", () => {
@@ -507,6 +594,79 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(
 			fenceRefusesRead(`${key}.pub`, place),
 			"its public half stays readable",
+		).toBe(false);
+	});
+
+	it("empties the logins pi's own tools read outside the fence, for commands and pi's file tools alike", () => {
+		const logins = [
+			`${home}/.config/agentic-harness/google/credentials.json`,
+			`${home}/.config/agentic-harness/slack/credentials.json`,
+			`${home}/.pi/agent/vault.json`,
+			`${home}/.local/state/gnome-keyring/login.cred`,
+			`${home}/.local/state/eero/session.cred`,
+		];
+		const given = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000" },
+			diskOf([...logins, `${home}/.config/agentic-harness/settings.json`]),
+		);
+		const place = { home, runtimeDir: "/run/user/1000" };
+		for (const login of logins) {
+			const at = given.lastIndexOf(login);
+			expect(given.slice(at - 2, at + 1), login).toEqual([
+				"--ro-bind",
+				"/dev/null",
+				login,
+			]);
+			expect(fenceRefusesRead(login, place), login).toBe(true);
+		}
+		expect(
+			fenceRefusesRead(`${home}/.config/agentic-harness/settings.json`, place),
+			"the harness's other settings stay readable",
+		).toBe(false);
+	});
+
+	it("empties the person's own cloud login, a folder of them whole, since fenced gcloud reads its own", () => {
+		const gcloud = `${home}/.config/gcloud`;
+		const legacy = `${gcloud}/legacy_credentials`;
+		const files = [
+			`${gcloud}/application_default_credentials.json`,
+			`${gcloud}/credentials.db`,
+			`${gcloud}/access_tokens.db`,
+			`${home}/.gsutil/credstore2`,
+		];
+		const given = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000" },
+			diskOf([
+				...files,
+				`${legacy}/someone/adc.json`,
+				`${gcloud}/configurations/config_default`,
+			]),
+		);
+		const place = { home, runtimeDir: "/run/user/1000" };
+		for (const file of files) {
+			const at = given.lastIndexOf(file);
+			expect(given.slice(at - 2, at + 1), file).toEqual([
+				"--ro-bind",
+				"/dev/null",
+				file,
+			]);
+		}
+		const at = given.indexOf(legacy);
+		expect(
+			given.slice(at - 1, at + 3),
+			"the folder, empty and read-only",
+		).toEqual(["--tmpfs", legacy, "--remount-ro", legacy]);
+		expect(
+			fenceRefusesRead(`${legacy}/someone/adc.json`, place),
+			"pi's read tool is refused what the folder holds",
+		).toBe(true);
+		expect(
+			fenceRefusesRead(`${gcloud}/configurations/config_default`, place),
+			"gcloud's other settings stay readable",
+		).toBe(false);
+		expect(
+			fenceRefusesRead(`${gcloud}/legacy_credentials_other`, place),
+			"a name that only starts the same isn't the folder",
 		).toBe(false);
 	});
 

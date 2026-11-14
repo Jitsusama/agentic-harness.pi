@@ -13,15 +13,10 @@
  * agent's proxy's to say.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SYSTEM_SSH_CONFIG } from "./fence.ts";
+import { fenceCopy } from "./fence-copy.ts";
 
 /** How deep includes nest before ssh itself gives up, as OpenSSH has it. */
 const MOST_DEPTH = 16;
@@ -132,18 +127,7 @@ export function fenceSshConfig(
 	const copy =
 		system === undefined ? undefined : inlinedSshConfig(system, files);
 	if (copy === undefined) return undefined;
-	const path = join(runtimeDir, "pi-fence", "ssh_config");
-	if (files.read(path) === copy) return path;
-	try {
-		// Only pi's own folder is made, never the runtime folder: node's
-		// recursive mkdir spins for good where a parent exists but refuses
-		// a child with ENOENT, as /proc does, which hung every wrap.
-		if (!existsSync(dirname(path))) mkdirSync(dirname(path), { mode: 0o700 });
-		writeFileSync(path, copy, { mode: 0o600 });
-		return path;
-	} catch {
-		// No copy to bind: commands still run, and an ssh inside refuses
-		// the system's includes itself, saying which and why.
-		return undefined;
-	}
+	// With no copy to bind, commands still run, and an ssh inside refuses
+	// the system's includes itself, saying which and why.
+	return fenceCopy(runtimeDir, "ssh_config", copy, files.read);
 }

@@ -71,6 +71,7 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.29.0",
+		"@napi-rs/keyring": "^2.1.2",
 		"axe-core": "^4.12.1",
 		"defuddle": "^0.19.1",
 		"google-auth-library": "^10.9.0",

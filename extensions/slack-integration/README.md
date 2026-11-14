@@ -67,7 +67,7 @@ slack-integration/
 ├── auth-flow.ts          Authentication orchestration
 ├── auth-command.ts       /slack-auth command handler
 ├── auth/
-│   ├── store.ts          File-based persistence
+│   ├── store.ts          Keyring persistence
 │   ├── credentials.ts    Token management
 │   ├── oauth-app.ts      OAuth app credential storage
 │   ├── oauth.ts          OAuth2 flow (scopes, URLs, exchange)
@@ -81,7 +81,18 @@ slack-integration/
 
 - **OAuth2 flow**: user explicitly authorizes in their browser
 - **User tokens**: `xoxp-` tokens that act as the authenticated user
-- **Local storage**: tokens stored at `~/.pi/agent/slack.json`
+- **Keyring storage**: the token and OAuth app live in the
+  desktop's keyring, the Secret Service on Linux and the Keychain on
+  macOS, read by pi's own process. That keeps them from commands an
+  agent runs, which the fence keeps off the session bus; it is no
+  guard against other programs you run, since the Secret Service lets
+  any of them read an unlocked collection and the Keychain item
+  trusts Apple's `security`, which any of them can run. A plain
+  `~/.config/agentic-harness/slack/credentials.json` from before
+  moves in at the next session and is removed once the keyring gives
+  it back; while the keyring can't be reached, pi says so and keeps
+  using the file. Removing the file leaves its bytes on the disk, so
+  sign in again once after the move to retire the token it held.
 - **Confirmation gates**: write operations require approval.
   They are the `slack` guard, which blocks by default, since a
   message reaches other people the moment it lands. While you

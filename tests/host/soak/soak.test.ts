@@ -1,8 +1,8 @@
 /**
  * The soak itself, at its smallest: two conversations of two turns each
  * through one host and through plain pi, once with no parking, once
- * parked and woken in turn, and once parked and woken in a burst, so a
- * change that breaks the soak is found by
+ * parked and woken in turn, and once parked and woken in a burst and
+ * then through a host restart, so a change that breaks the soak is found by
  * test:host rather than on the night a week's run is due. A week's run
  * goes on a lent builder by hand, as README.md says.
  */
@@ -50,15 +50,40 @@ describe.skipIf(!packageDir)(
 				});
 				expect(
 					isRecord(report) ? report.latency : undefined,
-					"each turn paired with plain pi's, each key's prompt seen drawn",
+					"each turn and each of its steps paired with plain pi's, each key's prompt seen drawn",
 				).toMatchObject({
 					paired: { count: 4, unpaired: 0 },
-					screen: { keyToDrawn: { count: 4 }, unshown: 0 },
+					steps: {
+						rounds: { max: expect.any(Number) },
+						tools: { count: expect.any(Number) },
+						turns: 4,
+						unpaired: 0,
+					},
+					screen: { unshown: 0, burst: { unshown: 0 } },
 					bar: {
-						paired: expect.any(Boolean),
+						rounds: expect.any(Boolean),
+						tools: expect.any(Boolean),
 						keyToAccepted: expect.any(Boolean),
 						keyToDrawn: expect.any(Boolean),
 					},
+				});
+				const screen =
+					isRecord(report) && isRecord(report.latency)
+						? report.latency.screen
+						: undefined;
+				const drawnCount = (split: unknown) =>
+					isRecord(split) &&
+					isRecord(split.keyToDrawn) &&
+					typeof split.keyToDrawn.count === "number"
+						? split.keyToDrawn.count
+						: 0;
+				expect(
+					isRecord(screen) ? drawnCount(screen) + drawnCount(screen.burst) : 0,
+					"every key drawn, steady or in a burst, as unpaced both open at once",
+				).toBe(4);
+				expect(report, "no pace, no stagger").toMatchObject({
+					staggerMs: 0,
+					slowSteps: expect.any(Array),
 				});
 				expect(
 					isRecord(report) ? report.turnsTimed : undefined,
@@ -163,7 +188,10 @@ describe.skipIf(!packageDir)(
 		it(
 			"wakes every parked conversation by a window at once, timing each, and weighs the loop after",
 			async () => {
-				const { said, report } = await soaked(burstOut, ["--burst"]);
+				const { said, report } = await soaked(burstOut, [
+					"--burst",
+					"--restart",
+				]);
 				expect(report, said).toMatchObject({ faults: [] });
 				const first =
 					isRecord(report) && Array.isArray(report.checkpoints)
@@ -187,6 +215,22 @@ describe.skipIf(!packageDir)(
 				});
 				expect(said, "the checkpoint line says the burst").toMatch(
 					/burst of 2: slowest answered \d+ ms, loop max \d+ ms/,
+				);
+				expect(
+					isRecord(report) ? report.restart : undefined,
+					"a fresh host on the same state, timed to its socket, holding both parked, then both woken at once",
+				).toMatchObject({
+					toSocketMs: expect.any(Number),
+					parkedAtStart: 2,
+					wakes: [
+						{ conversation: 0, answeredMs: expect.any(Number) },
+						{ conversation: 1, answeredMs: expect.any(Number) },
+					],
+					allAnsweredMs: expect.any(Number),
+					after: { loopMaxMs: expect.any(Number) },
+				});
+				expect(said, "a line says the restart").toMatch(
+					/restart: socket in \d+ ms, 2 of 2 parked, all answered in \d+ ms/,
 				);
 			},
 			RUN_MS,

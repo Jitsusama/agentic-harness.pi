@@ -75,6 +75,13 @@ export interface HandedSession {
 	 */
 	readonly orchestratedBy?: string;
 	/**
+	 * The niri workspace its window opens on, by name: the address of the
+	 * topmost orchestrator over its quest, else its quest's own (see
+	 * windowWorkspaceOf in orchestration.ts). Never an id or a position,
+	 * which a boot changes (KP0L6A, 13 November). Absent with no quest.
+	 */
+	readonly workspace?: string;
+	/**
 	 * Its title as its window will read, without pi's "π - " before it or
 	 * " - <folder>" after it, for its place among its orchestrator's.
 	 */
@@ -177,6 +184,15 @@ export async function handOver(
 	return answer === "untaken" ? undefined : answer.taken;
 }
 
+/**
+ * What a session's window is placed by: the orchestrator its presence
+ * says, the workspace it opens on and its title (window-place.ts).
+ */
+export type HandedPlace = Pick<
+	HandedSession,
+	"orchestratedBy" | "workspace" | "title"
+>;
+
 /** Hand sessions to the launcher, answering what it came to. */
 export async function askLauncher(
 	sessions: readonly HandedSession[],
@@ -192,6 +208,7 @@ export async function askLauncher(
 				quest,
 				from,
 				orchestratedBy,
+				workspace,
 				title,
 				replaces,
 				model,
@@ -203,6 +220,7 @@ export async function askLauncher(
 				...(quest ? { quest } : {}),
 				...(from ? { from } : {}),
 				...(orchestratedBy ? { orchestratedBy } : {}),
+				...(workspace ? { workspace } : {}),
 				...(title ? { title } : {}),
 				...(replaces ? { replaces } : {}),
 				...(model ? { model } : {}),

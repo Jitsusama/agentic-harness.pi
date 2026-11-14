@@ -4,16 +4,23 @@
  * how). Each conversation's turns are typed through viewers that attach
  * for a visit of a few turns and leave, a second one joining every third
  * visit, and include reads, bash, background bash jobs and long answers.
+ * Each conversation's first key waits a seeded draw within one median
+ * turn at the pace, on either side, so they start as a person comes to
+ * them rather than in the same instant.
  * At each checkpoint every conversation stops: the host is weighed awake,
  * the park switch names them all, the host is weighed once they have
  * parked, and each is woken again, by a window, by the mesh or by the
  * next key typed, in turn; with --burst every one is woken by a window
  * at the same moment instead, as a host's conversations wake together
- * after a switch, and the host is weighed again once all have. Then plain pi takes the same turns, one RPC
- * process a conversation, all at once as the host's were.
+ * after a switch, and the host is weighed again once all have. With
+ * --restart, once the turns are done every conversation parks, the host
+ * restarts on the same state, and the fresh host is timed to its socket
+ * answering and to every conversation woken by a window at once. Then
+ * plain pi takes the same turns, one RPC process a conversation, all at
+ * once as the host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--burst] [--profile] [--answer-ms P50[,P90]]
+ *     [--no-park] [--burst] [--restart] [--profile] [--answer-ms P50[,P90]]
  *     [--tool-ms P50[,P90]] [--rounds P50[,P90]] [--out DIR]
  *
  * With --profile each side's node writes a CPU profile, and the report
@@ -60,7 +67,13 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
-import { LONGEST_MS, MOST_ROUNDS, paceOf } from "./pace.ts";
+import {
+	LONGEST_MS,
+	MOST_ROUNDS,
+	medianTurnMs,
+	paceOf,
+	staggerOf,
+} from "./pace.ts";
 import {
 	longestLived,
 	type Pinned,
@@ -73,6 +86,7 @@ import {
 	growthOf,
 	latencies,
 	pairedCost,
+	pairSteps,
 	parityOf,
 	type ScreenSplit,
 	type SlowKey,
@@ -80,7 +94,10 @@ import {
 	screenSplit,
 	showsTag,
 	slowKeys,
+	slowSteps,
 	spreadOf,
+	stepCostOf,
+	stepsOf,
 	type Typed,
 	turnRecords,
 	turnTimes,
@@ -105,6 +122,8 @@ const TURN_MS = 120_000;
 const SLOW_KEY_MS = 1000;
 /** How many of the slowest keys the report names. */
 const MOST_SLOW_KEYS = 20;
+/** How many of the costliest rounds and tools the report names. */
+const MOST_SLOW_STEPS = 10;
 /** park-workflow's two minutes for a named session, its minute between looks, and room for load. */
 const PARK_MS = 4 * 60_000;
 /** How often a parked host is weighed again while it still holds a session. */
@@ -171,6 +190,20 @@ interface WindowWake {
 	readonly drawnMs: number;
 }
 
+/**
+ * A host restarted with every conversation parked: how long the fresh
+ * host took from its start to its socket answering, how many it held
+ * parked then, each one's wake by a window, all at once, and its loop
+ * through them, with `allAnsweredMs` from its start to the last idle.
+ */
+interface Restart {
+	readonly toSocketMs: number;
+	readonly parkedAtStart: number;
+	readonly wakes: readonly WindowWake[];
+	readonly allAnsweredMs: number;
+	readonly after: Weight;
+}
+
 /** A conversation of the run, on one side. */
 interface Conversation {
 	readonly index: number;
@@ -186,6 +219,7 @@ const { values } = parseArgs({
 		checkpoints: { type: "string", default: "8" },
 		"no-park": { type: "boolean", default: false },
 		burst: { type: "boolean", default: false },
+		restart: { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
@@ -233,6 +267,9 @@ const turnMs =
 	TURN_MS +
 	(pace.rounds ? MOST_ROUNDS : 2) *
 		((pace.answer ? LONGEST_MS : 0) + (pace.tool ? LONGEST_MS : 0));
+// Each conversation's first key waits a draw within one median turn, on
+// either side, so they start as a person comes to them, not at once.
+const staggerMs = medianTurnMs(pace);
 const provider = await soakProvider(pace);
 const agent = agentOf(provider);
 const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
@@ -248,7 +285,12 @@ const hosted = await runHosted(hostSeal);
 const hostedLatency = latencyOf(hosted.logs);
 const hostedProfiles = values.profile ? profilesIn(profiles.hosted) : [];
 const hostedTime = values.profile ? timeSpent(hostedProfiles) : undefined;
-const slow = slowSpent(hostedLatency.slowKeys, hostedProfiles, hosted.pinned);
+const slow = spentIn(
+	hostedLatency.slowKeys,
+	(key) => ({ from: key.keyAt, to: key.promptAt }),
+	hostedProfiles,
+	hosted.pinned,
+);
 say(`hosted latency ${JSON.stringify(hostedLatency)}`);
 if (hostedTime) say(`hosted time spent ${JSON.stringify(hostedTime)}`);
 say(`slow keys ${JSON.stringify(slow)}`);
@@ -261,10 +303,16 @@ const parkedWeights = hosted.checkpoints.flatMap((one) =>
 	one.parked ? [one.parked] : [],
 );
 const plainLatencies = plain.logs.flatMap(latencies);
+const pairing = pairSteps(
+	hosted.logs.flatMap(stepsOf),
+	plain.logs.flatMap(stepsOf),
+);
+const steps = stepCostOf(pairing);
 const turnsTimed = turnRecords(
 	hosted.logs.flatMap(turnTimes),
 	plainLatencies,
 	typedAt,
+	pairing.steps,
 );
 const paired = pairedCost(turnsTimed);
 const report = {
@@ -273,7 +321,15 @@ const report = {
 	turns: sum(counts),
 	opened: hosted.opened,
 	checkpoints: hosted.checkpoints,
+	staggerMs,
+	...(hosted.restart ? { restart: hosted.restart } : {}),
 	slowKeys: slow,
+	slowSteps: spentIn(
+		slowSteps(pairing, MOST_SLOW_STEPS),
+		(step) => step,
+		hostedProfiles,
+		hosted.pinned,
+	),
 	heap: {
 		parked: growthOf(parkedWeights.map((one) => one.heapKb)),
 		awake: growthOf(hosted.checkpoints.map((one) => one.awake.heapKb)),
@@ -289,8 +345,9 @@ const report = {
 		hosted: hostedLatency.hosted,
 		plain: spreadOf(plainLatencies.map((one) => one.ms)),
 		paired,
+		steps,
 		screen: hostedLatency.screen,
-		bar: barOf(paired, hostedLatency.screen),
+		bar: barOf(steps, hostedLatency.screen),
 	},
 	turnsTimed,
 	...(hostedTime
@@ -333,21 +390,22 @@ function latencyOf(logs: readonly Record<string, unknown>[][]): {
 }
 
 /**
- * Each slow key with where the host's time went while it waited, from
- * the profile of the host's own process, which lived longest; without
- * --profile, the keys alone.
+ * Each of `items`, a slow key or a costly step, with where the host's
+ * time went within its stretch, from the profile of the host's own
+ * process, which lived longest; without --profile, the items alone.
  */
-function slowSpent(
-	keys: readonly SlowKey[],
+function spentIn<T extends object>(
+	items: readonly T[],
+	stretchOf: (item: T) => { readonly from: number; readonly to: number },
 	hostProfiles: readonly unknown[],
 	pinned: Pinned,
 ): readonly object[] {
 	const host = longestLived(hostProfiles);
-	if (host === undefined) return keys;
-	return keys.map((key) => ({
-		...key,
-		spent: timeSpentWithin(host, pinned, { from: key.keyAt, to: key.promptAt }),
-	}));
+	if (host === undefined) return items;
+	return items.map((item) => {
+		const { from, to } = stretchOf(item);
+		return { ...item, spent: timeSpentWithin(host, pinned, { from, to }) };
+	});
 }
 
 /** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
@@ -391,6 +449,7 @@ async function runHosted(sealed: Seal): Promise<{
 	/** The loop while every conversation opened, kept apart from the first checkpoint's. */
 	readonly opened: { readonly ms: number; readonly weight: Weight };
 	readonly checkpoints: readonly Checkpoint[];
+	readonly restart?: Restart;
 	readonly logs: readonly Record<string, unknown>[][];
 	readonly errors: string;
 	/** When the host's process started and ended, to lay its profile on the wall clock. */
@@ -399,12 +458,14 @@ async function runHosted(sealed: Seal): Promise<{
 	const agentFile = join(sealed.root, "soak-agent.json");
 	writeFileSync(agentFile, JSON.stringify(agent));
 	const startedAt = Date.now();
-	const host = await startScreenHost(
-		{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
-		packageDir ?? "",
-		also,
-		agentFile,
-	);
+	const start = () =>
+		startScreenHost(
+			{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
+			packageDir ?? "",
+			also,
+			agentFile,
+		);
+	const host = await start();
 	const work = folders(sealed);
 	const conversations: Conversation[] = [];
 	const opening = Date.now();
@@ -500,11 +561,67 @@ async function runHosted(sealed: Seal): Promise<{
 	await Promise.all(
 		conversations.map((one) => drive(host, one, barrier, byKey)),
 	);
+	const timed = values.restart
+		? await restarted(host, start, conversations, parkFolder)
+		: undefined;
+	const last = timed?.host ?? host;
 	const logs = conversations.map((one) => entriesOf(readOr(one.file)));
-	const errors = host.errors();
-	await host.stop();
+	const errors = timed ? `${host.errors()}${last.errors()}` : host.errors();
+	await last.stop();
 	const pinned = { startedAt, endedAt: Date.now() };
-	return { opened, checkpoints: weighings, logs, errors, pinned };
+	return {
+		opened,
+		checkpoints: weighings,
+		...(timed ? { restart: timed.restart } : {}),
+		logs,
+		errors,
+		pinned,
+	};
+}
+
+/**
+ * Park every conversation, restart the host as systemd does, and time
+ * the fresh host `start` gives on the same state: to its socket
+ * answering, then to every conversation woken by a window at once and
+ * answered, as a switch's restart wakes them. It answers with the fresh
+ * host, still running.
+ */
+async function restarted(
+	host: ScreenHost,
+	start: () => Promise<ScreenHost>,
+	conversations: readonly Conversation[],
+	parkFolder: string,
+): Promise<{ readonly host: ScreenHost; readonly restart: Restart }> {
+	mkdirSync(parkFolder, { recursive: true });
+	const switchFile = join(parkFolder, "switch");
+	const ids = conversations.map((one) => one.sessionId);
+	writeFileSync(switchFile, `${ids.join("\n")}\n`);
+	for (const id of ids)
+		await tried(host.parked(id, PARK_MS), `${id} didn't park to restart`);
+	writeFileSync(switchFile, "");
+	const code = await host.restart();
+	if (code !== 0) fault(`the host stopped with ${code} to restart`);
+	const starting = Date.now();
+	const next = await start();
+	const toSocketMs = Date.now() - starting;
+	const held = await next.list();
+	const parkedAtStart = ids.filter(
+		(id) => held.find((one) => one.sessionId === id)?.state === "parked",
+	).length;
+	if (parkedAtStart < ids.length)
+		fault(`the restarted host held ${parkedAtStart} of ${ids.length} parked`);
+	const wakes = await Promise.all(
+		conversations.map((one) => windowWake(next, one)),
+	);
+	const allAnsweredMs = Date.now() - starting;
+	const after = await next.weigh();
+	say(
+		`restart: socket in ${toSocketMs} ms, ${parkedAtStart} of ${ids.length} parked, all answered in ${allAnsweredMs} ms; ${burstOf(wakes, after)}`,
+	);
+	return {
+		host: next,
+		restart: { toSocketMs, parkedAtStart, wakes, allAnsweredMs, after },
+	};
 }
 
 /** How late and how busy the host's loop ran up to `weight`, as a line says it. */
@@ -592,6 +709,7 @@ async function drive(
 	barrier: (done: number) => Promise<void>,
 	byKey: Set<string>,
 ): Promise<void> {
+	await waited(staggerOf(one.index, staggerMs));
 	const marks = checkpointsOf(one.turns.length, checkpoints);
 	let done = 0;
 	let stopped = 0;
@@ -820,6 +938,7 @@ async function runPlain(sealed: Seal): Promise<{
 				env,
 				log,
 			);
+			await waited(staggerOf(index, staggerMs));
 			for (const turn of turnsOf(index, count)) {
 				// A job's report starts a turn of its own once the job ends, so
 				// the next prompt waits for that turn too, as the hosted side
@@ -973,6 +1092,11 @@ function readOr(file: string): string {
 /** The lines of what a process wrote that say something went wrong. */
 function errorsIn(written: string): string[] {
 	return written.split("\n").filter((line) => /error|fail|warn/i.test(line));
+}
+
+/** A promise settled once `ms` have passed. */
+function waited(ms: number): Promise<void> {
+	return new Promise((done) => setTimeout(done, ms));
 }
 
 function sum(values: readonly number[]): number {

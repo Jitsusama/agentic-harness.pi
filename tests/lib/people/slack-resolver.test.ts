@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/slack/auth/credentials.ts", async (importOriginal) => ({
 	...(await importOriginal()),
-	getToken: vi.fn(() => null),
-	hasToken: vi.fn(() => false),
+	getToken: vi.fn(async () => null),
+	hasToken: vi.fn(async () => false),
 }));
 
 vi.mock("../../../lib/slack/resolvers/user.ts", async (importOriginal) => ({
@@ -54,8 +54,8 @@ const mockedResolveUser = vi.mocked(resolveUser);
 
 beforeEach(() => {
 	clearSlackClientCache();
-	mockedHasToken.mockReturnValue(false);
-	mockedGetToken.mockReturnValue(null);
+	mockedHasToken.mockResolvedValue(false);
+	mockedGetToken.mockResolvedValue(null);
 	mockedResolveUser.mockResolvedValue("U-MOCK");
 });
 
@@ -65,29 +65,29 @@ afterEach(() => {
 
 describe("slackResolver", () => {
 	it("skips inputs without a leading @ so bare names don't trigger Slack traffic", async () => {
-		mockedHasToken.mockReturnValue(true);
+		mockedHasToken.mockResolvedValue(true);
 		const result = await slackResolver.resolve("Joel Gerber");
 		expect(result).toBeUndefined();
 		expect(mockedResolveUser).not.toHaveBeenCalled();
 	});
 
 	it("returns undefined when hint is set and is not 'handle'", async () => {
-		mockedHasToken.mockReturnValue(true);
+		mockedHasToken.mockResolvedValue(true);
 		const result = await slackResolver.resolve("@anyone", { hint: "name" });
 		expect(result).toBeUndefined();
 		expect(mockedResolveUser).not.toHaveBeenCalled();
 	});
 
 	it("returns undefined when no token is stored (silent skip)", async () => {
-		mockedHasToken.mockReturnValue(false);
+		mockedHasToken.mockResolvedValue(false);
 		const result = await slackResolver.resolve("@joel.gerber");
 		expect(result).toBeUndefined();
 		expect(mockedResolveUser).not.toHaveBeenCalled();
 	});
 
 	it("looks up the handle and returns an identity when authenticated", async () => {
-		mockedHasToken.mockReturnValue(true);
-		mockedGetToken.mockReturnValue(storedToken({ cookie: "d=abc" }));
+		mockedHasToken.mockResolvedValue(true);
+		mockedGetToken.mockResolvedValue(storedToken({ cookie: "d=abc" }));
 		mockedResolveUser.mockResolvedValue("U08ME9KASG7");
 		const result = await slackResolver.resolve("@joel.gerber");
 		expect(result).toEqual({
@@ -99,8 +99,8 @@ describe("slackResolver", () => {
 	});
 
 	it("swallows Slack errors and returns undefined", async () => {
-		mockedHasToken.mockReturnValue(true);
-		mockedGetToken.mockReturnValue(storedToken());
+		mockedHasToken.mockResolvedValue(true);
+		mockedGetToken.mockResolvedValue(storedToken());
 		mockedResolveUser.mockRejectedValue(new Error("slack down"));
 		const result = await slackResolver.resolve("@joel.gerber");
 		expect(result).toBeUndefined();

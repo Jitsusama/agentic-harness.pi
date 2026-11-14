@@ -1,7 +1,8 @@
 /**
  * A throw nothing caught in a host's process: contained to the conversation
  * it was made in when its screen can, otherwise the host parks every
- * conversation and its stop fails.
+ * conversation and its stop fails, apart from a write to a closed pipe
+ * and any throw once a stop has begun, which are only reported.
  */
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -132,6 +133,43 @@ describe("a throw nothing caught", () => {
 		expect(
 			await heldSessionStatus(host.sessionId, { dir: join(dir, "rosters") }),
 		).toBe("held");
+	});
+
+	// The background host at 18:26:46 on 13 November: a language server's
+	// writer threw on its closed pipe, the host stopped mid-turn for it,
+	// and exited 1, so systemd ran OnFailure.
+	it.each(["ERR_STREAM_DESTROYED", "EPIPE"])(
+		"outside every conversation, as a write to a closed pipe (%s), is reported once and the host serves on",
+		async (code) => {
+			const host = await hosting(() => true);
+			const closed = Object.assign(
+				new Error("Cannot call write after a stream was destroyed"),
+				{ code },
+			);
+
+			host.faults.emit("uncaughtException", closed);
+
+			expect(host.report).toHaveBeenCalledExactlyOnceWith(closed);
+			expect(
+				await listening(host.run.serving.path),
+				"the host still listens",
+			).toBe(true);
+			expect(host.settled.done, "the host has not stopped").toBe(false);
+			expect(host.run.serving.stopping(), "nor begun to").toBe(false);
+			host.signals.emit("SIGTERM");
+			await host.run.stopped;
+		},
+	);
+
+	it("once a signal's stop has begun is only reported, and the stop still ends cleanly", async () => {
+		const host = await hosting(() => true);
+		const late = new Error("a socket's handler broke as it closed");
+
+		host.signals.emit("SIGTERM");
+		host.faults.emit("uncaughtException", late);
+
+		await expect(host.run.stopped).resolves.toBeUndefined();
+		expect(host.report).toHaveBeenCalledExactlyOnceWith(late);
 	});
 
 	it("in a conversation no screen can contain it in stops the host the same way", async () => {

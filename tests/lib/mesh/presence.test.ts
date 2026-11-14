@@ -787,6 +787,27 @@ describe("this session's peer", () => {
 			);
 		});
 
+		it("names the workspace its window opens on: the topmost orchestrator's, by address", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[SWARM, readme(SWARM, MISSION, true)],
+					[LOOP, readme(LOOP, SWARM)],
+				],
+				LOOP,
+			);
+
+			const peer = localPeer(surroundings());
+
+			expect(
+				[
+					peer.orchestratedBy,
+					createPresences(join(root, "presence")).of(session)?.workspace,
+				],
+				"answers to the nearest, opens beside the topmost",
+			).toEqual(["SWARM1", "WCJQSG"]);
+		});
+
 		it("hears only what is put to it while its quest says so", () => {
 			write(
 				[

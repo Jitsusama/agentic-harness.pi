@@ -16,9 +16,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { isAbort } from "../../lib/clock/index.ts";
+import { keepCredentialsInKeyring } from "../../lib/core/internal/keyring/session.ts";
 import { clearAllConfig } from "../../lib/google/auth/credentials.ts";
 import type { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
 import { formatAuthError } from "../../lib/google/auth/errors.ts";
+import { moveToKeyring } from "../../lib/google/auth/store.ts";
 import {
 	signInFailure,
 	unattended,
@@ -45,6 +47,7 @@ const ENV_OAUTH_CONFIG = {
 
 export default function googleWorkspace(pi: ExtensionAPI) {
 	declareGuards(GUARDS.google);
+	keepCredentialsInKeyring(pi, "Google Workspace credentials", moveToKeyring);
 	/** Cached OAuth clients keyed by account name. */
 	const clientCache = new Map<string, OAuth2Client>();
 	/** One login per account, however many calls find it signed out. */
@@ -290,7 +293,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		description:
 			"Clear all Google Workspace configuration (OAuth credentials, accounts, tokens). Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
-			clearAllConfig();
+			await clearAllConfig();
 			clientCache.clear();
 			ctx.ui.notify(
 				"✓ Cleared all Google Workspace configuration. Run /google-setup to start fresh.",

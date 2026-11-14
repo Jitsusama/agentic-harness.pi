@@ -15,6 +15,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { keepCredentialsInKeyring } from "../../lib/core/internal/keyring/session.ts";
 import {
 	signInFailure,
 	unattended,
@@ -28,6 +29,7 @@ import { SlackApiError } from "../../lib/slack/api/client.ts";
 import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.ts";
 import type { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
 import { formatAuthError } from "../../lib/slack/auth/errors.ts";
+import { moveToKeyring } from "../../lib/slack/auth/store.ts";
 import type {
 	OAuthApp,
 	SlackClient,
@@ -193,6 +195,7 @@ const SESSION_KEY = "slack-identity";
 
 export default function slackIntegration(pi: ExtensionAPI) {
 	declareGuards(GUARDS.slack);
+	keepCredentialsInKeyring(pi, "Slack credentials", moveToKeyring);
 	/** Cached authenticated client. */
 	let cachedClient: SlackClient | null = null;
 	/** One login, however many calls find Slack signed out. */
@@ -229,13 +232,15 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	 * the lazy population trigger: the agent calls get_user once
 	 * and the identity is remembered for the rest of the session.
 	 */
-	function captureIdentityIfSelf(result: { details?: unknown }): void {
+	async function captureIdentityIfSelf(result: {
+		details?: unknown;
+	}): Promise<void> {
 		if (session.userHandle) return;
 
 		const user = (result.details as { user?: SlackUser } | undefined)?.user;
 		if (!user?.id || !user?.name) return;
 
-		const token = getToken();
+		const token = await getToken();
 		if (!token?.userId || token.userId !== user.id) return;
 
 		session.userId = user.id;
@@ -495,7 +500,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					sessionGateDeps(ctx, pi),
 				);
 				if (params.action === "get_user") {
-					captureIdentityIfSelf(result);
+					await captureIdentityIfSelf(result);
 				}
 				return { content: result.content, details: result.details };
 			} catch (error) {
@@ -744,7 +749,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"Clear all Slack configuration (OAuth credentials, tokens). " +
 			"Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
-			clearAllConfig();
+			await clearAllConfig();
 			cachedClient = null;
 			ctx.ui.notify(
 				"✓ Cleared all Slack configuration. Run /slack-setup to start fresh.",

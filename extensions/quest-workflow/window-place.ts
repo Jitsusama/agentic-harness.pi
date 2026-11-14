@@ -14,8 +14,11 @@
 import { join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import type { QuestIndex } from "../../lib/internal/quest/discovery.ts";
-import type { HandedSession } from "../../lib/internal/quest/hand-over.ts";
-import { orchestrationOf } from "../../lib/internal/quest/orchestration.ts";
+import type { HandedPlace } from "../../lib/internal/quest/hand-over.ts";
+import {
+	orchestrationOf,
+	windowWorkspaceOf,
+} from "../../lib/internal/quest/orchestration.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import {
 	createPresences,
@@ -76,16 +79,18 @@ export function windowPlaceFor(
 
 /**
  * What the launcher is told of a session on `questId` to place its
- * window: the orchestrator address its presence will say, and its
- * session name as its window's title will read it.
+ * window: the orchestrator address its presence will say, the workspace
+ * its window opens on by name, and its session name as its window's
+ * title will read it.
  */
 export function handedPlaceFor(
 	questId: string,
 	index: QuestIndex,
-): Pick<HandedSession, "orchestratedBy" | "title"> {
+): HandedPlace {
 	const entry = index.quests.get(questId);
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
 	const by = orchestrationOf(questId, read).by;
+	const workspace = windowWorkspaceOf(questId, read);
 	const title = entry
 		? sessionNameFor(
 				entry.doc.title ?? null,
@@ -94,6 +99,7 @@ export function handedPlaceFor(
 		: undefined;
 	return {
 		...(by ? { orchestratedBy: questAddress(by) } : {}),
+		...(workspace ? { workspace: questAddress(workspace) } : {}),
 		...(title ? { title } : {}),
 	};
 }

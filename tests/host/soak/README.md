@@ -11,7 +11,13 @@ host adds, and records that drift from plain pi's.
   wakes by a window, the mesh or its next key, in turn: the windows one
   at a time first, as a person opens one, then the rest together.
   Under `--burst` every one wakes by a window at the same moment instead,
-  as a host's conversations do after a switch.
+  as a host's conversations do after a switch. Each conversation's first
+  key waits a seeded draw within one median turn at the pace, on either
+  side, so they start as a person comes to them rather than in the same
+  instant; with no pace they start at once. Under `--restart`, once the
+  turns are done every conversation parks, the host restarts on the same
+  state, and the fresh host is timed to its socket answering and to
+  every conversation woken by a window at once.
 - `turns.ts`: the script, the same on every run of the same sizes, with
   reads, bash, background bash jobs and long answers among the echoes.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
@@ -30,7 +36,7 @@ host adds, and records that drift from plain pi's.
   stretch of wall time.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns,
   once with no parking, once parked and woken in turn, and once woken
-  in a burst, in `pnpm test:host`.
+  in a burst and through a restart, in `pnpm test:host`.
 
 ## Running a Week
 
@@ -92,6 +98,13 @@ It prints a line a checkpoint and the report as one JSON line after
   `afterBurst` weighs the host once all have woken, its loop figures
   covering the burst alone: the bar asks each wake to answer within 5 s
   and the loop never to run more than 1 s late.
+- `restart`, under `--restart`: a restart's time, read the same on
+  every architecture. `toSocketMs` runs from the fresh host's start to
+  its socket answering, `parkedAtStart` counts the conversations it held
+  parked then, a fault when not all, `wakes` times each one's wake by a
+  window, all opened at once, as `burstWakes` does, `allAnsweredMs` runs
+  from the start to the last of them idle, and `after` weighs the host
+  through them.
 - `heap`: whether the heap used, the heap total and RSS settle, awake
   and parked. A parked heap that still climbs in the run's later half is
   a leak; the awake heap grows with the conversations' history, so read
@@ -104,7 +117,14 @@ It prints a line a checkpoint and the report as one JSON line after
   seeded turn, below 0 where plain pi was slower, with `unpaired` the
   turns plain pi never answered. Both sides play the same seeded
   answers and tools, so this is the host's own cost, where each side's
-  p99 is only the run's slowest seeded turn. `screen` says what the
+  p99 is only the run's slowest seeded turn. A whole turn's cost can
+  hide a stall in a long turn's sum, or spread many rounds' small
+  costs into what reads as one, so `steps` pairs each round, from a
+  prompt or a tool's result to the next answer, and each tool, from an
+  answer to its call's result, with plain pi's at the same place in the
+  same turn, `rounds` and `tools` apart, each with its largest; a turn
+  whose two sides took different steps pairs none and is counted
+  `unpaired`. `screen` says what the
   host's screens add: from the key typed to the prompt's entry
   (`keyToAccepted`) and to the first output the viewer is sent showing
   the prompt (`keyToDrawn`), and from the answer's entry to the write
@@ -117,14 +137,24 @@ It prints a line a checkpoint and the report as one JSON line after
   which `keyToDrawn` leaves out. The first key after each wake can
   wait on the wake, as one the mesh woke is still loading when it is
   typed, so `afterWake` times those apart and the other two leave them
-  out. `bar` says whether each holds: `paired` at most 1 s at the p99,
-  and `keyToAccepted` and `keyToDrawn` at most 200 ms, with
-  `keyToDrawn` failing too when over 1% of its keys are `unshown`; the
-  burst is judged from its checkpoint.
-- `turnsTimed`: every hosted turn's own times, plain pi's beside them
-  and its key's when a viewer typed it, with how it woke when it was
-  the first key since, so a reading the report doesn't make can still
-  be made.
+  out. A key typed within 1 s of a key into another conversation is a
+  burst, whoever typed them, so `burst` times those apart too, judged
+  with the window bursts, and the steady two leave them out. `bar` says
+  whether each holds: `rounds` and `tools` at most 250 ms at the p99
+  and 1 s at most, failing too when over 1% of turns are `unpaired`, and
+  `keyToAccepted` and `keyToDrawn` at most 200 ms, with `keyToDrawn`
+  failing too when over 1% of its keys are `unshown`. The whole turn's
+  `paired` is reported beside them, unjudged; the bursts are judged
+  from their checkpoints and `burst`.
+- `turnsTimed`: every hosted turn's own times, when its key, prompt
+  and answer were, plain pi's beside them and its key's when a viewer
+  typed it, with how it woke when it was the first key since, whether
+  it was in a burst, and what each of its steps cost, so a reading the
+  report doesn't make can still be made.
+- `staggerMs`: the span the first keys were staggered through.
+- `slowSteps`: the 10 rounds or tools that cost most over plain pi's,
+  each with its turn, place and times, and under `--profile` where the
+  host's time went within it, as `slowKeys` says below.
 - `slowKeys`: the 20 slowest keys whose prompt reached the log over
   1 s after it was typed, each with its turn and times, so a p99 says
   which keys it was. Under `--profile`, `spent` says where the host's

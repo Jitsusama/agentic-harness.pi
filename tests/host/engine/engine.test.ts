@@ -60,6 +60,8 @@ interface Seen {
 	/** The request each launch environment was derived for, in that run. */
 	readonly derived: readonly string[];
 	readonly env?: Readonly<Record<string, unknown>>;
+	/** Whether a start left the conversation parked, as one that parked before it. */
+	readonly rests?: boolean;
 	/** What the conversation's screen was handed to show as it started. */
 	readonly diagnostics?: readonly { type: string; message: string }[];
 	/**
@@ -96,6 +98,8 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** The warms a parked conversation's host kept for its next start. */
+	readonly pending?: number;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -495,6 +499,43 @@ describe("the host's engine", () => {
 			]);
 		},
 		HOST_LIFE_MS,
+	);
+
+	it(
+		"warms a parked conversation's cache on its own key, once the host has let it go",
+		async () => {
+			const seen = await step(hostFolder(), "warm-parked");
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.keysSeen, "its turn, then its warm").toEqual([
+				"first-key",
+				"first-key",
+			]);
+			expect(seen.pending, "the warm waits for its next start").toBe(1);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"keeps warming a conversation that rests parked through the host's restart",
+		async () => {
+			const folder = hostFolder();
+			const parked = await step(folder, "park-to-restart");
+			expect(parked.held, "the park let it go").toBe("let go");
+			const seen = await step(folder, "warm-resting");
+			expect(seen.rests, "its next start leaves it parked").toBe(true);
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.keysSeen, "only its warm, on its own key").toEqual([
+				"first-key",
+			]);
+			expect(seen.pending, "the warm waits for its wake").toBe(1);
+		},
+		2 * HOST_LIFE_MS,
 	);
 
 	it(

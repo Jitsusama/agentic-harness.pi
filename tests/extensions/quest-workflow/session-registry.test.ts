@@ -407,8 +407,7 @@ describe("stamping a session a signal takes away", () => {
 	it("steps aside after a signal so it can never keep a dying pi alive", () => {
 		// Listening for SIGHUP switches off Node's default exit. Once the
 		// record is stamped the listener goes, and if the process is still
-		// around after a grace period the signal is sent again, now to
-		// whatever default or handler would have had it without us.
+		// around after a grace period the signal ends it.
 		const before = process.listenerCount("SIGHUP");
 		installSignalStamp(deps);
 		process.emit("SIGHUP");
@@ -590,6 +589,42 @@ describe("sessions a shared host ran", () => {
 		expect(
 			[...lastBoot.offered, ...lastBoot.older].map((r) => r.sessionId),
 		).toEqual(["sess-tab"]);
+	});
+});
+
+describe("a session whose conversation another carries on", () => {
+	/** A session that ran in the boot that has since ended. */
+	function inLastBoot(sessionId: string) {
+		return openRecord({
+			...base(sessionId),
+			process: {
+				hostId: hostname(),
+				pid: process.pid,
+				startToken: "t",
+				bootToken: "last",
+			},
+		});
+	}
+	// sess-old rolled over into sess-mid, and sess-mid into sess-new.
+	const parents = new Map([
+		["sess-new", "sess-mid"],
+		["sess-mid", "sess-old"],
+	]);
+	const parentOf = (sessionId: string) => parents.get(sessionId);
+	const ids = (records: readonly { sessionId: string }[]) =>
+		records.map((record) => record.sessionId);
+
+	it("is not reopened beside the session that carries it on", () => {
+		// On 13 November a copy resumed by mistake parked twice, and the
+		// reboot's Reopen Them All opened it beside the session its
+		// conversation had rolled over into two days before.
+		saveRecord(closeRecord(inLastBoot("sess-old"), "parked", NOW));
+		saveRecord(closeRecord(inLastBoot("sess-new"), "died", NOW));
+
+		const lastBoot = lastBootRestorable(() => true, "this", parentOf);
+
+		expect(ids(lastBoot.parked), "the carried-on copy came back").toEqual([]);
+		expect(ids(lastBoot.offered)).toEqual(["sess-new"]);
 	});
 });
 

@@ -366,6 +366,7 @@ export function localPeer(at: Surroundings): Peer {
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
 	let repo: string | undefined;
+	let workspace: string | undefined;
 	let busy = false;
 	// When the run in progress began, and the step it was last said on.
 	let since: string | undefined;
@@ -450,6 +451,7 @@ export function localPeer(at: Surroundings): Peer {
 			...titled(at.title?.()),
 			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
+			...(workspace ? { workspace } : {}),
 			...(questInfo ? { questInfo } : {}),
 			...(standsAtTop ? { standsAtTop } : {}),
 			cwd: at.cwd,
@@ -506,6 +508,7 @@ export function localPeer(at: Surroundings): Peer {
 		};
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
 		quest = work.quest;
+		workspace = work.workspace;
 		questInfo = work.questInfo;
 		standsAtTop = work.standsAtTop;
 		repo = work.repo;

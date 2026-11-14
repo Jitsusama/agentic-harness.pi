@@ -33,7 +33,11 @@ function xdgCacheRoot(): string {
 	return override && override.length > 0 ? override : join(homedir(), ".cache");
 }
 
-/** Where the OAuth app and token credentials are stored. */
+/**
+ * Where the OAuth app and token credentials were stored as plain JSON.
+ * They live in the keyring now (auth/store.ts); this file is moved
+ * from once, and written only while the keyring can't be reached.
+ */
 export function credentialsPath(): string {
 	return join(xdgConfigRoot(), "agentic-harness", "slack", "credentials.json");
 }

@@ -24,6 +24,11 @@ localhost for the redirect an OAuth login ends in.
   section, title and redirect gates against a signature store.
 - `lsp/`: the session-keyed editor registry and process-owned standalone
   pool that `lib/core/lsp/registry.ts` registers into and resolves from.
+- `keyring/`: the desktop's secret store, the Secret Service keyring
+  on Linux and the Keychain on macOS, as pi's own process reaches it,
+  and the credentials documents kept there: the Google and Slack
+  sign-ins, moved once from their plain files, which stay the
+  fallback, said out loud, while the keyring can't be reached.
 - `notes/`: the notes archive on disk: finding notes, their
   frontmatter, ids, atomic writes and safe file names. The verbs
   that use them are in `lib/core/notes/verbs`.

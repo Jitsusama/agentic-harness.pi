@@ -35,8 +35,8 @@ export async function ensureOAuthApp(
 		return envConfig;
 	}
 
-	if (hasOAuthApp()) {
-		const stored = getOAuthApp();
+	if (await hasOAuthApp()) {
+		const stored = await getOAuthApp();
 		if (stored) return stored;
 	}
 
@@ -131,7 +131,7 @@ async function runSetupWizard(
 		clientSecret: cleanClientSecret,
 	};
 
-	storeOAuthApp(credentials);
+	await storeOAuthApp(credentials);
 	ctx.ui.notify(
 		"✓ OAuth credentials saved. Run /google-auth to authenticate.",
 		"info",
