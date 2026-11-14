@@ -9,18 +9,25 @@ import {
 	renameSync,
 	writeFileSync,
 } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	askWake,
 	isParked,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
-import { wakeParked, wakeSteered, wakes } from "../../../lib/mesh/parked.ts";
+import {
+	wakeParked,
+	wakeSteered,
+	wakes,
+	watchWakingSteers,
+} from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { inboxOf } from "../../../lib/mesh/steer.ts";
+import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 const parked: Presence = {
 	session: "s-parked",
@@ -284,5 +291,78 @@ describe("waking a parked peer for a steer", () => {
 			session: "s-parked",
 			messageId: "steer-1-a.json",
 		});
+	});
+});
+
+/** How long a steer that lands may take to be said. */
+const SAID_WITHIN_MS = 100;
+
+describe("watching a parked peer's steer inboxes", () => {
+	let root: string;
+	beforeEach(async () => {
+		root = join(await mkdtemp(join(tmpdir(), "steer-watch-")), "steer");
+	});
+	afterEach(async () => {
+		await rm(join(root, ".."), { recursive: true, force: true });
+	});
+
+	it("says a talk to any of its addresses, once each, and nothing after it closes", async () => {
+		const waking = vi.fn();
+		const watch = watchWakingSteers({
+			root,
+			addresses: ["a1b2c3", "QUEST1"],
+			waking,
+			report: vi.fn(),
+		});
+
+		const first = giveSteer(root, "A1B2C3", { text: "one", from: "joel" });
+		await until(
+			"the first talk to be said",
+			() => waking.mock.calls.length > 0,
+		);
+		const second = giveSteer(root, "QUEST1", { text: "two", from: "joel" });
+		await until(
+			"the second talk to be said",
+			() => waking.mock.calls.length > 1,
+		);
+		watch.close();
+		giveSteer(root, "A1B2C3", { text: "three", from: "joel" });
+		await quietFor(SAID_WITHIN_MS, 3);
+
+		expect(waking.mock.calls, "each talk once, in order").toEqual([
+			[first],
+			[second],
+		]);
+	});
+
+	it("says one of several already waiting, and none that waits on nothing", async () => {
+		const pause = giveSteer(root, "A1B2C3", {
+			text: "",
+			act: "pause",
+			from: "joel",
+		});
+		const carry = giveSteer(root, "A1B2C3", {
+			text: "",
+			act: "carry",
+			to: "penelope",
+			from: "joel",
+		});
+		const talk = giveSteer(root, "A1B2C3", { text: "and this", from: "joel" });
+		const waking = vi.fn();
+
+		const watch = watchWakingSteers({
+			root,
+			addresses: ["A1B2C3"],
+			waking,
+			report: vi.fn(),
+		});
+		await quietFor(SAID_WITHIN_MS, 3);
+		watch.close();
+
+		// Written in one millisecond, their names may sort either way.
+		expect(waking, "said once for all three").toHaveBeenCalledTimes(1);
+		const [said] = waking.mock.calls[0] ?? [];
+		expect([carry, talk], "one that waits on it running").toContain(said);
+		expect(said, "never the pause").not.toBe(pause);
 	});
 });

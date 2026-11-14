@@ -9,7 +9,7 @@
  *
  * While it rests the host also watches its steer inboxes, under the
  * addresses its park marker names, and wakes it the same way as soon as
- * a steer lands that waits on it running (steer-watch.ts): a talk, a
+ * a steer lands that waits on it running (watchWakingSteers in lib/mesh/parked.ts): a talk, a
  * close, a carry, a move or a fill. The mesh's once-a-minute pass stays
  * as the backstop.
  */
@@ -27,10 +27,7 @@ import {
 	wakeAskedBy,
 	writeRefusedWake,
 } from "../../lib/internal/session/refused-wake.ts";
-import {
-	type SteerWatch,
-	watchWakingSteers,
-} from "../../lib/mesh/steer-watch.ts";
+import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";

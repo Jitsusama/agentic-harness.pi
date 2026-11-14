@@ -180,7 +180,7 @@ refused is kept beside it as `wake.refused`, with the message that asked
 and why (lib/internal/session/refused-wake.ts), so the mesh can say why
 it sleeps on; the conversation's next start or its close clears it.
 While it rests, parking.ts also watches the steer inbox of each address
-its park marker names (lib/mesh/steer-watch.ts), and wakes it the same
+its park marker names (lib/mesh/parked.ts), and wakes it the same
 way as soon as a talk, close, carry, move or fill lands there, rather
 than at the mesh's once-a-minute pass, which stays as the backstop. A
 host starting leaves parked what its last process parked this boot,
