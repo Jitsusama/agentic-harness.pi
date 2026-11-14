@@ -81,7 +81,7 @@ describe("whether tee persists", () => {
 		});
 		const answer = await teePersists(slow);
 		expect(turned, "the loop turned before tee answered").toBe(true);
-		expect(answer).toBe(true);
+		expect(answer, "whether tee writes on").toBe(true);
 	});
 });
 
