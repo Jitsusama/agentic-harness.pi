@@ -40,6 +40,12 @@
  *   repository whose settings their prompt's git runs on entering it.
  * - **No registry tokens:** `~/.npmrc` is a copy without its tokens'
  *   lines (`fence-npmrc.ts`), and pi's own file tools are refused it.
+ * - **No GitHub token:** the keyring gh's token lives in is hidden, so
+ *   gh reaches GitHub through the GitHub door instead, where the
+ *   machine runs it: the session's own folder of the door's is bound in,
+ *   HTTPS goes through a relay of the door's on localhost, and gh holds
+ *   a placeholder the door swaps for the token on the calls it allows
+ *   (`GITHUB_PLACEHOLDER`). The door's control socket stays out.
  * - **No new privileges:** bubblewrap and Landlock both set
  *   NoNewPrivs, so a setgid wrapper such as 1Password's `op` gains
  *   nothing, and 1Password refuses it.
@@ -115,6 +121,38 @@ const AGENT_PROXY = ["pi-agent/agent.sock", "pi-agent.sock"] as const;
 /** The jobs broker, in the runtime folder. */
 const JOBS_BROKER = "daemons/jobs-broker.sock";
 
+/**
+ * Where the GitHub door keeps each session's folder, in the runtime
+ * folder: its socket and a bundle trusting the session's own authority
+ * (core's `modules/pi/github-door`). Only the session's own folder goes
+ * in, never the door's control socket beside it, so no command opens
+ * another session or lifts its own cap.
+ */
+const GITHUB_SESSIONS = "pi-github/sessions";
+
+/**
+ * What gh holds as its token inside, which the door swaps for the
+ * person's on the calls it allows: the token itself never goes in.
+ */
+export const GITHUB_PLACEHOLDER = "pi-github-door-placeholder";
+
+/**
+ * Where TLS clients inside read the bundle they trust: gh, curl and
+ * OpenSSL's own, git's, Nix's (a fenced `nix` fetches flake inputs from
+ * GitHub itself, through the proxy) and node's, which adds to its own.
+ * The bundle is the system's with the session's authority beside it, so
+ * every other host is trusted as before.
+ */
+const GITHUB_TRUST = [
+	"SSL_CERT_FILE",
+	"GIT_SSL_CAINFO",
+	"NIX_SSL_CERT_FILE",
+	"NODE_EXTRA_CA_CERTS",
+] as const;
+
+/** A session id the door takes, which can name a folder and nothing more. */
+const PLAIN_SESSION = /^[A-Za-z0-9_-]{1,64}$/;
+
 /** Where the system's SSH settings are, which the fence's copy stands in for. */
 export const SYSTEM_SSH_CONFIG = "/etc/ssh/ssh_config";
 
@@ -148,6 +186,9 @@ export const NEVER_THROUGH = [
 	"ssh-tpm-agent.sock",
 	"agent-signing.sock",
 	"github-broker.sock",
+	// The GitHub door's control socket, which opens and closes sessions
+	// and lifts a session's cap; each session's own folder goes in alone.
+	"pi-github/control.sock",
 	"gcloud-broker",
 	// The sessions kitty's remote control, which reads and types into
 	// every session window (core's modules/quickshell/home.nix).
@@ -212,6 +253,11 @@ export interface FencePlace {
 	readonly npmrc?: string;
 	/** The work broker's trees, kept read-only but the session's own (`fence-broker-trees.ts`). */
 	readonly trees?: BrokerTrees;
+	/**
+	 * The session's own folder of the GitHub door's, bound in read-only
+	 * when the door has made it (`githubDoorFolder`).
+	 */
+	readonly githubDoor?: string;
 }
 
 /**
@@ -328,6 +374,12 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		for (const name of LET_THROUGH) {
 			const path = join(place.runtimeDir, name);
 			if (exists(path)) args.push("--ro-bind", path, path);
+		}
+		// Tried rather than checked: the door makes the folder in the line
+		// before bubblewrap starts (`fencedCommand`), after these are made.
+		// Read-only, so no command takes away its own socket or bundle.
+		if (place.githubDoor) {
+			args.push("--ro-bind-try", place.githubDoor, place.githubDoor);
 		}
 	}
 	// The system bus and X's sockets live outside the runtime folder.
@@ -632,6 +684,7 @@ export function fenceRules(place: FencePlace): string[] {
 		...(place.runtimeDir
 			? LET_THROUGH.map((name) => join(place.runtimeDir as string, name))
 			: []),
+		...(place.runtimeDir && place.githubDoor ? [place.githubDoor] : []),
 	];
 	return [
 		"--rwx",
@@ -667,6 +720,58 @@ export function jobsBroker(
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, JOBS_BROKER);
 	return disk.kind(path) === undefined ? undefined : path;
+}
+
+/**
+ * The session's own folder of the GitHub door's, or nothing when there
+ * is no runtime folder or the session's id couldn't name a folder.
+ */
+export function githubDoorFolder(
+	runtimeDir: string | undefined,
+	session: string | undefined,
+): string | undefined {
+	if (!runtimeDir || !session || !PLAIN_SESSION.test(session)) return undefined;
+	return join(runtimeDir, GITHUB_SESSIONS, session);
+}
+
+/** How a fenced command reaches GitHub through the door. */
+export interface GitHubDoor {
+	/** The door's program, found where only root puts programs. */
+	readonly program: string;
+	readonly session: string;
+	/** The session's own folder (`githubDoorFolder`). */
+	readonly folder: string;
+}
+
+/**
+ * The shell text, run outside the fence, asking the door for the
+ * session's folder: an open is idempotent, and makes the folder anew
+ * after the door restarts. A door that isn't there leaves no folder,
+ * and the command runs as it would have without one.
+ */
+function openedOutside(door: GitHubDoor): string {
+	return `${quoted(door.program)} open ${quoted(door.session)} >/dev/null 2>&1`;
+}
+
+/**
+ * The shell text, run inside before the command, pointing gh and git at
+ * the door: HTTPS goes through the session's relay on localhost, which
+ * sends GitHub's hosts to the door and the rest straight out, trust in
+ * the session's authority is added for TLS clients that read these
+ * variables, and gh's token is the placeholder the door swaps. Only
+ * when the door made the folder and its relay started; otherwise none
+ * is set and gh fails as it did before the door.
+ */
+function pointedInside(door: GitHubDoor): string {
+	const bundle = quoted(join(door.folder, "bundle.pem"));
+	const socket = quoted(join(door.folder, "door.sock"));
+	const trusted = GITHUB_TRUST.map((name) => `${name}=${bundle}`).join(" ");
+	const proxy = "http://127.0.0.1:$__pi_port";
+	return [
+		`if [ -r ${bundle} ] && [ -S ${socket} ] && __pi_port=$(${quoted(door.program)} relay --socket ${socket} --while $$ 2>/dev/null); then`,
+		`export HTTPS_PROXY=${proxy} https_proxy=${proxy} GH_TOKEN=${GITHUB_PLACEHOLDER} ${trusted};`,
+		"fi; unset __pi_port;",
+	].join(" ");
 }
 
 /** The fence's door to Nix, for `NIX_REMOTE` inside. */
@@ -750,8 +855,9 @@ export function fenceRefusesRead(
  * The shell text that runs `command` in the agent fence: bubblewrap
  * with `args`, around landrun with `rules`. Every variable the shell
  * exports goes in but those naming the desktop, Nix is reached
- * through `door`, its daemon's door for sandboxes, and SSH's agent is
- * `agent`, the proxy, when there is one.
+ * through `door`, its daemon's door for sandboxes, SSH's agent is
+ * `agent`, the proxy, when there is one, and GitHub is reached through
+ * `github`, its door, when there is one.
  */
 export function fencedCommand(
 	command: string,
@@ -764,6 +870,7 @@ export function fencedCommand(
 		readonly agent?: string;
 		/** Where each of `OWN_HOMES` lives inside, by its variable. */
 		readonly homes?: readonly (readonly [string, string])[];
+		readonly github?: GitHubDoor;
 	},
 ): string {
 	const homes = fence.homes ?? [];
@@ -772,8 +879,10 @@ export function fencedCommand(
 		...homes.map(([name]) => name),
 		SANDBOXED_COMMAND,
 	].join("|");
-	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	const run = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	const stub = fence.github ? `${pointedInside(fence.github)} ${run}` : run;
 	return [
+		...(fence.github ? [openedOutside(fence.github)] : []),
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
