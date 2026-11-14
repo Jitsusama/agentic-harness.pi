@@ -65,6 +65,7 @@ function facts(overrides: Partial<RestartFacts> = {}) {
 		held: () => [{ state: "idle", since: long }],
 		background: () => 0,
 		resting: () => true,
+		stopping: () => false,
 		expect: (coming) => said.push(`expect ${coming}`),
 		restart: async (why) => {
 			said.push(`restart: ${why}`);
@@ -226,6 +227,23 @@ describe("restartWhenSettled", () => {
 		).toEqual(["idle", "idle"]);
 	});
 
+	// The background host on 13 November: a throw began its stop at
+	// 18:26:46, which parked five turns mid-way, and at 18:26:50 the loop
+	// read the parked host as quiet and asked systemd for a restart on top.
+	it("asks for no restart once the host has begun stopping, settled or past the ceiling", async () => {
+		for (const ceilingMs of [SETTLE_CEILING_MS, 0]) {
+			const timers = manualTimers();
+			const { facts: given, said } = facts({
+				held: () => [{ state: "parked", since: long }],
+				stopping: () => true,
+			});
+			restartWhenSettled(given, { after: timers.after, ceilingMs });
+			await timers.fire();
+			await timers.fire();
+			expect(said, "nothing restarted").toEqual([]);
+		}
+	});
+
 	it("still waits past the ceiling while background work is held or a screen is in use", async () => {
 		for (const overrides of [
 			{ background: () => 1 },
@@ -322,6 +340,7 @@ describe("followWhatStarts", () => {
 		const serving = {
 			held: () => [{ state: "idle" as const, since: long }],
 			restartComing: vi.fn(),
+			stopping: () => false,
 		};
 		const stop = await followWhatStarts({
 			serving,
@@ -370,6 +389,7 @@ describe("followWhatStarts", () => {
 					{ state: "idle" as const, since: new Date().toISOString() },
 				],
 				restartComing: vi.fn(),
+				stopping: () => false,
 			},
 			background: () => 0,
 			resting: () => true,

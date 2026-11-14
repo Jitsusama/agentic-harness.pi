@@ -10,7 +10,12 @@
  * over 96 s on 13 s of work while some sixty pis reloaded, and systemd's
  * start timeout killed each. So each step of the start asks systemd for
  * more time from that moment and says where it is, and the journal keeps
- * how long each step took.
+ * how long each step took. A step asks again every STEP_RENEW_MS while
+ * the loop turns, until STEP_CEILING_MS: on 13 November nineteen resumes
+ * took 80 to 135 s each while the ones before them took up their turns,
+ * past the single allowance one ask gave, and only a drop-in raising the
+ * unit's start timeout kept the host alive. A loop that stops turning asks
+ * no more, so systemd still ends a wedged start within the allowance.
  *
  * Once ready, when the unit sets a watchdog, the host pings it from its
  * own loop, so a host whose loop stops turning is restarted with what it
@@ -19,8 +24,13 @@
  *
  * What one conversation throws where nothing caught it is contained to
  * that conversation; anything else stops the host the same way, and its
- * stop then fails. The engine is passed in, so the program that starts
- * this names which.
+ * stop then fails. Two throws are only reported: a write to a pipe whose
+ * other end has gone, outside every conversation, which says a child
+ * ended, not that the host broke; and any throw once a stop has begun,
+ * which can't change how that stop ends. On 13 November a language
+ * server's writer threw on its closed pipe, the host stopped mid-turn
+ * for it, and the stop systemd asked for a moment later exited 1. The
+ * engine is passed in, so the program that starts this names which.
  */
 
 import { execFile } from "node:child_process";
@@ -41,6 +51,15 @@ const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
  * at a ninth of a CPU, while a start stuck in one step still ends.
  */
 export const STEP_ALLOWANCE_MS = 120_000;
+
+/** How often a step still under way asks systemd for its allowance again. */
+export const STEP_RENEW_MS = 30_000;
+
+/**
+ * How long one step may go on asking: over six times the slowest resume
+ * yet seen (135 s), so only a step that will never end runs out.
+ */
+export const STEP_CEILING_MS = 15 * 60_000;
 
 /**
  * How often a ready host looks whether what it serves has changed, for
@@ -74,6 +93,16 @@ const MS_PER_SECOND = 1000;
  */
 const FAILED_STOP_MS = 45_000;
 
+/**
+ * The codes of a write to a pipe or stream whose other end has gone: a
+ * child that ended, such as a language server, whose writer still had
+ * something to say. Only these are let pass outside every conversation.
+ */
+const CLOSED_PIPE_CODES: ReadonlySet<string> = new Set([
+	"EPIPE",
+	"ERR_STREAM_DESTROYED",
+]);
+
 /** What a host process is given to run. */
 export interface HostRunOptions {
 	/** The command line after the program: the host's kind. */
@@ -102,6 +131,10 @@ export interface HostRunOptions {
 	 * systemd's notify by default, extending the start timeout.
 	 */
 	progress?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
+	/** How often, in ms, a step under way asks again; STEP_RENEW_MS by default. */
+	stepRenewEvery?: number;
+	/** How long, in ms, one step may go on asking; STEP_CEILING_MS by default. */
+	stepCeiling?: number;
 	/** Where each step is logged with its time; standard error by default. */
 	say?: (line: string) => void;
 	/** Where errors go; standard error, which the journal keeps, by default. */
@@ -171,11 +204,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			`${since()}: resumed ${number} of ${of} in ${seconds(Date.now() - resuming.at)}`,
 		);
 	};
-	const starting = async (step: StartStep) => {
-		resumed();
-		resuming = { step, at: Date.now() };
-		const status = describeStep(step);
-		say(`${since()}: ${status}`);
+	const ask = async (status: string) => {
 		try {
 			await progress(options.env, status);
 		} catch (error) {
@@ -184,17 +213,37 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			report(error);
 		}
 	};
-	const serving = await serveHost({
-		...options.places,
-		realm,
-		kind,
-		engine: options.engine,
-		...(options.viewer ? { viewer: options.viewer } : {}),
-		report,
-		say,
-		starting,
-		runtimeDir: options.env.XDG_RUNTIME_DIR,
-	});
+	// Stops the current step asking again, once the next begins or the start ends.
+	let renewing: (() => void) | undefined;
+	const starting = async (step: StartStep) => {
+		resumed();
+		renewing?.();
+		resuming = { step, at: Date.now() };
+		const status = describeStep(step);
+		say(`${since()}: ${status}`);
+		await ask(status);
+		renewing = askWhileUnderWay({
+			ask: () => ask(status),
+			every: options.stepRenewEvery ?? STEP_RENEW_MS,
+			ceiling: options.stepCeiling ?? STEP_CEILING_MS,
+		});
+	};
+	let serving: ServingHost;
+	try {
+		serving = await serveHost({
+			...options.places,
+			realm,
+			kind,
+			engine: options.engine,
+			...(options.viewer ? { viewer: options.viewer } : {}),
+			report,
+			say,
+			starting,
+			runtimeDir: options.env.XDG_RUNTIME_DIR,
+		});
+	} finally {
+		renewing?.();
+	}
 	const status = () =>
 		readyStatus(serving.held().length, serving.stillUnresumed());
 	const tell = (now: string) =>
@@ -233,6 +282,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			const failure = uncontained(error, options.contain);
 			if (!failure) return;
 			report(error);
+			// A stop under way ends as it began; a closed pipe ends nothing.
+			if (stopping || closedPipe(error)) return;
 			const ended = () => reject(failure);
 			// A stop that hangs still ends the host, inside systemd's own timeout.
 			setTimeout(ended, FAILED_STOP_MS).unref();
@@ -302,6 +353,33 @@ export function describeStep(step: StartStep): string {
 }
 
 /**
+ * Ask again every `every` ms from the host's own loop, until `ceiling` ms
+ * after the step began or the answer is called, whichever comes first.
+ * An ask still on its way when the next is due is let be.
+ */
+function askWhileUnderWay(options: {
+	ask: () => Promise<void>;
+	every: number;
+	ceiling: number;
+}): () => void {
+	const began = performance.now();
+	let asking = false;
+	const again = setInterval(() => {
+		if (performance.now() - began >= options.ceiling) {
+			clearInterval(again);
+			return;
+		}
+		if (asking) return;
+		asking = true;
+		void options.ask().finally(() => {
+			asking = false;
+		});
+	}, options.every);
+	again.unref();
+	return () => clearInterval(again);
+}
+
+/**
  * Ask systemd for STEP_ALLOWANCE_MS more from now and show the step as the
  * unit's status, when it runs the host as a notify unit.
  */
@@ -342,6 +420,19 @@ function tellSystemd(
 /** Write a line about the start to standard error, which the journal keeps. */
 function sayToJournal(line: string): void {
 	process.stderr.write(`pi-host: ${line}\n`);
+}
+
+/**
+ * Whether a throw made outside every conversation is a write to a pipe
+ * whose other end has gone; one made in a conversation is its to contain.
+ */
+function closedPipe(error: unknown): boolean {
+	if (ambientSession() !== undefined) return false;
+	const code =
+		typeof error === "object" && error !== null
+			? Reflect.get(error, "code")
+			: undefined;
+	return typeof code === "string" && CLOSED_PIPE_CODES.has(code);
 }
 
 /**

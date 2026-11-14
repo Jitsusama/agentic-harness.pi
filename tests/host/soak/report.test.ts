@@ -420,7 +420,10 @@ describe("the bar", () => {
 	it("fails one stall a whole turn's cost would hide", () => {
 		// A 1.5 s stall in one round, the rest of its turn's rounds even.
 		const stalled = { count: 500, p50: 0, p99: 30, max: 1_500 };
-		expect(barOf({ ...steps, rounds: stalled }, screen).rounds).toBe(false);
+		expect(
+			barOf({ ...steps, rounds: stalled }, screen).rounds,
+			"the stalled round fails its bar",
+		).toBe(false);
 	});
 
 	it("fails the steps when more than 1% of turns went unpaired", () => {

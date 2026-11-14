@@ -110,6 +110,12 @@ export interface RestartFacts {
 	background(): number;
 	/** Whether every screen shows only an empty editor, with nobody in one. */
 	resting(): boolean;
+	/**
+	 * Whether the host has begun stopping. Its parked conversations look
+	 * settled, but they parked mid-turn: on 13 November a stop for a throw
+	 * passed for a quiet moment, and the host asked for a restart on top.
+	 */
+	stopping(): boolean;
 	/** Say whether a restart is coming, so stopping tells every viewer to join again after. */
 	expect(coming: boolean): void;
 	/** Have systemd restart the host's unit, without waiting for it. */
@@ -206,6 +212,7 @@ export function restartWhenSettled(
 
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
+		if (facts.stopping()) return undefined;
 		if (facts.background() > 0 || !facts.resting()) return undefined;
 		const held = facts.held();
 		if (settled(held, facts.now(), settledMs)) return { rule: "settled" };
@@ -248,7 +255,7 @@ type Next = "restarting" | "look" | "gap";
 
 /** What a running host gives the restart loop, and where to look. */
 export interface Following {
-	readonly serving: Pick<ServingHost, "held" | "restartComing">;
+	readonly serving: Pick<ServingHost, "held" | "restartComing" | "stopping">;
 	/** How much background work the conversations hold (the engine's). */
 	background(): number;
 	/** Whether every screen is at rest (screens.ts). */
@@ -317,6 +324,7 @@ export async function followWhatStarts(
 			held: () => options.serving.held(),
 			background: options.background,
 			resting: options.resting,
+			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why, under) => {
 				options.report(

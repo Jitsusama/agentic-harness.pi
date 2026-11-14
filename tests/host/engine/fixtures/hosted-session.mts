@@ -125,6 +125,8 @@ interface Scenario {
 	tokensPerSecond?: number;
 	tools?: (session: () => Session) => unknown[];
 	drive: (session: Session) => Promise<void>;
+	/** What the session is sent before the agent recovers, as an extension's start may send it. */
+	early?: (session: Session) => Promise<void>;
 	/** Keep the session in a file under the folder, to be opened again by a later run. */
 	persist?: boolean;
 	/** Settings over the fixture's, which turn pi's retry and compaction off. */
@@ -147,9 +149,10 @@ const noteEffect = (text: string): void =>
 	appendFileSync(effects(), `${text}\n`);
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
-const call = (id: string, text: string) =>
+const call = (id: string, text: string, timestamp?: number) =>
 	compat.fauxAssistantMessage([compat.fauxToolCall("echo", { text }, { id })], {
 		stopReason: "toolUse",
+		...(timestamp === undefined ? {} : { timestamp }),
 	});
 
 /** A tool that echoes its text, after doing whatever the scenario asks of the session meanwhile. */
@@ -234,9 +237,45 @@ const scenarios: Record<string, Scenario> = {
 		drive: (session) => session.prompt("use the tool"),
 		persist: true,
 	},
+	/** Die as the tool round's turn ends: pi showed the answer and its result, durable never heard what follows. */
+	"crash-at-turn-end": {
+		responses: () => [call("call-1", "ping"), say("never")],
+		tools: echo(async () => noteEffect("ping")),
+		drive: async (session) => {
+			session.agent.subscribe((event) => {
+				if (event.type === "turn_end") process.kill(process.pid, "SIGKILL");
+			});
+			await session.prompt("use the tool");
+		},
+		persist: true,
+	},
+	/** Die in the second round's tool, the first round's done. */
+	"crash-in-second-tool": {
+		responses: () => [
+			call("call-1", "ping"),
+			// Made at once, the answers would share a time, and so pi's key for them.
+			call("call-2", "pong", Date.now() + 1),
+			say("never"),
+		],
+		tools: echo(async () => {
+			noteEffect("ran");
+			if (readFileSync(effects(), "utf8").split("\n").length > 2)
+				process.kill(process.pid, "SIGKILL");
+		}),
+		drive: (session) => session.prompt("use the tool"),
+		persist: true,
+	},
 	reopen: {
 		responses: () => [say("after the restart")],
 		tools: echo(async () => noteEffect("ping")),
+		drive: async () => {},
+		persist: true,
+	},
+	/** Reopen with a prompt sent before the recovery, as an extension starting with the session sends one. */
+	"reopen-prompted": {
+		responses: () => [say("after the restart"), say("and the prompt")],
+		tools: echo(async () => noteEffect("ping")),
+		early: (session) => session.prompt("sent at the start"),
 		drive: async () => {},
 		persist: true,
 	},
@@ -449,8 +488,18 @@ try {
 	session.agent.subscribe((event: unknown) => {
 		events.push(comparable(event));
 	});
+	const reached = new Promise<void>((resolve) => {
+		const stop = session.agent.subscribe(() => {
+			stop();
+			resolve();
+		});
+	});
+	const early = scenario.early?.(session);
+	// The early run has reached the agent, as it had on 13 November.
+	if (early) await Promise.race([reached, early]);
 	const recovery = await conversation?.agent?.recover();
 	await recovery?.settled;
+	await early;
 	await scenario.drive(session);
 	await session.agent.waitForIdle();
 	const transcript = session.agent.state.messages.map(comparable);

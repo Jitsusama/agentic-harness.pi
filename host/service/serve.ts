@@ -62,6 +62,8 @@ export interface ServingHost {
 	 * and just before the close it would otherwise take for the end.
 	 */
 	restartComing(coming: boolean): void;
+	/** Whether a stop has begun, after which nothing it holds runs a turn. */
+	stopping(): boolean;
 	/** Close the socket, park every conversation and release the lock. */
 	stop(): Promise<void>;
 }
@@ -173,6 +175,7 @@ export async function serveHost(options: {
 			restartComing: (coming) => {
 				restarting = coming;
 			},
+			stopping: () => stopping !== undefined,
 			stop() {
 				stopping ??= (async () => {
 					wakes = () =>
