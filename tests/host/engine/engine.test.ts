@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Started } from "../../support/spawns.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 
 const run = promisify(execFile);
@@ -133,6 +134,10 @@ interface Seen {
 	readonly linked?: readonly { copy: string }[];
 	/** What the first conversation's extensions failed with once it reloaded. */
 	readonly afterReload?: readonly string[];
+	/** The children a turn started with a call that holds the loop, and where from. */
+	readonly blocking?: readonly Started[];
+	/** Every child a turn started, and how. */
+	readonly started?: readonly string[];
 	readonly listeners: {
 		readonly atStart: Readonly<Record<string, number>>;
 		readonly atEnd: Readonly<Record<string, number>>;
@@ -485,6 +490,26 @@ describe("the host's engine", () => {
 		// A hosted step and a plain pi, one after the other, each loading the
 		// whole harness.
 		HOST_LIFE_MS * 2,
+	);
+
+	// A host runs every conversation on one loop, so a child one of them
+	// starts with spawnSync, execFileSync or execSync holds them all until
+	// it exits: 903 ms of one turn in a soak of twelve (13 November). This
+	// covers one turn on this package from its prompt to idle, a bash call
+	// included, and whatever timers fire meanwhile; not a conversation's
+	// start, nor tools the turn doesn't call.
+	it(
+		"starts no child that holds the loop in a turn on this package",
+		async () => {
+			const seen = await step(hostFolder(), "turn-children");
+			expect(seen.ran, "the turn's bash call ran").toBe(1);
+			expect(seen.transcript?.at(-1)).toBe("assistant: done");
+			expect(seen.started, "the watch saw the bash call start").not.toEqual(
+				[],
+			);
+			expect(seen.blocking, "children that held the loop").toEqual([]);
+		},
+		HOST_LIFE_MS,
 	);
 
 	it(

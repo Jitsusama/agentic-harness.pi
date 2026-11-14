@@ -44,6 +44,7 @@ import {
 	warmingCarryDir,
 	writeWarmingCarry,
 } from "../../../../lib/internal/warming-carry.ts";
+import { watchSpawns } from "../../../support/spawns.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
 interface Compat {
@@ -509,6 +510,46 @@ const scenarios: Record<string, Scenario> = {
 			const diagnostics = engine.view(id)?.runtime.diagnostics;
 			await host.close(id);
 			return { diagnostics };
+		},
+	},
+	/**
+	 * A turn on the harness, as Joel's conversations run it: a bash call
+	 * and an answer, watched from the prompt until the conversation is idle
+	 * for every child process started meanwhile, by the turn, its tool or
+	 * any timer, and how.
+	 */
+	"turn-children": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{ command: `echo ran >> ${effects}` },
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("done"),
+		],
+		harness: true,
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			const watch = watchSpawns();
+			try {
+				await host.run(id, () => prompt(engine, id, "run it"));
+				await idle(engine, id);
+			} finally {
+				watch.stop();
+			}
+			const seen = {
+				...summary(engine, id),
+				blocking: watch.blocking(),
+				started: watch.started.map(({ how, program }) => `${how} ${program}`),
+			};
+			await host.close(id);
+			return seen;
 		},
 	},
 	/** Count the background work a conversation holds, before and after its extension hands some off. */
