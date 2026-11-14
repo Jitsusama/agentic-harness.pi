@@ -5,11 +5,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	type Disk,
-	fenceArgs,
-	fenceRefusesWrite,
-} from "../../../lib/internal/fence.ts";
+import { fenceArgs, fenceRefusesWrite } from "../../../lib/internal/fence.ts";
+import type { Disk } from "../../../lib/internal/fence-disk.ts";
 
 /** A disk holding exactly the folders `folders` and every one above them. */
 function foldersOf(folders: readonly string[]): Disk {
