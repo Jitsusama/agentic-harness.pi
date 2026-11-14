@@ -179,10 +179,41 @@ describe("a strict session the sandbox can't fence", () => {
 		);
 	});
 
-	it("runs none where PI_SANDBOX names no sandbox", () => {
+	it("fences them where PI_SANDBOX names no sandbox, as the shell does", () => {
+		const write = { path: "~/.bashrc", content: "x" };
+		const fenced = refusal("write", write, { PI_SANDBOX: "fence" });
+		expect(fenced, "the fence let a startup file be written").toBeDefined();
+		for (const given of ["loose", ""]) {
+			expect(
+				refusal("write", write, { PI_SANDBOX: given }),
+				`PI_SANDBOX=${JSON.stringify(given)} wasn't read as the fence`,
+			).toBe(fenced);
+		}
 		expect(
-			refusal("read", { path: "notes.md" }, { PI_SANDBOX: "loose" }),
-		).toContain("No file tool runs");
+			refusal("write", write, { PI_SANDBOX: "off" }),
+			"off was fenced",
+		).toBeUndefined();
+	});
+
+	it("fences them in the first stage unasked, but never past off", () => {
+		const call = {
+			toolName: "write",
+			input: { path: "~/.bashrc", content: "x" },
+		};
+		const inStage = () => true;
+		expect(
+			fileToolRefusal(call, { cwd: work, env: {}, home, staged: inStage }),
+			"a staged session's file tools weren't fenced",
+		).toBe(refusal("write", call.input, { PI_SANDBOX: "fence" }));
+		expect(
+			fileToolRefusal(call, {
+				cwd: work,
+				env: { PI_SANDBOX: "off" },
+				home,
+				staged: inStage,
+			}),
+			"off was fenced in the stage",
+		).toBeUndefined();
 	});
 
 	it("runs none whose path it can't check", () => {

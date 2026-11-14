@@ -21,12 +21,13 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "./fence.ts";
+import { askedSandbox } from "./fence-stage.ts";
 import { isRecord } from "./record.ts";
 import {
 	type FileUse,
 	fileReach,
-	noSuchSandbox,
 	questScratch,
+	SANDBOX_NAMES,
 	SANDBOX_VARIABLE,
 	STRICT,
 	unfencedFolder,
@@ -136,6 +137,8 @@ interface FilePlace {
 	 * contract; they are read, never written.
 	 */
 	skills?: readonly string[];
+	/** Whether the fence's first stage takes it unasked; by default, as it started. */
+	staged?: (env: NodeJS.ProcessEnv) => boolean;
 }
 
 /**
@@ -148,12 +151,12 @@ export function fileToolRefusal(
 	call: ToolCall,
 	place: FilePlace,
 ): string | undefined {
-	const asked = place.env[SANDBOX_VARIABLE]?.trim();
 	const tool = FILE_TOOLS.get(call.toolName);
-	if (!asked || !tool) return undefined;
-	if (asked !== STRICT && asked !== FENCE) {
-		return noSuchSandbox(asked, "file tool");
-	}
+	if (!tool) return undefined;
+	// Read as the shell's commands read it, the first stage's default and a
+	// stray value included, so pi's file tools are fenced as they are.
+	const asked = askedSandbox(place.env, SANDBOX_NAMES, place.staged).name;
+	if (!asked) return undefined;
 	if (asked === STRICT) {
 		// A folder holding its git folder is refused for what writing there
 		// would reach, which reading it doesn't, so a review that falls back

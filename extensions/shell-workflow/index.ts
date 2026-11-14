@@ -34,6 +34,7 @@ import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
 import { liftFence } from "../../lib/internal/fence-lifted.ts";
+import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
@@ -70,6 +71,19 @@ const hasJobsBroker = (): boolean =>
 /** The folder pi's bash is built with when only its shape is wanted. */
 const SHAPE_ONLY = "";
 
+/**
+ * List a session spawned for the fence's first stage by its id too, so
+ * reopening it keeps it fenced as it first ran.
+ */
+function listByIdOnce(session: string): void {
+	try {
+		settleStage(process.env, session);
+	} catch {
+		// Unlisted by id, a reopen by id runs unfenced until the everyone
+		// stage, as every reopen does; this session stays fenced as it is.
+	}
+}
+
 export default function shellWorkflow(pi: ExtensionAPI) {
 	// The shape pi's bash is drawn and described with. Its folder is never
 	// used: execution is per session, at the folder its conversation stands
@@ -97,9 +111,17 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		return bash;
 	};
 
+	// A stray PI_SANDBOX read as the fence is said once, where the person
+	// sees it, and in the agent's guidelines below.
+	let noted = false;
 	pi.on("session_start", async (_event, ctx) => {
 		retireBash();
 		bashFor(ctx);
+		if (!noted && sandbox.kind === "fence" && sandbox.note) {
+			noted = true;
+			if (ctx.hasUI) ctx.ui.notify(sandbox.note, "warning");
+		}
+		if (sandbox.kind === "fence") listByIdOnce(sessionKeyOf(ctx));
 		askTheCloudAhead(sandbox);
 		// What a call kept and nobody took up, a week on (kept.ts).
 		sweepKept();
@@ -121,6 +143,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			...(sandbox.kind === "fence"
 				? [
 						"Commands run in the agent fence: their own processes only, no display, compositor, session or system bus, sound, keyring, password, clipboard or SSH agent, settings and startup files (~/.config, shell rc files, ~/.ssh, ~/.pi/agent) read-only, and Nix as an untrusted user. The work, the network and the environment are as they were. A `nix-offload there ...` call on its own, with nothing chained on, runs outside the fence. A refusal there is the fence, not a fault: do the work another way (commit and push with the work tool), or say what needs the person.",
+						...(sandbox.note ? [sandbox.note] : []),
 						...(hasJobsBroker()
 							? [
 									"Inside the agent fence the cgroup tree is read-only and systemctl and systemd-run can't reach the account's systemd. For how a unit stands, run `jobs-broker status UNIT...` rather than `systemctl --user status`; for a command that wants a scope of its own, run `jobs-broker run -- COMMAND` rather than `systemd-run --user --scope`.",

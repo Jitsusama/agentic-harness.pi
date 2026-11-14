@@ -146,6 +146,11 @@ may import from here, and any of it may change without notice.
 - **`fence-lifted.ts`**: the fence lifted from every session but a
   fleet's subagents until it relands, since the default from 13
   November stayed in each running pi's own environment.
+- **`fence-stage.ts`**: which pis the fence takes by default in its
+  first stage (subagents, fresh `quest spawn` sessions and those listed
+  by hand, under pi's state, `scripts/fence-stage.ts`), and how
+  `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
+  unknown value reads as the fence, saying so once.
 - **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
   fenced as a session's command or outside, and turns verdicts into a
   report and an exit status (`scripts/fence-preflight.ts`).

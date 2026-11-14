@@ -8,6 +8,7 @@ import { homedir, hostname } from "node:os";
 import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
+import { STAGE_VARIABLE } from "../../../lib/internal/fence-stage.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
 	FIRST_WORDS_VARIABLE,
@@ -90,6 +91,7 @@ import {
 	resumedBy,
 	spawnedByLauncher,
 } from "./spawn-launcher.ts";
+import { stagedById, stagedSpawn } from "./spawn-stage.ts";
 
 /**
  * Repair session-to-quest membership across the store, in two
@@ -455,6 +457,10 @@ export async function spawn(
 		resume && "id" in resume
 			? sessions.find((s) => s.id === resume.id)
 			: undefined;
+	// A fresh spawn joins the fence's first stage; a reopen waits.
+	const { command: asks, dryRun } = params;
+	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
+	const staged = stagedSpawn(stage);
 	// The host the call names, or for a plain spawn the one spawnHost says.
 	const byHost = await spawnByHost({
 		...(target.kind ? { asked: target.kind } : {}),
@@ -473,7 +479,7 @@ export async function spawn(
 				? { model: { provider: ctx.model.provider, id: ctx.model.id } }
 				: {}),
 			...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
-			env: sessionEnv(ctx).snapshot(),
+			env: { ...sessionEnv(ctx).snapshot(), [STAGE_VARIABLE]: staged },
 			...(params.dryRun ? { dryRun: true } : {}),
 		},
 	});
@@ -637,6 +643,9 @@ export async function spawn(
 	// environment, which also covers the launcher not answering.
 	const token = leftUnder(forLauncher?.id ?? uuidv7());
 	if (token) env[FIRST_WORDS_VARIABLE] = token;
+	// The launcher hands on only the id, so a fresh one is listed by it.
+	if (staged) env[STAGE_VARIABLE] = staged;
+	if (staged && forLauncher?.fresh) stagedById(forLauncher.id, stage);
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the
 	// terminal directly it would run without them.

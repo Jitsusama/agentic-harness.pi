@@ -101,10 +101,18 @@ describe("what a session asks for", () => {
 		for (const [env, platform, find] of [
 			[{ PI_SANDBOX: "strict" }, "darwin", found],
 			[{ PI_SANDBOX: "strict" }, "linux", () => undefined],
-			[{ PI_SANDBOX: "loose" }, "linux", found],
 		] as const) {
 			expect(sandboxFor(env, platform, find).kind).toBe("refused");
 		}
+	});
+
+	it("reads a name it doesn't know as the fence, saying so once", () => {
+		const loose = sandboxFor({ PI_SANDBOX: "loose" }, "linux", found);
+		expect(loose.kind, "an unknown name wasn't fenced").toBe("fence");
+		const note = loose.kind === "fence" ? loose.note : undefined;
+		expect(note, "the note doesn't say the way back").toContain(
+			"PI_SANDBOX=off",
+		);
 	});
 });
 

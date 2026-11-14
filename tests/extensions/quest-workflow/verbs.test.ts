@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle.ts";
+import { listedForStage } from "../../../lib/internal/fence-stage.ts";
 import {
 	clearPersonResolvers,
 	setResolutionFallback,
@@ -421,10 +422,16 @@ describe("spawn verbs", () => {
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.
 		// It also names the words the new session is told first.
+		// And the fence's first stage lists it by a token of its own.
 		expect(calls[0].env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: a.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
+			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
 		});
+		expect(
+			listedForStage(calls[0].env?.PI_FENCE_STAGE),
+			"a fresh spawn wasn't listed for the fence's first stage",
+		).toBe(true);
 	});
 
 	it("prefers a registered tree path over the quest dir", async () => {
@@ -631,6 +638,7 @@ describe("spawn verbs", () => {
 		expect(calls[0].env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: other.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
+			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
 		});
 		// The quest is named by the autoload, never by where it opens: a
 		// session in a quest's folder loads no repo's skills.
