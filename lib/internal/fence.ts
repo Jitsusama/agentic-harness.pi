@@ -71,10 +71,18 @@ export const FENCE = "fence";
  * its quest's work, and says how named units stand (core's
  * `modules/jobs-broker`). The broker stands in for the user's bus,
  * which stays shut.
+ *
+ * The proxy's socket lives in a folder of its own, bound whole, so a
+ * fenced command started before the proxy's socket comes back (a switch
+ * restarts it) still reaches the new one: a socket bound on its own
+ * would stay the old, dead one. `pi-agent.sock` beside it is the
+ * proxy's old place, now a link into the folder, kept for a machine
+ * whose proxy hasn't moved yet.
  */
 const LET_THROUGH = [
 	"nix-untrusted.sock",
 	"pi-agent.sock",
+	"pi-agent",
 	"daemons/jobs-broker.sock",
 ] as const;
 
@@ -87,8 +95,11 @@ const LET_THROUGH = [
  */
 const CGROUPS = "/sys/fs/cgroup";
 
-/** The SSH agent's proxy, in the runtime folder. */
-const AGENT_PROXY = "pi-agent.sock";
+/**
+ * The SSH agent's proxy, in the runtime folder: in its own folder
+ * first, else at its old place.
+ */
+const AGENT_PROXY = ["pi-agent/agent.sock", "pi-agent.sock"] as const;
 
 /** The jobs broker, in the runtime folder. */
 const JOBS_BROKER = "daemons/jobs-broker.sock";
@@ -613,8 +624,9 @@ export function agentProxy(
 	disk: Disk = DISK,
 ): string | undefined {
 	if (!runtimeDir) return undefined;
-	const path = join(runtimeDir, AGENT_PROXY);
-	return disk.kind(path) === undefined ? undefined : path;
+	return AGENT_PROXY.map((name) => join(runtimeDir, name)).find(
+		(path) => disk.kind(path) !== undefined,
+	);
 }
 
 /**
