@@ -18,7 +18,7 @@ import {
 	tickedOwnerNow,
 } from "../../lib/internal/process-ticks.ts";
 import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
-import { SessionHost } from "../engine/index.ts";
+import { type ConversationIdentity, SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
 import {
 	type ConversationEngine,
@@ -30,7 +30,6 @@ import {
 	type Unresumed,
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
-import type { SessionIdentity } from "./protocol.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
@@ -54,7 +53,7 @@ export interface ServingHost {
 	 */
 	stillUnresumed(): number;
 	/** Each conversation the host runs, by id, with its state and when it last changed. */
-	held(): readonly Pick<SessionIdentity, "id" | "state" | "since">[];
+	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
 	/**
 	 * Say whether a restart of the host is coming. While it is, stopping
 	 * tells every attached viewer the host is restarting before it closes
