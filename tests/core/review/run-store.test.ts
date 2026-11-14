@@ -366,6 +366,66 @@ describe("replacing a run", () => {
 		]);
 	});
 
+	it("asks a ledger file nothing more until it changes", async () => {
+		// A host asks at every conversation's start, and each ask read and
+		// parsed every file. A file unchanged since the last ask answers
+		// what it said then: shut to reads, it still names its round.
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+		const [held] = readdirSync(root);
+		await chmod(join(root, held), 0o000);
+
+		try {
+			const { open, unreadable } = await store.openRunIds();
+
+			expect(open).toEqual(new Set(["council-open"]));
+			expect(unreadable).toEqual([]);
+		} finally {
+			await chmod(join(root, held), 0o600);
+		}
+	});
+
+	it("reads a ledger file again once a write changes it", async () => {
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+
+		await store.keep(change, run({ id: "council-open" }));
+		await store.keep(other, run({ id: "council-elsewhere", open: true }));
+
+		const { open } = await store.openRunIds();
+		expect(open).toEqual(new Set(["council-elsewhere"]));
+	});
+
+	it("reads a ledger file again once a person edits it in place", async () => {
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+		const [held] = readdirSync(root);
+
+		await writeFile(join(root, held), "{ torn", "utf8");
+
+		const { open, unreadable } = await store.openRunIds();
+		expect(open).toEqual(new Set());
+		expect(unreadable).toEqual([join(root, held)]);
+	});
+
+	it("forgets a ledger file that has gone", async () => {
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+		const [held] = readdirSync(root);
+
+		rmSync(join(root, held));
+
+		expect(await store.openRunIds()).toEqual({
+			open: new Set(),
+			rounds: [],
+			unreadable: [],
+		});
+	});
+
 	it("tells a missing ledger from one it cannot get into", async () => {
 		// Absence is an answer: most changes have never been reviewed, so
 		// no directory means no open rounds. Every other errno means the

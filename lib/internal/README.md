@@ -193,6 +193,9 @@ may import from here, and any of it may change without notice.
 - **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
   binds over them, each included file written in, since ssh inside
   refuses root's files as nobody's.
+- **`file-reads.ts`**: what each file in a folder said when the
+  process last read it, asked again only once the file changes, so a
+  ledger asked at every conversation's start reads only what moved.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.

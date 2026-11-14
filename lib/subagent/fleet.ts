@@ -33,6 +33,7 @@ import {
 	type SessionRef,
 	sessionOwner,
 } from "../core/session/index.ts";
+import { fileReads } from "../internal/file-reads.ts";
 import {
 	askedOnceWithTicks,
 	isTickedOwner,
@@ -398,6 +399,11 @@ export function createFleetLedger(root: string): FleetLedger {
 		const runs: { run: FleetRun; path: string }[] = [];
 		const unreadable: string[] = [];
 		const staged: string[] = [];
+		// Each record is read again only once it has changed, since a host
+		// asks for every conversation that comes back. What it keeps of a
+		// file is its record, or nothing when it is not one.
+		const kept = fileReads<FleetRun | undefined>("fleet-records", root);
+		const listed = new Set<string>();
 		for (const file of files) {
 			// A write that was interrupted between the write and the
 			// rename, which is the failure the pair exists for, so this
@@ -414,6 +420,16 @@ export function createFleetLedger(root: string): FleetLedger {
 			// else, none of which is a fleet that would not read.
 			if (!file.endsWith(".json")) continue;
 			const path = join(root, file);
+			listed.add(path);
+			const seen = await kept.stamp(path);
+			const held = kept.held(path, seen);
+			if (held !== undefined) {
+				// Shared with every later ask, which a record's readonly
+				// fields keep safe.
+				if (held.said === undefined) unreadable.push(path);
+				else runs.push({ run: held.said, path });
+				continue;
+			}
 			let parsed: unknown;
 			try {
 				parsed = JSON.parse(await readFile(path, "utf8"));
@@ -424,12 +440,19 @@ export function createFleetLedger(root: string): FleetLedger {
 				// for, and the caller has to know that before it deletes
 				// anything.
 				if (isNotFound(error) || isDirectory(error)) continue;
+				kept.keep(path, seen, undefined);
 				unreadable.push(path);
 				continue;
 			}
-			if (isFleetRun(parsed)) runs.push({ run: parsed, path });
-			else unreadable.push(path);
+			if (isFleetRun(parsed)) {
+				kept.keep(path, seen, parsed);
+				runs.push({ run: parsed, path });
+			} else {
+				kept.keep(path, seen, undefined);
+				unreadable.push(path);
+			}
 		}
+		kept.keepOnly(listed);
 		return { runs, unreadable, staged };
 	}
 

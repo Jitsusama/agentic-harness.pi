@@ -536,6 +536,47 @@ describe("a fleet ledger", () => {
 		]);
 	});
 
+	it("asks a record nothing more until it changes", async () => {
+		// A host asks for every conversation that comes back, and each ask
+		// read every record. One unchanged since the last ask answers what
+		// it said then: shut to reads, it still names its fleet.
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-open"));
+		await ledger.openFleets();
+		const [held] = await readdir(root);
+		chmodSync(join(root, held), 0o000);
+
+		try {
+			expect(await ledger.openFleets()).toEqual({
+				open: new Set(["fleet-open"]),
+				unreadable: [],
+			});
+		} finally {
+			chmodSync(join(root, held), 0o600);
+		}
+	});
+
+	it("reads a record again once it is settled", async () => {
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.openFleets();
+
+		await ledger.settle("fleet-a");
+
+		expect((await ledger.openFleets()).open).toEqual(new Set());
+	});
+
+	it("forgets a record that has gone", async () => {
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.openFleets();
+		const [held] = await readdir(root);
+
+		rmSync(join(root, held));
+
+		expect((await ledger.everyFleet()).runs).toEqual([]);
+	});
+
 	it("names the directory itself when that is what will not open", async () => {
 		// The branch that declines every sweep on the machine. A ledger
 		// directory that exists and cannot be listed says nothing about
