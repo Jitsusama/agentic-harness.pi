@@ -28,6 +28,8 @@ import {
 	readParked,
 	restartCommand,
 	SESSION_WOKEN,
+	STEERS_ENV,
+	tellHolderSteers,
 	WAKE_ENV,
 	whyNotPark,
 	writeAwake,
@@ -321,6 +323,22 @@ function restartNamed(
 }
 
 /**
+ * Tell a holder that watches steers (`file`, from {@link STEERS_ENV})
+ * where this session's land and which wake it, as the mesh said while
+ * it parked. A holder told nothing wakes it for a steer only as a
+ * running peer asks, within a minute, so a write that fails doesn't
+ * hold up the park.
+ */
+function tellSteers(file: string, parking: Parking): void {
+	if (file === "") return;
+	try {
+		tellHolderSteers(file, parking.steers);
+	} catch {
+		// Untold, its holder wakes it as a running peer asks: a minute on.
+	}
+}
+
+/**
  * Why a session can't start again from its log, if it can't: pi writes a
  * log at its first answer, so one never asked anything would wake as a
  * new session, under another address.
@@ -437,6 +455,8 @@ export function watch(
 		if (unnamed !== undefined) return unnamed;
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
+		// A host watches its conversations' inboxes itself (host/engine).
+		if (!parkingHost()) tellSteers(env[STEERS_ENV] ?? "", parking);
 		writeParked(
 			{
 				session,

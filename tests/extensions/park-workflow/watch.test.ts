@@ -24,6 +24,7 @@ import {
 import {
 	awakePath,
 	flagsLost,
+	type HolderSteers,
 	isParkAsk,
 	isParking,
 	NAMED_PARK_AFTER_MS,
@@ -784,5 +785,72 @@ describe("why a session stays awake", () => {
 			why: "no holder would wake it",
 			since: new Date(5000).toISOString(),
 		});
+	});
+});
+
+// 14 November: a talk to a parked session waited up to a minute for a
+// running peer's look; its holder watches the inboxes it is told of.
+describe("telling its holder where its steers land", () => {
+	const STEERS: HolderSteers = {
+		inboxes: ["/state/steer/85PKB2", "/state/steer/8859FF67"],
+		wakes: { acts: ["close"], talk: true, resumeWithWords: true },
+	};
+	const steersFile = () => join(folder, "held.steers");
+	const watchingSteers = () => ({
+		...holder(),
+		MYCELIUM_STEERS: steersFile(),
+	});
+	const meshSays = (steers: HolderSteers | undefined) =>
+		events.on(PARKING, (data) => {
+			if (!isParking(data)) return;
+			data.addresses = ["85PKB2", "8859FF67"];
+			if (steers) data.steers = steers;
+		});
+
+	it("writes the inboxes the mesh names, and which steers wake it, as it parks", () => {
+		meshSays(STEERS);
+		const watched = watching(session(), watchingSteers());
+		clock = NAMED_PARK_AFTER_MS;
+
+		expect(watched.look()).toBeUndefined();
+		expect(JSON.parse(readFileSync(steersFile(), "utf8"))).toEqual(STEERS);
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("writes nothing for a holder that asks for no steers", () => {
+		meshSays(STEERS);
+		const watched = watching();
+		clock = NAMED_PARK_AFTER_MS;
+
+		expect(watched.look()).toBeUndefined();
+		expect(readdirSync(folder)).not.toContain("held.steers");
+	});
+
+	it("clears what an earlier park wrote when the mesh names no inboxes", () => {
+		writeFileSync(steersFile(), JSON.stringify(STEERS));
+		meshSays(undefined);
+		const watched = watching(session(), watchingSteers());
+		clock = NAMED_PARK_AFTER_MS;
+
+		expect(watched.look()).toBeUndefined();
+		expect(readdirSync(folder)).not.toContain("held.steers");
+	});
+
+	it("writes nothing in a host, which watches its conversations' inboxes itself", () => {
+		const host = installTestHost();
+		host.host.park = () => undefined;
+		meshSays(STEERS);
+		try {
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+				MYCELIUM_STEERS: steersFile(),
+			});
+			clock = NAMED_PARK_AFTER_MS;
+
+			expect(watched.look()).toBeUndefined();
+			expect(readdirSync(folder)).not.toContain("held.steers");
+		} finally {
+			host.dispose();
+		}
 	});
 });

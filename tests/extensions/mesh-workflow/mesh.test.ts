@@ -53,7 +53,12 @@ import {
 	stayInSession,
 } from "../../../lib/internal/session/left.ts";
 import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
-import { PARK_ASK, SESSION_WOKEN } from "../../../lib/internal/session/park.ts";
+import {
+	PARK_ASK,
+	PARKING,
+	type Parking,
+	SESSION_WOKEN,
+} from "../../../lib/internal/session/park.ts";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import {
 	ROLLOVER_CARRY,
@@ -84,6 +89,7 @@ import {
 	type Message,
 	shortId,
 } from "../../../lib/mesh/message.ts";
+import { holderSteers } from "../../../lib/mesh/parked.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import {
 	SUBAGENT_READY,
@@ -3340,6 +3346,28 @@ describe("a message that names no group", () => {
 		const later = { session, refusals: [] as string[] };
 		emit(PARK_ASK, later);
 		expect(later.refusals).toEqual([]);
+	});
+
+	// 14 November: a talk to a parked session waited up to a minute for a
+	// running peer's look; its holder watches the inboxes the mesh names.
+	it("names a parking session's steer inboxes and which steers wake it, for its holder", async () => {
+		paths = { ...paths, steer: join(root, "steer") };
+		const { emit } = await startSession();
+		const parking: Parking = { session, addresses: [] };
+
+		emit(PARKING, parking);
+		expect(parking.addresses).not.toEqual([]);
+		expect(parking.steers).toEqual(
+			holderSteers(join(root, "steer"), parking.addresses),
+		);
+	});
+
+	it("names no inboxes for a parking session where the mesh keeps none", async () => {
+		const { emit } = await startSession();
+		const parking: Parking = { session, addresses: [] };
+
+		emit(PARKING, parking);
+		expect(parking.steers).toBeUndefined();
 	});
 
 	// A parked void took 11 s to wake for each line (QCXZEB, 12 November).
