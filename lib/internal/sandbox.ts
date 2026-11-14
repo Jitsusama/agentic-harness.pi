@@ -76,6 +76,7 @@ import {
 } from "./fence.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
 import { recordedInShell } from "./fence-log.ts";
+import { fenceNpmrc } from "./fence-npmrc.ts";
 import { fenceSshConfig } from "./fence-ssh.ts";
 import {
 	type CloudGrant,
@@ -712,6 +713,7 @@ export function wrapFor(
 				ownGitFolder: worktreeFolder(place.cwd),
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
+				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
 			};
 			makeFoldersFirst(home);
 			const own = sandboxFolders(home).cache;

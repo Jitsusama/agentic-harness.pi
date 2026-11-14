@@ -116,6 +116,11 @@ may import from here, and any of it may change without notice.
   files and programs' entries whose settings name a command, with
   the caches within them bound back and the programs given a home of
   their own in the sandbox's cache.
+- **`fence-copy.ts`**: where the fence keeps the copies it binds over
+  files inside, pi's folder in the runtime folder, written when they
+  change.
+- **`fence-npmrc.ts`**: the copy of `~/.npmrc` the fence binds over it,
+  every line but its registry tokens'.
 - **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
   binds over them, each included file written in, since ssh inside
   refuses root's files as nobody's.
