@@ -69,6 +69,41 @@ const engine = async (host: SessionHost): Promise<ConversationEngine> => ({
 	backgroundOf: () => 0,
 });
 
+/** The engine, with a resume that takes `ms`, as one does while others take their turns. */
+function slowResume(ms: number) {
+	return async (host: SessionHost): Promise<ConversationEngine> => ({
+		...(await engine(host)),
+		resume: () => new Promise((resolve) => setTimeout(resolve, ms)),
+	});
+}
+
+/** Leave one conversation held, as a stopped host leaves it, answering its id. */
+async function heldOne(): Promise<string> {
+	const signals = new EventEmitter();
+	const seeded = await runHost({
+		argv: ["background"],
+		env: env(),
+		engine,
+		signals,
+		ready: async () => {},
+		progress: async () => {},
+		say: () => {},
+		report: () => {},
+		places: places(),
+	});
+	const reply = await controlRequest(seeded.serving.path, {
+		v: 1,
+		id: "o",
+		op: "open",
+		cwd: dir,
+		attended: false,
+	});
+	if (!reply.ok) throw new Error(reply.error.message);
+	signals.emit("SIGTERM");
+	await seeded.stopped;
+	return parseOpenResult(reply.result).sessionId;
+}
+
 async function exists(path: string): Promise<boolean> {
 	return access(path).then(
 		() => true,
@@ -569,6 +604,55 @@ describe("runHost", () => {
 		);
 		second.emit("SIGTERM");
 		await run.stopped;
+	});
+
+	// The background host on 13 November: resumes took 80 to 135 s each,
+	// past the 120 s one ask gave, so the start outlived its time.
+	it("keeps asking for time while a step runs long, up to its ceiling, and none once ready", async () => {
+		const sessionId = await heldOne();
+		const RENEW_MS = 10;
+		const RESUME_MS = 300;
+		for (const ceiling of [Number.POSITIVE_INFINITY, 4 * RENEW_MS]) {
+			const asked: { status: string; at: number }[] = [];
+			const signals = new EventEmitter();
+			const run = await runHost({
+				argv: ["background"],
+				env: env(),
+				engine: slowResume(RESUME_MS),
+				signals,
+				ready: async () => {},
+				progress: async (_env, status) => {
+					asked.push({ status, at: performance.now() });
+				},
+				stepRenewEvery: RENEW_MS,
+				stepCeiling: ceiling,
+				say: () => {},
+				report: () => {},
+				places: places(),
+			});
+			const readyAt = performance.now();
+			await new Promise((resolve) => setTimeout(resolve, 5 * RENEW_MS));
+			signals.emit("SIGTERM");
+			await run.stopped;
+			const resuming = asked.filter(
+				({ status }) => status === `resuming 1 of 1: ${sessionId}`,
+			);
+			const first = resuming[0]?.at ?? 0;
+			if (ceiling === Number.POSITIVE_INFINITY)
+				expect(
+					resuming.length,
+					"the long resume asked again as it went",
+				).toBeGreaterThanOrEqual(3);
+			else
+				expect(
+					resuming.every(({ at }) => at - first < ceiling + RENEW_MS),
+					"no ask past the step's ceiling",
+				).toBe(true);
+			expect(
+				asked.filter(({ at }) => at > readyAt),
+				"no ask once ready",
+			).toEqual([]);
+		}
 	});
 
 	it("starts anyway when it can't ask for more time, and reports why", async () => {
