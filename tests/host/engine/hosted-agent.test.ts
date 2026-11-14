@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 
 const run = promisify(execFile);
@@ -92,10 +93,6 @@ async function reopenedWithReports(
 		{ env: sealedEnv() },
 	);
 	return { observed: JSON.parse(stdout), reported: stderr };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 /**

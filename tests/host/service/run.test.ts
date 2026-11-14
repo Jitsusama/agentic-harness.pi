@@ -1,4 +1,9 @@
-/** A host process: kind from argv, realm from env, ready once listening, parked on a stop signal. */
+/**
+ * A host process: kind from argv, realm from env, ready once listening,
+ * parked on a stop signal. Long because every case drives one runHost from
+ * start to stop over the same fakes, and its start, its asks of systemd and
+ * its stop change together.
+ */
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
@@ -73,6 +78,7 @@ const engine = async (host: SessionHost): Promise<ConversationEngine> => ({
 function slowResume(ms: number) {
 	return async (host: SessionHost): Promise<ConversationEngine> => ({
 		...(await engine(host)),
+		// The resume's own length is what the case measures the asks against.
 		resume: () => new Promise((resolve) => setTimeout(resolve, ms)),
 	});
 }
@@ -631,6 +637,7 @@ describe("runHost", () => {
 				places: places(),
 			});
 			const readyAt = performance.now();
+			// Five renewals' worth once ready, to show none comes after.
 			await new Promise((resolve) => setTimeout(resolve, 5 * RENEW_MS));
 			signals.emit("SIGTERM");
 			await run.stopped;

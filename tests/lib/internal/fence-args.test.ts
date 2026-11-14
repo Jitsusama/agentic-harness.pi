@@ -208,10 +208,14 @@ describe("the fence's arguments", () => {
 		expect(given, "nothing is mounted on the links themselves").not.toContain(
 			vault,
 		);
-		expect(fenceRefusesRead(storedFile, place, linked)).toBe(true);
-		expect(fenceRefusesRead(`${storedFolder}/adc.json`, place, linked)).toBe(
-			true,
-		);
+		expect(
+			fenceRefusesRead(storedFile, place, linked),
+			"the stored file a link points at is refused",
+		).toBe(true);
+		expect(
+			fenceRefusesRead(`${storedFolder}/adc.json`, place, linked),
+			"a file in the stored folder a link points at is refused",
+		).toBe(true);
 		expect(
 			fenceRefusesRead("/elsewhere/other.json", place, linked),
 			"what sits beside the target stays readable",
