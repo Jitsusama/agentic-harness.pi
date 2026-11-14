@@ -111,6 +111,9 @@ may import from here, and any of it may change without notice.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
+- **`fence-lifted.ts`**: the fence lifted from every session but a
+  fleet's subagents until it relands, since the default from 13
+  November stayed in each running pi's own environment.
 - **`fence-home.ts`**: what in the home folder runs code as the
   person later, which the fence keeps read-only: settings, startup
   files and programs' entries whose settings name a command, with
