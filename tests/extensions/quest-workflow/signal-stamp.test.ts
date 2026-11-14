@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	endBySignal,
 	installSignalStamp,
 	readRecord,
+	removeSignalStamp,
 } from "../../../extensions/quest-workflow/session-registry.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
@@ -102,6 +104,48 @@ describe("the signal stamp after a quest load", () => {
 		const before = process.listenerCount("SIGHUP");
 		await loadQuest("sess-loaded");
 		expect(process.listenerCount("SIGHUP")).toBe(before + 1);
+	});
+});
+
+describe("a pi whose own shutdown outlasts the signal", () => {
+	afterEach(() => removeSignalStamp());
+
+	it("is ended well inside the account's five-second stop", () => {
+		// At the 13 November reboot 60 pis were still shutting down when
+		// the account's manager ran out of its 5 s and was killed whole.
+		const delays: number[] = [];
+		installSignalStamp({
+			now: () => new Date("2026-11-13T21:28:23.000Z"),
+			schedule: (_fire, delayMs) => {
+				delays.push(delayMs);
+			},
+			raise: () => {},
+		});
+		process.emit("SIGTERM");
+		expect(delays, "one ending, scheduled within 2 s").toEqual([
+			expect.any(Number),
+		]);
+		expect(delays[0], "the grace before the ending").toBeLessThanOrEqual(2_000);
+	});
+
+	it("dies of the signal even with pi's own listener still in", () => {
+		// pi keeps its listener while it shuts down, and a second signal
+		// only finds its shutdown already under way, so sending the
+		// signal again changed nothing.
+		const steps: string[] = [];
+		endBySignal("SIGTERM", {
+			pid: 4242,
+			removeAllListeners: (signal) => {
+				steps.push(`unhear ${signal}`);
+			},
+			kill: (pid, signal) => {
+				steps.push(`kill ${pid} ${signal}`);
+			},
+		});
+		expect(steps, "every listener goes before the signal").toEqual([
+			"unhear SIGTERM",
+			"kill 4242 SIGTERM",
+		]);
 	});
 });
 
