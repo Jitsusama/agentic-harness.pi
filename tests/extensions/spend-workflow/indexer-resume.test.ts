@@ -239,26 +239,27 @@ function body(lines: readonly string[]): string {
 }
 
 describe("a grown log read from where the last pass stopped", () => {
-	it("gives the ledger what a whole read gives, split at every line", async () => {
+	const splits = Array.from(
+		{ length: richLog().length - 1 },
+		(_, at) => at + 1,
+	);
+
+	it.each(splits)("gives the ledger what a whole read gives, split at line %i", async (split) => {
 		const lines = richLog();
-		for (let split = 1; split < lines.length; split += 1) {
-			const resumed = place(`resumed-${split}`);
-			const whole = place(`whole-${split}`);
-			for (const where of [resumed, whole]) {
-				writeFileSync(where.log, body(lines.slice(0, split)));
-				await pass(where);
-				appendFileSync(where.log, body(lines.slice(split)));
-			}
-			forget(whole);
-
-			const outcome = await pass(resumed);
-			await pass(whole);
-
-			expect(outcome.resumed, `split at line ${split}`).toBe(1);
-			expect(await rows(resumed), `split at line ${split}`).toEqual(
-				await rows(whole),
-			);
+		const resumed = place("resumed");
+		const whole = place("whole");
+		for (const where of [resumed, whole]) {
+			writeFileSync(where.log, body(lines.slice(0, split)));
+			await pass(where);
+			appendFileSync(where.log, body(lines.slice(split)));
 		}
+		forget(whole);
+
+		const outcome = await pass(resumed);
+		await pass(whole);
+
+		expect(outcome.resumed).toBe(1);
+		expect(await rows(resumed)).toEqual(await rows(whole));
 	});
 
 	it("resumes again and again as a log keeps growing", async () => {
@@ -276,7 +277,9 @@ describe("a grown log read from where the last pass stopped", () => {
 		}
 
 		expect(await rows(resumed)).toEqual(await rows(whole));
-	});
+		// Fifty passes, each opening a ledger, which a loaded machine takes
+		// past the default five seconds over.
+	}, 30_000);
 
 	it("leaves an unended last line for the pass after it ends", async () => {
 		const lines = richLog();
