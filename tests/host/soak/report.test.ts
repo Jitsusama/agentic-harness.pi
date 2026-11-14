@@ -13,8 +13,10 @@ import {
 	growthOf,
 	latencies,
 	pairedCost,
+	pairKeys,
 	pairSteps,
 	parityOf,
+	plainKeys,
 	screenSplit,
 	showsTag,
 	slowKeys,
@@ -242,6 +244,43 @@ describe("what a screen adds", () => {
 				woke: "key",
 			},
 		]);
+	});
+
+	it("times plain pi's key from its prompt's sending to its entry, by tag", () => {
+		const sent = new Map([
+			["c0-t0", minute + 900],
+			["c0-t1", minute + 9_950],
+		]);
+		const keys = plainKeys(turnTimes(log), sent);
+		expect(
+			turnRecords(turnTimes(log), [], new Map(), [], keys).map(
+				(one) => one.plainKeyToAcceptedMs,
+			),
+			"two sent, the third never was",
+		).toEqual([100, 50, undefined]);
+	});
+
+	it("pairs steady keys with plain pi's, first keys apart, leaving out a wake's and a burst's", () => {
+		const records = [
+			{ tag: "c0-t0", keyToAcceptedMs: 300, plainKeyToAcceptedMs: 120 },
+			{ tag: "c1-t0", keyToAcceptedMs: 250 },
+			{ tag: "c0-t1", keyToAcceptedMs: 40, plainKeyToAcceptedMs: 10 },
+			{ tag: "c0-t2", keyToAcceptedMs: 9_000, plainKeyToAcceptedMs: 10, woke: "key" },
+			{ tag: "c1-t1", keyToAcceptedMs: 800, plainKeyToAcceptedMs: 10, burst: true as const },
+			{ tag: "c1-t2", plainKeyToAcceptedMs: 10 },
+		].map((one) => ({ promptAt: 0, answerAt: 0, hostedMs: 0, ...one }));
+		expect(pairKeys(records), "two first keys, one later, the rest left out").toEqual({
+			first: {
+				hosted: { count: 2, p50: 250, p99: 300 },
+				plain: { count: 1, p50: 120, p99: 120 },
+				paired: { count: 1, p50: 180, p99: 180, unpaired: 1 },
+			},
+			later: {
+				hosted: { count: 1, p50: 40, p99: 40 },
+				plain: { count: 1, p50: 10, p99: 10 },
+				paired: { count: 1, p50: 30, p99: 30, unpaired: 0 },
+			},
+		});
 	});
 
 	it("costs each turn as hosted's time less plain pi's for the same one", () => {
