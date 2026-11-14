@@ -186,7 +186,7 @@ export function parkedWarming(options: {
 				return;
 			}
 			stop(sessionId);
-			report(new Error(`Parked warm of ${sessionId} failed: ${sent.reason}`));
+			report(`Parked warm of ${sessionId} failed: ${sent.reason}`);
 			return;
 		}
 		warming.retried = false;

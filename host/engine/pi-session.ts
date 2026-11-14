@@ -219,7 +219,12 @@ export interface AgentSession {
 		mode?: "tui" | "rpc" | "json" | "print";
 		commandContextActions?: CommandContextActions;
 		shutdownHandler?: () => void;
-		onError?: (error: { extensionPath: string; error: string }) => void;
+		onError?: (error: {
+			extensionPath: string;
+			event: string;
+			error: string;
+			stack?: string;
+		}) => void;
 	}): Promise<void>;
 }
 
