@@ -241,6 +241,10 @@ may import from here, and any of it may change without notice.
   sandboxed session only in repositories the fence guards.
 - **`unattended-exec.ts`**: running git and gh with nobody at the
   keyboard.
+- **`void-owner.ts`**: who owns a line Joel says into the void, read
+  from what he attached (a pi session, a pull request, a page, a
+  window) and from the quests that claim it, for
+  `scripts/void-owner.ts`.
 - **`work-records.ts`**: where the work broker writes down the trees
   it cut, and which trees each session holds, for the work extension
   and for carrying a session's work.
