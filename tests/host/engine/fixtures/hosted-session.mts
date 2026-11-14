@@ -41,6 +41,7 @@ interface Session {
 	readonly agent: {
 		subscribe(listener: (event: { readonly type: string }) => void): () => void;
 		waitForIdle(): Promise<void>;
+		hasQueuedMessages(): boolean;
 		readonly state: { readonly messages: readonly unknown[] };
 	};
 }
@@ -148,13 +149,25 @@ const effects = (): string => join(folder, "effects");
 const noteEffect = (text: string): void =>
 	appendFileSync(effects(), `${text}\n`);
 
-/** How long an answer waits for the early prompt to return before it answers anyway. */
-const EARLY_WAIT_MS = 3_000;
-let earlyReturned = () => {};
-/** Settles once the scenario's early prompt returned, so an answer can wait on it. */
-const returned = new Promise<void>((done) => {
-	earlyReturned = done;
-});
+/** How long an answer waits for the agent to hold queued words before it answers anyway. */
+const QUEUED_WAIT_MS = 3_000;
+/** How often that answer looks again. */
+const QUEUED_POLL_MS = 20;
+/** What the session's agent holds queued, once the session is built. */
+let queued = (): boolean => false;
+/** Note an event among those pi's listeners saw, once the session is built. */
+let note = (_type: string): void => {};
+
+/** Answer `text` once the agent holds queued words, noting that it did, or after a while. */
+async function answerOnceQueued(text: string): Promise<unknown> {
+	const by = Date.now() + QUEUED_WAIT_MS;
+	while (!queued() && Date.now() < by) {
+		// Polled: nothing tells a listener that words were queued.
+		await new Promise((done) => setTimeout(done, QUEUED_POLL_MS));
+	}
+	if (queued()) note("queued_mid_turn");
+	return say(text);
+}
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
 const call = (id: string, text: string, timestamp?: number) =>
@@ -282,15 +295,8 @@ const scenarios: Record<string, Scenario> = {
 	/** Reopen with a prompt sent before the recovery, as an extension starting with the session sends one. */
 	"reopen-prompted": {
 		responses: () => [
-			// The carried-on turn answers once the prompt returned, so the events show whether it waited for that turn.
-			async () => {
-				await Promise.race([
-					returned,
-					// A prompt that waits for the turn returns only after it: the answer stops waiting.
-					new Promise((done) => setTimeout(done, EARLY_WAIT_MS)),
-				]);
-				return say("after the restart");
-			},
+			// The carried-on turn answers once the prompt's words are queued, so the events show whether they were.
+			() => answerOnceQueued("after the restart"),
 			say("and the prompt"),
 		],
 		tools: echo(async () => noteEffect("ping")),
@@ -513,10 +519,9 @@ try {
 			resolve();
 		});
 	});
-	const early = scenario.early?.(session).then(() => {
-		events.push({ type: "early_returned" });
-		earlyReturned();
-	});
+	queued = () => session.agent.hasQueuedMessages();
+	note = (type) => events.push({ type });
+	const early = scenario.early?.(session);
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);
 	const recovery = await conversation?.agent?.recover();

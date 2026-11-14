@@ -377,10 +377,13 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				(event) =>
 					event.type === "message_end" && carries(event, "after the restart"),
 			);
-			expect(types, "the prompt returned").toContain("early_returned");
 			expect(
-				types.indexOf("early_returned"),
-				"the prompt returned, its words queued, before the carried-on turn answered",
+				types,
+				"the prompt's words were queued while the carried-on turn ran",
+			).toContain("queued_mid_turn");
+			expect(
+				types.indexOf("queued_mid_turn"),
+				"queued before the carried-on turn answered",
 			).toBeLessThan(carriedOnEnd);
 			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");

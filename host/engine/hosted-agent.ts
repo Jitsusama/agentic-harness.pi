@@ -432,8 +432,10 @@ export class HostedAgent {
 	/**
 	 * Queue words behind the turn the recovery carries on, as pi queues a
 	 * prompt while it is busy, so durable holds them through another restart
-	 * rather than an unresolved prompt that nothing shows. False, with the
-	 * recovery's run ended, when durable carried nothing on.
+	 * rather than only an unresolved prompt. True once the run that answers
+	 * them ended, as pi's agent resolves a prompt: pi's session continues
+	 * the agent once it does. False, with the recovery's run ended, when
+	 * durable carried nothing on.
 	 */
 	private async followCarriedOn(
 		messages: readonly AgentMessage[],
@@ -447,7 +449,10 @@ export class HostedAgent {
 				this.queue(this.followUpQueue, message, "followUp"),
 			);
 			await this.admissions;
-			if (items[0]?.submissionId !== undefined) return true;
+			if (items[0]?.submissionId !== undefined) {
+				while (this.active) await this.active.promise;
+				return true;
+			}
 			// An idle conversation refused them: nothing carried on, so they run as a prompt.
 			for (const item of items) this.followUpQueue.take(item.hostId);
 		}
