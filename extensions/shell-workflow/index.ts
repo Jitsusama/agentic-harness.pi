@@ -33,13 +33,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
-import { fenceByDefault } from "../../lib/internal/fence-default.ts";
-import { recordUnfenced, systemLogger } from "../../lib/internal/fence-log.ts";
-import {
-	askTheCloudAhead,
-	SANDBOX_VARIABLE,
-	sandboxFor,
-} from "../../lib/internal/sandbox.ts";
+import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
 	endsWithItsPrompts,
@@ -72,53 +66,15 @@ function shellSettings(ctx: ExtensionContext): ShellSettings {
 const hasJobsBroker = (): boolean =>
 	jobsBroker(process.env.XDG_RUNTIME_DIR) !== undefined;
 
-/**
- * Leave the session's unfenced line in the system's log, so a session
- * running its commands with no fence, by choice or not, shows outside
- * it; and say so when the log didn't take it.
- */
-async function sayUnfenced(
-	ctx: ExtensionContext,
-	record: ShellWorkflowDeps["recordUnfenced"],
-): Promise<void> {
-	const asked = process.env[SANDBOX_VARIABLE]?.trim() || undefined;
-	const unrecorded = await record(asked, ctx.sessionManager.getSessionId());
-	if (unrecorded === undefined) return;
-	try {
-		ctx.ui.notify(`${unrecorded}: this session runs unfenced.`, "warning");
-	} catch {
-		// A context replaced meanwhile has no screen to say it on.
-	}
-}
-
 /** The folder pi's bash is built with when only its shape is wanted. */
 const SHAPE_ONLY = "";
 
-/** What the extension reaches outside pi, which a test puts in place. */
-export interface ShellWorkflowDeps {
-	/** Leave a session's unfenced line in the system's log (fence-log.ts). */
-	readonly recordUnfenced: (
-		sandbox: string | undefined,
-		session: string | undefined,
-	) => Promise<string | undefined>;
-}
-
-const LIVE: ShellWorkflowDeps = {
-	recordUnfenced: (sandbox, session) =>
-		recordUnfenced(sandbox, session, systemLogger()),
-};
-
-export default function shellWorkflow(
-	pi: ExtensionAPI,
-	deps: ShellWorkflowDeps = LIVE,
-) {
+export default function shellWorkflow(pi: ExtensionAPI) {
 	// The shape pi's bash is drawn and described with. Its folder is never
 	// used: execution is per session, at the folder its conversation stands
 	// in, and pi's description names none.
 	const shape = createBashToolDefinition(SHAPE_ONLY);
-	// Asked for when the session starts, by its environment (sandbox.ts),
-	// which asks for the fence where it names nothing.
-	const unfenced = fenceByDefault();
+	// Asked for when the session starts, by its environment (sandbox.ts).
 	const sandbox = sandboxFor();
 	let bash: AgentBash | undefined;
 	// A bash given up closes its pi-spawner once its commands end, so a
@@ -139,8 +95,6 @@ export default function shellWorkflow(
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		if (unfenced !== undefined) ctx.ui.notify(unfenced, "warning");
-		if (sandbox.kind === "none") void sayUnfenced(ctx, deps.recordUnfenced);
 		retireBash();
 		bashFor(ctx);
 		askTheCloudAhead(sandbox);

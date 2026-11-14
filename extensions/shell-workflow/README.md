@@ -68,16 +68,10 @@ Within one account, every check a desktop daemon could make is one a
 process running as you can forge: the uid a socket reports, the program
 a pid runs, the cgroup it sits in, a pipe another process holds. The
 compositor hands every client a virtual keyboard, the clipboard and the
-screen. So rather than ask each daemon to tell an agent from you, each
-command runs in
+screen. So rather than ask each daemon to tell an agent from you, start
+a session with `PI_SANDBOX=fence` and each command runs in
 [bubblewrap](https://github.com/containers/bubblewrap), around Landlock
-through landrun. On Linux it is the default: a session that names no
-`PI_SANDBOX`, or an empty one, is given `PI_SANDBOX=fence` as it loads,
-and its children inherit it. Where bubblewrap or landrun isn't in the system's own
-profile, the session runs unfenced and says so once. `PI_SANDBOX=off`
-runs one session unfenced by choice. Either way the session leaves
-`unfenced sandbox=<off|none> session=<id>` in the system's log under
-`pi-fence`, so an opt-out shows. Fenced, a command has:
+through landrun:
 
 - **Its own processes and devices.** A pid namespace and a `/proc` of
   its own, so no other process's files, memory or open pipes, and a
