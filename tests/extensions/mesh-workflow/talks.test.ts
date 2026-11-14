@@ -255,6 +255,38 @@ describe("a talk a session follows", () => {
 		expect(stages("t2").at(-1)).toEqual({ stage: "replied", text: "Done." });
 	});
 
+	it("keeps its own reply when a newer talk comes into the run it started", () => {
+		// The void's 18:57 run was still going when Joel's 18:59 line came
+		// (8GYNJ6, 13 Nov): the newer line's answer was filed under both.
+		const following = talks();
+		take(following, { text: "first", id: "t1", file: "f" });
+		following.wrote("Loop has it · undo 18:57");
+		following.step("bash");
+		take(following, { text: "second", id: "t2", file: "f" });
+		following.writing("Launcher has");
+		following.wrote("Launcher has it · undo 18:59");
+		following.step("bash");
+		following.settled(false);
+
+		const replies = (id: string) =>
+			stages(id)
+				.filter(({ stage }) => stage === "replying" || stage === "replied")
+				.map(({ text }) => text);
+		expect(replies("t1")).toEqual(["Loop has it · undo 18:57"]);
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "over",
+			why: "a newer talk was answered",
+		});
+		expect(replies("t2")).toEqual([
+			"Launcher has",
+			"Launcher has it · undo 18:59",
+		]);
+		expect(stages("t2").at(-1)).toEqual({
+			stage: "replied",
+			text: "Launcher has it · undo 18:59",
+		});
+	});
+
 	it("ends a talk answered before a reload, once, when a newer one is replied after it", () => {
 		const before = talks();
 		take(before, { text: "a", id: "t1", file: "f" });
