@@ -69,6 +69,7 @@ describe.skipIf(landrun === undefined)(
 		let base: string;
 		let runtimeDir: string;
 		let letThrough: string;
+		let inFolder: string;
 		let standing: string;
 		const servers: Server[] = [];
 		const fenced = () => [
@@ -84,8 +85,14 @@ describe.skipIf(landrun === undefined)(
 			runtimeDir = join(base, "run");
 			mkdirSync(runtimeDir, { mode: 0o700 });
 			letThrough = join(runtimeDir, "pi-agent.sock");
+			mkdirSync(join(runtimeDir, "pi-agent"), { mode: 0o700 });
+			inFolder = join(runtimeDir, "pi-agent", "agent.sock");
 			standing = join(base, "nix-offload-standing.sock");
-			servers.push(await serve(letThrough), await serve(standing));
+			servers.push(
+				await serve(letThrough),
+				await serve(inFolder),
+				await serve(standing),
+			);
 		});
 
 		afterAll(async () => {
@@ -108,6 +115,15 @@ describe.skipIf(landrun === undefined)(
 				await connects(standing, fenced()),
 				"a fenced command connected to a socket the fence doesn't list",
 			).toBe(false);
+		});
+
+		it("lets a fenced command reach the proxy's socket in its own folder, which the rule names as a folder", async (context) => {
+			if (!(await connects(inFolder, []))) context.skip();
+
+			expect(
+				await connects(inFolder, fenced()),
+				"the proxy's socket in its folder wasn't reached through the folder's rule",
+			).toBe(true);
 		});
 
 		it("names the standing builders' door among what never goes through", () => {

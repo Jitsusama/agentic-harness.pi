@@ -57,13 +57,14 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
-	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy and the jobs broker in the runtime folder", () => {
+	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, and the jobs broker in the runtime folder", () => {
 		const bound = pairs("--bind").filter((path) =>
 			path?.startsWith(place.runtimeDir),
 		);
 		expect(bound).toEqual([
 			"/run/user/1000/nix-untrusted.sock",
 			"/run/user/1000/pi-agent.sock",
+			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
 		]);
 	});
@@ -347,6 +348,7 @@ describe("the fence's arguments", () => {
 			"/run/nscd/socket",
 			"/run/user/1000/nix-untrusted.sock",
 			"/run/user/1000/pi-agent.sock",
+			"/run/user/1000/pi-agent",
 			"/run/user/1000/daemons/jobs-broker.sock",
 		]);
 		expect(rules).not.toContain("--unrestricted-scoped");
