@@ -475,6 +475,8 @@ export async function createEngine(
 		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
 		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
+		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
+		agentOf(record).showQueuedIn(created.session);
 		return { ...created, services, diagnostics: said };
 	}
 

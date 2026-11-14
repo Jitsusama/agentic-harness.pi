@@ -5,7 +5,9 @@ dependencies: loadHostPi imports pi, pi-agent-core, pi-ai, pi-durable and
 chord from the install's folder and refuses, naming each missing patch,
 unless it carries every host seam core.nix's modules/pi applies
 (the agent interface, the committed turn and the hosted screen). A host
-refuses this before it opens any conversation.
+refuses this before it opens any conversation. A seam it only wants
+(HOST_WANTED_SEAMS) is listed in lacking instead, and the host says at
+start what it goes without, so a runtime built before one still hosts.
 
 SessionHost installs the public session seam before any hosted extension
 loads. Register each conversation's stable pi id, absolute session file,
@@ -95,6 +97,15 @@ session is disposed if the host stops first. Each request
 also has its tool results put back beside their calls first
 (paired-results.ts), which keeps a file already in that shape
 answering; a result whose call is not before it goes as text saying so.
+
+Words sent as a conversation reopens wait behind the turn durable carries
+on, queued on the agent rather than on pi's session, whose screen lists
+only what it queued itself: queueing them there too would run them through
+the extensions' input handlers and onto the agent a second time. So the
+agent shows them through the agent-interface patch's showQueued
+(showQueuedIn), and pi takes each off its list as its message starts or
+the queue is cleared. On a pi without that seam they show only as their
+turn starts.
 
 ToolRound (tool-round.ts) keeps pi's tool-call steps in pi's order:
 start, then preparation, hooks and validation, then execution. A

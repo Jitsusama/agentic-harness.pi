@@ -58,6 +58,14 @@ export const INPUT_KINDS = {
 	followUp: "host.follow-up",
 } as const;
 
+/** Show words as pending in pi's screen, as pi's session shows what it queued itself. */
+export type ShowQueued = (text: string, mode: "steer" | "followUp") => void;
+
+/** pi's session, as far as showing the agent's queued words needs it: a runtime before the seam lacks it. */
+export interface QueueShowingSession {
+	showQueued?: ShowQueued;
+}
+
 /** The data an input entry carries: pi's messages, as pi showed them. */
 interface InputData {
 	readonly hostId: string;
@@ -204,6 +212,8 @@ export class HostedAgent {
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
 	private readonly library: PiLibrary;
+	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
+	private pending: ShowQueued | undefined;
 
 	constructor(
 		options: AgentOptions,
@@ -398,6 +408,16 @@ export class HostedAgent {
 	}
 
 	/**
+	 * Show the words this agent queues itself, past pi's session, in that
+	 * session's pending list, where pi has the seam: pi's session lists only
+	 * what it queued, so without it they show nowhere until their turn starts.
+	 */
+	showQueuedIn(session: QueueShowingSession): void {
+		if (typeof session.showQueued !== "function") return;
+		this.pending = (text, mode) => session.showQueued?.(text, mode);
+	}
+
+	/**
 	 * Open the conversation, once pi's session holds the agent: let durable
 	 * carry on whatever a restart cut off, as a run of pi's that starts only
 	 * if there is something to show, beginning with what durable committed
@@ -449,6 +469,13 @@ export class HostedAgent {
 			const items = messages.map((message) =>
 				this.queue(this.followUpQueue, message, "followUp"),
 			);
+			// Shown at once, as pi shows its own queued words: pi takes each off
+			// as its message starts, whether durable answers it after the turn
+			// or refused it and it runs as a prompt below.
+			for (const message of messages) {
+				const text = queuedText(message);
+				if (text) this.pending?.(text, "followUp");
+			}
 			await this.admissions;
 			if (items[0]?.submissionId !== undefined) {
 				while (this.active) await this.active.promise;
@@ -1709,6 +1736,28 @@ function normalizePromptInput(
 		...(images ?? []),
 	];
 	return [{ role: "user", content, timestamp: Date.now() }];
+}
+
+/**
+ * A user message's text as pi's session keys its pending list: its text
+ * parts joined with nothing between, so pi finds it there and takes it off
+ * as the message starts. Empty for anything else.
+ */
+function queuedText(message: AgentMessage): string {
+	if (message.role !== "user") return "";
+	const { content } = message;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((block) =>
+			typeof block === "object" &&
+			block !== null &&
+			block.type === "text" &&
+			typeof block.text === "string"
+				? block.text
+				: "",
+		)
+		.join("");
 }
 
 /** What durable's own context gets for pi's input: its user content, else its text. */

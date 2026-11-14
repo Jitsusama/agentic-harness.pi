@@ -198,6 +198,12 @@ export interface AgentSession {
 	waitForIdle(): Promise<void>;
 	reload(): Promise<void>;
 	subscribe(listener: (event: { readonly type: string }) => void): () => void;
+	/**
+	 * Show words the agent already holds as pending, as pi shows its own
+	 * queued input: the agent-interface patch's, absent from a runtime built
+	 * before it.
+	 */
+	showQueued?(text: string, mode: "steer" | "followUp"): void;
 	/** What an extension's pi.sendMessage reaches. */
 	sendCustomMessage(
 		message: CustomMessageInput,
