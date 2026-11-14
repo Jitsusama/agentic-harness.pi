@@ -518,14 +518,18 @@ describe("runHost", () => {
 	it("ends a stop a park holds, naming the conversation, inside its bound", async () => {
 		const signals = new EventEmitter();
 		const said: string[] = [];
+		let parks = () => {};
 		const run = await runHost({
 			argv: ["background"],
 			env: env(),
 			engine: async (host) => ({
 				...(await engine(host)),
 				start: async ({ sessionId, file, cwd }) => {
-					// A park that never ends, as a hung durable close does.
-					const close = () => new Promise<void>(() => {});
+					// A park that doesn't end until the case lets it, as a hung durable close.
+					const close = () =>
+						new Promise<void>((parked) => {
+							parks = parked;
+						});
 					host.register({ id: sessionId, file, cwd, env: {}, close });
 				},
 			}),
@@ -553,12 +557,18 @@ describe("runHost", () => {
 			said.filter((line) => line.includes("not parked")),
 			"says which conversation it ends unparked",
 		).toEqual([
-			expect.stringContaining(`stopping after 200 ms, 1 not parked: ${sessionId}`),
+			expect.stringContaining(
+				`stopping after 200 ms, 1 not parked: ${sessionId}`,
+			),
 		]);
 		expect(
 			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
 			"the next host takes it up",
 		).toBe("held");
+		// The process would end here; the case lets the park end instead, so
+		// the host it installed is gone before the next case starts one.
+		parks();
+		await run.serving.stop();
 	});
 
 	it("gives serve the viewer bridge, built once over the host it runs", async () => {
