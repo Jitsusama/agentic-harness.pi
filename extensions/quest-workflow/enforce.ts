@@ -138,11 +138,14 @@ async function systemTempFunnel(
 	if (!state.questDir || !workspaceDirOf(root, state.questId)) return;
 	const targets = writeTargetsOf(toolName, input, cwd, options);
 	const classified = await Promise.all(
-		targets.map((t) => classifyTarget(state, t, options)),
+		targets.map(async (target) => ({
+			target,
+			category: (await classifyTarget(state, target, options)).category,
+		})),
 	);
-	const inTemp = targets.filter(
-		(_, at) => classified[at].category === "system-temp",
-	);
+	const inTemp = classified
+		.filter((each) => each.category === "system-temp")
+		.map((each) => each.target);
 	if (inTemp.length === 0) return;
 	const dir = ensureQuestWorkspaceTmp(root, state.questId ?? "");
 	return {
