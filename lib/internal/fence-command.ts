@@ -2,7 +2,8 @@
  * The shell text that runs a command in the agent fence (fence.ts):
  * bubblewrap around landrun, with every variable the shell exports but
  * those naming the desktop, and the doors each fenced command is handed
- * to Nix, SSH's agent and GitHub.
+ * to Nix, SSH's agent and GitHub, and the fence's own `wl-copy` and
+ * `wl-paste` ahead on its path.
  */
 
 import {
@@ -34,8 +35,9 @@ const UNSET = [
  * with `args`, around landrun with `rules`. Every variable the shell
  * exports goes in but those naming the desktop, Nix is reached
  * through `door`, its daemon's door for sandboxes, SSH's agent is
- * `agent`, the proxy, when there is one, and GitHub is reached through
- * `github`, its door, when there is one.
+ * `agent`, the proxy, GitHub is reached through `github`, its door,
+ * and `shims`, the fence's `wl-copy` and `wl-paste`, go first on
+ * `PATH`, each when there is one.
  */
 export function fencedCommand(
 	command: string,
@@ -49,12 +51,14 @@ export function fencedCommand(
 		/** Where each of `OWN_HOMES` lives inside, by its variable. */
 		readonly homes?: readonly (readonly [string, string])[];
 		readonly github?: GitHubDoor;
+		readonly shims?: string;
 	},
 ): string {
 	const homes = fence.homes ?? [];
 	const unset = [
 		...UNSET,
 		...homes.map(([name]) => name),
+		...(fence.shims ? ["PATH"] : []),
 		SANDBOXED_COMMAND,
 	].join("|");
 	const run = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
@@ -76,6 +80,11 @@ export function fencedCommand(
 			"--env GIT_OPTIONAL_LOCKS=0",
 			...(fence.agent
 				? [`--env ${quoted(`SSH_AUTH_SOCK=${fence.agent}`)}`]
+				: []),
+			// The path as the shell outside has it when the command runs,
+			// the fence's shims ahead of it.
+			...(fence.shims
+				? [`--env ${quoted(`PATH=${fence.shims}:`)}"$PATH"`]
 				: []),
 			...homes.map(([name, path]) => `--env ${quoted(`${name}=${path}`)}`),
 			`-- bash -c ${quoted(stub)}`,

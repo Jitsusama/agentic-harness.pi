@@ -15,13 +15,20 @@
  * - **No other process:** a pid namespace of its own and a `/proc` to
  *   match, so no other process's files, memory or open pipes.
  * - **No desktop:** the runtime folder is an empty one of its own, with
- *   only the Nix daemon's door for sandboxes and the SSH agent's proxy
- *   bound back in. The display,
+ *   only the Nix daemon's door for sandboxes, the SSH agent's proxy,
+ *   the jobs broker and the clipboard door bound back in, read-only
+ *   (`LET_THROUGH`). The display,
  *   niri, the shell's ipc, the session bus, sound, the keyring, the
  *   password and clipboard daemons and kitty's socket are named in
  *   `NEVER_THROUGH`, and Landlock refuses any socket it wasn't told of,
  *   abstract ones and signals outside too, so one elsewhere isn't
  *   reachable either.
+ * - **A clipboard without the desktop:** `wl-copy` and `wl-paste` are
+ *   the fence's own, first on `PATH`, which ask the clipboard door
+ *   outside (`fence-clipboard.ts`). No window opens: niri would focus
+ *   it on the person's workspace, so no display is let through, not
+ *   even core's sandboxed one, until niri opens a sandboxed window
+ *   unfocused elsewhere.
  * - **No startup files:** the settings and startup files that run code
  *   as the person later (`READ_ONLY`) are read-only, from this command
  *   and from pi's own file tools (`sandbox-files.ts`).
@@ -83,7 +90,10 @@ export const FENCE = "fence";
  * process asking, as the kernel names it, into a scope of its own in
  * its quest's work, and says how named units stand (core's
  * `modules/jobs-broker`). The broker stands in for the user's bus,
- * which stays shut.
+ * which stays shut. And the clipboard door, in a folder of its own,
+ * which copies and pastes for the fence's `wl-copy` and `wl-paste`,
+ * answers only fenced commands and never reads what a password manager
+ * marked secret (core's `modules/pi/clipboard-door`).
  *
  * The proxy's socket lives in a folder of its own, bound whole, so a
  * fenced command started before the proxy's socket comes back (a switch
@@ -97,6 +107,7 @@ const LET_THROUGH = [
 	"pi-agent.sock",
 	"pi-agent",
 	"daemons/jobs-broker.sock",
+	"pi-clipboard",
 ] as const;
 
 /**

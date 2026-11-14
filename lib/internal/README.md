@@ -115,7 +115,8 @@ may import from here, and any of it may change without notice.
   from.
 - **`fence-command.ts`**: the shell text that runs a command in the
   fence, with every variable exported but those naming the desktop,
-  and its doors to Nix, SSH's agent and GitHub.
+  its doors to Nix, SSH's agent and GitHub, and the fence's own
+  `wl-copy` and `wl-paste` ahead on the path.
 - **`fence-github.ts`**: the GitHub door (core's
   `modules/pi/github-door`) as the fence uses it: the session's own
   folder bound in read-only, gh and git sent through the door's relay
@@ -136,6 +137,9 @@ may import from here, and any of it may change without notice.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.
+- **`fence-clipboard.ts`**: the fence's own `wl-copy` and
+  `wl-paste`, first on a fenced command's path, which ask core's
+  clipboard door outside rather than a display.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
