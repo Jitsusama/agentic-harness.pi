@@ -61,6 +61,7 @@ import { openSessionStore } from "../../lib/core/result/location.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { medianOf } from "../../lib/internal/cost-meter/index.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 import { duMeasure } from "../../lib/internal/quest/footprint.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import {
@@ -79,7 +80,7 @@ import {
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
 import { formatAudit } from "./audit.ts";
 import { gatherAudit } from "./audit-input.ts";
-import { registerBudgetItem } from "./budget-item.ts";
+import { budgetAsks, registerBudgetItem } from "./budget-item.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs, sessionsDir } from "./indexer.ts";
@@ -337,6 +338,9 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	registerBudgetItem(pi, {
 		exec: () => spawnExec({ timeoutMs: BILL_TIMEOUT_MS }),
 		listPrice: () => sessionSpend,
+		// One ask a minute for the whole process, which a host shares
+		// among its conversations.
+		asks: processGlobal("agentic-harness.budget-asks", budgetAsks),
 	});
 
 	// What the machine did for each turn, which no log records. Only a
