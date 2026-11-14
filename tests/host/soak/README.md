@@ -142,19 +142,24 @@ It prints a line a checkpoint and the report as one JSON line after
   with the window bursts, and the steady two leave them out. `bar` says
   whether each holds: `rounds` and `tools` at most 250 ms at the p99
   and 1 s at most, failing too when over 1% of turns are `unpaired`, and
-  `keyToAccepted` and `keyToDrawn` at most 200 ms, with `keyToDrawn`
-  failing too when over 1% of its keys are `unshown`. The whole turn's
-  `paired` is reported beside them, unjudged; the bursts are judged
-  from their checkpoints and `burst`. `keys`, unjudged, sets each
-  steady key beside plain pi's same one, timed from sending its RPC
-  prompt to the same entry the hosted key is timed to, each
+  `keyToAccepted` and `keyToDrawn` judged from `keys`, with
+  `keyToDrawn` failing too when over 1% of its keys are `unshown`.
+  The whole turn's `paired` is reported beside them, unjudged; the
+  bursts are judged from their checkpoints and `burst`. `keys` sets
+  each steady key beside plain pi's same one, timed from sending its
+  RPC prompt to the same entry the hosted key is timed to, each
   conversation's first key (`first`) apart from the rest (`later`),
-  with `hosted`, `plain`, and `paired`, hosted less plain. It tells
-  what the host adds to a key from what pi itself spends, a first
-  prompt above all. Plain pi is asked its state before its first
-  prompt, as a hosted conversation is open before its first key, so
-  neither side's start counts. Plain pi has no screen, so a drawing
-  doesn't pair.
+  with `hosted`, `plain`, `paired` (hosted less plain, with its
+  largest), `drawn` (hosted's key to its first drawing) and
+  `drawnPaired` (that drawing less plain pi's key to its entry, plain
+  pi having no screen). A later key is held to 200 ms at the p99,
+  `hosted` and `drawn`. A first key is held to `paired` and
+  `drawnPaired` instead, at most 200 ms at the p99 and 1 s at most,
+  failing too when over 1% of first keys are `unpaired`: pi's own
+  first prompt can pass 200 ms with no host at all, so an absolute bar
+  on it would judge pi, not the host. Plain pi is asked its state
+  before its first prompt, as a hosted conversation is open before its
+  first key, so neither side's start counts.
 - `turnsTimed`: every hosted turn's own times, when its key, prompt
   and answer were, plain pi's beside them and its key's when a viewer
   typed it, with plain pi's own key for the same turn, with how it woke when it was the first key since, whether

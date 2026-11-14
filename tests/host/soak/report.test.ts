@@ -6,6 +6,7 @@
  * its provider answers each request with.
  */
 import { describe, expect, it } from "vitest";
+import { plainKeys } from "./keys.ts";
 import {
 	barOf,
 	burstOf,
@@ -13,10 +14,8 @@ import {
 	growthOf,
 	latencies,
 	pairedCost,
-	pairKeys,
 	pairSteps,
 	parityOf,
-	plainKeys,
 	screenSplit,
 	showsTag,
 	slowKeys,
@@ -260,42 +259,6 @@ describe("what a screen adds", () => {
 		).toEqual([100, 50, undefined]);
 	});
 
-	it("pairs steady keys with plain pi's, first keys apart, leaving out a wake's and a burst's", () => {
-		const records = [
-			{ tag: "c0-t0", keyToAcceptedMs: 300, plainKeyToAcceptedMs: 120 },
-			{ tag: "c1-t0", keyToAcceptedMs: 250 },
-			{ tag: "c0-t1", keyToAcceptedMs: 40, plainKeyToAcceptedMs: 10 },
-			{
-				tag: "c0-t2",
-				keyToAcceptedMs: 9_000,
-				plainKeyToAcceptedMs: 10,
-				woke: "key",
-			},
-			{
-				tag: "c1-t1",
-				keyToAcceptedMs: 800,
-				plainKeyToAcceptedMs: 10,
-				burst: true as const,
-			},
-			{ tag: "c1-t2", plainKeyToAcceptedMs: 10 },
-		].map((one) => ({ promptAt: 0, answerAt: 0, hostedMs: 0, ...one }));
-		expect(
-			pairKeys(records),
-			"two first keys, one later, the rest left out",
-		).toEqual({
-			first: {
-				hosted: { count: 2, p50: 250, p99: 300 },
-				plain: { count: 1, p50: 120, p99: 120 },
-				paired: { count: 1, p50: 180, p99: 180, unpaired: 1 },
-			},
-			later: {
-				hosted: { count: 1, p50: 40, p99: 40 },
-				plain: { count: 1, p50: 10, p99: 10 },
-				paired: { count: 1, p50: 30, p99: 30, unpaired: 0 },
-			},
-		});
-	});
-
 	it("costs each turn as hosted's time less plain pi's for the same one", () => {
 		const records = [
 			{ tag: "c0-t0", hostedMs: 2_000, plainMs: 1_500 },
@@ -443,9 +406,26 @@ describe("the bar", () => {
 	};
 	const step = { count: 500, p50: 0, p99: 250, max: 1_000 };
 	const steps = { rounds: step, tools: step, turns: 100, unpaired: 0 };
+	const cost = { count: 100, p50: 20, p99: 150, max: 300, unpaired: 0 };
+	const pairing = {
+		hosted: within,
+		plain: within,
+		paired: cost,
+		drawn: within,
+		drawnPaired: cost,
+	};
+	const keys = { first: pairing, later: pairing };
+	const firstOver = (over: Partial<typeof cost>) => ({
+		...keys,
+		first: {
+			...pairing,
+			paired: { ...cost, ...over },
+			drawnPaired: { ...cost, ...over },
+		},
+	});
 
 	it("holds a step's cost to 250 ms at the p99 and a second at most, and a key's to 200 ms", () => {
-		expect(barOf(steps, screen), "all four within").toEqual({
+		expect(barOf(steps, screen, keys), "all four within").toEqual({
 			rounds: true,
 			tools: true,
 			keyToAccepted: true,
@@ -458,7 +438,11 @@ describe("the bar", () => {
 					rounds: { ...step, p99: 251 },
 					tools: { ...step, max: 1_001 },
 				},
-				{ ...screen, keyToDrawn: { count: 5, p50: 20, p99: 201 } },
+				screen,
+				{
+					...keys,
+					later: { ...pairing, drawn: { count: 5, p50: 20, p99: 201 } },
+				},
 			),
 			"a round's p99, one tool and a drawing each over",
 		).toEqual({
@@ -469,34 +453,70 @@ describe("the bar", () => {
 		});
 	});
 
+	it("judges a first key over plain pi's first key, which can pass 200 ms alone", () => {
+		const slow = { count: 100, p50: 240, p99: 400 };
+		expect(
+			barOf(steps, screen, {
+				...keys,
+				first: { ...pairing, hosted: slow, plain: slow, drawn: slow },
+			}),
+			"slow first keys plain pi matches",
+		).toMatchObject({ keyToAccepted: true, keyToDrawn: true });
+		expect(
+			barOf(steps, screen, firstOver({ p99: 201 })),
+			"first keys 201 ms over plain pi's at the p99",
+		).toMatchObject({ keyToAccepted: false, keyToDrawn: false });
+		expect(
+			barOf(steps, screen, firstOver({ max: 1_001 })),
+			"one first key over plain pi's by more than a second",
+		).toMatchObject({ keyToAccepted: false, keyToDrawn: false });
+		expect(
+			barOf(steps, screen, firstOver({ count: 98, unpaired: 2 })),
+			"2 of 100 first keys with no plain pi key to pair",
+		).toMatchObject({ keyToAccepted: false, keyToDrawn: false });
+	});
+
+	it("holds a later key to 200 ms absolute, whatever plain pi took", () => {
+		const slow = { count: 5, p50: 20, p99: 201 };
+		expect(
+			barOf(steps, screen, {
+				...keys,
+				later: { ...pairing, hosted: slow, plain: slow },
+			}),
+			"later keys 201 ms, plain pi's as slow",
+		).toMatchObject({ keyToAccepted: false, keyToDrawn: true });
+	});
+
 	it("fails one stall a whole turn's cost would hide", () => {
 		// A 1.5 s stall in one round, the rest of its turn's rounds even.
 		const stalled = { count: 500, p50: 0, p99: 30, max: 1_500 };
 		expect(
-			barOf({ ...steps, rounds: stalled }, screen).rounds,
+			barOf({ ...steps, rounds: stalled }, screen, keys).rounds,
 			"the stalled round fails its bar",
 		).toBe(false);
 	});
 
 	it("fails the steps when more than 1% of turns went unpaired", () => {
 		expect(
-			barOf({ ...steps, turns: 99, unpaired: 1 }, screen),
+			barOf({ ...steps, turns: 99, unpaired: 1 }, screen, keys),
 			"1 of 100, 1%",
 		).toMatchObject({ rounds: true, tools: true });
 		expect(
-			barOf({ ...steps, turns: 98, unpaired: 2 }, screen),
+			barOf({ ...steps, turns: 98, unpaired: 2 }, screen, keys),
 			"2 of 100, over 1%",
 		).toMatchObject({ rounds: false, tools: false });
 	});
 
 	it("fails the drawing when more than 1% of its keys were never seen drawn", () => {
-		const keys = { count: 200, p50: 20, p99: 150 };
+		const timed = { count: 200, p50: 20, p99: 150 };
 		expect(
-			barOf(steps, { ...screen, keyToAccepted: keys, unshown: 2 }).keyToDrawn,
+			barOf(steps, { ...screen, keyToAccepted: timed, unshown: 2 }, keys)
+				.keyToDrawn,
 			"2 of 200 unseen, 1%",
 		).toBe(true);
 		expect(
-			barOf(steps, { ...screen, keyToAccepted: keys, unshown: 3 }).keyToDrawn,
+			barOf(steps, { ...screen, keyToAccepted: timed, unshown: 3 }, keys)
+				.keyToDrawn,
 			"3 of 200 unseen, over 1%",
 		).toBe(false);
 	});
@@ -504,10 +524,14 @@ describe("the bar", () => {
 	it("leaves a burst's keys to be judged apart", () => {
 		const slow = { count: 12, p50: 250, p99: 300 };
 		expect(
-			barOf(steps, {
-				...screen,
-				burst: { keyToAccepted: slow, keyToDrawn: slow, unshown: 0 },
-			}),
+			barOf(
+				steps,
+				{
+					...screen,
+					burst: { keyToAccepted: slow, keyToDrawn: slow, unshown: 0 },
+				},
+				keys,
+			),
 			"a slow burst, steady keys within",
 		).toMatchObject({ keyToAccepted: true, keyToDrawn: true });
 	});
@@ -515,17 +539,26 @@ describe("the bar", () => {
 	it("fails what nothing measured", () => {
 		const none = spreadOf([]);
 		const nothing = { ...none, max: Number.NaN };
+		const unpaired = { ...nothing, unpaired: 0 };
+		const untimed = {
+			hosted: none,
+			plain: none,
+			paired: unpaired,
+			drawn: none,
+			drawnPaired: unpaired,
+		};
 		expect(
 			barOf(
 				{ rounds: nothing, tools: nothing, turns: 0, unpaired: 0 },
 				{ ...screen, keyToAccepted: none },
+				{ first: untimed, later: untimed },
 			),
 			"no step paired and no key timed",
 		).toEqual({
 			rounds: false,
 			tools: false,
 			keyToAccepted: false,
-			keyToDrawn: true,
+			keyToDrawn: false,
 		});
 	});
 });

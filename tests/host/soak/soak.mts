@@ -67,6 +67,7 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
+import { pairKeys, plainKeys } from "./keys.ts";
 import {
 	LONGEST_MS,
 	MOST_ROUNDS,
@@ -86,10 +87,8 @@ import {
 	growthOf,
 	latencies,
 	pairedCost,
-	pairKeys,
 	pairSteps,
 	parityOf,
-	plainKeys,
 	type ScreenSplit,
 	type SlowKey,
 	type Spread,
@@ -353,7 +352,7 @@ const report = {
 		keys,
 		steps,
 		screen: hostedLatency.screen,
-		bar: barOf(steps, hostedLatency.screen),
+		bar: barOf(steps, hostedLatency.screen, keys),
 	},
 	turnsTimed,
 	...(hostedTime

@@ -20,6 +20,7 @@ import {
 	type Difference,
 	normalise,
 } from "../parity/compare.ts";
+import type { KeyPairing, PairedExtent } from "./keys.ts";
 import { textOf } from "./soak-provider.ts";
 import { acknowledged, asked } from "./turns.ts";
 
@@ -231,8 +232,17 @@ const BAR_BURST_MS = 1000;
  */
 const BAR_UNPAIRED_SHARE = 0.01;
 
-/** The most a key may take, to its log or to its first drawing, at the p99. */
+/**
+ * The most a key may take, to its log or to its first drawing, at the
+ * p99; a first key's is what it took over plain pi's own first key.
+ */
 const BAR_KEY_MS = 200;
+
+/**
+ * The most any first key may take over plain pi's, since a first
+ * prompt's own cost is pi's and a later key's p99 can't hide a stall.
+ */
+const BAR_FIRST_KEY_MOST_MS = 1000;
 
 /**
  * The share of keys outside a wake that may go unseen drawn before
@@ -371,73 +381,6 @@ function keyTimes(): { accepted: number[]; shown: number[]; unshown: number } {
 }
 
 /**
- * Plain pi's key for each turn it was sent, by tag: from the prompt's
- * sending to its entry, the same entry a hosted key is timed to, so a
- * hosted key pairs with plain pi's own. Plain pi has no screen, so this
- * is all of a key it can be timed for.
- */
-export function plainKeys(
-	turns: readonly TurnTime[],
-	sent: ReadonlyMap<string, number>,
-): Map<string, number> {
-	return new Map(
-		turns.flatMap(({ tag, promptAt }) => {
-			const at = sent.get(tag);
-			return at === undefined ? [] : [[tag, promptAt - at]];
-		}),
-	);
-}
-
-/** Keys hosted and plain, and what each hosted one cost over plain pi's same key. */
-export interface KeysPaired {
-	readonly hosted: Spread;
-	readonly plain: Spread;
-	readonly paired: PairedCost;
-}
-
-/**
- * The keys outside a wake or a burst, each conversation's first apart
- * from the rest, since a first prompt runs work later ones don't, and
- * each paired against plain pi's same key, to tell what the host adds
- * from what pi itself spends.
- */
-export interface KeyPairing {
-	readonly first: KeysPaired;
-	readonly later: KeysPaired;
-}
-
-/** Whether `tag` is a conversation's first turn. */
-function isFirst(tag: string): boolean {
-	return tag.endsWith("-t0");
-}
-
-/** The steady keys of `records`, first and later apart, each paired with plain pi's. */
-export function pairKeys(records: readonly TurnRecord[]): KeyPairing {
-	const steady = records.filter(
-		(one) =>
-			one.keyToAcceptedMs !== undefined &&
-			one.woke === undefined &&
-			one.burst === undefined,
-	);
-	const of = (some: readonly TurnRecord[]): KeysPaired => {
-		const costs = some.flatMap(({ keyToAcceptedMs, plainKeyToAcceptedMs }) =>
-			keyToAcceptedMs === undefined || plainKeyToAcceptedMs === undefined
-				? []
-				: [keyToAcceptedMs - plainKeyToAcceptedMs],
-		);
-		return {
-			hosted: spreadOf(some.flatMap((one) => one.keyToAcceptedMs ?? [])),
-			plain: spreadOf(some.flatMap((one) => one.plainKeyToAcceptedMs ?? [])),
-			paired: { ...spreadOf(costs), unpaired: some.length - costs.length },
-		};
-	};
-	return {
-		first: of(steady.filter((one) => isFirst(one.tag))),
-		later: of(steady.filter((one) => !isFirst(one.tag))),
-	};
-}
-
-/**
  * Each hosted turn with plain pi's time for the same seeded turn, by its
  * tag, and its key's times when a viewer typed it, beside plain pi's own
  * key when it was timed, so a reading the report doesn't make can still
@@ -557,7 +500,8 @@ export function slowSteps(pairing: StepPairing, most: number): PairedStep[] {
 }
 
 /** A spread of `values` and the largest of them, which is not a number when there are none. */
-function extentOf(values: readonly number[]): Extent {
+/** The spread of `values` with its largest, nothing measured having none. */
+export function extentOf(values: readonly number[]): Extent {
 	return {
 		...spreadOf(values),
 		max: values.length === 0 ? Number.NaN : Math.max(...values),
@@ -590,23 +534,37 @@ export function pairedCost(
  * Whether the bar holds: each round's and each tool's cost over plain
  * pi's at most 250 ms at the p99 and 1 s at most, and a key outside a
  * wake or a burst at most 200 ms to its log and to its first drawing at
- * the p99. A figure nothing measured fails; so do the steps' when more
- * than 1% of turns went unpaired, and the drawing's when more than 1%
- * of its keys were never seen drawn.
+ * the p99. A conversation's first key is judged over plain pi's first
+ * key to its log instead, at most 200 ms at the p99 and 1 s at most,
+ * since pi's own first prompt can pass 200 ms with no host at all. A
+ * figure nothing measured fails; so do the steps' when more than 1% of
+ * turns went unpaired, the first keys' when more than 1% of them did,
+ * and the drawing's when more than 1% of its keys were never seen drawn.
  */
-export function barOf(steps: StepCost, screen: ScreenSplit): Bar {
+export function barOf(
+	steps: StepCost,
+	screen: ScreenSplit,
+	keys: KeyPairing,
+): Bar {
 	const unshownAllowed = screen.keyToAccepted.count * BAR_UNSHOWN_SHARE;
 	const unpairedAllowed = (steps.turns + steps.unpaired) * BAR_UNPAIRED_SHARE;
 	const holds = (extent: Extent) =>
 		extent.p99 <= BAR_STEP_P99_MS &&
 		extent.max <= BAR_STEP_MOST_MS &&
 		steps.unpaired <= unpairedAllowed;
+	const firstHolds = (cost: PairedExtent) =>
+		cost.p99 <= BAR_KEY_MS &&
+		cost.max <= BAR_FIRST_KEY_MOST_MS &&
+		cost.unpaired <= (cost.count + cost.unpaired) * BAR_UNPAIRED_SHARE;
 	return {
 		rounds: holds(steps.rounds),
 		tools: holds(steps.tools),
-		keyToAccepted: screen.keyToAccepted.p99 <= BAR_KEY_MS,
+		keyToAccepted:
+			keys.later.hosted.p99 <= BAR_KEY_MS && firstHolds(keys.first.paired),
 		keyToDrawn:
-			screen.keyToDrawn.p99 <= BAR_KEY_MS && screen.unshown <= unshownAllowed,
+			keys.later.drawn.p99 <= BAR_KEY_MS &&
+			firstHolds(keys.first.drawnPaired) &&
+			screen.unshown <= unshownAllowed,
 	};
 }
 
