@@ -291,6 +291,12 @@ says the command's end in it under the same job id, leaving nothing
 kept. E24, in the same file, kills the command's shell while no host
 runs, and the next host says the job was lost rather than dropping it.
 
+steer-wake.test.ts is E25: a conversation its host holds parked wakes
+as the person's talk lands in its steer inbox, as Super+S leaves one,
+within a tenth of the minute a running pi's look would take, and takes
+the talk. The seal runs nothing else, so only the host's watch of the
+inbox can wake it that soon.
+
 Each seal serves a realm of its own, since a host starting reaps what a
 dead host under its key left running.
 
