@@ -25,6 +25,7 @@ import { parseOpenResult } from "../../../host/service/protocol.ts";
 import {
 	describeStep,
 	hostKind,
+	phaseTimes,
 	readyStatus,
 	runHost,
 	stoppingStatus,
@@ -661,13 +662,68 @@ describe("runHost", () => {
 		expect(said).toHaveLength(4);
 		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
 		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
-		expect(said[2]).toMatch(/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s$/);
+		expect(said[2]).toMatch(
+			/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
+		);
 		// This engine's resume registers nothing, so the host serves none.
 		expect(said[3]).toMatch(
 			/^\d+\.\d s: ready, serving no conversations, listening on /,
 		);
 		second.emit("SIGTERM");
 		await run.stopped;
+	});
+
+	// The attended host on 14 November: two resumes took 72 s each, and
+	// nothing said which part of them did.
+	it("says how long each phase of a resume took", async () => {
+		const sessionId = await heldOne();
+		const PHASE_MS = 120;
+		const said: string[] = [];
+		const second = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				resume: async (_entry, _woken, mark) => {
+					mark?.("log");
+					await new Promise((done) => setTimeout(done, PHASE_MS));
+					mark?.("runtime");
+					await new Promise((done) => setTimeout(done, PHASE_MS));
+				},
+			}),
+			signals: second,
+			ready: async () => {},
+			progress: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		const line = said.find((each) => each.includes("resumed 1 of 1"));
+		expect(line, `the resume of ${sessionId} is said`).toMatch(
+			/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, runtime (\d+\.\d) s, rest (\d+\.\d) s\)$/,
+		);
+		const [, runtime, rest] =
+			line?.match(/runtime (\d+\.\d) s, rest (\d+\.\d) s/) ?? [];
+		expect(Number(runtime), "the phase that waited is the one named").toBeGreaterThanOrEqual(0.1);
+		expect(Number(rest), "what followed the last mark").toBeGreaterThanOrEqual(0.1);
+		second.emit("SIGTERM");
+		await run.stopped;
+	});
+
+	it("puts each phase's time in words, and what followed the last", () => {
+		expect(
+			phaseTimes(
+				1_000,
+				[
+					{ phase: "ask", at: 1_000 },
+					{ phase: "gate", at: 1_100 },
+					{ phase: "recovery", at: 3_600 },
+				],
+				65_000,
+			),
+		).toBe(" (ask 0.0 s, gate 0.1 s, recovery 2.5 s, rest 61.4 s)");
+		expect(phaseTimes(1_000, [], 2_000), "none marked").toBe("");
 	});
 
 	// The background host on 13 November: resumes took 80 to 135 s each,
