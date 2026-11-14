@@ -69,6 +69,12 @@ import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
 import { pairKeys, plainKeys } from "./keys.ts";
 import {
+	type PlainProcess,
+	plainProcessesOf,
+	rollupOf,
+	type Weight,
+} from "./processes.ts";
+import {
 	LONGEST_MS,
 	MOST_ROUNDS,
 	medianTurnMs,
@@ -373,6 +379,7 @@ const report = {
 	faults,
 	hostErrors: errorsIn(hosted.errors),
 	plainErrors: plain.errors.flatMap(errorsIn),
+	plainProcesses: plainProcessesOf(plain.processes),
 };
 writeFileSync(join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 process.stdout.write(`soak report: ${JSON.stringify(report)}\n`);
@@ -908,6 +915,8 @@ async function runPlain(sealed: Seal): Promise<{
 	readonly errors: readonly string[];
 	/** When each turn's prompt was sent, by tag, in ms since the epoch. */
 	readonly sent: ReadonlyMap<string, number>;
+	/** Each plain pi's start and weight, the measure of a child a conversation. */
+	readonly processes: readonly PlainProcess[];
 }> {
 	const agentDir = join(sealed.home, ".pi", "agent");
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -937,6 +946,7 @@ async function runPlain(sealed: Seal): Promise<{
 	const ran = await Promise.all(
 		counts.map(async (count, index) => {
 			const log = join(out, `plain-${index}.rpc.log`);
+			const startedAt = performance.now();
 			const client = rpcClient(
 				{
 					command: process.execPath,
@@ -946,11 +956,14 @@ async function runPlain(sealed: Seal): Promise<{
 				env,
 				log,
 			);
-			await waited(staggerOf(index, staggerMs));
 			// Answered once pi listens, as a hosted conversation is open
 			// before its first key, so a first prompt's time leaves out pi's
-			// start on either side.
+			// start on either side. Asked before the stagger, so every plain
+			// pi's start is timed with all of them starting at once.
 			await client.request({ type: "get_state" });
+			const readyMs = performance.now() - startedAt;
+			const ready = weighed(client.pid);
+			await waited(staggerOf(index, staggerMs));
 			for (const turn of turnsOf(index, count)) {
 				// A job's report starts a turn of its own once the job ends, so
 				// the next prompt waits for that turn too, as the hosted side
@@ -968,19 +981,37 @@ async function runPlain(sealed: Seal): Promise<{
 			}
 			const { data } = await client.request({ type: "get_state" });
 			const file = isRecord(data) ? data.sessionFile : undefined;
+			const done = weighed(client.pid);
 			await client.close();
 			const entries =
 				typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [];
 			const spread = spreadOf(latencies(entries).map((one) => one.ms));
 			say(`plain ${index} done ${JSON.stringify(spread)}`);
-			return { entries, errors: readOr(`${log}.stderr`) };
+			const weights = { ...(ready ? { ready } : {}), ...(done ? { done } : {}) };
+			return {
+				entries,
+				errors: readOr(`${log}.stderr`),
+				process: { readyMs, ...weights },
+			};
 		}),
 	);
 	return {
 		logs: ran.map((one) => one.entries),
 		errors: ran.map((one) => one.errors),
 		sent,
+		processes: ran.map((one) => one.process),
 	};
+}
+
+/** A process's weight from its rollup, or undefined once it has gone. */
+function weighed(pid: number | undefined): Weight | undefined {
+	if (pid === undefined) return undefined;
+	try {
+		return rollupOf(readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"));
+	} catch {
+		// Gone, or no rollup here: counted as unread in the report.
+		return undefined;
+	}
 }
 
 /**
