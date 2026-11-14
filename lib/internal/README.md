@@ -131,6 +131,12 @@ may import from here, and any of it may change without notice.
 - **`fence-lifted.ts`**: the fence lifted from every session but a
   fleet's subagents until it relands, since the default from 13
   November stayed in each running pi's own environment.
+- **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
+  fenced as a session's command or outside, and turns verdicts into a
+  report and an exit status (`scripts/fence-preflight.ts`).
+- **`fence-preflight-checks.ts`**: the checks themselves: what the
+  person and agents must still be able to do with the fence on, and
+  what must stay refused.
 - **`fence-home.ts`**: what in the home folder runs code as the
   person later, which the fence keeps read-only: settings, startup
   files and programs' entries whose settings name a command, with
