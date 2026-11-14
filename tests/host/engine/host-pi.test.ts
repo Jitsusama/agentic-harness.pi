@@ -1,4 +1,7 @@
-/** The host refuses a pi that lacks any seam it needs, naming each missing patch. */
+/**
+ * The host refuses a pi that lacks any seam it needs, naming each missing
+ * patch, and reports one it only wants without refusing.
+ */
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -12,8 +15,10 @@ import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import {
 	HOST_SEAMS,
+	HOST_WANTED_SEAMS,
 	HostPiRefused,
 	hostPiFiles,
+	lackingSeams,
 	loadHostPi,
 } from "../../../host/engine/host-pi.ts";
 import { piBuiltInExtensions } from "../../../host/engine/pi-session.ts";
@@ -34,6 +39,8 @@ interface FakeSeams {
 	readonly screen?: boolean;
 	/** Whether the screen's lifecycle patch has its hosted quit; it does unless said. */
 	readonly quit?: boolean;
+	/** Whether the agent-interface patch shows the agent's queued words; it does unless said. */
+	readonly queue?: boolean;
 	readonly auth?: boolean;
 }
 
@@ -48,7 +55,13 @@ function fakeInstall(
 	const dir = mkdtempSync(join(tmpdir(), "host-pi-"));
 	directories.push(dir);
 	const files = hostPiFiles(dir);
-	const agent = seams.agent ? "static hostAgentInterfaceVersion = 1;" : "";
+	const queue =
+		seams.agent && seams.queue !== false
+			? " static hostQueueDisplay = true;"
+			: "";
+	const agent = seams.agent
+		? `static hostAgentInterfaceVersion = 1;${queue}`
+		: "";
 	const lifecycle = seams.screen ? "static hostedLifecycleVersion = 1;" : "";
 	const quit =
 		seams.screen && seams.quit !== false ? " static hostedQuit = true;" : "";
@@ -107,6 +120,22 @@ it("loads a pi that carries every host seam", async () => {
 	expect(pi.version).toBe(FAKE_VERSION);
 	expect(pi.command).toBe(join(dir, "dist", "bundle", "cli.js"));
 	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
+	expect(pi.lacking).toEqual([]);
+});
+
+it("loads a pi built before the queued-words seam, saying what goes without it", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		queue: false,
+		auth: true,
+	});
+	const pi = await loadHostPi(dir);
+	expect(pi.lacking).toEqual(HOST_WANTED_SEAMS);
+	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
+		`The pi at ${dir} lacks pi-host-agent-interface.patch: without it words sent as a conversation reopens show nowhere until their turn starts`,
+	);
 });
 
 it("refuses a pi whose package names no pi command", async () => {

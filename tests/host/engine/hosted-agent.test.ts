@@ -42,6 +42,10 @@ interface Observed {
 	}[];
 	/** How many times the scenario's tool really ran, for a kept session. */
 	readonly ran?: number;
+	/** The words pi's screen listed as pending once the run ended. */
+	readonly pendingAtEnd?: readonly string[];
+	/** The patches of seams the host wants that its pi lacks. */
+	readonly lacking?: readonly string[];
 }
 
 /** A child's environment: none of this session's pi or credentials, only what node needs. */
@@ -485,6 +489,22 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				types.indexOf("queued_mid_turn"),
 				"queued before the carried-on turn answered",
 			).toBeLessThan(carriedOnEnd);
+			// A runtime built before the seam shows them nowhere, as before; the host says so at start.
+			const shows = !observed.lacking?.includes(
+				"pi-host-agent-interface.patch",
+			);
+			expect(
+				Reflect.get(
+					observed.events.find((event) => event.type === "queued_mid_turn") ??
+						{},
+					"pending",
+				),
+				"the queued words show as pending while the carried-on turn runs",
+			).toEqual(shows ? ["sent at the start"] : []);
+			expect(
+				observed.pendingAtEnd,
+				"nothing stays pending once its turn started",
+			).toEqual([]);
 			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");
 		} finally {

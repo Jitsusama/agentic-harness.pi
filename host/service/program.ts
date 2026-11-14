@@ -21,6 +21,7 @@ import {
 	HOST_READS,
 	type HostEngine,
 	type HostPiModules,
+	lackingSeams,
 	loadHostPi,
 } from "../engine/index.ts";
 import { hostRealm } from "./address.ts";
@@ -163,6 +164,8 @@ export async function startHostProgram(
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
 	const settings = await hostSettings(report, packageConfigPath(env));
+	// A runtime built before a wanted seam still hosts; the host says what it goes without.
+	if (configured.lacking) report(new Error(configured.lacking));
 	sayHostRuns();
 	nameViewerTerminal(env);
 	configured.startTheme();
@@ -228,6 +231,8 @@ async function configuration(options: HostProgramOptions): Promise<{
 	interactiveMode: unknown;
 	startupQuestions: StartupQuestions;
 	startTheme: () => void;
+	/** What the host's pi goes without, said at start; none when it lacks no wanted seam. */
+	lacking: string | undefined;
 }> {
 	try {
 		hostKind(options.argv);
@@ -240,6 +245,10 @@ async function configuration(options: HostProgramOptions): Promise<{
 			interactiveMode: pi.modules.codingAgent.InteractiveMode,
 			startupQuestions: startupQuestions(pi.modules),
 			startTheme: themeStarter(pi.modules.codingAgent, homedir()),
+			lacking:
+				pi.lacking.length > 0
+					? lackingSeams(packageDir, pi.lacking)
+					: undefined,
 		};
 	} catch (error) {
 		throw new HostMisconfigured(error);

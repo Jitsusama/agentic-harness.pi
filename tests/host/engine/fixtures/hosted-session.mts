@@ -36,6 +36,10 @@ interface Session {
 	): Promise<void>;
 	abort(): Promise<void>;
 	dispose(): void;
+	/** The agent-interface patch's, where the runtime has it. */
+	showQueued?(text: string, mode: "steer" | "followUp"): void;
+	/** The words pi's screen lists as pending behind the turn. */
+	getFollowUpMessages(): readonly string[];
 	navigateTree(targetId: string, options: object): Promise<unknown>;
 	readonly isStreaming: boolean;
 	subscribe(listener: (event: { readonly type: string }) => void): () => void;
@@ -168,8 +172,13 @@ const QUEUED_WAIT_MS = 3_000;
 const QUEUED_POLL_MS = 20;
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
+/** The words pi's screen lists as pending, once the session is built. */
+let pending = (): readonly string[] => [];
 /** Note an event among those pi's listeners saw, once the session is built. */
-let note = (_type: string): void => {};
+let note = (_event: {
+	readonly type: string;
+	readonly pending?: readonly string[];
+}): void => {};
 
 /** Answer `text` once the agent holds queued words, noting that it did, or after a while. */
 async function answerOnceQueued(text: string): Promise<unknown> {
@@ -178,7 +187,7 @@ async function answerOnceQueued(text: string): Promise<unknown> {
 		// Polled: nothing tells a listener that words were queued.
 		await new Promise((done) => setTimeout(done, QUEUED_POLL_MS));
 	}
-	if (queued()) note("queued_mid_turn");
+	if (queued()) note({ type: "queued_mid_turn", pending: [...pending()] });
 	return say(text);
 }
 
@@ -618,10 +627,12 @@ try {
 	});
 	built = session;
 	// As the host's engine does for each session it builds.
-	if (conversation?.agent)
+	if (conversation?.agent) {
 		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
 			process.stderr.write(`held message reported: ${String(error)}\n`),
 		);
+		conversation.agent.showQueuedIn(session);
+	}
 	stopHost = () => {
 		// As the engine's release does for a stopping host, then the process ends before any turn does.
 		conversation?.agent?.park();
@@ -639,7 +650,8 @@ try {
 		});
 	});
 	queued = () => session.agent.hasQueuedMessages();
-	note = (type) => events.push({ type });
+	pending = () => session.getFollowUpMessages();
+	note = (event) => events.push(event);
 	const early = scenario.early?.(session);
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);
@@ -649,13 +661,20 @@ try {
 	await scenario.drive(session);
 	await session.agent.waitForIdle();
 	const transcript = session.agent.state.messages.map(comparable);
+	const pendingAtEnd = [...session.getFollowUpMessages()];
 	session.dispose();
 	await conversation?.close();
 	const ran = existsSync(effects())
 		? readFileSync(effects(), "utf8").split("\n").filter(Boolean).length
 		: 0;
 	process.stdout.write(
-		`${JSON.stringify({ events, transcript, ...(scenario.persist ? { ran } : {}) })}\n`,
+		`${JSON.stringify({
+			events,
+			transcript,
+			pendingAtEnd,
+			lacking: pi.lacking.map((seam) => seam.patch),
+			...(scenario.persist ? { ran } : {}),
+		})}\n`,
 	);
 } finally {
 	faux.unregister();
