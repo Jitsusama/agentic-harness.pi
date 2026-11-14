@@ -83,11 +83,16 @@ slack-integration/
 - **User tokens**: `xoxp-` tokens that act as the authenticated user
 - **Keyring storage**: the token and OAuth app live in the
   desktop's keyring, the Secret Service on Linux and the Keychain on
-  macOS, read only by pi's own process. A plain
+  macOS, read by pi's own process. That keeps them from commands an
+  agent runs, which the fence keeps off the session bus; it is no
+  guard against other programs you run, since the Secret Service lets
+  any of them read an unlocked collection and the Keychain item
+  trusts Apple's `security`, which any of them can run. A plain
   `~/.config/agentic-harness/slack/credentials.json` from before
   moves in at the next session and is removed once the keyring gives
   it back; while the keyring can't be reached, pi says so and keeps
-  using the file.
+  using the file. Removing the file leaves its bytes on the disk, so
+  sign in again once after the move to retire the token it held.
 - **Confirmation gates**: write operations require approval.
   They are the `slack` guard, which blocks by default, since a
   message reaches other people the moment it lands. While you

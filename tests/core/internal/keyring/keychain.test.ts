@@ -152,4 +152,28 @@ describe("keychainStore", () => {
 			/did not keep/,
 		);
 	});
+
+	it("never repeats what security -i echoed of a refused line", async () => {
+		const encoded = Buffer.from("xoxp-secret").toString("base64");
+		const echoes = (code: number): SecurityRunner => {
+			const security = fakeSecurity({ failAdd: true });
+			return async (args, input) =>
+				args[0] === "-i"
+					? { code, stdout: "", stderr: `refused: ${input ?? ""}` }
+					: security.run(args, input);
+		};
+
+		for (const code of [1, 0]) {
+			const failure = await keychainStore(echoes(code))
+				.write("slack-credentials", "xoxp-secret")
+				.then(
+					() => undefined,
+					(error: unknown) => error,
+				);
+
+			expect(failure).toBeInstanceOf(KeyringUnavailable);
+			expect(String(failure)).not.toContain(encoded);
+			expect(String(failure)).not.toContain("xoxp-secret");
+		}
+	});
 });

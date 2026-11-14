@@ -49,6 +49,13 @@ const ITEM_NOT_FOUND = 44;
 export const CHUNK_LENGTH = 3000;
 /** Long enough for a person to answer an unlock prompt. */
 const SECURITY_TIMEOUT_MS = 60_000;
+/**
+ * Why a write failed, said in fixed words: `security -i` may echo the
+ * line it refused, which holds the value, so its own words never reach
+ * a notice.
+ */
+const REFUSED_WRITE = "security -i refused a line";
+const UNKEPT_WRITE = "it did not keep what was written";
 const WHOLE = "b64:";
 const CHUNKED = "chunks:";
 
@@ -191,16 +198,11 @@ export function keychainStore(run: SecurityRunner = runSecurity): SecretStore {
 			lines.push(addLine(account, `${CHUNKED}${generation}:${count}`));
 		}
 		const result = await security(["-i"], `${lines.join("\n")}\n`);
-		if (result.code !== 0) refuse(result);
+		if (result.code !== 0) throw new KeyringUnavailable(NAME, REFUSED_WRITE);
 		// `security -i` carries on past a failed line, so only reading the
 		// value back shows it was kept.
 		const kept = await readEncoded(account);
-		if (kept !== encoded) {
-			throw new KeyringUnavailable(
-				NAME,
-				result.stderr.trim() || "it did not keep what was written",
-			);
-		}
+		if (kept !== encoded) throw new KeyringUnavailable(NAME, UNKEPT_WRITE);
 		const old = previous === null ? null : parseHeader(previous);
 		if (old && old.generation !== generation) await deleteChunks(account, old);
 	}
