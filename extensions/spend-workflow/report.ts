@@ -22,6 +22,10 @@ export interface IndexOutcome {
 	readonly insertedCalls: number;
 	readonly duplicateCalls: number;
 	readonly insertedDropped: number;
+	/** Grown logs read from where the last pass stopped. */
+	readonly resumed: number;
+	/** Why each grown log that had carried something was read whole. */
+	readonly refused: readonly string[];
 	readonly seconds: number;
 }
 

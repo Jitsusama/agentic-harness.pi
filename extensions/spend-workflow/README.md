@@ -192,10 +192,20 @@ eight hours old as if they were current. So a pi also keeps it:
   machine pass at a time. A lease whose pid has gone, or one older
   than half an hour, is taken over.
 - Every pass, the tool's or the keeper's, writes `ledger-indexed.json`
-  beside the ledger: `at`, `ok`, `by`, `pid`, `seconds`, `scanned` and
-  `inserted`, or `error` when it failed. A reader should treat an `at`
-  over an hour old, or `ok: false`, as figures it can't trust, and say
-  so.
+  beside the ledger: `at`, `ok`, `by`, `pid`, `seconds`, `scanned`,
+  `inserted` and `resumed`, with `refused` when a log was read whole
+  against what it carried, or `error` when it failed. A reader should
+  treat an `at` over an hour old, or `ok: false`, as figures it can't
+  trust, and say so.
+- A grown log is read from where the last pass stopped. Beside the
+  ledger, `ledger-resume/` keeps, for each log a pass read, the byte
+  it stopped after and what its scan knew there. A pass trusts that
+  only while the log is the same file (device and inode), at least that
+  long, with the 4 KiB before it unchanged, and the carry of this
+  code's shape; otherwise it reads the log whole and says why in
+  `refused`. A carry no pass has written for two days is let go. On
+  14 November 2026, before this, one pass read 1,210 MB whole to take
+  in 29.9 MB of new lines.
 
 ## Beyond a Total: Tool Calls, Drops and Verifiers
 
@@ -270,7 +280,9 @@ dependency, and it is DuckDB doing the retrospecting either way.
 ## Files
 
 - `index.ts`: registration, store lifecycle and the `spend` tool.
-- `indexer.ts`: walking pi's session directories incrementally.
+- `indexer.ts`: walking pi's session directories incrementally;
+  `carried.ts` keeps where each pass stopped in a log, over
+  `lib/ledger/carry.ts`, which writes a scan's state as JSON.
 - `report.ts`: pure formatting, tested without loading pi.
 - `budget.ts`: which budget the session spends, the footer's mark for
   it and `/budget`'s report, all pure; `budget-item.ts` keeps the item

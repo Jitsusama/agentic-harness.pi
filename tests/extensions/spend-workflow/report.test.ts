@@ -392,6 +392,8 @@ describe("formatIndexOutcome", () => {
 			insertedCalls: 30,
 			duplicateCalls: 5,
 			insertedDropped: 2,
+			resumed: 1,
+			refused: [],
 			seconds: 0.4,
 		});
 
@@ -412,6 +414,8 @@ describe("formatIndexOutcome", () => {
 			insertedCalls: 9,
 			duplicateCalls: 0,
 			insertedDropped: 0,
+			resumed: 0,
+			refused: [],
 			seconds: 1,
 		});
 

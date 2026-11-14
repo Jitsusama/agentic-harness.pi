@@ -7,10 +7,15 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import type { TurnStore } from "../../lib/core/observability/index.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
-import { readTurns, SCAN_VERSION } from "../../lib/ledger/index.ts";
+import { SCAN_VERSION, startScan } from "../../lib/ledger/index.ts";
+import {
+	carriedFolder,
+	carriedFor,
+	keepCarried,
+	pruneCarried,
+} from "./carried.ts";
 import type { IndexOutcome } from "./report.ts";
 
 /** Where pi keeps session logs, honouring its own directory override. */
@@ -76,23 +81,59 @@ function saveWatermarks(path: string, sizes: Watermarks): void {
 	writeWhole(path, JSON.stringify(file));
 }
 
-async function* linesOf(path: string): AsyncGenerator<string> {
-	const input = createReadStream(path);
-	const reader = createInterface({
-		input,
-		crlfDelay: Number.POSITIVE_INFINITY,
-	});
+/** The byte that ends a line. */
+const NEWLINE = 0x0a;
+
+/** A line's text, without the carriage return a CRLF ending leaves. */
+function textOf(bytes: Buffer): string {
+	const text = bytes.toString("utf8");
+	return text.endsWith("\r") ? text.slice(0, -1) : text;
+}
+
+/**
+ * Give `take` each whole line of a log from byte `start`, a line at a
+ * time, and answer the byte after the last whole one. A last line not
+ * yet ended is left for the pass after it ends, since it may be a write
+ * still under way.
+ */
+async function readLines(
+	path: string,
+	start: number,
+	take: (line: string) => void,
+): Promise<number> {
+	const input = createReadStream(path, { start });
+	let offset = start;
+	let unended: Buffer[] = [];
 	try {
-		for await (const line of reader) yield line;
+		for await (const chunk of input) {
+			const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+			let from = 0;
+			for (
+				let end = bytes.indexOf(NEWLINE, from);
+				end !== -1;
+				end = bytes.indexOf(NEWLINE, from)
+			) {
+				const piece = bytes.subarray(from, end);
+				const line =
+					unended.length > 0 ? Buffer.concat([...unended, piece]) : piece;
+				unended = [];
+				offset += line.length + 1;
+				take(textOf(line));
+				from = end + 1;
+			}
+			if (from < bytes.length) unended.push(bytes.subarray(from));
+		}
 	} finally {
 		// A reader left early leaves its file open unless it is destroyed.
 		input.destroy();
 	}
+	return offset;
 }
 
 /**
  * Read every session log into the ledger, skipping those that have not
- * grown since the last pass.
+ * grown since the last pass, and reading a grown one from where the
+ * last pass stopped when what that pass carried can be trusted.
  *
  * Logs are streamed a line at a time rather than read whole: the largest
  * here is 1.2 GB, well past the ceiling on a JavaScript string, so
@@ -105,6 +146,9 @@ export async function indexSessionLogs(
 ): Promise<IndexOutcome> {
 	const started = Date.now();
 	const marks = loadWatermarks(watermarkPath);
+	const folder = carriedFolder(watermarkPath);
+	const refused: string[] = [];
+	let resumed = 0;
 	let files = 0;
 	let scanned = 0;
 	let skipped = 0;
@@ -128,6 +172,8 @@ export async function indexSessionLogs(
 			insertedCalls: 0,
 			duplicateCalls: 0,
 			insertedDropped: 0,
+			resumed: 0,
+			refused: [],
 			seconds: 0,
 		};
 	}
@@ -145,20 +191,25 @@ export async function indexSessionLogs(
 			if (!name.endsWith(".jsonl")) continue;
 			files += 1;
 			const path = join(root, dir, name);
-			let size: number;
+			let file: ReturnType<typeof statSync>;
 			try {
-				size = statSync(path).size;
+				file = statSync(path);
 			} catch {
 				continue;
 			}
+			const size = file.size;
 			if (marks[path] === size) {
 				skipped += 1;
 				continue;
 			}
 
-			const buffered: string[] = [];
-			for await (const line of linesOf(path)) buffered.push(line);
-			const scan = readTurns(name, buffered);
+			const carried = carriedFor(folder, path, file);
+			if (carried && "refused" in carried) refused.push(carried.refused);
+			const from = carried && "state" in carried ? carried : undefined;
+			if (from) resumed += 1;
+			const reading = startScan(name, from?.state);
+			const offset = await readLines(path, from?.offset ?? 0, reading.feed);
+			const scan = reading.take();
 			lines += scan.coverage.lines;
 			unparseable += scan.coverage.unparseable;
 			await store.recordSession(scan.session);
@@ -172,6 +223,7 @@ export async function indexSessionLogs(
 			await store.recordDeclarations(scan.declarations);
 			const droppedOutcome = await store.recordDropped(scan.dropped);
 			insertedDropped += droppedOutcome.inserted;
+			keepCarried(folder, path, file, offset, reading.carry());
 			marks[path] = size;
 			scanned += 1;
 			// Saved after every log, so a pass cut short (its session ended,
@@ -182,6 +234,7 @@ export async function indexSessionLogs(
 	}
 
 	saveWatermarks(watermarkPath, marks);
+	pruneCarried(folder);
 	return {
 		files,
 		scanned,
@@ -193,6 +246,8 @@ export async function indexSessionLogs(
 		insertedCalls,
 		duplicateCalls,
 		insertedDropped,
+		resumed,
+		refused,
 		seconds: (Date.now() - started) / 1000,
 	};
 }
