@@ -5,7 +5,9 @@
  * then through a host restart, so a change that breaks the soak is found by
  * test:host rather than on the night a week's run is due. And once at ten
  * turns each, which takes every kind of turn (a steer, an abort and a
- * compaction among them) through a planned restart mid-run. A week's run
+ * compaction among them) through a planned restart mid-run. And once
+ * through the real-model slice's door, the script's own model standing
+ * in for the AI proxy. A week's run
  * goes on a lent builder by hand, as README.md says.
  */
 import { spawn } from "node:child_process";
@@ -20,6 +22,7 @@ import {
 	hostPackageDir,
 	hostPiMissing,
 } from "../end-to-end/support/host-pi.ts";
+import { soakProvider } from "./soak-provider.ts";
 
 const packageDir = hostPackageDir();
 if (!packageDir && process.env[HOST_PI_REQUIRED])
@@ -32,6 +35,7 @@ const out = mkdtempSync(join(tmpdir(), "soak-"));
 const parkedOut = mkdtempSync(join(tmpdir(), "soak-parked-"));
 const burstOut = mkdtempSync(join(tmpdir(), "soak-burst-"));
 const midOut = mkdtempSync(join(tmpdir(), "soak-mid-"));
+const realOut = mkdtempSync(join(tmpdir(), "soak-real-"));
 
 describe.skipIf(!packageDir)(
 	"the soak (needs a pi with the host's patches: pnpm test:host)",
@@ -312,11 +316,67 @@ describe.skipIf(!packageDir)(
 	},
 );
 
-/** Run a soak into `into`, the smallest unless `size` gives its turns and checkpoints: what it said and its report. */
+describe.skipIf(!packageDir)(
+	"the soak, through the real-model slice's door (needs a pi with the host's patches: pnpm test:host)",
+	() => {
+		afterAll(() => rmSync(realOut, { recursive: true, force: true }));
+
+		it(
+			"passes every request on, holds, steers and aborts through it, and compares by shape",
+			async () => {
+				// The script's own model stands in for the AI proxy, so every kind
+				// a real slice takes goes through its door at no cost.
+				const standIn = await soakProvider();
+				try {
+					const { said, report } = await soaked(
+						realOut,
+						["--real", "stand-in"],
+						["6,6", "1"],
+						{
+							SHOPIFY_PI_PROXY_ORIGIN: standIn.endpoint,
+							SHOPIFY_PROXY_KEY: "stand-in-key",
+						},
+					);
+					expect(report, said).toMatchObject({
+						turns: 12,
+						faults: [],
+						kinds: { read: 1, bash: 1, steer: 2, job: 1, abort: 1 },
+						real: { model: "stand-in", refusals: [] },
+					});
+					expect(
+						standIn.answered(),
+						"every request reached the stand-in",
+					).toBeGreaterThan(12);
+					const real = isRecord(report) ? report.real : undefined;
+					expect(
+						isRecord(real) && isRecord(real.usage)
+							? real.usage.hosted
+							: undefined,
+						"each answer's tokens, as the stand-in said them",
+					).toMatchObject({ input: expect.any(Number) });
+					expect(
+						isRecord(report) && Array.isArray(report.parity)
+							? report.parity.map((one) =>
+									isRecord(one) ? one.unexpected : undefined,
+								)
+							: undefined,
+						"each conversation's record has plain pi's shape",
+					).toEqual([0, 0]);
+				} finally {
+					await standIn.close();
+				}
+			},
+			RUN_MS,
+		);
+	},
+);
+
+/** Run a soak into `into`, the smallest unless `size` gives its turns and checkpoints, with `env` added to its environment: what it said and its report. */
 async function soaked(
 	into: string,
 	extra: readonly string[],
 	[turns, checkpoints]: readonly [string, string] = ["2,2", "1"],
+	env: Readonly<Record<string, string>> = {},
 ): Promise<{ said: string; report: unknown }> {
 	const child = spawn(
 		process.execPath,
@@ -331,7 +391,7 @@ async function soaked(
 			"--out",
 			into,
 		],
-		{ stdio: ["ignore", "pipe", "pipe"] },
+		{ stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
 	);
 	let said = "";
 	child.stdout.on("data", (chunk) => {

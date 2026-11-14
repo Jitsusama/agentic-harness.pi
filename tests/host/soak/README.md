@@ -33,6 +33,9 @@ host adds, and records that drift from plain pi's.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
   127.0.0.1 that answers without end, so both sides run pi's real
   provider code, at once or at a pace.
+- `soak-real.ts`: the real-model slice, under `--real MODEL`: the
+  provider passes each request on to MODEL at the AI proxy, the soak's
+  rules added to the system prompt, and counts every refusal.
 - `pace.ts`: how long each answer and each bash command takes and how
   many rounds a turn has under a pace, drawn through a median and a
   90th percentile, the same for the same turn on either side and on
@@ -81,6 +84,26 @@ nix-offload there --never-ask --run --copy "$runtime" --longest 14400 -- \
     pnpm install --frozen-lockfile > /dev/null 2>&1 || pnpm install --frozen-lockfile
     PI_HOST_RUNTIME=$runtime node --no-warnings tests/host/soak/soak.mts \
       --turns 120,60,40,40,30,30,20,20,10,10 --checkpoints 8"
+```
+
+## Running With a Real Model
+
+The script's model takes any conversation; a real API refuses one whose
+tool results don't follow their calls or whose signed thinking changed,
+which is how a host that carried, parked or restored a conversation
+wrongly shows. `--real MODEL` passes every request on to MODEL at the AI
+proxy (`SHOPIFY_PI_PROXY_ORIGIN`, or `https://proxy.shopify.ai`), with
+the soak's rules after pi's system prompt telling the model what each
+kind of turn asks of it, and thinking on at `low`. Each refusal is a
+fault. It takes the key from `SHOPIFY_PROXY_KEY` in its own environment
+and sends it only in each request's header to the proxy: neither side's
+sealed home has it. A lender has no key, so run it on this machine, in
+sealed hosts of its own, under `systemd-run --user --scope`, and keep it
+small: claude-haiku-5-5 takes about a dime a million tokens read.
+
+```sh
+node --no-warnings tests/host/soak/soak.mts --real claude-haiku-5-5 \
+  --turns 10,10,10,10 --checkpoints 2 --restart-mid --restart
 ```
 
 ## Running at a Real Pace
@@ -215,7 +238,12 @@ It prints a line a checkpoint and the report as one JSON line after
   answer by), and `first` names those before the rest. A conversation
   `--restart-mid` cut is `customsLeftOut`: the host keeps its own records
   of the restart and of the turn it carried on, which plain pi has none
-  of, so its messages alone are compared.
+  of, so its messages alone are compared. Under `--real`, each entry is
+  compared by its shape alone: its type, who said it, how it stopped,
+  its parts and the tools it called.
+- `real`, under `--real`: the model, every request it refused with its
+  status and the start of what it said, and the tokens each side's
+  answers took.
 - `restartMid`, under `--restart-mid`: how long the host took to stop
   and its socket to answer, the conversations' states then, the turns
   cut off, and how long after the restart began each was answered.

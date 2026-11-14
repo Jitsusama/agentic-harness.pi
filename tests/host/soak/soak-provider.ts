@@ -18,9 +18,16 @@
  * has a drawn count of rounds, each before its own answer a tool call,
  * two bash to a read, as a real turn works before it answers. Without one
  * it answers at once, in one piece, bash echoes at once, and a turn is
- * only its own answer. It binds 127.0.0.1 and takes no credential.
+ * only its own answer. Given somewhere to pass requests on to, as the
+ * real-model slice gives it, it answers nothing itself, and a hold takes
+ * a turn's first request, since a real model's rounds aren't the
+ * script's. It binds 127.0.0.1 and takes no credential.
  */
-import { createServer, type ServerResponse } from "node:http";
+import {
+	createServer,
+	type IncomingHttpHeaders,
+	type ServerResponse,
+} from "node:http";
 import { setTimeout as later } from "node:timers/promises";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
@@ -77,6 +84,18 @@ export interface SoakProvider {
 	close(): Promise<void>;
 }
 
+/**
+ * Where a request goes in place of the script's answer: on to a real
+ * model, its answer streamed back on `response`. `tag` names the turn it
+ * is for, or nothing outside the script.
+ */
+export type PassOn = (
+	body: Readonly<Record<string, unknown>>,
+	headers: IncomingHttpHeaders,
+	response: ServerResponse,
+	tag: string | undefined,
+) => Promise<void>;
+
 /** A hold the soak armed on one turn's own answer. */
 interface Hold {
 	taken: boolean;
@@ -107,8 +126,11 @@ type Block =
 			readonly input: Readonly<Record<string, unknown>>;
 	  };
 
-/** Listen on a free local port, answering at `pace`. */
-export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
+/** Listen on a free local port, answering at `pace`, or passing every request `through`. */
+export async function soakProvider(
+	pace: SoakPace = {},
+	through?: PassOn,
+): Promise<SoakProvider> {
 	let answered = 0;
 	const holds = new Map<string, Hold>();
 	const server = createServer(async (request, response) => {
@@ -118,7 +140,8 @@ export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 		const messages: unknown = isRecord(body) ? body.messages : undefined;
 		answered += 1;
 		const history = Array.isArray(messages) ? messages : [];
-		const own = ownAnswerOf(history, pace);
+		const own =
+			through === undefined ? ownAnswerOf(history, pace) : firstAskOf(history);
 		const hold = own === undefined ? undefined : holds.get(own);
 		if (own !== undefined && hold !== undefined && !hold.taken) {
 			hold.taken = true;
@@ -131,6 +154,11 @@ export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 		}
 		// A client that went while its answer was held takes none.
 		if (response.destroyed) return;
+		if (through !== undefined) {
+			const tag = turnSoFar(history)?.turn.tag;
+			await through(isRecord(body) ? body : {}, request.headers, response, tag);
+			return;
+		}
 		await stream(
 			response,
 			answerTo(history, pace),
@@ -211,6 +239,18 @@ export function ownAnswerOf(
 	if (sofar === undefined || sofar.turn.kind === "compact") return undefined;
 	const own = sofar.round === roundsBefore(sofar.turn, pace.rounds);
 	return own ? sofar.turn.tag : undefined;
+}
+
+/**
+ * The tag of the turn whose first request `messages` are, or nothing for
+ * a later one, a steer's or a compaction's: where a hold takes a turn a
+ * real model answers, whose rounds the script can't foretell.
+ */
+export function firstAskOf(messages: readonly unknown[]): string | undefined {
+	if (steeredIn(textOf(lastSaid(messages))) !== undefined) return undefined;
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined || sofar.turn.kind === "compact") return undefined;
+	return sofar.round === 0 ? sofar.turn.tag : undefined;
 }
 
 /** What the request whose messages are `messages` is answered with, at `pace`. */

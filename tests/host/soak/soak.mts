@@ -126,10 +126,18 @@ import {
 } from "./report.ts";
 import {
 	JOB_SAYS,
+	type PassOn,
 	type SoakProvider,
 	soakProvider,
 	textOf,
 } from "./soak-provider.ts";
+import {
+	passOn,
+	proxyBaseOf,
+	type Refusal,
+	shapeOf,
+	usageOf,
+} from "./soak-real.ts";
 import {
 	acknowledged,
 	checkpointsOf,
@@ -280,6 +288,7 @@ const { values } = parseArgs({
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
 		rounds: { type: "string" },
+		real: { type: "string" },
 		out: { type: "string" },
 	},
 });
@@ -332,8 +341,10 @@ const turnMs =
 // Each conversation's first key waits a draw within one median turn, on
 // either side, so they start as a person comes to them, not at once.
 const staggerMs = medianTurnMs(pace);
-const provider = await soakProvider(pace);
-const agent = agentOf(provider);
+/** What the real model refused, under --real. */
+const refusals: Refusal[] = [];
+const provider = await soakProvider(pace, passOnOf(values.real));
+const agent = agentOf(provider, values.real !== undefined);
 const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
 	.filter((entry) => entry.isDirectory() && !FIXTURE_LOADS.has(entry.name))
 	.map((entry) => entry.name)
@@ -426,14 +437,30 @@ const report = {
 				},
 			}
 		: {}),
+	// A real model's words differ side to side, so its records compare
+	// by their shape alone.
 	parity: hosted.logs.map((log, at) =>
 		parityOf(
-			log,
-			plain.logs[at] ?? [],
+			values.real ? log.map(shapeOf) : log,
+			values.real
+				? (plain.logs[at] ?? []).map(shapeOf)
+				: (plain.logs[at] ?? []),
 			{ hosted: hostSeal.root, plain: plainSeal.root },
 			[...carriedTags].some((tag) => tag.startsWith(`c${at}-`)),
 		),
 	),
+	...(values.real
+		? {
+				real: {
+					model: values.real,
+					refusals,
+					usage: {
+						hosted: usageOf(hosted.logs),
+						plain: usageOf(plain.logs),
+					},
+				},
+			}
+		: {}),
 	requests: provider.answered(),
 	faults,
 	hostErrors: errorsIn(hosted.errors),
@@ -499,7 +526,10 @@ function spentIn<T extends object>(
 }
 
 /** The agent folder's additions both sides take: the soak's model as the default, with no compaction or retry, so every request is the script's. */
-function agentOf(listening: SoakProvider): {
+function agentOf(
+	listening: SoakProvider,
+	real: boolean,
+): {
 	readonly providers: object;
 	readonly settings: object;
 } {
@@ -513,7 +543,9 @@ function agentOf(listening: SoakProvider): {
 					{
 						id: "mock",
 						name: "Soak Mock",
-						reasoning: false,
+						// A real model thinks, so each side keeps and sends back its
+						// signed thinking, which the real API refuses changed.
+						reasoning: real,
 						input: ["text"],
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 						contextWindow: 200_000,
@@ -525,6 +557,7 @@ function agentOf(listening: SoakProvider): {
 		settings: {
 			defaultProvider: "soak",
 			defaultModel: "mock",
+			...(real ? { defaultThinkingLevel: "low" } : {}),
 			quietStartup: true,
 			// No compaction but a turn's own, which keeps nothing verbatim,
 			// so even a short conversation has something to compact.
@@ -533,6 +566,28 @@ function agentOf(listening: SoakProvider): {
 			// As on optimus: the harness's codemode stands in for pi's own.
 			extensions: ["-builtin:codemode"],
 		},
+	};
+}
+
+/**
+ * Under --real MODEL, where the provider passes each request: on to MODEL
+ * at the AI proxy, with the key from the soak's own environment, each
+ * refusal a fault. Without it, nowhere: the script answers.
+ */
+function passOnOf(model: string | undefined): PassOn | undefined {
+	if (model === undefined) return undefined;
+	const key = process.env.SHOPIFY_PROXY_KEY;
+	if (!key) throw new Error("usage: --real needs SHOPIFY_PROXY_KEY set");
+	const upstream = {
+		baseUrl: proxyBaseOf(process.env.SHOPIFY_PI_PROXY_ORIGIN),
+		key,
+		model,
+	};
+	return async (body, headers, response, tag) => {
+		const refused = await passOn(body, headers, upstream, response, tag);
+		if (refused === undefined) return;
+		refusals.push(refused);
+		fault(`${tag ?? "a request"} refused, ${refused.status}: ${refused.said}`);
 	};
 }
 
