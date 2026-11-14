@@ -1402,12 +1402,14 @@ async function runPlain(sealed: Seal): Promise<{
 			),
 		);
 	const offline = { ...sealed.env, PI_OFFLINE: "1" };
+	// The timed pis take their folders first, so each has the folder its
+	// hosted twin had, and the warming pi the next.
+	const cwds = counts.map(() => workingFolder(work));
 	// Unprofiled, so its start isn't among the timed pis' profiles.
 	const coldOpenMs = values.cold
 		? undefined
 		: await warmPlain(workingFolder(work), stringsOf(offline));
 	const env = stringsOf(profiled(offline, profiles.plain));
-	const cwds = counts.map(() => workingFolder(work));
 	const sent = new Map<string, number>();
 	const ran = await Promise.all(
 		counts.map(async (count, index) => {
