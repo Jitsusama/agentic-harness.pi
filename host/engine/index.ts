@@ -17,11 +17,13 @@ export {
 } from "./harness-settings.ts";
 export {
 	HOST_SEAMS,
+	HOST_WANTED_SEAMS,
 	type HostPi,
 	type HostPiModules,
 	HostPiRefused,
 	type HostSeam,
 	hostPiFiles,
+	lackingSeams,
 	loadHostPi,
 } from "./host-pi.ts";
 export type { StartupDiagnostic } from "./pi-session.ts";

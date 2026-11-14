@@ -85,6 +85,40 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 	},
 ];
 
+/**
+ * The seams the host runs without, saying what goes missing: a host that
+ * refused a runtime built before one would stop at its next start, so a
+ * missing one is reported (HostPi.lacking) and the conversation opens.
+ */
+export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
+	{
+		patch: "pi-host-agent-interface.patch",
+		why: "words sent as a conversation reopens show nowhere until their turn starts",
+		// Added to the agent-interface patch as hostQueueDisplay, after its version 1.
+		present: ({ codingAgent }) =>
+			isRecord(codingAgent.AgentSession) &&
+			codingAgent.AgentSession.hostQueueDisplay === true,
+	},
+];
+
+/** What a pi lacking wanted seams goes without, each patch named once, for the host's report. */
+export function lackingSeams(
+	packageDir: string,
+	lacking: readonly HostSeam[],
+): string {
+	return `The pi at ${packageDir} lacks ${seamReasons(lacking)}`;
+}
+
+/** Each patch named once, with what is lost without it. */
+function seamReasons(seams: readonly HostSeam[]): string {
+	const reasons = new Map<string, string[]>();
+	for (const seam of seams)
+		reasons.set(seam.patch, [...(reasons.get(seam.patch) ?? []), seam.why]);
+	return [...reasons]
+		.map(([patch, whys]) => `${patch}: without it ${whys.join(", and ")}`)
+		.join("; ");
+}
+
 /** The auth-context patch's version the host accepts from. */
 const AUTH_CONTEXT_VERSION = 2;
 
@@ -94,14 +128,8 @@ export class HostPiRefused extends Error {
 
 	constructor(packageDir: string, missing: readonly HostSeam[]) {
 		// A patch can add several seams; it is named once, with each reason.
-		const reasons = new Map<string, string[]>();
-		for (const seam of missing)
-			reasons.set(seam.patch, [...(reasons.get(seam.patch) ?? []), seam.why]);
-		const lines = [...reasons].map(
-			([patch, whys]) => `${patch}: without it ${whys.join(", and ")}`,
-		);
 		super(
-			`The pi at ${packageDir} is not the host's build; it lacks ${lines.join("; ")}`,
+			`The pi at ${packageDir} is not the host's build; it lacks ${seamReasons(missing)}`,
 		);
 		this.name = "HostPiRefused";
 		this.missing = missing;
@@ -116,6 +144,8 @@ export interface HostPi {
 	/** The install's pi command, the entry script its package names as bin pi, which a subagent runs. */
 	readonly command: string;
 	readonly modules: HostPiModules;
+	/** The wanted seams this pi lacks, which the host reports and runs without. */
+	readonly lacking: readonly HostSeam[];
 }
 
 /** Where one library sits in an installed pi: beside the coding agent, under its node_modules. */
@@ -163,7 +193,8 @@ export function hostPiFiles(
 /**
  * Load pi from the install at packageDir and check every seam, refusing with
  * each missing patch named, so a host on ordinary pi never opens a
- * conversation it would run wrongly.
+ * conversation it would run wrongly. A wanted seam it lacks is listed in
+ * lacking instead, for the host to report.
  */
 export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	if (!isAbsolute(packageDir)) {
@@ -195,7 +226,14 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	const version = modules.codingAgent.VERSION;
 	if (typeof version !== "string" || version === "")
 		throw new Error(`The pi at ${packageDir} names no version`);
-	return { packageDir, version, command: piCommand(packageDir), modules };
+	const lacking = HOST_WANTED_SEAMS.filter((seam) => !seam.present(modules));
+	return {
+		packageDir,
+		version,
+		command: piCommand(packageDir),
+		modules,
+		lacking,
+	};
 }
 
 /** The entry script the install's package.json names as its pi command, refusing one it lacks. */
