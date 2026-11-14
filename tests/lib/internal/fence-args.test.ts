@@ -172,6 +172,50 @@ describe("the fence's arguments", () => {
 			entries: () => [],
 		};
 		expect(fenceArgs({ ...place, npmrc }, none)).not.toContain(npmrc);
+		expect(
+			fenceRefusesRead(stored, place, linked),
+			"pi's read tool is refused the file the settings link to",
+		).toBe(true);
+	});
+
+	it("empties the file or folder a hidden link leads to, and refuses pi's tools there", () => {
+		const vault = `${place.home}/.pi/agent/vault.json`;
+		const legacy = `${place.home}/.config/gcloud/legacy_credentials`;
+		const storedFile = "/elsewhere/vault.json";
+		const storedFolder = "/elsewhere/legacy";
+		const linked: Disk = {
+			kind: (path) => {
+				if (path === vault || path === legacy) return "link";
+				return path === storedFile ? "file" : "folder";
+			},
+			entries: () => [],
+			real: (path) => ({ [vault]: storedFile, [legacy]: storedFolder })[path],
+		};
+		const given = fenceArgs(place, linked);
+		const file = given.indexOf(storedFile);
+		expect(given.slice(file - 2, file + 1)).toEqual([
+			"--ro-bind",
+			"/dev/null",
+			storedFile,
+		]);
+		const folder = given.indexOf(storedFolder);
+		expect(given.slice(folder - 1, folder + 3)).toEqual([
+			"--tmpfs",
+			storedFolder,
+			"--remount-ro",
+			storedFolder,
+		]);
+		expect(given, "nothing is mounted on the links themselves").not.toContain(
+			vault,
+		);
+		expect(fenceRefusesRead(storedFile, place, linked)).toBe(true);
+		expect(fenceRefusesRead(`${storedFolder}/adc.json`, place, linked)).toBe(
+			true,
+		);
+		expect(
+			fenceRefusesRead("/elsewhere/other.json", place, linked),
+			"what sits beside the target stays readable",
+		).toBe(false);
 	});
 
 	it("makes the home folder read-only, binding back writable every hidden entry but the read-only ones and links", () => {

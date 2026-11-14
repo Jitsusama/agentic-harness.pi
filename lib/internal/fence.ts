@@ -382,6 +382,25 @@ function hiddenIn(home: string): { path: string; folder: boolean }[] {
 }
 
 /**
+ * What the fence keeps from pi's file tools in the home folder, each
+ * hidden path and npm's settings, and, where one is a link, the place it
+ * leads, since a read is checked once its links are followed.
+ */
+function refusedIn(
+	home: string,
+	disk: Disk,
+): { path: string; folder: boolean }[] {
+	const kept = [...hiddenIn(home), { path: join(home, NPMRC), folder: false }];
+	return kept.flatMap((entry) => {
+		const real =
+			disk.kind(entry.path) === "link" ? disk.real?.(entry.path) : undefined;
+		return real === undefined
+			? [entry]
+			: [entry, { path: real, folder: entry.folder }];
+	});
+}
+
+/**
  * bubblewrap's arguments binding the copy of `~/.npmrc` without its
  * tokens over it, or over the file it links to, since bubblewrap won't
  * mount on a link.
@@ -398,15 +417,19 @@ function npmrcArgs(place: FencePlace, disk: Disk): string[] {
 /**
  * bubblewrap's arguments emptying each hidden file and folder that is
  * there: a file bound over with `/dev/null`, a folder with an empty one
- * made read-only.
+ * made read-only. A link's target is emptied instead, since bubblewrap
+ * won't mount on a link and the link would still lead to it.
  */
 function hiddenArgs(home: string, disk: Disk): string[] {
 	return hiddenIn(home).flatMap(({ path, folder }) => {
-		const kind = disk.kind(path);
+		const link = disk.kind(path) === "link";
+		const over = link ? disk.real?.(path) : path;
+		if (over === undefined) return [];
+		const kind = disk.kind(over);
 		if (folder) {
-			return kind === "folder" ? ["--tmpfs", path, "--remount-ro", path] : [];
+			return kind === "folder" ? ["--tmpfs", over, "--remount-ro", over] : [];
 		}
-		return kind === "file" ? ["--ro-bind", "/dev/null", path] : [];
+		return kind === "file" ? ["--ro-bind", "/dev/null", over] : [];
 	});
 }
 
@@ -705,18 +728,22 @@ export function fenceRefusesWrite(
  * Whether a path, already resolved, lies where the fence keeps pi's own
  * file tools from reading: another process's files in `/proc`, a hidden
  * key (`HIDDEN`), npm's settings, which hold registry tokens (commands
- * read a copy without them), or the runtime folder, which holds the
- * clipboard's pictures and the desktop's sockets.
+ * read a copy without them), or where either is a link, the place it
+ * leads; or the runtime folder, which holds the clipboard's pictures
+ * and the desktop's sockets.
  */
-export function fenceRefusesRead(path: string, place: FencePlace): boolean {
+export function fenceRefusesRead(
+	path: string,
+	place: FencePlace,
+	disk: Disk = DISK,
+): boolean {
 	// pi's own /proc/self resolves to its pid, so it is refused too: its
 	// open files are pipes and sockets no fenced command could reach.
 	if (/^\/proc\/(\d+|thread-self)(\/|$)/.test(path)) return true;
-	const hidden = hiddenIn(place.home).some(({ path: at, folder }) =>
+	const refused = refusedIn(place.home, disk).some(({ path: at, folder }) =>
 		folder ? path === at || path.startsWith(`${at}/`) : path === at,
 	);
-	if (hidden) return true;
-	if (path === join(place.home, NPMRC)) return true;
+	if (refused) return true;
 	const runtime = place.runtimeDir;
 	return (
 		runtime !== undefined &&

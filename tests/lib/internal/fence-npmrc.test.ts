@@ -23,6 +23,8 @@ const SETTINGS = [
 	"  _authToken = not-a-token-either",
 	"cafile=/etc/ssl/certs/ca.pem",
 	"; a comment naming _authToken in passing",
+	"registry=https://someone:not-a-password@npm.example/",
+	"@other:registry=https://npm.example/with@sign/",
 ].join("\n");
 
 describe("npm's settings without their tokens", () => {
@@ -36,6 +38,8 @@ describe("npm's settings without their tokens", () => {
 			"; _authToken is held back by the agent fence",
 			"cafile=/etc/ssl/certs/ca.pem",
 			"; a comment naming _authToken in passing",
+			"; registry is held back by the agent fence",
+			"@other:registry=https://npm.example/with@sign/",
 		]);
 	});
 
@@ -45,9 +49,16 @@ describe("npm's settings without their tokens", () => {
 			"not-a-token",
 			"bm90LWEtdG9rZW4=",
 			"bm90LWEtcGFzc3dvcmQ=",
+			"not-a-password",
 		]) {
 			expect(copy).not.toContain(value);
 		}
+	});
+
+	it("holds back a registry's address that carries a password, even alone", () => {
+		expect(
+			withoutNpmTokens("registry=https://someone:not-a-password@npm.example/"),
+		).toBe("; registry is held back by the agent fence");
 	});
 
 	it("is nothing when the settings hold no token", () => {

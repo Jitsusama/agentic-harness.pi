@@ -29,16 +29,28 @@ export const NPMRC = ".npmrc";
 const CREDENTIAL = /^\s*((?:[^=;#\s]*:)?_(?:authToken|auth|password))\s*=/;
 
 /**
+ * A setting whose value is an address carrying a name and password
+ * (`registry=https://name:password@host/`), which npm sends as the
+ * registry's credential.
+ */
+const USERINFO = /^\s*([^=;#\s]+)\s*=.*:\/\/[^/@\s]+@/;
+
+/** The setting a line gives a credential, or nothing when it gives none. */
+function credentialIn(line: string): string | undefined {
+	return CREDENTIAL.exec(line)?.[1] ?? USERINFO.exec(line)?.[1];
+}
+
+/**
  * `text` with each credential's line replaced by a comment naming its
  * setting, never its value; or nothing when it holds none and needs no
  * copy.
  */
 export function withoutNpmTokens(text: string): string | undefined {
 	const lines = text.split("\n");
-	if (!lines.some((line) => CREDENTIAL.test(line))) return undefined;
+	if (!lines.some((line) => credentialIn(line) !== undefined)) return undefined;
 	return lines
 		.map((line) => {
-			const setting = CREDENTIAL.exec(line)?.[1];
+			const setting = credentialIn(line);
 			return setting === undefined
 				? line
 				: `; ${setting} is held back by the agent fence`;
