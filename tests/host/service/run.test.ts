@@ -42,8 +42,11 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 let dir: string;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-run-"));
+	// What a host keeps between its runs stays in the case's own folder.
+	vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
 });
 afterEach(async () => {
+	vi.unstubAllEnvs();
 	await rm(dir, { recursive: true, force: true });
 });
 
@@ -570,6 +573,76 @@ describe("runHost", () => {
 		// the host it installed is gone before the next case starts one.
 		parks();
 		await run.serving.stop();
+	});
+
+	// On 14 November the attended host's next start resumed two
+	// conversations in 72 s each, and nothing said which had parked.
+	it("says on the next start's resume which conversation the last stop left unparked, once", async () => {
+		const signals = new EventEmitter();
+		let parks = () => {};
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				start: async ({ sessionId, file, cwd }) => {
+					const close = () =>
+						new Promise<void>((parked) => {
+							parks = parked;
+						});
+					host.register({ id: sessionId, file, cwd, env: {}, close });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			stopWithin: 200,
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		signals.emit("SIGTERM");
+		await run.stopped;
+		parks();
+		await run.serving.stop();
+
+		const resumingLines = async () => {
+			const said: string[] = [];
+			const next = new EventEmitter();
+			const started = await runHost({
+				argv: ["background"],
+				env: env(),
+				engine,
+				signals: next,
+				ready: async () => {},
+				progress: async () => {},
+				say: (line) => said.push(line),
+				report: () => {},
+				places: places(),
+			});
+			next.emit("SIGTERM");
+			await started.stopped;
+			return said.filter((line) => line.includes(": resuming "));
+		};
+		expect(await resumingLines(), "the start after it").toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`: resuming 1 of 1: ${sessionId} \\(not parked at the \\d\\d:\\d\\d stop\\)$`,
+				),
+			),
+		]);
+		expect(await resumingLines(), "a start after one that parked").toEqual([
+			expect.stringMatching(new RegExp(`: resuming 1 of 1: ${sessionId}$`)),
+		]);
 	});
 
 	it("gives serve the viewer bridge, built once over the host it runs", async () => {
