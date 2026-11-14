@@ -85,6 +85,12 @@ export function quietCollection(options: {
 	readonly exposeGc?: () => unknown;
 	/** This process's Pss in bytes, or nothing where it can't be read. */
 	readonly weigh?: () => number | undefined;
+	/**
+	 * V8's heap in bytes, used of what it holds, so a collection says how
+	 * much of the Pss was JavaScript; the process's own by default, and
+	 * nothing said where it answers nothing.
+	 */
+	readonly heap?: () => Heap | undefined;
 	readonly report?: (said: string) => void;
 	/** What times the pause, in ms; performance.now by default. */
 	readonly clock?: () => number;
@@ -97,6 +103,7 @@ export function quietCollection(options: {
 		return { stirred() {}, parked() {}, viewed() {}, stop() {} };
 	}
 	const weigh = options.weigh ?? pssBytes;
+	const heap = options.heap ?? processHeap;
 	const clock = options.clock ?? (() => performance.now());
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
@@ -152,6 +159,7 @@ export function quietCollection(options: {
 	};
 	const collected = (reading: QuietReading, working: boolean) => {
 		const before = weigh();
+		const heapBefore = heap();
 		const started = clock();
 		try {
 			collect();
@@ -167,7 +175,10 @@ export function quietCollection(options: {
 		}
 		const took = Math.round(clock() - started);
 		const after = weigh();
-		options.report?.(collectedLine(took, before, after, reading, working));
+		const heaps = { before: heapBefore, after: heap() };
+		options.report?.(
+			collectedLine(took, { before, after }, heaps, reading, working),
+		);
 	};
 	return {
 		stirred() {
@@ -221,20 +232,39 @@ export function runningTools(): RunningTools {
 	};
 }
 
+/** V8's heap: what it uses of what it holds, in bytes. */
+export interface Heap {
+	readonly used: number;
+	readonly total: number;
+}
+
+/** This process's V8 heap. */
+function processHeap(): Heap {
+	const { heapUsed, heapTotal } = process.memoryUsage();
+	return { used: heapUsed, total: heapTotal };
+}
+
 /** The journal's line for one collection. */
 function collectedLine(
 	took: number,
-	before: number | undefined,
-	after: number | undefined,
+	pssAround: { readonly before?: number; readonly after?: number },
+	heapAround: { readonly before?: Heap; readonly after?: Heap },
 	reading: QuietReading,
 	working: boolean,
 ): string {
 	const megabytes = (bytes: number) => `${Math.round(bytes / MB)} MB`;
+	const { before, after } = pssAround;
 	const pss =
 		before === undefined || after === undefined
 			? "Pss unread"
 			: `Pss ${megabytes(before)} to ${megabytes(after)}`;
-	const quiet = `Collected while quiet in ${took} ms, ${pss}, with ${reading.waiting} conversations waiting on the model`;
+	const held = (one: Heap) =>
+		`${Math.round(one.used / MB)} of ${megabytes(one.total)}`;
+	const heap =
+		heapAround.before && heapAround.after
+			? `, heap ${held(heapAround.before)} to ${held(heapAround.after)}`
+			: "";
+	const quiet = `Collected while quiet in ${took} ms, ${pss}${heap}, with ${reading.waiting} conversations waiting on the model`;
 	const line = working
 		? `${quiet}, and ${reading.tools} tool calls and ${reading.jobs} jobs running, due for ${CEILING_MS / MS_PER_MINUTE} minutes`
 		: quiet;
