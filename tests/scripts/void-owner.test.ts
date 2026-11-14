@@ -53,7 +53,7 @@ describe("the mesh senders a pull request is looked up in", () => {
 			now,
 		);
 
-		expect(senders.toSorted()).toEqual(["2AF2DH", "2AF2DH", "5FWIUS"]);
+		expect([...senders].sort()).toEqual(["2AF2DH", "2AF2DH", "5FWIUS"]);
 	});
 });
 

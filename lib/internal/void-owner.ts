@@ -260,7 +260,7 @@ function byPage(
 	const written = sources.quests
 		.map((quest) => ({ quest, times: count(quest.body, host) }))
 		.filter((entry) => entry.times > 0)
-		.toSorted((a, b) => b.times - a.times)
+		.sort((a, b) => b.times - a.times)
 		.slice(0, MOST_BY_PAGE);
 	return {
 		tried:
@@ -323,7 +323,7 @@ function byWords(
 			return { quest, shared };
 		})
 		.filter((entry) => entry.shared.length >= FEWEST_SHARED_WORDS)
-		.toSorted((a, b) => b.shared.length - a.shared.length)
+		.sort((a, b) => b.shared.length - a.shared.length)
 		.slice(0, MOST_BY_WORDS);
 	return {
 		tried: scored.length > 0 ? "his words" : "his words (no title shares two)",
