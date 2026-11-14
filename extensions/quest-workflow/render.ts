@@ -68,8 +68,6 @@ const KIND_NOUN: Record<DocumentKind, string> = {
 	report: "Report",
 };
 
-const SESSION_NAME_LIMIT = 20;
-
 /**
  * Hard cap on visible characters in the widget's arrow
  * trailer (the `→ first-unchecked-item` segment). Plan
@@ -121,13 +119,6 @@ function truncateTrailer(source: string, limit: number): string {
 const WIDGET_INDENT_COLS = 1;
 
 /**
- * Words of the title kept when a quest has no short name: enough to
- * say what it is about, few enough to read at a glance in a window
- * switcher.
- */
-const FALLBACK_TITLE_WORDS = 3;
-
-/**
  * A quest's short name. Core's parser, which `findQuestEntry` uses until
  * core folds into this package, does not know the field and keeps it
  * among the extras; the harness's own parser reads it directly.
@@ -144,9 +135,11 @@ export function shortNameOf(frontMatter: {
  * The session name pi puts in the terminal's window title, which reads
  * "π - <name> - <folder>". It says what the quest is about and never
  * carries its id, which the status line already shows: the quest's
- * short name as written, or failing that the first few words of its
- * Title Case title, cut to `SESSION_NAME_LIMIT` with an ellipsis
- * whenever words were dropped. With neither the result is `undefined`.
+ * short name as written, or failing that its whole Title Case title.
+ * It is never cut here: niri, the launcher's Windows and Super+S tell
+ * sessions apart by this title alone and each cuts it to its own width,
+ * so a cut here made two sessions whose titles start alike read the
+ * same everywhere. With neither the result is `undefined`.
  */
 export function sessionNameFor(
 	title: string | null,
@@ -155,16 +148,7 @@ export function sessionNameFor(
 	const short = shortName?.trim();
 	if (short) return short;
 	if (!title?.trim()) return undefined;
-	const words = titleCase(title.trim()).split(/\s+/);
-	const kept = words.slice(0, FALLBACK_TITLE_WORDS).join(" ");
-	if (kept.length > SESSION_NAME_LIMIT) return truncateLabel(kept);
-	return words.length > FALLBACK_TITLE_WORDS ? `${kept}\u2026` : kept;
-}
-
-/** Title Case text truncated to a budget, with an ellipsis when cut. */
-function truncateLabel(text: string, limit = SESSION_NAME_LIMIT): string {
-	if (text.length <= limit) return text;
-	return `${text.slice(0, limit - 1)}\u2026`;
+	return titleCase(title.trim().replace(/\s+/g, " "));
 }
 
 function titleCase(text: string): string {
