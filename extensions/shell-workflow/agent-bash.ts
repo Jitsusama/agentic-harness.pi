@@ -16,7 +16,7 @@ import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
 import { spawnedBy } from "../../lib/internal/shell/spawner.ts";
-import { SPAWNER_VARIABLE } from "../../lib/internal/shell/spawner-variable.ts";
+import { spawnerWanted } from "../../lib/internal/shell/spawner-variable.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { type Keeping, keepsOnDisk } from "./keeping.ts";
@@ -48,8 +48,8 @@ export function agentBash(
 ): AgentBash {
 	// In a host running pi-spawner, the ones its pid started are other
 	// conversations', so none is taken for one an earlier load left. A host
-	// without it, by the process's own environment, runs none for any.
-	const sharing = hosted() && process.env[SPAWNER_VARIABLE] === "on";
+	// that turns it off, in the process's own environment, runs none for any.
+	const sharing = hosted() && spawnerWanted(process.env);
 	// Each call pi starts itself keeps itself on disk where it can, so a
 	// move can hand it on (keeping.ts). One pi-spawner starts is killed
 	// when this pi goes, so it keeps nothing, and holds a move.
