@@ -5,7 +5,14 @@
  * the soak's provider over real HTTP.
  */
 import { describe, expect, it } from "vitest";
-import { drawn, LONGEST_MS, paceOf, piecesOf } from "./pace.ts";
+import {
+	drawn,
+	LONGEST_MS,
+	medianTurnMs,
+	paceOf,
+	piecesOf,
+	staggerOf,
+} from "./pace.ts";
 import { answerTo, soakProvider } from "./soak-provider.ts";
 
 const DRAWS = 10_000;
@@ -64,6 +71,39 @@ describe("a pace", () => {
 		expect(piecesOf("ab", 5), "no more than its letters").toEqual(["a", "b"]);
 		expect(piecesOf("", 4), "none still streams one").toEqual([""]);
 		expect(piecesOf("abc", 0), "no time is one").toEqual(["abc"]);
+	});
+
+	it("takes a median turn as its rounds of an answer and a tool", () => {
+		const answer = { p50: 16_007, p90: 38_871 };
+		const tool = { p50: 541, p90: 12_263 };
+		expect(
+			medianTurnMs({ answer, tool, rounds: { p50: 7, p90: 55 } }),
+			"seven rounds",
+		).toBe(115_836);
+		expect(medianTurnMs({ answer }), "a tool call and an answer").toBe(32_014);
+		expect(medianTurnMs({}), "no pace").toBe(0);
+	});
+
+	it("staggers each conversation's start through its span, the same every run", () => {
+		const span = 115_836;
+		const starts = Array.from({ length: 48 }, (_, index) =>
+			staggerOf(index, span),
+		);
+		expect(
+			starts.every((one) => one >= 0 && one < span),
+			"within the span",
+		).toBe(true);
+		expect(new Set(starts).size, "none in the same instant").toBe(48);
+		expect(
+			starts.filter((one) => one < span / 2).length,
+			"about half in its first half",
+		).toBeGreaterThan(12);
+		expect(
+			starts.filter((one) => one < span / 2).length,
+			"and about half in its second",
+		).toBeLessThan(36);
+		expect(staggerOf(3, span), "the same draw again").toBe(starts[3]);
+		expect(staggerOf(3, 0), "no span, no wait").toBe(0);
 	});
 });
 

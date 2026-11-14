@@ -24,6 +24,9 @@ export const LONGEST_MS = 45_000;
 /** The most rounds a turn is drawn to have, past a week's 90th, 55. */
 export const MOST_ROUNDS = 60;
 
+/** The rounds a turn has with no pace for them: its tool call's and its answer's. */
+const UNPACED_ROUNDS = 2;
+
 /** The standard normal's 90th percentile, which fixes a spread's width. */
 const Z_90 = 1.2815515655446004;
 
@@ -53,6 +56,29 @@ export function drawn(
 	const sigma = Math.log(spread.p90 / spread.p50) / Z_90;
 	const value = spread.p50 * Math.exp(sigma * normal(hashOf(key)));
 	return Math.min(most, Math.round(value));
+}
+
+/**
+ * One median turn at `pace`: its median rounds, each an answer and a
+ * tool at their medians, or nothing when neither has a pace.
+ */
+export function medianTurnMs(pace: {
+	readonly answer?: Percentiles | undefined;
+	readonly tool?: Percentiles | undefined;
+	readonly rounds?: Percentiles | undefined;
+}): number {
+	const rounds = pace.rounds?.p50 ?? UNPACED_ROUNDS;
+	return rounds * ((pace.answer?.p50 ?? 0) + (pace.tool?.p50 ?? 0));
+}
+
+/**
+ * How long conversation `index` waits before its first key: a draw
+ * spread evenly below `spanMs`, the same every run, so conversations
+ * start through the span as people come to them rather than all in
+ * the same instant.
+ */
+export function staggerOf(index: number, spanMs: number): number {
+	return Math.floor((1 - uniform(hashOf(`stagger c${index}`))) * spanMs);
 }
 
 /** FNV-1a's 32-bit offset basis and prime. */
