@@ -8,7 +8,10 @@
  * at once: on 13 November a mesh message landed between a call and its
  * result in two conversations, and every later request was refused.
  * Here the session's sendCustomMessage does what pi does in a run of its
- * own whenever the agent runs and the session counts no run.
+ * own whenever the agent runs and the session counts no run. A host stops
+ * in the middle of such turns, so what is held is written as the session
+ * is disposed, even mid-round: a peer's lost words cost more than their
+ * place, which the request's pairing mends (paired-results.ts).
  */
 
 import type {
@@ -28,7 +31,7 @@ export interface CarryingAgent {
 /** The session, as far as holding a message through a carried-on turn needs it. */
 export type MessagingSession = Pick<
 	AgentSession,
-	"isStreaming" | "subscribe" | "sendCustomMessage"
+	"isStreaming" | "subscribe" | "sendCustomMessage" | "dispose"
 >;
 
 /** The events after which a held message no longer splits a call from its result. */
@@ -38,8 +41,9 @@ const TURN_ENDS = new Set(["turn_end", "agent_end"]);
  * Make the session hold an extension's message through a turn its agent
  * runs while the session counts no run, as pi's session holds one through
  * its own: steered or followed up when it asks for a turn, written once
- * the turn ends when it doesn't; a held one pi fails to write goes to
- * report. Returns what undoes it.
+ * the turn ends when it doesn't, or as the session is disposed; a held
+ * one pi fails to write goes to report. The hold ends with the session's
+ * dispose; what it returns ends it sooner.
  */
 export function holdMessagesThroughCarriedTurns(
 	session: MessagingSession,
@@ -62,6 +66,18 @@ export function holdMessagesThroughCarriedTurns(
 	const unsubscribe = session.subscribe((event) => {
 		if (TURN_ENDS.has(event.type) && held.length > 0) flush();
 	});
+	const dispose = session.dispose.bind(session);
+	const undo = () => {
+		unsubscribe();
+		session.sendCustomMessage = send;
+		session.dispose = dispose;
+	};
+	session.dispose = () => {
+		undo();
+		// pi writes a no-turn message at once while it counts no run, so it is in the file before pi lets go of it.
+		flush();
+		dispose();
+	};
 	session.sendCustomMessage = async (message, options) => {
 		if (!carrying() || options?.deliverAs === "nextTurn")
 			return await send(message, options);
@@ -73,10 +89,7 @@ export function holdMessagesThroughCarriedTurns(
 		}
 		held.push({ message, options });
 	};
-	return () => {
-		unsubscribe();
-		session.sendCustomMessage = send;
-	};
+	return undo;
 }
 
 /** The message as pi's session hands it to its agent. */

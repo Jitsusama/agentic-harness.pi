@@ -90,7 +90,8 @@ one, so a mesh message could land between a call and its result, and
 providers that check order then refuse every request. The engine has
 each session hold such a message through that turn as pi holds one
 through its own run (carried-turn-messages.ts): steered in when it asks
-for a turn, written once the turn ends when it doesn't. Each request
+for a turn, written once the turn ends when it doesn't, or as the
+session is disposed if the host stops first. Each request
 also has its tool results put back beside their calls first
 (paired-results.ts), which keeps a file already in that shape
 answering; a result whose call is not before it goes as text saying so.

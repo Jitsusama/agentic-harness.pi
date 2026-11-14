@@ -191,6 +191,8 @@ export interface AgentSession {
 		},
 	): Promise<void>;
 	abort(): Promise<void>;
+	/** What pi's runtime calls as it lets go of the session, as the host stops or the session is replaced. */
+	dispose(): void;
 	waitForIdle(): Promise<void>;
 	reload(): Promise<void>;
 	subscribe(listener: (event: { readonly type: string }) => void): () => void;
