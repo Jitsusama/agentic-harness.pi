@@ -10,12 +10,43 @@
  * heap by 2.4 MB a minute while a bare one stayed flat. A buffer the
  * size of what such a file holds, grown only for one that fills it,
  * left the heap flat and the reading twice as fast.
+ *
+ * Reading them all at once still held the loop: every open and read
+ * began, and later finished, in the same step, and a shared host's
+ * other conversations waited 155 ms on one such step (OSPHT4, 14
+ * November 2026). So only a few run at once, and the rest wait their
+ * turn, which spreads the work over many short steps.
  */
 
 import { open } from "node:fs/promises";
 
 /** Enough for a process's name or a cgroup's number, and below Node's pool size. */
 const FIRST_BYTES = 256;
+
+/** How many kernel files are read at once, by every caller in the process. */
+export const AT_ONCE = 16;
+
+/**
+ * The reads running and those waiting their turn, for the whole process:
+ * the loop they would hold is the process's, whoever asked.
+ */
+const TURNS = { running: 0, waiting: [] as (() => void)[] };
+
+/** Wait for a turn to read, then hold it. */
+function turn(): Promise<void> {
+	if (TURNS.running < AT_ONCE) {
+		TURNS.running += 1;
+		return Promise.resolve();
+	}
+	return new Promise((begin) => TURNS.waiting.push(begin));
+}
+
+/** Give a turn to the next waiting read, or give it up. */
+function done(): void {
+	const next = TURNS.waiting.shift();
+	if (next) setImmediate(next);
+	else TURNS.running -= 1;
+}
 
 /**
  * A kernel file's text, read into a buffer that starts at `size` bytes
@@ -26,6 +57,16 @@ export async function kernelText(
 	path: string,
 	size: number = FIRST_BYTES,
 ): Promise<string> {
+	await turn();
+	try {
+		return await textOf(path, size);
+	} finally {
+		done();
+	}
+}
+
+/** What `kernelText` reads, once it has its turn. */
+async function textOf(path: string, size: number): Promise<string> {
 	const handle = await open(path, "r");
 	try {
 		let buffer = Buffer.allocUnsafe(size);

@@ -11,7 +11,8 @@
  * taken and those whose dev-shell roots were dropped.
  */
 
-import { appendFileSync, mkdirSync, readdirSync, readlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { readdir, readlink } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionSlot, withSession } from "../../lib/core/session/index.ts";
@@ -182,8 +183,10 @@ function inFinishedQuest(gitDir: string): boolean {
  * owners, for whatever takes trees whose owners have ended.
  */
 export function useSigns(): UseSigns {
-	// One census for both signs, since each asks every presence again.
+	// One census for both signs, since each asks every presence again,
+	// and one reading of every process's folder for the sweep.
 	let present: Promise<readonly Presence[]> | undefined;
+	let standing: Promise<string[]> | undefined;
 	const onTheMesh = () => {
 		present ??= presentNow();
 		return present;
@@ -191,7 +194,10 @@ export function useSigns(): UseSigns {
 	return {
 		liveSessions: () => liveSessions(onTheMesh),
 		sessionFolders: () => sessionFolders(onTheMesh),
-		standingIn,
+		standingIn: () => {
+			standing ??= standingIn();
+			return standing;
+		},
 		...bootedAt(),
 	};
 }
@@ -260,24 +266,27 @@ async function liveSessions(
 
 /**
  * The working folder of every process the kernel lists, which on a
- * machine without `/proc` is none.
+ * machine without `/proc` is none. Each is read off the event loop,
+ * which reading a thousand at once in one step held for 469 ms in a
+ * shared host (OSPHT4, 14 November 2026).
  */
-function standingIn(): string[] {
+async function standingIn(): Promise<string[]> {
 	let pids: string[];
 	try {
-		pids = readdirSync("/proc").filter((name) => /^\d+$/.test(name));
+		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
 	} catch {
 		// No /proc, as on macOS: the other guards still stand.
 		return [];
 	}
-	return pids.flatMap((pid) => {
-		try {
-			return [readlinkSync(join("/proc", pid, "cwd"))];
-		} catch {
-			// Ended since the listing, or another user's: nothing to read.
-			return [];
-		}
-	});
+	const folders = await Promise.all(
+		pids.map((pid) =>
+			readlink(join("/proc", pid, "cwd")).catch(
+				// Ended since the listing, or another user's: nothing to read.
+				() => undefined,
+			),
+		),
+	);
+	return folders.filter((folder) => folder !== undefined);
 }
 
 /** When this boot began, where the machine will say. */

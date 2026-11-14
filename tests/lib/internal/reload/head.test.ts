@@ -7,7 +7,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { headFromFiles } from "../../../../lib/internal/reload/head.ts";
+import {
+	headFromFiles,
+	upstreamFromFiles,
+} from "../../../../lib/internal/reload/head.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 
 describe("reading HEAD from git's files", () => {
@@ -66,5 +69,52 @@ describe("reading HEAD from git's files", () => {
 		const dir = mkdtempSync(join(tmpdir(), "head-none-"));
 		made.push(dir);
 		expect(headFromFiles(dir)).toBeUndefined();
+	});
+});
+
+describe("reading a branch's upstream from git's files", () => {
+	let repo: string | undefined;
+	const made: string[] = [];
+	afterEach(() => {
+		if (repo) disposeRepo(repo);
+		repo = undefined;
+		for (const dir of made.splice(0))
+			rmSync(dir, { recursive: true, force: true });
+	});
+
+	/** A clone of a fresh repository, tracking its main. */
+	async function cloned(): Promise<string> {
+		repo = await freshRepo();
+		const parent = mkdtempSync(join(tmpdir(), "head-clone-"));
+		made.push(parent);
+		const clone = join(parent, "clone");
+		await git(parent, "clone", "-q", repo, clone);
+		return clone;
+	}
+
+	it("agrees with git as the upstream moves, loose or packed", async () => {
+		const clone = await cloned();
+		expect(upstreamFromFiles(clone), "as cloned").toBe(
+			await git(clone, "rev-parse", "@{u}"),
+		);
+		writeFileSync(join(repo ?? "", "moved"), "x");
+		await git(repo ?? "", "add", "-A");
+		await git(repo ?? "", "commit", "-qm", "moved");
+		await git(clone, "fetch", "-q");
+		expect(upstreamFromFiles(clone), "after a fetch").toBe(
+			await git(clone, "rev-parse", "@{u}"),
+		);
+		await git(clone, "pack-refs", "--all");
+		expect(upstreamFromFiles(clone), "packed").toBe(
+			await git(clone, "rev-parse", "@{u}"),
+		);
+	});
+
+	it("says nothing for a branch with no upstream, or a detached HEAD", async () => {
+		const clone = await cloned();
+		await git(clone, "checkout", "-q", "-b", "alone");
+		expect(upstreamFromFiles(clone), "no upstream").toBeUndefined();
+		await git(clone, "checkout", "-q", "--detach");
+		expect(upstreamFromFiles(clone), "detached").toBeUndefined();
 	});
 });
