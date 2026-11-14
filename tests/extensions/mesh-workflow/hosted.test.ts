@@ -389,6 +389,55 @@ it("ends only the addressed conversation and refuses a foreign host without sign
 	self.dispose();
 });
 
+it("wakes a parked session it is asked to end, signalling nothing", async () => {
+	const { open, host } = await inHost();
+	const a = await peer("alpha-AAAAAAAA");
+	await peer("bravo-BBBBBBBB");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const bravo = presences.of("bravo-BBBBBBBB");
+	if (!bravo) throw new Error("bravo did not publish");
+	presences.publish({ ...bravo, owner: host.owner, orchestratedBy: "ORCHST" });
+	const self = localPeer({
+		session: "alpha-AAAAAAAA",
+		cwd: a.ctx.cwd,
+		records: paths,
+		presences,
+	});
+	const woken: string[] = [];
+	const signalled: string[] = [];
+	const tools = new Map<string, Tool>();
+	registerTools(
+		{
+			registerTool: (tool: Tool) => tools.set(tool.name, tool),
+		} as unknown as ExtensionAPI,
+		() => ({
+			peer: { ...self, orchestrates: "ORCHST" },
+			presences,
+			transport: folderTransport(join(paths.mesh, "messages")),
+			board: createBoard(join(paths.mesh, "leases")),
+			sent() {},
+			wakeParked: (session, why) => {
+				woken.push(`${session}: ${why}`);
+				return true;
+			},
+			endProcess: async (_owner, by) => {
+				signalled.push(by);
+				return "gone";
+			},
+		}),
+	);
+	const said = (
+		await tools.get("mesh_end")?.execute("end", { peer: "BBBBBBBB" })
+	)?.content[0]?.text;
+	expect(said).toContain("was parked, so nothing was signalled");
+	expect(woken, "its holder is asked to wake it, saying who asked").toEqual([
+		"bravo-BBBBBBBB: mesh-end-AAAAAAAA",
+	]);
+	expect(signalled, "no process is signalled").toEqual([]);
+	expect(open.size, "no conversation is closed").toBe(2);
+	self.dispose();
+});
+
 it("ends a conversation another host holds through that host's socket, never a signal", async () => {
 	const { host } = await inHost();
 	const a = await peer("alpha-AAAAAAAA");
