@@ -80,7 +80,7 @@ export default function shellHabitInterceptor(pi: ExtensionAPI) {
 				);
 				if (refused) return refused;
 			}
-			const edited = trackedShellEdits(command, {
+			const edited = await trackedShellEdits(command, {
 				cwd: ctx.cwd,
 				home: homedir(),
 			});

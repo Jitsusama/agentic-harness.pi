@@ -8,19 +8,26 @@
  *
  * The pure classifier takes these as injected predicates; this
  * module is the real implementation it composes in production.
+ *
+ * Those the write gate asks on every write answer asynchronously, and
+ * ask git nothing where no `.git` sits above the target. A host runs
+ * every conversation on one loop, and each git started with
+ * execFileSync held all of them until it exited; even a child started
+ * asynchronously is forked from that loop, so a target in no checkout,
+ * as most shell redirects are, starts none.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { gitRules } from "../sandbox.ts";
 import { gitRun } from "../tree-git.ts";
 
 /**
- * Wall-clock ceiling for a single git invocation. The classifier
- * runs on the synchronous tool_call path, so a wedged git must not
- * hang the event loop with no operator lever; a timeout throws,
- * which every caller already treats as the safe answer.
+ * Wall-clock ceiling for a single git invocation. A wedged git must
+ * not hold a tool call, or for the synchronous lookups the loop, with
+ * no operator lever; a timeout fails, which every caller already
+ * treats as the safe answer.
  */
 const GIT_TIMEOUT_MS = 5000;
 
@@ -51,6 +58,44 @@ function git(cwd: string, args: string[]): string | null {
 		// git missing, non-zero exit (e.g. not a repo, not ignored,
 		// not tracked) or any spawn error: the caller's safe answer.
 		return null;
+	}
+}
+
+/**
+ * Run git in `cwd` off the loop: its trimmed stdout, or null on any
+ * failure, as `git` gives, and null at once, with no git started, where
+ * no `.git` sits at or above `cwd`, since git would find no repository
+ * there either.
+ */
+function gitOffLoop(cwd: string, args: string[]): Promise<string | null> {
+	if (!inCheckout(cwd)) return Promise.resolve(null);
+	const held = allowed(cwd, args);
+	if (!held) return Promise.resolve(null);
+	return new Promise((resolve) => {
+		execFile(
+			"git",
+			held,
+			{ cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS },
+			(error, stdout) => {
+				// git missing, non-zero exit (not a repo, not ignored, not
+				// tracked) or any spawn error: the caller's safe answer.
+				resolve(error ? null : stdout.trim());
+			},
+		);
+	});
+}
+
+/**
+ * Whether a `.git` entry, a repo's folder or a worktree's file, sits at
+ * or above `dir`.
+ */
+function inCheckout(dir: string): boolean {
+	let at = path.resolve(dir);
+	for (;;) {
+		if (existsSync(path.join(at, ".git"))) return true;
+		const parent = path.dirname(at);
+		if (parent === at) return false;
+		at = parent;
 	}
 }
 
@@ -102,6 +147,19 @@ export function gitTreeRootOf(absPath: string): string | null {
 }
 
 /**
+ * The git working tree root containing the target, as `gitTreeRootOf`
+ * answers it, asked off the loop: for the write gate, which asks it on
+ * every write.
+ */
+export async function treeRootOf(absPath: string): Promise<string | null> {
+	const root = await gitOffLoop(fromInside(absPath), [
+		"rev-parse",
+		"--show-toplevel",
+	]);
+	return root && root.length > 0 ? root : null;
+}
+
+/**
  * The root a tree a quest tracks is compared on: the tree itself when
  * it holds a `.git` entry, which makes it its own root, otherwise git's
  * root for it, otherwise the path as it is.
@@ -111,15 +169,15 @@ export function gitTreeRootOf(absPath: string): string | null {
  * write: 87 for a quest tracking 87 worktrees, and 3,988 root lookups
  * in 57 minutes on one machine. A tracked tree is nearly always a
  * checkout's own top, so a stat answers it; a subdirectory somebody
- * adopted still goes to git. A `.git` git cannot read gives the path
- * itself, which is what a failed git lookup gave too.
+ * adopted still goes to git, off the loop. A `.git` git cannot read
+ * gives the path itself, which is what a failed git lookup gave too.
  */
-export function trackedTreeRoot(
+export async function trackedTreeRoot(
 	absPath: string,
-	rootOf: (p: string) => string | null = gitTreeRootOf,
-): string {
+	rootOf: (p: string) => Promise<string | null> = treeRootOf,
+): Promise<string> {
 	if (existsSync(path.join(absPath, ".git"))) return canonicalPath(absPath);
-	return canonicalPath(rootOf(absPath) ?? absPath);
+	return canonicalPath((await rootOf(absPath)) ?? absPath);
 }
 
 /**
@@ -170,23 +228,15 @@ export function hasNoCommits(absPath: string): boolean {
 	return git(dir, ["rev-parse", "--verify", "-q", "HEAD"]) === null;
 }
 
-/** Whether the target is gitignored at its destination. */
-export function isGitignored(absPath: string): boolean {
+/**
+ * Whether the target is gitignored at its destination. Exit 1 (not
+ * ignored) and 128 (not a repo) both read as not ignored, which is the
+ * safe answer for the classifier.
+ */
+export async function isGitignored(absPath: string): Promise<boolean> {
 	const { dir, target } = located(absPath);
-	const held = allowed(dir, ["check-ignore", "-q", "--", target]);
-	if (!held) return false;
-	try {
-		execFileSync("git", held, {
-			cwd: dir,
-			stdio: "ignore",
-			timeout: GIT_TIMEOUT_MS,
-		});
-		return true;
-	} catch {
-		// Exit 1 (not ignored) and 128 (not a repo) both land here as
-		// "not ignored," which is the safe answer for the classifier.
-		return false;
-	}
+	const answer = await gitOffLoop(dir, ["check-ignore", "-q", "--", target]);
+	return answer !== null;
 }
 
 /**
@@ -225,20 +275,17 @@ export function isWithin(child: string, parent: string): boolean {
 	return c === p || c.startsWith(p + path.sep);
 }
 
-/** Whether the target is tracked in its repository's index. */
-export function isTracked(absPath: string): boolean {
+/**
+ * Whether the target is tracked in its repository's index. A non-zero
+ * exit (untracked, or not a repo) reads as not tracked.
+ */
+export async function isTracked(absPath: string): Promise<boolean> {
 	const { dir, target } = located(absPath);
-	const held = allowed(dir, ["ls-files", "--error-unmatch", "--", target]);
-	if (!held) return false;
-	try {
-		execFileSync("git", held, {
-			cwd: dir,
-			stdio: "ignore",
-			timeout: GIT_TIMEOUT_MS,
-		});
-		return true;
-	} catch {
-		// Non-zero exit (untracked or not a repo): not tracked.
-		return false;
-	}
+	const answer = await gitOffLoop(dir, [
+		"ls-files",
+		"--error-unmatch",
+		"--",
+		target,
+	]);
+	return answer !== null;
 }
