@@ -94,6 +94,21 @@ describe("a session cut off when it ended", () => {
 		expect(cutOffIn([message("user"), aborted])).toBeUndefined();
 	});
 
+	it("is not found for a run its host carries on, with no job dead", () => {
+		const at = Date.parse(AT);
+		const carried = { at, running: true, runCarried: true, jobs: [] };
+		expect(cutOffIn([message("user"), ended(carried)])).toBeUndefined();
+		const job = { id: "j1", label: "watch" };
+		const died = { ...carried, jobs: [job] };
+		expect(cutOffIn([message("user"), ended(died)])).toEqual(died);
+		expect(endedRecord(true, [], 1, true)).toEqual({
+			at: 1,
+			running: true,
+			runCarried: true,
+			jobs: [],
+		});
+	});
+
 	it("is recorded only when a run or a job was under way", () => {
 		expect(endedRecord(false, [], 1)).toBeUndefined();
 		expect(endedRecord(true, [], 1)).toEqual({
@@ -318,10 +333,36 @@ describe("the job workflow, at a session's end and its return", () => {
 			await pi.fire("session_shutdown", { reason: "quit" });
 
 			expect(pi.appended).toHaveLength(1);
-			expect(pi.appended[0]?.data).toMatchObject({ running: true });
+			expect(pi.appended[0]?.data).toMatchObject({
+				running: true,
+				runCarried: true,
+			});
 		} finally {
 			host.dispose();
 		}
+	});
+
+	it("in a host, tells a returning session only of the jobs that died, since its host carries the run on", async () => {
+		// On 14 November the 08:37 restart carried a run to its end in
+		// the next host, then told it nothing had resumed it, to rerun.
+		const carried = { at: Date.parse(AT), running: true, runCarried: true };
+		const alone = activate(
+			[message("user"), ended({ ...carried, jobs: [] })],
+			new EventEmitter(),
+		);
+		await alone.fire("session_start", { reason: "startup" });
+		expect(alone.said, "a carried run alone needs no notice").toHaveLength(0);
+
+		const job = { id: "j12", label: "watch" };
+		const withJob = activate(
+			[message("user"), ended({ ...carried, jobs: [job] })],
+			new EventEmitter(),
+		);
+		await withJob.fire("session_start", { reason: "startup" });
+		expect(withJob.said).toHaveLength(1);
+		expect(withJob.said[0]).toMatch(/j12 \(watch\)/);
+		expect(withJob.said[0]).toMatch(/carried on the run/);
+		expect(withJob.said[0]).not.toMatch(/mid-run|nothing has resumed it/);
 	});
 
 	it("in a host's restart, carries the bash calls to the next host and records only the rest cut off", async () => {

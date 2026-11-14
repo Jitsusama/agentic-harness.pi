@@ -19,6 +19,14 @@
  * lanes waiting on jobs died so and came back idle for two hours. A
  * session killed outright writes nothing, so a log that stops mid-run,
  * on a tool call or its result, is read the same way.
+ *
+ * A host carries a run on itself: it parks the run as it stops the
+ * conversation and the next start takes it up. So a record a host
+ * leaves says its run is carried, and the session is told only of the
+ * jobs that died. On 14 November the 08:37 restart carried one run to
+ * its end, then told it nothing had resumed it and to rerun what
+ * mattered. The record says so, not the host the session returns to: a
+ * session plain pi left cut off has no run for a host to carry.
  */
 
 import {
@@ -45,6 +53,8 @@ export interface CutOff {
 	readonly at: number;
 	/** Whether a run was under way. */
 	readonly running: boolean;
+	/** Whether the host that ended it carries that run on at the next start. */
+	readonly runCarried?: boolean;
 	/** The jobs still running, which died with it. */
 	readonly jobs: readonly CutJob[];
 }
@@ -54,8 +64,11 @@ export function endedRecord(
 	running: boolean,
 	jobs: readonly CutJob[],
 	now: number,
+	runCarried = false,
 ): CutOff | undefined {
 	if (!running && jobs.length === 0) return undefined;
+	if (running && runCarried)
+		return { at: now, running, runCarried, jobs: [...jobs] };
 	return { at: now, running, jobs: [...jobs] };
 }
 
@@ -68,9 +81,11 @@ function field(value: unknown, key: string): unknown {
 
 function isCutOff(value: unknown): value is CutOff {
 	const jobs = field(value, "jobs");
+	const runCarried = field(value, "runCarried");
 	return (
 		typeof field(value, "at") === "number" &&
 		typeof field(value, "running") === "boolean" &&
+		(runCarried === undefined || typeof runCarried === "boolean") &&
 		Array.isArray(jobs) &&
 		jobs.every(
 			(job) =>
@@ -89,7 +104,8 @@ function roleOf(entry: unknown): string | undefined {
 
 /**
  * Whether a session's history says it was cut off and nothing has
- * taken it up since: what was under way, or nothing.
+ * taken it up since: what was under way, or nothing. A run its host
+ * carries on has been taken up, so only a job dead with it counts.
  */
 export function cutOffIn(branch: readonly unknown[]): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
@@ -101,7 +117,8 @@ export function cutOffIn(branch: readonly unknown[]): CutOff | undefined {
 			field(entry, "customType") === CUT_OFF_ENTRY
 		) {
 			const data = field(entry, "data");
-			return isCutOff(data) ? data : undefined;
+			if (!isCutOff(data)) return undefined;
+			return data.runCarried && data.jobs.length === 0 ? undefined : data;
 		}
 	}
 	return killedIn(branch);
@@ -128,9 +145,11 @@ function killedIn(branch: readonly unknown[]): CutOff | undefined {
 /** What the restored session is told, its time said by `time`. */
 export function resumeText(cut: CutOff, time: (at: number) => string): string {
 	const when = `This session ended at ${time(cut.at)}, when the machine stopped it rather than the person`;
-	const what = cut.running
-		? `${when}, mid-run, and nothing has resumed it since.`
-		: `${when}, while it waited on background work, and nothing has resumed it since.`;
+	const what = cut.runCarried
+		? `${when}. Its host carried on the run it had under way, but nothing has taken up its background work.`
+		: cut.running
+			? `${when}, mid-run, and nothing has resumed it since.`
+			: `${when}, while it waited on background work, and nothing has resumed it since.`;
 	const died =
 		cut.jobs.length > 0
 			? ` These jobs died with it and will never report: ${cut.jobs
