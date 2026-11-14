@@ -357,7 +357,8 @@ export async function spawnInHost(
 	}
 	if (!reply.ok) {
 		const unstaged = olderHost(spawn, reply.error.code);
-		if (unstaged) return noted(await spawnInHost(unstaged, call), OLDER_HOST);
+		if (unstaged)
+			return openedUnstaged(await spawnInHost(unstaged, call), spawn);
 		return refuse(
 			`The ${key} host refused to ${what}: ${reply.error.code}, ${reply.error.message}. Nothing else was opened.`,
 		);
@@ -602,13 +603,24 @@ function olderHost(spawn: HostSpawn, code: string): HostSpawn | undefined {
 	if (token === undefined || code !== INVALID_REQUEST) return undefined;
 	const { [STAGE_VARIABLE]: _token, ...rest } = spawn.carried ?? {};
 	const { carried: _carried, ...without } = spawn;
+	return Object.keys(rest).length > 0 ? { ...without, carried: rest } : without;
+}
+
+/**
+ * What the spawn sent again without the token answers. Only an open is
+ * an older host's, said and logged as the stage's miss, so the count the
+ * everyone stage's pre-flight reads holds no request refused for another
+ * reason.
+ */
+function openedUnstaged(result: QuestResult, spawn: HostSpawn): QuestResult {
+	if (!result.ok) return result;
 	void recordUnlisted({
 		kind: "host",
 		session: process.env.PI_SESSION_ID,
 		quest: spawn.questId,
 		error: "older-host",
 	});
-	return Object.keys(rest).length > 0 ? { ...without, carried: rest } : without;
+	return noted(result, OLDER_HOST);
 }
 
 /** A result with a note after what it says. */
