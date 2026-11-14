@@ -24,8 +24,8 @@ import {
 	fenceRefusesWrite,
 } from "../../../lib/internal/fence.ts";
 import {
-	BUILDERS_FOLDER,
 	buildersFolderArgs,
+	lenderFolders,
 } from "../../../lib/internal/fence-builders.ts";
 import { DISK, type Disk } from "../../../lib/internal/fence-disk.ts";
 
@@ -47,58 +47,105 @@ function workingBwrap(): string | undefined {
 
 const bwrap = workingBwrap();
 
-describe("the builders' folder in the fence's arguments", () => {
+describe("the lenders' folders in the fence's arguments", () => {
+	const lenders = ["nix-offload", "nix-offload-more", "nix-offload-vm-12"];
 	const disk: Disk = {
 		kind: (path) =>
-			path === BUILDERS_FOLDER || path.endsWith("/wanted") ? "folder" : "file",
-		entries: () => ["machines", "cloud-token", "wanted", "health.json"],
+			path === "/run" ||
+			path.endsWith("/wanted") ||
+			/^\/run\/nix-offload[^/]*$/.test(path)
+				? "folder"
+				: "file",
+		entries: (folder) =>
+			folder === "/run"
+				? [
+						...lenders,
+						"nix-offload-lines",
+						"nix-offload-standing",
+						"nix-offload-keep.sock",
+						"user",
+					]
+				: ["machines", "cloud-token", "wanted", "health.json"],
 	};
 
-	it("covers it and binds back all but the token, read-only", () => {
-		const args = buildersFolderArgs(disk);
-		expect(args.slice(0, 2), "the folder isn't covered").toEqual([
-			"--tmpfs",
-			BUILDERS_FOLDER,
-		]);
-		expect(args.at(-2), "the cover stays writable").toBe("--remount-ro");
-		expect(args.join(" "), "the token was bound").not.toContain("cloud-token");
-		for (const name of ["health.json", "machines", "wanted"]) {
-			const path = join(BUILDERS_FOLDER, name);
-			expect(args.join(" "), `${name} wasn't bound back`).toContain(
+	it("finds every lender's folder, and not root's lines or standing builders", () => {
+		expect(lenderFolders(disk)).toEqual(lenders.map((name) => `/run/${name}`));
+	});
+
+	it("covers each and binds back all but the token, read-only", () => {
+		const args = buildersFolderArgs(disk).join(" ");
+		expect(args, "the token was bound").not.toContain("cloud-token");
+		for (const name of lenders) {
+			const folder = `/run/${name}`;
+			expect(args, `${name} isn't covered`).toContain(`--tmpfs ${folder} `);
+			expect(args, `${name}'s cover stays writable`).toContain(
+				`--remount-ro ${folder}`,
+			);
+			const path = join(folder, "health.json");
+			expect(args, `${name}'s health wasn't bound back`).toContain(
 				`--ro-bind ${path} ${path}`,
 			);
 		}
+		expect(args, "root's lines were covered").not.toContain(
+			"nix-offload-lines",
+		);
 	});
 
-	it("leaves out a machine with no builders' folder", () => {
+	it("hides the tokens' own folder whole, binding nothing back", () => {
+		const tokens = "/run/nix-offload-tokens";
+		const withTokens: Disk = {
+			kind: () => "folder",
+			entries: (folder) =>
+				folder === "/run" ? ["nix-offload-tokens"] : ["nix-offload-vm-5"],
+		};
+		expect(buildersFolderArgs(withTokens)).toEqual([
+			"--tmpfs",
+			tokens,
+			"--remount-ro",
+			tokens,
+		]);
+		const place = { home: "/home/u", cwd: "/home/u", runtimeDir: undefined };
+		expect(
+			fenceRefusesRead(`${tokens}/nix-offload-vm-5`, place, withTokens),
+			"a lender's token was read",
+		).toBe(true);
+	});
+
+	it("leaves out a machine with no lenders", () => {
 		const none: Disk = { kind: () => undefined, entries: () => [] };
 		expect(buildersFolderArgs(none)).toEqual([]);
 	});
 
-	it("refuses pi's file tools the token, and writes anywhere in the folder", () => {
+	it("refuses pi's file tools every lender's token, and writes anywhere in their folders", () => {
 		const place = {
 			home: "/home/u",
 			cwd: "/home/u/src",
 			runtimeDir: undefined,
 		};
+		for (const name of [...lenders, "nix-offload-vm-99"]) {
+			expect(
+				fenceRefusesRead(`/run/${name}/cloud-token`, place, disk),
+				`${name}'s token was read`,
+			).toBe(true);
+			expect(
+				fenceRefusesWrite(`/run/${name}/machines`, place, disk),
+				`${name}'s builders' list was written`,
+			).toBe(true);
+		}
 		expect(
-			fenceRefusesRead(join(BUILDERS_FOLDER, "cloud-token"), place, disk),
-			"the token was read",
-		).toBe(true);
-		expect(
-			fenceRefusesRead(join(BUILDERS_FOLDER, "health.json"), place, disk),
+			fenceRefusesRead("/run/nix-offload/health.json", place, disk),
 			"the builders' health was refused",
 		).toBe(false);
 		expect(
-			fenceRefusesWrite(join(BUILDERS_FOLDER, "machines"), place, disk),
-			"the builders' list was written",
-		).toBe(true);
+			fenceRefusesRead("/run/nix-offload-lines/machines", place, disk),
+			"root's lines were refused",
+		).toBe(false);
 	});
 
 	it("is part of every fenced command's arguments", () => {
 		const args = fenceArgs({ home: "/home/u", runtimeDir: undefined }, disk);
 		expect(args.join(" "), "the folder isn't covered").toContain(
-			`--tmpfs ${BUILDERS_FOLDER}`,
+			"--tmpfs /run/nix-offload-more",
 		);
 	});
 });
@@ -117,7 +164,7 @@ describe.skipIf(bwrap === undefined)(
 				"--bind",
 				"/",
 				"/",
-				...buildersFolderArgs(DISK, folder),
+				...buildersFolderArgs(DISK, [folder]),
 				"sh",
 				"-c",
 				script,
