@@ -29,6 +29,8 @@ import {
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
+import { recordUnlisted } from "../../../lib/internal/fence-log.ts";
+import { STAGE_VARIABLE } from "../../../lib/internal/fence-stage.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";
 import { spawnedWords } from "../../../lib/internal/quest/first-words.ts";
 import {
@@ -354,6 +356,8 @@ export async function spawnInHost(
 		return refuse(unknownOutcome(key, messageOf(error)));
 	}
 	if (!reply.ok) {
+		const unstaged = olderHost(spawn, reply.error.code);
+		if (unstaged) return noted(await spawnInHost(unstaged, call), OLDER_HOST);
 		return refuse(
 			`The ${key} host refused to ${what}: ${reply.error.code}, ${reply.error.message}. Nothing else was opened.`,
 		);
@@ -577,6 +581,41 @@ function requestFor(
 				: {}),
 		},
 	};
+}
+
+/** What a host answers a request its protocol doesn't take (dispatch.ts). */
+const INVALID_REQUEST = "invalid_request";
+
+/** What a spawn a host too old for the stage's token opened says. */
+const OLDER_HOST =
+	"Its host runs code from before the fence's first stage reached hosts, so the session starts outside the stage until the host restarts onto the installed harness.";
+
+/**
+ * The spawn again without the first stage's token, when its host
+ * refused the request as invalid: a host started before the token was a
+ * carried variable refuses the open whole, and a session started
+ * unstaged, and logged as missed, beats none (fence-stage.ts). Sent
+ * again without it, a request still invalid is refused as before.
+ */
+function olderHost(spawn: HostSpawn, code: string): HostSpawn | undefined {
+	const token = spawn.carried?.[STAGE_VARIABLE];
+	if (token === undefined || code !== INVALID_REQUEST) return undefined;
+	const { [STAGE_VARIABLE]: _token, ...rest } = spawn.carried ?? {};
+	const { carried: _carried, ...without } = spawn;
+	void recordUnlisted({
+		kind: "host",
+		session: process.env.PI_SESSION_ID,
+		quest: spawn.questId,
+		error: "older-host",
+	});
+	return Object.keys(rest).length > 0 ? { ...without, carried: rest } : without;
+}
+
+/** A result with a note after what it says. */
+function noted(result: QuestResult, note: string): QuestResult {
+	return result.ok
+		? { ...result, message: `${result.message} ${note}` }
+		: { ...result, guidance: `${result.guidance} ${note}` };
 }
 
 /** How a session's record says it ran its commands, for its adopt. */

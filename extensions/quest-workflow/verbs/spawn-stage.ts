@@ -3,9 +3,11 @@
  * is listed, so its pi starts fenced; a reopen isn't, since a reopened
  * attended session would fence Joel's own typing, and joins only at the
  * everyone stage (ISXEG8 [1309c590]). A listing that can't be written
- * leaves the spawn to start as before the stage, rather than not at all.
+ * leaves the spawn to start as before the stage, rather than not at all,
+ * and a line in the system's log saying so (fence-log.ts).
  */
 
+import { codeOf, recordUnlisted } from "../../../lib/internal/fence-log.ts";
 import {
 	listForStage,
 	listSpawnForStage,
@@ -43,8 +45,14 @@ export function stagedSpawn(spawn: StagedSpawn): string | undefined {
 	if (reopens(spawn) || spawn.dryRun) return undefined;
 	try {
 		return listSpawnForStage(whyOf(spawn));
-	} catch {
+	} catch (error) {
 		// Unlisted, it starts as every session outside the stage does.
+		void recordUnlisted({
+			kind: "spawn",
+			session: process.env.PI_SESSION_ID,
+			quest: spawn.questId,
+			error: codeOf(error),
+		});
 		return undefined;
 	}
 }
@@ -53,7 +61,13 @@ export function stagedSpawn(spawn: StagedSpawn): string | undefined {
 export function stagedById(session: string, spawn: StagedSpawn): void {
 	try {
 		listForStage(session, whyOf(spawn));
-	} catch {
+	} catch (error) {
 		// Unlisted by id, it starts as every session outside the stage does.
+		void recordUnlisted({
+			kind: "id",
+			session,
+			quest: spawn.questId,
+			error: codeOf(error),
+		});
 	}
 }

@@ -14,6 +14,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
+import { withoutOff } from "../../internal/fence-stage.ts";
 import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { RunPi, RunPiResult } from "../subagent.ts";
@@ -83,8 +84,13 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 			);
 		}
 		const pinned = await pinnedChildEnvironment();
+		// A session set off is so alone, never its subagents (fence-stage.ts).
+		const inherited = withoutOff(process.env);
 		const extra =
-			config.piInstall.packageDir || given || Object.keys(pinned).length > 0;
+			config.piInstall.packageDir ||
+			given ||
+			Object.keys(pinned).length > 0 ||
+			inherited !== process.env;
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const child = spawnFn(
 				config.piInstall.node,
@@ -106,7 +112,7 @@ export function createSpawnRunPi(config: SpawnRunPiConfig): RunPi {
 					...(extra
 						? {
 								env: {
-									...process.env,
+									...inherited,
 									...(config.piInstall.packageDir
 										? { PI_PACKAGE_DIR: config.piInstall.packageDir }
 										: {}),

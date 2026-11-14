@@ -571,6 +571,17 @@ function fenceFor(
 	};
 }
 
+/**
+ * The sandbox this pi's commands run in, by name, as `sandboxFor` reads
+ * it, the stage included; none when they run as they are.
+ */
+export function sandboxName(
+	env: NodeJS.ProcessEnv = process.env,
+	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
+): string | undefined {
+	return askedSandbox(env, SANDBOX_NAMES, staged).name;
+}
+
 /** What the session asked for, and whether this machine can give it. */
 export function sandboxFor(
 	env: NodeJS.ProcessEnv = process.env,

@@ -34,6 +34,7 @@ import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
 import { liftFence } from "../../lib/internal/fence-lifted.ts";
+import { codeOf, recordUnlisted } from "../../lib/internal/fence-log.ts";
 import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
@@ -78,9 +79,15 @@ const SHAPE_ONLY = "";
 function listByIdOnce(session: string): void {
 	try {
 		settleStage(process.env, session);
-	} catch {
+	} catch (error) {
 		// Unlisted by id, a reopen by id runs unfenced until the everyone
 		// stage, as every reopen does; this session stays fenced as it is.
+		void recordUnlisted({
+			kind: "id",
+			session,
+			quest: process.env.QUEST_WORKFLOW_AUTOLOAD_ID,
+			error: codeOf(error),
+		});
 	}
 }
 

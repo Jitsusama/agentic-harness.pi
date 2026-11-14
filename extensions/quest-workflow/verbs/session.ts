@@ -457,8 +457,7 @@ export async function spawn(
 		resume && "id" in resume
 			? sessions.find((s) => s.id === resume.id)
 			: undefined;
-	// A fresh spawn joins the fence's first stage; a reopen waits.
-	const { command: asks, dryRun } = params;
+	const { command: asks, dryRun } = params; // a reopen isn't staged
 	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
 	const staged = stagedSpawn(stage);
 	// The host the call names, or for a plain spawn the one spawnHost says.
@@ -479,7 +478,8 @@ export async function spawn(
 				? { model: { provider: ctx.model.provider, id: ctx.model.id } }
 				: {}),
 			...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
-			env: { ...sessionEnv(ctx).snapshot(), [STAGE_VARIABLE]: staged },
+			env: sessionEnv(ctx).snapshot(),
+			...(staged ? { carried: { [STAGE_VARIABLE]: staged } } : {}),
 			...(params.dryRun ? { dryRun: true } : {}),
 		},
 	});

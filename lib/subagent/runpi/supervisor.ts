@@ -6,6 +6,7 @@ import {
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { hosted, sessionOwner } from "../../core/session/index.ts";
+import { withoutOff } from "../../internal/fence-stage.ts";
 import { offeredShellEnvironment } from "../../internal/shell/environment.ts";
 import {
 	ReviewerArtifactsStore,
@@ -267,7 +268,8 @@ async function supervisorEnvironment(
 	given: Readonly<Record<string, string>> | undefined,
 ): Promise<NodeJS.ProcessEnv> {
 	return {
-		...process.env,
+		// A session set off is so alone, never its subagents (fence-stage.ts).
+		...withoutOff(process.env),
 		...offeredShellEnvironment(),
 		...(config.cacheRetention === undefined
 			? {}

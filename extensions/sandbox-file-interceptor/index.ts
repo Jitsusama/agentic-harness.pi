@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import { recordRefusal, systemLogger } from "../../lib/internal/fence-log.ts";
-import { SANDBOX_VARIABLE } from "../../lib/internal/sandbox.ts";
+import { sandboxName } from "../../lib/internal/sandbox.ts";
 import { fileToolRefusal } from "../../lib/internal/sandbox-files.ts";
 import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
 
@@ -60,7 +60,8 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 			{
 				kind: "path",
 				tool: event.toolName,
-				sandbox: process.env[SANDBOX_VARIABLE],
+				// The sandbox decided, the stage's default included, not the variable.
+				sandbox: sandboxName(),
 				session: sessionKeyOf(ctx),
 			},
 			systemLogger(),

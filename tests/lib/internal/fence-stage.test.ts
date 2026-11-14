@@ -18,7 +18,9 @@ import {
 	stagedSessions,
 	startedSession,
 	unlistForStage,
+	withoutOff,
 } from "../../../lib/internal/fence-stage.ts";
+import { sandboxName } from "../../../lib/internal/sandbox.ts";
 
 const NAMES = { fence: "fence", known: ["fence", "strict"] };
 const SESSION = "01a1cbd0-f2c7-7eea-9706-777bda77c893";
@@ -71,6 +73,23 @@ describe("how PI_SANDBOX reads", () => {
 			askedSandbox({}, NAMES, unstaged),
 			"an unstaged pi was fenced",
 		).toEqual({});
+	});
+
+	it("names the sandbox decided, the stage's default included, for what reports it", () => {
+		expect(sandboxName({}, staged), "a staged pi's sandbox").toBe("fence");
+		expect(sandboxName({ PI_SANDBOX: "strict" }, unstaged)).toBe("strict");
+		expect(sandboxName({ PI_SANDBOX: "off" }, staged)).toBeUndefined();
+		expect(sandboxName({}, unstaged)).toBeUndefined();
+	});
+});
+
+describe("what a pi hands on of PI_SANDBOX", () => {
+	it("drops off alone, since it is one session's way back", () => {
+		expect(withoutOff({ PATH: "/bin", PI_SANDBOX: " off " })).toEqual({
+			PATH: "/bin",
+		});
+		const asked = { PATH: "/bin", PI_SANDBOX: "strict" };
+		expect(withoutOff(asked), "a fence asked for was dropped").toBe(asked);
 	});
 });
 

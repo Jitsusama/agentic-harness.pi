@@ -188,6 +188,21 @@ export function settleStage(
 export const OFF = "off";
 
 /**
+ * `env` as a pi it starts is to be given it: without `PI_SANDBOX=off`,
+ * which is one session's way back and never what it starts (ISXEG8
+ * [8599528b]), so a subagent or a fresh spawn of a session set off is
+ * fenced as the stage says. Any other value goes on as it is, a fence
+ * asked for included; `env` itself when there is nothing to drop.
+ */
+export function withoutOff(
+	env: Readonly<Record<string, string | undefined>>,
+): Readonly<Record<string, string | undefined>> {
+	if (env.PI_SANDBOX?.trim() !== OFF) return env;
+	const { PI_SANDBOX: _off, ...rest } = env;
+	return rest;
+}
+
+/**
  * The sandbox this pi's commands run in, by name, from `PI_SANDBOX` and
  * the stage: a name `known` holds as given; `off`, or nothing asked of a
  * pi outside the stage, as they are; nothing asked of a pi in it, the
