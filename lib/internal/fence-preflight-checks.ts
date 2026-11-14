@@ -434,17 +434,22 @@ export const CHECKS: readonly Check[] = [
 		group: "agents",
 		what: "nix-offload there --changed reaches a builder",
 		run: heavy(
-			inCoreTree(async (tree, { session }) =>
-				succeeded(
-					await fenced(
-						"nix-offload there --changed",
-						tree,
-						session,
-						BUILD_LIMIT_MS,
-					),
+			inCoreTree(async (tree, { session }) => {
+				const ran = await fenced(
 					"nix-offload there --changed",
-				),
-			),
+					tree,
+					session,
+					BUILD_LIMIT_MS,
+				);
+				// A head whose checks passed before is remembered, and nothing
+				// reaches a builder: that proves nothing about the fence.
+				if (/passed at \S+ already/.test(ran.err + ran.out)) {
+					return failed(
+						"the tree's head passed before, so nothing went to a builder; run `nix-offload passed forget <head>` outside first",
+					);
+				}
+				return succeeded(ran, "nix-offload there --changed");
+			}),
 		),
 	},
 	{

@@ -32,7 +32,9 @@
  *   setting or a `commondir` there for git outside to run. A worktree's
  *   shared git folder is writable but for what runs code, once a watch
  *   outside removes any `commondir` planted there and stops the session
- *   (`fence-git-root.ts`). The folders
+ *   (`fence-git-root.ts`). The work tool's trees are read-only but
+ *   the session's own, their `.git` files aside, and so are the records
+ *   of who holds them (`fence-broker-trees.ts`). The folders
  *   the person browses, the home folder's visible entries, are
  *   read-only but the one the session works in, so no command plants a
  *   repository whose settings their prompt's git runs on entering it.
@@ -49,6 +51,11 @@
  */
 
 import { basename, dirname, join, relative, sep } from "node:path";
+import {
+	type BrokerTrees,
+	brokerTreeArgs,
+	brokerTreesRefuseWrite,
+} from "./fence-broker-trees.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { sharedRootArgs } from "./fence-git-root.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
@@ -203,6 +210,8 @@ export interface FencePlace {
 	 * (`fence-npmrc.ts`), or `/dev/null` where no copy could be made.
 	 */
 	readonly npmrc?: string;
+	/** The work broker's trees, kept read-only but the session's own (`fence-broker-trees.ts`). */
+	readonly trees?: BrokerTrees;
 }
 
 /**
@@ -329,6 +338,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	return [
 		...args,
 		...homeArgs(place, disk),
+		...brokerTreeArgs(place.trees, place.cwd, disk),
 		...sshArgs(place.home, disk),
 		...gitArgs(place, disk),
 		...scratchArgs(place, disk),
@@ -665,9 +675,11 @@ export function nixDoor(runtimeDir: string | undefined): string | undefined {
  * Whether an absolute path lies where the fence keeps pi's own file
  * tools from writing: a read-only path, the runtime folder, another
  * quest's scratch folder, `src` and `world` but the session's own tree
- * there (its `.git` file aside), a browsed entry of the home folder but
- * the one the session works in, or the home folder itself, where only
- * an entry already there and bound back writable may be written.
+ * there (its `.git` file aside), the work broker's trees and records
+ * but the trees the session may write (their `.git` files aside), a
+ * browsed entry of the home folder but the one the session works in, or
+ * the home folder itself, where only an entry already there and bound
+ * back writable may be written.
  */
 export function fenceRefusesWrite(
 	path: string,
@@ -693,6 +705,8 @@ export function fenceRefusesWrite(
 		const tree = place.ownGitFolder ? place.cwd : undefined;
 		return !(tree && inside(tree) && path !== join(tree, ".git"));
 	}
+	const inTrees = brokerTreesRefuseWrite(path, place.trees, place.cwd, disk);
+	if (inTrees !== undefined) return inTrees;
 	if (path === place.home) return true;
 	const first = relative(place.home, path).split(sep)[0] ?? "";
 	const inHome = first !== "" && first !== "..";
