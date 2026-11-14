@@ -273,7 +273,7 @@ describe("whether a kept command outlives pi's going", () => {
 			reap: () => undefined,
 		}).spares();
 
-		expect(spared).toBe(true);
+		expect(spared, "pi's own spawn leaves it running").toBe(true);
 		expect(asksKeeps, "no program to ask").not.toHaveBeenCalled();
 	});
 
@@ -286,7 +286,9 @@ describe("whether a kept command outlives pi's going", () => {
 			reap: () => undefined,
 		});
 
-		expect(await operations.spares()).toBe(true);
+		expect(await operations.spares(), "no program, so pi's own spawn").toBe(
+			true,
+		);
 	});
 
 	it("does through pi-spawner only when it says it keeps, asked once", async () => {
@@ -309,7 +311,7 @@ describe("whether a kept command outlives pi's going", () => {
 
 		operations.retire();
 
-		expect(await operations.spares()).toBe(true);
+		expect(await operations.spares(), "retired, so pi's own spawn").toBe(true);
 	});
 });
 
@@ -333,23 +335,26 @@ describe("asking a pi-spawner whether it keeps", () => {
 	it("hears yes from one that answers keeps", async () => {
 		const program = programOf('[ "$1" = keeps ] && echo keeps');
 
-		expect(await spawnerKeeps(program)).toBe(true);
+		expect(await spawnerKeeps(program), "it answered keeps").toBe(true);
 	});
 
 	it("hears no from one that refuses the word, as one from before does", async () => {
 		const program = programOf("echo 'x it takes no keeps' >&2; exit 64");
 
-		expect(await spawnerKeeps(program)).toBe(false);
+		expect(await spawnerKeeps(program), "it refused the word").toBe(false);
 	});
 
 	it("hears no from one that reads its empty input and says nothing", async () => {
 		const program = programOf("cat >/dev/null");
 
-		expect(await spawnerKeeps(program)).toBe(false);
+		expect(await spawnerKeeps(program), "it said nothing").toBe(false);
 	});
 
 	it("hears no from one that isn't there", async () => {
-		expect(await spawnerKeeps("/no/such/pi-spawner")).toBe(false);
+		expect(
+			await spawnerKeeps("/no/such/pi-spawner"),
+			"no program at that path",
+		).toBe(false);
 	});
 });
 
