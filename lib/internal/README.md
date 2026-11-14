@@ -40,6 +40,10 @@ may import from here, and any of it may change without notice.
   pi-tui's press that lets `link-click-widget` open them.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
+- **`pineapple/`**: Joel's safe word at the tool call: the stops
+  core's pineapple reader writes, which tool calls are writes and
+  where they go, and which stops reach them, for
+  `pineapple-workflow`.
 - **`priority/`**: the machine queue: when a session's heavy work
   may run, by memory, VM limits and who is waiting on it.
 - **`quest/`**: everything behind the quest tool: discovery, the
