@@ -696,7 +696,11 @@ export function fenceRefusesWrite(
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);
 	const caches = cachesWithin(place.home);
-	if (kept.some(inside) && !caches.some(inside)) return true;
+	// A tree the broker lets this session write, though pi's state holds it.
+	const inTrees = brokerTreesRefuseWrite(path, place.trees, place.cwd, disk);
+	if (kept.some(inside) && !caches.some(inside) && inTrees !== false) {
+		return true;
+	}
 	if (dirname(path) === place.home && readOnlyEntry(basename(path))) {
 		return true;
 	}
@@ -708,7 +712,6 @@ export function fenceRefusesWrite(
 		const tree = place.ownGitFolder ? place.cwd : undefined;
 		return !(tree && inside(tree) && path !== join(tree, ".git"));
 	}
-	const inTrees = brokerTreesRefuseWrite(path, place.trees, place.cwd, disk);
 	if (inTrees !== undefined) return inTrees;
 	if (path === place.home) return true;
 	const first = relative(place.home, path).split(sep)[0] ?? "";

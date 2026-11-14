@@ -519,16 +519,26 @@ export const CHECKS: readonly Check[] = [
 	{
 		id: "9a",
 		group: "agents",
-		what: "secret-asks' socket answers",
-		run: async ({ scratch, session }) =>
-			succeeded(
-				await fenced(
-					`node -e "require('node:net').connect(process.argv[1]).on('connect',()=>process.exit(0)).on('error',(e)=>{console.error(e.message);process.exit(1)})" "$XDG_RUNTIME_DIR/daemons/secret-asks.sock"`,
-					scratch,
-					session,
-				),
-				"a connection to secret-asks",
-			),
+		what: "secret_run finds its daemon, which no command reaches",
+		// secret_run asks from pi, outside the fence, and only the fence
+		// keeps a command from the daemon's socket, which takes a yes from
+		// anything that reaches it (core's secret-asks daemon.rs). So the
+		// asks are checked from outside and the socket from inside, and no
+		// ask is ever filed, since one pings Joel.
+		run: async ({ scratch, session }) => {
+			const socket = join(runtime(), "daemons", "secret-asks.sock");
+			const asks = join(runtime(), "secret-asks");
+			if (!existsSync(socket)) return failed(`no daemon at ${socket}`);
+			if (!existsSync(asks)) return failed(`no asks folder at ${asks}`);
+			const inside = await fenced(
+				`test -e '${socket}' || test -e '${asks}'`,
+				scratch,
+				session,
+			);
+			return inside.code === 0
+				? failed("a fenced command reaches the daemon or its asks")
+				: passed("its socket and asks are there for pi, and not inside");
+		},
 	},
 	{
 		id: "9b",
