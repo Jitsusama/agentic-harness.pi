@@ -265,11 +265,24 @@ describe("what a screen adds", () => {
 			{ tag: "c0-t0", keyToAcceptedMs: 300, plainKeyToAcceptedMs: 120 },
 			{ tag: "c1-t0", keyToAcceptedMs: 250 },
 			{ tag: "c0-t1", keyToAcceptedMs: 40, plainKeyToAcceptedMs: 10 },
-			{ tag: "c0-t2", keyToAcceptedMs: 9_000, plainKeyToAcceptedMs: 10, woke: "key" },
-			{ tag: "c1-t1", keyToAcceptedMs: 800, plainKeyToAcceptedMs: 10, burst: true as const },
+			{
+				tag: "c0-t2",
+				keyToAcceptedMs: 9_000,
+				plainKeyToAcceptedMs: 10,
+				woke: "key",
+			},
+			{
+				tag: "c1-t1",
+				keyToAcceptedMs: 800,
+				plainKeyToAcceptedMs: 10,
+				burst: true as const,
+			},
 			{ tag: "c1-t2", plainKeyToAcceptedMs: 10 },
 		].map((one) => ({ promptAt: 0, answerAt: 0, hostedMs: 0, ...one }));
-		expect(pairKeys(records), "two first keys, one later, the rest left out").toEqual({
+		expect(
+			pairKeys(records),
+			"two first keys, one later, the rest left out",
+		).toEqual({
 			first: {
 				hosted: { count: 2, p50: 250, p99: 300 },
 				plain: { count: 1, p50: 120, p99: 120 },
