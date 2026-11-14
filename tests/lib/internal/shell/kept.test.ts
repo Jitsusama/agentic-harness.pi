@@ -66,9 +66,7 @@ describe("whether tee persists", () => {
 		expect(await teePersists(persists), "a tee that writes on persists").toBe(
 			true,
 		);
-		expect(await teePersists(refuses), "a tee that stops does not").toBe(
-			false,
-		);
+		expect(await teePersists(refuses), "a tee that stops does not").toBe(false);
 		expect(await teePersists(persists), "each answer kept apart").toBe(true);
 	});
 

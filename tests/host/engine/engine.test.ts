@@ -504,9 +504,7 @@ describe("the host's engine", () => {
 			const seen = await step(hostFolder(), "turn-children");
 			expect(seen.ran, "the turn's bash call ran").toBe(1);
 			expect(seen.transcript?.at(-1)).toBe("assistant: done");
-			expect(seen.started, "the watch saw the bash call start").not.toEqual(
-				[],
-			);
+			expect(seen.started, "the watch saw the bash call start").not.toEqual([]);
 			expect(seen.blocking, "children that held the loop").toEqual([]);
 		},
 		HOST_LIFE_MS,

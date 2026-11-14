@@ -22,6 +22,8 @@ export const STARTING = ["spawn", "execFile", "exec", "fork"] as const;
 
 type How = (typeof BLOCKING)[number] | (typeof STARTING)[number];
 
+const holding: ReadonlySet<How> = new Set(BLOCKING);
+
 /** One child process started while watched. */
 export interface Started {
 	/** The child_process function it was started with. */
@@ -63,8 +65,7 @@ export function watchSpawns(): SpawnWatch {
 	syncBuiltinESMExports();
 	return {
 		started,
-		blocking: () =>
-			started.filter((one) => (BLOCKING as readonly string[]).includes(one.how)),
+		blocking: () => started.filter((one) => holding.has(one.how)),
 		stop() {
 			for (const [how, original] of originals) childProcess[how] = original;
 			syncBuiltinESMExports();
@@ -74,7 +75,8 @@ export function watchSpawns(): SpawnWatch {
 
 /** The frames of the stack that are not node's, this file's or a dependency's. */
 function ownFrames(): string[] {
-	const stack = new Error().stack?.split("\n").slice(1) ?? [];
+	const trace = new Error("where a child was started").stack ?? "";
+	const stack = trace.split("\n").slice(1);
 	return stack
 		.map((line) => line.trim().replace(/^at /, ""))
 		.filter(

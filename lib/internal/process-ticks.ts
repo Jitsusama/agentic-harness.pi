@@ -152,7 +152,11 @@ function clockTicksFromAuxv(): number | undefined {
 	const little = endianness() === "LE";
 	const word = (at: number): bigint =>
 		little ? vector.readBigUInt64LE(at) : vector.readBigUInt64BE(at);
-	for (let at = 0; at + AUXV_ENTRY_BYTES <= vector.length; at += AUXV_ENTRY_BYTES) {
+	for (
+		let at = 0;
+		at + AUXV_ENTRY_BYTES <= vector.length;
+		at += AUXV_ENTRY_BYTES
+	) {
 		if (word(at) !== AT_CLKTCK) continue;
 		const ticks = Number(word(at + AUXV_WORD_BYTES));
 		return ticks > 0 ? ticks : undefined;
