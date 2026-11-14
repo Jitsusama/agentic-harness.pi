@@ -6,7 +6,9 @@ host is started by these tests. tool-round-scrub.test.ts drives two
 conversations' tool rounds directly, holding that a printed credential
 is scrubbed from each streamed update and from the committed result.
 parked-warming.test.ts warms a parked conversation's carry on fake
-timers with a scripted send, over real files. quiet-collection.test.ts
+timers with a scripted send, over real files. kept-providers.test.ts
+keeps what a conversation's extensions registered of its providers and
+registers it on a warm's runtime, over real files. quiet-collection.test.ts
 holds the quiet collection to its rules on fake timers (none while a
 tool call runs or a viewer typed in the last 30 s, one while a
 conversation only waits on the model, none within 10 minutes of the

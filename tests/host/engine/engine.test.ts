@@ -6,7 +6,9 @@
  * step plays the host's next start. Runs on a pi built with the host's
  * patches, found as tests/host/end-to-end/support/host-pi.ts finds it;
  * without one each case is skipped saying how to get one, and fails
- * under `pnpm test:host`. tests/host/engine/README.md says more.
+ * under `pnpm test:host`. tests/host/engine/README.md says more. Long
+ * because each case is a step or two of one host's life, and they share
+ * the steps, the folders and the sealed environment they run in.
  */
 import { execFile } from "node:child_process";
 import {
@@ -16,6 +18,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,6 +50,8 @@ interface Seen {
 	readonly state?: string;
 	readonly after?: string;
 	readonly keysSeen: readonly string[];
+	/** The header the provider's extension registration sets, on each request that carried it. */
+	readonly registeredHeadersSeen: readonly string[];
 	readonly ran: number;
 	readonly childrenAlive: readonly number[];
 	readonly probe: readonly Record<string, string>[];
@@ -182,6 +187,13 @@ function hostFolder(): string {
 	folders.push(folder);
 	for (const name of ["home", "run", "tmp"])
 		mkdirSync(join(folder, name), { recursive: true });
+	return folder;
+}
+
+/** A host's folder whose provider an extension registers, as Shopify's proxy registers anthropic. */
+function registeredProviderFolder(): string {
+	const folder = hostFolder();
+	writeFileSync(join(folder, "provider-by-extension"), "");
 	return folder;
 }
 
@@ -556,6 +568,55 @@ describe("the host's engine", () => {
 			expect(seen.keysSeen, "only its warm, on its own key").toEqual([
 				"first-key",
 			]);
+			expect(seen.pending, "the warm waits for its wake").toBe(1);
+		},
+		2 * HOST_LIFE_MS,
+	);
+
+	// A warm's runtime loads no extensions, so a provider one registered, as
+	// Shopify's proxy registers anthropic, failed every warm on 14 November
+	// with "Provider is not configured".
+	it(
+		"warms a parked conversation through the provider its extension registered",
+		async () => {
+			const folder = registeredProviderFolder();
+			const seen = await step(folder, "warm-parked");
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.keysSeen, "its turn, then its warm").toEqual([
+				"first-key",
+				"first-key",
+			]);
+			expect(
+				seen.registeredHeadersSeen,
+				"both with the registration's headers",
+			).toEqual(["its-extension", "its-extension"]);
+			expect(seen.pending, "the warm waits for its next start").toBe(1);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"warms one resting parked through the host's restart on the provider its extension registered",
+		async () => {
+			const folder = registeredProviderFolder();
+			const parked = await step(folder, "park-to-restart");
+			expect(parked.held, "the park let it go").toBe("let go");
+			const seen = await step(folder, "warm-resting");
+			expect(seen.rests, "its next start leaves it parked").toBe(true);
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.keysSeen, "only its warm, on its own key").toEqual([
+				"first-key",
+			]);
+			expect(
+				seen.registeredHeadersSeen,
+				"with the registration's headers",
+			).toEqual(["its-extension"]);
 			expect(seen.pending, "the warm waits for its wake").toBe(1);
 		},
 		2 * HOST_LIFE_MS,

@@ -114,6 +114,14 @@ const became: { previousId: string; sessionId: string; held: string }[] = [];
 const ended: { sessionId: string; why: string }[] = [];
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
+/** The header an extension's registration of the provider sets, on each request that carried it. */
+const KEPT_HEADER = "x-registered-by";
+const registeredHeadersSeen: unknown[] = [];
+/**
+ * Where it stands, the provider is an extension's registration, as
+ * Shopify's proxy registers anthropic, rather than models.json's.
+ */
+const providerByExtension = existsSync(join(folder, "provider-by-extension"));
 /** The request each launch environment was derived for, in this run. */
 const derived: string[] = [];
 /** The variable the fixture's launch environment sets. */
@@ -294,8 +302,14 @@ async function warmed(before: number): Promise<void> {
 }
 
 const say =
-	(text: string) => (_context: unknown, options: { apiKey?: unknown }) => {
+	(text: string) =>
+	(
+		_context: unknown,
+		options: { apiKey?: unknown; headers?: Record<string, unknown> },
+	) => {
 		keysSeen.push(options.apiKey);
+		const registered = options.headers?.[KEPT_HEADER];
+		if (registered !== undefined) registeredHeadersSeen.push(registered);
 		return compat.fauxAssistantMessage(text);
 	};
 
@@ -882,6 +896,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			piVersion: VERSION,
 			derived,
 			keysSeen,
+			registeredHeadersSeen,
 			ran: existsSync(effects)
 				? readFileSync(effects, "utf8").split("\n").filter(Boolean).length
 				: 0,
@@ -1020,31 +1035,47 @@ function linkedCopy(dir: string, word: string): void {
 	);
 }
 
-/** pi's agent folder: the scripted provider with the gateway key's variable, settings, and the probe. */
+/**
+ * pi's agent folder: the scripted provider with the gateway key's
+ * variable, in models.json or registered by an extension of its own,
+ * settings, and the probe.
+ */
 function writeAgentFolder(api: string, packages: readonly string[]): void {
+	const provider = {
+		baseUrl: "http://faux.invalid",
+		api,
+		apiKey: "$SHOPIFY_PROXY_KEY",
+		models: [
+			{
+				id: MODEL,
+				name: "Faux",
+				reasoning: false,
+				input: ["text"],
+				contextWindow: 128_000,
+				maxTokens: 16_384,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			},
+		],
+	};
 	writeFileSync(
 		join(agentDir, "models.json"),
 		JSON.stringify({
-			providers: {
-				[PROVIDER]: {
-					baseUrl: "http://faux.invalid",
-					api,
-					apiKey: "$SHOPIFY_PROXY_KEY",
-					models: [
-						{
-							id: MODEL,
-							name: "Faux",
-							reasoning: false,
-							input: ["text"],
-							contextWindow: 128_000,
-							maxTokens: 16_384,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						},
-					],
-				},
-			},
+			providers: providerByExtension ? {} : { [PROVIDER]: provider },
 		}),
 	);
+	if (providerByExtension)
+		writeFileSync(
+			join(agentDir, "extensions", "provider.ts"),
+			[
+				"export default function (pi) {",
+				`\tpi.registerProvider(${JSON.stringify(PROVIDER)}, ${JSON.stringify({
+					...provider,
+					headers: { [KEPT_HEADER]: "its-extension" },
+				})});`,
+				"}",
+				"",
+			].join("\n"),
+		);
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({

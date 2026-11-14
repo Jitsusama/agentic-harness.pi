@@ -43,9 +43,15 @@ export interface CompletedCall {
 	readonly usage: { readonly cacheWrite: number } & Record<string, unknown>;
 }
 
-/** pi's model runtime, as the engine asks it for a model and a warm's call. */
+/** pi's model runtime, as the engine asks it for a model and a warm's call, and keeps what extensions registered. */
 export interface ModelRuntime {
 	getModel(provider: string, id: string): Model | undefined;
+	/** The providers extensions registered, by name or whole. */
+	getRegisteredProviderIds(): readonly string[];
+	getRegisteredProviderConfig(provider: string): object | undefined;
+	getRegisteredNativeProvider(provider: string): object | undefined;
+	registerProvider(provider: string, config: object): void;
+	registerNativeProvider(provider: object): void;
 	completeSimple(
 		model: Model,
 		context: { readonly messages: readonly unknown[] },
