@@ -9,13 +9,21 @@
  * you're not the best destination for a lot of this shit."). So a line
  * is placed by what is attached, in the order the orchestrator set
  * (WCJQSG, 14 November 2026): the attached pi session; a pull
- * request's quest alias, else the session that wrote about it on the
- * mesh; a page's address against quests' aliases and READMEs; the
+ * request's quest alias, then whoever claims the tree its files sit
+ * under, then the session that wrote about it on the mesh; a page's
+ * address against quests' aliases and READMEs; the
  * window's quest name or repository; then his words against open
  * quests' titles. Each candidate says how it matched, and when none
  * does, what was tried, so the void can pick the one his words are
  * about and the orchestrator can see why a line reached it.
+ *
+ * A tree is claimed by a `url` alias naming it, such as
+ * `delta.shopify.io/shop/world/tree/main/areas/incubating/aquifer`,
+ * since a zone's pull requests come and go hourly (WM4KSZ, 14 November
+ * 2026); the deepest tree claimed wins.
  */
+
+import { count, verb } from "../ui/count.ts";
 
 /** What Joel had attached to a line, as the line's `Attached:` rows say. */
 export interface Attached {
@@ -68,11 +76,22 @@ export interface Placement {
 	readonly tried: readonly string[];
 }
 
+/** A pull request Joel had attached. */
+export interface PullRequest {
+	/** Where it is hosted, when its address said. */
+	readonly host?: string;
+	/** Its repository, as `owner/repo`. */
+	readonly repo: string;
+	readonly number: string;
+}
+
 /** What placing a line reads besides the quests. */
 export interface Sources {
 	readonly quests: readonly OpenQuest[];
 	/** The senders of recent mesh messages whose text holds `needle`. */
 	readonly sendersOf: (needles: readonly string[]) => readonly string[];
+	/** The paths a pull request touches, or nothing when they can't be read. */
+	readonly filesOf?: (pull: PullRequest) => readonly string[] | undefined;
 	/** Addresses that only pass lines on: the void and the orchestrator. */
 	readonly relays: ReadonlySet<string>;
 }
@@ -80,7 +99,12 @@ export interface Sources {
 const ATTACHED = /\n\s*Attached:\s*\n/u;
 const ROW = /^-\s*(window|tab|pi session):\s*(.*)$/u;
 const SEPARATOR = " · ";
-const PULL = /https?:\/\/[^/\s]+\/([\w.-]+\/[\w.-]+)\/pulls?\/(\d+)/u;
+const PULL = /https?:\/\/([^/\s]+)\/([\w.-]+\/[\w.-]+)\/pulls?\/(\d+)/u;
+const TREE =
+	/^(?:https?:\/\/)?([^/\s]+)\/([\w.-]+\/[\w.-]+)\/(?:tree|blob)\/[^/\s]+\/(.+?)\/*$/u;
+const SCHEME = /^https?:\/\//u;
+const FILE_PAGE = "/blob/";
+const TREE_PAGE = "/tree/";
 const PULL_REF = /\b([\w.-]+\/[\w.-]+)#(\d+)\b/u;
 const ADDRESS_CHARS = 6;
 const WORD = /[\p{L}\p{N}]+/gu;
@@ -215,26 +239,73 @@ function byPull(
 				fromQuest(quest, `holds ${ref} as an alias`),
 			),
 		};
+	const files = sources.filesOf?.(pull);
+	const zoned = files ? byTree(pull, files, sources.quests) : [];
 	const senders = sources
 		.sendersOf([ref, `/pull/${pull.number}`])
 		.filter((sender) => !sources.relays.has(sender));
 	const writer = mostFrequent(senders);
-	if (!writer)
+	const quest = sources.quests.find((q) => questAddress(q.id) === writer);
+	const wrote: Candidate[] = writer
+		? [
+				{
+					address: writer,
+					title: quest?.title ?? writer,
+					how: `wrote of ${ref} on the mesh`,
+				},
+			]
+		: [];
+	if (zoned.length === 0 && wrote.length === 0)
 		return {
-			tried: `the pull request ${ref} (no quest alias, no session wrote of it)`,
+			tried: `the pull request ${ref} (${unclaimed(files)}, no session wrote of it)`,
 			found: [],
 		};
-	const quest = sources.quests.find((q) => questAddress(q.id) === writer);
-	return {
-		tried: `the pull request ${ref}`,
-		found: [
-			{
-				address: writer,
-				title: quest?.title ?? writer,
-				how: `wrote of ${ref} on the mesh`,
-			},
-		],
-	};
+	return { tried: `the pull request ${ref}`, found: [...zoned, ...wrote] };
+}
+
+/** The quests claiming a tree the pull request's files sit under, deepest first. */
+function byTree(
+	pull: PullRequest,
+	files: readonly string[],
+	quests: readonly OpenQuest[],
+): Candidate[] {
+	return quests
+		.flatMap((quest) =>
+			quest.aliases.flatMap((alias) => {
+				const tree = treeOf(alias.value);
+				if (!tree || tree.repo !== pull.repo) return [];
+				if (pull.host && tree.host !== pull.host) return [];
+				const under = files.filter((f) => isUnder(f, tree.path)).length;
+				return under > 0 ? [{ quest, path: tree.path, under }] : [];
+			}),
+		)
+		.sort((a, b) => b.path.length - a.path.length || b.under - a.under)
+		.map(({ quest, path, under }) =>
+			fromQuest(
+				quest,
+				`claims ${path}, where ${under} of its ${count(files.length, "file")} sit`,
+			),
+		);
+}
+
+/** What no quest claimed of a pull request, its files when they were read. */
+function unclaimed(files: readonly string[] | undefined): string {
+	if (!files) return "no quest alias";
+	const sit = verb(files.length, "sits", "sit");
+	return `no quest claims it or a tree its ${count(files.length, "file")} ${sit} under`;
+}
+
+function treeOf(
+	value: string,
+): { host: string; repo: string; path: string } | undefined {
+	const tree = TREE.exec(value.trim());
+	if (!tree) return undefined;
+	const [, host = "", repo = "", path = ""] = tree;
+	return { host, repo, path };
+}
+
+function isUnder(file: string, path: string): boolean {
+	return file === path || file.startsWith(`${path}/`);
 }
 
 function byPage(
@@ -258,7 +329,7 @@ function byPage(
 			),
 		};
 	const written = sources.quests
-		.map((quest) => ({ quest, times: count(quest.body, host) }))
+		.map((quest) => ({ quest, times: occurrences(quest.body, host) }))
 		.filter((entry) => entry.times > 0)
 		.sort((a, b) => b.times - a.times)
 		.slice(0, MOST_BY_PAGE);
@@ -333,11 +404,14 @@ function byWords(
 	};
 }
 
-function pullOf(
-	attached: Attached,
-): { repo: string; number: string } | undefined {
+function pullOf(attached: Attached): PullRequest | undefined {
 	const fromUrl = attached.tabUrl ? PULL.exec(attached.tabUrl) : null;
-	if (fromUrl) return { repo: fromUrl[1] ?? "", number: fromUrl[2] ?? "" };
+	if (fromUrl)
+		return {
+			host: fromUrl[1] ?? "",
+			repo: fromUrl[2] ?? "",
+			number: fromUrl[3] ?? "",
+		};
 	const text = `${attached.tabTitle ?? ""} ${attached.window ?? ""}`;
 	const fromTitle = PULL_REF.exec(text);
 	if (fromTitle)
@@ -345,13 +419,10 @@ function pullOf(
 	return undefined;
 }
 
-function aliasNamesPull(
-	value: string,
-	pull: { repo: string; number: string },
-): boolean {
+function aliasNamesPull(value: string, pull: PullRequest): boolean {
 	if (value === `${pull.repo}#${pull.number}`) return true;
 	const url = PULL.exec(value);
-	return url !== null && url[1] === pull.repo && url[2] === pull.number;
+	return url !== null && url[2] === pull.repo && url[3] === pull.number;
 }
 
 function aliasNamesPage(
@@ -363,7 +434,18 @@ function aliasNamesPage(
 	const value = alias.value.replace(/\/+$/u, "");
 	if (value === "") return false;
 	if (value === host || value === site) return true;
-	return url.startsWith(value) || hostOf(value) === host;
+	const claim = bare(value);
+	if (!claim.includes("/")) return hostOf(`https://${claim}`) === host;
+	const page = bare(url);
+	return (
+		page === claim ||
+		["/", "?", "#"].some((end) => page.startsWith(claim + end))
+	);
+}
+
+/** An address without its scheme, a file's page read as its tree's. */
+function bare(url: string): string {
+	return url.replace(SCHEME, "").replace(FILE_PAGE, TREE_PAGE);
 }
 
 function hostOf(url: string): string | undefined {
@@ -407,7 +489,7 @@ function wordsOf(text: string): string[] {
 	);
 }
 
-function count(text: string, needle: string): number {
+function occurrences(text: string, needle: string): number {
 	return text.split(needle).length - 1;
 }
 

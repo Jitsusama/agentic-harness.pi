@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { printed, sendersIn } from "../../scripts/void-owner.ts";
+import { filesOf, printed, sendersIn } from "../../scripts/void-owner.ts";
 
 let scratch: string | null = null;
 
@@ -74,5 +74,70 @@ describe("what the void reads back", () => {
 			"EO6QV7\tSITE\tits README names the site once\n" +
 				"tried: the page aquifer-part-deux.quick.shopify.io; his words\n",
 		);
+	});
+});
+
+describe("the files a pull request touches", () => {
+	const listing = JSON.stringify([
+		{ filename: "areas/incubating/aquifer/a.rs" },
+		{ filename: "areas/incubating/aquifer/b.rs" },
+	]);
+
+	it("asks Delta for a Delta pull request's files", () => {
+		const asked: string[][] = [];
+		const files = filesOf(
+			{ host: "delta.shopify.io", repo: "shop/world", number: "2431000" },
+			(command, args) => {
+				asked.push([command, ...args]);
+				return listing;
+			},
+		);
+
+		expect(files).toEqual([
+			"areas/incubating/aquifer/a.rs",
+			"areas/incubating/aquifer/b.rs",
+		]);
+		expect(asked).toEqual([
+			[
+				"dt",
+				"api",
+				"--host",
+				"https://delta.shopify.io",
+				"-R",
+				"shop/world",
+				"/api/v3/repos/shop/world/pulls/2431000/files?per_page=100",
+			],
+		]);
+	});
+
+	it("asks GitHub for a GitHub pull request's files", () => {
+		const asked: string[][] = [];
+		filesOf(
+			{ host: "github.com", repo: "a/b", number: "7" },
+			(command, args) => {
+				asked.push([command, ...args]);
+				return listing;
+			},
+		);
+
+		expect(asked).toEqual([
+			["gh", "api", "repos/a/b/pulls/7/files?per_page=100"],
+		]);
+	});
+
+	it("knows nothing of a host it can't ask, or when asking fails", () => {
+		const failing = (): string => {
+			throw new Error("not signed in");
+		};
+
+		expect(
+			filesOf({ host: "example.com", repo: "a/b", number: "7" }, () => listing),
+		).toBeUndefined();
+		expect(
+			filesOf({ host: "github.com", repo: "a/b", number: "7" }, failing),
+		).toBeUndefined();
+		expect(
+			filesOf({ host: "github.com", repo: "a/b", number: "7" }, () => "{}"),
+		).toBeUndefined();
 	});
 });

@@ -6,12 +6,15 @@
  * prints each place the line could go, best first, one a line as
  * `<address>\t<quest title>\t<how it matched>`, then a `tried:` line
  * saying what was looked at, which goes to the orchestrator when no
- * place fits. It reads only: open quests' READMEs, and the last two
- * days of mesh messages when a pull request is attached.
+ * place fits. It reads only: open quests' READMEs and, when a pull
+ * request is attached, the last two days of mesh messages and the
+ * files it touches, asked of Delta through `dt` or of GitHub through
+ * `gh` with the sign-ins already on the machine (about a second).
  *
  *   printf '%s' "$LINE" | node scripts/void-owner.ts
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
@@ -20,6 +23,7 @@ import { isRecord } from "../lib/internal/record.ts";
 import {
 	type OpenQuest,
 	type Placement,
+	type PullRequest,
 	placeLine,
 } from "../lib/internal/void-owner.ts";
 
@@ -31,6 +35,12 @@ export const RELAYS: ReadonlySet<string> = new Set([
 ]);
 
 const CLOSED = new Set(["concluded", "retired"]);
+const DELTA_HOSTS = new Set(["delta.shopify.io", "src.shopify.io"]);
+const DELTA_ORIGIN = "https://delta.shopify.io";
+const GITHUB_HOST = "github.com";
+const FILES_PAGE = "files?per_page=100";
+/** Joel waits on the void's answer, so a slow listing is given up on. */
+const ASK_TIMEOUT_MS = 10_000;
 const DAYS_OF_MESSAGES = 2;
 const DAY_MS = 86_400_000;
 
@@ -100,6 +110,61 @@ function senderIfHolds(
 	return needles.some((needle) => text.includes(needle)) ? from : undefined;
 }
 
+/** Runs a command and gives back what it printed, throwing when it fails. */
+export type Run = (command: string, args: readonly string[]) => string;
+
+/**
+ * The paths a pull request touches, from the first page of its files,
+ * or nothing when its host can't be asked or the asking fails.
+ */
+export function filesOf(
+	pull: PullRequest,
+	run: Run = asked,
+): string[] | undefined {
+	const request = requestFor(pull);
+	if (!request) return undefined;
+	let listing: unknown;
+	try {
+		listing = JSON.parse(run(request.command, request.args));
+	} catch {
+		// Not signed in, timed out, or not a listing: the line is placed
+		// without its files rather than held up.
+		return undefined;
+	}
+	if (!Array.isArray(listing)) return undefined;
+	return listing.flatMap((file) =>
+		isRecord(file) && typeof file.filename === "string" ? [file.filename] : [],
+	);
+}
+
+function requestFor(
+	pull: PullRequest,
+): { command: string; args: string[] } | undefined {
+	const route = `repos/${pull.repo}/pulls/${pull.number}/${FILES_PAGE}`;
+	if (pull.host && DELTA_HOSTS.has(pull.host))
+		return {
+			command: "dt",
+			args: [
+				"api",
+				"--host",
+				DELTA_ORIGIN,
+				"-R",
+				pull.repo,
+				`/api/v3/${route}`,
+			],
+		};
+	if (pull.host === GITHUB_HOST) return { command: "gh", args: ["api", route] };
+	return undefined;
+}
+
+function asked(command: string, args: readonly string[]): string {
+	return execFileSync(command, args, {
+		encoding: "utf8",
+		timeout: ASK_TIMEOUT_MS,
+		stdio: ["ignore", "pipe", "ignore"],
+	});
+}
+
 /** A placement as the void reads it: a line a place, then what was tried. */
 export function printed(placement: Placement): string {
 	const lines = placement.candidates.map(
@@ -115,6 +180,7 @@ if (import.meta.main) {
 	const placement = placeLine(line, {
 		quests: openQuests(join(dataDir("quest-workflow"), "quests")),
 		sendersOf: (needles) => sendersIn(messagesDir, needles),
+		filesOf: (pull) => filesOf(pull),
 		relays: RELAYS,
 	});
 	process.stdout.write(printed(placement));

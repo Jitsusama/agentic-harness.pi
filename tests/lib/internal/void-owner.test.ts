@@ -46,9 +46,16 @@ const ROWS: OpenQuest = {
 };
 const QUESTS = [GIT, AQUIFER, SITE, SLEEP, ROWS];
 
+const ZONE = "delta.shopify.io/shop/world/tree/main/areas/incubating/aquifer";
+const ZONED: OpenQuest = {
+	...AQUIFER,
+	aliases: [{ type: "url", value: ZONE }],
+};
+
 function sources(
 	quests: readonly OpenQuest[] = QUESTS,
 	mesh: readonly { from: string; text: string }[] = [],
+	files: Readonly<Record<string, readonly string[]>> = {},
 ): Sources {
 	return {
 		quests,
@@ -56,6 +63,7 @@ function sources(
 			mesh
 				.filter((m) => needles.some((n) => m.text.includes(n)))
 				.map((m) => m.from),
+		filesOf: (pull) => files[`${pull.host}/${pull.repo}#${pull.number}`],
 		relays: new Set(["8GYNJ6", "WCJQSG"]),
 	};
 }
@@ -207,5 +215,90 @@ describe("placing a line", () => {
 			"the attached pi session WCJQSG",
 			"his words (no title shares two)",
 		]);
+	});
+});
+
+describe("placing a pull request by the zone it touches", () => {
+	const PULL = "https://delta.shopify.io/shop/world/pull/2431000";
+	const KEY = "delta.shopify.io/shop/world#2431000";
+	const text = line(
+		"why is this one stuck?",
+		`tab: Tidy the sandbox · ${PULL}`,
+	);
+
+	it("sends it to the quest that claims the tree its files sit under", () => {
+		const files = {
+			[KEY]: [
+				"areas/incubating/aquifer/sandbox/main.rs",
+				"areas/incubating/aquifer/README.md",
+			],
+		};
+
+		const placement = placeLine(text, sources([GIT, ZONED], [], files));
+
+		expect(placement.candidates[0]).toEqual({
+			address: "WM4KSZ",
+			title: AQUIFER.title,
+			how: "claims areas/incubating/aquifer, where 2 of its 2 files sit",
+		});
+	});
+
+	it("puts the zone's owner before the session that wrote of it", () => {
+		const files = { [KEY]: ["areas/incubating/aquifer/api/lib.rs"] };
+		const mesh = [{ from: "2AF2DH", text: "pushed shop/world#2431000" }];
+
+		expect(addresses(text, sources([GIT, ZONED], mesh, files))).toEqual([
+			"WM4KSZ",
+			"2AF2DH",
+		]);
+	});
+
+	it("prefers the deepest tree claimed over one above it", () => {
+		const deeper = {
+			...SITE,
+			aliases: [{ type: "url", value: `https://${ZONE}/deploy` }],
+		};
+		const files = { [KEY]: ["areas/incubating/aquifer/deploy/v3.nix"] };
+
+		expect(addresses(text, sources([ZONED, deeper], [], files))[0]).toBe(
+			"EO6QV7",
+		);
+	});
+
+	it("leaves a claimed tree alone when no file sits under it", () => {
+		const files = { [KEY]: ["areas/tools/git/zone.nix"] };
+
+		const placement = placeLine(text, sources([GIT, ZONED], [], files));
+
+		expect(placement.candidates).toEqual([]);
+		expect(placement.tried[0]).toBe(
+			"the pull request shop/world#2431000 (no quest claims it or a tree its 1 file sits under, no session wrote of it)",
+		);
+	});
+
+	it("never takes a sibling folder sharing the tree's name for the tree", () => {
+		const files = { [KEY]: ["areas/incubating/aquifer-old/x.rs"] };
+
+		expect(addresses(text, sources([ZONED], [], files))).toEqual([]);
+	});
+});
+
+describe("placing a page under a claimed tree", () => {
+	it("sends a file's page in the tree to the quest that claims it", () => {
+		const text = line(
+			"this README is out of date",
+			"tab: README · https://delta.shopify.io/shop/world/blob/main/areas/incubating/aquifer/README.md",
+		);
+
+		expect(addresses(text, sources([GIT, ZONED]))[0]).toBe("WM4KSZ");
+	});
+
+	it("never lets a tree's claim take every page on its host", () => {
+		const text = line(
+			"what's this?",
+			"tab: Git · https://delta.shopify.io/shop/world/tree/main/areas/tools/git",
+		);
+
+		expect(addresses(text, sources([ZONED]))).toEqual([]);
 	});
 });
