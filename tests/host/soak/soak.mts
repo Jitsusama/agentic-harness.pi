@@ -69,18 +69,18 @@ import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
 import { pairKeys, plainKeys } from "./keys.ts";
 import {
-	type PlainProcess,
-	plainProcessesOf,
-	rollupOf,
-	type Weight,
-} from "./processes.ts";
-import {
 	LONGEST_MS,
 	MOST_ROUNDS,
 	medianTurnMs,
 	paceOf,
 	staggerOf,
 } from "./pace.ts";
+import {
+	type PlainProcess,
+	plainProcessesOf,
+	type Rollup,
+	rollupOf,
+} from "./processes.ts";
 import {
 	longestLived,
 	type Pinned,
@@ -987,7 +987,10 @@ async function runPlain(sealed: Seal): Promise<{
 				typeof file === "string" ? entriesOf(readFileSync(file, "utf8")) : [];
 			const spread = spreadOf(latencies(entries).map((one) => one.ms));
 			say(`plain ${index} done ${JSON.stringify(spread)}`);
-			const weights = { ...(ready ? { ready } : {}), ...(done ? { done } : {}) };
+			const weights = {
+				...(ready ? { ready } : {}),
+				...(done ? { done } : {}),
+			};
 			return {
 				entries,
 				errors: readOr(`${log}.stderr`),
@@ -1004,7 +1007,7 @@ async function runPlain(sealed: Seal): Promise<{
 }
 
 /** A process's weight from its rollup, or undefined once it has gone. */
-function weighed(pid: number | undefined): Weight | undefined {
+function weighed(pid: number | undefined): Rollup | undefined {
 	if (pid === undefined) return undefined;
 	try {
 		return rollupOf(readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"));

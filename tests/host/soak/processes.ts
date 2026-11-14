@@ -8,7 +8,7 @@
 import { type Extent, extentOf } from "./report.ts";
 
 /** A process's weight, from its rollup, in kB. */
-export interface Weight {
+export interface Rollup {
 	readonly pssKb: number;
 	readonly rssKb: number;
 }
@@ -16,8 +16,8 @@ export interface Weight {
 /** One plain pi's start and weighings; a weighing it missed is left out. */
 export interface PlainProcess {
 	readonly readyMs: number;
-	readonly ready?: Weight;
-	readonly done?: Weight;
+	readonly ready?: Rollup;
+	readonly done?: Rollup;
 }
 
 /** Every plain pi's start and weight, spread. */
@@ -33,7 +33,7 @@ export interface PlainProcesses {
 }
 
 /** Reads `Pss` and `Rss` from `/proc/<pid>/smaps_rollup`'s text. */
-export function rollupOf(text: string): Weight | undefined {
+export function rollupOf(text: string): Rollup | undefined {
 	const kb = (field: string): number | undefined => {
 		const found = new RegExp(`^${field}:\\s+(\\d+) kB$`, "m").exec(text);
 		return found?.[1] === undefined ? undefined : Number(found[1]);
