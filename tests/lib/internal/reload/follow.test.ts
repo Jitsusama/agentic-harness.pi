@@ -5,7 +5,9 @@
 
 import {
 	mkdirSync,
+	realpathSync,
 	renameSync,
+	rmSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
@@ -17,6 +19,7 @@ import {
 	dependenciesReady,
 	headOf,
 	INSTALL_GRACE_MS,
+	missedMove,
 	type Moved,
 	SPREAD_MS,
 	spreadOf,
@@ -314,5 +317,28 @@ describe("watchHeads", () => {
 		await quietFor(50, 6);
 
 		expect(seen).toEqual([]);
+	});
+});
+
+describe("missedMove", () => {
+	// On 14 November a quest's TMPDIR on optimus was a link, and the host
+	// tests' installs under it never followed their link: node names the
+	// running code by its real path, while the settings name it as written.
+	it("says the move of an install reached through a linked folder", async () => {
+		const real = await repo();
+		const linked = `${real}-linked`;
+		symlinkSync(real, linked);
+		stops.push(() => rmSync(linked, { force: true }));
+		for (const name of ["one", "two"])
+			mkdirSync(join(real, "install", "versions", name), { recursive: true });
+		const current = join(linked, "install", "current");
+		symlinkSync(join("versions", "two"), current);
+		const running = realpathSync(join(linked, "install", "versions", "one"));
+
+		expect(missedMove(running, current)).toEqual({
+			root: current,
+			from: "one",
+			to: "two",
+		});
 	});
 });
