@@ -23,8 +23,13 @@ export interface UseSigns {
 	 * session holds is kept, whichever process that session now runs in.
 	 */
 	liveSessions?(): Promise<ReadonlySet<string>>;
-	/** The working folders of every process running now. */
-	standingIn?(): readonly string[];
+	/**
+	 * The working folders of every process running now. Read without
+	 * holding the event loop where it can be, since a shared host's other
+	 * conversations wait on it: on 14 November reading them all at once
+	 * held it 469 ms.
+	 */
+	standingIn?(): readonly string[] | Promise<readonly string[]>;
 	/**
 	 * The working folders of every session that may work in one, wherever
 	 * it runs. A hosted conversation's folder is no process's: on 11
@@ -50,7 +55,7 @@ export async function treesInUse(
 ): Promise<HeldTree[]> {
 	const live = (await signs.liveSessions?.()) ?? new Set<string>();
 	const standing = [
-		...(signs.standingIn?.() ?? []),
+		...((await signs.standingIn?.()) ?? []),
 		...((await signs.sessionFolders?.()) ?? []),
 	].map(resolvedPath);
 	return trees.filter((tree) => {

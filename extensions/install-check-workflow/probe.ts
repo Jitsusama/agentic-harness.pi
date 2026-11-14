@@ -9,6 +9,10 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+	headFromFiles,
+	upstreamFromFiles,
+} from "../../lib/internal/reload/head.ts";
 
 /** How long one git call may take before it is given up on. */
 const GIT_TIMEOUT_MS = 2_000;
@@ -92,20 +96,39 @@ function git(
 	});
 }
 
-/** The checkout's HEAD commit, or nothing. */
+/**
+ * The checkout's HEAD commit, or nothing: read from git's files, and
+ * asked of git only where they can't say, since forking git from a
+ * shared host holds every conversation's loop (OSPHT4, 14 November).
+ */
 export function headOf(root: string): Promise<string | undefined> {
-	return isCheckout(root)
+	if (!isCheckout(root)) return Promise.resolve(undefined);
+	const read = headFromFiles(root);
+	return read === undefined
 		? git(root, ["rev-parse", "HEAD"])
-		: Promise.resolve(undefined);
+		: Promise.resolve(read);
 }
 
 /**
  * Commits the branch's upstream has that HEAD does not, as of the last
- * fetch, or nothing without an upstream.
+ * fetch, or nothing without an upstream. Counting them needs git, so
+ * the reader asks it again only once HEAD or the upstream has moved,
+ * as their files say; files that can't say ask every time.
  */
-export async function commitsBehind(root: string): Promise<number | undefined> {
-	if (!isCheckout(root)) return undefined;
-	const counted = await git(root, ["rev-list", "--count", "HEAD..@{u}"]);
-	const behind = Number.parseInt(counted ?? "", 10);
-	return Number.isFinite(behind) ? behind : undefined;
+export function commitsBehindReader(): (
+	root: string,
+) => Promise<number | undefined> {
+	let counted: { at: string; behind: number | undefined } | undefined;
+	return async (root) => {
+		if (!isCheckout(root)) return undefined;
+		const head = headFromFiles(root);
+		const upstream = upstreamFromFiles(root);
+		const at = head && upstream ? `${root} ${head} ${upstream}` : undefined;
+		if (at !== undefined && counted?.at === at) return counted.behind;
+		const said = await git(root, ["rev-list", "--count", "HEAD..@{u}"]);
+		const behind = Number.parseInt(said ?? "", 10);
+		const answer = Number.isFinite(behind) ? behind : undefined;
+		if (at !== undefined) counted = { at, behind: answer };
+		return answer;
+	};
 }

@@ -35,6 +35,48 @@ export function headFromFiles(root: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * The commit `root`'s branch's upstream names, as of the last fetch,
+ * read from HEAD, the branch's settings and the remote's ref; nothing
+ * when those files can't say, or the branch has no upstream.
+ */
+export function upstreamFromFiles(root: string): string | undefined {
+	const gitDir = gitDirOf(root);
+	if (gitDir === undefined) return undefined;
+	const commonDir = commonDirOf(gitDir);
+	const branch = /^ref: refs\/heads\/(\S+)$/.exec(
+		read(join(gitDir, "HEAD")) ?? "",
+	)?.[1];
+	if (branch === undefined) return undefined;
+	const settings = branchSettings(read(join(commonDir, "config")), branch);
+	const remote = settings.get("remote");
+	const merge = /^refs\/heads\/(\S+)$/.exec(settings.get("merge") ?? "")?.[1];
+	if (remote === undefined || remote === "." || merge === undefined)
+		return undefined;
+	const said = refIn(gitDir, commonDir, `refs/remotes/${remote}/${merge}`);
+	return said !== undefined && COMMIT.test(said) ? said : undefined;
+}
+
+/** A branch's settings in a git config's text, by key in lower case. */
+function branchSettings(
+	config: string | undefined,
+	branch: string,
+): Map<string, string> {
+	const settings = new Map<string, string>();
+	let inBranch = false;
+	for (const line of config?.split("\n") ?? []) {
+		const section = /^\s*\[([^\]]+)\]/.exec(line)?.[1];
+		if (section !== undefined) {
+			inBranch = section.trim() === `branch "${branch}"`;
+			continue;
+		}
+		const setting = /^\s*([A-Za-z][\w-]*)\s*=\s*(.*?)\s*$/.exec(line);
+		if (inBranch && setting?.[1] && setting[2] !== undefined)
+			settings.set(setting[1].toLowerCase(), setting[2]);
+	}
+	return settings;
+}
+
 /** The folder git keeps `root`'s repository in: `.git`, or where a worktree's `.git` file points. */
 function gitDirOf(root: string): string | undefined {
 	const dotGit = join(root, ".git");

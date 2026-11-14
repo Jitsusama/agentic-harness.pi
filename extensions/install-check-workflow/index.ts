@@ -42,7 +42,7 @@ import {
 	unbuiltNotice,
 } from "./notice.ts";
 import {
-	commitsBehind,
+	commitsBehindReader,
 	dependencyRanges,
 	headOf,
 	installCommand,
@@ -61,6 +61,7 @@ const loadedHead = headOf(PACKAGE_ROOT);
 const headNow = sharedReading(() => headOf(PACKAGE_ROOT), {
 	maxAgeMs: HEAD_INTERVAL_MS,
 });
+const commitsBehind = commitsBehindReader();
 const behindNow = sharedReading(() => commitsBehind(PACKAGE_ROOT), {
 	maxAgeMs: HEAD_INTERVAL_MS,
 });

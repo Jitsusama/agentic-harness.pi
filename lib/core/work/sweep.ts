@@ -193,7 +193,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		for (const tree of others) {
 			await releaseThroughProvider(deps, facts, tree, remembered, outcome);
 		}
-		dropIdleRoots(deps, outcome);
+		await dropIdleRoots(deps, outcome);
 	} finally {
 		release();
 	}
@@ -205,9 +205,12 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
  * nobody has entered within the idle window and no process stands in.
  * A process standing in one may hold the shell direnv loaded there.
  */
-function dropIdleRoots(deps: SweepDeps, outcome: SweepOutcome): void {
+async function dropIdleRoots(
+	deps: SweepDeps,
+	outcome: SweepOutcome,
+): Promise<void> {
 	const now = deps.now?.() ?? Date.now();
-	const standing = (deps.standingIn?.() ?? []).map(resolved);
+	const standing = ((await deps.standingIn?.()) ?? []).map(resolved);
 	for (const tree of deps.memory.recall()) {
 		const path = resolved(tree.path);
 		if (standing.some((one) => one === path || one.startsWith(`${path}/`))) {

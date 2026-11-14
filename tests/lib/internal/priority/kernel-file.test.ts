@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { kernelText } from "../../../../lib/internal/priority/kernel-file.ts";
+import {
+	AT_ONCE,
+	kernelText,
+} from "../../../../lib/internal/priority/kernel-file.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -11,6 +14,34 @@ beforeEach(() => {
 });
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
+});
+
+describe("reading many kernel files at once", () => {
+	it("reads every one, a few at a time", async () => {
+		const many = AT_ONCE * 20;
+		for (let pid = 0; pid < many; pid++)
+			writeFileSync(join(dir, `comm-${pid}`), `proc-${pid}\n`);
+		const read = await Promise.all(
+			Array.from({ length: many }, (_, pid) =>
+				kernelText(join(dir, `comm-${pid}`)),
+			),
+		);
+		expect(read, "each file's own text").toEqual(
+			Array.from({ length: many }, (_, pid) => `proc-${pid}\n`),
+		);
+	});
+
+	it("gives a failed read's turn to the next", async () => {
+		const failing = Array.from({ length: AT_ONCE * 3 }, (_, at) =>
+			kernelText(join(dir, `gone-${at}`)).catch(() => "gone"),
+		);
+		writeFileSync(join(dir, "after"), "still read\n");
+		const after = kernelText(join(dir, "after"));
+		expect(await Promise.all(failing), "each refused").toEqual(
+			failing.map(() => "gone"),
+		);
+		expect(await after, "the read after them").toBe("still read\n");
+	});
 });
 
 describe("reading a kernel file", () => {

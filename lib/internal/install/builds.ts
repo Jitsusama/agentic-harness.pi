@@ -18,7 +18,7 @@
  * unbuilt only while no native binding sits in its folder.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "../record.ts";
@@ -28,11 +28,40 @@ import { isRecord } from "../record.ts";
  * pnpm names them (`sqlite3@6.0.1`), or none when nothing says so.
  */
 export function skippedBuilds(root: string): string[] {
-	let text: string;
+	const record = join(root, "node_modules", ".modules.yaml");
+	let stamp: string;
 	try {
-		text = readFileSync(join(root, "node_modules", ".modules.yaml"), "utf8");
+		const stat = statSync(record);
+		stamp = `${stat.mtimeMs} ${stat.size}`;
 	} catch {
 		// No pnpm install here, or none finished: nothing it skipped.
+		return [];
+	}
+	const known = PARSED.get(record);
+	if (known?.stamp === stamp) return [...known.skipped];
+	const skipped = skippedIn(record);
+	PARSED.set(record, { stamp, skipped });
+	return [...skipped];
+}
+
+/**
+ * Each install record read, by its path, with the time and size it was
+ * read at: parsing one held a shared host's loop for up to 143 ms a
+ * step (OSPHT4, 14 November 2026), and it changes only at an install.
+ * Every conversation reads the same file, so they share what it says.
+ */
+const PARSED = new Map<
+	string,
+	{ readonly stamp: string; readonly skipped: readonly string[] }
+>();
+
+/** What an install record says the install skipped. */
+function skippedIn(record: string): string[] {
+	let text: string;
+	try {
+		text = readFileSync(record, "utf8");
+	} catch {
+		// Gone since it was looked at: nothing it skipped.
 		return [];
 	}
 	let state: unknown;

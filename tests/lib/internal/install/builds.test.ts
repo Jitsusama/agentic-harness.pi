@@ -1,8 +1,10 @@
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,6 +54,22 @@ describe("skippedBuilds", () => {
 
 	it("names none from a record that does not parse", () => {
 		expect(skippedBuilds(installed("ignoredBuilds: [\n"))).toEqual([]);
+	});
+
+	it("reads a record once while it stays as it was, and again once it changes", () => {
+		const root = installed("ignoredBuilds:\n  - sqlite3@6.0.1\n");
+		const record = join(root, "node_modules", ".modules.yaml");
+		expect(skippedBuilds(root), "first read").toEqual(["sqlite3@6.0.1"]);
+		chmodSync(record, 0o000);
+		expect(skippedBuilds(root), "unchanged, so not read again").toEqual([
+			"sqlite3@6.0.1",
+		]);
+		chmodSync(record, 0o644);
+		writeFileSync(record, "ignoredBuilds:\n  - esbuild@0.25.0\n");
+		utimesSync(record, new Date(), new Date(Date.now() + 1000));
+		expect(skippedBuilds(root), "read again once changed").toEqual([
+			"esbuild@0.25.0",
+		]);
 	});
 });
 
