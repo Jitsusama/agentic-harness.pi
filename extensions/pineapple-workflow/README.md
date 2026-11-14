@@ -106,6 +106,10 @@ days of it before anything is enforced:
 - `would-park.jsonl`: each session it would have parked, once;
 - `would-hold.jsonl`: each hold it would have sent, once a renewal.
 
+A live stop writes `parked.jsonl` the same way, each session it parked,
+once, so the launcher's row for the stop can say how many sessions
+wait on Joel's resume.
+
 ## Cost
 
 With no stop standing, a call that writes looks once at an empty

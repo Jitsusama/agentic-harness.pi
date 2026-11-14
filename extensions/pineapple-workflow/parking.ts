@@ -11,7 +11,9 @@
  * write the stop reaches.
  *
  * A stop still in shadow parks nobody; which sessions it would have
- * parked is written beside the would-refuse log for Joel to read.
+ * parked is written beside the would-refuse log for Joel to read. A live
+ * stop's parks are written too, once a session, so the launcher's row
+ * for the stop can say how many sessions wait on Joel's resume.
  */
 
 import { automatedText } from "../../lib/internal/automated.ts";
@@ -41,6 +43,8 @@ export interface ParkingDeps {
 	readonly notify: (text: string) => void;
 	/** Note a shadow stop that would have parked this session. */
 	readonly wouldPark: (parked: Parked) => void;
+	/** Note a live stop that parked this session. */
+	readonly parked: (parked: Parked) => void;
 }
 
 /** A session's parking, driven by its events. */
@@ -69,6 +73,7 @@ export function createParking(deps: ParkingDeps): Parking {
 	let personRun = false;
 	let parked = false;
 	const shadowTold = new Set<string>();
+	const liveTold = new Set<string>();
 
 	async function parkers(): Promise<Parked[]> {
 		const stops = deps.stops();
@@ -89,6 +94,12 @@ export function createParking(deps: ParkingDeps): Parking {
 		const first = !parked;
 		parked = true;
 		deps.abort();
+		for (const one of live) {
+			// Once a session, as in shadow: the launcher counts sessions.
+			if (liveTold.has(one.stop.id)) continue;
+			liveTold.add(one.stop.id);
+			deps.parked(one);
+		}
 		if (first) deps.notify(parkedText(live));
 	}
 
