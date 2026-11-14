@@ -31,7 +31,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { constants, readdirSync, readFileSync } from "node:fs";
+import { constants, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { access } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
 import {
@@ -174,10 +174,13 @@ export function spawnedBy(
 	let lost = false;
 	let shell: Shell | undefined = options.shell;
 	let found: { program: string | undefined } | undefined;
+	// Resolved once, so the program asked whether it keeps is the one that
+	// runs, though a switch repoints the profile's link between the two.
 	const programOf = (): string | undefined => {
 		found ??= {
-			program:
+			program: resolved(
 				options.program ?? (options.find ?? systemProgram)(SPAWNER_PROGRAM),
+			),
 		};
 		return found.program;
 	};
@@ -229,6 +232,17 @@ export function spawnedBy(
 			return await keeps;
 		},
 	};
+}
+
+/** The file `program` names, through any links, or `program` where none is there. */
+function resolved(program: string | undefined): string | undefined {
+	if (program === undefined) return undefined;
+	try {
+		return realpathSync(program);
+	} catch {
+		// Nothing there: starting it fails, and pi's own spawn takes over.
+		return program;
+	}
 }
 
 /**

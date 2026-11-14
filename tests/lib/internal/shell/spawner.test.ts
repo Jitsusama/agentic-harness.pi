@@ -7,7 +7,9 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -303,6 +305,34 @@ describe("whether a kept command outlives pi's going", () => {
 
 			expect(answers, `a spawner that keeps: ${keeps}`).toEqual([keeps, keeps]);
 			expect(asksKeeps).toHaveBeenCalledExactlyOnceWith("/run/pi-spawner");
+		}
+	});
+
+	it("asks the program it starts, though the profile's link moves between the two", async () => {
+		// Resolved, since the temporary folder may itself sit behind a link.
+		const dir = realpathSync(mkdtempSync(join(tmpdir(), "spawner-link-")));
+		try {
+			for (const one of ["old", "new"]) {
+				mkdirSync(join(dir, one));
+				writeFileSync(join(dir, one, "pi-spawner"), "");
+			}
+			const link = join(dir, "pi-spawner");
+			symlinkSync(join(dir, "new", "pi-spawner"), link);
+			const program = standIn();
+			const start = vi.fn((_program: string) => program.start());
+			const asksKeeps = vi.fn(async (_program: string) => true);
+			const { operations } = through({ program: link, start, asksKeeps });
+
+			await operations.spares();
+			rmSync(link);
+			symlinkSync(join(dir, "old", "pi-spawner"), link);
+			void operations.exec("true", "/", { onData: () => {}, env: {} });
+
+			const asked = join(dir, "new", "pi-spawner");
+			expect(asksKeeps, "asked where the link led").toHaveBeenCalledWith(asked);
+			expect(start, "started the one it asked").toHaveBeenCalledWith(asked);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 
