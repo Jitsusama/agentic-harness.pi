@@ -24,7 +24,11 @@ import {
 } from "../lib/internal/void-owner.ts";
 
 /** The void's own addresses and the orchestrator's, which only pass lines on. */
-export const RELAYS: ReadonlySet<string> = new Set(["8GYNJ6", "E9DE8111", "WCJQSG"]);
+export const RELAYS: ReadonlySet<string> = new Set([
+	"8GYNJ6",
+	"E9DE8111",
+	"WCJQSG",
+]);
 
 const CLOSED = new Set(["concluded", "retired"]);
 const DAYS_OF_MESSAGES = 2;
@@ -79,7 +83,10 @@ export function sendersIn(
 	return senders;
 }
 
-function senderIfHolds(path: string, needles: readonly string[]): string | undefined {
+function senderIfHolds(
+	path: string,
+	needles: readonly string[],
+): string | undefined {
 	let message: unknown;
 	try {
 		message = JSON.parse(readFileSync(path, "utf8"));

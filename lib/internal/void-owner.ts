@@ -45,7 +45,10 @@ export interface OpenQuest {
 	readonly short?: string;
 	/** The quest it sits under, whose work a site or page often serves. */
 	readonly parent?: string;
-	readonly aliases: readonly { readonly type: string; readonly value: string }[];
+	readonly aliases: readonly {
+		readonly type: string;
+		readonly value: string;
+	}[];
 	/** Its README's body, where its links are written. */
 	readonly body: string;
 	/** The repositories and zones its trees hold. */
@@ -137,7 +140,8 @@ export function readLine(line: string): SaidLine {
 		const head = at < 0 ? value : value.slice(0, at);
 		const tail = at < 0 ? "" : value.slice(at + SEPARATOR.length);
 		if (kind === "window") attached = { ...attached, window: value };
-		if (kind === "tab") attached = { ...attached, tabTitle: head, tabUrl: tail };
+		if (kind === "tab")
+			attached = { ...attached, tabTitle: head, tabUrl: tail };
 		if (kind === "pi session")
 			attached = { ...attached, sessionTitle: head, sessionAddress: tail };
 	}
@@ -207,7 +211,9 @@ function byPull(
 	if (claimed.length > 0)
 		return {
 			tried: `the pull request ${ref}`,
-			found: claimed.map((quest) => fromQuest(quest, `holds ${ref} as an alias`)),
+			found: claimed.map((quest) =>
+				fromQuest(quest, `holds ${ref} as an alias`),
+			),
 		};
 	const senders = sources
 		.sendersOf([ref, `/pull/${pull.number}`])
@@ -257,7 +263,10 @@ function byPage(
 		.toSorted((a, b) => b.times - a.times)
 		.slice(0, MOST_BY_PAGE);
 	return {
-		tried: written.length > 0 ? `the page ${host}` : `the page ${host} (no quest names it)`,
+		tried:
+			written.length > 0
+				? `the page ${host}`
+				: `the page ${host} (no quest names it)`,
 		found: withParents(
 			written.map(({ quest, times }) => ({
 				quest,
@@ -285,11 +294,15 @@ function byWindow(
 			tried: `the pi window "${name.trim()}"`,
 			found: named.map((quest) => fromQuest(quest, "its session's window")),
 		};
-	const holding = sources.quests.filter((quest) => quest.repos.includes(repo.trim()));
+	const holding = sources.quests.filter((quest) =>
+		quest.repos.includes(repo.trim()),
+	);
 	if (holding.length === 1)
 		return {
 			tried: `the window's repository ${repo.trim()}`,
-			found: holding.map((quest) => fromQuest(quest, `the one quest in ${repo.trim()}`)),
+			found: holding.map((quest) =>
+				fromQuest(quest, `the one quest in ${repo.trim()}`),
+			),
 		};
 	return {
 		tried: `the pi window "${name.trim()}" (${named.length} quests by that name, ${holding.length} in ${repo.trim()})`,
@@ -304,7 +317,9 @@ function byWords(
 	const his = new Set(wordsOf(said.words));
 	const scored = sources.quests
 		.map((quest) => {
-			const shared = [...new Set(wordsOf(quest.title))].filter((w) => his.has(w));
+			const shared = [...new Set(wordsOf(quest.title))].filter((w) =>
+				his.has(w),
+			);
 			return { quest, shared };
 		})
 		.filter((entry) => entry.shared.length >= FEWEST_SHARED_WORDS)
@@ -318,16 +333,22 @@ function byWords(
 	};
 }
 
-function pullOf(attached: Attached): { repo: string; number: string } | undefined {
+function pullOf(
+	attached: Attached,
+): { repo: string; number: string } | undefined {
 	const fromUrl = attached.tabUrl ? PULL.exec(attached.tabUrl) : null;
 	if (fromUrl) return { repo: fromUrl[1] ?? "", number: fromUrl[2] ?? "" };
 	const text = `${attached.tabTitle ?? ""} ${attached.window ?? ""}`;
 	const fromTitle = PULL_REF.exec(text);
-	if (fromTitle) return { repo: fromTitle[1] ?? "", number: fromTitle[2] ?? "" };
+	if (fromTitle)
+		return { repo: fromTitle[1] ?? "", number: fromTitle[2] ?? "" };
 	return undefined;
 }
 
-function aliasNamesPull(value: string, pull: { repo: string; number: string }): boolean {
+function aliasNamesPull(
+	value: string,
+	pull: { repo: string; number: string },
+): boolean {
 	if (value === `${pull.repo}#${pull.number}`) return true;
 	const url = PULL.exec(value);
 	return url !== null && url[1] === pull.repo && url[2] === pull.number;
@@ -364,9 +385,15 @@ function withParents(
 ): Candidate[] {
 	const found = matches.map(({ quest, how }) => fromQuest(quest, how));
 	const first = matches[0]?.quest;
-	const parent = first?.parent ? quests.find((q) => q.id === first.parent) : undefined;
+	const parent = first?.parent
+		? quests.find((q) => q.id === first.parent)
+		: undefined;
 	if (first && parent)
-		found.splice(1, 0, fromQuest(parent, `the quest above ${questAddress(first.id)}`));
+		found.splice(
+			1,
+			0,
+			fromQuest(parent, `the quest above ${questAddress(first.id)}`),
+		);
 	return found;
 }
 
@@ -388,6 +415,7 @@ function mostFrequent(values: readonly string[]): string | undefined {
 	const tally = new Map<string, number>();
 	for (const v of values) tally.set(v, (tally.get(v) ?? 0) + 1);
 	let best: string | undefined;
-	for (const [v, n] of tally) if (best === undefined || n > (tally.get(best) ?? 0)) best = v;
+	for (const [v, n] of tally)
+		if (best === undefined || n > (tally.get(best) ?? 0)) best = v;
 	return best;
 }

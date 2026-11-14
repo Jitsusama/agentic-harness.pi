@@ -8,7 +8,8 @@ import {
 
 const GIT: OpenQuest = {
 	id: "QEST-20261105-2AF2DH",
-	title: "Git Maintenance for World That Is Fast, Effective and Never in Joel's Way",
+	title:
+		"Git Maintenance for World That Is Fast, Effective and Never in Joel's Way",
 	aliases: [],
 	body: "",
 	repos: ["world"],
@@ -78,12 +79,18 @@ describe("reading a line", () => {
 		);
 
 		expect(said.words).toBe("make this sparser");
-		expect(said.attached.tabTitle).toBe("Mark Edges Sparsely · shop/world#2430582");
-		expect(said.attached.tabUrl).toBe("https://delta.shopify.io/shop/world/pull/2430582");
+		expect(said.attached.tabTitle).toBe(
+			"Mark Edges Sparsely · shop/world#2430582",
+		);
+		expect(said.attached.tabUrl).toBe(
+			"https://delta.shopify.io/shop/world/pull/2430582",
+		);
 	});
 
 	it("reads a line with nothing attached as all words", () => {
-		expect(readLine("weather has no drawer").words).toBe("weather has no drawer");
+		expect(readLine("weather has no drawer").words).toBe(
+			"weather has no drawer",
+		);
 	});
 });
 
@@ -99,7 +106,10 @@ describe("placing a line", () => {
 	});
 
 	it("sends a pull request to the quest that holds it as an alias", () => {
-		const claimed = { ...GIT, aliases: [{ type: "delta-pr", value: "shop/world#2430582" }] };
+		const claimed = {
+			...GIT,
+			aliases: [{ type: "delta-pr", value: "shop/world#2430582" }],
+		};
 		const text = line(
 			"we don't want new git flags",
 			"tab: Mark Edges Sparsely · https://delta.shopify.io/shop/world/pull/2430582",
@@ -139,10 +149,21 @@ describe("placing a line", () => {
 	});
 
 	it("puts the quest above a site's quest straight after it", () => {
-		const threads = { ...ROWS, id: "QEST-20261113-KQL3KB", body: "saw aquifer-part-deux.quick.shopify.io" };
-		const text = line("give the five access", "tab: Aquifer · https://aquifer-part-deux.quick.shopify.io/");
+		const threads = {
+			...ROWS,
+			id: "QEST-20261113-KQL3KB",
+			body: "saw aquifer-part-deux.quick.shopify.io",
+		};
+		const text = line(
+			"give the five access",
+			"tab: Aquifer · https://aquifer-part-deux.quick.shopify.io/",
+		);
 
-		expect(addresses(text, sources([SITE, threads, AQUIFER]))).toEqual(["EO6QV7", "WM4KSZ", "KQL3KB"]);
+		expect(addresses(text, sources([SITE, threads, AQUIFER]))).toEqual([
+			"EO6QV7",
+			"WM4KSZ",
+			"KQL3KB",
+		]);
 	});
 
 	it("takes a site claimed as an alias over one only named in a README", () => {
@@ -150,19 +171,27 @@ describe("placing a line", () => {
 			...AQUIFER,
 			aliases: [{ type: "quick-site", value: "aquifer-part-deux" }],
 		};
-		const text = line("give the five access", "tab: Aquifer · https://aquifer-part-deux.quick.shopify.io/");
+		const text = line(
+			"give the five access",
+			"tab: Aquifer · https://aquifer-part-deux.quick.shopify.io/",
+		);
 
 		expect(addresses(text, sources([claimed, SITE]))[0]).toBe("WM4KSZ");
 	});
 
 	it("names a pi window's quest by its short name when no session row came", () => {
-		const text = line("these rows lag", "window: kitty · π - Wi-Fi And Displays… - core.nix");
+		const text = line(
+			"these rows lag",
+			"window: kitty · π - Wi-Fi And Displays… - core.nix",
+		);
 
 		expect(addresses(text)[0]).toBe("F8TT8O");
 	});
 
 	it("matches his words against open quests' titles", () => {
-		expect(addresses("sleeping sessions keep their windows open")).toEqual(["9XFX1H"]);
+		expect(addresses("sleeping sessions keep their windows open")).toEqual([
+			"9XFX1H",
+		]);
 	});
 
 	it("never offers a relay, and says what it tried when nothing fits", () => {
