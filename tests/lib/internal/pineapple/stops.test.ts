@@ -54,10 +54,12 @@ describe("stopOf", () => {
 	});
 
 	it("is shadow unless its record says plainly it is live", () => {
-		expect(stopOf({ reaches: ["everything"] }, "a")?.shadow).toBe(true);
+		expect(stopOf({ reaches: ["everything"] }, "a")).toMatchObject({
+			shadow: true,
+		});
 		expect(
-			stopOf({ reaches: ["everything"], shadow: false }, "a")?.shadow,
-		).toBe(false);
+			stopOf({ reaches: ["everything"], shadow: false }, "a"),
+		).toMatchObject({ shadow: false });
 	});
 
 	it("reaches everything when its record names no reach", () => {

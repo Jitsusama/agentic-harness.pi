@@ -22,8 +22,13 @@ function stop(...reaches: string[]): Stop {
 	};
 }
 
-async function held(write: Write, ...reaches: string[]): Promise<boolean> {
-	return (await covering(write, [stop(...reaches)], HERE, heads)).length > 0;
+/** Whether a stop over `reaches` holds `write` or lets it go, said in words. */
+async function held(
+	write: Write,
+	...reaches: string[]
+): Promise<"held" | "goes"> {
+	const found = await covering(write, [stop(...reaches)], HERE, heads);
+	return found.length > 0 ? "held" : "goes";
 }
 
 const merge12: Write = {
@@ -45,19 +50,19 @@ const switching: Write = { action: "switch-system", kind: "machine" };
 
 describe("a stop on one pull request", () => {
 	it("holds writes to that change and pushes to its branch", async () => {
-		expect(await held(merge12, "pr:example/shop#12")).toBe(true);
-		expect(await held(pushFix, "pr:example/shop#12")).toBe(true);
+		expect(await held(merge12, "pr:example/shop#12")).toBe("held");
+		expect(await held(pushFix, "pr:example/shop#12")).toBe("held");
 	});
 
 	it("leaves the session its other work", async () => {
 		expect(await held({ ...merge12, pr: 13 }, "pr:example/shop#12")).toBe(
-			false,
+			"goes",
 		);
-		expect(await held(pushOther, "pr:example/shop#12")).toBe(false);
+		expect(await held(pushOther, "pr:example/shop#12")).toBe("goes");
 		expect(
 			await held({ ...merge12, repo: "example/other" }, "pr:example/shop#12"),
-		).toBe(false);
-		expect(await held(switching, "pr:example/shop#12")).toBe(false);
+		).toBe("goes");
+		expect(await held(switching, "pr:example/shop#12")).toBe("goes");
 	});
 
 	it("holds a write it can't tell apart, and says why", async () => {
@@ -70,51 +75,51 @@ describe("a stop on one pull request", () => {
 		expect(found?.because).toMatch(/couldn't be found/);
 		expect(
 			await held({ action: "git push", kind: "change" }, "pr:example/shop#12"),
-		).toBe(true);
+		).toBe("held");
 	});
 
 	it("whose repository wasn't named holds that number in any", async () => {
 		expect(await held({ ...merge12, repo: "example/other" }, "pr:#12")).toBe(
-			true,
+			"held",
 		);
 	});
 });
 
 describe("wider stops", () => {
 	it("a branch holds pushes to it and writes to its change", async () => {
-		expect(await held(pushFix, "branch:example/shop@fix-it")).toBe(true);
-		expect(await held(merge12, "branch:example/shop@fix-it")).toBe(true);
-		expect(await held(pushOther, "branch:example/shop@fix-it")).toBe(false);
+		expect(await held(pushFix, "branch:example/shop@fix-it")).toBe("held");
+		expect(await held(merge12, "branch:example/shop@fix-it")).toBe("held");
+		expect(await held(pushOther, "branch:example/shop@fix-it")).toBe("goes");
 	});
 
 	it("a repository holds every write to it, by full or bare name", async () => {
-		expect(await held(pushOther, "repo:example/shop")).toBe(true);
-		expect(await held(pushOther, "repo:shop")).toBe(true);
-		expect(await held(pushOther, "repo:example/other")).toBe(false);
-		expect(await held(switching, "repo:example/shop")).toBe(false);
+		expect(await held(pushOther, "repo:example/shop")).toBe("held");
+		expect(await held(pushOther, "repo:shop")).toBe("held");
+		expect(await held(pushOther, "repo:example/other")).toBe("goes");
+		expect(await held(switching, "repo:example/shop")).toBe("goes");
 	});
 
 	it("a quest holds the writes of a session in it or under it", async () => {
-		expect(await held(pushOther, "quest:QEST-PARENT")).toBe(true);
-		expect(await held(pushOther, "quest:QEST-ELSE")).toBe(false);
+		expect(await held(pushOther, "quest:QEST-PARENT")).toBe("held");
+		expect(await held(pushOther, "quest:QEST-ELSE")).toBe("goes");
 	});
 
 	it("a realm holds the session's writes and switches, in its realm only", async () => {
-		expect(await held(switching, "realm:work")).toBe(true);
-		expect(await held(pushOther, "realm:personal")).toBe(false);
+		expect(await held(switching, "realm:work")).toBe("held");
+		expect(await held(pushOther, "realm:personal")).toBe("goes");
 	});
 
 	it("a bare name holds a write whose repository, branch or folder carries it", async () => {
-		expect(await held(pushOther, "named:shop")).toBe(true);
-		expect(await held(pushOther, "named:aquifer")).toBe(false);
+		expect(await held(pushOther, "named:shop")).toBe("held");
+		expect(await held(pushOther, "named:aquifer")).toBe("goes");
 		expect(
 			await held({ ...pushOther, dir: "/trees/aquifer-demo" }, "named:aquifer"),
-		).toBe(true);
+		).toBe("held");
 	});
 
 	it("everything holds every write", async () => {
 		for (const write of [merge12, pushOther, switching]) {
-			expect(await held(write, "everything")).toBe(true);
+			expect(await held(write, "everything")).toBe("held");
 		}
 	});
 });
