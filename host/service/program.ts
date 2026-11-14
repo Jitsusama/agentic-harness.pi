@@ -165,7 +165,7 @@ export async function startHostProgram(
 	const configured = await configuration(options);
 	const settings = await hostSettings(report, packageConfigPath(env));
 	// A runtime built before a wanted seam still hosts; the host says what it goes without.
-	if (configured.lacking) report(new Error(configured.lacking));
+	if (configured.lacking) report(configured.lacking);
 	sayHostRuns();
 	nameViewerTerminal(env);
 	configured.startTheme();

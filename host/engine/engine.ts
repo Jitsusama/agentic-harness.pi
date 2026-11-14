@@ -180,9 +180,7 @@ export async function createEngine(
 	const reaped = await reapLeftBehind(host.key);
 	if (reaped.groups.length > 0 || reaped.pids.length > 0)
 		report(
-			new Error(
-				`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
-			),
+			`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
@@ -441,7 +439,7 @@ export async function createEngine(
 		const said = [...trustSaid, ...startupDiagnostics(services)];
 		for (const { type, message } of said)
 			if (type !== "info")
-				report(new Error(`Conversation ${sessionId}: ${message}`));
+				report(`Conversation ${sessionId}: ${message}`);
 		const conversation = await openHostedConversation({
 			modules: pi.modules,
 			library,
@@ -511,9 +509,7 @@ export async function createEngine(
 		const { current: previous, next } = seat;
 		if (!next || previous.traits.sessionId !== previousId) {
 			report(
-				new Error(
-					`pi replaced ${previousId} without the host holding what it became`,
-				),
+				`pi replaced ${previousId} without the host holding what it became`,
 			);
 			return;
 		}

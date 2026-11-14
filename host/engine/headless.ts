@@ -7,6 +7,24 @@
 import type { AgentSessionRuntime } from "./pi-session.ts";
 import type { SessionHost } from "./session-host.ts";
 
+/** What pi says of an error an extension threw, as its runner reports it. */
+export interface ExtensionFailure {
+	readonly extensionPath: string;
+	readonly event: string;
+	readonly error: string;
+	readonly stack?: string;
+}
+
+/**
+ * The journal's line for an extension's error: which extension, in which
+ * event, and the extension's own stack when pi kept it, since a stack made
+ * here would only say where the host passed it on.
+ */
+export function extensionErrorLine(failure: ExtensionFailure): string {
+	const where = `Extension error (${failure.extensionPath}, ${failure.event})`;
+	return `${where}: ${failure.stack ?? failure.error}`;
+}
+
 /** Bind a conversation's extensions with no interface, as pi's RPC mode does; the engine binds again after each replacement. */
 export async function bindHeadless(
 	runtime: AgentSessionRuntime,
@@ -34,9 +52,6 @@ export async function bindHeadless(
 				.close(sessionId, "an extension ended the conversation")
 				.catch(report);
 		},
-		onError: (error) =>
-			report(
-				new Error(`Extension error (${error.extensionPath}): ${error.error}`),
-			),
+		onError: (error) => report(extensionErrorLine(error)),
 	});
 }

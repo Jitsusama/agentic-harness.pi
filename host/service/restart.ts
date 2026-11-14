@@ -211,9 +211,7 @@ export function restartWhenSettled(
 		if (stopped) return;
 		facts.expect(false);
 		facts.report(
-			new Error(
-				"systemd queued the host's restart but never ran it; looking again",
-			),
+			"systemd queued the host's restart but never ran it; looking again",
 		);
 		await look();
 	}

@@ -567,7 +567,13 @@ function followStatus(options: {
 	return () => clearInterval(look);
 }
 
-/** Write an error, and what caused it, to standard error, which systemd's journal keeps. */
+/**
+ * Write what the host reports to standard error, which systemd's journal
+ * keeps: an error thrown, with its stack and what caused it, or a
+ * condition the host noticed, as the one line it was reported as. A
+ * condition is never wrapped in a new Error, whose stack would say only
+ * where it was reported and read in the journal like a failure.
+ */
 export function reportToJournal(error: unknown): void {
 	process.stderr.write(`pi-host: ${said(error)}\n`);
 }
