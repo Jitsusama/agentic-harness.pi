@@ -194,6 +194,11 @@ export class HostedAgent {
 	 * something began before it, as an extension's start may.
 	 */
 	private cursor: number | undefined;
+	/**
+	 * The recovery, once begun: by the host, or by a prompt that came
+	 * first, so each caller shares the one.
+	 */
+	private recovery: Promise<{ readonly settled: Promise<void> }> | undefined;
 	private mirrorLine: Promise<unknown> = Promise.resolve();
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
@@ -346,7 +351,17 @@ export class HostedAgent {
 				"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
 			);
 		}
-		await this.runPromptMessages(normalizePromptInput(input, images));
+		const messages = normalizePromptInput(input, images);
+		if (!this.recovery) {
+			// A prompt before the recovery, as an extension's start sends, begins
+			// it: durable refuses new words as busy while it holds a turn a
+			// restart cut off, and the words were lost (13 November).
+			await this.recover().catch(() => {
+				// The host reports the recovery's failure where it began it; the words go on.
+			});
+			if (await this.followCarriedOn(messages)) return;
+		}
+		await this.runPromptMessages(messages);
 	}
 
 	async continue(): Promise<void> {
@@ -390,7 +405,12 @@ export class HostedAgent {
 	 * resolves once the carried-on run ends. A fresh conversation has
 	 * nothing to carry on and shows nothing.
 	 */
-	async recover(): Promise<{ readonly settled: Promise<void> }> {
+	recover(): Promise<{ readonly settled: Promise<void> }> {
+		this.recovery ??= this.recoverOnce();
+		return this.recovery;
+	}
+
+	private async recoverOnce(): Promise<{ readonly settled: Promise<void> }> {
 		// A run begun before the recovery, as by an extension's start, ends
 		// first: durable admits nothing new while a turn it holds is cut off.
 		while (this.active) await this.active.promise;
@@ -407,6 +427,37 @@ export class HostedAgent {
 		});
 		await Promise.race([started, settled]);
 		return { settled };
+	}
+
+	/**
+	 * Queue words behind the turn the recovery carries on, as pi queues a
+	 * prompt while it is busy, so durable holds them through another restart
+	 * rather than only an unresolved prompt. True once the run that answers
+	 * them ended, as pi's agent resolves a prompt: pi's session continues
+	 * the agent once it does. False, with the recovery's run ended, when
+	 * durable carried nothing on.
+	 */
+	private async followCarriedOn(
+		messages: readonly AgentMessage[],
+	): Promise<boolean> {
+		const recovering = this.active;
+		if (!recovering) return false;
+		// Ready settles just as the run begins admitting what pi queues.
+		await recovering.run.ready;
+		if (recovering.run.admitting) {
+			const items = messages.map((message) =>
+				this.queue(this.followUpQueue, message, "followUp"),
+			);
+			await this.admissions;
+			if (items[0]?.submissionId !== undefined) {
+				while (this.active) await this.active.promise;
+				return true;
+			}
+			// An idle conversation refused them: nothing carried on, so they run as a prompt.
+			for (const item of items) this.followUpQueue.take(item.hostId);
+		}
+		while (this.active) await this.active.promise;
+		return false;
 	}
 
 	/** The session's last answer when it called tools whose results the session file lacks. */
@@ -1406,10 +1457,11 @@ export class HostedAgent {
 		queue: MessageQueue,
 		message: AgentMessage,
 		mode: "steer" | "followUp",
-	): void {
+	): QueuedMessage {
 		const item: QueuedMessage = { hostId: randomUUID(), message };
 		queue.enqueue(item);
 		if (this.active?.run.admitting) this.admitQueued(item, mode);
+		return item;
 	}
 
 	private admitQueued(item: QueuedMessage, mode: "steer" | "followUp"): void {

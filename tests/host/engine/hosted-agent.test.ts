@@ -183,6 +183,12 @@ function textOf(message: { readonly content: unknown }): string {
 		.join("");
 }
 
+/** Whether an event carries a message whose text is `text`. */
+function carries(event: object, text: string): boolean {
+	const message: unknown = Reflect.get(event, "message");
+	return isRecord(message) && textOf({ content: message.content }) === text;
+}
+
 function said(observed: Observed, role: string): string[] {
 	return observed.transcript
 		.filter((message) => message.role === role)
@@ -343,8 +349,8 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
-	it("recovers once a run an extension began at the start has ended", async () => {
-		// A third began a run as its session started, before the recovery, and the recovery was refused as the agent already processing.
+	it("carries on the cut-off turn, then the prompt an extension sent as it started", async () => {
+		// A third began a run as its session started, before the recovery, and the recovery was refused as the agent already processing; durable refused the prompt as busy, and its words were lost.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-prompted-"));
 		try {
 			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
@@ -361,7 +367,24 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				),
 				"the cut-off call has its result",
 			).toBe(true);
-			expect(said(observed, "assistant").at(-1)).toBe("after the restart");
+			expect(
+				said(observed, "assistant"),
+				"the call, the cut-off turn's end and the prompt's answer, none refused as busy",
+			).toEqual(["", "after the restart", "and the prompt"]);
+			expect(said(observed, "user").at(-1)).toBe("sent at the start");
+			const types = observed.events.map((event) => event.type);
+			const carriedOnEnd = observed.events.findIndex(
+				(event) =>
+					event.type === "message_end" && carries(event, "after the restart"),
+			);
+			expect(
+				types,
+				"the prompt's words were queued while the carried-on turn ran",
+			).toContain("queued_mid_turn");
+			expect(
+				types.indexOf("queued_mid_turn"),
+				"queued before the carried-on turn answered",
+			).toBeLessThan(carriedOnEnd);
 			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");
 		} finally {
