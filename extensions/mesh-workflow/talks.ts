@@ -137,6 +137,20 @@ export function createTalks(host: TalksHost): Talks {
 		}
 	};
 
+	/**
+	 * Close the talks a run already answered as they stand, since what it
+	 * writes once a newer talk is taken answers that one.
+	 */
+	const settleAnswered = (talks: readonly Open[]) => {
+		const answeredHere = talks.filter((talk) => talk.reply);
+		for (const talk of answeredHere) {
+			if (talk.last !== "replied" || talk.replied !== talk.reply) {
+				reply(talk, talk.reply);
+			}
+		}
+		close(answeredHere);
+	};
+
 	const say = (talk: Open, event: TalkEvent) => {
 		talk.last = event.stage;
 		if (event.stage === "replied") talk.replied = event.text;
@@ -180,11 +194,15 @@ export function createTalks(host: TalksHost): Talks {
 		heard(text) {
 			const said = text.trim();
 			if (said === "") return;
+			const before = taken();
+			let came = false;
 			for (const talk of open) {
 				if (talk.taken || !said.includes(talk.message)) continue;
 				talk.taken = true;
 				talk.intoWork = working;
+				came = true;
 			}
+			if (came) settleAnswered(before);
 		},
 		step(step) {
 			working = true;
