@@ -10,6 +10,10 @@
  * host, which warms one resting parked without loading anything of it.
  * Only a registration that is plain data goes on disk; one holding a
  * function (its own stream, an OAuth flow) warms in this host alone.
+ * The disk copy names a key only by the variable that holds it and
+ * drops every header named as a credential, so nothing secret is
+ * written: a provider whose key was written out, or came from a
+ * command, warms in this host alone too.
  */
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -18,6 +22,11 @@ import type { ModelRuntime } from "./pi-session.ts";
 
 /** Only its owner reads it: its headers are what the proxy is sent. */
 const OWNER_ONLY = 0o600;
+/** A key named by the variable that holds it, as pi reads `$NAME` or `${NAME}`. */
+const KEY_BY_NAME = /^\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})$/;
+/** A header whose name says it carries a credential, as the warming carry judges one. */
+const CREDENTIAL_HEADER =
+	/authorization|api[-_]?key|cookie|token|secret|password/i;
 
 /** What a conversation's extensions registered, by provider. */
 export interface KeptProviders {
@@ -50,7 +59,9 @@ export function registerKept(runtime: ModelRuntime, kept: KeptProviders): void {
 /** Keep on disk the registrations that are plain data, or none when no such one is left. */
 export function writeKept(file: string, kept: KeptProviders): void {
 	const configs = Object.fromEntries(
-		Object.entries(kept.configs).filter(([, config]) => plainData(config)),
+		Object.entries(kept.configs)
+			.filter(([, config]) => plainData(config))
+			.map(([id, config]) => [id, withoutSecrets(config)]),
 	);
 	if (Object.keys(configs).length === 0) {
 		rmSync(file, { force: true });
@@ -74,6 +85,38 @@ export function readKept(file: string): KeptProviders | undefined {
 	for (const [id, config] of Object.entries(parsed.configs))
 		if (isRecord(config)) configs[id] = config;
 	return { configs, natives: [] };
+}
+
+/** A registration as it may be written: its key by name alone, no credential in a header of it or its models. */
+function withoutSecrets(config: object): object {
+	const { apiKey, headers, models, ...rest } = isRecord(config)
+		? config
+		: {};
+	return {
+		...rest,
+		...(typeof apiKey === "string" && KEY_BY_NAME.test(apiKey)
+			? { apiKey }
+			: {}),
+		...(isRecord(headers) ? { headers: plainHeaders(headers) } : {}),
+		...(Array.isArray(models)
+			? {
+					models: models.map((model) =>
+						isRecord(model) && isRecord(model.headers)
+							? { ...model, headers: plainHeaders(model.headers) }
+							: model,
+					),
+				}
+			: {}),
+	};
+}
+
+/** Headers less every one named as a credential. */
+function plainHeaders(
+	headers: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(headers).filter(([name]) => !CREDENTIAL_HEADER.test(name)),
+	);
 }
 
 /** Whether a value comes back from JSON as it went in: no function, symbol or undefined in it. */

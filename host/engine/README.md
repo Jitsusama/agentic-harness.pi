@@ -195,6 +195,9 @@ the conversation's extensions registered of its providers as it parks
 headers) and registers it on each warm's runtime. It is kept in memory
 and, where it is plain data, in `providers.json` beside the
 conversation's store, for the next host's warms of one resting parked.
+The file names a key only by its variable and holds no header named as
+a credential, so a provider whose key was written out warms in this
+host alone.
 A resume stops it before the session starts and takes the carry, and a
 warm out then is dropped rather than holding the wake up.
 quiet-collection.ts gives V8's pooled pages back with one last-resort
