@@ -20,7 +20,9 @@
  * it: mycelium waits for a carried session's done file before it
  * carries the rest. So a peer that looks about it wakes a parked peer
  * whose inbox holds either, through the same holder. A pause or stop
- * does nothing to a peer that isn't running, so it waits.
+ * does nothing to a peer that isn't running, so it waits. Whoever holds
+ * the parked peer also watches its inboxes (steer-watch.ts) and wakes it
+ * as such a steer lands, the look being the backstop.
  */
 
 import { attend } from "./attention.ts";
@@ -81,7 +83,7 @@ export function wakes(
  * which only a running session can make; or a fill, since the person is
  * coming to its window to send it.
  */
-function steerWakes(steer: Steer): boolean {
+export function steerWakes(steer: Steer): boolean {
 	return (
 		steer.act === undefined ||
 		(steer.act === "resume" && steer.text !== "") ||
