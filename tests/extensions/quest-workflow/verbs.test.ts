@@ -465,6 +465,55 @@ describe("spawn verbs", () => {
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe("tree");
 	});
 
+	// pi finds a session by id only among the logs of the folder it starts
+	// in, so a reopen opened in any other folder reopens nothing: on 14
+	// November two reopens given another folder never found their sessions.
+	it("reopens a session where it ran, over a folder the call named", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const ran = join(tmpRoot, "where-it-ran");
+		const named = join(tmpRoot, "somewhere-else");
+		mkdirSync(ran, { recursive: true });
+		mkdirSync(named, { recursive: true });
+		const readmePath = join(tmpRoot, "quests", a.id, "README.md");
+		const parsed = parseQuestFrontMatter(readFileSync(readmePath, "utf8"));
+		if (!parsed) throw new Error("could not parse quest frontmatter");
+		parsed.frontMatter.sessions = [
+			{
+				id: "sess-ran",
+				started: new Date().toISOString(),
+				status: "active",
+				cwd: ran,
+			},
+		];
+		writeFileSync(
+			readmePath,
+			`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+		);
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn() {
+				// A dry run opens nothing.
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+			id: a.id,
+			command: "pi --session sess-ran",
+			cwd: named,
+			dryRun: true,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const details = result.details as { cwd?: string; cwdSource?: string };
+		expect(details.cwd, "the reopen didn't open where its session ran").toBe(
+			ran,
+		);
+		expect(details.cwdSource).toBe("reopened");
+		expect(result.message).toContain(`not ${named}`);
+	});
+
 	// A builder subquest is spawned before it has a tree or a session, and
 	// opening it in home leaves it without its repo's AGENTS.md. Its
 	// parent's worktree is the parent's alone, so it opens in the checkout
