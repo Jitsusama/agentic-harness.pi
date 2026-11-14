@@ -58,7 +58,8 @@ export function agentBash(
 			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
 		),
 		{
-			can: (env) => isBash(settings.shellPath) && teePersists(env?.PATH),
+			can: async (env) =>
+				isBash(settings.shellPath) && (await teePersists(env?.PATH)),
 		},
 	);
 	const spawning = spawnedBy(keeping.operations, {

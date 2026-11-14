@@ -35,11 +35,11 @@ const MS_PER_SECOND = 1000;
 /** What the operations need, for tests to stand in for. */
 export interface KeepingOptions {
 	/**
-	 * Whether calls can be kept now: GNU tee, bash, no pi-spawner; asked
-	 * with a call's environment when it has one, since its PATH finds the
-	 * tee it runs.
+	 * Whether a call can be kept: GNU tee, bash, no pi-spawner; asked with
+	 * the call's environment when it has one, since its PATH finds the tee
+	 * it runs, and waited on without holding pi's loop.
 	 */
-	readonly can: (env?: NodeJS.ProcessEnv) => boolean;
+	readonly can: (env?: NodeJS.ProcessEnv) => boolean | Promise<boolean>;
 	/** Where the calls' files go. */
 	readonly folder?: () => string;
 	readonly now?: () => number;
@@ -73,7 +73,7 @@ export function keepsOnDisk(
 		operations: {
 			async exec(command, cwd, call) {
 				if (command !== COMMAND_STUB) return await ops.exec(command, cwd, call);
-				if (!options.can(call.env)) {
+				if (!(await options.can(call.env))) {
 					if (call.signal) unkept.add(call.signal);
 					return await ops.exec(command, cwd, call);
 				}
@@ -111,7 +111,9 @@ export function keepsOnDisk(
 			},
 		},
 		carryOf(signal) {
-			if (unkept.has(signal) || !options.can()) return undefined;
+			// One still being asked about has a carry, which has nothing to
+			// take up until the call is kept, and holds a move until then.
+			if (unkept.has(signal)) return undefined;
 			return {
 				what(): CarriedShell | undefined {
 					const kept = calls.get(signal);
