@@ -3,7 +3,11 @@
  * Run on a lent builder, never on a laptop someone uses (README.md says
  * how). Each conversation's turns are typed through viewers that attach
  * for a visit of a few turns and leave, a second one joining every third
- * visit, and include reads, bash, background bash jobs and long answers.
+ * visit, and include reads, bash, background bash jobs and long answers,
+ * and a person's own moves: a steer typed while the turn works, an
+ * Escape that aborts one, and `/compact` with a focus. The provider
+ * holds a steer's or an abort's answer until the steer is pending or the
+ * abort has cut it, on either side, so both land mid-turn the same way.
  * Each conversation's first key waits a seeded draw within one median
  * turn at the pace, on either side, so they start as a person comes to
  * them rather than in the same instant.
@@ -15,13 +19,19 @@
  * after a switch, and the host is weighed again once all have. With
  * --restart, once the turns are done every conversation parks, the host
  * restarts on the same state, and the fresh host is timed to its socket
- * answering and to every conversation woken by a window at once. Then
- * plain pi takes the same turns, one RPC process a conversation, all at
- * once as the host's were.
+ * answering and to every conversation woken by a window at once. With
+ * --restart-mid, every conversation's first turn after the middle
+ * checkpoint is held mid-answer while the host restarts as systemd
+ * restarts it, and the fresh host is timed to its socket and to each
+ * cut-off turn answered, as durable carries them on; those turns are
+ * named in the report and left out of its latency. Then plain pi takes
+ * the same turns, one RPC process a conversation, all at once as the
+ * host's were.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--burst] [--restart] [--profile] [--answer-ms P50[,P90]]
- *     [--tool-ms P50[,P90]] [--rounds P50[,P90]] [--out DIR]
+ *     [--no-park] [--burst] [--restart] [--restart-mid] [--profile]
+ *     [--answer-ms P50[,P90]] [--tool-ms P50[,P90]] [--rounds P50[,P90]]
+ *     [--out DIR]
  *
  * With --profile each side's node writes a CPU profile, and the report
  * says where each side's time went. Without a pace the model answers at
@@ -38,6 +48,11 @@
  * it is known: each weighing and the hosted turns' latency so far at each
  * checkpoint, the hosted side's latency and time spent once it is done,
  * and each plain conversation's latency as it ends.
+ *
+ * Long because it is one run's script: its phases share the host they
+ * swap at a restart, the viewers they type through and the holds they
+ * arm on the provider, and what is pure (the turns, the pace, the
+ * report) already lives beside it.
  */
 import {
 	appendFileSync,
@@ -118,7 +133,10 @@ import {
 import {
 	acknowledged,
 	checkpointsOf,
+	focusOf,
+	steerOf,
 	type Turn,
+	type TurnKind,
 	turnsOf,
 	visitsOf,
 } from "./turns.ts";
@@ -143,8 +161,6 @@ const SHOWN_LOOK_MS = 5;
 const DRAWN_AFTER_IDLE_MS = 5_000;
 /** How often a turn's end is looked for in its log. */
 const LOOK_EVERY_MS = 100;
-/** How much of a log's end a look reads: more than any one answer. */
-const TAIL_BYTES = 64 * 1024;
 /** A run with more faults than this stops, as its turns no longer say anything. */
 const MOST_FAULTS = 20;
 /** How much of what the host wrote a fault quotes. */
@@ -158,6 +174,18 @@ const LAST_WORDS = 80;
 const ROWS = 30;
 const COLUMNS = 100;
 const ENTER = "\r";
+const ESCAPE = "\x1b";
+/** The kinds a turn cut off by the mid-run restart can be: the model's alone. */
+const CARRIED_KINDS: ReadonlySet<TurnKind> = new Set([
+	"echo",
+	"read",
+	"bash",
+	"job",
+	"long",
+]);
+/** What ends each kind of turn in its log: an abort's cut answer, a compaction's entry, or the acknowledgement. */
+const ABORTED = '"stopReason":"aborted"';
+const COMPACTED = '"type":"compaction"';
 /** The extensions the fixture loads in every conversation already. */
 const FIXTURE_LOADS = new Set([
 	"panel-lifecycle-workflow",
@@ -211,6 +239,26 @@ interface Restart {
 	readonly after: Weight;
 }
 
+/**
+ * A host restarted as systemd restarts it while a turn of every
+ * conversation it could hold one in was held mid-answer: how long its
+ * stop took, how long the fresh host took to its socket, what it held
+ * then by state, and each cut-off turn's answer, timed from the stop.
+ */
+interface RestartMid {
+	readonly stopMs: number;
+	readonly toSocketMs: number;
+	readonly states: Readonly<Record<string, number>>;
+	readonly cut: readonly string[];
+	readonly answered: readonly CarriedAnswer[];
+}
+
+/** A turn the mid-run restart cut off, answered `ms` after the stop began, or never. */
+interface CarriedAnswer {
+	readonly tag: string;
+	readonly ms?: number;
+}
+
 /** A conversation of the run, on one side. */
 interface Conversation {
 	readonly index: number;
@@ -227,6 +275,7 @@ const { values } = parseArgs({
 		"no-park": { type: "boolean", default: false },
 		burst: { type: "boolean", default: false },
 		restart: { type: "boolean", default: false },
+		"restart-mid": { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
@@ -243,6 +292,12 @@ if (counts.length === 0 || counts.some((n) => !(n >= checkpoints)))
 	throw new Error(
 		`usage: soak.mts --turns N,N,... each at least --checkpoints, ${checkpoints}`,
 	);
+/** The checkpoint after which --restart-mid restarts the host mid-turn. */
+const middle = Math.floor(checkpoints / 2);
+if (values["restart-mid"] && middle < 1)
+	throw new Error("usage: --restart-mid needs --checkpoints 2 or more");
+/** The turns the mid-run restart cut off, kept out of the latency. */
+const carriedTags = new Set<string>();
 const packageDir = hostPackageDir();
 if (!packageDir) throw new Error(hostPiMissing());
 const out = values.out ?? join(process.cwd(), "soak-out");
@@ -309,18 +364,18 @@ say("plain side done");
 const parkedWeights = hosted.checkpoints.flatMap((one) =>
 	one.parked ? [one.parked] : [],
 );
-const plainLatencies = plain.logs.flatMap(latencies);
+const plainLatencies = plain.logs.flatMap(latencies).filter(uncut);
 const pairing = pairSteps(
-	hosted.logs.flatMap(stepsOf),
-	plain.logs.flatMap(stepsOf),
+	hosted.logs.flatMap(stepsOf).filter(uncut),
+	plain.logs.flatMap(stepsOf).filter(uncut),
 );
 const steps = stepCostOf(pairing);
 const turnsTimed = turnRecords(
-	hosted.logs.flatMap(turnTimes),
+	hosted.logs.flatMap(turnTimes).filter(uncut),
 	plainLatencies,
 	typedAt,
 	pairing.steps,
-	plainKeys(plain.logs.flatMap(turnTimes), plain.sent),
+	plainKeys(plain.logs.flatMap(turnTimes).filter(uncut), plain.sent),
 );
 const paired = pairedCost(turnsTimed);
 const keys = pairKeys(turnsTimed);
@@ -333,6 +388,8 @@ const report = {
 	checkpoints: hosted.checkpoints,
 	staggerMs,
 	...(hosted.restart ? { restart: hosted.restart } : {}),
+	...(hosted.restartMid ? { restartMid: hosted.restartMid } : {}),
+	kinds: kindsOf(counts),
 	slowKeys: slow,
 	slowSteps: spentIn(
 		slowSteps(pairing, MOST_SLOW_STEPS),
@@ -393,12 +450,31 @@ function latencyOf(logs: readonly Record<string, unknown>[][]): {
 	readonly screen: ScreenSplit;
 	readonly slowKeys: readonly SlowKey[];
 } {
-	const turns = logs.flatMap(turnTimes);
+	const turns = logs.flatMap(turnTimes).filter(uncut);
 	return {
-		hosted: spreadOf(logs.flatMap(latencies).map((one) => one.ms)),
+		hosted: spreadOf(
+			logs
+				.flatMap(latencies)
+				.filter(uncut)
+				.map((one) => one.ms),
+		),
 		screen: screenSplit(turns, typedAt),
 		slowKeys: slowKeys(turns, typedAt, SLOW_KEY_MS, MOST_SLOW_KEYS),
 	};
+}
+
+/** Whether a turn ran whole, rather than being cut off by the mid-run restart. */
+function uncut({ tag }: { readonly tag: string }): boolean {
+	return !carriedTags.has(tag);
+}
+
+/** How many turns of each kind the run's conversations take. */
+function kindsOf(sizes: readonly number[]): Record<string, number> {
+	const kinds: Record<string, number> = {};
+	for (const [index, count] of sizes.entries())
+		for (const { kind } of turnsOf(index, count))
+			kinds[kind] = (kinds[kind] ?? 0) + 1;
+	return kinds;
 }
 
 /**
@@ -448,7 +524,9 @@ function agentOf(listening: SoakProvider): {
 			defaultProvider: "soak",
 			defaultModel: "mock",
 			quietStartup: true,
-			compaction: { enabled: false },
+			// No compaction but a turn's own, which keeps nothing verbatim,
+			// so even a short conversation has something to compact.
+			compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 0 },
 			retry: { enabled: false },
 			// As on optimus: the harness's codemode stands in for pi's own.
 			extensions: ["-builtin:codemode"],
@@ -462,6 +540,7 @@ async function runHosted(sealed: Seal): Promise<{
 	readonly opened: { readonly ms: number; readonly weight: Weight };
 	readonly checkpoints: readonly Checkpoint[];
 	readonly restart?: Restart;
+	readonly restartMid?: RestartMid;
 	readonly logs: readonly Record<string, unknown>[][];
 	readonly errors: string;
 	/** When the host's process started and ended, to lay its profile on the wall clock. */
@@ -477,7 +556,9 @@ async function runHosted(sealed: Seal): Promise<{
 			also,
 			agentFile,
 		);
-	const host = await start();
+	// The host the turns go to: a fresh one after the mid-run restart.
+	let host = await start();
+	const every = [host];
 	const work = folders(sealed);
 	const conversations: Conversation[] = [];
 	const opening = Date.now();
@@ -570,21 +651,66 @@ async function runHosted(sealed: Seal): Promise<{
 		// lender's limit still leaves the memory curve it got to.
 		say(`weighed ${JSON.stringify(weighings.at(-1))}`);
 	});
+	let restartMid: CutRestart | undefined;
+	const answered: CarriedAnswer[] = [];
+	// Every conversation meets here holding its cut-off turn, the last to
+	// arrive restarting the host; each then waits for its turn's answer.
+	const cutOff = barrierOf(conversations.length, async () => {
+		const cut = await restartedBusy(host, start);
+		host = cut.host;
+		every.push(host);
+		restartMid = cut.restart;
+	});
+	const carry = {
+		through: cutOff,
+		answered: (tag: string, at?: number) =>
+			answered.push({
+				tag,
+				...(at === undefined || restartMid === undefined
+					? {}
+					: { ms: at - restartMid.began }),
+			}),
+	};
 	await Promise.all(
-		conversations.map((one) => drive(host, one, barrier, byKey)),
+		conversations.map((one) =>
+			drive(
+				() => host,
+				one,
+				barrier,
+				byKey,
+				values["restart-mid"] ? carry : undefined,
+			),
+		),
 	);
 	const timed = values.restart
 		? await restarted(host, start, conversations, parkFolder)
 		: undefined;
+	if (timed) every.push(timed.host);
 	const last = timed?.host ?? host;
 	const logs = conversations.map((one) => entriesOf(readOr(one.file)));
-	const errors = timed ? `${host.errors()}${last.errors()}` : host.errors();
+	const errors = every.map((one) => one.errors()).join("");
 	await last.stop();
 	const pinned = { startedAt, endedAt: Date.now() };
+	const mid = restartMid;
+	if (mid)
+		say(
+			`restart mid-run answered ${JSON.stringify(spreadOf(answered.flatMap((one) => (one.ms === undefined ? [] : [one.ms]))))} of ${mid.cut.length} cut off`,
+		);
 	return {
 		opened,
 		checkpoints: weighings,
 		...(timed ? { restart: timed.restart } : {}),
+		...(mid
+			? {
+					restartMid: {
+						stopMs: mid.stopMs,
+						toSocketMs: mid.toSocketMs,
+						states: mid.states,
+						cut: mid.cut,
+						answered,
+					},
+				}
+			: {}),
 		logs,
 		errors,
 		pinned,
@@ -633,6 +759,54 @@ async function restarted(
 	return {
 		host: next,
 		restart: { toSocketMs, parkedAtStart, wakes, allAnsweredMs, after },
+	};
+}
+
+/** The mid-run restart as its stop sees it, before any cut-off turn is answered. */
+type CutRestart = Omit<RestartMid, "answered"> & {
+	/** When the stop began, in ms since the epoch. */
+	readonly began: number;
+};
+
+/**
+ * Restart the host as systemd restarts it while every conversation's
+ * cut-off turn is held mid-answer, and time its stop and the fresh host
+ * `start` gives to its socket. A stop that waits on the held answers
+ * rather than cutting them off is a fault, and they are let go so the
+ * old host can end. It answers with the fresh host, still running.
+ */
+async function restartedBusy(
+	host: ScreenHost,
+	start: () => Promise<ScreenHost>,
+): Promise<{ readonly host: ScreenHost; readonly restart: CutRestart }> {
+	const began = Date.now();
+	const stopping = host.restart();
+	let timer: NodeJS.Timeout | undefined;
+	const late = new Promise<"late">((done) => {
+		timer = setTimeout(() => done("late"), PARK_MS);
+	});
+	const stopped = await Promise.race([stopping, late]);
+	clearTimeout(timer);
+	if (stopped === "late") {
+		fault(`the host's restart waited ${PARK_MS} ms on its held turns`);
+		for (const tag of carriedTags) provider.release(tag);
+	}
+	const code = stopped === "late" ? await stopping : stopped;
+	if (code !== 0) fault(`the host stopped with ${code} to restart mid-run`);
+	const stopMs = Date.now() - began;
+	const starting = Date.now();
+	const next = await start();
+	const toSocketMs = Date.now() - starting;
+	const states: Record<string, number> = {};
+	for (const { state } of await next.list())
+		states[state] = (states[state] ?? 0) + 1;
+	const cut = [...carriedTags];
+	say(
+		`restart mid-run: stopped in ${stopMs} ms, socket in ${toSocketMs} ms, holding ${JSON.stringify(states)}, ${cut.length} turns cut off`,
+	);
+	return {
+		host: next,
+		restart: { began, stopMs, toSocketMs, states, cut },
 	};
 }
 
@@ -714,12 +888,17 @@ async function wake(
 	);
 }
 
-/** Take one conversation through its turns, visit by visit, stopping at each checkpoint. */
+/**
+ * Take one conversation through its turns, visit by visit, stopping at
+ * each checkpoint, on whichever host `hostOf` names now. Given `carry`,
+ * its first turn after the middle checkpoint is the mid-run restart's.
+ */
 async function drive(
-	host: ScreenHost,
+	hostOf: () => ScreenHost,
 	one: Conversation,
 	barrier: (done: number) => Promise<void>,
 	byKey: Set<string>,
+	carry?: Carry,
 ): Promise<void> {
 	await waited(staggerOf(one.index, staggerMs));
 	const marks = checkpointsOf(one.turns.length, checkpoints);
@@ -738,16 +917,35 @@ async function drive(
 		}
 		return undefined;
 	};
+	let cut = false;
 	for (const visit of visitsOf(one.turns)) {
 		let viewer: Viewer | undefined;
 		for (const [at, turn] of visit.turns.entries()) {
 			viewer = await stopsDue(viewer);
-			viewer ??= await opened(host, one, byKey);
-			await typed(host, one, viewer, turn, woke);
+			let carried = false;
+			if (carry && !cut && stopped >= middle) {
+				cut = true;
+				({ viewer, carried } = await cutThrough(
+					hostOf,
+					one,
+					viewer,
+					turn,
+					carry,
+					byKey,
+					done,
+				));
+			}
+			viewer ??= await opened(hostOf(), one, byKey);
+			if (!carried) await typed(hostOf(), one, viewer, turn, woke);
 			woke = undefined;
 			done += 1;
 			if (at === 0 && visit.joined) {
-				const second = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+				const second = await attach(
+					hostOf().path,
+					one.sessionId,
+					ROWS,
+					COLUMNS,
+				);
 				await tried(
 					second.sent(/\S/, DRAWN_MS),
 					`a second viewer of ${one.sessionId} drew nothing`,
@@ -758,6 +956,69 @@ async function drive(
 		await viewer?.leave();
 	}
 	await stopsDue();
+}
+
+/** The mid-run restart as one conversation takes part: where all meet, and where each says its cut-off turn's answer. */
+interface Carry {
+	readonly through: (done: number) => Promise<void>;
+	readonly answered: (tag: string, at?: number) => void;
+}
+
+/**
+ * The mid-run restart as `one` meets it at `turn`. A turn of the
+ * model's alone is typed and held mid-answer, so the restart cuts it
+ * off, and waited on through a fresh viewer until the fresh host has
+ * carried it on to its answer; any other kind is left to be typed once
+ * the host is back. It answers with the viewer to go on in, if any, and
+ * whether the turn is done.
+ */
+async function cutThrough(
+	hostOf: () => ScreenHost,
+	one: Conversation,
+	before: Viewer | undefined,
+	turn: Turn,
+	carry: Carry,
+	byKey: Set<string>,
+	done: number,
+): Promise<{ viewer: Viewer | undefined; carried: boolean }> {
+	if (!CARRIED_KINDS.has(turn.kind)) {
+		await left(before);
+		await carry.through(done);
+		return { viewer: undefined, carried: false };
+	}
+	const viewer = before ?? (await opened(hostOf(), one, byKey));
+	const ack = acknowledged(turn.tag);
+	const from = sizeOf(one.file);
+	carriedTags.add(turn.tag);
+	provider.hold(turn.tag);
+	viewer.type(`${turn.prompt}${ENTER}`);
+	await tried(
+		provider.held(turn.tag, turnMs),
+		`${turn.tag} was never asked for before the restart`,
+	);
+	await carry.through(done);
+	await left(viewer);
+	const fresh = await attach(hostOf().path, one.sessionId, ROWS, COLUMNS);
+	const answered = await logged(one.file, from, ack, turnMs);
+	carry.answered(turn.tag, answered ? Date.now() : undefined);
+	if (!answered) {
+		const said = hostOf().errors().slice(-SAID_CHARACTERS);
+		fault(
+			`${turn.tag} wasn't carried on to its answer in ${turnMs} ms: ${said}`,
+		);
+		return { viewer: fresh, carried: true };
+	}
+	await tried(
+		hostOf().idle(one.sessionId, TURN_MS),
+		`${turn.tag} was carried on but never went idle, its log ending ${lastOf(one.file)}`,
+	);
+	return { viewer: fresh, carried: true };
+}
+
+/** Close `viewer`, if any, whose host may have gone already. */
+async function left(viewer: Viewer | undefined): Promise<void> {
+	// A viewer whose host restarted has no connection left to end.
+	await viewer?.leave().catch(() => undefined);
 }
 
 /**
@@ -785,10 +1046,13 @@ async function opened(
 }
 
 /**
- * Type one turn and wait until its answer is in the log and the host
- * lists it idle, noting when its key went, when its prompt was first
- * drawn and when its answer was, and how its conversation woke, when
- * this is its first key since.
+ * Type one turn and wait until its end is in the log and the host lists
+ * it idle, noting when its key went, when its prompt was first drawn
+ * and when its answer was, and how its conversation woke, when this is
+ * its first key since. A steer turn is steered once its answer is asked
+ * for, and answers once the steer shows as pending; an abort turn is
+ * aborted by Escape once its answer is asked for; a compaction turn is
+ * typed as `/compact` and ends with its compaction, noting nothing.
  */
 async function typed(
 	host: ScreenHost,
@@ -798,24 +1062,31 @@ async function typed(
 	woke: string | undefined,
 ): Promise<void> {
 	const ack = acknowledged(turn.tag);
+	const from = sizeOf(one.file);
 	const shown = firstShown(viewer, turn.tag, DRAWN_MS);
 	const keyAt = Date.now();
 	// The write that first draws the answer settles it; a turn whose
-	// answer is never seen drawn settles empty and is counted.
-	const drawn = viewer.shows(ack, turnMs).then(
-		() => Date.now(),
-		() => undefined,
-	);
+	// answer is never seen drawn settles empty and is counted. An abort
+	// or a compaction draws no acknowledgement to wait for.
+	const acked = turn.kind !== "abort" && turn.kind !== "compact";
+	const drawn = acked
+		? viewer.shows(ack, turnMs).then(
+				() => Date.now(),
+				() => undefined,
+			)
+		: Promise.resolve(undefined);
+	const held = turn.kind === "steer" || turn.kind === "abort";
+	if (held) provider.hold(turn.tag);
 	viewer.type(`${turn.prompt}${ENTER}`);
-	const until = Date.now() + turnMs;
-	while (!tailOf(one.file).includes(ack)) {
-		if (Date.now() > until) {
-			const said = host.errors().slice(-SAID_CHARACTERS);
-			fault(`${turn.tag} wasn't answered in ${turnMs} ms: ${said}`);
-			return;
-		}
-		// The log says a turn ended only when read, so this waits between reads.
-		await new Promise((done) => setTimeout(done, LOOK_EVERY_MS));
+	if (turn.kind === "steer") await steerHeld(viewer, turn);
+	if (turn.kind === "abort") await abortHeld(viewer, turn);
+	const ended = await logged(one.file, from, endOf(turn), turnMs);
+	// Let go of an answer no steer or abort reached, so the turn can end.
+	if (held) provider.release(turn.tag);
+	if (!ended) {
+		const said = host.errors().slice(-SAID_CHARACTERS);
+		fault(`${turn.tag} wasn't answered in ${turnMs} ms: ${said}`);
+		return;
 	}
 	await tried(
 		host.idle(one.sessionId, TURN_MS),
@@ -827,12 +1098,64 @@ async function typed(
 		);
 	const drawnAt = await Promise.race([drawn, late()]);
 	const shownAt = await Promise.race([shown, late()]);
+	if (turn.kind === "compact") return;
 	typedAt.set(turn.tag, {
 		keyAt,
 		...(shownAt === undefined ? {} : { shownAt }),
 		...(drawnAt === undefined ? {} : { drawnAt }),
 		...(woke === undefined ? {} : { woke }),
 	});
+}
+
+/** Steer a held turn once its answer is asked for, letting it answer once the steer shows as pending. */
+async function steerHeld(viewer: Viewer, turn: Turn): Promise<void> {
+	const words = steerOf(turn.tag);
+	await tried(
+		provider.held(turn.tag, turnMs),
+		`${turn.tag}'s answer was never asked for`,
+	);
+	viewer.type(`${words}${ENTER}`);
+	await tried(
+		viewer.shows(`Steering: ${words}`, DRAWN_MS),
+		`${turn.tag}'s steer never showed as pending`,
+	);
+	provider.release(turn.tag);
+}
+
+/** Abort a held turn by Escape once its answer is asked for, which cuts the request it holds. */
+async function abortHeld(viewer: Viewer, turn: Turn): Promise<void> {
+	await tried(
+		provider.held(turn.tag, turnMs),
+		`${turn.tag}'s answer was never asked for`,
+	);
+	viewer.type(ESCAPE);
+}
+
+/** What a turn's log holds once it has ended: its cut answer, its compaction, or its acknowledgement. */
+function endOf(turn: Turn): string {
+	if (turn.kind === "abort") return ABORTED;
+	if (turn.kind === "compact") return COMPACTED;
+	return acknowledged(turn.tag);
+}
+
+/**
+ * Whether `file`, past its first `from` bytes, comes to hold `words`
+ * within `ms`, read every few ms: only what a turn wrote, so an earlier
+ * turn's like ending never counts.
+ */
+async function logged(
+	file: string,
+	from: number,
+	words: string,
+	ms: number,
+): Promise<boolean> {
+	const until = Date.now() + ms;
+	while (!sinceOf(file, from).includes(words)) {
+		if (Date.now() > until) return false;
+		// The log says a turn ended only when read, so this waits between reads.
+		await new Promise((done) => setTimeout(done, LOOK_EVERY_MS));
+	}
+	return true;
 }
 
 /**
@@ -965,6 +1288,21 @@ async function runPlain(sealed: Seal): Promise<{
 			const ready = weighed(client.pid);
 			await waited(staggerOf(index, staggerMs));
 			for (const turn of turnsOf(index, count)) {
+				if (turn.kind === "compact") {
+					await tried(
+						client.request({
+							type: "compact",
+							customInstructions: focusOf(turn),
+						}),
+						`plain ${turn.tag}`,
+					);
+					continue;
+				}
+				if (turn.kind === "steer" || turn.kind === "abort") {
+					sent.set(turn.tag, Date.now());
+					await heldPlain(client, turn);
+					continue;
+				}
 				// A job's report starts a turn of its own once the job ends, so
 				// the next prompt waits for that turn too, as the hosted side
 				// waits for the host to list the conversation idle.
@@ -1004,6 +1342,37 @@ async function runPlain(sealed: Seal): Promise<{
 		sent,
 		processes: ran.map((one) => one.process),
 	};
+}
+
+/**
+ * Take a steer or abort turn through plain pi as the hosted side does:
+ * its answer held until asked for, then the steer sent and the answer
+ * let go, or the abort sent, which cuts the request it holds.
+ */
+async function heldPlain(
+	client: ReturnType<typeof rpcClient>,
+	turn: Turn,
+): Promise<void> {
+	provider.hold(turn.tag);
+	const settled = client.prompt(turn.prompt, turnMs);
+	// Awaited below; a failure before then is its to report.
+	settled.catch(() => undefined);
+	await tried(
+		provider.held(turn.tag, turnMs),
+		`plain ${turn.tag}'s answer was never asked for`,
+	);
+	await tried(
+		client.request(
+			turn.kind === "steer"
+				? { type: "steer", message: steerOf(turn.tag) }
+				: { type: "abort" },
+		),
+		`plain ${turn.tag}'s ${turn.kind}`,
+	);
+	// A steer is pending once pi answers it; an abort has cut the request.
+	if (turn.kind === "steer") provider.release(turn.tag);
+	await tried(settled, `plain ${turn.tag}`);
+	provider.release(turn.tag);
 }
 
 /** A process's weight from its rollup, or undefined once it has gone. */
@@ -1099,8 +1468,8 @@ async function tried(work: Promise<unknown>, what: string): Promise<void> {
 	await work.catch((error: unknown) => fault(`${what}: ${String(error)}`));
 }
 
-/** The end of a log, or nothing while it isn't written yet. */
-function tailOf(file: string): string {
+/** A log past its first `from` bytes, or nothing while it isn't written yet. */
+function sinceOf(file: string, from: number): string {
 	let handle: number;
 	try {
 		handle = openSync(file, "r");
@@ -1110,7 +1479,7 @@ function tailOf(file: string): string {
 	}
 	try {
 		const size = statSync(file).size;
-		const length = Math.min(size, TAIL_BYTES);
+		const length = Math.max(0, size - from);
 		const buffer = Buffer.alloc(length);
 		readSync(handle, buffer, 0, length, size - length);
 		return buffer.toString("utf8");

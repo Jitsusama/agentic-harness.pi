@@ -3,7 +3,9 @@
  * through one host and through plain pi, once with no parking, once
  * parked and woken in turn, and once parked and woken in a burst and
  * then through a host restart, so a change that breaks the soak is found by
- * test:host rather than on the night a week's run is due. A week's run
+ * test:host rather than on the night a week's run is due. And once at ten
+ * turns each, which takes every kind of turn (a steer, an abort and a
+ * compaction among them) through a planned restart mid-run. A week's run
  * goes on a lent builder by hand, as README.md says.
  */
 import { spawn } from "node:child_process";
@@ -29,6 +31,7 @@ const RUN_MS = 600_000;
 const out = mkdtempSync(join(tmpdir(), "soak-"));
 const parkedOut = mkdtempSync(join(tmpdir(), "soak-parked-"));
 const burstOut = mkdtempSync(join(tmpdir(), "soak-burst-"));
+const midOut = mkdtempSync(join(tmpdir(), "soak-mid-"));
 
 describe.skipIf(!packageDir)(
 	"the soak (needs a pi with the host's patches: pnpm test:host)",
@@ -238,10 +241,74 @@ describe.skipIf(!packageDir)(
 	},
 );
 
-/** Run the smallest soak into `into`, with `extra` arguments: what it said and its report. */
+describe.skipIf(!packageDir)(
+	"the soak, restarted mid-run (needs a pi with the host's patches: pnpm test:host)",
+	() => {
+		afterAll(() => rmSync(midOut, { recursive: true, force: true }));
+
+		it(
+			"steers, aborts and compacts on both sides, and carries a turn the restart cut off to its answer",
+			async () => {
+				const { said, report } = await soaked(
+					midOut,
+					["--restart-mid"],
+					["10,10", "2"],
+				);
+				expect(report, said).toMatchObject({ turns: 20, faults: [] });
+				expect(
+					isRecord(report) ? report.kinds : undefined,
+					"every kind of turn, counted",
+				).toEqual({
+					echo: 10,
+					read: 1,
+					bash: 1,
+					steer: 2,
+					job: 2,
+					abort: 2,
+					long: 1,
+					compact: 1,
+				});
+				// At the first checkpoint's turn, c0-t5 is a steer, which the person
+				// drives and nothing carries; c1-t5 is an echo, held as it's asked.
+				expect(
+					isRecord(report) ? report.restartMid : undefined,
+					"a planned restart while a turn was asked, carried on to its answer",
+				).toMatchObject({
+					stopMs: expect.any(Number),
+					toSocketMs: expect.any(Number),
+					cut: ["c1-t5"],
+					answered: [{ tag: "c1-t5", ms: expect.any(Number) }],
+				});
+				expect(said, "a line says the restart").toMatch(
+					/restart mid-run: stopped in \d+ ms, socket in \d+ ms/,
+				);
+				expect(
+					isRecord(report) ? report.latency : undefined,
+					"each side's latency past the compaction, which asks nothing, and the turn cut off",
+				).toMatchObject({
+					hosted: { count: 18 },
+					plain: { count: 18 },
+					paired: { count: 18, unpaired: 0 },
+				});
+				expect(
+					isRecord(report) && Array.isArray(report.parity)
+						? report.parity.map((one) =>
+								isRecord(one) ? one.unexpected : undefined,
+							)
+						: undefined,
+					"each conversation's record matches plain pi's past what differs on every run",
+				).toEqual([0, 0]);
+			},
+			RUN_MS,
+		);
+	},
+);
+
+/** Run a soak into `into`, the smallest unless `size` gives its turns and checkpoints: what it said and its report. */
 async function soaked(
 	into: string,
 	extra: readonly string[],
+	[turns, checkpoints]: readonly [string, string] = ["2,2", "1"],
 ): Promise<{ said: string; report: unknown }> {
 	const child = spawn(
 		process.execPath,
@@ -249,9 +316,9 @@ async function soaked(
 			"--no-warnings",
 			SOAK,
 			"--turns",
-			"2,2",
+			turns,
 			"--checkpoints",
-			"1",
+			checkpoints,
 			...extra,
 			"--out",
 			into,

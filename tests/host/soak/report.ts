@@ -608,7 +608,11 @@ interface SoakTurn {
 	readonly answer: number;
 }
 
-/** Each answered soak turn in a log's entries, in order. */
+/**
+ * Each answered soak turn in a log's entries, in order: an abort turn
+ * answered by its aborted answer, every other by its acknowledgement.
+ * A compaction turn writes no prompt, so none is found.
+ */
 function soakTurns(entries: readonly Record<string, unknown>[]): SoakTurn[] {
 	const found: SoakTurn[] = [];
 	for (const [prompt, entry] of entries.entries()) {
@@ -619,7 +623,10 @@ function soakTurns(entries: readonly Record<string, unknown>[]): SoakTurn[] {
 		const answer = entries.findIndex((later, at) => {
 			if (at <= prompt) return false;
 			const said = messageOf(later);
-			return said?.role === "assistant" && said.text.includes(ack);
+			if (said?.role !== "assistant") return false;
+			return turn.kind === "abort"
+				? said.stopReason === "aborted"
+				: said.text.includes(ack);
 		});
 		if (answer < 0) continue;
 		found.push({ tag: turn.tag, prompt, answer });
@@ -627,15 +634,23 @@ function soakTurns(entries: readonly Record<string, unknown>[]): SoakTurn[] {
 	return found;
 }
 
-/** A message entry's role and text, or nothing when it isn't one. */
-function messageOf(
-	entry: Readonly<Record<string, unknown>>,
-): { readonly role: string; readonly text: string } | undefined {
+/** A message entry's role, text and why it stopped, or nothing when it isn't one. */
+function messageOf(entry: Readonly<Record<string, unknown>>):
+	| {
+			readonly role: string;
+			readonly text: string;
+			readonly stopReason?: string;
+	  }
+	| undefined {
 	const { message } = entry;
 	if (entry.type !== "message" || !isRecord(message)) return undefined;
-	const { role } = message;
+	const { role, stopReason } = message;
 	if (typeof role !== "string") return undefined;
-	return { role, text: textOf(message) };
+	return {
+		role,
+		text: textOf(message),
+		...(typeof stopReason === "string" ? { stopReason } : {}),
+	};
 }
 
 /** The 50th and 99th percentiles of `values`, by nearest rank. */
