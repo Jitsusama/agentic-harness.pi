@@ -106,7 +106,8 @@ describe("kept providers", () => {
 				{ id: "m", headers: { "X-Token": "model-secret", "x-team": "pi" } },
 			],
 		};
-		const braced = { ...PROXIED, apiKey: "${SHOPIFY_PROXY_KEY}" };
+		// pi's braced form of a key's variable, written out rather than interpolated.
+		const braced = { ...PROXIED, apiKey: `\${SHOPIFY_PROXY_KEY}` };
 		writeKept(
 			file,
 			keptProviders(runtime({ literal, braced, anthropic: PROXIED }).model),
