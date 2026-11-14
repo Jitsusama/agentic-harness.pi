@@ -336,8 +336,8 @@ export function stageTransition(
 		besideActive
 	) {
 		const left = besideActive
-			? `${state.documentKind} ${state.documentId} stays in ${state.documentStage}, put down; \`focus\` takes it up again. This ${action === "draft" ? "drafts a new document" : "starts a fresh loop"} beside it.`
-			: `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
+			? `${documentNamed(state)} stays in ${state.documentStage}, put down; \`focus\` takes it up again. This ${action === "draft" ? "drafts a new document" : "starts a fresh loop"} beside it.`
+			: `${documentNamed(state)} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
 		unfocusDocument(state);
 		const result = stageTransition(state, action, params);
 		return result.ok
@@ -463,23 +463,17 @@ export function stageTransition(
 	state.documentStage = result.state.stage;
 	refreshProgress(state);
 	if (action === "build") {
-		appendJourneyEntry(
-			state,
-			`Building against ${state.documentKind} ${state.documentId}.`,
-		);
+		appendJourneyEntry(state, `Building against ${documentNamed(state)}.`);
 	} else if (action === "conclude") {
-		appendJourneyEntry(
-			state,
-			`Concluded ${state.documentKind} ${state.documentId}.`,
-		);
+		appendJourneyEntry(state, `Concluded ${documentNamed(state)}.`);
 	} else if (action === "retire") {
 		appendJourneyEntry(
 			state,
-			`Retired ${state.documentKind} ${state.documentId}: ${params.reason ?? "no reason given"}.`,
+			`Retired ${documentNamed(state)}: ${params.reason ?? "no reason given"}.`,
 		);
 	}
 	if (state.questDir) stampQuestUpdated(state);
-	const landed = `Now ${result.state.stage} on ${state.documentKind} ${state.documentId}${state.documentTitle ? ` (${state.documentTitle})` : ""}.`;
+	const landed = `Now ${result.state.stage} on ${documentNamed(state)}${state.documentTitle ? ` (${state.documentTitle})` : ""}.`;
 	if (action !== "conclude" && action !== "retire") {
 		return ok(landed, { stage: result.state.stage });
 	}
@@ -491,6 +485,17 @@ export function stageTransition(
 	return ok([landed, next ?? "Nothing is focused now."].join(" "), {
 		stage: result.state.stage,
 	});
+}
+
+/**
+ * The focused document in words: its kind and id, or, for a loop that
+ * never drafted, that it had no document yet, so no answer says null.
+ */
+function documentNamed(state: QuestState): string {
+	const kind = state.documentKind ?? "document";
+	return state.documentId
+		? `${kind} ${state.documentId}`
+		: `${kind} loop with no document yet`;
 }
 
 /**

@@ -146,4 +146,30 @@ describe("sessionsAtWork", () => {
 		if (!result.ok) throw new Error("unreachable");
 		expect(result.message).toContain(live);
 	});
+
+	it("lists only the quest `id` names", async () => {
+		const state = buildState();
+		const named = await createQuest(state, "Named Quest");
+		const other = await createQuest(state, "Other Quest");
+		attachSession(named, "sess-named");
+		attachSession(other, "sess-other");
+		writeLiveSessionLog("sess-named");
+		writeLiveSessionLog("sess-other");
+		const result = await handle(state, fakePi(), fakeCtx(), {
+			action: "sessions",
+			id: named,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message, "the named quest is listed").toContain(named);
+		expect(result.message, "no other quest is listed").not.toContain(other);
+	});
+
+	it("refuses an `id` no quest has", async () => {
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(), {
+			action: "sessions",
+			id: "QEST-20000101-NOSUCH",
+		});
+		expect(result.ok, "an unknown quest is refused").toBe(false);
+	});
 });

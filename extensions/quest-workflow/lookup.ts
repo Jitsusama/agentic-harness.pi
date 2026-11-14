@@ -439,21 +439,24 @@ function livenessRank(liveness: SessionLiveness): number {
  * that has active work, so two live panes on one quest read as two
  * rows and a crashed pane shows beside its live sibling rather than
  * being collapsed away. A quest with no live or idle session is left
- * out entirely. Rows are ordered live first, then by recency.
+ * out entirely. Rows are ordered live first, then by recency. Given
+ * `only`, a quest's id, just that quest's sessions are read.
  */
 export async function sessionsAtWork(
 	state: QuestState,
+	only?: string,
 ): Promise<SessionAtWork[]> {
 	const { index } = discoverQuests(state.questsRoot);
+	const quests = [...index.quests.values()].filter(
+		(entry) => only === undefined || entry.doc.frontMatter.id === only,
+	);
 	// One snapshot across every quest's sessions: derivation is keyed
 	// by session id, so a single store walk and probe pass serves all
 	// quests rather than re-indexing per quest.
-	const allSessions = [...index.quests.values()].flatMap(
-		(entry) => entry.doc.frontMatter.sessions,
-	);
+	const allSessions = quests.flatMap((entry) => entry.doc.frontMatter.sessions);
 	const snapshot = await buildSessionSnapshot(allSessions);
 	const entries: SessionAtWork[] = [];
-	for (const entry of index.quests.values()) {
+	for (const entry of quests) {
 		const fm = entry.doc.frontMatter;
 		const views = fm.sessions
 			.map((s) => deriveLiveness(s, snapshot))
