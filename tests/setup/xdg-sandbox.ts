@@ -32,6 +32,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { useSecretStore } from "../../lib/core/internal/keyring/secrets.ts";
+import { memorySecretStore } from "../support/memory-secret-store.ts";
 
 const sandbox = mkdtempSync(join(tmpdir(), "pi-xdg-sandbox-"));
 
@@ -54,3 +56,6 @@ process.env.PI_SESSIONS_KITTY = "off";
 delete process.env.NIRI_SOCKET;
 // Nor may a reopen wake, or close, a window of the developer's.
 process.env.PI_SETTLE = "off";
+// Nor may a test read or write the developer's keyring: credentials
+// go to a keyring in memory, fresh for each test file.
+useSecretStore(memorySecretStore());

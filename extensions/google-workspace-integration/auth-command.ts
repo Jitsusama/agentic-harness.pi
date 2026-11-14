@@ -42,7 +42,7 @@ export async function handleGoogleAuthCommand(
 	}
 
 	if (flags.default) {
-		setDefaultAccount(flags.default);
+		await setDefaultAccount(flags.default);
 		ctx.ui.notify(`Default account set to: ${flags.default}`, "info");
 		return;
 	}
@@ -85,11 +85,11 @@ export async function handleGoogleAuthCommand(
 			setCredentials(client, result.credentials);
 			const email = await extractEmailFromToken(client);
 
-			storeCredentials(accountName, result.credentials);
-			saveAccount({
+			await storeCredentials(accountName, result.credentials);
+			await saveAccount({
 				name: accountName,
 				email,
-				isDefault: listAccounts().length === 0,
+				isDefault: (await listAccounts()).length === 0,
 			});
 
 			const flowType =
@@ -118,7 +118,7 @@ export async function handleGoogleAuthCommand(
 
 /** Show configured accounts in a view panel. */
 async function showAccountList(ctx: ExtensionContext): Promise<void> {
-	const accounts = listAccounts();
+	const accounts = await listAccounts();
 
 	if (accounts.length === 0) {
 		ctx.ui.notify(

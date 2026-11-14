@@ -39,12 +39,12 @@ export async function ensureAuthenticated(
 
 	// Browser session path: credentials are already stored.
 	if (setup.mode === "session") {
-		return clientFromStoredToken();
+		return await clientFromStoredToken();
 	}
 
 	// OAuth path: may need to run the web redirect flow.
-	if (hasToken()) {
-		const token = getToken();
+	if (await hasToken()) {
+		const token = await getToken();
 		if (token) {
 			const client = new SlackClient(token.accessToken, token.cookie);
 			try {
@@ -68,8 +68,8 @@ export async function ensureAuthenticated(
 }
 
 /** Create a client from the stored token. Throws if no token. */
-function clientFromStoredToken(): SlackClient {
-	const token = getToken();
+async function clientFromStoredToken(): Promise<SlackClient> {
+	const token = await getToken();
 	if (!token) {
 		throw new Error("No stored Slack token found.");
 	}
@@ -137,7 +137,7 @@ async function authorize(
 	}
 
 	const token = await exchangeCodeForToken(oauthApp, callback.code);
-	storeToken(token);
+	await storeToken(token);
 
 	const client = new SlackClient(token.accessToken, token.cookie);
 	await client.call("auth.test");

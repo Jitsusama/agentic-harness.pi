@@ -3,7 +3,7 @@
  * the client ID and secret used for Google API authentication.
  */
 
-import { readFile, writeFile } from "./store.ts";
+import { readCredentials, writeCredentials } from "./store.ts";
 
 /** OAuth app credentials (client ID + secret). */
 export interface OAuthAppCredentials {
@@ -12,19 +12,21 @@ export interface OAuthAppCredentials {
 }
 
 /** Store OAuth app credentials. */
-export function storeOAuthApp(credentials: OAuthAppCredentials): void {
-	const data = readFile();
+export async function storeOAuthApp(
+	credentials: OAuthAppCredentials,
+): Promise<void> {
+	const data = await readCredentials();
 	data.oauthApp = credentials;
-	writeFile(data);
+	await writeCredentials(data);
 }
 
 /** Retrieve OAuth app credentials. */
-export function getOAuthApp(): OAuthAppCredentials | null {
-	return readFile().oauthApp ?? null;
+export async function getOAuthApp(): Promise<OAuthAppCredentials | null> {
+	return (await readCredentials()).oauthApp ?? null;
 }
 
 /** Check if OAuth app credentials are configured. */
-export function hasOAuthApp(): boolean {
-	const creds = getOAuthApp();
+export async function hasOAuthApp(): Promise<boolean> {
+	const creds = await getOAuthApp();
 	return !!(creds?.clientId && creds?.clientSecret);
 }

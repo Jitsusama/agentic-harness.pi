@@ -47,17 +47,17 @@ export async function ensureAuthenticated(
 		throw new Error("OAuth credentials setup required but was cancelled.");
 	}
 
-	const accountName = account ?? getDefaultAccount()?.name ?? "work";
+	const accountName = account ?? (await getDefaultAccount())?.name ?? "work";
 
 	// Try to build a client from stored credentials.
-	const stored = getCredentials(accountName);
+	const stored = await getCredentials(accountName);
 	if (stored) {
 		const client = await createOAuth2Client(oauthConfig);
 		setCredentials(client, stored);
 
 		const refreshed = await refreshTokenIfNeeded(client);
 		if (refreshed) {
-			storeCredentials(accountName, refreshed);
+			await storeCredentials(accountName, refreshed);
 		}
 
 		return client;
@@ -81,11 +81,11 @@ export async function ensureAuthenticated(
 	setCredentials(client, flowResult.credentials);
 	const email = await extractEmailSafe(client);
 
-	storeCredentials(accountName, flowResult.credentials);
-	saveAccount({
+	await storeCredentials(accountName, flowResult.credentials);
+	await saveAccount({
 		name: accountName,
 		email,
-		isDefault: listAccounts().length === 0,
+		isDefault: (await listAccounts()).length === 0,
 	});
 
 	const flowType =

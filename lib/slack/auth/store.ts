@@ -1,41 +1,42 @@
 /**
- * File-based persistence for Slack credentials.
+ * Where the Slack credentials are kept: the desktop's keyring, as one
+ * document.
  *
- * Provides shared read/write primitives used by credentials
- * and OAuth app modules. The credentials file's location is
- * decided by paths.ts.
+ * Provides shared read/write primitives used by credentials and OAuth
+ * app modules. The plain file paths.ts names is where they lived
+ * before; the first read moves it into the keyring, and it is used
+ * again only while the keyring can't be reached, as
+ * `lib/core/internal/keyring/document.ts` says.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { credentialsDocument } from "../../core/internal/keyring/document.ts";
 import { credentialsPath } from "../paths.ts";
 import type { OAuthApp, StoredToken } from "../types.ts";
 
-/** Shape of the persisted credentials file. */
+/** Shape of the stored credentials. */
 export interface CredentialsFile {
 	oauthApp?: OAuthApp | null;
 	token?: StoredToken | null;
 }
 
-/** Read the credentials file, returning defaults if missing or corrupt. */
-export function readFile(
-	filePath: string = credentialsPath(),
-): CredentialsFile {
-	try {
-		const raw = fs.readFileSync(filePath, "utf-8");
-		return JSON.parse(raw) as CredentialsFile;
-	} catch {
-		// The file doesn't exist or is corrupt, so we start fresh.
-		return {};
-	}
+const document = credentialsDocument<CredentialsFile>({
+	account: "slack-credentials",
+	label: "Slack credentials",
+	filePath: credentialsPath,
+	empty: () => ({}),
+});
+
+/** Read the stored credentials, or none when nothing is stored. */
+export async function readCredentials(): Promise<CredentialsFile> {
+	return document.read();
 }
 
-/** Write the credentials file atomically. */
-export function writeFile(
-	data: CredentialsFile,
-	filePath: string = credentialsPath(),
-): void {
-	const dir = path.dirname(filePath);
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(filePath, JSON.stringify(data, null, "\t"), "utf-8");
+/** Write the credentials whole. */
+export async function writeCredentials(data: CredentialsFile): Promise<void> {
+	await document.write(data);
+}
+
+/** Move the plain file into the keyring now, if one is left. */
+export async function moveToKeyring(): Promise<void> {
+	await document.moveIfPresent();
 }

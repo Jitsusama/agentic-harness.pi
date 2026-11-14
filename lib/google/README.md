@@ -33,7 +33,8 @@ const rendered = renderEventList(events);
 - **`./apis`** and **`./renderers`**: API functions for all six
   Google services, and how their answers are shown.
 - **`./auth`**: credential state readers (`getCredentials`,
-  `getDefaultAccount`, `listAccounts`), `formatAuthError`, and
+  `getDefaultAccount`, `listAccounts`), async since the credentials
+  live in the desktop's keyring, `formatAuthError`, and
   `ensureAuthenticated`, the one-call entry point that bridges the
   setup wizard and the device or web OAuth flow through Pi's
   interactive UI. The OAuth client, callback server and browser

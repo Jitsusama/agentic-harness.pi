@@ -25,7 +25,12 @@ function xdgConfigRoot(): string {
 		: join(homedir(), ".config");
 }
 
-/** Where the OAuth app and account credentials are stored. */
+/**
+ * Where the OAuth app and account credentials were stored as plain
+ * JSON. They live in the keyring now (auth/store.ts); this file is
+ * moved from once, and written only while the keyring can't be
+ * reached.
+ */
 export function credentialsPath(): string {
 	return join(xdgConfigRoot(), "agentic-harness", "google", "credentials.json");
 }

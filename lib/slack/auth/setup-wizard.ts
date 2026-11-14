@@ -46,8 +46,8 @@ export async function ensureSetup(
 	envConfig: OAuthApp,
 ): Promise<{ mode: "session" } | { mode: "oauth"; app: OAuthApp } | null> {
 	// Already have a working token, so no setup is needed.
-	if (hasToken()) {
-		const token = getToken();
+	if (await hasToken()) {
+		const token = await getToken();
 		if (token) {
 			const client = new SlackClient(token.accessToken, token.cookie);
 			try {
@@ -67,8 +67,8 @@ export async function ensureSetup(
 	}
 
 	// Stored OAuth app, so use the OAuth path.
-	if (hasOAuthApp()) {
-		const stored = getOAuthApp();
+	if (await hasOAuthApp()) {
+		const stored = await getOAuthApp();
 		if (stored) return { mode: "oauth", app: stored };
 	}
 
@@ -313,7 +313,7 @@ async function setupViaOAuth(
 		clientSecret: clientSecret.trim(),
 	};
 
-	storeOAuthApp(app);
+	await storeOAuthApp(app);
 	ctx.ui.notify(
 		"✓ OAuth credentials saved. Run /slack-auth to authenticate.",
 		"info",
@@ -340,7 +340,7 @@ async function verifyAndStore(
 			team?: string;
 		}>("auth.test");
 
-		storeToken({
+		await storeToken({
 			accessToken: token,
 			cookie,
 			userId: (auth.user_id as string) ?? "",

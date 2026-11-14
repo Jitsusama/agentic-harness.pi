@@ -163,7 +163,19 @@ google-workspace/
 ## Security
 
 - **Device Flow** - User explicitly authorizes on Google's servers
-- **Local storage** - Tokens stored in Pi session (ephemeral)
+- **Keyring storage** - The OAuth app, accounts and tokens live in
+  the desktop's keyring: the Secret Service on Linux, the Keychain on
+  macOS, read by pi's own process. That keeps them from commands an
+  agent runs, which the fence keeps off the session bus; it is no
+  guard against other programs you run, since the Secret Service lets
+  any of them read an unlocked collection and the Keychain item
+  trusts Apple's `security`, which any of them can run. A plain
+  `~/.config/agentic-harness/google/credentials.json` from before
+  moves in at the next session and is removed once the keyring gives
+  it back; while the keyring can't be reached (missing, locked,
+  denied) pi says so and keeps using the file. Removing the file
+  leaves its bytes on the disk, so sign in again once after the move
+  to retire the tokens it held
 - **Confirmation gates** - Sensitive operations (send email, delete
   event) require approval. They are the `google` guard, which
   blocks by default, since mail and invitations reach other people.
@@ -173,7 +185,5 @@ google-workspace/
 
 ## Current Limitations
 
-- Credentials are stored in the Pi session (lost on restart,
-  so you'll need to re-auth)
 - Requires OAuth client setup (see Option 2 above for a
   future improvement)
