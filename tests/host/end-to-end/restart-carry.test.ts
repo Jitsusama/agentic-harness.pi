@@ -192,10 +192,16 @@ it(
 					`${String(failed)}\nsaid: ${saidAfter(file, held.length)}\n${said()}`,
 				);
 			});
+			// The lost line quotes the command, its echo included, so only a
+			// line of the echo's own output would say it ran again.
+			const there = saidAfter(file, held.length);
 			expect(
-				saidAfter(file, held.length),
-				"a lost command is never run again",
+				there.split("\n").map((line) => line.trim()),
+				`a lost command is never run again; said: ${there}`,
 			).not.toContain(CARRIED_END);
+			expect(there, "a lost command is never said to exit").not.toMatch(
+				/exited \d+ after/,
+			);
 		});
 	},
 	ROUND_TRIP_MS * 5,
