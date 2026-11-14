@@ -89,9 +89,7 @@ export function readKept(file: string): KeptProviders | undefined {
 
 /** A registration as it may be written: its key by name alone, no credential in a header of it or its models. */
 function withoutSecrets(config: object): object {
-	const { apiKey, headers, models, ...rest } = isRecord(config)
-		? config
-		: {};
+	const { apiKey, headers, models, ...rest } = isRecord(config) ? config : {};
 	return {
 		...rest,
 		...(typeof apiKey === "string" && KEY_BY_NAME.test(apiKey)
