@@ -186,7 +186,7 @@ function textOf(message: { readonly content: unknown }): string {
 /** Whether an event carries a message whose text is `text`. */
 function carries(event: object, text: string): boolean {
 	const message: unknown = Reflect.get(event, "message");
-	return isRecord(message) && "content" in message && textOf(message) === text;
+	return isRecord(message) && textOf({ content: message.content }) === text;
 }
 
 function said(observed: Observed, role: string): string[] {
