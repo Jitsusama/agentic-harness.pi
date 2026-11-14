@@ -8,7 +8,10 @@
  * holds (Joel, 14 November 2026: "why did the void send that to you?
  * you're not the best destination for a lot of this shit."). So a line
  * is placed by what is attached, in the order the orchestrator set
- * (WCJQSG, 14 November 2026): the attached pi session; a pull
+ * (WCJQSG, 14 November 2026): the file the focused window shows, by
+ * the quest folder or scratch folder it sits in (Joel, 14 November
+ * 2026: "we need the void to be more aware of what is on a window that
+ * i'm focused on when i launch it"); the attached pi session; a pull
  * request's quest alias, then whoever claims the tree its files sit
  * under, then the session that wrote about it on the mesh; a page's
  * address against quests' aliases and READMEs; the
@@ -37,6 +40,8 @@ export interface Attached {
 	readonly sessionTitle?: string;
 	/** The attached pi session's address. */
 	readonly sessionAddress?: string;
+	/** The absolute path of the file the focused window shows. */
+	readonly file?: string;
 }
 
 /** A line split into Joel's words and what he had attached. */
@@ -97,7 +102,8 @@ export interface Sources {
 }
 
 const ATTACHED = /\n\s*Attached:\s*\n/u;
-const ROW = /^-\s*(window|tab|pi session):\s*(.*)$/u;
+const ROW = /^-\s*(window|tab|pi session|file):\s*(.*)$/u;
+const QUEST_FOLDER = /(?:^|-)(QEST-\d{8}-[A-Z0-9]{6})$/u;
 const SEPARATOR = " · ";
 const PULL = /https?:\/\/([^/\s]+)\/([\w.-]+\/[\w.-]+)\/pulls?\/(\d+)/u;
 const TREE =
@@ -164,6 +170,7 @@ export function readLine(line: string): SaidLine {
 		const head = at < 0 ? value : value.slice(0, at);
 		const tail = at < 0 ? "" : value.slice(at + SEPARATOR.length);
 		if (kind === "window") attached = { ...attached, window: value };
+		if (kind === "file") attached = { ...attached, file: value.trim() };
 		if (kind === "tab")
 			attached = { ...attached, tabTitle: head, tabUrl: tail };
 		if (kind === "pi session")
@@ -193,6 +200,7 @@ export function placeLine(line: string, sources: Sources): Placement {
 		said: SaidLine,
 		sources: Sources,
 	) => { tried?: string; found: readonly Candidate[] })[] = [
+		byFile,
 		bySession,
 		byPull,
 		byPage,
@@ -205,6 +213,36 @@ export function placeLine(line: string, sources: Sources): Placement {
 		add(outcome.found);
 	}
 	return { candidates: found, tried };
+}
+
+/**
+ * The quest whose folder, or scratch folder, holds the file the focused
+ * window shows: the quest named by the path's last folder that is a
+ * quest's id, or ends in one as its temporary folder does.
+ */
+function byFile(
+	said: SaidLine,
+	sources: Sources,
+): { tried?: string; found: Candidate[] } {
+	const { file } = said.attached;
+	if (!file) return { found: [] };
+	const id = file
+		.split("/")
+		.map((segment) => QUEST_FOLDER.exec(segment)?.[1])
+		.filter((found) => found !== undefined)
+		.at(-1);
+	if (!id)
+		return { tried: `the file ${file} (in no quest's folder)`, found: [] };
+	const quest = sources.quests.find((open) => open.id === id);
+	if (!quest)
+		return {
+			tried: `the file ${file} (its quest ${id} isn't open)`,
+			found: [],
+		};
+	return {
+		tried: `the file ${file}`,
+		found: [fromQuest(quest, "the file sits in its folder")],
+	};
 }
 
 function bySession(said: SaidLine): { tried?: string; found: Candidate[] } {
