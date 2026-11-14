@@ -66,9 +66,9 @@ function stateFixture(overrides: Partial<QuestState> = {}): QuestState {
 }
 
 describe("quest discipline (plan phase)", () => {
-	it("defers edits to already-tracked code while a plan is in draft", () => {
+	it("defers edits to already-tracked code while a plan is in draft", async () => {
 		const state = stateFixture({ documentStage: "draft" });
-		const result = enforceQuest(
+		const result = await enforceQuest(
 			state,
 			"edit",
 			{ path: join(repo, tracked) },
@@ -78,9 +78,9 @@ describe("quest discipline (plan phase)", () => {
 		expect(result).toMatchObject({ block: true });
 	});
 
-	it("lets new (untracked) files flow while a plan is in draft", () => {
+	it("lets new (untracked) files flow while a plan is in draft", async () => {
 		const state = stateFixture({ documentStage: "draft" });
-		const result = enforceQuest(
+		const result = await enforceQuest(
 			state,
 			"write",
 			{ path: join(repo, "src/brand-new.ts"), content: "x" },
@@ -90,19 +90,24 @@ describe("quest discipline (plan phase)", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("allows writes to the focused plan document itself", () => {
+	it("allows writes to the focused plan document itself", async () => {
 		const state = stateFixture({ documentStage: "draft" });
 		const path = state.documentPath ?? "";
-		const result = enforceQuest(state, "write", { path, content: "..." }, "/");
+		const result = await enforceQuest(
+			state,
+			"write",
+			{ path, content: "..." },
+			"/",
+		);
 		expect(result).toBeUndefined();
 	});
 
-	it("does not block when the focused doc is research, not plan", () => {
+	it("does not block when the focused doc is research, not plan", async () => {
 		const state = stateFixture({
 			documentKind: "research",
 			documentStage: "draft",
 		});
-		const result = enforceQuest(
+		const result = await enforceQuest(
 			state,
 			"edit",
 			{ path: join(repo, tracked) },
@@ -112,9 +117,9 @@ describe("quest discipline (plan phase)", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("blocks git-mutating bash commands during plan think/draft", () => {
+	it("blocks git-mutating bash commands during plan think/draft", async () => {
 		const state = stateFixture({ documentStage: "think" });
-		const result = enforceQuest(
+		const result = await enforceQuest(
 			state,
 			"bash",
 			{ command: "git commit -m foo" },
@@ -123,7 +128,7 @@ describe("quest discipline (plan phase)", () => {
 		expect(result).toMatchObject({ block: true });
 	});
 
-	it("blocks git with global options between git and the verb", () => {
+	it("blocks git with global options between git and the verb", async () => {
 		const state = stateFixture({ documentStage: "think" });
 		for (const cmd of [
 			"git -c user.email=x@y commit -m foo",
@@ -131,14 +136,19 @@ describe("quest discipline (plan phase)", () => {
 			"git --git-dir=/tmp/.git add .",
 			"git -c gc.auto=0 push origin main",
 		]) {
-			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
+			const result = await enforceQuest(
+				state,
+				"bash",
+				{ command: cmd },
+				"/tmp",
+			);
 			expect(result?.block, `expected ${cmd} to be blocked`).toBe(true);
 		}
 	});
 
-	it("blocks a bash write that targets already-tracked code in draft", () => {
+	it("blocks a bash write that targets already-tracked code in draft", async () => {
 		const state = stateFixture({ documentStage: "draft" });
-		const result = enforceQuest(
+		const result = await enforceQuest(
 			state,
 			"bash",
 			{ command: `cat >> ${join(repo, tracked)}` },
@@ -148,13 +158,13 @@ describe("quest discipline (plan phase)", () => {
 		expect(result).toMatchObject({ block: true });
 	});
 
-	it("defers an in-place edit of already-tracked code in draft", () => {
+	it("defers an in-place edit of already-tracked code in draft", async () => {
 		const state = stateFixture({ documentStage: "draft" });
 		for (const cmd of [
 			`sed -i 's/a/b/' ${join(repo, tracked)}`,
 			`perl -i -pe 's/a/b/' ${join(repo, tracked)}`,
 		]) {
-			const result = enforceQuest(
+			const result = await enforceQuest(
 				state,
 				"bash",
 				{ command: cmd },
@@ -165,9 +175,9 @@ describe("quest discipline (plan phase)", () => {
 		}
 	});
 
-	it("allows a bash redirect to a scratch path in draft", () => {
+	it("allows a bash redirect to a scratch path in draft", async () => {
 		const state = stateFixture({ documentStage: "draft" });
-		const result = enforceQuest(
+		const result = await enforceQuest(
 			state,
 			"bash",
 			{ command: `cat > ${join(repo, "tmp-dump.json")}` },
@@ -178,7 +188,7 @@ describe("quest discipline (plan phase)", () => {
 		expect(result?.block, "a new untracked file is never cornered").toBeFalsy();
 	});
 
-	it("does not block read-only bash, including literal mutating verbs", () => {
+	it("does not block read-only bash, including literal mutating verbs", async () => {
 		const state = stateFixture({ documentStage: "draft" });
 		for (const cmd of [
 			"ls -la",
@@ -187,7 +197,12 @@ describe("quest discipline (plan phase)", () => {
 			"git status",
 			'grep -n "branch -d" file.ts',
 		]) {
-			const result = enforceQuest(state, "bash", { command: cmd }, "/tmp");
+			const result = await enforceQuest(
+				state,
+				"bash",
+				{ command: cmd },
+				"/tmp",
+			);
 			expect(result?.block, `${cmd} should not be blocked`).toBeFalsy();
 		}
 	});

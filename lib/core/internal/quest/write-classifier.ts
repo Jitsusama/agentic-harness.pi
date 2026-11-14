@@ -50,11 +50,11 @@ export interface ClassifyWriteOptions {
 	 */
 	tempRoots: string[];
 	/** Whether the target is gitignored at its destination. */
-	isGitignored: (absPath: string) => boolean;
+	isGitignored: (absPath: string) => Promise<boolean>;
 	/** Whether the target is tracked in its repository's index. */
-	isTracked: (absPath: string) => boolean;
+	isTracked: (absPath: string) => Promise<boolean>;
 	/** The git working tree root containing the target, or null when none. */
-	gitTreeRootOf: (absPath: string) => string | null;
+	gitTreeRootOf: (absPath: string) => Promise<string | null>;
 }
 
 /**
@@ -77,10 +77,10 @@ function isDeviceNode(target: string): boolean {
 	return path.resolve(target).startsWith(`${path.sep}dev${path.sep}`);
 }
 
-export function classifyWrite(
+export async function classifyWrite(
 	target: string,
 	opts: ClassifyWriteOptions,
-): WriteClassification {
+): Promise<WriteClassification> {
 	if (isDeviceNode(target)) {
 		return { category: "device" };
 	}
@@ -93,12 +93,12 @@ export function classifyWrite(
 	if (opts.tempRoots.some((root) => isUnder(target, root))) {
 		return { category: "system-temp" };
 	}
-	if (opts.isGitignored(target)) {
+	if (await opts.isGitignored(target)) {
 		return { category: "scratch" };
 	}
-	const treeRoot = opts.gitTreeRootOf(target);
+	const treeRoot = await opts.gitTreeRootOf(target);
 	if (treeRoot) {
-		const category = opts.isTracked(target)
+		const category = (await opts.isTracked(target))
 			? "tracked-code"
 			: "untracked-in-tree";
 		return { category, treeRoot };

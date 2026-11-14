@@ -109,7 +109,7 @@ describe("the draft hold", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"edit",
 			{ path: join(repoRoot, "README.md") },
@@ -125,7 +125,7 @@ describe("the draft hold", () => {
 		await createQuestWithPlan(state);
 		trackRepo(state);
 
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"edit",
 			{ path: join(repoRoot, "README.md") },
@@ -145,14 +145,14 @@ describe("the draft hold", () => {
 		trackRepo(state);
 		const elsewhere = await makeRepo();
 		try {
-			const edit = enforceQuest(
+			const edit = await enforceQuest(
 				state,
 				"edit",
 				{ path: join(elsewhere, "README.md") },
 				elsewhere,
 				noScratch,
 			);
-			const commit = enforceQuest(
+			const commit = await enforceQuest(
 				state,
 				"bash",
 				{ command: "git commit -am fix" },
@@ -165,6 +165,58 @@ describe("the draft hold", () => {
 		} finally {
 			rmSync(elsewhere, { recursive: true, force: true });
 		}
+	});
+});
+
+// Git is asked off the loop now, since a host runs every conversation
+// on one loop and the gate's gits, started with execFileSync, held them
+// all on every write while a quest was loaded. Every plain pi runs the
+// gate too, so it has to refuse what it refused, word for word.
+describe("the gate, with git asked off the loop", () => {
+	it("refuses an edit of tracked code in draft with the answer it gave", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const verdict = await enforceQuest(
+			state,
+			"edit",
+			{ path: join(repoRoot, "README.md") },
+			repoRoot,
+			noScratch,
+		);
+
+		expect(verdict).toEqual({
+			guard: "quest-plan-stage",
+			block: true,
+			reason:
+				"Quest workflow (plan draft): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest's attachments/ or its scratch folder.",
+		});
+		expect(turned, "the loop turned while git answered").toBe(true);
+	});
+
+	it("refuses a write into a tree it doesn't track in build with the answer it gave", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+
+		const verdict = await enforceQuest(
+			state,
+			"bash",
+			{ command: `echo x > ${join(repoRoot, "README.md")}` },
+			repoRoot,
+			noScratch,
+		);
+
+		expect(verdict).toEqual({
+			guard: "quest-untracked-tree",
+			adopt: repoRoot,
+			block: true,
+			reason: `Quest workflow: this write lands in ${repoRoot}, a git tree this quest does not track yet. Register it so the quest accounts for it: run the quest tree-adopt action with cwd set to a path inside ${repoRoot}. You do not need to change your session's directory; the cwd parameter is the adoption target. Adopted trees are tracked and never auto-pruned. Do not unload the quest to bypass this.`,
+		});
 	});
 });
 
@@ -183,7 +235,7 @@ describe("build home gate", () => {
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		trackRepo(state);
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: join(repoRoot, "src/foo.ts") },
@@ -197,7 +249,7 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: join(repoRoot, "src/foo.ts") },
@@ -213,7 +265,7 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: state.documentPath ?? "" },
@@ -229,7 +281,7 @@ describe("build home gate", () => {
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		for (const rel of ["notes.md", "runs/2026-06-03.log"]) {
 			const p = join(state.questDir ?? "", rel);
-			const verdict = enforceQuest(
+			const verdict = await enforceQuest(
 				state,
 				"write",
 				{ path: p },
@@ -245,7 +297,7 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: join(tmpRoot, "outside.ts") },
@@ -269,21 +321,21 @@ describe("build home gate", () => {
 		recordOutsideWrites(workspaceRoot, state.questId, [noted]);
 		const options = { ...noScratch, workspaceRoot };
 
-		const again = enforceQuest(
+		const again = await enforceQuest(
 			state,
 			"write",
 			{ path: noted },
 			tmpRoot,
 			options,
 		);
-		const redirect = enforceQuest(
+		const redirect = await enforceQuest(
 			state,
 			"bash",
 			{ command: `echo {} > ${noted}` },
 			tmpRoot,
 			options,
 		);
-		const fresh = enforceQuest(
+		const fresh = await enforceQuest(
 			state,
 			"bash",
 			{ command: `echo {} > ${noted}; echo {} > ${join(tmpRoot, "new.json")}` },
@@ -303,7 +355,7 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"bash",
 			{ command: `cat > ${join(tmpRoot, "outside.ts")}` },
@@ -323,7 +375,7 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"bash",
 			{ command: `Q=${state.questDir}; echo hi >> $Q/attachments/P.md` },
@@ -340,7 +392,7 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"bash",
 			{ command: "echo hi >> $ELSEWHERE/notes.md" },
@@ -355,7 +407,7 @@ describe("build home gate", () => {
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		trackRepo(state);
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"bash",
 			{ command: `cat > ${join(repoRoot, "src/foo.ts")}` },
@@ -388,7 +440,7 @@ describe("workspace funnel", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"bash",
 			{ command: "echo hi > /dev/null 2>&1" },
@@ -401,7 +453,7 @@ describe("workspace funnel", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: "/tmp/repro.log" },
@@ -419,7 +471,7 @@ describe("workspace funnel", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"bash",
 			{ command: "go test ./... > /tmp/test.log 2>&1" },
@@ -434,7 +486,7 @@ describe("workspace funnel", () => {
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		for (const rel of ["tmp/run.log", "lab/results.csv"]) {
-			const verdict = enforceQuest(
+			const verdict = await enforceQuest(
 				state,
 				"write",
 				{ path: join(workspaceOf(state), rel) },
@@ -453,7 +505,7 @@ describe("workspace funnel", () => {
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		const other = join(defaultWorkspaceRoot(), "QEST-20260101-OTHER1");
 
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: join(other, "inbox/note.md") },
@@ -471,7 +523,7 @@ describe("workspace funnel", () => {
 		mkdirSync(linkRoot);
 		const dir = questTempDir(defaultWorkspaceRoot(), state.questId, linkRoot);
 
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: join(dir ?? "", "run.log") },
@@ -487,7 +539,7 @@ describe("workspace funnel", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		expect(state.documentStage).toBe("draft");
-		const verdict = enforceQuest(
+		const verdict = await enforceQuest(
 			state,
 			"write",
 			{ path: "/tmp/draft-repro.log" },
@@ -501,7 +553,7 @@ describe("workspace funnel", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		enforceQuest(state, "write", { path: "/tmp/seed.log" }, repoRoot);
+		await enforceQuest(state, "write", { path: "/tmp/seed.log" }, repoRoot);
 		const workspace = workspaceOf(state);
 		mkdirSync(join(workspace, "lab"));
 		writeFileSync(join(workspace, "lab", "results.csv"), "x\n");

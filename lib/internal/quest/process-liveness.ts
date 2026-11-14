@@ -21,7 +21,11 @@ import {
 } from "../../core/session/identity.ts";
 import { hostedStanding } from "../../core/session/registry.ts";
 import { sessionSlot } from "../../core/session/slot.ts";
-import { startTicksFromProcSync, type TickedOwner } from "../process-ticks.ts";
+import {
+	startSecondsFromProcSync,
+	startTicksFromProcSync,
+	type TickedOwner,
+} from "../process-ticks.ts";
 
 /** Stable identity of a recorded pi process. */
 export interface ProcessIdentity {
@@ -118,18 +122,66 @@ function readStartToken(pid: number): ProcessInspection {
 }
 
 /**
- * {@link readStartToken}, answering from procfs where it can: a pid
- * with no folder under /proc holds no process, so it is gone without
- * spawning `ps`. A host probes every recorded session on its one loop,
- * and each record whose pid was gone cost a spawn only to hear so
- * (3.1 s in a soak of twelve conversations, 13 November). Only while
- * procfs shows this very process, so a missing or hidden /proc is never
- * read as death.
+ * {@link readStartToken}, answered from procfs where it shows this very
+ * process, so a missing or hidden /proc is never read as death and
+ * falls back on `ps`. A pid with no folder under /proc holds no
+ * process, so it is gone; one with a folder is alive since the start
+ * ps would print. A host probes every recorded session on its one loop,
+ * and each `ps` held every conversation while it ran: 3.1 s in a soak
+ * of twelve conversations for pids that were gone, and 459 ms of one
+ * turn for ones that were not (13 November).
  */
 function inspectOnLinux(pid: number): ProcessInspection {
-	if (existsSync(`/proc/${process.pid}`) && !existsSync(`/proc/${pid}`))
-		return { kind: "gone" };
-	return readStartToken(pid);
+	if (!existsSync(`/proc/${process.pid}`)) return readStartToken(pid);
+	if (!existsSync(`/proc/${pid}`)) return { kind: "gone" };
+	const started = startSecondsFromProcSync(pid);
+	// Gone between the two reads, or a stat that would not parse: ps
+	// could say no more, so it is not asked.
+	if (started === undefined) return { kind: "unknown" };
+	return { kind: "alive", startToken: lstartOf(started) };
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const MONTHS = [
+	"Jan",
+	"Feb",
+	"Mar",
+	"Apr",
+	"May",
+	"Jun",
+	"Jul",
+	"Aug",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dec",
+] as const;
+const MS_PER_SECOND = 1000;
+
+/**
+ * A start in seconds since the epoch as `ps -o lstart=` prints it, in
+ * local time (`%a %b %e %H:%M:%S %Y`), so a token read from procfs is
+ * the one a record written through `ps` holds, character for character.
+ *
+ * The day and month names are always English, while `ps` names them
+ * as `LC_TIME` says. They match under an English or C locale, which is
+ * what every machine running this has. Under another locale a record
+ * `ps` wrote would read as another process's start, and `ps` would
+ * need `LC_TIME=C` wherever it still writes them (macOS).
+ */
+function lstartOf(seconds: number): string {
+	const at = new Date(seconds * MS_PER_SECOND);
+	const two = (n: number): string => String(n).padStart(2, "0");
+	const day = String(at.getDate()).padStart(2, " ");
+	const time = `${two(at.getHours())}:${two(at.getMinutes())}:${two(at.getSeconds())}`;
+	return `${WEEKDAYS[at.getDay()]} ${MONTHS[at.getMonth()]} ${day} ${time} ${at.getFullYear()}`;
+}
+
+/** The OS reader this machine has: procfs on Linux, `ps` elsewhere. */
+function inspectHere(pid: number): ProcessInspection {
+	return process.platform === "linux"
+		? inspectOnLinux(pid)
+		: readStartToken(pid);
 }
 
 /** Read the observable facts of a failed `ps` run off the thrown error. */
@@ -216,7 +268,8 @@ let processIdentityCache: ProcessIdentity | undefined;
  *
  * A process's own start token cannot change while it runs, so the
  * first real reading is remembered: a session start attaches more
- * than once and each reading is a synchronous `ps`. A failed reading
+ * than once, and where there is no procfs each reading is a synchronous
+ * `ps`. A failed reading
  * is not remembered, so a transient failure is retried next time.
  */
 export function currentProcessIdentity(
@@ -236,7 +289,7 @@ function readProcessIdentity(): ProcessIdentity | undefined {
 	const identity = identityFromInspection(
 		hostname(),
 		process.pid,
-		readStartToken(process.pid),
+		inspectHere(process.pid),
 	);
 	if (!identity) return undefined;
 	// Stamp the boot alongside the pid, so a later reader can retire
@@ -344,7 +397,7 @@ export function localProcessDeps(): ProbeProcessDeps {
 	const linux = process.platform === "linux";
 	return {
 		localHostId: hostname(),
-		inspect: linux ? inspectOnLinux : readStartToken,
+		inspect: inspectHere,
 		...(localBootToken ? { localBootToken } : {}),
 		...(linux ? { startTicks: startTicksFromProcSync } : {}),
 	};

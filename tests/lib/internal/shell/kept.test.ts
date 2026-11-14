@@ -46,23 +46,42 @@ function folder(): string {
 	return join(dir, "kept");
 }
 
-/** A folder holding only a `tee` that ends with `status`, as a PATH. */
-function teeEnding(status: number): string {
+/**
+ * A folder holding only a `tee` that ends with `status`, as a PATH,
+ * after `before` of the shell's own commands.
+ */
+function teeEnding(status: number, before = ""): string {
 	const dir = mkdtempSync(join(tmpdir(), "tee-"));
 	made.push(dir);
 	const tee = join(dir, "tee");
-	writeFileSync(tee, `#!/bin/sh\nexit ${status}\n`);
+	writeFileSync(tee, `#!/bin/sh\n${before}\nexit ${status}\n`);
 	chmodSync(tee, PRIVATE_FOLDER);
 	return dir;
 }
 
 describe("whether tee persists", () => {
-	it("answers for the tee each PATH finds", () => {
+	it("answers for the tee each PATH finds", async () => {
 		const persists = teeEnding(0);
 		const refuses = teeEnding(1);
-		expect(teePersists(persists), "a tee that writes on persists").toBe(true);
-		expect(teePersists(refuses), "a tee that stops does not").toBe(false);
-		expect(teePersists(persists), "each answer kept apart").toBe(true);
+		expect(await teePersists(persists), "a tee that writes on persists").toBe(
+			true,
+		);
+		expect(await teePersists(refuses), "a tee that stops does not").toBe(false);
+		expect(await teePersists(persists), "each answer kept apart").toBe(true);
+	});
+
+	// It is asked as a bash call starts, and in a host the loop it would
+	// hold is every conversation's: 412 ms of one turn in a soak of twelve
+	// (13 November).
+	it("leaves the loop free while tee answers", async () => {
+		const slow = teeEnding(0, "sleep 0.3");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+		const answer = await teePersists(slow);
+		expect(turned, "the loop turned before tee answered").toBe(true);
+		expect(answer, "whether tee writes on").toBe(true);
 	});
 });
 

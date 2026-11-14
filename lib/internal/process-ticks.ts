@@ -17,6 +17,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { endianness } from "node:os";
 import {
 	askedOnce,
 	type Owner,
@@ -95,6 +96,72 @@ export function startTicksFromProcSync(pid: number): number | undefined {
 		// No such process, or no /proc: as startTicksFromProc.
 		return undefined;
 	}
+}
+
+/**
+ * When a process started, in whole seconds since the epoch, read from
+ * procfs at once: the boot time `/proc/stat` gives plus the process's
+ * start in ticks, whole seconds only, which is the arithmetic `ps` does
+ * for `lstart` (procps's pr_lstart). Nothing when either can't be read.
+ */
+export function startSecondsFromProcSync(pid: number): number | undefined {
+	const ticks = startTicksFromProcSync(pid);
+	if (ticks === undefined) return undefined;
+	let system: string;
+	try {
+		system = readFileSync("/proc/stat", "utf8");
+	} catch {
+		// No /proc/stat: no boot time to count from.
+		return undefined;
+	}
+	const boot = Number(/^btime (\d+)$/m.exec(system)?.[1]);
+	if (!Number.isSafeInteger(boot)) return undefined;
+	return boot + Math.floor(ticks / ticksPerSecond());
+}
+
+/** The auxiliary vector's key for the clock ticks per second (AT_CLKTCK). */
+const AT_CLKTCK = 17n;
+/** One auxiliary vector entry on a 64-bit machine: a key and a value. */
+const AUXV_ENTRY_BYTES = 16;
+const AUXV_WORD_BYTES = 8;
+/** What every Linux on x86 and Arm counts in, where the vector can't say. */
+const USER_HZ = 100;
+
+let ticksOnce: number | undefined;
+
+/**
+ * Clock ticks per second, as the kernel handed this process at exec in
+ * its auxiliary vector, which is where sysconf(_SC_CLK_TCK) reads it:
+ * read from a file, since asking getconf would start a child on pi's
+ * loop. A 32-bit machine's vector, or none, answers 100.
+ */
+function ticksPerSecond(): number {
+	ticksOnce ??= clockTicksFromAuxv() ?? USER_HZ;
+	return ticksOnce;
+}
+
+function clockTicksFromAuxv(): number | undefined {
+	if (!process.arch.endsWith("64")) return undefined;
+	let vector: Buffer;
+	try {
+		vector = readFileSync("/proc/self/auxv");
+	} catch {
+		// No procfs: the usual count stands.
+		return undefined;
+	}
+	const little = endianness() === "LE";
+	const word = (at: number): bigint =>
+		little ? vector.readBigUInt64LE(at) : vector.readBigUInt64BE(at);
+	for (
+		let at = 0;
+		at + AUXV_ENTRY_BYTES <= vector.length;
+		at += AUXV_ENTRY_BYTES
+	) {
+		if (word(at) !== AT_CLKTCK) continue;
+		const ticks = Number(word(at + AUXV_WORD_BYTES));
+		return ticks > 0 ? ticks : undefined;
+	}
+	return undefined;
 }
 
 /** The start ticks in one `/proc/<pid>/stat` line. */

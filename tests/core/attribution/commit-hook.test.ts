@@ -218,6 +218,50 @@ describe("ensureCommitHook", () => {
 		await ensureCommitHook(loose, installed, OPTIONS);
 		expect(installed.size, "folders remembered").toBe(0);
 	});
+
+	// Every bash call asks, and a folder in no repo was never remembered,
+	// so each call there started a git forked from pi's loop: in a host,
+	// the loop every conversation waits on, 442 ms of one turn in a soak
+	// of twelve (13 November).
+	it("asks git nothing for a directory outside any git repo, however often", async () => {
+		const loose = tempDir();
+		const installed = new Set<string>();
+
+		const calls = await gitCallsDuring(async () => {
+			await ensureCommitHook(loose, installed, OPTIONS);
+			await ensureCommitHook(loose, installed, OPTIONS);
+		});
+
+		expect(calls, "git processes started").toBe(0);
+	});
+
+	it("asks git nothing for a new folder of a repo it has handled", async () => {
+		const repo = initRepo();
+		const first = join(repo, "a");
+		const second = join(repo, "b");
+		mkdirSync(first);
+		mkdirSync(second);
+		const installed = new Set<string>();
+		await ensureCommitHook(first, installed, OPTIONS);
+
+		const calls = await gitCallsDuring(() =>
+			ensureCommitHook(second, installed, OPTIONS),
+		);
+
+		expect(calls, "git processes started").toBe(0);
+	});
+
+	it("covers a repo made in a folder it found none in", async () => {
+		const repo = tempDir();
+		const installed = new Set<string>();
+		await ensureCommitHook(repo, installed, OPTIONS);
+		execFileSync("git", ["-C", repo, "init", "-q"]);
+
+		await ensureCommitHook(repo, installed, OPTIONS);
+
+		const hook = join(repo, ".git/hooks/prepare-commit-msg");
+		expect(existsSync(hook), `${hook} exists`).toBe(true);
+	});
 });
 
 describe("installCommitHook", () => {

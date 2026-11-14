@@ -19,10 +19,11 @@ import {
 	chmodSync,
 	existsSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 /**
  * How an adapter's hook decides whether to attribute a commit, and
@@ -156,13 +157,18 @@ export const GIT_PROBE_TIMEOUT_MS = 2000;
  * not remembered, so a repo initialised there later is still
  * covered. This is how hook coverage follows the session into repos
  * it later cds into, rather than only the repo the session started
- * in. A first visit costs one git call and a repeat costs none.
+ * in. A first visit to a repo costs one git call, and a repeat, or a
+ * folder in no repo, costs none.
  *
  * The call is asynchronous, so pi's loop stays free while git answers:
  * a host runs every conversation on one loop, and a soak of twelve
  * spent 4.9 s of it in this probe's synchronous spawn (13 November).
- * The install itself follows the answer synchronously, so two calls
- * awaiting the same repo cannot both install into it.
+ * Even so, every child is forked from that loop, and a folder in no
+ * repo, never remembered, started a git on every command there: 442 ms
+ * of one turn in the next soak. So the repo is found first by looking
+ * for its `.git` up the folders, and git is asked only of a repo not
+ * yet seen. The install itself follows the answer synchronously, so
+ * two calls awaiting the same repo cannot both install into it.
  */
 export async function ensureCommitHook(
 	dir: string,
@@ -170,6 +176,12 @@ export async function ensureCommitHook(
 	options: CommitHookOptions,
 ): Promise<void> {
 	if (installed.has(dir)) return;
+	const found = checkoutAbove(dir);
+	if (found === undefined) return;
+	if (installed.has(found)) {
+		installed.add(dir);
+		return;
+	}
 	const layout = await askHooks(dir);
 	// A git that never answered is not asked about this directory again
 	// this session: its commits go unhooked, which costs a trailer,
@@ -186,12 +198,37 @@ export async function ensureCommitHook(
 	// why it passed on one machine and failed on penelope (8 November).
 	const rootSeen = installed.has(layout.root);
 	installed.add(dir);
+	// The folder found is noted too, so another folder of the repo finds
+	// it without asking, however git spells the root.
+	installed.add(found);
 	if (rootSeen) return;
 	installed.add(layout.root);
 	try {
 		installInto(layout, options);
 	} catch {
 		// Best-effort: never let hook installation break a command.
+	}
+}
+
+/**
+ * The nearest folder at or above `dir`, symlinks resolved as git
+ * resolves them, that holds a `.git` (a repo's folder, or a worktree's
+ * file), or nothing when none does and no git could find a working tree
+ * there. Read from the files, so a folder in no repo asks git nothing.
+ */
+function checkoutAbove(dir: string): string | undefined {
+	let at: string;
+	try {
+		at = realpathSync(dir);
+	} catch {
+		// A folder that is gone holds no repo to hook.
+		return undefined;
+	}
+	for (;;) {
+		if (existsSync(join(at, ".git"))) return at;
+		const parent = dirname(at);
+		if (parent === at) return undefined;
+		at = parent;
 	}
 }
 

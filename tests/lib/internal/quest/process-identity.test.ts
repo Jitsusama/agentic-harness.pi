@@ -67,3 +67,71 @@ describe("localProcessDeps", () => {
 		expect(probeProcess(me, localProcessDeps())).toBe("matching");
 	});
 });
+
+// A host probes every recorded session on its one loop, and each ps it
+// started held every conversation while it ran: 459 ms of one turn in a
+// soak of twelve (13 November). Where procfs shows the process, it
+// answers as ps would, with no child at all.
+describe.runIf(existsSync(`/proc/${process.pid}/stat`))(
+	"inspecting a pid where procfs shows it",
+	() => {
+		function psCalls(): number {
+			return spawned.mock.calls.filter(([cmd]) => cmd === "ps").length;
+		}
+
+		it("reads a live pid's start as ps prints it, without starting ps", () => {
+			const printed = execFileSync(
+				"ps",
+				["-o", "lstart=", "-p", String(process.pid)],
+				{ encoding: "utf8" },
+			).trim();
+			spawned.mockClear();
+
+			const found = localProcessDeps().inspect(process.pid);
+
+			expect(found).toEqual({ kind: "alive", startToken: printed });
+			expect(psCalls(), "no ps started").toBe(0);
+		});
+
+		it("reads the first process's start as ps prints it too", () => {
+			const printed = execFileSync("ps", ["-o", "lstart=", "-p", "1"], {
+				encoding: "utf8",
+			}).trim();
+			spawned.mockClear();
+
+			expect(localProcessDeps().inspect(1)).toEqual({
+				kind: "alive",
+				startToken: printed,
+			});
+			expect(psCalls(), "no ps started").toBe(0);
+		});
+
+		it("reads a pid nothing holds as gone, without starting ps", () => {
+			spawned.mockClear();
+			// Past any pid_max the kernel allows, so nothing can hold it.
+			expect(localProcessDeps().inspect(2 ** 23)).toEqual({ kind: "gone" });
+			expect(psCalls(), "no ps started").toBe(0);
+		});
+
+		it("reads its own identity without starting ps", async () => {
+			const known = currentProcessIdentity()?.startToken;
+			// A load of its own, whose identity is not yet remembered, beside
+			// the child_process it loads with.
+			vi.resetModules();
+			const children = await import("node:child_process");
+			const fresh = await import(
+				"../../../../lib/internal/quest/process-liveness.ts"
+			);
+			const started = vi.mocked(children.execFileSync);
+			started.mockClear();
+
+			const me = fresh.currentProcessIdentity();
+
+			expect(me?.startToken).toBe(known);
+			expect(
+				started.mock.calls.filter(([cmd]) => cmd === "ps"),
+				"no ps started",
+			).toEqual([]);
+		});
+	},
+);

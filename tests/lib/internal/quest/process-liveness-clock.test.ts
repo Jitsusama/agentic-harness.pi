@@ -54,27 +54,73 @@ describe("a process probe that never answers", () => {
 		rmSync(bin, { recursive: true, force: true });
 	});
 
-	it("gives up on reading this process's identity at its clock", async () => {
-		const liveness = await fresh();
-		hang("ps");
-		const { answer, took } = timed(() => liveness.currentProcessIdentity());
-		expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
-		expect(answer).toBeUndefined();
-	}, 40_000);
+	// Where /proc answers, ps isn't asked at all: a host read each start
+	// time through a synchronous ps, 459 ms of one turn in a soak of
+	// twelve (13 November). These two hold where ps still is.
+	it.skipIf(process.platform === "linux")(
+		"gives up on reading this process's identity at its clock",
+		async () => {
+			const liveness = await fresh();
+			hang("ps");
+			const { answer, took } = timed(() => liveness.currentProcessIdentity());
+			expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
+			expect(answer).toBeUndefined();
+		},
+		40_000,
+	);
 
-	it("calls a recorded process unknown, not gone, when ps will not say", async () => {
-		const liveness = await fresh();
-		const deps = liveness.localProcessDeps();
-		hang("ps");
-		const recorded = {
-			hostId: deps.localHostId,
-			pid: process.pid,
-			startToken: "whenever",
-		};
-		const { answer, took } = timed(() => liveness.probeProcess(recorded, deps));
-		expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
-		expect(answer).toBe("unknown");
-	}, 40_000);
+	it.skipIf(process.platform === "linux")(
+		"calls a recorded process unknown, not gone, when ps will not say",
+		async () => {
+			const liveness = await fresh();
+			const deps = liveness.localProcessDeps();
+			hang("ps");
+			const recorded = {
+				hostId: deps.localHostId,
+				pid: process.pid,
+				startToken: "whenever",
+			};
+			const { answer, took } = timed(() =>
+				liveness.probeProcess(recorded, deps),
+			);
+			expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
+			expect(answer).toBe("unknown");
+		},
+		40_000,
+	);
+
+	it.skipIf(process.platform !== "linux")(
+		"reads this process's identity from /proc while ps hangs",
+		async () => {
+			const liveness = await fresh();
+			hang("ps");
+			const { answer, took } = timed(() => liveness.currentProcessIdentity());
+			expect(answer?.pid, "this process's identity").toBe(process.pid);
+			expect(took, "how long the reading took").toBeLessThan(500);
+		},
+		40_000,
+	);
+
+	it.skipIf(process.platform !== "linux")(
+		"knows a live process from /proc while ps hangs",
+		async () => {
+			const liveness = await fresh();
+			const deps = liveness.localProcessDeps();
+			const own = liveness.currentProcessIdentity();
+			hang("ps");
+			const recorded = {
+				hostId: deps.localHostId,
+				pid: process.pid,
+				startToken: own?.startToken ?? "unread",
+			};
+			const { answer, took } = timed(() =>
+				liveness.probeProcess(recorded, deps),
+			);
+			expect(answer, "the verdict on this live process").toBe("matching");
+			expect(took, "how long the verdict took").toBeLessThan(500);
+		},
+		40_000,
+	);
 
 	// A host probes every recorded session on its one loop, and a record
 	// whose pid is gone has no ticks to read, so each fell through to a

@@ -81,14 +81,20 @@ export function stashRefusal(stripped: string): string | undefined {
  * A file only a `touch` names is left out too: it changes when the file
  * changed, never what it holds, and agents touch sources to make cargo
  * rebuild them (15 of the 38 overrides found from 4 to 8 November).
+ *
+ * Git is asked off the loop, and not at all for a target in no
+ * checkout: this runs before every bash call, and its git started with
+ * execFileSync held a host's every conversation while it answered.
  */
-export function trackedShellEdits(
+export async function trackedShellEdits(
 	command: string,
 	place: CommandPlace,
-	tracked: (path: string) => boolean = isTracked,
-): string[] {
+	tracked: (path: string) => Promise<boolean> = isTracked,
+): Promise<string[]> {
 	const { paths, touched } = resolveBashWrites(command, place);
-	return paths.filter((path) => !touched.includes(path)).filter(tracked);
+	const named = paths.filter((path) => !touched.includes(path));
+	const answers = await Promise.all(named.map(tracked));
+	return named.filter((_, at) => answers[at]);
 }
 
 /** Why a command that rewrites tracked files from the shell is refused. */

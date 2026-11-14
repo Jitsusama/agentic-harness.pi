@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
@@ -9,7 +11,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import {
 	gitTreeRootOf,
 	isGitignored,
@@ -17,6 +28,7 @@ import {
 	isTracked,
 	isWithin,
 	trackedTreeRoot,
+	treeRootOf,
 } from "../../../../lib/internal/quest/git-signals.ts";
 import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox.ts";
 
@@ -131,106 +143,176 @@ describe("trackedTreeRoot", () => {
 		const asked: string[] = [];
 		return {
 			asked,
-			rootOf: (p: string) => {
+			rootOf: async (p: string) => {
 				asked.push(p);
 				return answer;
 			},
 		};
 	}
 
-	it("takes a tree holding a .git entry as its own root without asking git", () => {
+	it("takes a tree holding a .git entry as its own root without asking git", async () => {
 		// Asked of every tracked tree on every write, once per tree: a quest
 		// tracking 87 trees ran 87 git processes on pi's input path per write.
 		const git = counting("/somewhere/else");
 
-		expect(trackedTreeRoot(repo, git.rootOf)).toBe(realpathSync(repo));
+		expect(await trackedTreeRoot(repo, git.rootOf)).toBe(realpathSync(repo));
 		expect(git.asked).toEqual([]);
 	});
 
-	it("takes a linked worktree, whose .git is a file, as its own root too", () => {
+	it("takes a linked worktree, whose .git is a file, as its own root too", async () => {
 		const linked = mkdtempSync(path.join(tmpdir(), "tracked-root-linked-"));
 		writeFileSync(path.join(linked, ".git"), "gitdir: /elsewhere\n");
 		const git = counting(null);
 		try {
-			expect(trackedTreeRoot(linked, git.rootOf)).toBe(realpathSync(linked));
+			expect(await trackedTreeRoot(linked, git.rootOf)).toBe(
+				realpathSync(linked),
+			);
 			expect(git.asked).toEqual([]);
 		} finally {
 			rmSync(linked, { recursive: true, force: true });
 		}
 	});
 
-	it("asks git for a tracked directory inside a tree", () => {
+	it("asks git for a tracked directory inside a tree", async () => {
 		const git = counting(repo);
 
-		expect(trackedTreeRoot(path.join(repo, "src"), git.rootOf)).toBe(
+		expect(await trackedTreeRoot(path.join(repo, "src"), git.rootOf)).toBe(
 			realpathSync(repo),
 		);
 		expect(git.asked).toEqual([path.join(repo, "src")]);
 	});
 
-	it("keeps the path itself when git has no root for it", () => {
-		expect(trackedTreeRoot(outside, counting(null).rootOf)).toBe(
+	it("keeps the path itself when git has no root for it", async () => {
+		expect(await trackedTreeRoot(outside, counting(null).rootOf)).toBe(
 			realpathSync(outside),
 		);
 	});
 
-	it("answers as git does, with git really asked", () => {
-		expect(trackedTreeRoot(path.join(repo, "src"))).toBe(realpathSync(repo));
-		expect(trackedTreeRoot(repo)).toBe(gitTreeRootOf(repo));
+	it("answers as git does, with git really asked", async () => {
+		expect(await trackedTreeRoot(path.join(repo, "src"))).toBe(
+			realpathSync(repo),
+		);
+		expect(await trackedTreeRoot(repo)).toBe(gitTreeRootOf(repo));
+	});
+});
+
+describe("treeRootOf", () => {
+	it("answers as gitTreeRootOf does", async () => {
+		for (const asked of [
+			repo,
+			path.join(repo, "src"),
+			path.join(repo, "src", "new.ts"),
+			outside,
+			path.join(outside, "loose.ts"),
+		]) {
+			expect(await treeRootOf(asked), asked).toBe(gitTreeRootOf(asked));
+		}
 	});
 });
 
 describe("isGitignored", () => {
-	it("is true for an ignored path", () => {
+	it("is true for an ignored path", async () => {
 		expect(
-			isGitignored(path.join(repo, "build.log")),
+			await isGitignored(path.join(repo, "build.log")),
 			"build.log is ignored by *.log",
 		).toBe(true);
 		expect(
-			isGitignored(path.join(repo, "ignored", "x.ts")),
+			await isGitignored(path.join(repo, "ignored", "x.ts")),
 			"ignored/x.ts is ignored by ignored/",
 		).toBe(true);
 	});
 
-	it("is false for a tracked or merely untracked path", () => {
+	it("is false for a tracked or merely untracked path", async () => {
 		expect(
-			isGitignored(path.join(repo, "src", "tracked.ts")),
+			await isGitignored(path.join(repo, "src", "tracked.ts")),
 			"the tracked src/tracked.ts is not ignored",
 		).toBe(false);
 		expect(
-			isGitignored(path.join(repo, "src", "brand-new.ts")),
+			await isGitignored(path.join(repo, "src", "brand-new.ts")),
 			"the untracked src/brand-new.ts is not ignored",
 		).toBe(false);
 	});
 
-	it("is false outside a repository", () => {
+	it("is false outside a repository", async () => {
 		expect(
-			isGitignored(path.join(outside, "x.log")),
+			await isGitignored(path.join(outside, "x.log")),
 			`${outside}/x.log, in no repository, is not ignored`,
 		).toBe(false);
 	});
 });
 
 describe("isTracked", () => {
-	it("is true for a committed path", () => {
+	it("is true for a committed path", async () => {
 		expect(
-			isTracked(path.join(repo, "src", "tracked.ts")),
+			await isTracked(path.join(repo, "src", "tracked.ts")),
 			"the committed src/tracked.ts is tracked",
 		).toBe(true);
 	});
 
-	it("is false for a new untracked path", () => {
+	it("is false for a new untracked path", async () => {
 		expect(
-			isTracked(path.join(repo, "src", "brand-new.ts")),
+			await isTracked(path.join(repo, "src", "brand-new.ts")),
 			"the new src/brand-new.ts is not tracked",
 		).toBe(false);
 	});
 
-	it("is false outside a repository", () => {
+	it("is false outside a repository", async () => {
 		expect(
-			isTracked(path.join(outside, "x.ts")),
+			await isTracked(path.join(outside, "x.ts")),
 			`${outside}/x.ts, in no repository, is not tracked`,
 		).toBe(false);
+	});
+});
+
+// The write gate and the shell-habit interceptor ask these of every
+// write, on the loop a host runs every conversation on, where a git
+// started with execFileSync held all of them until it answered. A fake
+// git stands in: one that notes it ran, and takes its time to answer.
+describe("asking git of a write's target", () => {
+	let bin: string;
+	let ran: string;
+	let checkout: string;
+	let saved: string | undefined;
+
+	beforeEach(() => {
+		bin = mkdtempSync(path.join(tmpdir(), "git-signals-bin-"));
+		ran = path.join(bin, "ran");
+		const git = path.join(bin, "git");
+		writeFileSync(git, `#!/bin/sh\necho ran >> ${ran}\nsleep 0.3\nexit 0\n`);
+		chmodSync(git, 0o755);
+		checkout = mkdtempSync(path.join(tmpdir(), "git-signals-checkout-"));
+		mkdirSync(path.join(checkout, ".git"));
+		saved = process.env.PATH;
+		process.env.PATH = `${bin}${path.delimiter}${saved ?? ""}`;
+	});
+
+	afterEach(() => {
+		process.env.PATH = saved;
+		rmSync(bin, { recursive: true, force: true });
+		rmSync(checkout, { recursive: true, force: true });
+	});
+
+	it("starts no git for a target with no checkout above it", async () => {
+		const loose = path.join(outside, "x.log");
+
+		await isTracked(loose);
+		await isGitignored(loose);
+		await treeRootOf(loose);
+
+		expect(existsSync(ran), "a git was started").toBe(false);
+	});
+
+	it("leaves the loop free while git answers", async () => {
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const tracked = await isTracked(path.join(checkout, "a.ts"));
+
+		expect(existsSync(ran), "git was asked").toBe(true);
+		expect(turned, "the loop turned while git answered").toBe(true);
+		expect(tracked, "git's answer").toBe(true);
 	});
 });
 

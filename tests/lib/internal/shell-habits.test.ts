@@ -181,7 +181,7 @@ describe("a tracked file rewritten from the shell", () => {
 	beforeEach(() => vi.stubEnv(SANDBOX_VARIABLE, ""));
 	afterEach(() => vi.unstubAllEnvs());
 
-	it("is found by each way the shell rewrites a file", () => {
+	it("is found by each way the shell rewrites a file", async () => {
 		const file = join(repo, "a.test.ts");
 		for (const command of [
 			`cat >> ${file} <<'EOF'\nit();\nEOF`,
@@ -190,41 +190,56 @@ describe("a tracked file rewritten from the shell", () => {
 			`sed -i 's/a/b/' ${file}`,
 			`perl -pi -e 's/a/b/' ${file}`,
 		]) {
-			expect(edits(command), command).toEqual([file]);
+			expect(await edits(command), command).toEqual([file]);
 		}
 	});
 
-	it("is placed where the command changes directory to", () => {
-		expect(edits(`cd ${repo} && cat >> a.test.ts <<'EOF'\nx\nEOF`)).toEqual([
-			join(repo, "a.test.ts"),
-		]);
+	it("is placed where the command changes directory to", async () => {
+		expect(
+			await edits(`cd ${repo} && cat >> a.test.ts <<'EOF'\nx\nEOF`),
+		).toEqual([join(repo, "a.test.ts")]);
 	});
 
-	it("leaves alone a new file, scratch, and a mere read", () => {
+	// Asked before every bash call, and a git started with execFileSync
+	// held a host's every conversation while it answered: 13 November's
+	// guard test found one asked of a log in no repo.
+	it("leaves the loop free while it asks", async () => {
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const found = await edits(`echo x > ${join(repo, "a.test.ts")}`);
+
+		expect(found).toEqual([join(repo, "a.test.ts")]);
+		expect(turned, "the loop turned while git answered").toBe(true);
+	});
+
+	it("leaves alone a new file, scratch, and a mere read", async () => {
 		for (const command of [
 			`cat > ${join(repo, "zz-debug.test.ts")} <<'EOF'\nx\nEOF`,
 			`cd ${repo} && pnpm test > /tmp/run.log 2>&1`,
 			`grep -n it ${join(repo, "a.test.ts")} > /dev/null`,
 			`echo "> ${join(repo, "a.test.ts")}"`,
 		]) {
-			expect(edits(command), command).toEqual([]);
+			expect(await edits(command), command).toEqual([]);
 		}
 	});
 
 	// 4 to 8 November: 15 of the 38 overrides whose command was found
 	// were a touch, to make cargo rebuild what it had cached.
-	it("leaves alone a touch, which changes when a file changed and not what it holds", () => {
+	it("leaves alone a touch, which changes when a file changed and not what it holds", async () => {
 		for (const command of [
 			`touch ${join(repo, "a.test.ts")}`,
 			`cd ${repo} && touch *.ts && pnpm test > /tmp/run.log 2>&1`,
 		]) {
-			expect(edits(command), command).toEqual([]);
+			expect(await edits(command), command).toEqual([]);
 		}
 	});
 
-	it("still finds a rewrite of a file the same command touches", () => {
+	it("still finds a rewrite of a file the same command touches", async () => {
 		const file = join(repo, "a.test.ts");
-		expect(edits(`touch ${file} && echo x > ${file}`)).toEqual([file]);
+		expect(await edits(`touch ${file} && echo x > ${file}`)).toEqual([file]);
 	});
 
 	it("names each file and the tools to use instead", () => {

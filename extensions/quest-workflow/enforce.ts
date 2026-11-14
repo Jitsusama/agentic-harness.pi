@@ -50,11 +50,11 @@ import {
 } from "../../lib/internal/quest/document-reads.ts";
 import {
 	canonicalPath,
-	gitTreeRootOf,
 	isGitignored,
 	isTracked,
 	isWithin,
 	trackedTreeRoot,
+	treeRootOf,
 } from "../../lib/internal/quest/git-signals.ts";
 import {
 	applyEdits,
@@ -127,18 +127,25 @@ function writeTargetsOf(
  * names it as the place to redirect. Writes anywhere in the workspace
  * classify as quest scratch, not system temp, so they flow.
  */
-function systemTempFunnel(
+async function systemTempFunnel(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): QuestVerdict | undefined {
+): Promise<QuestVerdict | undefined> {
 	const root = options.workspaceRoot ?? defaultWorkspaceRoot();
 	if (!state.questDir || !workspaceDirOf(root, state.questId)) return;
-	const inTemp = writeTargetsOf(toolName, input, cwd, options).filter(
-		(t) => classifyTarget(state, t, options).category === "system-temp",
+	const targets = writeTargetsOf(toolName, input, cwd, options);
+	const classified = await Promise.all(
+		targets.map(async (target) => ({
+			target,
+			category: (await classifyTarget(state, target, options)).category,
+		})),
 	);
+	const inTemp = classified
+		.filter((each) => each.category === "system-temp")
+		.map((each) => each.target);
 	if (inTemp.length === 0) return;
 	const dir = ensureQuestWorkspaceTmp(root, state.questId ?? "");
 	return {
@@ -193,12 +200,17 @@ export interface EnforceOptions {
 	byScript?: boolean;
 }
 
-/** Classify a write target against the loaded quest and git signals. */
+/**
+ * Classify a write target against the loaded quest and git signals,
+ * with git asked off the loop: this runs on every write while a quest is
+ * loaded, and its gits started with execFileSync held a host's every
+ * conversation.
+ */
 function classifyTarget(
 	state: QuestState,
 	absTarget: string,
 	options: EnforceOptions,
-): WriteClassification {
+): Promise<WriteClassification> {
 	const tempRoots = (options.tempRoots ?? defaultTempRoots()).map(canonical);
 	// Every quest's workspace is scratch, never system temp and never
 	// homeless in build: a workspace holds no record and no code home.
@@ -216,7 +228,7 @@ function classifyTarget(
 		tempRoots,
 		isGitignored,
 		isTracked,
-		gitTreeRootOf,
+		gitTreeRootOf: treeRootOf,
 	});
 }
 
@@ -228,8 +240,11 @@ function classifyTarget(
  * sent the agent to unfocus and retry. A quest that tracks no tree yet
  * has not said where its code lives, so every tree is held.
  */
-function holdsTree(state: QuestState, root: string | undefined): boolean {
-	const tracked = trackedTreePaths(state);
+async function holdsTree(
+	state: QuestState,
+	root: string | undefined,
+): Promise<boolean> {
+	const tracked = await trackedTreePaths(state);
 	if (tracked.length === 0) return true;
 	return root !== undefined && tracked.some((p) => isWithin(root, p));
 }
@@ -240,20 +255,20 @@ function holdsTree(state: QuestState, root: string | undefined): boolean {
  * quest-internal files, scratch and brand-new (untracked) files all
  * flow, so drafting and scratch exploration are never cornered.
  */
-function enforcePhase(
+async function enforcePhase(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): QuestVerdict | undefined {
+): Promise<QuestVerdict | undefined> {
 	if (toolName === "write" || toolName === "edit") {
 		if (isFocusedDocWrite(toolName, input, state.documentPath, cwd)) return;
 		const target = path.resolve(cwd, String(input.path ?? ""));
-		const classification = classifyTarget(state, target, options);
+		const classification = await classifyTarget(state, target, options);
 		if (
 			classification.category === "tracked-code" &&
-			holdsTree(state, classification.treeRoot)
+			(await holdsTree(state, classification.treeRoot))
 		) {
 			return {
 				guard: GUARDS.questPlanStage.name,
@@ -269,7 +284,7 @@ function enforcePhase(
 		const kind = classifyBashWrite(command);
 		if (
 			kind === "git-mutating" &&
-			holdsTree(state, gitTreeRootOf(cwd) ?? undefined)
+			(await holdsTree(state, (await treeRootOf(cwd)) ?? undefined))
 		) {
 			return {
 				guard: GUARDS.questPlanStage.name,
@@ -278,12 +293,19 @@ function enforcePhase(
 			};
 		}
 		if (kind === "bash-write") {
-			const lands = writeTargetsOf(toolName, input, cwd, options)
-				.map((t) => classifyTarget(state, t, options))
-				.some(
-					(c) => c.category === "tracked-code" && holdsTree(state, c.treeRoot),
-				);
-			if (lands) {
+			const classified = await Promise.all(
+				writeTargetsOf(toolName, input, cwd, options).map((t) =>
+					classifyTarget(state, t, options),
+				),
+			);
+			const held = await Promise.all(
+				classified.map(
+					async (c) =>
+						c.category === "tracked-code" &&
+						(await holdsTree(state, c.treeRoot)),
+				),
+			);
+			if (held.includes(true)) {
 				return {
 					guard: GUARDS.questPlanStage.name,
 					block: true,
@@ -314,7 +336,7 @@ function enforcePhase(
  * tree, or once the agent adopts the tree it is in, the block never
  * fires again.
  */
-function trackedTreePaths(state: QuestState): string[] {
+async function trackedTreePaths(state: QuestState): Promise<string[]> {
 	if (!state.questDir) return [];
 	const result = listTreesOnQuest(state.questDir);
 	if (!result.ok) return [];
@@ -324,19 +346,21 @@ function trackedTreePaths(state: QuestState): string[] {
 	// path that is not inside a git tree.
 	// Only this machine's: another machine's tree, seen through a shared
 	// quest, can read as a path here that is some other checkout.
-	return treesHere(result.trees).map((t) => trackedTreeRoot(t.path));
+	return Promise.all(
+		treesHere(result.trees).map((t) => trackedTreeRoot(t.path)),
+	);
 }
 
-function enforceHome(
+async function enforceHome(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): QuestVerdict | undefined {
+): Promise<QuestVerdict | undefined> {
 	if (!state.questDir || !state.questId) return;
 	if (state.documentKind !== "plan" || state.documentStage !== "build") return;
-	const tracked = trackedTreePaths(state);
+	const tracked = await trackedTreePaths(state);
 	const looseBlock = (outside: string[]): QuestVerdict => ({
 		guard: GUARDS.questHomeless.name,
 		block: true,
@@ -364,11 +388,11 @@ function enforceHome(
 		);
 		return noted.has(target);
 	};
-	const verdict = (target: string): QuestVerdict | undefined => {
+	const verdict = async (target: string): Promise<QuestVerdict | undefined> => {
 		// Every quest's folder holds its record, whichever quest is loaded,
 		// and the record gate has already judged the write.
 		if (isWithin(target, state.questsRoot)) return;
-		const classification = classifyTarget(state, target, options);
+		const classification = await classifyTarget(state, target, options);
 		if (classification.category === "loose-file") {
 			if (!notedAlready(target)) loose.push(target);
 			return;
@@ -379,7 +403,7 @@ function enforceHome(
 		return adoptBlock(root);
 	};
 	for (const target of writeTargetsOf(toolName, input, cwd, options)) {
-		const result = verdict(target);
+		const result = await verdict(target);
 		if (result) return result;
 	}
 	return loose.length > 0 ? looseBlock(loose) : undefined;
@@ -593,38 +617,39 @@ function enforceDocumentReads(
  * record, the document reads, then system temp, then the plan stage or
  * the build home. The
  * caller applies each guard's mode, so a gate that is off or relents
- * does not hide the ones after it.
+ * does not hide the ones after it. What git is asked is asked off the
+ * loop, and not at all for a target in no checkout.
  */
-export function questVerdicts(
+export async function questVerdicts(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions = {},
-): QuestVerdict[] {
+): Promise<QuestVerdict[]> {
 	const verdicts = [
 		enforceRecord(state, toolName, input, cwd, options),
 		enforceOwnedFields(state, toolName, input, cwd, options),
 		enforceDocumentReads(state, toolName, input, cwd, options),
 	];
 	if (isGateActive(state)) {
-		verdicts.push(systemTempFunnel(state, toolName, input, cwd, options));
+		verdicts.push(await systemTempFunnel(state, toolName, input, cwd, options));
 		verdicts.push(
 			isReadOnly(state)
-				? enforcePhase(state, toolName, input, cwd, options)
-				: enforceHome(state, toolName, input, cwd, options),
+				? await enforcePhase(state, toolName, input, cwd, options)
+				: await enforceHome(state, toolName, input, cwd, options),
 		);
 	}
 	return verdicts.filter((v): v is QuestVerdict => v !== undefined);
 }
 
 /** The first gate's verdict on a tool call, as if every guard blocked. */
-export function enforceQuest(
+export async function enforceQuest(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions = {},
-): QuestVerdict | undefined {
-	return questVerdicts(state, toolName, input, cwd, options)[0];
+): Promise<QuestVerdict | undefined> {
+	return (await questVerdicts(state, toolName, input, cwd, options))[0];
 }

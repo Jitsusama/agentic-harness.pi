@@ -32,7 +32,7 @@ function idle(): QuestState {
 	return createQuestState({ questsRoot });
 }
 
-function check(
+async function check(
 	toolName: string,
 	input: Record<string, unknown>,
 	state: QuestState = idle(),
@@ -46,16 +46,18 @@ function check(
 }
 
 describe("the record gate", () => {
-	it("sends a stray to the workspace with nothing loaded", () => {
-		const verdict = check("write", { path: join(questDir, "lab/results.csv") });
+	it("sends a stray to the workspace with nothing loaded", async () => {
+		const verdict = await check("write", {
+			path: join(questDir, "lab/results.csv"),
+		});
 		expect(verdict).toMatchObject({ block: true });
 		expect(verdict?.reason).toContain(
 			join(workspaceRoot, QUEST, "lab/results.csv"),
 		);
 	});
 
-	it("follows a cd into the quest folder", () => {
-		const verdict = check(
+	it("follows a cd into the quest folder", async () => {
+		const verdict = await check(
 			"bash",
 			{ command: `cd ${questDir} && git clone https://x.test/r.git` },
 			idle(),
@@ -64,31 +66,30 @@ describe("the record gate", () => {
 		expect(verdict?.reason).toContain(join(workspaceRoot, QUEST, "r"));
 	});
 
-	it("keeps bash out of a document", () => {
-		const verdict = check("bash", {
+	it("keeps bash out of a document", async () => {
+		const verdict = await check("bash", {
 			command: "printf 'x\\n' >> plans/PLAN-20260924-RUE4Q4.md",
 		});
 		expect(verdict?.reason).toContain("edit or write tool");
 	});
 
-	it("refuses removing the README", () => {
-		expect(check("bash", { command: "rm README.md" })?.reason).toContain(
-			"`quest retire`",
-		);
+	it("refuses removing the README", async () => {
+		const verdict = await check("bash", { command: "rm README.md" });
+		expect(verdict?.reason).toContain("`quest retire`");
 	});
 
-	it("refuses a hand-made document", () => {
-		expect(
-			check("write", { path: join(questDir, "plans/PLAN-20260924-NEW001.md") })
-				?.reason,
-		).toContain("`quest draft`");
+	it("refuses a hand-made document", async () => {
+		const verdict = await check("write", {
+			path: join(questDir, "plans/PLAN-20260924-NEW001.md"),
+		});
+		expect(verdict?.reason).toContain("`quest draft`");
 	});
 
-	it("judges another quest's folder while this one is loaded", () => {
+	it("judges another quest's folder while this one is loaded", async () => {
 		const state = idle();
 		state.questDir = questDir;
 		state.questId = QUEST;
-		const verdict = check(
+		const verdict = await check(
 			"write",
 			{ path: join(questsRoot, OTHER, "notes.txt") },
 			state,
@@ -96,21 +97,22 @@ describe("the record gate", () => {
 		expect(verdict?.reason).toContain(join(workspaceRoot, OTHER, "notes.txt"));
 	});
 
-	it("lets the record's own writes through", () => {
+	it("lets the record's own writes through", async () => {
 		expect(
-			check("edit", { path: join(questDir, "plans/PLAN-20260924-RUE4Q4.md") }),
+			await check("edit", {
+				path: join(questDir, "plans/PLAN-20260924-RUE4Q4.md"),
+			}),
 		).toBeUndefined();
 		expect(
-			check("bash", {
+			await check("bash", {
 				command: "mkdir -p attachments && cp /x/a.png attachments/",
 			}),
 		).toBeUndefined();
-		expect(check("bash", { command: "rm -rf lab" })).toBeUndefined();
+		expect(await check("bash", { command: "rm -rf lab" })).toBeUndefined();
 	});
 
-	it("says it is the quest workflow speaking", () => {
-		expect(check("write", { path: join(questDir, "x.txt") })?.reason).toMatch(
-			/^Quest workflow: /,
-		);
+	it("says it is the quest workflow speaking", async () => {
+		const verdict = await check("write", { path: join(questDir, "x.txt") });
+		expect(verdict?.reason).toMatch(/^Quest workflow: /);
 	});
 });

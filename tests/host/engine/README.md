@@ -25,7 +25,11 @@ copy once its first is deleted, as a switch and a store collection
 leave Shopify's proxy. One step loads this package as a conversation's
 settings would: its tool list, deferred tools and pi's built-ins
 included, and what its screen is handed to show at startup must equal a
-plain pi's on the same folder. Both need a pi built with the host's
+plain pi's on the same folder. Another runs a turn on this package, a
+bash call included, and holds that nothing it starts from its prompt to
+idle starts a child with spawnSync, execFileSync or execSync, which
+would hold every conversation's loop (tests/support/spawns.ts watches).
+Both need a pi built with the host's
 patches, found as tests/host/end-to-end/support/host-pi.ts finds it, so
 an ordinary `pnpm test` skips each case, saying how to get one. They sit
 in the process lane, since they spawn node from node. Run them before

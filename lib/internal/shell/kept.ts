@@ -25,7 +25,7 @@
  * marks of the host that started it, which no longer answers for it.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	chmodSync,
@@ -216,8 +216,11 @@ export function sweepKept(
 	}
 }
 
-/** What {@link teePersists} found, by the PATH it was asked with. */
-const persistsOn = new Map<string, boolean>();
+/** What {@link teePersists} found, or is finding, by the PATH it was asked with. */
+const persistsOn = new Map<string, Promise<boolean>>();
+
+/** How long tee may take to say whether it takes `-p`. */
+const TEE_TIMEOUT_MS = 5000;
 
 /**
  * Whether the `tee` that `path` finds writes on to its file once its
@@ -225,22 +228,41 @@ const persistsOn = new Map<string, boolean>();
  * call past its pi, and its calls hold a move, as every call did before.
  * Asked of a command's own PATH, since a hosted conversation's need not
  * be the process's.
+ *
+ * Asked as each bash call starts, so tee is waited on without holding
+ * pi's loop: a host runs every conversation on that loop, and the
+ * synchronous ask this was cost one turn 412 ms in a soak of twelve (13
+ * November). Each PATH is asked once, its answer shared by every call
+ * that asks while tee runs.
  */
 export function teePersists(
 	path: string | undefined = process.env.PATH,
-): boolean {
+): Promise<boolean> {
 	const key = path ?? "";
 	const known = persistsOn.get(key);
 	if (known !== undefined) return known;
-	const persists =
-		spawnSync("tee", ["-p", "/dev/null"], {
-			input: "",
+	const asked = askTee(path);
+	persistsOn.set(key, asked);
+	return asked;
+}
+
+/** Run `tee -p` on empty input, under `path`, and hear whether it took it. */
+function askTee(path: string | undefined): Promise<boolean> {
+	return new Promise((resolve) => {
+		const tee = spawn("tee", ["-p", "/dev/null"], {
 			stdio: ["pipe", "ignore", "ignore"],
-			timeout: 5000,
+			timeout: TEE_TIMEOUT_MS,
 			...(path === undefined ? {} : { env: { ...process.env, PATH: path } }),
-		}).status === 0;
-	persistsOn.set(key, persists);
-	return persists;
+		});
+		// No tee on the PATH, or one that could not start: it does not persist.
+		tee.once("error", () => resolve(false));
+		tee.once("close", (status) => resolve(status === 0));
+		tee.stdin?.on("error", () => {
+			// A tee that exits before reading leaves the pipe closed; its
+			// status still says what it took.
+		});
+		tee.stdin?.end();
+	});
 }
 
 /** Whether `shellPath` is bash, whose process substitution the stub needs. */
