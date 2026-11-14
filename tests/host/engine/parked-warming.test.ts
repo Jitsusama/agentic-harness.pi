@@ -12,11 +12,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	parkedWarming,
 	type WarmSent,
+	warmThrough,
 } from "../../../host/engine/parked-warming.ts";
+import type {
+	CompletedCall,
+	ModelRuntime,
+} from "../../../host/engine/pi-session.ts";
+import type { Model } from "../../../host/engine/pi-types.ts";
 import {
 	readWarmingCarry,
 	takePendingWarms,
 	type WarmingCarry,
+	type WarmingRoute,
 	writeWarmingCarry,
 } from "../../../lib/internal/warming-carry.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
@@ -338,5 +345,77 @@ describe("warming a parked conversation while a call is on", () => {
 			0, 0, 1,
 		]);
 		expect(readWarmingCarry(carries, "s2")).toMatchObject({ warms: 2 });
+	});
+});
+
+describe("sending a parked warm", () => {
+	// Every parked warm on 14 November failed with "Provider is not
+	// configured: anthropic": the host builds a model runtime afresh, and
+	// the route the proxy's extension gave the provider lived only in
+	// the session's own runtime.
+	/** A model runtime that, as pi's does, sends only for a provider it can authenticate. */
+	function runtime() {
+		const routes = new Map<string, WarmingRoute>();
+		const model: Model = {
+			id: "claude-opus-5-5",
+			provider: "anthropic",
+			api: "anthropic-messages",
+		};
+		const fake: ModelRuntime = {
+			getModel: (provider, id) =>
+				provider === model.provider && id === model.id ? model : undefined,
+			registerProvider: (provider, route) => {
+				routes.set(provider, route);
+			},
+			completeSimple: async (asked): Promise<CompletedCall> => {
+				const route = routes.get(asked.provider);
+				if (!route?.apiKey)
+					return {
+						provider: asked.provider,
+						model: asked.id,
+						stopReason: "error",
+						errorMessage: `Provider is not configured: ${asked.provider}`,
+						usage: { cacheWrite: 0 },
+					};
+				return {
+					provider: asked.provider,
+					model: asked.id,
+					stopReason: "length",
+					usage: { cacheWrite: 0, cacheRead: 188_000 },
+				};
+			},
+		};
+		return { fake, routes };
+	}
+
+	it("sends through the route its carry names", async () => {
+		const { fake, routes } = runtime();
+		const route = {
+			baseUrl: "https://proxy.example/apis/anthropic",
+			apiKey: "$SHOPIFY_PROXY_KEY",
+		};
+
+		const sent = await warmThrough(
+			fake,
+			parkedCarry({ route }),
+			new AbortController().signal,
+		);
+
+		expect([sent.ok, routes.get("anthropic")]).toEqual([true, route]);
+	});
+
+	it("leaves the runtime's own route alone when the carry names none", async () => {
+		const { fake, routes } = runtime();
+
+		const sent = await warmThrough(
+			fake,
+			parkedCarry(),
+			new AbortController().signal,
+		);
+
+		expect([sent, routes.size]).toEqual([
+			{ ok: false, reason: "Provider is not configured: anthropic" },
+			0,
+		]);
 	});
 });

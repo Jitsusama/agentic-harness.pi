@@ -34,9 +34,8 @@ vi.mock("../../../lib/internal/calls.ts", async (original) => ({
 }));
 
 const { readTurns } = await import("../../../lib/ledger/index.ts");
-const { addPendingWarm, pendingWarmsDir } = await import(
-	"../../../lib/internal/warming-carry.ts"
-);
+const { addPendingWarm, pendingWarmsDir, readWarmingCarry, warmingCarryDir } =
+	await import("../../../lib/internal/warming-carry.ts");
 const { default: compactionWorkflow } = await import(
 	"../../../extensions/compaction-workflow/index.ts"
 );
@@ -142,6 +141,8 @@ function session() {
 		},
 		replies: [] as unknown[],
 		compactions: 0,
+		/** What an extension registered for the model's provider, as pi keeps it. */
+		registered: undefined as Record<string, unknown> | undefined,
 	};
 	const sent: Array<{ options: Record<string, unknown>; body: unknown }> = [];
 	const model = {
@@ -163,6 +164,8 @@ function session() {
 		},
 		modelRegistry: {
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k", headers: {} }),
+			getRegisteredProviderConfig: (provider: string) =>
+				provider === model.provider ? state.registered : undefined,
 			streamSimple: (
 				_model: unknown,
 				_context: unknown,
@@ -656,6 +659,37 @@ describe("warming across a restart", () => {
 			written.includes("sekrit"),
 			written.includes("sk-ant-"),
 		]).toEqual([true, false, false]);
+	});
+
+	it("carries the route an extension gave its provider, naming its key's variable", async () => {
+		const { fire, state: held, ctx } = await idleSession();
+		held.registered = {
+			baseUrl: "https://proxy.example/apis/anthropic",
+			apiKey: "$SHOPIFY_PROXY_KEY",
+			headers: { "x-team": "pi" },
+		};
+
+		await fire("session_shutdown", { reason: "quit" }, ctx);
+
+		expect(readWarmingCarry(warmingCarryDir(), "s1")?.route).toEqual({
+			baseUrl: "https://proxy.example/apis/anthropic",
+			apiKey: "$SHOPIFY_PROXY_KEY",
+		});
+	});
+
+	it("carries a route without its key when the key is written out in full", async () => {
+		const { fire, state: held, ctx } = await idleSession();
+		held.registered = {
+			baseUrl: "https://proxy.example/apis/anthropic",
+			apiKey: "sekrit-literal-1",
+		};
+
+		await fire("session_shutdown", { reason: "quit" }, ctx);
+
+		expect([
+			readWarmingCarry(warmingCarryDir(), "s1")?.route,
+			onDisk(state).join("\n").includes("sekrit"),
+		]).toEqual([{ baseUrl: "https://proxy.example/apis/anthropic" }, false]);
 	});
 
 	it("records the warms its host sent while it was parked, once it starts again", async () => {
