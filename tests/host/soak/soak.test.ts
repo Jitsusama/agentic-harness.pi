@@ -137,6 +137,21 @@ describe.skipIf(!packageDir)(
 					},
 					slowKeys: expect.any(Array),
 				});
+				expect(
+					report,
+					"each side's start on a cold cache, said apart from the opening",
+				).toMatchObject({
+					coldOpen: {
+						hosted: {
+							ms: expect.any(Number),
+							loopMaxMs: expect.any(Number),
+						},
+						plainMs: expect.any(Number),
+					},
+				});
+				expect(said, "a line says the cold open").toMatch(
+					/cold open \d+ ms, loop max \d+ ms/,
+				);
 				expect(said, "a line says the opening's loop").toMatch(
 					/opened all 2 in \d+ ms, loop p99 \d+ ms/,
 				);

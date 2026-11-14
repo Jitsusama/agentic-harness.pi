@@ -22,7 +22,9 @@ host adds, and records that drift from plain pi's.
   mid-answer while the host restarts as systemd restarts it, and the
   fresh host is timed to its socket and to each cut-off turn answered as
   durable carries it on; a turn the person drives (a steer, an abort, a
-  compaction) is typed after the restart instead.
+  compaction) is typed after the restart instead. Each side warms
+  jiti's cache before its timed run, as a live host's stays warm, and
+  says those starts apart as the cold open; `--cold` leaves it cold.
 - `turns.ts`: the script, the same on every run of the same sizes, with
   reads, bash, background bash jobs and long answers among the echoes,
   and a person's own moves: a steer typed while its turn runs a tool, an
@@ -139,6 +141,13 @@ It prints a line a checkpoint and the report as one JSON line after
 `soak report:`. The report holds:
 
 - `pace`: the pace it ran at, empty for none.
+- `coldOpen`, unless `--cold`: each side's first start on a cold jiti
+  cache, which no live start pays, since a live host keeps the
+  harness's transpiled files in its TMPDIR from one start to the next.
+  `hosted` is a host in a seal of its own opening one conversation, and
+  its loop's worst while it did; `plainMs` is one plain pi starting in
+  plain's seal. Each side's cache is warm before its timed run, so these
+  stay out of `opened` and the bar.
 - `opened`: how long opening every conversation took and the host's
   weighing once all had, so its loop figures cover the opening alone
   and the first checkpoint's start after it.

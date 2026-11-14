@@ -11,6 +11,7 @@ const report = {
 	conversations: 2,
 	turns: 20,
 	pace: {},
+	coldOpen: { hosted: { ms: 25_300, loopMaxMs: 18_600 }, plainMs: 21_000 },
 	opened: { ms: 2900, weight: { loopMaxMs: 1864 } },
 	checkpoints: [
 		{
@@ -65,6 +66,7 @@ describe("a day's run", () => {
 		expect(files["report.json"], "the whole report").toBe(report);
 		expect(files["turns.json"], "each turn").toEqual([{ tag: "c0-t0" }]);
 		expect(files["wakes.json"], "each wake, by checkpoint").toMatchObject({
+			coldOpen: report.coldOpen,
 			opened: report.opened,
 			checkpoints: [
 				{ checkpoint: 1, turnsDone: 5, burstWakes: [{}, {}] },
@@ -87,6 +89,7 @@ describe("a day's run", () => {
 				wakes: { count: 4, p50: 2500, p99: 3500 },
 				slowestByCheckpoint: [3000, 3500],
 			},
+			coldOpen: { hosted: { ms: 25_300, loopMaxMs: 18_600 }, plainMs: 21_000 },
 			openingLoopMaxMs: 1864,
 			openedMs: 2900,
 			awakePssKb: [400_000, 410_000],

@@ -28,8 +28,18 @@
  * the same turns, one RPC process a conversation, all at once as the
  * host's were.
  *
+ * A live host keeps jiti's cache of the harness's transpiled files warm
+ * in its TMPDIR from one start to the next, and a sealed home starts
+ * with none, so each side's first start would pay a one-off transpile
+ * that no live start does: K7's 10-way rerun found open 0 taking 13.6 to
+ * 33.9 s, 86 to 88% of it in babel. So each side warms the cache first,
+ * a host in a seal of its own opening one conversation and one plain pi
+ * in plain's seal, and the report says those starts apart as the cold
+ * open, outside the opening's figures and the bar. --cold leaves the
+ * cache cold, as before.
+ *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--burst] [--restart] [--restart-mid] [--profile]
+ *     [--no-park] [--burst] [--restart] [--restart-mid] [--profile] [--cold]
  *     [--answer-ms P50[,P90]] [--tool-ms P50[,P90]] [--rounds P50[,P90]]
  *     [--out DIR]
  *
@@ -57,12 +67,16 @@
 import {
 	appendFileSync,
 	closeSync,
+	cpSync,
+	existsSync,
 	mkdirSync,
 	openSync,
 	readdirSync,
 	readFileSync,
 	readSync,
+	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -285,6 +299,7 @@ const { values } = parseArgs({
 		restart: { type: "boolean", default: false },
 		"restart-mid": { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
+		cold: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
 		"tool-ms": { type: "string" },
 		rounds: { type: "string" },
@@ -395,6 +410,16 @@ const report = {
 	conversations: counts.length,
 	pace,
 	turns: sum(counts),
+	...(values.cold
+		? {}
+		: {
+				coldOpen: {
+					...(hosted.coldOpen ? { hosted: hosted.coldOpen } : {}),
+					...(plain.coldOpenMs === undefined
+						? {}
+						: { plainMs: plain.coldOpenMs }),
+				},
+			}),
 	opened: hosted.opened,
 	checkpoints: hosted.checkpoints,
 	staggerMs,
@@ -591,8 +616,58 @@ function passOnOf(model: string | undefined): PassOn | undefined {
 	};
 }
 
+/** A host's first open on a cold jiti cache, and its loop's worst while it did. */
+interface ColdOpen {
+	readonly ms: number;
+	readonly loopMaxMs: number;
+}
+
+/** Where jiti keeps its transpiled files under `sealed`, as it does in a live host's TMPDIR. */
+function jitiCacheOf(sealed: Seal): string {
+	return join(sealed.env.TMPDIR ?? "", "jiti");
+}
+
+/**
+ * Warm `sealed`'s jiti cache as a live host's stays warm: a host in a
+ * seal of its own opens one conversation, paying the transpile, and its
+ * cache is copied in. jiti names a cached file by its source's whole
+ * path and checks the source's hash, so the harness's files hit it here.
+ */
+async function warmHosted(sealed: Seal): Promise<ColdOpen> {
+	const warming = await seal();
+	try {
+		const agentFile = join(warming.root, "soak-agent.json");
+		writeFileSync(agentFile, JSON.stringify(agent));
+		const host = await startScreenHost(
+			warming,
+			packageDir ?? "",
+			also,
+			agentFile,
+		);
+		const opening = Date.now();
+		await host.open(workingFolder(folders(warming))).catch((error: unknown) => {
+			const said = host.errors().slice(-SAID_CHARACTERS);
+			throw new Error(`warming the cache: ${String(error)}: ${said}`);
+		});
+		const cold = {
+			ms: Date.now() - opening,
+			loopMaxMs: (await host.weigh()).loopMaxMs,
+		};
+		await host.stop();
+		const cache = jitiCacheOf(warming);
+		if (!existsSync(cache)) fault(`warming left no jiti cache at ${cache}`);
+		else cpSync(cache, jitiCacheOf(sealed), { recursive: true });
+		say(`cold open ${cold.ms} ms, loop max ${Math.round(cold.loopMaxMs)} ms`);
+		return cold;
+	} finally {
+		await warming.dispose();
+	}
+}
+
 /** The hosted side: every conversation in one host, with its checkpoints. */
 async function runHosted(sealed: Seal): Promise<{
+	/** The warming host's one open on a cold cache, unless --cold. */
+	readonly coldOpen?: ColdOpen;
 	/** The loop while every conversation opened, kept apart from the first checkpoint's. */
 	readonly opened: { readonly ms: number; readonly weight: Weight };
 	readonly checkpoints: readonly Checkpoint[];
@@ -605,6 +680,7 @@ async function runHosted(sealed: Seal): Promise<{
 }> {
 	const agentFile = join(sealed.root, "soak-agent.json");
 	writeFileSync(agentFile, JSON.stringify(agent));
+	const coldOpen = values.cold ? undefined : await warmHosted(sealed);
 	const startedAt = Date.now();
 	const start = () =>
 		startScreenHost(
@@ -754,6 +830,7 @@ async function runHosted(sealed: Seal): Promise<{
 			`restart mid-run answered ${JSON.stringify(spreadOf(answered.flatMap((one) => (one.ms === undefined ? [] : [one.ms]))))} of ${mid.cut.length} cut off`,
 		);
 	return {
+		...(coldOpen ? { coldOpen } : {}),
 		opened,
 		checkpoints: weighings,
 		...(timed ? { restart: timed.restart } : {}),
@@ -1297,6 +1374,8 @@ async function runPlain(sealed: Seal): Promise<{
 	readonly sent: ReadonlyMap<string, number>;
 	/** Each plain pi's start and weight, the measure of a child a conversation. */
 	readonly processes: readonly PlainProcess[];
+	/** The warming plain pi's start on a cold jiti cache, unless --cold. */
+	readonly coldOpenMs?: number;
 }> {
 	const agentDir = join(sealed.home, ".pi", "agent");
 	mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -1308,19 +1387,26 @@ async function runPlain(sealed: Seal): Promise<{
 		join(agentDir, "settings.json"),
 		JSON.stringify(agent.settings),
 	);
+	// A link to each extension's folder, as the hosted side's fixture
+	// makes, so each file's real path lies in the harness on both sides.
 	for (const extension of [...FIXTURE_LOADS, ...also]) {
-		const entry = join(HARNESS, "extensions", extension, "index.ts");
-		writeFileSync(
-			join(agentDir, "extensions", `${extension}.ts`),
-			`export { default } from ${JSON.stringify(entry)};\n`,
-		);
+		const link = join(agentDir, "extensions", extension);
+		rmSync(link, { force: true });
+		symlinkSync(join(HARNESS, "extensions", extension), link);
 	}
 	const work = folders(sealed);
-	const env = Object.fromEntries(
-		Object.entries(
-			profiled({ ...sealed.env, PI_OFFLINE: "1" }, profiles.plain),
-		).filter((pair): pair is [string, string] => typeof pair[1] === "string"),
-	);
+	const stringsOf = (all: NodeJS.ProcessEnv): Record<string, string> =>
+		Object.fromEntries(
+			Object.entries(all).filter(
+				(pair): pair is [string, string] => typeof pair[1] === "string",
+			),
+		);
+	const offline = { ...sealed.env, PI_OFFLINE: "1" };
+	// Unprofiled, so its start isn't among the timed pis' profiles.
+	const coldOpenMs = values.cold
+		? undefined
+		: await warmPlain(workingFolder(work), stringsOf(offline));
+	const env = stringsOf(profiled(offline, profiles.plain));
 	const cwds = counts.map(() => workingFolder(work));
 	const sent = new Map<string, number>();
 	const ran = await Promise.all(
@@ -1398,7 +1484,34 @@ async function runPlain(sealed: Seal): Promise<{
 		errors: ran.map((one) => one.errors),
 		sent,
 		processes: ran.map((one) => one.process),
+		...(coldOpenMs === undefined ? {} : { coldOpenMs }),
 	};
+}
+
+/**
+ * Start one plain pi in `cwd` until it listens and end it, paying the
+ * transpile into plain's jiti cache before the timed pis start, and
+ * say how long that start took.
+ */
+async function warmPlain(
+	cwd: string,
+	env: Record<string, string>,
+): Promise<number> {
+	const startedAt = performance.now();
+	const client = rpcClient(
+		{
+			command: process.execPath,
+			args: [join(packageDir ?? "", "dist/bundle/cli.js"), "--mode", "rpc"],
+		},
+		cwd,
+		env,
+		join(out, "plain-warming.rpc.log"),
+	);
+	await client.request({ type: "get_state" });
+	const ms = Math.round(performance.now() - startedAt);
+	await client.close();
+	say(`plain cold open ${ms} ms`);
+	return ms;
 }
 
 /**

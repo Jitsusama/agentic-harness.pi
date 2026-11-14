@@ -37,6 +37,7 @@ export function filesOf(report: Record<string, unknown>): DayFiles {
 		"report.json": report,
 		"turns.json": report.turnsTimed ?? [],
 		"wakes.json": {
+			coldOpen: report.coldOpen,
 			opened: report.opened,
 			checkpoints: listOf(report.checkpoints).map((checkpoint, index) =>
 				isRecord(checkpoint)
@@ -95,6 +96,9 @@ export function figuresOf(
 				Math.max(0, ...answeredIn(checkpoint.burstWakes)),
 			),
 		},
+		// The warming starts' one-off transpile, which no live start pays,
+		// is said apart from the opening and kept out of the bar.
+		coldOpen: report.coldOpen,
 		openingLoopMaxMs: recordOf(recordOf(report.opened).weight).loopMaxMs,
 		openedMs: recordOf(report.opened).ms,
 		awakePssKb: checkpoints.map((checkpoint) => recordOf(checkpoint.awake).pss),
