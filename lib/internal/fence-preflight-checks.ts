@@ -22,6 +22,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { FENCE, NEVER_THROUGH } from "./fence.ts";
+import { BUILDERS_FOLDER } from "./fence-builders.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
 	type Check,
@@ -211,6 +212,7 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 			.map((path) => join(home, path)),
 		...sshKeys,
 		join(home, ".local/share/keyrings/login.keyring"),
+		join(BUILDERS_FOLDER, "cloud-token"),
 	].filter((path) => existsSync(path));
 	const read: string[] = [];
 	for (const path of paths) {
@@ -654,7 +656,7 @@ export const CHECKS: readonly Check[] = [
 	{
 		id: "13a",
 		group: "refused",
-		what: "keys, the keyring and the builders' key stay hidden",
+		what: "keys, the keyring and the builders' key and token stay hidden",
 		run: hiddenUnread,
 	},
 	{
