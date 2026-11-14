@@ -112,7 +112,9 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 			if (ctx?.hasUI) ctx.ui.notify(text, "warning");
 		},
 		wouldPark: (parked) =>
-			logBeside(folder, "would-park.jsonl", wouldPark(parked, ctx)),
+			logBeside(folder, "would-park.jsonl", parkLine(parked, ctx)),
+		parked: (parked) =>
+			logBeside(folder, "parked.jsonl", parkLine(parked, ctx)),
 	});
 	const mesh = stateDir("mesh-workflow");
 	const transport = folderTransport(join(mesh, "messages"));
@@ -202,7 +204,7 @@ function judging(
 	};
 }
 
-function wouldPark(
+function parkLine(
 	parked: Parked,
 	ctx: ExtensionContext | undefined,
 ): Record<string, unknown> {

@@ -21,6 +21,7 @@ function world(initial: Stop[] = []) {
 		carried: [] as string[],
 		notes: [] as string[],
 		wouldPark: [] as Parked[],
+		parked: [] as Parked[],
 	};
 	const parking = createParking({
 		stops: () => seen.stops,
@@ -37,6 +38,7 @@ function world(initial: Stop[] = []) {
 		carryOn: (text) => seen.carried.push(text),
 		notify: (text) => seen.notes.push(text),
 		wouldPark: (parked) => seen.wouldPark.push(parked),
+		parked: (parked) => seen.parked.push(parked),
 	});
 	return { seen, parking };
 }
@@ -59,6 +61,15 @@ describe("parking", () => {
 		expect(seen.aborts).toBe(2);
 		expect(seen.notes).toHaveLength(1);
 		expect(seen.notes[0]).toContain("QEST-PARENT");
+	});
+
+	it("notes once that a live stop parked it, for the launcher's count", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.started();
+		await parking.turnEnded();
+		await parking.started();
+		expect(seen.parked.map((one) => one.stop.id)).toEqual(["q"]);
+		expect(seen.wouldPark).toEqual([]);
 	});
 
 	it("ends a run at its turn's end once a stop lands while it goes", async () => {
@@ -92,6 +103,7 @@ describe("parking", () => {
 		await parking.started();
 		expect(seen.aborts).toBe(0);
 		expect(seen.wouldPark.map((one) => one.stop.id)).toEqual(["q"]);
+		expect(seen.parked).toEqual([]);
 	});
 
 	it("carries on once Joel resumes, told to look before it writes", async () => {
