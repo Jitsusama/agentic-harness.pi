@@ -35,6 +35,10 @@ import {
 	warmingDelayMs,
 } from "../../../../lib/internal/cache-warming.ts";
 import {
+	WAKE_ENV,
+	writeParked,
+} from "../../../../lib/internal/session/park.ts";
+import {
 	pendingWarmsDir,
 	takePendingWarms,
 	warmingCarryDir,
@@ -232,6 +236,62 @@ async function until(what: string, condition: () => boolean): Promise<void> {
 	}
 }
 
+/** A cache carry for the conversation, last read a warming delay ago, so its warm is due as it parks. */
+function writeDueCarry(sessionId: string): void {
+	const lastRead =
+		Date.now() - (warmingDelayMs(LONG_CACHE_LIFETIME_MS) ?? 0) - 1000;
+	writeWarmingCarry(warmingCarryDir(), {
+		sessionId,
+		payload: {
+			model: MODEL,
+			max_tokens: 64,
+			system: [
+				{
+					type: "text",
+					text: "a prompt",
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			],
+			messages: [{ role: "user", content: "hi" }],
+		},
+		headers: {},
+		provider: PROVIDER,
+		modelId: MODEL,
+		at: lastRead,
+		refreshedAt: lastRead,
+		warms: 0,
+	});
+}
+
+/** The marker park-workflow writes as its conversation parks, naming the wake file the engine gave it. */
+function writeMarker(host: SessionHost, id: string): void {
+	const entry = readEntry();
+	const wake = host.env(id).snapshot()[WAKE_ENV];
+	if (wake === undefined) throw new Error(`${id} was given no wake file`);
+	writeParked({
+		session: id,
+		sessionFile: entry.file,
+		cwd: entry.cwd,
+		addresses: [],
+		parkedAt: new Date().toISOString(),
+		pid: process.pid,
+		wake,
+	});
+}
+
+/** Until a parked warm went out past the `before` requests already seen, and was kept, or failed. */
+async function warmed(before: number): Promise<void> {
+	const failed = () => reported.some((line) => line.includes("Parked warm"));
+	await until(
+		"its warm went out or failed",
+		() => keysSeen.length > before || failed(),
+	);
+	await until(
+		"its warm was kept or failed",
+		() => existsSync(pendingWarmsDir()) || failed(),
+	);
+}
+
 const say =
 	(text: string) => (_context: unknown, options: { apiKey?: unknown }) => {
 		keysSeen.push(options.apiKey);
@@ -286,44 +346,40 @@ const scenarios: Record<string, Scenario> = {
 		run: async (engine, host) => {
 			const id = await open(engine, { first: "hi" });
 			await idle(engine, id);
-			// Its cache last read a warming delay ago, so its warm is due as it parks.
-			const lastRead =
-				Date.now() - (warmingDelayMs(LONG_CACHE_LIFETIME_MS) ?? 0) - 1000;
-			writeWarmingCarry(warmingCarryDir(), {
-				sessionId: id,
-				payload: {
-					model: MODEL,
-					max_tokens: 64,
-					system: [
-						{
-							type: "text",
-							text: "a prompt",
-							cache_control: { type: "ephemeral", ttl: "1h" },
-						},
-					],
-					messages: [{ role: "user", content: "hi" }],
-				},
-				headers: {},
-				provider: PROVIDER,
-				modelId: MODEL,
-				at: lastRead,
-				refreshedAt: lastRead,
-				warms: 0,
-			});
+			writeDueCarry(id);
 			host.park(id);
-			await until(
-				"its warm went out or failed",
-				() =>
-					keysSeen.length > 1 ||
-					reported.some((line) => line.includes("Parked warm")),
-			);
-			await until(
-				"its warm was kept or failed",
-				() =>
-					existsSync(pendingWarmsDir()) ||
-					reported.some((line) => line.includes("Parked warm")),
-			);
+			await warmed(1);
 			return { pending: takePendingWarms(pendingWarmsDir(), id).length };
+		},
+	},
+	/** Park a conversation and stop, as a host does before it restarts; warm-resting plays its next start. */
+	"park-to-restart": {
+		api: "anthropic-messages",
+		responses: () => [say("hello there")],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "hi" });
+			await idle(engine, id);
+			writeMarker(host, id);
+			host.park(id);
+			// The park starts a turn after it is asked for.
+			await new Promise((later) => setImmediate(later));
+			await engine.parkSettled?.(id);
+			return { held: host.holds(id) ?? "let go" };
+		},
+	},
+	/** Start again on a conversation parked before, which rests parked and is still kept warm. */
+	"warm-resting": {
+		api: "anthropic-messages",
+		responses: () => [say("")],
+		run: async (engine) => {
+			const entry = readEntry();
+			writeDueCarry(entry.sessionId);
+			const rests = engine.restsParked?.(entry) ?? false;
+			await warmed(0);
+			return {
+				rests,
+				pending: takePendingWarms(pendingWarmsDir(), entry.sessionId).length,
+			};
 		},
 	},
 	/** The gateway refuses the first key; the request goes again on the next. */

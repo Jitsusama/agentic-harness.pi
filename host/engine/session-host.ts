@@ -135,7 +135,7 @@ export class SessionHost implements Host {
 			since: new Date().toISOString(),
 			accepting: true,
 			disposed: false,
-			environment: environment(input.env, input.id),
+			environment: sessionEnvironment(input.env, input.id),
 			launchHints: { ...input.hints },
 			cleanup: input.close,
 			stampCallback: input.stamp,
@@ -348,7 +348,11 @@ export class SessionHost implements Host {
 	}
 }
 
-function environment(input: NodeJS.ProcessEnv, id: string): SessionEnvironment {
+/** A conversation's private environment: `input` under its own id, never process.env. */
+export function sessionEnvironment(
+	input: NodeJS.ProcessEnv,
+	id: string,
+): SessionEnvironment {
 	const values: NodeJS.ProcessEnv = { ...input, PI_SESSION_ID: id };
 	// Listed again only after a write or delete changes what it holds.
 	let names: readonly string[] | undefined;

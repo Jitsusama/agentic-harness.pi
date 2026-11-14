@@ -95,6 +95,7 @@ import {
 	requireModel,
 } from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
+import { sessionEnvironment } from "./session-host.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
@@ -914,12 +915,23 @@ export async function createEngine(
 		// Building it only to park again a minute later held a start 7 to 13 s
 		// a conversation on 13 November. A park waits until it is idle with
 		// nothing outstanding, so nothing runs until something asks for it.
+		// Its cache is kept warm as its park left it, on the folder and the
+		// environment its start would give it, since no start comes to set them.
 		restsParked(entry) {
 			const { sessionId } = entry;
 			if (host.holds(sessionId) !== undefined) return false;
 			if (readParked(sessionId)?.wake !== parked.wakeFile(sessionId))
 				return false;
 			parked.rests(sessionId);
+			agentDirs.set(sessionId, sessions.getAgentDir());
+			environments.set(
+				sessionId,
+				sessionEnvironment(
+					{ ...options.env, ...(entry.launch ?? {}) },
+					sessionId,
+				),
+			);
+			warming.start(sessionId);
 			return true;
 		},
 
