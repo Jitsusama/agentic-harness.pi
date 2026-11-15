@@ -12,6 +12,14 @@
  * A tree's own git folder is written only for the trees the session
  * holds; git in another fails with the same bare words, so it gains the
  * way to hold it (ISXEG8 [0804813d]).
+ *
+ * The signing agent stays outside, so a signed commit, tag or rebase
+ * made with git inside fails, naming only the key it couldn't use; it
+ * gains the work tool's route, which signs outside (ISXEG8 [2fc080c2]).
+ *
+ * World's Delta remote takes a credential from git's credential cache
+ * or gcloud, both outside, so a fetch or push of World made with git
+ * inside fails; it gains the work tool's route too (ISXEG8 [3b8dd276]).
  */
 
 /** The line a refused rewrite of `packed-refs` gains. */
@@ -22,6 +30,22 @@ export const PACKED_REFS_ROUTE =
 export const UNHELD_TREE_ROUTE =
 	"pi: the agent fence lets git write only in the trees this session holds, so this tree's own git folder is read-only inside. Cut or take the tree with the work tool (`work tree`), then work in it, or ask the session that holds it.";
 
+/** The line a commit git couldn't sign gains. */
+export const SIGNING_ROUTE =
+	"pi: the agent fence keeps the signing agent outside, so a signed commit, tag or rebase made with git inside fails. Commit with the work tool (`work record`) and rebase with `work rebase`, which sign outside the fence.";
+
+/** The line a fetch or push git couldn't authenticate to Delta gains. */
+export const DELTA_ROUTE =
+	"pi: the agent fence keeps World's Delta credentials outside, so a fetch or push of World made with git inside fails. Bring a tree up to date with `work rebase` onto origin/main, cut a new one with `work tree`, and push with `work push`, which reach Delta outside the fence.";
+
+/** Git's words for a Delta credential it couldn't get. */
+const NO_DELTA =
+	/unable to obtain a Delta credential|unable to connect to cache daemon/;
+
+/** Git's words for a signature it couldn't make. */
+const UNSIGNED =
+	/gpg failed to sign the data|No private key found for public key/;
+
 /** Git's words for a lock on `packed-refs` it couldn't take. */
 const REFUSED = /packed-refs\.lock['"]?:? .*Read-only file system/;
 
@@ -30,7 +54,7 @@ const UNHELD =
 	/'[^']*\/(\.git|git\/worktrees)\/(?![^']*packed-refs)[^']*': Read-only file system/;
 
 /** One block of a tool's output, as pi hands it to `tool_result`. */
-type Block = { readonly type: string; readonly text?: string };
+export type Block = { readonly type: string; readonly text?: string };
 
 /**
  * `content` with the route added after the block where git said it
@@ -56,8 +80,32 @@ export function routedUnheldTree<T extends Block>(
 	return routed(content, UNHELD, UNHELD_TREE_ROUTE, record);
 }
 
+/**
+ * `content` with the route added after the block where git said it
+ * couldn't sign, `record` called once for it; or undefined, when no
+ * block says so.
+ */
+export function routedSigning<T extends Block>(
+	content: readonly T[],
+	record: () => void,
+): T[] | undefined {
+	return routed(content, UNSIGNED, SIGNING_ROUTE, record);
+}
+
+/**
+ * `content` with the route added after the block where git said it
+ * couldn't get a Delta credential, `record` called once for it; or
+ * undefined, when no block says so.
+ */
+export function routedDelta<T extends Block>(
+	content: readonly T[],
+	record: () => void,
+): T[] | undefined {
+	return routed(content, NO_DELTA, DELTA_ROUTE, record);
+}
+
 /** `content` with `route` after the first block `said` matches, or undefined. */
-function routed<T extends Block>(
+export function routed<T extends Block>(
 	content: readonly T[],
 	said: RegExp,
 	route: string,

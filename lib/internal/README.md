@@ -139,7 +139,11 @@ may import from here, and any of it may change without notice.
   session that could have planted it.
 - **`fence-git-route.ts`**: the route a fenced git command is told
   when the read-only shared git folder fails it (a branch or tag
-  delete, `git pack-refs`, pruning a packed ref), each one counted.
+  delete, `git pack-refs`, pruning a packed ref), a tree it doesn't
+  hold, signing or World's Delta credential, each one counted.
+- **`fence-route.ts`**: the route a fenced command is told when the
+  fence refused it something not git's: a pass kept, or a write
+  outside what the session holds, each one counted.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.

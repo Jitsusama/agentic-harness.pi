@@ -37,7 +37,9 @@ import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
 import {
+	routedDelta,
 	routedPackedRefs,
+	routedSigning,
 	routedUnheldTree,
 } from "../../lib/internal/fence-git-route.ts";
 import { liftFence } from "../../lib/internal/fence-lifted.ts";
@@ -46,6 +48,7 @@ import {
 	recordRefusal,
 	recordUnlisted,
 } from "../../lib/internal/fence-log.ts";
+import { routedKeep, routedReadOnly } from "../../lib/internal/fence-route.ts";
 import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
@@ -102,28 +105,42 @@ function listByIdOnce(session: string): void {
 	}
 }
 
+/** The refusals a fenced bash call's output is routed for. */
+type RoutedRefusal =
+	| "packed-refs"
+	| "unheld-tree"
+	| "signing"
+	| "delta"
+	| "keep"
+	| "read-only";
+
 /**
  * A fenced bash call's output with the route added where git couldn't
- * rewrite the read-only shared git folder's `packed-refs`, or write the
- * own git folder of a tree the session doesn't hold, counted in the
- * system's log; nothing, for any other call (`fence-git-route.ts`).
+ * rewrite the read-only shared git folder's `packed-refs`, write the
+ * own git folder of a tree the session doesn't hold, sign, or reach
+ * World's Delta (`fence-git-route.ts`), where a build couldn't keep its
+ * pass, or where a write met a read-only mount (`fence-route.ts`),
+ * counted in the system's log; nothing, for any other call.
  */
-function routeRefusedGit(
+function routeRefused(
 	event: ToolResultEvent,
 	logger: string | undefined,
 	session: string,
 ): Pick<ToolResultEvent, "content" | "structuredContent"> | undefined {
 	if (event.toolName !== "bash") return undefined;
-	const counted = (kind: "packed-refs" | "unheld-tree") => () => {
-		void recordRefusal(
-			{ kind, tool: "git", sandbox: "fence", session },
-			logger,
-		);
-	};
+	const counted =
+		(kind: RoutedRefusal, tool = "git") =>
+		() => {
+			void recordRefusal({ kind, tool, sandbox: "fence", session }, logger);
+		};
 	const content =
 		routedPackedRefs(event.content, counted("packed-refs")) ??
-		routedUnheldTree(event.content, counted("unheld-tree"));
-	// The structured result codemode reads is kept, its output as git said it.
+		routedUnheldTree(event.content, counted("unheld-tree")) ??
+		routedSigning(event.content, counted("signing")) ??
+		routedDelta(event.content, counted("delta")) ??
+		routedKeep(event.content, counted("keep", "nix-offload")) ??
+		routedReadOnly(event.content, counted("read-only", "bash"));
+	// The structured result codemode reads is kept, its output as it was said.
 	return content
 		? { content, structuredContent: event.structuredContent }
 		: undefined;
@@ -174,7 +191,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", retireBash);
 	if (sandbox.kind === "fence")
 		pi.on("tool_result", (event, ctx) =>
-			routeRefusedGit(event, sandbox.logger, sessionKeyOf(ctx)),
+			routeRefused(event, sandbox.logger, sessionKeyOf(ctx)),
 		);
 
 	pi.registerTool({
