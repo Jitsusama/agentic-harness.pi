@@ -25,6 +25,7 @@ import { parseOpenResult } from "../../../host/service/protocol.ts";
 import {
 	describeStep,
 	hostKind,
+	phaseTimes,
 	readyStatus,
 	runHost,
 	stoppingStatus,
@@ -41,8 +42,11 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 let dir: string;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-run-"));
+	// What a host keeps between its runs stays in the case's own folder.
+	vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
 });
 afterEach(async () => {
+	vi.unstubAllEnvs();
 	await rm(dir, { recursive: true, force: true });
 });
 
@@ -571,6 +575,76 @@ describe("runHost", () => {
 		await run.serving.stop();
 	});
 
+	// On 14 November the attended host's next start resumed two
+	// conversations in 72 s each, and nothing said which had parked.
+	it("says on the next start's resume which conversation the last stop left unparked, once", async () => {
+		const signals = new EventEmitter();
+		let parks = () => {};
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				start: async ({ sessionId, file, cwd }) => {
+					const close = () =>
+						new Promise<void>((parked) => {
+							parks = parked;
+						});
+					host.register({ id: sessionId, file, cwd, env: {}, close });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			stopWithin: 200,
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		signals.emit("SIGTERM");
+		await run.stopped;
+		parks();
+		await run.serving.stop();
+
+		const resumingLines = async () => {
+			const said: string[] = [];
+			const next = new EventEmitter();
+			const started = await runHost({
+				argv: ["background"],
+				env: env(),
+				engine,
+				signals: next,
+				ready: async () => {},
+				progress: async () => {},
+				say: (line) => said.push(line),
+				report: () => {},
+				places: places(),
+			});
+			next.emit("SIGTERM");
+			await started.stopped;
+			return said.filter((line) => line.includes(": resuming "));
+		};
+		expect(await resumingLines(), "the start after it").toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`: resuming 1 of 1: ${sessionId} \\(not parked at the \\d\\d:\\d\\d stop\\)$`,
+				),
+			),
+		]);
+		expect(await resumingLines(), "a start after one that parked").toEqual([
+			expect.stringMatching(new RegExp(`: resuming 1 of 1: ${sessionId}$`)),
+		]);
+	});
+
 	it("gives serve the viewer bridge, built once over the host it runs", async () => {
 		const signals = new EventEmitter();
 		const viewer = vi.fn((_host: SessionHost) => ({
@@ -653,21 +727,88 @@ describe("runHost", () => {
 			report: () => {},
 			places: places(),
 		});
-		expect(heard).toEqual([
-			"building the engine",
-			`resuming 1 of 1: ${sessionId}`,
-			"ready",
-		]);
-		expect(said).toHaveLength(4);
-		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
-		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
-		expect(said[2]).toMatch(/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s$/);
-		// This engine's resume registers nothing, so the host serves none.
-		expect(said[3]).toMatch(
-			/^\d+\.\d s: ready, serving no conversations, listening on /,
-		);
-		second.emit("SIGTERM");
-		await run.stopped;
+		try {
+			expect(heard).toEqual([
+				"building the engine",
+				`resuming 1 of 1: ${sessionId}`,
+				"ready",
+			]);
+			expect(said).toHaveLength(4);
+			expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
+			expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
+			expect(said[2]).toMatch(
+				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
+			);
+			// This engine's resume registers nothing, so the host serves none.
+			expect(said[3]).toMatch(
+				/^\d+\.\d s: ready, serving no conversations, listening on /,
+			);
+		} finally {
+			second.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
+	// The attended host on 14 November: two resumes took 72 s each, and
+	// nothing said which part of them did.
+	it("says how long each phase of a resume took", async () => {
+		const sessionId = await heldOne();
+		const PHASE_MS = 120;
+		const said: string[] = [];
+		const second = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				resume: async (_entry, _woken, mark) => {
+					mark?.("log");
+					await new Promise((done) => setTimeout(done, PHASE_MS));
+					mark?.("runtime");
+					await new Promise((done) => setTimeout(done, PHASE_MS));
+				},
+			}),
+			signals: second,
+			ready: async () => {},
+			progress: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		try {
+			const line = said.find((each) => each.includes("resumed 1 of 1"));
+			expect(line, `the resume of ${sessionId} is said`).toMatch(
+				/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, runtime (\d+\.\d) s, rest (\d+\.\d) s\)$/,
+			);
+			const [, runtime, rest] =
+				line?.match(/runtime (\d+\.\d) s, rest (\d+\.\d) s/) ?? [];
+			expect(
+				Number(runtime),
+				"the phase that waited is the one named",
+			).toBeGreaterThanOrEqual(0.1);
+			expect(
+				Number(rest),
+				"what followed the last mark",
+			).toBeGreaterThanOrEqual(0.1);
+		} finally {
+			second.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
+	it("puts each phase's time in words, and what followed the last", () => {
+		expect(
+			phaseTimes(
+				1_000,
+				[
+					{ phase: "ask", at: 1_000 },
+					{ phase: "gate", at: 1_100 },
+					{ phase: "recovery", at: 3_600 },
+				],
+				65_000,
+			),
+		).toBe(" (ask 0.0 s, gate 0.1 s, recovery 2.5 s, rest 61.4 s)");
+		expect(phaseTimes(1_000, [], 2_000), "none marked").toBe("");
 	});
 
 	// The background host on 13 November: resumes took 80 to 135 s each,

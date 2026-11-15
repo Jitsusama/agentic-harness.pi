@@ -25,6 +25,7 @@ import {
 	conversationEvents,
 	type HostBackend,
 	hostBackend,
+	type ResumePhase,
 	type Resuming,
 	resumeHeld,
 	type Unresumed,
@@ -90,6 +91,8 @@ export async function serveHost(options: {
 	rollout?: AdmitAnother;
 	/** Hears each step of the start before it begins. */
 	starting?: (step: StartStep) => Promise<void>;
+	/** Hears each phase of the conversation being resumed as it ends. */
+	mark?: (phase: ResumePhase) => void;
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
@@ -137,6 +140,7 @@ export async function serveHost(options: {
 			engine,
 			admitAnother,
 			starting: options.starting,
+			mark: options.mark,
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const identity = { key: host.key, owner: host.owner };

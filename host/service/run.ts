@@ -34,11 +34,15 @@
  */
 
 import { execFile } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { ambientSession } from "../../lib/core/session/index.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import { withPi } from "../../lib/internal/priority/place.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import type { SessionHost } from "../engine/index.ts";
-import { type HostKind, hostRealm } from "./address.ts";
-import type { ConversationEngine } from "./backend.ts";
+import { type HostKind, hostKey, hostRealm } from "./address.ts";
+import type { ConversationEngine, ResumePhase } from "./backend.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
 
@@ -94,6 +98,9 @@ const MS_PER_SECOND = 1000;
  * the minute, so systemd killed the host with every conversation unparked.
  */
 const STOP_WITHIN_MS = 45_000;
+
+/** The file, in a host's own state folder, naming what its stop left unparked. */
+const UNPARKED = "not-parked.json";
 
 /**
  * The codes of a write to a pipe or stream whose other end has gone: a
@@ -196,16 +203,29 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const say = options.say ?? sayToJournal;
 	const progress = options.progress ?? notifyProgress;
 	const began = Date.now();
+	const unparked = unparkedMarks(realm, kind, report);
+	const lastStop = unparked.read();
 	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
 	const since = () => seconds(Date.now() - began);
-	// The conversation being resumed and when it began, so each says how
-	// long it took and a restart of thirty can be sized from one.
-	let resuming: { readonly step: StartStep; readonly at: number } | undefined;
+	// The conversation being resumed, when it began and when each of its
+	// phases ended, so each says how long it took and where, and a restart
+	// of thirty can be sized from one.
+	let resuming:
+		| {
+				readonly step: StartStep;
+				readonly at: number;
+				readonly phases: PhaseEnd[];
+		  }
+		| undefined;
+	const mark = (phase: ResumePhase) => {
+		resuming?.phases.push({ phase, at: Date.now() });
+	};
 	const resumed = () => {
 		if (resuming?.step.step !== "resume") return;
 		const { number, of } = resuming.step;
+		const now = Date.now();
 		say(
-			`${since()}: resumed ${number} of ${of} in ${seconds(Date.now() - resuming.at)}`,
+			`${since()}: resumed ${number} of ${of} in ${seconds(now - resuming.at)}${phaseTimes(resuming.at, resuming.phases, now)}`,
 		);
 	};
 	const ask = async (status: string) => {
@@ -222,9 +242,13 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const starting = async (step: StartStep) => {
 		resumed();
 		renewing?.();
-		resuming = { step, at: Date.now() };
+		resuming = { step, at: Date.now(), phases: [] };
 		const status = describeStep(step);
-		say(`${since()}: ${status}`);
+		const left =
+			step.step === "resume" && lastStop?.ids.includes(step.sessionId)
+				? ` (not parked at the ${clockTime(lastStop.at)} stop)`
+				: "";
+		say(`${since()}: ${status}${left}`);
 		await ask(status);
 		renewing = askWhileUnderWay({
 			ask: () => ask(status),
@@ -243,6 +267,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			report,
 			say,
 			starting,
+			mark,
 			runtimeDir: options.env.XDG_RUNTIME_DIR,
 		});
 	} finally {
@@ -274,9 +299,11 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
 			.then(() => serving.stop());
-		stopping = endWithin(parked, options.stopWithin ?? STOP_WITHIN_MS, (ms) =>
-			say(unparkedLine(ms, serving.held())),
-		).finally(() => unwatch?.());
+		stopping = endWithin(parked, options.stopWithin ?? STOP_WITHIN_MS, (ms) => {
+			const held = serving.held();
+			say(unparkedLine(ms, held));
+			unparked.write(held.map(({ id }) => id));
+		}).finally(() => unwatch?.());
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -313,6 +340,9 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			report,
 		});
 	resumed();
+	// Every conversation the last stop left is resumed by now, so its
+	// mark has said all it can.
+	if (lastStop) unparked.clear();
 	say(`${since()}: ${status()}, listening on ${serving.path}`);
 	return { serving, stopped };
 }
@@ -347,6 +377,32 @@ export function stoppingStatus(parking: number): string {
 function conversations(count: number): string {
 	if (count === 0) return "no conversations";
 	return `${count} conversation${count === 1 ? "" : "s"}`;
+}
+
+/** When one phase of a resume ended. */
+export interface PhaseEnd {
+	readonly phase: ResumePhase;
+	readonly at: number;
+}
+
+/**
+ * How long each phase of a resume begun at `began` took, in words, and
+ * what followed the last until `ended`; nothing when none was marked.
+ */
+export function phaseTimes(
+	began: number,
+	phases: readonly PhaseEnd[],
+	ended: number,
+): string {
+	if (phases.length === 0) return "";
+	let from = began;
+	const parts = phases.map(({ phase, at }) => {
+		const part = `${phase} ${((at - from) / MS_PER_SECOND).toFixed(1)} s`;
+		from = at;
+		return part;
+	});
+	parts.push(`rest ${((ended - from) / MS_PER_SECOND).toFixed(1)} s`);
+	return ` (${parts.join(", ")})`;
 }
 
 /** A start step in words, as the journal and systemd's status show it. */
@@ -573,6 +629,79 @@ function unparkedLine(
 ): string {
 	const ids = held.map(({ id }) => id).join(", ");
 	return `stopping after ${ms} ms, ${held.length} not parked: ${ids}`;
+}
+
+/** The conversations a stop ended with unparked, and when. */
+interface UnparkedMark {
+	readonly at: number;
+	readonly ids: readonly string[];
+}
+
+/**
+ * Where a host notes which conversations its stop left unparked, so its
+ * next start says so beside each one's resume: a slow resume after a
+ * cut-off turn then reads apart from one slow for its own reasons.
+ */
+function unparkedMarks(
+	realm: string,
+	kind: HostKind,
+	report: (error: unknown) => void,
+): {
+	read(): UnparkedMark | undefined;
+	write(ids: readonly string[]): void;
+	clear(): void;
+} {
+	const file = join(stateDir("host-service"), hostKey(realm, kind), UNPARKED);
+	return {
+		read() {
+			let text: string;
+			try {
+				text = readFileSync(file, "utf8");
+			} catch {
+				// No mark: the last stop parked everything, or there was none.
+				return undefined;
+			}
+			try {
+				const mark: unknown = JSON.parse(text);
+				if (
+					isRecord(mark) &&
+					typeof mark.at === "number" &&
+					Array.isArray(mark.ids)
+				)
+					return {
+						at: mark.at,
+						ids: mark.ids.filter((id) => typeof id === "string"),
+					};
+			} catch (error) {
+				report(error);
+			}
+			return undefined;
+		},
+		write(ids) {
+			try {
+				mkdirSync(dirname(file), { recursive: true });
+				writeFileSync(file, JSON.stringify({ at: Date.now(), ids }));
+			} catch (error) {
+				// The journal's line already names them; only the next start's
+				// note is lost.
+				report(error);
+			}
+		},
+		clear() {
+			try {
+				rmSync(file, { force: true });
+			} catch (error) {
+				report(error);
+			}
+		},
+	};
+}
+
+/** A moment's local time as the journal reads it, HH:MM. */
+function clockTime(at: number): string {
+	const when = new Date(at);
+	const two = (part: number) => String(part).padStart(2, "0");
+	return `${two(when.getHours())}:${two(when.getMinutes())}`;
 }
 
 /** Show what the host serves as the unit's status, once it changes. */

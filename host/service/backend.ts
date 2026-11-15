@@ -45,9 +45,14 @@ export interface ConversationEngine {
 	discard(prepared: Prepared): Promise<void>;
 	/**
 	 * `woken` when a person or a message asked for it from a park, rather
-	 * than the host resuming what it held as it starts.
+	 * than the host resuming what it held as it starts. `mark` hears each
+	 * phase of the start as it ends, so a slow one can be told apart.
 	 */
-	resume(entry: RosterEntry, woken?: boolean): Promise<void>;
+	resume(
+		entry: RosterEntry,
+		woken?: boolean,
+		mark?: (phase: ResumePhase) => void,
+	): Promise<void>;
 	/**
 	 * A host starting asks first whether a conversation it holds parked
 	 * before then, its park marker standing: if so the engine leaves it
@@ -440,6 +445,21 @@ export function conversationEvents(options: {
 	};
 }
 
+/**
+ * The phases of a conversation's resume, each marked as it ends: the
+ * start's own ask for more time, the gate on another one running, the
+ * session file read, an earlier host's tools reaped, pi's runtime built,
+ * its screen or headless binding, and durable's recovery begun.
+ */
+export type ResumePhase =
+	| "ask"
+	| "gate"
+	| "log"
+	| "reap"
+	| "runtime"
+	| "screen"
+	| "recovery";
+
 /** A held conversation a starting host is about to resume, counted from one. */
 export interface Resuming {
 	readonly step: "resume";
@@ -466,6 +486,7 @@ export async function resumeHeld(options: {
 	engine: ConversationEngine;
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
+	mark?: (phase: ResumePhase) => void;
 }): Promise<{ resumed: string[]; unresumed: Unresumed[] }> {
 	const resumed: string[] = [];
 	const unresumed: Unresumed[] = [];
@@ -478,9 +499,11 @@ export async function resumeHeld(options: {
 				of: entries.length,
 				sessionId: entry.sessionId,
 			});
+			options.mark?.("ask");
 			if (options.engine.restsParked?.(entry)) continue;
 			if (resumed.length > 0) await options.admitAnother?.();
-			await options.engine.resume(entry);
+			options.mark?.("gate");
+			await options.engine.resume(entry, false, options.mark);
 			resumed.push(entry.sessionId);
 		} catch (reason) {
 			unresumed.push({ sessionId: entry.sessionId, reason });

@@ -150,6 +150,12 @@ const DEFAULT_MODEL: Model = {
 	api: "unknown",
 };
 const ENTRY_PAGE = 200;
+/**
+ * How long an aborted request may take to end before the run gives up on
+ * it: a provider that honours the abort ends its own stream well within
+ * this, and one that waits on its first token is not waited on past it.
+ */
+const ABANDON_AFTER_MS = 1_000;
 /** A tool's parameters as durable sees them: pi validates the arguments itself, with its own texts. */
 const ANY_ARGUMENTS = { type: "object" } as const;
 
@@ -357,13 +363,16 @@ export class HostedAgent {
 		input: string | AgentMessage | AgentMessage[],
 		images?: readonly ContentBlock[],
 	): Promise<void> {
-		if (this.active) {
-			throw new Error(
-				"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
-			);
-		}
 		const messages = normalizePromptInput(input, images);
-		if (!this.recovery) {
+		if (this.active) {
+			// pi begins a run only while it holds none, so one under way here is
+			// durable's: the recovery carrying a turn on, or durable's own work.
+			// The words queue behind it as an early prompt's do. Refused, pi,
+			// idle by its own account, let job-workflow say its cut-off notice
+			// again at once, 335 times in one conversation, and two resumes
+			// took 72 s each (14 November).
+			if (await this.followCarriedOn(messages)) return;
+		} else if (!this.recovery) {
 			// A prompt before the recovery, as an extension's start sends, begins
 			// it: durable refuses new words as busy while it holds a turn a
 			// restart cut off, and the words were lost (13 November).
@@ -1087,7 +1096,7 @@ export class HostedAgent {
 		const renewed = this.durable.renewed?.bind(this.durable);
 		const open = (): Promise<ProviderStream> =>
 			this.within(() => this.open(request, signal, durablePayload));
-		return this.tee(run, request, open, renewed);
+		return this.tee(run, request, signal, open, renewed);
 	}
 
 	/** Send one request through pi's stream function, with the conversation's credentials. */
@@ -1131,21 +1140,32 @@ export class HostedAgent {
 		);
 	}
 
-	/** Show pi the stream's events as its loop does, and hand durable the same stream. */
+	/**
+	 * Show pi the stream's events as its loop does, and hand durable the same
+	 * stream. Once `signal` aborts, the stream ends within ABANDON_AFTER_MS on
+	 * an aborted answer, whether or not the provider has ended its own: a
+	 * park, a close and a person's Esc all wait on that, and a provider may
+	 * not look at the signal until its first token.
+	 */
 	private tee(
 		run: Run,
 		request: Request,
+		signal: AbortSignal,
 		open: () => Promise<ProviderStream>,
 		renewed: Renewed | undefined,
 	): ProviderStream {
 		const answer = run.answer ?? { started: false };
 		run.answer = answer;
 		let final: Promise<AssistantMessage> | undefined;
+		/** The aborted answer the run gave up on the provider with, once it has. */
+		let abandoned: AssistantMessage | undefined;
 		const finish = async (
 			stream: ProviderStream,
 		): Promise<AssistantMessage> => {
 			final ??= (async () => {
 				const message = await stream.result();
+				// An answer that comes after the run gave up on it changes nothing.
+				if (abandoned) return abandoned;
 				message.thinkingLevel = request.reasoning ?? "off";
 				const messages = run.context.messages;
 				if (answer.started) messages[messages.length - 1] = message;
@@ -1162,6 +1182,33 @@ export class HostedAgent {
 		let ended = false;
 		let failure: { readonly error: unknown } | undefined;
 		let wake = () => {};
+		let leave: (message: AssistantMessage) => void = () => {};
+		const left = new Promise<AssistantMessage>((done) => {
+			leave = done;
+		});
+		const abandon = (): void => {
+			if (answer.message || abandoned) return;
+			const message = abortedAnswer(request, answer.partial);
+			abandoned = message;
+			final = Promise.resolve(message);
+			const messages = run.context.messages;
+			if (answer.started) messages[messages.length - 1] = message;
+			else messages.push(message);
+			answer.message = message;
+			ended = true;
+			wake();
+			leave(message);
+		};
+		let grace: ReturnType<typeof setTimeout> | undefined;
+		const aborted = (): void => {
+			grace = setTimeout(abandon, ABANDON_AFTER_MS);
+		};
+		if (signal.aborted) aborted();
+		else signal.addEventListener("abort", aborted, { once: true });
+		const settled = (): void => {
+			clearTimeout(grace);
+			signal.removeEventListener("abort", aborted);
+		};
 		let opened = open();
 		const reading = (async () => {
 			let stream = await opened;
@@ -1181,6 +1228,8 @@ export class HostedAgent {
 						reopen = true;
 						break;
 					}
+					// Given up on, what the provider sends at last is neither shown nor read.
+					if (abandoned) break;
 					if (event.type === "start" && event.partial) {
 						answer.partial = event.partial;
 						run.context.messages.push(event.partial);
@@ -1204,19 +1253,21 @@ export class HostedAgent {
 					read.push(event);
 					wake();
 				}
-				if (!reopen) break;
+				if (!reopen || abandoned) break;
 				opened = open();
 				stream = await opened;
 			}
 			await finish(stream);
 		})().then(
 			() => {
+				settled();
 				ended = true;
 				wake();
 			},
 			(error: unknown) => {
-				// Held for durable, which meets it when it reads this far.
-				failure = { error };
+				settled();
+				// Held for durable, which meets it when it reads this far; an abandoned stream already ended.
+				if (!abandoned) failure = { error };
 				wake();
 			},
 		);
@@ -1238,8 +1289,14 @@ export class HostedAgent {
 		return {
 			[Symbol.asyncIterator]: () => iterable,
 			result: async () => {
-				await reading;
-				return { ...(await finish(await opened)) };
+				const answered = (async () => {
+					await reading;
+					return finish(await opened);
+				})();
+				answered.catch(() => {
+					// The race below meets this failure unless the run gave up on it first.
+				});
+				return { ...(await Promise.race([answered, left])) };
 			},
 		};
 	}
@@ -1855,6 +1912,26 @@ function resultsOf(
 		const result = resultOf(messages, call.id);
 		return result ? [result] : [];
 	});
+}
+
+/** The answer a request given up on after its abort ends with, as pi-ai's providers end an aborted stream. */
+function abortedAnswer(
+	request: Request,
+	partial: AssistantMessage | undefined,
+): AssistantMessage {
+	return {
+		usage: EMPTY_USAGE,
+		...(partial ?? {}),
+		role: "assistant",
+		content: partial?.content ?? [],
+		api: partial?.api ?? request.model.api,
+		provider: partial?.provider ?? request.model.provider,
+		model: partial?.model ?? request.model.id,
+		stopReason: "aborted",
+		errorMessage: "Request was aborted",
+		timestamp: Date.now(),
+		thinkingLevel: request.reasoning ?? "off",
+	};
 }
 
 function isAssistant(message: AgentMessage): message is AssistantMessage {

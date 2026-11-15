@@ -19,6 +19,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+	createOutbox,
+	STEERED_RESULTS,
+} from "../../../../extensions/job-workflow/outbox.ts";
 import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried-turn-messages.ts";
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
@@ -32,8 +36,10 @@ interface Session {
 	followUp(text: string): Promise<void>;
 	sendCustomMessage(
 		message: { customType: string; content: string; display: boolean },
-		options?: { triggerTurn?: boolean },
+		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" },
 	): Promise<void>;
+	/** No run and no compaction, by pi's own account. */
+	readonly isIdle: boolean;
 	abort(): Promise<void>;
 	dispose(): void;
 	/** The agent-interface patch's, where the runtime has it. */
@@ -145,6 +151,8 @@ interface Scenario {
 	drive: (session: Session) => Promise<void>;
 	/** What the session is sent before the agent recovers, as an extension's start may send it. */
 	early?: (session: Session) => Promise<void>;
+	/** What the session is sent once the recovery has begun carrying a turn on, as an extension may send it then. */
+	during?: (session: Session) => Promise<void>;
 	/** Keep the session in a file under the folder, to be opened again by a later run. */
 	persist?: boolean;
 	/** Settings over the fixture's, which turn pi's retry and compaction off. */
@@ -170,6 +178,18 @@ const noteEffect = (text: string): void =>
 const QUEUED_WAIT_MS = 3_000;
 /** How often that answer looks again. */
 const QUEUED_POLL_MS = 20;
+/** How long an outbox scenario waits for its result to be seen. */
+const OUTBOX_WAIT_MS = 10_000;
+/** How often it looks. */
+const OUTBOX_POLL_MS = 50;
+/** How long a slow provider takes to its first token, deaf to an abort meanwhile. */
+const SLOW_FIRST_TOKEN_MS = 30_000;
+/** Resolve askedOnce, once the slow provider is asked. */
+let asked = (): void => {};
+/** Settles once the slow provider is asked for an answer. */
+const askedOnce = new Promise<void>((done) => {
+	asked = done;
+});
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -178,7 +198,18 @@ let pending = (): readonly string[] => [];
 let note = (_event: {
 	readonly type: string;
 	readonly pending?: readonly string[];
+	readonly error?: string;
+	readonly sends?: number;
+	readonly waiting?: number;
+	readonly ms?: number;
 }): void => {};
+
+/** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
+async function answerSlowly(): Promise<unknown> {
+	asked();
+	await new Promise((done) => setTimeout(done, SLOW_FIRST_TOKEN_MS));
+	return say("too late");
+}
 
 /** Answer `text` once the agent holds queued words, noting that it did, or after a while. */
 async function answerOnceQueued(text: string): Promise<unknown> {
@@ -365,6 +396,40 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 	},
+	/** Reopen with a prompt sent while the recovery carries the cut-off turn on, as job-workflow said a cut-off notice on 14 November. */
+	"reopen-prompted-during": {
+		responses: () => [
+			() => answerOnceQueued("after the restart"),
+			say("and the prompt"),
+		],
+		tools: echo(async () => noteEffect("ping")),
+		during: async (session) => {
+			try {
+				await session.prompt("sent during the turn");
+			} catch (error) {
+				// Noted rather than thrown, so the test sees what pi's caller was told.
+				note({ type: "prompt_refused", error: String(error) });
+			}
+		},
+		drive: async () => {},
+		persist: true,
+	},
+	/** As reopen-prompted-during, the cut-off notice said through job-workflow's outbox, which says again what a run did not carry. */
+	"reopen-noticed-during": {
+		responses: () => [
+			() => answerOnceQueued("after the restart"),
+			say("and the notice"),
+		],
+		tools: echo(async () => noteEffect("ping")),
+		during: (session) =>
+			sayThroughAnOutbox(session, {
+				jobId: "cut-off",
+				label: "the machine ended this session",
+				text: "a restart cut the turn off",
+			}),
+		drive: async () => {},
+		persist: true,
+	},
 	/** Reopen into a tool round whose tool hears a peer's word, as a mesh message reached a turn durable carried on on 13 November. */
 	"reopen-with-a-word": {
 		responses: () => [
@@ -445,6 +510,17 @@ const scenarios: Record<string, Scenario> = {
 		],
 		tools: echo(),
 		drive: (session) => session.prompt("use the tools"),
+	},
+	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
+	"park-slow-first-token": {
+		responses: () => [answerSlowly],
+		drive: async (session) => {
+			void session.prompt("hi").catch(() => {
+				// The park ends this prompt; how long the close takes is what is seen.
+			});
+			await askedOnce;
+			await parkAndClose();
+		},
 	},
 	"abort-in-stream": {
 		responses: () => [
@@ -551,6 +627,11 @@ let stopHost: () => void = () => {
 	throw new Error("the session is not built yet");
 };
 
+/** Park and close as a stopping host does, noting how long the close took, then end; once the session is built. */
+let parkAndClose: () => Promise<void> = async () => {
+	throw new Error("the session is not built yet");
+};
+
 const scenario = scenarios[scenarioName];
 if (!scenario) throw new Error(`no scenario ${scenarioName}`);
 
@@ -652,12 +733,26 @@ try {
 	queued = () => session.agent.hasQueuedMessages();
 	pending = () => session.getFollowUpMessages();
 	note = (event) => events.push(event);
+	parkAndClose = async () => {
+		// As the engine's release does for a stopping host, timing the close it waits on.
+		conversation?.agent?.park();
+		session.dispose();
+		const from = Date.now();
+		await conversation?.close();
+		note({ type: "closed", ms: Date.now() - from });
+		process.stdout.write(`${JSON.stringify({ events })}\n`);
+		faux.unregister();
+		if (!keptFolder) rmSync(folder, { recursive: true, force: true });
+		process.exit(0);
+	};
 	const early = scenario.early?.(session);
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);
 	const recovery = await conversation?.agent?.recover();
+	const during = scenario.during?.(session);
 	await recovery?.settled;
 	await early;
+	await during;
 	await scenario.drive(session);
 	await session.agent.waitForIdle();
 	const transcript = session.agent.state.messages.map(comparable);
@@ -690,6 +785,72 @@ function persisted(): unknown {
 	return file
 		? coding.SessionManager.open(join(sessionDir, file), sessionDir)
 		: coding.SessionManager.create(folder, sessionDir);
+}
+
+/**
+ * Say `result` through an outbox wired as job-workflow wires it, told what
+ * the session does by its events, and note how many prompts it sent and
+ * how many were refused, once the result is seen or the wait ends.
+ */
+async function sayThroughAnOutbox(
+	session: Session,
+	result: { jobId: string; label: string; text: string },
+): Promise<void> {
+	let sends = 0;
+	const box = createOutbox({
+		send: (text) => {
+			sends++;
+			session.prompt(text).catch((error: unknown) => {
+				note({ type: "prompt_refused", error: String(error) });
+			});
+		},
+		steer: (text) => {
+			if (session.isIdle) throw new Error("no run to put it in");
+			void session.sendCustomMessage(
+				{ customType: STEERED_RESULTS, content: text, display: true },
+				{ triggerTurn: true, deliverAs: "steer" },
+			);
+		},
+		idle: () => session.isIdle,
+		now: Date.now,
+		every: (ms, tick) => {
+			const clock = setInterval(tick, ms);
+			return () => clearInterval(clock);
+		},
+	});
+	const stop = session.subscribe((event) => {
+		if (event.type === "agent_start") box.runStarted();
+		if (event.type === "agent_settled")
+			box.runSettled(Reflect.get(event, "aborted") === true);
+		const message: unknown = Reflect.get(event, "message");
+		if (
+			event.type === "message_end" &&
+			isRecord(message) &&
+			message.role === "user"
+		)
+			box.seen(textIn(message.content));
+	});
+	box.post(result);
+	const by = Date.now() + OUTBOX_WAIT_MS;
+	while (box.waiting().length > 0 && Date.now() < by) {
+		// Polled: the outbox says nothing when a result leaves it.
+		await new Promise((done) => setTimeout(done, OUTBOX_POLL_MS));
+	}
+	box.pause();
+	stop();
+	note({ type: "outbox", sends, waiting: box.waiting().length });
+}
+
+/** The text of a message's content. */
+function textIn(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part: unknown) => {
+			const value: unknown = isRecord(part) ? part.text : undefined;
+			return typeof value === "string" ? value : "";
+		})
+		.join("");
 }
 
 /** An event or message without what differs between two runs of one script. */

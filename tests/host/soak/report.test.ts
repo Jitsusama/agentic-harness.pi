@@ -650,9 +650,35 @@ describe("a parity report", () => {
 			},
 		];
 		expect(
-			parityOf(hosted, plain, { hosted: "/h", plain: "/p" }).differences,
+			parityOf(hosted, plain, { hosted: ["/h"], plain: ["/p"] }).differences,
 			"the same turn",
 		).toBe(0);
+	});
+
+	it("labels each folder a side is reached by, through its link and as pi names it", () => {
+		// A seal reaches its folder through a link, and pi names the folder by
+		// its real path, which is the link's less its last letter.
+		const hosted = [
+			{
+				...entry("user", "soak c0-t0 echo, please", 0),
+				cwd: "/tmp/e-a/w1",
+				home: "/tmp/e-al/h",
+			},
+		];
+		const plain = [
+			{
+				...entry("user", "soak c0-t0 echo, please", 0),
+				cwd: "/tmp/e-b/w1",
+				home: "/tmp/e-bl/h",
+			},
+		];
+		expect(
+			parityOf(hosted, plain, {
+				hosted: ["/tmp/e-al", "/tmp/e-a"],
+				plain: ["/tmp/e-bl", "/tmp/e-b"],
+			}).first,
+			"the same turn, each folder by either name",
+		).toEqual([]);
 	});
 
 	it("counts an entry only one side wrote once", () => {
@@ -660,7 +686,7 @@ describe("a parity report", () => {
 		const parity = parityOf(
 			[{ type: "custom", customType: "host-only" }, turn],
 			[turn],
-			{ hosted: "/h", plain: "/p" },
+			{ hosted: ["/h"], plain: ["/p"] },
 		);
 		expect(parity.first, "one extra entry, the turn alike").toEqual([
 			{ path: "events.actual[0]", kind: "extra-event", actual: "custom" },
@@ -671,7 +697,7 @@ describe("a parity report", () => {
 		const parity = parityOf(
 			[entry("user", "soak c0-t0 echo, please", 0)],
 			[entry("user", "soak c0-t0 long, please", 0)],
-			{ hosted: "/h", plain: "/p" },
+			{ hosted: ["/h"], plain: ["/p"] },
 		);
 		expect(parity.where, "counted by place").toEqual({
 			"events[:message].message.content": 1,
@@ -702,7 +728,7 @@ describe("a soak's parity, past what differs on every run", () => {
 		const parity = parityOf(
 			[...sourced("hosted"), result("(no output)")],
 			[...sourced("plain"), result("soak bash c3-t5")],
-			{ hosted: "/h", plain: "/p" },
+			{ hosted: ["/h"], plain: ["/p"] },
 		);
 		expect(
 			parity.differences,
@@ -718,7 +744,7 @@ describe("a soak's parity, past what differs on every run", () => {
 });
 
 describe("a soak's parity, past what each mode and restart writes", () => {
-	const roots = { hosted: "/h", plain: "/p" };
+	const roots = { hosted: ["/h"], plain: ["/p"] };
 	const aborted = (errorMessage: string) => ({
 		...entry("assistant", [], 1),
 		message: { role: "assistant", stopReason: "aborted", errorMessage },
@@ -784,8 +810,8 @@ describe("a soak's parity, past the provider's numbering", () => {
 		});
 		expect(
 			parityOf([answered("msg_soak_2")], [answered("msg_soak_76")], {
-				hosted: "/h",
-				plain: "/p",
+				hosted: ["/h"],
+				plain: ["/p"],
 			}).differences,
 			"the same answer, numbered apart",
 		).toBe(0);

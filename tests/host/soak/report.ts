@@ -719,7 +719,9 @@ function slopeOf(values: readonly number[]): number {
 
 /**
  * How a hosted conversation's log differs from plain pi's, each side's
- * own folder made the label `<root>` first. Entries are aligned by type,
+ * own folder made the label `<root>` first, by each of its `roots` in
+ * turn: a seal's link before the real folder pi names, since the link's
+ * path is the folder's with a letter added. Entries are aligned by type,
  * as the parity suite aligns events, so one extra entry reads as one;
  * and each entry's own id, its parent's and its time are left out, since
  * a shifted id would make every later one differ. A conversation a
@@ -731,17 +733,23 @@ function slopeOf(values: readonly number[]): number {
 export function parityOf(
 	hosted: readonly Record<string, unknown>[],
 	plain: readonly Record<string, unknown>[],
-	roots: { readonly hosted: string; readonly plain: string },
+	roots: {
+		readonly hosted: readonly string[];
+		readonly plain: readonly string[];
+	},
 	restarted = false,
 ): Parity {
 	const comparable = (
 		log: readonly Record<string, unknown>[],
-		root: string,
+		folders: readonly string[],
 	) => {
 		const kept = restarted
 			? log.filter((entry) => entry.type !== "custom")
 			: log;
-		const labelled = normalise(kept.map(withoutPlace), [[root, "<root>"]]);
+		const labelled = normalise(
+			kept.map(withoutPlace),
+			folders.map((folder): readonly [string, string] => [folder, "<root>"]),
+		);
 		return Array.isArray(labelled) ? labelled : [];
 	};
 	const found = alignedEvents(

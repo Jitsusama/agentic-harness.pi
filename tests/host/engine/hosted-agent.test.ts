@@ -33,9 +33,15 @@ beforeEach(({ skip }) => {
 const FIXTURE = join(import.meta.dirname, "fixtures", "hosted-session.mts");
 /** Two sessions in two processes, each loading pi's whole package. */
 const SESSION_PAIR_MS = 60_000;
+/** The longest a park may hold a stopping host's close, whatever the provider does. */
+const PARKED_CLOSE_MOST_MS = 5_000;
 
 interface Observed {
-	readonly events: readonly { readonly type: string }[];
+	readonly events: readonly {
+		readonly type: string;
+		/** How long a timed step took, for an event that timed one. */
+		readonly ms?: number;
+	}[];
 	readonly transcript: readonly {
 		readonly role: string;
 		readonly content: unknown;
@@ -322,6 +328,20 @@ describe("the hosted agent after SIGKILL mid-tool", {
 	});
 });
 
+describe("the hosted agent parked before a slow first token", {
+	timeout: SESSION_PAIR_MS,
+}, () => {
+	it("lets the host close at once, though the provider pays the abort no heed", async () => {
+		const observed = await observe("hosted", "park-slow-first-token");
+		const closed = observed.events.find((event) => event.type === "closed");
+		expect(closed, "the fixture timed the close").toBeDefined();
+		expect(
+			closed?.ms,
+			"the close waited on no answer the park had abandoned",
+		).toBeLessThan(PARKED_CLOSE_MOST_MS);
+	});
+});
+
 /**
  * Two shapes a restart left on 13 November, when a host's planned restart
  * cut off nineteen conversations mid-turn and their resumes threw.
@@ -507,6 +527,71 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			).toEqual([]);
 			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 			expect(observed.events.at(-1)?.type).toBe("agent_end");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("queues a prompt sent while the recovery carries a turn on behind it, rather than refusing it", async () => {
+		// On 14 November job-workflow said a cut-off notice while the recovery ran; pi, idle by its own account, began a run each time, the agent refused it as already processing, and the notice went again at once, about every 1.2 s for a minute.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-prompted-during-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(
+				folder,
+				"reopen-prompted-during",
+			);
+			expect(reported, "durable reported nothing").toBe("");
+			expect(
+				observed.events.filter((event) => event.type === "prompt_refused"),
+				"the prompt was not refused",
+			).toEqual([]);
+			expect(
+				said(observed, "assistant"),
+				"the call, the cut-off turn's end and the prompt's answer",
+			).toEqual(["", "after the restart", "and the prompt"]);
+			expect(said(observed, "user").at(-1)).toBe("sent during the turn");
+			expect(
+				observed.events.map((event) => event.type),
+				"the prompt's words were queued while the carried-on turn ran",
+			).toContain("queued_mid_turn");
+			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("says a cut-off notice through job-workflow's outbox once while the recovery carries a turn on", async () => {
+		// On 14 November two conversations sent theirs 335 and 233 times, each a run pi began and the agent refused, holding their host's start for about a minute.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-noticed-during-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(
+				folder,
+				"reopen-noticed-during",
+			);
+			expect(reported, "durable reported nothing").toBe("");
+			const refused = observed.events.filter(
+				(event) => event.type === "prompt_refused",
+			);
+			const outbox = observed.events.find((event) => event.type === "outbox");
+			expect(
+				{
+					refused: refused.length,
+					sends: Reflect.get(outbox ?? {}, "sends"),
+					waiting: Reflect.get(outbox ?? {}, "waiting"),
+				},
+				"the notice went once, was not refused and left the outbox",
+			).toEqual({ refused: 0, sends: 1, waiting: 0 });
+			expect(
+				said(observed, "user").filter((text) => text.includes("[cut-off]")),
+				"the conversation holds the notice once",
+			).toHaveLength(1);
+			expect(
+				said(observed, "assistant"),
+				"the call, the cut-off turn's end and the notice's answer",
+			).toEqual(["", "after the restart", "and the notice"]);
+			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}

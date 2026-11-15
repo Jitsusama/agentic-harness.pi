@@ -113,8 +113,9 @@ async function handed(): Promise<Handed> {
 			sections: { "quest-workflow": { spawnHost: "background" } },
 		}),
 	);
-	const cwd = join(sealed.home, "w");
-	await mkdir(cwd, { recursive: true });
+	await mkdir(join(sealed.home, "w"), { recursive: true });
+	// pi names a conversation's folder by its real path, as the host lists it.
+	const cwd = await realpath(join(sealed.home, "w"));
 	// Trusted as Joel's own folders are, so no question comes first.
 	await mkdir(join(sealed.home, ".pi", "agent"), { recursive: true });
 	await writeFile(
