@@ -167,7 +167,16 @@ companion skill.
 - `runpi/spawn.ts`: fire-and-forget runner. Cheapest path.
 - `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and
-  streams events back via the artifacts store.
+  streams events back via the artifacts store. It holds
+  the runner that waits and the grace it gives the
+  supervisor; three files beside it hold the rest:
+  - `runpi/supervisor-request.ts`: what a supervisor is
+    told and run with, its environment and its places.
+  - `runpi/supervisor-result.ts`: what a supervisor said,
+    read from its result file, its stream or, when it
+    never answered, its post-mortem.
+  - `runpi/supervisor-detached.ts`: the runner that starts
+    a supervisor and walks away.
 - `runpi/supervisor.mjs`: the supervisor process itself,
   and the four `.mjs` it shares with the parent. They stay
   `.mjs` because node spawns this directly, and node
