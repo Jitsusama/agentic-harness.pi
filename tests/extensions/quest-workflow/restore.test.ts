@@ -199,15 +199,16 @@ function countingDriver(): { count: number } {
 }
 
 /** Run reopen-sessions, with what else a test asks of it. */
-async function restoreNow(
-	more: Omit<Parameters<typeof handle>[3], "action"> = {},
-) {
-	return succeeded(
-		await handle(buildState(), fakePi(), fakeCtx(), {
-			action: "reopen-sessions",
-			...more,
-		}),
-	);
+function reopen(more: Omit<Parameters<typeof handle>[3], "action"> = {}) {
+	return handle(buildState(), fakePi(), fakeCtx(), {
+		action: "reopen-sessions",
+		...more,
+	});
+}
+
+/** Run reopen-sessions, expecting it to succeed. */
+async function restoreNow(more: Parameters<typeof reopen>[0] = {}) {
+	return succeeded(await reopen(more));
 }
 
 describe("restore verb", () => {
@@ -478,11 +479,7 @@ describe("restore verb", () => {
 
 	describe("naming sessions with id", () => {
 		async function restoreIds(id: string, force = false) {
-			return handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				id,
-				force,
-			});
+			return reopen({ id, force });
 		}
 
 		it("reopens a recently closed session it was asked for", async () => {
