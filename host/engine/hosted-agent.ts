@@ -474,7 +474,9 @@ export class HostedAgent {
 	 * recovery is left alone, and so is `restart_limit`, durable's own end to
 	 * a request cut off again and again.
 	 */
-	private async askAgainIfCutOff(before: RunFailure | undefined): Promise<void> {
+	private async askAgainIfCutOff(
+		before: RunFailure | undefined,
+	): Promise<void> {
 		if (this.parked || this.active) return;
 		const failure = await this.durable.runFailure();
 		if (failure?.reason !== INTERRUPTED || failure.taskId === before?.taskId)
