@@ -47,12 +47,32 @@ const STATUS_KEY = "budget";
 /** The least time between two asks of spend-watch after replies. */
 const ASK_EVERY_MS = 60_000;
 
+/**
+ * spend-watch's latest answer on the machine's budgets, and the ask on
+ * its way, which every conversation holding one may share: the answer
+ * names no session. A host starts each conversation in one process,
+ * and each start asked spend-watch again, 21 ms of a parked wake on 14
+ * November and a process spawned each time.
+ */
+export interface BudgetAsks {
+	askedAt: number;
+	asking?: Promise<void>;
+	budgets?: Budgets;
+}
+
+/** Asks shared by nobody else yet. */
+export function budgetAsks(): BudgetAsks {
+	return { askedAt: Number.NEGATIVE_INFINITY };
+}
+
 /** What the budget item needs from the rest of spend-workflow. */
 export interface BudgetItemDeps {
 	/** How spend-watch is run, with its deadline. */
 	readonly exec: () => Exec;
 	/** The ledger's list-price figure for this session, in dollars. */
 	readonly listPrice: () => number;
+	/** The asks this item shares with others, else its own. */
+	readonly asks?: BudgetAsks;
 }
 
 /** Keep the budget item on the footer and register `/budget`. */
@@ -64,8 +84,7 @@ export function registerBudgetItem(
 	let plan: PlanUse | undefined;
 	let provider: string | undefined;
 	let drawn: string | null = null;
-	let askedAt = Number.NEGATIVE_INFINITY;
-	let asking: Promise<void> | undefined;
+	const asks = deps.asks ?? budgetAsks();
 	let shown: ExtensionContext | undefined;
 	/**
 	 * What the footer was last told, so an unchanged item isn't redrawn;
@@ -110,25 +129,40 @@ export function registerBudgetItem(
 		}
 	};
 
-	/** Ask spend-watch afresh, unless it was asked within the minute. */
-	const ask = (always: boolean): Promise<void> => {
-		if (asking) return asking;
-		if (!always && Date.now() - askedAt < ASK_EVERY_MS)
+	/** Take the latest answer, and draw it. */
+	const take = (): void => {
+		budgets = asks.budgets;
+		try {
+			render();
+		} catch {
+			// Nobody awaits an ask, and an unhandled rejection ends pi; a
+			// footer that won't draw is drawn by the next answer.
+		}
+	};
+
+	/**
+	 * Ask spend-watch afresh, unless it was asked within the minute, here
+	 * or by another conversation sharing the asks, whose answer is taken.
+	 */
+	const ask = (): Promise<void> => {
+		if (asks.asking) return asks.asking.then(take);
+		if (Date.now() - asks.askedAt < ASK_EVERY_MS) {
+			take();
 			return Promise.resolve();
-		askedAt = Date.now();
-		asking = askBudgets(deps.exec())
+		}
+		asks.askedAt = Date.now();
+		asks.asking = askBudgets(deps.exec())
 			.then((answer) => {
-				budgets = answer;
-				render();
+				asks.budgets = answer;
 			})
 			.catch(() => {
 				// Nobody awaits this, and an unhandled rejection ends pi; a
 				// failed ask leaves the footer as it was until the next.
 			})
 			.finally(() => {
-				asking = undefined;
+				asks.asking = undefined;
 			});
-		return asking;
+		return asks.asking.then(take);
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -141,7 +175,7 @@ export function registerBudgetItem(
 		drawn = budgetDrawnOn(sessionEnv(ctx).snapshot());
 		plan = lastPlanUse(ctx.sessionManager.getBranch());
 		render();
-		void ask(true);
+		void ask();
 	});
 
 	pi.on("message_end", async (event) => {
@@ -157,7 +191,7 @@ export function registerBudgetItem(
 	});
 
 	pi.on("agent_end", async () => {
-		if (withUI()) void ask(false);
+		if (withUI()) void ask();
 	});
 
 	// A reload or a session switch leaves this load's context throwing.
@@ -183,8 +217,8 @@ export function registerBudgetItem(
 				ctx.sessionManager.getSessionId(),
 			);
 			if (answer) {
+				// Not shared: this answer holds this session's own spend.
 				budgets = answer;
-				askedAt = Date.now();
 				render();
 			}
 			const lines = budgetReport({

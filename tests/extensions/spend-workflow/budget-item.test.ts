@@ -4,7 +4,11 @@
  * its budget, and quiet in a session with no person at it.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { registerBudgetItem } from "../../../extensions/spend-workflow/budget-item.ts";
+import {
+	type BudgetAsks,
+	budgetAsks,
+	registerBudgetItem,
+} from "../../../extensions/spend-workflow/budget-item.ts";
 import { BUDGET_SETTLED } from "../../../lib/budget/record.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { RATE_LIMIT } from "../../../lib/internal/claude-plan.ts";
@@ -51,7 +55,13 @@ const STALE =
 	"This extension ctx is stale after session replacement or reload.";
 
 function harness(
-	options: { answer?: unknown; hasUI?: boolean; answerLater?: boolean } = {},
+	options: {
+		answer?: unknown;
+		hasUI?: boolean;
+		answerLater?: boolean;
+		/** Asks shared with another harness, as a host's conversations share. */
+		asks?: BudgetAsks;
+	} = {},
 ) {
 	const handlers = new Map<string, Handler[]>();
 	const bus = new Map<string, ((data: unknown) => void)[]>();
@@ -82,7 +92,11 @@ function harness(
 		},
 		registerCommand: () => {},
 	};
-	registerBudgetItem(pi as never, { exec: () => exec, listPrice: () => 1.5 });
+	registerBudgetItem(pi as never, {
+		exec: () => exec,
+		listPrice: () => 1.5,
+		...(options.asks ? { asks: options.asks } : {}),
+	});
 	// As pi's context does, it throws on every read once replaced.
 	let stale = false;
 	const live = <T>(value: T): T => {
@@ -240,6 +254,36 @@ describe("the budget item", () => {
 			).not.toThrow();
 			expect(item.statuses).toHaveLength(before);
 		});
+	});
+
+	it("asks spend-watch once for conversations sharing a process", async () => {
+		// A host starts each conversation in one process, and each start
+		// spawned spend-watch again for the same machine-wide answer.
+		process.env.PI_BUDGET = "proxy";
+		const [proxy, ...rest] = ANSWER.budgets;
+		const nearlySpent = {
+			...ANSWER,
+			budgets: [
+				{
+					...proxy,
+					allowances: proxy?.allowances?.map((one) => ({ ...one, spent: 290 })),
+				},
+				...rest,
+			],
+		};
+		const asks = budgetAsks();
+		const first = harness({ answer: nearlySpent, asks, answerLater: true });
+		const second = harness({ answer: nearlySpent, asks });
+
+		await first.fire("session_start");
+		await second.fire("session_start");
+		first.answer();
+		await first.settle();
+		await second.settle();
+
+		expect(first.asks() + second.asks()).toBe(1);
+		expect(first.statuses.at(-1)).toBe(`${FOOTER_GLYPH.budget} 97%`);
+		expect(second.statuses.at(-1)).toBe(`${FOOTER_GLYPH.budget} 97%`);
 	});
 
 	it("asks nothing and says nothing with no person at it", async () => {

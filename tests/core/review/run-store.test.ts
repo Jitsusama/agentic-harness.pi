@@ -32,6 +32,15 @@ function run(over: Partial<AskRun> = {}): AskRun {
 	};
 }
 
+/** The one ledger file a folder holds, by its path. */
+function onlyFile(root: string): string {
+	const [file, ...more] = readdirSync(root);
+	if (file === undefined || more.length > 0) {
+		throw new Error(`expected one ledger file in ${root}`);
+	}
+	return join(root, file);
+}
+
 describe("keeping runs per change", () => {
 	let root: string;
 
@@ -364,6 +373,64 @@ describe("replacing a run", () => {
 			join(root, "torn.json"),
 			join(root, "wrong-shape.json"),
 		]);
+	});
+
+	it("asks a ledger file nothing more until it changes", async () => {
+		// A host asks at every conversation's start, and each ask read and
+		// parsed every file. A file unchanged since the last ask answers
+		// what it said then: shut to reads, it still names its round.
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+		const held = onlyFile(root);
+		await chmod(held, 0o000);
+
+		try {
+			const { open, unreadable } = await store.openRunIds();
+
+			expect(open).toEqual(new Set(["council-open"]));
+			expect(unreadable).toEqual([]);
+		} finally {
+			await chmod(held, 0o600);
+		}
+	});
+
+	it("reads a ledger file again once a write changes it", async () => {
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+
+		await store.keep(change, run({ id: "council-open" }));
+		await store.keep(other, run({ id: "council-elsewhere", open: true }));
+
+		const { open } = await store.openRunIds();
+		expect(open).toEqual(new Set(["council-elsewhere"]));
+	});
+
+	it("reads a ledger file again once a person edits it in place", async () => {
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+		const held = onlyFile(root);
+
+		await writeFile(held, "{ torn", "utf8");
+
+		const { open, unreadable } = await store.openRunIds();
+		expect(open).toEqual(new Set());
+		expect(unreadable).toEqual([held]);
+	});
+
+	it("forgets a ledger file that has gone", async () => {
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.openRunIds();
+		rmSync(onlyFile(root));
+
+		expect(await store.openRunIds()).toEqual({
+			open: new Set(),
+			rounds: [],
+			unreadable: [],
+		});
 	});
 
 	it("tells a missing ledger from one it cannot get into", async () => {

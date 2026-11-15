@@ -46,6 +46,15 @@ function fleet(id: string, jobs: string[] = ["one", "two"]) {
 	return { id, startedAt: new Date().toISOString(), jobs };
 }
 
+/** The one record a folder holds, by its path. */
+async function onlyRecord(root: string): Promise<string> {
+	const [file, ...more] = await readdir(root);
+	if (file === undefined || more.length > 0) {
+		throw new Error(`expected one record in ${root}`);
+	}
+	return join(root, file);
+}
+
 describe("a fleet ledger", () => {
 	it("holds a fleet from before it is dispatched", async () => {
 		// Before, not after. A fleet recorded when it finishes is a
@@ -534,6 +543,45 @@ describe("a fleet ledger", () => {
 		expect((await ledger.openFleets()).unreadable).toEqual([
 			join(root, "wrong-shape.json"),
 		]);
+	});
+
+	it("asks a record nothing more until it changes", async () => {
+		// A host asks for every conversation that comes back, and each ask
+		// read every record. One unchanged since the last ask answers what
+		// it said then: shut to reads, it still names its fleet.
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-open"));
+		await ledger.openFleets();
+		const held = await onlyRecord(root);
+		chmodSync(held, 0o000);
+
+		try {
+			expect(await ledger.openFleets()).toEqual({
+				open: new Set(["fleet-open"]),
+				unreadable: [],
+			});
+		} finally {
+			chmodSync(held, 0o600);
+		}
+	});
+
+	it("reads a record again once it is settled", async () => {
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.openFleets();
+
+		await ledger.settle("fleet-a");
+
+		expect((await ledger.openFleets()).open).toEqual(new Set());
+	});
+
+	it("forgets a record that has gone", async () => {
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.openFleets();
+		rmSync(await onlyRecord(root));
+
+		expect((await ledger.everyFleet()).runs).toEqual([]);
 	});
 
 	it("names the directory itself when that is what will not open", async () => {

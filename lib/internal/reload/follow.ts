@@ -40,6 +40,7 @@ import {
 	watch,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { headFromFiles } from "./head.ts";
 import { installOfVersion } from "./loaded.ts";
 
 /** How long a checkout must be still before its HEAD is read. */
@@ -155,8 +156,16 @@ function git(root: string, args: readonly string[]): Promise<string> {
 	});
 }
 
-/** A checkout's HEAD now, or nothing when git cannot say. */
+/**
+ * A checkout's HEAD now, or nothing when git cannot say: read from its
+ * files, and asked of git only where they can't answer. Every
+ * conversation's start watches its installs from here, and asking git
+ * forked a child off the host's one loop for each, 51 ms of a parked
+ * wake on 14 November.
+ */
 export async function headOf(root: string): Promise<string | undefined> {
+	const read = headFromFiles(root);
+	if (read !== undefined) return read;
 	return (await git(root, ["rev-parse", "HEAD"])).trim() || undefined;
 }
 

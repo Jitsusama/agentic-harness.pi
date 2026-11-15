@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileReads } from "../../../internal/file-reads.ts";
 import { withFileLock } from "../../internal/file-lock.ts";
 import type { ChangeRef } from "../change.ts";
 import { changeKey } from "../keys.ts";
@@ -233,9 +234,28 @@ export function createRunStore(root: string): RunStore {
 				}
 				return { open, rounds, unreadable };
 			}
+			// Each file is read again only once it has changed, since a host
+			// asks at every conversation's start. What it keeps of a file is
+			// its open rounds, or nothing when it would not read as a ledger.
+			const kept = fileReads<readonly OpenRound[] | undefined>(
+				"review-open-rounds",
+				root,
+			);
+			const listed = new Set<string>();
 			for (const file of files) {
 				if (!file.endsWith(".json")) continue;
 				const path = join(root, file);
+				listed.add(path);
+				const seen = await kept.stamp(path);
+				const held = kept.held(path, seen);
+				if (held !== undefined) {
+					if (held.said === undefined) unreadable.push(path);
+					for (const round of held.said ?? []) {
+						open.add(round.id);
+						rounds.push(round);
+					}
+					continue;
+				}
 				let parsed: unknown;
 				try {
 					parsed = JSON.parse(await readFile(path, "utf8"));
@@ -260,6 +280,7 @@ export function createRunStore(root: string): RunStore {
 					// about is a run nothing protects, which is the ordinary
 					// window. One torn file among twenty took protection off
 					// that change's rounds with no error anywhere.
+					kept.keep(path, seen, undefined);
 					unreadable.push(path);
 					continue;
 				}
@@ -271,6 +292,7 @@ export function createRunStore(root: string): RunStore {
 				) {
 					// A file that parses into the wrong shape is no more
 					// readable than one that does not parse at all.
+					kept.keep(path, seen, undefined);
 					unreadable.push(path);
 					continue;
 				}
@@ -278,10 +300,11 @@ export function createRunStore(root: string): RunStore {
 					"change" in parsed && isChangeRef(parsed.change)
 						? parsed.change
 						: undefined;
+				const found: OpenRound[] = [];
 				for (const run of parsed.runs as AskRun[]) {
 					if (run?.open === true && typeof run.id === "string") {
 						open.add(run.id);
-						rounds.push({
+						found.push({
 							id: run.id,
 							startedAt: run.startedAt,
 							...(typeof run.startedBy === "string"
@@ -291,7 +314,10 @@ export function createRunStore(root: string): RunStore {
 						});
 					}
 				}
+				kept.keep(path, seen, found);
+				rounds.push(...found);
 			}
+			kept.keepOnly(listed);
 			return { open, rounds, unreadable };
 		},
 
