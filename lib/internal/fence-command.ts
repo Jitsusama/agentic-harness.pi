@@ -49,7 +49,7 @@ export function fencedCommand(
 		readonly rules: readonly string[];
 		readonly door?: string;
 		readonly agent?: string;
-		/** Where each of `OWN_HOMES` lives inside, by its variable. */
+		/** Where each of `OWN_HOMES` lives inside, and direnv's own settings (`fence-direnv.ts`), by its variable. */
 		readonly homes?: readonly (readonly [string, string])[];
 		readonly github?: GitHubDoor;
 		readonly shims?: string;
