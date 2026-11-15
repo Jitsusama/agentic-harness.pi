@@ -1137,8 +1137,11 @@ export function meshWorkflow(
 						busy: steerDelivery(one, idle) === "steer",
 					});
 					talks.opened(one, inbox, said);
-					// The turn it starts is one the person waits on, as on one typed.
-					if (isPersonsTalk(one)) pi.events.emit(PERSON_TALKED, {});
+					// The turn it starts, or the run it goes into, is one the person
+					// waits on, as on one typed.
+					if (isPersonsTalk(one)) {
+						pi.events.emit(PERSON_TALKED, { intoRun: !idle });
+					}
 					steered(said, idle, one);
 				},
 				setAside: (inbox, names) => {

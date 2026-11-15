@@ -103,6 +103,19 @@ describe("a reload", () => {
 		await one.fire("session_shutdown", { reason: "quit" });
 	});
 
+	it("leaves the next turn unmarked when the words went into a running one", async () => {
+		const one = loaded();
+		await one.fire("session_start", { reason: "startup" });
+		await one.fire("agent_start");
+		vi.advanceTimersByTime(1_000);
+		bus.emit(PERSON_TALKED, { intoRun: true });
+		expect(marked("typed"), "the running turn is marked").toBe(true);
+		await one.fire("agent_end");
+		await one.fire("agent_start");
+		expect(marked("typed"), "the agent's next turn is not").toBe(false);
+		await one.fire("session_shutdown", { reason: "quit" });
+	});
+
 	it("leaves a talk said after it ended to the runtime after it", async () => {
 		const before = loaded();
 		await before.fire("session_start", { reason: "startup" });

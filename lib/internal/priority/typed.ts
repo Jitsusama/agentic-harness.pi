@@ -23,7 +23,8 @@ import { followPidMark } from "./pid-mark.ts";
  * Said on `pi.events` as the mesh delivers the person's own words from
  * the launcher (isPersonsTalk, lib/mesh/steer.ts). They arrive as an
  * extension's message, not typed input, yet the person waits on the turn
- * they start as on one typed.
+ * they start as on one typed. `intoRun` says they went into a run under
+ * way rather than starting one.
  */
 export const PERSON_TALKED = "priority:person-talked:v1";
 
@@ -61,6 +62,14 @@ export function typedTurns(dir: string | undefined, pid = process.pid) {
 		/** A person's input arrived. */
 		typed(now = Date.now()) {
 			typedAt = now;
+			mark();
+		},
+		/**
+		 * The person's words were read into the run under way, which pi
+		 * does for a steer and a follow-up alike: the run is theirs to its
+		 * end, and the next is not.
+		 */
+		steeredIn() {
 			mark();
 		},
 		/** A turn began. */

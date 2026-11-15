@@ -162,7 +162,15 @@ export function sayTypedTurns(
 	pi.on("input", async (event) => {
 		if (event.source === "interactive") turns.typed();
 	});
-	const unlisten = pi.events.on(PERSON_TALKED, () => turns.typed());
+	const unlisten = pi.events.on(PERSON_TALKED, (said) => {
+		const intoRun =
+			typeof said === "object" &&
+			said !== null &&
+			"intoRun" in said &&
+			said.intoRun === true;
+		if (intoRun) turns.steeredIn();
+		else turns.typed();
+	});
 	pi.on("agent_start", async () => turns.began());
 	pi.on("agent_end", async () => turns.ended());
 	// Every shutdown, a reload's included: its follower outlives the runtime,
