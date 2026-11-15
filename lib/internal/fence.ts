@@ -221,6 +221,11 @@ export interface FencePlace extends Worktrees {
 	 * (`fence-npmrc.ts`), or `/dev/null` where no copy could be made.
 	 */
 	readonly npmrc?: string;
+	/**
+	 * The fence's own direnv settings, in pi's folder in the runtime
+	 * folder, bound read-only where they are (`fence-direnv.ts`).
+	 */
+	readonly direnv?: string;
 	/** The work broker's trees, kept read-only but the session's own (`fence-broker-trees.ts`). */
 	readonly trees?: BrokerTrees;
 	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
@@ -343,6 +348,11 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
 		args.push(...githubDoorArgs(place.githubDoor));
+		// Read-only: written from outside, unfenced, so nothing inside may
+		// put a link in its place for that write to follow.
+		if (place.direnv && exists(place.direnv)) {
+			args.push("--ro-bind", place.direnv, place.direnv);
+		}
 	}
 	// The system bus and X's sockets live outside the runtime folder.
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {

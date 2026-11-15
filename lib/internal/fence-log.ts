@@ -38,7 +38,8 @@ export const FENCE_LOG_TAG = "pi-fence";
  * `signing` is git that couldn't sign, the signing agent being outside;
  * `delta` is git that couldn't get World's Delta credential; `keep` is
  * a build whose pass couldn't be kept, and `read-only` a write outside
- * what the session holds (`fence-route.ts`).
+ * what the session holds (`fence-route.ts`); `direnv` is an `.envrc`
+ * direnv wouldn't run or couldn't approve (`fence-direnv.ts`).
  */
 export type RefusedKind =
 	| "path"
@@ -49,7 +50,8 @@ export type RefusedKind =
 	| "signing"
 	| "delta"
 	| "keep"
-	| "read-only";
+	| "read-only"
+	| "direnv";
 
 /** One refusal, as the log holds it. */
 export interface Refusal {

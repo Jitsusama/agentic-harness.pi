@@ -144,6 +144,10 @@ may import from here, and any of it may change without notice.
 - **`fence-route.ts`**: the route a fenced command is told when the
   fence refused it something not git's: a pass kept, or a write
   outside what the session holds, each one counted.
+- **`fence-direnv.ts`**: direnv inside the fence, which trusts the
+  work trees and quests' scratch folders through settings of its own,
+  never the person's allow list, and the route a refused `.envrc`
+  is told.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.

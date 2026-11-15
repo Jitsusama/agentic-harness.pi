@@ -36,6 +36,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
+import { routedDirenv } from "../../lib/internal/fence-direnv.ts";
 import {
 	routedDelta,
 	routedPackedRefs,
@@ -112,15 +113,17 @@ type RoutedRefusal =
 	| "signing"
 	| "delta"
 	| "keep"
-	| "read-only";
+	| "read-only"
+	| "direnv";
 
 /**
  * A fenced bash call's output with the route added where git couldn't
  * rewrite the read-only shared git folder's `packed-refs`, write the
  * own git folder of a tree the session doesn't hold, sign, or reach
  * World's Delta (`fence-git-route.ts`), where a build couldn't keep its
- * pass, or where a write met a read-only mount (`fence-route.ts`),
- * counted in the system's log; nothing, for any other call.
+ * pass, or where a write met a read-only mount (`fence-route.ts`), or
+ * where direnv refused an `.envrc` (`fence-direnv.ts`), counted in the
+ * system's log; nothing, for any other call.
  */
 function routeRefused(
 	event: ToolResultEvent,
@@ -139,6 +142,7 @@ function routeRefused(
 		routedSigning(event.content, counted("signing")) ??
 		routedDelta(event.content, counted("delta")) ??
 		routedKeep(event.content, counted("keep", "nix-offload")) ??
+		routedDirenv(event.content, counted("direnv", "direnv")) ??
 		routedReadOnly(event.content, counted("read-only", "bash"));
 	// The structured result codemode reads is kept, its output as it was said.
 	return content
