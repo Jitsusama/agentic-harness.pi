@@ -22,11 +22,11 @@ import {
 	clearRefusedWake,
 	writeRefusedWake,
 } from "../../../lib/internal/session/refused-wake.ts";
+import { repositoryName } from "../../../lib/mesh/checkout.ts";
 import { localPeer, STEP_MS } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
 	type Presence,
-	repositoryName,
 	windowTitle,
 } from "../../../lib/mesh/presence.ts";
 import { localDay, noUsage } from "../../../lib/mesh/usage.ts";

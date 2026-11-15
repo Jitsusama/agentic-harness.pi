@@ -37,6 +37,8 @@ export interface QuestRecords {
 	readonly sessions: string;
 	/** One folder per quest, each with a README. */
 	readonly quests: string;
+	/** What each session says it is doing (lib/internal/quest/doing.ts). */
+	readonly doing?: string;
 }
 
 /** The address a quest gives a peer: its id's last six letters. */

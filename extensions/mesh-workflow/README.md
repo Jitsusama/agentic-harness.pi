@@ -762,6 +762,12 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   stays the id alone; `cwd` is its folder and `repo` the
   repository that folder is a checkout of. The launcher reads
   these rather than the quest's README or the session's log.
+  Its `doing` is what quest-workflow last said the session is
+  doing (`plan`, the next `item` and its text as `next`, the
+  newest Journey line as `chose`, and `at`), read from
+  quest-workflow's `doing/` folder at each publish and left
+  out with no focused plan, so a map shows what each part is
+  deciding without reading every plan.
   While a run goes on, `step` stays the bare tool name, or
   `thinking`, and `stepDetail` says it in full: `kind` is
   `tool`, `thinking` or `waiting` (on its person, mid-run),

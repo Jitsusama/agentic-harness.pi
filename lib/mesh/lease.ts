@@ -43,7 +43,7 @@
 import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { checkoutOf, repositoryName } from "./presence.ts";
+import { checkoutOf, repositoryName } from "./checkout.ts";
 import {
 	removeQuietly,
 	removeStaged,
