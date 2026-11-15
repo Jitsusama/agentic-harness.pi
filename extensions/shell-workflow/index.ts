@@ -36,7 +36,10 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
-import { routedPackedRefs } from "../../lib/internal/fence-git-route.ts";
+import {
+	routedPackedRefs,
+	routedUnheldTree,
+} from "../../lib/internal/fence-git-route.ts";
 import { liftFence } from "../../lib/internal/fence-lifted.ts";
 import {
 	codeOf,
@@ -101,8 +104,9 @@ function listByIdOnce(session: string): void {
 
 /**
  * A fenced bash call's output with the route added where git couldn't
- * rewrite the read-only shared git folder's `packed-refs`, counted in
- * the system's log; nothing, for any other call (`fence-git-route.ts`).
+ * rewrite the read-only shared git folder's `packed-refs`, or write the
+ * own git folder of a tree the session doesn't hold, counted in the
+ * system's log; nothing, for any other call (`fence-git-route.ts`).
  */
 function routeRefusedGit(
 	event: ToolResultEvent,
@@ -110,12 +114,15 @@ function routeRefusedGit(
 	session: string,
 ): Pick<ToolResultEvent, "content" | "structuredContent"> | undefined {
 	if (event.toolName !== "bash") return undefined;
-	const content = routedPackedRefs(event.content, () => {
+	const counted = (kind: "packed-refs" | "unheld-tree") => () => {
 		void recordRefusal(
-			{ kind: "packed-refs", tool: "git", sandbox: "fence", session },
+			{ kind, tool: "git", sandbox: "fence", session },
 			logger,
 		);
-	});
+	};
+	const content =
+		routedPackedRefs(event.content, counted("packed-refs")) ??
+		routedUnheldTree(event.content, counted("unheld-tree"));
 	// The structured result codemode reads is kept, its output as git said it.
 	return content
 		? { content, structuredContent: event.structuredContent }

@@ -143,6 +143,9 @@ may import from here, and any of it may change without notice.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.
+- **`fence-worktrees.ts`**: which worktrees a fenced session writes,
+  the one it stands in and each other it holds, so git and pi's file
+  tools work in a held tree from a command started elsewhere.
 - **`fence-clipboard.ts`**: the fence's own `wl-copy` and
   `wl-paste`, first on a fenced command's path, which ask core's
   clipboard door outside rather than a display.

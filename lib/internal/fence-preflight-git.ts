@@ -4,10 +4,11 @@
  * git's everyday work still goes (5e), and that git outside never sees
  * a name planted there (j), which fails the moment the folder is
  * writable with only the watch to guard it, since a watch loses that
- * race about once in 50 looks.
+ * race about once in 50 looks. And that git works in a tree the session
+ * holds from a command started elsewhere (5f).
  */
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { routedPackedRefs } from "./fence-git-route.ts";
@@ -21,6 +22,7 @@ import {
 	tailOf,
 	type Verdict,
 } from "./fence-preflight.ts";
+import { treeRecordDir } from "./work-records.ts";
 
 /** How many times a plant is tried inside, and git asked outside. */
 const LOOKS = 50;
@@ -113,6 +115,74 @@ export async function everydayGit(context: PreflightContext): Promise<Verdict> {
 			context.scratch,
 		);
 		for (const path of [root, tree, remote])
+			rmSync(path, { recursive: true, force: true });
+	}
+}
+
+/**
+ * Check (5f): git in a worktree the session holds but didn't start in.
+ * An agent cuts a tree with the work tool and works in it from its
+ * session's folder; on 15 November git there could write no index or
+ * FETCH_HEAD inside, since only the start folder's own git folder was
+ * bound back (ISXEG8 [0804813d]). A work record holds one tree for the
+ * pre-flight's session; a commit and a fetch there must go, from a
+ * command started in the scratch folder, while a second tree it doesn't
+ * hold must still fail, so the check can't pass with the fence open.
+ * pi's own write tool in a held tree is check 11's, in a session.
+ */
+export async function heldTreeGit(context: PreflightContext): Promise<Verdict> {
+	const root = join(homedir(), "src", `.pi-${fresh()}`);
+	const held = join(context.scratch, `held-tree-${fresh()}`);
+	const unheld = join(context.scratch, `unheld-tree-${fresh()}`);
+	const remote = join(context.scratch, `held-remote-${fresh()}`);
+	const key = `pi-preflight-held-${fresh()}`;
+	const record = join(treeRecordDir(), `${key}.json`);
+	const work = (tree: string) =>
+		`cd '${tree}' && echo x > f && git add f && git ${WHO} commit -qm x && git fetch -q origin`;
+	try {
+		const made = await outside(
+			[
+				`git init -q -b main '${remote}' && git -C '${remote}' ${WHO} commit -q --allow-empty -m base`,
+				`git clone -q '${remote}' '${root}'`,
+				`git -C '${root}' config commit.gpgsign false`,
+				`git -C '${root}' worktree add -q -b held '${held}'`,
+				`git -C '${root}' worktree add -q -b unheld '${unheld}'`,
+			].join(" && "),
+			context.scratch,
+		);
+		if (made.code !== 0) return failed(`no repository: ${tailOf(made)}`);
+		mkdirSync(treeRecordDir(), { recursive: true });
+		writeFileSync(
+			record,
+			JSON.stringify({
+				identity: { key, shareable: false },
+				path: held,
+				providerId: "git-worktree",
+				sessions: [context.session],
+			}),
+		);
+		const inHeld = await fenced(work(held), context.scratch, context.session);
+		if (inHeld.code !== 0)
+			return failed(`git in the held tree failed: ${tailOf(inHeld)}`);
+		const inUnheld = await fenced(
+			work(unheld),
+			context.scratch,
+			context.session,
+		);
+		if (inUnheld.code === 0)
+			return failed(
+				"git wrote in a tree the session doesn't hold: its git folder is writable",
+			);
+		return passed(
+			`a commit and a fetch in a held tree from the scratch folder (${inHeld.ms} ms), and a tree not held still refused: ${tailOf(inUnheld, 1)}`,
+		);
+	} finally {
+		rmSync(record, { force: true });
+		await outside(
+			`git -C '${root}' worktree remove --force '${held}'; git -C '${root}' worktree remove --force '${unheld}'`,
+			context.scratch,
+		);
+		for (const path of [root, held, unheld, remote])
 			rmSync(path, { recursive: true, force: true });
 	}
 }

@@ -9,9 +9,35 @@ import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { guardsGitFolder } from "./fence.ts";
 import type { BrokerTrees } from "./fence-broker-trees.ts";
+import type { HeldWorktree, Worktrees } from "./fence-worktrees.ts";
 import type { HeldGit } from "./offload-exemption.ts";
 import { namedGitFolder, real, treeGit } from "./tree-git.ts";
 import { cutTreeDir, treeRecordDir, treesHeldBy } from "./work-records.ts";
+
+/**
+ * The worktrees a fenced command of `session` in `cwd` writes, and the
+ * work tool's trees it holds.
+ */
+export function sessionWorktrees(
+	cwd: string,
+	session: string | undefined,
+): Worktrees & { readonly trees: BrokerTrees } {
+	const trees = brokerTrees(session);
+	return {
+		cwd,
+		ownGitFolder: worktreeFolder(cwd),
+		heldWorktrees: heldWorktrees(trees.held),
+		trees,
+	};
+}
+
+/** Each held tree that is a worktree, with the own git folder its `.git` file names. */
+export function heldWorktrees(held: readonly string[]): HeldWorktree[] {
+	return held.flatMap((tree) => {
+		const gitFolder = worktreeFolder(tree);
+		return gitFolder ? [{ tree, gitFolder }] : [];
+	});
+}
 
 /** The folder a worktree's `.git` file names, or nothing when `cwd` has none. */
 export function worktreeFolder(cwd: string): string | undefined {

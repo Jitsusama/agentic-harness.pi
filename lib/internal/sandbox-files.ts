@@ -32,7 +32,7 @@ import {
 	STRICT,
 	unfencedFolder,
 } from "./sandbox.ts";
-import { brokerTrees } from "./sandbox-trees.ts";
+import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
 import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 
 /**
@@ -193,13 +193,15 @@ function fenceRefusal(
 	candidates: readonly string[],
 	place: FilePlace,
 ): string | undefined {
+	const trees = brokerTrees(place.env.PI_SESSION_ID);
 	const fence = {
 		home: place.home,
 		runtimeDir: place.env.XDG_RUNTIME_DIR,
 		cwd: place.cwd,
 		ownGitFolder: treeGit(place.cwd, place.home)?.gitDir,
+		heldWorktrees: heldWorktrees(trees.held),
 		scratch: questScratch(place.env.TMPDIR),
-		trees: brokerTrees(place.env.PI_SESSION_ID),
+		trees,
 	};
 	for (const candidate of candidates) {
 		const real = leadsTo(candidate);
@@ -215,10 +217,26 @@ function fenceRefusal(
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the work tool's trees but the session's own, the folders the person browses in the home folder but the one the session works in, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
 		}
 		if (fenceRefusesRead(real, fence)) {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes, the runtime folder and the files holding keys or registry tokens out of reach: ${path} leads to ${real}, so ${toolName} didn't run. A command reads ~/.npmrc without its tokens.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes, the runtime folder and the files holding keys or registry tokens out of reach: ${path} leads to ${real}, so ${toolName} didn't run. ${readRoute(real, place)}`;
 		}
 	}
 	return undefined;
+}
+
+/**
+ * The way to what a fenced read was refused, for the file it named: a
+ * command reads npm's settings without their tokens, and a key or token
+ * reaches one command through `secret_run`, which asks the person.
+ */
+function readRoute(real: string, place: FilePlace): string {
+	if (real === join(place.home, ".npmrc")) {
+		return "A command reads ~/.npmrc without its tokens.";
+	}
+	const runtime = place.env.XDG_RUNTIME_DIR;
+	if (real.startsWith("/proc/") || (runtime && inside(real, runtime))) {
+		return "Nothing inside reaches it; ask the person for what it holds.";
+	}
+	return "A command that needs the key or token it holds gets it through secret_run, which asks the person to release it to that one command.";
 }
 
 /**

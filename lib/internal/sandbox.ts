@@ -78,9 +78,9 @@ import { fenceShims } from "./fence-clipboard.ts";
 import { fencedCommand } from "./fence-command.ts";
 import {
 	afterCheck,
+	guardedFolders,
 	guardedIn,
 	plantStopped,
-	sharedRootFor,
 } from "./fence-git-root.ts";
 import { githubDoorFolder } from "./fence-github.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
@@ -105,12 +105,7 @@ import {
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
-import {
-	brokerTrees,
-	folderGit,
-	heldTree,
-	worktreeFolder,
-} from "./sandbox-trees.ts";
+import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { withSecretNote } from "./secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
@@ -676,8 +671,8 @@ export function wrapFor(
 			const session = place.env.PI_SESSION_ID;
 			const stopped = plantStopped(session);
 			if (stopped) return () => refused(stopped);
-			const ownGitFolder = worktreeFolder(place.cwd);
-			const sharedRoot = sharedRootFor(ownGitFolder, session, (root) =>
+			const worktrees = sessionWorktrees(place.cwd, session);
+			const watched = guardedFolders(worktrees, session, (root) =>
 				guardsGitFolder(root, real(home)),
 			);
 			// Only where the machine runs the door and the session's id can
@@ -693,12 +688,10 @@ export function wrapFor(
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
-				cwd: place.cwd,
-				ownGitFolder,
+				...worktrees,
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
-				trees: brokerTrees(session),
 			};
 			makeFoldersFirst(home);
 			const own = sandboxFolders(home).cache;
@@ -731,9 +724,7 @@ export function wrapFor(
 				if (out !== undefined) return out;
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
-				const guarded = guardedIn(
-					sharedRoot && ownGitFolder ? [sharedRoot, ownGitFolder] : [],
-				);
+				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },
 					sandbox.logger,

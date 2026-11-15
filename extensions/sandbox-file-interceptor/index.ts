@@ -51,7 +51,15 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 			// The loaded quest's TMPDIR reaches only the agent's commands,
 			// offered as each starts; judged by pi's own, the quest's scratch
 			// would read as another quest's, and the write tool refuse it.
-			env: { ...process.env, ...offeredShellEnvironment() },
+			// The session is the conversation calling, as the shell names it
+			// to its commands: pi's own environment names none on a host, and
+			// the one it started as after a new session or a resume, and on 15
+			// November the write tool refused every tree a session held.
+			env: {
+				...process.env,
+				...offeredShellEnvironment(),
+				PI_SESSION_ID: sessionKeyOf(ctx),
+			},
 			home: homedir(),
 			skills,
 		});
