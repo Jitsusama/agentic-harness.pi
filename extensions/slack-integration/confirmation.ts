@@ -55,7 +55,7 @@ export type ConfirmResult<T> =
  * the guard reports), held while the person is away, or asked, which
  * with no screen to ask on is refused (`unattendedRefusal`).
  */
-function unasked<T>(
+export function unasked<T>(
 	ctx: ExtensionContext,
 	data: T,
 	title: string,
@@ -552,6 +552,41 @@ export async function confirmSendThread(
 		}
 	}
 
+	return { approved: true, data: true };
+}
+
+/**
+ * Confirm a Slack write through the tool gateway that no gate of the
+ * gateway's own asks about: `tool` with `args`, as the gateway takes
+ * them (`gateway-writes.ts`).
+ */
+export async function confirmGatewayWrite(
+	ctx: ExtensionContext,
+	tool: string,
+	args: Record<string, unknown>,
+): Promise<ConfirmResult<true>> {
+	const context = `Run ${tool} on Slack through the tool gateway`;
+	const skip = unasked(ctx, true as const, context, JSON.stringify(args));
+	if (skip) return skip;
+
+	const result = await promptSingle(ctx, {
+		content: (theme) => [
+			` ${frameTitle(theme, `Run ${tool}`)}`,
+			"",
+			` ${theme.fg("muted", "Through:")} the tool gateway, in your name`,
+			...Object.entries(args).map(
+				([key, value]) =>
+					` ${theme.fg("muted", `${key}:`)} ${typeof value === "string" ? value : JSON.stringify(value)}`,
+			),
+		],
+		actions: REJECT_ACTION,
+	});
+
+	if (!result) return null;
+	if (result.type === "redirect") return redirect(result.note, context);
+	if (result.type === "action" && result.key === "r")
+		return redirect(result.note || "User rejected. Ask for guidance.", context);
+	if (result.note) return redirect(result.note, context);
 	return { approved: true, data: true };
 }
 
