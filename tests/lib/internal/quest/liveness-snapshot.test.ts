@@ -11,6 +11,7 @@ import {
 	type TerminalSessionHandle,
 	terminalHandleKey,
 } from "../../../../lib/terminal/index.ts";
+import { at } from "../../../support/at.ts";
 
 const NOW = new Date("2026-06-04T12:00:00.000Z");
 const RECENT = "2026-06-04T11:58:00.000Z";
@@ -143,7 +144,7 @@ describe("buildLivenessSnapshot", () => {
 		});
 		expect(probedProcesses).toEqual([WITH_PROCESS.process]);
 		expect(probedHandles).toHaveLength(1);
-		expect(probedHandles[0][0].value).toBe("5");
+		expect(at(probedHandles, 0)[0]?.value).toBe("5");
 		expect(snap.activity.get("p1")).toBe(RECENT);
 		expect(snap.observations.get("p1")).toEqual({ process: "matching" });
 		expect(snap.observations.get("t1")).toEqual({ pane: "present" });

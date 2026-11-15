@@ -210,9 +210,9 @@ function labelsUsed(lines: readonly string[]): Set<string> {
 	for (const line of lines) {
 		if (DEFINITION.test(line)) continue;
 		for (const m of line.matchAll(FULL_REFERENCE))
-			labels.add(m[1].toLowerCase());
+			labels.add((m[1] ?? "").toLowerCase());
 		for (const m of line.matchAll(SHORTCUT_REFERENCE))
-			labels.add(m[1].toLowerCase());
+			labels.add((m[1] ?? "").toLowerCase());
 	}
 	return labels;
 }
@@ -220,7 +220,7 @@ function labelsUsed(lines: readonly string[]): Set<string> {
 function trimBlank(lines: string[]): string[] {
 	let start = 0;
 	let end = lines.length;
-	while (start < end && lines[start].trim() === "") start++;
-	while (end > start && lines[end - 1].trim() === "") end--;
+	while (start < end && lines[start]?.trim() === "") start++;
+	while (end > start && lines[end - 1]?.trim() === "") end--;
 	return lines.slice(start, end);
 }

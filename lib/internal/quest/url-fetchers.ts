@@ -116,6 +116,7 @@ async function fetchGhJson(
 	const match = /^([^/]+)\/([^#]+)#(\d+)$/.exec(value);
 	if (!match) return undefined;
 	const [, owner, repo, number] = match;
+	if (number === undefined) return undefined;
 	// Unattended, so a gh that wants a login says so and exits rather
 	// than prompting on pi's terminal, and so the clock and the signal
 	// stop the process rather than only the wait on it.

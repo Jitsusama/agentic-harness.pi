@@ -42,8 +42,8 @@ function ymd(date: Date): string {
 function randomSuffix(): string {
 	const bytes = randomBytes(6);
 	const out: string[] = [];
-	for (let i = 0; i < 6; i++) {
-		out.push((bytes[i] % 36).toString(36).toUpperCase());
+	for (const byte of bytes) {
+		out.push((byte % 36).toString(36).toUpperCase());
 	}
 	return out.join("");
 }
@@ -158,6 +158,6 @@ function sigilBefore(text: string, idStart: number): boolean {
 	// `produced`. Anything else (text, punctuation, line
 	// boundary) means bare reference.
 	let i = idStart - 1;
-	while (i >= 0 && /\s/.test(text[i])) i--;
+	while (i >= 0 && /\s/.test(text[i] ?? "")) i--;
 	return i >= 0 && text[i] === "\u2192";
 }

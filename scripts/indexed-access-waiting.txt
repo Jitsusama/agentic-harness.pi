@@ -59,17 +59,6 @@ lib/internal/priority/next-turn.ts 3
 lib/internal/priority/outcome.ts 20
 lib/internal/priority/push-hooks.mjs 10
 lib/internal/priority/world-walk.ts 11
-lib/internal/quest/alias-index.ts 1
-lib/internal/quest/body-edits.ts 19
-lib/internal/quest/id.ts 2
-lib/internal/quest/journey-sweep.ts 4
-lib/internal/quest/journey.ts 10
-lib/internal/quest/owned-fields.ts 3
-lib/internal/quest/quest-doc.ts 7
-lib/internal/quest/ranking.ts 1
-lib/internal/quest/reopen.ts 2
-lib/internal/quest/trees.ts 2
-lib/internal/quest/url-fetchers.ts 1
 lib/internal/refs/builtins.ts 1
 lib/mcp/ceiling.ts 1
 lib/mcp/config-panel.ts 1
@@ -173,11 +162,6 @@ tests/lib/internal/guardian/registry.test.ts 6
 tests/lib/internal/notify.test.ts 3
 tests/lib/internal/priority/queued-exec.test.ts 1
 tests/lib/internal/priority/room.test.ts 3
-tests/lib/internal/quest/body-edits.test.ts 1
-tests/lib/internal/quest/footprint.test.ts 9
-tests/lib/internal/quest/liveness-snapshot.test.ts 2
-tests/lib/internal/reload/follow.test.ts 1
-tests/lib/internal/session/rollover.test.ts 2
 tests/lib/ledger/calls.test.ts 18
 tests/lib/ledger/compaction-model.test.ts 1
 tests/lib/ledger/dropped.test.ts 8
@@ -214,4 +198,3 @@ tests/package/refusals-are-actionable.test.ts 2
 tests/package/registered-tools.ts 7
 tests/package/skills-name-real-tools.test.ts 2
 tests/package/tool-execute-signature.test.ts 4
-tests/packs/review-journal.test.ts 6

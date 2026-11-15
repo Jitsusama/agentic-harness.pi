@@ -71,7 +71,8 @@ function ensureAlias(aliases: QuestAlias[], alias: QuestAlias): boolean {
 function removeAlias(aliases: QuestAlias[], alias: QuestAlias): boolean {
 	const before = aliases.length;
 	for (let i = aliases.length - 1; i >= 0; i--) {
-		if (aliases[i].type === alias.type && aliases[i].value === alias.value) {
+		const held = aliases[i];
+		if (held?.type === alias.type && held.value === alias.value) {
 			aliases.splice(i, 1);
 		}
 	}
