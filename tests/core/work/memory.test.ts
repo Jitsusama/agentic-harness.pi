@@ -674,4 +674,42 @@ describe("a tree remembers which session cut it", () => {
 
 		expect(held.map((one) => one.identity.key)).toEqual(["older"]);
 	});
+
+	it("takes a tree for this session once every session it names has ended", async () => {
+		const memory = memoryAt();
+		const spent = tree("spent", { pid: 4001, startedAt: 1000 });
+		memory.remember(spent);
+
+		const before = await memory.holdWhileUnheld(
+			spent.path,
+			machine({ [process.pid]: 5000 }),
+		);
+
+		expect(before?.owners).toEqual([{ pid: 4001, startedAt: 1000 }]);
+		expect(memory.recall()[0]?.owners).toEqual([
+			{ pid: process.pid, startedAt: 5000 },
+		]);
+	});
+
+	it("won't take a tree a running session holds, or one that names nobody", async () => {
+		const memory = memoryAt();
+		const live = tree("live", { pid: 4001, startedAt: 1000 });
+		const nobody = tree("nobody");
+		memory.remember(live);
+		memory.remember(nobody);
+		const facts = machine({ 4001: 1000, [process.pid]: 5000 });
+
+		expect(await memory.holdWhileUnheld(live.path, facts)).toBeUndefined();
+		expect(await memory.holdWhileUnheld(nobody.path, facts)).toBeUndefined();
+		expect(
+			memory
+				.recall()
+				.map((one) => [one.identity.key, one.owners ?? []] as const),
+		).toEqual(
+			expect.arrayContaining([
+				["live", [{ pid: 4001, startedAt: 1000 }]],
+				["nobody", []],
+			]),
+		);
+	});
 });

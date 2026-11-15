@@ -2,13 +2,34 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
+import {
+	ReviewerArtifactsStore,
+	type ReviewerRunPaths,
+} from "../../../lib/subagent/artifacts.ts";
 import { recoverReviewerRuns } from "../../../lib/subagent/recovery.ts";
 
 async function tempStore(): Promise<ReviewerArtifactsStore> {
 	return new ReviewerArtifactsStore(
 		await mkdtemp(join(tmpdir(), "pr-recovery-")),
 	);
+}
+
+/**
+ * A reviewer that says it is running, under a lease that says the rest:
+ * whose supervisor holds it, and since when.
+ */
+async function runningReviewer(
+	store: ReviewerArtifactsStore,
+	lease: Record<string, unknown>,
+): Promise<ReviewerRunPaths> {
+	const paths = await store.ensureReviewerDir("run", "fast");
+	await store.writeJsonAtomic(paths.progressPath, {
+		state: "running",
+		activity: "reading x",
+		updatedAt: "2026-01-01T00:00:00Z",
+	});
+	await store.writeJsonAtomic(paths.leasePath, { state: "running", ...lease });
+	return paths;
 }
 
 describe("recoverReviewerRuns", () => {
@@ -35,16 +56,7 @@ describe("recoverReviewerRuns", () => {
 
 	it("reports active reviewers when the supervisor pid is alive", async () => {
 		const store = await tempStore();
-		const paths = await store.ensureReviewerDir("run", "fast");
-		await store.writeJsonAtomic(paths.progressPath, {
-			state: "running",
-			activity: "reading x",
-			updatedAt: "2026-01-01T00:00:00Z",
-		});
-		await store.writeJsonAtomic(paths.leasePath, {
-			state: "running",
-			supervisorPid: process.pid,
-		});
+		await runningReviewer(store, { supervisorPid: process.pid });
 
 		const recovery = await recoverReviewerRuns(store);
 
@@ -81,14 +93,7 @@ describe("recoverReviewerRuns", () => {
 		// has been here, and it is the only marker that outlives the
 		// process that wrote it.
 		const store = await tempStore();
-		const paths = await store.ensureReviewerDir("run", "fast");
-		await store.writeJsonAtomic(paths.progressPath, {
-			state: "running",
-			activity: "reading x",
-			updatedAt: "2026-01-01T00:00:00Z",
-		});
-		await store.writeJsonAtomic(paths.leasePath, {
-			state: "running",
+		const paths = await runningReviewer(store, {
 			supervisorPid: 4242,
 			supervisorStartedAt: 1_000_000,
 			updatedAt: new Date().toISOString(),
@@ -149,14 +154,7 @@ describe("recoverReviewerRuns", () => {
 		// so no cancellation was written and the orphan holding a model
 		// was never reached.
 		const store = await tempStore();
-		const paths = await store.ensureReviewerDir("run", "fast");
-		await store.writeJsonAtomic(paths.progressPath, {
-			state: "running",
-			activity: "reading x",
-			updatedAt: "2026-01-01T00:00:00Z",
-		});
-		await store.writeJsonAtomic(paths.leasePath, {
-			state: "running",
+		await runningReviewer(store, {
 			supervisorPid: process.pid,
 			supervisorStartedAt: 1_000_000,
 			updatedAt: new Date().toISOString(),

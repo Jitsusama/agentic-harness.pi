@@ -132,6 +132,26 @@ function parseLine(line: string): ChangedPath | undefined {
 	return { path, staged, kind };
 }
 
+/** The branches `trunk` already contains, by short name. */
+async function mergedInto(
+	exec: Exec,
+	treePath: string,
+	trunk: string,
+): Promise<Set<string>> {
+	const said = await run(
+		exec,
+		"git",
+		["-C", treePath, "branch", "--format=%(refname:short)", "--merged", trunk],
+		`Asking which branches ${trunk} already contains`,
+	);
+	return new Set(
+		said
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line !== ""),
+	);
+}
+
 /** Read a tree's state with plain git. */
 export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 	/**
@@ -249,26 +269,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 					.split("\n")
 					.map((line) => line.trim()),
 			);
-			const merged = new Set(
-				(
-					await run(
-						deps.exec,
-						"git",
-						[
-							"-C",
-							treePath,
-							"branch",
-							"--format=%(refname:short)",
-							"--merged",
-							trunk,
-						],
-						`Asking which branches ${trunk} already contains`,
-					)
-				)
-					.split("\n")
-					.map((line) => line.trim())
-					.filter((line) => line !== ""),
-			);
+			const merged = await mergedInto(deps.exec, treePath, trunk);
 
 			return listed
 				.split("\n")
@@ -296,26 +297,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				["-C", treePath, "worktree", "list", "--porcelain"],
 				`Listing the worktrees beside ${displayPath(treePath)}`,
 			);
-			const merged = new Set(
-				(
-					await run(
-						deps.exec,
-						"git",
-						[
-							"-C",
-							treePath,
-							"branch",
-							"--format=%(refname:short)",
-							"--merged",
-							trunk,
-						],
-						`Asking which branches ${trunk} already contains`,
-					)
-				)
-					.split("\n")
-					.map((line) => line.trim())
-					.filter((line) => line !== ""),
-			);
+			const merged = await mergedInto(deps.exec, treePath, trunk);
 
 			// A porcelain record is a run of lines per tree, separated by a
 			// blank one: `worktree <path>`, `HEAD <commit>`, then optionally

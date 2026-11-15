@@ -4,6 +4,11 @@
 
 import type { SlackClient } from "./client.ts";
 
+/** An emoji's bare name, as Slack takes it, whether given with colons or not. */
+function reactionName(emoji: string): string {
+	return emoji.replace(/^:/, "").replace(/:$/, "");
+}
+
 /**
  * Add a reaction to a message.
  */
@@ -14,8 +19,11 @@ export async function addReaction(
 	emoji: string,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const name = emoji.replace(/^:/, "").replace(/:$/, "");
-	await client.call("reactions.add", { channel, timestamp: ts, name }, signal);
+	await client.call(
+		"reactions.add",
+		{ channel, timestamp: ts, name: reactionName(emoji) },
+		signal,
+	);
 }
 
 /**
@@ -28,10 +36,9 @@ export async function removeReaction(
 	emoji: string,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const name = emoji.replace(/^:/, "").replace(/:$/, "");
 	await client.call(
 		"reactions.remove",
-		{ channel, timestamp: ts, name },
+		{ channel, timestamp: ts, name: reactionName(emoji) },
 		signal,
 	);
 }

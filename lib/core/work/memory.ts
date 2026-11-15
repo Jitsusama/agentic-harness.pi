@@ -172,6 +172,20 @@ function named(tree: HeldTree): readonly Owner[] {
 	return owners.filter(isOwner);
 }
 
+/**
+ * Whether a record names somebody and every session it names has ended.
+ * A record that names nobody is never spent, since nothing can say so.
+ */
+async function spent(tree: HeldTree, facts: ProcessFacts): Promise<boolean> {
+	const owners = named(tree);
+	if (owners.length === 0) return false;
+	const once = askedOnceWithTicks(facts === systemFacts ? tickFacts : facts);
+	const stands = await Promise.all(
+		owners.map((owner) => tickedStanding(owner, once)),
+	);
+	return stands.every((one) => one === "gone");
+}
+
 /** Whether two records name the same conversation or plain pi process. */
 function sameOwner(one: Owner, two: Owner): boolean {
 	return (
@@ -408,16 +422,7 @@ export function createTreeMemory(
 			let taken: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
-				if (tree === undefined) return;
-				const owners = named(tree);
-				if (owners.length === 0) return;
-				const once = askedOnceWithTicks(
-					facts === systemFacts ? tickFacts : facts,
-				);
-				const stands = await Promise.all(
-					owners.map((owner) => tickedStanding(owner, once)),
-				);
-				if (stands.some((one) => one !== "gone")) return;
+				if (tree === undefined || !(await spent(tree, facts))) return;
 				if (!(await take())) return;
 				this.forget(path);
 				taken = tree;
@@ -433,16 +438,7 @@ export function createTreeMemory(
 			let before: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
-				if (tree === undefined) return;
-				const owners = named(tree);
-				if (owners.length === 0) return;
-				const once = askedOnceWithTicks(
-					facts === systemFacts ? tickFacts : facts,
-				);
-				const stands = await Promise.all(
-					owners.map((owner) => tickedStanding(owner, once)),
-				);
-				if (stands.some((one) => one !== "gone")) return;
+				if (tree === undefined || !(await spent(tree, facts))) return;
 				const { sessions: _, ...rest } = tree;
 				this.remember({ ...rest, owners: [us] });
 				before = tree;

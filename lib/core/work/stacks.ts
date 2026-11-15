@@ -41,6 +41,7 @@ import {
 	type StackedBranch,
 	type StackFault,
 } from "./stack.ts";
+import { ask, conflictedIn } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
 /**
@@ -188,18 +189,6 @@ export type SyncOutcome =
 			replay: RestackOutcome;
 	  }
 	| { kind: "refused"; reason: string };
-
-/** Read one git value, scoped to the tree. */
-async function ask(
-	exec: Exec,
-	treePath: string,
-	args: readonly string[],
-): Promise<string | undefined> {
-	const result = await exec("git", ["-C", treePath, ...args]);
-	if (result.code !== 0) return undefined;
-	const said = result.stdout.trim();
-	return said === "" ? undefined : said;
-}
 
 /** Every branch that exists in the repository. */
 async function branchesIn(
@@ -645,7 +634,7 @@ export function createGitStacks(deps: {
 				}
 
 				if (replay.code !== 0 && carried?.kind !== "replayed") {
-					const conflicted = await conflictsIn(exec, treePath);
+					const conflicted = await conflictedIn(exec, treePath);
 					results.push({
 						branch: step.branch,
 						onto: step.onto,
@@ -739,17 +728,4 @@ export function createGitStacks(deps: {
 			};
 		},
 	};
-}
-
-/** Paths git reports as unmerged. */
-async function conflictsIn(
-	exec: Exec,
-	treePath: string,
-): Promise<readonly string[]> {
-	const said = await ask(exec, treePath, [
-		"diff",
-		"--name-only",
-		"--diff-filter=U",
-	]);
-	return said === undefined ? [] : said.split("\n").filter((one) => one !== "");
 }

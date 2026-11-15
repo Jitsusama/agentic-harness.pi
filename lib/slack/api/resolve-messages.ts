@@ -20,6 +20,7 @@ import {
 	getCachedConversation,
 } from "../resolvers/conversation-cache.ts";
 import type { SlackMessage } from "../types.ts";
+import { inBatches } from "./batches.ts";
 import type { SlackClient } from "./client.ts";
 import {
 	refreshDmNames,
@@ -32,9 +33,6 @@ const CHANNEL_CACHE_FILE = "channels.json";
 
 /** Pattern matching channel mentions in Slack message text. */
 const CHANNEL_MENTION_PATTERN = /<#([CDG][A-Z0-9]+)(?:\|[^>]*)?>/g;
-
-/** Concurrency limit for conversations.info calls. */
-const BATCH_SIZE = 20;
 
 /**
  * Resolve all unknown entities in a list of messages.
@@ -95,23 +93,19 @@ async function resolveChannelMentionsInText(
 
 	if (unknownIds.size === 0) return;
 
-	const ids = [...unknownIds];
-	for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-		if (signal?.aborted) return;
-
-		const batch = ids.slice(i, i + BATCH_SIZE);
-		await Promise.all(
-			batch.map(async (id) => {
-				try {
-					const conversation = await fetchConversation(client, id, signal);
-					if (conversation.kind === "channel" && conversation.name) {
-						cacheChannelName(conversation.name, conversation.id);
-					}
-				} catch {
-					// Channel not found or inaccessible, so skip:
-					// formatSlackText falls back to the raw ID.
+	await inBatches(
+		unknownIds,
+		async (id) => {
+			try {
+				const conversation = await fetchConversation(client, id, signal);
+				if (conversation.kind === "channel" && conversation.name) {
+					cacheChannelName(conversation.name, conversation.id);
 				}
-			}),
-		);
-	}
+			} catch {
+				// Channel not found or inaccessible, so skip:
+				// formatSlackText falls back to the raw ID.
+			}
+		},
+		signal,
+	);
 }

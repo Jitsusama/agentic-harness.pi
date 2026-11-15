@@ -17,6 +17,7 @@
  */
 
 import type { Exec } from "../exec/index.ts";
+import { ask } from "./tree-git.ts";
 
 /** Where a branch went, or why it did not. */
 export type PushOutcome =
@@ -54,24 +55,6 @@ export interface WorkPublisher {
 
 /** The remote a tree pushes to when nothing says otherwise. */
 const DEFAULT_REMOTE = "origin";
-
-/**
- * Read one git value, or undefined when git says nothing.
- *
- * Every call is scoped with `-C`, because the exec seam has no working
- * directory of its own: an unscoped git call runs wherever the process
- * happens to sit and answers confidently about the wrong repository.
- */
-async function ask(
-	exec: Exec,
-	treePath: string,
-	args: readonly string[],
-): Promise<string | undefined> {
-	const result = await exec("git", ["-C", treePath, ...args]);
-	if (result.code !== 0) return undefined;
-	const said = result.stdout.trim();
-	return said === "" ? undefined : said;
-}
 
 /** Whether one fetch refspec brings a remote's ref in. */
 export function refspecCovers(refspec: string, ref: string): boolean {

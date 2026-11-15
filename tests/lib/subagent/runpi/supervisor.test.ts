@@ -9,11 +9,12 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Readable, Writable } from "node:stream";
-import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
-import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
+import {
+	ReviewerArtifactsStore,
+	type ReviewerRunPaths,
+} from "../../../../lib/subagent/artifacts.ts";
 import {
 	pinChildEnvironment,
 	unpinChildEnvironment,
@@ -24,8 +25,11 @@ import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
 	parentGraceMs,
+	type SupervisorRunPiConfig,
+	type SupervisorSpawnFn,
 } from "../../../../lib/subagent/runpi/supervisor.ts";
 import type { RunPiResult } from "../../../../lib/subagent/subagent.ts";
+import { type FakeChildControls, makeFakeChild } from "./fake-child.ts";
 
 // Every test here spawns the real node supervisor, sometimes two
 // process levels deep. Under parallel suite load the OS can take tens
@@ -70,76 +74,10 @@ import type { RunPiResult } from "../../../../lib/subagent/subagent.ts";
 // it is not the old flake coming back.
 vi.setConfig({ testTimeout: 150_000 });
 
-interface FakeChild {
-	stdout: Readable;
-	stderr: Readable;
-	stdin?: Writable;
-	on(event: "close", listener: (code: number | null) => void): FakeChild;
-	once(event: "close", listener: (code: number | null) => void): FakeChild;
-	once(event: "error", listener: (err: Error) => void): FakeChild;
-	kill(signal?: NodeJS.Signals): boolean;
-}
-
-function makeFakeChild(): {
-	child: FakeChild;
-	emitClose: (code: number | null) => void;
-	stdout: PassThrough;
-	stderr: PassThrough;
-	kills: Array<NodeJS.Signals | undefined>;
-} {
-	const stdout = new PassThrough();
-	const stderr = new PassThrough();
-	const kills: Array<NodeJS.Signals | undefined> = [];
-	const handlers: {
-		close: ((code: number | null) => void)[];
-		error: ((err: Error) => void)[];
-	} = {
-		close: [],
-		error: [],
-	};
-	const child: FakeChild = {
-		stdout,
-		stderr,
-		on(event, listener) {
-			if (event === "close") handlers.close.push(listener);
-			return child;
-		},
-		once(event, listener) {
-			if (event === "close")
-				handlers.close.push(listener as (code: number | null) => void);
-			if (event === "error")
-				handlers.error.push(listener as (err: Error) => void);
-			return child;
-		},
-		kill(signal) {
-			kills.push(signal);
-			return true;
-		},
-	};
-	return {
-		child,
-		emitClose: (code) => {
-			for (const handler of handlers.close) handler(code);
-		},
-		stdout,
-		stderr,
-		kills,
-	};
-}
-
 async function tempStateDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pr-runpi-supervisor-"));
 }
 
-/**
- * Assert a run succeeded, and say what it reported when it did not.
- *
- * `expect(result.exitCode).toBe(0)` prints "expected 1 to be +0"
- * and throws away the warnings, which is where the supervisor
- * explains itself. On a machine I can rerun that is merely
- * annoying; on CI, where these tests fail and here they do not, it
- * is the whole difference between evidence and another rerun.
- */
 /**
  * What these tests allow a nested spawn, rather than what they
  * expect it to need.
@@ -209,6 +147,115 @@ function createSupervisorRunPi(
 	};
 }
 
+/**
+ * A supervised run of the child script at `childPath`, on the real
+ * supervisor, with clocks no test here should reach.
+ */
+function runChild(
+	childPath: string,
+	stateDir: string,
+	more: Partial<SupervisorRunPiConfig> = {},
+): ReturnType<typeof createRealSupervisorRunPi> {
+	return createSupervisorRunPi({
+		piInstall: { node: process.execPath, entry: childPath },
+		stateDir,
+		idleTimeoutMs: GENEROUS_MS,
+		timeoutMs: GENEROUS_MS,
+		...more,
+	});
+}
+
+/** A run whose supervisor is the given fake spawn, never a real one. */
+function runOnFake(
+	stateDir: string,
+	more: Partial<SupervisorRunPiConfig> & { spawn: SupervisorSpawnFn },
+): ReturnType<typeof createRealSupervisorRunPi> {
+	return createSupervisorRunPi({
+		piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+		nodeBinary: "node",
+		supervisorPath: "/pkg/reviewer-supervisor.mjs",
+		stateDir,
+		...more,
+	});
+}
+
+/** What a fake supervisor reads off the request it is handed. */
+interface FakeRequest {
+	readonly paths: ReviewerRunPaths;
+	readonly timeoutMs?: number;
+	readonly idleTimeoutMs?: number;
+	readonly softDeadlineMs?: number;
+}
+
+/**
+ * A supervisor that answers at once: it reads its request, writes the
+ * result `answer` gives for it, says each of `say` and then terminal,
+ * and exits. One that wedges says terminal and then nothing at all: no
+ * end on stdout and no close.
+ */
+function fakeSupervisor(
+	stateDir: string,
+	fake: FakeChildControls,
+	answer: (request: FakeRequest) => Record<string, unknown>,
+	shape: { say?: Record<string, unknown>[]; wedge?: boolean } = {},
+): SupervisorSpawnFn {
+	return (_command, args) => {
+		queueMicrotask(async () => {
+			const request: FakeRequest = JSON.parse(
+				await readFile(String(args[1]), "utf-8"),
+			);
+			await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+				request.paths.resultPath,
+				answer(request),
+			);
+			for (const line of shape.say ?? []) {
+				fake.stdout.write(`${JSON.stringify(line)}\n`);
+			}
+			const terminal = `${JSON.stringify({
+				type: "terminal",
+				resultPath: request.paths.resultPath,
+			})}\n`;
+			if (shape.wedge) {
+				fake.stdout.write(terminal);
+				return;
+			}
+			fake.stdout.end(terminal);
+			fake.emitClose(0);
+		});
+		return fake.process();
+	};
+}
+
+/** A clean result, as a fake supervisor writes one. */
+const ANSWERED = {
+	exitCode: 0,
+	finalAssistantText: "done",
+	warnings: [],
+	stderrTail: "",
+};
+
+/** The artifacts a result names, which are the request's own paths. */
+function artifactsOf(request: FakeRequest): Record<string, string> {
+	const { paths } = request;
+	return {
+		runDir: paths.runDir,
+		reviewerDir: paths.reviewerDir,
+		eventsPath: paths.eventsPath,
+		stderrPath: paths.stderrPath,
+		progressPath: paths.progressPath,
+		resultPath: paths.resultPath,
+	};
+}
+
+/**
+ * Assert a run succeeded, and say what it reported when it did not.
+ *
+ * `expect(result.exitCode).toBe(0)` prints "expected 1 to be +0"
+ * and throws away the warnings, which is where the supervisor
+ * explains itself. On a machine I can rerun that is merely
+ * annoying; on CI, where these tests fail and here they do not, it
+ * is the whole difference between evidence and another rerun.
+ */
 function expectRan(result: RunPiResult): void {
 	if (result.exitCode !== 0) {
 		throw new Error(
@@ -232,12 +279,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({type:"agent_end",messages:[]})+"\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -269,12 +311,7 @@ describe("createSupervisorRunPi", () => {
 			`process.stdout.write(JSON.stringify({type:"message_start"})+"\\n");` +
 				`setInterval(() => process.stdout.write(JSON.stringify({type:"message_start"})+"\\n"), 200);`,
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -309,26 +346,11 @@ describe("createSupervisorRunPi", () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
 		let asked: { softDeadlineMs?: number; timeoutMs?: number } = {};
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
-			spawn: (_command, args) => {
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					asked = request;
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{ state: "complete", exitCode: 0, finalAssistantText: "done" },
-					);
-					fake.stdout.end(
-						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
-					);
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const runPi = runOnFake(stateDir, {
+			spawn: fakeSupervisor(stateDir, fake, (request) => {
+				asked = request;
+				return { state: "complete", exitCode: 0, finalAssistantText: "done" };
+			}),
 		});
 
 		await runPi({
@@ -359,35 +381,15 @@ describe("createSupervisorRunPi", () => {
 		// already starves them under load, and would not prove any more.
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
-			spawn: (_command, args) => {
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{
-							state: "timeout",
-							exitCode: 124,
-							// The conversational line a reviewer says between
-							// tool calls, which is what used to be mistaken
-							// for its answer.
-							finalAssistantText: "Let me check the tests.",
-							warnings: [
-								"Pi subprocess timed out after 900000ms; sent SIGTERM.",
-							],
-						},
-					);
-					fake.stdout.end(
-						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
-					);
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const runPi = runOnFake(stateDir, {
+			spawn: fakeSupervisor(stateDir, fake, () => ({
+				state: "timeout",
+				exitCode: 124,
+				// The conversational line a reviewer says between tool calls,
+				// which is what used to be mistaken for its answer.
+				finalAssistantText: "Let me check the tests.",
+				warnings: ["Pi subprocess timed out after 900000ms; sent SIGTERM."],
+			})),
 		});
 
 		const result = await runPi({
@@ -457,12 +459,7 @@ describe("createSupervisorRunPi", () => {
 			childPath,
 			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_QUEST)}]}})+"\\n");`,
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		offerShellEnvironment("test", () => ({ PI_QUEST: "QEST-20261024-ABC123" }));
 		let result: Awaited<ReturnType<typeof runPi>>;
@@ -489,12 +486,10 @@ describe("createSupervisorRunPi", () => {
 			childPath,
 			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_SANDBOX)}]}})+"\\n");`,
 		);
-		const result = await createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
+		const result = await runChild(
+			childPath,
 			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		})({
+		)({
 			args: [],
 			cwd: stateDir,
 			runId: "run",
@@ -525,12 +520,10 @@ describe("createSupervisorRunPi", () => {
 		vi.stubEnv("PI_SANDBOX", "off");
 		let result: Awaited<ReturnType<ReturnType<typeof createSupervisorRunPi>>>;
 		try {
-			result = await createSupervisorRunPi({
-				piInstall: { node: process.execPath, entry: childPath },
+			result = await runChild(
+				childPath,
 				stateDir,
-				idleTimeoutMs: GENEROUS_MS,
-				timeoutMs: GENEROUS_MS,
-			})({ args: [], cwd: stateDir, runId: "run", reviewerId: "off" });
+			)({ args: [], cwd: stateDir, runId: "run", reviewerId: "off" });
 		} finally {
 			vi.unstubAllEnvs();
 		}
@@ -553,12 +546,10 @@ describe("createSupervisorRunPi", () => {
 			PI_SANDBOX: "pinned",
 		}));
 		try {
-			const result = await createSupervisorRunPi({
-				piInstall: { node: process.execPath, entry: childPath },
+			const result = await runChild(
+				childPath,
 				stateDir,
-				idleTimeoutMs: GENEROUS_MS,
-				timeoutMs: GENEROUS_MS,
-			})({
+			)({
 				args: [],
 				cwd: stateDir,
 				runId: "run",
@@ -580,11 +571,7 @@ describe("createSupervisorRunPi", () => {
 			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_CACHE_RETENTION)}]}})+"\\n");`,
 		);
 		const runner = (cacheRetention?: "short" | "long") =>
-			createSupervisorRunPi({
-				piInstall: { node: process.execPath, entry: childPath },
-				stateDir,
-				idleTimeoutMs: GENEROUS_MS,
-				timeoutMs: GENEROUS_MS,
+			runChild(childPath, stateDir, {
 				...(cacheRetention === undefined ? {} : { cacheRetention }),
 			});
 		const previous = process.env.PI_CACHE_RETENTION;
@@ -633,12 +620,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: ["--mode", "json", "--no-session", "-p", "prompt"],
@@ -671,12 +653,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: ["--mode", "json", "--no-session", "-p", "prompt"],
@@ -704,12 +681,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[],stopReason:"error",errorMessage:"OpenAI Responses stream ended before a terminal response event"}})+"\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -739,12 +711,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"turn 3"}],usage:{input:30,output:3,totalTokens:33,cost:{total:0.04}}}})+"\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -773,12 +740,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -800,12 +762,7 @@ describe("createSupervisorRunPi", () => {
 			childPath,
 			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -830,12 +787,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "not json" }] } }) + "\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -876,12 +828,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "" }] } }) + "\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -915,12 +862,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "" }] } }) + "\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 		const once = { args: [], cwd: stateDir, runId: "run", reviewerId: "twice" };
 
 		await runPi(once);
@@ -949,11 +891,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }) + "\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
+		const runPi = runChild(childPath, stateDir, {
 			// Both caps are far below the 4 KB payload; out-of-band
 			// delivery must ignore them.
 			maxLineBytes: 256,
@@ -991,12 +929,7 @@ describe("createSupervisorRunPi", () => {
 				`process.stdout.write(JSON.stringify({ type: "tool_execution_end", toolName: "verify_output", result: { content: [{ type: "text", text: "ok: true. 1 item passed schema for stage=council." }], details: { ok: true, count: 1 } } }) + "\\n");`,
 			].join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
-		});
+		const runPi = runChild(childPath, stateDir);
 
 		const result = await runPi({
 			args: [],
@@ -1058,38 +991,15 @@ describe("createSupervisorRunPi", () => {
 			args: readonly string[];
 			cwd: string;
 		}> = [];
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
+		const answering = fakeSupervisor(stateDir, fake, (request) => ({
+			...ANSWERED,
+			warnings: ["from-result"],
+			artifacts: artifactsOf(request),
+		}));
+		const runPi = runOnFake(stateDir, {
 			spawn: (command, args, options) => {
 				calls.push({ command, args, cwd: String(options.cwd) });
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{
-							exitCode: 0,
-							finalAssistantText: "done",
-							warnings: ["from-result"],
-							stderrTail: "",
-							artifacts: {
-								runDir: request.paths.runDir,
-								reviewerDir: request.paths.reviewerDir,
-								eventsPath: request.paths.eventsPath,
-								stderrPath: request.paths.stderrPath,
-								progressPath: request.paths.progressPath,
-								resultPath: request.paths.resultPath,
-							},
-						},
-					);
-					fake.stdout.end(
-						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
-					);
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
+				return answering(command, args, options);
 			},
 		});
 
@@ -1171,44 +1081,21 @@ describe("createSupervisorRunPi", () => {
 		// no close, pipes still open. That is the shape CI kept hitting.
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
+		const runPi = runOnFake(stateDir, {
 			// Generous, so a pass cannot be the backstop firing early.
 			timeoutMs: 120_000,
-			spawn: (_command, args) => {
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{
-							exitCode: 0,
-							finalAssistantText: "finished, then wedged",
-							warnings: [],
-							stderrTail: "",
-							artifacts: {
-								runDir: request.paths.runDir,
-								reviewerDir: request.paths.reviewerDir,
-								eventsPath: request.paths.eventsPath,
-								stderrPath: request.paths.stderrPath,
-								progressPath: request.paths.progressPath,
-								resultPath: request.paths.resultPath,
-							},
-						},
-					);
-					// Written, announced, and then nothing: deliberately no
-					// end() on stdout and no exit or close event at all.
-					fake.stdout.write(
-						`${JSON.stringify({
-							type: "terminal",
-							resultPath: request.paths.resultPath,
-						})}\n`,
-					);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+			// Written, announced, and then nothing: deliberately no end() on
+			// stdout and no exit or close event at all.
+			spawn: fakeSupervisor(
+				stateDir,
+				fake,
+				(request) => ({
+					...ANSWERED,
+					finalAssistantText: "finished, then wedged",
+					artifacts: artifactsOf(request),
+				}),
+				{ wedge: true },
+			),
 		});
 
 		const started = Date.now();
@@ -1238,33 +1125,10 @@ describe("createSupervisorRunPi", () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
-			spawn: (_command, args) => {
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{
-							exitCode: 0,
-							finalAssistantText: "done",
-							warnings: [],
-							stderrTail: "",
-						},
-					);
-					fake.stdout.write(
-						`${JSON.stringify({ type: "activity", activity: "reading x" })}\n`,
-					);
-					fake.stdout.end(
-						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
-					);
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const runPi = runOnFake(stateDir, {
+			spawn: fakeSupervisor(stateDir, fake, () => ANSWERED, {
+				say: [{ type: "activity", activity: "reading x" }],
+			}),
 		});
 
 		await runPi({
@@ -1452,36 +1316,16 @@ describe("createSupervisorRunPi", () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
 		let captured: { timeoutMs?: number; idleTimeoutMs?: number } = {};
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
+		const runPi = runOnFake(stateDir, {
 			idleTimeoutMs: 1_000,
 			timeoutMs: 2_000,
-			spawn: (_command, args) => {
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					captured = {
-						timeoutMs: request.timeoutMs,
-						idleTimeoutMs: request.idleTimeoutMs,
-					};
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{
-							exitCode: 0,
-							finalAssistantText: "done",
-							warnings: [],
-							stderrTail: "",
-						},
-					);
-					fake.stdout.end(
-						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
-					);
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+			spawn: fakeSupervisor(stateDir, fake, (request) => {
+				captured = {
+					timeoutMs: request.timeoutMs,
+					idleTimeoutMs: request.idleTimeoutMs,
+				};
+				return ANSWERED;
+			}),
 		});
 
 		await runPi({
@@ -1509,36 +1353,16 @@ describe("createSupervisorRunPi", () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
 		let captured: { timeoutMs?: number; idleTimeoutMs?: number } = {};
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
+		const runPi = runOnFake(stateDir, {
 			idleTimeoutMs: 7_777,
 			timeoutMs: 8_888,
-			spawn: (_command, args) => {
-				queueMicrotask(async () => {
-					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
-					captured = {
-						timeoutMs: request.timeoutMs,
-						idleTimeoutMs: request.idleTimeoutMs,
-					};
-					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
-						request.paths.resultPath,
-						{
-							exitCode: 0,
-							finalAssistantText: "done",
-							warnings: [],
-							stderrTail: "",
-						},
-					);
-					fake.stdout.end(
-						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
-					);
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+			spawn: fakeSupervisor(stateDir, fake, (request) => {
+				captured = {
+					timeoutMs: request.timeoutMs,
+					idleTimeoutMs: request.idleTimeoutMs,
+				};
+				return ANSWERED;
+			}),
 		});
 
 		await runPi({
@@ -1570,15 +1394,11 @@ describe("createSupervisorRunPi", () => {
 		const spawned = new Promise<void>((resolve) => {
 			markSpawned = resolve;
 		});
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
+		const runPi = runOnFake(stateDir, {
 			supervisorGraceMs: 300,
 			spawn: () => {
 				markSpawned();
-				return fake.child as unknown as ChildProcess;
+				return fake.process();
 			},
 		});
 		const controller = new AbortController();
@@ -1631,14 +1451,10 @@ describe("createSupervisorRunPi", () => {
 		const spawned = new Promise<void>((resolve) => {
 			markSpawned = resolve;
 		});
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
-			nodeBinary: "node",
-			supervisorPath: "/pkg/reviewer-supervisor.mjs",
-			stateDir,
+		const runPi = runOnFake(stateDir, {
 			spawn: () => {
 				markSpawned();
-				return fake.child as unknown as ChildProcess;
+				return fake.process();
 			},
 		});
 		const controller = new AbortController();
@@ -1977,11 +1793,7 @@ describe("a child that exits 0 partway through its run", () => {
 				.map((line) => `process.stdout.write(${JSON.stringify(`${line}\n`)});`)
 				.join("\n"),
 		);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
+		const runPi = runChild(childPath, stateDir, {
 			...options,
 		});
 		const result = await runPi({
@@ -2124,11 +1936,7 @@ describe("a supervisor that is signalled", () => {
 			].join("\n"),
 		);
 		let supervisor: ChildProcess | undefined;
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
+		const runPi = runChild(childPath, stateDir, {
 			killGraceMs: 500,
 			spawn: (command, args, spawnOptions) => {
 				supervisor = nodeSpawn(command, args, spawnOptions);
@@ -2195,11 +2003,7 @@ describe("a supervisor that is signalled", () => {
 		);
 		const store = new ReviewerArtifactsStore(stateDir);
 		await store.requestRunCancellation("run", "user");
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
+		const runPi = runChild(childPath, stateDir, {
 			killGraceMs: 500,
 		});
 
@@ -2259,11 +2063,7 @@ describe("a supervisor that is signalled", () => {
 		);
 		let supervisor: ChildProcess | undefined;
 		const store = new ReviewerArtifactsStore(stateDir);
-		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
-			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: GENEROUS_MS,
+		const runPi = runChild(childPath, stateDir, {
 			spawn: (command, args, spawnOptions) => {
 				supervisor = nodeSpawn(command, args, spawnOptions);
 				return supervisor;

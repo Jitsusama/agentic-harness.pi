@@ -14,6 +14,7 @@
 import { lookupName } from "../resolvers/cache.ts";
 import { cacheUser } from "../resolvers/user.ts";
 import type { SlackMessage } from "../types.ts";
+import { inBatches } from "./batches.ts";
 import type { SlackClient } from "./client.ts";
 
 /** Cache filename used by the user resolver. */
@@ -60,38 +61,29 @@ export async function resolveUsersInMessages(
 
 	if (unknownIds.size === 0) return;
 
-	// Resolve in parallel with a concurrency limit. users.info
-	// is Tier 4 (~100 req/min), so 20 concurrent is well
-	// within limits.
-	const ids = [...unknownIds];
-	const BATCH_SIZE = 20;
-
-	for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-		if (signal?.aborted) return;
-
-		const batch = ids.slice(i, i + BATCH_SIZE);
-		await Promise.all(
-			batch.map(async (id) => {
-				try {
-					const response = await client.call<{
-						user: {
-							id: string;
-							name: string;
-							profile?: {
-								display_name?: string;
-							};
+	await inBatches(
+		unknownIds,
+		async (id) => {
+			try {
+				const response = await client.call<{
+					user: {
+						id: string;
+						name: string;
+						profile?: {
+							display_name?: string;
 						};
-					}>("users.info", { user: id }, signal);
+					};
+				}>("users.info", { user: id }, signal);
 
-					const u = response.user;
-					if (u?.name && u?.id) {
-						cacheUser(u.name, u.id);
-					}
-				} catch {
-					// User not found, deleted, or rate limited.
-					// Silently skip, since displayNameForId falls back to raw ID.
+				const u = response.user;
+				if (u?.name && u?.id) {
+					cacheUser(u.name, u.id);
 				}
-			}),
-		);
-	}
+			} catch {
+				// User not found, deleted, or rate limited.
+				// Silently skip, since displayNameForId falls back to raw ID.
+			}
+		},
+		signal,
+	);
 }
