@@ -26,6 +26,13 @@
  * under it, with a fuller record in its state folder's `slow-ends/`.
  * The watch never keeps the process up; the log line waits on nothing,
  * and writing the record blocks the loop a few ms, once.
+ *
+ * Once the watch arms, a last exit listener looks for a name lookup
+ * still pending, which node's exit would wait on until the resolver
+ * gives up: 10 seconds with no network. Finding one, it writes the
+ * record and the `pi: still ending` line, naming the hold, and waits
+ * for both, since nothing runs once exit has begun; then the pi ends
+ * by its own TERM, so it leaves with status 143 rather than 0.
  * See `lib/internal/session/slow-end.ts`.
  */
 
@@ -51,6 +58,9 @@ import {
 import { readyLine, watchReady } from "../../lib/internal/session/ready.ts";
 import {
 	childrenOf,
+	endNow,
+	endPastPendingLookup,
+	type SlowEnd,
 	slowEndLine,
 	watchSlowEnd,
 	writeSlowEnd,
@@ -83,6 +93,7 @@ export default function crashRecord(pi: ExtensionAPI): void {
 			signals: process,
 			raise: (signal) => process.kill(process.pid, signal),
 			onSlow: (cause, afterMs) => saySlowEnd(session, cause, afterMs),
+			onArm: (cause) => endPastLookupAtExit(session, cause),
 		});
 		stop = recordCrashes(
 			session,
@@ -120,25 +131,72 @@ export default function crashRecord(pi: ExtensionAPI): void {
 	});
 }
 
+/** What a pi ended past a pending lookup says held it. */
+const HELD_BY_LOOKUP =
+	"exit waits on a name lookup, so it ends by its own SIGTERM";
+
 /**
  * Says what holds a pi still ending: a record in the state folder, and
  * a line in the system's log, which waits on nothing.
  */
 function saySlowEnd(session: string, cause: string, afterMs: number): void {
+	const end = slowEndOf(
+		{ session, cause, afterMs },
+		process.getActiveResourcesInfo(),
+	);
+	sayInJournal(slowEndLine(end, recordSlowEnd(end)), journalCommand("err"));
+}
+
+/** This process's slow end: what it says, what is open, its children. */
+function slowEndOf(
+	said: Pick<SlowEnd, "session" | "cause" | "afterMs" | "held">,
+	active: readonly string[],
+): SlowEnd {
 	const pid = process.pid;
-	const end = {
-		pid,
-		session,
-		cause,
-		afterMs,
-		active: process.getActiveResourcesInfo(),
-		children: childrenOf(pid),
-	};
-	const file = writeSlowEnd(
+	return { pid, ...said, active, children: childrenOf(pid) };
+}
+
+/**
+ * Adds, as the session ends, the exit listener that ends a pi past a
+ * name lookup its exit would wait on. Added this late, it comes after
+ * every listener an extension added as it loaded.
+ */
+function endPastLookupAtExit(session: string, cause: string): void {
+	const armedMs = performance.now();
+	process.once(
+		"exit",
+		endPastPendingLookup({
+			active: () => process.getActiveResourcesInfo(),
+			say: (active) => {
+				const end = slowEndOf(
+					{
+						session,
+						cause,
+						afterMs: performance.now() - armedMs,
+						held: HELD_BY_LOOKUP,
+					},
+					active,
+				);
+				// Nothing runs once exit has begun, so this line waits.
+				writeJournal(
+					slowEndLine(end, recordSlowEnd(end)),
+					journalCommand("err"),
+				);
+			},
+			end: () => endNow(process),
+		}),
+	);
+}
+
+/**
+ * Writes a slow end's record to the state folder, saying where, or
+ * nothing where it couldn't be written.
+ */
+function recordSlowEnd(end: SlowEnd): string | undefined {
+	return writeSlowEnd(
 		end,
 		join(stateDir("crash-record-workflow"), "slow-ends"),
 	);
-	sayInJournal(slowEndLine(end, file), journalCommand("err"));
 }
 
 /** Writes a crash to the session's log, then to the system's. */

@@ -10,6 +10,14 @@
  * The watch's timer never keeps the process up, so a pi that can end
  * ends as soon as it would have. Writing what it saw is synchronous and
  * blocks the loop a few ms, once, only in a pi already slow to end.
+ *
+ * One hold the watch's timer can't see: node's exit waits for libuv's
+ * threadpool, and a name lookup running there can't be cancelled. With
+ * the network gone and no nameserver answering, that holds a pi past
+ * its exit listeners until the resolver gives up, and no timer fires
+ * once exit has begun. So a pi exiting with a lookup pending says so
+ * and ends itself by its own TERM, the only way node leaves without
+ * waiting on the threadpool: even `process.reallyExit` waits.
  */
 
 import {
@@ -33,9 +41,14 @@ export interface SlowEnd {
 	session: string;
 	cause: string;
 	afterMs: number;
+	/** What held its exit, where that is known. */
+	held?: string;
 	active: readonly string[];
 	children: readonly Child[];
 }
+
+/** What a name lookup still running in libuv's threadpool shows as. */
+export const PENDING_LOOKUP = "GetAddrInfoReqWrap";
 
 /** A timer the watch starts, which must never keep the process up. */
 export interface WatchTimer {
@@ -74,12 +87,14 @@ function processTimer(run: () => void, ms: number): WatchTimer {
  * signal does: pi drops its own handlers as a quit begins, and one left
  * of the watch's would keep a later TERM from ending the process. For
  * the same reason, a signal nothing but the watch heard is sent again
- * through `raise`, so it ends the process as it would have.
+ * through `raise`, so it ends the process as it would have. `onArm` is
+ * told once, with the cause, as the watch arms.
  */
 export function watchSlowEnd(options: {
 	afterMs: number;
 	signals: SignalSource;
 	onSlow: (cause: string, afterMs: number) => void;
+	onArm?: (cause: string) => void;
 	raise?: (signal: string) => void;
 	setTimer?: (run: () => void, ms: number) => WatchTimer;
 }): { arm(cause: string): void; stop(): void } {
@@ -92,6 +107,7 @@ export function watchSlowEnd(options: {
 	const arm = (cause: string) => {
 		unlisten();
 		if (timer) return;
+		options.onArm?.(cause);
 		timer = setTimer(
 			() => options.onSlow(cause, options.afterMs),
 			options.afterMs,
@@ -113,6 +129,47 @@ export function watchSlowEnd(options: {
 			unlisten();
 		},
 	};
+}
+
+/**
+ * An exit listener that ends a process exiting with a name lookup
+ * pending: it calls `say` with what is still open, then `end`. A
+ * process with none pending exits as it would have.
+ */
+export function endPastPendingLookup(options: {
+	active: () => readonly string[];
+	say: (active: readonly string[]) => void;
+	end: () => void;
+}): () => void {
+	return () => {
+		const active = options.active();
+		if (!active.includes(PENDING_LOOKUP)) return;
+		options.say(active);
+		options.end();
+	};
+}
+
+/** The process as `endNow` needs it: its pid, its TERM listeners, kill. */
+export interface EndingProcess {
+	pid: number;
+	removeAllListeners(signal: string): unknown;
+	kill(pid: number, signal: string): unknown;
+}
+
+/**
+ * Ends the process at once, past an exit that would wait on a pending
+ * name lookup: no exit path, `process.reallyExit` included, ends before
+ * the threadpool's lookup returns, so only a signal's default action
+ * does. It drops every TERM listener, pi's own handler among them, then
+ * sends itself TERM, which ends it with status 143. The KILL after it
+ * runs only when that TERM returns, which it does when TERM is blocked
+ * or ignored, as a `SIG_IGN` inherited from `nohup` leaves it; without
+ * the KILL the exit would go on waiting on the lookup.
+ */
+export function endNow(proc: EndingProcess): void {
+	proc.removeAllListeners("SIGTERM");
+	proc.kill(proc.pid, "SIGTERM");
+	proc.kill(proc.pid, "SIGKILL");
 }
 
 /** The processes under `pid`, from every one of its threads. */
@@ -234,6 +291,7 @@ function prune(dir: string): void {
 export function slowEndLine(end: SlowEnd, file?: string): string {
 	const parts = [
 		`pi: still ending ${Math.round(end.afterMs)} ms after ${end.cause}, session ${end.session}`,
+		...(end.held ? [`held: ${end.held}`] : []),
 		`open: ${counted(end.active)}`,
 		`children: ${
 			end.children.length === 0
