@@ -25,6 +25,7 @@
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Exec } from "../exec/index.ts";
+import { ask } from "./tree-git.ts";
 
 /** A commit a bundle needs before it can be fetched from. */
 export interface Needed {
@@ -66,18 +67,6 @@ export type BundleOutcome =
 	| { kind: "bundled"; carried: CarriedTree }
 	| { kind: "nothing"; branch: string; left: string[] }
 	| { kind: "refused"; reason: string };
-
-/** Ask git one thing in the tree, or undefined when it says nothing. */
-async function ask(
-	exec: Exec,
-	treePath: string,
-	args: readonly string[],
-): Promise<string | undefined> {
-	const result = await exec("git", ["-C", treePath, ...args]);
-	if (result.code !== 0) return undefined;
-	const said = result.stdout.trim();
-	return said === "" ? undefined : said;
-}
 
 /**
  * The paths `git status --porcelain -z` names, as written on disk: each

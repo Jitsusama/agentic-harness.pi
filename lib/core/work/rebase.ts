@@ -36,6 +36,7 @@ import {
 	settleAdditions,
 	staleIn,
 } from "./appends.ts";
+import { ask, conflictedIn } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
 /**
@@ -115,31 +116,6 @@ export interface WorkRebaser {
 	abandon(treePath: string): Promise<ResumeOutcome>;
 	/** Whether a replay is part-way through, which changes what is safe. */
 	halted(treePath: string): Promise<boolean>;
-}
-
-/** Read one git value, scoped to the tree, or undefined when git says nothing. */
-async function ask(
-	exec: Exec,
-	treePath: string,
-	args: readonly string[],
-): Promise<string | undefined> {
-	const result = await exec("git", ["-C", treePath, ...args]);
-	if (result.code !== 0) return undefined;
-	const said = result.stdout.trim();
-	return said === "" ? undefined : said;
-}
-
-/** Paths git reports as unmerged. */
-async function conflictedIn(
-	exec: Exec,
-	treePath: string,
-): Promise<readonly string[]> {
-	const said = await ask(exec, treePath, [
-		"diff",
-		"--name-only",
-		"--diff-filter=U",
-	]);
-	return said === undefined ? [] : said.split("\n").filter((one) => one !== "");
 }
 
 /** A conflict marker git writes at the start of a line; `=======` alone is a heading underline too. */
