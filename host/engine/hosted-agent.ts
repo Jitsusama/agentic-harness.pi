@@ -403,10 +403,19 @@ export class HostedAgent {
 	}
 
 	async continue(): Promise<void> {
-		if (this.active)
-			throw new Error(
-				"Agent is already processing. Wait for completion before continuing.",
-			);
+		if (this.active) {
+			// pi continues only once its own prompt has ended, so a run under way
+			// here is durable's: the ask again for a request a restart cut off,
+			// begun as the recovery that held pi's words ended. Refused, words
+			// typed while the run waited for its turn failed as the agent already
+			// processing (15 November); followed, its answer is what pi continues to.
+			while (this.active) await this.active.promise;
+			if (
+				this.state.messages.at(-1)?.role === "assistant" &&
+				!this.hasQueuedMessages()
+			)
+				return;
+		}
 		const last = this.state.messages.at(-1);
 		if (
 			!last ||

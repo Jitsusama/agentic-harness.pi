@@ -99,7 +99,8 @@ function turnsOf(observed: Observed, among: readonly string[] = []): unknown[] {
 	return observed.events.flatMap((event): unknown[] => {
 		if (event.type === "agent_end" || among.includes(event.type))
 			return [event.type];
-		if (event.type === "turn") return [{ type: "turn", first: event.first }];
+		if (event.type === "turn" || event.type === "turn asked")
+			return [{ type: event.type, first: event.first }];
 		if (event.type === "turn given back") return [{ type: event.type }];
 		return [];
 	});
@@ -472,6 +473,33 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				"agent_end",
 			]);
 			expect(said(observed, "assistant").at(-1)).toBe("after the restart");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("answers words typed while a run a request was cut off in waits for its turn, the ask again's answer first", async () => {
+		// pi's session continued into the ask again's run and was told the agent was already processing (15 November).
+		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-typed-"));
+		try {
+			expect(await killed("crash-in-request-automated", folder)).toBe(
+				"SIGKILL",
+			);
+			const { observed } = await reopenedWithReports(
+				folder,
+				"reopen-typed-while-waiting",
+			);
+			expect(
+				turnsOf(observed).slice(0, 2),
+				"the run waited for its turn until the words were in",
+			).toEqual([
+				{ type: "turn asked", first: false },
+				{ type: "turn", first: false },
+			]);
+			expect(
+				said(observed, "assistant"),
+				"the cut-off request and the words are both answered",
+			).toEqual(["after the restart", "and your words"]);
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}
