@@ -172,6 +172,11 @@ it(
 			const cwd = join(sealed.home, "a");
 			await mkdir(cwd, { recursive: true });
 			await mkdir(join(sealed.home, "b"), { recursive: true });
+			// Opened first, so its question takes a steer, not an open, once
+			// the busy one is in its tool.
+			const peer = await host.open(join(sealed.home, "b"), {
+				model: SCRIPTED,
+			});
 			const busy = await host.open(cwd, {
 				model: SCRIPTED,
 				first: WAIT_A_WHILE,
@@ -188,10 +193,7 @@ it(
 			// and a peer's question.
 			const queued = [`next-${randomUUID()}`, `then-${randomUUID()}`];
 			for (const word of queued) await steerInbox(sealed, address, word);
-			const peer = await host.open(join(sealed.home, "b"), {
-				model: SCRIPTED,
-				first: `ping ${address}`,
-			});
+			await steerInbox(sealed, signature(peer.sessionId), `ping ${address}`);
 			await untilAnswered("the peer has asked", async () =>
 				messagesIn(peer.file).some(
 					(one) =>
