@@ -14,12 +14,23 @@
  * the node is asked where that goes first, since spawn must know the
  * machine to choose between resuming here and starting fresh, and the
  * start then names the machine chosen. A dry run asks only where.
+ *
+ * A spawn that names neither asks the node too, so work goes where there
+ * is room: on 15 November 115 sessions ran on optimus and 3 on the work
+ * Mac while the node would have picked the Mac (WCJQSG [66388615]). One
+ * started on another machine has its quest shared there first, carries
+ * its first words in the start, since the file spawn leaves here names
+ * nothing there, and opens no window unless asked (WM4KSZ [a124c9cb]).
  */
 
 import { hostname } from "node:os";
 import { relative } from "node:path";
+import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.ts";
-import { FIRST_WORDS_VARIABLE } from "../../../lib/internal/quest/first-words.ts";
+import {
+	FIRST_TEXT_VARIABLE,
+	FIRST_WORDS_VARIABLE,
+} from "../../../lib/internal/quest/first-words.ts";
 import {
 	agentsAt,
 	type NodeStarted,
@@ -61,6 +72,13 @@ export interface HeldSpawn {
 	 * it left some (lib/internal/quest/first-words.ts).
 	 */
 	readonly firstWords?: string;
+	/**
+	 * The first words themselves, for a session on another machine, where
+	 * no file this machine left can reach it.
+	 */
+	readonly firstText?: string;
+	/** Whether the call asked for a window; one here always opens. */
+	readonly window?: boolean;
 	readonly layout?: TerminalLayout;
 	readonly options: OpenOptions;
 }
@@ -86,6 +104,63 @@ const askTheNode: StartOnNode = (start) => startAt(nodeSocket(), start);
 export type PlaceOnNode = (needs: readonly Need[]) => Promise<PlaceAnswer>;
 
 const askWhere: PlaceOnNode = (needs) => placeAt(nodeSocket(), needs);
+
+/** How a spawn shares its quest with the machines this one links with. */
+export type ShareQuest = (
+	questId: string,
+) => Promise<{ readonly ok: true } | { readonly ok: false; reason: string }>;
+
+/** How long sharing a quest may take before the spawn goes on without. */
+const SHARE_PATIENCE_MS = 60_000;
+
+/** Shares `questId` through mycelium, saying why when it couldn't. */
+export function shareThrough(exec: Exec): ShareQuest {
+	return async (questId) => {
+		const { code, stdout, stderr } = await exec("mycelium", ["share", questId]);
+		if (code === 0) return { ok: true };
+		const said = (stderr.trim() || stdout.trim()).split("\n").at(-1);
+		return { ok: false, reason: said || `mycelium share exited ${code}` };
+	};
+}
+
+const shareByMycelium: ShareQuest = shareThrough(
+	spawnExec({ timeoutMs: SHARE_PATIENCE_MS }),
+);
+
+/** What a spawn already asked for, which keeps it on this machine. */
+export interface StaysAsked {
+	/** A session of the quest's resumes here, with its history. */
+	readonly resumes: boolean;
+	/** A host the call named, which is this machine's. */
+	readonly host?: string;
+	/** A command the call named, of the caller's own. */
+	readonly command?: string;
+}
+
+/**
+ * The machine a spawn starts on once `machineFor` chose `machine` for
+ * `needs`: that one, or with neither, wherever the node places work that
+ * needs nothing, when that is another machine. A session that resumes
+ * here, a host or a command the call named keep it here, and so does a
+ * node that places it here or doesn't answer. A quest needing Joel's
+ * screen, Linux or KVM says so in its needs, which the node was asked.
+ */
+export async function machineByDefault(
+	machine: string | undefined,
+	needs: readonly Need[],
+	asked: StaysAsked,
+	place: PlaceOnNode = askWhere,
+	name: string = hostname(),
+): Promise<string | undefined> {
+	if (machine !== undefined || needs.length > 0) return machine;
+	if (asked.resumes || asked.host?.trim() || asked.command?.trim()) {
+		return undefined;
+	}
+	const answer = await place([]);
+	return answer.ok && !isThisMachine(answer.machine, name)
+		? answer.machine
+		: undefined;
+}
 
 /** The machine a spawn starts on, and what it was chosen for. */
 export type Chosen =
@@ -229,11 +304,13 @@ export function heldWords(
 	command: string,
 	questId: string,
 	firstWords?: string,
+	firstText?: string,
 ): string[] {
 	return [
 		"env",
 		`QUEST_WORKFLOW_AUTOLOAD_ID=${questId}`,
 		...(firstWords ? [`${FIRST_WORDS_VARIABLE}=${firstWords}`] : []),
+		...(firstText ? [`${FIRST_TEXT_VARIABLE}=${firstText}`] : []),
 		"sh",
 		"-c",
 		command,
@@ -253,11 +330,27 @@ export function joinLine(attach: readonly string[]): string {
 export async function spawnHeld(
 	asked: HeldSpawn,
 	start: StartOnNode = askTheNode,
+	share: ShareQuest = shareByMycelium,
 ): Promise<HeldSpawnOutcome> {
 	const here = isThisMachine(asked.machine);
 	const folder = folderFor(asked.cwd, asked.home, here);
 	const where = folder ?? "its home";
+	const window = here || asked.window === true;
 	if (asked.options.dryRun) {
+		const sharing = here ? "" : `run mycelium share ${asked.questId}, then `;
+		if (!window) {
+			return {
+				ok: true,
+				planned: true,
+				message: `${chosenFor(asked)}Would ${sharing}ask ${asked.machine}'s mycelium node to start a held session in ${where}, running: ${asked.command}, and open no window. Nothing was started.`,
+				details: {
+					machine: asked.machine,
+					needs: asked.needs.map(needWords),
+					folder: folder ?? null,
+					command: asked.command,
+				},
+			};
+		}
 		const planned = await openTerminal(
 			{ ...(asked.layout ? { layout: asked.layout } : {}), cwd: asked.home },
 			asked.options,
@@ -265,7 +358,7 @@ export async function spawnHeld(
 		return {
 			ok: true,
 			planned: true,
-			message: `${chosenFor(asked)}Would ask ${asked.machine}'s mycelium node to start a held session in ${where}, running: ${asked.command}; then open a ${planned.plan.layout} through ${describePlan(planned.plan)} on the words it answers. Nothing was started.`,
+			message: `${chosenFor(asked)}Would ${sharing}ask ${asked.machine}'s mycelium node to start a held session in ${where}, running: ${asked.command}; then open a ${planned.plan.layout} through ${describePlan(planned.plan)} on the words it answers. Nothing was started.`,
 			details: {
 				machine: asked.machine,
 				needs: asked.needs.map(needWords),
@@ -275,19 +368,56 @@ export async function spawnHeld(
 			},
 		};
 	}
+	// Its record and scratch go first, so the session finds its quest as it
+	// loads; one that can't be shared still starts, and says so.
+	const shared = here ? { ok: true as const } : await share(asked.questId);
+	const unshared = shared.ok
+		? ""
+		: ` Its quest wasn't shared there (${shared.reason}), so it starts without the quest's record; run mycelium share ${asked.questId} to give it one.`;
 	const answer = await start({
 		machine: asked.machine,
 		needs: asked.needs,
 		...(folder !== undefined ? { folder } : {}),
-		command: heldWords(asked.command, asked.questId, asked.firstWords),
+		command: heldWords(
+			asked.command,
+			asked.questId,
+			asked.firstWords,
+			here ? undefined : asked.firstText,
+		),
 	});
 	if (!answer.ok) {
 		return {
 			ok: false,
-			refusal: `Nothing was started on ${asked.machine}: ${answer.reason}.`,
+			refusal: `Nothing was started on ${asked.machine}: ${answer.reason}.${unshared}`,
 		};
 	}
-	return joined(asked, answer.started, here);
+	const outcome = window
+		? await joined(asked, answer.started, here)
+		: leftHeld(asked, answer.started);
+	return outcome.ok
+		? { ...outcome, message: `${outcome.message}${unshared}` }
+		: { ...outcome, refusal: `${outcome.refusal}${unshared}` };
+}
+
+/**
+ * Says where a session started held on another machine runs, with no
+ * window opened: one opened here would land on Joel's screen.
+ */
+function leftHeld(asked: HeldSpawn, started: NodeStarted): HeldSpawnOutcome {
+	const line = joinLine(started.attach);
+	return {
+		ok: true,
+		planned: false,
+		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${started.machine} holds it as ${started.held}, begun in ${started.folder || "its home"}). No window was opened; join it with: ${line}.`,
+		details: {
+			machine: started.machine,
+			needs: asked.needs.map(needWords),
+			held: started.held,
+			folder: started.folder,
+			attach: started.attach,
+			how: "held",
+		},
+	};
 }
 
 /** Opens a terminal here on the words that join a session started held. */

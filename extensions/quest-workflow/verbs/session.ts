@@ -80,6 +80,7 @@ import {
 import {
 	agentCommand,
 	isThisMachine,
+	machineByDefault,
 	machineFor,
 	spawnHeld,
 	startsPi,
@@ -393,12 +394,9 @@ export async function spawn(
 	const questIdForSpawn = entry.doc.frontMatter.id;
 	const fm = entry.doc.frontMatter;
 
-	// Resolve the working directory: prefer a quest-owned
-	// tree, then a recent session's cwd, then a tree's repo
-	// root, then the repo its ancestors work in (never their
-	// trees, which are theirs alone), then the repo this session
-	// works in, then home, never a folder of the quest store. A recorded path that no longer exists self-heals to
-	// the next candidate.
+	// The folder: a quest's tree, a recent session's cwd, a tree's repo,
+	// its ancestors' repo (never their trees), this session's repo, then
+	// home, never the quest store; a path that's gone falls to the next.
 	const now = new Date();
 	const snapshot = await buildSessionSnapshot(fm.sessions, { now });
 	const sessions = fm.sessions.map((s) => deriveLiveness(s, snapshot));
@@ -422,16 +420,11 @@ export async function spawn(
 		? "the folder the call named"
 		: describeCwdSource(resolved.source);
 
-	// Pick the session to resume, excluding the one doing the
-	// spawning. pickResumeSession prefers a live session, falls back
-	// to the most-recent idle one, and only reports ambiguity when
-	// several are concurrently live; in that case spawn starts a
-	// fresh pi and surfaces the choice rather than guessing.
+	// The session to resume, not the spawning one: a live one, else the
+	// newest idle; several live start a fresh pi and say the choice.
 	const currentId = currentSessionId(ctx, undefined);
-	// A session's history is saved on its own machine, so one started on
-	// another starts fresh; which machine that is may be the node's to
-	// choose, by what the session needs of it. A machine or needs the
-	// call names replace what the quest says it needs, never add to it.
+	// History stays on its machine, so a session elsewhere starts fresh.
+	// A machine or needs the call names replace the quest's needs.
 	const named = params.machine?.trim() || undefined;
 	const chosen = await machineFor(
 		named,
@@ -440,11 +433,18 @@ export async function spawn(
 			: needsOf(fm),
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
-	const { machine, needs } = chosen;
+	const { needs } = chosen;
+	const resumable = pickResumeSession(
+		sessions.filter((s) => s.id !== currentId),
+	);
+	// Naming neither, it goes where the node places work, unless it resumes.
+	const machine = await machineByDefault(chosen.machine, needs, {
+		resumes: Boolean(resumable && "id" in resumable),
+		...(target.kind ? { host: target.kind } : {}),
+		...(params.command ? { command: params.command } : {}),
+	});
 	const resume =
-		machine === undefined || isThisMachine(machine)
-			? pickResumeSession(sessions.filter((s) => s.id !== currentId))
-			: undefined;
+		machine === undefined || isThisMachine(machine) ? resumable : undefined;
 	// A session a host holds is reached through that host, never opened
 	// again here or adopted by another, which would give its log a second
 	// writer. A command of the caller's own resumes nothing.
@@ -529,13 +529,8 @@ export async function spawn(
 	const trustNote = `${trustWaits ? trustPromptNote(cwd) : ""}${settingNote}`;
 	const trusting = trustWaits ? { trustWaits: cwd } : {};
 
-	// Pass the target quest id through to the spawned
-	// process via an env var. The new pi's quest-workflow
-	// extension reads this on session_start and uses it to
-	// load the right quest, which in turn names the session
-	// after the quest. A resumed session restores its own
-	// loaded quest from history, but the env var is harmless
-	// and covers a fresh pi.
+	// The new pi loads this quest at session_start, which names it; a
+	// resumed one restores its own, so the variable only covers a fresh pi.
 	const env: Record<string, string> = {
 		QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn,
 	};
@@ -569,9 +564,10 @@ export async function spawn(
 	);
 	if (!read.ok) return refuse(read.refusal);
 	if (machine !== undefined) {
-		// Words are left on this machine, so only a session held here can
-		// take them.
-		const token = isThisMachine(machine) ? leftUnder(uuidv7()) : undefined;
+		// Words left on this machine reach only a session held here; one
+		// elsewhere carries them in its start, and opens a window if asked.
+		const local = isThisMachine(machine);
+		const token = local ? leftUnder(uuidv7()) : undefined;
 		const held = await spawnHeld({
 			machine,
 			needs,
@@ -580,6 +576,8 @@ export async function spawn(
 			home: homedir(),
 			questId: questIdForSpawn,
 			...(token ? { firstWords: token } : {}),
+			...(!local && firstWords ? { firstText: firstWords } : {}),
+			window: Boolean(params.terminal?.trim() || asked),
 			...(read.layout ? { layout: read.layout } : {}),
 			options: read.options,
 		});
@@ -772,12 +770,8 @@ export async function spawn(
 	// an explicit command overrides the resume decision, so the
 	// idle/live/ambiguous note would not describe what actually ran.
 	if (resumeNote) message += ` ${resumeNote}`;
-	// State the quest the new session will load, not merely the one
-	// requested. When the spawned command is pi (fresh or a resume),
-	// the autoload env the spawn ships wins over the session's own
-	// history in resolveStartup, and the target was validated to exist
-	// above, so the load is deterministic. A non-pi command loads no
-	// quest, so the claim is withheld.
+	// The quest it will load: a pi's autoload wins over its own history in
+	// resolveStartup, and the quest exists; a non-pi command loads none.
 	if (startsPi(command)) {
 		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
 	}

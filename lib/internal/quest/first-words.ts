@@ -39,6 +39,12 @@ import { indexSessionFiles } from "./session-liveness.ts";
 export const FIRST_WORDS_VARIABLE = "QUEST_WORKFLOW_FIRST_WORDS";
 
 /**
+ * The variable holding a spawned pi's first words themselves, for one
+ * started on another machine, where the file a token names isn't.
+ */
+export const FIRST_TEXT_VARIABLE = "QUEST_WORKFLOW_FIRST_TEXT";
+
+/**
  * How long words wait for their session. The launcher opens what it is
  * handed one at a time, and after a boot reopened 37 sessions in a few
  * minutes (11-02), so this leaves room for a long queue.
