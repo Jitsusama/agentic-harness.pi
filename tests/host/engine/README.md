@@ -27,7 +27,10 @@ copy once its first is deleted, as a switch and a store collection
 leave Shopify's proxy. One step loads this package as a conversation's
 settings would: its tool list, deferred tools and pi's built-ins
 included, and what its screen is handed to show at startup must equal a
-plain pi's on the same folder. Another runs a turn on this package, a
+plain pi's on the same folder. Two read /proc, so run only on Linux:
+they hold that the host holds each conversation's log open to read
+through its open, a /new, a park, a wake and a close, and through a
+restart that leaves it resting parked. Another runs a turn on this package, a
 bash call included, and holds that nothing it starts from its prompt to
 idle starts a child with spawnSync, execFileSync or execSync, which
 would hold every conversation's loop (tests/support/spawns.ts watches).

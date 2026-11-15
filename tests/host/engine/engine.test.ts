@@ -106,6 +106,8 @@ interface Seen {
 	readonly refused?: string;
 	/** The warms a parked conversation's host kept for its next start. */
 	readonly pending?: number;
+	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
+	readonly logs?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -618,6 +620,35 @@ describe("the host's engine", () => {
 				"with the registration's headers",
 			).toEqual(["its-extension"]);
 			expect(seen.pending, "the warm waits for its wake").toBe(1);
+		},
+		2 * HOST_LIFE_MS,
+	);
+
+	// Read from /proc, which only Linux has.
+	it.skipIf(process.platform !== "linux")(
+		"holds each conversation's log open to read for as long as it holds the conversation, parked or running",
+		async () => {
+			const seen = await step(hostFolder(), "logs-held");
+			expect(seen.logs).toEqual({
+				opened: ["read"],
+				afterNew: { first: [], next: ["read"] },
+				whileParked: ["read"],
+				woken: ["read"],
+				closed: [],
+				closedParked: [],
+			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it.skipIf(process.platform !== "linux")(
+		"holds the log of one resting parked through the host's restart",
+		async () => {
+			const folder = hostFolder();
+			await step(folder, "park-to-restart");
+			const seen = await step(folder, "log-resting");
+			expect(seen.rests, "its next start leaves it parked").toBe(true);
+			expect(seen.logs).toEqual({ resting: ["read"] });
 		},
 		2 * HOST_LIFE_MS,
 	);
