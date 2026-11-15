@@ -73,11 +73,20 @@ describe("a move", () => {
 			moveWaits("s1", () => ({ to: "pi", since: "now" })),
 			"a move in its presence waits",
 		).toBe(true);
-		expect(moveWaits("s1", () => undefined), "none in it waits").toBe(false);
+		expect(
+			moveWaits("s1", () => undefined),
+			"none in it waits",
+		).toBe(false);
 	});
 
 	it("has been made once its note is written", () => {
-		expect(movedOn("s1", () => ({ to: "pi" })), "a note written").toBe(true);
-		expect(movedOn("s1", () => undefined), "no note").toBe(false);
+		expect(
+			movedOn("s1", () => ({ to: "pi" })),
+			"a note written",
+		).toBe(true);
+		expect(
+			movedOn("s1", () => undefined),
+			"no note",
+		).toBe(false);
 	});
 });
