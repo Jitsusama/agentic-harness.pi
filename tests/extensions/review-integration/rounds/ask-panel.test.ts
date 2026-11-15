@@ -1,0 +1,444 @@
+/**
+ * A round has to be watchable and stoppable, not merely noisy.
+ *
+ * The first version of this reported to the status line alone, on the
+ * reasoning that the defect was silence. That answered the smallest of
+ * three complaints. A line has room for one participant's activity, so it
+ * cannot say which of seven is still working, and no room at all for a key
+ * binding, so it cannot offer a way out.
+ *
+ * These assert the two things the line could not do: name every
+ * participant with its own state, and cancel. Cancellation is checked
+ * through the signals a round is actually given, because a panel that
+ * looks cancellable and only hides itself is worse than one that does not
+ * offer.
+ */
+
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
+import {
+	roundBoard,
+	watchRound,
+} from "../../../../extensions/review-integration/progress.ts";
+import {
+	type AskProgressEntry,
+	trackAskProgress,
+} from "../../../../lib/core/review/index.ts";
+import { boardLines } from "../../../../lib/ui/board.ts";
+
+/**
+ * A theme that returns its text, so assertions read as content.
+ *
+ * `bold` is here because the shared pipeline renderer bolds a running
+ * stage, and a fake thin enough to miss that fails inside the renderer
+ * rather than on the assertion, which reads as a bug in the panel.
+ */
+const theme = {
+	fg: (_role: string, text: string) => text,
+	bold: (text: string) => text,
+	dim: (text: string) => text,
+} as unknown as Theme;
+
+/** How a board is drawn for one assertion. */
+interface Drawing {
+	readonly selected?: number;
+	readonly width?: number;
+	readonly now?: number;
+	readonly focused?: boolean;
+}
+
+/** A council's board, as the dock would draw it with all the room it wants. */
+function panelLines(
+	entries: readonly AskProgressEntry[],
+	{
+		selected = -1,
+		width = 80,
+		now = Date.now(),
+		focused = false,
+	}: Drawing = {},
+): string[] {
+	return boardLines(
+		roundBoard("council", entries, theme, { selected, notice: "", now }),
+		theme,
+		width,
+		focused,
+	);
+}
+
+/** The one model a roster of personas usually shares. */
+const MODEL = "anthropic/claude-opus-5";
+
+/** Participants, as a roster really carries them. */
+const PARTICIPANTS = [
+	{ id: "correctness-and-tests", model: MODEL },
+	{ id: "test-skeptic", model: MODEL },
+	{ id: "architecture-hawk", model: MODEL },
+];
+
+/** Their ids, for the assertions that only care about names. */
+const IDS = PARTICIPANTS.map((one) => one.id);
+
+describe("the panel says how long each one has been at it", () => {
+	// The complaint this answers: a round goes quiet for a quarter of
+	// an hour and the panel gives no way to tell a reviewer that is
+	// thinking from one that is wedged, or to see one approaching the
+	// point where it will be asked to wrap up.
+	it("counts a running participant up while it runs", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("correctness-and-tests");
+
+		// Eight and a half minutes after it was sent away.
+		const drawn = panelLines(entries(), { now: 570_000 }).join("\n");
+
+		expect(drawn).toContain("8m30s");
+	});
+
+	it("freezes the time a settled participant took", () => {
+		let clock = 60_000;
+		const { progress, entries } = trackAskProgress(() => clock);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		clock = 180_000;
+		progress.answered("test-skeptic");
+		progress.recorded("test-skeptic", 4);
+
+		// Drawn an hour later. A finished reviewer's time is a fact
+		// about the round, not a counter that keeps climbing.
+		const drawn = panelLines(entries(), { now: 3_660_000 }).join("\n");
+
+		expect(drawn).toContain("2m0s");
+		expect(drawn).toContain("4 findings");
+	});
+
+	it("says nothing about time for one that has not started", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+
+		const drawn = panelLines(entries(), { now: 600_000 }).join("\n");
+
+		expect(drawn).toContain("queued");
+		expect(drawn).not.toMatch(/\d+m\d+s/);
+	});
+});
+
+describe("the panel names every participant", () => {
+	it("lists all of them, which a status line cannot", () => {
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.started("correctness-and-tests");
+		progress.activity("correctness-and-tests", "reading provider.ts");
+		progress.answered("test-skeptic");
+		progress.recorded("test-skeptic", 4);
+
+		const drawn = panelLines(entries()).join("\n");
+
+		for (const id of IDS) expect(drawn).toContain(id);
+	});
+
+	it("says what the running one is doing, and what the answered one found", () => {
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.started("correctness-and-tests");
+		progress.activity("correctness-and-tests", "reading provider.ts");
+		progress.answered("test-skeptic");
+		progress.recorded("test-skeptic", 4);
+
+		const drawn = panelLines(entries()).join("\n");
+
+		expect(drawn).toContain("reading provider.ts");
+		expect(drawn).toContain("4 findings");
+		// A participant nobody has started yet is queued, not missing.
+		expect(drawn).toContain("queued");
+	});
+
+	it("says how to stop it, because a panel that can must say so", () => {
+		// Two halves now, because the board no longer takes the keyboard from
+		// the editor. Until the hop chord brings the keys to it, none of them
+		// would reach it, so it says how to get there; once they do, it says
+		// what they are.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+
+		const unfocused = panelLines(entries(), { width: 120 }).join("\n");
+		const focused = panelLines(entries(), { width: 120, focused: true }).join(
+			"\n",
+		);
+
+		expect(unfocused).toContain("Ctrl+Alt+N to manage");
+		expect(unfocused).not.toContain("r cancel selected");
+		expect(focused).toContain("Esc cancel round");
+		expect(focused).toContain("r cancel selected");
+	});
+
+	it("marks the selected participant with a cursor, not only by colour", () => {
+		// So it still reads on a terminal that dropped the styling.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+
+		const drawn = panelLines(entries(), { selected: 1, focused: true });
+
+		expect(drawn.find((line) => line.includes("test-skeptic"))).toMatch(
+			/^\u25b8 /,
+		);
+		expect(drawn.find((line) => line.includes("architecture-hawk"))).toMatch(
+			/^ {2}/,
+		);
+	});
+
+	it("draws one titled row per participant, not a stack of stages", () => {
+		// The shape is the whole complaint that brought the panel back, and it
+		// regressed once by reaching for the widget renderer because it was
+		// already imported. So the title and the one-row-per-participant rule
+		// are pinned rather than left to whichever renderer is nearest.
+		//
+		// The frame is a title rule now, with no rule below: the board sits
+		// directly on the editor, whose own border closes it.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.started("correctness-and-tests");
+		progress.activity("correctness-and-tests", "reading provider.ts");
+
+		const drawn = panelLines(entries(), { width: 60 });
+
+		expect(drawn[0]).toMatch(/^\u2500\u2500 council .*\u2500\u2500$/);
+		expect(drawn.at(-1)).toContain("architecture-hawk");
+		expect(drawn).toHaveLength(1 + IDS.length);
+		for (const id of IDS) {
+			expect(drawn.filter((line) => line.includes(id))).toHaveLength(1);
+		}
+	});
+
+	it("names a shared model once in the title, not on every row", () => {
+		// A roster is usually one model wearing several personas, and its name
+		// down seven rows crowds out the activity beside it.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+
+		const drawn = panelLines(entries());
+
+		expect(drawn[0]).toContain(MODEL);
+		expect(drawn.filter((line) => line.includes(MODEL))).toHaveLength(1);
+	});
+
+	it("names each model on its row when they differ", () => {
+		// Then which model is answering is the most interesting thing on it.
+		const { progress, entries } = trackAskProgress();
+		progress.start([
+			{ id: "one", model: "a/first" },
+			{ id: "two", model: "b/second" },
+		] as never);
+
+		const drawn = panelLines(entries()).join("\n");
+
+		expect(drawn).toContain("one \u00b7 a/first");
+		expect(drawn).toContain("two \u00b7 b/second");
+	});
+
+	it("says a failure's reason once, on its own line", () => {
+		// It was said twice while the row carried it too, and a reason is the
+		// one thing here long enough to need the width to itself.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.failed("test-skeptic", "exited 1 without answering");
+
+		const drawn = panelLines(entries());
+
+		expect(
+			drawn.filter((line) => line.includes("exited 1 without answering")),
+		).toHaveLength(1);
+	});
+
+	it("names a failure with its reason", () => {
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.failed("architecture-hawk", "exited 1 without answering");
+
+		const drawn = panelLines(entries()).join("\n");
+
+		expect(drawn).toContain("exited 1 without answering");
+	});
+});
+
+describe("a reviewer somebody stopped", () => {
+	// The panel had four states, so there was no way to draw this one.
+	// A cancelled reviewer kept the mark and the colour of one that had
+	// answered, which is the panel saying the round went well at the
+	// moment somebody was telling it otherwise.
+	it("is drawn as cancelled rather than as an answer", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+
+		const drawn = panelLines(entries(), { now: 90_000 });
+		const row = drawn.find((line) => line.includes("test-skeptic"));
+
+		expect(row).toContain("cancelled");
+		expect(row).not.toContain("answered");
+	});
+
+	it("stays cancelled when the runner reports it home afterwards", () => {
+		// The race that makes this worth a rule. Killing a subprocess is
+		// not instant, so the runner can hand back an answer after the
+		// kill has reached the panel. Whoever stopped it is the authority
+		// on why it stopped.
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+		progress.answered("test-skeptic");
+
+		expect(
+			entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "cancelled" });
+	});
+
+	it("stays cancelled when the runner reports it failed afterwards", () => {
+		// The likelier half of the same race, and the half the first cut
+		// of this rule missed: a killed process exits non-zero, so what
+		// comes back after a kill is usually a failure. Guarding only the
+		// answer left the panel blaming the round for something a person
+		// did on purpose.
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+		progress.failed("test-skeptic", "exited 143");
+
+		expect(
+			entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "cancelled" });
+	});
+
+	it("is marked cancelled by the same call the panel's key makes", () => {
+		// The wiring, not the piece. Everything above would pass with the
+		// watch never telling the row anything, which is the state this
+		// panel was already in.
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.started("test-skeptic");
+
+		const notice = watch.cancelOne("test-skeptic");
+
+		expect(notice).toBe("cancelled test-skeptic");
+		expect(
+			watch.signalFor("test-skeptic").aborted,
+			"the panel's cancel stops test-skeptic's work",
+		).toBe(true);
+		expect(watch.entries()).toContainEqual(
+			expect.objectContaining({
+				participantId: "test-skeptic",
+				state: "cancelled",
+			}),
+		);
+	});
+});
+
+describe("cancelling a round", () => {
+	it("gives each participant a signal derived from the round's", () => {
+		const watch = watchRound("council", null);
+		const one = watch.signalFor("test-skeptic");
+
+		expect(
+			one.aborted,
+			"a participant's signal starts live in a live round",
+		).toBe(false);
+		expect(watch.signal.aborted, "a fresh round starts live").toBe(false);
+	});
+
+	it("reaches every participant when the whole round is cancelled", () => {
+		// The point of deriving them: Escape must stop work already in
+		// flight, not only work not yet started.
+		const outer = new AbortController();
+		const watch = watchRound("council", null, outer.signal);
+		const before = watch.signalFor("correctness-and-tests");
+
+		outer.abort();
+		const after = watch.signalFor("test-skeptic");
+
+		expect(
+			before.aborted,
+			"a signal handed out before the round was cancelled stops too",
+		).toBe(true);
+		expect(
+			watch.signal.aborted,
+			"the round stops when its outer signal does",
+		).toBe(true);
+		// One asked for after the fact is already cancelled rather than
+		// starting a subprocess into an abandoned round.
+		expect(
+			after.aborted,
+			"a signal asked for after the round was cancelled starts stopped",
+		).toBe(true);
+	});
+
+	it("keeps the others running when one is cancelled", () => {
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		const doomed = watch.signalFor("test-skeptic");
+		const spared = watch.signalFor("architecture-hawk");
+
+		// This used to stop nobody, so it could not have caught a cancel
+		// that took the round down with it.
+		watch.cancelOne("test-skeptic");
+
+		expect(doomed.aborted, "the cancelled participant stops").toBe(true);
+		expect(
+			spared.aborted,
+			"cancelling test-skeptic leaves architecture-hawk running",
+		).toBe(false);
+		expect(
+			watch.signal.aborted,
+			"cancelling one participant leaves the round running",
+		).toBe(false);
+	});
+
+	it("marks every unsettled row when the whole round is stopped", () => {
+		// Escape is the commoner of the two ways out and it marked nothing,
+		// so the state added for exactly this was reachable one participant
+		// at a time and an abandoned round still painted itself answered.
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.started("test-skeptic");
+		watch.progress.answered("architecture-hawk");
+
+		watch.cancelAll();
+
+		const byId = new Map(
+			watch.entries().map((row) => [row.participantId, row.state]),
+		);
+		expect(byId.get("test-skeptic")).toBe("cancelled");
+		expect(byId.get("correctness-and-tests")).toBe("cancelled");
+		// One that already answered keeps its answer: stopping a round does
+		// not unmake the work that came back before it.
+		expect(byId.get("architecture-hawk")).toBe("answered");
+	});
+
+	it("refuses to cancel a participant that already settled", () => {
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.answered("test-skeptic");
+
+		const notice = watch.cancelOne("test-skeptic");
+
+		expect(notice).toBe("test-skeptic already answered");
+		expect(
+			watch.entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "answered" });
+	});
+
+	it("hands the same signal back for the same participant", () => {
+		// Otherwise a second call would build a controller nothing aborts,
+		// and cancelling would appear to do nothing.
+		const watch = watchRound("council", null);
+
+		expect(watch.signalFor("test-skeptic")).toBe(
+			watch.signalFor("test-skeptic"),
+		);
+	});
+
+	it("carries the round it is watching, so nothing has to be told twice", () => {
+		expect(watchRound("critique", null).round).toBe("critique");
+	});
+});

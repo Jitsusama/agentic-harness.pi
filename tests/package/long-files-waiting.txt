@@ -10,7 +10,6 @@ lib/internal/quest
 lib/internal/quest/discovery.ts
 lib/subagent/runpi/supervisor.mjs
 lib/ui
-tests/extensions
 tests/extensions/compaction-workflow/host.test.ts
 tests/extensions/quest-workflow
 tests/lib/mesh/presence.test.ts

@@ -197,7 +197,7 @@ PR description structure and narrative.
 | Self-review comment placement and ranges | Self-Review Comments | ⚪ | Judgment. |
 | Prose conventions inside the body | (inherits prose-standard) | 🟢 | `runProseGate` in `pr-guardian`, and `proposalComplaint` on the tool path |
 | Link the tracking issue when one exists, and omit the line when none does | Issue and Stack Context | 🚫 | Was written as "always start the body with `Part of #ISSUE_NUMBER`", which asks for a number that may not exist and produced bodies pointing at unrelated issues. Now conditional. Not gateable: whether an issue tracks the work is not in the text. Where the line sits is gated: the shape detector refuses anything above the TL;DR. |
-| Stack note shape, and that it sits after the TL;DR's text | Issue and Stack Context | 🟢 | Written by `propose-stack` itself in `extensions/review-integration/tools/offer-stack.ts`, which is the only place every change's number exists at once; placed by `withNote` in `tools/sections.ts`; pinned by `tests/extensions/review-offer-stack.test.ts` |
+| Stack note shape, and that it sits after the TL;DR's text | Issue and Stack Context | 🟢 | Written by `propose-stack` itself in `extensions/review-integration/tools/offer-stack.ts`, which is the only place every change's number exists at once; placed by `withNote` in `tools/sections.ts`; pinned by `tests/extensions/review-integration/offer/offer-stack.test.ts` |
 | A change is opened through the review tools, not `gh pr create` | (cross-cutting) | 🟢 | `runRedirectGate` in core `internal/guardian/redirect-gate.ts`, blocking a create once where a provider serves the checkout and relenting on a repeat; also stated in `review_offer`'s tool description and the resident conventions block |
 | Future work belongs in an issue, not the PR | Body Structure (intro) | ⚪ | The closed section set already removes the temptation; no separate gate needed. |
 
@@ -373,8 +373,9 @@ is followed by judgment, not by a regex.
   One rule in each of `review-guide` and `work-guide` is gated,
   and it is not about artifact shape at all:
   🟢 every action a tool offers is shown being called in its
-  guide, in `tests/extensions/review-indexed.test.ts` and
-  `tests/extensions/work-indexed.test.ts`. A capability nobody
+  guide, in `tests/extensions/review-integration/indexed.test.ts`
+  and `tests/extensions/work-integration/indexed.test.ts`. A
+  capability nobody
   can find does not exist, and this fails the way a real gate
   should: it has caught four actions shipping undiscoverable,
   the last two of them in `work-guide` minutes after the gate
@@ -579,7 +580,7 @@ is followed by judgment, not by a regex.
   is the right way for a gate like this to be wrong.
 
   The review tools now carry the same completeness gate:
-  `tests/extensions/review-indexed.test.ts` requires every
+  `tests/extensions/review-integration/indexed.test.ts` requires every
   action in each of the six tools' schemas to appear in
   `review-guide` as the incantation an agent would run. It was
   written loose first, matching the bare action name, and passed
@@ -590,7 +591,7 @@ is followed by judgment, not by a regex.
   something you could call. Removing one incantation fails the
   gate by name, checked rather than assumed.
 
-  `tests/extensions/review-findable.test.ts` is the review
+  `tests/extensions/review-integration/findable.test.ts` is the review
   equivalent of the browser's parameter gate, and it earned its
   place twice on its first run. Its declaration half found
   `commit`, which `fix-done` requires and the schema never
@@ -625,7 +626,7 @@ is followed by judgment, not by a regex.
   of holding it in your head:
   🟢 no action repeats its own tool's name, and none names a
   different tool.
-  `review-indexed.test.ts` checks both. It found
+  `review-integration/indexed.test.ts` checks both. It found
   `review_offer draft`, which read as though it belonged to
   `review_draft`; it is `unready` now, which also pairs with the
   `ready` beside it.
@@ -662,7 +663,7 @@ is followed by judgment, not by a regex.
   malformed entry is dropped and warned about rather than
   refused, so a reviewer that half-follows the contract still
   contributes what it got right. `tests/extensions/
-  review-contract-skills.test.ts` checks that every round a
+  review-integration/rounds/contract-skills.test.ts` checks that every round a
   prompt cites a contract for has one on disk, since a missing
   file is silent at runtime: the subagent starts, is told to
   follow a contract it was never given, and answers
