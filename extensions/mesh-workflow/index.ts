@@ -2123,12 +2123,15 @@ export function meshWorkflow(
 		// step while a run goes on, where pi appends it after the step's
 		// tool results, or with the start of the next run while idle. A
 		// pause asked for mid-run lands here too, the turn's tools done.
-		onTurnEnd(pi, async () => {
+		onTurnEnd(pi, async (turn) => {
 			leasing.stillAnswering();
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
 			pausing.turnEnded();
-			moving.turnEnded();
+			// Only a turn whose tools ran goes on to ask the model again; one
+			// handed on at the run's end finished it, and isn't cut off.
+			if (turn.toolResults.length > 0 && turn.outcome === "completed")
+				moving.turnEnded();
 		});
 		// A run started by something else takes what was waiting to act
 		// with it, in full, and the turn it waited for is never started.
