@@ -54,9 +54,11 @@ lib/internal/people/doc.ts 6
 lib/internal/priority/fetched-git.mjs 1
 lib/internal/priority/fetched.ts 3
 lib/internal/priority/name.ts 1
+lib/internal/priority/needs.ts 5
+lib/internal/priority/next-turn.ts 3
 lib/internal/priority/outcome.ts 20
 lib/internal/priority/push-hooks.mjs 10
-lib/internal/priority/queue.ts 19
+lib/internal/priority/world-walk.ts 11
 lib/internal/quest/alias-index.ts 1
 lib/internal/quest/body-edits.ts 19
 lib/internal/quest/doing.ts 1
