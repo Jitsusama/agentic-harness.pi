@@ -1,7 +1,7 @@
 /**
  * Shared helpers for quest-workflow tests: a defensive
- * env-isolation guard, two that narrow a result, and one
- * that reads a quest's Journey.
+ * env-isolation guard, two that narrow a result, one that
+ * reads a quest's Journey, and the context a verb runs in.
  *
  * The workflow no longer reads `QUEST_WORKFLOW_ROOT` (the
  * quests root comes from the package config, and tests pass
@@ -12,8 +12,17 @@
  */
 
 import { readFileSync } from "node:fs";
+import type { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import type { QuestResult } from "../../../extensions/quest-workflow/verbs/shared.ts";
 import { questJourneyLines } from "../../../lib/internal/quest/journey.ts";
+
+/** The context a verb runs in: a session at `cwd`. */
+export function fakeCtx(cwd: string, sessionId = "sess-1") {
+	return {
+		cwd,
+		sessionManager: { getSessionId: () => sessionId },
+	} as unknown as Parameters<typeof handle>[2];
+}
 
 /**
  * A quest's whole Journey as text, newest first: whatever its

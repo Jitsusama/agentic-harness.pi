@@ -17,15 +17,32 @@ import {
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard, journeyOf, succeeded } from "./_helpers.ts";
+import { createEnvGuard, fakeCtx, journeyOf, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 
-function fakeCtx(cwd: string, sessionId = "sess-1") {
-	return {
-		cwd,
-		sessionManager: { getSessionId: () => sessionId },
-	} as unknown as Parameters<typeof handle>[2];
+/** One verb, as this session in the scratch folder. */
+function act(
+	state: ReturnType<typeof buildState>,
+	params: Parameters<typeof handle>[3],
+) {
+	return handle(state, fakePi(), fakeCtx(tmpRoot), params);
+}
+
+/** A new quest, loaded. */
+async function loadedQuest(
+	state: ReturnType<typeof buildState>,
+	title: string,
+) {
+	const quest = await createQuest(state, title);
+	await act(state, { action: "load", id: quest.id });
+	return quest;
+}
+
+/** A plan thought about and drafted on the loaded quest. */
+async function draftedPlan(state: ReturnType<typeof buildState>) {
+	await act(state, { action: "think", kind: "plan", note: "scope" });
+	await act(state, { action: "draft", title: "The plan" });
 }
 
 function buildState() {
@@ -36,7 +53,7 @@ async function createQuest(
 	state: ReturnType<typeof buildState>,
 	title: string,
 ) {
-	const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+	const result = await act(state, {
 		action: "create",
 		title,
 	});
@@ -62,16 +79,16 @@ afterEach(() => {
 describe("reclassify verb", () => {
 	it("changes the loaded quest's kind", async () => {
 		const state = buildState();
-		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const q = await act(state, {
 			action: "create",
 			title: "Q",
 			kind: "quest",
 		});
 		if (!q.ok) throw new Error(q.guidance);
 		const { id, path } = q.details as { id: string; path: string };
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+		await act(state, { action: "load", id });
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "reclassify",
 			kind: "sidequest",
 		});
@@ -81,21 +98,21 @@ describe("reclassify verb", () => {
 
 	it("is reversible: undo restores the prior kind", async () => {
 		const state = buildState();
-		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const q = await act(state, {
 			action: "create",
 			title: "Q",
 			kind: "quest",
 		});
 		if (!q.ok) throw new Error(q.guidance);
 		const { id, path } = q.details as { id: string; path: string };
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, { action: "load", id });
+		await act(state, {
 			action: "reclassify",
 			kind: "sidequest",
 		});
 		expect(readFileSync(path, "utf8")).toMatch(/^kind: sidequest$/m);
 
-		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const undone = await act(state, {
 			action: "undo",
 			id,
 		});
@@ -105,16 +122,16 @@ describe("reclassify verb", () => {
 
 	it("refuses a subquest with no parent", async () => {
 		const state = buildState();
-		const q = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const q = await act(state, {
 			action: "create",
 			title: "Q",
 			kind: "quest",
 		});
 		if (!q.ok) throw new Error(q.guidance);
 		const { id } = q.details as { id: string };
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "load", id });
+		await act(state, { action: "load", id });
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "reclassify",
 			kind: "subquest",
 		});
@@ -127,12 +144,8 @@ describe("reclassify verb", () => {
 describe("priority verbs", () => {
 	it("promote shifts the loaded quest up one bucket", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Q");
+		const result = await act(state, {
 			action: "promote",
 		});
 		expect(result).toMatchObject({ ok: true });
@@ -144,16 +157,16 @@ describe("priority verbs", () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
 		const b = await createQuest(state, "B");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "load",
 			id: a.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, { action: "drive" });
+		await act(state, {
 			action: "load",
 			id: b.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await act(state, { action: "drive" });
 
 		const rankA = readFileSync(a.path, "utf8").match(/^rank: (\d+)/m)?.[1];
 		const rankB = readFileSync(b.path, "utf8").match(/^rank: (\d+)/m)?.[1];
@@ -164,12 +177,8 @@ describe("priority verbs", () => {
 
 	it("park jumps the loaded quest to bench", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Q");
+		const result = await act(state, {
 			action: "park",
 		});
 		expect(result).toMatchObject({ ok: true });
@@ -179,24 +188,16 @@ describe("priority verbs", () => {
 
 	it("defer sets priority to someday", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "defer" });
+		const a = await loadedQuest(state, "Q");
+		await act(state, { action: "defer" });
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/priority: someday/);
 	});
 
 	it("drive sets priority to driving", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		const a = await loadedQuest(state, "Q");
+		await act(state, { action: "drive" });
 		const text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/priority: driving/);
 	});
@@ -205,12 +206,8 @@ describe("priority verbs", () => {
 describe("conclude / retire scope", () => {
 	it("with nothing focused, refuses to guess the quest and names it", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Q");
+		const result = await act(state, {
 			action: "conclude",
 		});
 		expect(result).toMatchObject({ ok: false });
@@ -222,12 +219,8 @@ describe("conclude / retire scope", () => {
 
 	it("concludes the loaded quest when named, and names it back", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Named Quest");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Named Quest");
+		const result = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -239,15 +232,11 @@ describe("conclude / retire scope", () => {
 
 	it("names what the quest wrote outside its trees, in its message and Journey", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Busy Quest");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
+		const a = await loadedQuest(state, "Busy Quest");
 		recordOutsideWrites(defaultWorkspaceRoot(), a.id, ["/etc/a", "/etc/b"]);
 		recordOutsideWrites(defaultWorkspaceRoot(), a.id, ["/etc/a"]);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -260,26 +249,14 @@ describe("conclude / retire scope", () => {
 
 	it("cascades on conclude: resets priority to someday and seals documents", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "think",
-			kind: "plan",
-			note: "scope",
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "draft",
-			title: "The plan",
-		});
+		const a = await loadedQuest(state, "Q");
+		await act(state, { action: "drive" });
+		await draftedPlan(state);
 		const planPath = state.documentPath as string;
 		// Unfocus so conclude targets the quest, not the focused plan.
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "unfocus" });
+		await act(state, { action: "unfocus" });
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -294,12 +271,8 @@ describe("conclude / retire scope", () => {
 
 	it("retire requires a reason in quest scope", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Q");
+		const result = await act(state, {
 			action: "retire",
 			id: a.id,
 		});
@@ -308,12 +281,8 @@ describe("conclude / retire scope", () => {
 
 	it("retire stamps status retired when reason is given", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Q");
+		const result = await act(state, {
 			action: "retire",
 			id: a.id,
 			reason: "no longer relevant",
@@ -325,27 +294,15 @@ describe("conclude / retire scope", () => {
 
 	it("warns when the primary plan still has unchecked items", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "think",
-			kind: "plan",
-			note: "scope",
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "draft",
-			title: "The plan",
-		});
+		const a = await loadedQuest(state, "Q");
+		await draftedPlan(state);
 		// Replace the scaffold body with a known checkbox set:
 		// one done, one open.
 		writeFileSync(
 			state.documentPath as string,
 			"# The plan\n\n## Work\n- [x] done item\n- [ ] open item\n",
 		);
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -360,25 +317,13 @@ describe("conclude / retire scope", () => {
 
 	it("does not warn when the primary plan is fully checked", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "think",
-			kind: "plan",
-			note: "scope",
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "draft",
-			title: "The plan",
-		});
+		const a = await loadedQuest(state, "Q");
+		await draftedPlan(state);
 		writeFileSync(
 			state.documentPath as string,
 			"# The plan\n\n## Work\n- [x] done item\n",
 		);
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -391,12 +336,8 @@ describe("conclude / retire scope", () => {
 
 	it("explicit scope=document with no focused document refuses cleanly", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Q");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await loadedQuest(state, "Q");
+		const result = await act(state, {
 			action: "conclude",
 			scope: "document",
 		});
@@ -408,14 +349,14 @@ describe("tree and expand", () => {
 	it("tree returns top-level quests with their children as listing rows", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "create",
 			title: "Child",
 			parent: parent.id,
 			kind: "subquest",
 		});
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "tree",
 		});
 		const details = succeeded(result).details as {
@@ -433,14 +374,14 @@ describe("tree and expand", () => {
 	it("expand returns the named subtree", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "create",
 			title: "Child",
 			parent: parent.id,
 			kind: "subquest",
 		});
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "expand",
 			id: parent.id,
 		});
@@ -467,7 +408,7 @@ describe("tree and expand", () => {
 			join(orphanDir, "README.md"),
 			`---\nid: ${orphanId}\nkind: subquest\nparent: QEST-20260603-NOPRNT\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-06-03\nupdated: 2026-06-03\n---\n\n# Orphan\n\nBody.\n`,
 		);
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "tree",
 		});
 		const details = succeeded(result).details as {
@@ -497,13 +438,13 @@ describe("find with extended filters", () => {
 	it("filters by parent=null for top-level quests", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "create",
 			title: "Child",
 			parent: parent.id,
 			kind: "subquest",
 		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "find",
 			parent: "null",
 		});
@@ -519,7 +460,7 @@ describe("find with extended filters", () => {
 	it("accepts field=activity and rejects an unknown field", async () => {
 		const state = buildState();
 		await createQuest(state, "Q");
-		const ok = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const ok = await act(state, {
 			action: "find",
 			field: "activity",
 		});
@@ -527,7 +468,7 @@ describe("find with extended filters", () => {
 
 		// Under an activity window, a quest with no recorded activity is
 		// excluded rather than slipping through on an undefined date.
-		const windowed = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const windowed = await act(state, {
 			action: "find",
 			field: "activity",
 			since: "2026-01-01",
@@ -536,7 +477,7 @@ describe("find with extended filters", () => {
 			succeeded(windowed).details as { listing: { rows: { id: string }[] } }
 		).listing.rows;
 		expect(rows).toHaveLength(0);
-		const bad = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const bad = await act(state, {
 			action: "find",
 			field: "banana",
 		});
@@ -545,17 +486,13 @@ describe("find with extended filters", () => {
 
 	it("filters by refType", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Aliased");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const a = await loadedQuest(state, "Aliased");
+		await act(state, {
 			action: "alias-add",
 			ref: "github-pr:shop/world#1",
 		});
 		await createQuest(state, "Plain");
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "find",
 			refType: "github-pr",
 		});
@@ -569,27 +506,23 @@ describe("find with extended filters", () => {
 describe("show projection", () => {
 	it("includes documents, sessions and Echoes", async () => {
 		const state = buildState();
-		const a = await createQuest(state, "Alpha");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "load",
-			id: a.id,
-		});
+		await loadedQuest(state, "Alpha");
 		// Scaffold a plan document under the loaded quest.
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "think",
 			note: "investigate",
 			kind: "plan",
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "draft",
 			title: "First plan",
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "session-attach",
 			name: "primary",
 		});
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "show",
 		});
 		const projection = (
