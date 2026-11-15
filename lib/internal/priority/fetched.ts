@@ -10,7 +10,7 @@
  * already running (80ECO2).
  *
  * So a fetch of main waits for one running rather than beside it (see
- * queue.ts's `walkWaits`), and once a fetch of main has moved
+ * next-turn.ts's `walkWaits`), and once a fetch of main has moved
  * `origin/main`, every fetch of main waiting or asked in the next
  * {@link ANSWERED_FOR_MS} gets its turn at once, past the walks, with
  * fetched-git.mjs first on its shell's PATH as `git`. That answers each fetch

@@ -16,7 +16,10 @@ export type Kind =
 	| "stamp"
 	| "timed-run";
 
-/** What a walk of World's objects does, as {@link walkOf} reads it. */
+/**
+ * What a walk of World's objects does, as world-walk.ts's `walkOf` reads
+ * it.
+ */
 export type Walk = "push" | "main-fetch" | "other";
 
 /**

@@ -83,7 +83,7 @@ export interface Outcome {
 	readonly buildsPeakBytes?: number;
 	/**
 	 * The most memory its own commands held, in bytes, from a scope that
-	 * held nothing else (queue.ts's Job). Outcomes an older harness wrote
+	 * held nothing else (job.ts's Job). Outcomes an older harness wrote
 	 * say `ownPeakBytes` instead, which could be every job's at once, so
 	 * nothing reads it.
 	 */

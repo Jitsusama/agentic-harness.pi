@@ -16,7 +16,7 @@
  *   a reader can tell a queue nobody keeps any more.
  * - `<id>.capped`: given beside a VM check, so the shell runs the work
  *   with the Nix settings it holds, first in `NIX_USER_CONF_FILES`: a
- *   quick job's {@link QUICK_NIX}, or else {@link CAPPED_NIX}, which
+ *   quick job's {@link QUICK_NIX}, or else bounds.ts's `CAPPED_NIX`, which
  *   `capped.conf` holds too for a shell an older harness started.
  * - `<id>.began`: written by its shell as the work begins, after the
  *   wait, so its time limit can start there (clock.ts).
@@ -543,7 +543,7 @@ export function queueFolder(
 				ownNow === undefined
 					? job.ownedPeakBytes
 					: Math.max(job.ownedPeakBytes ?? 0, ownNow);
-			// Memory still growing holds the next VM back (queue.ts's
+			// Memory still growing holds the next VM back (bounds.ts's
 			// vmSettling); a creep under a step is no growth.
 			const total = peak + (own ?? 0);
 			const grew = total - (job.grewTo ?? 0) >= GREW_BYTES;

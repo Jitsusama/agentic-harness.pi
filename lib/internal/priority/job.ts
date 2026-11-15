@@ -23,7 +23,8 @@ export interface Job {
 	 * How long the same work took the last time it ran, in seconds, as it
 	 * asked (outcome.ts's `ranSAfter`): when the memory it holds is due
 	 * back once it runs, and whether it would still run by then while it
-	 * waits (see {@link lineKept}). Nothing for work not yet seen.
+	 * waits (see next-turn.ts's `lineKept`). Nothing for work not yet
+	 * seen.
 	 */
 	readonly lastRanS?: number;
 	/** The pi session that started it, and pi's pid. */
@@ -79,7 +80,7 @@ export interface Job {
 	 * A build its last run, or failing one what it builds, says takes
 	 * seconds (outcome.ts's `quickAfter`): it goes ahead of other bulk
 	 * work, past a job held back, and has a turn of its own beside a VM
-	 * check, at {@link QUICK_NIX}.
+	 * check, at bounds.ts's `QUICK_NIX`.
 	 */
 	readonly quick?: true;
 	/**
@@ -97,9 +98,9 @@ export interface Job {
 	/** Why its plan said nothing, when it didn't. */
 	readonly planFailed?: string;
 	/**
-	 * Why it waits now, as {@link waitReasons} last judged it, and since
-	 * when: its time asking, for the first. Kept once its turn comes, so
-	 * its outcome closes the stretch there.
+	 * Why it waits now, as next-turn.ts's `waitReasons` last judged it,
+	 * and since when: its time asking, for the first. Kept once its turn
+	 * comes, so its outcome closes the stretch there.
 	 */
 	readonly waitingSince?: {
 		readonly reason: WaitReason;
@@ -116,7 +117,7 @@ export interface Job {
 	readonly vmSince?: string;
 	/**
 	 * When the memory its builds and its own commands held last rose by
-	 * {@link GREW_BYTES} or more, and to how much, in bytes.
+	 * bounds.ts's `GREW_BYTES` or more, and to how much, in bytes.
 	 */
 	readonly grewAt?: string;
 	readonly grewTo?: number;
@@ -194,8 +195,8 @@ export function isVm(job: Pick<Job, "kind">): boolean {
  * Whether a job takes the quick turn: a build marked quick whose shell
  * reads its own cap, which a shell an older harness started can't, or a
  * push of World marked quick, which it is when it leaves out its LFS
- * scan (see {@link PUSH_GIB}). A quick push still counts as a walk while
- * it runs, but waits for no other walk to end.
+ * scan (see needs.ts's `PUSH_GIB`). A quick push still counts as a walk
+ * while it runs, but waits for no other walk to end.
  */
 export function isQuick(job: Job): boolean {
 	if (job.quick !== true || job.cappable !== true) return false;
@@ -216,12 +217,12 @@ export interface Rules {
 	 * running camera subtest is what broke its timing. Holding every build
 	 * cost more than it saved: at 13:47 on 22 October one check, on two
 	 * thirds of one core, held five builds for up to 24 minutes while the
-	 * CPU sat 72% idle. So {@link BUILDS_BESIDE_VMS} build at a time starts
-	 * beside one while CPU pressure is under
-	 * {@link MOST_CPU_PRESSURE_BESIDE_VMS} and the person's own programs
-	 * don't stall on memory, and the rest wait. Pressure is
-	 * read seconds late, and nothing slows a daemon build once it runs, so
-	 * that build is capped as it starts (see {@link CAPPED_NIX}).
+	 * CPU sat 72% idle. So bounds.ts's `BUILDS_BESIDE_VMS` build at a time
+	 * starts beside one while CPU pressure is under its
+	 * `MOST_CPU_PRESSURE_BESIDE_VMS` and the person's own programs don't
+	 * stall on memory, and the rest wait. Pressure is read seconds late,
+	 * and nothing slows a daemon build once it runs, so that build is
+	 * capped as it starts (see bounds.ts's `CAPPED_NIX`).
 	 *
 	 * A VM check still starts beside builds, but not past one waiting for
 	 * its turn, so a build waits only for the checks already running:
@@ -230,7 +231,7 @@ export interface Rules {
 	 * run timed, from their drivers.
 	 */
 	readonly buildsWaitForVmChecks: boolean;
-	/** How many VMs run at once, when not {@link MOST_VMS}. */
+	/** How many VMs run at once, when not bounds.ts's `MOST_VMS`. */
 	readonly mostVms?: number;
 }
 

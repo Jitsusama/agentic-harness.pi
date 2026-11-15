@@ -265,13 +265,13 @@ function memoryWaitedMs(job: Job, now: number): number {
  * a folder kept within folder.ts's `KEPT_FOR_MS`, with nothing come or
  * gone since, left as it is, which older keepers would keep regardless.
  * 9: no job starts while the person's programs wait on CPU, no build or
- * benchmark past {@link MOST_CPU_PRESSURE_FOR_BUILDS}, and vitest and
+ * benchmark past bounds.ts's `MOST_CPU_PRESSURE_FOR_BUILDS`, and vitest and
  * the pnpm scripts that run it are builds. 10: a deploy's stamp, a kind
  * older code can't read, goes first with only the capped build beside.
  * 11: builds held on the minute's CPU and on IO too, capped from 40%,
  * and a changed-checks sent whole to a builder spared the holds. 12: a
  * push of World that leaves out its LFS scan is quick work, held to
- * {@link PUSH_GIB} or what it was seen to hold, and quick work held to
+ * needs.ts's `PUSH_GIB` or what it was seen to hold, and quick work held to
  * {@link LIGHT_GIB} or less, builds aside, starts while memory is short.
  */
 export const RULES_VERSION = 12;
