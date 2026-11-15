@@ -14,8 +14,10 @@
 # since review_offer gives a gate five minutes and a run takes longer. Only
 # the keeper writes that record, so a fenced session can't forge one, and
 # only a kept run whose words are exactly the ones host-test-words.sh makes
-# here and now counts: the keeper keeps any program that passed, true
-# included. A refusal says the command that clears it.
+# here, from this machine's tools now or from a system generation it
+# switched to in the last EARLIER_HOURS, counts: the keeper keeps any
+# program that passed, true included. A refusal says the command that
+# clears it.
 set -euo pipefail
 
 sha=${1:?Name the commit to merge: host-gate.sh SHA}
@@ -26,6 +28,20 @@ state=${XDG_STATE_HOME:-$HOME/.local/state}
 runtime=$(readlink -f "${PI_HOST_RUNTIME:-$state/pi-host/runtime}")
 # What nix-offload says when this machine runs no keeper.
 NO_KEEPER=69
+# How far back a system generation's tools still count. A run sends the
+# tools the machine had as it started, and a switch while it runs, or
+# before its merge, moves them on: at 11:26 on 15 November that voided four
+# hour-long runs of commits nothing had changed. A run on any generation
+# this machine switched to in these hours counts, since each was its real
+# set of tools; the runtime the hosts are proven on must still match.
+EARLIER_HOURS=12
+# Where the machine's system generations are, each a system-N-link. Only
+# root can add one there, so a generation's tools are ones the machine
+# really switched to; its per-user tools are read from the generation's
+# own closure, never from the account's profiles, which any agent of the
+# account could write, and its age is the link's own (ISXEG8, 15
+# November). A folder this account could write is taken as none.
+generations=${HOST_GATE_GENERATIONS:-/nix/var/nix/profiles}
 
 # What a host runs, and what decides how test:host runs it: the host
 # program, its screens and the session seam its conversations go through,
@@ -69,12 +85,23 @@ elif [[ $kept != 0 ]]; then
   why="nix-offload couldn't say what passed at $sha (it exited $kept)"
 elif [[ -z $ran ]]; then
   why="nothing ran test:host at $sha and passed"
-elif ! grep -qF -- "$wanted" <<< "$ran"; then
-  why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools"
-fi
-if [[ -z $why ]]; then
+elif grep -qF -- "$wanted" <<< "$ran"; then
   echo "host-gate: test:host passed at $sha on $runtime"
   exit 0
+else
+  # The newest first, so the answer names the latest set that matched.
+  if [[ -w $generations ]]; then generations=""; fi
+  while read -r link; do
+    profiles="$link/etc/profiles/per-user/${USER:-}/bin:$link/sw/bin"
+    HOST_TEST_PROFILES=$profiles host_test_words "$runtime" 2> /dev/null || continue
+    if grep -qF -- "$(host_test_ran)" <<< "$ran"; then
+      number=${link##*/system-}
+      echo "host-gate: test:host passed at $sha on $runtime, on the tools of this machine's system generation ${number%-link}"
+      exit 0
+    fi
+  done < <([[ -n $generations ]] && find "$generations" -maxdepth 1 -name 'system-*-link' -newermt "-$EARLIER_HOURS hours" 2> /dev/null |
+    awk -F'system-' '{ n = $NF; sub(/-link$/, "", n); print n "\t" $0 }' | sort -nr | cut -f2-)
+  why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools, now or in the last $EARLIER_HOURS hours"
 fi
 
 count=$(echo "$touched" | wc -l)

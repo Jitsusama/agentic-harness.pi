@@ -14,6 +14,7 @@ import {
 	mkdirSync,
 	realpathSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -40,9 +41,17 @@ const NO_KEEPER = 69;
 const NOTHING_RAN = 75;
 /** A word the agent fence lets out (PLAIN_WORD in offload-exemption.ts). */
 const PLAIN = /^[A-Za-z0-9._/@:=+^*-]+$/;
+/** The account the generations' per-user profiles are for. */
+const USER = "someone";
 
 const made: string[] = [];
-afterEach(() => removeAll(made));
+/** Folders a case made read-only, opened again so they can go. */
+const locked = new Set<string>();
+afterEach(() => {
+	for (const dir of locked) chmodSync(dir, 0o755);
+	locked.clear();
+	removeAll(made);
+});
 
 /** A stand-in nix-offload saying what `keeper` holds for each commit. */
 const OFFLOAD = `#!/usr/bin/env bash
@@ -79,7 +88,61 @@ async function harness() {
 	writeFileSync(join(bin, "nix-offload"), OFFLOAD);
 	chmodSync(join(bin, "nix-offload"), 0o755);
 	const keeper = folder(made, "keeper");
-	return { checkout, state, runtime, profile, tools, bin, keeper };
+	const generations = folder(made, "generations");
+	return {
+		checkout,
+		state,
+		runtime,
+		store,
+		profile,
+		tools,
+		bin,
+		keeper,
+		generations,
+	};
+}
+
+/** An hour, in milliseconds. */
+const HOUR = 3_600_000;
+
+/**
+ * An earlier system generation of the machine, `hoursAgo` old, as
+ * /nix/var/nix/profiles holds them: the tools as the harness's, but for
+ * those `moved` names to other store folders. The folder is left
+ * read-only, as root's is to the account, unless `writable`, and is
+ * `into` in place of the machine's. Answers its tools.
+ */
+function generation(
+	on: Harness,
+	number: number,
+	moved: Record<string, string>,
+	{ hoursAgo = 1, writable = false, into = on.generations } = {},
+): Record<string, string> {
+	mkdirSync(into, { recursive: true });
+	chmodSync(into, 0o755);
+	const link = join(into, `system-${number}-link`);
+	const user = join(link, "etc", "profiles", "per-user", USER, "bin");
+	mkdirSync(user, { recursive: true });
+	mkdirSync(join(link, "sw", "bin"), { recursive: true });
+	const tools: Record<string, string> = {};
+	for (const tool of TOOLS) {
+		const name = moved[tool];
+		const home = name ? join(on.store, name) : (on.tools[tool] ?? "");
+		if (name) {
+			mkdirSync(join(home, "bin"), { recursive: true });
+			writeFileSync(join(home, "bin", tool), "");
+			chmodSync(join(home, "bin", tool), 0o755);
+		}
+		symlinkSync(join(home, "bin", tool), join(user, tool));
+		tools[tool] = realpathSync(home);
+	}
+	const when = new Date(Date.now() - hoursAgo * HOUR);
+	utimesSync(link, when, when);
+	if (!writable) {
+		chmodSync(into, 0o555);
+		locked.add(into);
+	}
+	return tools;
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>;
@@ -96,7 +159,10 @@ async function change(on: Harness, file: string): Promise<string> {
 }
 
 /** The words test:host runs as on this harness's machine, after `--`. */
-function testHost(on: Harness, runtime = on.runtime): string[] {
+function testHost(
+	on: Pick<Harness, "tools" | "runtime">,
+	runtime = on.runtime,
+): string[] {
 	const tool = (name: string) => on.tools[name] ?? "";
 	const path = ["mycelium", "fd", "rg", "script"]
 		.map((name) => `${tool(name)}/bin`)
@@ -134,6 +200,8 @@ async function answer(
 		XDG_STATE_HOME: on.state,
 		PI_HOST_RUNTIME: on.runtime,
 		HOST_TEST_PROFILES: on.profile,
+		HOST_GATE_GENERATIONS: on.generations,
+		USER,
 		FAKE_KEEPER: on.keeper,
 	};
 	try {
@@ -257,6 +325,77 @@ describe("host-gate.sh", () => {
 
 		expect(answered.code).toBe(1);
 		expect(answered.said).toContain("isn't test:host on the proven");
+	});
+
+	it("takes a run on the tools this machine had before its latest switch", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const before = generation(on, 1196, { mycelium: "1111-mycelium" });
+		kept(on, sha, testHost({ ...on, tools: before }));
+
+		const answered = await gate(on, sha);
+
+		expect(answered).toMatchObject({
+			code: 0,
+			said: expect.stringContaining(
+				"on the tools of this machine's system generation 1196",
+			),
+		});
+	});
+
+	it("refuses a run on tools no recent generation of this machine had", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		generation(on, 1196, { mycelium: "1111-mycelium" });
+		const stale = generation(
+			on,
+			1100,
+			{ mycelium: "2222-mycelium" },
+			{ hoursAgo: 13 },
+		);
+		const forged = { ...on.tools, mycelium: join(on.store, "3333-mycelium") };
+		kept(on, sha, testHost({ ...on, tools: stale }));
+		kept(on, sha, testHost({ ...on, tools: forged }));
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("with this machine's tools");
+	});
+
+	it("refuses a generation in a folder the account could write", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const forged = generation(
+			on,
+			1199,
+			{ mycelium: "4444-mycelium" },
+			{ writable: true },
+		);
+		kept(on, sha, testHost({ ...on, tools: forged }));
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("with this machine's tools");
+	});
+
+	it("refuses a fresh profile generation of the account's own with forged tools", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const profiles = join(on.state, ".local", "state", "nix", "profiles");
+		const forged = generation(
+			on,
+			1199,
+			{ mycelium: "5555-mycelium" },
+			{ writable: true, into: profiles },
+		);
+		kept(on, sha, testHost({ ...on, tools: forged }));
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("with this machine's tools");
 	});
 
 	it("refuses a pass kept for an earlier commit of the same branch", async () => {
