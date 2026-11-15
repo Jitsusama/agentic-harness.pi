@@ -177,20 +177,24 @@ function convertConferenceData(data: unknown): CalendarEvent["conferenceData"] {
 	};
 }
 
+/** What an event says, as a write gives it: a new one in full, a change in part. */
+interface EventDetails {
+	summary: string;
+	/** An ISO date and time, read in this machine's zone. */
+	start: string;
+	end: string;
+	description?: string;
+	location?: string;
+	attendees?: string[];
+	calendarId?: string;
+}
+
 /**
  * Create a calendar event.
  */
 export async function createEvent(
 	auth: OAuth2Client,
-	options: {
-		summary: string;
-		start: string; // ISO datetime
-		end: string;
-		description?: string;
-		location?: string;
-		attendees?: string[];
-		calendarId?: string;
-	},
+	options: EventDetails,
 ): Promise<CalendarEvent> {
 	const calendar = google.calendar({ version: "v3", auth });
 
@@ -198,14 +202,8 @@ export async function createEvent(
 		summary: options.summary,
 		description: options.description,
 		location: options.location,
-		start: {
-			dateTime: options.start,
-			timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		},
-		end: {
-			dateTime: options.end,
-			timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		},
+		start: inLocalZone(options.start),
+		end: inLocalZone(options.end),
 		attendees: options.attendees?.map((email) => ({ email })),
 	};
 
@@ -239,15 +237,7 @@ export async function createEvent(
 export async function updateEvent(
 	auth: OAuth2Client,
 	eventId: string,
-	options: {
-		summary?: string;
-		start?: string;
-		end?: string;
-		description?: string;
-		location?: string;
-		attendees?: string[];
-		calendarId?: string;
-	},
+	options: Partial<EventDetails>,
 ): Promise<CalendarEvent> {
 	const calendar = google.calendar({ version: "v3", auth });
 
@@ -263,18 +253,8 @@ export async function updateEvent(
 		summary: options.summary ?? existing.data.summary,
 		description: options.description ?? existing.data.description,
 		location: options.location ?? existing.data.location,
-		start: options.start
-			? {
-					dateTime: options.start,
-					timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				}
-			: existing.data.start,
-		end: options.end
-			? {
-					dateTime: options.end,
-					timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				}
-			: existing.data.end,
+		start: options.start ? inLocalZone(options.start) : existing.data.start,
+		end: options.end ? inLocalZone(options.end) : existing.data.end,
 		attendees: options.attendees
 			? options.attendees.map((email) => ({ email }))
 			: existing.data.attendees,
@@ -288,6 +268,16 @@ export async function updateEvent(
 	});
 
 	return convertEvent(response.data);
+}
+
+/** The zone this machine keeps, which the events it writes are put in. */
+function localZone(): string {
+	return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/** A time as an event's start or end, read in this machine's zone. */
+function inLocalZone(dateTime: string): { dateTime: string; timeZone: string } {
+	return { dateTime, timeZone: localZone() };
 }
 
 /**
@@ -346,8 +336,7 @@ export async function queryFreeBusy(
 		requestBody: {
 			timeMin: new Date(options.timeMin).toISOString(),
 			timeMax: new Date(options.timeMax).toISOString(),
-			timeZone:
-				options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+			timeZone: options.timeZone ?? localZone(),
 			items,
 		},
 	});

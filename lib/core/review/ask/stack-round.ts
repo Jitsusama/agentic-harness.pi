@@ -22,10 +22,11 @@ import {
 	askRoster,
 	type CouncilResult,
 	type Reply,
-	stopWarning,
+	reviewerWarnings,
 	type Warmed,
 } from "./council.ts";
 import { type ParticipantIdentity, participantIdentity } from "./identity.ts";
+import { outcomeOf } from "./outcome.ts";
 import { type AskProgress, settleReplies } from "./progress.ts";
 import type { Roster } from "./roster.ts";
 import {
@@ -140,13 +141,7 @@ async function fileReply(
 	warnings: string[],
 ): Promise<ParticipantOutcome> {
 	const { participant, answer } = reply;
-	if ("failure" in answer) {
-		return {
-			participantId: participant.id,
-			findingIds: [],
-			failure: answer.failure,
-		};
-	}
+	if ("failure" in answer) return outcomeOf(participant.id, answer);
 
 	const origin = {
 		kind: "reviewer" as const,
@@ -171,19 +166,11 @@ async function fileReply(
 	// most likely to be interrupted, and it was passing the harvest's
 	// own complaints straight through. A reviewer we stopped was being
 	// reported as one that wrote a malformed answer.
-	const said = [
-		...(answer.stopped === undefined
-			? harvest.warnings
-			: [
-					stopWarning(
-						answer.stopped,
-						harvest.findings.length,
-						answer.text.trim() !== "" && harvest.findings.length === 0,
-					),
-					...(harvest.recordedWarnings ?? []),
-				]),
-		...(answer.notes ?? []),
-	];
+	const said = reviewerWarnings(
+		answer,
+		harvest,
+		answer.text.trim() !== "" && harvest.findings.length === 0,
+	);
 	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}
@@ -206,16 +193,7 @@ async function fileReply(
 		findingIds.push(...recorded.map((finding) => finding.id));
 	}
 
-	return {
-		participantId: participant.id,
-		findingIds,
-		// The round most likely to be stopped, since it is the one asked
-		// to hold every change at once, was the one throwing the stop
-		// away.
-		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
-		...(answer.answerPath === undefined
-			? {}
-			: { answerPath: answer.answerPath }),
-		...(answer.usage === undefined ? {} : { usage: answer.usage }),
-	};
+	// The round most likely to be stopped, since it is the one asked to
+	// hold every change at once, was the one throwing the stop away.
+	return outcomeOf(participant.id, answer, findingIds);
 }

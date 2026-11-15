@@ -16,6 +16,7 @@
 import { isRecord } from "../../../internal/record.ts";
 import { type Ask, askRoster, type Warmed } from "./council.ts";
 import { participantIdentity } from "./identity.ts";
+import { outcomeOf } from "./outcome.ts";
 import type { AskProgress } from "./progress.ts";
 import type { Roster } from "./roster.ts";
 import {
@@ -154,11 +155,7 @@ export async function runCritique(
 	// whoever answered first.
 	for (const { participant, answer } of replies) {
 		if ("failure" in answer) {
-			outcomes.push({
-				participantId: participant.id,
-				findingIds: [],
-				failure: answer.failure,
-			});
+			outcomes.push(outcomeOf(participant.id, answer));
 			continue;
 		}
 		const harvest = harvestCritiques(
@@ -170,16 +167,8 @@ export async function runCritique(
 		for (const warning of harvest.warnings) {
 			warnings.push(`${participant.id}: ${warning}`);
 		}
-		outcomes.push({
-			participantId: participant.id,
-			// A critique raises no findings, on purpose.
-			findingIds: [],
-			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
-			...(answer.answerPath === undefined
-				? {}
-				: { answerPath: answer.answerPath }),
-			...(answer.usage === undefined ? {} : { usage: answer.usage }),
-		});
+		// A critique raises no findings, on purpose.
+		outcomes.push(outcomeOf(participant.id, answer));
 	}
 
 	// Raising no findings is why this has to say so itself: the rounds
