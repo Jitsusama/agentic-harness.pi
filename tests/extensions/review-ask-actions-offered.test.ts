@@ -146,7 +146,7 @@ describe("review_ask", () => {
 		for (const council of ["askCouncil", "startRound"]) {
 			const body = functions.get(council);
 			expect(
-				body !== undefined && body.includes("await councilRound("),
+				body?.includes("await councilRound("),
 				`${council} doesn't make its round through councilRound`,
 			).toBe(true);
 		}
