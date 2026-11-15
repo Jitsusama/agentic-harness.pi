@@ -1,13 +1,16 @@
 /**
- * A fenced command git refused the shared folder's packed-refs is told
- * why and where to go, and the refusal is counted (ISXEG8 [753f43b4]).
+ * A fenced command git refused the shared folder's packed-refs, a tree
+ * it doesn't hold or a signature is told why and where to go, and the
+ * refusal is counted (ISXEG8 [753f43b4], [0804813d], [2fc080c2]).
  */
 
 import { describe, expect, it, vi } from "vitest";
 import {
 	PACKED_REFS_ROUTE,
 	routedPackedRefs,
+	routedSigning,
 	routedUnheldTree,
+	SIGNING_ROUTE,
 	UNHELD_TREE_ROUTE,
 } from "../../../lib/internal/fence-git-route.ts";
 
@@ -71,6 +74,39 @@ describe("a fenced command git refused a tree's own git folder", () => {
 			"[main 1234567] x",
 		]) {
 			expect(routedUnheldTree(text(said), record), said).toBeUndefined();
+		}
+		expect(record, "other output was counted").not.toHaveBeenCalled();
+	});
+});
+
+// ISXEG8 [2fc080c2], 15 November: a bash commit in a held tree couldn't
+// sign, since the signing agent stays outside, and git named no route.
+describe("a fenced command git couldn't sign with", () => {
+	it("is told to commit and rebase with the work tool, and counted once", () => {
+		const record = vi.fn();
+		for (const said of [
+			'error: No private key found for public key "/h/.ssh/agent-signing.pub"?\n\nfatal: failed to write commit object',
+			"error: gpg failed to sign the data:\nCould not commit staged changes.",
+			"error: gpg failed to sign the data\nerror: unable to sign the tag",
+		]) {
+			record.mockClear();
+			expect(routedSigning(text(said), record), said).toEqual(
+				text(`${said}\n\n${SIGNING_ROUTE}`),
+			);
+			expect(record, "it wasn't counted").toHaveBeenCalledTimes(1);
+		}
+		for (const route of ["work record", "work rebase"])
+			expect(SIGNING_ROUTE, `the route doesn't name ${route}`).toContain(route);
+	});
+
+	it("leaves a signed commit and other output as it is", () => {
+		const record = vi.fn();
+		for (const said of [
+			"[main 1234567] x\n 1 file changed",
+			'Good "git" signature for joel.gerber@shopify.com',
+			"fatal: Unable to create '/h/src/r/.git/index.lock': Read-only file system",
+		]) {
+			expect(routedSigning(text(said), record), said).toBeUndefined();
 		}
 		expect(record, "other output was counted").not.toHaveBeenCalled();
 	});
