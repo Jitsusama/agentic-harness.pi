@@ -7,21 +7,54 @@
  * recovers a run a restart cut off. Nothing durable may still redo
  * reaches pi: an answer, a tool result or a placed input is shown only
  * once durable committed it, so the session file never holds it twice.
+ * What it leans on lives beside it in hosted-agent/: what a run holds,
+ * the agent's state, the provider stream, durable's transcript mirrored
+ * to pi, and reading pi's messages.
  */
 import { randomUUID } from "node:crypto";
 import { isPersonWords } from "../../lib/internal/session/driven.ts";
 import type {
 	Conversation,
-	DurableContext,
 	DurableModels,
-	EntryRecord,
 	GenerationHooks,
 	HarnessSettings,
-	Registry,
 	RunFailure,
 	Submission,
 	ToolRegistration,
 } from "./durable-types.ts";
+import type {
+	DurableBinding,
+	QueueShowingSession,
+	ShowQueued,
+} from "./hosted-agent/binding.ts";
+import {
+	cutOffAnswer,
+	defaultConvertToLlm,
+	isAssistant,
+	jsonCopy,
+	lastOfRole,
+	normalizePromptInput,
+	queuedText,
+	resultOf,
+	resultsOf,
+	userContent,
+} from "./hosted-agent/messages.ts";
+import {
+	isPayloadHook,
+	openRequest,
+	teeStream,
+} from "./hosted-agent/provider-stream.ts";
+import {
+	applyModel,
+	EMPTY_USAGE,
+	INPUT_KINDS,
+	type InputData,
+	type Run,
+	unansweredMessage,
+} from "./hosted-agent/run.ts";
+import { createState, type HostedAgentState } from "./hosted-agent/state.ts";
+import { declareToolChanges } from "./hosted-agent/tool-changes.ts";
+import { Transcript } from "./hosted-agent/transcript.ts";
 import { pairToolResults } from "./paired-results.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
@@ -35,7 +68,6 @@ import type {
 	CompletedTurn,
 	ContentBlock,
 	Model,
-	ProviderEvent,
 	ProviderStream,
 	QueueMode,
 	StreamFn,
@@ -43,7 +75,6 @@ import type {
 	TurnUpdate,
 } from "./pi-types.ts";
 import { MessageQueue, type QueuedMessage } from "./queue.ts";
-import { type Renewed, refusedOldKey } from "./renewing-stream.ts";
 import {
 	beganWithPersonsWords,
 	type GiveBack,
@@ -58,132 +89,17 @@ import {
 	truncatedCallText,
 } from "./tool-round.ts";
 
-/** Entry kinds the host writes its inputs as; durable keeps `pi.` for its own. */
-export const INPUT_KINDS = {
-	prompt: "host.prompt",
-	steer: "host.steer",
-	followUp: "host.follow-up",
-} as const;
+export type {
+	DurableBinding,
+	QueueShowingSession,
+	ShowQueued,
+} from "./hosted-agent/binding.ts";
+export type { HostedAgentState } from "./hosted-agent/state.ts";
 
-/** Show words as pending in pi's screen, as pi's session shows what it queued itself. */
-export type ShowQueued = (text: string, mode: "steer" | "followUp") => void;
-
-/** pi's session, as far as showing the agent's queued words needs it: a runtime before the seam lacks it. */
-export interface QueueShowingSession {
-	showQueued?: ShowQueued;
-}
-
-/** The data an input entry carries: pi's messages, as pi showed them. */
-interface InputData {
-	readonly hostId: string;
-	readonly messages: readonly AgentMessage[];
-}
-
-/** What the agent needs of its conversation's durable side. */
-export interface DurableBinding {
-	readonly conversation: Conversation;
-	readonly registry: Registry;
-	readonly context: DurableContext;
-	abortSubmission(id: number): Promise<string>;
-	/** Let durable carry on what it had in flight, once the agent can answer its hooks. */
-	resume(): void;
-	/** The newest run durable ended without an answer, as it committed it. */
-	runFailure(): Promise<RunFailure | undefined>;
-	/** Whether durable holds a run a restart cut off, to carry on once it resumes. */
-	carrying(): Promise<boolean>;
-	/** Build the durable extension holding these tools and the agent's generation hooks. */
-	extension(
-		tools: readonly ToolRegistration[],
-		hooks: GenerationHooks,
-	): Parameters<Registry["install"]>[0];
-	/** The conversation's environment, complete, for each request's credentials. */
-	env(): Promise<Readonly<Record<string, string>>>;
-	/**
-	 * Whether a request's refusal came from a credential since renewed, so
-	 * the request is worth sending once more.
-	 */
-	renewed?(error: AssistantMessage): Promise<boolean>;
-	/**
-	 * Run work as the conversation's own, so what reads the ambient
-	 * conversation sees this one whoever scheduled the work: a run, each
-	 * of durable's hooks, each request, each tool call and each listener.
-	 */
-	within?<T>(work: () => T): T;
-}
-
-interface Request {
-	readonly model: Model;
-	readonly reasoning: string | undefined;
-	readonly messages: readonly AgentMessage[];
-}
-
-interface Run {
-	readonly controller: AbortController;
-	readonly newMessages: AgentMessage[];
-	context: AgentContext;
-	model: Model;
-	reasoning: string | undefined;
-	lastCompletedTurn?: CompletedTurn;
-	/** The answer being streamed or awaiting durable's commit, with whether pi saw it start. */
-	answer?: {
-		message?: AssistantMessage;
-		partial?: AssistantMessage;
-		started: boolean;
-	};
-	request?: Request;
-	round?: ToolRound;
-	/** Inputs durable placed that pi has not seen, for the next request to show. */
-	placed: AgentMessage[];
-	/** Results durable committed that wait for their turn to be shown. */
-	heldResults: EntryRecord[];
-	ended: boolean;
-	endDecided: boolean;
-	/** Settles once the run's own input is in and pi saw it, before durable's hooks may act on it. */
-	readonly ready: Promise<void>;
-	/** Whether queued messages are admitted to durable as they come, which waits for the run's own input. */
-	admitting: boolean;
-	/** Whether pi saw the run start; a recovering run starts only once it has something to show. */
-	opened: boolean;
-}
-
-const EMPTY_USAGE = {
-	input: 0,
-	output: 0,
-	cacheRead: 0,
-	cacheWrite: 0,
-	totalTokens: 0,
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-};
-
-const DEFAULT_MODEL: Model = {
-	id: "unknown",
-	provider: "unknown",
-	api: "unknown",
-};
-const ENTRY_PAGE = 200;
-/**
- * How long an aborted request may take to end before the run gives up on
- * it: a provider that honours the abort ends its own stream well within
- * this, and one that waits on its first token is not waited on past it.
- */
-const ABANDON_AFTER_MS = 1_000;
 /** Durable's reason for a run whose request the host stopped during. */
 const INTERRUPTED = "interrupted";
 /** A tool's parameters as durable sees them: pi validates the arguments itself, with its own texts. */
 const ANY_ARGUMENTS = { type: "object" } as const;
-
-/** The agent's state, as pi's Agent exposes it; tools and messages copy what is assigned. */
-export interface HostedAgentState {
-	readonly systemPrompt: string;
-	model: Model;
-	thinkingLevel: string;
-	tools: AgentTool[];
-	messages: AgentMessage[];
-	isStreaming: boolean;
-	streamingMessage?: AgentMessage;
-	pendingToolCalls: Set<string>;
-	errorMessage?: string;
-}
 
 /**
  * pi's agent, run through durable. Built from the exact options pi's
@@ -217,12 +133,6 @@ export class HostedAgent {
 	private readonly followUpQueue: MessageQueue;
 	private active?: { promise: Promise<void>; resolve: () => void; run: Run };
 	/**
-	 * The newest durable entry pi has seen, or holds: found from the session
-	 * file the first time it is needed, whether by the recovery or by a run
-	 * something began before it, as an extension's start may.
-	 */
-	private cursor: number | undefined;
-	/**
 	 * The recovery, once begun: by the host, or by a prompt that came
 	 * first, so each caller shares the one.
 	 */
@@ -232,10 +142,10 @@ export class HostedAgent {
 
 	/** Whether words Joel typed have come in, which move a run waiting for its turn up. */
 	private joelTyped = false;
-	private mirrorLine: Promise<unknown> = Promise.resolve();
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
 	private readonly library: PiLibrary;
+	private readonly transcript: Transcript;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
 
@@ -268,6 +178,14 @@ export class HostedAgent {
 		this.followUpQueue = new MessageQueue(
 			options.followUpMode ?? "one-at-a-time",
 		);
+		this.transcript = new Transcript({
+			durable,
+			state: this.state,
+			steering: this.steeringQueue,
+			followUp: this.followUpQueue,
+			emit: (event) => this.emit(event),
+			startRound: (run, assistant) => this.startRound(run, assistant),
+		});
 		this.sessionId = options.sessionId;
 		this.thinkingBudgets = options.thinkingBudgets;
 		this.transport = options.transport ?? "auto";
@@ -484,7 +402,7 @@ export class HostedAgent {
 		// A run begun before the recovery, as by an extension's start, ends
 		// first: durable admits nothing new while a turn it holds is cut off.
 		while (this.active) await this.active.promise;
-		this.cursor = await this.lastShown();
+		await this.transcript.placeAtSession();
 		const before = await this.durable.runFailure();
 		const waits = turn !== undefined && (await this.durable.carrying());
 		let giveBack: GiveBack = () => {};
@@ -505,7 +423,7 @@ export class HostedAgent {
 				// Parked while it waited: durable keeps the run for the start that opens it next.
 				if (this.parked) return;
 			}
-			const cut = this.cutOffAnswer();
+			const cut = cutOffAnswer(this.state.messages);
 			if (cut) this.startRound(run, cut, { recovered: true });
 			this.durable.resume();
 			resumed();
@@ -581,26 +499,6 @@ export class HostedAgent {
 		}
 		while (this.active) await this.active.promise;
 		return false;
-	}
-
-	/** The session's last answer when it called tools whose results the session file lacks. */
-	private cutOffAnswer(): AssistantMessage | undefined {
-		const messages = this.state.messages;
-		for (let index = messages.length - 1; index >= 0; index--) {
-			const message = messages[index];
-			if (!message || message.role === "toolResult") continue;
-			if (!isAssistant(message) || message.stopReason !== "toolUse")
-				return undefined;
-			const answered = new Set(
-				messages
-					.slice(index + 1)
-					.flatMap((later) => (isToolResult(later) ? [later.toolCallId] : [])),
-			);
-			return toolCalls(message).some((call) => !answered.has(call.id))
-				? message
-				: undefined;
-		}
-		return undefined;
 	}
 
 	/** The models durable requests through: pi's stream, with pi's options, for each request. */
@@ -680,7 +578,7 @@ export class HostedAgent {
 				const hostId = randomUUID();
 				const data: InputData = { hostId, messages };
 				// Marked before admission: durable may place it before pi is shown it here.
-				this.shownInputs.add(hostId);
+				this.transcript.markShown(hostId);
 				await this.admit(run, {
 					type: "input",
 					content: userContent(messages),
@@ -700,8 +598,6 @@ export class HostedAgent {
 			}
 		});
 	}
-
-	private readonly shownInputs = new Set<string>();
 
 	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<void> {
 		return this.within(() => this.lifecycle(start));
@@ -783,7 +679,7 @@ export class HostedAgent {
 	/** Wait until durable is idle, show what it committed, and end the run as pi's loop ends it. */
 	private async settle(run: Run): Promise<void> {
 		await this.durable.conversation.waitForIdle(this.durable.context);
-		await this.mirror(run, { showResults: true });
+		await this.transcript.mirror(run, { showResults: true });
 		if (run.ended) return;
 		if (!run.opened) {
 			// A recovery with nothing to carry on: pi saw no run, so none ends.
@@ -793,7 +689,7 @@ export class HostedAgent {
 		const answer = run.answer;
 		if (answer && !answer.message?.stopReason) {
 			// durable ended the request without an answer it committed: an abort before any partial, or a failure.
-			await this.endFailedTurn(run, this.unansweredMessage(run, answer));
+			await this.endFailedTurn(run, unansweredMessage(run, answer));
 			return;
 		}
 		if (answer?.message) {
@@ -807,31 +703,11 @@ export class HostedAgent {
 		}
 		if (run.placed.length > 0) {
 			// Placed by a boundary whose run ended before its request, as after a failure.
-			for (const message of run.placed.splice(0)) await this.show(run, message);
+			for (const message of run.placed.splice(0))
+				await this.transcript.show(run, message);
 		}
 		await this.emit({ type: "agent_end", messages: run.newMessages });
 		run.ended = true;
-	}
-
-	private unansweredMessage(
-		run: Run,
-		answer: NonNullable<Run["answer"]>,
-	): AssistantMessage {
-		const aborted = run.controller.signal.aborted;
-		return {
-			...(answer.partial ?? {}),
-			role: "assistant",
-			content: answer.partial?.content ?? [{ type: "text", text: "" }],
-			api: run.model.api,
-			provider: run.model.provider,
-			model: run.model.id,
-			usage: EMPTY_USAGE,
-			stopReason: aborted ? "aborted" : "error",
-			...(aborted
-				? {}
-				: { errorMessage: "The host's durable run ended without an answer" }),
-			timestamp: answer.partial?.timestamp ?? Date.now(),
-		};
 	}
 
 	/** An error or aborted answer ends the turn and the run, as pi's loop does. */
@@ -958,7 +834,7 @@ export class HostedAgent {
 		readonly messages: readonly AgentMessage[];
 	}> {
 		const run = await this.runForHook();
-		await this.mirror(run, { showResults: true });
+		await this.transcript.mirror(run, { showResults: true });
 		return { messages: await this.prepareTurnRequest(run) };
 	}
 
@@ -970,7 +846,7 @@ export class HostedAgent {
 			...prepared,
 			...placed,
 		])) {
-			await this.show(run, message);
+			await this.transcript.show(run, message);
 		}
 		const update = await this.prepareRequest?.(
 			{
@@ -1012,7 +888,7 @@ export class HostedAgent {
 			if (update) {
 				run.context = update.context ?? run.context;
 				prepared = [...(update.messages ?? [])];
-				this.applyModel(run, update);
+				applyModel(run, update);
 			}
 		}
 		await this.emit({ type: "turn_start" });
@@ -1022,15 +898,7 @@ export class HostedAgent {
 	private applyUpdate(run: Run, update: TurnUpdate | undefined): void {
 		if (!update) return;
 		run.context = update.context ?? run.context;
-		this.applyModel(run, update);
-	}
-
-	private applyModel(run: Run, update: TurnUpdate): void {
-		run.model = update.model ?? run.model;
-		if (update.thinkingLevel !== undefined) {
-			run.reasoning =
-				update.thinkingLevel === "off" ? undefined : update.thinkingLevel;
-		}
+		applyModel(run, update);
 	}
 
 	/**
@@ -1045,7 +913,7 @@ export class HostedAgent {
 		readonly action: "end" | "continue";
 	}> {
 		const run = await this.runForHook();
-		await this.mirror(run, { showResults: true });
+		await this.transcript.mirror(run, { showResults: true });
 		const round = run.round;
 		run.round = undefined;
 		let message: AssistantMessage | undefined =
@@ -1065,7 +933,10 @@ export class HostedAgent {
 				toolResults = await this.failTruncatedCalls(run, message);
 			}
 		} else {
-			message = await this.answerShownBefore(run, committed.assistant);
+			message = await this.transcript.answerShownBefore(
+				run,
+				committed.assistant,
+			);
 			if (message) toolResults = resultsOf(run.context.messages, message);
 		}
 		if (!message) {
@@ -1102,34 +973,6 @@ export class HostedAgent {
 		return last && isAssistant(last) ? last : undefined;
 	}
 
-	/**
-	 * The answer durable committed as `entryId`, as the session already
-	 * holds it: a restart came after pi showed it, before durable heard
-	 * what follows it. On 13 November a helper resumed with its tool's
-	 * result shown and the decision cut off, and its turn was refused.
-	 */
-	private async answerShownBefore(
-		run: Run,
-		entryId: number,
-	): Promise<AssistantMessage | undefined> {
-		const { conversation, context } = this.durable;
-		const page = await conversation.entries(
-			{ minEntryId: entryId, order: "ascending" },
-			1,
-			undefined,
-			context,
-		);
-		const [committed] =
-			page.items.find((entry) => entry.id === entryId)?.model ?? [];
-		if (!committed) return undefined;
-		const key = messageKey(committed);
-		const shown = newest(
-			run.context.messages,
-			(message) => messageKey(message) === key,
-		);
-		return shown && isAssistant(shown) ? shown : undefined;
-	}
-
 	/** pi fails every call of an answer cut off at its output limit, and continues. */
 	private async failTruncatedCalls(
 		run: Run,
@@ -1156,7 +999,7 @@ export class HostedAgent {
 				isError: true,
 			});
 			const shown = resultMessage(outcome);
-			await this.show(run, shown);
+			await this.transcript.show(run, shown);
 			results.push(shown);
 		}
 		return results;
@@ -1181,213 +1024,24 @@ export class HostedAgent {
 			: undefined;
 		const renewed = this.durable.renewed?.bind(this.durable);
 		const open = (): Promise<ProviderStream> =>
-			this.within(() => this.open(request, signal, durablePayload));
-		return this.tee(run, request, signal, open, renewed);
-	}
-
-	/** Send one request through pi's stream function, with the conversation's credentials. */
-	private async open(
-		request: Request,
-		signal: AbortSignal,
-		durablePayload: PayloadHook | undefined,
-	): Promise<ProviderStream> {
-		const apiKey = this.getApiKey
-			? await this.getApiKey(request.model.provider)
-			: undefined;
-		const env = await this.durable.env();
-		return this.streamFunction(
-			request.model,
-			{ messages: request.messages },
-			{
-				model: request.model,
-				reasoning: request.reasoning,
-				sessionId: this.sessionId,
-				onPayload: async (payload: unknown, model: Model) => {
-					const ours = this.onPayload
-						? await this.onPayload(payload, model)
-						: undefined;
-					const next = ours === undefined ? payload : ours;
-					return durablePayload ? durablePayload(next, model) : next;
-				},
-				onResponse: this.onResponse,
-				onProviderStreamEvent: this.onProviderStreamEvent,
-				transport: this.transport,
-				thinkingBudgets: this.thinkingBudgets,
-				maxRetryDelayMs: this.maxRetryDelayMs,
-				toolExecution: this.toolExecution,
-				...(apiKey ? { apiKey } : {}),
-				identity: this.library.mergeClientIdentity(
-					this.library.defaultAgentIdentity,
-					this.identity,
+			this.within(() =>
+				openRequest(
+					this,
+					this.library,
+					this.durable,
+					request,
+					signal,
+					durablePayload,
 				),
-				signal,
-				env: { ...env },
-			},
-		);
-	}
-
-	/**
-	 * Show pi the stream's events as its loop does, and hand durable the same
-	 * stream. Once `signal` aborts, the stream ends within ABANDON_AFTER_MS on
-	 * an aborted answer, whether or not the provider has ended its own: a
-	 * park, a close and a person's Esc all wait on that, and a provider may
-	 * not look at the signal until its first token.
-	 */
-	private tee(
-		run: Run,
-		request: Request,
-		signal: AbortSignal,
-		open: () => Promise<ProviderStream>,
-		renewed: Renewed | undefined,
-	): ProviderStream {
-		const answer = run.answer ?? { started: false };
-		run.answer = answer;
-		let final: Promise<AssistantMessage> | undefined;
-		/** The aborted answer the run gave up on the provider with, once it has. */
-		let abandoned: AssistantMessage | undefined;
-		const finish = async (
-			stream: ProviderStream,
-		): Promise<AssistantMessage> => {
-			final ??= (async () => {
-				const message = await stream.result();
-				// An answer that comes after the run gave up on it changes nothing.
-				if (abandoned) return abandoned;
-				message.thinkingLevel = request.reasoning ?? "off";
-				const messages = run.context.messages;
-				if (answer.started) messages[messages.length - 1] = message;
-				else messages.push(message);
-				answer.message = message;
+			);
+		return teeStream(run, request, signal, open, renewed, {
+			emit: (event) => this.emit(event),
+			answered: () => {
 				const answered = this.answered;
 				this.answered = undefined;
 				answered?.();
-				return message;
-			})();
-			return final;
-		};
-		// pi's loop reads the provider's own stream as it arrives and tells
-		// extensions each event then; durable reads at its own pace, so the
-		// stream is read here, unwrapped, and durable is handed what was read.
-		const read: ProviderEvent[] = [];
-		let ended = false;
-		let failure: { readonly error: unknown } | undefined;
-		let wake = () => {};
-		let leave: (message: AssistantMessage) => void = () => {};
-		const left = new Promise<AssistantMessage>((done) => {
-			leave = done;
+			},
 		});
-		const abandon = (): void => {
-			if (answer.message || abandoned) return;
-			const message = abortedAnswer(request, answer.partial);
-			abandoned = message;
-			final = Promise.resolve(message);
-			const messages = run.context.messages;
-			if (answer.started) messages[messages.length - 1] = message;
-			else messages.push(message);
-			answer.message = message;
-			ended = true;
-			wake();
-			leave(message);
-		};
-		let grace: ReturnType<typeof setTimeout> | undefined;
-		const aborted = (): void => {
-			grace = setTimeout(abandon, ABANDON_AFTER_MS);
-		};
-		if (signal.aborted) aborted();
-		else signal.addEventListener("abort", aborted, { once: true });
-		const settled = (): void => {
-			clearTimeout(grace);
-			signal.removeEventListener("abort", aborted);
-		};
-		let opened = open();
-		const reading = (async () => {
-			let stream = await opened;
-			// Only the first event of the first stream can be a refused key.
-			let renewable = renewed;
-			for (;;) {
-				let reopen = false;
-				for await (const event of stream) {
-					const asked = renewable;
-					renewable = undefined;
-					// Only an error is awaited, so a start reaches pi when its loop's would.
-					if (
-						asked &&
-						event.type === "error" &&
-						(await refusedOldKey(event, asked))
-					) {
-						reopen = true;
-						break;
-					}
-					// Given up on, what the provider sends at last is neither shown nor read.
-					if (abandoned) break;
-					if (event.type === "start" && event.partial) {
-						answer.partial = event.partial;
-						run.context.messages.push(event.partial);
-						answer.started = true;
-						await this.emit({
-							type: "message_start",
-							message: { ...event.partial },
-						});
-					} else if (event.type === "done" || event.type === "error") {
-						await finish(stream);
-					} else if (answer.started && event.partial) {
-						answer.partial = event.partial;
-						run.context.messages[run.context.messages.length - 1] =
-							event.partial;
-						await this.emit({
-							type: "message_update",
-							assistantMessageEvent: event,
-							message: { ...event.partial },
-						});
-					}
-					read.push(event);
-					wake();
-				}
-				if (!reopen || abandoned) break;
-				opened = open();
-				stream = await opened;
-			}
-			await finish(stream);
-		})().then(
-			() => {
-				settled();
-				ended = true;
-				wake();
-			},
-			(error: unknown) => {
-				settled();
-				// Held for durable, which meets it when it reads this far; an abandoned stream already ended.
-				if (!abandoned) failure = { error };
-				wake();
-			},
-		);
-		const events = async function* (): AsyncGenerator<ProviderEvent> {
-			for (;;) {
-				const event = read.shift();
-				if (event) {
-					yield event;
-					continue;
-				}
-				if (failure) throw failure.error;
-				if (ended) return;
-				await new Promise<void>((done) => {
-					wake = done;
-				});
-			}
-		};
-		const iterable = events();
-		return {
-			[Symbol.asyncIterator]: () => iterable,
-			result: async () => {
-				const answered = (async () => {
-					await reading;
-					return finish(await opened);
-				})();
-				answered.catch(() => {
-					// The race below meets this failure unless the run gave up on it first.
-				});
-				return { ...(await Promise.race([answered, left])) };
-			},
-		};
 	}
 
 	// Tools.
@@ -1416,7 +1070,8 @@ export class HostedAgent {
 	): Promise<Awaited<ReturnType<ToolRegistration["execute"]>>> {
 		const run = await this.runForHook();
 		const round = await this.roundFor(run);
-		if (round.sequential) await this.mirror(run, { showResults: true });
+		if (round.sequential)
+			await this.transcript.mirror(run, { showResults: true });
 		const outcome = await round.run(callId, abortSignal);
 		return {
 			output: outcome.result.content ?? [],
@@ -1429,7 +1084,7 @@ export class HostedAgent {
 	}
 
 	private async roundFor(run: Run): Promise<ToolRound> {
-		if (!run.round) await this.mirror(run, { showResults: false });
+		if (!run.round) await this.transcript.mirror(run, { showResults: false });
 		if (!run.round)
 			throw new Error(
 				"Durable ran a tool before the host's agent saw its answer committed",
@@ -1458,171 +1113,6 @@ export class HostedAgent {
 			run.controller.signal,
 		);
 		return run.round;
-	}
-
-	// Mirroring durable's transcript to pi.
-
-	/** Show pi, in order, every entry durable committed since the last one it saw. */
-	private mirror(run: Run, options: { showResults: boolean }): Promise<void> {
-		const next = this.mirrorLine.then(() => this.mirrorNow(run, options));
-		this.mirrorLine = next.catch(() => undefined);
-		return next;
-	}
-
-	private async mirrorNow(
-		run: Run,
-		options: { showResults: boolean },
-	): Promise<void> {
-		for (const entry of await this.unseen()) {
-			this.cursor = entry.id;
-			await this.mirrorEntry(run, entry);
-		}
-		if (options.showResults) {
-			for (const entry of this.inCallOrder(run, run.heldResults.splice(0)))
-				await this.showResult(run, entry);
-		}
-	}
-
-	/** Results in their calls' order, as pi shows a round's results; durable commits them as they finish. */
-	private inCallOrder(run: Run, entries: EntryRecord[]): EntryRecord[] {
-		const order = new Map(
-			(run.round?.calls ?? []).map((call, index) => [call.id, index]),
-		);
-		const place = (entry: EntryRecord): number => {
-			const [message] = entry.model ?? [];
-			const id =
-				message && isToolResult(message) ? message.toolCallId : undefined;
-			return (id === undefined ? undefined : order.get(id)) ?? order.size;
-		};
-		return entries
-			.map((entry, index) => ({ entry, index }))
-			.sort((a, b) => place(a.entry) - place(b.entry) || a.index - b.index)
-			.map(({ entry }) => entry);
-	}
-
-	private async mirrorEntry(run: Run, entry: EntryRecord): Promise<void> {
-		const input = inputData(entry);
-		if (input) {
-			if (this.shownInputs.has(input.hostId)) return;
-			this.steeringQueue.take(input.hostId);
-			this.followUpQueue.take(input.hostId);
-			run.placed.push(...input.messages);
-			return;
-		}
-		const [message] = entry.model ?? [];
-		if (entry.kind === "pi.user" && message) {
-			run.placed.push(message);
-			return;
-		}
-		if (entry.kind === "pi.assistant" && message && isAssistant(message)) {
-			await this.mirrorAnswer(run, message);
-			return;
-		}
-		if (entry.kind === "pi.tool-result" && message) {
-			run.heldResults.push(entry);
-		}
-	}
-
-	private async mirrorAnswer(
-		run: Run,
-		committed: AssistantMessage,
-	): Promise<void> {
-		const answer = run.answer;
-		const message = answer?.message ?? committed;
-		if (message.stopReason === "error" || message.stopReason === "aborted") {
-			// Settled with the run, as pi ends a turn on such an answer.
-			run.answer = { ...(answer ?? { started: false }), message };
-			return;
-		}
-		run.answer = undefined;
-		if (!answer?.started) {
-			await this.emit({ type: "message_start", message: { ...message } });
-			if (!answer) run.context.messages.push(message);
-		}
-		await this.emit({ type: "message_end", message });
-		run.newMessages.push(message);
-		if (message.stopReason === "toolUse" && toolCalls(message).length > 0)
-			this.startRound(run, message);
-	}
-
-	/**
-	 * Show a result durable committed, as its round made it. One the
-	 * session already holds is shown once only; one whose call is in no
-	 * round pi has open is shown as durable committed it, so a result left
-	 * over from before a restart can never break the round after it.
-	 */
-	private async showResult(run: Run, entry: EntryRecord): Promise<void> {
-		const [committed] = entry.model ?? [];
-		if (!committed || !isToolResult(committed)) return;
-		if (resultShown(run.context.messages, committed.toolCallId)) return;
-		const round = run.round;
-		let shown = round?.messages.get(committed.toolCallId);
-		const called = round?.calls.some(
-			(call) => call.id === committed.toolCallId,
-		);
-		if (!shown && round && called) {
-			await round.settleUnrun(
-				committed.toolCallId,
-				unrunText(entry, committed),
-			);
-			shown = round.messages.get(committed.toolCallId);
-		}
-		await this.show(run, shown ?? committed);
-	}
-
-	private async show(run: Run, message: AgentMessage): Promise<void> {
-		await this.emit({ type: "message_start", message });
-		await this.emit({ type: "message_end", message });
-		run.context.messages.push(message);
-		run.newMessages.push(message);
-	}
-
-	/** Entries newer than the cursor, oldest first. */
-	private async unseen(): Promise<EntryRecord[]> {
-		const { conversation, context } = this.durable;
-		this.cursor ??= await this.lastShown();
-		const from = this.cursor;
-		const found: EntryRecord[] = [];
-		let cursor: unknown;
-		do {
-			const page = await conversation.entries(
-				{ minEntryId: from + 1, order: "ascending" },
-				ENTRY_PAGE,
-				cursor,
-				context,
-			);
-			found.push(...page.items.filter((entry) => entry.id > from));
-			cursor = page.next;
-		} while (cursor !== undefined);
-		return found;
-	}
-
-	/**
-	 * The newest durable entry the session file already holds, matched by
-	 * what a pi message keeps of it: an input's id, a message's role,
-	 * timestamp and tool call.
-	 */
-	private async lastShown(): Promise<number> {
-		const kept = new Set(this.state.messages.map(messageKey));
-		const { conversation, context } = this.durable;
-		let cursor: unknown;
-		do {
-			const page = await conversation.entries(
-				{ order: "descending" },
-				ENTRY_PAGE,
-				cursor,
-				context,
-			);
-			for (const entry of page.items) {
-				const messages =
-					inputData(entry)?.messages ??
-					(entry.kind === "pi.system" ? [] : (entry.model ?? []));
-				if (messages.some((message) => kept.has(messageKey(message))))
-					return entry.id;
-			}
-			cursor = page.next;
-		} while (cursor !== undefined);
-		return 0;
 	}
 
 	// Queues.
@@ -1746,318 +1236,5 @@ export class HostedAgent {
 		if (!signal) throw new Error("Agent listener invoked outside active run");
 		for (const listener of this.listeners)
 			await this.within(() => listener(event, signal));
-	}
-}
-
-/** A hook that may replace a request's payload, as pi's and durable's onPayload do. */
-type PayloadHook = (payload: unknown, model: Model) => unknown;
-
-/** Durable's payload hook, which its options carry untyped. */
-function isPayloadHook(value: unknown): value is PayloadHook {
-	return typeof value === "function";
-}
-
-function createState(
-	initial: AgentOptions["initialState"],
-	library: PiLibrary,
-	toolsChanged: () => void,
-): HostedAgentState {
-	let tools = initial?.tools?.slice() ?? [];
-	let messages = initial?.messages?.slice() ?? [];
-	const first = library.createInitialSystemMessage(
-		initial?.systemPrompt,
-		tools.map(library.toToolDeclaration),
-	);
-	if (messages[0]?.role !== "system" && first) messages.unshift(first);
-	let ready = false;
-	const state: HostedAgentState = {
-		get systemPrompt() {
-			return library.getCurrentSystemPrompt(messages);
-		},
-		model: initial?.model ?? DEFAULT_MODEL,
-		thinkingLevel: initial?.thinkingLevel ?? "off",
-		get tools() {
-			return tools;
-		},
-		set tools(next: AgentTool[]) {
-			tools = next.slice();
-			if (ready) toolsChanged();
-		},
-		get messages() {
-			return messages;
-		},
-		set messages(next: AgentMessage[]) {
-			messages = next.slice();
-		},
-		isStreaming: false,
-		pendingToolCalls: new Set(),
-	};
-	ready = true;
-	return state;
-}
-
-/** pi's declareToolChanges: tell the model what tools changed since the transcript last said. */
-function declareToolChanges(
-	library: PiLibrary,
-	context: AgentContext,
-	pending: AgentMessage[],
-): AgentMessage[] {
-	let systemIndex = -1;
-	for (let index = pending.length - 1; index >= 0; index--) {
-		if (pending[index]?.role === "system") {
-			systemIndex = index;
-			break;
-		}
-	}
-	const system = systemIndex >= 0 ? pending[systemIndex] : undefined;
-	const noChanges = { toolsAdded: [], toolsRemoved: [] };
-	const baseline = system
-		? pending.map((message, index) =>
-				index === systemIndex ? withToolChanges(message, noChanges) : message,
-			)
-		: pending;
-	const changes = library.getToolStateChanges(
-		library.getCurrentTools([...context.messages, ...baseline]),
-		(context.tools ?? []).map(library.toToolDeclaration),
-	);
-	const unchanged =
-		changes.toolsAdded.length === 0 && changes.toolsRemoved.length === 0;
-	if (system) {
-		const declares = (field: unknown) =>
-			Array.isArray(field) && field.length > 0;
-		if (
-			unchanged &&
-			!declares(system.toolsAdded) &&
-			!declares(system.toolsRemoved)
-		)
-			return pending;
-		return baseline.map((message, index) =>
-			index === systemIndex ? withToolChanges(system, changes) : message,
-		);
-	}
-	if (unchanged) return pending;
-	const update = withToolChanges(
-		{ role: "system", content: "", timestamp: Date.now() },
-		changes,
-	);
-	const insert = pending.findIndex((message) => message.role !== "system");
-	const at = insert === -1 ? pending.length : insert;
-	return [...pending.slice(0, at), update, ...pending.slice(at)];
-}
-
-function withToolChanges(
-	message: AgentMessage,
-	changes: {
-		readonly toolsAdded: readonly unknown[];
-		readonly toolsRemoved: readonly unknown[];
-	},
-): AgentMessage {
-	const { toolsAdded: _added, toolsRemoved: _removed, ...rest } = message;
-	return {
-		...rest,
-		role: message.role,
-		...(changes.toolsAdded.length > 0
-			? { toolsAdded: changes.toolsAdded }
-			: {}),
-		...(changes.toolsRemoved.length > 0
-			? { toolsRemoved: changes.toolsRemoved }
-			: {}),
-	};
-}
-
-function defaultConvertToLlm(messages: AgentMessage[]): AgentMessage[] {
-	return messages.filter((message) =>
-		["system", "user", "assistant", "toolResult"].includes(message.role),
-	);
-}
-
-function normalizePromptInput(
-	input: string | AgentMessage | AgentMessage[],
-	images?: readonly ContentBlock[],
-): AgentMessage[] {
-	if (Array.isArray(input)) return input;
-	if (typeof input !== "string") return [input];
-	const content: ContentBlock[] = [
-		{ type: "text", text: input },
-		...(images ?? []),
-	];
-	return [{ role: "user", content, timestamp: Date.now() }];
-}
-
-/**
- * A user message's text as pi's session keys its pending list: its text
- * parts joined with nothing between, so pi finds it there and takes it off
- * as the message starts. Empty for anything else.
- */
-function queuedText(message: AgentMessage): string {
-	if (message.role !== "user") return "";
-	const { content } = message;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.map((block) =>
-			typeof block === "object" &&
-			block !== null &&
-			block.type === "text" &&
-			typeof block.text === "string"
-				? block.text
-				: "",
-		)
-		.join("");
-}
-
-/** What durable's own context gets for pi's input: its user content, else its text. */
-function userContent(
-	messages: readonly AgentMessage[],
-): string | readonly ContentBlock[] {
-	const user = lastOfRole(messages, "user");
-	const content = user?.content ?? messages.at(-1)?.content;
-	if (typeof content === "string") return content;
-	if (Array.isArray(content)) {
-		const blocks = content.filter(
-			(block): block is ContentBlock =>
-				typeof block === "object" &&
-				block !== null &&
-				(block.type === "text" || block.type === "image"),
-		);
-		if (blocks.length > 0) return blocks;
-	}
-	return "(input)";
-}
-
-function lastOfRole(
-	messages: readonly AgentMessage[],
-	role: string,
-): AgentMessage | undefined {
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const message = messages[index];
-		if (message?.role === role) return message;
-	}
-	return undefined;
-}
-
-function inputData(entry: EntryRecord): InputData | undefined {
-	if (!Object.values(INPUT_KINDS).some((kind) => kind === entry.kind))
-		return undefined;
-	const data = entry.data;
-	if (typeof data !== "object" || data === null) return undefined;
-	const { hostId, messages } = data as Partial<InputData>;
-	if (typeof hostId !== "string" || !Array.isArray(messages)) return undefined;
-	return { hostId, messages };
-}
-
-/**
- * What a session message and the durable entry it came from share: a
- * result's call, or another message's role and timestamp. A result is
- * not matched by its time, since pi shows the one its round made, a
- * moment before durable commits its own: on 13 November the two were
- * 1 ms apart, so a resume took the result as unshown, showed it again
- * and broke the round after it.
- */
-function messageKey(message: AgentMessage): string {
-	if (typeof message.toolCallId === "string")
-		return `${message.role}\u0000call\u0000${message.toolCallId}`;
-	return `${message.role}\u0000${String(message.timestamp)}`;
-}
-
-/** Whether `messages` already hold a result for the call `callId`. */
-function resultShown(
-	messages: readonly AgentMessage[],
-	callId: string,
-): boolean {
-	return resultOf(messages, callId) !== undefined;
-}
-
-/** The newest result `messages` hold for the call `callId`. */
-function resultOf(
-	messages: readonly AgentMessage[],
-	callId: string,
-): ToolResultMessage | undefined {
-	const found = newest(
-		messages,
-		(message) => isToolResult(message) && message.toolCallId === callId,
-	);
-	return found && isToolResult(found) ? found : undefined;
-}
-
-/** The newest of `messages` that `matches`. */
-function newest(
-	messages: readonly AgentMessage[],
-	matches: (message: AgentMessage) => boolean,
-): AgentMessage | undefined {
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const message = messages[index];
-		if (message && matches(message)) return message;
-	}
-	return undefined;
-}
-
-/** The results `messages` hold for `answer`'s calls, in call order. */
-function resultsOf(
-	messages: readonly AgentMessage[],
-	answer: AssistantMessage,
-): ToolResultMessage[] {
-	return toolCalls(answer).flatMap((call) => {
-		const result = resultOf(messages, call.id);
-		return result ? [result] : [];
-	});
-}
-
-/** The answer a request given up on after its abort ends with, as pi-ai's providers end an aborted stream. */
-function abortedAnswer(
-	request: Request,
-	partial: AssistantMessage | undefined,
-): AssistantMessage {
-	return {
-		usage: EMPTY_USAGE,
-		...(partial ?? {}),
-		role: "assistant",
-		content: partial?.content ?? [],
-		api: partial?.api ?? request.model.api,
-		provider: partial?.provider ?? request.model.provider,
-		model: partial?.model ?? request.model.id,
-		stopReason: "aborted",
-		errorMessage: "Request was aborted",
-		timestamp: Date.now(),
-		thinkingLevel: request.reasoning ?? "off",
-	};
-}
-
-function isAssistant(message: AgentMessage): message is AssistantMessage {
-	return message.role === "assistant" && Array.isArray(message.content);
-}
-
-function isToolResult(message: AgentMessage): message is ToolResultMessage {
-	return (
-		message.role === "toolResult" && typeof message.toolCallId === "string"
-	);
-}
-
-/** pi's text for a result durable wrote for a call no tool ran. */
-function unrunText(entry: EntryRecord, committed: ToolResultMessage): string {
-	const data = entry.data as
-		| { diagnostics?: readonly { code?: string }[] }
-		| undefined;
-	const codes = new Set(
-		(data?.diagnostics ?? []).map((diagnostic) => diagnostic.code),
-	);
-	if (codes.has("tool_unavailable"))
-		return `Tool ${committed.toolName} not found`;
-	if (codes.has("aborted")) return "Operation aborted";
-	// pi has no text of its own for this: a restart is the host's. Said plainly, as pi says its errors.
-	if (codes.has("interrupted")) {
-		return `Tool ${committed.toolName} was interrupted by a restart and may have partially run`;
-	}
-	const text = committed.content.find((block) => block.type === "text")?.text;
-	return text ?? `Tool ${committed.toolName} did not run`;
-}
-
-function jsonCopy(value: unknown): unknown {
-	if (value === undefined) return undefined;
-	try {
-		return JSON.parse(JSON.stringify(value));
-	} catch {
-		// A value JSON cannot hold is pi's to keep; durable stores none.
-		return undefined;
 	}
 }
