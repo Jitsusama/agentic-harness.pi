@@ -53,12 +53,17 @@ const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(cpus().length / 2)));
  * out to git.
  */
 const PROCESS_TESTS = [
-	"tests/lib/subagent/runpi/supervisor.test.ts",
+	"tests/lib/subagent/runpi/supervisor-runs.test.ts",
+	"tests/lib/subagent/runpi/supervisor-environment.test.ts",
+	"tests/lib/subagent/runpi/supervisor-records.test.ts",
+	"tests/lib/subagent/runpi/supervisor-parent.test.ts",
+	"tests/lib/subagent/runpi/supervisor-endings.test.ts",
 	"tests/lib/subagent/runpi/detached.test.ts",
 	"tests/lib/subagent/runpi/parent-exit.test.ts",
 	"tests/lib/subagent/runpi/handed-over.test.ts",
 	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
-	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
+	"tests/extensions/subagent-workflow/fleet-orphan-is-stopped.test.ts",
+	"tests/extensions/subagent-workflow/fleet-transcripts-are-kept.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
 	"tests/lib/internal/reload/stale-rejections.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",

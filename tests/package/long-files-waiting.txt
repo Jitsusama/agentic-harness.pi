@@ -23,9 +23,5 @@ lib/ui
 tests/extensions
 tests/extensions/compaction-workflow/host.test.ts
 tests/extensions/quest-workflow
-tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts
-tests/extensions/subagent-workflow/run.test.ts
 tests/lib/mesh/presence.test.ts
-tests/lib/subagent/runpi/supervisor.test.ts
-tests/lib/subagent/subagent.test.ts
 tests/package

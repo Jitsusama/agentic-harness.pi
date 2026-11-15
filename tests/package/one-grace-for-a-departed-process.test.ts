@@ -54,8 +54,15 @@ describe("the grace a departed process gets to flush", () => {
 		const readers = {
 			"supervisor.mjs": source("supervisor.mjs"),
 			"supervisor.ts": source("supervisor.ts"),
-			"supervisor.test.ts": readFileSync(
-				join(ROOT, "tests", "lib", "subagent", "runpi", "supervisor.test.ts"),
+			"supervisor-parent.test.ts": readFileSync(
+				join(
+					ROOT,
+					"tests",
+					"lib",
+					"subagent",
+					"runpi",
+					"supervisor-parent.test.ts",
+				),
 				"utf8",
 			),
 		};

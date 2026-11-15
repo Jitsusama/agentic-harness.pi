@@ -148,7 +148,8 @@ tests/extensions/review-ask-actions-offered.test.ts 2
 tests/extensions/review-integration.test.ts 1
 tests/extensions/slack-integration/bounded.test.ts 3
 tests/extensions/spend-workflow/hosted.test.ts 3
-tests/extensions/subagent-workflow/run.test.ts 26
+tests/extensions/subagent-workflow/run-dispatch.test.ts 18
+tests/extensions/subagent-workflow/run-summary.test.ts 8
 tests/extensions/work-stack-render.test.ts 3
 tests/lib/command/flags.test.ts 8
 tests/lib/command/tokenize.test.ts 61

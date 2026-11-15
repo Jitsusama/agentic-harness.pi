@@ -14,7 +14,7 @@ import { at } from "../../support/at.ts";
 // CLI args, how verify packs flow through, how the fleet
 // fan-out aggregates results. The deeper engine behaviour
 // (verify enforcement, stream parsing, recovery) is
-// covered by subagent.test.ts and friends.
+// covered by the subagent-*.test.ts files and friends.
 
 interface FakeRunPi {
 	readonly runPi: RunPi;
@@ -77,7 +77,7 @@ describe("runSubagent", () => {
 		expect(args).toContain("--extension /abs/extensions/foo.ts");
 		// The prompt rides an @file reference, not argv, so a
 		// large prompt never overflows the spawn. Content
-		// fidelity is pinned in subagent.test.ts; here we only
+		// fidelity is pinned in subagent-arguments.test.ts; here we only
 		// assert the final positional is the reference and the
 		// raw prompt is not passed as an argument.
 		const positional = at(fake.calls, 0).args.at(-1);
