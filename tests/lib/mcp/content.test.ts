@@ -10,6 +10,7 @@ import {
 	truncateForDisplay,
 } from "../../../lib/mcp/content.ts";
 import type { McpContent, McpToolResult } from "../../../lib/mcp/types.ts";
+import { at } from "../../support/at.ts";
 
 function result(
 	content: McpContent[],
@@ -95,9 +96,10 @@ describe("materializeResources", () => {
 		const { saved, failures } = materializeResources(r, dir);
 		expect(failures).toEqual([]);
 		expect(saved).toHaveLength(1);
-		expect(saved[0].bytes).toBe(5);
-		expect(fs.readFileSync(saved[0].filePath, "utf8")).toBe("hello");
-		expect(path.dirname(saved[0].filePath)).toBe(fs.realpathSync(dir));
+		const file = at(saved, 0);
+		expect(file.bytes).toBe(5);
+		expect(fs.readFileSync(file.filePath, "utf8")).toBe("hello");
+		expect(path.dirname(file.filePath)).toBe(fs.realpathSync(dir));
 	});
 
 	it("confines a traversal filename to the target dir", () => {
@@ -106,8 +108,8 @@ describe("materializeResources", () => {
 		});
 		const { saved } = materializeResources(r, dir);
 		expect(saved).toHaveLength(1);
-		expect(path.dirname(saved[0].filePath)).toBe(fs.realpathSync(dir));
-		expect(path.basename(saved[0].filePath)).toBe("evil");
+		expect(path.dirname(at(saved, 0).filePath)).toBe(fs.realpathSync(dir));
+		expect(path.basename(at(saved, 0).filePath)).toBe("evil");
 	});
 
 	it("allocates a unique path when two resources collide", () => {
@@ -117,7 +119,7 @@ describe("materializeResources", () => {
 		]);
 		const { saved } = materializeResources(r, dir);
 		expect(saved).toHaveLength(2);
-		expect(saved[0].filePath).not.toBe(saved[1].filePath);
+		expect(at(saved, 0).filePath).not.toBe(at(saved, 1).filePath);
 	});
 });
 

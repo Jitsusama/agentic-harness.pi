@@ -63,6 +63,6 @@ describe("a compaction's model", () => {
 		// asserting the tracker starts fresh per scan rather than per
 		// process.
 		const first = readTurns("s1", [compaction("c1", "nowhere")]);
-		expect(first.turns[0].model).toBe("");
+		expect(first.turns[0]?.model).toBe("");
 	});
 });

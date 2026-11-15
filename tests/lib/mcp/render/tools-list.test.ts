@@ -30,7 +30,7 @@ describe("buildDiscoverySections", () => {
 			entry("slack_read", "slack", "direct"),
 		]);
 		expect(sections.map((s) => s.backend)).toEqual(["gws", "slack"]);
-		expect(sections[1].tools.map((t) => t.name)).toEqual([
+		expect(sections[1]?.tools.map((t) => t.name)).toEqual([
 			"slack_post",
 			"slack_read",
 		]);
@@ -43,7 +43,7 @@ describe("buildDiscoverySections", () => {
 				hints: { observe: "Logs, traces, metrics." },
 			},
 		);
-		expect(sections[0].hint).toBe("Logs, traces, metrics.");
+		expect(sections[0]?.hint).toBe("Logs, traces, metrics.");
 	});
 
 	it("folds tools beyond the per-backend limit into an overflow count", () => {
@@ -51,8 +51,8 @@ describe("buildDiscoverySections", () => {
 			entry(`gws_t${i}`, "gws", "direct"),
 		);
 		const [section] = buildDiscoverySections(entries, { perBackendLimit: 2 });
-		expect(section.tools).toHaveLength(2);
-		expect(section.overflow).toBe(3);
+		expect(section?.tools).toHaveLength(2);
+		expect(section?.overflow).toBe(3);
 	});
 
 	it("reports no overflow when under the limit", () => {
@@ -60,7 +60,7 @@ describe("buildDiscoverySections", () => {
 			[entry("slack_post", "slack", "direct")],
 			{ perBackendLimit: 2 },
 		);
-		expect(section.overflow).toBe(0);
+		expect(section?.overflow).toBe(0);
 	});
 });
 

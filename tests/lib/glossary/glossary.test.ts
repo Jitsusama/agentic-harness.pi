@@ -41,7 +41,7 @@ describe("the glossary matcher", () => {
 			"light",
 			"filling",
 		]);
-		expect(STAND_IN[0].replaces).toEqual(["line"]);
+		expect(STAND_IN[0]?.replaces).toEqual(["line"]);
 	});
 
 	it.each([

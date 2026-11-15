@@ -75,9 +75,9 @@ describe("createMcpConnection", () => {
 		const conn = createMcpConnection(config, { client, transport: {} });
 		await conn.connect();
 		const [tool] = await conn.listTools();
-		expect(tool.serverId).toBe("gw");
-		expect(tool.annotations).toEqual({ readOnlyHint: false });
-		expect(tool.raw.surface).toEqual({ kind: "draft" });
+		expect(tool?.serverId).toBe("gw");
+		expect(tool?.annotations).toEqual({ readOnlyHint: false });
+		expect(tool?.raw.surface).toEqual({ kind: "draft" });
 	});
 
 	it("maps a call result into content and the error flag", async () => {

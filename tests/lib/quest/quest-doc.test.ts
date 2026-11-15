@@ -121,9 +121,9 @@ describe("Cast extraction", () => {
 			"reviewer",
 			"originator",
 		]);
-		expect(cast[0].subject).toBe("Joel Gerber");
-		expect(cast[1].subject).toBe("@xiao.li");
-		expect(cast[2].subject).toBe("@ahmad.shaffer");
+		expect(cast[0]?.subject).toBe("Joel Gerber");
+		expect(cast[1]?.subject).toBe("@xiao.li");
+		expect(cast[2]?.subject).toBe("@ahmad.shaffer");
 	});
 
 	it("skips scaffold placeholder subjects", () => {
@@ -137,8 +137,8 @@ describe("Cast extraction", () => {
 		].join("\n");
 		const cast = extractCast(body);
 		expect(cast.length).toBe(1);
-		expect(cast[0].subject).toBe("Joel Gerber");
-		expect(cast[0].role).toBe("originator");
+		expect(cast[0]?.subject).toBe("Joel Gerber");
+		expect(cast[0]?.role).toBe("originator");
 	});
 });
 
@@ -147,8 +147,8 @@ describe("Journey extraction", () => {
 		const doc = parseQuestDoc(SAMPLE_README);
 		const journey = extractJourney(doc?.body ?? "");
 		expect(journey).toHaveLength(2);
-		expect(journey[0].date).toBe("2026-06-03");
-		expect(journey[0].prose).toContain("Created the sidequest");
+		expect(journey[0]?.date).toBe("2026-06-03");
+		expect(journey[0]?.prose).toContain("Created the sidequest");
 	});
 });
 

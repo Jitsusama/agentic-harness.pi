@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readTurns } from "../../../lib/ledger/index.ts";
+import { at } from "../../support/at.ts";
 
 function assistant(
 	id: string,
@@ -46,7 +47,7 @@ describe("tool calls in a scan", () => {
 		]);
 
 		expect(scan.calls).toHaveLength(1);
-		const call = scan.calls[0];
+		const call = at(scan.calls, 0);
 		expect(call.name).toBe("bash");
 		expect(call.sessionId).toBe("s1");
 		expect(call.entryId).toBe("a1");
@@ -63,8 +64,8 @@ describe("tool calls in a scan", () => {
 
 		expect(JSON.stringify(scan.calls)).not.toContain("secret");
 		expect(JSON.stringify(scan.calls)).not.toContain("SECRET-VALUE");
-		expect(scan.calls[0].resultChars).toBe("SECRET-VALUE".length);
-		expect(scan.calls[0].resultDigest).toMatch(/^[0-9a-f]{24}$/);
+		expect(at(scan.calls, 0).resultChars).toBe("SECRET-VALUE".length);
+		expect(at(scan.calls, 0).resultDigest).toMatch(/^[0-9a-f]{24}$/);
 	});
 
 	it("digests identical arguments alike, which is what makes a repeat visible", () => {
@@ -76,8 +77,8 @@ describe("tool calls in a scan", () => {
 			assistant("a3", [{ id: "t3", name: "bash", args: { command: "pwd" } }]),
 		]);
 
-		expect(scan.calls[0].argsDigest).toBe(scan.calls[1].argsDigest);
-		expect(scan.calls[0].argsDigest).not.toBe(scan.calls[2].argsDigest);
+		expect(at(scan.calls, 0).argsDigest).toBe(at(scan.calls, 1).argsDigest);
+		expect(at(scan.calls, 0).argsDigest).not.toBe(at(scan.calls, 2).argsDigest);
 	});
 
 	it("does not confuse the same arguments to different tools", () => {
@@ -88,7 +89,7 @@ describe("tool calls in a scan", () => {
 			]),
 		]);
 
-		expect(scan.calls[0].argsDigest).not.toBe(scan.calls[1].argsDigest);
+		expect(at(scan.calls, 0).argsDigest).not.toBe(at(scan.calls, 1).argsDigest);
 	});
 
 	it("records the file a call declared, and nothing for one that declared none", () => {
@@ -102,8 +103,8 @@ describe("tool calls in a scan", () => {
 			]),
 		]);
 
-		expect(scan.calls[0].path).toBe("/src/a.ts");
-		expect(scan.calls[1].path).toBeNull();
+		expect(at(scan.calls, 0).path).toBe("/src/a.ts");
+		expect(at(scan.calls, 1).path).toBeNull();
 	});
 
 	it("marks a call whose result came back an error", () => {
@@ -124,8 +125,8 @@ describe("tool calls in a scan", () => {
 		]);
 
 		expect(scan.calls).toHaveLength(1);
-		expect(scan.calls[0].resultChars).toBeNull();
-		expect(scan.calls[0].resultDigest).toBeNull();
+		expect(at(scan.calls, 0).resultChars).toBeNull();
+		expect(at(scan.calls, 0).resultDigest).toBeNull();
 	});
 
 	it("addresses a call so the same call in a forked log collapses", () => {
@@ -136,6 +137,6 @@ describe("tool calls in a scan", () => {
 			assistant("a1", [{ id: "t1", name: "bash", args: { command: "ls" } }]),
 		]);
 
-		expect(first.calls[0].digest).toBe(forked.calls[0].digest);
+		expect(at(first.calls, 0).digest).toBe(at(forked.calls, 0).digest);
 	});
 });

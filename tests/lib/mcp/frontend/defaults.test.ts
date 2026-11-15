@@ -42,7 +42,7 @@ describe("makeTruncatingShape", () => {
 	it("caps a long text block and appends a marker", () => {
 		const shape = makeTruncatingShape({ maxLines: 2, maxBytes: 1000 });
 		const [block] = shape(result([{ type: "text", text: "1\n2\n3\n4" }]));
-		expect(block.type).toBe("text");
+		expect(block?.type).toBe("text");
 		expect((block as { text: string }).text).toContain("Truncated");
 	});
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readTurns } from "../../../lib/ledger/index.ts";
+import { at } from "../../support/at.ts";
 
 function user(id: string): string {
 	return JSON.stringify({
@@ -62,8 +63,8 @@ describe("dropped calls", () => {
 		]);
 
 		expect(scan.dropped).toHaveLength(1);
-		expect(scan.dropped[0].callDigest).toBe(scan.calls[0].digest);
-		expect(scan.dropped[0].droppedAtEntryId).toBe("c1");
+		expect(at(scan.dropped, 0).callDigest).toBe(at(scan.calls, 0).digest);
+		expect(at(scan.dropped, 0).droppedAtEntryId).toBe("c1");
 	});
 
 	it("keeps a call at or after the boundary undropped", () => {
@@ -78,7 +79,7 @@ describe("dropped calls", () => {
 		]);
 
 		expect(scan.dropped).toHaveLength(1);
-		expect(scan.dropped[0].callDigest).toBe(scan.calls[0].digest);
+		expect(at(scan.dropped, 0).callDigest).toBe(at(scan.calls, 0).digest);
 	});
 
 	it("attributes each drop to the compaction whose boundary passed it", () => {
@@ -101,9 +102,9 @@ describe("dropped calls", () => {
 
 		expect(scan.dropped).toHaveLength(2);
 		const byDigest = new Map(scan.dropped.map((d) => [d.callDigest, d]));
-		expect(byDigest.get(scan.calls[0].digest)?.droppedAtEntryId).toBe("c1");
-		expect(byDigest.get(scan.calls[1].digest)?.droppedAtEntryId).toBe("c2");
-		expect([...byDigest.keys()]).not.toContain(scan.calls[2].digest);
+		expect(byDigest.get(at(scan.calls, 0).digest)?.droppedAtEntryId).toBe("c1");
+		expect(byDigest.get(at(scan.calls, 1).digest)?.droppedAtEntryId).toBe("c2");
+		expect([...byDigest.keys()]).not.toContain(at(scan.calls, 2).digest);
 	});
 
 	it("drops nothing when a session never compacts", () => {

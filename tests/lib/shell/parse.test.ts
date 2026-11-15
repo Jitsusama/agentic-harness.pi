@@ -8,6 +8,7 @@ import {
 	stripShellData,
 	unquote,
 } from "../../../lib/shell/parse.ts";
+import { at } from "../../support/at.ts";
 
 describe("unquote", () => {
 	it("leaves an unquoted word untouched", () => {
@@ -42,8 +43,8 @@ describe("matchHeredocs", () => {
 		const command = "git commit -F- <<'EOF'\nmessage\nEOF";
 		const matches = matchHeredocs(command);
 		expect(matches).toHaveLength(1);
-		expect(matches[0].delim).toBe("EOF");
-		expect(matches[0].body).toBe("message");
+		expect(matches[0]?.delim).toBe("EOF");
+		expect(matches[0]?.body).toBe("message");
 		expect(matches[0]).toMatchObject({ quoted: true });
 	});
 
@@ -58,14 +59,15 @@ describe("matchHeredocs", () => {
 		const matches = matchHeredocs(command);
 		expect(matches.map((m) => m.delim)).toEqual(["A", "B"]);
 		expect(matches.map((m) => m.body)).toEqual(["aaa", "bbb"]);
-		expect(
-			command.slice(matches[0].index, matches[0].index + matches[0].length),
-		).toContain("aaa");
+		const first = at(matches, 0);
+		expect(command.slice(first.index, first.index + first.length)).toContain(
+			"aaa",
+		);
 	});
 
 	it("stops at the bare delimiter line, ignoring inline mentions", () => {
 		const command = "x <<'EOF'\nhas EOF inline\nreal\nEOF";
-		expect(matchHeredocs(command)[0].body).toBe("has EOF inline\nreal");
+		expect(matchHeredocs(command)[0]?.body).toBe("has EOF inline\nreal");
 	});
 
 	it("parses an opener line with trailing redirects and pipes", () => {
@@ -73,13 +75,13 @@ describe("matchHeredocs", () => {
 			"gh pr edit 42 --body-file - <<'EOF' 2>&1 | tail -5\nBody.\nEOF";
 		const matches = matchHeredocs(command);
 		expect(matches).toHaveLength(1);
-		expect(matches[0].body).toBe("Body.");
-		expect(matches[0].openerRest).toBe(" 2>&1 | tail -5");
+		expect(matches[0]?.body).toBe("Body.");
+		expect(matches[0]?.openerRest).toBe(" 2>&1 | tail -5");
 	});
 
 	it("reports an empty openerRest for a plain opener line", () => {
 		const command = "cmd <<'EOF'\nbody\nEOF";
-		expect(matchHeredocs(command)[0].openerRest).toBe("");
+		expect(matchHeredocs(command)[0]?.openerRest).toBe("");
 	});
 });
 

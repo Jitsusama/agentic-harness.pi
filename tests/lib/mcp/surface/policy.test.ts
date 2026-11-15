@@ -5,6 +5,7 @@ import {
 	type SurfaceConfig,
 } from "../../../../lib/mcp/surface/policy.ts";
 import type { McpTool } from "../../../../lib/mcp/types.ts";
+import { at } from "../../../support/at.ts";
 
 function tool(name: string): McpTool {
 	return {
@@ -82,21 +83,21 @@ describe("resolveToolMode", () => {
 
 	it("auto-hides a backend that exceeds the threshold", () => {
 		const many = Array.from({ length: 11 }, (_, i) => tool(`gws_t${i}`));
-		expect(resolveToolMode(many[0], config(), many, backendOf)).toBe(
+		expect(resolveToolMode(at(many, 0), config(), many, backendOf)).toBe(
 			"progressive",
 		);
 	});
 
 	it("does not auto-hide a backend at or below the threshold", () => {
 		const some = Array.from({ length: 10 }, (_, i) => tool(`gws_t${i}`));
-		expect(resolveToolMode(some[0], config(), some, backendOf)).toBe("direct");
+		expect(resolveToolMode(at(some, 0), config(), some, backendOf)).toBe("direct");
 	});
 
 	it("does not auto-hide when autoProgressive is off", () => {
 		const many = Array.from({ length: 11 }, (_, i) => tool(`gws_t${i}`));
 		expect(
 			resolveToolMode(
-				many[0],
+				at(many, 0),
 				config({ autoProgressive: false }),
 				many,
 				backendOf,
@@ -108,7 +109,7 @@ describe("resolveToolMode", () => {
 		const many = Array.from({ length: 11 }, (_, i) => tool(`gws_t${i}`));
 		const cfg = config({ exclude: ["gws_t1*"] });
 		// Excluding gws_t1 and gws_t10 leaves 9 enabled, below the threshold.
-		expect(resolveToolMode(many[0], cfg, many, backendOf)).toBe("direct");
+		expect(resolveToolMode(at(many, 0), cfg, many, backendOf)).toBe("direct");
 	});
 
 	it("groups the auto count by the injected backendOf", () => {
@@ -122,10 +123,10 @@ describe("resolveToolMode", () => {
 			name.startsWith("alpha_") || name.startsWith("beta_")
 				? "grp"
 				: defaultBackendOf(name);
-		expect(resolveToolMode(tools[0], config(), tools, lump)).toBe(
+		expect(resolveToolMode(at(tools, 0), config(), tools, lump)).toBe(
 			"progressive",
 		);
-		expect(resolveToolMode(tools[0], config(), tools, defaultBackendOf)).toBe(
+		expect(resolveToolMode(at(tools, 0), config(), tools, defaultBackendOf)).toBe(
 			"direct",
 		);
 	});

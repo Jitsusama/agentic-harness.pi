@@ -17,6 +17,7 @@ import type {
 	McpTool,
 	McpToolResult,
 } from "../../../../lib/mcp/types.ts";
+import { at } from "../../../support/at.ts";
 
 const server: McpServerConfig = { id: "gw", url: "u" };
 const ctx = {} as never;
@@ -155,7 +156,7 @@ describe("createSurfaceManager", () => {
 			shape: () => [{ type: "text", text: "shaped" }],
 		});
 		const m = manager(conn, () => config(), registry);
-		const [descriptor] = (await m.reconcile()).added;
+		const descriptor = at((await m.reconcile()).added, 0);
 		const result = await descriptor.execute(
 			"id",
 			{ a: 1 },
@@ -187,7 +188,7 @@ describe("createSurfaceManager", () => {
 			}),
 			resultCeiling: { limitBytes: 500, storageDir: () => storageDir },
 		});
-		const [descriptor] = (await m.reconcile()).added;
+		const descriptor = at((await m.reconcile()).added, 0);
 		const result = await descriptor.execute(
 			"id",
 			{},
@@ -224,7 +225,7 @@ describe("createSurfaceManager", () => {
 			}),
 			resultCeiling: { limitBytes: 500, store },
 		});
-		const [descriptor] = (await m.reconcile()).added;
+		const descriptor = at((await m.reconcile()).added, 0);
 		const result = await descriptor.execute(
 			"id",
 			{},
@@ -238,7 +239,7 @@ describe("createSurfaceManager", () => {
 			.join("\n");
 		const match = notice.match(/handle ([\w-]+)/);
 		expect(match).not.toBeNull();
-		const handle = (match as RegExpMatchArray)[1];
+		const handle = at(match ?? [], 1);
 		expect(store.read(handle)).toBe(huge);
 		fs.rmSync(storageDir, { recursive: true, force: true });
 	});
@@ -267,7 +268,7 @@ describe("createSurfaceManager", () => {
 			policy: { contentType: () => "application/json" },
 			resultCeiling: { limitBytes: 500, store, jsonParseGateBytes: 100_000 },
 		});
-		const [descriptor] = (await m.reconcile()).added;
+		const descriptor = at((await m.reconcile()).added, 0);
 		const result = await descriptor.execute(
 			"id",
 			{},
@@ -280,7 +281,7 @@ describe("createSurfaceManager", () => {
 			.map((b) => b.text)
 			.join("\n");
 		expect(text).toContain("events: array(400");
-		const handle = (text.match(/handle ([\w-]+)/) as RegExpMatchArray)[1];
+		const handle = at(text.match(/handle ([\w-]+)/) ?? [], 1);
 		expect(JSON.parse(store.read(handle))).toHaveProperty("status", "ok");
 		fs.rmSync(storageDir, { recursive: true, force: true });
 	});
@@ -301,7 +302,7 @@ describe("createSurfaceManager", () => {
 			}),
 			resultCeiling: { limitBytes: 500, storageDir: () => storageDir },
 		});
-		const runTool = (await m.reconcile()).progressiveHelpers[2];
+		const runTool = at((await m.reconcile()).progressiveHelpers, 2);
 		const result = await runTool.execute(
 			"id",
 			{ name: "observe_query", arguments: {} },
@@ -322,7 +323,7 @@ describe("createSurfaceManager", () => {
 			isError: true,
 		}));
 		const m = manager(conn, () => config());
-		const [descriptor] = (await m.reconcile()).added;
+		const descriptor = at((await m.reconcile()).added, 0);
 		await expect(
 			descriptor.execute("id", {}, undefined, undefined, ctx),
 		).rejects.toThrow("boom");

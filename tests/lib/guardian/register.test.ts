@@ -235,7 +235,7 @@ describe("registerGuardian pipeline", () => {
 
 		expect(result).toBeUndefined();
 		expect(reviewed, "without a UI the guard never runs review").toBe(false);
-		expect(list()[0].lastOutcome).toEqual({ kind: "skipped", why: "no-ui" });
+		expect(list()[0]?.lastOutcome).toEqual({ kind: "skipped", why: "no-ui" });
 	});
 
 	it("skips when the bypass returns true, before detect", async () => {

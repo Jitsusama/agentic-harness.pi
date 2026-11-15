@@ -45,11 +45,12 @@ function proc(
 				? `SwapTotal: ${kib(swap.totalGib)} kB\nSwapFree: ${kib(swap.freeGib)} kB\n`
 				: ""),
 	);
-	for (const [kind, avg] of [
+	const pressures: [kind: string, avg: string][] = [
 		["cpu", "1.50"],
 		["memory", memoryStalled],
 		["io", "0.25"],
-	]) {
+	];
+	for (const [kind, avg] of pressures) {
 		writeFileSync(
 			join(dir, "pressure", kind),
 			`some avg10=${avg} avg60=0.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n`,
@@ -170,12 +171,13 @@ describe("the machine's room", () => {
 
 	it("counts the VMs running, by their processes' names", async () => {
 		const dir = proc(40);
-		for (const [pid, name] of [
+		const processes: [pid: string, name: string][] = [
 			["845775", "qemu-system-x86"],
 			["848288", "qemu-kvm"],
 			["845929", "kvm-pit/45"],
 			["12", "nix-daemon"],
-		]) {
+		];
+		for (const [pid, name] of processes) {
 			mkdirSync(join(dir, pid));
 			writeFileSync(join(dir, pid, "comm"), `${name}\n`);
 		}
