@@ -23,16 +23,9 @@
  */
 
 import { execFileSync } from "node:child_process";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	forgetWorkLayer,
@@ -44,6 +37,7 @@ import { runCouncil, startCouncil } from "../../lib/core/review/index.ts";
 import { OFF } from "../../lib/internal/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../lib/internal/sandbox.ts";
 import { freshRepo } from "../support/git-fixture.ts";
+import { askSource } from "./review-ask-source.ts";
 
 let home: string;
 
@@ -314,18 +308,7 @@ describe("what a round records about the tree it read", () => {
 		// path passed nothing and the suite stayed green. A scan is a
 		// poor test and the right one here, since driving six tools to
 		// prove an argument is passed costs more than it tells.
-		const source = readFileSync(
-			join(
-				dirname(fileURLToPath(import.meta.url)),
-				"..",
-				"..",
-				"extensions",
-				"review-integration",
-				"tools",
-				"ask.ts",
-			),
-			"utf8",
-		);
+		const source = askSource();
 
 		// Every round this tool can start, by the function it calls.
 		const rounds = [
@@ -393,18 +376,7 @@ describe("what a round records about the tree it read", () => {
 		// the same reason the case above is: the join is six call sites.
 		// Its own directory is the conversation's checkout (`seat.cwd`),
 		// not the process's, which a host shares.
-		const source = readFileSync(
-			join(
-				dirname(fileURLToPath(import.meta.url)),
-				"..",
-				"..",
-				"extensions",
-				"review-integration",
-				"tools",
-				"ask.ts",
-			),
-			"utf8",
-		);
+		const source = askSource();
 
 		const fallbacks = [
 			...source.matchAll(/await treeForRound\(([^;]*?)\);/gs),

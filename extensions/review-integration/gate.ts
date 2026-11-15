@@ -319,7 +319,7 @@ function said(note: string | undefined): string | undefined {
  *
  * A panel is the shape to reach for: it draws the four parts every gate
  * has and the redirect quotes it back. A bare string is the older shape,
- * kept for the gates in `offer.ts`, which are about a change rather than
+ * kept for the gates in `review_offer`, which are about a change rather than
  * about something somebody said and have nothing to quote.
  */
 export async function confirmWrite(

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { nextSeq } from "../../extensions/review-integration/tools/ask.ts";
+import { nextSeq } from "../../extensions/review-integration/tools/ask-round.ts";
 import { newRunId } from "../../lib/core/review/index.ts";
 
 describe("rounds started in the same millisecond", () => {

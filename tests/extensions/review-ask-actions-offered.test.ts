@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { askFunctions, askSource } from "./review-ask-source.ts";
 
 const TOOLS = join(
 	import.meta.dirname,
@@ -23,8 +24,11 @@ const TOOLS = join(
 	"tools",
 );
 
-/** What a call does, loaded on the tool's first call. */
-const source = readFileSync(join(TOOLS, "ask.ts"), "utf8");
+/** What a call does, loaded on the tool's first call, and its rounds. */
+const source = askSource();
+
+/** Each round's text, by the function that asks it. */
+const functions = askFunctions();
 
 /** How a round's answer is painted, for every round that answers. */
 const brush = readFileSync(join(TOOLS, "ask-answer.ts"), "utf8");
@@ -140,10 +144,9 @@ describe("review_ask", () => {
 		// A council and a background council make their round in one
 		// place, councilRound, so each must go through it.
 		for (const council of ["askCouncil", "startRound"]) {
-			const at = source.indexOf(`async function ${council}(`);
-			const next = source.indexOf("\nasync function ", at + 1);
+			const body = functions.get(council);
 			expect(
-				at !== -1 && source.slice(at, next).includes("await councilRound("),
+				body?.includes("await councilRound("),
 				`${council} doesn't make its round through councilRound`,
 			).toBe(true);
 		}
@@ -189,13 +192,8 @@ describe("review_ask", () => {
 		// listed. A whitelist covers the rounds that existed the day it was
 		// written and waves an eighth one through, which is the failure the
 		// gate two tests up already had once.
-		const rounds = [...source.matchAll(/async function (\w+)\(/g)].flatMap(
-			([, name]) => {
-				const at = source.indexOf(`async function ${name}(`);
-				const next = source.indexOf("\nasync function ", at + 1);
-				const body = source.slice(at, next === -1 ? undefined : next);
-				return body.includes("await treeForRound(") ? [{ name, body }] : [];
-			},
+		const rounds = [...functions].flatMap(([name, body]) =>
+			body.includes("await treeForRound(") ? [{ name, body }] : [],
 		);
 
 		// The discovery itself has to find something, or the sweep below
@@ -233,9 +231,7 @@ describe("review_ask", () => {
 			askJudge: "judge",
 			askAudit: "judge",
 		})) {
-			const at = source.indexOf(`async function ${round}(`);
-			const next = source.indexOf("\nasync function ", at + 1);
-			const body = source.slice(at, next === -1 ? undefined : next);
+			const body = functions.get(round) ?? "";
 			expect({ round, asks: body.match(/tree,\s*"(\w+)"/)?.[1] }).toEqual({
 				round,
 				asks,

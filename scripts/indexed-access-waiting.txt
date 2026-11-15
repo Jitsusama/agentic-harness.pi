@@ -11,7 +11,7 @@ extensions/quest-workflow/lookup.ts 1
 extensions/quest-workflow/render.ts 1
 extensions/quest-workflow/verbs/document.ts 2
 extensions/quest-workflow/verbs/tree-ops.ts 2
-extensions/review-integration/tools/offer.ts 1
+extensions/review-integration/tools/offer-stack.ts 1
 extensions/review-integration/tools/sections.ts 7
 extensions/slack-integration/confirmation.ts 7
 extensions/slack-integration/index.ts 1

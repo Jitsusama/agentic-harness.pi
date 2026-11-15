@@ -18,7 +18,7 @@
  * right way for a gate like this to be wrong.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -26,16 +26,16 @@ const TOOLS = ["read", "see", "say", "ask", "draft", "offer"] as const;
 
 /**
  * A tool's registration, where its schema is, then what a call does,
- * which reads the parameters, loaded on the tool's first call.
+ * which reads the parameters, loaded on the tool's first call, and the
+ * modules named for the tool that what a call does is split across.
  */
 function source(tool: string): string {
-	return [`${tool}-tool.ts`, `${tool}.ts`]
-		.map((file) =>
-			readFileSync(
-				join("extensions", "review-integration", "tools", file),
-				"utf-8",
-			),
-		)
+	const dir = join("extensions", "review-integration", "tools");
+	const split = readdirSync(dir)
+		.filter((file) => file.startsWith(`${tool}-`) && file !== `${tool}-tool.ts`)
+		.sort();
+	return [`${tool}-tool.ts`, `${tool}.ts`, ...split]
+		.map((file) => readFileSync(join(dir, file), "utf-8"))
 		.join("\n");
 }
 

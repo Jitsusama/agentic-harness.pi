@@ -21,7 +21,7 @@ import {
 	closePanel,
 	editPanel,
 	proposePanel,
-} from "../../extensions/review-integration/tools/offer.ts";
+} from "../../extensions/review-integration/tools/offer-gates.ts";
 import { primaryPanelFor } from "../../extensions/review-integration/tools/publish-gate.ts";
 import {
 	entityGateLines,

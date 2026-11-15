@@ -24,7 +24,7 @@ import {
 	closePanel,
 	editPanel,
 	proposePanel,
-} from "../../extensions/review-integration/tools/offer.ts";
+} from "../../extensions/review-integration/tools/offer-gates.ts";
 import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 const WIDTH = 72;

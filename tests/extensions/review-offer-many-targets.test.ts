@@ -15,7 +15,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { editPanel } from "../../extensions/review-integration/tools/offer.ts";
+import { editPanel } from "../../extensions/review-integration/tools/offer-gates.ts";
 import {
 	type AuthoringCapabilities,
 	type Change,
