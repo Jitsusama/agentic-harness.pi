@@ -68,6 +68,34 @@ async function questWithPlan(
 	};
 }
 
+/** A focused plan whose Notes are large enough for the size guard. */
+async function questWithLargeNotes() {
+	const plan = await questWithPlan();
+	const entries = Array.from(
+		{ length: 25 },
+		(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
+	).join("\n");
+	succeeded(
+		await plan.run({ action: "section", title: "Notes", body: entries }),
+	);
+	return { ...plan, entries };
+}
+
+/** Write Notes, expecting a refusal naming `reason` and the plan unchanged. */
+async function expectRefused(
+	{
+		run,
+		planPath,
+	}: Pick<Awaited<ReturnType<typeof questWithPlan>>, "run" | "planPath">,
+	body: string,
+	reason: string,
+): Promise<void> {
+	const before = readFileSync(planPath, "utf8");
+	const result = await run({ action: "section", title: "Notes", body });
+	expect(refused(result).guidance).toContain(reason);
+	expect(readFileSync(planPath, "utf8")).toBe(before);
+}
+
 describe("tick and untick", () => {
 	it("ticks the focused plan's item and counts it", async () => {
 		const { state, run, planPath } = await questWithPlan();
@@ -150,19 +178,9 @@ describe("section", () => {
 	});
 
 	it("refuses a body that drops most of a large section, and changes nothing", async () => {
-		const { run, planPath } = await questWithPlan();
-		const entries = Array.from(
-			{ length: 25 },
-			(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
-		).join("\n");
-		succeeded(await run({ action: "section", title: "Notes", body: entries }));
-		const before = readFileSync(planPath, "utf8");
-
+		const { run, planPath, entries } = await questWithLargeNotes();
 		const cut = entries.split("\n").slice(0, 12).join("\n");
-		const result = await run({ action: "section", title: "Notes", body: cut });
-
-		expect(refused(result).guidance).toContain("dropping most of it");
-		expect(readFileSync(planPath, "utf8")).toBe(before);
+		await expectRefused({ run, planPath }, cut, "dropping most of it");
 	});
 
 	it("refuses a body a read cut short, and changes nothing", async () => {
@@ -170,14 +188,10 @@ describe("section", () => {
 		// rewrite built from a read cut at 50 KB and too small a loss for
 		// the size guard.
 		const { run, planPath } = await questWithPlan();
-		const before = readFileSync(planPath, "utf8");
 		const body =
 			"- [ ] 1. Keep this.\n\n[Showing lines 1-165 of 211 (50.0KB limit). Use offset=166 to continue.]";
 
-		const result = await run({ action: "section", title: "Notes", body });
-
-		expect(refused(result).guidance).toContain("cut short");
-		expect(readFileSync(planPath, "utf8")).toBe(before);
+		await expectRefused({ run, planPath }, body, "cut short");
 		succeeded(
 			await run({ action: "section", title: "Notes", body, force: true }),
 		);
@@ -187,26 +201,17 @@ describe("section", () => {
 		// 14 November: the void's Context lost its Rules, Cost and Design,
 		// rewritten from a `show` cut at 8,192 bytes; the 9 lines cut were
 		// too small a loss for the size guard.
-		const { run, planPath } = await questWithPlan();
-		const before = readFileSync(planPath, "utf8");
+		const plan = await questWithPlan();
 		const body =
 			"- [ ] 1. Keep this.\n\n**Rules.**\n\nCut 9 of 56 lines to fit the 8,192 byte budget. " +
 			"The whole section is stored: read its $.text with result_query. " +
 			"A section written back from this cut view loses everything cut.";
 
-		const result = await run({ action: "section", title: "Notes", body });
-
-		expect(refused(result).guidance).toContain("cut short");
-		expect(readFileSync(planPath, "utf8")).toBe(before);
+		await expectRefused(plan, body, "cut short");
 	});
 
 	it("shrinks a large section when told to with force", async () => {
-		const { run, planPath } = await questWithPlan();
-		const entries = Array.from(
-			{ length: 25 },
-			(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
-		).join("\n");
-		succeeded(await run({ action: "section", title: "Notes", body: entries }));
+		const { run, planPath } = await questWithLargeNotes();
 
 		succeeded(
 			await run({
@@ -223,12 +228,7 @@ describe("section", () => {
 	});
 
 	it("lets a body that keeps most of a large section through", async () => {
-		const { run, planPath } = await questWithPlan();
-		const entries = Array.from(
-			{ length: 25 },
-			(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
-		).join("\n");
-		succeeded(await run({ action: "section", title: "Notes", body: entries }));
+		const { run, planPath, entries } = await questWithLargeNotes();
 
 		succeeded(
 			await run({

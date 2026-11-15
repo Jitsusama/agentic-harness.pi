@@ -183,12 +183,32 @@ function recordingDriver(): { pane: string; text: string }[] {
 	return typed;
 }
 
-async function restoreNow() {
-	return succeeded(
-		await handle(buildState(), fakePi(), fakeCtx(), {
-			action: "reopen-sessions",
-		}),
-	);
+/** A terminal driver that only counts the terminals asked of it. */
+function countingDriver(): { count: number } {
+	const spawned = { count: 0 };
+	clearTerminalDrivers();
+	registerTerminalDriver({
+		id: "counting",
+		available: () => true,
+		async spawn() {
+			spawned.count++;
+			return undefined;
+		},
+	});
+	return spawned;
+}
+
+/** Run reopen-sessions, with what else a test asks of it. */
+function reopen(more: Omit<Parameters<typeof handle>[3], "action"> = {}) {
+	return handle(buildState(), fakePi(), fakeCtx(), {
+		action: "reopen-sessions",
+		...more,
+	});
+}
+
+/** Run reopen-sessions, expecting it to succeed. */
+async function restoreNow(more: Parameters<typeof reopen>[0] = {}) {
+	return succeeded(await reopen(more));
 }
 
 describe("restore verb", () => {
@@ -299,12 +319,7 @@ describe("restore verb", () => {
 		registerTerminalDriver(driver);
 		saveRecord(lostSession("sess-A", "QEST-1"));
 
-		const result = succeeded(
-			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				force: true,
-			}),
-		);
+		const result = await restoreNow({ force: true });
 		expect(spawnedCommand).toBeUndefined();
 		expect(typed).toEqual([
 			{ pane: "7", text: "exec pi --session 'sess-A'\n" },
@@ -334,12 +349,7 @@ describe("restore verb", () => {
 		});
 		saveRecord(lostSession("sess-A", "QEST-1"));
 
-		const result = succeeded(
-			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				force: true,
-			}),
-		);
+		const result = await restoreNow({ force: true });
 		expect(handed).toEqual(["pi --session 'sess-A'"]);
 		expect(result.message).toContain("Reopened 1 of 1");
 		expect(result.message).toContain("without your startup files");
@@ -394,13 +404,7 @@ describe("restore verb", () => {
 		} as TerminalDriver & TerminalTypeCapability);
 		saveRecord(lostSession("sess-A", "QEST-1"));
 		saveRecord(lostSession("sess-B", "QEST-2"));
-		succeeded(
-			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				force: true,
-				layout: "window",
-			}),
-		);
+		await restoreNow({ force: true, layout: "window" });
 		expect(layouts).toEqual(["window", "window"]);
 	});
 
@@ -408,26 +412,12 @@ describe("restore verb", () => {
 		// A registry that has gone wrong, or a machine left off for a
 		// month, should not be able to turn one verb into fifty windows
 		// appearing. Refusing whole is kinder than stopping halfway.
-		let spawns = 0;
-		clearTerminalDrivers();
-		registerTerminalDriver({
-			id: "counting",
-			available: () => true,
-			async spawn() {
-				spawns++;
-				return undefined;
-			},
-		});
+		const spawned = countingDriver();
 		for (let i = 0; i < 25; i++) {
 			saveRecord(lostSession(`sess-${i}`, "QEST-1"));
 		}
-		const result = succeeded(
-			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				force: true,
-			}),
-		);
-		expect(spawns).toBe(0);
+		const result = await restoreNow({ force: true });
+		expect(spawned.count).toBe(0);
 		expect(result.message).toContain("25");
 		// The recipe is still there, so the user is not stuck.
 		expect(result.message).toContain("pi --session 'sess-0'");
@@ -436,19 +426,10 @@ describe("restore verb", () => {
 	it("lists rather than acts unless told to act", async () => {
 		// Reopening a dozen tabs is too large a side effect to fire from
 		// a verb the user may have run only to look.
-		let spawns = 0;
-		clearTerminalDrivers();
-		registerTerminalDriver({
-			id: "counting",
-			available: () => true,
-			async spawn() {
-				spawns++;
-				return undefined;
-			},
-		});
+		const spawned = countingDriver();
 		saveRecord(lostSession("sess-A", "QEST-1"));
 		await restoreNow();
-		expect(spawns).toBe(0);
+		expect(spawned.count).toBe(0);
 	});
 
 	it("lists sessions closed in the last day below the lost ones", async () => {
@@ -490,12 +471,7 @@ describe("restore verb", () => {
 		const typed = recordingDriver();
 		saveRecord(lostSession("sess-lost", "QEST-1"));
 		saveRecord(quitSession("sess-quit", "QEST-2"));
-		succeeded(
-			await handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				force: true,
-			}),
-		);
+		await restoreNow({ force: true });
 		expect(typed.map((t) => t.text)).toEqual([
 			"exec pi --session 'sess-lost'\n",
 		]);
@@ -503,11 +479,7 @@ describe("restore verb", () => {
 
 	describe("naming sessions with id", () => {
 		async function restoreIds(id: string, force = false) {
-			return handle(buildState(), fakePi(), fakeCtx(), {
-				action: "reopen-sessions",
-				id,
-				force,
-			});
+			return reopen({ id, force });
 		}
 
 		it("reopens a recently closed session it was asked for", async () => {
@@ -553,22 +525,13 @@ describe("restore verb", () => {
 		it("refuses a name that could mean more than one session", async () => {
 			// Guessing which tab to open is worse than asking, since the
 			// wrong guess spawns a terminal.
-			let spawns = 0;
-			clearTerminalDrivers();
-			registerTerminalDriver({
-				id: "counting",
-				available: () => true,
-				async spawn() {
-					spawns++;
-					return undefined;
-				},
-			});
+			const spawned = countingDriver();
 			saveRecord(quitSession("sess-quit-1", "QEST-2"));
 			saveRecord(quitSession("sess-quit-2", "QEST-3"));
 			const result = refused(await restoreIds("sess-quit", true));
 			expect(result.guidance).toContain("sess-quit-1");
 			expect(result.guidance).toContain("sess-quit-2");
-			expect(spawns).toBe(0);
+			expect(spawned.count).toBe(0);
 		});
 	});
 
@@ -595,12 +558,7 @@ describe("restore verb", () => {
 			savedSessions("sess-other");
 			const typed = recordingDriver();
 			saveRecord(lostSession("sess-new", "QEST-2"));
-			const result = succeeded(
-				await handle(buildState(), fakePi(), fakeCtx(), {
-					action: "reopen-sessions",
-					force: true,
-				}),
-			);
+			const result = await restoreNow({ force: true });
 			expect(typed.map((t) => t.text)).toEqual([
 				"exec env QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
 			]);

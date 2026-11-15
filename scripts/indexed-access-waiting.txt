@@ -15,7 +15,6 @@ extensions/review-integration/tools/offer.ts 1
 extensions/review-integration/tools/sections.ts 7
 extensions/slack-integration/confirmation.ts 7
 extensions/slack-integration/index.ts 1
-extensions/slack-integration/router.ts 13
 extensions/spend-workflow/fanout.ts 1
 extensions/work-integration/sweep.ts 1
 lib/budget/files.ts 1

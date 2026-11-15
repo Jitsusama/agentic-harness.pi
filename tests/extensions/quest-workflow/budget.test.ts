@@ -107,6 +107,27 @@ async function quests() {
 	return { state, run, top, child };
 }
 
+/** The quests with the top naming budget delta, and a keeper on a fresh bus. */
+async function deltaKept() {
+	const made = await quests();
+	await made.run({ action: "budget", id: made.top, ref: "delta" });
+	const events = bus();
+	const keeper = keepQuestBudget(
+		fakePi({ ...intoTheBranch, events }),
+		made.state,
+	);
+	return { ...made, events, keeper };
+}
+
+/** A budget provider on the bus that answers each name with `resolve`. */
+function provide(
+	events: ReturnType<typeof bus>,
+	id: string,
+	resolve: Parameters<typeof registerBudgetProvider>[1]["resolve"],
+): void {
+	registerBudgetProvider(events, { id, precedence: 0, resolve });
+}
+
 function budgetIn(questsRoot: string, id: string): unknown {
 	const readme = readFileSync(join(questsRoot, id, "README.md"), "utf8");
 	return parseQuestFrontMatter(readme)?.frontMatter._extra?.budget;
@@ -176,18 +197,15 @@ describe("the session's budget", () => {
 	}
 
 	it("is the loaded quest's, laid over the environment and lifted on unload", async () => {
-		const { state, run, top, child } = await quests();
-		await run({ action: "budget", id: top, ref: "delta" });
-		const events = bus();
-		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		const { run, child, events, keeper } = await deltaKept();
 		const answers: Record<string, BudgetAnswer> = {
 			delta: { kind: "drawn", env: { [KEY]: "team" }, label: "delta (dev)" },
 		};
-		registerBudgetProvider(events, {
-			id: "test",
-			precedence: 0,
-			resolve: async (name) => answers[name] ?? { kind: "unknown" },
-		});
+		provide(
+			events,
+			"test",
+			async (name) => answers[name] ?? { kind: "unknown" },
+		);
 		const seen = ui();
 		const settled: unknown[] = [];
 		events.on(BUDGET_SETTLED, (data) => settled.push(data));
@@ -220,19 +238,16 @@ describe("the session's budget", () => {
 	});
 
 	it("makes a second keep wait on the draw already on its way", async () => {
-		const { state, run, top } = await quests();
-		await run({ action: "budget", id: top, ref: "delta" });
-		const events = bus();
-		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		const { run, top, events, keeper } = await deltaKept();
 		let answer: (value: BudgetAnswer) => void = () => {};
-		registerBudgetProvider(events, {
-			id: "slow",
-			precedence: 0,
-			resolve: () =>
+		provide(
+			events,
+			"slow",
+			() =>
 				new Promise((resolve) => {
 					answer = resolve;
 				}),
-		});
+		);
 		await run({ action: "load", id: top });
 
 		void keeper.keep(ui().ctx);
@@ -246,22 +261,15 @@ describe("the session's budget", () => {
 	});
 
 	it("takes the budget up once a provider registers late", async () => {
-		const { state, run, top } = await quests();
-		await run({ action: "budget", id: top, ref: "delta" });
-		const events = bus();
-		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		const { run, top, events, keeper } = await deltaKept();
 		await run({ action: "load", id: top });
 		await keeper.keep(ui().ctx);
 
-		registerBudgetProvider(events, {
-			id: "late",
-			precedence: 0,
-			resolve: async () => ({
-				kind: "drawn",
-				env: { [KEY]: "late" },
-				label: "x",
-			}),
-		});
+		provide(events, "late", async () => ({
+			kind: "drawn",
+			env: { [KEY]: "late" },
+			label: "x",
+		}));
 		await new Promise((resolve) => setImmediate(resolve));
 
 		expect(process.env[KEY]).toBe("late");
@@ -296,22 +304,16 @@ describe("the session's budget", () => {
 		}
 
 		it("drops an answer that lands after the session was replaced", async () => {
-			const { state, run, top } = await quests();
-			await run({ action: "budget", id: top, ref: "delta" });
-			const events = bus();
-			const keeper = keepQuestBudget(
-				fakePi({ ...intoTheBranch, events }),
-				state,
-			);
+			const { run, top, events, keeper } = await deltaKept();
 			let answer: (value: BudgetAnswer) => void = () => {};
-			registerBudgetProvider(events, {
-				id: "slow",
-				precedence: 0,
-				resolve: () =>
+			provide(
+				events,
+				"slow",
+				() =>
 					new Promise((resolve) => {
 						answer = resolve;
 					}),
-			});
+			);
 			await run({ action: "load", id: top });
 			const session = replaceable();
 			const entries = written.length;
@@ -334,22 +336,12 @@ describe("the session's budget", () => {
 		});
 
 		it("takes a session up again with its next keep", async () => {
-			const { state, run, top } = await quests();
-			await run({ action: "budget", id: top, ref: "delta" });
-			const events = bus();
-			const keeper = keepQuestBudget(
-				fakePi({ ...intoTheBranch, events }),
-				state,
-			);
-			registerBudgetProvider(events, {
-				id: "test",
-				precedence: 0,
-				resolve: async () => ({
-					kind: "drawn",
-					env: { [KEY]: "team" },
-					label: "x",
-				}),
-			});
+			const { run, top, events, keeper } = await deltaKept();
+			provide(events, "test", async () => ({
+				kind: "drawn",
+				env: { [KEY]: "team" },
+				label: "x",
+			}));
 			await run({ action: "load", id: top });
 			await keeper.keep(ui().ctx);
 
@@ -362,16 +354,13 @@ describe("the session's budget", () => {
 	});
 
 	it("asks again when the budget is named again, as after writing its file", async () => {
-		const { state, run, top } = await quests();
-		await run({ action: "budget", id: top, ref: "delta" });
-		const events = bus();
-		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		const { run, top, events, keeper } = await deltaKept();
 		const answers: Record<string, BudgetAnswer> = {};
-		registerBudgetProvider(events, {
-			id: "files",
-			precedence: 0,
-			resolve: async (name) => answers[name] ?? { kind: "unknown" },
-		});
+		provide(
+			events,
+			"files",
+			async (name) => answers[name] ?? { kind: "unknown" },
+		);
 		await run({ action: "load", id: top });
 		await keeper.keep(ui().ctx);
 
@@ -400,18 +389,12 @@ describe("the budget in the session's log", () => {
 	}
 
 	it("says each budget drawn on once, and the default when it's put down", async () => {
-		const { state, run, top, child } = await quests();
-		await run({ action: "budget", id: top, ref: "delta" });
-		const events = bus();
-		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
-		registerBudgetProvider(events, {
-			id: "test",
-			precedence: 0,
-			resolve: async (name) =>
-				name === "delta"
-					? { kind: "drawn", env: { [KEY]: "team" }, label: "Delta team" }
-					: { kind: "unknown" },
-		});
+		const { run, child, events, keeper } = await deltaKept();
+		provide(events, "test", async (name) =>
+			name === "delta"
+				? { kind: "drawn", env: { [KEY]: "team" }, label: "Delta team" }
+				: { kind: "unknown" },
+		);
 
 		await run({ action: "unload" });
 		await keeper.keep(ctx());
