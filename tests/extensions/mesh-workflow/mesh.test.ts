@@ -793,16 +793,7 @@ describe("quiet", () => {
 
 	it("still shows an answer to this peer while its person has paused it", async () => {
 		// Paused, the answer is handed over with no turn, like any fyi.
-		createPresences(join(paths.mesh, "presence")).publish({
-			session,
-			addresses: [],
-			groups: [],
-			worksOn: "",
-			owns: [],
-			busy: false,
-			state: "paused",
-			at: new Date().toISOString(),
-		});
+		pausedByItsPerson();
 		const { sent, renderers, tools } = await startSession(
 			{},
 			{ isIdle: () => true },
@@ -2924,11 +2915,7 @@ describe("groups", () => {
  * session it leads, in the state given.
  */
 function leading(state: "listening" | "parked" = "listening") {
-	onQuest();
-	writeFileSync(
-		join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
-		"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
-	);
+	orchestratingQuest();
 	createPresences(join(paths.mesh, "presence")).publish({
 		session: "session-l",
 		addresses: ["85PKB2"],
@@ -2940,6 +2927,15 @@ function leading(state: "listening" | "parked" = "listening") {
 		busy: false,
 		at: new Date().toISOString(),
 	});
+}
+
+/** The fixture's quest, 7M6JKG, made one that orchestrates the quests below it. */
+function orchestratingQuest() {
+	onQuest();
+	writeFileSync(
+		join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+		"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
+	);
 }
 
 /** The fixture's quest, under 5GV2AH, with this worktree's checkout. */
@@ -3327,11 +3323,7 @@ describe("a message that names no group", () => {
 	});
 
 	it("glances, as an orchestrator, at an fyi naming what its sender's presence says it landed", async () => {
-		onQuest();
-		writeFileSync(
-			join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
-			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
-		);
+		orchestratingQuest();
 		createPresences(join(paths.mesh, "presence")).publish({
 			session: "session-l",
 			addresses: ["85PKB2"],
@@ -4167,6 +4159,46 @@ function sentOut(): Message[] {
 		.filter((one): one is Message => one?.pid === process.pid);
 }
 
+/** This peer, paused by its person. */
+function pausedByItsPerson(): ReturnType<typeof createPresences> {
+	const presences = createPresences(join(paths.mesh, "presence"));
+	presences.publish({
+		session,
+		addresses: [],
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		state: "paused",
+		at: new Date().toISOString(),
+	});
+	return presences;
+}
+
+/**
+ * A question to the group, taken up by P9R1KI answering it, as this
+ * peer, idle, glances at it.
+ */
+async function answeredByP9R1KI() {
+	peer("session-p", ["P9R1KI"], []);
+	const { sent } = await startSession(
+		{},
+		{ isIdle: () => true },
+		[],
+		undefined,
+		undefined,
+		undefined,
+		20,
+	);
+	const asked = fromElsewhere({
+		intent: "question",
+		text: "who can look at 7M6JKG's tests?",
+	});
+	leased("session-p", { kind: "answer", subject: asked.id });
+	await vi.waitFor(() => expect(sent).toHaveLength(1));
+	return { sent, asked };
+}
+
 describe("a lease", () => {
 	it("stops an edit once when another peer is changing the file, and tells it", async () => {
 		peer("session-w", ["WCJQSG"], []);
@@ -4403,22 +4435,7 @@ describe("a lease", () => {
 	});
 
 	it("takes up a group's question after all once the peer answering it lets it go", async () => {
-		peer("session-p", ["P9R1KI"], []);
-		const { sent } = await startSession(
-			{},
-			{ isIdle: () => true },
-			[],
-			undefined,
-			undefined,
-			undefined,
-			20,
-		);
-		const asked = fromElsewhere({
-			intent: "question",
-			text: "who can look at 7M6JKG's tests?",
-		});
-		leased("session-p", { kind: "answer", subject: asked.id });
-		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const { sent } = await answeredByP9R1KI();
 		// Looked at again many times, it stays P9R1KI's while P9R1KI has it.
 		await new Promise((resolve) => setTimeout(resolve, 150));
 		expect(sent).toHaveLength(1);
@@ -4437,22 +4454,7 @@ describe("a lease", () => {
 	});
 
 	it("leaves a question let go be once another peer answered it", async () => {
-		peer("session-p", ["P9R1KI"], []);
-		const { sent } = await startSession(
-			{},
-			{ isIdle: () => true },
-			[],
-			undefined,
-			undefined,
-			undefined,
-			20,
-		);
-		const asked = fromElsewhere({
-			intent: "question",
-			text: "who can look at 7M6JKG's tests?",
-		});
-		leased("session-p", { kind: "answer", subject: asked.id });
-		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const { sent, asked } = await answeredByP9R1KI();
 
 		fromElsewhere({
 			from: "P9R1KI",
@@ -5045,17 +5047,7 @@ describe("presence", () => {
 	});
 
 	it("keeps a pause through a reload, until the person types in the window", async () => {
-		const presences = createPresences(join(paths.mesh, "presence"));
-		presences.publish({
-			session,
-			addresses: [],
-			groups: [],
-			worksOn: "",
-			owns: [],
-			busy: false,
-			state: "paused",
-			at: new Date().toISOString(),
-		});
+		const presences = pausedByItsPerson();
 		let aborted = 0;
 		const { fire } = await startSession({}, { abort: () => aborted++ });
 		expect(presences.of(session)?.state).toBe("paused");

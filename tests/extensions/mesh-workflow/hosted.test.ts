@@ -23,7 +23,10 @@ import {
 	parkHeavyCalls,
 	takeHeavyCalls,
 } from "../../../extensions/mesh-workflow/leases.ts";
-import { registerTools } from "../../../extensions/mesh-workflow/tools.ts";
+import {
+	type Local,
+	registerTools,
+} from "../../../extensions/mesh-workflow/tools.ts";
 import { hostSocketPath } from "../../../host/service/address.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import {
@@ -342,17 +345,22 @@ it("reads each hosted hand's environment and uses its conversation as fallback i
 	}
 });
 
-it("ends only the addressed conversation and refuses a foreign host without signalling it", async () => {
-	const { open, host, whys } = await inHost();
-	const a = await peer("alpha-AAAAAAAA");
-	await peer("bravo-BBBBBBBB");
-	const presences = createPresences(join(paths.mesh, "presence"));
-	const bravo = presences.of("bravo-BBBBBBBB");
-	if (!bravo) throw new Error("bravo did not publish");
-	presences.publish({ ...bravo, owner: host.owner, orchestratedBy: "ORCHST" });
+/**
+ * alpha as the orchestrator of ORCHST, in `cwd`, with the mesh tools
+ * registered over `presences` and `more` of its own; and its `mesh_end`,
+ * answering what it said.
+ */
+function orchestrator(
+	cwd: string,
+	presences: ReturnType<typeof createPresences>,
+	more: Partial<Local> = {},
+): {
+	self: ReturnType<typeof localPeer>;
+	end: (peer: string) => Promise<string | undefined>;
+} {
 	const self = localPeer({
 		session: "alpha-AAAAAAAA",
-		cwd: a.ctx.cwd,
+		cwd,
 		records: paths,
 		presences,
 	});
@@ -367,21 +375,33 @@ it("ends only the addressed conversation and refuses a foreign host without sign
 			transport: folderTransport(join(paths.mesh, "messages")),
 			board: createBoard(join(paths.mesh, "leases")),
 			sent() {},
+			...more,
 		}),
 	);
-	const end = async () =>
-		(await tools.get("mesh_end")?.execute("end", { peer: "BBBBBBBB" }))
-			?.content[0]?.text;
+	const end = async (peer: string) =>
+		(await tools.get("mesh_end")?.execute("end", { peer }))?.content[0]?.text;
+	return { self, end };
+}
+
+it("ends only the addressed conversation and refuses a foreign host without signalling it", async () => {
+	const { open, host, whys } = await inHost();
+	const a = await peer("alpha-AAAAAAAA");
+	await peer("bravo-BBBBBBBB");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const bravo = presences.of("bravo-BBBBBBBB");
+	if (!bravo) throw new Error("bravo did not publish");
+	presences.publish({ ...bravo, owner: host.owner, orchestratedBy: "ORCHST" });
+	const { self, end } = orchestrator(a.ctx.cwd, presences);
 	presences.publish({
 		...bravo,
 		orchestratedBy: "ORCHST",
 		hosted: { host: "foreign", conversation: bravo.session },
 		owner: host.owner,
 	});
-	expect(await end()).toContain("host control socket");
+	expect(await end("BBBBBBBB")).toContain("host control socket");
 	expect(open.size).toBe(2);
 	presences.publish({ ...bravo, orchestratedBy: "ORCHST", owner: host.owner });
-	expect(await end()).toContain("close only that conversation");
+	expect(await end("BBBBBBBB")).toContain("close only that conversation");
 	expect([...open]).toEqual(["alpha-AAAAAAAA"]);
 	expect(whys, "the host's close says who ended it").toEqual([
 		"bravo-BBBBBBBB: closed, asked by mesh_end from AAAAAAAA",
@@ -397,38 +417,19 @@ it("wakes a parked session it is asked to end, signalling nothing", async () => 
 	const bravo = presences.of("bravo-BBBBBBBB");
 	if (!bravo) throw new Error("bravo did not publish");
 	presences.publish({ ...bravo, owner: host.owner, orchestratedBy: "ORCHST" });
-	const self = localPeer({
-		session: "alpha-AAAAAAAA",
-		cwd: a.ctx.cwd,
-		records: paths,
-		presences,
-	});
 	const woken: string[] = [];
 	const signalled: string[] = [];
-	const tools = new Map<string, Tool>();
-	registerTools(
-		{
-			registerTool: (tool: Tool) => tools.set(tool.name, tool),
-		} as unknown as ExtensionAPI,
-		() => ({
-			peer: { ...self, orchestrates: "ORCHST" },
-			presences,
-			transport: folderTransport(join(paths.mesh, "messages")),
-			board: createBoard(join(paths.mesh, "leases")),
-			sent() {},
-			wakeParked: (session, why) => {
-				woken.push(`${session}: ${why}`);
-				return true;
-			},
-			endProcess: async (_owner, by) => {
-				signalled.push(by);
-				return "gone";
-			},
-		}),
-	);
-	const said = (
-		await tools.get("mesh_end")?.execute("end", { peer: "BBBBBBBB" })
-	)?.content[0]?.text;
+	const { self, end } = orchestrator(a.ctx.cwd, presences, {
+		wakeParked: (session, why) => {
+			woken.push(`${session}: ${why}`);
+			return true;
+		},
+		endProcess: async (_owner, by) => {
+			signalled.push(by);
+			return "gone";
+		},
+	});
+	const said = await end("BBBBBBBB");
 	expect(said).toContain("was parked, so nothing was signalled");
 	expect(woken, "its holder is asked to wake it, saying who asked").toEqual([
 		"bravo-BBBBBBBB: mesh-end-AAAAAAAA",
@@ -487,25 +488,7 @@ it("ends a conversation another host holds through that host's socket, never a s
 		listening = false;
 	};
 	stops.push(stopListening);
-	const self = localPeer({
-		session: "alpha-AAAAAAAA",
-		cwd: a.ctx.cwd,
-		records: paths,
-		presences,
-	});
-	const tools = new Map<string, Tool>();
-	registerTools(
-		{
-			registerTool: (tool: Tool) => tools.set(tool.name, tool),
-		} as unknown as ExtensionAPI,
-		() => ({
-			peer: { ...self, orchestrates: "ORCHST" },
-			presences,
-			transport: folderTransport(join(paths.mesh, "messages")),
-			board: createBoard(join(paths.mesh, "leases")),
-			sent() {},
-		}),
-	);
+	const { self, end } = orchestrator(a.ctx.cwd, presences);
 	const alpha = presences.of("alpha-AAAAAAAA");
 	if (!alpha) throw new Error("alpha did not publish");
 	for (const [session, address] of [
@@ -520,8 +503,6 @@ it("ends a conversation another host holds through that host's socket, never a s
 			owner: host.owner,
 			hosted: { host: "work-attended", conversation: session },
 		});
-	const end = async (peer: string) =>
-		(await tools.get("mesh_end")?.execute("end", { peer }))?.content[0]?.text;
 	expect(await end("FFFFFFFF")).toContain("close only that conversation");
 	expect([...open]).toEqual([near]);
 	expect(askers, "the far host hears who ended it").toEqual([
