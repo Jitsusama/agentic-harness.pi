@@ -1,8 +1,8 @@
 /**
  * Which pis the agent fence takes by default while it rolls out in
- * stages (ISXEG8's reshape [0ed98522], stage 1 from Mon 16 November):
- * a fleet's subagents, the sessions `quest spawn` starts fresh, and the
- * sessions named for it by hand. Everyone else runs as before until the
+ * stages (ISXEG8's reshape [0ed98522]): the sessions named for it by
+ * hand and, once a file says spawns join, a fleet's subagents and the
+ * sessions `quest spawn` starts fresh. Everyone else runs as before until the
  * everyone stage, and a reopen joins only then, since a reopened
  * attended session would fence Joel's own typing [1309c590].
  *
@@ -228,8 +228,52 @@ export function askedSandbox(
 }
 
 /**
- * Whether the fence takes this pi by default: a subagent, or a session
- * listed for the first stage, by its id or its spawn's token.
+ * The file whose presence lets subagents and fresh spawns join the first
+ * stage. Without it the stage takes the sessions listed by hand alone, so
+ * one session goes first and the rest follow by one file, with no change
+ * of code (ISXEG8 [b7fd4f3a]). It ends in no `.json`, so it never reads
+ * as a listing.
+ */
+const SPAWNS_JOIN = "spawns-join";
+
+/** Whether subagents and fresh spawns have joined the first stage. */
+export function spawnsJoin(folder: string = stageFolder()): boolean {
+	return (
+		statSync(join(folder, SPAWNS_JOIN), { throwIfNoEntry: false })?.isFile() ??
+		false
+	);
+}
+
+/** Let subagents and fresh spawns join the first stage, saying why. */
+export function joinSpawns(
+	why: string,
+	folder: string = stageFolder(),
+	now: Date = new Date(),
+): void {
+	mkdirSync(folder, { recursive: true });
+	const path = join(folder, SPAWNS_JOIN);
+	const writing = `${path}.writing`;
+	writeFileSync(
+		writing,
+		`${JSON.stringify({ v: 1, why, at: now.toISOString() })}\n`,
+	);
+	renameSync(writing, path);
+}
+
+/**
+ * Take subagents and fresh spawns back off the first stage, leaving the
+ * sessions listed by hand; answers whether they had joined.
+ */
+export function leaveSpawns(folder: string = stageFolder()): boolean {
+	if (!spawnsJoin(folder)) return false;
+	rmSync(join(folder, SPAWNS_JOIN));
+	return true;
+}
+
+/**
+ * Whether the fence takes this pi by default: a session listed for the
+ * first stage, by its id or its spawn's token, or a subagent once spawns
+ * join.
  */
 export function inFirstStage(
 	env: NodeJS.ProcessEnv,
@@ -237,7 +281,7 @@ export function inFirstStage(
 	folder: string = stageFolder(),
 ): boolean {
 	return (
-		isSubagent(env) ||
+		(isSubagent(env) && spawnsJoin(folder)) ||
 		listedForStage(startedSession(env, argv), folder) ||
 		listedForStage(env[STAGE_VARIABLE]?.trim(), folder)
 	);

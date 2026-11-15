@@ -10,11 +10,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	askedSandbox,
 	inFirstStage,
+	joinSpawns,
+	leaveSpawns,
 	listedForStage,
 	listForStage,
 	listSpawnForStage,
 	STAGE_VARIABLE,
 	settleStage,
+	spawnsJoin,
 	stagedSessions,
 	startedSession,
 	unlistForStage,
@@ -94,7 +97,32 @@ describe("what a pi hands on of PI_SANDBOX", () => {
 });
 
 describe("which pis are in the first stage", () => {
-	it("takes a subagent, by either of its supervisor's marks", () => {
+	it("takes no subagent until spawns join, so the stage starts with listed sessions alone", () => {
+		expect(spawnsJoin(folder), "spawns joined unasked").toBe(false);
+		expect(
+			inFirstStage({ SUBAGENT_SUPERVISOR: "1" }, [], folder),
+			"a subagent was staged before spawns joined",
+		).toBe(false);
+		listForStage(SESSION, "by hand", folder);
+		expect(
+			inFirstStage({}, ["pi", "--session", SESSION], folder),
+			"a session listed by hand waited for spawns",
+		).toBe(true);
+	});
+
+	it("lets spawns join and leave again by one file, listed sessions kept", () => {
+		joinSpawns("after a clean night", folder);
+		expect(spawnsJoin(folder), "spawns didn't join").toBe(true);
+		expect(stagedSessions(folder), "the switch read as a listing").toEqual([]);
+		listForStage(SESSION, "by hand", folder);
+		expect(leaveSpawns(folder), "it said spawns hadn't joined").toBe(true);
+		expect(spawnsJoin(folder), "spawns stayed after leaving").toBe(false);
+		expect(listedForStage(SESSION, folder), "leaving unlisted one").toBe(true);
+		expect(leaveSpawns(folder), "left twice").toBe(false);
+	});
+
+	it("takes a subagent, by either of its supervisor's marks, once spawns join", () => {
+		joinSpawns("stage 1", folder);
 		for (const mark of [
 			{ SUBAGENT_SUPERVISOR: "1" },
 			{ SUBAGENT_RUN_ID: "run-1" },

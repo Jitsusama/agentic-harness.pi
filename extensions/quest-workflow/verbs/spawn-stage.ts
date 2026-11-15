@@ -1,6 +1,7 @@
 /**
- * The fence's first stage for what `quest spawn` starts: a fresh spawn
- * is listed, so its pi starts fenced; a reopen isn't, since a reopened
+ * The fence's first stage for what `quest spawn` starts: once spawns
+ * join the stage (a file under it says so), a fresh spawn is listed, so
+ * its pi starts fenced; until then, nothing is; a reopen never is, since a reopened
  * attended session would fence Joel's own typing, and joins only at the
  * everyone stage (ISXEG8 [1309c590]). A listing that can't be written
  * leaves the spawn to start as before the stage, rather than not at all,
@@ -11,6 +12,7 @@ import { codeOf, recordUnlisted } from "../../../lib/internal/fence-log.ts";
 import {
 	listForStage,
 	listSpawnForStage,
+	spawnsJoin,
 } from "../../../lib/internal/fence-stage.ts";
 import { resumedBy } from "./spawn-launcher.ts";
 
@@ -38,11 +40,11 @@ function whyOf(spawn: StagedSpawn): string {
 
 /**
  * List a fresh spawn for the stage, answering the token its environment
- * names it by (`STAGE_VARIABLE`), or nothing for a reopen, a dry run or
- * a listing that couldn't be written.
+ * names it by (`STAGE_VARIABLE`), or nothing before spawns join, for a
+ * reopen, a dry run or a listing that couldn't be written.
  */
 export function stagedSpawn(spawn: StagedSpawn): string | undefined {
-	if (reopens(spawn) || spawn.dryRun) return undefined;
+	if (reopens(spawn) || spawn.dryRun || !spawnsJoin()) return undefined;
 	try {
 		return listSpawnForStage(whyOf(spawn));
 	} catch (error) {

@@ -11,7 +11,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle.ts";
-import { listedForStage } from "../../../lib/internal/fence-stage.ts";
+import {
+	joinSpawns,
+	leaveSpawns,
+	listedForStage,
+} from "../../../lib/internal/fence-stage.ts";
 import {
 	clearPersonResolvers,
 	setResolutionFallback,
@@ -58,6 +62,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	leaveSpawns();
 	rmSync(tmpRoot, { recursive: true, force: true });
 	clearRefTypes();
 	clearUrlFetchers();
@@ -381,6 +386,7 @@ describe("find / who / links", () => {
 
 describe("spawn verbs", () => {
 	it("dispatches the request through the registered terminal driver", async () => {
+		joinSpawns("stage 1");
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
@@ -610,6 +616,7 @@ describe("spawn verbs", () => {
 	});
 
 	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {
+		joinSpawns("stage 1");
 		const state = buildState();
 		const loaded = await createQuest(state, "Loaded");
 		const other = await createQuest(state, "Other");

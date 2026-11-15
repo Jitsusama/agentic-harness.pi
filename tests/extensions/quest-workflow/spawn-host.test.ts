@@ -16,7 +16,11 @@ import type { ControlRequest } from "../../../host/service/protocol.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
 import { recordUnlisted } from "../../../lib/internal/fence-log.ts";
-import { listedForStage } from "../../../lib/internal/fence-stage.ts";
+import {
+	joinSpawns,
+	leaveSpawns,
+	listedForStage,
+} from "../../../lib/internal/fence-stage.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { openRecord } from "../../../lib/internal/quest/session-registry.ts";
 import { fakePi } from "../../support/fake-pi.ts";
@@ -144,6 +148,7 @@ beforeEach(() => {
 	answer = async (request) => identityFor(request);
 });
 afterEach(async () => {
+	leaveSpawns();
 	await listener?.close();
 	listener = undefined;
 	for (const [name, value] of Object.entries(saved)) {
@@ -192,6 +197,7 @@ describe("spawn into a host", () => {
 	it("hands a fresh session the first stage's token, listed, so it starts fenced", async () => {
 		// The host's conversation has no id until it starts, so the token in
 		// its environment is all its listing can go by.
+		joinSpawns("stage 1");
 		await serveHost("home", "background");
 		const { state, id } = await questNamed("Alpha");
 		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
@@ -207,7 +213,29 @@ describe("spawn into a host", () => {
 		expect(listedForStage(token), "its token wasn't listed").toBe(true);
 	});
 
+	it("hands a fresh session no token until spawns join the stage", async () => {
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		const [open] = received;
+		if (open?.op !== "open") throw new Error("expected an open");
+		expect(
+			open.env?.PI_FENCE_STAGE,
+			"a spawn was staged before spawns joined",
+		).toBeUndefined();
+		expect(
+			recordUnlisted,
+			"an unstaged spawn read as a miss",
+		).not.toHaveBeenCalled();
+	});
+
 	it("opens it unstaged, saying so, in a host too old for the token", async () => {
+		joinSpawns("stage 1");
 		await serveHost("home", "background");
 		answer = async (request) => {
 			if (request.op === "open" && request.env?.PI_FENCE_STAGE)
@@ -238,6 +266,7 @@ describe("spawn into a host", () => {
 	});
 
 	it("counts no older host when the open without the token is refused too", async () => {
+		joinSpawns("stage 1");
 		await serveHost("home", "background");
 		answer = async (request) => {
 			if (request.op === "open")
