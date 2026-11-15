@@ -266,8 +266,7 @@ it(
 			await untilAnswered(
 				"every prompt queued behind the run is answered",
 				async () =>
-					queued.every((word) => toldIn(file, word) > 0) &&
-					pongsIn(file) > 0,
+					queued.every((word) => toldIn(file, word) > 0) && pongsIn(file) > 0,
 				ROUND_TRIP_MS * 2,
 			).catch((error: unknown) => {
 				throw new Error(

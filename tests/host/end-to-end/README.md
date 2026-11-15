@@ -6,6 +6,10 @@ mirrors no source folder: what it checks spans the engine, the service
 and every conversation's harness. These are the integration checks E1
 to E8 of the keying design, and the ground they stand on.
 
+Many entries because each case starts a whole host in a seal of its
+own, so each is a file the process lane runs alone, and a split into
+folders would only part cases that share the seal in `support/`.
+
 sealed-host.test.ts proves that ground on a fake engine: two
 conversations served from the seal, one ended at close with the other
 kept, both back under their ids after a kill, and both parked at a stop

@@ -69,12 +69,15 @@ describe("a send-back held back in a log", () => {
 
 describe("a move", () => {
 	it("waits while the session's presence says one does", () => {
-		expect(moveWaits("s1", () => ({ to: "pi", since: "now" }))).toBe(true);
-		expect(moveWaits("s1", () => undefined)).toBe(false);
+		expect(
+			moveWaits("s1", () => ({ to: "pi", since: "now" })),
+			"a move in its presence waits",
+		).toBe(true);
+		expect(moveWaits("s1", () => undefined), "none in it waits").toBe(false);
 	});
 
 	it("has been made once its note is written", () => {
-		expect(movedOn("s1", () => ({ to: "pi" }))).toBe(true);
-		expect(movedOn("s1", () => undefined)).toBe(false);
+		expect(movedOn("s1", () => ({ to: "pi" })), "a note written").toBe(true);
+		expect(movedOn("s1", () => undefined), "no note").toBe(false);
 	});
 });
