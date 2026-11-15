@@ -81,7 +81,7 @@ const SETTERS: Record<string, readonly string[]> = {
 	"extensions/away-workflow/index.ts": ["away"],
 	"extensions/guard-policy-workflow/lifecycle.ts": ["guards"],
 	"extensions/job-workflow/lifecycle.ts": ["jobs"],
-	"extensions/mesh-workflow/index.ts": ["quiet"],
+	"extensions/mesh-workflow/peer/handing.ts": ["quiet"],
 	"extensions/model-retry-workflow/retry.ts": ["retrying"],
 	"extensions/quest-workflow/index.ts": [],
 	"extensions/reload-workflow/lifecycle.ts": ["swapped"],
