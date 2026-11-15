@@ -226,6 +226,20 @@ E28, in the same file, releases a conversation away mode keeps sending
 back, each send-back running a tool: it is let go within the release's
 deadline, and in plain pi, from the same file, it carries on by itself.
 
+release-reopen.test.ts is E29: a release without `--offer`, its
+launcher a stand-in `qs` on the PATH that writes down what it is asked
+and says it took it. Of two hosted conversations, one whose folder went
+while hosted, as a given-back worktree goes, is only offered, with the
+`pi --session` that opens it in place; the launcher is asked for the
+other alone, and plain pi opened on it there answers. E30, in the same
+file, releases a conversation mid-run while its install moves, so the
+run's end both lets the move go and asks to reload it, in whichever
+order the race takes: it still leaves its note, is offered, and
+answers in plain pi. E31 releases a conversation
+the background host ran in a folder nobody trusted: opened in plain pi,
+it starts and answers without pi's trust prompt, and pi saves no
+decision for the folder.
+
 early-attach.test.ts attaches a viewer to a conversation the screen
 host lists but hasn't yet given a screen, its folder's own extension
 holding its start between the two. On 11 November a window moving in

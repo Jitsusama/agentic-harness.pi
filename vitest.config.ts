@@ -81,6 +81,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/release-all.test.ts",
 	"tests/host/end-to-end/release-parked.test.ts",
 	"tests/host/end-to-end/release-queued.test.ts",
+	"tests/host/end-to-end/release-reopen.test.ts",
 	"tests/host/end-to-end/screens.test.ts",
 	"tests/host/end-to-end/keys.test.ts",
 	"tests/host/end-to-end/screen-slots.test.ts",

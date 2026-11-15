@@ -1170,6 +1170,14 @@ through the launcher or sent by a client, and read at start from the log
 pi holds, so the cutover need read no log. It stays true for that session
 in any process, and a new session starts without it.
 
+A conversation whose host left its folder untrusted, with nobody there
+to ask, stays untrusted in the plain pi that takes it up, rather than
+waiting at pi's trust prompt. Its move leaves word in `carried-trust/`
+of the package's state, and a pi started on that session in that
+folder answers pi's `project_trust` no for itself alone, saving nothing,
+until `/trust` saves a decision for the folder
+([`carried-trust.ts`](../../lib/internal/session/carried-trust.ts)).
+
 `/host`, typed in a plain pi's own window, makes the same move from
 inside it ([`host-command.ts`](host-command.ts)): into the background
 host, or with `/host attended` the attended one, in place, so the window
