@@ -39,7 +39,9 @@ import { fileURLToPath } from "node:url";
 import {
 	type ExtensionAPI,
 	type ExtensionContext,
+	getAgentDir,
 	isToolCallEventType,
+	ProjectTrustStore,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -73,6 +75,11 @@ import {
 } from "../../lib/internal/reload/hold.ts";
 import { sandboxName } from "../../lib/internal/sandbox.ts";
 import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
+import {
+	carriedTrust,
+	forgetUntrusted,
+	leaveUntrusted,
+} from "../../lib/internal/session/carried-trust.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import {
 	isPersonText,
@@ -666,6 +673,15 @@ export function meshWorkflow(
 	lookAgainMs: number = LOOK_AGAIN_MS,
 ) {
 	return (pi: ExtensionAPI) => {
+		// A conversation its host let go with its folder untrusted stays so
+		// in the plain pi that takes it up, for that pi alone (carried-trust.ts).
+		pi.on("project_trust", async (event) =>
+			carriedTrust(event.cwd, {
+				saved: (cwd) => new ProjectTrustStore(getAgentDir()).get(cwd),
+			}) === "no"
+				? { trusted: "no" as const, remember: false }
+				: { trusted: "undecided" as const },
+		);
 		// Not a peer: a subagent is its parent's hands (see hand.ts).
 		if (isSubagent(env)) return;
 		// A delivery /mesh quiet hides draws nothing, and so takes no row.
@@ -1037,6 +1053,10 @@ export function meshWorkflow(
 						to,
 					),
 				);
+				// What its host decided of the folder goes with it to plain pi.
+				if (to === "pi" && ctx.isProjectTrusted())
+					forgetUntrusted(peer.session);
+				else if (to === "pi") leaveUntrusted(peer.session, sessionCwd(ctx));
 			},
 			handOver,
 			keyedAt: () => keyedAt,
