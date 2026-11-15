@@ -15,10 +15,12 @@ const state = useQuestsRoot();
 describe("reorderSiblings", () => {
 	it("refuses an id no quest has", () => {
 		const s = state();
-		expect(reorderSiblings(s, "QEST-20260101-NOSUCH", { kind: "top" })).toEqual({
-			ok: false,
-			guidance: `No quest with id "QEST-20260101-NOSUCH" under ${s.questsRoot}.`,
-		});
+		expect(reorderSiblings(s, "QEST-20260101-NOSUCH", { kind: "top" })).toEqual(
+			{
+				ok: false,
+				guidance: `No quest with id "QEST-20260101-NOSUCH" under ${s.questsRoot}.`,
+			},
+		);
 	});
 
 	it("refuses a sealed quest until it is reopened", () => {
@@ -43,9 +45,9 @@ describe("reorderSiblings", () => {
 		if (!moved.ok) return;
 		expect(moved.result.siblings).toHaveLength(3);
 		expect(moved.result.changes).toContainEqual({ id, from: 3, to: 1 });
-		expect([first, second, third, queued, sealed].map((d) => questOnDisk(d).rank)).toEqual([
-			2, 3, 1, 1, 1,
-		]);
+		expect(
+			[first, second, third, queued, sealed].map((d) => questOnDisk(d).rank),
+		).toEqual([2, 3, 1, 1, 1]);
 	});
 
 	it("puts a quest after the one it names", () => {

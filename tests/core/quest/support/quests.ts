@@ -70,7 +70,9 @@ export function seedQuest(
 
 /** The front matter of the quest in `questDir`, as it is on disk now. */
 export function questOnDisk(questDir: string): QuestFrontMatter {
-	const parsed = parseQuestDoc(readFileSync(join(questDir, "README.md"), "utf8"));
+	const parsed = parseQuestDoc(
+		readFileSync(join(questDir, "README.md"), "utf8"),
+	);
 	if (!parsed) throw new Error(`${questDir} has no README that parses`);
 	return parsed.frontMatter;
 }
@@ -113,7 +115,10 @@ export function seedDocument(
 	const dir = join(questDir, FOLDERS[frontMatter.kind]);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, `${frontMatter.id}.md`);
-	atomicWriteFile(path, `${serializeDocumentFrontMatter(frontMatter)}\n${body}`);
+	atomicWriteFile(
+		path,
+		`${serializeDocumentFrontMatter(frontMatter)}\n${body}`,
+	);
 	return path;
 }
 

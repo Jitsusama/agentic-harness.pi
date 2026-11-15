@@ -81,7 +81,11 @@ describe("sealQuestDocuments", () => {
 		const dir = seedQuest(s, "A");
 		const open = [
 			seedDocument(dir, { stage: "think" }),
-			seedDocument(dir, { stage: "draft", kind: "research", id: mintId("RSCH") }),
+			seedDocument(dir, {
+				stage: "draft",
+				kind: "research",
+				id: mintId("RSCH"),
+			}),
 			seedDocument(dir, { stage: "build", kind: "report", id: mintId("RPRT") }),
 		];
 		const done = seedDocument(dir, { stage: "concluded" });

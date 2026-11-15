@@ -34,7 +34,11 @@ describe("attachSessionInQuestDir", () => {
 	it("adds a session once and keeps when it first attached", () => {
 		const dir = seedQuest(state(), "A");
 		expect(
-			attachSessionInQuestDir(dir, { id: "s1", started: FIRST, status: "active" }),
+			attachSessionInQuestDir(dir, {
+				id: "s1",
+				started: FIRST,
+				status: "active",
+			}),
 		).toEqual({ ok: true, added: true });
 		detachSessionInQuestDir(dir, "s1");
 		expect(
@@ -55,7 +59,11 @@ describe("attachSessionInQuestDir", () => {
 			sessions: [{ id: "s1", started: FIRST, status: "active" }],
 		});
 		const before = questOnDisk(dir).updated;
-		attachSessionInQuestDir(dir, { id: "s1", started: FIRST, status: "active" });
+		attachSessionInQuestDir(dir, {
+			id: "s1",
+			started: FIRST,
+			status: "active",
+		});
 		expect(questOnDisk(dir).updated).toBe(before);
 	});
 });

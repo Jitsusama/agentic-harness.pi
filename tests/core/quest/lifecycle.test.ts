@@ -28,7 +28,8 @@ import {
 
 const state = useQuestsRoot();
 
-const WORK = "\n# A Plan\n\n## Steps\n\n- [x] First\n- [ ] Second\n- [ ] Third\n";
+const WORK =
+	"\n# A Plan\n\n## Steps\n\n- [x] First\n- [ ] Second\n- [ ] Third\n";
 
 describe("focusDocument", () => {
 	it("asks for a quest when none is loaded", () => {
