@@ -307,7 +307,10 @@ writes nothing, so a log that stops on a tool call or its result is
 read the same way. A prompt after the record, the person's or that
 turn's, takes it up, so the turn comes once. The turn asks the session
 to tell its orchestrator, once, that it came back and what it carries
-on with.
+on with. A move back to plain pi that waited 5 minutes on a run ends
+it and leaves the same record
+(`lib/internal/session/cut-off-record.ts`), saying the move stopped it
+rather than the machine.
 
 - A run stopped with Escape has settled before the session ends, so
   it is never read as cut off.

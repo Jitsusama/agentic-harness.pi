@@ -920,12 +920,19 @@ A steer may instead carry an `act`, with no text needed
 - `move`, with `to` naming `attended`, `background` or `pi`,
   ends the session the first moment nothing holds it, for a host
   to take its file up, or, from a host, for plain pi to
-  ([`moving.ts`](moving.ts)). Nothing is cut short: it waits out
+  ([`moving.ts`](moving.ts)). Nothing is lost: it waits out
   a run, messages queued for it, background jobs, an open prompt
   and text typed but unsent, which park weighs too
   ([`lib/internal/session/free.ts`](../../lib/internal/session/free.ts)).
   Until then presence says `moving`, with what holds it, and
   runs go on as ever, so nothing is left unanswered in its log.
+  A move back to plain pi waits out a run only 5 minutes
+  (`RELEASE_WAIT_MS`): then it ends the run at its turn's end,
+  its tools done, and records that the move stopped it, so
+  plain pi tells the conversation to carry on from where its log
+  stops ([`job-workflow/cut-off.ts`](../job-workflow/cut-off.ts)).
+  Any other hold, and a move into a host, waits up to 45
+  minutes before the move is called off.
   Before it ends it writes a move note
   ([`lib/internal/session/move.ts`](../../lib/internal/session/move.ts))
   naming its file, where it goes and its addresses, which

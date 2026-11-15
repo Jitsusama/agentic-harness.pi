@@ -83,6 +83,10 @@ import {
 } from "../../lib/internal/session/carried-trust.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import {
+	CUT_OFF_ENTRY,
+	cutByMove,
+} from "../../lib/internal/session/cut-off-record.ts";
+import {
 	isPersonText,
 	isPersonWords,
 } from "../../lib/internal/session/driven.ts";
@@ -1077,6 +1081,13 @@ export function meshWorkflow(
 					owner !== undefined &&
 					(await releaseThroughHost(owner, by)) === "ended"
 				);
+			},
+			// Plain pi reads the record on its return and carries the run on.
+			cutRun: (by) => {
+				if (!ctx || hostKey === undefined) return;
+				pi.appendEntry(CUT_OFF_ENTRY, cutByMove(by, Date.now()));
+				stoppingFromOutside(ctx);
+				ctx.abort?.();
 			},
 		});
 
@@ -2117,6 +2128,7 @@ export function meshWorkflow(
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
 			pausing.turnEnded();
+			moving.turnEnded();
 		});
 		// A run started by something else takes what was waiting to act
 		// with it, in full, and the turn it waited for is never started.
@@ -2173,6 +2185,7 @@ export function meshWorkflow(
 			peer?.setBusy(true);
 			// Whatever woke a paused session, it sleeps on.
 			pausing.started();
+			moving.started();
 		});
 		// And the step it is on, by the tool it runs, for the desktop's Busy;
 		// a talk the person follows hears the step, its reply as it is

@@ -20,6 +20,15 @@
  * stays plain pi, saying so on screen. Its presence says why any move
  * was called off rather than made (`moveOff`), until another is asked.
  *
+ * A move back to plain pi waits a run out only {@link RELEASE_WAIT_MS}:
+ * past that, it ends the run at its turn's end, its tools done and their
+ * results in the log, as a pause does, and leaves the record that tells
+ * plain pi the move stopped it and to carry on (job-workflow
+ * cut-off.ts), rather than hold the release for the whole
+ * {@link MOVE_WAIT_MOST_MS}. A run that starts after, before it lets
+ * go, is ended as it starts. Only a run is ended so: what a job, a
+ * prompt or typed words hold is waited out as before.
+ *
  * The person resuming it or sending it a message from its window calls
  * a move off, as it ends a pause: they are at the desk. A move to `pi` is
  * for a hosted conversation only; asked of a pi, it is said and dropped.
@@ -49,7 +58,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { CarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
-import { whatHolds } from "../../lib/internal/session/free.ts";
+import { RUN_UNDER_WAY, whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type { MoveOff, Moving } from "../../lib/mesh/moving.ts";
@@ -65,6 +74,13 @@ export const MOVE_LOOK_MS = 2_000;
  * than whoever asked it watches.
  */
 export const MOVE_WAIT_MOST_MS = 45 * 60_000;
+
+/**
+ * How long a move back to plain pi waits on a run before it ends the run
+ * at its turn's end: plain pi carries it on, so a busy conversation
+ * doesn't keep a release waiting.
+ */
+export const RELEASE_WAIT_MS = 5 * 60_000;
 
 /** How long a window goes with no key pressed before it moves in place. */
 export const QUIET_MS = 5_000;
@@ -111,6 +127,11 @@ export interface MovingHost {
 	 * conversation only.
 	 */
 	readonly release?: (by: string) => Promise<boolean>;
+	/**
+	 * End the run under way, leaving the record that `by` ended it for
+	 * plain pi to carry on from. A hosted conversation only.
+	 */
+	readonly cutRun?: (by: string) => void;
 	readonly now?: () => Date;
 	/** Look again every so often; answers how to stop. */
 	readonly every?: (ms: number, look: () => void) => () => void;
@@ -132,6 +153,10 @@ export interface MovingSession {
 	typed(): void;
 	/** Something changed: a move waiting ends the session once it's free. */
 	look(): void;
+	/** A turn ended, its tools done: a run a move waited on too long ends. */
+	turnEnded(): void;
+	/** A run started: one starting after the move ended a run ends too. */
+	started(): void;
 	/** The session ends: stop looking. */
 	stop(): void;
 }
@@ -209,6 +234,20 @@ export function createMoving(host: MovingHost): MovingSession {
 	let restsUntil = Number.NEGATIVE_INFINITY;
 	// Where the move waiting was asked, as its close says.
 	let askedFrom: AskedFrom = "outside";
+	// Whether a move back to plain pi ends the runs that hold it.
+	let cutting = false;
+	const cut = () => {
+		if (!cutting || ended || host.moving() === undefined) return;
+		host.cutRun?.(
+			`a move to plain pi that waited ${RELEASE_WAIT_MS / 60_000} minutes on its run`,
+		);
+	};
+	/** Whether a move waiting `waited` ms on `holds` ends the run instead. */
+	const cutsRun = (moving: Moving, holds: string, waited: number) =>
+		moving.to === "pi" &&
+		host.cutRun !== undefined &&
+		holds === RUN_UNDER_WAY &&
+		waited >= RELEASE_WAIT_MS;
 	const unlook = () => {
 		unwatch?.();
 		unwatch = undefined;
@@ -216,6 +255,7 @@ export function createMoving(host: MovingHost): MovingSession {
 	/** Call the move waiting off, saying `told` on screen and `why` in presence. */
 	const callOff = (moving: Moving, why: string, told: string) => {
 		unlook();
+		cutting = false;
 		const off = {
 			to: moving.to,
 			since: moving.since,
@@ -227,12 +267,18 @@ export function createMoving(host: MovingHost): MovingSession {
 		host.tell(told);
 	};
 	const wait = (moving: Moving, holds: string) => {
-		if (now().getTime() - Date.parse(moving.since) >= MOVE_WAIT_MOST_MS) {
+		const waited = now().getTime() - Date.parse(moving.since);
+		if (waited >= MOVE_WAIT_MOST_MS) {
 			const why = `it waited ${MOVE_WAIT_MOST_MS / 60_000} minutes and is still held: ${holds}`;
 			callOff(moving, why, `The move to ${whereTo(moving.to)} is off: ${why}.`);
 			return;
 		}
-		if (holds !== moving.holds) host.setMoving({ ...moving, holds });
+		if (cutsRun(moving, holds, waited)) cutting = true;
+		const said =
+			cutting && holds === RUN_UNDER_WAY
+				? `${holds}, ending at its turn's end after ${RELEASE_WAIT_MS / 60_000} minutes`
+				: holds;
+		if (said !== moving.holds) host.setMoving({ ...moving, holds: said });
 		unwatch ??= every(MOVE_LOOK_MS, look);
 	};
 	/** What still holds a move in place for want of quiet, or nothing. */
@@ -309,6 +355,7 @@ export function createMoving(host: MovingHost): MovingSession {
 			seeking = undefined;
 			restsUntil = Number.NEGATIVE_INFINITY;
 			askedFrom = asked;
+			cutting = false;
 			host.setMoving({ to, since: now().toISOString() });
 			host.tell(movingSaid(to, asked, host.holds()));
 			look();
@@ -321,6 +368,8 @@ export function createMoving(host: MovingHost): MovingSession {
 			else cancel();
 		},
 		look,
+		turnEnded: cut,
+		started: cut,
 		stop: unlook,
 	};
 }

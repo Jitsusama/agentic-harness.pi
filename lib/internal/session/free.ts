@@ -30,9 +30,15 @@ export interface Holding {
 	readonly typed: boolean;
 }
 
+/**
+ * What a run under way holds a session by, as a move matches it to end
+ * the run it waited on too long (mesh-workflow moving.ts).
+ */
+export const RUN_UNDER_WAY = "a run is under way";
+
 /** What holds this session, or nothing when it could end now. */
 export function whatHolds(at: Holding): string | undefined {
-	if (!at.agentIdle) return "a run is under way";
+	if (!at.agentIdle) return RUN_UNDER_WAY;
 	if (at.pendingMessages) return "messages wait for it";
 	if (at.jobs > 0)
 		return at.heldBy?.length ? jobsOut(at.heldBy) : "background jobs are out";
