@@ -100,8 +100,8 @@ function sentRaw(call: unknown): string {
 	const raw =
 		(call as { requestBody: { raw?: string; message?: { raw: string } } })
 			.requestBody.raw ??
-		(call as { requestBody: { message: { raw: string } } }).requestBody
-			.message.raw;
+		(call as { requestBody: { message: { raw: string } } }).requestBody.message
+			.raw;
 	expect(raw).toMatch(/^[A-Za-z0-9_-]+$/);
 	return Buffer.from(
 		raw.replace(/-/g, "+").replace(/_/g, "/"),

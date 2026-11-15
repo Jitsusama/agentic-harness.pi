@@ -639,11 +639,7 @@ export function reviewerWarnings(
 }
 
 /** What to say about a participant that did not get to finish. */
-function stopWarning(
-	stop: AskStop,
-	kept: number,
-	cutOff: boolean,
-): string {
+function stopWarning(stop: AskStop, kept: number, cutOff: boolean): string {
 	const held =
 		kept === 0
 			? "Nothing had been read from it yet"

@@ -84,8 +84,12 @@ const ROUNDS: readonly [
 	[
 		"a judge",
 		async (answer) =>
-			(await runJudge({ judge: ONE, prompt: "consolidate", seq: 1 }, deps(answer)))
-				.run.outcomes[0],
+			(
+				await runJudge(
+					{ judge: ONE, prompt: "consolidate", seq: 1 },
+					deps(answer),
+				)
+			).run.outcomes[0],
 	],
 	[
 		"a critique",

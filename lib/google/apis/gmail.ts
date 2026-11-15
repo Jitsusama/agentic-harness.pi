@@ -364,8 +364,8 @@ function extractBody(payload: GmailPart | undefined): string {
 /** The encoded body of the first part of one type that has one. */
 function partData(parts: GmailPart[], mimeType: string): string | undefined {
 	return (
-		parts.find((part) => part.mimeType === mimeType && part.body?.data)
-			?.body?.data ?? undefined
+		parts.find((part) => part.mimeType === mimeType && part.body?.data)?.body
+			?.data ?? undefined
 	);
 }
 
