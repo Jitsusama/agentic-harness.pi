@@ -157,9 +157,14 @@ export interface EndingProcess {
 }
 
 /**
- * Ends the process at once: by its own TERM, once nothing is left to
- * hear one, so it dies as a TERM would have it die; by KILL should the
- * TERM return.
+ * Ends the process at once, past an exit that would wait on a pending
+ * name lookup: no exit path, `process.reallyExit` included, ends before
+ * the threadpool's lookup returns, so only a signal's default action
+ * does. It drops every TERM listener, pi's own handler among them, then
+ * sends itself TERM, which ends it with status 143. The KILL after it
+ * runs only when that TERM returns, which it does when TERM is blocked
+ * or ignored, as a `SIG_IGN` inherited from `nohup` leaves it; without
+ * the KILL the exit would go on waiting on the lookup.
  */
 export function endNow(proc: EndingProcess): void {
 	proc.removeAllListeners("SIGTERM");
