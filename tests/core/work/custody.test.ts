@@ -21,6 +21,7 @@ import {
 } from "../../../lib/core/work/broker.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import type { TreeRequest } from "../../../lib/core/work/tree.ts";
+import { until } from "../../support/until.ts";
 
 const CHILD = fileURLToPath(
 	new URL("./support/custody-child.ts", import.meta.url),
@@ -122,6 +123,8 @@ describe("two cuts of one tree at once", () => {
 			async ensure(request: TreeRequest) {
 				running += 1;
 				most = Math.max(most, running);
+				// Held open so a second cut, were the broker to let one start,
+				// would overlap this one: nothing marks a cut that never begins.
 				await new Promise((resolve) => setTimeout(resolve, 50));
 				running -= 1;
 				const path = join(root, "trees", request.purpose);
@@ -150,13 +153,17 @@ describe("two cuts of one tree at once", () => {
 
 	it("lets a cut waiting its turn be stopped", async () => {
 		let calls = 0;
+		let finish = () => {};
+		const finished = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
 		const provider: TreeProvider = {
 			id: "git",
 			specificity: 0,
 			appliesTo: () => true,
 			async ensure(request: TreeRequest) {
 				calls += 1;
-				await new Promise((resolve) => setTimeout(resolve, 200));
+				await finished;
 				const path = join(root, "trees", request.purpose);
 				mkdirSync(path, { recursive: true });
 				return { path };
@@ -178,7 +185,7 @@ describe("two cuts of one tree at once", () => {
 			() => "cut",
 			(error: Error) => error.name,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await until("the first cut to start", () => calls === 1);
 		stop.abort();
 
 		expect(
@@ -189,6 +196,7 @@ describe("two cuts of one tree at once", () => {
 				),
 			]),
 		).toBe("AbortError");
+		finish();
 		await first;
 		expect(calls).toBe(1);
 	});

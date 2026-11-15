@@ -20,7 +20,10 @@ import {
 	type JobSpec,
 	jobStopReason,
 } from "../../lib/jobs/index.ts";
-import { until } from "../support/until.ts";
+import { quietFor, until } from "../support/until.ts";
+
+/** How often each watch here looks. */
+const POLL_MS = 5;
 
 /**
  * How long a watched round gets to do what is waited on. Short of the
@@ -65,7 +68,7 @@ describe("a started round with a job host", () => {
 			label: "council on shop/app#7",
 			isRunning: async () => true,
 			stop: async () => {},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
 		expect(job?.id).toBe("j1");
 		expect(specs).toEqual([{ kind: "review", label: "council on shop/app#7" }]);
@@ -81,9 +84,9 @@ describe("a started round with a job host", () => {
 			label: "council",
 			isRunning: async () => running,
 			stop: async () => {},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await quietFor(POLL_MS, 6);
 		expect(outcomes).toHaveLength(0);
 		running = false;
 		await until(
@@ -92,7 +95,7 @@ describe("a started round with a job host", () => {
 			WITHIN_MS,
 		);
 		expect(outcomes[0]?.summary).toContain("review_ask collect run=council-1");
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await quietFor(POLL_MS, 6);
 		expect(outcomes).toHaveLength(1);
 	});
 
@@ -108,7 +111,7 @@ describe("a started round with a job host", () => {
 				throw new Error("ps timed out");
 			},
 			stop: async () => {},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
 		await until("three failed looks", () => checks >= 3, WITHIN_MS);
 		expect(outcomes).toHaveLength(0);
@@ -127,9 +130,9 @@ describe("a started round with a job host", () => {
 				return new Promise<boolean>(() => {});
 			},
 			stop: async () => {},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
-		await new Promise((resolve) => setTimeout(resolve, 40));
+		await quietFor(POLL_MS, 8);
 		expect(checks).toBe(1);
 		controller.abort(jobStopReason("session"));
 	});
@@ -145,7 +148,7 @@ describe("a started round with a job host", () => {
 			stop: async () => {
 				stopped++;
 			},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
 		controller.abort(jobStopReason("person"));
 		await until("the round to be stopped", () => stopped === 1, WITHIN_MS);
@@ -162,7 +165,7 @@ describe("a started round with a job host", () => {
 			stop: async () => {
 				stopped++;
 			},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
 		controller.abort(jobStopReason("agent"));
 		await until("the round to be stopped", () => stopped === 1, WITHIN_MS);
@@ -183,12 +186,12 @@ describe("a started round with a job host", () => {
 			stop: async () => {
 				stopped++;
 			},
-			pollMs: 5,
+			pollMs: POLL_MS,
 		});
 		await until("the first look", () => checks >= 1, WITHIN_MS);
 		controller.abort(jobStopReason("session"));
 		const after = checks;
-		await new Promise((resolve) => setTimeout(resolve, 40));
+		await quietFor(POLL_MS, 8);
 		expect(stopped).toBe(0);
 		expect(checks).toBeLessThanOrEqual(after + 1);
 	});

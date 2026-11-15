@@ -41,6 +41,8 @@ export async function until(
 				`Timed out after ${timeoutMs}ms waiting for ${what}. The condition never became true.`,
 			);
 		}
+		// The gap between looks, not a wait for the thing: it ends the
+		// moment the condition holds.
 		await new Promise((resolve) => setTimeout(resolve, POLL_MS));
 	}
 }

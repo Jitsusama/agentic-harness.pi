@@ -219,6 +219,7 @@ describe("fanning a roster out", () => {
 					// hawk is slow, owl is instant: without ordered recording
 					// owl's finding would be numbered first.
 					hawk: async () => {
+						// The delay is the case: it puts hawk's answer after owl's.
 						await new Promise((r) => setTimeout(r, 20));
 						return { text: said("from hawk") };
 					},

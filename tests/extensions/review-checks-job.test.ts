@@ -17,7 +17,10 @@ import {
 	jobStopReason,
 } from "../../lib/jobs/index.ts";
 import { installTestHost } from "../support/session-host.ts";
-import { until } from "../support/until.ts";
+import { quietFor, until } from "../support/until.ts";
+
+/** How often each watch here looks. */
+const POLL_MS = 5;
 
 /**
  * How long a watch gets to end. Short of the test's own timeout, so a
@@ -71,7 +74,7 @@ function watch(
 		label: "shop/app#7",
 		read,
 		render: (r) => `state ${r.state}`,
-		pollMs: 5,
+		pollMs: POLL_MS,
 	});
 }
 
@@ -81,7 +84,7 @@ describe("watching checks", () => {
 		let state: ChecksRollup["state"] = "pending";
 		watch(bus, async () => rollup(state));
 
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await quietFor(POLL_MS, 6);
 		expect(outcomes).toHaveLength(0);
 		state = "failing";
 		await until(
@@ -123,7 +126,7 @@ describe("watching checks", () => {
 				label: "shop/app#7",
 				read,
 				render: (r) => `state ${r.state}`,
-				pollMs: 5,
+				pollMs: POLL_MS,
 			});
 		};
 
@@ -169,7 +172,7 @@ describe("watching checks", () => {
 				return rollup("pending");
 			},
 			render: () => "",
-			pollMs: 5,
+			pollMs: POLL_MS,
 			watchMs: 3000,
 			now: () => clock,
 		});

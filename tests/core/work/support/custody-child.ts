@@ -30,6 +30,8 @@ const facts: ProcessFacts = {
 };
 
 while (!existsSync(goFile)) {
+	// A look every 2 ms, not a wait for anything: it ends with the go file,
+	// close enough to the other children's start for their writes to race.
 	await new Promise((resolve) => setTimeout(resolve, 2));
 }
 
