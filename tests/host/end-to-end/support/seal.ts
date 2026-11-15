@@ -23,7 +23,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostSocketPath } from "../../../../host/service/address.ts";
@@ -49,6 +49,8 @@ const SEALED_FOLDERS = {
 export interface Seal {
 	/** The private folder everything sealed lives under, as the link reaching it. */
 	readonly root: string;
+	/** The folder itself, as pi names it: a path pi made reads under this, not `root`. */
+	readonly real: string;
 	/** The host's HOME. */
 	readonly home: string;
 	/** The realm this seal's host and node serve, and no other seal's. */
@@ -89,6 +91,8 @@ export async function seal(): Promise<Seal> {
 	}
 	return {
 		root,
+		// Resolved whole: TMPDIR may itself be a link, as a loaded quest's is.
+		real: await realpath(real),
 		home: join(root, SEALED_FOLDERS.HOME),
 		realm,
 		env,

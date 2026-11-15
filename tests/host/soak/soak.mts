@@ -470,7 +470,11 @@ const report = {
 			values.real
 				? (plain.logs[at] ?? []).map(shapeOf)
 				: (plain.logs[at] ?? []),
-			{ hosted: hostSeal.root, plain: plainSeal.root },
+			// The link each side was reached by, then the folder pi names.
+			{
+				hosted: [hostSeal.root, hostSeal.real],
+				plain: [plainSeal.root, plainSeal.real],
+			},
 			[...carriedTags].some((tag) => tag.startsWith(`c${at}-`)),
 		),
 	),
