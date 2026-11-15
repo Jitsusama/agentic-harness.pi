@@ -7,5 +7,5 @@
 # from the columns its facts name, so a new fact is one change, and the
 # article reader's worker is sent as source, for the reason article.ts
 # gives above it.
-lib/core/observability/ledger/store.ts sql 1
+lib/core/observability/ledger/shape.ts sql 1
 lib/core/web/article.ts page-js 1

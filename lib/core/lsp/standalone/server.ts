@@ -6,6 +6,10 @@
  * Positions cross the boundary here: the tool's
  * byte columns convert to LSP's UTF-16 columns on the way in
  * and back on the way out.
+ *
+ * What the client advertises and answers the server is in
+ * `handshake.ts`, and what a server's answers mean in the tool's
+ * terms in `answers.ts`.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -20,38 +24,26 @@ import {
 	StreamMessageWriter,
 } from "vscode-jsonrpc/node";
 import {
-	type ClientCapabilities,
 	CodeActionRequest,
-	ConfigurationRequest,
 	DefinitionRequest,
 	DidChangeTextDocumentNotification,
 	DidOpenTextDocumentNotification,
 	DocumentDiagnosticReportKind,
 	DocumentDiagnosticRequest,
-	type DocumentSymbol,
 	DocumentSymbolRequest,
 	HoverRequest,
 	InitializedNotification,
 	InitializeRequest,
-	type Location,
-	type LocationLink,
 	type WorkspaceEdit as ProtocolWorkspaceEdit,
 	PublishDiagnosticsNotification,
 	ReferencesRequest,
-	RegistrationRequest,
 	RenameRequest,
-	type SymbolInformation,
-	UnregistrationRequest,
-	WorkDoneProgressCreateRequest,
-	WorkspaceFoldersRequest,
-	type WorkspaceSymbol,
 	WorkspaceSymbolRequest,
 } from "vscode-languageserver-protocol";
 import type { ServerConfig } from "../config.ts";
 import type {
 	CodeAction,
 	Diagnostic,
-	DiagnosticSeverity,
 	HoverInfo,
 	LspLocation,
 	LspRange,
@@ -60,48 +52,25 @@ import type {
 	WorkspaceEdit,
 } from "../types.ts";
 import {
+	editsByUri,
+	flattenDocumentSymbol,
+	fromSymbolInformation,
+	hoverText,
+	type ProtocolDiagnostic,
+	toDiagnostic,
+	toLocations,
+} from "./answers.ts";
+import {
 	applyProtocolEdits,
 	fileToUri,
 	fromProtocolRange,
-	type LspProtocolTextEdit,
 	languageIdFor,
 	toLines,
 	toProtocolPosition,
 	uriToFile,
 } from "./document.ts";
+import { answerClientRequests, CLIENT_CAPABILITIES } from "./handshake.ts";
 import { settledWriter } from "./settled-writer.ts";
-
-/**
- * Client capabilities advertised at initialize. A server may
- * report diagnostics two ways: TypeScript 7's native LSP answers
- * them on demand (pull), while tsserver-based and many other
- * servers push them after a document opens. We advertise both so
- * the backend stays general, and it picks the mode per server
- * from the initialize response. The native server also drives
- * the client with dynamic registration and workspace queries, so
- * the configuration, workspaceFolders and workDoneProgress
- * capabilities are load-bearing, not decorative.
- */
-const CLIENT_CAPABILITIES: ClientCapabilities = {
-	textDocument: {
-		synchronization: { didSave: true, dynamicRegistration: true },
-		diagnostic: { dynamicRegistration: true },
-		publishDiagnostics: { relatedInformation: true },
-		definition: { linkSupport: true },
-		references: {},
-		hover: { contentFormat: ["markdown", "plaintext"] },
-		documentSymbol: { hierarchicalDocumentSymbolSupport: true },
-		rename: { prepareSupport: true },
-		codeAction: {},
-	},
-	workspace: {
-		workspaceEdit: { documentChanges: true },
-		configuration: true,
-		workspaceFolders: true,
-		didChangeConfiguration: { dynamicRegistration: true },
-	},
-	window: { workDoneProgress: true },
-};
 
 /** How long a cold initialize may take before we give up. */
 const WARMUP_TIMEOUT_MS = 15_000;
@@ -111,24 +80,6 @@ const DIAGNOSTICS_SETTLE_MS = 300;
  * because it also bounds the first request against a cold,
  * large project whose program is still building. */
 const DIAGNOSTICS_TIMEOUT_MS = 20_000;
-
-interface ProtocolDiagnostic {
-	readonly range: {
-		readonly start: { readonly line: number; readonly character: number };
-		readonly end: { readonly line: number; readonly character: number };
-	};
-	readonly severity?: number;
-	readonly message: string;
-	readonly source?: string;
-	readonly code?: string | number;
-}
-
-const SEVERITY: Readonly<Record<number, DiagnosticSeverity>> = {
-	1: "error",
-	2: "warning",
-	3: "information",
-	4: "hint",
-};
 
 /** A live server connection rooted at one project directory. */
 export class StandaloneServer {
@@ -211,20 +162,7 @@ export class StandaloneServer {
 			);
 			for (const waiter of server.diagWaiters) waiter(params.uri);
 		});
-		// TypeScript 7's native LSP drives the client with dynamic
-		// capability registration and workspace queries, and stalls until
-		// they are answered. Accept registration as a no-op, answer
-		// configuration with defaults, grant progress tokens, and report
-		// the resolved project root as the one workspace folder.
-		connection.onRequest(RegistrationRequest.type, () => undefined);
-		connection.onRequest(UnregistrationRequest.type, () => undefined);
-		connection.onRequest(ConfigurationRequest.type, (params) =>
-			params.items.map(() => ({})),
-		);
-		connection.onRequest(WorkDoneProgressCreateRequest.type, () => undefined);
-		connection.onRequest(WorkspaceFoldersRequest.type, () => [
-			{ uri: fileToUri(root), name: basename(root) },
-		]);
+		answerClientRequests(connection, root);
 		connection.listen();
 		const initResult = await withTimeout(
 			connection.sendRequest(InitializeRequest.type, {
@@ -257,7 +195,7 @@ export class StandaloneServer {
 			? await this.pullDiagnostics(path, signal)
 			: await this.pushedDiagnostics(path);
 		const lines = this.linesFor(path);
-		return raw.map((d) => this.toDiagnostic(path, lines, d));
+		return raw.map((d) => toDiagnostic(path, lines, d));
 	}
 
 	/** Where the symbol under the target is defined. */
@@ -279,7 +217,7 @@ export class StandaloneServer {
 				token,
 			),
 		);
-		return this.toLocations(result);
+		return toLocations(result, (file) => this.linesFor(file));
 	}
 
 	/** Every reference to the symbol under the target. */
@@ -302,7 +240,7 @@ export class StandaloneServer {
 				token,
 			),
 		);
-		return this.toLocations(result);
+		return toLocations(result, (file) => this.linesFor(file));
 	}
 
 	/** Documentation for the symbol under the target, or null. */
@@ -352,8 +290,8 @@ export class StandaloneServer {
 		const lines = this.linesFor(path);
 		return result.flatMap((item) =>
 			"location" in item
-				? [this.fromSymbolInformation(item)]
-				: this.flattenDocumentSymbol(path, lines, item),
+				? [fromSymbolInformation(item, (file) => this.linesFor(file))]
+				: flattenDocumentSymbol(path, lines, item),
 		);
 	}
 
@@ -370,7 +308,9 @@ export class StandaloneServer {
 			),
 		);
 		if (!result) return [];
-		return result.map((item) => this.fromSymbolInformation(item));
+		return result.map((item) =>
+			fromSymbolInformation(item, (file) => this.linesFor(file)),
+		);
 	}
 
 	/** Rename the symbol under the target and apply the edits. */
@@ -637,51 +577,13 @@ export class StandaloneServer {
 		return lines;
 	}
 
-	private toDiagnostic(
-		path: string,
-		lines: readonly string[],
-		d: ProtocolDiagnostic,
-	): Diagnostic {
-		return {
-			path,
-			range: fromProtocolRange(lines, d.range),
-			severity: SEVERITY[d.severity ?? 1] ?? "error",
-			message: d.message,
-			...(d.source ? { source: d.source } : {}),
-			...(d.code !== undefined ? { code: String(d.code) } : {}),
-		};
-	}
-
 	/**
 	 * Apply a protocol workspace edit to disk, updating caches
 	 * and re-syncing open documents, and return what changed in
 	 * tool coordinates.
 	 */
 	private applyWorkspaceEdit(edit: ProtocolWorkspaceEdit): WorkspaceEdit {
-		const byUri = new Map<string, LspProtocolTextEdit[]>();
-		const plainEdits = (
-			edits: readonly {
-				range: LspProtocolTextEdit["range"];
-				newText?: string;
-			}[],
-		): LspProtocolTextEdit[] =>
-			edits.flatMap((e) =>
-				typeof e.newText === "string"
-					? [{ range: e.range, newText: e.newText }]
-					: [],
-			);
-		if (edit.changes) {
-			for (const [uri, edits] of Object.entries(edit.changes)) {
-				byUri.set(uri, plainEdits(edits));
-			}
-		}
-		if (edit.documentChanges) {
-			for (const change of edit.documentChanges) {
-				if ("textDocument" in change && "edits" in change) {
-					byUri.set(change.textDocument.uri, plainEdits(change.edits));
-				}
-			}
-		}
+		const byUri = editsByUri(edit);
 		const changes: WorkspaceEdit["changes"][number][] = [];
 		for (const [uri, edits] of byUri) {
 			const path = uriToFile(uri);
@@ -701,110 +603,6 @@ export class StandaloneServer {
 		}
 		return { changes };
 	}
-
-	private fromSymbolInformation(
-		item: SymbolInformation | WorkspaceSymbol,
-	): SymbolInfo {
-		const location = item.location;
-		const path = uriToFile(location.uri);
-		// A WorkspaceSymbol may carry only a uri, without a range.
-		const range =
-			"range" in location
-				? fromProtocolRange(this.linesFor(path), location.range)
-				: {
-						start: { line: 1, character: 0 },
-						end: { line: 1, character: 0 },
-					};
-		return {
-			name: item.name,
-			kind: symbolKindName(item.kind),
-			location: { path, range },
-			...(item.containerName ? { containerName: item.containerName } : {}),
-		};
-	}
-
-	private flattenDocumentSymbol(
-		path: string,
-		lines: readonly string[],
-		symbol: DocumentSymbol,
-		container?: string,
-	): SymbolInfo[] {
-		const self: SymbolInfo = {
-			name: symbol.name,
-			kind: symbolKindName(symbol.kind),
-			location: { path, range: fromProtocolRange(lines, symbol.range) },
-			...(container ? { containerName: container } : {}),
-		};
-		const children = (symbol.children ?? []).flatMap((child) =>
-			this.flattenDocumentSymbol(path, lines, child, symbol.name),
-		);
-		return [self, ...children];
-	}
-
-	private toLocations(
-		result: Location | Location[] | LocationLink[] | null,
-	): LspLocation[] {
-		if (!result) return [];
-		const array = Array.isArray(result) ? result : [result];
-		return array.map((item) => {
-			if ("targetUri" in item) {
-				const path = uriToFile(item.targetUri);
-				return {
-					path,
-					range: fromProtocolRange(this.linesFor(path), item.targetRange),
-				};
-			}
-			const path = uriToFile(item.uri);
-			return {
-				path,
-				range: fromProtocolRange(this.linesFor(path), item.range),
-			};
-		});
-	}
-}
-
-function hoverText(contents: unknown): string {
-	if (contents === null || contents === undefined) return "";
-	if (typeof contents === "string") return contents;
-	if (Array.isArray(contents)) return contents.map(hoverText).join("\n");
-	if (typeof contents === "object") {
-		const value = (contents as { value?: unknown }).value;
-		if (typeof value === "string") return value;
-	}
-	return "";
-}
-
-const SYMBOL_KINDS: Readonly<Record<number, string>> = {
-	1: "file",
-	2: "module",
-	3: "namespace",
-	4: "package",
-	5: "class",
-	6: "method",
-	7: "property",
-	8: "field",
-	9: "constructor",
-	10: "enum",
-	11: "interface",
-	12: "function",
-	13: "variable",
-	14: "constant",
-	15: "string",
-	16: "number",
-	17: "boolean",
-	18: "array",
-	19: "object",
-	20: "key",
-	21: "null",
-	22: "enum-member",
-	23: "struct",
-	24: "event",
-	25: "operator",
-	26: "type-parameter",
-};
-
-function symbolKindName(kind: number): string {
-	return SYMBOL_KINDS[kind] ?? "symbol";
 }
 
 function withTimeout<T>(

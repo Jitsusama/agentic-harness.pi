@@ -1,5 +1,27 @@
+/**
+ * The ledger's store of billable turns: opening it, writing each kind
+ * of record once, and reading the records back.
+ *
+ * The shape it writes is in `shape.ts`, what it reports in
+ * `reports.ts`, and the free read-only query in `reader.ts`. The
+ * public names they hold are said here too, so the ledger's index reads
+ * them from one place.
+ */
+
 import { type Db, openDb } from "../../internal/sqlite/db.ts";
 import { sqlFile } from "../../internal/sqlite/sql-file.ts";
+import {
+	type CostDimension,
+	type CostSlice,
+	costBy,
+	type LedgerTotal,
+	paybackReplay,
+	regret,
+	repeatedCalls,
+	total,
+	verifierOutcomes,
+} from "./reports.ts";
+import { FACT_COLUMNS, FILL_FACTS, INSERT_TURN, shapeLedger } from "./shape.ts";
 import type {
 	CallScope,
 	DeclarationRecord,
@@ -7,7 +29,6 @@ import type {
 	InnerCallRecord,
 	InnerCallVia,
 	PaybackReplay,
-	QueryAnswer,
 	RegretReport,
 	RepeatedCall,
 	SessionRecord,
@@ -16,40 +37,18 @@ import type {
 	VerifierOutcome,
 } from "./types.ts";
 
-/** What a dimension's slice of spend came to. */
-export interface CostSlice {
-	readonly key: string;
-	readonly cost: number;
-	readonly turns: number;
-}
-
-/** Everything the ledger holds, with its own blind spots stated. */
-export interface LedgerTotal {
-	readonly cost: number;
-	readonly turns: number;
-	/** Turns held with no cost, so a total can say what it is missing. */
-	readonly unmetered: number;
-	readonly cacheWriteTokens: number;
-	/** Of those, the ones billed at the one-hour rate. */
-	readonly cacheWrite1hTokens: number;
-}
+export {
+	LEDGER_QUERY_ROW_CAP,
+	type LedgerReader,
+	openLedgerReader,
+} from "./reader.ts";
+export type { CostDimension, CostSlice, LedgerTotal } from "./reports.ts";
 
 /** How many turns a write added, and how many it had already seen. */
 export interface RecordOutcome {
 	readonly inserted: number;
 	readonly duplicates: number;
 }
-
-/** What a total or a slice may be narrowed to. */
-export type CostDimension =
-	| "model"
-	| "session"
-	| "kind"
-	| "day"
-	| "repo"
-	| "quest"
-	| "document"
-	| "thinking";
 
 /** A content-addressed store of billable turns. */
 export interface TurnStore {
@@ -84,142 +83,6 @@ export interface TurnStore {
 	close(): Promise<void>;
 }
 
-/** The ledger's tables, made when missing; `migrate` adds later columns. */
-const SCHEMA = sqlFile(new URL("./schema.sql", import.meta.url));
-
-/**
- * Columns added to `turns` after its first shape, each with the record
- * field it holds. Declared once, because the migration that adds them,
- * the insert that writes them and the fill that back-dates them onto a
- * held turn must agree, and three lists drift.
- */
-const FACT_COLUMNS: ReadonlyArray<{
-	readonly column: string;
-	readonly type: "TEXT" | "INTEGER";
-	readonly value: (turn: TurnRecord) => unknown;
-}> = [
-	{ column: "thinking_level", type: "TEXT", value: (t) => t.thinkingLevel },
-	{
-		column: "preceded_by",
-		type: "TEXT",
-		value: (t) => t.facts?.precededBy ?? null,
-	},
-	{
-		column: "reloaded",
-		type: "INTEGER",
-		value: (t) => flag(t.facts?.reloaded),
-	},
-	{ column: "gap_ms", type: "INTEGER", value: (t) => t.facts?.gapMs ?? null },
-	{
-		column: "new_tokens",
-		type: "INTEGER",
-		value: (t) => t.facts?.newTokens ?? null,
-	},
-	{
-		column: "stop_reason",
-		type: "TEXT",
-		value: (t) => t.facts?.stopReason ?? null,
-	},
-	{
-		column: "thinking_chars",
-		type: "INTEGER",
-		value: (t) => t.facts?.thinkingChars ?? null,
-	},
-	{
-		column: "text_chars",
-		type: "INTEGER",
-		value: (t) => t.facts?.textChars ?? null,
-	},
-	{ column: "run_id", type: "TEXT", value: (t) => t.facts?.runId ?? null },
-	{
-		column: "run_turn",
-		type: "INTEGER",
-		value: (t) => t.facts?.runTurn ?? null,
-	},
-	{
-		column: "served_backend",
-		type: "TEXT",
-		value: (t) => t.facts?.servedBackend ?? null,
-	},
-	{
-		column: "served_account",
-		type: "TEXT",
-		value: (t) => t.facts?.servedAccount ?? null,
-	},
-	{
-		column: "served_edge",
-		type: "TEXT",
-		value: (t) => t.facts?.servedEdge ?? null,
-	},
-	{
-		column: "account_changed",
-		type: "INTEGER",
-		value: (t) => flag(t.facts?.accountChanged),
-	},
-	{
-		column: "written",
-		type: "TEXT",
-		value: (t) => t.compaction?.written ?? null,
-	},
-	{
-		column: "summariser",
-		type: "TEXT",
-		value: (t) => t.compaction?.summariser ?? null,
-	},
-	{
-		column: "summary_ms",
-		type: "INTEGER",
-		value: (t) => t.compaction?.summaryMs ?? null,
-	},
-	{
-		column: "waited_ms",
-		type: "INTEGER",
-		value: (t) => t.compaction?.waitedMs ?? null,
-	},
-	{
-		column: "summary_chars",
-		type: "INTEGER",
-		value: (t) => t.compaction?.summaryChars ?? null,
-	},
-	{
-		column: "aborted_request",
-		type: "INTEGER",
-		value: (t) => flag(t.compaction?.abortedRequest),
-	},
-	{
-		column: "resumed",
-		type: "INTEGER",
-		value: (t) => flag(t.compaction?.resumed),
-	},
-	{
-		column: "since_typed_ms",
-		type: "INTEGER",
-		value: (t) => t.compaction?.sinceTypedMs ?? null,
-	},
-	{ column: "quest", type: "TEXT", value: (t) => booked(t.quest) },
-	{ column: "document", type: "TEXT", value: (t) => booked(t.document) },
-];
-
-/**
- * A booking as stored: null when the log was not read for it, and the
- * empty string when it was and named none. Null has to stay free for
- * unknown, since only an unknown booking falls back to the session's,
- * and a back-fill writes only over null.
- */
-function booked(value: string | null | undefined): string | null {
-	if (value === undefined) return null;
-	return value ?? "";
-}
-
-/**
- * The quest a turn is booked to, in SQL over `turns` and `sessions`
- * under the names given: its own where the scan said, the session's
- * where it did not.
- */
-function questOf(turns: string, sessions: string): string {
-	return `CASE WHEN ${turns}.quest IS NULL THEN ${sessions}.quest ELSE NULLIF(${turns}.quest, '') END`;
-}
-
 /**
  * What carried an inner call, refusing one this store doesn't know, so
  * a carrier added later is never counted as a script without a word.
@@ -231,81 +94,12 @@ function carrier(via: string): InnerCallVia {
 	);
 }
 
-/** SQLite has no boolean; unknown stays null rather than reading as false. */
-function flag(value: boolean | null | undefined): number | null {
-	if (value === null || value === undefined) return null;
-	return value ? 1 : 0;
-}
-
-/**
- * A cache write this many tokens past the estimate of what was new is
- * prompt framing and rounding, not a miss.
- */
-const MISS_SLACK_TOKENS = 2000;
-
-/** A write this far past the estimate, after the slack, is a miss. */
-const MISS_THRESHOLD_TOKENS = 5000;
-
-/** Idle past this and a one-hour cache has expired. */
-const HOUR_MS = 3_600_000;
-
-/** Idle past this and a five-minute cache has expired. */
-const FIVE_MINUTES_MS = 300_000;
-
-/** A turn that read less than this from the cache read nothing useful. */
-const FULL_MISS_READ_TOKENS = 1000;
-
-/** The views a query is written against, made again on every open. */
-const VIEWS = sqlFile(new URL("./views.sql", import.meta.url), {
-	miss_slack_tokens: MISS_SLACK_TOKENS,
-	miss_threshold_tokens: MISS_THRESHOLD_TOKENS,
-	hour_ms: HOUR_MS,
-	five_minutes_ms: FIVE_MINUTES_MS,
-	full_miss_read_tokens: FULL_MISS_READ_TOKENS,
-});
-
-const TOTAL = sqlFile(new URL("./total.sql", import.meta.url));
-const VERIFIER_OUTCOMES = sqlFile(
-	new URL("./verifier-outcomes.sql", import.meta.url),
-);
-const PAYBACK = sqlFile(new URL("./payback.sql", import.meta.url));
 const RECORD_SESSION = sqlFile(
 	new URL("./record-session.sql", import.meta.url),
 );
-const REPEATED_CALLS = sqlFile(
-	new URL("./repeated-calls.sql", import.meta.url),
-);
-const DROPPED_IN_SCOPE = sqlFile(
-	new URL("./dropped-in-scope.sql", import.meta.url),
-);
-const REGRET = sqlFile(new URL("./regret.sql", import.meta.url));
-
-/**
- * The most rows one query may return. A query past it is refused rather
- * than cut, since a cut answer reads as the whole one; aggregating or a
- * LIMIT is how to ask for less.
- */
-export const LEDGER_QUERY_ROW_CAP = 5000;
 
 /** Bound variables per probe, well inside SQLite's default ceiling. */
 const PROBE_CHUNK = 500;
-
-const GROUP_BY: Record<CostDimension, string> = {
-	model: "turns.model",
-	session: "turns.session_id",
-	kind: "turns.kind",
-	// The machine's own day, as the person lives it: a UTC day ends in
-	// the evening west of Greenwich, splitting one evening's work in two.
-	day: "date(turns.timestamp, 'localtime')",
-	// A left join, and coalesced to the empty string, so spend whose
-	// session named no repo or quest stays a visible slice. An inner join
-	// would drop it, and every share would then be a fraction of a total
-	// that quietly excluded most of the money.
-	repo: "COALESCE(sessions.repo, '')",
-	quest: `COALESCE(${questOf("turns", "sessions")}, '')`,
-	document: "COALESCE(NULLIF(turns.document, ''), '')",
-	thinking: "COALESCE(turns.thinking_level, '')",
-};
 
 /**
  * Open (creating if needed) a turn ledger at the given path. Safe to
@@ -324,9 +118,7 @@ export async function openTurnStore(
 	await db.exec(
 		"PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
 	);
-	await db.exec(SCHEMA);
-	await migrate(db);
-	await db.exec(VIEWS);
+	await shapeLedger(db);
 	return new SqliteTurnStore(
 		db,
 		options.rowsPerTransaction ?? ROWS_PER_TRANSACTION,
@@ -343,109 +135,6 @@ export interface TurnStoreOptions {
 	 */
 	readonly rowsPerTransaction?: number;
 }
-
-/** A read-only view of a ledger, for questions nobody wrote a report for. */
-export interface LedgerReader {
-	/**
-	 * Run one `SELECT` (or `WITH ... SELECT`) against the ledger's tables
-	 * and views. Anything else is refused before it reaches the database,
-	 * and the connection is read-only besides, so no query can change what
-	 * the ledger holds. A query returning more than
-	 * {@link LEDGER_QUERY_ROW_CAP} rows is refused rather than cut.
-	 */
-	query(sql: string): Promise<QueryAnswer>;
-	close(): Promise<void>;
-}
-
-/**
- * Open a ledger for reading only. The file must exist and have been
- * opened by {@link openTurnStore} at this version, which is what creates
- * the views a query is written against.
- */
-export async function openLedgerReader(dbPath: string): Promise<LedgerReader> {
-	const db = await openDb(dbPath, { readOnly: true });
-	await db.exec("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;");
-	return {
-		query: async (sql) => {
-			const statement = singleSelect(sql);
-			// On lines of their own, so a trailing comment in the query cannot
-			// swallow the bound.
-			const rows = await db.all<Record<string, unknown>>(
-				`SELECT * FROM (\n${statement}\n) LIMIT ${LEDGER_QUERY_ROW_CAP + 1}`,
-			);
-			if (rows.length > LEDGER_QUERY_ROW_CAP) {
-				throw new Error(
-					`The query returned more than ${LEDGER_QUERY_ROW_CAP} rows. ` +
-						"Aggregate it, or add a LIMIT.",
-				);
-			}
-			return { columns: Object.keys(rows[0] ?? {}), rows };
-		},
-		close: () => db.close(),
-	};
-}
-
-/**
- * The statement, if it is one `SELECT` or `WITH`, with a trailing
- * semicolon taken off. A semicolon anywhere else outside a quoted string
- * means a second statement, which is refused rather than guessed about.
- */
-function singleSelect(sql: string): string {
-	const body = sql.trim().replace(/;\s*$/, "");
-	if (!/^(select|with)\b/i.test(body)) {
-		throw new Error(
-			"A ledger query is one SELECT, or WITH ... SELECT. Nothing else runs.",
-		);
-	}
-	let quote: string | null = null;
-	for (const character of body) {
-		if (quote) {
-			if (character === quote) quote = null;
-		} else if (character === "'" || character === '"') {
-			quote = character;
-		} else if (character === ";") {
-			throw new Error("A ledger query is one statement.");
-		}
-	}
-	return body;
-}
-
-/**
- * Bring a ledger written at an older shape up to this one. A new ledger
- * is created at the original shape and migrated like any other, so every
- * test that opens a fresh store also exercises the path an existing file
- * meets. Every step is additive, so nothing a ledger holds can be lost by
- * opening it.
- */
-async function migrate(db: Db): Promise<void> {
-	const columns = new Set(
-		(await db.all<{ name: string }>("PRAGMA table_info(turns)")).map(
-			(column) => column.name,
-		),
-	);
-	for (const { column, type } of FACT_COLUMNS) {
-		if (!columns.has(column)) {
-			await db.exec(`ALTER TABLE turns ADD COLUMN ${column} ${type}`);
-		}
-	}
-}
-
-const INSERT_TURN = `INSERT OR IGNORE INTO turns (
-	digest, entry_id, session_id, timestamp, kind, model,
-	tokens_input, tokens_output, tokens_cache_read,
-	tokens_cache_write, tokens_total, cache_write_1h,
-	cost_input, cost_output, cost_cache_read, cost_cache_write,
-	cost_total, dropped_before, first_kept_entry_id,
-	${FACT_COLUMNS.map((f) => f.column).join(", ")}
-) VALUES (${Array.from({ length: 19 + FACT_COLUMNS.length }, () => "?").join(", ")})`;
-
-/**
- * Give a held turn every fact a later scan learned that it lacks. A fact
- * already known is left alone, since the same entry cannot have two.
- */
-const FILL_FACTS = `UPDATE turns SET ${FACT_COLUMNS.map(
-	(f) => `${f.column} = COALESCE(${f.column}, ?)`,
-).join(", ")} WHERE digest = ?`;
 
 /**
  * How many rows one transaction writes before it commits and lets go of
@@ -555,21 +244,7 @@ class SqliteTurnStore implements TurnStore {
 	}
 
 	async total(): Promise<LedgerTotal> {
-		const rows = await this.db.all<{
-			cost: number | null;
-			turns: number;
-			unmetered: number;
-			cache_write: number | null;
-			cache_write_1h: number | null;
-		}>(TOTAL);
-		const row = rows[0];
-		return {
-			cost: row?.cost ?? 0,
-			turns: row?.turns ?? 0,
-			unmetered: row?.unmetered ?? 0,
-			cacheWriteTokens: row?.cache_write ?? 0,
-			cacheWrite1hTokens: row?.cache_write_1h ?? 0,
-		};
+		return await total(this.db);
 	}
 
 	/**
@@ -637,62 +312,14 @@ class SqliteTurnStore implements TurnStore {
 		}));
 	}
 
-	/**
-	 * Pass, fail and unknown counts per verifier kind that ran at all. A
-	 * kind nothing ever ran is left out rather than reported as zero,
-	 * since zero-and-never-ran read the same on a dashboard but mean
-	 * opposite things.
-	 */
+	/** Pass, fail and unknown counts per verifier kind that ran at all. */
 	async verifierOutcomes(): Promise<VerifierOutcome[]> {
-		const rows = await this.db.all<{
-			verifier_kind: string;
-			passed: number;
-			failed: number;
-			unknown: number;
-		}>(VERIFIER_OUTCOMES);
-		return rows.map((row) => ({
-			kind: row.verifier_kind as VerifierOutcome["kind"],
-			passed: row.passed,
-			failed: row.failed,
-			unknown: row.unknown,
-		}));
+		return await verifierOutcomes(this.db);
 	}
 
-	/**
-	 * Arguments asked more than once inside one session.
-	 *
-	 * Grouped by session as well as by arguments, because a second
-	 * session has none of the first one's context: asking again is the
-	 * only way it could know. Only repetition within a session is a
-	 * question whose answer was already there.
-	 *
-	 * Each call is compared with the previous asking of the same
-	 * arguments, and counts as a repeat only when no writer touched its
-	 * file in between: re-reading unchanged bytes is waste, re-reading a
-	 * file that was just edited is how the edit gets checked. `asked` is
-	 * therefore the repeats plus the asking they repeated, not every call
-	 * ever made with these arguments.
-	 */
+	/** Arguments asked more than once inside one session. */
 	async repeatedCalls(scope: CallScope = {}): Promise<RepeatedCall[]> {
-		const rows = await this.db.all<{
-			args_digest: string;
-			name: string;
-			repeated: number;
-			repeated_chars: number | null;
-			appraisal: number;
-			appraisal_chars: number | null;
-		}>(REPEATED_CALLS, scopeParams(scope));
-		return rows.map((row) => ({
-			argsDigest: row.args_digest,
-			name: row.name,
-			asked: row.repeated + 1,
-			repeated: row.repeated,
-			repeatedChars: row.repeated_chars ?? 0,
-			rework: row.repeated - row.appraisal,
-			reworkChars: (row.repeated_chars ?? 0) - (row.appraisal_chars ?? 0),
-			appraisal: row.appraisal,
-			appraisalChars: row.appraisal_chars ?? 0,
-		}));
+		return await repeatedCalls(this.db, scope);
 	}
 
 	async recordDropped(
@@ -847,91 +474,14 @@ class SqliteTurnStore implements TurnStore {
 		}));
 	}
 
-	/**
-	 * Dropped calls asked again after the drop.
-	 *
-	 * Joined on the dropped call's own arguments and session, restricted
-	 * to a later call that came after the drop rather than before it: a
-	 * repeat that predates the drop is an ordinary repeat, not a case of
-	 * the context having to re-fetch what it lost.
-	 *
-	 * One row per dropped call, at its first re-ask. Joining every later
-	 * asking as its own row once turned a single call re-issued 79,600
-	 * times into 79,600 regrets. A re-ask after a writer touched the
-	 * dropped call's file fetched something new and does not count, and
-	 * neither does any re-ask after that, since each of them reads the
-	 * changed file rather than the one the drop discarded.
-	 */
+	/** Dropped calls asked again after the drop. */
 	async regret(scope: CallScope = {}): Promise<RegretReport> {
-		const [retrieval, writers] = scopeParams(scope);
-		const [counted] = await this.db.all<{ in_scope: number }>(
-			DROPPED_IN_SCOPE,
-			[retrieval],
-		);
-
-		const rows = await this.db.all<{
-			name: string;
-			args_digest: string;
-			session_id: string;
-			dropped_at_timestamp: string;
-			re_asked_at_timestamp: string;
-			result_chars: number | null;
-		}>(REGRET, [retrieval, writers]);
-		return {
-			inScope: counted?.in_scope ?? 0,
-			reAsked: rows.map((row) => ({
-				name: row.name,
-				argsDigest: row.args_digest,
-				sessionId: row.session_id,
-				droppedAtTimestamp: row.dropped_at_timestamp,
-				reAskedAtTimestamp: row.re_asked_at_timestamp,
-				resultChars: row.result_chars,
-			})),
-		};
+		return await regret(this.db, scope);
 	}
 
-	/**
-	 * Replay the payback test over compactions already in the ledger.
-	 *
-	 * Retained tokens come from the first turn after each compaction
-	 * (its resident input, cache read and cache write together), and
-	 * remaining turns from how many turns actually followed. A model's
-	 * rate is derived from its own billed dollars per token elsewhere in
-	 * the ledger, never a hardcoded price table, since a price table
-	 * goes stale the moment a provider changes its prices and this does
-	 * not.
-	 */
+	/** Replay the payback test over compactions already in the ledger. */
 	async paybackReplay(): Promise<PaybackReplay> {
-		const rows = await this.db.all<{
-			dropped_before: number;
-			remaining: number | null;
-			retained: number | null;
-			read_rate: number | null;
-			write_rate: number | null;
-		}>(PAYBACK);
-
-		let evaluable = 0;
-		let agreed = 0;
-		let disagreed = 0;
-		for (const row of rows) {
-			if (
-				row.remaining === null ||
-				row.retained === null ||
-				row.read_rate === null ||
-				row.write_rate === null ||
-				row.read_rate <= 0
-			) {
-				continue;
-			}
-			evaluable += 1;
-			const dropped = Math.max(0, row.dropped_before - row.retained);
-			const saved = dropped * row.remaining;
-			const ratio = row.write_rate / row.read_rate;
-			const cost = ratio * row.retained;
-			if (saved > cost) agreed += 1;
-			else disagreed += 1;
-		}
-		return { compactions: rows.length, evaluable, agreed, disagreed };
+		return await paybackReplay(this.db);
 	}
 
 	async recordSession(session: SessionRecord): Promise<void> {
@@ -946,22 +496,7 @@ class SqliteTurnStore implements TurnStore {
 	}
 
 	async costBy(dimension: CostDimension): Promise<CostSlice[]> {
-		const column = GROUP_BY[dimension];
-		const rows = await this.db.all<{
-			key: string;
-			cost: number | null;
-			turns: number;
-		}>(
-			`SELECT ${column} AS key, SUM(cost_total) AS cost, COUNT(*) AS turns
-			FROM turns
-			LEFT JOIN sessions ON sessions.session_id = turns.session_id
-			GROUP BY ${column} ORDER BY cost DESC`,
-		);
-		return rows.map((r) => ({
-			key: r.key,
-			cost: r.cost ?? 0,
-			turns: r.turns,
-		}));
+		return await costBy(this.db, dimension);
 	}
 
 	async sessions(): Promise<SessionRecord[]> {
@@ -1041,20 +576,6 @@ class SqliteTurnStore implements TurnStore {
 		}
 		return found;
 	}
-}
-
-/**
- * A call scope as the values its queries bind: the retrieval tools as a
- * JSON array, or null for every tool, then the writer tools as one,
- * empty when none are named. An empty retrieval list means the caller
- * named nothing in scope, which is answered with nothing rather than
- * silently widened to everything.
- */
-function scopeParams(scope: CallScope): [string | null, string] {
-	return [
-		scope.retrieval === undefined ? null : JSON.stringify(scope.retrieval),
-		JSON.stringify(scope.writers ?? []),
-	];
 }
 
 interface CallRow {
