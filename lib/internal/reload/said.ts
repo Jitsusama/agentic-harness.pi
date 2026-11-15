@@ -32,8 +32,14 @@ import { installOfVersion } from "./loaded.ts";
 /** The folder of a package's install that its pis say what they loaded in. */
 export const LOADED_FOLDER = "loaded";
 
-/** Where pi's bundle sits in a runtime a host names by `PI_PACKAGE_DIR`. */
-const RUNTIME_BUNDLE = "lib/node_modules/pi-monorepo/dist/bundle";
+/**
+ * Where pi's bundle sits under what a host names by `PI_PACKAGE_DIR`: pi's
+ * own package, as the host units set it, or the runtime holding it.
+ */
+const BUNDLES_UNDER = [
+	"dist/bundle",
+	"lib/node_modules/pi-monorepo/dist/bundle",
+] as const;
 
 /** The command that starts pi, in its bundle. */
 const PI_COMMAND = "cli.js";
@@ -58,8 +64,8 @@ interface Started {
 
 /**
  * The pi this process runs: the bundle whose `cli.js` started it, or else
- * the runtime a host names in `PI_PACKAGE_DIR`, since a host starts a
- * script of its own. Nothing when neither names a bundle.
+ * the one under what a host names in `PI_PACKAGE_DIR`, since a host starts
+ * a script of its own. Nothing when neither names a bundle.
  */
 export function runningPi(
 	started: Started = {
@@ -75,10 +81,10 @@ export function runningPi(
 		return { bundle: dirname(script), node, tmp };
 	const runtime = started.env.PI_PACKAGE_DIR;
 	if (!runtime) return undefined;
-	const bundle = join(runtime, RUNTIME_BUNDLE);
-	return existsSync(join(bundle, PI_COMMAND))
-		? { bundle, node, tmp }
-		: undefined;
+	const bundle = BUNDLES_UNDER.map((under) => join(runtime, under)).find(
+		(folder) => existsSync(join(folder, PI_COMMAND)),
+	);
+	return bundle === undefined ? undefined : { bundle, node, tmp };
 }
 
 /**

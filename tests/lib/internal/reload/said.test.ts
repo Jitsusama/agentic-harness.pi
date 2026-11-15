@@ -163,6 +163,29 @@ describe("which pi runs", () => {
 		expect(pi).toEqual({ bundle, node, tmp: "/tmp" });
 	});
 
+	// 14 Nov: both hosts set it to pi's own package in the runtime, so no
+	// host said what it loaded and pi-packages' warm of a new install failed.
+	it("is pi's own package a host names, as the host units set it", () => {
+		const runtime = join(root, "pi-host-runtime");
+		const pkg = join(runtime, "lib/node_modules/pi-monorepo");
+		const bundle = join(pkg, "dist/bundle");
+		mkdirSync(bundle, { recursive: true });
+		writeFileSync(join(bundle, "cli.js"), "");
+
+		const pi = runningPi({
+			argv: [node, join(version, "scripts/pi-host.ts"), "attended"],
+			env: { PI_PACKAGE_DIR: pkg },
+			node,
+			tmp: "/tmp",
+		});
+
+		expect(pi, "a host naming pi's package found no pi").toEqual({
+			bundle,
+			node,
+			tmp: "/tmp",
+		});
+	});
+
 	it("is nothing when neither says where pi's bundle is", () => {
 		const pi = runningPi({
 			argv: [node, "/somewhere/vitest.mjs"],
